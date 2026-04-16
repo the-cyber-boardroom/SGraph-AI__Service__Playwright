@@ -6,12 +6,12 @@
 # Entrypoint: lambda_handler.py (uvicorn on port 8000)
 #
 # Refreshed from OSBot-Playwright v0.6.10:
-#   Playwright 1.40.0 → 1.58.2
+#   Playwright 1.40.0 → 1.58.0   (latest published noble tag at time of writing)
 #   Ubuntu jammy → noble
 #   LWA 0.7.1 → 1.0.0
 # ═══════════════════════════════════════════════════════════════════════════════
 
-FROM mcr.microsoft.com/playwright/python:v1.58.2-noble
+FROM mcr.microsoft.com/playwright/python:v1.58.0-noble
 
 COPY --from=public.ecr.aws/awsguru/aws-lambda-adapter:1.0.0 \
      /lambda-adapter /opt/extensions/lambda-adapter
