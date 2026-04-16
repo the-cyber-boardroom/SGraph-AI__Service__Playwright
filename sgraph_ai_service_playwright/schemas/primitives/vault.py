@@ -12,7 +12,9 @@ import re
 from osbot_utils.type_safe.primitives.core.Safe_Str                          import Safe_Str
 from osbot_utils.type_safe.primitives.core.enums.Enum__Safe_Str__Regex_Mode  import Enum__Safe_Str__Regex_Mode
 
-
+# @dev can you refactor each of these classes into its own file
+#      you can put them in a folder with the same name as the current file
+#      in this case /schemas/primitives/vault/Safe_Str__Vault_Key.py
 class Safe_Str__Vault_Key(Safe_Str):                                                # Vault identifier — friendly or opaque
     max_length      = 128                                                           # Accommodate opaque keys with colon
     regex           = re.compile(r'[^a-z0-9\-:]')                                   # Lowercase + digits + hyphens + colons
