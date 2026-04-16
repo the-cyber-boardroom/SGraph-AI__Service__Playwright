@@ -1,0 +1,25 @@
+# ═══════════════════════════════════════════════════════════════════════════════
+# SG Playwright Service — Docker image
+#
+# Base: Microsoft Playwright (includes Chromium + system deps)
+# Integration: AWS Lambda Web Adapter (FastAPI ↔ Lambda events)
+# Entrypoint: lambda_handler.py (uvicorn on port 8000)
+#
+# Refreshed from OSBot-Playwright v0.6.10:
+#   Playwright 1.40.0 → 1.58.2
+#   Ubuntu jammy → noble
+#   LWA 0.7.1 → 1.0.0
+# ═══════════════════════════════════════════════════════════════════════════════
+
+FROM mcr.microsoft.com/playwright/python:v1.58.2-noble
+
+COPY --from=public.ecr.aws/awsguru/aws-lambda-adapter:1.0.0 \
+     /lambda-adapter /opt/extensions/lambda-adapter
+ENV PORT=8000
+
+WORKDIR /var/task
+COPY    requirements.txt ./
+RUN     python -m pip install -r requirements.txt
+COPY    . ./
+
+CMD     exec python3 -m sgraph_ai_service_playwright.fast_api.lambda_handler

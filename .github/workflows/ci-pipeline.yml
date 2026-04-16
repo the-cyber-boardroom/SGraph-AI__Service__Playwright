@@ -1,0 +1,297 @@
+name: CI Pipeline (Base)
+
+on:
+  workflow_call:
+    inputs:
+      git_branch:
+        required: true
+        type: string
+      release_type:
+        required: false
+        type: string
+        default: ""
+      should_increment_tag:
+        required: false
+        type: boolean
+        default: false
+      target_deploy:
+        required: true
+        type: string
+    secrets:
+      AWS_SECRET_ACCESS_KEY:
+        required: false
+      AWS_DEFAULT_REGION:
+        required: false
+      AWS_ACCOUNT_ID:
+        required: false
+      AWS_ACCESS_KEY_ID:
+        required: false
+      SG_PLAYWRIGHT__ACCESS_TOKEN_HEADER:
+        required: false
+      SG_PLAYWRIGHT__ACCESS_TOKEN_VALUE:
+        required: false
+      SG_PLAYWRIGHT__SG_SEND_BASE_URL:
+        required: false
+      SG_PLAYWRIGHT__SG_SEND_VAULT_KEY:
+        required: false
+      SG_PLAYWRIGHT__DEFAULT_S3_BUCKET:
+        required: false
+
+env:
+  PACKAGE_NAME : 'sgraph_ai_service_playwright'
+  GIT__BRANCH  : ${{ inputs.git_branch }}
+  IMAGE_NAME   : 'sgraph_ai_service_playwright'
+
+permissions:
+  contents: write
+  id-token: write
+
+jobs:
+
+  # ════════════════════════════════════════════════════════════════════════════
+  # Job 1: Unit Tests (no browser, no Docker)
+  # ════════════════════════════════════════════════════════════════════════════
+  run-unit-tests:
+    name: "Run Unit Tests"
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          pip install pytest pytest-timeout
+          pip install -e .
+
+      - name: Run unit tests
+        timeout-minutes: 5
+        run: python -m pytest tests/unit/ -v --timeout=30
+
+  # ════════════════════════════════════════════════════════════════════════════
+  # Job 2: Build Docker Image
+  # ════════════════════════════════════════════════════════════════════════════
+  build-docker-image:
+    name: "Build Docker Image"
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs: [run-unit-tests]
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          pip install -e .
+
+      - name: Build Docker image via pytest
+        run: |
+          python -m pytest tests/docker/test_Build__Docker__SGraph-AI__Service__Playwright.py::test_build_docker_image -v -s
+        env:
+          AWS_SECRET_ACCESS_KEY : ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION    : ${{ secrets.AWS_DEFAULT_REGION    }}
+          AWS_ACCOUNT_ID        : ${{ secrets.AWS_ACCOUNT_ID        }}
+          AWS_ACCESS_KEY_ID     : ${{ secrets.AWS_ACCESS_KEY_ID     }}
+
+  # ════════════════════════════════════════════════════════════════════════════
+  # Job 3: Push to ECR (gated on AWS credentials being configured)
+  # ════════════════════════════════════════════════════════════════════════════
+  check-aws-credentials:
+    name: Check AWS Credentials
+    runs-on: ubuntu-latest
+    needs: [run-unit-tests]
+    outputs:
+      has-credentials: ${{ steps.check.outputs.has-credentials }}
+    steps:
+      - name: Check if AWS credentials are configured
+        id: check
+        run: |
+          if [[ -n "${{ secrets.AWS_ACCESS_KEY_ID }}" ]] && \
+             [[ -n "${{ secrets.AWS_SECRET_ACCESS_KEY }}" ]] && \
+             [[ -n "${{ secrets.AWS_DEFAULT_REGION }}" ]] && \
+             [[ -n "${{ secrets.AWS_ACCOUNT_ID }}" ]]; then
+            echo "has-credentials=true" >> $GITHUB_OUTPUT
+          else
+            echo "has-credentials=false" >> $GITHUB_OUTPUT
+            echo "AWS credentials not configured — Docker push + deploy skipped"
+          fi
+
+  push-to-ecr:
+    name: "Push Docker Image to ECR"
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: [build-docker-image, check-aws-credentials]
+    if: needs.check-aws-credentials.outputs.has-credentials == 'true'
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          pip install -e .
+
+      - name: Build image (needed again — no cross-job Docker cache)
+        run: python -m pytest tests/docker/test_Build__Docker__SGraph-AI__Service__Playwright.py::test_build_docker_image -v -s
+        env:
+          AWS_SECRET_ACCESS_KEY : ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION    : ${{ secrets.AWS_DEFAULT_REGION    }}
+          AWS_ACCOUNT_ID        : ${{ secrets.AWS_ACCOUNT_ID        }}
+          AWS_ACCESS_KEY_ID     : ${{ secrets.AWS_ACCESS_KEY_ID     }}
+
+      - name: ECR setup + push via pytest
+        run: |
+          python -m pytest tests/docker/test_ECR__Docker__SGraph-AI__Service__Playwright.py -v -s
+        env:
+          AWS_SECRET_ACCESS_KEY : ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION    : ${{ secrets.AWS_DEFAULT_REGION    }}
+          AWS_ACCOUNT_ID        : ${{ secrets.AWS_ACCOUNT_ID        }}
+          AWS_ACCESS_KEY_ID     : ${{ secrets.AWS_ACCESS_KEY_ID     }}
+
+  # ════════════════════════════════════════════════════════════════════════════
+  # Job 4: Integration Tests (browser, in local Docker container)
+  # ════════════════════════════════════════════════════════════════════════════
+  run-integration-tests:
+    name: "Run Integration Tests (Docker)"
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: [build-docker-image]
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          pip install -e .
+          pip install pytest pytest-timeout
+
+      - name: Build image (needed again)
+        run: python -m pytest tests/docker/test_Build__Docker__SGraph-AI__Service__Playwright.py::test_build_docker_image -v -s
+        env:
+          AWS_SECRET_ACCESS_KEY : ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION    : ${{ secrets.AWS_DEFAULT_REGION    }}
+          AWS_ACCOUNT_ID        : ${{ secrets.AWS_ACCOUNT_ID        }}
+          AWS_ACCESS_KEY_ID     : ${{ secrets.AWS_ACCESS_KEY_ID     }}
+
+      - name: Start local container and run integration tests
+        timeout-minutes: 10
+        run: |
+          python -m pytest tests/docker/test_Local__Docker__SGraph-AI__Service__Playwright.py -v -s --timeout=60
+
+      - name: Run integration tests against local container
+        timeout-minutes: 8
+        run: |
+          python -m pytest tests/integration/ -v -s --timeout=90
+
+      - name: Upload screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: screenshots-integration
+          path: sgraph_ai_service_playwright__artefacts/
+          if-no-files-found: ignore
+
+  # ════════════════════════════════════════════════════════════════════════════
+  # Job 5: Increment Tag
+  # ════════════════════════════════════════════════════════════════════════════
+  increment-tag:
+    name: Increment Tag
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    needs: [run-unit-tests, run-integration-tests]
+    if: inputs.should_increment_tag
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Increment Tag
+        uses: owasp-sbot/OSBot-GitHub-Actions/.github/actions/git__increment-tag@dev
+        with:
+          release_type: ${{ inputs.release_type }}
+
+  # ════════════════════════════════════════════════════════════════════════════
+  # Job 6: Deploy Lambda (Docker-image-based)
+  # ════════════════════════════════════════════════════════════════════════════
+  deploy-lambda:
+    name: "Deploy Lambda"
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: [push-to-ecr, increment-tag]
+    if: |
+      always() &&
+      needs.push-to-ecr.result == 'success' &&
+      (needs.increment-tag.result == 'success' || needs.increment-tag.result == 'skipped')
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Git Update Current Branch
+        uses: owasp-sbot/OSBot-GitHub-Actions/.github/actions/git__update_branch@dev
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          pip install -e .
+
+      - name: Deploy to Lambda via pytest
+        run: |
+          python -m pytest tests/deploy/test_Deploy__Playwright__Service__to__${{ inputs.target_deploy }}.py -v -s
+        env:
+          AWS_SECRET_ACCESS_KEY                : ${{ secrets.AWS_SECRET_ACCESS_KEY                }}
+          AWS_DEFAULT_REGION                   : ${{ secrets.AWS_DEFAULT_REGION                   }}
+          AWS_ACCOUNT_ID                       : ${{ secrets.AWS_ACCOUNT_ID                       }}
+          AWS_ACCESS_KEY_ID                    : ${{ secrets.AWS_ACCESS_KEY_ID                    }}
+          SG_PLAYWRIGHT__ACCESS_TOKEN_HEADER   : ${{ secrets.SG_PLAYWRIGHT__ACCESS_TOKEN_HEADER   }}
+          SG_PLAYWRIGHT__ACCESS_TOKEN_VALUE    : ${{ secrets.SG_PLAYWRIGHT__ACCESS_TOKEN_VALUE    }}
+          SG_PLAYWRIGHT__SG_SEND_BASE_URL      : ${{ secrets.SG_PLAYWRIGHT__SG_SEND_BASE_URL      }}
+          SG_PLAYWRIGHT__SG_SEND_VAULT_KEY     : ${{ secrets.SG_PLAYWRIGHT__SG_SEND_VAULT_KEY     }}
+          SG_PLAYWRIGHT__DEFAULT_S3_BUCKET     : ${{ secrets.SG_PLAYWRIGHT__DEFAULT_S3_BUCKET     }}
+
+  # ════════════════════════════════════════════════════════════════════════════
+  # Job 7: Smoke Test (invoke deployed Lambda)
+  # ════════════════════════════════════════════════════════════════════════════
+  smoke-test:
+    name: "Smoke Test (Lambda)"
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    needs: [deploy-lambda]
+    if: needs.deploy-lambda.result == 'success'
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          pip install -e .
+
+      - name: Smoke test deployed Lambda
+        run: |
+          python -m pytest tests/deploy/test_Smoke__Playwright__Service__${{ inputs.target_deploy }}.py -v -s
+        env:
+          AWS_SECRET_ACCESS_KEY : ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION    : ${{ secrets.AWS_DEFAULT_REGION    }}
+          AWS_ACCOUNT_ID        : ${{ secrets.AWS_ACCOUNT_ID        }}
+          AWS_ACCESS_KEY_ID     : ${{ secrets.AWS_ACCESS_KEY_ID     }}

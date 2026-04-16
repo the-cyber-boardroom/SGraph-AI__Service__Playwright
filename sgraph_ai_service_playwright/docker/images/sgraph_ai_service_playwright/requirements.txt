@@ -1,0 +1,9 @@
+fastapi
+uvicorn
+requests
+httpx
+playwright
+osbot-utils
+osbot-aws
+osbot-fast-api
+osbot-fast-api-serverless

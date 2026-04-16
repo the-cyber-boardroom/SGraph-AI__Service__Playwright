@@ -1,0 +1,29 @@
+[tool.poetry]
+name        = "sgraph-ai-service-playwright"
+version     = "0.1.0"
+description = "Browser automation FastAPI service for the SG/Send ecosystem. Runs identically on laptop, CI, Claude Web, Fargate, and Lambda."
+authors     = ["Dinis Cruz <dinis@the-cyber-boardroom.com>"]
+license     = "Apache-2.0"
+readme      = "README.md"
+packages    = [{ include = "sgraph_ai_service_playwright" }]
+include     = ["sgraph_ai_service_playwright/version"]
+
+[tool.poetry.dependencies]
+python                       = "^3.12"
+fastapi                      = "*"
+uvicorn                      = "*"
+requests                     = "*"
+httpx                        = "*"
+playwright                   = "*"
+osbot-utils                  = "*"
+osbot-aws                    = "*"
+osbot-fast-api               = "*"
+osbot-fast-api-serverless    = "*"
+
+[tool.poetry.group.dev.dependencies]
+pytest         = "*"
+pytest-timeout = "*"
+
+[build-system]
+requires      = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
