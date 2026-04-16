@@ -10,7 +10,7 @@
 
 from unittest import TestCase
 
-from sgraph_ai_service_playwright.schemas.enums import (
+from sgraph_ai_service_playwright.schemas.enums.enums import (
     Enum__Browser__Name                                                  ,
     Enum__Browser__Provider                                              ,
     Enum__Deployment__Target                                             ,

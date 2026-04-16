@@ -91,6 +91,7 @@ jobs:
         run: |
           pip install -r requirements.txt
           pip install -e .
+          pip install pytest pytest-timeout
 
       - name: Build Docker image via pytest
         run: |
@@ -141,6 +142,7 @@ jobs:
         run: |
           pip install -r requirements.txt
           pip install -e .
+          pip install pytest pytest-timeout
 
       - name: Build image (needed again — no cross-job Docker cache)
         run: python -m pytest tests/docker/test_Build__Docker__SGraph-AI__Service__Playwright.py::test_build_docker_image -v -s
@@ -251,6 +253,7 @@ jobs:
         run: |
           pip install -r requirements.txt
           pip install -e .
+          pip install pytest pytest-timeout
 
       - name: Deploy to Lambda via pytest
         run: |
@@ -286,6 +289,7 @@ jobs:
         run: |
           pip install -r requirements.txt
           pip install -e .
+          pip install pytest pytest-timeout
 
       - name: Smoke test deployed Lambda
         run: |
