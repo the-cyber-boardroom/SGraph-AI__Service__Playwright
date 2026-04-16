@@ -12,7 +12,7 @@ class Safe_Str__S3_Key(Safe_Str):                                               
     max_length      = 1024                                                          # AWS limit
     regex           = re.compile(r'[^a-zA-Z0-9_\-./]')
     regex_mode      = Enum__Safe_Str__Regex_Mode.REPLACE
-    allow_empty     = False
+    allow_empty     = True                                                          # Default-constructible for Type_Safe fields
 
 
 class Safe_Str__S3_Bucket(Safe_Str):                                                # S3 bucket name
@@ -20,4 +20,4 @@ class Safe_Str__S3_Bucket(Safe_Str):                                            
     regex             = re.compile(r'^[a-z0-9][a-z0-9\-.]*[a-z0-9]$')               # Full-match: lowercase alnum edges
     regex_mode        = Enum__Safe_Str__Regex_Mode.MATCH                            # MATCH requires strict_validation=True
     strict_validation = True
-    allow_empty       = False
+    allow_empty       = True                                                        # Default-constructible for Type_Safe fields

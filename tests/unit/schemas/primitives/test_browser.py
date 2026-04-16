@@ -26,9 +26,8 @@ class test_Safe_Str__Selector(TestCase):
         s = 'div.card\n> a.link'
         assert str(Safe_Str__Selector(s)) == s
 
-    def test__rejects_empty(self):
-        with pytest.raises(ValueError):
-            Safe_Str__Selector('')
+    def test__allows_empty_for_type_safe_default_construction(self):                # Required because Type_Safe default-constructs fields
+        assert str(Safe_Str__Selector('')) == ''
 
     def test__rejects_overlong(self):
         with pytest.raises(ValueError):
@@ -59,9 +58,8 @@ class test_Safe_Str__JS__Expression(TestCase):
         js = '() => { return "<foo>&bar"; }'
         assert str(Safe_Str__JS__Expression(js)) == js
 
-    def test__rejects_empty(self):
-        with pytest.raises(ValueError):
-            Safe_Str__JS__Expression('')
+    def test__allows_empty_for_type_safe_default_construction(self):                # Required because Type_Safe default-constructs fields
+        assert str(Safe_Str__JS__Expression('')) == ''
 
     def test__rejects_overlong(self):
         with pytest.raises(ValueError):
