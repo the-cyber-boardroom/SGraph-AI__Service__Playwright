@@ -20,7 +20,7 @@ class Safe_Str__Selector(Safe_Str):                                             
     regex             = ANY_CHARS_REGEX                                             # No content restriction — selectors use any chars
     regex_mode        = Enum__Safe_Str__Regex_Mode.MATCH
     strict_validation = True                                                        # MATCH mode needs strict_validation
-    allow_empty       = False
+    allow_empty       = True                                                        # Default-constructible for Type_Safe fields
     trim_whitespace   = True
 
 
@@ -28,7 +28,7 @@ class Safe_Str__Browser__Launch_Arg(Safe_Str):                                  
     max_length      = 256
     regex           = re.compile(r'[^a-zA-Z0-9_\-=./:,*?@]')                        # Reasonable flag character set
     regex_mode      = Enum__Safe_Str__Regex_Mode.REPLACE
-    allow_empty     = False
+    allow_empty     = True                                                          # Default-constructible for Type_Safe fields
 
 
 class Safe_Str__JS__Expression(Safe_Str):                                           # JS expression for page.evaluate()
@@ -36,4 +36,4 @@ class Safe_Str__JS__Expression(Safe_Str):                                       
     regex             = ANY_CHARS_REGEX                                             # Content validation at dispatcher level (allowlist)
     regex_mode        = Enum__Safe_Str__Regex_Mode.MATCH
     strict_validation = True
-    allow_empty       = False
+    allow_empty       = True                                                        # Default-constructible for Type_Safe fields

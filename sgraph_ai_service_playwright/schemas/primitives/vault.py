@@ -19,7 +19,7 @@ class Safe_Str__Vault_Key(Safe_Str):                                            
     max_length      = 128                                                           # Accommodate opaque keys with colon
     regex           = re.compile(r'[^a-z0-9\-:]')                                   # Lowercase + digits + hyphens + colons
     regex_mode      = Enum__Safe_Str__Regex_Mode.REPLACE
-    allow_empty     = False
+    allow_empty     = True                                                          # Default-constructible for Type_Safe fields
     trim_whitespace = True
 
 
@@ -27,5 +27,5 @@ class Safe_Str__Vault_Path(Safe_Str):                                           
     max_length      = 1024                                                          # e.g. /sessions/openrouter/cookies.json
     regex           = re.compile(r'[^a-zA-Z0-9_\-./]')
     regex_mode      = Enum__Safe_Str__Regex_Mode.REPLACE
-    allow_empty     = False
+    allow_empty     = True                                                          # Default-constructible for Type_Safe fields
     trim_whitespace = True
