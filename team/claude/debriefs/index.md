@@ -4,7 +4,8 @@ Chronological list of implementation debriefs. Most recent first.
 
 | Date       | Commit(s)                  | Slice                                           | File |
 |------------|----------------------------|-------------------------------------------------|------|
-| 2026-04-16 | _(pending)_                | Phase 1.3 complete — §5.5–§5.10 + §6 + §8 + tests | `2026-04-16__phase-1.3-complete.md` |
+| 2026-04-16 | 64dc249                    | Phase 1.4 — Request__Validator + JS__Expression__Allowlist (spec §9) | `2026-04-16__phase-1.4-request-validator.md` |
+| 2026-04-16 | 4c63685                    | Phase 1.3 complete — §5.5–§5.10 + §6 + §8 + tests | `2026-04-16__phase-1.3-complete.md` |
 | 2026-04-16 | 1f2edd6                    | Refactor — one-class-per-file (primitives, enums, schemas) | `2026-04-16__refactor-one-class-per-file.md` |
 | 2026-04-16 | 8cb083c                    | CI fix — pytest exit-code-5 on placeholder jobs | `2026-04-16__ci-fix-exit-code-5.md` |
 | 2026-04-16 | f219b01                    | CI fix — pin Playwright base image tag         | `2026-04-16__ci-fix-playwright-tag.md` |

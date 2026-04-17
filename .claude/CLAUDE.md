@@ -38,7 +38,7 @@
 | Layer | Technology | Rule |
 |-------|-----------|------|
 | Runtime | Python 3.12 / x86_64 | |
-| Base image | `mcr.microsoft.com/playwright/python:v1.58.2-noble` | |
+| Base image | `mcr.microsoft.com/playwright/python:v1.58.0-noble` | v1.58.2 is not published |
 | Lambda adapter | AWS Lambda Web Adapter 1.0.0 | |
 | Web framework | FastAPI via `Serverless__Fast_API` | Use `osbot-fast-api-serverless` |
 | Type system | `Type_Safe` from `osbot-utils` | **Never use Pydantic. No Literals.** |
@@ -92,16 +92,18 @@
 16. **Python identifier safety** — the spec uses names like `Docker__SGraph-AI__Service__Playwright__Base` with a hyphen in `SGraph-AI`. Python identifiers cannot contain hyphens. Normalised form:
     - Class names and module names use `SGraph_AI` (underscore) — e.g. `Docker__SGraph_AI__Service__Playwright__Base`
     - Repo root and test filenames retain `SGraph-AI` where the spec is explicit (filenames allow hyphens)
+17. **One class per file.** Every `Safe_*`, `Enum__*`, `Schema__*`, and `List__*` / `Dict__*` collection class lives in its own file named exactly after the class. When a module would otherwise declare multiple such classes, replace it with a same-named folder containing per-class files. Callers import from the class file directly. Registries (module-level constants + helper functions, e.g. `STEP_SCHEMAS`) are the one exception — they live in a single `*_registry.py` under `dispatcher/` because they are logic, not a schema.
+18. **`__init__.py` stays empty.** Every package inside `sgraph_ai_service_playwright/` uses an empty `__init__.py`. Never re-export symbols — callers import from the fully-qualified per-class path. Never commit an empty `__init__.py` in a folder that shares a name with a sibling `.py` module: Python's import system prefers the package and every import under the module breaks.
 
 ### Human Folders — Read-Only for Agents
 
-17. **`team/humans/dinis_cruz/briefs/`** — HUMAN-ONLY. Agents must NEVER create files there.
-18. **Agent outputs** go to `team/humans/dinis_cruz/claude-code-web/MM/DD/`
+19. **`team/humans/dinis_cruz/briefs/`** — HUMAN-ONLY. Agents must NEVER create files there.
+20. **Agent outputs** go to `team/humans/dinis_cruz/claude-code-web/MM/DD/`
 
 ### Git
 
-19. **Default branch:** `dev`
-20. **Branch naming:** `claude/{description}-{session-id}`
+21. **Default branch:** `dev`
+22. **Branch naming:** `claude/{description}-{session-id}`
 
 ---
 
