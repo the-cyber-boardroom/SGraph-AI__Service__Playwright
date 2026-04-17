@@ -73,6 +73,7 @@ from sgraph_ai_service_playwright.service.Action__Runner                        
 from sgraph_ai_service_playwright.service.Browser__Launcher                             import Browser__Launcher
 from sgraph_ai_service_playwright.service.Capability__Detector                          import Capability__Detector
 from sgraph_ai_service_playwright.service.Credentials__Loader                           import Credentials__Loader
+from sgraph_ai_service_playwright.service.Proxy__Auth__Binder                           import Proxy__Auth__Binder
 from sgraph_ai_service_playwright.service.Request__Validator                            import Request__Validator
 from sgraph_ai_service_playwright.service.Sequence__Runner                              import Sequence__Runner
 from sgraph_ai_service_playwright.service.Session__Manager                              import Session__Manager
@@ -85,6 +86,7 @@ class Playwright__Service(Type_Safe):
     browser_launcher    : Browser__Launcher
     request_validator   : Request__Validator
     credentials_loader  : Credentials__Loader
+    proxy_auth_binder   : Proxy__Auth__Binder
     action_runner       : Action__Runner
     sequence_runner     : Sequence__Runner
 
@@ -94,11 +96,14 @@ class Playwright__Service(Type_Safe):
         self.action_runner.session_manager       = self.session_manager                 # Share orchestrator state — default-constructed attrs would be isolated instances
         self.action_runner.capability_detector   = self.capability_detector
         self.action_runner.request_validator     = self.request_validator
+        self.action_runner.browser_launcher      = self.browser_launcher                # Runner looks up Schema__Browser__Launch__Result by session_id to reach proxy config
+        self.action_runner.proxy_auth_binder     = self.proxy_auth_binder               # CDP Fetch handlers live here — runners invoke bind() after page creation
         self.sequence_runner.session_manager     = self.session_manager
         self.sequence_runner.capability_detector = self.capability_detector
         self.sequence_runner.request_validator   = self.request_validator
         self.sequence_runner.browser_launcher    = self.browser_launcher
         self.sequence_runner.credentials_loader  = self.credentials_loader
+        self.sequence_runner.proxy_auth_binder   = self.proxy_auth_binder
         return self
 
     # ─── Health surface (Phase 2.7) ────────────────────────────────────────────

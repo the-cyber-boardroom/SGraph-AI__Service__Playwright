@@ -36,7 +36,10 @@ from osbot_utils.type_safe.Type_Safe                                            
 from sgraph_ai_service_playwright.schemas.core.Schema__Action__Request                              import Schema__Action__Request
 from sgraph_ai_service_playwright.schemas.core.Schema__Action__Response                             import Schema__Action__Response
 from sgraph_ai_service_playwright.schemas.primitives.identifiers.Safe_Str__Trace_Id                 import Safe_Str__Trace_Id
+from sgraph_ai_service_playwright.schemas.primitives.identifiers.Session_Id                         import Session_Id
+from sgraph_ai_service_playwright.service.Browser__Launcher                                         import Browser__Launcher
 from sgraph_ai_service_playwright.service.Capability__Detector                                      import Capability__Detector
+from sgraph_ai_service_playwright.service.Proxy__Auth__Binder                                       import Proxy__Auth__Binder
 from sgraph_ai_service_playwright.service.Request__Validator                                        import Request__Validator
 from sgraph_ai_service_playwright.service.Sequence__Dispatcher                                      import Sequence__Dispatcher
 from sgraph_ai_service_playwright.service.Session__Manager                                          import Session__Manager
@@ -50,6 +53,8 @@ class Action__Runner(Type_Safe):
     request_validator   : Request__Validator
     sequence_dispatcher : Sequence__Dispatcher
     step_executor       : Step__Executor
+    browser_launcher    : Browser__Launcher
+    proxy_auth_binder   : Proxy__Auth__Binder
 
     def execute(self, request: Schema__Action__Request) -> Schema__Action__Response:
         session = self.session_manager.get(request.session_id)
@@ -58,7 +63,7 @@ class Action__Runner(Type_Safe):
 
         trace_id     = request.trace_id or session.trace_id or Safe_Str__Trace_Id('no-trace')
         browser      = self.session_manager.get_browser(request.session_id)
-        page         = self.get_or_create_page(browser)
+        page         = self.get_or_create_page(browser, request.session_id)
         cap_config   = request.capture_config or self.session_manager.get_capture_config(request.session_id)
         capabilities = self.capability_detector.capabilities()
         target       = self.capability_detector.target()
@@ -79,8 +84,24 @@ class Action__Runner(Type_Safe):
                                          step_result  = step_result         ,
                                          session_info = session_after       )
 
-    def get_or_create_page(self, browser: Any) -> Any:                                  # Freshly launched browser has no context / page — create on demand
-        contexts = browser.contexts                                                     # Playwright sync API: @property returning List[BrowserContext] — calling with () raises 'list' object is not callable in prod
-        context  = contexts[0] if contexts else browser.new_context()
-        pages    = context.pages                                                        # Also a @property
-        return pages[0] if pages else context.new_page()
+    def get_or_create_page(self, browser: Any, session_id: Session_Id) -> Any:           # Freshly launched browser has no context / page — create on demand
+        launch_result = self.browser_launcher.browsers.get(session_id)                   # None for sessions created outside the launcher (test fakes that skip register); proxy stays None and binder is a no-op
+        proxy         = launch_result.proxy if launch_result is not None else None
+
+        contexts = browser.contexts                                                      # Playwright sync API: @property returning List[BrowserContext] — calling with () raises 'list' object is not callable in prod
+        if contexts:
+            context = contexts[0]
+        else:
+            ctx_kwargs = {}
+            if proxy is not None and bool(proxy.ignore_https_errors):
+                ctx_kwargs['ignore_https_errors'] = True                                 # TLS interception (mitmproxy et al) — otherwise every HTTPS page fails with NET::ERR_CERT_AUTHORITY_INVALID
+            context = browser.new_context(**ctx_kwargs)
+
+        pages = context.pages                                                            # Also a @property
+        if pages:
+            page = pages[0]
+        else:
+            page = context.new_page()
+            if proxy is not None and proxy.auth is not None:                             # Bind CDP Fetch handlers exactly once — only on the first page creation
+                self.proxy_auth_binder.bind(context, page, proxy.auth)
+        return page

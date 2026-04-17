@@ -16,6 +16,7 @@ import pytest
 from sgraph_ai_service_playwright.consts.env_vars                                             import ENV_VAR__CHROMIUM_EXECUTABLE
 from sgraph_ai_service_playwright.schemas.browser.Schema__Browser__Config                     import Schema__Browser__Config
 from sgraph_ai_service_playwright.schemas.browser.Schema__Browser__Launch__Result              import Schema__Browser__Launch__Result
+from sgraph_ai_service_playwright.schemas.browser.Schema__Proxy__Auth__Basic                  import Schema__Proxy__Auth__Basic
 from sgraph_ai_service_playwright.schemas.browser.Schema__Proxy__Config                       import Schema__Proxy__Config
 from sgraph_ai_service_playwright.schemas.enums.Enum__Browser__Name                           import Enum__Browser__Name
 from sgraph_ai_service_playwright.schemas.enums.Enum__Browser__Provider                       import Enum__Browser__Provider
@@ -124,20 +125,27 @@ class test_build_launch_kwargs(TestCase):
             kw = bl.build_launch_kwargs(_cfg(launch_args=['--no-sandbox', '--disable-gpu']))
             assert kw['args'] == ['--no-sandbox', '--disable-gpu']
 
-    def test__proxy_flattened_to_dict(self):                                       # Schema__Proxy__Config -> Playwright proxy dict
+    def test__proxy_server_and_bypass_flattened_to_dict(self):                     # Schema__Proxy__Config -> Playwright proxy dict (server + bypass ONLY — auth goes via CDP Fetch, not launch kwargs)
         with _EnvScrub():
-            proxy = Schema__Proxy__Config(server   = 'http://proxy.example.com:8080'              ,
-                                          username = 'u'                                          ,
-                                          password = 'p'                                          ,
-                                          bypass   = [Safe_Str__Host('localhost'), Safe_Str__Host('internal.corp')])
+            proxy = Schema__Proxy__Config(server = 'http://proxy.example.com:8080'                             ,
+                                          bypass = [Safe_Str__Host('localhost'), Safe_Str__Host('internal.corp')])
             bl = Browser__Launcher()
             kw = bl.build_launch_kwargs(_cfg(proxy=proxy))
-            assert kw['proxy'] == {'server'  : 'http://proxy.example.com:8080'    ,
-                                   'username': 'u'                                ,
-                                   'password': 'p'                                ,
-                                   'bypass'  : 'localhost,internal.corp'          }
+            assert kw['proxy'] == {'server': 'http://proxy.example.com:8080'  ,
+                                   'bypass': 'localhost,internal.corp'        }
 
-    def test__proxy_without_auth_omits_username_password(self):
+    def test__proxy_auth_never_reaches_launch_kwargs(self):                        # Regression for QA Bug #1: chromium.launch(proxy={username,password}) silently no-ops on headless shell — auth must NOT be passed via launch kwargs
+        with _EnvScrub():
+            auth  = Schema__Proxy__Auth__Basic(username='u', password='p')
+            proxy = Schema__Proxy__Config(server = 'http://proxy:3128' ,
+                                          auth   = auth                )
+            bl = Browser__Launcher()
+            kw = bl.build_launch_kwargs(_cfg(proxy=proxy))
+            assert kw['proxy'] == {'server': 'http://proxy:3128'}                  # Only server — no username/password/auth keys
+            assert 'username' not in kw['proxy']
+            assert 'password' not in kw['proxy']
+
+    def test__proxy_without_auth_passes_only_server(self):
         with _EnvScrub():
             proxy = Schema__Proxy__Config(server='http://proxy:3128')
             bl = Browser__Launcher()

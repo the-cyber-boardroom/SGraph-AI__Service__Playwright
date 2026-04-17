@@ -73,7 +73,8 @@ class Browser__Launcher(Type_Safe):
         return Schema__Browser__Launch__Result(browser             = browser                                          ,
                                                 playwright          = playwright                                       ,
                                                 playwright_start_ms = Safe_UInt__Milliseconds(ts_after_pw      - ts_before_pw     ),
-                                                browser_launch_ms   = Safe_UInt__Milliseconds(ts_after_browser - ts_before_browser))
+                                                browser_launch_ms   = Safe_UInt__Milliseconds(ts_after_browser - ts_before_browser),
+                                                proxy               = browser_config.proxy                             )   # Retained so page-creation sites can apply ignore_https_errors + CDP auth
 
     def register(self, session_id: Session_Id, result: Schema__Browser__Launch__Result) -> None:
         self.browsers[session_id] = result                                           # Both handles tracked together so stop() can close both
@@ -126,10 +127,8 @@ class Browser__Launcher(Type_Safe):
 
         return kwargs
 
-    def build_proxy_dict(self, proxy) -> Dict[str, Any]:
+    def build_proxy_dict(self, proxy) -> Dict[str, Any]:                            # Only server + bypass reach chromium.launch — auth is handled post-context via Proxy__Auth__Binder (CDP Fetch)
         out : Dict[str, Any] = {'server': str(proxy.server)}
-        if proxy.username: out['username'] = str(proxy.username)
-        if proxy.password: out['password'] = str(proxy.password)
         bypass_hosts = [str(h) for h in (proxy.bypass or [])]
         if bypass_hosts:
             out['bypass'] = ','.join(bypass_hosts)
