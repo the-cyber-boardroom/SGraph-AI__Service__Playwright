@@ -43,8 +43,14 @@ class Routes__Quick(Fast_API__Routes):
         return self.service.quick_html(body).json()
 
     def screenshot(self, body: Schema__Quick__Screenshot__Request) -> Response:     # Raw PNG — FastAPI passes Response objects through untouched
-        png_bytes = self.service.quick_screenshot(body)
-        return Response(content=png_bytes, media_type=MEDIA_TYPE__PNG)
+        result  = self.service.quick_screenshot(body)
+        timings = result.timings
+        headers = {'X-Playwright-Start-Ms': str(int(timings.playwright_start_ms)),   # Raw PNG body leaves no room for JSON timings, so surface them via response headers instead (same fields as Schema__Sequence__Timings)
+                   'X-Browser-Launch-Ms'  : str(int(timings.browser_launch_ms  )),
+                   'X-Steps-Ms'           : str(int(timings.steps_ms           )),
+                   'X-Browser-Close-Ms'   : str(int(timings.browser_close_ms   )),
+                   'X-Total-Ms'           : str(int(timings.total_ms           ))}
+        return Response(content=result.png_bytes, media_type=MEDIA_TYPE__PNG, headers=headers)
 
     def setup_routes(self):
         self.add_route_post(self.html      )

@@ -17,6 +17,7 @@ from sgraph_ai_service_playwright.consts.env_vars                               
                                                                                                     ENV_VAR__DEPLOYMENT_TARGET     ,
                                                                                                     ENV_VAR__SG_SEND_BASE_URL      )
 from sgraph_ai_service_playwright.fast_api.Fast_API__Playwright__Service                    import Fast_API__Playwright__Service
+from sgraph_ai_service_playwright.schemas.browser.Schema__Browser__Launch__Result            import Schema__Browser__Launch__Result
 from sgraph_ai_service_playwright.fast_api.routes.Routes__Sequence                          import (ROUTES_PATHS__SEQUENCE,
                                                                                                     TAG__ROUTES_SEQUENCE  )
 from sgraph_ai_service_playwright.service.Artefact__Writer                                  import Artefact__Writer
@@ -94,11 +95,18 @@ class _FakeBrowser:
     def close(self): pass
 
 
+class _FakePlaywright:
+    def stop(self): pass
+
+
 class _FakeLauncher(Browser__Launcher):
     def launch(self, browser_config):
-        return _FakeBrowser()
-    def stop(self, session_id): pass
-    def start(self): return self
+        return Schema__Browser__Launch__Result(browser             = _FakeBrowser()  ,     # Real launcher returns Schema__Browser__Launch__Result now
+                                                playwright          = _FakePlaywright(),
+                                                playwright_start_ms = 0                ,
+                                                browser_launch_ms   = 0                )
+    def stop(self, session_id):
+        return 0
 
 
 class _InMemoryArtefactWriter(Artefact__Writer):

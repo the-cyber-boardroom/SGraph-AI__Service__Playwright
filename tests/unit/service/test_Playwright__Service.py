@@ -22,6 +22,7 @@ from sgraph_ai_service_playwright.consts.env_vars                               
                                                                                                     ENV_VAR__SG_SEND_BASE_URL      )
 from sgraph_ai_service_playwright.schemas.artefact.Schema__Vault_Ref                        import Schema__Vault_Ref
 from sgraph_ai_service_playwright.schemas.browser.Schema__Browser__Config                   import Schema__Browser__Config
+from sgraph_ai_service_playwright.schemas.browser.Schema__Browser__Launch__Result            import Schema__Browser__Launch__Result
 from sgraph_ai_service_playwright.schemas.capture.Schema__Capture__Config                   import Schema__Capture__Config
 from sgraph_ai_service_playwright.schemas.enums.Enum__Deployment__Target                    import Enum__Deployment__Target
 from sgraph_ai_service_playwright.schemas.enums.Enum__Session__Lifetime                     import Enum__Session__Lifetime
@@ -184,22 +185,30 @@ class _FakeBrowser:                                                             
         self.closed = True
 
 
+class _FakePlaywright:                                                              # sync_playwright() stand-in — only needs a stop() no-op for register/stop bookkeeping
+    def __init__(self):
+        self.stopped = False
+    def stop(self):
+        self.stopped = True
+
+
 class _FakeLauncher(Browser__Launcher):                                             # Subclass Browser__Launcher — satisfies Type_Safe attribute type
     last_config : Any  = None
     stopped     : list
     next_browser: Any  = None
 
-    def launch(self, browser_config):
+    def launch(self, browser_config):                                               # Fresh-per-call contract: return a Schema__Browser__Launch__Result, not a bare browser
         self.last_config = browser_config
         if self.next_browser is None:
             self.next_browser = _FakeBrowser()
-        return self.next_browser
+        return Schema__Browser__Launch__Result(browser             = self.next_browser ,
+                                                playwright          = _FakePlaywright(),
+                                                playwright_start_ms = 0                ,
+                                                browser_launch_ms   = 0                )
 
     def stop(self, session_id):
         self.stopped.append(session_id)
-
-    def start(self):                                                                # Skip sync_playwright.start() — no real runtime
-        return self
+        return 0                                                                    # Sequence__Runner does int(stop(...)) to feed timings.browser_close_ms
 
 
 class _InMemoryArtefactWriter(Artefact__Writer):
