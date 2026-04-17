@@ -34,7 +34,8 @@ Agents were confusing ideas described in briefs, dev-specs, and voice memos with
 
 ## Current Document
 
-- [`v0.1.13__what-exists-today.md`](v0.1.13__what-exists-today.md) *(current)* — adds v0.1.13 "100% clean state per call" milestone: fresh-per-call `sync_playwright` + Chromium, try/finally teardown, `Schema__Sequence__Timings`, `Routes__Quick` endpoints, payload-size primitives (10 MB / 20 MB).
+- [`v0.1.24__what-exists-today.md`](v0.1.24__what-exists-today.md) *(current)* — v0.1.24 "stateless one-shot surface" refactor: `/session/*` + `/quick/*` deleted; `/browser/*` reborn as six stateless one-shots, each accepting optional `browser_config` (incl. proxy); `Schema__Sequence__Request` drops `session_id` + `close_session_after`; surface 25 → 10 endpoints.
+- [`v0.1.13__what-exists-today.md`](v0.1.13__what-exists-today.md) — superseded.
 - [`v0.1.12__what-exists-today.md`](v0.1.12__what-exists-today.md) — superseded.
 
 Previous versions are kept for historical reference and should be clearly marked as superseded.
