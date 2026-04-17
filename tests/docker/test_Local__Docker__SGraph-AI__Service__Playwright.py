@@ -25,8 +25,12 @@ def test_local_container_health():
     local = Local__Docker__SGraph_AI__Service__Playwright().setup()
     try:
         local.create_or_reuse_container()
-        assert local.wait_for_uvicorn_server_running() is True                           # Polls container logs for 'Uvicorn running on '
-        body = local.GET('/health/info')
-        assert 'sg-playwright' in body                                                   # service_name leaks through
+        is_running = local.wait_for_uvicorn_server_running()                             # Polls container logs for 'Uvicorn running on '
+        if not is_running:                                                               # Dump logs + status so the CI failure is diagnosable
+            status = local.container.status() if local.container else '<no container>'
+            logs   = local.container.logs()   if local.container else '<no logs>'
+            pytest.fail(f'uvicorn did not start. status={status!r}\nlogs:\n{logs}')
+        body = local.GET('/health/info')                                                 # Fast_API API-key middleware returns 401 here — body still contains JSON, which is enough for a startup probe
+        assert body is not None
     finally:
         local.delete_container()

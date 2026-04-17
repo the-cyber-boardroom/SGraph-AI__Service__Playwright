@@ -56,6 +56,7 @@ def test_ecr_setup_and_push():
             errors.append(entry['errorDetail'].get('message', str(entry['errorDetail'])))
     assert not errors, f'docker push reported errorDetail entries: {errors}'
 
-    image_tags   = [i.get('imageTag') for i in (ecr.create_image_ecr.ecr.images(IMAGE_NAME) or [])
-                                      if i.get('imageTag')]
+    image_tags   = []                                                                   # describe_images returns imageTags (plural list) per imageDetails entry
+    for detail in (ecr.create_image_ecr.ecr.images(IMAGE_NAME) or []):
+        image_tags.extend(detail.get('imageTags', []) or [])
     assert IMAGE_TAG in image_tags, f'expected tag {IMAGE_TAG!r} in ECR repo {IMAGE_NAME!r}; got {image_tags}'
