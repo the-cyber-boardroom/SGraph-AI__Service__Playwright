@@ -22,6 +22,7 @@ ENV_VAR__SG_SEND_VAULT_KEY             = 'SG_PLAYWRIGHT__SG_SEND_VAULT_KEY'     
 ENV_VAR__DEFAULT_HEADLESS              = 'SG_PLAYWRIGHT__DEFAULT_HEADLESS'
 ENV_VAR__DEFAULT_PROXY_URL             = 'SG_PLAYWRIGHT__DEFAULT_PROXY_URL'
 ENV_VAR__IGNORE_HTTPS_ERRORS           = 'SG_PLAYWRIGHT__IGNORE_HTTPS_ERRORS'       # For TLS-intercepting proxies
+ENV_VAR__CHROMIUM_EXECUTABLE           = 'SG_PLAYWRIGHT__CHROMIUM_EXECUTABLE'       # Override path to Chromium binary (sandbox / custom Chrome / laptop)
 
 # ── Deployment target detection ──────────────────────────────────────────────
 ENV_VAR__DEPLOYMENT_TARGET             = 'SG_PLAYWRIGHT__DEPLOYMENT_TARGET'         # Explicit override
