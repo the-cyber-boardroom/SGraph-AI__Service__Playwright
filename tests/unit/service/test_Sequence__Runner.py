@@ -16,8 +16,10 @@
 #     sequence status = FAILED
 #   • halt_on_error=False → failure does NOT halt, sequence status = PARTIAL
 #   • all steps passed → status = COMPLETED, counters match
-#   • 404 when caller supplies a session_id that doesn't exist
-#   • 422 when no session_id AND no browser_config
+#   • 422 when no resolvable session AND no browser_config — covers BOTH the
+#     Python-level omission (session_id=None) and the HTTP-level auto-gen case
+#     (osbot-fast-api mints a fresh Session_Id when the wire body omits it,
+#     which previously tripped a misleading 404 "Session X not found")
 # ═══════════════════════════════════════════════════════════════════════════════
 
 import os
@@ -220,14 +222,29 @@ class test_execute__existing_session(TestCase):
         assert response.session_info.status     == Enum__Session__Status.ACTIVE
         assert int(response.session_info.total_actions) == 2                          # Session__Manager.record_action bumped counters
 
-    def test__unknown_session_id_raises_404(self):
+    def test__unknown_session_id_without_browser_config_raises_422(self):                    # Regression: previously 404 "Session X not found" which tripped HTTP callers whose wire body got an auto-generated session_id from osbot-fast-api
         with _EnvScrub(**{ENV_VAR__DEPLOYMENT_TARGET: 'lambda'}):
             service, _ = _build_service()
             request    = _sequence_request_existing(session_id='no-such-session',
                                                      steps=[{'action': 'navigate', 'url': 'http://x.test/'}])
             with pytest.raises(HTTPException) as exc:
                 service.execute_sequence(request)
-        assert exc.value.status_code == 404
+        assert exc.value.status_code == 422
+        assert 'browser_config' in str(exc.value.detail)
+
+    def test__http_autogen_session_id_without_browser_config_raises_422(self):               # Simulates osbot-fast-api's Type_Safe→Pydantic bridge minting a fresh Session_Id when the wire body omits session_id; used to surface as 404 "Session safe-id_xxxx not found"
+        from sgraph_ai_service_playwright.schemas.primitives.identifiers.Session_Id import Session_Id
+        with _EnvScrub(**{ENV_VAR__DEPLOYMENT_TARGET: 'lambda'}):
+            service, _ = _build_service()
+            request    = Schema__Sequence__Request(session_id          = Session_Id()                                          ,       # Fresh auto-gen, no matching session in manager
+                                                    capture_config      = Schema__Capture__Config()                             ,
+                                                    sequence_config     = Schema__Sequence__Config()                            ,
+                                                    steps               = [{'action': 'navigate', 'url': 'http://x.test/'}]    ,
+                                                    close_session_after = False                                                 )
+            with pytest.raises(HTTPException) as exc:
+                service.execute_sequence(request)
+        assert exc.value.status_code == 422
+        assert 'browser_config' in str(exc.value.detail)
 
 
 class test_execute__halt_on_error(TestCase):
