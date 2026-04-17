@@ -39,9 +39,12 @@ def test_build_docker_image():
     build   = Build__Docker__SGraph_AI__Service__Playwright().setup()
     result  = build.build_docker_image()                                            # Build + tag with ECR URI
 
-    assert result is not None
+    assert result                    is not None
+    assert result.get('status'    )  == 'ok'             , f'build failed: {result}'   # Was previously just `is not None`, which let silent @catch failures through
+    assert result.get('image_id'  )                                                    # Docker image object must have an id
+    expected_tag = build.image_uri()                                                   # <account>.dkr.ecr.<region>.amazonaws.com/sgraph_ai_service_playwright:latest
+    assert expected_tag              in result.get('tags', [])                         # Tag must be present in the built image's tag list — confirms the daemon accepted it
 
-    expected_tag = build.image_uri()                                                # <account>.dkr.ecr.<region>.amazonaws.com/sgraph_ai_service_playwright:latest
     inspect      = subprocess.run(['docker', 'inspect', '--format={{.Id}}', expected_tag],
                                   capture_output=True, text=True)
     assert inspect.returncode == 0, f'image not tagged as {expected_tag} (returncode={inspect.returncode}, stderr={inspect.stderr!r})'
