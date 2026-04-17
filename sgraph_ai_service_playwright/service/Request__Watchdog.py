@@ -51,9 +51,9 @@ DEFAULT_POLL_INTERVAL_MS = 2000                                                 
 
 
 class Request__Watchdog(Type_Safe):
-    in_flight        : Dict[str, Safe_UInt__Milliseconds]                           # request_id → start_ms (take snapshot before iterating; register/unregister hold the lock)
-    max_request_ms   : Safe_UInt__Milliseconds                                      # Exceed → os._exit(2). Set via ENV_VAR__WATCHDOG_MAX_REQUEST_MS or DEFAULT.
-    poll_interval_ms : Safe_UInt__Milliseconds                                      # Background-thread tick. Set via ENV_VAR__WATCHDOG_POLL_INTERVAL_MS or DEFAULT.
+    in_flight        : Dict[str, int]                                               # request_id → epoch-ms start stamp (wall-clock, NOT a duration — Safe_UInt__Milliseconds caps at 15 min and would reject epoch values)
+    max_request_ms   : Safe_UInt__Milliseconds                                      # Duration — exceed → os._exit(2). Set via ENV_VAR__WATCHDOG_MAX_REQUEST_MS or DEFAULT.
+    poll_interval_ms : Safe_UInt__Milliseconds                                      # Duration — background-thread tick. Set via ENV_VAR__WATCHDOG_POLL_INTERVAL_MS or DEFAULT.
     disabled         : bool = False                                                 # ENV_VAR__WATCHDOG_DISABLED='1' → register/unregister are no-ops, thread never starts.
     lock             : Any  = None                                                  # threading.Lock — created in setup() to keep the constructor side-effect-free
     thread           : Any  = None                                                  # threading.Thread — created in start()
@@ -85,7 +85,7 @@ class Request__Watchdog(Type_Safe):
         if self.disabled:
             return
         with self.lock:
-            self.in_flight[request_id] = Safe_UInt__Milliseconds(self.now_ms())
+            self.in_flight[request_id] = self.now_ms()                               # Plain int — epoch millis overflow Safe_UInt__Milliseconds' 15-min cap
 
     def unregister(self, request_id: str) -> None:
         if self.disabled:
@@ -110,7 +110,7 @@ class Request__Watchdog(Type_Safe):
             snapshot = dict(self.in_flight)                                          # Snapshot to avoid holding the lock while calling kill / os._exit
 
         for request_id, started_ms in snapshot.items():
-            duration = now - int(started_ms)
+            duration = now - started_ms
             if duration > max_ms:
                 breaches.append((request_id, duration))
 

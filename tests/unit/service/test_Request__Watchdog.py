@@ -88,7 +88,7 @@ class test_register_and_unregister(TestCase):
             wd.current_time_ms = 1_000
             wd.register('req-1')
             assert 'req-1' in wd.in_flight
-            assert int(wd.in_flight['req-1']) == 1_000
+            assert wd.in_flight['req-1'] == 1_000                                   # Plain int — epoch-ms stamp, not a Safe_UInt__Milliseconds duration
 
     def test__unregister_removes_entry(self):
         with _EnvScrub():
