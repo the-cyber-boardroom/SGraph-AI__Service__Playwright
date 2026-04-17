@@ -29,17 +29,33 @@
 # and predictable — no first-request detection spike).
 # ═══════════════════════════════════════════════════════════════════════════════
 
+import base64
 import time
 import uuid
 from typing                                                                             import List
 
+from fastapi                                                                            import HTTPException
 from osbot_utils.type_safe.Type_Safe                                                    import Type_Safe
+from osbot_utils.type_safe.primitives.domains.common.safe_str.Safe_Str__Text__Dangerous import Safe_Str__Text__Dangerous
 from osbot_utils.type_safe.primitives.domains.identifiers.safe_int.Timestamp_Now        import Timestamp_Now
+from osbot_utils.type_safe.primitives.domains.web.safe_str.Safe_Str__Url                import Safe_Str__Url
 
+from sgraph_ai_service_playwright.schemas.artefact.Schema__Artefact__Sink_Config        import Schema__Artefact__Sink_Config
+from sgraph_ai_service_playwright.schemas.browser.Schema__Browser__Config               import Schema__Browser__Config
+from sgraph_ai_service_playwright.schemas.capture.Schema__Capture__Config               import Schema__Capture__Config
 from sgraph_ai_service_playwright.schemas.core.Schema__Action__Request                  import Schema__Action__Request
 from sgraph_ai_service_playwright.schemas.core.Schema__Action__Response                 import Schema__Action__Response
+from sgraph_ai_service_playwright.schemas.enums.Enum__Artefact__Sink                    import Enum__Artefact__Sink
+from sgraph_ai_service_playwright.schemas.enums.Enum__Artefact__Type                    import Enum__Artefact__Type
+from sgraph_ai_service_playwright.schemas.enums.Enum__Sequence__Status                  import Enum__Sequence__Status
+from sgraph_ai_service_playwright.schemas.enums.Enum__Step__Action                      import Enum__Step__Action
 from sgraph_ai_service_playwright.schemas.primitives.identifiers.Safe_Str__Trace_Id     import Safe_Str__Trace_Id
 from sgraph_ai_service_playwright.schemas.primitives.identifiers.Session_Id             import Session_Id
+from sgraph_ai_service_playwright.schemas.primitives.numeric.Safe_UInt__Milliseconds    import Safe_UInt__Milliseconds
+from sgraph_ai_service_playwright.schemas.quick.Schema__Quick__Html__Request            import Schema__Quick__Html__Request
+from sgraph_ai_service_playwright.schemas.quick.Schema__Quick__Html__Response           import Schema__Quick__Html__Response
+from sgraph_ai_service_playwright.schemas.quick.Schema__Quick__Screenshot__Request      import Schema__Quick__Screenshot__Request
+from sgraph_ai_service_playwright.schemas.sequence.Schema__Sequence__Config             import Schema__Sequence__Config
 from sgraph_ai_service_playwright.schemas.sequence.Schema__Sequence__Request            import Schema__Sequence__Request
 from sgraph_ai_service_playwright.schemas.sequence.Schema__Sequence__Response           import Schema__Sequence__Response
 from sgraph_ai_service_playwright.schemas.service.Schema__Health                        import Schema__Health
@@ -162,6 +178,91 @@ class Playwright__Service(Type_Safe):
     def execute_sequence(self, request: Schema__Sequence__Request) -> Schema__Sequence__Response:
         self.setup()                                                                # Idempotent — re-shares Sequence__Runner deps too
         return self.sequence_runner.execute(request)
+
+    # ─── Quick surface ─────────────────────────────────────────────────────────
+    # Thin wrappers over execute_sequence(). Each builds a throwaway sequence
+    # (ad-hoc browser + close_session_after=True), delegates to Sequence__Runner,
+    # then extracts exactly what the caller wanted out of the step results.
+    # Caller sees a minimal flat schema in Swagger — no capture_config / sink
+    # trees — and an equally minimal response (or raw image bytes).
+
+    def quick_html(self, request: Schema__Quick__Html__Request) -> Schema__Quick__Html__Response:
+        self.setup()
+        steps = [dict(action = Enum__Step__Action.NAVIGATE.value ,
+                       url        = str(request.url)              ,
+                       wait_until = request.wait_until.value       )]
+        click = str(request.click) if request.click else ''                         # osbot-fast-api's Pydantic bridge may auto-instantiate Safe_Str__Selector to a non-None empty value — only queue the click when the caller actually set a selector string
+        if click:
+            steps.append(dict(action = Enum__Step__Action.CLICK.value,
+                               selector = click                      ))
+        steps.append(dict(action = Enum__Step__Action.GET_URL.value    ))
+        steps.append(dict(action             = Enum__Step__Action.GET_CONTENT.value,
+                          inline_in_response = True                                ))
+
+        seq_request = self.quick_build_sequence_request(steps=steps, capture_config=Schema__Capture__Config(), timeout_ms=request.timeout_ms)
+        seq_response = self.sequence_runner.execute(seq_request)
+        self.quick_raise_on_failure(seq_response)
+
+        final_url = Safe_Str__Url(str(request.url))                                 # Fallback if get_url somehow missing
+        html      = ''
+        for result in seq_response.step_results:
+            if result.action == Enum__Step__Action.GET_URL and getattr(result, 'url', None):
+                final_url = Safe_Str__Url(str(result.url))
+            if result.action == Enum__Step__Action.GET_CONTENT and getattr(result, 'content', None) is not None:
+                html = str(result.content)
+
+        return Schema__Quick__Html__Response(url         = request.url                     ,
+                                              final_url   = final_url                       ,
+                                              html        = Safe_Str__Text__Dangerous(html) ,
+                                              duration_ms = seq_response.total_duration_ms  )
+
+    def quick_screenshot(self, request: Schema__Quick__Screenshot__Request) -> bytes:
+        self.setup()
+        steps = [dict(action = Enum__Step__Action.NAVIGATE.value ,
+                       url        = str(request.url)              ,
+                       wait_until = request.wait_until.value       )]
+        click = str(request.click) if request.click else ''                         # Same truthy-check as quick_html — Pydantic bridge auto-instantiates Safe_Str__Selector
+        if click:
+            steps.append(dict(action = Enum__Step__Action.CLICK.value,
+                               selector = click                      ))
+        screenshot_step = dict(action    = Enum__Step__Action.SCREENSHOT.value,
+                                full_page = bool(request.full_page)            )
+        selector = str(request.selector) if request.selector else ''
+        if selector:
+            screenshot_step['selector'] = selector                                  # Element-only screenshot overrides full_page in Step__Executor
+        steps.append(screenshot_step)
+
+        capture_config = Schema__Capture__Config(screenshot = Schema__Artefact__Sink_Config(enabled = True                         ,     # INLINE sink so Step__Executor routes the PNG bytes into artefact.inline_b64 — we base64-decode below
+                                                                                             sink    = Enum__Artefact__Sink.INLINE))
+        seq_request  = self.quick_build_sequence_request(steps=steps, capture_config=capture_config, timeout_ms=request.timeout_ms)
+        seq_response = self.sequence_runner.execute(seq_request)
+        self.quick_raise_on_failure(seq_response)
+
+        for artefact in seq_response.artefacts:                                     # Find the screenshot we just captured
+            if artefact.artefact_type == Enum__Artefact__Type.SCREENSHOT and artefact.inline_b64 is not None:
+                return base64.b64decode(str(artefact.inline_b64))
+        raise HTTPException(500, 'Screenshot artefact missing from sequence response')
+
+    def quick_build_sequence_request(self                                                 ,
+                                      steps           : list                              ,
+                                      capture_config  : Schema__Capture__Config            ,
+                                      timeout_ms                                          = None
+                                 ) -> Schema__Sequence__Request:
+        if timeout_ms is not None:
+            for step in steps:
+                step.setdefault('timeout_ms', int(timeout_ms))                      # Apply caller's timeout to every step that didn't already override
+        return Schema__Sequence__Request(browser_config      = Schema__Browser__Config()                 ,
+                                          capture_config      = capture_config                            ,
+                                          sequence_config     = Schema__Sequence__Config(halt_on_error=True),
+                                          steps               = steps                                      ,
+                                          close_session_after = True                                       )
+
+    def quick_raise_on_failure(self, seq_response: Schema__Sequence__Response) -> None:
+        if seq_response.status == Enum__Sequence__Status.COMPLETED:                 # Happy path — every step passed
+            return
+        failed = next((r for r in seq_response.step_results if r.error_message), None)   # Surface the first failure's message
+        detail = str(failed.error_message) if failed is not None else f'sequence status={seq_response.status.value}'
+        raise HTTPException(502, f'Quick call failed: {detail}')
 
     # ─── Utility ──────────────────────────────────────────────────────────────
 
