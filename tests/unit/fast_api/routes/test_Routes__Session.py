@@ -79,6 +79,7 @@ class _FakeContext:
 class _FakeBrowser:
     def __init__(self, state=None):
         self.context = _FakeContext(state=state)
+    @property                                                                       # Real Playwright sync API: `contexts` is a @property
     def contexts(self):
         return [self.context]
     def close(self):

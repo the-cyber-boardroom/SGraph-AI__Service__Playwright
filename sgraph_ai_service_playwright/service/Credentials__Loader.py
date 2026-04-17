@@ -38,7 +38,7 @@ class Credentials__Loader(Type_Safe):
         if browser is None:                                                         # Session gone or never had a live browser — nothing to do
             return
 
-        contexts = browser.contexts()
+        contexts = browser.contexts                                                 # Playwright sync API: @property returning a list — calling with () raises 'list' object is not callable
         if not contexts:                                                            # Launcher guarantees one context, but belt-and-braces
             return
         context = contexts[0]

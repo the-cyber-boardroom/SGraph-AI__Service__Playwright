@@ -116,6 +116,7 @@ class _FakeContext:                                                             
 class _FakeBrowser:                                                                  # Playwright Browser stand-in
     def __init__(self):
         self._contexts = []
+    @property                                                                       # Real Playwright sync API: `contexts` is a @property (not a method)
     def contexts(self):
         return self._contexts
     def new_context(self):
@@ -177,9 +178,9 @@ class test_execute__navigate(TestCase):
             service.execute_action(request)
 
             browser = service.session_manager.get_browser(session_id)
-        assert len(browser.contexts())               == 1
-        assert len(browser.contexts()[0].pages)      == 1
-        assert browser.contexts()[0].pages[0].goto_calls[0]['url'] == 'http://first.test/'
+        assert len(browser.contexts)               == 1
+        assert len(browser.contexts[0].pages)      == 1
+        assert browser.contexts[0].pages[0].goto_calls[0]['url'] == 'http://first.test/'
 
     def test__reuses_existing_context_and_page_on_second_navigate(self):              # Second call must NOT create a second page
         with _EnvScrub(**{ENV_VAR__DEPLOYMENT_TARGET: 'lambda'}):
@@ -193,9 +194,9 @@ class test_execute__navigate(TestCase):
             service.execute_action(request2)
 
             browser = service.session_manager.get_browser(session_id)
-            page    = browser.contexts()[0].pages[0]
-        assert len(browser.contexts())          == 1
-        assert len(browser.contexts()[0].pages) == 1
+            page    = browser.contexts[0].pages[0]
+        assert len(browser.contexts)          == 1
+        assert len(browser.contexts[0].pages) == 1
         assert [c['url'] for c in page.goto_calls] == ['http://first.test/', 'http://second.test/']
 
 
@@ -212,7 +213,7 @@ class test_execute__click(TestCase):
             response   = service.execute_action(click_req)
 
             browser = service.session_manager.get_browser(session_id)
-            page    = browser.contexts()[0].pages[0]
+            page    = browser.contexts[0].pages[0]
         assert response.step_result.status == Enum__Step__Status.PASSED
         assert len(page.click_calls)       == 1
         assert page.click_calls[0]['selector'] == 'button.submit'
@@ -231,7 +232,7 @@ class test_execute__fill(TestCase):
             response   = service.execute_action(fill_req)
 
             browser = service.session_manager.get_browser(session_id)
-            page    = browser.contexts()[0].pages[0]
+            page    = browser.contexts[0].pages[0]
         assert response.step_result.status  == Enum__Step__Status.PASSED
         assert len(page.fill_calls)         == 1
         assert page.fill_calls[0]['selector'] == 'input#q'
@@ -248,7 +249,7 @@ class test_execute__fill(TestCase):
             response   = service.execute_action(fill_req)
 
             browser = service.session_manager.get_browser(session_id)
-            page    = browser.contexts()[0].pages[0]
+            page    = browser.contexts[0].pages[0]
         assert response.step_result.status == Enum__Step__Status.PASSED
         assert len(page.fill_calls)        == 0                                       # page.fill NOT called
         assert len(page.locators)          == 1
@@ -268,7 +269,7 @@ class test_execute__get_content(TestCase):
                                                                          step       = {'action': 'get_content'         }))
 
             browser = service.session_manager.get_browser(session_id)
-            page    = browser.contexts()[0].pages[0]
+            page    = browser.contexts[0].pages[0]
         assert response.step_result.status       == Enum__Step__Status.PASSED
         assert response.step_result.content_type == 'text/html'
         assert str(response.step_result.content) == '<html><body>full-page-html</body></html>'
@@ -285,7 +286,7 @@ class test_execute__get_content(TestCase):
                                                                          step       = {'action': 'get_content', 'selector': 'div.main'}    ))
 
             browser = service.session_manager.get_browser(session_id)
-            page    = browser.contexts()[0].pages[0]
+            page    = browser.contexts[0].pages[0]
         assert response.step_result.status == Enum__Step__Status.PASSED
         assert 'html-for:div.main' in str(response.step_result.content)
         assert page.content_calls    == 0                                             # page.content NOT called when selector is set
@@ -318,7 +319,7 @@ class test_execute__screenshot(TestCase):
                                                                          step       = {'action': 'screenshot'            }))
 
             browser = service.session_manager.get_browser(session_id)
-            page    = browser.contexts()[0].pages[0]
+            page    = browser.contexts[0].pages[0]
         assert response.step_result.status == Enum__Step__Status.PASSED
         assert len(page.screenshot_calls)  == 1
         assert response.step_result.artefacts == []                                   # Sink disabled -> no ref attached

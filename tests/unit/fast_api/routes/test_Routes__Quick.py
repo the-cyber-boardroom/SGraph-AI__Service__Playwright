@@ -102,6 +102,7 @@ class _FakeContext:
 class _FakeBrowser:
     def __init__(self):
         self._contexts = []
+    @property                                                                                # Playwright sync API exposes `contexts` as a @property, not a method — keep fakes identical so the old bug (browser.contexts() → 'list' not callable) cannot slip back in
     def contexts(self):
         return self._contexts
     def new_context(self):

@@ -174,9 +174,9 @@ class Sequence__Runner(Type_Safe):
         return session.session_id
 
     def get_or_create_page(self, browser: Any) -> Any:                               # Freshly launched browser has no context / page — create on demand
-        contexts = browser.contexts()
+        contexts = browser.contexts                                                  # Playwright sync API: `contexts` is a @property returning List[BrowserContext] — NEVER call it as a method (`()` triggers 'list' object is not callable)
         context  = contexts[0] if contexts else browser.new_context()
-        pages    = context.pages
+        pages    = context.pages                                                     # Same pattern — `pages` is also a @property
         return pages[0] if pages else context.new_page()
 
     def skipped_result(self, step: Schema__Step__Base, step_index: int) -> Schema__Step__Result__Base:
