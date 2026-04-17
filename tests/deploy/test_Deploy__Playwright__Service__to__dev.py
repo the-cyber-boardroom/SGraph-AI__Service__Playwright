@@ -1,17 +1,13 @@
 # ═══════════════════════════════════════════════════════════════════════════════
 # Lambda deploy test (dev) — SG Playwright Service
 #
-# Placeholder: gated on AWS credentials + successful ECR push. Test is skipped
-# at function level so pytest collects one item and exits 0 (not exit-code 5).
-# Will be populated when the Deploy__SGraph_AI__Service__Playwright__Lambda
-# infra class lands.
+# Extends the base flow with stage='dev'. Skipped when AWS creds are absent.
 # ═══════════════════════════════════════════════════════════════════════════════
 
-import pytest
+from unittest                                                                           import TestCase
 
-SKIP_REASON = 'Lambda deploy infra not yet implemented — placeholder.'
+from tests.deploy.test_Deploy__Playwright__Service__base                                import test_Deploy__Playwright__Service__base
 
 
-@pytest.mark.skip(reason=SKIP_REASON)
-def test_deploy_to_dev():                                                           # Populated when infra lands
-    pass
+class test_Deploy__Playwright__Service__to__dev(test_Deploy__Playwright__Service__base, TestCase):
+    stage = 'dev'
