@@ -173,19 +173,13 @@ class Sequence__Runner(Type_Safe):
                                            timings           = timings                                           )
 
     def resolve_session(self, request, trace_id, capabilities):
-        if request.session_id:                                                        # Caller named a session — prefer reuse when it actually exists
+        if request.session_id:                                                        # Caller named a session — reuse when it actually exists
             session = self.session_manager.get(request.session_id)
             if session is not None:
                 return request.session_id, 0, 0                                       # Pre-existing session → no boot timings to report
-            if request.browser_config is None:                                        # Named but not found + no ad-hoc fallback → 404
-                raise HTTPException(404, f"Session {request.session_id} not found")
-            # Named but not found + browser_config → fall through to ad-hoc. Note: osbot-fast-api's
-            # Type_Safe->Pydantic bridge auto-generates a fresh Session_Id when the wire body omits
-            # `session_id`, so a "truthy session_id the manager doesn't know" is the normal path
-            # for an HTTP caller who simply didn't set it.
 
-        if request.browser_config is None:                                            # Neither existing session nor ad-hoc inputs — unrecoverable
-            raise HTTPException(422, 'browser_config required when session_id is not set')
+        if request.browser_config is None:                                            # No reusable session + no ad-hoc inputs — unrecoverable regardless of whether session_id came from the caller or from osbot-fast-api's auto-gen. This branch owns BOTH "explicit but wrong session_id + no fallback" and "session_id omitted on wire + no fallback".
+            raise HTTPException(422, 'browser_config is required when no existing session matches session_id')
 
         session_create_req = Schema__Session__Create__Request(browser_config = request.browser_config ,
                                                                credentials    = request.credentials    ,
