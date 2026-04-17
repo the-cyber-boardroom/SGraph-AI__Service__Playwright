@@ -2,26 +2,26 @@
 # Lambda__Docker__SGraph_AI__Service__Playwright — create/update Lambda from Docker image
 #
 # Production-tuning values carried forward from OSBot-Playwright:
-#   memory       = 5120 MB  (not 2-3 GB — lower values hit OOM on real sequences)
-#   architecture = x86_64   (GH Actions builds x86_64 images)
+#   memory_size   = 5120 MB  (osbot_aws reads `memory_size`, NOT `memory` — the
+#                             wrong attr silently falls back to 512 MB and
+#                             Playwright OOMs at cold start with Runtime.ExitError)
+#   architecture  = x86_64   (GH Actions builds x86_64 images)
+#   timeout       = 300 s    (sequences + browser launches overflow the 60s default)
 #
-# `set_lambda_env_vars()` propagates the SG_PLAYWRIGHT__* secrets from the CI
-# environment into the Lambda's environment, pinning DEPLOYMENT_TARGET=lambda
-# so the in-process detector sees the correct target.
+# `set_lambda_env_vars()` propagates the SG_PLAYWRIGHT__* + FAST_API__AUTH__*
+# secrets from the CI environment into the Lambda's environment, pinning
+# DEPLOYMENT_TARGET=lambda so the in-process detector sees the correct target.
 #
-# `create_lambda_function_url()` talks to the AWS Lambda API directly via boto3.
-# osbot_aws.Lambda.function_url_create_with_public_access() wraps add_permission
-# in a bare try/except and swallows failures, which leaves the Function URL
-# with AuthType=NONE but no resource-based policy — AWS then returns 403 on
-# every request ("Forbidden. For troubleshooting Function URL authorization
-# issues…"). Using boto3 here lets us fail loudly on that path and guarantees
-# the policy lands before we return the URL. CLAUDE.md rule #11 ("Never use
-# boto3 directly") has this narrow exception for the function-URL auth setup
-# until the upstream osbot-aws helper is fixed.
+# `create_lambda_function_url()` needs TWO resource-policy statements, not one:
+#   • FunctionURLAllowPublicAccess — lambda:InvokeFunctionUrl (osbot_aws helper)
+#   • FunctionURLAllowInvokeAction — lambda:InvokeFunction    (added here)
+# The AWS Console banner "Your function URL auth type is NONE, but is missing
+# permissions required for public access" confirms both are required — adding
+# only InvokeFunctionUrl still yields 403 Forbidden on the URL. osbot_aws's
+# `function_url_create_with_public_access()` only adds InvokeFunctionUrl, so
+# we call `permission_add()` again for the InvokeFunction statement and fail
+# loudly if the helper's silent-error shape ({'error': ...}) comes back.
 # ═══════════════════════════════════════════════════════════════════════════════
-
-import boto3
-from botocore.exceptions                                                                import ClientError
 
 from osbot_utils.helpers.duration.Duration                                              import Duration
 from osbot_utils.utils.Dev                                                              import pprint
@@ -30,21 +30,21 @@ from osbot_utils.utils.Env                                                      
 from sgraph_ai_service_playwright.docker.Docker__SGraph_AI__Service__Playwright__Base   import Docker__SGraph_AI__Service__Playwright__Base
 
 
-LAMBDA_MEMORY_MB                  = 5120                                                # Production-tuned; do not reduce. osbot_aws Lambda reads `memory_size` (NOT `memory`) — setting the wrong attr silently drops to the 512 MB default and Playwright OOMs at cold start with Runtime.ExitError.
-LAMBDA_ARCHITECTURE               = 'x86_64'                                            # GH Actions builds x86_64 images
-LAMBDA_TIMEOUT_SECS               = 300                                                 # 5 min — sequences + browser launches overflow the 60s default
+LAMBDA_MEMORY_MB                      = 5120                                            # Production-tuned; do not reduce (see header)
+LAMBDA_ARCHITECTURE                   = 'x86_64'                                        # GH Actions builds x86_64 images
+LAMBDA_TIMEOUT_SECS                   = 300                                             # 5 min — sequences + browser launches overflow the 60s default
 
-FUNCTION_URL_STATEMENT_ID         = 'FunctionURLAllowPublicAccess'
-FUNCTION_URL_AUTH_TYPE            = 'NONE'                                              # Public URL, paired with the resource-based policy below
-FUNCTION_URL_INVOKE_MODE          = 'BUFFERED'
-FUNCTION_URL_ACTION               = 'lambda:InvokeFunctionUrl'
-FUNCTION_URL_PRINCIPAL            = '*'
+FUNCTION_URL_INVOKE_MODE              = 'BUFFERED'
+FUNCTION_URL_AUTH_TYPE                = 'NONE'                                          # Public URL, paired with the two policy statements below
+FUNCTION_URL_INVOKE_STATEMENT_ID      = 'FunctionURLAllowInvokeAction'                  # Second statement — lambda:InvokeFunction (AWS requires both actions)
+FUNCTION_URL_INVOKE_ACTION            = 'lambda:InvokeFunction'
+FUNCTION_URL_PRINCIPAL                = '*'
 
 
 class Lambda__Docker__SGraph_AI__Service__Playwright(Docker__SGraph_AI__Service__Playwright__Base):
 
     def create_lambda(self, delete_existing=False, wait_for_active=False):
-        with Duration(prefix='[create_lambda] | delete and create:'):                   # No outer try/except: errors must propagate so CI surfaces the real failure (the previous swallow returned {"status":"error"} which the test treated as soft-pass)
+        with Duration(prefix='[create_lambda] | delete and create:'):                   # No outer try/except: errors must propagate so CI surfaces the real failure
             lambda_function              = self.lambda_function()
             lambda_function.image_uri    = self.image_uri()
             lambda_function.architecture = LAMBDA_ARCHITECTURE
@@ -81,47 +81,33 @@ class Lambda__Docker__SGraph_AI__Service__Playwright(Docker__SGraph_AI__Service_
             if value:
                 lambda_function.set_env_variable(key, value)
 
-    def lambda_client(self):                                                            # boto3 Lambda client; region from AWS_DEFAULT_REGION
-        return boto3.client('lambda', region_name=get_env('AWS_DEFAULT_REGION'))
-
-    def create_lambda_function_url(self):                                               # Delete → create URL (AuthType=NONE) → remove stale stmt → add public-access statement
+    def create_lambda_function_url(self):                                               # Delete (idempotent) → osbot_aws public-access create → add second InvokeFunction statement
         with Duration(prefix='[create_lambda_function_url] |'):
-            lambda_name = self.lambda_function().name
-            client      = self.lambda_client()
-            print(f'[create_lambda_function_url] lambda_name={lambda_name}')
+            lambda_function = self.lambda_function()
 
-            try:                                                                        # 1. Delete existing Function URL config (idempotent)
-                client.delete_function_url_config(FunctionName=lambda_name)
-                print('[create_lambda_function_url] step 1/4: deleted existing URL config')
-            except ClientError as error:
-                if error.response['Error']['Code'] != 'ResourceNotFoundException':
-                    raise
-                print('[create_lambda_function_url] step 1/4: no existing URL config')
+            if lambda_function.function_url_exists():                                   # 1. Idempotent delete
+                lambda_function.function_url_delete()
+                print('[create_lambda_function_url] step 1/3: deleted existing URL config')
+            else:
+                print('[create_lambda_function_url] step 1/3: no existing URL config')
 
-            url_result = client.create_function_url_config(FunctionName = lambda_name              ,     # 2. Create a fresh URL config
-                                                            AuthType     = FUNCTION_URL_AUTH_TYPE    ,
-                                                            InvokeMode   = FUNCTION_URL_INVOKE_MODE  )
-            print(f'[create_lambda_function_url] step 2/4: created URL {url_result.get("FunctionUrl")}')
+            url_result = lambda_function.function_url_create_with_public_access(invoke_mode=FUNCTION_URL_INVOKE_MODE)     # 2. URL + FunctionURLAllowPublicAccess (lambda:InvokeFunctionUrl)
+            print(f'[create_lambda_function_url] step 2/3: created URL + public-access statement: {url_result}')
 
-            try:                                                                        # 3. Remove stale public-access statement if one was left behind
-                client.remove_permission(FunctionName = lambda_name                ,
-                                          StatementId  = FUNCTION_URL_STATEMENT_ID  )
-                print('[create_lambda_function_url] step 3/4: removed stale statement')
-            except ClientError as error:
-                if error.response['Error']['Code'] != 'ResourceNotFoundException':
-                    raise
-                print('[create_lambda_function_url] step 3/4: no stale statement')
+            invoke_permission = lambda_function.permission_add(function_arn            = lambda_function.function_arn()        ,     # 3. Second statement — lambda:InvokeFunction (AWS rejects public URL calls without this too)
+                                                                statement_id           = FUNCTION_URL_INVOKE_STATEMENT_ID      ,
+                                                                action                 = FUNCTION_URL_INVOKE_ACTION            ,
+                                                                principal              = FUNCTION_URL_PRINCIPAL                ,
+                                                                function_url_auth_type = FUNCTION_URL_AUTH_TYPE                )
+            if isinstance(invoke_permission, dict) and invoke_permission.get('error'):                                            # permission_add swallows API errors into {'error': ...} — fail loudly so CI catches it
+                raise RuntimeError(f'permission_add (InvokeFunction) failed: {invoke_permission["error"]}')
+            print(f'[create_lambda_function_url] step 3/3: added invoke-action statement: {invoke_permission}')
 
-            permission_result = client.add_permission(FunctionName         = lambda_name                ,     # 4. Resource-based policy: allow any principal to invoke via the URL
-                                                       StatementId          = FUNCTION_URL_STATEMENT_ID  ,
-                                                       Action               = FUNCTION_URL_ACTION        ,
-                                                       Principal            = FUNCTION_URL_PRINCIPAL     ,
-                                                       FunctionUrlAuthType  = FUNCTION_URL_AUTH_TYPE     )
-            print(f'[create_lambda_function_url] step 4/4: added public-access statement: {permission_result.get("Statement")}')
-
-            return {'function_url'      : url_result.get('FunctionUrl'),
-                    'auth_type'         : url_result.get('AuthType'   ),
-                    'permission_statement': permission_result.get('Statement')}
+            function_url_value = url_result.get('function_url_create', {}).get('FunctionUrl')
+            return dict(function_url         = function_url_value  ,
+                        auth_type            = FUNCTION_URL_AUTH_TYPE,
+                        url_policy           = url_result.get('function_set_policy'),
+                        invoke_permission    = invoke_permission   )
 
     def update_lambda_function(self):
         return self.lambda_function().update_lambda_image_uri(self.image_uri())
