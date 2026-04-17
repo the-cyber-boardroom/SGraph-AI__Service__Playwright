@@ -55,10 +55,17 @@ class test_Deploy__Playwright__Service__base():                                 
         assert result.get('function_url' , {}).get('url_policy'        ) is not None    # First policy statement: lambda:InvokeFunctionUrl
         assert result.get('function_url' , {}).get('invoke_permission' ) is not None    # Second policy statement: lambda:InvokeFunction — without this AWS returns 403 on the URL
 
-    def test_2__invoke__health_info(self):                                              # Lambda invoke carries the header inside the event
-        payload = {'path'       : '/health/info',
-                   'httpMethod' : 'GET'         ,
-                   'headers'    : {self.api_key_name: self.api_key_value}}
+    def test_2__invoke__health_info(self):                                              # Lambda Web Adapter expects an API Gateway v2 event when invoked directly
+        payload = {'version'         : '2.0'                                      ,
+                   'routeKey'        : 'GET /health/info'                         ,
+                   'rawPath'         : '/health/info'                             ,
+                   'rawQueryString'  : ''                                         ,
+                   'headers'         : {self.api_key_name: self.api_key_value}   ,
+                   'requestContext'  : {'http': {'method'   : 'GET'             ,
+                                                 'path'     : '/health/info'   ,
+                                                 'protocol' : 'HTTP/1.1'       ,
+                                                 'sourceIp' : '127.0.0.1'      }},
+                   'isBase64Encoded' : False                                      }
         result  = self.lambda_docker.lambda_function().invoke(payload)
         body    = result.get('body', '')
         assert 'sg-playwright' in body

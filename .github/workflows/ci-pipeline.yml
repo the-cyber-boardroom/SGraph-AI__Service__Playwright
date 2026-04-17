@@ -54,17 +54,11 @@ jobs:
 
   # ════════════════════════════════════════════════════════════════════════════
   # Job 1: Unit Tests (no browser, no Docker)
-  #
-  # TEMPORARILY DISABLED (`if: false`) while we iterate on Build + ECR push +
-  # Lambda create. The unit suite is green locally (314 tests pass) so it adds
-  # nothing to each CI cycle right now — re-enable once the deploy path is
-  # stable end-to-end.
   # ════════════════════════════════════════════════════════════════════════════
   run-unit-tests:
     name: "Run Unit Tests"
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    if: false                                                                           # TEMP — re-enable after deploy path is stable
     steps:
       - uses: actions/checkout@v5
 
@@ -86,16 +80,11 @@ jobs:
 
   # ════════════════════════════════════════════════════════════════════════════
   # Job 2: Build Docker Image (build once; share with downstream jobs as an artefact)
-  #
-  # TEMPORARILY DISABLED while we iterate on Lambda deploy. The image is already
-  # in ECR and the Lambda just needs the new code path exercised.
-  # Re-enable by removing `if: false`.
   # ════════════════════════════════════════════════════════════════════════════
   build-docker-image:
     name: "Build Docker Image"
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    if: false                                                                           # TEMP — image already in ECR; iterating on Lambda deploy
     steps:
       - uses: actions/checkout@v5
 
@@ -161,7 +150,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     needs: [build-docker-image, check-aws-credentials]
-    if: false                                                                           # TEMP — image already in ECR; iterating on Lambda deploy
+    if: needs.check-aws-credentials.outputs.has-credentials == 'true'
     steps:
       - uses: actions/checkout@v5
 
@@ -204,7 +193,6 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     needs: [build-docker-image]
-    if: false                                                                           # TEMP — depends on disabled build job; iterating on Lambda deploy
     steps:
       - uses: actions/checkout@v5
 
@@ -266,7 +254,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     needs: [run-integration-tests]
-    if: false                                                                           # TEMP — depends on disabled integration job; iterating on Lambda deploy
+    if: inputs.should_increment_tag == true
     steps:
       - uses: actions/checkout@v5
         with:
@@ -284,8 +272,12 @@ jobs:
     name: "Deploy Lambda"
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    needs: [check-aws-credentials]                                                      # TEMP shortcut — image is already in ECR; no need to wait on build/push/integration/increment
-    if: needs.check-aws-credentials.outputs.has-credentials == 'true'
+    needs: [push-to-ecr, run-integration-tests, check-aws-credentials]
+    if: |
+      always() &&
+      needs.push-to-ecr.result            == 'success' &&
+      needs.run-integration-tests.result  == 'success' &&
+      needs.check-aws-credentials.outputs.has-credentials == 'true'
     steps:
       - uses: actions/checkout@v5
 
