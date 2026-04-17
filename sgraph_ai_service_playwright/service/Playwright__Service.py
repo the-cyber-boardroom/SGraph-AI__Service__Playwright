@@ -18,10 +18,11 @@
 #   • session_close()      → Schema__Session__Close__Response | None      (DELETE /session/close/{id})
 #   • generate_trace_id()  → str — used when the caller doesn't supply one
 #
-# Phase 2.10 Slice B subset — single-action surface:
-#   • execute_action()     → Schema__Action__Response            (POST /browser/{navigate|click|screenshot})
+# Phase 2.10 Slice B — single-action surface (all six live Step__Executor actions):
+#   • execute_action()     → Schema__Action__Response            (POST /browser/{navigate|click|fill|screenshot|get-content|get-url})
 #
-# Sequence method lands in Slice C together with Sequence__Runner.
+# Phase 2.10 Slice C — sequence surface:
+#   • execute_sequence()   → Schema__Sequence__Response          (POST /sequence/execute)
 #
 # setup() is idempotent; it primes Capability__Detector so service_info /
 # capabilities are ready on first request (keeps the /health/info path cheap
@@ -39,6 +40,8 @@ from sgraph_ai_service_playwright.schemas.core.Schema__Action__Request          
 from sgraph_ai_service_playwright.schemas.core.Schema__Action__Response                 import Schema__Action__Response
 from sgraph_ai_service_playwright.schemas.primitives.identifiers.Safe_Str__Trace_Id     import Safe_Str__Trace_Id
 from sgraph_ai_service_playwright.schemas.primitives.identifiers.Session_Id             import Session_Id
+from sgraph_ai_service_playwright.schemas.sequence.Schema__Sequence__Request            import Schema__Sequence__Request
+from sgraph_ai_service_playwright.schemas.sequence.Schema__Sequence__Response           import Schema__Sequence__Response
 from sgraph_ai_service_playwright.schemas.service.Schema__Health                        import Schema__Health
 from sgraph_ai_service_playwright.schemas.service.Schema__Service__Capabilities         import Schema__Service__Capabilities
 from sgraph_ai_service_playwright.schemas.service.Schema__Service__Info                 import Schema__Service__Info
@@ -53,6 +56,7 @@ from sgraph_ai_service_playwright.service.Browser__Launcher                     
 from sgraph_ai_service_playwright.service.Capability__Detector                          import Capability__Detector
 from sgraph_ai_service_playwright.service.Credentials__Loader                           import Credentials__Loader
 from sgraph_ai_service_playwright.service.Request__Validator                            import Request__Validator
+from sgraph_ai_service_playwright.service.Sequence__Runner                              import Sequence__Runner
 from sgraph_ai_service_playwright.service.Session__Manager                              import Session__Manager
 
 
@@ -64,13 +68,19 @@ class Playwright__Service(Type_Safe):
     request_validator   : Request__Validator
     credentials_loader  : Credentials__Loader
     action_runner       : Action__Runner
+    sequence_runner     : Sequence__Runner
 
     def setup(self) -> 'Playwright__Service':
         if self.capability_detector.detected_target is None:
             self.capability_detector.detect()
-        self.action_runner.session_manager     = self.session_manager                   # Share orchestrator state — default-constructed attrs would be isolated instances
-        self.action_runner.capability_detector = self.capability_detector
-        self.action_runner.request_validator   = self.request_validator
+        self.action_runner.session_manager       = self.session_manager                 # Share orchestrator state — default-constructed attrs would be isolated instances
+        self.action_runner.capability_detector   = self.capability_detector
+        self.action_runner.request_validator     = self.request_validator
+        self.sequence_runner.session_manager     = self.session_manager
+        self.sequence_runner.capability_detector = self.capability_detector
+        self.sequence_runner.request_validator   = self.request_validator
+        self.sequence_runner.browser_launcher    = self.browser_launcher
+        self.sequence_runner.credentials_loader  = self.credentials_loader
         return self
 
     # ─── Health surface (Phase 2.7) ────────────────────────────────────────────
@@ -141,11 +151,17 @@ class Playwright__Service(Type_Safe):
                                                  artefacts         = list(artefacts),
                                                  total_duration_ms = duration_ms  )
 
-    # ─── Action surface (Phase 2.10 Slice B subset) ───────────────────────────
+    # ─── Action surface (Phase 2.10 Slice B) ──────────────────────────────────
 
     def execute_action(self, request: Schema__Action__Request) -> Schema__Action__Response:
         self.setup()                                                                # Idempotent — re-shares Action__Runner deps in case of late mutation
         return self.action_runner.execute(request)
+
+    # ─── Sequence surface (Phase 2.10 Slice C) ────────────────────────────────
+
+    def execute_sequence(self, request: Schema__Sequence__Request) -> Schema__Sequence__Response:
+        self.setup()                                                                # Idempotent — re-shares Sequence__Runner deps too
+        return self.sequence_runner.execute(request)
 
     # ─── Utility ──────────────────────────────────────────────────────────────
 

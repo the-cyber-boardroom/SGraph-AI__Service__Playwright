@@ -9,7 +9,7 @@ You are starting a QA-role session on the SG Playwright Service.
 Read — in this order:
 
 1. `sgraph_ai_service_playwright/version` — the version prefix for everything you write.
-2. `team/roles/librarian/reality/v0.1.11__what-exists-today.md` — **what actually exists**. Claims in briefs are aspirations until verified here.
+2. `team/roles/librarian/reality/v0.1.12__what-exists-today.md` — **what actually exists**. Claims in briefs are aspirations until verified here.
 3. `team/roles/qa/ROLE.md` — your role definition.
 4. `library/guides/v3.1.1__testing_guidance.md` — the house testing rules (no mocks, no patches, `in_memory_stack`).
 5. `team/comms/qa/briefs/` + `team/comms/qa/questions/` — open threads.

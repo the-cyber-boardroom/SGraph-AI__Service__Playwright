@@ -18,6 +18,15 @@
 # origin. The upsert path below updates image + configuration in place and
 # only creates the Function URL when it does not already exist.
 #
+# Lambda update serialization — every Lambda update (image, configuration,
+# permissions) flips the function to LastUpdateStatus=InProgress. Issuing a
+# second update before it returns to Successful raises
+# ResourceConflictException ("The operation cannot be performed at this time.
+# An update is in progress for resource …"). We bracket each in-place update
+# with wait_for_function_update_to_complete() so the image→config→url chain
+# serialises correctly. osbot_aws's default (40 × 0.1s = 4s) is too short for
+# a 5120MB Playwright image — bumped to 300 × 0.5s = 150s.
+#
 # `create_lambda_function_url()` — AuthType=NONE needs TWO policy statements
 # (per https://docs.aws.amazon.com/lambda/latest/dg/urls-auth.html, required
 # for all URLs created after October 2025):
@@ -44,6 +53,8 @@ from sgraph_ai_service_playwright.docker.Docker__SGraph_AI__Service__Playwright_
 LAMBDA_MEMORY_MB                      = 5120                                            # Production-tuned; do not reduce (see header)
 LAMBDA_ARCHITECTURE                   = 'x86_64'                                        # GH Actions builds x86_64 images
 LAMBDA_TIMEOUT_SECS                   = 300                                             # 5 min — sequences + browser launches overflow the 60s default
+LAMBDA_UPDATE_MAX_ATTEMPTS            = 300                                             # 300 × 0.5s = 150s — image updates on 5120MB Playwright Lambdas can take 20-60s; osbot_aws's 40 × 0.1s default times out first
+LAMBDA_UPDATE_WAIT_SECS               = 0.5
 
 FUNCTION_URL_INVOKE_MODE              = 'BUFFERED'
 FUNCTION_URL_AUTH_TYPE                = 'NONE'                                          # Public URL, paired with the two policy statements
@@ -67,8 +78,12 @@ class Lambda__Docker__SGraph_AI__Service__Playwright(Docker__SGraph_AI__Service_
             if lambda_function.exists():
                 with Duration(prefix='[create_lambda] | update image:'):
                     lambda_function.update_lambda_image_uri(self.image_uri())           # Rolls the function to the new image, URL host UUID unchanged
+                with Duration(prefix='[create_lambda] | wait for image update:'):       # AWS rejects a second update while LastUpdateStatus=InProgress with ResourceConflictException
+                    lambda_function.wait_for_function_update_to_complete(max_attempts=LAMBDA_UPDATE_MAX_ATTEMPTS, wait_time=LAMBDA_UPDATE_WAIT_SECS)
                 with Duration(prefix='[create_lambda] | update configuration:'):
                     lambda_function.update_lambda_configuration()                       # Refresh env vars (Layers absent for Image pkgs → no-op on layers)
+                with Duration(prefix='[create_lambda] | wait for config update:'):      # Same reason — subsequent function_url / add_permission calls need the function out of Pending
+                    lambda_function.wait_for_function_update_to_complete(max_attempts=LAMBDA_UPDATE_MAX_ATTEMPTS, wait_time=LAMBDA_UPDATE_WAIT_SECS)
                 create_result = {'status': 'ok', 'name': lambda_function.name, 'data': {'mode': 'update'}}
                 pprint(create_result)
             else:
