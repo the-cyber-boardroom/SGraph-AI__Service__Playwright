@@ -12,6 +12,12 @@
 # secrets from the CI environment into the Lambda's environment, pinning
 # DEPLOYMENT_TARGET=lambda so the in-process detector sees the correct target.
 #
+# DO NOT DELETE THE FUNCTION OR THE FUNCTION URL — CloudFront is wired to the
+# URL's host UUID (`<uuid>.lambda-url.<region>.on.aws`). Deleting either the
+# function or its URL config regenerates that UUID and breaks the CloudFront
+# origin. The upsert path below updates image + configuration in place and
+# only creates the Function URL when it does not already exist.
+#
 # `create_lambda_function_url()` — AuthType=NONE needs TWO policy statements
 # (per https://docs.aws.amazon.com/lambda/latest/dg/urls-auth.html, required
 # for all URLs created after October 2025):
@@ -48,8 +54,8 @@ FUNCTION_URL_PRINCIPAL                = '*'
 
 class Lambda__Docker__SGraph_AI__Service__Playwright(Docker__SGraph_AI__Service__Playwright__Base):
 
-    def create_lambda(self, delete_existing=False, wait_for_active=False):
-        with Duration(prefix='[create_lambda] | delete and create:'):                   # No outer try/except: errors must propagate so CI surfaces the real failure
+    def create_lambda(self, wait_for_active=False):                                     # Upsert — never deletes (preserves Function URL for CloudFront)
+        with Duration(prefix='[create_lambda] | upsert:'):                              # No outer try/except: errors must propagate so CI surfaces the real failure
             lambda_function              = self.lambda_function()
             lambda_function.image_uri    = self.image_uri()
             lambda_function.architecture = LAMBDA_ARCHITECTURE
@@ -58,11 +64,16 @@ class Lambda__Docker__SGraph_AI__Service__Playwright(Docker__SGraph_AI__Service_
 
             self.set_lambda_env_vars(lambda_function)                                   # Propagate CI secrets → Lambda env
 
-            if delete_existing:
-                lambda_function.delete()
-
-            create_result = lambda_function.create()
-            pprint(create_result)
+            if lambda_function.exists():
+                with Duration(prefix='[create_lambda] | update image:'):
+                    lambda_function.update_lambda_image_uri(self.image_uri())           # Rolls the function to the new image, URL host UUID unchanged
+                with Duration(prefix='[create_lambda] | update configuration:'):
+                    lambda_function.update_lambda_configuration()                       # Refresh env vars (Layers absent for Image pkgs → no-op on layers)
+                create_result = {'status': 'ok', 'name': lambda_function.name, 'data': {'mode': 'update'}}
+                pprint(create_result)
+            else:
+                create_result = lambda_function.create()
+                pprint(create_result)
 
             if wait_for_active:
                 with Duration(prefix='[create_lambda] | wait for active:'):
@@ -86,42 +97,42 @@ class Lambda__Docker__SGraph_AI__Service__Playwright(Docker__SGraph_AI__Service_
             if value:
                 lambda_function.set_env_variable(key, value)
 
-    def create_lambda_function_url(self):                                               # Delete (idempotent) → osbot_aws public-access create → add second InvokeFunction statement via boto3
+    def create_lambda_function_url(self):                                               # Preserve URL host UUID (CloudFront origin) — create if missing, never delete
         with Duration(prefix='[create_lambda_function_url] |'):
             lambda_function = self.lambda_function()
             function_name   = lambda_function.name
 
-            if lambda_function.function_url_exists():                                   # 1. Idempotent delete of any previous URL config
-                lambda_function.function_url_delete()
-                print('[create_lambda_function_url] step 1/4: deleted existing URL config')
+            if lambda_function.function_url_exists():                                   # 1. Keep the existing URL config intact — host UUID is the CloudFront origin
+                url_policy         = {'status': 'kept', 'message': 'existing URL config preserved'}
+                function_url_value = lambda_function.function_url()
+                print(f'[create_lambda_function_url] step 1/3: preserved existing URL config -> {function_url_value}')
             else:
-                print('[create_lambda_function_url] step 1/4: no existing URL config')
+                url_result         = lambda_function.function_url_create_with_public_access(invoke_mode=FUNCTION_URL_INVOKE_MODE)    # First-time create: URL + statement 1 (lambda:InvokeFunctionUrl + StringEquals lambda:FunctionUrlAuthType=NONE)
+                url_policy         = url_result.get('function_set_policy')
+                function_url_value = url_result.get('function_url_create', {}).get('FunctionUrl')
+                print(f'[create_lambda_function_url] step 1/3: created URL + InvokeFunctionUrl statement: {url_result}')
 
-            url_result = lambda_function.function_url_create_with_public_access(invoke_mode=FUNCTION_URL_INVOKE_MODE)     # 2. URL + statement 1 (lambda:InvokeFunctionUrl + StringEquals lambda:FunctionUrlAuthType=NONE)
-            print(f'[create_lambda_function_url] step 2/4: created URL + InvokeFunctionUrl statement: {url_result}')
+            boto3_client = boto3.client('lambda', region_name=get_env('AWS_DEFAULT_REGION'))                              # 2. & 3. Second statement via boto3 — osbot_aws.permission_add doesn't pass InvokedViaFunctionUrl
 
-            boto3_client = boto3.client('lambda', region_name=get_env('AWS_DEFAULT_REGION'))                              # 3. & 4. Second statement via boto3 — osbot_aws.permission_add doesn't pass InvokedViaFunctionUrl
-
-            try:                                                                                                          # 3. Remove stale statement (idempotent)
+            try:                                                                                                          # 2. Remove stale statement (idempotent)
                 boto3_client.remove_permission(FunctionName = function_name                  ,
                                                 StatementId  = FUNCTION_URL_INVOKE_STATEMENT_ID)
-                print('[create_lambda_function_url] step 3/4: removed stale InvokeFunction statement')
+                print('[create_lambda_function_url] step 2/3: removed stale InvokeFunction statement')
             except ClientError as error:
                 if error.response['Error']['Code'] != 'ResourceNotFoundException':
                     raise
-                print('[create_lambda_function_url] step 3/4: no stale InvokeFunction statement')
+                print('[create_lambda_function_url] step 2/3: no stale InvokeFunction statement')
 
-            invoke_permission = boto3_client.add_permission(FunctionName           = function_name                  ,     # 4. Statement 2: lambda:InvokeFunction + Bool lambda:InvokedViaFunctionUrl=true
+            invoke_permission = boto3_client.add_permission(FunctionName           = function_name                  ,     # 3. Statement 2: lambda:InvokeFunction + Bool lambda:InvokedViaFunctionUrl=true
                                                              StatementId            = FUNCTION_URL_INVOKE_STATEMENT_ID,
                                                              Action                 = FUNCTION_URL_INVOKE_ACTION      ,
                                                              Principal              = FUNCTION_URL_PRINCIPAL          ,
                                                              InvokedViaFunctionUrl  = True                            )
-            print(f'[create_lambda_function_url] step 4/4: added InvokeFunction statement: {invoke_permission.get("Statement")}')
+            print(f'[create_lambda_function_url] step 3/3: added InvokeFunction statement: {invoke_permission.get("Statement")}')
 
-            function_url_value = url_result.get('function_url_create', {}).get('FunctionUrl')
             return dict(function_url      = function_url_value                          ,
                         auth_type         = FUNCTION_URL_AUTH_TYPE                      ,
-                        url_policy        = url_result.get('function_set_policy')      ,
+                        url_policy        = url_policy                                 ,
                         invoke_permission = invoke_permission.get('Statement')         )
 
     def update_lambda_function(self):
