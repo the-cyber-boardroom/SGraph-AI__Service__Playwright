@@ -4,6 +4,7 @@ Chronological list of implementation debriefs. Most recent first.
 
 | Date       | Commit(s)                  | Slice                                           | File |
 |------------|----------------------------|-------------------------------------------------|------|
+| 2026-04-16 | _(pending)_                | Phase 2.3 — Sequence__Dispatcher (parse surface; execute_step deferred) | `2026-04-16__phase-2.3-sequence-dispatcher.md` |
 | 2026-04-16 | b9bbce3                    | Phase 2.2 — Session__Manager (v2 §4 callsites; v1 not in pack) | `2026-04-16__phase-2.2-session-manager.md` |
 | 2026-04-16 | 571fd77                    | Phase 2.1 — Capability__Detector + ENV_VAR constants (spec §4.6, §7) | `2026-04-16__phase-2.1-capability-detector.md` |
 | 2026-04-16 | 64dc249                    | Phase 1.4 — Request__Validator + JS__Expression__Allowlist (spec §9) | `2026-04-16__phase-1.4-request-validator.md` |
