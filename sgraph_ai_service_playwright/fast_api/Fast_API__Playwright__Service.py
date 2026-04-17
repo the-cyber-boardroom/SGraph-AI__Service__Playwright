@@ -23,9 +23,8 @@ class Fast_API__Playwright__Service(Serverless__Fast_API):
     service : Playwright__Service
 
     def setup(self):
-        self.config__no_api_key()                                                   # /health/* must answer plain curl (Lambda warmers, ALB probes, CI smoke). API-key enforcement for mutating routes re-enables in Phase 2.10 when Routes__Session / Routes__Sequence land.
         self.service.setup()                                                        # Prime Capability__Detector before any request lands
-        return super().setup()
+        return super().setup()                                                      # API-key middleware is enabled by Serverless__Fast_API__Config default (reads FAST_API__AUTH__API_KEY__NAME / FAST_API__AUTH__API_KEY__VALUE)
 
     def setup_routes(self):
         self.add_routes(Routes__Health, service=self.service)

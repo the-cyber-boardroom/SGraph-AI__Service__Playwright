@@ -1,14 +1,17 @@
 # ═══════════════════════════════════════════════════════════════════════════════
 # ECR push integration test — SG Playwright Service
 #
-# Real ECR round-trip: create_repository (idempotent) → push_image. Gated on
-# AWS credentials being set in the environment (GitHub secrets in CI). Runs
-# AFTER the docker-build job has tagged the image locally.
+# Real ECR round-trip: create_repository (idempotent) → push_image → verify
+# the image actually landed in the registry. The Docker SDK's images.push()
+# does NOT raise when the local image is missing — it streams JSON lines with
+# errorDetail entries and returns normally. Asserting on push_result alone
+# lets silent failures through, so this test scans the push output for
+# errorDetail and re-checks ECR for the image tag.
 #
-# Skipped when AWS creds or Docker daemon are absent, so pytest still collects
-# the item and exits 0 locally.
+# Gated on AWS credentials + Docker daemon.
 # ═══════════════════════════════════════════════════════════════════════════════
 
+import json
 import os
 import shutil
 import subprocess
@@ -16,6 +19,10 @@ import subprocess
 import pytest
 
 from sgraph_ai_service_playwright.docker.ECR__Docker__SGraph_AI__Service__Playwright   import ECR__Docker__SGraph_AI__Service__Playwright
+
+
+IMAGE_NAME = 'sgraph_ai_service_playwright'
+IMAGE_TAG  = 'latest'
 
 
 def _docker_available() -> bool:
@@ -35,7 +42,20 @@ def test_ecr_setup_and_push():
     ecr = ECR__Docker__SGraph_AI__Service__Playwright().setup()
 
     setup_result = ecr.ecr_setup()                                                      # Idempotent; succeeds if repo exists
-    assert setup_result is not None
+    assert setup_result is True or setup_result is not None
 
     push_result  = ecr.publish_docker_image()                                           # Blocking; streams layers
     assert push_result is not None
+
+    push_lines   = push_result.get('push_json_lines', '') or ''                         # Scan stream for errorDetail (silent-failure detector)
+    errors       = []
+    for raw_line in push_lines.splitlines() if isinstance(push_lines, str) else push_lines:
+        try    : entry = json.loads(raw_line) if isinstance(raw_line, str) else raw_line
+        except Exception: continue
+        if isinstance(entry, dict) and entry.get('errorDetail'):
+            errors.append(entry['errorDetail'].get('message', str(entry['errorDetail'])))
+    assert not errors, f'docker push reported errorDetail entries: {errors}'
+
+    image_tags   = [i.get('imageTag') for i in (ecr.create_image_ecr.ecr.images(IMAGE_NAME) or [])
+                                      if i.get('imageTag')]
+    assert IMAGE_TAG in image_tags, f'expected tag {IMAGE_TAG!r} in ECR repo {IMAGE_NAME!r}; got {image_tags}'
