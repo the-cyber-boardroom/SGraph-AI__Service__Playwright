@@ -12,9 +12,9 @@
 
 ## Reality Document — MANDATORY CHECK
 
-**Before describing, assessing, or assuming what the Playwright service can do, READ:**
+**Before describing, assessing, or assuming what the Playwright service can do, READ the current reality doc.**
 
-`team/explorer/librarian/reality/v0.1.0__what-exists-today.md`
+Start here: [`team/roles/librarian/reality/README.md`](../team/roles/librarian/reality/README.md) — it points at the current `v{version}__what-exists-today.md` and lists supersession rules. The filename is version-stamped; the README always tracks the current one, so you do not need to edit this CLAUDE.md on every version bump.
 
 ### Rules (Non-Negotiable)
 
@@ -22,6 +22,42 @@
 2. **Proposed features must be labelled:** "PROPOSED — does not exist yet."
 3. **Briefs are aspirations, not facts.** Cross-check against reality doc.
 4. **Update the reality document when you change code.**
+
+The canonical location moved from `team/explorer/librarian/reality/` to `team/roles/librarian/reality/` on 2026-04-17 to align with the `team/roles/{role}/` convention. The old path contains a SUPERSEDED stub pointer.
+
+---
+
+## Where Knowledge Lives
+
+| Kind | Path | Authority |
+|------|------|-----------|
+| What exists today | `team/roles/librarian/reality/v{version}__what-exists-today.md` | **Canonical.** If not here, it does not exist. |
+| Contracts / specs | `library/docs/specs/` | Aspiration until reality-doc confirms |
+| Research | `library/docs/research/` | Context, not spec |
+| Style / patterns | `library/guides/` | Non-negotiable once adopted |
+| Historical context | `library/reference/v{version}__arch-brief.md`, `library/reference/v{version}__decisions-log.md` | Append-only |
+| Onboarding briefs | `library/briefing/` | Numbered reading order |
+| Roadmap | `library/roadmap/phases/v{version}__phase-overview.md` | Phase status (✅/🟡/❌/⚠) |
+| Role definitions | `team/roles/{role}/ROLE.md` | What each agent persona owns |
+| Phase debriefs | `team/claude/debriefs/` + `index.md` | Per-slice retrospective |
+| Cross-role briefs / plans / changelog | `team/comms/` | Communication between roles |
+| Human inbox (HUMAN-ONLY) | `team/humans/dinis_cruz/briefs/` | Agents NEVER write here |
+| Agent outputs | `team/humans/dinis_cruz/claude-code-web/MM/DD/HH/` | Scratch space, promote to reviews when formal |
+
+---
+
+## Roles
+
+Six personas, one shared codebase. Pick the role that fits the task before you start:
+
+| Role | Owns | Read |
+|------|------|------|
+| **Architect** | API contracts, schemas, boundaries | [`team/roles/architect/ROLE.md`](../team/roles/architect/ROLE.md) |
+| **Dev** | Implementation, tests, refactors | [`team/roles/dev/ROLE.md`](../team/roles/dev/ROLE.md) |
+| **QA** | Test strategy, deploy-via-pytest assertions | [`team/roles/qa/ROLE.md`](../team/roles/qa/ROLE.md) |
+| **DevOps** | CI, Docker image, ECR, Lambda | [`team/roles/devops/ROLE.md`](../team/roles/devops/ROLE.md) |
+| **Librarian** | Reality doc, cross-references, indexes | [`team/roles/librarian/ROLE.md`](../team/roles/librarian/ROLE.md) |
+| **Historian** | Decision log, debrief index, phase summaries | [`team/roles/historian/ROLE.md`](../team/roles/historian/ROLE.md) |
 
 ---
 
@@ -42,8 +78,8 @@
 | Lambda adapter | AWS Lambda Web Adapter 1.0.0 | |
 | Web framework | FastAPI via `Serverless__Fast_API` | Use `osbot-fast-api-serverless` |
 | Type system | `Type_Safe` from `osbot-utils` | **Never use Pydantic. No Literals.** |
-| AWS operations | `osbot-aws` | **Never use boto3 directly** |
-| Browser | Playwright sync API | **Only `Step__Executor` touches `page.*`** |
+| AWS operations | `osbot-aws` | **Never use boto3 directly** (narrow documented exception for the Lambda Function URL two-statement permission fix) |
+| Browser | Playwright sync API | **Only `Step__Executor` touches `page.*`** (`Browser__Launcher` handles process lifecycle) |
 | Testing | pytest, in-memory stack | **No mocks, no patches** |
 | CI/CD | GitHub Actions, deploy-via-pytest | |
 
@@ -56,7 +92,7 @@
 - **lambda_handler.py** — separate file, fires up everything on import
 - **Fast_API__Playwright__Service** — pure class, importable without side effects
 - **25 endpoints** — 3 health + 5 session + 16 browser (Layer 0) + 1 sequence (Layer 3)
-- **12 service classes** — strict responsibility separation
+- **12 service classes** — strict responsibility separation (10 live today)
 - **Stateless client** — `register_playwright_service__in_memory()` for test composition
 
 ---
@@ -79,40 +115,86 @@
 
 10. **Evaluate action is allowlist-gated** — `JS__Expression__Allowlist` defaults to deny-all
 11. **No arbitrary code execution** — the shell-server pattern from OSBot-Playwright is not carried forward
+12. **No AWS credentials in Git.** Live in GH Actions repository secrets only. Never in `.env.example`, never in any committed file.
+13. **No vault keys in Git.** Vault keys (e.g. `sgit` dev-pack key) are shared out-of-band. If one appears in a diff, block the commit.
 
 ### Responsibility Boundaries
 
-12. **Step__Executor** is the ONLY class that calls `page.*` Playwright methods
-13. **Artefact__Writer** is the ONLY class that writes to sinks
-14. **Request__Validator** contains ALL cross-schema validation
-15. **Routes have no logic** — pure delegation to `Playwright__Service`
+14. **Step__Executor** is the ONLY class that calls `page.*` Playwright methods (with `Browser__Launcher` carve-out for process lifecycle)
+15. **Artefact__Writer** is the ONLY class that writes to sinks
+16. **Request__Validator** contains ALL cross-schema validation
+17. **Routes have no logic** — pure delegation to `Playwright__Service`
 
 ### Class / File Naming
 
-16. **Python identifier safety** — the spec uses names like `Docker__SGraph-AI__Service__Playwright__Base` with a hyphen in `SGraph-AI`. Python identifiers cannot contain hyphens. Normalised form:
+18. **Python identifier safety** — the spec uses names like `Docker__SGraph-AI__Service__Playwright__Base` with a hyphen in `SGraph-AI`. Python identifiers cannot contain hyphens. Normalised form:
     - Class names and module names use `SGraph_AI` (underscore) — e.g. `Docker__SGraph_AI__Service__Playwright__Base`
     - Repo root and test filenames retain `SGraph-AI` where the spec is explicit (filenames allow hyphens)
-17. **One class per file.** Every `Safe_*`, `Enum__*`, `Schema__*`, and `List__*` / `Dict__*` collection class lives in its own file named exactly after the class. When a module would otherwise declare multiple such classes, replace it with a same-named folder containing per-class files. Callers import from the class file directly. Registries (module-level constants + helper functions, e.g. `STEP_SCHEMAS`) are the one exception — they live in a single `*_registry.py` under `dispatcher/` because they are logic, not a schema.
-18. **`__init__.py` stays empty.** Every package inside `sgraph_ai_service_playwright/` uses an empty `__init__.py`. Never re-export symbols — callers import from the fully-qualified per-class path. Never commit an empty `__init__.py` in a folder that shares a name with a sibling `.py` module: Python's import system prefers the package and every import under the module breaks.
+19. **One class per file.** Every `Safe_*`, `Enum__*`, `Schema__*`, and `List__*` / `Dict__*` collection class lives in its own file named exactly after the class. When a module would otherwise declare multiple such classes, replace it with a same-named folder containing per-class files. Callers import from the class file directly. Registries (module-level constants + helper functions, e.g. `STEP_SCHEMAS`) are the one exception — they live in a single `*_registry.py` under `dispatcher/` because they are logic, not a schema.
+20. **`__init__.py` stays empty.** Every package inside `sgraph_ai_service_playwright/` uses an empty `__init__.py`. Never re-export symbols — callers import from the fully-qualified per-class path. Never commit an empty `__init__.py` in a folder that shares a name with a sibling `.py` module: Python's import system prefers the package and every import under the module breaks.
 
 ### Human Folders — Read-Only for Agents
 
-19. **`team/humans/dinis_cruz/briefs/`** — HUMAN-ONLY. Agents must NEVER create files there.
-20. **Agent outputs** go to `team/humans/dinis_cruz/claude-code-web/MM/DD/`
+21. **`team/humans/dinis_cruz/briefs/`** — HUMAN-ONLY. Agents must NEVER create files there.
+22. **`team/humans/dinis_cruz/debriefs/`** — HUMAN-ONLY. Agents must NEVER edit files there.
+23. **Agent outputs** go to `team/humans/dinis_cruz/claude-code-web/MM/DD/HH/`
+
+### Debrief Depth
+
+24. **Every slice gets a debrief** under `team/claude/debriefs/`, indexed in `team/claude/debriefs/index.md`.
+25. **Debriefs classify failures** using the good-failure / bad-failure convention:
+    - **Good failure** — surfaced early, caught by tests, informed a better design.
+    - **Bad failure** — silenced, worked around, or re-introduced. A bad failure is an implicit follow-up request.
+26. **Commit hash is backfilled** into the debrief index once the Dev commit lands. The Historian chases stragglers.
 
 ### Git
 
-21. **Default branch:** `dev`
-22. **Branch naming:** `claude/{description}-{session-id}`
+27. **Default branch:** `dev`
+28. **Branch naming:** `claude/{description}-{session-id}`
+29. **Agents never push to `dev` directly.** Open a PR from the feature branch.
 
 ---
 
-## Dev Pack
+## Testing — Non-Negotiable
 
-The definitive specs for this project live in a vault-hosted dev pack. If you need to re-read:
+1. **No mocks. No patches.** Use `register_playwright_service__in_memory()` and `in_memory_stack`-style composition.
+2. **Assert on contracts** — schemas, status codes, persisted artefacts — not implementation details.
+3. **Real Chromium for integration tests.** Gate on `SG_PLAYWRIGHT__CHROMIUM_EXECUTABLE`; skip cleanly when absent.
+4. **Deploy-via-pytest.** Deploy tests are numbered (`test_1__create_lambda`, `test_2__invoke__health_info`, ...) and run top-down.
+
+Full guidance: [`library/guides/v3.1.1__testing_guidance.md`](../library/guides/v3.1.1__testing_guidance.md).
+
+---
+
+## Dev Pack (vault-hosted; mirrored to `library/`)
+
+The authoritative dev pack is vault-hosted. A 2026-04-17 mirror of the dev pack lives under `library/`:
+
+| Vault path | In-repo mirror |
+|------------|----------------|
+| `dev-specs/schema-catalogue-v2.md` | `library/docs/specs/v0.20.55__schema-catalogue-v2.md` |
+| `dev-specs/routes-catalogue-v2.md` | `library/docs/specs/v0.20.55__routes-catalogue-v2.md` |
+| `dev-specs/ci-pipeline.md` | `library/docs/specs/v0.20.55__ci-pipeline.md` |
+| `guidance/*` | `library/guides/v*.md` |
+| `briefing/*` | `library/briefing/v0.20.55__*.md` |
+| `reference/*` | `library/reference/v0.20.55__*.md` |
+
+If you need to re-sync from vault:
 
 ```bash
 sgit clone {VAULT_KEY} /tmp/playwright-dev-pack
 ```
 
-Key files: `dev-specs/schema-catalogue-v2.md`, `dev-specs/routes-catalogue-v2.md`, `dev-specs/ci-pipeline.md`
+Vault key is shared out-of-band — do NOT commit it.
+
+---
+
+## First Session
+
+1. `git fetch origin dev && git merge origin/dev`
+2. Read `sgraph_ai_service_playwright/version`.
+3. Read the current reality doc under `team/roles/librarian/reality/`.
+4. Read the role definition under `team/roles/{role}/ROLE.md` that matches your task.
+5. Read the relevant debriefs under `team/claude/debriefs/`.
+6. Check open briefs / plans under `team/comms/`.
+7. Only then start writing code.
