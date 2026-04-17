@@ -171,6 +171,15 @@ class test_post_quick_html(TestCase):
         assert rj['url']       == 'http://example.com/form'
         assert rj['final_url'] == 'http://example.com/form#after-click'                       # Fake click appends #after-click
 
+    def test__timeout_ms_zero_is_treated_as_unset(self):                                      # Swagger's default example renders integers as 0 — that payload must NOT zero every step's timeout
+        with _EnvScrub(**{ENV_VAR__DEPLOYMENT_TARGET: 'lambda'}):
+            _, client = _build_fast_api()
+            body      = {'url': 'http://example.com/target', 'click': '', 'wait_until': 'load', 'timeout_ms': 0}
+            response  = client.post('/quick/html', headers=AUTH_HEADERS, json=body)
+        assert response.status_code == 200                                                    # Would 502 with "Timeout 0ms exceeded" if 0 leaked through to step.timeout_ms
+        rj = response.json()
+        assert rj['final_url'] == 'http://example.com/target'
+
 
 class test_post_quick_screenshot(TestCase):
 
