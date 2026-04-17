@@ -6,17 +6,19 @@
 # (which in turn calls Action__Runner.execute), and serialises the typed
 # Schema__Action__Response.
 #
-# Phase 2.10 Slice B subset — three endpoints only, to let integration tests
-# start exercising real sites while the remaining 13 action types stay gated
-# behind their Step__Executor NotImplementedError:
-#   POST /browser/navigate   -> Schema__Action__Response
-#   POST /browser/click      -> Schema__Action__Response
-#   POST /browser/screenshot -> Schema__Action__Response
+# Phase 2.10 Slice B (current scope) — six endpoints matching the six
+# Step__Executor handlers that are live today:
+#   POST /browser/navigate    -> Schema__Action__Response
+#   POST /browser/click       -> Schema__Action__Response
+#   POST /browser/fill        -> Schema__Action__Response
+#   POST /browser/screenshot  -> Schema__Action__Response
+#   POST /browser/get-content -> Schema__Action__Response (get_content -> /get-content)
+#   POST /browser/get-url     -> Schema__Action__Response (get_url     -> /get-url)
 #
-# Full fan-out to the remaining 13 actions (fill / press / select / hover /
-# scroll / wait-for / video-start / video-stop / evaluate / dispatch-event /
-# set-viewport / get-content / get-url) lands after the subset ships green
-# and the Step__Executor deferred handlers come online in Phase 2.11.
+# The remaining 10 actions (press / select / hover / scroll / wait-for /
+# video-start / video-stop / evaluate / dispatch-event / set-viewport) stay
+# gated behind Step__Executor NotImplementedError until Phase 2.11 brings
+# their handlers online — then the matching routes wire straight through.
 # ═══════════════════════════════════════════════════════════════════════════════
 
 from osbot_fast_api.api.routes.Fast_API__Routes                                         import Fast_API__Routes
@@ -26,9 +28,12 @@ from sgraph_ai_service_playwright.service.Playwright__Service                   
 
 
 TAG__ROUTES_BROWSER   = 'browser'
-ROUTES_PATHS__BROWSER = [f'/{TAG__ROUTES_BROWSER}/navigate'  ,
-                         f'/{TAG__ROUTES_BROWSER}/click'     ,
-                         f'/{TAG__ROUTES_BROWSER}/screenshot']
+ROUTES_PATHS__BROWSER = [f'/{TAG__ROUTES_BROWSER}/navigate'   ,
+                         f'/{TAG__ROUTES_BROWSER}/click'      ,
+                         f'/{TAG__ROUTES_BROWSER}/fill'       ,
+                         f'/{TAG__ROUTES_BROWSER}/screenshot' ,
+                         f'/{TAG__ROUTES_BROWSER}/get-content',
+                         f'/{TAG__ROUTES_BROWSER}/get-url'    ]
 
 
 class Routes__Browser(Fast_API__Routes):
@@ -41,10 +46,22 @@ class Routes__Browser(Fast_API__Routes):
     def click(self, body: Schema__Action__Request) -> dict:
         return self.service.execute_action(body).json()
 
+    def fill(self, body: Schema__Action__Request) -> dict:
+        return self.service.execute_action(body).json()
+
     def screenshot(self, body: Schema__Action__Request) -> dict:
         return self.service.execute_action(body).json()
 
+    def get_content(self, body: Schema__Action__Request) -> dict:                   # osbot-fast-api converts `_` -> `-` in paths -> /browser/get-content
+        return self.service.execute_action(body).json()
+
+    def get_url(self, body: Schema__Action__Request) -> dict:                       # osbot-fast-api converts `_` -> `-` in paths -> /browser/get-url
+        return self.service.execute_action(body).json()
+
     def setup_routes(self):
-        self.add_route_post(self.navigate  )
-        self.add_route_post(self.click     )
-        self.add_route_post(self.screenshot)
+        self.add_route_post(self.navigate   )
+        self.add_route_post(self.click      )
+        self.add_route_post(self.fill       )
+        self.add_route_post(self.screenshot )
+        self.add_route_post(self.get_content)
+        self.add_route_post(self.get_url    )

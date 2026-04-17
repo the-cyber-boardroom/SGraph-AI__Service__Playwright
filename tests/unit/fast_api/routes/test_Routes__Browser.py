@@ -63,14 +63,30 @@ class _EnvScrub:
 
 # ─── Fakes (no real Chromium, no real vault) ─────────────────────────────────
 
+class _FakeLocator:                                                                  # Supports .press_sequentially (fill with clear_first=False) + .inner_text / .inner_html / .screenshot (get_content / screenshot-by-selector)
+    def __init__(self, selector, text='locator-text', html='<span>locator-html</span>'):
+        self.selector = selector
+        self._text    = text
+        self._html    = html
+    def press_sequentially(self, value, timeout=None): pass
+    def inner_text   (self, timeout=None): return self._text
+    def inner_html   (self, timeout=None): return self._html
+    def screenshot   (self, timeout=None): return b'\x89PNG\r\n\x1a\n' + b'\x00' * 16
+
+
 class _FakePage:                                                                     # Records Step__Executor calls; does nothing real
     def __init__(self):
-        self.url = 'about:blank'
+        self.url = 'http://example.com/current'
     def goto(self, url, wait_until=None, timeout=None):
         self.url = url
     def click(self, selector, button=None, click_count=None, delay=None, force=None, timeout=None): pass
+    def fill (self, selector, value, timeout=None): pass
     def screenshot(self, full_page=False, timeout=None):
         return b'\x89PNG\r\n\x1a\n' + b'\x00' * 16
+    def content(self):
+        return '<html><body>full-page-html</body></html>'
+    def locator(self, selector):
+        return _FakeLocator(selector)
 
 
 class _FakeContext:
@@ -127,9 +143,12 @@ class test_constants(TestCase):
 
     def test__tag_and_paths(self):
         assert TAG__ROUTES_BROWSER == 'browser'
-        assert ROUTES_PATHS__BROWSER == ['/browser/navigate'  ,
-                                         '/browser/click'     ,
-                                         '/browser/screenshot']
+        assert ROUTES_PATHS__BROWSER == ['/browser/navigate'   ,
+                                         '/browser/click'      ,
+                                         '/browser/fill'       ,
+                                         '/browser/screenshot' ,
+                                         '/browser/get-content',
+                                         '/browser/get-url'    ]
 
 
 class test_route_registration(TestCase):
@@ -201,6 +220,64 @@ class test_post_screenshot(TestCase):
         assert rj['step_result']['status']    == 'passed'
         assert rj['step_result']['action']    == 'screenshot'
         assert rj['step_result']['artefacts'] == []
+
+
+class test_post_fill(TestCase):
+
+    def test__returns_200_after_prior_navigate(self):
+        with _EnvScrub(**{ENV_VAR__DEPLOYMENT_TARGET: 'lambda'}):
+            _, client  = _build_fast_api()
+            session_id = _create_session(client)
+            client.post('/browser/navigate', headers=AUTH_HEADERS,
+                        json={'session_id': session_id                                       ,
+                              'step'      : {'action': 'navigate', 'url': 'http://example.com/'}})
+            body     = {'session_id': session_id                                                      ,
+                        'step'      : {'action': 'fill', 'selector': 'input#q', 'value': 'hello world'}}
+            response = client.post('/browser/fill', headers=AUTH_HEADERS, json=body)
+        assert response.status_code == 200
+        rj = response.json()
+        assert rj['step_result']['status'] == 'passed'
+        assert rj['step_result']['action'] == 'fill'
+
+
+class test_post_get_content(TestCase):
+
+    def test__returns_200_with_inline_html(self):                                     # inline_in_response=True (default) -> HTML embedded, no sink write
+        with _EnvScrub(**{ENV_VAR__DEPLOYMENT_TARGET: 'lambda'}):
+            _, client  = _build_fast_api()
+            session_id = _create_session(client)
+            client.post('/browser/navigate', headers=AUTH_HEADERS,
+                        json={'session_id': session_id                                       ,
+                              'step'      : {'action': 'navigate', 'url': 'http://example.com/'}})
+            body     = {'session_id': session_id                          ,
+                        'step'      : {'action': 'get_content'            }}
+            response = client.post('/browser/get-content', headers=AUTH_HEADERS, json=body)
+        assert response.status_code == 200
+        rj = response.json()
+        assert rj['step_result']['status']         == 'passed'
+        assert rj['step_result']['action']         == 'get_content'
+        assert rj['step_result']['content_type']   == 'text/html'
+        assert 'full-page-html' in rj['step_result']['content']
+        assert rj['step_result']['artefacts']      == []
+
+
+class test_post_get_url(TestCase):
+
+    def test__returns_200_with_current_page_url(self):
+        with _EnvScrub(**{ENV_VAR__DEPLOYMENT_TARGET: 'lambda'}):
+            _, client  = _build_fast_api()
+            session_id = _create_session(client)
+            client.post('/browser/navigate', headers=AUTH_HEADERS,
+                        json={'session_id': session_id                                       ,
+                              'step'      : {'action': 'navigate', 'url': 'http://example.com/'}})
+            body     = {'session_id': session_id                      ,
+                        'step'      : {'action': 'get_url'            }}
+            response = client.post('/browser/get-url', headers=AUTH_HEADERS, json=body)
+        assert response.status_code == 200
+        rj = response.json()
+        assert rj['step_result']['status'] == 'passed'
+        assert rj['step_result']['action'] == 'get_url'
+        assert rj['step_result']['url']    == 'http://example.com/'
 
 
 class test_auth_gate(TestCase):

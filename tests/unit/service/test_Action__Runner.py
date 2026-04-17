@@ -59,24 +59,45 @@ class _EnvScrub:                                                                
 
 # ─── Fakes (no real Chromium) ────────────────────────────────────────────────
 
+class _FakeLocator:                                                                  # Stand-in for page.locator(selector) — used by fill(clear_first=False), get_content(with selector), screenshot(with selector)
+    def __init__(self, selector):
+        self.selector       = selector
+        self.type_sequences = []
+    def press_sequentially(self, value, timeout=None):
+        self.type_sequences.append({'value': value, 'timeout': timeout})
+    def inner_text(self, timeout=None): return f'text-for:{self.selector}'
+    def inner_html(self, timeout=None): return f'<span>html-for:{self.selector}</span>'
+    def screenshot(self, timeout=None): return b'\x89PNG\r\n\x1a\n' + b'\x00' * 16
+
+
 class _FakePage:                                                                     # Playwright Page stand-in — records every call Step__Executor makes
     def __init__(self):
         self.goto_calls       = []
         self.click_calls      = []
+        self.fill_calls       = []
         self.screenshot_calls = []
-        self.url              = 'about:blank'
+        self.content_calls    = 0
+        self.locators         = []
+        self.url              = 'http://example.com/current'
     def goto(self, url, wait_until=None, timeout=None):
         self.goto_calls.append({'url': url, 'wait_until': wait_until, 'timeout': timeout})
         self.url = url
     def click(self, selector, button=None, click_count=None, delay=None, force=None, timeout=None):
         self.click_calls.append({'selector': selector, 'button': button, 'click_count': click_count,
                                   'delay': delay, 'force': force, 'timeout': timeout})
+    def fill(self, selector, value, timeout=None):
+        self.fill_calls.append({'selector': selector, 'value': value, 'timeout': timeout})
     def screenshot(self, full_page=False, timeout=None):
         call = {'full_page': full_page, 'timeout': timeout}
         self.screenshot_calls.append(call)
         return b'\x89PNG\r\n\x1a\n' + b'\x00' * 16                                    # Looks-like-PNG bytes; size doesn't matter for these tests
+    def content(self):
+        self.content_calls += 1
+        return '<html><body>full-page-html</body></html>'
     def locator(self, selector):
-        raise NotImplementedError('FakePage.locator not exercised by the Slice-B subset')
+        locator = _FakeLocator(selector)
+        self.locators.append(locator)
+        return locator
 
 
 class _FakeContext:                                                                  # Playwright BrowserContext stand-in
@@ -195,6 +216,94 @@ class test_execute__click(TestCase):
         assert response.step_result.status == Enum__Step__Status.PASSED
         assert len(page.click_calls)       == 1
         assert page.click_calls[0]['selector'] == 'button.submit'
+
+
+class test_execute__fill(TestCase):
+
+    def test__fill_with_default_clear_first_uses_page_fill(self):                    # clear_first=True (default) routes through page.fill
+        with _EnvScrub(**{ENV_VAR__DEPLOYMENT_TARGET: 'lambda'}):
+            service    = _build_service()
+            session_id = _open_session(service)
+            service.execute_action(Schema__Action__Request(session_id = session_id                                            ,
+                                                            step       = {'action': 'navigate', 'url': 'http://example.com/'}))
+            fill_req   = Schema__Action__Request(session_id = session_id                                                          ,
+                                                  step       = {'action': 'fill', 'selector': 'input#q', 'value': 'hello world'}  )
+            response   = service.execute_action(fill_req)
+
+            browser = service.session_manager.get_browser(session_id)
+            page    = browser.contexts()[0].pages[0]
+        assert response.step_result.status  == Enum__Step__Status.PASSED
+        assert len(page.fill_calls)         == 1
+        assert page.fill_calls[0]['selector'] == 'input#q'
+        assert page.fill_calls[0]['value']    == 'hello world'
+
+    def test__fill_with_clear_first_false_uses_locator_press_sequentially(self):
+        with _EnvScrub(**{ENV_VAR__DEPLOYMENT_TARGET: 'lambda'}):
+            service    = _build_service()
+            session_id = _open_session(service)
+            service.execute_action(Schema__Action__Request(session_id = session_id                                            ,
+                                                            step       = {'action': 'navigate', 'url': 'http://example.com/'}))
+            fill_req   = Schema__Action__Request(session_id = session_id                                                                                ,
+                                                  step       = {'action': 'fill', 'selector': 'input#append', 'value': 'xyz', 'clear_first': False}   )
+            response   = service.execute_action(fill_req)
+
+            browser = service.session_manager.get_browser(session_id)
+            page    = browser.contexts()[0].pages[0]
+        assert response.step_result.status == Enum__Step__Status.PASSED
+        assert len(page.fill_calls)        == 0                                       # page.fill NOT called
+        assert len(page.locators)          == 1
+        assert page.locators[0].selector            == 'input#append'
+        assert page.locators[0].type_sequences[0]['value'] == 'xyz'
+
+
+class test_execute__get_content(TestCase):
+
+    def test__get_content_defaults_return_inline_page_content(self):                 # selector=None, content_format=HTML -> page.content()
+        with _EnvScrub(**{ENV_VAR__DEPLOYMENT_TARGET: 'lambda'}):
+            service    = _build_service()
+            session_id = _open_session(service)
+            service.execute_action(Schema__Action__Request(session_id = session_id                                            ,
+                                                            step       = {'action': 'navigate', 'url': 'http://example.com/'}))
+            response   = service.execute_action(Schema__Action__Request(session_id = session_id                        ,
+                                                                         step       = {'action': 'get_content'         }))
+
+            browser = service.session_manager.get_browser(session_id)
+            page    = browser.contexts()[0].pages[0]
+        assert response.step_result.status       == Enum__Step__Status.PASSED
+        assert response.step_result.content_type == 'text/html'
+        assert str(response.step_result.content) == '<html><body>full-page-html</body></html>'
+        assert page.content_calls                == 1
+        assert response.step_result.artefacts    == []                                # inline_in_response=True (default) -> no sink write
+
+    def test__get_content_with_selector_goes_through_locator_inner_html(self):
+        with _EnvScrub(**{ENV_VAR__DEPLOYMENT_TARGET: 'lambda'}):
+            service    = _build_service()
+            session_id = _open_session(service)
+            service.execute_action(Schema__Action__Request(session_id = session_id                                            ,
+                                                            step       = {'action': 'navigate', 'url': 'http://example.com/'}))
+            response   = service.execute_action(Schema__Action__Request(session_id = session_id                                             ,
+                                                                         step       = {'action': 'get_content', 'selector': 'div.main'}    ))
+
+            browser = service.session_manager.get_browser(session_id)
+            page    = browser.contexts()[0].pages[0]
+        assert response.step_result.status == Enum__Step__Status.PASSED
+        assert 'html-for:div.main' in str(response.step_result.content)
+        assert page.content_calls    == 0                                             # page.content NOT called when selector is set
+        assert len(page.locators)    >= 1
+
+
+class test_execute__get_url(TestCase):
+
+    def test__get_url_returns_current_page_url(self):
+        with _EnvScrub(**{ENV_VAR__DEPLOYMENT_TARGET: 'lambda'}):
+            service    = _build_service()
+            session_id = _open_session(service)
+            service.execute_action(Schema__Action__Request(session_id = session_id                                            ,
+                                                            step       = {'action': 'navigate', 'url': 'http://after-nav.test/'}))
+            response   = service.execute_action(Schema__Action__Request(session_id = session_id                     ,
+                                                                         step       = {'action': 'get_url'          }))
+        assert response.step_result.status == Enum__Step__Status.PASSED
+        assert str(response.step_result.url) == 'http://after-nav.test/'
 
 
 class test_execute__screenshot(TestCase):
