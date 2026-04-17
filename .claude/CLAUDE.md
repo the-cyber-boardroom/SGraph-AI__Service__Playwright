@@ -14,7 +14,7 @@
 
 **Before describing, assessing, or assuming what the Playwright service can do, READ:**
 
-`team/roles/librarian/reality/v0.1.10__what-exists-today.md`
+`team/roles/librarian/reality/v0.1.11__what-exists-today.md`
 
 ### Rules (Non-Negotiable)
 
