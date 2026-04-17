@@ -47,12 +47,11 @@ class test_Deploy__Playwright__Service__base():                                 
         cls.api_key_value = os.environ['FAST_API__AUTH__API_KEY__VALUE']
         cls.auth_headers  = {cls.api_key_name: cls.api_key_value}
 
-    def test_1__create_lambda(self):
-        result = self.lambda_docker.create_lambda(delete_existing = True  ,
-                                                   wait_for_active = True )
-        assert result.get('create_result', {}).get('status'   )            == 'ok'      # create_function returned ok (was previously '!= error', which let silent failures through)
-        assert result.get('function_url' , {}).get('auth_type')            == 'NONE'    # URL config created
-        assert result.get('function_url' , {}).get('url_policy'        ) is not None    # First policy statement: lambda:InvokeFunctionUrl
+    def test_1__create_lambda(self):                                                    # Upsert: updates image in place on existing function, preserves Function URL (CloudFront origin)
+        result = self.lambda_docker.create_lambda(wait_for_active = True)
+        assert result.get('create_result', {}).get('status'   )            == 'ok'      # create_function / update returned ok
+        assert result.get('function_url' , {}).get('auth_type')            == 'NONE'    # URL config present (created first-time, preserved thereafter)
+        assert result.get('function_url' , {}).get('url_policy'        ) is not None    # First policy statement: lambda:InvokeFunctionUrl (or 'kept' marker on reruns)
         assert result.get('function_url' , {}).get('invoke_permission' ) is not None    # Second policy statement: lambda:InvokeFunction — without this AWS returns 403 on the URL
 
     def test_2__invoke__health_info(self):                                              # Lambda Web Adapter expects an API Gateway v2 event when invoked directly
