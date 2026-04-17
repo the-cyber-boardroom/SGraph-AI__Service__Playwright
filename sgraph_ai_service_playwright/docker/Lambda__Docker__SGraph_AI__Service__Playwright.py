@@ -12,16 +12,21 @@
 # secrets from the CI environment into the Lambda's environment, pinning
 # DEPLOYMENT_TARGET=lambda so the in-process detector sees the correct target.
 #
-# `create_lambda_function_url()` needs TWO resource-policy statements, not one:
-#   • FunctionURLAllowPublicAccess — lambda:InvokeFunctionUrl (osbot_aws helper)
-#   • FunctionURLAllowInvokeAction — lambda:InvokeFunction    (added here)
-# The AWS Console banner "Your function URL auth type is NONE, but is missing
-# permissions required for public access" confirms both are required — adding
-# only InvokeFunctionUrl still yields 403 Forbidden on the URL. osbot_aws's
-# `function_url_create_with_public_access()` only adds InvokeFunctionUrl, so
-# we call `permission_add()` again for the InvokeFunction statement and fail
-# loudly if the helper's silent-error shape ({'error': ...}) comes back.
+# `create_lambda_function_url()` — AuthType=NONE needs TWO policy statements
+# (per https://docs.aws.amazon.com/lambda/latest/dg/urls-auth.html, required
+# for all URLs created after October 2025):
+#   1. FunctionURLAllowPublicAccess — lambda:InvokeFunctionUrl with the
+#      StringEquals condition on lambda:FunctionUrlAuthType=NONE
+#      (osbot_aws's function_url_create_with_public_access() adds this)
+#   2. FunctionURLInvokeAllowPublicAccess — lambda:InvokeFunction with the
+#      Bool condition on lambda:InvokedViaFunctionUrl=true
+#      (must go via boto3 — osbot_aws.permission_add() has no parameter for
+#      InvokedViaFunctionUrl, and passing FunctionUrlAuthType on an
+#      InvokeFunction statement produces the wrong condition)
 # ═══════════════════════════════════════════════════════════════════════════════
+
+import boto3
+from botocore.exceptions                                                                import ClientError
 
 from osbot_utils.helpers.duration.Duration                                              import Duration
 from osbot_utils.utils.Dev                                                              import pprint
@@ -35,8 +40,8 @@ LAMBDA_ARCHITECTURE                   = 'x86_64'                                
 LAMBDA_TIMEOUT_SECS                   = 300                                             # 5 min — sequences + browser launches overflow the 60s default
 
 FUNCTION_URL_INVOKE_MODE              = 'BUFFERED'
-FUNCTION_URL_AUTH_TYPE                = 'NONE'                                          # Public URL, paired with the two policy statements below
-FUNCTION_URL_INVOKE_STATEMENT_ID      = 'FunctionURLAllowInvokeAction'                  # Second statement — lambda:InvokeFunction (AWS requires both actions)
+FUNCTION_URL_AUTH_TYPE                = 'NONE'                                          # Public URL, paired with the two policy statements
+FUNCTION_URL_INVOKE_STATEMENT_ID      = 'FunctionURLInvokeAllowPublicAccess'            # Second statement — lambda:InvokeFunction with InvokedViaFunctionUrl condition
 FUNCTION_URL_INVOKE_ACTION            = 'lambda:InvokeFunction'
 FUNCTION_URL_PRINCIPAL                = '*'
 
@@ -81,33 +86,43 @@ class Lambda__Docker__SGraph_AI__Service__Playwright(Docker__SGraph_AI__Service_
             if value:
                 lambda_function.set_env_variable(key, value)
 
-    def create_lambda_function_url(self):                                               # Delete (idempotent) → osbot_aws public-access create → add second InvokeFunction statement
+    def create_lambda_function_url(self):                                               # Delete (idempotent) → osbot_aws public-access create → add second InvokeFunction statement via boto3
         with Duration(prefix='[create_lambda_function_url] |'):
             lambda_function = self.lambda_function()
+            function_name   = lambda_function.name
 
-            if lambda_function.function_url_exists():                                   # 1. Idempotent delete
+            if lambda_function.function_url_exists():                                   # 1. Idempotent delete of any previous URL config
                 lambda_function.function_url_delete()
-                print('[create_lambda_function_url] step 1/3: deleted existing URL config')
+                print('[create_lambda_function_url] step 1/4: deleted existing URL config')
             else:
-                print('[create_lambda_function_url] step 1/3: no existing URL config')
+                print('[create_lambda_function_url] step 1/4: no existing URL config')
 
-            url_result = lambda_function.function_url_create_with_public_access(invoke_mode=FUNCTION_URL_INVOKE_MODE)     # 2. URL + FunctionURLAllowPublicAccess (lambda:InvokeFunctionUrl)
-            print(f'[create_lambda_function_url] step 2/3: created URL + public-access statement: {url_result}')
+            url_result = lambda_function.function_url_create_with_public_access(invoke_mode=FUNCTION_URL_INVOKE_MODE)     # 2. URL + statement 1 (lambda:InvokeFunctionUrl + StringEquals lambda:FunctionUrlAuthType=NONE)
+            print(f'[create_lambda_function_url] step 2/4: created URL + InvokeFunctionUrl statement: {url_result}')
 
-            invoke_permission = lambda_function.permission_add(function_arn            = lambda_function.function_arn()        ,     # 3. Second statement — lambda:InvokeFunction (AWS rejects public URL calls without this too)
-                                                                statement_id           = FUNCTION_URL_INVOKE_STATEMENT_ID      ,
-                                                                action                 = FUNCTION_URL_INVOKE_ACTION            ,
-                                                                principal              = FUNCTION_URL_PRINCIPAL                ,
-                                                                function_url_auth_type = FUNCTION_URL_AUTH_TYPE                )
-            if isinstance(invoke_permission, dict) and invoke_permission.get('error'):                                            # permission_add swallows API errors into {'error': ...} — fail loudly so CI catches it
-                raise RuntimeError(f'permission_add (InvokeFunction) failed: {invoke_permission["error"]}')
-            print(f'[create_lambda_function_url] step 3/3: added invoke-action statement: {invoke_permission}')
+            boto3_client = boto3.client('lambda', region_name=get_env('AWS_DEFAULT_REGION'))                              # 3. & 4. Second statement via boto3 — osbot_aws.permission_add doesn't pass InvokedViaFunctionUrl
+
+            try:                                                                                                          # 3. Remove stale statement (idempotent)
+                boto3_client.remove_permission(FunctionName = function_name                  ,
+                                                StatementId  = FUNCTION_URL_INVOKE_STATEMENT_ID)
+                print('[create_lambda_function_url] step 3/4: removed stale InvokeFunction statement')
+            except ClientError as error:
+                if error.response['Error']['Code'] != 'ResourceNotFoundException':
+                    raise
+                print('[create_lambda_function_url] step 3/4: no stale InvokeFunction statement')
+
+            invoke_permission = boto3_client.add_permission(FunctionName           = function_name                  ,     # 4. Statement 2: lambda:InvokeFunction + Bool lambda:InvokedViaFunctionUrl=true
+                                                             StatementId            = FUNCTION_URL_INVOKE_STATEMENT_ID,
+                                                             Action                 = FUNCTION_URL_INVOKE_ACTION      ,
+                                                             Principal              = FUNCTION_URL_PRINCIPAL          ,
+                                                             InvokedViaFunctionUrl  = True                            )
+            print(f'[create_lambda_function_url] step 4/4: added InvokeFunction statement: {invoke_permission.get("Statement")}')
 
             function_url_value = url_result.get('function_url_create', {}).get('FunctionUrl')
-            return dict(function_url         = function_url_value  ,
-                        auth_type            = FUNCTION_URL_AUTH_TYPE,
-                        url_policy           = url_result.get('function_set_policy'),
-                        invoke_permission    = invoke_permission   )
+            return dict(function_url      = function_url_value                          ,
+                        auth_type         = FUNCTION_URL_AUTH_TYPE                      ,
+                        url_policy        = url_result.get('function_set_policy')      ,
+                        invoke_permission = invoke_permission.get('Statement')         )
 
     def update_lambda_function(self):
         return self.lambda_function().update_lambda_image_uri(self.image_uri())
