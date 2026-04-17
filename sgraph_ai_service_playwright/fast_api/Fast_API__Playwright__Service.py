@@ -9,6 +9,8 @@
 # Phase 2.10 Slice A: Routes__Session  (session lifecycle).
 # Phase 2.10 Slice B: Routes__Browser  (6 of 16 single-action endpoints — the six Step__Executor handlers live today).
 # Phase 2.10 Slice C: Routes__Sequence (POST /sequence/execute — Sequence__Runner).
+# Quick slice      : Routes__Quick     (POST /quick/{html,screenshot} — one-shot
+#                    convenience endpoints with flat Swagger-friendly schemas).
 #
 # This class is importable without side effects — lambda_handler.py calls
 # `.setup().app()` explicitly to boot.
@@ -19,6 +21,7 @@ from osbot_fast_api_serverless.fast_api.Serverless__Fast_API                    
 
 from sgraph_ai_service_playwright.fast_api.routes.Routes__Browser                    import Routes__Browser
 from sgraph_ai_service_playwright.fast_api.routes.Routes__Health                     import Routes__Health
+from sgraph_ai_service_playwright.fast_api.routes.Routes__Quick                      import Routes__Quick
 from sgraph_ai_service_playwright.fast_api.routes.Routes__Sequence                   import Routes__Sequence
 from sgraph_ai_service_playwright.fast_api.routes.Routes__Session                    import Routes__Session
 from sgraph_ai_service_playwright.service.Playwright__Service                        import Playwright__Service
@@ -36,4 +39,5 @@ class Fast_API__Playwright__Service(Serverless__Fast_API):
         self.add_routes(Routes__Session   , service=self.service)
         self.add_routes(Routes__Browser   , service=self.service)
         self.add_routes(Routes__Sequence  , service=self.service)
+        self.add_routes(Routes__Quick     , service=self.service)                   # /quick/html + /quick/screenshot — flat-schema convenience surface
         self.add_routes(Routes__Set_Cookie)                                         # /auth/set-cookie-form (HTML UI) + /auth/set-auth-cookie (POST) — both in AUTH__EXCLUDED_PATHS so they bypass the API-key middleware
