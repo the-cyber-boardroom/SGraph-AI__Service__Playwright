@@ -26,6 +26,10 @@ on:
         required: false
       AWS_ACCESS_KEY_ID:
         required: false
+      FAST_API__AUTH__API_KEY__NAME:
+        required: false
+      FAST_API__AUTH__API_KEY__VALUE:
+        required: false
       SG_PLAYWRIGHT__ACCESS_TOKEN_HEADER:
         required: false
       SG_PLAYWRIGHT__ACCESS_TOKEN_VALUE:
@@ -73,7 +77,7 @@ jobs:
         run: python -m pytest tests/unit/ -v --timeout=30
 
   # ════════════════════════════════════════════════════════════════════════════
-  # Job 2: Build Docker Image
+  # Job 2: Build Docker Image (build once; share with downstream jobs as an artefact)
   # ════════════════════════════════════════════════════════════════════════════
   build-docker-image:
     name: "Build Docker Image"
@@ -101,6 +105,20 @@ jobs:
           AWS_DEFAULT_REGION    : ${{ secrets.AWS_DEFAULT_REGION    }}
           AWS_ACCOUNT_ID        : ${{ secrets.AWS_ACCOUNT_ID        }}
           AWS_ACCESS_KEY_ID     : ${{ secrets.AWS_ACCESS_KEY_ID     }}
+
+      - name: Save Docker image to tarball
+        run: |
+          IMAGE_URI="${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_DEFAULT_REGION }}.amazonaws.com/${IMAGE_NAME}:latest"
+          echo "Saving $IMAGE_URI → image.tar"
+          docker save "$IMAGE_URI" -o image.tar
+          ls -lh image.tar
+
+      - name: Upload Docker image artefact
+        uses: actions/upload-artifact@v4
+        with:
+          name: docker-image
+          path: image.tar
+          retention-days: 1
 
   # ════════════════════════════════════════════════════════════════════════════
   # Job 3: Push to ECR (gated on AWS credentials being configured)
@@ -144,13 +162,15 @@ jobs:
           pip install -e .
           pip install pytest pytest-timeout
 
-      - name: Build image (needed again — no cross-job Docker cache)
-        run: python -m pytest tests/docker/test_Build__Docker__SGraph-AI__Service__Playwright.py::test_build_docker_image -v -s
-        env:
-          AWS_SECRET_ACCESS_KEY : ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          AWS_DEFAULT_REGION    : ${{ secrets.AWS_DEFAULT_REGION    }}
-          AWS_ACCOUNT_ID        : ${{ secrets.AWS_ACCOUNT_ID        }}
-          AWS_ACCESS_KEY_ID     : ${{ secrets.AWS_ACCESS_KEY_ID     }}
+      - name: Download Docker image artefact
+        uses: actions/download-artifact@v4
+        with:
+          name: docker-image
+
+      - name: Load Docker image from tarball
+        run: |
+          docker load -i image.tar
+          docker images | grep "${IMAGE_NAME}" || true
 
       - name: ECR setup + push via pytest
         run: |
@@ -182,13 +202,15 @@ jobs:
           pip install -e .
           pip install pytest pytest-timeout
 
-      - name: Build image (needed again)
-        run: python -m pytest tests/docker/test_Build__Docker__SGraph-AI__Service__Playwright.py::test_build_docker_image -v -s
-        env:
-          AWS_SECRET_ACCESS_KEY : ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          AWS_DEFAULT_REGION    : ${{ secrets.AWS_DEFAULT_REGION    }}
-          AWS_ACCOUNT_ID        : ${{ secrets.AWS_ACCOUNT_ID        }}
-          AWS_ACCESS_KEY_ID     : ${{ secrets.AWS_ACCESS_KEY_ID     }}
+      - name: Download Docker image artefact
+        uses: actions/download-artifact@v4
+        with:
+          name: docker-image
+
+      - name: Load Docker image from tarball
+        run: |
+          docker load -i image.tar
+          docker images | grep "${IMAGE_NAME}" || true
 
       - name: Start local container and run integration tests
         timeout-minutes: 10
@@ -273,6 +295,8 @@ jobs:
           AWS_DEFAULT_REGION                   : ${{ secrets.AWS_DEFAULT_REGION                   }}
           AWS_ACCOUNT_ID                       : ${{ secrets.AWS_ACCOUNT_ID                       }}
           AWS_ACCESS_KEY_ID                    : ${{ secrets.AWS_ACCESS_KEY_ID                    }}
+          FAST_API__AUTH__API_KEY__NAME        : ${{ secrets.FAST_API__AUTH__API_KEY__NAME        }}
+          FAST_API__AUTH__API_KEY__VALUE       : ${{ secrets.FAST_API__AUTH__API_KEY__VALUE       }}
           SG_PLAYWRIGHT__ACCESS_TOKEN_HEADER   : ${{ secrets.SG_PLAYWRIGHT__ACCESS_TOKEN_HEADER   }}
           SG_PLAYWRIGHT__ACCESS_TOKEN_VALUE    : ${{ secrets.SG_PLAYWRIGHT__ACCESS_TOKEN_VALUE    }}
           SG_PLAYWRIGHT__SG_SEND_BASE_URL      : ${{ secrets.SG_PLAYWRIGHT__SG_SEND_BASE_URL      }}
@@ -305,7 +329,9 @@ jobs:
         run: |
           python -m pytest tests/deploy/test_Smoke__Playwright__Service__${{ inputs.target_deploy }}.py -v -s
         env:
-          AWS_SECRET_ACCESS_KEY : ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          AWS_DEFAULT_REGION    : ${{ secrets.AWS_DEFAULT_REGION    }}
-          AWS_ACCOUNT_ID        : ${{ secrets.AWS_ACCOUNT_ID        }}
-          AWS_ACCESS_KEY_ID     : ${{ secrets.AWS_ACCESS_KEY_ID     }}
+          AWS_SECRET_ACCESS_KEY          : ${{ secrets.AWS_SECRET_ACCESS_KEY          }}
+          AWS_DEFAULT_REGION             : ${{ secrets.AWS_DEFAULT_REGION             }}
+          AWS_ACCOUNT_ID                 : ${{ secrets.AWS_ACCOUNT_ID                 }}
+          AWS_ACCESS_KEY_ID              : ${{ secrets.AWS_ACCESS_KEY_ID              }}
+          FAST_API__AUTH__API_KEY__NAME  : ${{ secrets.FAST_API__AUTH__API_KEY__NAME  }}
+          FAST_API__AUTH__API_KEY__VALUE : ${{ secrets.FAST_API__AUTH__API_KEY__VALUE }}

@@ -34,9 +34,12 @@ SG_PLAYWRIGHT_VARS = ['SG_PLAYWRIGHT__ACCESS_TOKEN_HEADER',
                       'SG_PLAYWRIGHT__DEFAULT_S3_BUCKET'  ,
                       'SG_PLAYWRIGHT__DEPLOYMENT_TARGET'  ]
 
+FAST_API_AUTH_VARS = ['FAST_API__AUTH__API_KEY__NAME' ,
+                      'FAST_API__AUTH__API_KEY__VALUE']
+
 
 class _EnvScrub:
-    KEYS = SG_PLAYWRIGHT_VARS
+    KEYS = SG_PLAYWRIGHT_VARS + FAST_API_AUTH_VARS
     def __init__(self, **overrides):
         self.overrides = overrides
         self.snapshot  = {}
@@ -76,7 +79,9 @@ class test_class_shape(TestCase):
 class test_set_lambda_env_vars(TestCase):
 
     def test__propagates_all_declared_vars_when_all_present(self):
-        with _EnvScrub(**{'SG_PLAYWRIGHT__ACCESS_TOKEN_HEADER': 'X-Token'             ,
+        with _EnvScrub(**{'FAST_API__AUTH__API_KEY__NAME'     : 'X-API-Key'           ,
+                          'FAST_API__AUTH__API_KEY__VALUE'    : 'api-secret'          ,
+                          'SG_PLAYWRIGHT__ACCESS_TOKEN_HEADER': 'X-Token'             ,
                           'SG_PLAYWRIGHT__ACCESS_TOKEN_VALUE' : 'secret'              ,
                           'SG_PLAYWRIGHT__SG_SEND_BASE_URL'   : 'https://send.example',
                           'SG_PLAYWRIGHT__SG_SEND_VAULT_KEY'  : 'bootstrap'           ,
@@ -84,6 +89,8 @@ class test_set_lambda_env_vars(TestCase):
             lam  = Lambda__Docker__SGraph_AI__Service__Playwright().setup()
             fake = _Fake_Lambda_Function()
             lam.set_lambda_env_vars(fake)
+        assert fake.env_vars['FAST_API__AUTH__API_KEY__NAME'     ] == 'X-API-Key'
+        assert fake.env_vars['FAST_API__AUTH__API_KEY__VALUE'    ] == 'api-secret'
         assert fake.env_vars['SG_PLAYWRIGHT__ACCESS_TOKEN_HEADER'] == 'X-Token'
         assert fake.env_vars['SG_PLAYWRIGHT__ACCESS_TOKEN_VALUE' ] == 'secret'
         assert fake.env_vars['SG_PLAYWRIGHT__SG_SEND_BASE_URL'   ] == 'https://send.example'

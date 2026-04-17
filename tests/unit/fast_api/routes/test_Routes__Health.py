@@ -20,17 +20,29 @@ from sgraph_ai_service_playwright.fast_api.routes.Routes__Health                
                                                                                                     TAG__ROUTES_HEALTH  )
 
 
+ENV_VAR__API_KEY_NAME  = 'FAST_API__AUTH__API_KEY__NAME'
+ENV_VAR__API_KEY_VALUE = 'FAST_API__AUTH__API_KEY__VALUE'
+
+API_KEY_NAME  = 'X-API-Key'                                                                 # Test-fixture value — middleware reads it from env
+API_KEY_VALUE = 'unit-test'
+
+AUTH_HEADERS  = {API_KEY_NAME: API_KEY_VALUE}
+
 ENV_KEYS = [ENV_VAR__AWS_LAMBDA_RUNTIME_API,
             ENV_VAR__CI                    ,
             ENV_VAR__CLAUDE_SESSION        ,
             ENV_VAR__DEPLOYMENT_TARGET     ,
-            ENV_VAR__SG_SEND_BASE_URL      ]
+            ENV_VAR__SG_SEND_BASE_URL      ,
+            ENV_VAR__API_KEY_NAME          ,
+            ENV_VAR__API_KEY_VALUE         ]
 
 
 class _EnvScrub:
     def __init__(self, **overrides):
-        self.overrides = overrides
-        self.snapshot  = {}
+        self.overrides = {ENV_VAR__API_KEY_NAME : API_KEY_NAME ,                            # Always prime the API-key env so the middleware accepts AUTH_HEADERS
+                          ENV_VAR__API_KEY_VALUE: API_KEY_VALUE}
+        self.overrides.update(overrides)
+        self.snapshot = {}
     def __enter__(self):
         for k in ENV_KEYS:
             self.snapshot[k] = os.environ.pop(k, None)
@@ -71,7 +83,7 @@ class test_get_info(TestCase):
     def test__returns_service_info_json(self):
         with _EnvScrub(**{ENV_VAR__DEPLOYMENT_TARGET: 'lambda'}):
             _, client = _client()
-            response  = client.get('/health/info')
+            response  = client.get('/health/info', headers=AUTH_HEADERS)
         assert response.status_code == 200
         body = response.json()
         assert body['service_name']      == 'sg-playwright'
@@ -84,7 +96,7 @@ class test_get_status(TestCase):
     def test__returns_schema_health_with_three_checks(self):
         with _EnvScrub():
             _, client = _client()
-            response  = client.get('/health/status')
+            response  = client.get('/health/status', headers=AUTH_HEADERS)
         assert response.status_code == 200
         body = response.json()
         assert 'healthy'   in body
@@ -95,7 +107,7 @@ class test_get_status(TestCase):
     def test__unhealthy_when_vault_unreachable(self):
         with _EnvScrub():
             _, client = _client()
-            response  = client.get('/health/status')
+            response  = client.get('/health/status', headers=AUTH_HEADERS)
         assert response.json()['healthy'] is False
 
 
@@ -104,7 +116,7 @@ class test_get_capabilities(TestCase):
     def test__returns_lambda_capabilities(self):
         with _EnvScrub(**{ENV_VAR__DEPLOYMENT_TARGET: 'lambda'}):
             _, client = _client()
-            response  = client.get('/health/capabilities')
+            response  = client.get('/health/capabilities', headers=AUTH_HEADERS)
         assert response.status_code == 200
         body = response.json()
         assert body['max_session_lifetime_ms'] == 900_000
@@ -114,6 +126,6 @@ class test_get_capabilities(TestCase):
     def test__returns_laptop_capabilities_including_local_file_sink(self):
         with _EnvScrub(**{ENV_VAR__DEPLOYMENT_TARGET: 'laptop'}):
             _, client = _client()
-            response  = client.get('/health/capabilities')
+            response  = client.get('/health/capabilities', headers=AUTH_HEADERS)
         body = response.json()
         assert 'local_file' in body['supported_sinks']

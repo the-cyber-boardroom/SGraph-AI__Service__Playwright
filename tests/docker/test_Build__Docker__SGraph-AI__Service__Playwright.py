@@ -1,59 +1,48 @@
 # ═══════════════════════════════════════════════════════════════════════════════
-# Docker image build smoke test — SG Playwright Service
+# Docker image build test — SG Playwright Service
 #
-# Placeholder until the Docker__SGraph_AI__Service__Playwright__Build infra
-# class lands. Invokes `docker build` directly via subprocess.
+# Runs through Build__Docker__SGraph_AI__Service__Playwright.build_docker_image()
+# so the image is tagged with the ECR URI (<account>.dkr.ecr.<region>.amazonaws.com/
+# sgraph_ai_service_playwright:latest). That's the tag the downstream jobs
+# reference (ECR push, Local__Docker container start, Lambda image_uri), so
+# using the class here guarantees the three paths agree on the image name.
 #
-# The CI job runs: pytest ...::test_build_docker_image
-# Locally: requires Docker daemon; otherwise skipped via env gate.
+# Gated on Docker daemon + AWS credentials — the class constructor probes STS
+# to resolve account_id for the image URI. Skipped cleanly locally.
 # ═══════════════════════════════════════════════════════════════════════════════
 
 import os
 import shutil
 import subprocess
-from pathlib      import Path
 
 import pytest
 
-import sgraph_ai_service_playwright
+from sgraph_ai_service_playwright.docker.Build__Docker__SGraph_AI__Service__Playwright import Build__Docker__SGraph_AI__Service__Playwright
 
 
-PACKAGE_ROOT   = Path(sgraph_ai_service_playwright.path)                            # .../sgraph_ai_service_playwright
-IMAGE_CONTEXT  = PACKAGE_ROOT / 'docker' / 'images' / 'sgraph_ai_service_playwright'
-DOCKERFILE     = IMAGE_CONTEXT / 'dockerfile'
-IMAGE_NAME     = 'sgraph_ai_service_playwright'
-IMAGE_TAG      = 'ci-build'
-
-
-def _docker_available() -> bool:                                                    # True if a docker CLI + daemon is reachable
+def _docker_available() -> bool:
     if shutil.which('docker') is None:
         return False
     result = subprocess.run(['docker', 'info'], capture_output=True, text=True)
     return result.returncode == 0
 
 
-@pytest.mark.skipif(not _docker_available(), reason='docker daemon not available')
+def _aws_creds_available() -> bool:
+    return bool(os.environ.get('AWS_ACCESS_KEY_ID'))    and \
+           bool(os.environ.get('AWS_SECRET_ACCESS_KEY'))and \
+           bool(os.environ.get('AWS_ACCOUNT_ID'))
+
+
+@pytest.mark.skipif(not _docker_available()   , reason='docker daemon not available')
+@pytest.mark.skipif(not _aws_creds_available(), reason='AWS credentials not set')
 def test_build_docker_image():
-    assert DOCKERFILE.is_file(), f"dockerfile not found at {DOCKERFILE}"
+    build   = Build__Docker__SGraph_AI__Service__Playwright().setup()
+    result  = build.build_docker_image()                                            # Build + tag with ECR URI
 
-    cmd = [
-        'docker', 'build'                                   ,
-        '-f'                , str(DOCKERFILE)               ,                       # Explicit dockerfile (lowercase name)
-        '-t'                , f'{IMAGE_NAME}:{IMAGE_TAG}'   ,                       # Tag
-        str(PACKAGE_ROOT.parent)                            ,                       # Build context = repo root
-    ]
+    assert result is not None
 
-    env = os.environ.copy()
-    env['DOCKER_BUILDKIT'] = '1'                                                    # BuildKit for --from=<image> syntax
-
-    result = subprocess.run(cmd, env=env, capture_output=True, text=True)
-    print('STDOUT:', result.stdout[-2000:])                                         # Last 2 KB for CI logs
-    print('STDERR:', result.stderr[-2000:])
-    assert result.returncode == 0, f"docker build failed with exit code {result.returncode}"
-
-    inspect = subprocess.run(
-        ['docker', 'inspect', '--format={{.Id}}', f'{IMAGE_NAME}:{IMAGE_TAG}'],
-        capture_output=True, text=True,
-    )
-    assert inspect.returncode == 0, 'built image not found in local registry'
+    expected_tag = build.image_uri()                                                # <account>.dkr.ecr.<region>.amazonaws.com/sgraph_ai_service_playwright:latest
+    inspect      = subprocess.run(['docker', 'inspect', '--format={{.Id}}', expected_tag],
+                                  capture_output=True, text=True)
+    assert inspect.returncode == 0, f'image not tagged as {expected_tag} (returncode={inspect.returncode}, stderr={inspect.stderr!r})'
     assert inspect.stdout.strip().startswith('sha256:')
