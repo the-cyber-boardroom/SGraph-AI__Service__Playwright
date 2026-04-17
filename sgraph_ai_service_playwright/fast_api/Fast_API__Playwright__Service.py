@@ -13,6 +13,7 @@
 # `.setup().app()` explicitly to boot.
 # ═══════════════════════════════════════════════════════════════════════════════
 
+from osbot_fast_api.api.routes.Routes__Set_Cookie                                    import Routes__Set_Cookie
 from osbot_fast_api_serverless.fast_api.Serverless__Fast_API                          import Serverless__Fast_API
 
 from sgraph_ai_service_playwright.fast_api.routes.Routes__Health                     import Routes__Health
@@ -27,4 +28,5 @@ class Fast_API__Playwright__Service(Serverless__Fast_API):
         return super().setup()                                                      # API-key middleware is enabled by Serverless__Fast_API__Config default (reads FAST_API__AUTH__API_KEY__NAME / FAST_API__AUTH__API_KEY__VALUE)
 
     def setup_routes(self):
-        self.add_routes(Routes__Health, service=self.service)
+        self.add_routes(Routes__Health    , service=self.service)
+        self.add_routes(Routes__Set_Cookie)                                         # /auth/set-cookie-form (HTML UI) + /auth/set-auth-cookie (POST) — both in AUTH__EXCLUDED_PATHS so they bypass the API-key middleware
