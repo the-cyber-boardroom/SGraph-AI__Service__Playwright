@@ -61,6 +61,7 @@ from sgraph_ai_service_playwright.schemas.steps.Schema__Step__Base              
 from sgraph_ai_service_playwright.service.Browser__Launcher                                         import Browser__Launcher
 from sgraph_ai_service_playwright.service.Capability__Detector                                      import Capability__Detector
 from sgraph_ai_service_playwright.service.Credentials__Loader                                       import Credentials__Loader
+from sgraph_ai_service_playwright.service.Proxy__Auth__Binder                                       import Proxy__Auth__Binder
 from sgraph_ai_service_playwright.service.Request__Validator                                        import Request__Validator
 from sgraph_ai_service_playwright.service.Sequence__Dispatcher                                      import Sequence__Dispatcher
 from sgraph_ai_service_playwright.service.Session__Manager                                          import Session__Manager
@@ -79,6 +80,7 @@ class Sequence__Runner(Type_Safe):
     step_executor       : Step__Executor
     browser_launcher    : Browser__Launcher
     credentials_loader  : Credentials__Loader
+    proxy_auth_binder   : Proxy__Auth__Binder
 
     def execute(self, request: Schema__Sequence__Request) -> Schema__Sequence__Response:
         sequence_id    = request.sequence_id or Sequence_Id()
@@ -94,7 +96,7 @@ class Sequence__Runner(Type_Safe):
         self.request_validator.validate_step_ids_unique(parsed_steps)
 
         browser = self.session_manager.get_browser(session_id)
-        page    = self.get_or_create_page(browser)
+        page    = self.get_or_create_page(browser, session_id)
 
         step_results : List[Schema__Step__Result__Base] = []
         artefacts    : List[Schema__Artefact__Ref]      = []
@@ -201,11 +203,27 @@ class Sequence__Runner(Type_Safe):
             self.credentials_loader.apply(session.session_id, self.session_manager, request.credentials)
         return session.session_id, int(launch_result.playwright_start_ms), int(launch_result.browser_launch_ms)
 
-    def get_or_create_page(self, browser: Any) -> Any:                               # Freshly launched browser has no context / page — create on demand
+    def get_or_create_page(self, browser: Any, session_id: Any) -> Any:              # Freshly launched browser has no context / page — create on demand
+        launch_result = self.browser_launcher.browsers.get(session_id)               # None for sessions created outside the launcher (test fakes that skip register); proxy stays None and binder is a no-op
+        proxy         = launch_result.proxy if launch_result is not None else None
+
         contexts = browser.contexts                                                  # Playwright sync API: `contexts` is a @property returning List[BrowserContext] — NEVER call it as a method (`()` triggers 'list' object is not callable)
-        context  = contexts[0] if contexts else browser.new_context()
-        pages    = context.pages                                                     # Same pattern — `pages` is also a @property
-        return pages[0] if pages else context.new_page()
+        if contexts:
+            context = contexts[0]
+        else:
+            ctx_kwargs = {}
+            if proxy is not None and bool(proxy.ignore_https_errors):
+                ctx_kwargs['ignore_https_errors'] = True                             # TLS interception (mitmproxy et al) — otherwise every HTTPS page fails with NET::ERR_CERT_AUTHORITY_INVALID
+            context = browser.new_context(**ctx_kwargs)
+
+        pages = context.pages                                                        # Same pattern — `pages` is also a @property
+        if pages:
+            page = pages[0]
+        else:
+            page = context.new_page()
+            if proxy is not None and proxy.auth is not None:                         # Bind CDP Fetch handlers exactly once — only on the first page creation
+                self.proxy_auth_binder.bind(context, page, proxy.auth)
+        return page
 
     def skipped_result(self, step: Schema__Step__Base, step_index: int) -> Schema__Step__Result__Base:
         step_id = step.id if step.id is not None else Step_Id(str(step_index))        # Same fallback as Step__Executor.resolve_id

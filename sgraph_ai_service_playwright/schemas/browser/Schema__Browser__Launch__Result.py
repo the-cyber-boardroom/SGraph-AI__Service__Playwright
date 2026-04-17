@@ -15,6 +15,7 @@ from typing                                                                     
 
 from osbot_utils.type_safe.Type_Safe                                                     import Type_Safe
 
+from sgraph_ai_service_playwright.schemas.browser.Schema__Proxy__Config                  import Schema__Proxy__Config
 from sgraph_ai_service_playwright.schemas.primitives.numeric.Safe_UInt__Milliseconds     import Safe_UInt__Milliseconds
 
 
@@ -23,3 +24,4 @@ class Schema__Browser__Launch__Result(Type_Safe):
     playwright           : Any                                                       # sync_playwright() runtime (Node subprocess) — stopped in Browser__Launcher.stop()
     playwright_start_ms  : Safe_UInt__Milliseconds                                   # sync_playwright().start() duration
     browser_launch_ms    : Safe_UInt__Milliseconds                                   # chromium.launch() duration
+    proxy                : Schema__Proxy__Config = None                              # Retained from browser_config so get_or_create_page can apply ignore_https_errors + bind CDP auth
