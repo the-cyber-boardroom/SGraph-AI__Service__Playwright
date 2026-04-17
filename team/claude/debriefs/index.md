@@ -4,6 +4,7 @@ Chronological list of implementation debriefs. Most recent first.
 
 | Date       | Commit(s)                  | Slice                                           | File |
 |------------|----------------------------|-------------------------------------------------|------|
+| 2026-04-16 | _(pending)_                | Phase 2.1 — Capability__Detector + ENV_VAR constants (spec §4.6, §7) | `2026-04-16__phase-2.1-capability-detector.md` |
 | 2026-04-16 | 64dc249                    | Phase 1.4 — Request__Validator + JS__Expression__Allowlist (spec §9) | `2026-04-16__phase-1.4-request-validator.md` |
 | 2026-04-16 | 4c63685                    | Phase 1.3 complete — §5.5–§5.10 + §6 + §8 + tests | `2026-04-16__phase-1.3-complete.md` |
 | 2026-04-16 | 1f2edd6                    | Refactor — one-class-per-file (primitives, enums, schemas) | `2026-04-16__refactor-one-class-per-file.md` |
