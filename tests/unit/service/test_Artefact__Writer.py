@@ -197,3 +197,46 @@ class test_vault_json_helpers(TestCase):
             base.read_from_vault(VAULT_REF)
         with pytest.raises(NotImplementedError):
             base.write_to_vault(VAULT_REF, {'k': 'v'})
+
+
+class test_capture_helpers(TestCase):                                                   # Typed convenience wrappers used by Step__Executor (Phase 2.9)
+
+    def test__capture_screenshot_pins_artefact_type(self):
+        w   = _InMemoryWriter()
+        cfg = Schema__Artefact__Sink_Config(enabled=True, sink=Enum__Artefact__Sink.INLINE)
+        ref = w.capture_screenshot(b'\x89PNG', cfg)
+        assert ref.artefact_type == Enum__Artefact__Type.SCREENSHOT
+        assert ref.sink          == Enum__Artefact__Sink.INLINE
+        assert ref.inline_b64    is not None
+
+    def test__capture_page_content_pins_artefact_type(self):
+        w   = _InMemoryWriter()
+        cfg = Schema__Artefact__Sink_Config(enabled=True, sink=Enum__Artefact__Sink.INLINE)
+        ref = w.capture_page_content(b'<html>hi</html>', cfg)
+        assert ref.artefact_type == Enum__Artefact__Type.PAGE_CONTENT
+        assert str(ref.inline_b64) == base64.b64encode(b'<html>hi</html>').decode('ascii')
+
+    def test__capture_pdf_pins_artefact_type(self):
+        w   = _InMemoryWriter()
+        cfg = Schema__Artefact__Sink_Config(enabled=True, sink=Enum__Artefact__Sink.INLINE)
+        ref = w.capture_pdf(b'%PDF-1.4', cfg)
+        assert ref.artefact_type == Enum__Artefact__Type.PDF
+
+    def test__capture_returns_none_when_sink_disabled(self):                            # Parity with write_artefact()
+        w   = _InMemoryWriter()
+        cfg = Schema__Artefact__Sink_Config(enabled=False, sink=Enum__Artefact__Sink.INLINE)
+        assert w.capture_screenshot  (b'x', cfg) is None
+        assert w.capture_page_content(b'x', cfg) is None
+        assert w.capture_pdf         (b'x', cfg) is None
+
+    def test__capture_screenshot_routes_through_local_sink(self):                       # End-to-end through the sink
+        tmp  = tempfile.mkdtemp()
+        try:
+            w   = _InMemoryWriter()
+            cfg = Schema__Artefact__Sink_Config(enabled=True, sink=Enum__Artefact__Sink.LOCAL_FILE, sink_local_folder=tmp)
+            ref = w.capture_screenshot(b'\x89PNG\r\n\x1a\n', cfg)
+            assert ref.sink          == Enum__Artefact__Sink.LOCAL_FILE
+            assert ref.artefact_type == Enum__Artefact__Type.SCREENSHOT
+            assert ref.local_ref is not None and os.path.exists(str(ref.local_ref.path))
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)

@@ -125,6 +125,31 @@ class Artefact__Writer(Type_Safe):
     def write_to_vault(self, vault_ref: Schema__Vault_Ref, data: dict) -> None:
         raise NotImplementedError('Artefact__Writer.write_to_vault requires a vault client (override in subclass or wire DI)')
 
+    # ─── capture_* — typed convenience wrappers used by Step__Executor ──────────
+    #
+    # Step__Executor is the only class permitted to call page.*; it captures the
+    # bytes and hands them here. capture_*() pins the artefact_type so callers
+    # don't have to repeat it. Returns None when the sink_config is disabled
+    # (same semantics as write_artefact).
+
+    def capture_screenshot(self                                          ,
+                           data        : bytes                           ,
+                           sink_config : Schema__Artefact__Sink_Config
+                      ) -> Schema__Artefact__Ref:
+        return self.write_artefact(Enum__Artefact__Type.SCREENSHOT, data, sink_config)
+
+    def capture_page_content(self                                          ,
+                             data        : bytes                           ,
+                             sink_config : Schema__Artefact__Sink_Config
+                        ) -> Schema__Artefact__Ref:
+        return self.write_artefact(Enum__Artefact__Type.PAGE_CONTENT, data, sink_config)
+
+    def capture_pdf(self                                          ,
+                    data        : bytes                           ,
+                    sink_config : Schema__Artefact__Sink_Config
+               ) -> Schema__Artefact__Ref:
+        return self.write_artefact(Enum__Artefact__Type.PDF, data, sink_config)
+
 
 FILENAME_EXTENSIONS = { Enum__Artefact__Type.SCREENSHOT   : 'png'  ,
                         Enum__Artefact__Type.VIDEO        : 'webm' ,
