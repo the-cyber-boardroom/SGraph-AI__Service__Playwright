@@ -4,7 +4,7 @@ Chronological list of implementation debriefs. Most recent first.
 
 | Date       | Commit(s)                  | Slice                                           | File |
 |------------|----------------------------|-------------------------------------------------|------|
-| 2026-04-17 | TBD                        | Phase 2.7 — FastAPI wiring (Playwright__Service orchestrator + Routes__Health + Fast_API__Playwright__Service; chassis-before-engine reorder) | `2026-04-17__phase-2.7-fastapi-wiring.md` |
+| 2026-04-17 | 29be9d9                    | Phase 2.7 — FastAPI wiring (Playwright__Service orchestrator + Routes__Health + Fast_API__Playwright__Service; chassis-before-engine reorder) | `2026-04-17__phase-2.7-fastapi-wiring.md` |
 | 2026-04-17 | 4ff12b2                    | Phase 2.6 — Browser__Launcher (real Chromium + env-var escape hatch; 5 integration tests live) | `2026-04-17__phase-2.6-browser-launcher.md` |
 | 2026-04-17 | d4d8a53                    | Phase 2.5 — Credentials__Loader (vault ↔ browser-context glue; full spec source) | `2026-04-17__phase-2.5-credentials-loader.md` |
 | 2026-04-17 | 4794f02                    | Phase 2.4 — Artefact__Writer (sink routing + vault JSON seams; capture_* deferred) | `2026-04-17__phase-2.4-artefact-writer.md` |
