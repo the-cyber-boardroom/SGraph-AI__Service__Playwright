@@ -194,11 +194,21 @@ jobs:
         timeout-minutes: 10
         run: |
           python -m pytest tests/docker/test_Local__Docker__SGraph-AI__Service__Playwright.py -v -s --timeout=60
+        env:
+          AWS_SECRET_ACCESS_KEY : ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION    : ${{ secrets.AWS_DEFAULT_REGION    }}
+          AWS_ACCOUNT_ID        : ${{ secrets.AWS_ACCOUNT_ID        }}
+          AWS_ACCESS_KEY_ID     : ${{ secrets.AWS_ACCESS_KEY_ID     }}
 
       - name: Run integration tests against local container
         timeout-minutes: 8
         run: |
           python -m pytest tests/integration/ -v -s --timeout=90
+        env:
+          AWS_SECRET_ACCESS_KEY : ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION    : ${{ secrets.AWS_DEFAULT_REGION    }}
+          AWS_ACCOUNT_ID        : ${{ secrets.AWS_ACCOUNT_ID        }}
+          AWS_ACCESS_KEY_ID     : ${{ secrets.AWS_ACCESS_KEY_ID     }}
 
       - name: Upload screenshots
         if: always()
