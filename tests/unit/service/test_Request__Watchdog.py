@@ -109,6 +109,13 @@ class test_register_and_unregister(TestCase):
             wd.register('req-1')
             assert 'req-1' not in wd.in_flight                                       # Disabled watchdog doesn't track anything — critical for tests + laptop dev
 
+    def test__register_accepts_realistic_epoch_stamp(self):                          # Regression: commit 907fc9b — epoch millis must not be wrapped in Safe_UInt__Milliseconds (caps at 900_000)
+        with _EnvScrub():
+            wd = _FakeWatchdog().setup()
+            wd.current_time_ms = 1_776_444_118_146                                   # Realistic 2026 epoch-ms stamp — would overflow Safe_UInt__Milliseconds' 15-min cap
+            wd.register('req-1')                                                     # Must not raise
+            assert wd.in_flight['req-1'] == 1_776_444_118_146
+
 
 class test_check_once(TestCase):
 

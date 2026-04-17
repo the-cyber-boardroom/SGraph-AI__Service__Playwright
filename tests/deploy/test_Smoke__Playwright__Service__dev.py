@@ -45,25 +45,27 @@ class test_Smoke__Playwright__Service__dev(TestCase):
         cls.api_key_value  = os.environ['FAST_API__AUTH__API_KEY__VALUE']
         cls.auth_headers   = {cls.api_key_name: cls.api_key_value}
 
+    REQUEST_TIMEOUT_S = 30                                                              # Cap: a wedged Lambda must fail smoke in 30 s, not hang until the GH job timeout
+
     def test_1__health_info(self):
-        response = requests.get(f'{self.function_url}health/info', headers=self.auth_headers)
+        response = requests.get(f'{self.function_url}health/info', headers=self.auth_headers, timeout=self.REQUEST_TIMEOUT_S)
         assert response.status_code == 200
         data = response.json()
         assert data['service_name']      == 'sg-playwright'
         assert data['deployment_target'] == 'lambda'
 
     def test_2__health_status(self):
-        response = requests.get(f'{self.function_url}health/status', headers=self.auth_headers)
+        response = requests.get(f'{self.function_url}health/status', headers=self.auth_headers, timeout=self.REQUEST_TIMEOUT_S)
         assert response.status_code == 200
         assert 'healthy' in response.json()
 
     def test_3__capabilities(self):
-        response = requests.get(f'{self.function_url}health/capabilities', headers=self.auth_headers)
+        response = requests.get(f'{self.function_url}health/capabilities', headers=self.auth_headers, timeout=self.REQUEST_TIMEOUT_S)
         assert response.status_code == 200
         caps = response.json()
         assert 'supports_persistent' in caps
         assert 'inline' in caps['supported_sinks']
 
     def test_4__unauthenticated_is_rejected(self):                                      # Middleware must block requests without the API key
-        response = requests.get(f'{self.function_url}health/info')
+        response = requests.get(f'{self.function_url}health/info', timeout=self.REQUEST_TIMEOUT_S)
         assert response.status_code == 401, f'expected 401 without API key header; got {response.status_code}'

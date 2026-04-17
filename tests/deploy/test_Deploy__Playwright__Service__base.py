@@ -72,6 +72,6 @@ class test_Deploy__Playwright__Service__base():                                 
     def test_3__invoke__function_url(self):
         function_url = self.lambda_docker.function_url()
         if function_url:
-            response = requests.get(f'{function_url}health/status', headers=self.auth_headers)
+            response = requests.get(f'{function_url}health/status', headers=self.auth_headers, timeout=30)    # Explicit cap: a wedged Lambda must fail this test in 30 s, not hang for minutes
             assert response.status_code == 200
             assert 'healthy' in response.json()
