@@ -248,7 +248,7 @@ class Playwright__Service(Type_Safe):
                                       capture_config  : Schema__Capture__Config            ,
                                       timeout_ms                                          = None
                                  ) -> Schema__Sequence__Request:
-        if timeout_ms is not None:
+        if timeout_ms is not None and int(timeout_ms) > 0:                          # Swagger renders integer defaults as 0 — treat 0 as "unset" so every step keeps its own default timeout instead of timing out instantly
             for step in steps:
                 step.setdefault('timeout_ms', int(timeout_ms))                      # Apply caller's timeout to every step that didn't already override
         return Schema__Sequence__Request(browser_config      = Schema__Browser__Config()                 ,
