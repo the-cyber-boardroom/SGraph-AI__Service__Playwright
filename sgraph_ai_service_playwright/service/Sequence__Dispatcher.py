@@ -2,10 +2,9 @@
 # Playwright Service — Sequence__Dispatcher (v2 spec §4.5; v1 source not in pack)
 #
 # Thin class wrapper around the parse helpers in dispatcher/step_schema_registry.py.
-# Gives Action__Runner and Sequence__Runner a consistent DI surface for:
+# Gives Sequence__Runner a consistent DI surface for:
 #   • parse_single_step(step_dict, step_index) — one wire-format step → typed Schema__Step__*
 #   • parse_steps       (step_dicts)           — bulk parse
-#   • execute_step      (…)                    — deferred to Phase 2.5; needs Step__Executor
 #
 # The module-level parse helpers stay as-is so the dispatcher registry remains
 # the single source of truth for action → schema wiring (spec §8).

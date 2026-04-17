@@ -20,12 +20,12 @@ class test_Schema__Sequence__Config(TestCase):
 
 class test_Schema__Sequence__Request(TestCase):
 
-    def test__defaults(self):
+    def test__defaults(self):                                                      # v0.1.24 — stateless request; no session_id / close_session_after
         req = Schema__Sequence__Request()
-        assert req.steps               == []
-        assert req.close_session_after is True
-        assert req.session_id          is None
-        assert req.trace_id            is None
+        assert req.steps          == []
+        assert req.browser_config is None
+        assert req.credentials    is None
+        assert req.trace_id       is None
 
 
 class test_Schema__Sequence__Response(TestCase):

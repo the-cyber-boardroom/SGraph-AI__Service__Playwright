@@ -16,10 +16,8 @@ from sgraph_ai_service_playwright.schemas.enums.Enum__Artefact__Sink            
 from sgraph_ai_service_playwright.schemas.enums.Enum__Browser__Name                      import Enum__Browser__Name
 from sgraph_ai_service_playwright.schemas.enums.Enum__Browser__Provider                  import Enum__Browser__Provider
 from sgraph_ai_service_playwright.schemas.enums.Enum__Deployment__Target                 import Enum__Deployment__Target
-from sgraph_ai_service_playwright.schemas.enums.Enum__Session__Lifetime                  import Enum__Session__Lifetime
 from sgraph_ai_service_playwright.schemas.primitives.identifiers.Step_Id                 import Step_Id
 from sgraph_ai_service_playwright.schemas.service.Schema__Service__Capabilities          import Schema__Service__Capabilities
-from sgraph_ai_service_playwright.schemas.session.Schema__Session__Create__Request       import Schema__Session__Create__Request
 from sgraph_ai_service_playwright.schemas.steps.Schema__Step__Click                      import Schema__Step__Click
 from sgraph_ai_service_playwright.schemas.steps.Schema__Step__Evaluate                   import Schema__Step__Evaluate
 from sgraph_ai_service_playwright.schemas.steps.Schema__Step__Navigate                   import Schema__Step__Navigate
@@ -45,53 +43,30 @@ def _validator() -> Request__Validator:
     return v
 
 
-class test_validate_session_create(TestCase):
+class test_validate_browser_config(TestCase):                                        # v0.1.24 — validator surface is now browser_config only (no session schemas)
 
-    def test__distributed_always_rejected(self):
-        v   = _validator()
-        req = Schema__Session__Create__Request(
-                  lifetime_hint = Enum__Session__Lifetime.PERSISTENT_DISTRIBUTED)
-        with pytest.raises(HTTPException) as exc:
-            v.validate_session_create(req, _caps())
-        assert exc.value.status_code == 422
-        assert 'distributed_not_supported' in str(exc.value.detail)
-
-    def test__persistent_rejected_when_unsupported(self):
-        v   = _validator()
-        req = Schema__Session__Create__Request(
-                  lifetime_hint = Enum__Session__Lifetime.PERSISTENT_SINGLE)
-        with pytest.raises(HTTPException) as exc:
-            v.validate_session_create(req, _caps(supports_persistent=False))
-        assert 'persistent_not_supported' in str(exc.value.detail)
-
-    def test__persistent_allowed_when_supported(self):
-        v   = _validator()
-        req = Schema__Session__Create__Request(
-                  lifetime_hint = Enum__Session__Lifetime.PERSISTENT_SINGLE)
-        v.validate_session_create(req, _caps(supports_persistent=True))             # No raise
+    def test__none_is_accepted(self):                                               # Stateless callers may omit browser_config entirely
+        v = _validator()
+        v.validate_browser_config(None, _caps())                                    # No raise
 
     def test__cdp_missing_endpoint(self):
         v   = _validator()
-        req = Schema__Session__Create__Request(
-                  browser_config = Schema__Browser__Config(
-                                        provider         = Enum__Browser__Provider.CDP_CONNECT,
-                                        cdp_endpoint_url = None))
+        cfg = Schema__Browser__Config(provider         = Enum__Browser__Provider.CDP_CONNECT,
+                                       cdp_endpoint_url = None                                )
         with pytest.raises(HTTPException) as exc:
-            v.validate_session_create(req, _caps())
+            v.validate_browser_config(cfg, _caps())
+        assert exc.value.status_code == 422
         assert 'cdp_missing_endpoint' in str(exc.value.detail)
 
     def test__cdp_with_endpoint_accepted(self):
         v   = _validator()
-        req = Schema__Session__Create__Request(
-                  browser_config = Schema__Browser__Config(
-                                        provider         = Enum__Browser__Provider.CDP_CONNECT,
-                                        cdp_endpoint_url = 'http://localhost:9222/devtools'))
-        v.validate_session_create(req, _caps())                                     # No raise
+        cfg = Schema__Browser__Config(provider         = Enum__Browser__Provider.CDP_CONNECT                ,
+                                       cdp_endpoint_url = 'http://localhost:9222/devtools'                   )
+        v.validate_browser_config(cfg, _caps())                                     # No raise
 
-    def test__ephemeral_always_accepted(self):
-        v   = _validator()
-        req = Schema__Session__Create__Request()                                    # Defaults to EPHEMERAL
-        v.validate_session_create(req, _caps())                                     # No raise
+    def test__default_chromium_accepted(self):
+        v = _validator()
+        v.validate_browser_config(Schema__Browser__Config(), _caps())               # No raise
 
 
 class test_validate_step(TestCase):
