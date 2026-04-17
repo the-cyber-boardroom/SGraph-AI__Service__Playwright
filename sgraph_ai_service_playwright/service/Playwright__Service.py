@@ -18,8 +18,10 @@
 #   • session_close()      → Schema__Session__Close__Response | None      (DELETE /session/close/{id})
 #   • generate_trace_id()  → str — used when the caller doesn't supply one
 #
-# Action / sequence methods land in Slices B + C together with Action__Runner /
-# Sequence__Runner.
+# Phase 2.10 Slice B subset — single-action surface:
+#   • execute_action()     → Schema__Action__Response            (POST /browser/{navigate|click|screenshot})
+#
+# Sequence method lands in Slice C together with Sequence__Runner.
 #
 # setup() is idempotent; it primes Capability__Detector so service_info /
 # capabilities are ready on first request (keeps the /health/info path cheap
@@ -33,6 +35,8 @@ from typing                                                                     
 from osbot_utils.type_safe.Type_Safe                                                    import Type_Safe
 from osbot_utils.type_safe.primitives.domains.identifiers.safe_int.Timestamp_Now        import Timestamp_Now
 
+from sgraph_ai_service_playwright.schemas.core.Schema__Action__Request                  import Schema__Action__Request
+from sgraph_ai_service_playwright.schemas.core.Schema__Action__Response                 import Schema__Action__Response
 from sgraph_ai_service_playwright.schemas.primitives.identifiers.Safe_Str__Trace_Id     import Safe_Str__Trace_Id
 from sgraph_ai_service_playwright.schemas.primitives.identifiers.Session_Id             import Session_Id
 from sgraph_ai_service_playwright.schemas.service.Schema__Health                        import Schema__Health
@@ -44,6 +48,7 @@ from sgraph_ai_service_playwright.schemas.session.Schema__Session__Create__Respo
 from sgraph_ai_service_playwright.schemas.session.Schema__Session__Info                 import Schema__Session__Info
 from sgraph_ai_service_playwright.schemas.session.Schema__Session__State__Save__Request  import Schema__Session__State__Save__Request
 from sgraph_ai_service_playwright.schemas.session.Schema__Session__State__Save__Response import Schema__Session__State__Save__Response
+from sgraph_ai_service_playwright.service.Action__Runner                                import Action__Runner
 from sgraph_ai_service_playwright.service.Browser__Launcher                             import Browser__Launcher
 from sgraph_ai_service_playwright.service.Capability__Detector                          import Capability__Detector
 from sgraph_ai_service_playwright.service.Credentials__Loader                           import Credentials__Loader
@@ -58,10 +63,14 @@ class Playwright__Service(Type_Safe):
     browser_launcher    : Browser__Launcher
     request_validator   : Request__Validator
     credentials_loader  : Credentials__Loader
+    action_runner       : Action__Runner
 
     def setup(self) -> 'Playwright__Service':
         if self.capability_detector.detected_target is None:
             self.capability_detector.detect()
+        self.action_runner.session_manager     = self.session_manager                   # Share orchestrator state — default-constructed attrs would be isolated instances
+        self.action_runner.capability_detector = self.capability_detector
+        self.action_runner.request_validator   = self.request_validator
         return self
 
     # ─── Health surface (Phase 2.7) ────────────────────────────────────────────
@@ -131,6 +140,12 @@ class Playwright__Service(Type_Safe):
         return Schema__Session__Close__Response(session_info      = session      ,
                                                  artefacts         = list(artefacts),
                                                  total_duration_ms = duration_ms  )
+
+    # ─── Action surface (Phase 2.10 Slice B subset) ───────────────────────────
+
+    def execute_action(self, request: Schema__Action__Request) -> Schema__Action__Response:
+        self.setup()                                                                # Idempotent — re-shares Action__Runner deps in case of late mutation
+        return self.action_runner.execute(request)
 
     # ─── Utility ──────────────────────────────────────────────────────────────
 
