@@ -89,11 +89,12 @@ class test_assert_browser_supported(TestCase):
 
 class test_build_launch_kwargs(TestCase):
 
-    def test__defaults_are_headless_no_exe_no_args(self):
+    def test__defaults_apply_chromium_sandbox_and_shm_flags(self):
         with _EnvScrub():                                                          # No executable override — don't leak sandbox path into kwargs
             bl = Browser__Launcher()
             kw = bl.build_launch_kwargs(_cfg())
-            assert kw == {'headless': True}                                        # No args/executable/proxy populated
+            assert kw == {'headless': True                                                                       ,
+                          'args'    : ['--no-sandbox', '--disable-gpu', '--disable-dev-shm-usage', '--single-process', '--use-mock-keychain']}  # Spec §5.2 mandated defaults — without these Chromium dies on Lambda
 
     def test__env_var_sets_executable_path(self):
         with _EnvScrub():
