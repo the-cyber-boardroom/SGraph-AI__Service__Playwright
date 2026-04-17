@@ -12,9 +12,9 @@
 
 ## Reality Document — MANDATORY CHECK
 
-**Before describing, assessing, or assuming what the Playwright service can do, READ:**
+**Before describing, assessing, or assuming what the Playwright service can do, READ the current reality doc.**
 
-`team/roles/librarian/reality/v0.1.11__what-exists-today.md`
+Start here: [`team/roles/librarian/reality/README.md`](../team/roles/librarian/reality/README.md) — it points at the current `v{version}__what-exists-today.md` and lists supersession rules. The filename is version-stamped; the README always tracks the current one, so you do not need to edit this CLAUDE.md on every version bump.
 
 ### Rules (Non-Negotiable)
 
