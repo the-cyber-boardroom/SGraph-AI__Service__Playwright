@@ -2,7 +2,7 @@
 
 - **Date captured:** 2026-04-16
 - **Source:** Dinis Cruz — commit `05e4173` (`added comment to @dev agent`), inline in `sgraph_ai_service_playwright/schemas/primitives/vault.py` lines 15–17
-- **Status:** CAPTURED. Refactor in progress. Original inline `@dev` comment will be deleted from `vault.py` once the split lands.
+- **Status:** COMPLETED. Refactor landed — see `debriefs/2026-04-16__refactor-one-class-per-file.md`. The old `vault.py` (along with the `@dev` comment it carried) was deleted as part of the split. `.claude/CLAUDE.md` still to be updated with the "one class per file" rule.
 
 ## Original comment (verbatim)
 
@@ -28,7 +28,10 @@ For every currently-consolidated module that declares more than one `Safe_*` / `
 - `schemas/primitives/s3.py` → `s3/Safe_Str__S3_Key.py`, `s3/Safe_Str__S3_Bucket.py`
 - `schemas/primitives/browser.py` → `browser/Safe_Str__Selector.py`, `browser/Safe_Str__Browser__Launch_Arg.py`, `browser/Safe_Str__JS__Expression.py`
 - `schemas/primitives/numeric.py` → 5 sub-files
-- `schemas/primitives/identifiers.py` → `identifiers/Session_Id.py`, `identifiers/Sequence_Id.py`, `identifiers/Step_Id.py`, `identifiers/Safe_Str__Trace_Id.py`  **(done)**
+- `schemas/primitives/identifiers.py` → `identifiers/Session_Id.py`, `identifiers/Sequence_Id.py`, `identifiers/Step_Id.py`, `identifiers/Safe_Str__Trace_Id.py` **(done)**
+- `schemas/primitives/vault.py`, `s3.py`, `browser.py`, `numeric.py`, `host.py` → per-class files **(done)**
+- `schemas/enums/enums.py` → 16 `Enum__*.py` files **(done)**
+- `schemas/service/service.py`, `schemas/browser/browser.py`, `schemas/artefact/artefact.py`, `schemas/capture/capture.py` → per-class `Schema__*.py` files **(done)**
 - `schemas/primitives/host.py` → `host/Safe_Str__Host.py`
 - `schemas/enums/enums.py` → `enums/Enum__*.py` (16 files)
 - `schemas/service/service.py`, `schemas/browser/browser.py`, `schemas/artefact/artefact.py`, `schemas/capture/capture.py` → per-class files each

@@ -1,9 +1,5 @@
 # ═══════════════════════════════════════════════════════════════════════════════
-# Playwright Service — Browser Interaction Primitives
-#
-# Safe_Str__JS__Expression accepts any JS string up to 4 KB; the dispatcher
-# validates against a configured allowlist and rejects on mismatch (the 04/09
-# architect constraint). Security gating is NOT at the primitive level.
+# Playwright Service — Safe_Str__Selector primitive
 # ═══════════════════════════════════════════════════════════════════════════════
 
 import re
@@ -22,18 +18,3 @@ class Safe_Str__Selector(Safe_Str):                                             
     strict_validation = True                                                        # MATCH mode needs strict_validation
     allow_empty       = True                                                        # Default-constructible for Type_Safe fields
     trim_whitespace   = True
-
-
-class Safe_Str__Browser__Launch_Arg(Safe_Str):                                      # Single chromium launch arg
-    max_length      = 256
-    regex           = re.compile(r'[^a-zA-Z0-9_\-=./:,*?@]')                        # Reasonable flag character set
-    regex_mode      = Enum__Safe_Str__Regex_Mode.REPLACE
-    allow_empty     = True                                                          # Default-constructible for Type_Safe fields
-
-
-class Safe_Str__JS__Expression(Safe_Str):                                           # JS expression for page.evaluate()
-    max_length        = 4096                                                        # Reasonable limit
-    regex             = ANY_CHARS_REGEX                                             # Content validation at dispatcher level (allowlist)
-    regex_mode        = Enum__Safe_Str__Regex_Mode.MATCH
-    strict_validation = True
-    allow_empty       = True                                                        # Default-constructible for Type_Safe fields

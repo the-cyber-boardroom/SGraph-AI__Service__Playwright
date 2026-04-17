@@ -5,10 +5,8 @@
 import pytest
 from unittest import TestCase
 
-from sgraph_ai_service_playwright.schemas.primitives.s3 import (
-    Safe_Str__S3_Key                                                     ,
-    Safe_Str__S3_Bucket                                                  ,
-)
+from sgraph_ai_service_playwright.schemas.primitives.s3.Safe_Str__S3_Key     import Safe_Str__S3_Key
+from sgraph_ai_service_playwright.schemas.primitives.s3.Safe_Str__S3_Bucket  import Safe_Str__S3_Bucket
 
 
 class test_Safe_Str__S3_Key(TestCase):

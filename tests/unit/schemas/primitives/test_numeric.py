@@ -5,13 +5,11 @@
 import pytest
 from unittest import TestCase
 
-from sgraph_ai_service_playwright.schemas.primitives.numeric import (
-    Safe_UInt__Milliseconds                                              ,
-    Safe_UInt__Timeout_MS                                                ,
-    Safe_UInt__Session_Lifetime_MS                                       ,
-    Safe_UInt__Viewport_Dimension                                        ,
-    Safe_UInt__Memory_MB                                                 ,
-)
+from sgraph_ai_service_playwright.schemas.primitives.numeric.Safe_UInt__Milliseconds          import Safe_UInt__Milliseconds
+from sgraph_ai_service_playwright.schemas.primitives.numeric.Safe_UInt__Timeout_MS            import Safe_UInt__Timeout_MS
+from sgraph_ai_service_playwright.schemas.primitives.numeric.Safe_UInt__Session_Lifetime_MS   import Safe_UInt__Session_Lifetime_MS
+from sgraph_ai_service_playwright.schemas.primitives.numeric.Safe_UInt__Viewport_Dimension    import Safe_UInt__Viewport_Dimension
+from sgraph_ai_service_playwright.schemas.primitives.numeric.Safe_UInt__Memory_MB             import Safe_UInt__Memory_MB
 
 
 class test_Safe_UInt__Milliseconds(TestCase):

@@ -1,9 +1,5 @@
 # ═══════════════════════════════════════════════════════════════════════════════
-# Playwright Service — Host / Hostname Primitive
-#
-# osbot_utils does not expose a bare hostname type; define one locally for the
-# proxy bypass list. Accepts DNS names and IP addresses; strict full-match so
-# malformed values are rejected outright.
+# Playwright Service — Safe_Str__S3_Bucket primitive
 # ═══════════════════════════════════════════════════════════════════════════════
 
 import re
@@ -12,13 +8,9 @@ from osbot_utils.type_safe.primitives.core.Safe_Str                          imp
 from osbot_utils.type_safe.primitives.core.enums.Enum__Safe_Str__Regex_Mode  import Enum__Safe_Str__Regex_Mode
 
 
-HOST_REGEX = re.compile(r'^[a-zA-Z0-9]([a-zA-Z0-9\-.]*[a-zA-Z0-9])?$')               # DNS label / dotted host / IPv4
-
-
-class Safe_Str__Host(Safe_Str):                                                     # Bare hostname or IPv4 (no scheme, no port)
-    max_length        = 253                                                         # DNS RFC 1035 limit
-    regex             = HOST_REGEX
-    regex_mode        = Enum__Safe_Str__Regex_Mode.MATCH
+class Safe_Str__S3_Bucket(Safe_Str):                                                # S3 bucket name
+    max_length        = 63                                                          # AWS bucket limit
+    regex             = re.compile(r'^[a-z0-9][a-z0-9\-.]*[a-z0-9]$')               # Full-match: lowercase alnum edges
+    regex_mode        = Enum__Safe_Str__Regex_Mode.MATCH                            # MATCH requires strict_validation=True
     strict_validation = True
     allow_empty       = True                                                        # Default-constructible for Type_Safe fields
-    trim_whitespace   = True
