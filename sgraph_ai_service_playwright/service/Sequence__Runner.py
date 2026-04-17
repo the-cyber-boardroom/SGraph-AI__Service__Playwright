@@ -1,44 +1,34 @@
 # ═══════════════════════════════════════════════════════════════════════════════
-# Playwright Service — Sequence__Runner (routes-catalogue-v2 §4.4)
+# Playwright Service — Sequence__Runner (v0.1.24 — stateless)
 #
-# Layer-3 multi-step execution. One class method — `execute(request)` — drives
-# a heterogeneous list of steps against one session and returns a single
-# aggregated Schema__Sequence__Response.
+# Layer-3 multi-step execution. Stateless by design: every call launches a
+# fresh sync_playwright + Chromium, runs the declared step list, and tears
+# both down in try/finally before returning.
 #
 # Flow:
 #   1. Resolve sequence_id + trace_id (auto-generate if missing).
-#   2. Resolve session:
-#        • `request.session_id` set → look it up (404 if missing); we do NOT own it.
-#        • Otherwise → ad-hoc create via browser_launcher + session_manager,
-#          replaying the same validator gate + credentials_loader hand-off that
-#          Playwright__Service.session_create() uses. We mark the session as
-#          owned so teardown (if requested) cleans up the Chromium process.
-#   3. Parse every step dict via sequence_dispatcher.parse_steps (wire → typed).
-#   4. Reject duplicate step ids (Request__Validator.validate_step_ids_unique).
-#   5. Resolve the active page (lazy context + page creation, same pattern as
-#      Action__Runner.get_or_create_page — a freshly launched browser has
-#      neither context nor page).
-#   6. Iterate:
-#        • If a previous failure has halted the run → mark remaining steps SKIPPED.
-#        • Otherwise validate (JS allowlist + sink compatibility) and execute
-#          via Step__Executor. Record the action on Session__Manager so
-#          counters + artefact bucket stay in sync with single-action runs.
-#        • On failure with halt_on_error=True → flip the halted flag; the
-#          remainder of the loop walks the queue emitting SKIPPED results.
-#   7. Derive sequence status: COMPLETED (no failures) / FAILED (failure + halt)
-#      / PARTIAL (failure, continued).
-#   8. If close_session_after → session_manager.close() + browser_launcher.stop()
-#      (safe for both owned and caller-owned sessions — the flag is the caller's
-#      explicit intent, regardless of who started the session).
-#   9. Return Schema__Sequence__Response with the post-run session_info and a
-#      cumulative artefact list drawn from every passed/failed step result.
+#   2. Parse every step dict via sequence_dispatcher.parse_steps (wire → typed).
+#   3. Reject duplicate step ids (Request__Validator.validate_step_ids_unique).
+#   4. Validate browser_config — CDP endpoint URL required when provider=cdp_connect.
+#   5. Launch a fresh Chromium (Schema__Browser__Launch__Result) — mint an
+#      internal session_id for the launcher's per-request key + teardown hook.
+#   6. Create context + page; apply proxy TLS-ignore; bind CDP Fetch auth.
+#   7. Apply optional credentials (cookies / storage state / headers) to the
+#      fresh context via Credentials__Loader.
+#   8. Iterate:
+#        • If halted or deadline breached → mark remaining steps SKIPPED.
+#        • Otherwise validate (JS allowlist + sink compat) and execute via
+#          Step__Executor. Collect artefact refs.
+#        • On failure with halt_on_error=True → flip halted.
+#   9. Derive status (COMPLETED / FAILED / PARTIAL).
+#  10. try/finally: always stop the launched Chromium + sync_playwright runtime.
+#  11. Build + return Schema__Sequence__Response with aggregated counters, full
+#      artefact list, and Schema__Sequence__Timings block.
 # ═══════════════════════════════════════════════════════════════════════════════
 
 import time
 import uuid
 from typing                                                                                         import Any, List
-
-from fastapi                                                                                        import HTTPException
 
 from osbot_utils.type_safe.Type_Safe                                                                import Type_Safe
 from osbot_utils.type_safe.primitives.core.Safe_UInt                                                import Safe_UInt
@@ -46,17 +36,18 @@ from osbot_utils.utils.Env                                                      
 
 from sgraph_ai_service_playwright.consts.env_vars                                                   import ENV_VAR__REQUEST_DEADLINE_MS
 from sgraph_ai_service_playwright.schemas.artefact.Schema__Artefact__Ref                            import Schema__Artefact__Ref
+from sgraph_ai_service_playwright.schemas.browser.Schema__Browser__Config                           import Schema__Browser__Config
 from sgraph_ai_service_playwright.schemas.enums.Enum__Sequence__Status                              import Enum__Sequence__Status
 from sgraph_ai_service_playwright.schemas.enums.Enum__Step__Status                                  import Enum__Step__Status
 from sgraph_ai_service_playwright.schemas.primitives.identifiers.Safe_Str__Trace_Id                 import Safe_Str__Trace_Id
 from sgraph_ai_service_playwright.schemas.primitives.identifiers.Sequence_Id                        import Sequence_Id
+from sgraph_ai_service_playwright.schemas.primitives.identifiers.Session_Id                         import Session_Id
 from sgraph_ai_service_playwright.schemas.primitives.identifiers.Step_Id                            import Step_Id
 from sgraph_ai_service_playwright.schemas.primitives.numeric.Safe_UInt__Milliseconds                import Safe_UInt__Milliseconds
 from sgraph_ai_service_playwright.schemas.results.Schema__Step__Result__Base                        import Schema__Step__Result__Base
 from sgraph_ai_service_playwright.schemas.sequence.Schema__Sequence__Request                        import Schema__Sequence__Request
 from sgraph_ai_service_playwright.schemas.sequence.Schema__Sequence__Response                       import Schema__Sequence__Response
 from sgraph_ai_service_playwright.schemas.sequence.Schema__Sequence__Timings                        import Schema__Sequence__Timings
-from sgraph_ai_service_playwright.schemas.session.Schema__Session__Create__Request                  import Schema__Session__Create__Request
 from sgraph_ai_service_playwright.schemas.steps.Schema__Step__Base                                  import Schema__Step__Base
 from sgraph_ai_service_playwright.service.Browser__Launcher                                         import Browser__Launcher
 from sgraph_ai_service_playwright.service.Capability__Detector                                      import Capability__Detector
@@ -64,16 +55,14 @@ from sgraph_ai_service_playwright.service.Credentials__Loader                   
 from sgraph_ai_service_playwright.service.Proxy__Auth__Binder                                       import Proxy__Auth__Binder
 from sgraph_ai_service_playwright.service.Request__Validator                                        import Request__Validator
 from sgraph_ai_service_playwright.service.Sequence__Dispatcher                                      import Sequence__Dispatcher
-from sgraph_ai_service_playwright.service.Session__Manager                                          import Session__Manager
 from sgraph_ai_service_playwright.service.Step__Executor                                            import Step__Executor
 
 
-DEFAULT_REQUEST_DEADLINE_MS = 25000                                                 # 5 s headroom under CloudFront's 30 s gateway timeout; Lambda timeout (300 s) is a separate, higher ceiling
+DEFAULT_REQUEST_DEADLINE_MS = 25000                                                 # 5 s headroom under CloudFront's 30 s gateway timeout
 
 
 class Sequence__Runner(Type_Safe):
 
-    session_manager     : Session__Manager
     capability_detector : Capability__Detector
     request_validator   : Request__Validator
     sequence_dispatcher : Sequence__Dispatcher
@@ -90,13 +79,16 @@ class Sequence__Runner(Type_Safe):
         target         = self.capability_detector.target()
         started_ms     = int(time.time() * 1000)
 
-        session_id, playwright_start_ms, browser_launch_ms = self.resolve_session(request, trace_id, capabilities)
-
         parsed_steps = self.sequence_dispatcher.parse_steps(request.steps)
         self.request_validator.validate_step_ids_unique(parsed_steps)
+        self.request_validator.validate_browser_config(request.browser_config, capabilities)
 
-        browser = self.session_manager.get_browser(session_id)
-        page    = self.get_or_create_page(browser, session_id)
+        browser_config       = request.browser_config or Schema__Browser__Config()      # Defaults (headless Chromium) when caller omits
+        launch_result        = self.browser_launcher.launch(browser_config)             # Fresh sync_playwright + Chromium per call
+        session_id           = Session_Id()                                             # Internal trace-only handle for launcher registry + teardown
+        self.browser_launcher.register(session_id, launch_result)
+        playwright_start_ms  = int(launch_result.playwright_start_ms)
+        browser_launch_ms    = int(launch_result.browser_launch_ms)
 
         step_results : List[Schema__Step__Result__Base] = []
         artefacts    : List[Schema__Artefact__Ref]      = []
@@ -105,32 +97,37 @@ class Sequence__Runner(Type_Safe):
         skipped = 0
         halted  = False
 
-        deadline_ms = started_ms + self.get_deadline_ms()                                 # Wall-clock soft deadline — between-step check only (can't interrupt a blocked page.goto)
-
+        deadline_ms      = started_ms + self.get_deadline_ms()                          # Wall-clock soft deadline — between-step check only
         steps_started_ms = int(time.time() * 1000)
+        browser_close_ms = 0
+
         try:
+            page = self.get_or_create_page(launch_result.browser, session_id)
+            if request.credentials:
+                context = launch_result.browser.contexts[0] if launch_result.browser.contexts else None
+                self.credentials_loader.apply(context, request.credentials)
+
             for step_index, step in enumerate(parsed_steps):
-                if halted:                                                                # Remaining steps after halt_on_error failure → SKIPPED
+                if halted:                                                              # After halt_on_error failure → SKIPPED
                     result = self.skipped_result(step, step_index)
                     step_results.append(result)
                     skipped += 1
                     continue
 
-                if int(time.time() * 1000) >= deadline_ms:                                # Deadline breached — treat identically to halt_on_error: mark remaining steps SKIPPED and guarantee teardown via the outer finally
+                if int(time.time() * 1000) >= deadline_ms:                              # Deadline breached — treat like halt_on_error
                     halted = True
                     result = self.skipped_result(step, step_index)
                     step_results.append(result)
                     skipped += 1
                     continue
 
-                self.request_validator.validate_step(step, capture_config, capabilities, target)        # Raises HTTPException(422) on reject
+                self.request_validator.validate_step(step, capture_config, capabilities, target)
 
                 result = self.step_executor.execute(page           = page           ,
                                                      step           = step           ,
                                                      step_index     = step_index     ,
                                                      capture_config = capture_config )
                 step_results.append(result)
-                self.session_manager.record_action(session_id, result)
 
                 if result.status == Enum__Step__Status.PASSED:
                     passed += 1
@@ -139,25 +136,20 @@ class Sequence__Runner(Type_Safe):
                     if request.sequence_config.halt_on_error:
                         halted = True
 
-                for ref in result.artefacts:                                              # Cumulative list across all executed steps
+                for ref in result.artefacts:
                     artefacts.append(ref)
         finally:
             steps_ms         = int(time.time() * 1000) - steps_started_ms
-            browser_close_ms = 0
-            if request.close_session_after:
-                self.session_manager .close(session_id)
-                browser_close_ms = int(self.browser_launcher.stop(session_id))            # try/finally + idempotent stop() = guaranteed Chromium teardown even on step exceptions
+            browser_close_ms = int(self.browser_launcher.stop(session_id))              # try/finally + idempotent stop() = guaranteed Chromium teardown even on step exceptions
 
-        status = self.sequence_status(failed=failed, halted=halted)
-
-        session_after = self.session_manager.get(session_id)
-
+        status   = self.sequence_status(failed=failed, halted=halted)
         total_ms = int(time.time() * 1000) - started_ms
-        timings  = Schema__Sequence__Timings(playwright_start_ms = Safe_UInt__Milliseconds(int(playwright_start_ms)),
-                                              browser_launch_ms   = Safe_UInt__Milliseconds(int(browser_launch_ms  )),
-                                              steps_ms            = Safe_UInt__Milliseconds(steps_ms                 ),
-                                              browser_close_ms    = Safe_UInt__Milliseconds(browser_close_ms         ),
-                                              total_ms            = Safe_UInt__Milliseconds(total_ms                 ))
+
+        timings  = Schema__Sequence__Timings(playwright_start_ms = Safe_UInt__Milliseconds(playwright_start_ms),
+                                              browser_launch_ms   = Safe_UInt__Milliseconds(browser_launch_ms  ),
+                                              steps_ms            = Safe_UInt__Milliseconds(steps_ms            ),
+                                              browser_close_ms    = Safe_UInt__Milliseconds(browser_close_ms    ),
+                                              total_ms            = Safe_UInt__Milliseconds(total_ms            ))
 
         return Schema__Sequence__Response(sequence_id       = sequence_id                                       ,
                                            trace_id          = trace_id                                          ,
@@ -168,59 +160,33 @@ class Sequence__Runner(Type_Safe):
                                            steps_failed      = Safe_UInt(failed)                                 ,
                                            steps_skipped     = Safe_UInt(skipped)                                ,
                                            step_results      = step_results                                      ,
-                                           session_info      = session_after                                     ,
                                            artefacts         = artefacts                                         ,
                                            timings           = timings                                           )
 
-    def resolve_session(self, request, trace_id, capabilities):
-        if request.session_id:                                                        # Caller named a session — reuse when it actually exists
-            session = self.session_manager.get(request.session_id)
-            if session is not None:
-                return request.session_id, 0, 0                                       # Pre-existing session → no boot timings to report
-
-        if request.browser_config is None:                                            # No reusable session + no ad-hoc inputs — unrecoverable regardless of whether session_id came from the caller or from osbot-fast-api's auto-gen. This branch owns BOTH "explicit but wrong session_id + no fallback" and "session_id omitted on wire + no fallback".
-            raise HTTPException(422, 'browser_config is required when no existing session matches session_id')
-
-        session_create_req = Schema__Session__Create__Request(browser_config = request.browser_config ,
-                                                               credentials    = request.credentials    ,
-                                                               capture_config = request.capture_config ,
-                                                               trace_id       = trace_id               )
-        self.request_validator.validate_session_create(session_create_req, capabilities)
-
-        launch_result = self.browser_launcher.launch(request.browser_config)          # Fresh sync_playwright + Chromium per call — zero cross-request state bleed
-        session       = self.session_manager.create(browser      = launch_result.browser,
-                                                     request      = session_create_req  ,
-                                                     trace_id     = trace_id             ,
-                                                     capabilities = capabilities         )
-        self.browser_launcher.register(session.session_id, launch_result)             # Track launch so execute()'s try/finally can tear it down
-        if request.credentials:
-            self.credentials_loader.apply(session.session_id, self.session_manager, request.credentials)
-        return session.session_id, int(launch_result.playwright_start_ms), int(launch_result.browser_launch_ms)
-
     def get_or_create_page(self, browser: Any, session_id: Any) -> Any:              # Freshly launched browser has no context / page — create on demand
-        launch_result = self.browser_launcher.browsers.get(session_id)               # None for sessions created outside the launcher (test fakes that skip register); proxy stays None and binder is a no-op
+        launch_result = self.browser_launcher.browsers.get(session_id)
         proxy         = launch_result.proxy if launch_result is not None else None
 
-        contexts = browser.contexts                                                  # Playwright sync API: `contexts` is a @property returning List[BrowserContext] — NEVER call it as a method (`()` triggers 'list' object is not callable)
+        contexts = browser.contexts                                                  # Playwright sync API: `contexts` is a @property returning List[BrowserContext]
         if contexts:
             context = contexts[0]
         else:
             ctx_kwargs = {}
             if proxy is not None and bool(proxy.ignore_https_errors):
-                ctx_kwargs['ignore_https_errors'] = True                             # TLS interception (mitmproxy et al) — otherwise every HTTPS page fails with NET::ERR_CERT_AUTHORITY_INVALID
+                ctx_kwargs['ignore_https_errors'] = True                             # TLS interception (mitmproxy et al) — otherwise NET::ERR_CERT_AUTHORITY_INVALID
             context = browser.new_context(**ctx_kwargs)
 
-        pages = context.pages                                                        # Same pattern — `pages` is also a @property
+        pages = context.pages
         if pages:
             page = pages[0]
         else:
             page = context.new_page()
-            if proxy is not None and proxy.auth is not None:                         # Bind CDP Fetch handlers exactly once — only on the first page creation
+            if proxy is not None and proxy.auth is not None:                         # Bind CDP Fetch handlers once on first page creation
                 self.proxy_auth_binder.bind(context, page, proxy.auth)
         return page
 
     def skipped_result(self, step: Schema__Step__Base, step_index: int) -> Schema__Step__Result__Base:
-        step_id = step.id if step.id is not None else Step_Id(str(step_index))        # Same fallback as Step__Executor.resolve_id
+        step_id = step.id if step.id is not None else Step_Id(str(step_index))
         return Schema__Step__Result__Base(step_id     = step_id                                      ,
                                            step_index  = Safe_UInt(step_index)                       ,
                                            action      = step.action                                 ,
@@ -234,6 +200,6 @@ class Sequence__Runner(Type_Safe):
             return Enum__Sequence__Status.FAILED
         return Enum__Sequence__Status.PARTIAL
 
-    def get_deadline_ms(self) -> int:                                                 # Env-driven soft deadline; override by subclassing in tests
+    def get_deadline_ms(self) -> int:
         raw = get_env(ENV_VAR__REQUEST_DEADLINE_MS)
         return int(raw) if raw else DEFAULT_REQUEST_DEADLINE_MS

@@ -93,7 +93,7 @@ class test_get_info(TestCase):
 
 class test_get_status(TestCase):
 
-    def test__returns_schema_health_with_three_checks(self):
+    def test__returns_schema_health_with_two_checks(self):                            # v0.1.24 — session_manager removed; only browser_launcher + connectivity
         with _EnvScrub():
             _, client = _client()
             response  = client.get('/health/status', headers=AUTH_HEADERS)
@@ -102,7 +102,7 @@ class test_get_status(TestCase):
         assert 'healthy'   in body
         assert 'timestamp' in body
         check_names = [c['check_name'] for c in body['checks']]
-        assert check_names == ['browser_launcher', 'session_manager', 'connectivity']
+        assert check_names == ['browser_launcher', 'connectivity']
 
     def test__unhealthy_when_vault_unreachable(self):
         with _EnvScrub():

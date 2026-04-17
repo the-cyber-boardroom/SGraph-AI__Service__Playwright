@@ -121,13 +121,6 @@ def _build_fast_api():
     return fa, fa.client()
 
 
-def _create_session(client) -> str:
-    body     = {'browser_config': {}, 'capture_config': {}}
-    response = client.post('/session/create', headers=AUTH_HEADERS, json=body)
-    assert response.status_code == 200
-    return response.json()['session_info']['session_id']
-
-
 class test_constants(TestCase):
 
     def test__tag_and_paths(self):
@@ -154,8 +147,7 @@ class test_post_sequence__ad_hoc(TestCase):
                          'sequence_config'    : {'halt_on_error': True}                                ,
                          'steps'              : [{'action': 'navigate', 'url': 'http://one.test/' },
                                                   {'action': 'navigate', 'url': 'http://two.test/' },
-                                                  {'action': 'click'   , 'selector': '#submit'    }],
-                         'close_session_after': True                                                    }
+                                                  {'action': 'click'   , 'selector': '#submit'    }]}
             response  = client.post('/sequence/execute', headers=AUTH_HEADERS, json=body)
         assert response.status_code == 200
         rj = response.json()
@@ -163,39 +155,6 @@ class test_post_sequence__ad_hoc(TestCase):
         assert rj['steps_total' ]  == 3
         assert rj['steps_passed']  == 3
         assert rj['steps_failed']  == 0
-
-
-class test_post_sequence__reuses_session(TestCase):
-
-    def test__returns_200_and_preserves_session(self):
-        with _EnvScrub(**{ENV_VAR__DEPLOYMENT_TARGET: 'lambda'}):
-            _, client   = _build_fast_api()
-            session_id  = _create_session(client)
-            body        = {'session_id'         : session_id                                  ,
-                           'capture_config'     : {}                                          ,
-                           'sequence_config'    : {'halt_on_error': True}                     ,
-                           'steps'              : [{'action': 'navigate', 'url': 'http://a.test/'}],
-                           'close_session_after': False                                       }
-            response    = client.post('/sequence/execute', headers=AUTH_HEADERS, json=body)
-        assert response.status_code == 200
-        rj = response.json()
-        assert rj['status']                    == 'completed'
-        assert rj['session_info']['status']    == 'active'
-        assert rj['session_info']['session_id']== session_id
-
-
-class test_post_sequence__404_unknown_session(TestCase):
-
-    def test__returns_404(self):
-        with _EnvScrub(**{ENV_VAR__DEPLOYMENT_TARGET: 'lambda'}):
-            _, client = _build_fast_api()
-            body      = {'session_id'         : 'no-such-session'                             ,
-                         'capture_config'     : {}                                            ,
-                         'sequence_config'    : {}                                            ,
-                         'steps'              : [{'action': 'navigate', 'url': 'http://x.test/'}],
-                         'close_session_after': False                                         }
-            response  = client.post('/sequence/execute', headers=AUTH_HEADERS, json=body)
-        assert response.status_code == 404
 
 
 class test_auth_gate(TestCase):
@@ -206,7 +165,6 @@ class test_auth_gate(TestCase):
             body      = {'browser_config'     : {}                                            ,
                          'capture_config'     : {}                                            ,
                          'sequence_config'    : {}                                            ,
-                         'steps'              : [{'action': 'navigate', 'url': 'http://x.test/'}],
-                         'close_session_after': True                                          }
+                         'steps'              : [{'action': 'navigate', 'url': 'http://x.test/'}]}
             response  = client.post('/sequence/execute', json=body)
         assert response.status_code in (401, 403)

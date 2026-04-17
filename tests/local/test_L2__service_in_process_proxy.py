@@ -1,11 +1,11 @@
 # ═══════════════════════════════════════════════════════════════════════════════
-# Local validation — L2 — service-in-process against local mitmproxy
+# Local validation — L2 — service-in-process against local mitmproxy (v0.1.24)
 #
 # L1 proved the raw CDP Fetch pattern works. L2 proves the SERVICE WIRING
 # (Schema__Proxy__Config nested auth → Browser__Launcher → Proxy__Auth__Binder)
 # carries those credentials through to Chromium. Drives Playwright__Service
 # directly — no HTTP, no FastAPI — with a real sync_playwright()+Chromium
-# against the local mitmproxy.
+# against the local mitmproxy, exercising the stateless /browser/* surface.
 #
 # What this guards against:
 #   • A caller populates `proxy.auth.username/password`; service silently drops
@@ -28,14 +28,14 @@ from unittest                                                                   
 
 import pytest
 
+from fastapi                                                                                   import HTTPException
+
 from sgraph_ai_service_playwright.schemas.browser.Schema__Browser__Config                      import Schema__Browser__Config
+from sgraph_ai_service_playwright.schemas.browser.Schema__Browser__Get_Content__Request        import Schema__Browser__Get_Content__Request
+from sgraph_ai_service_playwright.schemas.browser.Schema__Browser__Navigate__Request           import Schema__Browser__Navigate__Request
 from sgraph_ai_service_playwright.schemas.browser.Schema__Proxy__Auth__Basic                   import Schema__Proxy__Auth__Basic
 from sgraph_ai_service_playwright.schemas.browser.Schema__Proxy__Config                        import Schema__Proxy__Config
-from sgraph_ai_service_playwright.schemas.capture.Schema__Capture__Config                      import Schema__Capture__Config
-from sgraph_ai_service_playwright.schemas.core.Schema__Action__Request                         import Schema__Action__Request
-from sgraph_ai_service_playwright.schemas.enums.Enum__Step__Status                              import Enum__Step__Status
 from sgraph_ai_service_playwright.schemas.primitives.host.Safe_Str__Host                       import Safe_Str__Host
-from sgraph_ai_service_playwright.schemas.session.Schema__Session__Create__Request             import Schema__Session__Create__Request
 from sgraph_ai_service_playwright.service.Playwright__Service                                  import Playwright__Service
 
 
@@ -75,49 +75,25 @@ class test_L2__service_in_process_proxy(TestCase):
                         f'start it with: mitmdump --listen-port {PROXY_PORT} '
                         f'--proxyauth {PROXY_USERNAME}:{PROXY_PASSWORD}')
 
-    def test__correct_creds_navigate_succeeds(self):                                            # Gold path — service + real Chromium + real proxy
-        service    = Playwright__Service().setup()
-        session_id = None
-        try:
-            create_req  = Schema__Session__Create__Request(browser_config = _browser_config(_proxy_config())  ,
-                                                            capture_config = Schema__Capture__Config()         )
-            create_resp = service.session_create(create_req)
-            session_id  = create_resp.session_info.session_id
+    def test__correct_creds_get_content_succeeds(self):                                        # Gold path — stateless /browser/get-content + real Chromium + real proxy
+        service   = Playwright__Service().setup()
+        request   = Schema__Browser__Get_Content__Request(url            = PROBE_URL                                      ,
+                                                           browser_config = _browser_config(_proxy_config())               ,
+                                                           timeout_ms     = 15000                                          )
+        response  = service.browser_get_content(request)
 
-            action_req  = Schema__Action__Request(session_id = session_id                                               ,
-                                                   step       = {'action': 'navigate', 'url': PROBE_URL, 'timeout_ms': 15000})
-            response    = service.execute_action(action_req)
+        body = str(response.html or '')
+        assert '"ip"' in body, f'expected IP JSON from ipify, got: {body[:200]}'
 
-            assert response.step_result.status == Enum__Step__Status.PASSED, \
-                f'navigate failed: {response.step_result.error_message}'
+    def test__wrong_creds_fail_fast_through_service(self):                                     # Regression — wrong creds MUST fail differently from right creds, same way as L1
+        service   = Playwright__Service().setup()
+        request   = Schema__Browser__Navigate__Request(url            = PROBE_URL                                                     ,
+                                                        browser_config = _browser_config(_proxy_config(username='wronguser', password='wrongpass')),
+                                                        timeout_ms     = 15000                                                        )
+        started   = time.time()
+        with pytest.raises(HTTPException) as exc_info:
+            service.browser_navigate(request)                                                  # One-shot raises HTTPException(502) on step failure
+        elapsed = time.time() - started
 
-            content_req = Schema__Action__Request(session_id = session_id                                   ,
-                                                   step       = {'action': 'get_content', 'inline_in_response': True})
-            content_resp = service.execute_action(content_req)
-            assert content_resp.step_result.status == Enum__Step__Status.PASSED
-            body = str(content_resp.step_result.content or '')
-            assert '"ip"' in body, f'expected IP JSON from ipify, got: {body[:200]}'
-        finally:
-            if session_id is not None:
-                service.session_close(session_id)
-
-    def test__wrong_creds_fail_fast_through_service(self):                                      # Regression — wrong creds MUST fail differently from right creds, same way as L1
-        service    = Playwright__Service().setup()
-        session_id = None
-        try:
-            create_req  = Schema__Session__Create__Request(browser_config = _browser_config(_proxy_config(username='wronguser', password='wrongpass')),
-                                                            capture_config = Schema__Capture__Config()                                                 )
-            create_resp = service.session_create(create_req)
-            session_id  = create_resp.session_info.session_id
-
-            action_req = Schema__Action__Request(session_id = session_id                                               ,
-                                                  step       = {'action': 'navigate', 'url': PROBE_URL, 'timeout_ms': 15000})
-            started    = time.time()
-            response   = service.execute_action(action_req)
-            elapsed    = time.time() - started
-
-            assert response.step_result.status == Enum__Step__Status.FAILED                     # Chromium surfaces ERR_PROXY_AUTH_FAILED / net::ERR_INVALID_AUTH_CREDENTIALS
-            assert elapsed < 10, f'wrong creds should fail fast (<10s), took {elapsed:.2f}s — signature of the original "auth silently dropped" regression'
-        finally:
-            if session_id is not None:
-                service.session_close(session_id)
+        assert exc_info.value.status_code == 502                                               # Chromium surfaces ERR_PROXY_AUTH_FAILED / net::ERR_INVALID_AUTH_CREDENTIALS
+        assert elapsed < 10, f'wrong creds should fail fast (<10s), took {elapsed:.2f}s — signature of the original "auth silently dropped" regression'

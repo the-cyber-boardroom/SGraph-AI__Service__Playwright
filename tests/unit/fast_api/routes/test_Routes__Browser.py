@@ -1,11 +1,19 @@
 # ═══════════════════════════════════════════════════════════════════════════════
-# Tests — Routes__Browser (POST /browser/navigate, /browser/click, /browser/screenshot)
+# Tests — Routes__Browser (v0.1.24 — six one-shot POST endpoints)
 #
-# Drives the three-endpoint Slice-B subset through a TestClient. Real Chromium
-# is NOT launched — the Fast_API__Playwright__Service is booted with an injected
-# Playwright__Service whose Browser__Launcher is a fake that returns opaque
-# _FakeBrowser stand-ins. Each test walks the /session/create -> /browser/*
-# round trip so auth + routing + payload shapes are all in scope.
+#   POST /browser/navigate    -> JSON Schema__Browser__One_Shot__Response
+#   POST /browser/click       -> JSON Schema__Browser__One_Shot__Response
+#   POST /browser/fill        -> JSON Schema__Browser__One_Shot__Response
+#   POST /browser/get-content -> JSON Schema__Browser__One_Shot__Response (html set)
+#   POST /browser/get-url     -> JSON Schema__Browser__One_Shot__Response
+#   POST /browser/screenshot  -> image/png (raw bytes + X-*-Ms timing headers)
+#
+# Every endpoint is self-contained: the TestClient POSTs a body, the route
+# delegates to Playwright__Service.browser_<action>(), a fake Browser__Launcher
+# hands back opaque _FakeBrowser stand-ins so no real Chromium ever boots.
+#
+# Each test asserts that the launcher.launch_count increments once per call,
+# confirming the stateless "fresh Chromium per request" contract end-to-end.
 # ═══════════════════════════════════════════════════════════════════════════════
 
 import os
@@ -64,18 +72,16 @@ class _EnvScrub:
 
 # ─── Fakes (no real Chromium, no real vault) ─────────────────────────────────
 
-class _FakeLocator:                                                                  # Supports .press_sequentially (fill with clear_first=False) + .inner_text / .inner_html / .screenshot (get_content / screenshot-by-selector)
-    def __init__(self, selector, text='locator-text', html='<span>locator-html</span>'):
+class _FakeLocator:
+    def __init__(self, selector):
         self.selector = selector
-        self._text    = text
-        self._html    = html
     def press_sequentially(self, value, timeout=None): pass
-    def inner_text   (self, timeout=None): return self._text
-    def inner_html   (self, timeout=None): return self._html
+    def inner_text   (self, timeout=None): return 'locator-text'
+    def inner_html   (self, timeout=None): return '<span>locator-html</span>'
     def screenshot   (self, timeout=None): return b'\x89PNG\r\n\x1a\n' + b'\x00' * 16
 
 
-class _FakePage:                                                                     # Records Step__Executor calls; does nothing real
+class _FakePage:
     def __init__(self):
         self.url = 'http://example.com/current'
     def goto(self, url, wait_until=None, timeout=None):
@@ -105,10 +111,10 @@ class _FakeContext:
 class _FakeBrowser:
     def __init__(self):
         self._contexts = []
-    @property                                                                       # Real Playwright sync API: `contexts` is a @property
+    @property
     def contexts(self):
         return self._contexts
-    def new_context(self):
+    def new_context(self, **kwargs):
         context = _FakeContext()
         self._contexts.append(context)
         return context
@@ -120,12 +126,18 @@ class _FakePlaywright:
 
 
 class _FakeLauncher(Browser__Launcher):
+    def __init__(self):
+        super().__init__()
+        self.launch_count   = 0
+        self.stop_count     = 0
     def launch(self, browser_config):
-        return Schema__Browser__Launch__Result(browser             = _FakeBrowser()  ,     # Real launcher now returns Schema__Browser__Launch__Result (per-call sync_playwright + browser)
+        self.launch_count += 1
+        return Schema__Browser__Launch__Result(browser             = _FakeBrowser()  ,
                                                 playwright          = _FakePlaywright(),
                                                 playwright_start_ms = 0                ,
                                                 browser_launch_ms   = 0                )
     def stop(self, session_id):
+        self.stop_count += 1
         return 0
 
 
@@ -135,18 +147,14 @@ class _InMemoryArtefactWriter(Artefact__Writer):
 
 
 def _build_fast_api():
-    service = Playwright__Service(browser_launcher   = _FakeLauncher()                              ,
-                                  credentials_loader = Credentials__Loader(artefact_writer=_InMemoryArtefactWriter()))
-    fa      = Fast_API__Playwright__Service(service=service).setup()
-    return fa, fa.client()
+    service  = Playwright__Service(browser_launcher   = _FakeLauncher()                              ,
+                                   credentials_loader = Credentials__Loader(artefact_writer=_InMemoryArtefactWriter()))
+    fa       = Fast_API__Playwright__Service(service=service).setup()
+    launcher = service.browser_launcher                                              # Hand back the fake so tests can read launch_count
+    return fa, fa.client(), launcher
 
 
-def _create_session(client) -> str:                                                  # Helper — open a session, return its id
-    body     = {'browser_config': {}, 'capture_config': {}}
-    response = client.post('/session/create', headers=AUTH_HEADERS, json=body)
-    assert response.status_code == 200
-    return response.json()['session_info']['session_id']
-
+# ─── Tests ───────────────────────────────────────────────────────────────────
 
 class test_constants(TestCase):
 
@@ -155,16 +163,16 @@ class test_constants(TestCase):
         assert ROUTES_PATHS__BROWSER == ['/browser/navigate'   ,
                                          '/browser/click'      ,
                                          '/browser/fill'       ,
-                                         '/browser/screenshot' ,
                                          '/browser/get-content',
-                                         '/browser/get-url'    ]
+                                         '/browser/get-url'    ,
+                                         '/browser/screenshot' ]
 
 
 class test_route_registration(TestCase):
 
-    def test__all_three_browser_paths_registered(self):
+    def test__all_six_browser_paths_registered(self):
         with _EnvScrub(**{ENV_VAR__DEPLOYMENT_TARGET: 'laptop'}):
-            fa, _ = _build_fast_api()
+            fa, _, _ = _build_fast_api()
         paths = {str(getattr(r, 'path', '')) for r in fa.app().routes}
         for expected in ROUTES_PATHS__BROWSER:
             assert expected in paths
@@ -172,129 +180,94 @@ class test_route_registration(TestCase):
 
 class test_post_navigate(TestCase):
 
-    def test__returns_200_with_step_result_passed(self):
+    def test__launches_fresh_browser_per_call(self):
         with _EnvScrub(**{ENV_VAR__DEPLOYMENT_TARGET: 'lambda'}):
-            _, client  = _build_fast_api()
-            session_id = _create_session(client)
-            body       = {'session_id': session_id                                       ,
-                          'step'      : {'action': 'navigate', 'url': 'http://example.com/'}}
-            response   = client.post('/browser/navigate', headers=AUTH_HEADERS, json=body)
+            _, client, launcher = _build_fast_api()
+            body     = {'url': 'http://example.com/'}
+            response = client.post('/browser/navigate', headers=AUTH_HEADERS, json=body)
         assert response.status_code == 200
         rj = response.json()
-        assert rj['session_id']            == session_id
-        assert rj['step_result']['status'] == 'passed'
-        assert rj['step_result']['action'] == 'navigate'
-
-    def test__returns_404_when_session_unknown(self):
-        with _EnvScrub(**{ENV_VAR__DEPLOYMENT_TARGET: 'lambda'}):
-            _, client = _build_fast_api()
-            body      = {'session_id': 'no-such-session'                                 ,
-                         'step'      : {'action': 'navigate', 'url': 'http://example.com/'}}
-            response  = client.post('/browser/navigate', headers=AUTH_HEADERS, json=body)
-        assert response.status_code == 404
+        assert rj['url']       == 'http://example.com/'
+        assert 'final_url'     in rj
+        assert 'trace_id'      in rj
+        assert 'timings'       in rj
+        assert launcher.launch_count == 1
+        assert launcher.stop_count   == 1
 
 
 class test_post_click(TestCase):
 
-    def test__returns_200_after_prior_navigate(self):
+    def test__returns_200_and_launches_one_browser(self):
         with _EnvScrub(**{ENV_VAR__DEPLOYMENT_TARGET: 'lambda'}):
-            _, client  = _build_fast_api()
-            session_id = _create_session(client)
-            client.post('/browser/navigate', headers=AUTH_HEADERS,
-                        json={'session_id': session_id                                       ,
-                              'step'      : {'action': 'navigate', 'url': 'http://example.com/'}})
-            body     = {'session_id': session_id                               ,
-                        'step'      : {'action': 'click', 'selector': 'button.go'}}
+            _, client, launcher = _build_fast_api()
+            body     = {'url': 'http://example.com/', 'selector': 'button.go'}
             response = client.post('/browser/click', headers=AUTH_HEADERS, json=body)
         assert response.status_code == 200
-        rj = response.json()
-        assert rj['step_result']['status'] == 'passed'
-        assert rj['step_result']['action'] == 'click'
-
-
-class test_post_screenshot(TestCase):
-
-    def test__returns_200_with_disabled_sink(self):                                   # Default capture_config -> screenshot.enabled=False; Step__Executor still passes
-        with _EnvScrub(**{ENV_VAR__DEPLOYMENT_TARGET: 'lambda'}):
-            _, client  = _build_fast_api()
-            session_id = _create_session(client)
-            client.post('/browser/navigate', headers=AUTH_HEADERS,
-                        json={'session_id': session_id                                       ,
-                              'step'      : {'action': 'navigate', 'url': 'http://example.com/'}})
-            body     = {'session_id': session_id                                             ,
-                        'step'      : {'action': 'screenshot'                              }}
-            response = client.post('/browser/screenshot', headers=AUTH_HEADERS, json=body)
-        assert response.status_code == 200
-        rj = response.json()
-        assert rj['step_result']['status']    == 'passed'
-        assert rj['step_result']['action']    == 'screenshot'
-        assert rj['step_result']['artefacts'] == []
+        assert launcher.launch_count == 1
+        assert launcher.stop_count   == 1
 
 
 class test_post_fill(TestCase):
 
-    def test__returns_200_after_prior_navigate(self):
+    def test__returns_200_and_launches_one_browser(self):
         with _EnvScrub(**{ENV_VAR__DEPLOYMENT_TARGET: 'lambda'}):
-            _, client  = _build_fast_api()
-            session_id = _create_session(client)
-            client.post('/browser/navigate', headers=AUTH_HEADERS,
-                        json={'session_id': session_id                                       ,
-                              'step'      : {'action': 'navigate', 'url': 'http://example.com/'}})
-            body     = {'session_id': session_id                                                      ,
-                        'step'      : {'action': 'fill', 'selector': 'input#q', 'value': 'hello world'}}
+            _, client, launcher = _build_fast_api()
+            body     = {'url': 'http://example.com/', 'selector': 'input#q', 'value': 'hello world'}
             response = client.post('/browser/fill', headers=AUTH_HEADERS, json=body)
         assert response.status_code == 200
-        rj = response.json()
-        assert rj['step_result']['status'] == 'passed'
-        assert rj['step_result']['action'] == 'fill'
+        assert launcher.launch_count == 1
+        assert launcher.stop_count   == 1
 
 
 class test_post_get_content(TestCase):
 
-    def test__returns_200_with_inline_html(self):                                     # inline_in_response=True (default) -> HTML embedded, no sink write
+    def test__returns_html_in_body_and_launches_one_browser(self):
         with _EnvScrub(**{ENV_VAR__DEPLOYMENT_TARGET: 'lambda'}):
-            _, client  = _build_fast_api()
-            session_id = _create_session(client)
-            client.post('/browser/navigate', headers=AUTH_HEADERS,
-                        json={'session_id': session_id                                       ,
-                              'step'      : {'action': 'navigate', 'url': 'http://example.com/'}})
-            body     = {'session_id': session_id                          ,
-                        'step'      : {'action': 'get_content'            }}
+            _, client, launcher = _build_fast_api()
+            body     = {'url': 'http://example.com/'}
             response = client.post('/browser/get-content', headers=AUTH_HEADERS, json=body)
         assert response.status_code == 200
         rj = response.json()
-        assert rj['step_result']['status']         == 'passed'
-        assert rj['step_result']['action']         == 'get_content'
-        assert rj['step_result']['content_type']   == 'text/html'
-        assert 'full-page-html' in rj['step_result']['content']
-        assert rj['step_result']['artefacts']      == []
+        assert rj['html'] is not None
+        assert 'full-page-html' in rj['html']                                        # _FakePage.content() returns this
+        assert launcher.launch_count == 1
+        assert launcher.stop_count   == 1
 
 
 class test_post_get_url(TestCase):
 
-    def test__returns_200_with_current_page_url(self):
+    def test__returns_final_url(self):
         with _EnvScrub(**{ENV_VAR__DEPLOYMENT_TARGET: 'lambda'}):
-            _, client  = _build_fast_api()
-            session_id = _create_session(client)
-            client.post('/browser/navigate', headers=AUTH_HEADERS,
-                        json={'session_id': session_id                                       ,
-                              'step'      : {'action': 'navigate', 'url': 'http://example.com/'}})
-            body     = {'session_id': session_id                      ,
-                        'step'      : {'action': 'get_url'            }}
+            _, client, launcher = _build_fast_api()
+            body     = {'url': 'http://example.com/landing'}
             response = client.post('/browser/get-url', headers=AUTH_HEADERS, json=body)
         assert response.status_code == 200
         rj = response.json()
-        assert rj['step_result']['status'] == 'passed'
-        assert rj['step_result']['action'] == 'get_url'
-        assert rj['step_result']['url']    == 'http://example.com/'
+        assert rj['final_url'] == 'http://example.com/landing'
+        assert launcher.launch_count == 1
+
+
+class test_post_screenshot(TestCase):
+
+    def test__returns_png_bytes_and_timing_headers(self):
+        with _EnvScrub(**{ENV_VAR__DEPLOYMENT_TARGET: 'lambda'}):
+            _, client, launcher = _build_fast_api()
+            body     = {'url': 'http://example.com/'}
+            response = client.post('/browser/screenshot', headers=AUTH_HEADERS, json=body)
+        assert response.status_code == 200
+        assert response.headers.get('content-type', '').startswith('image/png')
+        assert response.content[:4] == b'\x89PNG'                                    # Real PNG magic
+        for hdr in ('x-playwright-start-ms', 'x-browser-launch-ms', 'x-steps-ms', 'x-browser-close-ms', 'x-total-ms'):
+            assert hdr in {h.lower() for h in response.headers.keys()}
+        assert launcher.launch_count == 1
+        assert launcher.stop_count   == 1
 
 
 class test_auth_gate(TestCase):
 
     def test__missing_api_key_is_rejected(self):
         with _EnvScrub(**{ENV_VAR__DEPLOYMENT_TARGET: 'lambda'}):
-            _, client = _build_fast_api()
-            body     = {'session_id': 'whatever'                                         ,
-                        'step'      : {'action': 'navigate', 'url': 'http://example.com/'}}
-            response = client.post('/browser/navigate', json=body)                     # No headers
-        assert response.status_code in (401, 403)                                     # osbot-fast-api's middleware may use either
+            _, client, _ = _build_fast_api()
+            body         = {'url': 'http://example.com/'}
+            response     = client.post('/browser/navigate', json=body)                # No headers
+        assert response.status_code in (401, 403)                                    # osbot-fast-api's middleware may use either

@@ -20,8 +20,6 @@ from sgraph_ai_service_playwright.schemas.enums.Enum__Evaluate__Return_Type   im
 from sgraph_ai_service_playwright.schemas.enums.Enum__Keyboard__Key           import Enum__Keyboard__Key
 from sgraph_ai_service_playwright.schemas.enums.Enum__Mouse__Button           import Enum__Mouse__Button
 from sgraph_ai_service_playwright.schemas.enums.Enum__Sequence__Status        import Enum__Sequence__Status
-from sgraph_ai_service_playwright.schemas.enums.Enum__Session__Lifetime       import Enum__Session__Lifetime
-from sgraph_ai_service_playwright.schemas.enums.Enum__Session__Status         import Enum__Session__Status
 from sgraph_ai_service_playwright.schemas.enums.Enum__Step__Action            import Enum__Step__Action
 from sgraph_ai_service_playwright.schemas.enums.Enum__Step__Status            import Enum__Step__Status
 from sgraph_ai_service_playwright.schemas.enums.Enum__Video__Codec            import Enum__Video__Codec
@@ -50,16 +48,6 @@ class test_Enum__Browser__Provider(TestCase):
 class test_Enum__Deployment__Target(TestCase):
     def test__roundtrip(self):
         _assert_roundtrip(Enum__Deployment__Target, ['laptop', 'ci', 'claude_web', 'container', 'lambda'])
-
-
-class test_Enum__Session__Lifetime(TestCase):
-    def test__roundtrip(self):
-        _assert_roundtrip(Enum__Session__Lifetime, ['ephemeral', 'persistent_single', 'persistent_distributed'])
-
-
-class test_Enum__Session__Status(TestCase):
-    def test__roundtrip(self):
-        _assert_roundtrip(Enum__Session__Status, ['created', 'active', 'idle', 'closing', 'closed', 'error'])
 
 
 class test_Enum__Sequence__Status(TestCase):

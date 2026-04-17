@@ -1,11 +1,16 @@
 # ═══════════════════════════════════════════════════════════════════════════════
-# Playwright Service — Schema__Session__State__Save__Request (spec §5.5)
+# Playwright Service — Schema__Browser__Screenshot__Result (v0.1.24)
+#
+# Internal pairing of PNG bytes + timings for /browser/screenshot. The route
+# emits png_bytes as the raw response body and timings as X-*-Ms headers —
+# never serialised as JSON.
 # ═══════════════════════════════════════════════════════════════════════════════
 
 from osbot_utils.type_safe.Type_Safe                                                                import Type_Safe
 
-from sgraph_ai_service_playwright.schemas.artefact.Schema__Vault_Ref                                import Schema__Vault_Ref
+from sgraph_ai_service_playwright.schemas.sequence.Schema__Sequence__Timings                        import Schema__Sequence__Timings
 
 
-class Schema__Session__State__Save__Request(Type_Safe):                             # POST /session/{id}/save-state body
-    vault_ref               : Schema__Vault_Ref                                     # Where to write storage state
+class Schema__Browser__Screenshot__Result(Type_Safe):
+    png_bytes : bytes
+    timings   : Schema__Sequence__Timings

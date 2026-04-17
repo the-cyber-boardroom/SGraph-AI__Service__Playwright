@@ -9,12 +9,10 @@
 #
 # Phase 2.9 first pass: NAVIGATE, CLICK, FILL, SCREENSHOT, GET_CONTENT, GET_URL.
 # The remaining ten actions raise NotImplementedError with a clear "Phase 2.11"
-# message. This mirrors the Browser__Launcher pattern of implementing the
-# minimum needed to unblock the next layer (Action__Runner / Sequence__Runner
-# in Phase 2.10) and leaving the rest as signposted TODOs.
+# message — signposted TODOs for the next Step__Executor expansion.
 #
 # Error handling: each execute_* catches exceptions, times the step, populates
-# error_message, and returns a FAILED result rather than raising — Action__Runner
+# error_message, and returns a FAILED result rather than raising — Sequence__Runner
 # wants a uniform result shape regardless of outcome. PlaywrightTimeoutError is
 # re-interpreted as a FAILED status with a descriptive message (not SKIPPED).
 #

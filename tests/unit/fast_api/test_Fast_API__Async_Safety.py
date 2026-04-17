@@ -1,26 +1,23 @@
 # ═══════════════════════════════════════════════════════════════════════════════
 # Tests — Fast_API__Playwright__Service / async-safety regression (Bug #4)
 #
-# The original Bug #4 report: hitting /session/create repeatedly inside a single
-# Lambda container produced "sync API inside asyncio loop" — the *second* call
-# died because the sync_playwright() instance from the first call was still
-# pinned to that call's event-loop context.
+# The original Bug #4 report: hitting a browser-launching endpoint repeatedly
+# inside a single Lambda container produced "sync API inside asyncio loop" —
+# the *second* call died because the sync_playwright() instance from the first
+# call was still pinned to that call's event-loop context.
 #
 # v0.1.13 made Browser__Launcher fresh-per-call (each launch spawns its own
-# sync_playwright + stops it on close), which eliminates the root cause. This
-# file is the regression test: we hammer /session/create 20× sequentially via
-# the FastAPI TestClient and assert:
+# sync_playwright + stops it on close). v0.1.24 made that the ONLY mode —
+# /browser/* endpoints are now stateless one-shots. This file is the regression
+# test: hammer /browser/navigate 20× sequentially via the FastAPI TestClient
+# and assert:
 #   • every response is 200 (no asyncio contamination)
 #   • the watchdog middleware drains in_flight back to 0 (register/unregister
 #     are symmetric under both happy-path and error-path)
 #
-# The watchdog is DISABLED here via ENV_VAR__WATCHDOG_DISABLED — tests must not
-# spawn background daemon threads. We assert on the *middleware* wrapping, not
-# the watchdog's thread. To also cover the enabled path (in_flight updated on
-# every request) there's a second scenario that turns the watchdog on but
-# leaves max_request_ms so generous it never fires.
-#
-# Fakes: same pattern as test_Routes__Session — _FakeLauncher + _InMemoryArtefactWriter.
+# The watchdog is DISABLED in one test via ENV_VAR__WATCHDOG_DISABLED — tests
+# must not spawn background daemon threads by default. A second test turns the
+# watchdog on but leaves max_request_ms so generous it never fires.
 # ═══════════════════════════════════════════════════════════════════════════════
 
 import os
@@ -74,18 +71,37 @@ class _EnvScrub:                                                                
 
 # ─── Fakes (no real Chromium, no real vault) ─────────────────────────────────
 
+class _FakePage:
+    def __init__(self):
+        self.url = 'http://example.com/'
+    def goto(self, url, wait_until=None, timeout=None):
+        self.url = url
+    def click(self, selector, **kwargs): pass
+    def fill (self, selector, value, **kwargs): pass
+
+
 class _FakeContext:
-    def storage_state(self):           return {'cookies': [], 'origins': []}
-    def add_cookies(self, cookies):    pass
+    def __init__(self):
+        self.pages = []
+    def new_page(self):
+        page = _FakePage()
+        self.pages.append(page)
+        return page
+    def storage_state(self):          return {'cookies': [], 'origins': []}
+    def add_cookies(self, cookies):   pass
     def set_extra_http_headers(self, h): pass
 
 
 class _FakeBrowser:
     def __init__(self):
-        self.context = _FakeContext()
+        self._contexts = []
     @property
     def contexts(self):
-        return [self.context]
+        return self._contexts
+    def new_context(self, **kwargs):
+        context = _FakeContext()
+        self._contexts.append(context)
+        return context
     def close(self): pass
 
 
@@ -118,13 +134,13 @@ def _build_fast_api():
     return fa, fa.client()
 
 
-CREATE_BODY = {'browser_config': {}, 'capture_config': {}}
+NAVIGATE_BODY = {'url': 'http://example.com/'}
 
 
-class test_session_create_repeated(TestCase):                                       # Regression for Bug #4 — sequential creates must all succeed
+class test_browser_navigate_repeated(TestCase):                                     # Regression for Bug #4 — sequential one-shot calls must all succeed
     N_CALLS = 20
 
-    def test__twenty_sequential_creates_all_return_200__watchdog_disabled(self):
+    def test__twenty_sequential_navigates_all_return_200__watchdog_disabled(self):
         with _EnvScrub(**{ENV_VAR__DEPLOYMENT_TARGET : 'lambda',
                           ENV_VAR__WATCHDOG_DISABLED : '1'     }):                   # Disabled — background thread not started, middleware still runs
             fa, client = _build_fast_api()
@@ -133,7 +149,7 @@ class test_session_create_repeated(TestCase):                                   
 
             statuses = []
             for _ in range(self.N_CALLS):
-                resp = client.post('/session/create', headers=AUTH_HEADERS, json=CREATE_BODY)
+                resp = client.post('/browser/navigate', headers=AUTH_HEADERS, json=NAVIGATE_BODY)
                 statuses.append(resp.status_code)
 
             assert statuses              == [200] * self.N_CALLS                     # No asyncio contamination across calls
@@ -148,18 +164,18 @@ class test_session_create_repeated(TestCase):                                   
             assert fa.watchdog.started  is True                                      # start() spawns the daemon thread
 
             for _ in range(self.N_CALLS):
-                resp = client.post('/session/create', headers=AUTH_HEADERS, json=CREATE_BODY)
+                resp = client.post('/browser/navigate', headers=AUTH_HEADERS, json=NAVIGATE_BODY)
                 assert resp.status_code == 200
 
             assert len(fa.watchdog.in_flight) == 0                                   # Every register paired with an unregister — middleware symmetry
 
-    def test__middleware_unregisters_even_when_route_errors(self):                   # 422 path: distributed lifetime rejected before the route body runs
+    def test__middleware_unregisters_even_when_route_errors(self):                   # Error path: bad enum value → osbot-fast-api 400 before the route body runs
         with _EnvScrub(**{ENV_VAR__DEPLOYMENT_TARGET        : 'lambda'  ,
                           ENV_VAR__WATCHDOG_MAX_REQUEST_MS  : '600000'  ,
                           ENV_VAR__WATCHDOG_POLL_INTERVAL_MS: '600000'  }):
             fa, client = _build_fast_api()
-            bad_body = {'browser_config': {}, 'capture_config': {}, 'lifetime_hint': 'persistent_distributed'}
+            bad_body = {'url': 'http://x/', 'selector': '#b', 'wait_until': 'not-a-state'}   # Invalid Enum__Wait__State — request parsing rejects
             for _ in range(5):
-                resp = client.post('/session/create', headers=AUTH_HEADERS, json=bad_body)
-                assert resp.status_code == 422                                       # Validator rejects — middleware still unregisters
+                resp = client.post('/browser/click', headers=AUTH_HEADERS, json=bad_body)
+                assert resp.status_code in (400, 422)                                # 400 (osbot-fast-api) or 422 (Pydantic) — both reject without invoking route
             assert len(fa.watchdog.in_flight) == 0

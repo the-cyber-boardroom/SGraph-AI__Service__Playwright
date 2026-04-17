@@ -1,9 +1,8 @@
 # ═══════════════════════════════════════════════════════════════════════════════
-# Playwright Service — Request__Validator (spec §9 + routes §4.2)
+# Playwright Service — Request__Validator (v0.1.24 — stateless surface)
 #
 # All cross-schema validation in one place. Raises HTTPException(422) carrying
-# a Schema__Error__Response payload on any rejection, so routes / runners can
-# surface a stable error_code without re-encoding.
+# a Schema__Error__Response payload on any rejection.
 # ═══════════════════════════════════════════════════════════════════════════════
 
 from typing                                                                                         import List
@@ -18,10 +17,8 @@ from sgraph_ai_service_playwright.schemas.core.Schema__Error__Response          
 from sgraph_ai_service_playwright.schemas.enums.Enum__Artefact__Sink                                import Enum__Artefact__Sink
 from sgraph_ai_service_playwright.schemas.enums.Enum__Browser__Provider                             import Enum__Browser__Provider
 from sgraph_ai_service_playwright.schemas.enums.Enum__Deployment__Target                            import Enum__Deployment__Target
-from sgraph_ai_service_playwright.schemas.enums.Enum__Session__Lifetime                             import Enum__Session__Lifetime
 from sgraph_ai_service_playwright.schemas.enums.Enum__Step__Action                                  import Enum__Step__Action
 from sgraph_ai_service_playwright.schemas.service.Schema__Service__Capabilities                     import Schema__Service__Capabilities
-from sgraph_ai_service_playwright.schemas.session.Schema__Session__Create__Request                  import Schema__Session__Create__Request
 from sgraph_ai_service_playwright.schemas.steps.Schema__Step__Base                                  import Schema__Step__Base
 from sgraph_ai_service_playwright.service.JS__Expression__Allowlist                                 import JS__Expression__Allowlist
 
@@ -34,22 +31,13 @@ class Request__Validator(Type_Safe):                                            
 
     js_allowlist : JS__Expression__Allowlist
 
-    def validate_session_create(self,
-                                request      : Schema__Session__Create__Request,
-                                capabilities : Schema__Service__Capabilities
+    def validate_browser_config(self                                          ,
+                                browser_config : Schema__Browser__Config      ,
+                                capabilities   : Schema__Service__Capabilities
                            ) -> None:
-        if request.lifetime_hint == Enum__Session__Lifetime.PERSISTENT_DISTRIBUTED:
-            self.reject('distributed_not_supported',
-                        'Persistent distributed sessions are not supported')
-
-        if request.lifetime_hint == Enum__Session__Lifetime.PERSISTENT_SINGLE:
-            if not capabilities.supports_persistent:
-                self.reject('persistent_not_supported',
-                            'Persistent sessions not available on this deployment',
-                            capabilities=capabilities)
-
-        cfg : Schema__Browser__Config = request.browser_config
-        if cfg.provider == Enum__Browser__Provider.CDP_CONNECT and not cfg.cdp_endpoint_url:
+        if browser_config is None:                                                  # Stateless surface — callers may omit; defaults applied by the launcher
+            return
+        if browser_config.provider == Enum__Browser__Provider.CDP_CONNECT and not browser_config.cdp_endpoint_url:
             self.reject('cdp_missing_endpoint',
                         'cdp_endpoint_url required when provider is cdp_connect')
 

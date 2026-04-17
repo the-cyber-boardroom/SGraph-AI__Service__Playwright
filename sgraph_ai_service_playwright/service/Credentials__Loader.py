@@ -1,47 +1,36 @@
 # ═══════════════════════════════════════════════════════════════════════════════
-# Playwright Service — Credentials__Loader (v2 spec §4.7; full source in pack)
+# Playwright Service — Credentials__Loader (v0.1.24 — stateless)
 #
-# Vault-to-browser-context glue. Reads cookies and storage state from the vault
-# (via Artefact__Writer's read_from_vault seam) and applies them to the
-# session's Playwright BrowserContext. Also persists state back via
-# save_state_to_vault → Artefact__Writer.write_to_vault.
+# Vault-to-browser-context glue. Reads cookies / storage state from the vault
+# (via Artefact__Writer's seams) and applies them to a Playwright BrowserContext
+# the caller passes in directly. No Session__Manager indirection.
 #
-# Contract boundaries:
-#   • This class holds NO vault client — it goes through Artefact__Writer.
-#   • This class does NOT call page.*   — it only touches context.add_cookies
-#     and context.set_extra_http_headers (which is context-level, not page.*).
-#     Consistent with the spec's §10 rule ("Step__Executor is the only class
-#     that calls page.*") since cookies/headers are context-scoped.
-#   • Missing session / browser is a silent no-op (caller error, not a 500).
+# Contract:
+#   • Holds NO vault client — reaches the vault via Artefact__Writer.
+#   • Never calls page.*   — only context.add_cookies / context.set_extra_http_headers.
+#   • Missing context is a silent no-op (caller error, not a 500).
 # ═══════════════════════════════════════════════════════════════════════════════
 
-from osbot_utils.type_safe.Type_Safe                                                             import Type_Safe
+from typing                                                                                          import Any
 
-from sgraph_ai_service_playwright.schemas.artefact.Schema__Vault_Ref                             import Schema__Vault_Ref
-from sgraph_ai_service_playwright.schemas.primitives.identifiers.Session_Id                       import Session_Id
-from sgraph_ai_service_playwright.schemas.session.Schema__Session__Credentials                   import Schema__Session__Credentials
-from sgraph_ai_service_playwright.service.Artefact__Writer                                        import Artefact__Writer
-from sgraph_ai_service_playwright.service.Session__Manager                                        import Session__Manager
+from osbot_utils.type_safe.Type_Safe                                                                 import Type_Safe
+
+from sgraph_ai_service_playwright.schemas.artefact.Schema__Vault_Ref                                 import Schema__Vault_Ref
+from sgraph_ai_service_playwright.schemas.session.Schema__Session__Credentials                      import Schema__Session__Credentials
+from sgraph_ai_service_playwright.service.Artefact__Writer                                           import Artefact__Writer
 
 
 class Credentials__Loader(Type_Safe):
 
     artefact_writer : Artefact__Writer = None                                       # Injected — exposes read_from_vault / write_to_vault seams
 
-    def apply(self                                                       ,
-              session_id      : Session_Id                               ,
-              session_manager : Session__Manager                         ,
-              credentials     : Schema__Session__Credentials
+    def apply(self                                                      ,
+              context     : Any                                         ,           # Playwright BrowserContext
+              credentials : Schema__Session__Credentials
          ) -> None:
 
-        browser = session_manager.get_browser(session_id)
-        if browser is None:                                                         # Session gone or never had a live browser — nothing to do
+        if context is None or credentials is None:
             return
-
-        contexts = browser.contexts                                                 # Playwright sync API: @property returning a list — calling with () raises 'list' object is not callable
-        if not contexts:                                                            # Launcher guarantees one context, but belt-and-braces
-            return
-        context = contexts[0]
 
         if credentials.cookies_vault_ref:
             cookies = self.artefact_writer.read_from_vault(credentials.cookies_vault_ref)
