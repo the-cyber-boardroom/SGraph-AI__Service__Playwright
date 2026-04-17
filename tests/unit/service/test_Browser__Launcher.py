@@ -15,6 +15,7 @@ import pytest
 
 from sgraph_ai_service_playwright.consts.env_vars                                             import ENV_VAR__CHROMIUM_EXECUTABLE
 from sgraph_ai_service_playwright.schemas.browser.Schema__Browser__Config                     import Schema__Browser__Config
+from sgraph_ai_service_playwright.schemas.browser.Schema__Browser__Launch__Result              import Schema__Browser__Launch__Result
 from sgraph_ai_service_playwright.schemas.browser.Schema__Proxy__Config                       import Schema__Proxy__Config
 from sgraph_ai_service_playwright.schemas.enums.Enum__Browser__Name                           import Enum__Browser__Name
 from sgraph_ai_service_playwright.schemas.enums.Enum__Browser__Provider                       import Enum__Browser__Provider
@@ -49,8 +50,22 @@ class _RaisingBrowser(_FakeBrowser):
         raise RuntimeError('boom — simulated dead browser')
 
 
+class _FakePlaywright:                                                             # sync_playwright() stand-in — records stop() for assertions
+    def __init__(self):
+        self.stopped = False
+    def stop(self):
+        self.stopped = True
+
+
 def _cfg(**overrides) -> Schema__Browser__Config:
     return Schema__Browser__Config(**overrides)                                    # Defaults match Schema__Browser__Config defaults (CHROMIUM, LOCAL_SUBPROCESS, headless=True)
+
+
+def _launch_result(browser=None, playwright=None) -> Schema__Browser__Launch__Result:
+    return Schema__Browser__Launch__Result(browser             = browser    if browser    is not None else _FakeBrowser()   ,
+                                            playwright          = playwright if playwright is not None else _FakePlaywright(),
+                                            playwright_start_ms = 0                                                          ,
+                                            browser_launch_ms   = 0                                                          )
 
 
 class test_assert_provider_supported(TestCase):
@@ -138,14 +153,16 @@ class test_build_launch_kwargs(TestCase):
 
 class test_registry(TestCase):
 
-    def test__register_and_stop_closes_browser_and_removes_from_registry(self):
+    def test__register_and_stop_closes_browser_and_playwright_and_removes_from_registry(self):
         bl  = Browser__Launcher()
         sid = Session_Id()
         fb  = _FakeBrowser()
-        bl.register(sid, fb)
+        fp  = _FakePlaywright()
+        bl.register(sid, _launch_result(browser=fb, playwright=fp))
         assert bl.active_session_ids() == [sid]
         bl.stop(sid)
-        assert fb.closed is True
+        assert fb.closed  is True                                                  # Browser closed
+        assert fp.stopped is True                                                  # AND its paired sync_playwright runtime stopped — fresh-per-call contract
         assert bl.active_session_ids() == []
 
     def test__stop_unknown_session_is_silent_noop(self):
@@ -156,7 +173,7 @@ class test_registry(TestCase):
     def test__stop_swallows_browser_close_errors(self):                            # Already-dead browsers shouldn't crash the whole service
         bl  = Browser__Launcher()
         sid = Session_Id()
-        bl.register(sid, _RaisingBrowser())
+        bl.register(sid, _launch_result(browser=_RaisingBrowser()))
         bl.stop(sid)
         assert bl.active_session_ids() == []                                       # Still removed from registry despite raised error
 
@@ -165,7 +182,7 @@ class test_registry(TestCase):
         sids = [Session_Id(), Session_Id(), Session_Id()]
         browsers = [_FakeBrowser(f'b{i}') for i in range(3)]
         for sid, fb in zip(sids, browsers):
-            bl.register(sid, fb)
+            bl.register(sid, _launch_result(browser=fb))
         bl.stop_all()
         assert all(fb.closed for fb in browsers)
         assert bl.active_session_ids() == []
@@ -173,17 +190,16 @@ class test_registry(TestCase):
 
 class test_healthcheck(TestCase):
 
-    def test__reports_playwright_started_false_and_zero_browsers_by_default(self):
+    def test__reports_zero_browsers_by_default(self):
         bl = Browser__Launcher()
         hc = bl.healthcheck()
         assert hc.check_name == 'browser_launcher'
         assert hc.healthy    is True
-        assert 'playwright_started=False' in str(hc.detail)
-        assert 'active_browsers=0'        in str(hc.detail)
+        assert 'active_browsers=0' in str(hc.detail)                               # No more singleton playwright to report — every active browser has its own runtime
 
     def test__reports_active_browser_count(self):
         bl = Browser__Launcher()
-        bl.register(Session_Id(), _FakeBrowser())
-        bl.register(Session_Id(), _FakeBrowser())
+        bl.register(Session_Id(), _launch_result())
+        bl.register(Session_Id(), _launch_result())
         hc = bl.healthcheck()
         assert 'active_browsers=2' in str(hc.detail)

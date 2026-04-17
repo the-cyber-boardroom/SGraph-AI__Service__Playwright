@@ -32,6 +32,7 @@ from sgraph_ai_service_playwright.consts.env_vars                               
                                                                                                     ENV_VAR__DEPLOYMENT_TARGET     ,
                                                                                                     ENV_VAR__SG_SEND_BASE_URL      )
 from sgraph_ai_service_playwright.schemas.browser.Schema__Browser__Config                   import Schema__Browser__Config
+from sgraph_ai_service_playwright.schemas.browser.Schema__Browser__Launch__Result            import Schema__Browser__Launch__Result
 from sgraph_ai_service_playwright.schemas.capture.Schema__Capture__Config                   import Schema__Capture__Config
 from sgraph_ai_service_playwright.schemas.enums.Enum__Sequence__Status                       import Enum__Sequence__Status
 from sgraph_ai_service_playwright.schemas.enums.Enum__Session__Status                        import Enum__Session__Status
@@ -111,6 +112,10 @@ class _FakeBrowser:
     def close(self): pass
 
 
+class _FakePlaywright:                                                                           # sync_playwright() stand-in; only needs a stop() no-op
+    def stop(self): pass
+
+
 class _FakeLauncher(Browser__Launcher):
     def __init__(self):
         super().__init__()
@@ -118,10 +123,13 @@ class _FakeLauncher(Browser__Launcher):
         self.stopped  = []
     def launch(self, browser_config):
         self.launched += 1
-        return _FakeBrowser()
+        return Schema__Browser__Launch__Result(browser             = _FakeBrowser()  ,     # Fresh-per-call contract — wrap the fake in the Schema__Browser__Launch__Result shape real launcher now returns
+                                                playwright          = _FakePlaywright(),
+                                                playwright_start_ms = 0                ,
+                                                browser_launch_ms   = 0                )
     def stop(self, session_id):
         self.stopped.append(session_id)
-    def start(self): return self
+        return 0                                                                              # Sequence__Runner converts this to Safe_UInt__Milliseconds for timings.browser_close_ms
 
 
 class _InMemoryArtefactWriter(Artefact__Writer):
@@ -275,3 +283,58 @@ class test_execute__counters_and_trace(TestCase):
         assert str(response.sequence_id) != ''
         assert str(response.trace_id   ) != ''
         assert int(response.steps_total) == 1
+
+
+class test_execute__timings(TestCase):                                              # Every response carries the same per-phase breakdown shown to /quick/html callers
+
+    def test__ad_hoc_sequence_populates_all_timing_fields(self):
+        _FakePage.fail_on_url = None
+        with _EnvScrub(**{ENV_VAR__DEPLOYMENT_TARGET: 'lambda'}):
+            service, _ = _build_service()
+            steps      = [{'action': 'navigate', 'url': 'http://t.test/'}]
+            response   = service.execute_sequence(_sequence_request_ad_hoc(steps=steps))
+
+        timings = response.timings
+        assert timings is not None
+        assert int(timings.total_ms) >= 0                                           # Fakes report zero boot cost; total is the only non-trivial wall clock here
+        for field in ('playwright_start_ms', 'browser_launch_ms', 'steps_ms', 'browser_close_ms', 'total_ms'):
+            assert hasattr(timings, field)                                          # Contract surface for /quick/html JSON + /quick/screenshot response headers
+
+    def test__reused_session_reports_zero_boot_timings(self):                       # Pre-existing session → no new launch → boot timings are 0
+        _FakePage.fail_on_url = None
+        with _EnvScrub(**{ENV_VAR__DEPLOYMENT_TARGET: 'lambda'}):
+            service, _  = _build_service()
+            session_id  = _open_session_via_service(service)
+            steps       = [{'action': 'navigate', 'url': 'http://reuse.test/'}]
+            response    = service.execute_sequence(_sequence_request_existing(session_id=session_id, steps=steps))
+
+        assert int(response.timings.playwright_start_ms) == 0
+        assert int(response.timings.browser_launch_ms  ) == 0                       # Reusing the session means no fresh Chromium boot — surfaced as zeros
+
+
+class test_execute__clean_state_between_requests(TestCase):                         # 100%-clean-state contract: every ad-hoc request spawns its own launch and tears it down — no handle leak
+
+    def test__20_sequential_ad_hoc_requests_leave_launcher_registry_empty(self):
+        _FakePage.fail_on_url = None
+        with _EnvScrub(**{ENV_VAR__DEPLOYMENT_TARGET: 'lambda'}):
+            service, launcher = _build_service()
+            for _ in range(20):
+                steps    = [{'action': 'navigate', 'url': 'http://loop.test/'}]
+                response = service.execute_sequence(_sequence_request_ad_hoc(steps=steps))
+                assert response.status == Enum__Sequence__Status.COMPLETED
+
+        assert launcher.launched    == 20                                           # Every call got a fresh launch — proves no cross-request browser reuse
+        assert len(launcher.stopped) == 20                                          # And every launch was torn down — proves no leak path
+
+    def test__teardown_runs_even_when_step_raises(self):                            # try/finally contract — step failures must not strand a browser in the registry
+        _FakePage.fail_on_url = 'http://boom.test/'
+        try:
+            with _EnvScrub(**{ENV_VAR__DEPLOYMENT_TARGET: 'lambda'}):
+                service, launcher = _build_service()
+                steps    = [{'action': 'navigate', 'url': 'http://boom.test/'}]
+                response = service.execute_sequence(_sequence_request_ad_hoc(steps=steps))
+        finally:
+            _FakePage.fail_on_url = None
+
+        assert response.status == Enum__Sequence__Status.FAILED                     # halt_on_error=True (default) → FAILED
+        assert len(launcher.stopped) == 1                                           # Teardown still ran despite the step failure

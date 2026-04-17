@@ -47,7 +47,9 @@ class test_launch_and_use_real_chromium(TestCase):
         self.launcher.stop_all()                                                   # Always shut Chromium + sync_playwright down
 
     def test__launch_returns_a_live_browser_that_can_render_html(self):
-        browser = self.launcher.launch(Schema__Browser__Config())                  # Defaults: chromium, LOCAL_SUBPROCESS, headless=True
+        result = self.launcher.launch(Schema__Browser__Config())                   # Schema__Browser__Launch__Result (browser + playwright + timings)
+        browser    = result.browser
+        playwright = result.playwright
         try:
             context = browser.new_context()
             page    = context.new_page()
@@ -55,39 +57,44 @@ class test_launch_and_use_real_chromium(TestCase):
             assert page.inner_text('#t') == 'hello from sg-playwright'
         finally:
             browser.close()
+            playwright.stop()                                                      # Fresh-per-call contract — callers own the sync_playwright runtime too
 
-    def test__register_then_stop_closes_the_browser(self):
-        browser = self.launcher.launch(Schema__Browser__Config())
-        sid     = Session_Id()
-        self.launcher.register(sid, browser)
+    def test__register_then_stop_closes_the_browser_and_playwright(self):
+        result = self.launcher.launch(Schema__Browser__Config())
+        sid    = Session_Id()
+        self.launcher.register(sid, result)
         assert sid in self.launcher.active_session_ids()
         self.launcher.stop(sid)
         assert sid not in self.launcher.active_session_ids()
-        assert browser.is_connected() is False                                     # Playwright reports browser as closed
+        assert result.browser.is_connected() is False                              # Browser closed AND sync_playwright subprocess stopped (checked indirectly by calling .stop again being safe)
 
-    def test__two_browsers_are_independent(self):                                  # Critical for multi-session service
-        b1 = self.launcher.launch(Schema__Browser__Config())
-        b2 = self.launcher.launch(Schema__Browser__Config())
+    def test__two_browsers_are_independent(self):                                  # Critical for multi-session service — each call spawns its own sync_playwright + Chromium
+        r1 = self.launcher.launch(Schema__Browser__Config())
+        r2 = self.launcher.launch(Schema__Browser__Config())
         try:
-            assert b1 is not b2
-            assert b1.is_connected() and b2.is_connected()
+            assert r1.browser    is not r2.browser
+            assert r1.playwright is not r2.playwright                              # Independent Node subprocesses — no cross-request handle reuse
+            assert r1.browser.is_connected() and r2.browser.is_connected()
         finally:
-            b1.close()
-            b2.close()
+            r1.browser.close()
+            r1.playwright.stop()
+            r2.browser.close()
+            r2.playwright.stop()
 
     def test__stop_all_tears_down_everything(self):
-        b1 = self.launcher.launch(Schema__Browser__Config())
-        b2 = self.launcher.launch(Schema__Browser__Config())
+        r1 = self.launcher.launch(Schema__Browser__Config())
+        r2 = self.launcher.launch(Schema__Browser__Config())
         s1, s2 = Session_Id(), Session_Id()
-        self.launcher.register(s1, b1)
-        self.launcher.register(s2, b2)
+        self.launcher.register(s1, r1)
+        self.launcher.register(s2, r2)
         self.launcher.stop_all()
         assert self.launcher.active_session_ids() == []
-        assert self.launcher.playwright is None
-        assert b1.is_connected() is False
-        assert b2.is_connected() is False
+        assert r1.browser.is_connected() is False
+        assert r2.browser.is_connected() is False
 
-    def test__healthcheck_reports_started_after_launch(self):
-        self.launcher.launch(Schema__Browser__Config())                            # Auto-starts playwright
+    def test__healthcheck_reports_active_browser_count_after_launch(self):
+        r = self.launcher.launch(Schema__Browser__Config())
+        sid = Session_Id()
+        self.launcher.register(sid, r)
         hc = self.launcher.healthcheck()
-        assert 'playwright_started=True' in str(hc.detail)
+        assert 'active_browsers=1' in str(hc.detail)                               # No more singleton `playwright_started` flag — every active browser owns its runtime

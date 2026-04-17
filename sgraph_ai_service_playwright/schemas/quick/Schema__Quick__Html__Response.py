@@ -11,10 +11,12 @@ from osbot_utils.type_safe.primitives.domains.web.safe_str.Safe_Str__Url        
 
 from sgraph_ai_service_playwright.schemas.primitives.numeric.Safe_UInt__Milliseconds               import Safe_UInt__Milliseconds
 from sgraph_ai_service_playwright.schemas.primitives.text.Safe_Str__Page__Content                  import Safe_Str__Page__Content
+from sgraph_ai_service_playwright.schemas.sequence.Schema__Sequence__Timings                       import Schema__Sequence__Timings
 
 
 class Schema__Quick__Html__Response(Type_Safe):
     url         : Safe_Str__Url                                                     # What the caller asked for
     final_url   : Safe_Str__Url                                                     # Browser's current URL after navigate + optional click
     html        : Safe_Str__Page__Content                                           # Full page HTML (page.content()) — 10 MB cap; real pages exceed the 64 KB default of Safe_Str__Text__Dangerous
-    duration_ms : Safe_UInt__Milliseconds
+    duration_ms : Safe_UInt__Milliseconds                                           # Outer wall clock (same as timings.total_ms; kept for back-compat)
+    timings     : Schema__Sequence__Timings                                         # Per-phase breakdown: Chromium boot vs steps vs teardown

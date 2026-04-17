@@ -13,6 +13,7 @@ from sgraph_ai_service_playwright.schemas.primitives.identifiers.Safe_Str__Trace
 from sgraph_ai_service_playwright.schemas.primitives.identifiers.Sequence_Id                        import Sequence_Id
 from sgraph_ai_service_playwright.schemas.primitives.numeric.Safe_UInt__Milliseconds                import Safe_UInt__Milliseconds
 from sgraph_ai_service_playwright.schemas.results.Schema__Step__Result__Base                        import Schema__Step__Result__Base
+from sgraph_ai_service_playwright.schemas.sequence.Schema__Sequence__Timings                        import Schema__Sequence__Timings
 from sgraph_ai_service_playwright.schemas.session.Schema__Session__Info                             import Schema__Session__Info
 
 
@@ -28,3 +29,4 @@ class Schema__Sequence__Response(Type_Safe):                                    
     step_results            : List[Schema__Step__Result__Base]                      # Heterogeneous; actual type per action
     session_info            : Schema__Session__Info                                 # Session state after sequence (may be closed)
     artefacts               : List[Schema__Artefact__Ref]                           # Cumulative artefact list
+    timings                 : Schema__Sequence__Timings                             # Per-phase wall-clock breakdown — lets callers see where latency went (Chromium boot vs step exec vs teardown)

@@ -53,6 +53,7 @@ from sgraph_ai_service_playwright.schemas.primitives.numeric.Safe_UInt__Millisec
 from sgraph_ai_service_playwright.schemas.results.Schema__Step__Result__Base                        import Schema__Step__Result__Base
 from sgraph_ai_service_playwright.schemas.sequence.Schema__Sequence__Request                        import Schema__Sequence__Request
 from sgraph_ai_service_playwright.schemas.sequence.Schema__Sequence__Response                       import Schema__Sequence__Response
+from sgraph_ai_service_playwright.schemas.sequence.Schema__Sequence__Timings                        import Schema__Sequence__Timings
 from sgraph_ai_service_playwright.schemas.session.Schema__Session__Create__Request                  import Schema__Session__Create__Request
 from sgraph_ai_service_playwright.schemas.steps.Schema__Step__Base                                  import Schema__Step__Base
 from sgraph_ai_service_playwright.service.Browser__Launcher                                         import Browser__Launcher
@@ -82,7 +83,7 @@ class Sequence__Runner(Type_Safe):
         target         = self.capability_detector.target()
         started_ms     = int(time.time() * 1000)
 
-        session_id = self.resolve_session(request, trace_id, capabilities)
+        session_id, playwright_start_ms, browser_launch_ms = self.resolve_session(request, trace_id, capabilities)
 
         parsed_steps = self.sequence_dispatcher.parse_steps(request.steps)
         self.request_validator.validate_step_ids_unique(parsed_steps)
@@ -97,57 +98,69 @@ class Sequence__Runner(Type_Safe):
         skipped = 0
         halted  = False
 
-        for step_index, step in enumerate(parsed_steps):
-            if halted:                                                                # Remaining steps after halt_on_error failure → SKIPPED
-                result = self.skipped_result(step, step_index)
+        steps_started_ms = int(time.time() * 1000)
+        try:
+            for step_index, step in enumerate(parsed_steps):
+                if halted:                                                                # Remaining steps after halt_on_error failure → SKIPPED
+                    result = self.skipped_result(step, step_index)
+                    step_results.append(result)
+                    skipped += 1
+                    continue
+
+                self.request_validator.validate_step(step, capture_config, capabilities, target)        # Raises HTTPException(422) on reject
+
+                result = self.step_executor.execute(page           = page           ,
+                                                     step           = step           ,
+                                                     step_index     = step_index     ,
+                                                     capture_config = capture_config )
                 step_results.append(result)
-                skipped += 1
-                continue
+                self.session_manager.record_action(session_id, result)
 
-            self.request_validator.validate_step(step, capture_config, capabilities, target)        # Raises HTTPException(422) on reject
+                if result.status == Enum__Step__Status.PASSED:
+                    passed += 1
+                elif result.status == Enum__Step__Status.FAILED:
+                    failed += 1
+                    if request.sequence_config.halt_on_error:
+                        halted = True
 
-            result = self.step_executor.execute(page           = page           ,
-                                                 step           = step           ,
-                                                 step_index     = step_index     ,
-                                                 capture_config = capture_config )
-            step_results.append(result)
-            self.session_manager.record_action(session_id, result)
-
-            if result.status == Enum__Step__Status.PASSED:
-                passed += 1
-            elif result.status == Enum__Step__Status.FAILED:
-                failed += 1
-                if request.sequence_config.halt_on_error:
-                    halted = True
-
-            for ref in result.artefacts:                                              # Cumulative list across all executed steps
-                artefacts.append(ref)
+                for ref in result.artefacts:                                              # Cumulative list across all executed steps
+                    artefacts.append(ref)
+        finally:
+            steps_ms         = int(time.time() * 1000) - steps_started_ms
+            browser_close_ms = 0
+            if request.close_session_after:
+                self.session_manager .close(session_id)
+                browser_close_ms = int(self.browser_launcher.stop(session_id))            # try/finally + idempotent stop() = guaranteed Chromium teardown even on step exceptions
 
         status = self.sequence_status(failed=failed, halted=halted)
 
-        if request.close_session_after:
-            self.session_manager .close(session_id)
-            self.browser_launcher.stop (session_id)                                   # Idempotent real-Chromium teardown; no-op on fakes
-
         session_after = self.session_manager.get(session_id)
+
+        total_ms = int(time.time() * 1000) - started_ms
+        timings  = Schema__Sequence__Timings(playwright_start_ms = Safe_UInt__Milliseconds(int(playwright_start_ms)),
+                                              browser_launch_ms   = Safe_UInt__Milliseconds(int(browser_launch_ms  )),
+                                              steps_ms            = Safe_UInt__Milliseconds(steps_ms                 ),
+                                              browser_close_ms    = Safe_UInt__Milliseconds(browser_close_ms         ),
+                                              total_ms            = Safe_UInt__Milliseconds(total_ms                 ))
 
         return Schema__Sequence__Response(sequence_id       = sequence_id                                       ,
                                            trace_id          = trace_id                                          ,
                                            status            = status                                            ,
-                                           total_duration_ms = Safe_UInt__Milliseconds(int(time.time() * 1000) - started_ms),
+                                           total_duration_ms = Safe_UInt__Milliseconds(total_ms)                  ,
                                            steps_total       = Safe_UInt(len(parsed_steps))                      ,
                                            steps_passed      = Safe_UInt(passed)                                 ,
                                            steps_failed      = Safe_UInt(failed)                                 ,
                                            steps_skipped     = Safe_UInt(skipped)                                ,
                                            step_results      = step_results                                      ,
                                            session_info      = session_after                                     ,
-                                           artefacts         = artefacts                                         )
+                                           artefacts         = artefacts                                         ,
+                                           timings           = timings                                           )
 
     def resolve_session(self, request, trace_id, capabilities):
         if request.session_id:                                                        # Caller named a session — prefer reuse when it actually exists
             session = self.session_manager.get(request.session_id)
             if session is not None:
-                return request.session_id
+                return request.session_id, 0, 0                                       # Pre-existing session → no boot timings to report
             if request.browser_config is None:                                        # Named but not found + no ad-hoc fallback → 404
                 raise HTTPException(404, f"Session {request.session_id} not found")
             # Named but not found + browser_config → fall through to ad-hoc. Note: osbot-fast-api's
@@ -164,14 +177,15 @@ class Sequence__Runner(Type_Safe):
                                                                trace_id       = trace_id               )
         self.request_validator.validate_session_create(session_create_req, capabilities)
 
-        browser = self.browser_launcher.launch(request.browser_config)
-        session = self.session_manager.create(browser      = browser            ,
-                                               request      = session_create_req ,
-                                               trace_id     = trace_id           ,
-                                               capabilities = capabilities       )
+        launch_result = self.browser_launcher.launch(request.browser_config)          # Fresh sync_playwright + Chromium per call — zero cross-request state bleed
+        session       = self.session_manager.create(browser      = launch_result.browser,
+                                                     request      = session_create_req  ,
+                                                     trace_id     = trace_id             ,
+                                                     capabilities = capabilities         )
+        self.browser_launcher.register(session.session_id, launch_result)             # Track launch so execute()'s try/finally can tear it down
         if request.credentials:
             self.credentials_loader.apply(session.session_id, self.session_manager, request.credentials)
-        return session.session_id
+        return session.session_id, int(launch_result.playwright_start_ms), int(launch_result.browser_launch_ms)
 
     def get_or_create_page(self, browser: Any) -> Any:                               # Freshly launched browser has no context / page — create on demand
         contexts = browser.contexts                                                  # Playwright sync API: `contexts` is a @property returning List[BrowserContext] — NEVER call it as a method (`()` triggers 'list' object is not callable)

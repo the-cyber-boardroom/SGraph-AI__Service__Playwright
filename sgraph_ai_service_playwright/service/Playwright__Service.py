@@ -56,6 +56,7 @@ from sgraph_ai_service_playwright.schemas.primitives.text.Safe_Str__Page__Conten
 from sgraph_ai_service_playwright.schemas.quick.Schema__Quick__Html__Request            import Schema__Quick__Html__Request
 from sgraph_ai_service_playwright.schemas.quick.Schema__Quick__Html__Response           import Schema__Quick__Html__Response
 from sgraph_ai_service_playwright.schemas.quick.Schema__Quick__Screenshot__Request      import Schema__Quick__Screenshot__Request
+from sgraph_ai_service_playwright.schemas.quick.Schema__Quick__Screenshot__Result       import Schema__Quick__Screenshot__Result
 from sgraph_ai_service_playwright.schemas.sequence.Schema__Sequence__Config             import Schema__Sequence__Config
 from sgraph_ai_service_playwright.schemas.sequence.Schema__Sequence__Request            import Schema__Sequence__Request
 from sgraph_ai_service_playwright.schemas.sequence.Schema__Sequence__Response           import Schema__Sequence__Response
@@ -122,14 +123,15 @@ class Playwright__Service(Type_Safe):
 
     def session_create(self, request: Schema__Session__Create__Request) -> Schema__Session__Create__Response:
         self.setup()
-        capabilities = self.capability_detector.capabilities()
+        capabilities  = self.capability_detector.capabilities()
         self.request_validator.validate_session_create(request, capabilities)       # Raises HTTPException(422) on reject
-        trace_id     = request.trace_id or Safe_Str__Trace_Id(self.generate_trace_id())
-        browser      = self.browser_launcher.launch(request.browser_config)         # Real Chromium process (or raises)
-        session      = self.session_manager.create(browser      = browser     ,
-                                                    request      = request     ,
-                                                    trace_id     = trace_id    ,
-                                                    capabilities = capabilities)
+        trace_id      = request.trace_id or Safe_Str__Trace_Id(self.generate_trace_id())
+        launch_result = self.browser_launcher.launch(request.browser_config)        # Returns Schema__Browser__Launch__Result (browser + playwright + timings)
+        session       = self.session_manager.create(browser      = launch_result.browser,
+                                                     request      = request              ,
+                                                     trace_id     = trace_id             ,
+                                                     capabilities = capabilities         )
+        self.browser_launcher.register(session.session_id, launch_result)           # Track launch handles so session_close() can stop both
         if request.credentials:
             self.credentials_loader.apply(session.session_id, self.session_manager, request.credentials)
         return Schema__Session__Create__Response(session_info = session     ,
@@ -216,13 +218,14 @@ class Playwright__Service(Type_Safe):
             return Schema__Quick__Html__Response(url         = request.url                     ,
                                                   final_url   = final_url                       ,
                                                   html        = Safe_Str__Page__Content(html)   ,     # 10 MB cap; 64 KB Safe_Str__Text__Dangerous was too small for real pages
-                                                  duration_ms = seq_response.total_duration_ms  )
+                                                  duration_ms = seq_response.total_duration_ms  ,
+                                                  timings     = seq_response.timings            )     # Surface the same per-phase breakdown Sequence__Runner computed
         except HTTPException:
             raise                                                                       # Already a clean 4xx/5xx — let it through
         except Exception as error:
             raise HTTPException(502, self.quick_error_detail('quick_html', error))       # Rich detail with traceback — osbot-fast-api's Type_Safe wrapper would otherwise squash this to "{Type}: {msg}" with no stack
 
-    def quick_screenshot(self, request: Schema__Quick__Screenshot__Request) -> bytes:
+    def quick_screenshot(self, request: Schema__Quick__Screenshot__Request) -> Schema__Quick__Screenshot__Result:
         try:
             self.setup()
             steps = [dict(action = Enum__Step__Action.NAVIGATE.value ,
@@ -247,7 +250,9 @@ class Playwright__Service(Type_Safe):
 
             for artefact in seq_response.artefacts:                                     # Find the screenshot we just captured
                 if artefact.artefact_type == Enum__Artefact__Type.SCREENSHOT and artefact.inline_b64 is not None:
-                    return base64.b64decode(str(artefact.inline_b64))
+                    png_bytes = base64.b64decode(str(artefact.inline_b64))
+                    return Schema__Quick__Screenshot__Result(png_bytes = png_bytes             ,
+                                                              timings   = seq_response.timings  )     # Route emits these as X-*-Ms headers alongside the raw PNG body
             raise HTTPException(500, 'Screenshot artefact missing from sequence response')
         except HTTPException:
             raise

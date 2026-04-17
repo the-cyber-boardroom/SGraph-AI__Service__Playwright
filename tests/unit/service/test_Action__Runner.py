@@ -23,6 +23,7 @@ from sgraph_ai_service_playwright.consts.env_vars                               
                                                                                                     ENV_VAR__DEPLOYMENT_TARGET     ,
                                                                                                     ENV_VAR__SG_SEND_BASE_URL      )
 from sgraph_ai_service_playwright.schemas.browser.Schema__Browser__Config                   import Schema__Browser__Config
+from sgraph_ai_service_playwright.schemas.browser.Schema__Browser__Launch__Result            import Schema__Browser__Launch__Result
 from sgraph_ai_service_playwright.schemas.capture.Schema__Capture__Config                   import Schema__Capture__Config
 from sgraph_ai_service_playwright.schemas.core.Schema__Action__Request                      import Schema__Action__Request
 from sgraph_ai_service_playwright.schemas.enums.Enum__Step__Status                           import Enum__Step__Status
@@ -126,12 +127,18 @@ class _FakeBrowser:                                                             
     def close(self): pass
 
 
+class _FakePlaywright:                                                               # sync_playwright() stand-in — only needs a stop() no-op
+    def stop(self): pass
+
+
 class _FakeLauncher(Browser__Launcher):                                              # Subclass Browser__Launcher — satisfies Type_Safe attribute type
     def launch(self, browser_config):
-        return _FakeBrowser()
-    def stop(self, session_id): pass
-    def start(self):                                                                 # Skip sync_playwright.start()
-        return self
+        return Schema__Browser__Launch__Result(browser             = _FakeBrowser()  ,     # Real launcher returns Schema__Browser__Launch__Result now — wrap the fake in the same shape
+                                                playwright          = _FakePlaywright(),
+                                                playwright_start_ms = 0                ,
+                                                browser_launch_ms   = 0                )
+    def stop(self, session_id):
+        return 0                                                                     # Sequence__Runner converts this to Safe_UInt__Milliseconds for timings.browser_close_ms
 
 
 class _InMemoryArtefactWriter(Artefact__Writer):                                     # Not used by NAVIGATE / CLICK; SCREENSHOT's sink is disabled by default
