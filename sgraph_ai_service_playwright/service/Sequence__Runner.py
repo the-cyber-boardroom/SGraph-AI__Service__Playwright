@@ -42,7 +42,9 @@ from fastapi                                                                    
 
 from osbot_utils.type_safe.Type_Safe                                                                import Type_Safe
 from osbot_utils.type_safe.primitives.core.Safe_UInt                                                import Safe_UInt
+from osbot_utils.utils.Env                                                                          import get_env
 
+from sgraph_ai_service_playwright.consts.env_vars                                                   import ENV_VAR__REQUEST_DEADLINE_MS
 from sgraph_ai_service_playwright.schemas.artefact.Schema__Artefact__Ref                            import Schema__Artefact__Ref
 from sgraph_ai_service_playwright.schemas.enums.Enum__Sequence__Status                              import Enum__Sequence__Status
 from sgraph_ai_service_playwright.schemas.enums.Enum__Step__Status                                  import Enum__Step__Status
@@ -63,6 +65,9 @@ from sgraph_ai_service_playwright.service.Request__Validator                    
 from sgraph_ai_service_playwright.service.Sequence__Dispatcher                                      import Sequence__Dispatcher
 from sgraph_ai_service_playwright.service.Session__Manager                                          import Session__Manager
 from sgraph_ai_service_playwright.service.Step__Executor                                            import Step__Executor
+
+
+DEFAULT_REQUEST_DEADLINE_MS = 25000                                                 # 5 s headroom under CloudFront's 30 s gateway timeout; Lambda timeout (300 s) is a separate, higher ceiling
 
 
 class Sequence__Runner(Type_Safe):
@@ -98,10 +103,19 @@ class Sequence__Runner(Type_Safe):
         skipped = 0
         halted  = False
 
+        deadline_ms = started_ms + self.get_deadline_ms()                                 # Wall-clock soft deadline — between-step check only (can't interrupt a blocked page.goto)
+
         steps_started_ms = int(time.time() * 1000)
         try:
             for step_index, step in enumerate(parsed_steps):
                 if halted:                                                                # Remaining steps after halt_on_error failure → SKIPPED
+                    result = self.skipped_result(step, step_index)
+                    step_results.append(result)
+                    skipped += 1
+                    continue
+
+                if int(time.time() * 1000) >= deadline_ms:                                # Deadline breached — treat identically to halt_on_error: mark remaining steps SKIPPED and guarantee teardown via the outer finally
+                    halted = True
                     result = self.skipped_result(step, step_index)
                     step_results.append(result)
                     skipped += 1
@@ -207,3 +221,7 @@ class Sequence__Runner(Type_Safe):
         if halted:
             return Enum__Sequence__Status.FAILED
         return Enum__Sequence__Status.PARTIAL
+
+    def get_deadline_ms(self) -> int:                                                 # Env-driven soft deadline; override by subclassing in tests
+        raw = get_env(ENV_VAR__REQUEST_DEADLINE_MS)
+        return int(raw) if raw else DEFAULT_REQUEST_DEADLINE_MS

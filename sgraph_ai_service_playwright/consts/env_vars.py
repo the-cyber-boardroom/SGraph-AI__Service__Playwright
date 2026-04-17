@@ -33,3 +33,25 @@ ENV_VAR__CLAUDE_SESSION                = 'CLAUDE_SESSION'                       
 # ── Default artefact destinations ────────────────────────────────────────────
 ENV_VAR__DEFAULT_S3_BUCKET             = 'SG_PLAYWRIGHT__DEFAULT_S3_BUCKET'
 ENV_VAR__DEFAULT_LOCAL_ARTEFACT_FOLDER = 'SG_PLAYWRIGHT__DEFAULT_LOCAL_ARTEFACT_FOLDER'
+
+# ── Reliability / watchdog ───────────────────────────────────────────────────
+# AWS Lambda has no external way to kill a stuck invocation. If the main
+# thread deadlocks (Playwright sync-inside-asyncio, hung proxy CONNECT, etc.)
+# the container keeps billing until the Lambda lifetime expires. The request
+# deadline + watchdog give us two layers of defence:
+#   - REQUEST_DEADLINE_MS — soft per-request wall clock inside Sequence__Runner.
+#     Between steps we check the deadline; remaining steps are marked SKIPPED
+#     and the session is torn down. Can't interrupt a blocked page.goto()
+#     (only Playwright's own timeout does that), but guarantees cleanup once
+#     the current step returns.
+#   - WATCHDOG_MAX_REQUEST_MS — hard cap enforced by a background daemon
+#     thread. If ANY in-flight request exceeds this (even if the main thread
+#     is fully deadlocked), the watchdog calls os._exit(2). LWA sees the
+#     process die, AWS recycles the execution environment, next invocation
+#     gets a fresh container. Works even when the main thread can't run.
+#   - WATCHDOG_POLL_INTERVAL_MS — how often the watchdog thread wakes to check.
+#   - WATCHDOG_DISABLED — '1' to disable (laptop dev, tests that need longer).
+ENV_VAR__REQUEST_DEADLINE_MS           = 'SG_PLAYWRIGHT__REQUEST_DEADLINE_MS'
+ENV_VAR__WATCHDOG_MAX_REQUEST_MS       = 'SG_PLAYWRIGHT__WATCHDOG_MAX_REQUEST_MS'
+ENV_VAR__WATCHDOG_POLL_INTERVAL_MS     = 'SG_PLAYWRIGHT__WATCHDOG_POLL_INTERVAL_MS'
+ENV_VAR__WATCHDOG_DISABLED             = 'SG_PLAYWRIGHT__WATCHDOG_DISABLED'
