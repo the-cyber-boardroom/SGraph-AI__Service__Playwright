@@ -80,7 +80,7 @@ class Action__Runner(Type_Safe):
                                          session_info = session_after       )
 
     def get_or_create_page(self, browser: Any) -> Any:                                  # Freshly launched browser has no context / page — create on demand
-        contexts = browser.contexts()                                                   # sync_api: list of BrowserContext (existing Playwright__Service uses the same calling convention)
+        contexts = browser.contexts                                                     # Playwright sync API: @property returning List[BrowserContext] — calling with () raises 'list' object is not callable in prod
         context  = contexts[0] if contexts else browser.new_context()
-        pages    = context.pages                                                        # sync_api: list of Page (attribute, not a call)
+        pages    = context.pages                                                        # Also a @property
         return pages[0] if pages else context.new_page()

@@ -31,6 +31,7 @@
 
 import base64
 import time
+import traceback
 import uuid
 from typing                                                                             import List
 
@@ -148,7 +149,7 @@ class Playwright__Service(Type_Safe):
         if session is None:
             return None                                                             # Route emits 404
         browser  = self.session_manager.get_browser(session_id)
-        state    = browser.contexts()[0].storage_state()                            # Playwright storage-state dict — {cookies, origins}
+        state    = browser.contexts[0].storage_state()                              # Playwright sync API: `contexts` is a @property returning a list — do NOT call with ()
         self.credentials_loader.save_state_to_vault(request.vault_ref, state)
         return Schema__Session__State__Save__Response(session_id = session_id        ,
                                                        vault_ref  = request.vault_ref ,
@@ -187,61 +188,71 @@ class Playwright__Service(Type_Safe):
     # trees — and an equally minimal response (or raw image bytes).
 
     def quick_html(self, request: Schema__Quick__Html__Request) -> Schema__Quick__Html__Response:
-        self.setup()
-        steps = [dict(action = Enum__Step__Action.NAVIGATE.value ,
-                       url        = str(request.url)              ,
-                       wait_until = request.wait_until.value       )]
-        click = str(request.click) if request.click else ''                         # osbot-fast-api's Pydantic bridge may auto-instantiate Safe_Str__Selector to a non-None empty value — only queue the click when the caller actually set a selector string
-        if click:
-            steps.append(dict(action = Enum__Step__Action.CLICK.value,
-                               selector = click                      ))
-        steps.append(dict(action = Enum__Step__Action.GET_URL.value    ))
-        steps.append(dict(action             = Enum__Step__Action.GET_CONTENT.value,
-                          inline_in_response = True                                ))
+        try:
+            self.setup()
+            steps = [dict(action = Enum__Step__Action.NAVIGATE.value ,
+                           url        = str(request.url)              ,
+                           wait_until = request.wait_until.value       )]
+            click = str(request.click) if request.click else ''                         # osbot-fast-api's Pydantic bridge may auto-instantiate Safe_Str__Selector to a non-None empty value — only queue the click when the caller actually set a selector string
+            if click:
+                steps.append(dict(action = Enum__Step__Action.CLICK.value,
+                                   selector = click                      ))
+            steps.append(dict(action = Enum__Step__Action.GET_URL.value    ))
+            steps.append(dict(action             = Enum__Step__Action.GET_CONTENT.value,
+                              inline_in_response = True                                ))
 
-        seq_request = self.quick_build_sequence_request(steps=steps, capture_config=Schema__Capture__Config(), timeout_ms=request.timeout_ms)
-        seq_response = self.sequence_runner.execute(seq_request)
-        self.quick_raise_on_failure(seq_response)
+            seq_request = self.quick_build_sequence_request(steps=steps, capture_config=Schema__Capture__Config(), timeout_ms=request.timeout_ms)
+            seq_response = self.sequence_runner.execute(seq_request)
+            self.quick_raise_on_failure(seq_response)
 
-        final_url = Safe_Str__Url(str(request.url))                                 # Fallback if get_url somehow missing
-        html      = ''
-        for result in seq_response.step_results:
-            if result.action == Enum__Step__Action.GET_URL and getattr(result, 'url', None):
-                final_url = Safe_Str__Url(str(result.url))
-            if result.action == Enum__Step__Action.GET_CONTENT and getattr(result, 'content', None) is not None:
-                html = str(result.content)
+            final_url = Safe_Str__Url(str(request.url))                                 # Fallback if get_url somehow missing
+            html      = ''
+            for result in seq_response.step_results:
+                if result.action == Enum__Step__Action.GET_URL and getattr(result, 'url', None):
+                    final_url = Safe_Str__Url(str(result.url))
+                if result.action == Enum__Step__Action.GET_CONTENT and getattr(result, 'content', None) is not None:
+                    html = str(result.content)
 
-        return Schema__Quick__Html__Response(url         = request.url                     ,
-                                              final_url   = final_url                       ,
-                                              html        = Safe_Str__Text__Dangerous(html) ,
-                                              duration_ms = seq_response.total_duration_ms  )
+            return Schema__Quick__Html__Response(url         = request.url                     ,
+                                                  final_url   = final_url                       ,
+                                                  html        = Safe_Str__Text__Dangerous(html) ,
+                                                  duration_ms = seq_response.total_duration_ms  )
+        except HTTPException:
+            raise                                                                       # Already a clean 4xx/5xx — let it through
+        except Exception as error:
+            raise HTTPException(502, self.quick_error_detail('quick_html', error))       # Rich detail with traceback — osbot-fast-api's Type_Safe wrapper would otherwise squash this to "{Type}: {msg}" with no stack
 
     def quick_screenshot(self, request: Schema__Quick__Screenshot__Request) -> bytes:
-        self.setup()
-        steps = [dict(action = Enum__Step__Action.NAVIGATE.value ,
-                       url        = str(request.url)              ,
-                       wait_until = request.wait_until.value       )]
-        click = str(request.click) if request.click else ''                         # Same truthy-check as quick_html — Pydantic bridge auto-instantiates Safe_Str__Selector
-        if click:
-            steps.append(dict(action = Enum__Step__Action.CLICK.value,
-                               selector = click                      ))
-        screenshot_step = dict(action    = Enum__Step__Action.SCREENSHOT.value,
-                                full_page = bool(request.full_page)            )
-        selector = str(request.selector) if request.selector else ''
-        if selector:
-            screenshot_step['selector'] = selector                                  # Element-only screenshot overrides full_page in Step__Executor
-        steps.append(screenshot_step)
+        try:
+            self.setup()
+            steps = [dict(action = Enum__Step__Action.NAVIGATE.value ,
+                           url        = str(request.url)              ,
+                           wait_until = request.wait_until.value       )]
+            click = str(request.click) if request.click else ''                         # Same truthy-check as quick_html — Pydantic bridge auto-instantiates Safe_Str__Selector
+            if click:
+                steps.append(dict(action = Enum__Step__Action.CLICK.value,
+                                   selector = click                      ))
+            screenshot_step = dict(action    = Enum__Step__Action.SCREENSHOT.value,
+                                    full_page = bool(request.full_page)            )
+            selector = str(request.selector) if request.selector else ''
+            if selector:
+                screenshot_step['selector'] = selector                                  # Element-only screenshot overrides full_page in Step__Executor
+            steps.append(screenshot_step)
 
-        capture_config = Schema__Capture__Config(screenshot = Schema__Artefact__Sink_Config(enabled = True                         ,     # INLINE sink so Step__Executor routes the PNG bytes into artefact.inline_b64 — we base64-decode below
-                                                                                             sink    = Enum__Artefact__Sink.INLINE))
-        seq_request  = self.quick_build_sequence_request(steps=steps, capture_config=capture_config, timeout_ms=request.timeout_ms)
-        seq_response = self.sequence_runner.execute(seq_request)
-        self.quick_raise_on_failure(seq_response)
+            capture_config = Schema__Capture__Config(screenshot = Schema__Artefact__Sink_Config(enabled = True                         ,     # INLINE sink so Step__Executor routes the PNG bytes into artefact.inline_b64 — we base64-decode below
+                                                                                                 sink    = Enum__Artefact__Sink.INLINE))
+            seq_request  = self.quick_build_sequence_request(steps=steps, capture_config=capture_config, timeout_ms=request.timeout_ms)
+            seq_response = self.sequence_runner.execute(seq_request)
+            self.quick_raise_on_failure(seq_response)
 
-        for artefact in seq_response.artefacts:                                     # Find the screenshot we just captured
-            if artefact.artefact_type == Enum__Artefact__Type.SCREENSHOT and artefact.inline_b64 is not None:
-                return base64.b64decode(str(artefact.inline_b64))
-        raise HTTPException(500, 'Screenshot artefact missing from sequence response')
+            for artefact in seq_response.artefacts:                                     # Find the screenshot we just captured
+                if artefact.artefact_type == Enum__Artefact__Type.SCREENSHOT and artefact.inline_b64 is not None:
+                    return base64.b64decode(str(artefact.inline_b64))
+            raise HTTPException(500, 'Screenshot artefact missing from sequence response')
+        except HTTPException:
+            raise
+        except Exception as error:
+            raise HTTPException(502, self.quick_error_detail('quick_screenshot', error))
 
     def quick_build_sequence_request(self                                                 ,
                                       steps           : list                              ,
@@ -261,8 +272,19 @@ class Playwright__Service(Type_Safe):
         if seq_response.status == Enum__Sequence__Status.COMPLETED:                 # Happy path — every step passed
             return
         failed = next((r for r in seq_response.step_results if r.error_message), None)   # Surface the first failure's message
-        detail = str(failed.error_message) if failed is not None else f'sequence status={seq_response.status.value}'
+        if failed is not None:
+            action = getattr(failed, 'action', None)
+            action = action.value if action is not None and hasattr(action, 'value') else str(action)
+            step_index = getattr(failed, 'step_index', None)
+            detail = f'step[{step_index}] action={action} error={failed.error_message}'   # Include step index + action so callers know WHICH step blew up
+        else:
+            detail = f'sequence status={seq_response.status.value} (no per-step error_message)'
         raise HTTPException(502, f'Quick call failed: {detail}')
+
+    def quick_error_detail(self, where: str, error: Exception) -> str:              # Format unexpected exceptions with a compact traceback so Swagger's 400/502 "detail" is actionable — otherwise osbot-fast-api's wrapper would squash this to just "{Type}: {msg}"
+        tb_lines = traceback.format_exception(type(error), error, error.__traceback__)
+        tb_text  = ''.join(tb_lines)[-1800:]                                        # Trim to the last ~1800 chars — AWS API Gateway caps detail size, and the tail frames are the most useful
+        return f'{where} failed: {type(error).__name__}: {error}\n{tb_text}'
 
     # ─── Utility ──────────────────────────────────────────────────────────────
 

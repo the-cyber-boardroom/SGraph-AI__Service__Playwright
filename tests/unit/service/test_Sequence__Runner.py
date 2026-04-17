@@ -101,6 +101,7 @@ class _FakeContext:
 class _FakeBrowser:
     def __init__(self):
         self._contexts = []
+    @property                                                                                # Mirror real Playwright sync API — `contexts` is a property, not a method
     def contexts(self):
         return self._contexts
     def new_context(self):

@@ -40,6 +40,7 @@ class _FakeBrowser:
     def __init__(self, context=None):
         self._contexts = [context if context is not None else _FakeContext()]
 
+    @property                                                                                # Real Playwright sync API exposes `contexts` as a property
     def contexts(self):
         return self._contexts
 
