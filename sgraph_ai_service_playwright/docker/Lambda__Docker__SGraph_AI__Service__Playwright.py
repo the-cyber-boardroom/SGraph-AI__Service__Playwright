@@ -44,30 +44,27 @@ FUNCTION_URL_PRINCIPAL            = '*'
 class Lambda__Docker__SGraph_AI__Service__Playwright(Docker__SGraph_AI__Service__Playwright__Base):
 
     def create_lambda(self, delete_existing=False, wait_for_active=False):
-        with Duration(prefix='[create_lambda] | delete and create:'):
-            try:
-                lambda_function              = self.lambda_function()
-                lambda_function.image_uri    = self.image_uri()
-                lambda_function.architecture = LAMBDA_ARCHITECTURE
-                lambda_function.memory_size  = LAMBDA_MEMORY_MB                         # osbot_aws reads memory_size (see create_kwargs → MemorySize)
-                lambda_function.timeout      = LAMBDA_TIMEOUT_SECS
+        with Duration(prefix='[create_lambda] | delete and create:'):                   # No outer try/except: errors must propagate so CI surfaces the real failure (the previous swallow returned {"status":"error"} which the test treated as soft-pass)
+            lambda_function              = self.lambda_function()
+            lambda_function.image_uri    = self.image_uri()
+            lambda_function.architecture = LAMBDA_ARCHITECTURE
+            lambda_function.memory_size  = LAMBDA_MEMORY_MB                             # osbot_aws reads memory_size (see create_kwargs → MemorySize)
+            lambda_function.timeout      = LAMBDA_TIMEOUT_SECS
 
-                self.set_lambda_env_vars(lambda_function)                               # Propagate CI secrets → Lambda env
+            self.set_lambda_env_vars(lambda_function)                                   # Propagate CI secrets → Lambda env
 
-                if delete_existing:
-                    lambda_function.delete()
+            if delete_existing:
+                lambda_function.delete()
 
-                create_result = lambda_function.create()
-                pprint(create_result)
+            create_result = lambda_function.create()
+            pprint(create_result)
 
-                if wait_for_active:
-                    with Duration(prefix='[create_lambda] | wait for active:'):
-                        lambda_function.wait_for_state_active(max_wait_count=80)
+            if wait_for_active:
+                with Duration(prefix='[create_lambda] | wait for active:'):
+                    lambda_function.wait_for_state_active(max_wait_count=80)
 
-                function_url = self.create_lambda_function_url()
-                return dict(create_result=create_result, function_url=function_url)
-            except Exception as error:
-                return {"status": "error", "error": str(error)}
+            function_url = self.create_lambda_function_url()
+            return dict(create_result=create_result, function_url=function_url)
 
     def set_lambda_env_vars(self, lambda_function):                                     # Propagate CI secrets → Lambda env vars
         env_vars = {
@@ -89,34 +86,42 @@ class Lambda__Docker__SGraph_AI__Service__Playwright(Docker__SGraph_AI__Service_
 
     def create_lambda_function_url(self):                                               # Delete → create URL (AuthType=NONE) → remove stale stmt → add public-access statement
         with Duration(prefix='[create_lambda_function_url] |'):
-            lambda_name    = self.lambda_function().name
-            client         = self.lambda_client()
+            lambda_name = self.lambda_function().name
+            client      = self.lambda_client()
+            print(f'[create_lambda_function_url] lambda_name={lambda_name}')
 
             try:                                                                        # 1. Delete existing Function URL config (idempotent)
                 client.delete_function_url_config(FunctionName=lambda_name)
+                print('[create_lambda_function_url] step 1/4: deleted existing URL config')
             except ClientError as error:
                 if error.response['Error']['Code'] != 'ResourceNotFoundException':
                     raise
+                print('[create_lambda_function_url] step 1/4: no existing URL config')
 
-            url_result     = client.create_function_url_config(FunctionName = lambda_name              ,     # 2. Create a fresh URL config
-                                                                AuthType     = FUNCTION_URL_AUTH_TYPE    ,
-                                                                InvokeMode   = FUNCTION_URL_INVOKE_MODE  )
+            url_result = client.create_function_url_config(FunctionName = lambda_name              ,     # 2. Create a fresh URL config
+                                                            AuthType     = FUNCTION_URL_AUTH_TYPE    ,
+                                                            InvokeMode   = FUNCTION_URL_INVOKE_MODE  )
+            print(f'[create_lambda_function_url] step 2/4: created URL {url_result.get("FunctionUrl")}')
 
             try:                                                                        # 3. Remove stale public-access statement if one was left behind
                 client.remove_permission(FunctionName = lambda_name                ,
                                           StatementId  = FUNCTION_URL_STATEMENT_ID  )
+                print('[create_lambda_function_url] step 3/4: removed stale statement')
             except ClientError as error:
                 if error.response['Error']['Code'] != 'ResourceNotFoundException':
                     raise
+                print('[create_lambda_function_url] step 3/4: no stale statement')
 
-            client.add_permission(FunctionName         = lambda_name                ,     # 4. Resource-based policy: allow any principal to invoke via the URL
-                                   StatementId          = FUNCTION_URL_STATEMENT_ID  ,
-                                   Action               = FUNCTION_URL_ACTION        ,
-                                   Principal            = FUNCTION_URL_PRINCIPAL     ,
-                                   FunctionUrlAuthType  = FUNCTION_URL_AUTH_TYPE     )
+            permission_result = client.add_permission(FunctionName         = lambda_name                ,     # 4. Resource-based policy: allow any principal to invoke via the URL
+                                                       StatementId          = FUNCTION_URL_STATEMENT_ID  ,
+                                                       Action               = FUNCTION_URL_ACTION        ,
+                                                       Principal            = FUNCTION_URL_PRINCIPAL     ,
+                                                       FunctionUrlAuthType  = FUNCTION_URL_AUTH_TYPE     )
+            print(f'[create_lambda_function_url] step 4/4: added public-access statement: {permission_result.get("Statement")}')
 
-            return {'function_url' : url_result.get('FunctionUrl'),
-                    'auth_type'    : url_result.get('AuthType'   )}
+            return {'function_url'      : url_result.get('FunctionUrl'),
+                    'auth_type'         : url_result.get('AuthType'   ),
+                    'permission_statement': permission_result.get('Statement')}
 
     def update_lambda_function(self):
         return self.lambda_function().update_lambda_image_uri(self.image_uri())

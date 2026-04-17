@@ -50,7 +50,9 @@ class test_Deploy__Playwright__Service__base():                                 
     def test_1__create_lambda(self):
         result = self.lambda_docker.create_lambda(delete_existing = True  ,
                                                    wait_for_active = True )
-        assert result.get('create_result', {}).get('status') != 'error'
+        assert result.get('create_result' , {}).get('status'   ) == 'ok'                # create_function returned ok (was previously '!= error', which let silent failures through)
+        assert result.get('function_url'  , {}).get('auth_type')        == 'NONE'       # URL config created
+        assert result.get('function_url'  , {}).get('permission_statement') is not None # Resource-based policy attached — without this AWS returns 403
 
     def test_2__invoke__health_info(self):                                              # Lambda invoke carries the header inside the event
         payload = {'path'       : '/health/info',
