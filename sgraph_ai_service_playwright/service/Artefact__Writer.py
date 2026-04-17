@@ -33,7 +33,7 @@ import os
 from typing                                                                                      import Any
 
 from osbot_utils.type_safe.Type_Safe                                                             import Type_Safe
-from osbot_utils.type_safe.primitives.domains.common.safe_str.Safe_Str__Text__Dangerous          import Safe_Str__Text__Dangerous
+from sgraph_ai_service_playwright.schemas.primitives.text.Safe_Str__Artefact__Inline             import Safe_Str__Artefact__Inline
 from osbot_utils.type_safe.primitives.domains.cryptography.safe_str.Safe_Str__Hash               import Safe_Str__Hash
 from osbot_utils.type_safe.primitives.domains.files.safe_str.Safe_Str__File__Path                import Safe_Str__File__Path
 from osbot_utils.type_safe.primitives.domains.files.safe_uint.Safe_UInt__FileSize                import Safe_UInt__FileSize
@@ -80,8 +80,8 @@ class Artefact__Writer(Type_Safe):
 
         return ref
 
-    def encode_inline(self, data: bytes) -> Safe_Str__Text__Dangerous:
-        return Safe_Str__Text__Dangerous(base64.b64encode(data).decode('ascii'))
+    def encode_inline(self, data: bytes) -> Safe_Str__Artefact__Inline:
+        return Safe_Str__Artefact__Inline(base64.b64encode(data).decode('ascii'))    # 20 MB cap — Safe_Str__Text__Dangerous's 64 KB default rejected real screenshot PNGs (~100 KB base64-encoded)
 
     # ─── Sink seams — subclasses / DI replace these with real adapters ─────────
 

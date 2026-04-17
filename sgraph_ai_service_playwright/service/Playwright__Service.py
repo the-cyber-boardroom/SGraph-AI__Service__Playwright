@@ -37,7 +37,6 @@ from typing                                                                     
 
 from fastapi                                                                            import HTTPException
 from osbot_utils.type_safe.Type_Safe                                                    import Type_Safe
-from osbot_utils.type_safe.primitives.domains.common.safe_str.Safe_Str__Text__Dangerous import Safe_Str__Text__Dangerous
 from osbot_utils.type_safe.primitives.domains.identifiers.safe_int.Timestamp_Now        import Timestamp_Now
 from osbot_utils.type_safe.primitives.domains.web.safe_str.Safe_Str__Url                import Safe_Str__Url
 
@@ -53,6 +52,7 @@ from sgraph_ai_service_playwright.schemas.enums.Enum__Step__Action              
 from sgraph_ai_service_playwright.schemas.primitives.identifiers.Safe_Str__Trace_Id     import Safe_Str__Trace_Id
 from sgraph_ai_service_playwright.schemas.primitives.identifiers.Session_Id             import Session_Id
 from sgraph_ai_service_playwright.schemas.primitives.numeric.Safe_UInt__Milliseconds    import Safe_UInt__Milliseconds
+from sgraph_ai_service_playwright.schemas.primitives.text.Safe_Str__Page__Content       import Safe_Str__Page__Content
 from sgraph_ai_service_playwright.schemas.quick.Schema__Quick__Html__Request            import Schema__Quick__Html__Request
 from sgraph_ai_service_playwright.schemas.quick.Schema__Quick__Html__Response           import Schema__Quick__Html__Response
 from sgraph_ai_service_playwright.schemas.quick.Schema__Quick__Screenshot__Request      import Schema__Quick__Screenshot__Request
@@ -215,7 +215,7 @@ class Playwright__Service(Type_Safe):
 
             return Schema__Quick__Html__Response(url         = request.url                     ,
                                                   final_url   = final_url                       ,
-                                                  html        = Safe_Str__Text__Dangerous(html) ,
+                                                  html        = Safe_Str__Page__Content(html)   ,     # 10 MB cap; 64 KB Safe_Str__Text__Dangerous was too small for real pages
                                                   duration_ms = seq_response.total_duration_ms  )
         except HTTPException:
             raise                                                                       # Already a clean 4xx/5xx — let it through

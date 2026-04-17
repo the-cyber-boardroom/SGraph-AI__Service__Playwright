@@ -28,7 +28,7 @@ from typing                                                                     
 
 from osbot_utils.type_safe.Type_Safe                                                                import Type_Safe
 from osbot_utils.type_safe.primitives.domains.common.safe_str.Safe_Str__Text                        import Safe_Str__Text
-from osbot_utils.type_safe.primitives.domains.common.safe_str.Safe_Str__Text__Dangerous             import Safe_Str__Text__Dangerous
+from sgraph_ai_service_playwright.schemas.primitives.text.Safe_Str__Page__Content                   import Safe_Str__Page__Content
 from osbot_utils.type_safe.primitives.domains.web.safe_str.Safe_Str__Url                            import Safe_Str__Url
 
 from sgraph_ai_service_playwright.schemas.artefact.Schema__Artefact__Ref                            import Schema__Artefact__Ref
@@ -145,7 +145,7 @@ class Step__Executor(Type_Safe):
                                                      status         = Enum__Step__Status.PASSED               ,
                                                      duration_ms    = duration_ms                             ,
                                                      artefacts      = artefacts                               ,
-                                                     content        = Safe_Str__Text__Dangerous(content)      ,
+                                                     content        = Safe_Str__Page__Content(content)        ,     # 10 MB cap — real pages routinely blow the 64 KB Safe_Str__Text__Dangerous default
                                                      content_format = step.content_format                     ,
                                                      content_type   = content_type                            )
         except Exception as error:
@@ -157,7 +157,7 @@ class Step__Executor(Type_Safe):
                                                      duration_ms    = base.duration_ms                        ,
                                                      error_message  = base.error_message                      ,
                                                      artefacts      = base.artefacts                          ,
-                                                     content        = Safe_Str__Text__Dangerous('')           ,
+                                                     content        = Safe_Str__Page__Content('')             ,
                                                      content_format = step.content_format                     ,
                                                      content_type   = 'text/html'                             )
 
