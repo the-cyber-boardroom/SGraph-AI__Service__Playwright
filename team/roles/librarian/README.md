@@ -26,4 +26,4 @@ Maintains knowledge connectivity, owns the reality document, produces master ind
 3. **Code authors update the reality doc** in the same commit as the code change.
 4. **The Librarian verifies** — periodically cross-check the reality doc against the code.
 
-The current file is [`reality/v0.1.9__what-exists-today.md`](reality/).
+The current file is [`reality/v0.1.10__what-exists-today.md`](reality/).

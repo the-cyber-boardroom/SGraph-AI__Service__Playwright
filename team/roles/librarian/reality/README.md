@@ -34,7 +34,7 @@ Agents were confusing ideas described in briefs, dev-specs, and voice memos with
 
 ## Current Document
 
-- [`v0.1.9__what-exists-today.md`](v0.1.9__what-exists-today.md) *(current)*
+- [`v0.1.10__what-exists-today.md`](v0.1.10__what-exists-today.md) *(current)*
 
 Previous versions are kept for historical reference and should be clearly marked as superseded.
 
