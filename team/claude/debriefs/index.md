@@ -4,6 +4,7 @@ Chronological list of implementation debriefs. Most recent first.
 
 | Date       | Commit(s)                  | Slice                                           | File |
 |------------|----------------------------|-------------------------------------------------|------|
+| 2026-04-17 | 906ba05 (preceded by 8922484, cdba60c, 22dd98a, 6869632) | **Milestone** — 100%-clean-state per call (per-call sync_playwright + Chromium, register/try-finally teardown) + per-phase timing breakdown surfaced (`Schema__Sequence__Timings`; JSON on `/quick/html` + `/sequence/execute`, `X-*-Ms` headers on `/quick/screenshot`); production-verified at ~800–1200 ms total | `2026-04-17__milestone-clean-state-per-call.md` |
 | 2026-04-17 | 0f24354                    | Phase 2.9 — Step__Executor (NAVIGATE / CLICK / FILL / SCREENSHOT / GET_CONTENT / GET_URL; 10 deferred stubs) + Artefact__Writer.capture_* + CI env-var hotfix for integration job | `2026-04-17__phase-2.9-step-executor.md` |
 | 2026-04-17 | 5184011                    | Phase 2.8 — Docker infra (Base + Build + ECR + Lambda + Local) + deploy-via-pytest (ECR push, local container, deploy to dev, smoke dev) | `2026-04-17__phase-2.8-docker-infra.md` |
 | 2026-04-17 | 29be9d9                    | Phase 2.7 — FastAPI wiring (Playwright__Service orchestrator + Routes__Health + Fast_API__Playwright__Service; chassis-before-engine reorder) | `2026-04-17__phase-2.7-fastapi-wiring.md` |
