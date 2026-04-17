@@ -37,6 +37,13 @@ from sgraph_ai_service_playwright.schemas.primitives.identifiers.Session_Id     
 from sgraph_ai_service_playwright.schemas.service.Schema__Health__Check                         import Schema__Health__Check
 
 
+DEFAULT_LAUNCH_ARGS : List[str] = ['--no-sandbox'           ,                        # Chromium sandbox needs privileges Lambda doesn't expose — without this, the subprocess dies instantly and subsequent new_page() raises TargetClosedError
+                                   '--disable-gpu'          ,                        # No GPU in Lambda / most container runtimes
+                                   '--disable-dev-shm-usage',                        # /dev/shm is tiny in Lambda containers — Chromium crashes on complex pages if it tries to use it
+                                   '--single-process'       ,                        # Fits Lambda's single-vCPU model and avoids zombie helper processes
+                                   '--use-mock-keychain'    ]                        # Skip macOS keychain integration on laptop targets — harmless elsewhere
+
+
 class Browser__Launcher(Type_Safe):
 
     playwright : Any            = None                                               # sync_playwright().start() handle — lazy
@@ -101,9 +108,10 @@ class Browser__Launcher(Type_Safe):
         if exe:
             kwargs['executable_path'] = exe
 
-        args = [str(a) for a in (browser_config.launch_args or [])]                  # launch_args REPLACES defaults (per Schema__Browser__Config comment)
-        if args:
-            kwargs['args'] = args
+        args = [str(a) for a in (browser_config.launch_args or [])]                  # Caller's list, if any, REPLACES defaults (per spec §5.2 — "caller's list replaces defaults entirely")
+        if not args:
+            args = list(DEFAULT_LAUNCH_ARGS)                                         # No caller list → fall back to spec-mandated defaults; without these Chromium dies on Lambda (--no-sandbox) and gets OOM-killed on /dev/shm (--disable-dev-shm-usage)
+        kwargs['args'] = args
 
         if browser_config.proxy is not None:
             kwargs['proxy'] = self.build_proxy_dict(browser_config.proxy)
