@@ -1,0 +1,42 @@
+# ═══════════════════════════════════════════════════════════════════════════════
+# Tests — scripts/package_code.py (v0.1.28 — S3-zip hot-swap)
+#
+# Scope (unit-level, no real AWS):
+#   • build_code_zip() — packages the sgraph_ai_service_playwright/ source,
+#     includes .py files, excludes non-Python noise, and the archive is not empty.
+#   • main() surface — the module is importable and exposes the CLI + deploy_code.
+#
+# We do NOT call resolve_bucket_name() or deploy_code() here — those hit sts /
+# S3. End-to-end upload verification lives in tests/deploy/.
+# ═══════════════════════════════════════════════════════════════════════════════
+
+import io
+import zipfile
+from unittest                                                                       import TestCase
+
+from scripts                                                                 import package_code
+
+
+class test_build_code_zip(TestCase):
+
+    def test__packages_the_service_source(self):
+        zb        = package_code.build_code_zip()
+        assert len(zb.zip_bytes) > 1000                                             # Sanity — the package has dozens of modules
+
+        with zipfile.ZipFile(io.BytesIO(zb.zip_bytes), 'r') as zf:
+            names = zf.namelist()
+        assert any(n.endswith('consts/version.py')                    for n in names)
+        assert any(n.endswith('service/Capability__Detector.py')      for n in names)
+        assert all(n.endswith('.py')                                  for n in names)
+        assert not any('__pycache__' in n                             for n in names)
+
+
+class test_module_surface(TestCase):
+
+    def test__exposes_expected_symbols(self):
+        for attr in ('build_code_zip', 'deploy_code', 'resolve_bucket_name', 'main',
+                     'PACKAGE_NAME'  , 'BUCKET_NAME_FORMAT'):
+            assert hasattr(package_code, attr), f'missing: {attr}'
+
+    def test__bucket_format_matches_boot_shim(self):
+        assert package_code.BUCKET_NAME_FORMAT == '{account_id}--sg-playwright--{region_name}'

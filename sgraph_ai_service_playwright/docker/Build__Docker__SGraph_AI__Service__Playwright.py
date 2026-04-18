@@ -12,8 +12,9 @@
 # exit with `ModuleNotFoundError: No module named 'sgraph_ai_service_playwright'`
 # on startup. Staging copies:
 #   • the dockerfile + requirements.txt from the existing image folder
+#   • lambda_entry.py + image_version from the repo root (v0.1.28 boot shim)
 #   • the whole `sgraph_ai_service_playwright/` package source (minus __pycache__)
-# so `python3 -m sgraph_ai_service_playwright.fast_api.lambda_handler` resolves.
+# so `python3 lambda_entry.py` resolves at container start.
 #
 # Two deliberate workarounds vs. calling osbot_docker's `Docker_Image.build()`:
 #   1. The dockerfile is named `dockerfile` (lowercase). Docker daemon's
@@ -29,6 +30,7 @@
 #      the real outcome.
 # ═══════════════════════════════════════════════════════════════════════════════
 
+import os
 import shutil
 import tempfile
 
@@ -42,7 +44,9 @@ from sgraph_ai_service_playwright.docker.Docker__SGraph_AI__Service__Playwright_
                                                                                                  LOCAL_PORT                                   )
 
 
-DOCKERFILE_NAME = 'dockerfile'                                                          # Explicit — daemon defaults to 'Dockerfile' (case-sensitive on Linux) when not passed
+DOCKERFILE_NAME      = 'dockerfile'                                                     # Explicit — daemon defaults to 'Dockerfile' (case-sensitive on Linux) when not passed
+BOOT_SHIM_FILENAME   = 'lambda_entry.py'                                                # v0.1.28 — copied from repo root into /var/task/; boots before the code zip lands
+IMAGE_VERSION_FILE   = 'image_version'                                                  # v0.1.28 — repo-root file; read by the boot shim to set SG_PLAYWRIGHT__IMAGE_VERSION
 
 
 def _ignore_build_noise(directory, names):                                              # Keep the build context lean — pycache + compiled files add MBs
@@ -54,6 +58,7 @@ class Build__Docker__SGraph_AI__Service__Playwright(Docker__SGraph_AI__Service__
     def build_docker_image(self):
         src_context   = self.create_image_ecr.path_image()                              # .../docker/images/sgraph_ai_service_playwright/ (dockerfile + requirements.txt)
         pkg_src       = sgraph_ai_service_playwright.path                               # .../sgraph_ai_service_playwright/ (the actual Python package)
+        repo_root     = os.path.dirname(pkg_src)                                        # v0.1.28 — lambda_entry.py + image_version live next to the package
         pkg_name      = 'sgraph_ai_service_playwright'
         image_tag     = self.create_image_ecr.docker_image.image_name_with_tag()        # Full ECR URI + :latest
 
@@ -61,6 +66,8 @@ class Build__Docker__SGraph_AI__Service__Playwright(Docker__SGraph_AI__Service__
         try:
             shutil.copy(path_combine(src_context, DOCKERFILE_NAME   ), path_combine(build_context, DOCKERFILE_NAME   ))
             shutil.copy(path_combine(src_context, 'requirements.txt'), path_combine(build_context, 'requirements.txt'))
+            shutil.copy(path_combine(repo_root   , BOOT_SHIM_FILENAME), path_combine(build_context, BOOT_SHIM_FILENAME))
+            shutil.copy(path_combine(repo_root   , IMAGE_VERSION_FILE), path_combine(build_context, IMAGE_VERSION_FILE))
             shutil.copytree(pkg_src, path_combine(build_context, pkg_name), ignore=_ignore_build_noise)
 
             client_docker   = self.api_docker().client_docker()                         # Direct docker SDK — bypass @catch so BuildError / APIError surface to the caller

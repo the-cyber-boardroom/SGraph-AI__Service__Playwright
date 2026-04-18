@@ -32,4 +32,4 @@ class test_dockerfile(TestCase):
         text  = build.dockerfile()
         assert 'mcr.microsoft.com/playwright/python' in text                            # Base image
         assert 'aws-lambda-adapter'                  in text                            # LWA layer copy
-        assert 'lambda_handler'                      in text                            # CMD entrypoint
+        assert 'lambda_entry.py'                     in text                            # CMD entrypoint (v0.1.28 boot shim)

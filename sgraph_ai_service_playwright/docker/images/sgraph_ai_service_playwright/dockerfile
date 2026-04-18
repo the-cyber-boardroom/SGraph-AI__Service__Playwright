@@ -1,9 +1,16 @@
 # ═══════════════════════════════════════════════════════════════════════════════
-# SG Playwright Service — Docker image
+# SG Playwright Service — Docker image (v0.1.28 — S3-zip hot-swap)
 #
-# Base: Microsoft Playwright (includes Chromium + system deps)
+# Base:        Microsoft Playwright (includes Chromium + system deps)
 # Integration: AWS Lambda Web Adapter (FastAPI ↔ Lambda events)
-# Entrypoint: lambda_handler.py (uvicorn on port 8000)
+# Entrypoint:  lambda_entry.py (boot shim) — resolves code from S3 zip, local
+#              mount, or baked sys.path, then starts uvicorn on port 8000.
+#
+# The image holds:
+#   • lambda_entry.py — the boot shim; baked in, never hot-swapped
+#   • image_version   — exposed at /var/task/image_version, read by the shim
+#   • requirements.txt + a snapshot of the code — baseline fallback when no
+#     S3 override is pinned via SG_PLAYWRIGHT__CODE_S3_VERSION.
 #
 # Refreshed from OSBot-Playwright v0.6.10:
 #   Playwright 1.40.0 → 1.58.0   (latest published noble tag at time of writing)
@@ -22,4 +29,4 @@ COPY    requirements.txt ./
 RUN     python -m pip install -r requirements.txt
 COPY    . ./
 
-CMD     exec python3 -m sgraph_ai_service_playwright.fast_api.lambda_handler
+CMD     exec python3 lambda_entry.py

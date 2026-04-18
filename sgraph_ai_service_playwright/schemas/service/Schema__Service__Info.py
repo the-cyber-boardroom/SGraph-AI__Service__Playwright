@@ -3,6 +3,7 @@
 # ═══════════════════════════════════════════════════════════════════════════════
 
 from osbot_utils.type_safe.Type_Safe                                                            import Type_Safe
+from osbot_utils.type_safe.primitives.domains.common.safe_str.Safe_Str__Text                    import Safe_Str__Text
 from osbot_utils.type_safe.primitives.domains.common.safe_str.Safe_Str__Version                 import Safe_Str__Version
 from osbot_utils.type_safe.primitives.domains.identifiers.safe_str.Safe_Str__Display_Name       import Safe_Str__Display_Name
 
@@ -18,3 +19,4 @@ class Schema__Service__Info(Type_Safe):                                         
     chromium_version   : Safe_Str__Version                                          # Bundled Chromium version
     deployment_target  : Enum__Deployment__Target
     capabilities       : Schema__Service__Capabilities
+    code_source        : Safe_Str__Text                                             # v0.1.28 — boot-shim provenance: 's3:<bucket>/<key>→<dir>', 'local:<path>', or 'passthrough:sys.path'

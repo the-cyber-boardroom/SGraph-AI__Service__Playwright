@@ -17,11 +17,12 @@ from osbot_utils.utils.Env                                                      
 from sgraph_ai_service_playwright.consts.env_vars                                                   import (ENV_VAR__AWS_LAMBDA_RUNTIME_API,
                                                                                                             ENV_VAR__CI                    ,
                                                                                                             ENV_VAR__CLAUDE_SESSION        ,
-                                                                                                            ENV_VAR__CODE_S3_KEY           ,
+                                                                                                            ENV_VAR__CODE_SOURCE           ,
                                                                                                             ENV_VAR__DEFAULT_PROXY_URL     ,
                                                                                                             ENV_VAR__DEFAULT_S3_BUCKET     ,
                                                                                                             ENV_VAR__DEPLOYMENT_TARGET     ,
                                                                                                             ENV_VAR__SG_SEND_BASE_URL      )
+from sgraph_ai_service_playwright.consts.image_version                                              import image_version__sgraph_ai_service_playwright
 from sgraph_ai_service_playwright.consts.version                                                    import version__sgraph_ai_service_playwright
 from sgraph_ai_service_playwright.schemas.enums.Enum__Artefact__Sink                                import Enum__Artefact__Sink
 from sgraph_ai_service_playwright.schemas.enums.Enum__Browser__Name                                 import Enum__Browser__Name
@@ -31,7 +32,8 @@ from sgraph_ai_service_playwright.schemas.service.Schema__Service__Capabilities 
 from sgraph_ai_service_playwright.schemas.service.Schema__Service__Info                             import Schema__Service__Info
 
 
-FALLBACK_VERSION = '0.0.0'                                                          # Safe_Str__Version rejects 'unknown'; use a sentinel instead
+FALLBACK_VERSION     = '0.0.0'                                                      # Safe_Str__Version rejects 'unknown'; use a sentinel instead
+FALLBACK_CODE_SOURCE = 'passthrough:sys.path'                                       # When the boot shim hasn't run (local dev, direct uvicorn, tests)
 
 
 class Capability__Detector(Type_Safe):
@@ -51,13 +53,17 @@ class Capability__Detector(Type_Safe):
         return self.detected_capabilities
 
     def service_info(self) -> Schema__Service__Info:
-        return Schema__Service__Info(service_name       = 'sg-playwright'                                        ,
-                                     service_version    = version__sgraph_ai_service_playwright                  ,
-                                     image_version      = Safe_Str__Version(get_env(ENV_VAR__CODE_S3_KEY) or 'v0'),
-                                     playwright_version = self.detect_playwright_version()                       ,
-                                     chromium_version   = self.detect_chromium_version()                         ,
-                                     deployment_target  = self.detected_target                                   ,
-                                     capabilities       = self.detected_capabilities                             )
+        return Schema__Service__Info(service_name       = 'sg-playwright'                          ,
+                                     service_version    = version__sgraph_ai_service_playwright    ,
+                                     image_version      = image_version__sgraph_ai_service_playwright,
+                                     playwright_version = self.detect_playwright_version()         ,
+                                     chromium_version   = self.detect_chromium_version()           ,
+                                     deployment_target  = self.detected_target                     ,
+                                     capabilities       = self.detected_capabilities               ,
+                                     code_source        = self.detect_code_source()                )
+
+    def detect_code_source(self) -> str:                                            # Boot shim writes SG_PLAYWRIGHT__CODE_SOURCE; fallback means shim didn't run
+        return get_env(ENV_VAR__CODE_SOURCE) or FALLBACK_CODE_SOURCE
 
     def detect_target(self) -> Enum__Deployment__Target:
         explicit = get_env(ENV_VAR__DEPLOYMENT_TARGET)

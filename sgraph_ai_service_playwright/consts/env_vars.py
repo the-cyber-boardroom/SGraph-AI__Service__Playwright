@@ -5,10 +5,16 @@
 # Keeps the set of recognised env vars grep-able from one module.
 # ═══════════════════════════════════════════════════════════════════════════════
 
-# ── Boot loader ──────────────────────────────────────────────────────────────
-ENV_VAR__CODE_S3_BUCKET                = 'SG_PLAYWRIGHT__CODE_S3_BUCKET'
-ENV_VAR__CODE_S3_KEY                   = 'SG_PLAYWRIGHT__CODE_S3_KEY'
-ENV_VAR__CODE_VAULT_REF                = 'SG_PLAYWRIGHT__CODE_VAULT_REF'            # Alternative to S3
+# ── Boot loader (v0.1.28 — S3-zip hot-swap) ──────────────────────────────────
+# The lambda_entry.py shim reads these at container start to decide WHERE
+# the Python code comes from. Precedence: CODE_LOCAL_PATH > AWS_REGION+S3 >
+# passthrough (whatever sys.path already has — pytest / local uvicorn).
+ENV_VAR__LAMBDA_NAME                   = 'SG_PLAYWRIGHT__LAMBDA_NAME'               # Maps to the S3 folder, e.g. 'sg-playwright-dev'
+ENV_VAR__CODE_S3_VERSION               = 'SG_PLAYWRIGHT__CODE_S3_VERSION'           # Pinned version to load, e.g. 'v0.1.28' (never 'latest' — env var IS the pointer)
+ENV_VAR__CODE_LOCAL_PATH               = 'SG_PLAYWRIGHT__CODE_LOCAL_PATH'           # Override: use this local path instead of S3 (mounted volume)
+ENV_VAR__IMAGE_VERSION                 = 'SG_PLAYWRIGHT__IMAGE_VERSION'             # Override for the baked image_version file (debugging only)
+ENV_VAR__CODE_SOURCE                   = 'SG_PLAYWRIGHT__CODE_SOURCE'               # Written by the boot shim; surfaced on /info — 's3:…', 'local:…', or 'passthrough:sys.path'
+ENV_VAR__AWS_REGION                    = 'AWS_REGION'                               # Set by Lambda automatically; absent on laptop
 
 # ── Service auth ─────────────────────────────────────────────────────────────
 ENV_VAR__ACCESS_TOKEN_HEADER           = 'SG_PLAYWRIGHT__ACCESS_TOKEN_HEADER'
