@@ -36,10 +36,14 @@ KEY_FORMAT         = 'apps/{app_name}/{stage}/{version}.zip'                    
 DEFAULT_APP_NAME   = 'sg-playwright'
 
 
+def resolve_region(region_name: str = None) -> str:                                # Explicit > boto3 session default; callers share one resolved value
+    return region_name or boto3.session.Session().region_name
+
+
 def resolve_bucket_name(region_name: str = None) -> str:                            # Lazy sts call — avoids loading AWS creds during simple `--help` invocations
     sts         = boto3.client('sts')
     account_id  = sts.get_caller_identity()['Account']
-    region_name = region_name or boto3.session.Session().region_name
+    region_name = resolve_region(region_name)
     return BUCKET_NAME_FORMAT.format(account_id=account_id, region_name=region_name)
 
 

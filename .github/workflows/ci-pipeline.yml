@@ -80,11 +80,14 @@ jobs:
 
   # ════════════════════════════════════════════════════════════════════════════
   # Job 2: Build Docker Image (build once; share with downstream jobs as an artefact)
+  #   DISABLED in v0.1.29 — S3-zip hot-swap replaces image rebuild per deploy.
+  #   Rewired on Day 4 as a nightly/base-image-only job.
   # ════════════════════════════════════════════════════════════════════════════
   build-docker-image:
     name: "Build Docker Image"
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    if: false                                                                       # v0.1.29: disabled until Day 4 rewires it to nightly
     steps:
       - uses: actions/checkout@v5
 
@@ -150,7 +153,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     needs: [build-docker-image, check-aws-credentials]
-    if: needs.check-aws-credentials.outputs.has-credentials == 'true'
+    if: false                                                                       # v0.1.29: disabled — no per-deploy image push in S3-zip scheme
     steps:
       - uses: actions/checkout@v5
 
@@ -193,6 +196,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     needs: [build-docker-image]
+    if: false                                                                       # v0.1.29: disabled — Day 4 replaces this with S3-zip-based integration tests
     steps:
       - uses: actions/checkout@v5
 
@@ -254,7 +258,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     needs: [run-integration-tests]
-    if: inputs.should_increment_tag == true
+    if: false                                                                       # v0.1.29: disabled — Day 4 re-gates this on the new deploy-code job
     steps:
       - uses: actions/checkout@v5
         with:
@@ -273,11 +277,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     needs: [push-to-ecr, run-integration-tests, check-aws-credentials]
-    if: |
-      always() &&
-      needs.push-to-ecr.result            == 'success' &&
-      needs.run-integration-tests.result  == 'success' &&
-      needs.check-aws-credentials.outputs.has-credentials == 'true'
+    if: false                                                                       # v0.1.29: disabled — Day 4 replaces this with `deploy-code` (scripts/deploy_code.py)
     steps:
       - uses: actions/checkout@v5
 
@@ -320,7 +320,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     needs: [deploy-lambda]
-    if: needs.deploy-lambda.result == 'success'
+    if: false                                                                       # v0.1.29: disabled — Day 4 folds the smoke test into scripts/deploy_code.py
     steps:
       - uses: actions/checkout@v5
 
