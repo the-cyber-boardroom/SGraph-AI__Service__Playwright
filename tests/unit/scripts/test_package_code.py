@@ -35,8 +35,11 @@ class test_module_surface(TestCase):
 
     def test__exposes_expected_symbols(self):
         for attr in ('build_code_zip', 'deploy_code', 'resolve_bucket_name', 'main',
-                     'PACKAGE_NAME'  , 'BUCKET_NAME_FORMAT'):
+                     'PACKAGE_NAME'  , 'BUCKET_NAME_FORMAT'  , 'KEY_FORMAT'  , 'DEFAULT_APP_NAME'):
             assert hasattr(package_code, attr), f'missing: {attr}'
 
     def test__bucket_format_matches_boot_shim(self):
-        assert package_code.BUCKET_NAME_FORMAT == '{account_id}--sg-playwright--{region_name}'
+        assert package_code.BUCKET_NAME_FORMAT == '{account_id}--sgraph-ai--{region_name}'
+
+    def test__key_format_matches_boot_shim(self):
+        assert package_code.KEY_FORMAT == 'apps/{app_name}/{stage}/{version}.zip'

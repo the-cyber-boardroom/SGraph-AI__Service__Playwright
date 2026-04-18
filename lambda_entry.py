@@ -1,18 +1,27 @@
 # ═══════════════════════════════════════════════════════════════════════════════
-# Playwright Service — Lambda boot shim (v0.1.28 — S3-zip hot-swap)
+# Agentic Lambda boot shim (v0.1.29 — generic S3-zip hot-swap)
 #
 # Lives INSIDE the container image (copied to /var/task/lambda_entry.py) and is
 # the Lambda entry point. Resolves WHERE the Python code comes from BEFORE it
 # imports the FastAPI service, so the same image can run three ways:
 #
 #   1. LAMBDA                       — AWS_REGION set, CODE_LOCAL_PATH unset →
-#                                     download s3://<acct>--sg-playwright--<region>/
-#                                     <lambda_name>/code/<version>.zip, extract to
+#                                     download s3://<bucket>/<key>, extract to
 #                                     /tmp, prepend to sys.path.
-#   2. LOCAL DOCKER W/ MOUNT        — CODE_LOCAL_PATH=/mnt/code (volume) →
-#                                     skip S3, just prepend that directory.
+#   2. LOCAL DOCKER W/ MOUNT        — AGENTIC_CODE_LOCAL_PATH=/mnt/code (volume)
+#                                     → skip S3, just prepend that directory.
 #   3. PYTEST / UVICORN PASSTHROUGH — neither env var set → do nothing; use
 #                                     whatever sys.path already has.
+#
+# Env var contract (all AGENTIC_* — destined to be generic):
+#   • AGENTIC_CODE_LOCAL_PATH       — explicit local path, bypasses S3.
+#   • AGENTIC_CODE_SOURCE_S3_BUCKET — optional; default {account}--sgraph-ai--{region}.
+#   • AGENTIC_CODE_SOURCE_S3_KEY    — optional; default apps/{name}/{stage}/{version}.zip.
+#   • AGENTIC_APP_NAME              — e.g. 'sg-playwright'.
+#   • AGENTIC_APP_STAGE             — 'dev' / 'main' / 'prod'.
+#   • AGENTIC_APP_VERSION           — 'v0.1.29'.
+#   • AGENTIC_CODE_SOURCE           — written by the shim, surfaced on /info.
+#   • AGENTIC_IMAGE_VERSION         — written by the shim from /var/task/image_version.
 #
 # No fallback service. A top-level try/catch pins `error`/`handler`/`app` — if
 # setup fails inside Lambda, `run(event, ctx)` returns the critical error string
@@ -27,15 +36,21 @@ import os
 import sys
 
 
-IMAGE_VERSION_PATH        = '/var/task/image_version'                               # Baked at build time by the Dockerfile
-CODE_CACHE_ROOT           = '/tmp/sg-playwright-code'                               # Lambda's only writable scratch; persists across warm invocations
-ENV_VAR__LAMBDA_NAME      = 'SG_PLAYWRIGHT__LAMBDA_NAME'
-ENV_VAR__CODE_S3_VERSION  = 'SG_PLAYWRIGHT__CODE_S3_VERSION'
-ENV_VAR__CODE_LOCAL_PATH  = 'SG_PLAYWRIGHT__CODE_LOCAL_PATH'
-ENV_VAR__IMAGE_VERSION    = 'SG_PLAYWRIGHT__IMAGE_VERSION'
-ENV_VAR__CODE_SOURCE      = 'SG_PLAYWRIGHT__CODE_SOURCE'                            # Surfaced on /info so operators see which zip booted
-ENV_VAR__AWS_REGION       = 'AWS_REGION'
-ENV_VAR__LAMBDA_FUNCTION  = 'AWS_LAMBDA_FUNCTION_NAME'
+IMAGE_VERSION_PATH                    = '/var/task/image_version'                   # Baked at build time by the Dockerfile
+CODE_CACHE_ROOT                       = '/tmp/agentic-code'                         # Lambda's only writable scratch; persists across warm invocations
+DEFAULT_BUCKET_FORMAT                 = '{account_id}--sgraph-ai--{region_name}'    # Matches scripts/deploy_code.py
+DEFAULT_KEY_FORMAT                    = 'apps/{app_name}/{stage}/{version}.zip'     # Matches scripts/deploy_code.py
+
+ENV_VAR__AGENTIC_APP_NAME             = 'AGENTIC_APP_NAME'
+ENV_VAR__AGENTIC_APP_STAGE            = 'AGENTIC_APP_STAGE'
+ENV_VAR__AGENTIC_APP_VERSION          = 'AGENTIC_APP_VERSION'
+ENV_VAR__AGENTIC_CODE_LOCAL_PATH      = 'AGENTIC_CODE_LOCAL_PATH'
+ENV_VAR__AGENTIC_CODE_SOURCE          = 'AGENTIC_CODE_SOURCE'
+ENV_VAR__AGENTIC_CODE_SOURCE_S3_BUCKET = 'AGENTIC_CODE_SOURCE_S3_BUCKET'
+ENV_VAR__AGENTIC_CODE_SOURCE_S3_KEY   = 'AGENTIC_CODE_SOURCE_S3_KEY'
+ENV_VAR__AGENTIC_IMAGE_VERSION        = 'AGENTIC_IMAGE_VERSION'
+ENV_VAR__AWS_REGION                   = 'AWS_REGION'
+ENV_VAR__LAMBDA_FUNCTION              = 'AWS_LAMBDA_FUNCTION_NAME'
 
 
 # ─── Stage 1: helpers (no side effects at import) ────────────────────────────
@@ -47,32 +62,46 @@ def read_image_version() -> str:                                                
     return 'v0'                                                                     # Matches Safe_Str__Version regex — "unknown / pre-v0.1.28"
 
 
-def load_code_from_local_path():                                                    # CODE_LOCAL_PATH wins over S3 — laptop dev + volume mounts
-    local_path = os.environ.get(ENV_VAR__CODE_LOCAL_PATH)
+def load_code_from_local_path():                                                    # AGENTIC_CODE_LOCAL_PATH wins over S3 — laptop dev + volume mounts
+    local_path = os.environ.get(ENV_VAR__AGENTIC_CODE_LOCAL_PATH)
     if not local_path:
         return None
     if not os.path.isdir(local_path):
-        raise RuntimeError(f'{ENV_VAR__CODE_LOCAL_PATH} is not a directory: {local_path}')
+        raise RuntimeError(f'{ENV_VAR__AGENTIC_CODE_LOCAL_PATH} is not a directory: {local_path}')
     sys.path.insert(0, local_path)
     return f'local:{local_path}'
 
 
+def resolve_s3_bucket(account_id: str, region_name: str) -> str:                    # Explicit override > computed default
+    override = os.environ.get(ENV_VAR__AGENTIC_CODE_SOURCE_S3_BUCKET)
+    if override:
+        return override
+    return DEFAULT_BUCKET_FORMAT.format(account_id=account_id, region_name=region_name)
+
+
+def resolve_s3_key() -> str:                                                        # Explicit override > computed from app name / stage / version
+    override = os.environ.get(ENV_VAR__AGENTIC_CODE_SOURCE_S3_KEY)
+    if override:
+        return override
+    app_name = os.environ[ENV_VAR__AGENTIC_APP_NAME]
+    stage    = os.environ[ENV_VAR__AGENTIC_APP_STAGE]
+    version  = os.environ[ENV_VAR__AGENTIC_APP_VERSION]
+    return DEFAULT_KEY_FORMAT.format(app_name=app_name, stage=stage, version=version)
+
+
 def load_code_from_s3():                                                            # AWS_REGION gate — only runs inside Lambda
-    if os.environ.get(ENV_VAR__CODE_LOCAL_PATH):                                    # Local override already handled
+    if os.environ.get(ENV_VAR__AGENTIC_CODE_LOCAL_PATH):                            # Local override already handled
         return None
     if not os.environ.get(ENV_VAR__AWS_REGION):                                     # Not on Lambda
         return None
 
     import boto3, io, zipfile                                                       # Deferred imports — keep module-level import graph minimal
 
-    lambda_name = os.environ[ENV_VAR__LAMBDA_NAME]
-    version     = os.environ[ENV_VAR__CODE_S3_VERSION]                              # REQUIRED — no "latest" fallback; env var IS the pointer
     region_name = os.environ[ENV_VAR__AWS_REGION]
-
     account_id  = boto3.client('sts').get_caller_identity()['Account']
-    bucket_name = f'{account_id}--sg-playwright--{region_name}'
-    s3_key      = f'{lambda_name}/code/{version}.zip'
-    target_dir  = f'{CODE_CACHE_ROOT}/{lambda_name}/{version}'
+    bucket_name = resolve_s3_bucket(account_id, region_name)
+    s3_key      = resolve_s3_key()
+    target_dir  = f'{CODE_CACHE_ROOT}/{bucket_name}/{s3_key}'
 
     if _cache_is_fresh(target_dir, bucket_name, s3_key):                            # Warm-invocation short-circuit — ~200 ms saved per hit
         sys.path.insert(0, target_dir)
@@ -118,9 +147,9 @@ def resolve_code_source() -> str:                                               
 
 
 def boot():                                                                         # Stage 2+3 — import + setup; returns (error, handler, app, code_source)
-    os.environ.setdefault(ENV_VAR__IMAGE_VERSION, read_image_version())             # Surfaced in /health/info by Capability__Detector
+    os.environ.setdefault(ENV_VAR__AGENTIC_IMAGE_VERSION, read_image_version())     # Surfaced in /health/info by Capability__Detector
     code_source = resolve_code_source()
-    os.environ[ENV_VAR__CODE_SOURCE] = code_source                                  # Surfaced in /health/info — "s3:…", "local:…", or "passthrough:sys.path"
+    os.environ[ENV_VAR__AGENTIC_CODE_SOURCE] = code_source                          # Surfaced in /health/info — "s3:…", "local:…", or "passthrough:sys.path"
 
     try:
         from sgraph_ai_service_playwright.fast_api.Fast_API__Playwright__Service import Fast_API__Playwright__Service

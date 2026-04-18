@@ -14,10 +14,10 @@ from osbot_utils.type_safe.Type_Safe                                            
 from osbot_utils.type_safe.primitives.domains.common.safe_str.Safe_Str__Version                     import Safe_Str__Version
 from osbot_utils.utils.Env                                                                          import get_env
 
-from sgraph_ai_service_playwright.consts.env_vars                                                   import (ENV_VAR__AWS_LAMBDA_RUNTIME_API,
+from sgraph_ai_service_playwright.consts.env_vars                                                   import (ENV_VAR__AGENTIC_CODE_SOURCE   ,
+                                                                                                            ENV_VAR__AWS_LAMBDA_RUNTIME_API,
                                                                                                             ENV_VAR__CI                    ,
                                                                                                             ENV_VAR__CLAUDE_SESSION        ,
-                                                                                                            ENV_VAR__CODE_SOURCE           ,
                                                                                                             ENV_VAR__DEFAULT_PROXY_URL     ,
                                                                                                             ENV_VAR__DEFAULT_S3_BUCKET     ,
                                                                                                             ENV_VAR__DEPLOYMENT_TARGET     ,
@@ -62,8 +62,8 @@ class Capability__Detector(Type_Safe):
                                      capabilities       = self.detected_capabilities               ,
                                      code_source        = self.detect_code_source()                )
 
-    def detect_code_source(self) -> str:                                            # Boot shim writes SG_PLAYWRIGHT__CODE_SOURCE; fallback means shim didn't run
-        return get_env(ENV_VAR__CODE_SOURCE) or FALLBACK_CODE_SOURCE
+    def detect_code_source(self) -> str:                                            # Boot shim writes AGENTIC_CODE_SOURCE; fallback means shim didn't run
+        return get_env(ENV_VAR__AGENTIC_CODE_SOURCE) or FALLBACK_CODE_SOURCE
 
     def detect_target(self) -> Enum__Deployment__Target:
         explicit = get_env(ENV_VAR__DEPLOYMENT_TARGET)

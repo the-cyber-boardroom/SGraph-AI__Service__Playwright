@@ -46,7 +46,7 @@ from sgraph_ai_service_playwright.docker.Docker__SGraph_AI__Service__Playwright_
 
 DOCKERFILE_NAME      = 'dockerfile'                                                     # Explicit — daemon defaults to 'Dockerfile' (case-sensitive on Linux) when not passed
 BOOT_SHIM_FILENAME   = 'lambda_entry.py'                                                # v0.1.28 — copied from repo root into /var/task/; boots before the code zip lands
-IMAGE_VERSION_FILE   = 'image_version'                                                  # v0.1.28 — repo-root file; read by the boot shim to set SG_PLAYWRIGHT__IMAGE_VERSION
+IMAGE_VERSION_FILE   = 'image_version'                                                  # v0.1.28 — repo-root file; read by the boot shim to set AGENTIC_IMAGE_VERSION
 
 
 def _ignore_build_noise(directory, names):                                              # Keep the build context lean — pycache + compiled files add MBs

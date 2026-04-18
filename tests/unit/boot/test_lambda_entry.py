@@ -24,12 +24,16 @@ from unittest                                                                   
 import lambda_entry
 
 
-ENV_KEYS = [lambda_entry.ENV_VAR__LAMBDA_NAME     ,
-            lambda_entry.ENV_VAR__CODE_S3_VERSION ,
-            lambda_entry.ENV_VAR__CODE_LOCAL_PATH ,
-            lambda_entry.ENV_VAR__IMAGE_VERSION   ,
-            lambda_entry.ENV_VAR__AWS_REGION      ,
-            lambda_entry.ENV_VAR__LAMBDA_FUNCTION ]
+ENV_KEYS = [lambda_entry.ENV_VAR__AGENTIC_APP_NAME              ,
+            lambda_entry.ENV_VAR__AGENTIC_APP_STAGE             ,
+            lambda_entry.ENV_VAR__AGENTIC_APP_VERSION           ,
+            lambda_entry.ENV_VAR__AGENTIC_CODE_LOCAL_PATH       ,
+            lambda_entry.ENV_VAR__AGENTIC_CODE_SOURCE           ,
+            lambda_entry.ENV_VAR__AGENTIC_CODE_SOURCE_S3_BUCKET ,
+            lambda_entry.ENV_VAR__AGENTIC_CODE_SOURCE_S3_KEY    ,
+            lambda_entry.ENV_VAR__AGENTIC_IMAGE_VERSION         ,
+            lambda_entry.ENV_VAR__AWS_REGION                    ,
+            lambda_entry.ENV_VAR__LAMBDA_FUNCTION               ]
 
 
 class _EnvScrub:                                                                    # Snapshot + restore the six env vars + one extra caller-specified
@@ -66,13 +70,13 @@ class test_load_code_from_local_path(TestCase):
 
     def test__prepends_directory_and_returns_provenance(self):
         with tempfile.TemporaryDirectory() as tmp:
-            with _EnvScrub(**{lambda_entry.ENV_VAR__CODE_LOCAL_PATH: tmp}), _SysPathSnapshot():
+            with _EnvScrub(**{lambda_entry.ENV_VAR__AGENTIC_CODE_LOCAL_PATH: tmp}), _SysPathSnapshot():
                 source = lambda_entry.load_code_from_local_path()
                 assert source        == f'local:{tmp}'
                 assert sys.path[0]   == tmp                                         # Prepended, not appended
 
     def test__raises_when_path_not_a_directory(self):
-        with _EnvScrub(**{lambda_entry.ENV_VAR__CODE_LOCAL_PATH: '/nonexistent/xyzzy'}), _SysPathSnapshot():
+        with _EnvScrub(**{lambda_entry.ENV_VAR__AGENTIC_CODE_LOCAL_PATH: '/nonexistent/xyzzy'}), _SysPathSnapshot():
             raised = False
             try:
                 lambda_entry.load_code_from_local_path()
@@ -90,7 +94,7 @@ class test_load_code_from_s3(TestCase):
 
     def test__returns_none_when_local_path_set(self):                               # Local override wins
         with tempfile.TemporaryDirectory() as tmp:
-            with _EnvScrub(**{lambda_entry.ENV_VAR__CODE_LOCAL_PATH: tmp,
+            with _EnvScrub(**{lambda_entry.ENV_VAR__AGENTIC_CODE_LOCAL_PATH: tmp,
                               lambda_entry.ENV_VAR__AWS_REGION     : 'eu-west-2'}), _SysPathSnapshot():
                 assert lambda_entry.load_code_from_s3() is None
 
@@ -103,7 +107,7 @@ class test_resolve_code_source(TestCase):
 
     def test__local_path_wins_over_aws_region(self):
         with tempfile.TemporaryDirectory() as tmp:
-            with _EnvScrub(**{lambda_entry.ENV_VAR__CODE_LOCAL_PATH: tmp,
+            with _EnvScrub(**{lambda_entry.ENV_VAR__AGENTIC_CODE_LOCAL_PATH: tmp,
                               lambda_entry.ENV_VAR__AWS_REGION     : 'eu-west-2'}), _SysPathSnapshot():
                 source = lambda_entry.resolve_code_source()
                 assert source.startswith('local:')
@@ -147,7 +151,7 @@ class test_boot(TestCase):
     def test__sets_image_version_env_var(self):
         with _EnvScrub(), _SysPathSnapshot():
             lambda_entry.boot()
-            assert os.environ.get(lambda_entry.ENV_VAR__IMAGE_VERSION) is not None  # read_image_version returned SOMETHING
+            assert os.environ.get(lambda_entry.ENV_VAR__AGENTIC_IMAGE_VERSION) is not None  # read_image_version returned SOMETHING
 
     def test__error_pinned_when_import_fails_inside_lambda(self):                   # Simulate a broken zip — the service module raises on import
         import importlib.util
