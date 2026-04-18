@@ -10,7 +10,7 @@
 #   • lambda_entry.py — the boot shim; baked in, never hot-swapped
 #   • image_version   — exposed at /var/task/image_version, read by the shim
 #   • requirements.txt + a snapshot of the code — baseline fallback when no
-#     S3 override is pinned via SG_PLAYWRIGHT__CODE_S3_VERSION.
+#     S3 override is pinned via AGENTIC_APP_VERSION.
 #
 # Refreshed from OSBot-Playwright v0.6.10:
 #   Playwright 1.40.0 → 1.58.0   (latest published noble tag at time of writing)

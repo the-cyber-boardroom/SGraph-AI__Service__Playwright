@@ -10,14 +10,14 @@
 #     from the repo-root `image_version` file at build time).
 #
 # Lookup order:
-#   1. `SG_PLAYWRIGHT__IMAGE_VERSION` env var — set by `lambda_entry.py` after
+#   1. `AGENTIC_IMAGE_VERSION` env var — set by `lambda_entry.py` after
 #      it reads /var/task/image_version at container start. Wins everywhere
 #      once the boot shim has run.
 #   2. File next to the package parent (repo-root `image_version`) — local dev,
 #      unit tests, in-process imports that bypass the boot shim.
 #   3. Hardcoded absolute `/var/task/image_version` — container fallback if
 #      the boot shim didn't set the env var (defensive; shouldn't happen).
-#   4. Fallback sentinel — `runtime-dev`.
+#   4. Fallback sentinel — `v0`.
 # ═══════════════════════════════════════════════════════════════════════════════
 
 import os
@@ -28,7 +28,7 @@ import sgraph_ai_service_playwright
 
 
 FALLBACK_IMAGE_VERSION = 'v0'                                                       # Sentinel — matches Safe_Str__Version regex; means "unknown / pre-v0.1.28"
-ENV_VAR_NAME           = 'SG_PLAYWRIGHT__IMAGE_VERSION'
+ENV_VAR_NAME           = 'AGENTIC_IMAGE_VERSION'
 CONTAINER_IMAGE_PATH   = '/var/task/image_version'
 
 

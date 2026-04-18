@@ -1,19 +1,29 @@
 # ═══════════════════════════════════════════════════════════════════════════════
-# Playwright Service — Environment Variable Names (spec §7)
+# Playwright Service — Environment Variable Names
 #
 # Every env var is read via get_env(ENV_VAR__NAME) — never os.environ.get().
 # Keeps the set of recognised env vars grep-able from one module.
+#
+# Two prefixes:
+#   • AGENTIC_*       — framework-level vars consumed by the generic boot shim
+#                       and admin FastAPI (v0.1.29+). Destined for extraction
+#                       into a shared package; do not namespace under the app.
+#   • SG_PLAYWRIGHT__ — app-specific vars (auth tokens, vault, browser defaults,
+#                       watchdog). Stay under the app namespace.
 # ═══════════════════════════════════════════════════════════════════════════════
 
-# ── Boot loader (v0.1.28 — S3-zip hot-swap) ──────────────────────────────────
+# ── Agentic boot loader (v0.1.29 — generic S3-zip hot-swap) ──────────────────
 # The lambda_entry.py shim reads these at container start to decide WHERE
-# the Python code comes from. Precedence: CODE_LOCAL_PATH > AWS_REGION+S3 >
-# passthrough (whatever sys.path already has — pytest / local uvicorn).
-ENV_VAR__LAMBDA_NAME                   = 'SG_PLAYWRIGHT__LAMBDA_NAME'               # Maps to the S3 folder, e.g. 'sg-playwright-dev'
-ENV_VAR__CODE_S3_VERSION               = 'SG_PLAYWRIGHT__CODE_S3_VERSION'           # Pinned version to load, e.g. 'v0.1.28' (never 'latest' — env var IS the pointer)
-ENV_VAR__CODE_LOCAL_PATH               = 'SG_PLAYWRIGHT__CODE_LOCAL_PATH'           # Override: use this local path instead of S3 (mounted volume)
-ENV_VAR__IMAGE_VERSION                 = 'SG_PLAYWRIGHT__IMAGE_VERSION'             # Override for the baked image_version file (debugging only)
-ENV_VAR__CODE_SOURCE                   = 'SG_PLAYWRIGHT__CODE_SOURCE'               # Written by the boot shim; surfaced on /info — 's3:…', 'local:…', or 'passthrough:sys.path'
+# the Python code comes from. Precedence: CODE_LOCAL_PATH > S3 > passthrough.
+ENV_VAR__AGENTIC_APP_NAME              = 'AGENTIC_APP_NAME'                         # Logical app name, e.g. 'sg-playwright'
+ENV_VAR__AGENTIC_APP_STAGE             = 'AGENTIC_APP_STAGE'                        # 'dev' / 'main' / 'prod'
+ENV_VAR__AGENTIC_APP_VERSION           = 'AGENTIC_APP_VERSION'                      # Pinned version to load, e.g. 'v0.1.29'
+ENV_VAR__AGENTIC_CODE_LOCAL_PATH       = 'AGENTIC_CODE_LOCAL_PATH'                  # Override: use this local path instead of S3 (mounted volume)
+ENV_VAR__AGENTIC_CODE_SOURCE           = 'AGENTIC_CODE_SOURCE'                      # Written by the boot shim; surfaced on /info — 's3:…', 'local:…', 'passthrough:sys.path'
+ENV_VAR__AGENTIC_CODE_SOURCE_S3_BUCKET = 'AGENTIC_CODE_SOURCE_S3_BUCKET'            # Optional bucket override; default derives from '{account}--sgraph-ai--{region}'
+ENV_VAR__AGENTIC_CODE_SOURCE_S3_KEY    = 'AGENTIC_CODE_SOURCE_S3_KEY'               # Optional key override; default derives from 'apps/{name}/{stage}/{version}.zip'
+ENV_VAR__AGENTIC_IMAGE_VERSION         = 'AGENTIC_IMAGE_VERSION'                    # Override for the baked image_version file (debugging only)
+ENV_VAR__AGENTIC_ADMIN_MODE            = 'AGENTIC_ADMIN_MODE'                       # 'disabled' / 'read_only' / 'full'. Default 'read_only'; 'full' deferred.
 ENV_VAR__AWS_REGION                    = 'AWS_REGION'                               # Set by Lambda automatically; absent on laptop
 
 # ── Service auth ─────────────────────────────────────────────────────────────
