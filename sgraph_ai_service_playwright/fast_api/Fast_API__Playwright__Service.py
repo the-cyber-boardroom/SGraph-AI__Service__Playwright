@@ -1,9 +1,11 @@
 # ═══════════════════════════════════════════════════════════════════════════════
-# Playwright Service — Fast_API__Playwright__Service (v0.1.24 — stateless surface)
+# Playwright Service — Fast_API__Playwright__Service (v0.1.29 — agentic base)
 #
-# Extends Serverless__Fast_API (which itself extends osbot-fast-api Fast_API
-# and adds a Mangum handler for Lambda). Holds ONE Playwright__Service
-# instance and wires that through to every Routes__* class.
+# Extends Agentic_FastAPI (which in turn extends Serverless__Fast_API — the
+# Mangum-backed Lambda handler base). Holds ONE Playwright__Service instance
+# and wires that through to every Routes__* class. The agentic admin surface
+# (/admin/info, /admin/skills/{name}, /admin/manifest) lands on the parent
+# class in Day 3 of the v0.1.29 refactor and becomes available here for free.
 #
 # Route groups (v0.1.24):
 #   • Routes__Health     — 3 endpoints (info, status, capabilities)
@@ -24,8 +26,8 @@
 import uuid
 
 from osbot_fast_api.api.routes.Routes__Set_Cookie                                    import Routes__Set_Cookie
-from osbot_fast_api_serverless.fast_api.Serverless__Fast_API                          import Serverless__Fast_API
 
+from sgraph_ai_service_playwright.agentic_fastapi.Agentic_FastAPI                    import Agentic_FastAPI
 from sgraph_ai_service_playwright.fast_api.routes.Routes__Browser                    import Routes__Browser
 from sgraph_ai_service_playwright.fast_api.routes.Routes__Health                     import Routes__Health
 from sgraph_ai_service_playwright.fast_api.routes.Routes__Sequence                   import Routes__Sequence
@@ -33,7 +35,7 @@ from sgraph_ai_service_playwright.service.Playwright__Service                   
 from sgraph_ai_service_playwright.service.Request__Watchdog                          import Request__Watchdog
 
 
-class Fast_API__Playwright__Service(Serverless__Fast_API):
+class Fast_API__Playwright__Service(Agentic_FastAPI):
     service  : Playwright__Service
     watchdog : Request__Watchdog                                                    # Started in setup(); kills process via os._exit(2) when a request exceeds the hard cap so AWS provisions a fresh Lambda container
 
