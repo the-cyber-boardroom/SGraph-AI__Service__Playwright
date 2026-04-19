@@ -12,6 +12,8 @@
 
 from osbot_fast_api.api.Fast_API                                                         import Fast_API
 
+from agent_mitmproxy.fast_api.routes.Routes__CA                                          import Routes__CA
+from agent_mitmproxy.fast_api.routes.Routes__Config                                      import Routes__Config
 from agent_mitmproxy.fast_api.routes.Routes__Health                                      import Routes__Health
 
 
@@ -23,3 +25,5 @@ class Fast_API__Agent_Mitmproxy(Fast_API):
 
     def setup_routes(self):
         self.add_routes(Routes__Health)
+        self.add_routes(Routes__CA    )
+        self.add_routes(Routes__Config)
