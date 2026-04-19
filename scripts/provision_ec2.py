@@ -56,7 +56,7 @@ IAM__ROLE_NAME                  = 'sg-playwright-ec2-spike'                     
 IAM__ECR_READONLY_POLICY_ARN    = 'arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly'
 IAM__ASSUME_ROLE_SERVICE        = 'ec2.amazonaws.com'
 
-SG__NAME                        = 'sg-playwright-ec2-spike'
+SG__NAME                        = 'playwright-ec2-spike'                                # AWS reserves 'sg-*' group names (collides with SG ID format) — drop the 'sg-' prefix
 SG__DESCRIPTION                 = 'Playwright service EC2 spike — ingress :8000 to the world'
 
 TAG__NAME                       = 'sg-playwright-ec2-spike'                             # Instance Name tag + discovery filter for --terminate

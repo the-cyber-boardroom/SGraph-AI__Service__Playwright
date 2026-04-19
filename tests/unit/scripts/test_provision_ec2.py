@@ -51,7 +51,7 @@ class test_constants(TestCase):
         assert EC2__AMI_NAME_AL2023         .startswith('al2023-ami-')
         assert IAM__ECR_READONLY_POLICY_ARN == 'arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly'
         assert IAM__ROLE_NAME               == 'sg-playwright-ec2-spike'
-        assert SG__NAME                     == 'sg-playwright-ec2-spike'
+        assert SG__NAME                     == 'playwright-ec2-spike'                     # AWS rejects group names matching 'sg-*' (reserved for SG IDs)
         assert TAG__NAME                    == 'sg-playwright-ec2-spike'
         assert DEFAULT_STAGE                == 'dev'
 
