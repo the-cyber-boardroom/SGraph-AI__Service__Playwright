@@ -21,7 +21,9 @@ from scripts.provision_ec2                                                      
                                                                                                  EC2__APP_PORT                 ,
                                                                                                  EC2__INSTANCE_TYPE            ,
                                                                                                  IAM__ECR_READONLY_POLICY_ARN  ,
+                                                                                                 IAM__POLICY_ARNS              ,
                                                                                                  IAM__ROLE_NAME                ,
+                                                                                                 IAM__SSM_CORE_POLICY_ARN      ,
                                                                                                  SG__NAME                      ,
                                                                                                  TAG__NAME                     ,
                                                                                                  render_user_data              )
@@ -50,6 +52,8 @@ class test_constants(TestCase):
         assert EC2__APP_PORT                == 8000
         assert EC2__AMI_NAME_AL2023         .startswith('al2023-ami-')
         assert IAM__ECR_READONLY_POLICY_ARN == 'arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly'
+        assert IAM__SSM_CORE_POLICY_ARN     == 'arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore'
+        assert IAM__POLICY_ARNS             == (IAM__ECR_READONLY_POLICY_ARN, IAM__SSM_CORE_POLICY_ARN)
         assert IAM__ROLE_NAME               == 'sg-playwright-ec2-spike'
         assert SG__NAME                     == 'playwright-ec2-spike'                     # AWS rejects group names matching 'sg-*' (reserved for SG IDs)
         assert TAG__NAME                    == 'sg-playwright-ec2-spike'
