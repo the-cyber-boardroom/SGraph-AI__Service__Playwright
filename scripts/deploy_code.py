@@ -69,6 +69,13 @@ def upload_zip(bucket_name: str, s3_key: str) -> int:                           
 
 def update_lambda_env(lambda_name: str, app_name: str, stage: str, version: str) -> dict:
     lambda_obj = Lambda(name=lambda_name)
+    if not lambda_obj.exists():                                                     # Clean error > raw boto3 ResourceNotFoundException
+        raise RuntimeError(f'lambda {lambda_name!r} does not exist. '
+                           f'deploy_code.py only flips env vars on an existing function — '
+                           f'the container image + Function URL must be provisioned once first '
+                           f'(e.g. via Lambda__Docker__SGraph_AI__Service__Playwright.create_lambda() '
+                           f'or tests/deploy/test_Deploy__Playwright__Service__to__{stage}.py).')
+
     info       = lambda_obj.info()
     current    = info.get('Configuration', {}).get('Environment', {}).get('Variables', {}) or {}
 
