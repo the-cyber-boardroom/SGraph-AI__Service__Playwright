@@ -57,7 +57,7 @@ IAM__ECR_READONLY_POLICY_ARN    = 'arn:aws:iam::aws:policy/AmazonEC2ContainerReg
 IAM__ASSUME_ROLE_SERVICE        = 'ec2.amazonaws.com'
 
 SG__NAME                        = 'playwright-ec2-spike'                                # AWS reserves 'sg-*' group names (collides with SG ID format) — drop the 'sg-' prefix
-SG__DESCRIPTION                 = 'Playwright service EC2 spike — ingress :8000 to the world'
+SG__DESCRIPTION                 = 'Playwright service EC2 spike - ingress :8000 to the world'   # AWS GroupDescription rejects non-ASCII (em dash -> hyphen)
 
 TAG__NAME                       = 'sg-playwright-ec2-spike'                             # Instance Name tag + discovery filter for --terminate
 TAG__STAGE_KEY                  = 'stage'
