@@ -21,8 +21,7 @@
 import argparse
 import sys
 
-import boto3
-
+from osbot_aws.AWS_Config                                                                       import AWS_Config
 from osbot_aws.aws.s3.S3                                                                        import S3
 from osbot_aws.aws.s3.S3__Zip_Bytes                                                             import S3__Zip_Bytes
 
@@ -36,14 +35,14 @@ KEY_FORMAT         = 'apps/{app_name}/{stage}/{version}.zip'                    
 DEFAULT_APP_NAME   = 'sg-playwright'
 
 
-def resolve_region(region_name: str = None) -> str:                                # Explicit > boto3 session default; callers share one resolved value
-    return region_name or boto3.session.Session().region_name
+def resolve_region(region_name: str = None) -> str:                                # Explicit > AWS_Config (reads env / boto3 session); callers share one resolved value
+    return region_name or AWS_Config().region_name()
 
 
-def resolve_bucket_name(region_name: str = None) -> str:                            # Lazy sts call — avoids loading AWS creds during simple `--help` invocations
-    sts         = boto3.client('sts')
-    account_id  = sts.get_caller_identity()['Account']
-    region_name = resolve_region(region_name)
+def resolve_bucket_name(region_name: str = None) -> str:                            # AWS_Config handles sts caller-identity + region resolution
+    aws_config  = AWS_Config()
+    account_id  = aws_config.account_id()
+    region_name = region_name or aws_config.region_name()
     return BUCKET_NAME_FORMAT.format(account_id=account_id, region_name=region_name)
 
 
