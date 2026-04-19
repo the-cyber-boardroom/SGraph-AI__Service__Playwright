@@ -295,16 +295,15 @@ jobs:
   #     • sg-playwright-<stage>          — loads from S3 via AGENTIC_APP_*
   #   Runs AFTER both build-and-push-image (so the image exists) AND
   #   deploy-code (so the S3 zip exists for the agentic variant to load).
-  #   Currently gated off pending first-run verification; flip to `if:
-  #   needs.check-aws-credentials.outputs.has-credentials == 'true'` once
-  #   the infra has been validated by hand.
+  #   Idempotent: re-runs upsert image + env vars in place without rotating
+  #   the Function URL host UUID (CloudFront origin stays valid).
   # ════════════════════════════════════════════════════════════════════════════
   provision-lambdas:
     name: "Provision Lambdas (baseline + agentic)"
     runs-on: ubuntu-latest
     timeout-minutes: 15
     needs: [build-and-push-image, deploy-code, check-aws-credentials]
-    if: false                                                                       # v0.1.31: gated off for first-run — flip on after manual verification
+    if: ${{ needs.check-aws-credentials.outputs.has-credentials == 'true' }}
     steps:
       - uses: actions/checkout@v5
         with:
