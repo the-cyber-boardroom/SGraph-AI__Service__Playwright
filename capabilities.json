@@ -1,0 +1,10 @@
+{
+  "app": "sg-playwright",
+  "version": "v0.1.29",
+  "axioms": [
+    "statelessness",
+    "least-privilege-by-declaration",
+    "self-description"
+  ],
+  "declared_narrowing": []
+}

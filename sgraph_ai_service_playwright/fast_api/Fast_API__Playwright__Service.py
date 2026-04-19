@@ -60,6 +60,7 @@ class Fast_API__Playwright__Service(Agentic_FastAPI):
                 watchdog.unregister(request_id)                                     # Runs even when call_next raises so the in-flight map stays accurate
 
     def setup_routes(self):
+        super().setup_routes()                                                      # Agentic_FastAPI mounts the /admin/* surface (health, info, manifest, SKILLs, capabilities)
         self.add_routes(Routes__Health   , service=self.service)
         self.add_routes(Routes__Browser  , service=self.service)
         self.add_routes(Routes__Sequence , service=self.service)
