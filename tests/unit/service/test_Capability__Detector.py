@@ -80,7 +80,9 @@ class test_build_capabilities(TestCase):
         assert caps.max_session_lifetime_ms    == 900_000
         assert caps.supports_persistent        is False
         assert caps.supports_video             is True
-        assert caps.available_browsers         == [Enum__Browser__Name.CHROMIUM]
+        assert caps.available_browsers         == [Enum__Browser__Name.CHROMIUM     ,   # All three engines ship with the Microsoft playwright base image — Firefox/WebKit are the only path to native proxy-auth support
+                                                   Enum__Browser__Name.FIREFOX      ,
+                                                   Enum__Browser__Name.WEBKIT       ]
         assert Enum__Artefact__Sink.LOCAL_FILE not in caps.supported_sinks           # Lambda has no writable disk for retrieval
         assert caps.has_s3_access              is True
         assert caps.has_vault_access           is False                              # SG_SEND_BASE_URL not set

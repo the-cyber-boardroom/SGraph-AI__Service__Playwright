@@ -89,18 +89,10 @@ class test_assert_provider_supported(TestCase):
         bl.assert_provider_supported(_cfg())
 
 
-class test_assert_browser_supported(TestCase):
+class test_browser_engine_support(TestCase):                                        # All three Playwright engines are supported — no runtime gate
 
-    def test__rejects_firefox_and_webkit(self):
-        bl = Browser__Launcher()
-        for name in (Enum__Browser__Name.FIREFOX, Enum__Browser__Name.WEBKIT):
-            with pytest.raises(NotImplementedError) as exc:
-                bl.assert_browser_supported(_cfg(browser_name=name))
-            assert name.value in str(exc.value)
-
-    def test__allows_chromium(self):
-        bl = Browser__Launcher()
-        bl.assert_browser_supported(_cfg())
+    def test__no_assert_browser_supported_method(self):                             # Regression: the legacy gate was removed alongside Firefox/WebKit wiring
+        assert not hasattr(Browser__Launcher, 'assert_browser_supported')
 
 
 class test_build_launch_kwargs(TestCase):
@@ -134,16 +126,38 @@ class test_build_launch_kwargs(TestCase):
             assert kw['proxy'] == {'server': 'http://proxy.example.com:8080'  ,
                                    'bypass': 'localhost,internal.corp'        }
 
-    def test__proxy_auth_never_reaches_launch_kwargs(self):                        # Regression for QA Bug #1: chromium.launch(proxy={username,password}) silently no-ops on headless shell — auth must NOT be passed via launch kwargs
+    def test__proxy_auth_never_reaches_launch_kwargs_on_chromium(self):            # Regression for QA Bug #1: chromium.launch(proxy={username,password}) silently no-ops on headless shell — auth must NOT be passed via launch kwargs on Chromium (uses CDP Fetch binder instead)
         with _EnvScrub():
             auth  = Schema__Proxy__Auth__Basic(username='u', password='p')
             proxy = Schema__Proxy__Config(server = 'http://proxy:3128' ,
                                           auth   = auth                )
             bl = Browser__Launcher()
-            kw = bl.build_launch_kwargs(_cfg(proxy=proxy))
+            kw = bl.build_launch_kwargs(_cfg(proxy=proxy))                         # Default browser_name=CHROMIUM
             assert kw['proxy'] == {'server': 'http://proxy:3128'}                  # Only server — no username/password/auth keys
             assert 'username' not in kw['proxy']
             assert 'password' not in kw['proxy']
+
+    def test__proxy_auth_flows_through_for_firefox(self):                          # Firefox honours launch-time username/password — no CDP workaround needed
+        with _EnvScrub():
+            auth  = Schema__Proxy__Auth__Basic(username='firefox-user', password='ff-pass-1')
+            proxy = Schema__Proxy__Config(server = 'http://proxy:3128' ,
+                                          auth   = auth                )
+            bl = Browser__Launcher()
+            kw = bl.build_launch_kwargs(_cfg(browser_name=Enum__Browser__Name.FIREFOX, proxy=proxy))
+            assert kw['proxy'] == {'server'  : 'http://proxy:3128' ,
+                                   'username': 'firefox-user'      ,
+                                   'password': 'ff-pass-1'         }
+
+    def test__proxy_auth_flows_through_for_webkit(self):                           # WebKit honours launch-time username/password — no CDP workaround needed
+        with _EnvScrub():
+            auth  = Schema__Proxy__Auth__Basic(username='wk-user', password='wk-pass-7')
+            proxy = Schema__Proxy__Config(server = 'http://proxy:3128' ,
+                                          auth   = auth                )
+            bl = Browser__Launcher()
+            kw = bl.build_launch_kwargs(_cfg(browser_name=Enum__Browser__Name.WEBKIT, proxy=proxy))
+            assert kw['proxy'] == {'server'  : 'http://proxy:3128' ,
+                                   'username': 'wk-user'           ,
+                                   'password': 'wk-pass-7'         }
 
     def test__proxy_without_auth_passes_only_server(self):
         with _EnvScrub():
@@ -151,6 +165,25 @@ class test_build_launch_kwargs(TestCase):
             bl = Browser__Launcher()
             kw = bl.build_launch_kwargs(_cfg(proxy=proxy))
             assert kw['proxy'] == {'server': 'http://proxy:3128'}                   # No username/password/bypass keys
+
+    def test__firefox_gets_no_chromium_default_args(self):                         # --no-sandbox et al would break Firefox launch; only Chromium gets them
+        with _EnvScrub():
+            bl = Browser__Launcher()
+            kw = bl.build_launch_kwargs(_cfg(browser_name=Enum__Browser__Name.FIREFOX))
+            assert 'args' not in kw                                                # Empty args list means omit the key entirely — Playwright applies engine defaults
+
+    def test__webkit_gets_no_chromium_default_args(self):
+        with _EnvScrub():
+            bl = Browser__Launcher()
+            kw = bl.build_launch_kwargs(_cfg(browser_name=Enum__Browser__Name.WEBKIT))
+            assert 'args' not in kw
+
+    def test__chromium_executable_override_does_not_leak_to_firefox(self):         # SG_PLAYWRIGHT__CHROMIUM_EXECUTABLE is Chromium-specific
+        with _EnvScrub():
+            os.environ[ENV_VAR__CHROMIUM_EXECUTABLE] = '/opt/custom/chrome'
+            bl = Browser__Launcher()
+            kw = bl.build_launch_kwargs(_cfg(browser_name=Enum__Browser__Name.FIREFOX))
+            assert 'executable_path' not in kw
 
     def test__headless_false_is_preserved(self):
         with _EnvScrub():

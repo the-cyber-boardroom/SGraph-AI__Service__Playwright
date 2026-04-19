@@ -87,7 +87,9 @@ class Capability__Detector(Type_Safe):
         return Schema__Service__Capabilities(max_session_lifetime_ms = 900_000                                       ,
                                              supports_persistent     = False                                         ,
                                              supports_video          = True                                          ,
-                                             available_browsers      = [Enum__Browser__Name.CHROMIUM]                ,
+                                             available_browsers      = [Enum__Browser__Name.CHROMIUM                 ,   # Firefox + WebKit come with mcr.microsoft.com/playwright/python:v1.58.0-noble (same image, all three engines pre-installed)
+                                                                        Enum__Browser__Name.FIREFOX                  ,
+                                                                        Enum__Browser__Name.WEBKIT                   ],
                                              supported_sinks         = [Enum__Artefact__Sink.VAULT                   ,
                                                                         Enum__Artefact__Sink.INLINE                  ,
                                                                         Enum__Artefact__Sink.S3                      ],

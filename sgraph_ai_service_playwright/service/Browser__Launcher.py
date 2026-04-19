@@ -1,12 +1,21 @@
 # ═══════════════════════════════════════════════════════════════════════════════
 # Playwright Service — Browser__Launcher
 #
-# Per-call Chromium lifecycle. Each call to launch() starts a fresh
-# sync_playwright() Node subprocess AND a fresh Browser, so there is zero
+# Per-call Chromium / Firefox / WebKit lifecycle. Each call to launch() starts a
+# fresh sync_playwright() Node subprocess AND a fresh Browser, so there is zero
 # state bleed between requests (proxies, cookies, stuck handles, thread
 # affinity). The Sequence__Runner / Playwright__Service call register()
 # to associate the launch with a session_id, then stop(session_id) tears
 # both down cleanly.
+#
+# Browser engine choice drives proxy-auth strategy:
+#   • Chromium — chromium.launch(proxy={'username',...}) silently no-ops on
+#     the modern headless shell (QA bug #1), so auth is applied post-context
+#     via Proxy__Auth__Binder (CDP Fetch). build_proxy_dict() returns
+#     server + bypass only for CHROMIUM.
+#   • Firefox / WebKit — pass username + password natively in the launch-time
+#     proxy dict. No CDP workaround needed (and CDP isn't available on them
+#     anyway, so the binder must be skipped at the call site).
 #
 # Responsibilities:
 #   • launch(browser_config) -> Schema__Browser__Launch__Result (browser + playwright + timings)
@@ -56,7 +65,6 @@ class Browser__Launcher(Type_Safe):
 
     def launch(self, browser_config: Schema__Browser__Config) -> Schema__Browser__Launch__Result:
         self.assert_provider_supported(browser_config)
-        self.assert_browser_supported (browser_config)
 
         from playwright.sync_api import sync_playwright                              # Local import keeps Type_Safe / cold-import surface small
 
@@ -67,14 +75,15 @@ class Browser__Launcher(Type_Safe):
         browser_type       = getattr(playwright, browser_config.browser_name.value)  # playwright.chromium / .firefox / .webkit
         launch_kwargs      = self.build_launch_kwargs(browser_config)
         ts_before_browser  = self.now_ms()
-        browser            = browser_type.launch(**launch_kwargs)                    # Fresh Chromium process
+        browser            = browser_type.launch(**launch_kwargs)                    # Fresh browser process
         ts_after_browser   = self.now_ms()
 
         return Schema__Browser__Launch__Result(browser             = browser                                          ,
                                                 playwright          = playwright                                       ,
                                                 playwright_start_ms = Safe_UInt__Milliseconds(ts_after_pw      - ts_before_pw     ),
                                                 browser_launch_ms   = Safe_UInt__Milliseconds(ts_after_browser - ts_before_browser),
-                                                proxy               = browser_config.proxy                             )   # Retained so page-creation sites can apply ignore_https_errors + CDP auth
+                                                browser_name        = browser_config.browser_name                      ,
+                                                proxy               = browser_config.proxy                             )   # Retained so page-creation sites can apply ignore_https_errors + CDP auth (Chromium only)
 
     def register(self, session_id: Session_Id, result: Schema__Browser__Launch__Result) -> None:
         self.browsers[session_id] = result                                           # Both handles tracked together so stop() can close both
@@ -105,33 +114,34 @@ class Browser__Launcher(Type_Safe):
             raise NotImplementedError(f"Browser provider '{browser_config.provider.value}' not yet implemented; "
                                       f"only LOCAL_SUBPROCESS is supported today")
 
-    def assert_browser_supported(self, browser_config: Schema__Browser__Config) -> None:
-        if browser_config.browser_name != Enum__Browser__Name.CHROMIUM:
-            raise NotImplementedError(f"Browser '{browser_config.browser_name.value}' not yet implemented; "
-                                      f"only CHROMIUM is supported today")
-
     def build_launch_kwargs(self, browser_config: Schema__Browser__Config) -> Dict[str, Any]:
-        kwargs : Dict[str, Any] = {'headless': bool(browser_config.headless)}
+        is_chromium : bool          = browser_config.browser_name == Enum__Browser__Name.CHROMIUM
+        kwargs      : Dict[str, Any] = {'headless': bool(browser_config.headless)}
 
-        exe = get_env(ENV_VAR__CHROMIUM_EXECUTABLE)                                  # Sandbox / laptop escape hatch
-        if exe:
-            kwargs['executable_path'] = exe
+        if is_chromium:
+            exe = get_env(ENV_VAR__CHROMIUM_EXECUTABLE)                              # Sandbox / laptop escape hatch — Chromium-specific
+            if exe:
+                kwargs['executable_path'] = exe
 
         args = [str(a) for a in (browser_config.launch_args or [])]                  # Caller's list, if any, REPLACES defaults (per spec §5.2)
-        if not args:
-            args = list(DEFAULT_LAUNCH_ARGS)                                         # Safe Chromium flags for Lambda + container runtimes
-        kwargs['args'] = args
+        if not args and is_chromium:
+            args = list(DEFAULT_LAUNCH_ARGS)                                         # Safe Chromium flags for Lambda + container runtimes — Firefox/WebKit reject '--no-sandbox' et al
+        if args:
+            kwargs['args'] = args
 
         if browser_config.proxy is not None:
-            kwargs['proxy'] = self.build_proxy_dict(browser_config.proxy)
+            kwargs['proxy'] = self.build_proxy_dict(browser_config.proxy, browser_config.browser_name)
 
         return kwargs
 
-    def build_proxy_dict(self, proxy) -> Dict[str, Any]:                            # Only server + bypass reach chromium.launch — auth is handled post-context via Proxy__Auth__Binder (CDP Fetch)
+    def build_proxy_dict(self, proxy, browser_name: Enum__Browser__Name) -> Dict[str, Any]:   # Firefox/WebKit take username+password natively; Chromium must use CDP Fetch instead (auth=None here)
         out : Dict[str, Any] = {'server': str(proxy.server)}
         bypass_hosts = [str(h) for h in (proxy.bypass or [])]
         if bypass_hosts:
             out['bypass'] = ','.join(bypass_hosts)
+        if proxy.auth is not None and browser_name != Enum__Browser__Name.CHROMIUM:  # Chromium-launch auth silently no-ops (QA bug #1) — only Firefox/WebKit honour it here
+            out['username'] = str(proxy.auth.username)
+            out['password'] = str(proxy.auth.password)
         return out
 
     def healthcheck(self) -> Schema__Health__Check:
