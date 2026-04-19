@@ -1,0 +1,34 @@
+# ═══════════════════════════════════════════════════════════════════════════════
+# Agent Mitmproxy — container image
+#
+# One image running two processes under supervisord:
+#   • mitmweb on 0.0.0.0:8080 (proxy) + 127.0.0.1:8081 (web UI)
+#   • uvicorn on 0.0.0.0:8000 (admin FastAPI)
+#
+# Builds from repo root: `docker build -f agent_mitmproxy/docker/images/agent_mitmproxy/dockerfile agent_mitmproxy`.
+# ═══════════════════════════════════════════════════════════════════════════════
+
+FROM python:3.12-slim
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        supervisor ca-certificates curl \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+COPY requirements.txt ./
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Source layout: everything under agent_mitmproxy/ on the host goes to /app/agent_mitmproxy/
+# The docker/images/.../supervisord.conf + entrypoint.sh are re-copied to /app/ for supervisord.
+COPY agent_mitmproxy/ ./agent_mitmproxy/
+COPY version          ./agent_mitmproxy/version
+COPY docker/images/agent_mitmproxy/supervisord.conf ./supervisord.conf
+COPY docker/images/agent_mitmproxy/entrypoint.sh    ./entrypoint.sh
+RUN chmod +x /app/entrypoint.sh
+
+ENV PYTHONPATH=/app
+
+EXPOSE 8080 8000
+
+CMD ["/app/entrypoint.sh"]
