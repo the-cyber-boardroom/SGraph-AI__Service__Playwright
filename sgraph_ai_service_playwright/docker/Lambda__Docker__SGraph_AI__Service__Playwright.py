@@ -1,6 +1,18 @@
 # ═══════════════════════════════════════════════════════════════════════════════
 # Lambda__Docker__SGraph_AI__Service__Playwright — create/update Lambda from Docker image
 #
+# v0.1.31 — two-variant provisioning:
+#   • variant='baseline' → `sg-playwright-baseline-<stage>` — boots the baked
+#     code in the image (Agentic_Code_Loader returns `passthrough:sys.path`).
+#     Proves the image boots cleanly on its own; acts as an always-available
+#     fallback when an S3 zip is broken.
+#   • variant='agentic'  → `sg-playwright-<stage>`          — pins
+#     AGENTIC_APP_NAME / AGENTIC_APP_STAGE / AGENTIC_APP_VERSION so the boot
+#     shim downloads the zip from S3 and overlays sys.path
+#     (code_source=`s3:<bucket>/apps/<app>/<stage>/v<X.Y.Z>.zip`).
+#   Both variants back the SAME ECR image — the only difference is the env
+#   var trio pinned on the Lambda.
+#
 # Production-tuning values carried forward from OSBot-Playwright:
 #   memory_size   = 5120 MB  (osbot_aws reads `memory_size`, NOT `memory` — the
 #                             wrong attr silently falls back to 512 MB and
@@ -11,6 +23,9 @@
 # `set_lambda_env_vars()` propagates the SG_PLAYWRIGHT__* + FAST_API__AUTH__*
 # secrets from the CI environment into the Lambda's environment, pinning
 # DEPLOYMENT_TARGET=lambda so the in-process detector sees the correct target.
+# On the agentic variant it ALSO pins AGENTIC_APP_NAME / AGENTIC_APP_STAGE /
+# AGENTIC_APP_VERSION — these are what the boot shim reads to resolve the
+# S3 zip key. The baseline variant leaves them unset.
 #
 # DO NOT DELETE THE FUNCTION OR THE FUNCTION URL — CloudFront is wired to the
 # URL's host UUID (`<uuid>.lambda-url.<region>.on.aws`). Deleting either the
@@ -43,12 +58,24 @@
 import boto3
 from botocore.exceptions                                                                import ClientError
 
+from osbot_aws.deploy.Deploy_Lambda                                                     import Deploy_Lambda
 from osbot_utils.helpers.duration.Duration                                              import Duration
 from osbot_utils.utils.Dev                                                              import pprint
 from osbot_utils.utils.Env                                                              import get_env
 
+from sgraph_ai_service_playwright.consts.version                                        import version__sgraph_ai_service_playwright
 from sgraph_ai_service_playwright.docker.Docker__SGraph_AI__Service__Playwright__Base   import Docker__SGraph_AI__Service__Playwright__Base
+from sgraph_ai_service_playwright.fast_api.lambda_handler                               import run
 
+
+APP_NAME                              = 'sg-playwright'
+VARIANT__AGENTIC                      = 'agentic'
+VARIANT__BASELINE                     = 'baseline'
+VARIANTS__ALL                         = (VARIANT__BASELINE, VARIANT__AGENTIC)
+DEFAULT_STAGE                         = 'dev'
+
+LAMBDA_NAME_FORMAT__AGENTIC           = '{app_name}-{stage}'                            # e.g. sg-playwright-dev
+LAMBDA_NAME_FORMAT__BASELINE          = '{app_name}-baseline-{stage}'                   # e.g. sg-playwright-baseline-dev
 
 LAMBDA_MEMORY_MB                      = 5120                                            # Production-tuned; do not reduce (see header)
 LAMBDA_ARCHITECTURE                   = 'x86_64'                                        # GH Actions builds x86_64 images
@@ -65,15 +92,29 @@ FUNCTION_URL_PRINCIPAL                = '*'
 
 class Lambda__Docker__SGraph_AI__Service__Playwright(Docker__SGraph_AI__Service__Playwright__Base):
 
+    variant : str = VARIANT__AGENTIC                                                    # 'agentic' | 'baseline' — picks name + env-var trio
+    stage   : str = DEFAULT_STAGE                                                       # Deployment stage suffix on the Lambda name
+
+    def setup(self):
+        super().setup()
+        if self.variant not in VARIANTS__ALL:
+            raise ValueError(f'unknown variant {self.variant!r}; expected one of {VARIANTS__ALL}')
+        self.deploy_lambda = Deploy_Lambda(run, lambda_name=self.lambda_name())         # Override: pin the Lambda name so the two variants get distinct functions (default module-name derivation collides)
+        return self
+
+    def lambda_name(self) -> str:                                                       # Computed from variant + stage; e.g. 'sg-playwright-dev' or 'sg-playwright-baseline-dev'
+        fmt = LAMBDA_NAME_FORMAT__AGENTIC if self.variant == VARIANT__AGENTIC else LAMBDA_NAME_FORMAT__BASELINE
+        return fmt.format(app_name=APP_NAME, stage=self.stage)
+
     def create_lambda(self, wait_for_active=False):                                     # Upsert — never deletes (preserves Function URL for CloudFront)
-        with Duration(prefix='[create_lambda] | upsert:'):                              # No outer try/except: errors must propagate so CI surfaces the real failure
+        with Duration(prefix=f'[create_lambda {self.variant}] | upsert:'):              # No outer try/except: errors must propagate so CI surfaces the real failure
             lambda_function              = self.lambda_function()
             lambda_function.image_uri    = self.image_uri()
             lambda_function.architecture = LAMBDA_ARCHITECTURE
             lambda_function.memory_size  = LAMBDA_MEMORY_MB                             # osbot_aws reads memory_size (see create_kwargs → MemorySize)
             lambda_function.timeout      = LAMBDA_TIMEOUT_SECS
 
-            self.set_lambda_env_vars(lambda_function)                                   # Propagate CI secrets → Lambda env
+            self.set_lambda_env_vars(lambda_function)                                   # Propagate CI secrets → Lambda env (+ AGENTIC_APP_* for agentic variant)
 
             if lambda_function.exists():
                 with Duration(prefix='[create_lambda] | update image:'):
@@ -95,7 +136,7 @@ class Lambda__Docker__SGraph_AI__Service__Playwright(Docker__SGraph_AI__Service_
                     lambda_function.wait_for_state_active(max_wait_count=80)
 
             function_url = self.create_lambda_function_url()
-            return dict(create_result=create_result, function_url=function_url)
+            return dict(create_result=create_result, function_url=function_url, variant=self.variant)
 
     def set_lambda_env_vars(self, lambda_function):                                     # Propagate CI secrets → Lambda env vars
         env_vars = {
@@ -108,6 +149,10 @@ class Lambda__Docker__SGraph_AI__Service__Playwright(Docker__SGraph_AI__Service_
             'SG_PLAYWRIGHT__DEFAULT_S3_BUCKET'   : get_env('SG_PLAYWRIGHT__DEFAULT_S3_BUCKET'   ),
             'SG_PLAYWRIGHT__DEPLOYMENT_TARGET'   : 'lambda'                                     ,
         }
+        if self.variant == VARIANT__AGENTIC:                                            # S3-loader variant: pin the trio the boot shim reads to resolve the zip key
+            env_vars['AGENTIC_APP_NAME'   ] = APP_NAME
+            env_vars['AGENTIC_APP_STAGE'  ] = self.stage
+            env_vars['AGENTIC_APP_VERSION'] = str(version__sgraph_ai_service_playwright)
         for key, value in env_vars.items():
             if value:
                 lambda_function.set_env_variable(key, value)
