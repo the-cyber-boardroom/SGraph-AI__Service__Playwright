@@ -288,6 +288,59 @@ jobs:
           SG_PLAYWRIGHT__DEFAULT_S3_BUCKET     : ${{ secrets.SG_PLAYWRIGHT__DEFAULT_S3_BUCKET     }}
 
   # ════════════════════════════════════════════════════════════════════════════
+  # Job 6b: Provision Lambdas (v0.1.31 — two-variant provisioning)
+  #   Upserts the two Lambdas from the ECR image that build-and-push-image
+  #   just landed:
+  #     • sg-playwright-baseline-<stage> — bakes code (passthrough:sys.path)
+  #     • sg-playwright-<stage>          — loads from S3 via AGENTIC_APP_*
+  #   Runs AFTER both build-and-push-image (so the image exists) AND
+  #   deploy-code (so the S3 zip exists for the agentic variant to load).
+  #   Currently gated off pending first-run verification; flip to `if:
+  #   needs.check-aws-credentials.outputs.has-credentials == 'true'` once
+  #   the infra has been validated by hand.
+  # ════════════════════════════════════════════════════════════════════════════
+  provision-lambdas:
+    name: "Provision Lambdas (baseline + agentic)"
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: [build-and-push-image, deploy-code, check-aws-credentials]
+    if: false                                                                       # v0.1.31: gated off for first-run — flip on after manual verification
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.git_branch }}                                             # Pick up the version-file bump pushed by increment-tag
+
+      - name: Git Update Current Branch
+        uses: owasp-sbot/OSBot-GitHub-Actions/.github/actions/git__update_branch@dev
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+          cache-dependency-path: 'requirements.txt'
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          pip install -e .
+
+      - name: Provision baseline + agentic Lambdas
+        run: |
+          python scripts/provision_lambdas.py --stage ${{ inputs.target_deploy }}
+        env:
+          AWS_SECRET_ACCESS_KEY                : ${{ secrets.AWS_SECRET_ACCESS_KEY                }}
+          AWS_DEFAULT_REGION                   : ${{ secrets.AWS_DEFAULT_REGION                   }}
+          AWS_ACCOUNT_ID                       : ${{ secrets.AWS_ACCOUNT_ID                       }}
+          AWS_ACCESS_KEY_ID                    : ${{ secrets.AWS_ACCESS_KEY_ID                    }}
+          FAST_API__AUTH__API_KEY__NAME        : ${{ secrets.FAST_API__AUTH__API_KEY__NAME        }}
+          FAST_API__AUTH__API_KEY__VALUE       : ${{ secrets.FAST_API__AUTH__API_KEY__VALUE       }}
+          SG_PLAYWRIGHT__ACCESS_TOKEN_HEADER   : ${{ secrets.SG_PLAYWRIGHT__ACCESS_TOKEN_HEADER   }}
+          SG_PLAYWRIGHT__ACCESS_TOKEN_VALUE    : ${{ secrets.SG_PLAYWRIGHT__ACCESS_TOKEN_VALUE    }}
+          SG_PLAYWRIGHT__SG_SEND_BASE_URL      : ${{ secrets.SG_PLAYWRIGHT__SG_SEND_BASE_URL      }}
+          SG_PLAYWRIGHT__SG_SEND_VAULT_KEY     : ${{ secrets.SG_PLAYWRIGHT__SG_SEND_VAULT_KEY     }}
+          SG_PLAYWRIGHT__DEFAULT_S3_BUCKET     : ${{ secrets.SG_PLAYWRIGHT__DEFAULT_S3_BUCKET     }}
+
+  # ════════════════════════════════════════════════════════════════════════════
   # Job 6: Deploy Lambda (Docker-image-based — DISABLED v0.1.29)
   # ════════════════════════════════════════════════════════════════════════════
   deploy-lambda:

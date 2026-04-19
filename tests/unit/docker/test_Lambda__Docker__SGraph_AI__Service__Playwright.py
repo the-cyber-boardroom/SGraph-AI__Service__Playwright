@@ -14,9 +14,14 @@
 import os
 from unittest                                                                           import TestCase
 
+from sgraph_ai_service_playwright.consts.version                                        import version__sgraph_ai_service_playwright
 from sgraph_ai_service_playwright.docker.Docker__SGraph_AI__Service__Playwright__Base   import Docker__SGraph_AI__Service__Playwright__Base
-from sgraph_ai_service_playwright.docker.Lambda__Docker__SGraph_AI__Service__Playwright import (LAMBDA_ARCHITECTURE                            ,
+from sgraph_ai_service_playwright.docker.Lambda__Docker__SGraph_AI__Service__Playwright import (APP_NAME                                       ,
+                                                                                                 LAMBDA_ARCHITECTURE                            ,
                                                                                                  LAMBDA_MEMORY_MB                              ,
+                                                                                                 VARIANT__AGENTIC                               ,
+                                                                                                 VARIANT__BASELINE                              ,
+                                                                                                 VARIANTS__ALL                                  ,
                                                                                                  Lambda__Docker__SGraph_AI__Service__Playwright)
 
 
@@ -106,8 +111,60 @@ class test_set_lambda_env_vars(TestCase):
         assert fake.env_vars['SG_PLAYWRIGHT__DEPLOYMENT_TARGET'] == 'lambda'            # Still pinned
 
     def test__skips_unset_or_empty_env_vars(self):                                      # Don't overwrite Lambda defaults with blanks
-        with _EnvScrub():                                                               # All unset
-            lam  = Lambda__Docker__SGraph_AI__Service__Playwright().setup()
+        with _EnvScrub():                                                               # All SG_* + FAST_API__* unset
+            lam  = Lambda__Docker__SGraph_AI__Service__Playwright(variant=VARIANT__BASELINE).setup()
             fake = _Fake_Lambda_Function()
             lam.set_lambda_env_vars(fake)
-        assert list(fake.env_vars.keys()) == ['SG_PLAYWRIGHT__DEPLOYMENT_TARGET']       # Only the pinned one
+        assert list(fake.env_vars.keys()) == ['SG_PLAYWRIGHT__DEPLOYMENT_TARGET']       # Baseline pins only DEPLOYMENT_TARGET — no AGENTIC_APP_* trio
+
+
+class test_variants(TestCase):
+
+    def test__default_variant_is_agentic(self):                                         # Default variant hot-swaps from S3 on every invocation
+        lam = Lambda__Docker__SGraph_AI__Service__Playwright()
+        assert lam.variant == VARIANT__AGENTIC
+
+    def test__variants_all_has_baseline_and_agentic(self):                              # Source of truth for provision_lambdas.py iteration
+        assert set(VARIANTS__ALL) == {VARIANT__BASELINE, VARIANT__AGENTIC}
+
+    def test__lambda_names_per_variant(self):
+        agentic  = Lambda__Docker__SGraph_AI__Service__Playwright(variant=VARIANT__AGENTIC , stage='dev').setup()
+        baseline = Lambda__Docker__SGraph_AI__Service__Playwright(variant=VARIANT__BASELINE, stage='dev').setup()
+        assert agentic .lambda_name() == 'sg-playwright-dev'                            # Agentic = the primary name (matches scripts/deploy_code.py --update-lambda target)
+        assert baseline.lambda_name() == 'sg-playwright-baseline-dev'                   # Baseline = explicit 'baseline' segment so the two never collide
+
+    def test__lambda_names_per_stage(self):                                             # Stage suffix plumbed through both variants
+        for stage in ('dev', 'main', 'prod'):
+            agentic  = Lambda__Docker__SGraph_AI__Service__Playwright(variant=VARIANT__AGENTIC , stage=stage).setup()
+            baseline = Lambda__Docker__SGraph_AI__Service__Playwright(variant=VARIANT__BASELINE, stage=stage).setup()
+            assert agentic .lambda_name() == f'{APP_NAME}-{stage}'
+            assert baseline.lambda_name() == f'{APP_NAME}-baseline-{stage}'
+
+    def test__unknown_variant_raises(self):                                             # Fail fast — don't create a wrongly-named Lambda
+        with self.assertRaises(ValueError) as ctx:
+            Lambda__Docker__SGraph_AI__Service__Playwright(variant='unknown').setup()
+        assert "unknown variant 'unknown'" in str(ctx.exception)
+
+    def test__agentic_variant_pins_AGENTIC_APP_trio(self):
+        with _EnvScrub():                                                               # All SG_* + FAST_API__* unset so only pinned vars land on the stub
+            lam  = Lambda__Docker__SGraph_AI__Service__Playwright(variant=VARIANT__AGENTIC, stage='dev').setup()
+            fake = _Fake_Lambda_Function()
+            lam.set_lambda_env_vars(fake)
+        assert fake.env_vars['AGENTIC_APP_NAME'   ] == APP_NAME                         # The boot shim reads these three to resolve s3://<bucket>/apps/<app>/<stage>/v<X.Y.Z>.zip
+        assert fake.env_vars['AGENTIC_APP_STAGE'  ] == 'dev'
+        assert fake.env_vars['AGENTIC_APP_VERSION'] == str(version__sgraph_ai_service_playwright)
+
+    def test__baseline_variant_does_NOT_pin_AGENTIC_APP_trio(self):                     # Baseline relies on baked code in the image (code_source=passthrough:sys.path)
+        with _EnvScrub():
+            lam  = Lambda__Docker__SGraph_AI__Service__Playwright(variant=VARIANT__BASELINE, stage='dev').setup()
+            fake = _Fake_Lambda_Function()
+            lam.set_lambda_env_vars(fake)
+        for key in ('AGENTIC_APP_NAME', 'AGENTIC_APP_STAGE', 'AGENTIC_APP_VERSION'):
+            assert key not in fake.env_vars, f'baseline variant must not set {key}'
+
+    def test__agentic_version_matches_repo_version_file(self):                          # Sanity — the Lambda and the S3 zip MUST agree on the version (or the shim 404s on download)
+        with _EnvScrub():
+            lam  = Lambda__Docker__SGraph_AI__Service__Playwright(variant=VARIANT__AGENTIC, stage='dev').setup()
+            fake = _Fake_Lambda_Function()
+            lam.set_lambda_env_vars(fake)
+        assert fake.env_vars['AGENTIC_APP_VERSION'] == str(version__sgraph_ai_service_playwright)
