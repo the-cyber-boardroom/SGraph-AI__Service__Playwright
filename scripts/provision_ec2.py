@@ -65,6 +65,8 @@ TAG__NAME                       = 'sg-playwright-ec2-spike'                     
 TAG__STAGE_KEY                  = 'stage'
 DEFAULT_STAGE                   = 'dev'
 
+WATCHDOG_MAX_REQUEST_MS__SPIKE  = 120_000                                               # 120s — Lambda-tuned 28s default kills Firefox + remote-proxy requests mid-flight; EC2 has no external ceiling so a looser cap is fine for spike work
+
 USER_DATA_TEMPLATE = textwrap.dedent("""\
     #!/bin/bash
     set -euxo pipefail
@@ -84,6 +86,7 @@ USER_DATA_TEMPLATE = textwrap.dedent("""\
         -e FAST_API__AUTH__API_KEY__NAME='{api_key_name}' \\
         -e FAST_API__AUTH__API_KEY__VALUE='{api_key_value}' \\
         -e SG_PLAYWRIGHT__DEPLOYMENT_TARGET=container \\
+        -e SG_PLAYWRIGHT__WATCHDOG_MAX_REQUEST_MS={watchdog_max_request_ms} \\
         {image_uri}
 """)
 
@@ -133,14 +136,15 @@ def latest_al2023_ami_id(ec2: EC2) -> str:
     return images[0].get('ImageId')
 
 
-def render_user_data(image_uri: str, api_key_name: str, api_key_value: str) -> str:
-    return USER_DATA_TEMPLATE.format(region           = aws_region()             ,
-                                     registry         = ecr_registry_host()      ,
-                                     image_uri        = image_uri                ,
-                                     host_port        = EC2__APP_PORT            ,
-                                     container_port   = EC2__APP_PORT            ,
-                                     api_key_name     = api_key_name             ,
-                                     api_key_value    = api_key_value            )
+def render_user_data(image_uri: str, api_key_name: str, api_key_value: str, watchdog_max_request_ms: int = WATCHDOG_MAX_REQUEST_MS__SPIKE) -> str:
+    return USER_DATA_TEMPLATE.format(region                  = aws_region()             ,
+                                     registry                = ecr_registry_host()      ,
+                                     image_uri               = image_uri                ,
+                                     host_port               = EC2__APP_PORT            ,
+                                     container_port          = EC2__APP_PORT            ,
+                                     api_key_name            = api_key_name             ,
+                                     api_key_value           = api_key_value            ,
+                                     watchdog_max_request_ms = watchdog_max_request_ms  )
 
 
 def run_instance(ec2: EC2, ami_id: str, security_group_id: str, instance_profile_name: str, user_data: str, stage: str) -> str:  # Narrow direct-boto3: osbot_aws.instance_create doesn't pass UserData

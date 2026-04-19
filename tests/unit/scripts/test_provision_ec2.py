@@ -80,6 +80,7 @@ class test_render_user_data(TestCase):
         assert "-e FAST_API__AUTH__API_KEY__NAME='X-API-Key'"                           in user_data
         assert "-e FAST_API__AUTH__API_KEY__VALUE='spike-secret'"                       in user_data
         assert '-e SG_PLAYWRIGHT__DEPLOYMENT_TARGET=container'                          in user_data
+        assert '-e SG_PLAYWRIGHT__WATCHDOG_MAX_REQUEST_MS=120000'                       in user_data     # Lambda-tuned 28s default kills Firefox + proxy mid-flight; 120s is safe for the spike
         assert '--restart=always'                                                       in user_data
 
 
