@@ -11,7 +11,12 @@
 
 from unittest                                                                       import TestCase
 
+from osbot_aws.AWS_Config                                                           import AWS_Config
+from osbot_aws.aws.lambda_.Lambda                                                    import Lambda
+from osbot_aws.aws.s3.S3                                                             import S3
+
 from scripts                                                                        import deploy_code
+from scripts                                                                        import package_code
 
 
 class test_module_surface(TestCase):
@@ -39,3 +44,30 @@ class test_constants(TestCase):
 
     def test__smoke_timeout_is_positive(self):
         assert deploy_code.SMOKE_TEST_TIMEOUT_SEC > 0
+
+
+class test_dependency_shape(TestCase):                                              # Regression guard — a missing method on S3/Lambda/AWS_Config shows up here, not on CI
+
+    def test__aws_config_exposes_region_and_account_methods(self):                  # package_code.resolve_region + resolve_bucket_name call these
+        cfg = AWS_Config()
+        assert callable(cfg.region_name)
+        assert callable(cfg.account_id )
+
+    def test__s3_client_exposes_methods_used_by_deploy(self):                       # deploy_code.ensure_bucket calls these (NOT region_name — lives on AWS_Config)
+        s3 = S3()
+        assert callable(s3.bucket_exists)
+        assert callable(s3.bucket_create)
+        assert not hasattr(s3, 'region_name'), 'S3() has no region_name() — use AWS_Config().region_name() instead'
+
+    def test__lambda_client_exposes_methods_used_by_deploy(self):                   # deploy_code.update_lambda_env + smoke_test call these
+        lambda_obj = Lambda(name='any-name')                                        # Constructor is pure — doesn't hit AWS
+        assert callable(lambda_obj.info                     )
+        assert callable(lambda_obj.function_url             )
+        assert callable(lambda_obj.set_env_variables        )
+        assert callable(lambda_obj.update_lambda_configuration)
+
+
+class test_resolve_region(TestCase):                                                # Pure function — no AWS if an explicit region is passed
+
+    def test__explicit_region_short_circuits(self):
+        assert package_code.resolve_region('eu-west-2') == 'eu-west-2'
