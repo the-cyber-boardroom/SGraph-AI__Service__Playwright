@@ -88,18 +88,18 @@ def update_lambda_env(lambda_name: str, app_name: str, stage: str, version: str)
     return result
 
 
-def smoke_test(lambda_name: str) -> dict:                                           # Hits /health/info; Day 3 switches this to /admin/health
+def smoke_test(lambda_name: str) -> dict:                                           # Hits /admin/health — unauthenticated, returns {status, code_source}
     lambda_obj   = Lambda(name=lambda_name)
     function_url = lambda_obj.function_url()
     if not function_url:
         raise RuntimeError(f'lambda {lambda_name} has no Function URL configured')
 
-    probe_url = function_url.rstrip('/') + '/health/info'
+    probe_url = function_url.rstrip('/') + '/admin/health'
     with urllib.request.urlopen(probe_url, timeout=SMOKE_TEST_TIMEOUT_SEC) as resp:
         body = json.loads(resp.read())
 
     code_source = body.get('code_source', '')
-    print(f'smoke test {probe_url} -> code_source={code_source!r}')
+    print(f'smoke test {probe_url} -> code_source={code_source!r} status={body.get("status")!r}')
     if not code_source.startswith('s3:'):
         raise RuntimeError(f'expected code_source to start with "s3:", got {code_source!r}')
     return {'function_url': function_url, 'code_source': code_source, 'body': body}
