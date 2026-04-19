@@ -79,15 +79,40 @@ jobs:
         run: python -m pytest tests/unit/ -v --timeout=30
 
   # ════════════════════════════════════════════════════════════════════════════
-  # Job 2: Build Docker Image (build once; share with downstream jobs as an artefact)
-  #   DISABLED in v0.1.29 — S3-zip hot-swap replaces image rebuild per deploy.
-  #   Rewired on Day 4 as a nightly/base-image-only job.
+  # Job 2: Check AWS Credentials (gate for every job that touches AWS)
   # ════════════════════════════════════════════════════════════════════════════
-  build-docker-image:
-    name: "Build Docker Image"
+  check-aws-credentials:
+    name: Check AWS Credentials
     runs-on: ubuntu-latest
-    timeout-minutes: 20
-    if: false                                                                       # v0.1.29: disabled until Day 4 rewires it to nightly
+    outputs:
+      has-credentials: ${{ steps.check.outputs.has-credentials }}
+    steps:
+      - name: Check if AWS credentials are configured
+        id: check
+        run: |
+          if [[ -n "${{ secrets.AWS_ACCESS_KEY_ID }}" ]] && \
+             [[ -n "${{ secrets.AWS_SECRET_ACCESS_KEY }}" ]] && \
+             [[ -n "${{ secrets.AWS_DEFAULT_REGION }}" ]] && \
+             [[ -n "${{ secrets.AWS_ACCOUNT_ID }}" ]]; then
+            echo "has-credentials=true" >> $GITHUB_OUTPUT
+          else
+            echo "has-credentials=false" >> $GITHUB_OUTPUT
+            echo "AWS credentials not configured — Docker push + deploy skipped"
+          fi
+
+  # ════════════════════════════════════════════════════════════════════════════
+  # Job 3: Build + Push Docker Image to ECR (single job — no tar save/reload)
+  #   Build and push run on the same runner. The image stays in the local
+  #   Docker daemon between steps, so we skip the ~90s save + ~60s reload that
+  #   the previous split-job design paid per run. DISABLED in v0.1.29 until the
+  #   two-Lambda docker→ECR→Lambda chain is re-enabled.
+  # ════════════════════════════════════════════════════════════════════════════
+  build-and-push-image:
+    name: "Build + Push Docker Image to ECR"
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    needs: [check-aws-credentials]
+    if: false                                                                       # v0.1.29: disabled until two-Lambda provisioning chain lands
     steps:
       - uses: actions/checkout@v5
 
@@ -112,73 +137,6 @@ jobs:
           AWS_ACCOUNT_ID        : ${{ secrets.AWS_ACCOUNT_ID        }}
           AWS_ACCESS_KEY_ID     : ${{ secrets.AWS_ACCESS_KEY_ID     }}
 
-      - name: Save Docker image to tarball
-        run: |
-          IMAGE_URI="${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_DEFAULT_REGION }}.amazonaws.com/${IMAGE_NAME}:latest"
-          echo "Saving $IMAGE_URI → image.tar"
-          docker save "$IMAGE_URI" -o image.tar
-          ls -lh image.tar
-
-      - name: Upload Docker image artefact
-        uses: actions/upload-artifact@v4
-        with:
-          name: docker-image
-          path: image.tar
-          retention-days: 1
-
-  # ════════════════════════════════════════════════════════════════════════════
-  # Job 3: Push to ECR (gated on AWS credentials being configured)
-  # ════════════════════════════════════════════════════════════════════════════
-  check-aws-credentials:
-    name: Check AWS Credentials
-    runs-on: ubuntu-latest
-    outputs:
-      has-credentials: ${{ steps.check.outputs.has-credentials }}
-    steps:
-      - name: Check if AWS credentials are configured
-        id: check
-        run: |
-          if [[ -n "${{ secrets.AWS_ACCESS_KEY_ID }}" ]] && \
-             [[ -n "${{ secrets.AWS_SECRET_ACCESS_KEY }}" ]] && \
-             [[ -n "${{ secrets.AWS_DEFAULT_REGION }}" ]] && \
-             [[ -n "${{ secrets.AWS_ACCOUNT_ID }}" ]]; then
-            echo "has-credentials=true" >> $GITHUB_OUTPUT
-          else
-            echo "has-credentials=false" >> $GITHUB_OUTPUT
-            echo "AWS credentials not configured — Docker push + deploy skipped"
-          fi
-
-  push-to-ecr:
-    name: "Push Docker Image to ECR"
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    needs: [build-docker-image, check-aws-credentials]
-    if: false                                                                       # v0.1.29: disabled — no per-deploy image push in S3-zip scheme
-    steps:
-      - uses: actions/checkout@v5
-
-      - uses: actions/setup-python@v6
-        with:
-          python-version: '3.12'
-          cache: 'pip'
-          cache-dependency-path: 'requirements.txt'
-
-      - name: Install dependencies
-        run: |
-          pip install -r requirements.txt
-          pip install -e .
-          pip install pytest pytest-timeout
-
-      - name: Download Docker image artefact
-        uses: actions/download-artifact@v4
-        with:
-          name: docker-image
-
-      - name: Load Docker image from tarball
-        run: |
-          docker load -i image.tar
-          docker images | grep "${IMAGE_NAME}" || true
-
       - name: ECR setup + push via pytest
         run: |
           python -m pytest tests/docker/test_ECR__Docker__SGraph-AI__Service__Playwright.py -v -s
@@ -195,7 +153,7 @@ jobs:
     name: "Run Integration Tests (Docker)"
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    needs: [build-docker-image]
+    needs: [build-and-push-image]
     if: false                                                                       # v0.1.29: disabled — Day 4 replaces this with S3-zip-based integration tests
     steps:
       - uses: actions/checkout@v5
@@ -212,15 +170,16 @@ jobs:
           pip install -e .
           pip install pytest pytest-timeout
 
-      - name: Download Docker image artefact
-        uses: actions/download-artifact@v4
-        with:
-          name: docker-image
-
-      - name: Load Docker image from tarball
+      - name: Pull Docker image from ECR                                            # build-and-push-image already pushed it — pull instead of tarball reload
         run: |
-          docker load -i image.tar
+          aws ecr get-login-password --region "${{ secrets.AWS_DEFAULT_REGION }}" | \
+            docker login --username AWS --password-stdin "${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_DEFAULT_REGION }}.amazonaws.com"
+          docker pull "${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_DEFAULT_REGION }}.amazonaws.com/${IMAGE_NAME}:latest"
           docker images | grep "${IMAGE_NAME}" || true
+        env:
+          AWS_SECRET_ACCESS_KEY : ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_ACCESS_KEY_ID     : ${{ secrets.AWS_ACCESS_KEY_ID     }}
+          AWS_DEFAULT_REGION    : ${{ secrets.AWS_DEFAULT_REGION    }}
 
       - name: Start local container and run integration tests
         timeout-minutes: 10
@@ -318,7 +277,7 @@ jobs:
     name: "Deploy Lambda"
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    needs: [push-to-ecr, run-integration-tests, check-aws-credentials]
+    needs: [build-and-push-image, run-integration-tests, check-aws-credentials]
     if: false                                                                       # v0.1.29: disabled — superseded by `deploy-code` above
     steps:
       - uses: actions/checkout@v5
