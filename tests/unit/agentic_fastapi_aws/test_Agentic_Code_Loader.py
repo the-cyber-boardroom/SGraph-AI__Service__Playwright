@@ -97,6 +97,14 @@ class test_load_from_s3(TestCase):
                               ENV_VAR__AWS_REGION             : 'eu-west-2'}), _SysPathSnapshot():
                 assert Agentic_Code_Loader().load_from_s3() is None
 
+    def test__returns_none_on_lambda_without_agentic_app_name(self):                # Baseline variant: AWS_REGION is auto-set on Lambda but AGENTIC_APP_* are not pinned
+        with _EnvScrub(**{ENV_VAR__AWS_REGION: 'eu-west-2'}), _SysPathSnapshot():
+            assert Agentic_Code_Loader().load_from_s3() is None                     # Must fall through to passthrough, not KeyError on AGENTIC_APP_NAME
+
+    def test__resolve_returns_passthrough_on_lambda_when_baseline(self):            # End-to-end: baseline Lambda should resolve cleanly to passthrough
+        with _EnvScrub(**{ENV_VAR__AWS_REGION: 'eu-west-2'}), _SysPathSnapshot():
+            assert Agentic_Code_Loader().resolve() == PASSTHROUGH_TOKEN
+
 
 class test_resolve_s3_bucket(TestCase):
 
