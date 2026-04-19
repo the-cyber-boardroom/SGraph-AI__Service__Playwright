@@ -112,9 +112,15 @@ jobs:
   #   loads from s3://<bucket>/apps/<app>/<stage>/vX.Y.Z.zip on boot), so the
   #   Docker image doesn't need rebuilding for routine code changes. Only
   #   trigger a rebuild when:
-  #     • Dockerfile or any file under sgraph_ai_service_playwright/docker/
+  #     • Dockerfile or any file under sgraph_ai_service_playwright/docker/images/
+  #       (the dockerfile itself lives under images/<app>/dockerfile, and any
+  #       other file under images/ would be COPYed into the image context)
   #     • requirements.txt (new Python deps need to live in the image)
   #     • lambda_entry.py   (the boot shim is baked in — cannot hot-swap)
+  #   NOTE: sgraph_ai_service_playwright/docker/*.py is deploy-time tooling
+  #   (Build__Docker__*, Lambda__Docker__*) — never executed at Lambda runtime.
+  #   Excluding it from the filter means touching provisioning scripts doesn't
+  #   force a ~4-5 min image rebuild when the code-only path would suffice.
   #   Bypass the filter with the `force_image_rebuild` workflow-dispatch input.
   # ════════════════════════════════════════════════════════════════════════════
   detect-changes:
@@ -134,7 +140,7 @@ jobs:
               - 'Dockerfile'
               - 'requirements.txt'
               - 'lambda_entry.py'
-              - 'sgraph_ai_service_playwright/docker/**'
+              - 'sgraph_ai_service_playwright/docker/images/**'
 
   # ════════════════════════════════════════════════════════════════════════════
   # Job 3: Build + Push Docker Image to ECR (single job — no tar save/reload)
