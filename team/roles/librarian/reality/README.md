@@ -34,7 +34,8 @@ Agents were confusing ideas described in briefs, dev-specs, and voice memos with
 
 ## Current Document
 
-- [`v0.1.24__what-exists-today.md`](v0.1.24__what-exists-today.md) *(current)* — v0.1.24 "stateless one-shot surface" refactor: `/session/*` + `/quick/*` deleted; `/browser/*` reborn as six stateless one-shots, each accepting optional `browser_config` (incl. proxy); `Schema__Sequence__Request` drops `session_id` + `close_session_after`; surface 25 → 10 endpoints.
+- [`v0.1.29__what-exists-today.md`](v0.1.29__what-exists-today.md) *(current)* — v0.1.29 "first-pass agentic refactor": env-var rename `SG_PLAYWRIGHT__* → AGENTIC_*`, new L1/L2 subpackages `agentic_fastapi/` + `agentic_fastapi_aws/`, one-command `scripts/deploy_code.py` with S3-zip hot-swap, 8 `/admin/*` endpoints, SKILL files + `capabilities.json` stub, single-track CI with new `deploy-code` job. Public HTTP surface still 10 endpoints.
+- [`v0.1.24__what-exists-today.md`](v0.1.24__what-exists-today.md) — superseded.
 - [`v0.1.13__what-exists-today.md`](v0.1.13__what-exists-today.md) — superseded.
 - [`v0.1.12__what-exists-today.md`](v0.1.12__what-exists-today.md) — superseded.
 
