@@ -17,6 +17,9 @@ from sgraph_ai_service_playwright.agentic_fastapi_aws                        imp
 from sgraph_ai_service_playwright.agentic_fastapi_aws.Agentic_Boot_Shim       import (Agentic_Boot_Shim        ,
                                                                                        FALLBACK_IMAGE_VERSION  ,
                                                                                        ENV_VAR__LAMBDA_FUNCTION)
+from sgraph_ai_service_playwright.agentic_fastapi.Agentic_Boot_State                import (get_boot_log    ,
+                                                                                            get_last_error  ,
+                                                                                            reset_boot_state)
 from sgraph_ai_service_playwright.consts.env_vars                                   import (ENV_VAR__AGENTIC_APP_NAME              ,
                                                                                             ENV_VAR__AGENTIC_APP_STAGE             ,
                                                                                             ENV_VAR__AGENTIC_APP_VERSION           ,
@@ -148,6 +151,46 @@ class test_boot(TestCase):
                     raised = True
                     assert 'simulated zip corruption' in str(exc)
                 assert raised, 'expected ImportError to propagate outside Lambda'
+        finally:
+            sys.meta_path = [f for f in sys.meta_path if not isinstance(f, _BoomFinder)]
+            if saved is not None:
+                sys.modules[fake_path] = saved
+
+
+class test_boot_writes_to_boot_state(TestCase):                                     # Shim → Agentic_Boot_State wiring; admin API reads the same state
+
+    def setUp(self):
+        reset_boot_state()
+
+    def test__happy_path_appends_three_boot_log_lines(self):
+        with _EnvScrub(), _SysPathSnapshot():
+            Agentic_Boot_Shim().boot()
+        log = get_boot_log()
+        assert any(line.startswith('image_version=') for line in log)
+        assert any(line.startswith('code_source=')   for line in log)
+        assert 'status=loaded'                        in log
+
+    def test__happy_path_clears_last_error(self):                                   # Warm success after a cold-start failure must reset the error holder
+        with _EnvScrub(), _SysPathSnapshot():
+            Agentic_Boot_Shim().boot()
+        assert get_last_error() == ''
+
+    def test__failure_inside_lambda_writes_error_and_degraded_log(self):
+        fake_path = 'sgraph_ai_service_playwright.fast_api.Fast_API__Playwright__Service'
+        saved     = sys.modules.pop(fake_path, None)
+        try:
+            class _BoomFinder:
+                def find_spec(self, name, path=None, target=None):
+                    if name == fake_path:
+                        raise ImportError('simulated zip corruption')
+                    return None
+            sys.meta_path.insert(0, _BoomFinder())
+            with _EnvScrub(**{ENV_VAR__LAMBDA_FUNCTION: 'sg-playwright-dev'}), _SysPathSnapshot():
+                Agentic_Boot_Shim().boot()
+            log = get_boot_log()
+            assert any(line.startswith('status=degraded') for line in log)
+            assert 'CRITICAL ERROR'          in get_last_error()
+            assert 'simulated zip corruption' in get_last_error()
         finally:
             sys.meta_path = [f for f in sys.meta_path if not isinstance(f, _BoomFinder)]
             if saved is not None:

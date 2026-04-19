@@ -270,14 +270,56 @@ jobs:
           release_type: ${{ inputs.release_type }}
 
   # ════════════════════════════════════════════════════════════════════════════
-  # Job 6: Deploy Lambda (Docker-image-based)
+  # Job 6a: Deploy Code (v0.1.29 agentic S3-zip deploy)
+  #   Packages sgraph_ai_service_playwright/ as a zip, uploads to S3, flips the
+  #   Lambda env to point at the new AGENTIC_APP_VERSION, and smoke-tests the
+  #   Function URL. Target round-trip ~30 s. No image rebuild, no ECR push.
+  # ════════════════════════════════════════════════════════════════════════════
+  deploy-code:
+    name: "Deploy Code (S3 zip)"
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: [run-unit-tests, check-aws-credentials]
+    if: ${{ needs.check-aws-credentials.outputs.has-credentials == 'true' }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+          cache-dependency-path: 'requirements.txt'
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          pip install -e .
+
+      - name: Deploy code zip to Lambda
+        run: |
+          python scripts/deploy_code.py --stage ${{ inputs.target_deploy }}
+        env:
+          AWS_SECRET_ACCESS_KEY                : ${{ secrets.AWS_SECRET_ACCESS_KEY                }}
+          AWS_DEFAULT_REGION                   : ${{ secrets.AWS_DEFAULT_REGION                   }}
+          AWS_ACCOUNT_ID                       : ${{ secrets.AWS_ACCOUNT_ID                       }}
+          AWS_ACCESS_KEY_ID                    : ${{ secrets.AWS_ACCESS_KEY_ID                    }}
+          FAST_API__AUTH__API_KEY__NAME        : ${{ secrets.FAST_API__AUTH__API_KEY__NAME        }}
+          FAST_API__AUTH__API_KEY__VALUE       : ${{ secrets.FAST_API__AUTH__API_KEY__VALUE       }}
+          SG_PLAYWRIGHT__ACCESS_TOKEN_HEADER   : ${{ secrets.SG_PLAYWRIGHT__ACCESS_TOKEN_HEADER   }}
+          SG_PLAYWRIGHT__ACCESS_TOKEN_VALUE    : ${{ secrets.SG_PLAYWRIGHT__ACCESS_TOKEN_VALUE    }}
+          SG_PLAYWRIGHT__SG_SEND_BASE_URL      : ${{ secrets.SG_PLAYWRIGHT__SG_SEND_BASE_URL      }}
+          SG_PLAYWRIGHT__SG_SEND_VAULT_KEY     : ${{ secrets.SG_PLAYWRIGHT__SG_SEND_VAULT_KEY     }}
+          SG_PLAYWRIGHT__DEFAULT_S3_BUCKET     : ${{ secrets.SG_PLAYWRIGHT__DEFAULT_S3_BUCKET     }}
+
+  # ════════════════════════════════════════════════════════════════════════════
+  # Job 6: Deploy Lambda (Docker-image-based — DISABLED v0.1.29)
   # ════════════════════════════════════════════════════════════════════════════
   deploy-lambda:
     name: "Deploy Lambda"
     runs-on: ubuntu-latest
     timeout-minutes: 15
     needs: [push-to-ecr, run-integration-tests, check-aws-credentials]
-    if: false                                                                       # v0.1.29: disabled — Day 4 replaces this with `deploy-code` (scripts/deploy_code.py)
+    if: false                                                                       # v0.1.29: disabled — superseded by `deploy-code` above
     steps:
       - uses: actions/checkout@v5
 
