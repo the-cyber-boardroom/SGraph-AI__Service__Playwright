@@ -17,6 +17,10 @@ on:
       target_deploy:
         required: true
         type: string
+      force_image_rebuild:
+        required: false
+        type: boolean
+        default: false                                                                  # Set true to rebuild the Docker image even when no image-relevant files changed (base-image refresh, cache bust)
     secrets:
       AWS_SECRET_ACCESS_KEY:
         required: false
@@ -101,22 +105,55 @@ jobs:
           fi
 
   # ════════════════════════════════════════════════════════════════════════════
+  # Job 2b: Detect Image-Relevant Changes (path filter — skip image rebuilds
+  #   when no image-relevant file changed).
+  #
+  #   Python-only changes ship via the S3-zip overlay (the agentic Lambda hot-
+  #   loads from s3://<bucket>/apps/<app>/<stage>/vX.Y.Z.zip on boot), so the
+  #   Docker image doesn't need rebuilding for routine code changes. Only
+  #   trigger a rebuild when:
+  #     • Dockerfile or any file under sgraph_ai_service_playwright/docker/
+  #     • requirements.txt (new Python deps need to live in the image)
+  #     • lambda_entry.py   (the boot shim is baked in — cannot hot-swap)
+  #   Bypass the filter with the `force_image_rebuild` workflow-dispatch input.
+  # ════════════════════════════════════════════════════════════════════════════
+  detect-changes:
+    name: Detect Image-Relevant Changes
+    runs-on: ubuntu-latest
+    outputs:
+      image-rebuild-needed: ${{ steps.filter.outputs.image }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Filter paths
+        id: filter
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            image:
+              - 'Dockerfile'
+              - 'requirements.txt'
+              - 'lambda_entry.py'
+              - 'sgraph_ai_service_playwright/docker/**'
+
+  # ════════════════════════════════════════════════════════════════════════════
   # Job 3: Build + Push Docker Image to ECR (single job — no tar save/reload)
   #   Build and push run on the same runner. The image stays in the local
   #   Docker daemon between steps, so we skip the ~90s save + ~60s reload that
   #   the previous split-job design paid per run.
   #
-  #   Runs in parallel with `deploy-code` (they share no state). Image lands
-  #   in ECR as `<account>.dkr.ecr.<region>.amazonaws.com/sgraph_ai_service_playwright:latest`;
-  #   Lambda provisioning (separate follow-up job) will upsert two functions
-  #   backed by this image — one baseline (passthrough), one S3-code-loader.
+  #   Skipped when `detect-changes` reports no image-relevant changes AND
+  #   `force_image_rebuild` is false — in that case the existing ECR image is
+  #   reused by provision-lambdas (idempotent on the image URI).
   # ════════════════════════════════════════════════════════════════════════════
   build-and-push-image:
     name: "Build + Push Docker Image to ECR"
     runs-on: ubuntu-latest
     timeout-minutes: 25
-    needs: [run-unit-tests, check-aws-credentials]
-    if: ${{ needs.check-aws-credentials.outputs.has-credentials == 'true' }}
+    needs: [run-unit-tests, check-aws-credentials, detect-changes]
+    if: |
+      needs.check-aws-credentials.outputs.has-credentials == 'true' &&
+      (needs.detect-changes.outputs.image-rebuild-needed == 'true' || inputs.force_image_rebuild)
     steps:
       - uses: actions/checkout@v5
 
@@ -293,8 +330,11 @@ jobs:
   #   just landed:
   #     • sg-playwright-baseline-<stage> — bakes code (passthrough:sys.path)
   #     • sg-playwright-<stage>          — loads from S3 via AGENTIC_APP_*
-  #   Runs AFTER both build-and-push-image (so the image exists) AND
-  #   deploy-code (so the S3 zip exists for the agentic variant to load).
+  #   Runs AFTER deploy-code (for the S3 zip) and EITHER a successful
+  #   image rebuild OR a skipped image rebuild (when no image-relevant
+  #   files changed — the existing ECR image is reused in that case,
+  #   which is fine because the agentic variant pulls fresh code from S3
+  #   and the baseline keeps running whatever was baked at last image build).
   #   Idempotent: re-runs upsert image + env vars in place without rotating
   #   the Function URL host UUID (CloudFront origin stays valid).
   # ════════════════════════════════════════════════════════════════════════════
@@ -303,7 +343,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     needs: [build-and-push-image, deploy-code, check-aws-credentials]
-    if: ${{ needs.check-aws-credentials.outputs.has-credentials == 'true' }}
+    if: |
+      always() &&
+      needs.check-aws-credentials.outputs.has-credentials == 'true' &&
+      needs.deploy-code.result == 'success' &&
+      (needs.build-and-push-image.result == 'success' || needs.build-and-push-image.result == 'skipped')
     steps:
       - uses: actions/checkout@v5
         with:

@@ -1,6 +1,12 @@
 name: CI Pipeline - PROD
 on:
   workflow_dispatch:
+    inputs:
+      force_image_rebuild:
+        description: 'Force Docker image rebuild even when no image-relevant files changed'
+        required: false
+        type: boolean
+        default: false
 
 jobs:
   deploy-prod:
@@ -9,4 +15,5 @@ jobs:
       git_branch          : 'dev'
       target_deploy       : 'prod'
       should_increment_tag: false
+      force_image_rebuild : ${{ inputs.force_image_rebuild || false }}
     secrets: inherit
