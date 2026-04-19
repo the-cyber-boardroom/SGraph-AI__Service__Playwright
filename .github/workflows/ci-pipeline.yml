@@ -210,14 +210,16 @@ jobs:
           if-no-files-found: ignore
 
   # ════════════════════════════════════════════════════════════════════════════
-  # Job 5: Increment Tag
+  # Job 5: Increment Tag (runs BEFORE deploy-code so each deploy gets a fresh
+  #   immutable S3 key — without this the zip overwrites the previous version).
+  #   Skipped on prod (should_increment_tag=false); dev bumps minor, main bumps major.
   # ════════════════════════════════════════════════════════════════════════════
   increment-tag:
     name: Increment Tag
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    needs: [run-integration-tests]
-    if: false                                                                       # v0.1.29: disabled — Day 4 re-gates this on the new deploy-code job
+    needs: [run-unit-tests]
+    if: ${{ inputs.should_increment_tag }}
     steps:
       - uses: actions/checkout@v5
         with:
@@ -229,19 +231,30 @@ jobs:
           release_type: ${{ inputs.release_type }}
 
   # ════════════════════════════════════════════════════════════════════════════
-  # Job 6a: Deploy Code (v0.1.29 agentic S3-zip deploy)
-  #   Packages sgraph_ai_service_playwright/ as a zip, uploads to S3, flips the
-  #   Lambda env to point at the new AGENTIC_APP_VERSION, and smoke-tests the
-  #   Function URL. Target round-trip ~30 s. No image rebuild, no ECR push.
+  # Job 6a: Upload Code to S3 (v0.1.29 — S3-only until agentic image ships)
+  #   Packages sgraph_ai_service_playwright/ as a zip and uploads it to
+  #   s3://<bucket>/apps/<app>/<stage>/v<X.Y.Z>.zip. Does NOT touch the Lambda
+  #   — no image supports the AGENTIC_* loader shim yet, so flipping env vars
+  #   would be a no-op. The env-flip + smoke-test run in a later job once the
+  #   two-Lambda provisioning chain lands (opt-in via --update-lambda).
+  #   Runs AFTER increment-tag so each push gets a fresh immutable S3 key.
   # ════════════════════════════════════════════════════════════════════════════
   deploy-code:
-    name: "Deploy Code (S3 zip)"
+    name: "Upload Code (S3 zip)"
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    needs: [run-unit-tests, check-aws-credentials]
-    if: ${{ needs.check-aws-credentials.outputs.has-credentials == 'true' }}
+    needs: [increment-tag, check-aws-credentials]
+    if: |
+      always() &&
+      needs.check-aws-credentials.outputs.has-credentials == 'true' &&
+      (needs.increment-tag.result == 'success' || needs.increment-tag.result == 'skipped')
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.git_branch }}                                             # Pick up the version-file bump pushed by increment-tag
+
+      - name: Git Update Current Branch                                             # Belt-and-braces: pull any commits that landed between checkout and now
+        uses: owasp-sbot/OSBot-GitHub-Actions/.github/actions/git__update_branch@dev
 
       - uses: actions/setup-python@v6
         with:
@@ -254,7 +267,7 @@ jobs:
           pip install -r requirements.txt
           pip install -e .
 
-      - name: Deploy code zip to Lambda
+      - name: Upload code zip to S3                                                 # S3-only: no --update-lambda until the agentic image exists
         run: |
           python scripts/deploy_code.py --stage ${{ inputs.target_deploy }}
         env:
