@@ -118,7 +118,7 @@ def deploy(stage      : str                   ,
     bucket_name  = resolve_bucket_name(region_name)
     s3_key       = KEY_FORMAT.format(app_name=app_name, stage=stage, version=version)
 
-    ensure_bucket(s3, bucket_name, region_name or s3.region_name())
+    ensure_bucket(s3, bucket_name, resolve_region(region_name))
     size = upload_zip(bucket_name, s3_key)
     env  = update_lambda_env(lambda_name, app_name, stage, version)
 
