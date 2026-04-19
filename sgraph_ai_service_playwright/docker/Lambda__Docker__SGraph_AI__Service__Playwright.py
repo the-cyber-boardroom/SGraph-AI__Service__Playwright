@@ -74,6 +74,10 @@ VARIANT__BASELINE                     = 'baseline'
 VARIANTS__ALL                         = (VARIANT__BASELINE, VARIANT__AGENTIC)
 DEFAULT_STAGE                         = 'dev'
 
+MODE__FULL                            = 'full'                                          # Upsert both variants (image + env vars) — first deploy + image-relevant changes
+MODE__CODE_ONLY                       = 'code-only'                                     # Touch only the agentic Lambda's env vars (AGENTIC_APP_VERSION) — Python-only changes, skips the ~30s image pull
+MODES__ALL                            = (MODE__FULL, MODE__CODE_ONLY)
+
 LAMBDA_NAME_FORMAT__AGENTIC           = '{app_name}-{stage}'                            # e.g. sg-playwright-dev
 LAMBDA_NAME_FORMAT__BASELINE          = '{app_name}-baseline-{stage}'                   # e.g. sg-playwright-baseline-dev
 
@@ -197,6 +201,22 @@ class Lambda__Docker__SGraph_AI__Service__Playwright(Docker__SGraph_AI__Service_
 
     def update_lambda_function(self):
         return self.lambda_function().update_lambda_image_uri(self.image_uri())
+
+    def update_lambda_code_only(self):                                                  # Skips the 30-60s image-pull wait. Only refreshes env vars — crucial for the agentic variant where AGENTIC_APP_VERSION is the actual code-version pointer (the S3 zip key). Baseline bakes code into the image, so a code-only run is a no-op there and is skipped at the caller.
+        with Duration(prefix=f'[update_lambda_code_only {self.variant}] | upsert:'):
+            lambda_function = self.lambda_function()
+            if not lambda_function.exists():
+                raise RuntimeError(f'Lambda {self.lambda_name()!r} does not exist — run --mode=full at least once before --mode=code-only')
+
+            self.set_lambda_env_vars(lambda_function)                                   # Pins AGENTIC_APP_VERSION to the current repo version on the agentic variant
+            with Duration(prefix='[update_lambda_code_only] | update configuration:'):
+                lambda_function.update_lambda_configuration()
+            with Duration(prefix='[update_lambda_code_only] | wait for config update:'):
+                lambda_function.wait_for_function_update_to_complete(max_attempts=LAMBDA_UPDATE_MAX_ATTEMPTS, wait_time=LAMBDA_UPDATE_WAIT_SECS)
+
+            update_result = {'status': 'ok', 'name': lambda_function.name, 'data': {'mode': 'code-only'}}
+            pprint(update_result)
+            return dict(create_result=update_result, function_url=dict(function_url=lambda_function.function_url()), variant=self.variant)
 
     def function_url(self):
         return self.lambda_function().function_url()

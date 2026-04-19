@@ -367,9 +367,15 @@ jobs:
           pip install -r requirements.txt
           pip install -e .
 
-      - name: Provision baseline + agentic Lambdas
+      - name: Provision baseline + agentic Lambdas                                   # Image rebuilt (success) → full; image reused (skipped) → code-only (agentic env-var refresh only, saves ~30-60s)
         run: |
-          python scripts/provision_lambdas.py --stage ${{ inputs.target_deploy }}
+          if [[ "${{ needs.build-and-push-image.result }}" == "success" ]]; then
+            MODE="full"
+          else
+            MODE="code-only"
+          fi
+          echo "provisioning mode: $MODE (build-and-push-image.result=${{ needs.build-and-push-image.result }})"
+          python scripts/provision_lambdas.py --stage ${{ inputs.target_deploy }} --mode=$MODE
         env:
           AWS_SECRET_ACCESS_KEY                : ${{ secrets.AWS_SECRET_ACCESS_KEY                }}
           AWS_DEFAULT_REGION                   : ${{ secrets.AWS_DEFAULT_REGION                   }}

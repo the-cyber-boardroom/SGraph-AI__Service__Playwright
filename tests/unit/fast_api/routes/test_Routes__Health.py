@@ -120,7 +120,7 @@ class test_get_capabilities(TestCase):
         assert response.status_code == 200
         body = response.json()
         assert body['max_session_lifetime_ms'] == 900_000
-        assert body['available_browsers']      == ['chromium']
+        assert body['available_browsers']      == ['chromium', 'firefox', 'webkit']  # All three engines ship with the Microsoft playwright base image — Firefox + WebKit are the only native-proxy-auth path
         assert 'local_file' not in body['supported_sinks']                           # Lambda cannot write to disk
 
     def test__returns_laptop_capabilities_including_local_file_sink(self):
