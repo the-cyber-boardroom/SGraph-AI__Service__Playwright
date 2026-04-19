@@ -26,15 +26,20 @@ from sgraph_ai_service_playwright.consts.env_vars                               
                                                                                                     ENV_VAR__SG_SEND_BASE_URL      )
 from sgraph_ai_service_playwright.schemas.browser.Schema__Browser__Config                   import Schema__Browser__Config
 from sgraph_ai_service_playwright.schemas.browser.Schema__Browser__Launch__Result            import Schema__Browser__Launch__Result
+from sgraph_ai_service_playwright.schemas.browser.Schema__Proxy__Auth__Basic                import Schema__Proxy__Auth__Basic
+from sgraph_ai_service_playwright.schemas.browser.Schema__Proxy__Config                     import Schema__Proxy__Config
 from sgraph_ai_service_playwright.schemas.capture.Schema__Capture__Config                   import Schema__Capture__Config
+from sgraph_ai_service_playwright.schemas.enums.Enum__Browser__Name                          import Enum__Browser__Name
 from sgraph_ai_service_playwright.schemas.enums.Enum__Sequence__Status                       import Enum__Sequence__Status
 from sgraph_ai_service_playwright.schemas.enums.Enum__Step__Status                           import Enum__Step__Status
+from sgraph_ai_service_playwright.schemas.primitives.identifiers.Session_Id                  import Session_Id
 from sgraph_ai_service_playwright.schemas.sequence.Schema__Sequence__Config                 import Schema__Sequence__Config
 from sgraph_ai_service_playwright.schemas.sequence.Schema__Sequence__Request                import Schema__Sequence__Request
 from sgraph_ai_service_playwright.service.Artefact__Writer                                  import Artefact__Writer
 from sgraph_ai_service_playwright.service.Browser__Launcher                                 import Browser__Launcher
 from sgraph_ai_service_playwright.service.Credentials__Loader                               import Credentials__Loader
 from sgraph_ai_service_playwright.service.Playwright__Service                               import Playwright__Service
+from sgraph_ai_service_playwright.service.Proxy__Auth__Binder                               import Proxy__Auth__Binder
 
 
 ENV_KEYS = [ENV_VAR__AWS_LAMBDA_RUNTIME_API,
@@ -273,3 +278,43 @@ class test_execute__clean_state_between_requests(TestCase):                     
 
         assert response.status       == Enum__Sequence__Status.FAILED               # halt_on_error=True (default) → FAILED
         assert len(launcher.stopped) == 1                                           # Teardown still ran despite the step failure
+
+
+class _RecordingBinder(Proxy__Auth__Binder):                                         # Subclass so Type_Safe allows assignment back onto Sequence__Runner.proxy_auth_binder
+    calls : list                                                                     # List[(context, page, auth)]
+    def bind(self, context, page, auth):
+        self.calls.append((context, page, auth))
+
+
+class test_get_or_create_page_cdp_binder_gate(TestCase):                            # The CDP Fetch binder is Chromium-only — must be skipped on Firefox/WebKit (they accept proxy creds natively at launch, and don't expose CDP anyway)
+
+    def _run(self, browser_name):                                                   # Shared setup: register a launch result with browser_name + proxy.auth, then call get_or_create_page with a recording binder
+        service, launcher = _build_service()
+        runner  = service.sequence_runner
+        binder  = _RecordingBinder()
+        runner.proxy_auth_binder = binder                                            # Swap in the recorder subclass; Type_Safe accepts it because it extends Proxy__Auth__Binder
+
+        session_id = Session_Id()
+        auth       = Schema__Proxy__Auth__Basic(username='u', password='p')
+        proxy      = Schema__Proxy__Config(server='http://proxy:3128', auth=auth)
+        launcher.browsers[session_id] = Schema__Browser__Launch__Result(browser             = _FakeBrowser()  ,
+                                                                        playwright          = _FakePlaywright(),
+                                                                        playwright_start_ms = 0                ,
+                                                                        browser_launch_ms   = 0                ,
+                                                                        browser_name        = browser_name     ,
+                                                                        proxy               = proxy            )
+        browser = launcher.browsers[session_id].browser
+        runner.get_or_create_page(browser, session_id)                               # Triggers the bind-or-skip decision
+        return binder
+
+    def test__binder_called_on_chromium(self):                                      # Baseline: Chromium still needs CDP Fetch for proxy auth
+        binder = self._run(Enum__Browser__Name.CHROMIUM)
+        assert len(binder.calls) == 1
+
+    def test__binder_skipped_on_firefox(self):                                      # Firefox accepts creds natively at launch — CDP is unavailable / pointless
+        binder = self._run(Enum__Browser__Name.FIREFOX)
+        assert binder.calls == []
+
+    def test__binder_skipped_on_webkit(self):                                       # WebKit accepts creds natively at launch — CDP is unavailable / pointless
+        binder = self._run(Enum__Browser__Name.WEBKIT)
+        assert binder.calls == []

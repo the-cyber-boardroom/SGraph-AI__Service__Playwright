@@ -37,6 +37,7 @@ from osbot_utils.utils.Env                                                      
 from sgraph_ai_service_playwright.consts.env_vars                                                   import ENV_VAR__REQUEST_DEADLINE_MS
 from sgraph_ai_service_playwright.schemas.artefact.Schema__Artefact__Ref                            import Schema__Artefact__Ref
 from sgraph_ai_service_playwright.schemas.browser.Schema__Browser__Config                           import Schema__Browser__Config
+from sgraph_ai_service_playwright.schemas.enums.Enum__Browser__Name                                 import Enum__Browser__Name
 from sgraph_ai_service_playwright.schemas.enums.Enum__Sequence__Status                              import Enum__Sequence__Status
 from sgraph_ai_service_playwright.schemas.enums.Enum__Step__Status                                  import Enum__Step__Status
 from sgraph_ai_service_playwright.schemas.primitives.identifiers.Safe_Str__Trace_Id                 import Safe_Str__Trace_Id
@@ -165,7 +166,8 @@ class Sequence__Runner(Type_Safe):
 
     def get_or_create_page(self, browser: Any, session_id: Any) -> Any:              # Freshly launched browser has no context / page — create on demand
         launch_result = self.browser_launcher.browsers.get(session_id)
-        proxy         = launch_result.proxy if launch_result is not None else None
+        proxy         = launch_result.proxy        if launch_result is not None else None
+        browser_name  = launch_result.browser_name if launch_result is not None else Enum__Browser__Name.CHROMIUM
 
         contexts = browser.contexts                                                  # Playwright sync API: `contexts` is a @property returning List[BrowserContext]
         if contexts:
@@ -181,7 +183,8 @@ class Sequence__Runner(Type_Safe):
             page = pages[0]
         else:
             page = context.new_page()
-            if proxy is not None and proxy.auth is not None:                         # Bind CDP Fetch handlers once on first page creation
+            if (proxy is not None and proxy.auth is not None                         # Chromium-only CDP Fetch binding — Firefox/WebKit accept creds natively at launch time,
+                and browser_name == Enum__Browser__Name.CHROMIUM):                   # and don't expose CDP, so bind() would fail or be a pointless no-op on them.
                 self.proxy_auth_binder.bind(context, page, proxy.auth)
         return page
 
