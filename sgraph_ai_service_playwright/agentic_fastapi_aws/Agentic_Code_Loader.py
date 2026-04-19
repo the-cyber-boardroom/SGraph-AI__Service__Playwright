@@ -76,6 +76,9 @@ class Agentic_Code_Loader(Type_Safe):
             return None
         if not os.environ.get(ENV_VAR__AWS_REGION):                                 # Not on Lambda
             return None
+        if not (os.environ.get(ENV_VAR__AGENTIC_CODE_SOURCE_S3_KEY) or              # Baseline Lambda: on AWS but no S3 coordinates → passthrough
+                os.environ.get(ENV_VAR__AGENTIC_APP_NAME)):
+            return None
 
         import boto3, io, zipfile                                                   # Deferred imports — keep module-level import graph minimal
 
