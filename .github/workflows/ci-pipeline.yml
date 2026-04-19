@@ -104,15 +104,19 @@ jobs:
   # Job 3: Build + Push Docker Image to ECR (single job — no tar save/reload)
   #   Build and push run on the same runner. The image stays in the local
   #   Docker daemon between steps, so we skip the ~90s save + ~60s reload that
-  #   the previous split-job design paid per run. DISABLED in v0.1.29 until the
-  #   two-Lambda docker→ECR→Lambda chain is re-enabled.
+  #   the previous split-job design paid per run.
+  #
+  #   Runs in parallel with `deploy-code` (they share no state). Image lands
+  #   in ECR as `<account>.dkr.ecr.<region>.amazonaws.com/sgraph_ai_service_playwright:latest`;
+  #   Lambda provisioning (separate follow-up job) will upsert two functions
+  #   backed by this image — one baseline (passthrough), one S3-code-loader.
   # ════════════════════════════════════════════════════════════════════════════
   build-and-push-image:
     name: "Build + Push Docker Image to ECR"
     runs-on: ubuntu-latest
     timeout-minutes: 25
-    needs: [check-aws-credentials]
-    if: false                                                                       # v0.1.29: disabled until two-Lambda provisioning chain lands
+    needs: [run-unit-tests, check-aws-credentials]
+    if: ${{ needs.check-aws-credentials.outputs.has-credentials == 'true' }}
     steps:
       - uses: actions/checkout@v5
 
