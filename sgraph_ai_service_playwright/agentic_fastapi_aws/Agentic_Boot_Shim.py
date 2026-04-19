@@ -27,6 +27,8 @@ import os
 
 from osbot_utils.type_safe.Type_Safe                                                import Type_Safe
 
+from sgraph_ai_service_playwright.agentic_fastapi.Agentic_Boot_State                import (append_boot_log ,
+                                                                                            set_last_error  )
 from sgraph_ai_service_playwright.agentic_fastapi_aws.Agentic_Code_Loader           import Agentic_Code_Loader
 from sgraph_ai_service_playwright.consts.env_vars                                   import (ENV_VAR__AGENTIC_CODE_SOURCE  ,
                                                                                             ENV_VAR__AGENTIC_IMAGE_VERSION)
@@ -46,20 +48,28 @@ class Agentic_Boot_Shim(Type_Safe):
         return FALLBACK_IMAGE_VERSION
 
     def boot(self):                                                                 # Stage 2+3 — import + setup; returns (error, handler, app, code_source)
-        os.environ.setdefault(ENV_VAR__AGENTIC_IMAGE_VERSION, self.read_image_version())
+        image_version = self.read_image_version()
+        os.environ.setdefault(ENV_VAR__AGENTIC_IMAGE_VERSION, image_version)
+        append_boot_log(f'image_version={image_version}')
+
         code_source = Agentic_Code_Loader().resolve()
         os.environ[ENV_VAR__AGENTIC_CODE_SOURCE] = code_source                      # Surfaced in /health/info — "s3:…", "local:…", or "passthrough:sys.path"
+        append_boot_log(f'code_source={code_source}')
 
         try:
             from sgraph_ai_service_playwright.fast_api.Fast_API__Playwright__Service import Fast_API__Playwright__Service
             fa      = Fast_API__Playwright__Service().setup()
             handler = fa.handler()
             app     = fa.app()
+            append_boot_log('status=loaded')
+            set_last_error('')                                                      # Clear any prior-cold-start error on warm success
             return None, handler, app, code_source
         except Exception as exc:
-            if not os.environ.get(ENV_VAR__LAMBDA_FUNCTION):                        # Outside Lambda, stack trace > string — fail loud
-                raise
             error = (f"CRITICAL ERROR: Failed to start Playwright service:\n\n"
                      f"{type(exc).__name__}: {exc}\n\n"
                      f"code_source: {code_source}")
+            append_boot_log(f'status=degraded error={type(exc).__name__}: {exc}')
+            set_last_error(error)
+            if not os.environ.get(ENV_VAR__LAMBDA_FUNCTION):                        # Outside Lambda, stack trace > string — fail loud
+                raise
             return error, None, None, code_source
