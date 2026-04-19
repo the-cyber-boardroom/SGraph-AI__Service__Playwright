@@ -54,6 +54,8 @@ EC2__APP_PORT                   = 8000                                          
 
 IAM__ROLE_NAME                  = 'sg-playwright-ec2-spike'                             # Instance profile shares the name (osbot_aws convention)
 IAM__ECR_READONLY_POLICY_ARN    = 'arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly'
+IAM__SSM_CORE_POLICY_ARN        = 'arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore'  # Lets `aws ssm start-session --target <i-id>` drop into a shell — no SSH, no password, no port 22
+IAM__POLICY_ARNS                = (IAM__ECR_READONLY_POLICY_ARN, IAM__SSM_CORE_POLICY_ARN)
 IAM__ASSUME_ROLE_SERVICE        = 'ec2.amazonaws.com'
 
 SG__NAME                        = 'playwright-ec2-spike'                                # AWS reserves 'sg-*' group names (collides with SG ID format) — drop the 'sg-' prefix
@@ -102,13 +104,14 @@ def default_image_uri() -> str:
     return f'{ecr_registry_host()}/{IMAGE_NAME}:latest'                                 # Mirrors Docker__SGraph_AI__Service__Playwright__Base.image_uri()
 
 
-def ensure_instance_profile() -> str:                                                   # Creates the IAM role + instance profile + ECR read-only policy; idempotent
+def ensure_instance_profile() -> str:                                                   # Creates the IAM role + instance profile + managed policies; idempotent
     role = IAM_Role(role_name=IAM__ROLE_NAME)
     if role.not_exists():
         role.create_for_service__assume_role(IAM__ASSUME_ROLE_SERVICE)                  # AssumeRolePolicyDocument: EC2 service principal
-        role.iam.role_policy_attach(IAM__ECR_READONLY_POLICY_ARN)                       # Managed policy — the box only needs to pull from ECR
         role.create_instance_profile()                                                  # Wrapper around create_instance_profile with InstanceProfileName=role_name
         role.add_to_instance_profile()                                                  # Binds the role to the profile of the same name
+    for policy_arn in IAM__POLICY_ARNS:                                                 # attach_role_policy is idempotent — existing roles pick up new managed policies on re-provision without a terminate/recreate
+        role.iam.role_policy_attach(policy_arn)
     return IAM__ROLE_NAME                                                               # Returned so run_instances can pass {'Name': ...}
 
 
