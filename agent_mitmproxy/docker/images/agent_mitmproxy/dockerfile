@@ -5,7 +5,9 @@
 #   • mitmweb on 0.0.0.0:8080 (proxy) + 127.0.0.1:8081 (web UI)
 #   • uvicorn on 0.0.0.0:8000 (admin FastAPI)
 #
-# Builds from repo root: `docker build -f agent_mitmproxy/docker/images/agent_mitmproxy/dockerfile agent_mitmproxy`.
+# Build context is the repo root:
+#   docker build -f agent_mitmproxy/docker/images/agent_mitmproxy/dockerfile .
+# All COPY paths below are relative to that root.
 # ═══════════════════════════════════════════════════════════════════════════════
 
 FROM python:3.12-slim
@@ -16,15 +18,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
-COPY requirements.txt ./
+COPY agent_mitmproxy/requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Source layout: everything under agent_mitmproxy/ on the host goes to /app/agent_mitmproxy/
-# The docker/images/.../supervisord.conf + entrypoint.sh are re-copied to /app/ for supervisord.
-COPY agent_mitmproxy/ ./agent_mitmproxy/
-COPY version          ./agent_mitmproxy/version
-COPY docker/images/agent_mitmproxy/supervisord.conf ./supervisord.conf
-COPY docker/images/agent_mitmproxy/entrypoint.sh    ./entrypoint.sh
+# Source layout: the whole agent_mitmproxy/ package (addons + consts + fast_api +
+# schemas + version) ships to /app/agent_mitmproxy/. supervisord.conf +
+# entrypoint.sh land directly under /app/ so supervisord finds its config and
+# the container's CMD resolves.
+COPY agent_mitmproxy/                                               ./agent_mitmproxy/
+COPY agent_mitmproxy/docker/images/agent_mitmproxy/supervisord.conf ./supervisord.conf
+COPY agent_mitmproxy/docker/images/agent_mitmproxy/entrypoint.sh    ./entrypoint.sh
 RUN chmod +x /app/entrypoint.sh
 
 ENV PYTHONPATH=/app
