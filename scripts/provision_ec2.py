@@ -67,15 +67,11 @@ IAM__ROLE_NAME               = 'playwright-ec2'                                 
 IAM__ECR_READONLY_POLICY_ARN = 'arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly'
 IAM__SSM_CORE_POLICY_ARN     = 'arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore'  # SSM session manager — no SSH needed
 IAM__POLICY_ARNS             = (IAM__ECR_READONLY_POLICY_ARN, IAM__SSM_CORE_POLICY_ARN)
-IAM__CLOUDWATCH_POLICY_ARN    = 'arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy'
-IAM__XRAY_POLICY_ARN          = 'arn:aws:iam::aws:policy/AWSXRayDaemonWriteAccess'
-IAM__PROMETHEUS_RW_POLICY_ARN = 'arn:aws:iam::aws:policy/AmazonPrometheusRemoteWriteAccess'
-IAM__OBSERVABILITY_POLICY_ARNS = (IAM__CLOUDWATCH_POLICY_ARN, IAM__XRAY_POLICY_ARN, IAM__PROMETHEUS_RW_POLICY_ARN)
-IAM__ASSUME_ROLE_SERVICE     = 'ec2.amazonaws.com'
+IAM__PROMETHEUS_RW_POLICY_ARN  = 'arn:aws:iam::aws:policy/AmazonPrometheusRemoteWriteAccess'
+IAM__OBSERVABILITY_POLICY_ARNS = (IAM__PROMETHEUS_RW_POLICY_ARN,)                           # OpenSearch write access is domain-specific — added via resource policy (see library/docs/runbooks/aws-observability-setup.md)
+IAM__ASSUME_ROLE_SERVICE       = 'ec2.amazonaws.com'
 
 EC2__PROMETHEUS_PORT  = 9090
-EC2__GRAFANA_PORT     = 3000
-EC2__LOKI_PORT        = 3100
 
 SG__NAME                     = 'playwright-ec2'                                         # AWS reserves 'sg-*' prefix for SG IDs
 SG__DESCRIPTION              = 'SG Playwright EC2 stack - ingress :8000 (API) + :8001 (sidecar admin) — ALL open ports MUST be behind API key auth (including static sites)'
@@ -118,8 +114,7 @@ exec > >(tee /var/log/sg-playwright-start.log | logger -t sg-playwright) 2>&1
 
 echo "=== SG Playwright AMI boot at $(date) ==="
 
-mkdir -p /opt/sg-playwright
-mkdir -p /opt/sg-playwright/config/dashboards
+mkdir -p /opt/sg-playwright/config
 
 cat > /opt/sg-playwright/docker-compose.yml << 'SG_COMPOSE_EOF'
 {compose_content}
@@ -180,33 +175,6 @@ COMPOSE_YAML_TEMPLATE = textwrap.dedent("""\
           - sg-net
         restart: always
 
-      prometheus:
-        image: prom/prometheus:v2.51.0
-        volumes:
-          - /opt/sg-playwright/config:/etc/prometheus:ro
-          - prometheus_data:/prometheus
-        command:
-          - '--config.file=/etc/prometheus/prometheus.yml'
-          - '--storage.tsdb.path=/prometheus'
-          - '--web.enable-lifecycle'
-        networks:
-          - sg-net
-        restart: always
-
-      grafana:
-        image: grafana/grafana:10.4.2
-        volumes:
-          - grafana_data:/var/lib/grafana
-          - /opt/sg-playwright/config/grafana-datasources.yaml:/etc/grafana/provisioning/datasources/datasources.yaml:ro
-          - /opt/sg-playwright/config/grafana-dashboards.yaml:/etc/grafana/provisioning/dashboards/dashboards.yaml:ro
-          - /opt/sg-playwright/config/dashboards:/var/lib/grafana/dashboards:ro
-        environment:
-          GF_AUTH_ANONYMOUS_ENABLED: 'false'
-          GF_SECURITY_ADMIN_PASSWORD: '{api_key_value}'
-        networks:
-          - sg-net
-        restart: always
-
       cadvisor:
         image: gcr.io/cadvisor/cadvisor:v0.49.1
         privileged: true
@@ -229,45 +197,31 @@ COMPOSE_YAML_TEMPLATE = textwrap.dedent("""\
           - '--path.procfs=/host/proc'
           - '--path.sysfs=/host/sys'
           - '--path.rootfs=/rootfs'
-          - '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($|/)'
+          - '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)'
         networks:
           - sg-net
         restart: always
 
-      loki:
-        image: grafana/loki:2.9.8
+      prometheus:
+        image: prom/prometheus:v2.51.0
         volumes:
-          - loki_data:/loki
-          - /opt/sg-playwright/config:/etc/loki:ro
-        command: -config.file=/etc/loki/loki.yml
+          - /opt/sg-playwright/config/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+          - prometheus_data:/prometheus
+        command:
+          - '--config.file=/etc/prometheus/prometheus.yml'
+          - '--storage.tsdb.path=/prometheus'
+          - '--storage.tsdb.retention.time=24h'
+          - '--web.enable-lifecycle'
         networks:
           - sg-net
         restart: always
 
-      promtail:
-        image: grafana/promtail:2.9.8
+      fluent-bit:
+        image: amazon/aws-for-fluent-bit:stable
         volumes:
           - /var/lib/docker/containers:/var/lib/docker/containers:ro
-          - /var/run/docker.sock:/var/run/docker.sock
-          - /opt/sg-playwright/config:/etc/promtail:ro
-        command: -config.file=/etc/promtail/promtail.yml
-        networks:
-          - sg-net
-        restart: always
-
-      cloudwatch-agent:
-        image: amazon/cloudwatch-agent:latest
-        volumes:
-          - /opt/sg-playwright/config/cloudwatch-agent.json:/opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json:ro
           - /var/run/docker.sock:/var/run/docker.sock:ro
-        networks:
-          - sg-net
-        restart: always
-
-      xray-daemon:
-        image: amazon/aws-xray-daemon:latest
-        ports:
-          - "2000:2000/udp"
+          - /opt/sg-playwright/config/fluent-bit.conf:/fluent-bit/etc/fluent-bit.conf:ro
         networks:
           - sg-net
         restart: always
@@ -278,23 +232,17 @@ COMPOSE_YAML_TEMPLATE = textwrap.dedent("""\
 
     volumes:
       prometheus_data:
-      grafana_data:
-      loki_data:
 """)
 
 
-PROMETHEUS_YML = """\
+PROMETHEUS_YML_TEMPLATE = """\
 global:
-  scrape_interval: 15s
+  scrape_interval:     15s
   evaluation_interval: 15s
   external_labels:
     stack: sg-playwright
 
 scrape_configs:
-  - job_name: prometheus
-    static_configs:
-      - targets: ['localhost:9090']
-
   - job_name: cadvisor
     static_configs:
       - targets: ['cadvisor:8080']
@@ -302,160 +250,89 @@ scrape_configs:
   - job_name: node-exporter
     static_configs:
       - targets: ['node-exporter:9100']
+{remote_write_section}"""
 
-  - job_name: loki
-    static_configs:
-      - targets: ['loki:3100']
-
-  - job_name: grafana
-    static_configs:
-      - targets: ['grafana:3000']
+PROMETHEUS_REMOTE_WRITE_TEMPLATE = """\
+remote_write:
+  - url: {amp_remote_write_url}
+    sigv4:
+      region: {region}
+    queue_config:
+      max_samples_per_send: 1000
+      max_shards:           200
+      capacity:             2500
 """
 
-LOKI_YML = """\
-auth_enabled: false
+FLUENT_BIT_CONF_TEMPLATE = """\
+[SERVICE]
+    Flush         1
+    Daemon        Off
+    Log_Level     info
+    Parsers_File  /fluent-bit/etc/parsers.conf
 
-server:
-  http_listen_port: 3100
+[INPUT]
+    Name              tail
+    Path              /var/lib/docker/containers/*/*.log
+    Parser            docker
+    Tag               docker.*
+    Refresh_Interval  5
+    Mem_Buf_Limit     5MB
+    Skip_Long_Lines   On
 
-ingester:
-  lifecycler:
-    address: 127.0.0.1
-    ring:
-      kvstore:
-        store: inmemory
-      replication_factor: 1
-  chunk_idle_period: 3m
-  chunk_retain_period: 1m
+[FILTER]
+    Name    record_modifier
+    Match   *
+    Record  stack        sg-playwright
+    Record  environment  {stage}
 
-schema_config:
-  configs:
-    - from: 2024-01-01
-      store: boltdb-shipper
-      object_store: filesystem
-      schema: v11
-      index:
-        prefix: index_
-        period: 24h
+{output_section}"""
 
-storage_config:
-  boltdb_shipper:
-    active_index_directory: /loki/boltdb-shipper-active
-    cache_location: /loki/boltdb-shipper-cache
-    shared_store: filesystem
-  filesystem:
-    directory: /loki/chunks
-
-limits_config:
-  enforce_metric_name: false
-  reject_old_samples: true
-  reject_old_samples_max_age: 168h
-
-chunk_store_config:
-  max_look_back_period: 0s
-
-table_manager:
-  retention_deletes_enabled: false
-  retention_period: 0s
+FLUENT_BIT_OUTPUT_OPENSEARCH = """\
+[OUTPUT]
+    Name              opensearch
+    Match             *
+    Host              {opensearch_endpoint}
+    Port              443
+    TLS               On
+    TLS.Verify        On
+    AWS_Auth          On
+    AWS_Region        {region}
+    AWS_Service_Name  es
+    Index             sg-playwright-logs
+    Suppress_Type_Name On
+    Retry_Limit       False
 """
 
-PROMTAIL_YML = """\
-server:
-  http_listen_port: 9080
-  grpc_listen_port: 0
-
-positions:
-  filename: /tmp/positions.yaml
-
-clients:
-  - url: http://loki:3100/loki/api/v1/push
-
-scrape_configs:
-  - job_name: containers
-    static_configs:
-      - targets:
-          - localhost
-        labels:
-          job: containerlogs
-          __path__: /var/lib/docker/containers/*/*.log
-    pipeline_stages:
-      - docker: {}
-"""
-
-CLOUDWATCH_AGENT_JSON = """\
-{
-  "logs": {
-    "logs_collected": {
-      "files": {
-        "collect_list": [
-          {
-            "file_path": "/var/log/sg-playwright-setup.log",
-            "log_group_name": "/sg-playwright/setup",
-            "log_stream_name": "{instance_id}",
-            "timezone": "UTC"
-          }
-        ]
-      }
-    }
-  },
-  "metrics": {
-    "metrics_collected": {
-      "mem": {
-        "measurement": ["mem_used_percent"]
-      },
-      "disk": {
-        "measurement": ["disk_used_percent"],
-        "resources": ["/"]
-      }
-    },
-    "append_dimensions": {
-      "ImageId": "${aws:ImageId}",
-      "InstanceId": "${aws:InstanceId}",
-      "InstanceType": "${aws:InstanceType}"
-    }
-  }
-}
-"""
-
-GRAFANA_DATASOURCES_YAML = """\
-apiVersion: 1
-datasources:
-  - name: Prometheus
-    type: prometheus
-    access: proxy
-    url: http://prometheus:9090
-    isDefault: true
-    jsonData:
-      httpMethod: POST
-
-  - name: Loki
-    type: loki
-    access: proxy
-    url: http://loki:3100
-"""
-
-GRAFANA_DASHBOARDS_YAML = """\
-apiVersion: 1
-providers:
-  - name: sg-playwright
-    orgId: 1
-    folder: SG Playwright
-    type: file
-    disableDeletion: false
-    updateIntervalSeconds: 30
-    options:
-      path: /var/lib/grafana/dashboards
+FLUENT_BIT_OUTPUT_STDOUT = """\
+[OUTPUT]
+    Name   stdout
+    Match  *
 """
 
 
-def render_observability_configs_section() -> str:
-    parts = []
-    parts.append(f"cat > /opt/sg-playwright/config/prometheus.yml << 'SG_PROM_EOF'\n{PROMETHEUS_YML}SG_PROM_EOF")
-    parts.append(f"cat > /opt/sg-playwright/config/loki.yml << 'SG_LOKI_EOF'\n{LOKI_YML}SG_LOKI_EOF")
-    parts.append(f"cat > /opt/sg-playwright/config/promtail.yml << 'SG_PROMTAIL_EOF'\n{PROMTAIL_YML}SG_PROMTAIL_EOF")
-    parts.append(f"cat > /opt/sg-playwright/config/cloudwatch-agent.json << 'SG_CW_EOF'\n{CLOUDWATCH_AGENT_JSON}SG_CW_EOF")
-    parts.append(f"cat > /opt/sg-playwright/config/grafana-datasources.yaml << 'SG_GDS_EOF'\n{GRAFANA_DATASOURCES_YAML}SG_GDS_EOF")
-    parts.append(f"cat > /opt/sg-playwright/config/grafana-dashboards.yaml << 'SG_GDASH_EOF'\n{GRAFANA_DASHBOARDS_YAML}SG_GDASH_EOF")
+def render_observability_configs_section(region           : str,
+                                          amp_remote_write_url: str = '',
+                                          opensearch_endpoint : str = '',
+                                          stage               : str = DEFAULT_STAGE) -> str:
+    remote_write_section = ''
+    if amp_remote_write_url:
+        remote_write_section = PROMETHEUS_REMOTE_WRITE_TEMPLATE.format(
+            amp_remote_write_url = amp_remote_write_url,
+            region               = region)
+    prometheus_yml = PROMETHEUS_YML_TEMPLATE.format(remote_write_section=remote_write_section)
+
+    if opensearch_endpoint:
+        output_section = FLUENT_BIT_OUTPUT_OPENSEARCH.format(
+            opensearch_endpoint = opensearch_endpoint,
+            region              = region)
+    else:
+        output_section = FLUENT_BIT_OUTPUT_STDOUT
+    fluent_bit_conf = FLUENT_BIT_CONF_TEMPLATE.format(output_section=output_section, stage=stage)
+
+    parts = [
+        f"cat > /opt/sg-playwright/config/prometheus.yml << 'SG_PROM_EOF'\n{prometheus_yml}SG_PROM_EOF",
+        f"cat > /opt/sg-playwright/config/fluent-bit.conf << 'SG_FB_EOF'\n{fluent_bit_conf}SG_FB_EOF",
+    ]
     return '\n\n'.join(parts) + '\n'
 
 
@@ -494,8 +371,7 @@ docker pull {sidecar_image_uri}
 docker logout {registry}
 rm -f /root/.docker/config.json
 
-mkdir -p /opt/sg-playwright
-mkdir -p /opt/sg-playwright/config/dashboards
+mkdir -p /opt/sg-playwright/config
 
 cat > /opt/sg-playwright/docker-compose.yml << 'SG_COMPOSE_EOF'
 {compose_content}
@@ -570,6 +446,14 @@ def preflight_check(playwright_image_uri: str = None, sidecar_image_uri: str = N
     upstream_pass = get_env('AGENT_MITMPROXY__UPSTREAM_PASS') or ''
     if upstream_url and not (upstream_user and upstream_pass):
         errors.append('AGENT_MITMPROXY__UPSTREAM_URL is set but UPSTREAM_USER/PASS are missing — sidecar will try unauthenticated upstream.')
+
+    # ── AWS managed observability (optional) ─────────────────────────────────
+    amp_remote_write_url = get_env('AMP_REMOTE_WRITE_URL') or ''
+    opensearch_endpoint  = get_env('OPENSEARCH_ENDPOINT' ) or ''
+    if not amp_remote_write_url:
+        warnings.append('AMP_REMOTE_WRITE_URL not set — Prometheus will run locally only (no remote write to Amazon Managed Prometheus).')
+    if not opensearch_endpoint:
+        warnings.append('OPENSEARCH_ENDPOINT not set — Fluent Bit will log to stdout only (no shipping to OpenSearch).')
 
     # ── Print summary ─────────────────────────────────────────────────────────
     _print_preflight_summary(account, region, registry,
@@ -712,24 +596,31 @@ def render_compose_yaml(playwright_image_uri : str,
                                         watchdog_max_request_ms = watchdog_max_request_ms )
 
 
-def render_user_data(playwright_image_uri : str,
-                      sidecar_image_uri    : str,
-                      compose_content      : str,
-                      api_key_value        : str          = '',
-                      max_hours            : Optional[int] = None) -> str:
+def render_user_data(playwright_image_uri  : str,
+                      sidecar_image_uri     : str,
+                      compose_content       : str,
+                      api_key_value         : str          = '',
+                      max_hours             : Optional[int] = None,
+                      amp_remote_write_url  : str          = '',
+                      opensearch_endpoint   : str          = '',
+                      stage                 : str          = DEFAULT_STAGE) -> str:
     if max_hours:
         shutdown_section = (f'\n# Auto-terminate after {max_hours}h\n'
                              f'systemd-run --on-active={max_hours}h /sbin/shutdown -h now\n'
                              f'echo "Auto-terminate timer started: {max_hours}h from now"\n')
     else:
         shutdown_section = ''
-    return USER_DATA_TEMPLATE.format(region                        = aws_region()                        ,
-                                     registry                      = ecr_registry_host()                 ,
-                                     playwright_image_uri          = playwright_image_uri                ,
-                                     sidecar_image_uri             = sidecar_image_uri                   ,
-                                     compose_content               = compose_content                     ,
-                                     observability_configs_section = render_observability_configs_section(),
-                                     shutdown_section              = shutdown_section                    )
+    obs_section = render_observability_configs_section(region               = aws_region()       ,
+                                                        amp_remote_write_url = amp_remote_write_url,
+                                                        opensearch_endpoint  = opensearch_endpoint ,
+                                                        stage                = stage               )
+    return USER_DATA_TEMPLATE.format(region                        = aws_region()           ,
+                                     registry                      = ecr_registry_host()    ,
+                                     playwright_image_uri          = playwright_image_uri   ,
+                                     sidecar_image_uri             = sidecar_image_uri      ,
+                                     compose_content               = compose_content        ,
+                                     observability_configs_section = obs_section            ,
+                                     shutdown_section              = shutdown_section       )
 
 
 def run_instance(ec2: EC2, ami_id: str, security_group_id: str, instance_profile_name: str,
@@ -903,6 +794,9 @@ def provision(stage                  : str          = DEFAULT_STAGE    ,
     resolved_deploy_name  = deploy_name or _random_deploy_name()
     creator               = _get_creator()
 
+    amp_remote_write_url  = get_env('AMP_REMOTE_WRITE_URL' ) or ''
+    opensearch_endpoint   = get_env('OPENSEARCH_ENDPOINT'  ) or ''
+
     compose_content       = render_compose_yaml(playwright_image_uri = playwright_image_uri ,
                                                  sidecar_image_uri    = sidecar_image_uri    ,
                                                  api_key_name         = api_key_name         ,
@@ -910,16 +804,22 @@ def provision(stage                  : str          = DEFAULT_STAGE    ,
                                                  upstream_url         = upstream_url         ,
                                                  upstream_user        = upstream_user        ,
                                                  upstream_pass        = upstream_pass        )
-    obs_section = render_observability_configs_section()
+    obs_section = render_observability_configs_section(region               = aws_region()       ,
+                                                        amp_remote_write_url = amp_remote_write_url,
+                                                        opensearch_endpoint  = opensearch_endpoint ,
+                                                        stage                = stage               )
     if from_ami:
         user_data = AMI_USER_DATA_TEMPLATE.format(compose_content               = compose_content,
                                                    observability_configs_section = obs_section    )
     else:
-        user_data = render_user_data(playwright_image_uri = playwright_image_uri ,
-                                     sidecar_image_uri    = sidecar_image_uri    ,
-                                     compose_content      = compose_content      ,
-                                     api_key_value        = api_key_value        ,
-                                     max_hours            = max_hours            )
+        user_data = render_user_data(playwright_image_uri  = playwright_image_uri ,
+                                     sidecar_image_uri     = sidecar_image_uri    ,
+                                     compose_content       = compose_content      ,
+                                     api_key_value         = api_key_value        ,
+                                     max_hours             = max_hours            ,
+                                     amp_remote_write_url  = amp_remote_write_url ,
+                                     opensearch_endpoint   = opensearch_endpoint  ,
+                                     stage                 = stage                )
 
     instance_profile_name = ensure_instance_profile()
     security_group_id     = ensure_security_group(ec2)
@@ -1831,7 +1731,6 @@ def cmd_smoke(target          : Optional[str]  = typer.Argument(None, help='Depl
 
     c.print()
     c.print(f'  Mitmproxy UI  →  sg-ec2 forward {EC2__SIDECAR_ADMIN_PORT}  then  http://localhost:{EC2__SIDECAR_ADMIN_PORT}/web/')
-    c.print(f'  Grafana       →  sg-ec2 forward-grafana  then  http://localhost:{EC2__GRAFANA_PORT}/  (login: admin / <api-key>)')
     c.print(f'  Prometheus    →  sg-ec2 forward-prometheus  then  http://localhost:{EC2__PROMETHEUS_PORT}/')
     c.print()
 
@@ -1859,33 +1758,6 @@ def cmd_health(ip           : Optional[str] = typer.Argument(None, help='Public 
     key_name  = api_key_name  or get_env('FAST_API__AUTH__API_KEY__NAME' ) or tag_key_name  or 'X-API-Key'
     key_value = api_key_value or get_env('FAST_API__AUTH__API_KEY__VALUE') or tag_key_value or ''
     _render_health(_health_check_once(base_url, key_name, key_value), base_url)
-
-
-@app.command(name='forward-grafana')
-def cmd_forward_grafana(target: Optional[str] = typer.Argument(None, help='Deploy-name or instance-id; auto-selects if only one instance.')):
-    """Forward Grafana (port 3000) to localhost via SSM. Login: admin / <api-key>."""
-    import subprocess
-    ec2                  = EC2()
-    instance_id, details = _resolve_target(ec2, target)
-    deploy_name          = _instance_deploy_name(details) or instance_id
-    api_key_value        = _instance_tag(details, TAG__API_KEY_VALUE_KEY)
-    c = Console(highlight=False, width=200)
-    c.print()
-    c.print(Panel(
-        f'[bold]📊  Grafana Forward[/]\n\n'
-        f'  instance   [bold]{deploy_name}[/]  [dim]{instance_id}[/]\n'
-        f'  tunnel     [bold]localhost:{EC2__GRAFANA_PORT}[/]\n\n'
-        f'  [green]Access:[/]  [bold]http://localhost:{EC2__GRAFANA_PORT}/[/]\n'
-        f'  [green]Login:[/]   admin / [bold]{api_key_value or "<api-key>"}[/]\n'
-        f'  [dim]Press Ctrl-C to close the tunnel.[/]',
-        border_style='bright_blue', expand=False))
-    c.print()
-    subprocess.run(['aws', 'ssm', 'start-session',
-                    '--target'       , instance_id,
-                    '--document-name', 'AWS-StartPortForwardingSession',
-                    '--parameters'   , json.dumps({'portNumber'     : [str(EC2__GRAFANA_PORT)],
-                                                   'localPortNumber': [str(EC2__GRAFANA_PORT)]})],
-                   check=False)
 
 
 @app.command(name='forward-prometheus')
