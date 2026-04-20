@@ -64,6 +64,8 @@ SG__NAME                     = 'playwright-ec2'                                 
 SG__DESCRIPTION              = 'SG Playwright EC2 stack - ingress :8000 (API) + :8001 (sidecar admin)'
 
 TAG__NAME                    = 'playwright-ec2'
+TAG__SERVICE_KEY             = 'sg:service'                                             # Immutable identifier — find_instances filters on this, not Name (Name is user-editable in console)
+TAG__SERVICE_VALUE           = 'playwright-ec2'
 TAG__STAGE_KEY               = 'stage'
 TAG__DEPLOY_NAME_KEY         = 'sg:deploy-name'                                         # Random two-word name (happy-turing); used by connect/delete/exec
 TAG__CREATOR_KEY             = 'sg:creator'                                             # Who launched this instance (git email or $USER)
@@ -233,8 +235,8 @@ def preflight_check(playwright_image_uri: str = None, sidecar_image_uri: str = N
 
 def _kv_table(*rows) -> Table:
     t = Table(box=None, show_header=False, padding=(0, 2), expand=False)
-    t.add_column(style='dim white', min_width=12, no_wrap=True)
-    t.add_column(style='white')
+    t.add_column(style='white', min_width=12, no_wrap=True)
+    t.add_column(style='bright_white')
     for k, v in rows:
         t.add_row(k, str(v))
     return t
@@ -375,9 +377,11 @@ def render_user_data(playwright_image_uri : str,
 def run_instance(ec2: EC2, ami_id: str, security_group_id: str, instance_profile_name: str,
                   user_data: str, stage: str, deploy_name: str = '',
                   creator: str = '', api_key_name: str = '', api_key_value: str = '') -> str:
-    tags = [{'Key': 'Name'              , 'Value': TAG__NAME  },
-            {'Key': TAG__STAGE_KEY      , 'Value': stage       },
-            {'Key': TAG__DEPLOY_NAME_KEY, 'Value': deploy_name },
+    display_name = f'{TAG__NAME}/{deploy_name}' if deploy_name else TAG__NAME
+    tags = [{'Key': 'Name'              , 'Value': display_name    },
+            {'Key': TAG__SERVICE_KEY    , 'Value': TAG__SERVICE_VALUE},  # immutable — not shown in Name column, survives console renames
+            {'Key': TAG__STAGE_KEY      , 'Value': stage            },
+            {'Key': TAG__DEPLOY_NAME_KEY, 'Value': deploy_name      },
             {'Key': TAG__CREATOR_KEY    , 'Value': creator      },
             {'Key': TAG__API_KEY_NAME_KEY , 'Value': api_key_name  },
             {'Key': TAG__API_KEY_VALUE_KEY, 'Value': api_key_value }]
@@ -404,8 +408,8 @@ def run_instance(ec2: EC2, ami_id: str, security_group_id: str, instance_profile
 
 
 def find_instances(ec2: EC2) -> dict:
-    filters   = [{'Name': 'tag:Name'           , 'Values': [TAG__NAME]                                },
-                 {'Name': 'instance-state-name', 'Values': ['pending', 'running', 'stopping', 'stopped']}]
+    filters   = [{'Name': f'tag:{TAG__SERVICE_KEY}', 'Values': [TAG__SERVICE_VALUE]                    },  # immutable — survives console Name renames
+                 {'Name': 'instance-state-name'    , 'Values': ['pending', 'running', 'stopping', 'stopped']}]
     return ec2.instances_details(filters=filters)
 
 
@@ -594,6 +598,51 @@ def _ssm_run(instance_id: str, commands: list, timeout: int = 60) -> tuple:
     return '', 'Timed out waiting for SSM command result'
 
 
+def _render_create_result(r: dict) -> None:
+    c = Console(highlight=False, width=200)
+    c.print()
+    c.print(Panel(
+        f'[bold green]✅  Instance launched[/]  ·  [bright_white]{r["deploy_name"]}[/]  [dim]{r["instance_id"]}[/]',
+        border_style='green', expand=False))
+    c.print()
+
+    left = Table(box=None, show_header=False, padding=(0, 2), expand=False)
+    left.add_column(style='white',        min_width=14, no_wrap=True)
+    left.add_column(style='bright_white')
+    left.add_row('deploy-name', r['deploy_name']  )
+    left.add_row('stage',       r['stage']        )
+    left.add_row('creator',     r['creator']      )
+    left.add_row('ami',         r['ami_id']       )
+    left.add_row('instance-id', r['instance_id']  )
+
+    right = Table(box=None, show_header=False, padding=(0, 2), expand=False)
+    right.add_column(style='white',        min_width=14, no_wrap=True)
+    right.add_column(style='bright_white')
+    right.add_row('public-ip',    r['public_ip']                               )
+    right.add_row('playwright',   r['playwright_url'] or '—'                   )
+    right.add_row('sidecar-admin',r['sidecar_admin_url'] or '—'                )
+    right.add_row('api-key-name', r['api_key_name']                            )
+    right.add_row('api-key-value',f'[bold green]{r["api_key_value"]}[/]'       )
+
+    cols = Table(box=None, show_header=False, padding=(0, 3), expand=False)
+    cols.add_column()
+    cols.add_column()
+    cols.add_row(left, right)
+    c.print(cols)
+
+    img = Table(box=None, show_header=False, padding=(0, 2), expand=False)
+    img.add_column(style='white',        min_width=10, no_wrap=True)
+    img.add_column(style='dim')
+    img.add_row('playwright', r['playwright_image_uri'])
+    img.add_row('sidecar',    r['sidecar_image_uri']  )
+    c.print()
+    c.print('  [bold bright_cyan]🐳  Images[/]')
+    c.print(img)
+    c.print()
+    c.print(f'  [dim]sg-ec2 wait {r["deploy_name"]}   ·   sg-ec2 forward 8000   ·   sg-ec2 logs[/]')
+    c.print()
+
+
 def _render_health(results: dict, base_url: str) -> None:
     c   = Console(highlight=False, width=200)
     all_ok = all('status' in v and v['status'] == 200 for v in results.values())
@@ -627,7 +676,7 @@ def create(stage                : str           = typer.Option(DEFAULT_STAGE, he
     """Provision a t3.large EC2 instance running the Playwright + agent_mitmproxy stack."""
     result = provision(stage=stage, playwright_image_uri=playwright_image_uri,
                        sidecar_image_uri=sidecar_image_uri, deploy_name=name or '')
-    typer.echo(json.dumps(result, indent=2, default=str))
+    _render_create_result(result)
     if wait and result.get('playwright_url'):
         _cmd_wait(ip=result['public_ip'], api_key_name=result['api_key_name'],
                   api_key_value=result['api_key_value'], timeout=timeout)
@@ -660,17 +709,83 @@ def cmd_list():
     c.print(t)
 
 
+@app.command(name='info')
+def cmd_info(target: Optional[str] = typer.Argument(None, help='Deploy-name or instance-id (auto if only one).')):
+    """Show full details for an instance, reading metadata from its tags."""
+    ec2             = EC2()
+    instance_id, d  = _resolve_target(ec2, target)
+    state_raw       = d.get('state', {})
+    state           = state_raw.get('Name', '?') if isinstance(state_raw, dict) else str(state_raw)
+    ip              = d.get('public_ip', '')
+    deploy_name     = _instance_deploy_name(d)
+    r = {
+        'instance_id'         : instance_id,
+        'deploy_name'         : deploy_name,
+        'stage'               : _instance_tag(d, TAG__STAGE_KEY),
+        'creator'             : _instance_tag(d, TAG__CREATOR_KEY),
+        'ami_id'              : d.get('image_id', '—'),
+        'public_ip'           : ip,
+        'playwright_url'      : f'http://{ip}:{EC2__PLAYWRIGHT_PORT}'    if ip else '—',
+        'sidecar_admin_url'   : f'http://{ip}:{EC2__SIDECAR_ADMIN_PORT}' if ip else '—',
+        'api_key_name'        : _instance_tag(d, TAG__API_KEY_NAME_KEY),
+        'api_key_value'       : _instance_tag(d, TAG__API_KEY_VALUE_KEY),
+        'playwright_image_uri': '(stored in compose file on instance)',
+        'sidecar_image_uri'   : '(stored in compose file on instance)',
+        'state'               : state,
+    }
+    colour = 'green' if state == 'running' else 'yellow' if state == 'pending' else 'red'
+    c      = Console(highlight=False, width=200)
+    c.print()
+    c.print(Panel(
+        f'[bold]ℹ️   Instance info[/]  ·  [bright_white]{deploy_name}[/]  [dim]{instance_id}[/]  '
+        f'[{colour}]{state}[/]',
+        border_style=colour, expand=False))
+    c.print()
+
+    left = Table(box=None, show_header=False, padding=(0, 2), expand=False)
+    left.add_column(style='white',        min_width=14, no_wrap=True)
+    left.add_column(style='bright_white')
+    left.add_row('deploy-name', r['deploy_name']  )
+    left.add_row('stage',       r['stage']        )
+    left.add_row('creator',     r['creator']      )
+    left.add_row('ami',         r['ami_id']       )
+    left.add_row('instance-id', r['instance_id']  )
+
+    right = Table(box=None, show_header=False, padding=(0, 2), expand=False)
+    right.add_column(style='white',        min_width=14, no_wrap=True)
+    right.add_column(style='bright_white')
+    right.add_row('public-ip',     r['public_ip']                          )
+    right.add_row('playwright',    r['playwright_url']                     )
+    right.add_row('sidecar-admin', r['sidecar_admin_url']                  )
+    right.add_row('api-key-name',  r['api_key_name']                       )
+    right.add_row('api-key-value', f'[bold green]{r["api_key_value"]}[/]'  )
+
+    cols = Table(box=None, show_header=False, padding=(0, 3), expand=False)
+    cols.add_column()
+    cols.add_column()
+    cols.add_row(left, right)
+    c.print(cols)
+    c.print()
+    c.print(f'  [dim]sg-ec2 forward 8000 --target {deploy_name}   ·   '
+            f'sg-ec2 health {deploy_name}   ·   sg-ec2 logs --target {deploy_name}[/]')
+    c.print()
+
+
 @app.command(name='delete')
 def cmd_delete(name: Optional[str] = typer.Argument(None, help='Deploy-name or instance-id; omit to delete ALL.')):
     """Delete instance(s) by deploy-name/instance-id, or all if no argument given."""
-    ec2 = EC2()
-    if name and name.startswith('i-'):
-        ec2.instance_terminate(name)
-        deleted = [name]
+    ec2     = EC2()
+    c       = Console(highlight=False, width=200)
+    deleted = []
+    if name:
+        instance_id, details = _resolve_target(ec2, name)
+        deploy = _instance_deploy_name(details) or instance_id
+        c.print(f'  🗑️   Deleting [bright_white]{deploy}[/]  [dim]{instance_id}[/]...')
+        ec2.instance_terminate(instance_id)
+        deleted = [instance_id]
     else:
-        deleted = terminate_instances(ec2, nickname=name or '')
-    c = Console(highlight=False, width=200)
-    c.print(f'  🗑️   Deleted {len(deleted)} instance(s): {", ".join(deleted) or "none"}')
+        deleted = terminate_instances(ec2)
+    c.print(f'  ✅  Deleted {len(deleted)} instance(s): [dim]{", ".join(deleted) or "none"}[/]')
 
 
 @app.command(name='connect')
@@ -720,6 +835,34 @@ def cmd_logs(service : Optional[str] = typer.Option(None, '--service', '-s', hel
         c.print(stdout.rstrip())
     if stderr.strip():
         c.print(f'[yellow]{stderr.rstrip()}[/]')
+
+
+@app.command(name='forward')
+def cmd_forward(port   : str           = typer.Argument('8000', help='Port mapping — local:remote or just remote (uses same local port). e.g. 8000 or 9000:8000.'),
+                target : Optional[str] = typer.Option(None, '--target', '-t', help='Deploy-name or instance-id (auto if only one).') ):
+    """Forward a local port to the EC2 instance via SSM — no security group rule required."""
+    import subprocess
+    local_port, remote_port = port.split(':', 1) if ':' in port else (port, port)
+    ec2         = EC2()
+    instance_id, details = _resolve_target(ec2, target)
+    public_ip   = details.get('public_ip', instance_id)
+    deploy_name = _instance_deploy_name(details) or instance_id
+    c = Console(highlight=False, width=200)
+    c.print()
+    c.print(Panel(
+        f'[bold]🔀  SSM Port Forward[/]\n\n'
+        f'  instance   [bright_white]{deploy_name}[/]  [dim]{instance_id}  {public_ip}[/]\n'
+        f'  tunnel     [bright_white]localhost:{local_port}[/]  →  [bright_white]{public_ip}:{remote_port}[/]\n\n'
+        f'  [green]Access:[/]  [bright_white]http://localhost:{local_port}/[/]\n'
+        f'  [dim]Press Ctrl-C to close the tunnel.[/]',
+        border_style='bright_blue', expand=False))
+    c.print()
+    subprocess.run(['aws', 'ssm', 'start-session',
+                    '--target'       , instance_id,
+                    '--document-name', 'AWS-StartPortForwardingSession',
+                    '--parameters'   , json.dumps({'portNumber'     : [remote_port],
+                                                   'localPortNumber': [local_port ]})],
+                   check=False)
 
 
 @app.command(name='wait')
