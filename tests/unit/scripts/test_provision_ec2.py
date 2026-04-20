@@ -37,6 +37,7 @@ from scripts.provision_ec2 import (DEFAULT_STAGE                ,
                                     IAM__SSM_CORE_POLICY_ARN     ,
                                     SG__NAME                     ,
                                     TAG__NAME                    ,
+                                    TAG__INSTANCE_TYPE_KEY       ,
                                     _resolve_instance_type       ,
                                     render_compose_yaml          ,
                                     render_user_data             )
@@ -169,6 +170,7 @@ class test_constants(TestCase):
         assert IAM__ROLE_NAME                == 'playwright-ec2'                             # No 'sg-*' prefix — AWS reserves it for SG IDs, IAM profiles, and resource names
         assert SG__NAME                      == 'playwright-ec2'
         assert TAG__NAME                     == 'playwright-ec2'
+        assert TAG__INSTANCE_TYPE_KEY        == 'sg:instance-type'
         assert DEFAULT_STAGE                 == 'dev'
 
 

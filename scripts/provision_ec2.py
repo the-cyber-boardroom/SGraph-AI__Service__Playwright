@@ -80,6 +80,7 @@ TAG__DEPLOY_NAME_KEY         = 'sg:deploy-name'                                 
 TAG__CREATOR_KEY             = 'sg:creator'                                             # Who launched this instance (git email or $USER)
 TAG__API_KEY_NAME_KEY        = 'sg:api-key-name'                                        # Stored so 'list' can show it
 TAG__API_KEY_VALUE_KEY       = 'sg:api-key-value'                                       # Stored in tags — only IAM credentials can read EC2 tags
+TAG__INSTANCE_TYPE_KEY       = 'sg:instance-type'                                        # Stored so 'list' can show it
 DEFAULT_STAGE                = 'dev'
 
 _ADJECTIVES = ['bold','bright','calm','clever','cool','daring','deep','eager',
@@ -453,8 +454,9 @@ def run_instance(ec2: EC2, ami_id: str, security_group_id: str, instance_profile
             {'Key': TAG__STAGE_KEY      , 'Value': stage            },
             {'Key': TAG__DEPLOY_NAME_KEY, 'Value': deploy_name      },
             {'Key': TAG__CREATOR_KEY    , 'Value': creator      },
-            {'Key': TAG__API_KEY_NAME_KEY , 'Value': api_key_name  },
-            {'Key': TAG__API_KEY_VALUE_KEY, 'Value': api_key_value }]
+            {'Key': TAG__API_KEY_NAME_KEY , 'Value': api_key_name   },
+            {'Key': TAG__API_KEY_VALUE_KEY, 'Value': api_key_value },
+            {'Key': TAG__INSTANCE_TYPE_KEY, 'Value': instance_type }]
     kwargs = {'ImageId'                          : ami_id                                    ,
               'InstanceType'                     : instance_type                             ,
               'MinCount'                         : 1                                         ,
@@ -876,7 +878,7 @@ def create(stage                : str           = typer.Option(DEFAULT_STAGE, he
            sidecar_image_uri    : Optional[str] = typer.Option(None, '--sidecar-image-uri',    help='Override sidecar ECR image URI.')                       ,
            from_ami             : Optional[str] = typer.Option(None, '--from-ami',         help='Launch from a pre-baked AMI ID (skips docker install + image pull).'),
            instance_type        : Optional[str] = typer.Option(None, '--instance-type',    help=f'Instance type or preset 1–5 (default: {EC2__INSTANCE_TYPE}). E.g. --instance-type 3 or --instance-type c5.xlarge.'),
-           max_hours            : Optional[int] = typer.Option(None, '--max-hours',        help='Auto-terminate after N hours (sets shutdown timer + terminate-on-shutdown).'),
+           max_hours            : int           = typer.Option(4,    '--max-hours',        help='Auto-terminate after N hours (sets shutdown timer + terminate-on-shutdown). Default: 4.'),
            interactive          : bool          = typer.Option(False, '--interactive', '-i', help='Ask questions before launching (instance type, smoke workflow).')  ,
            smoke                : bool          = typer.Option(False, '--smoke',            help='After instance is up: run smoke test then delete (implies --wait).')  ,
            wait                 : bool          = typer.Option(False, '--wait',             help='Poll health until up.')                                     ,
@@ -904,8 +906,9 @@ def create(stage                : str           = typer.Option(DEFAULT_STAGE, he
     resolved_name    = result['deploy_name']
 
     if wait or run_smoke:
-        _cmd_wait(ip=result['public_ip'], api_key_name=result['api_key_name'],
-                  api_key_value=result['api_key_value'], timeout=timeout)
+        _cmd_wait(ip=result['public_ip'], port=EC2__PLAYWRIGHT_PORT,
+                  api_key_name=result['api_key_name'], api_key_value=result['api_key_value'],
+                  timeout=timeout, interval=10)
 
     if run_smoke:
         smoke_ok = True
@@ -931,21 +934,23 @@ def cmd_list():
         c.print('  [dim]No instances found.[/]')
         return
     t = Table(show_header=True, header_style='bold blue', box=None, padding=(0, 2))
-    t.add_column('deploy-name', style='bold')
-    t.add_column('instance-id', style='dim')
+    t.add_column('deploy-name',    style='bold')
+    t.add_column('instance-id',   style='dim')
     t.add_column('state')
-    t.add_column('public-ip',   style='green')
-    t.add_column('creator',     style='dim')
-    t.add_column('api-key',     style='dim')
+    t.add_column('instance-type', style='cyan')
+    t.add_column('public-ip',     style='green')
+    t.add_column('creator',       style='dim')
+    t.add_column('api-key',       style='dim')
     for iid, d in instances.items():
-        state_raw  = d.get('state', '?')
-        state      = state_raw.get('Name', '?') if isinstance(state_raw, dict) else str(state_raw)
-        ip         = d.get('public_ip', '')
-        deploy     = _instance_deploy_name(d)
-        creator    = _instance_tag(d, TAG__CREATOR_KEY)
-        api_key    = _instance_tag(d, TAG__API_KEY_VALUE_KEY)
-        colour     = 'green' if state == 'running' else 'yellow' if state == 'pending' else 'red'
-        t.add_row(deploy, iid, f'[{colour}]{state}[/]', ip, creator, api_key)
+        state_raw      = d.get('state', '?')
+        state          = state_raw.get('Name', '?') if isinstance(state_raw, dict) else str(state_raw)
+        ip             = d.get('public_ip', '')
+        deploy         = _instance_deploy_name(d)
+        creator        = _instance_tag(d, TAG__CREATOR_KEY)
+        api_key        = _instance_tag(d, TAG__API_KEY_VALUE_KEY)
+        instance_type  = _instance_tag(d, TAG__INSTANCE_TYPE_KEY) or d.get('instance_type', '?')
+        colour         = 'green' if state == 'running' else 'yellow' if state == 'pending' else 'red'
+        t.add_row(deploy, iid, f'[{colour}]{state}[/]', instance_type, ip, creator, api_key)
     c.print(t)
 
 
@@ -1545,10 +1550,19 @@ def cmd_health(ip           : Optional[str] = typer.Argument(None, help='Public 
                api_key_name  : Optional[str] = typer.Option(None, envvar='FAST_API__AUTH__API_KEY__NAME' )       ,
                api_key_value : Optional[str] = typer.Option(None, envvar='FAST_API__AUTH__API_KEY__VALUE')       ):
     """Run health checks against a live instance and display results."""
-    actual_ip = _resolve_ip(EC2(), ip)
+    ec2           = EC2()
+    tag_key_name  = ''
+    tag_key_value = ''
+    if ip and ip.replace('.', '').isdigit():
+        actual_ip = ip
+    else:
+        _, details    = _resolve_target(ec2, ip)
+        actual_ip     = details.get('public_ip', '')
+        tag_key_name  = _instance_tag(details, TAG__API_KEY_NAME_KEY)
+        tag_key_value = _instance_tag(details, TAG__API_KEY_VALUE_KEY)
     base_url  = f'http://{actual_ip}:{port}'
-    key_name  = api_key_name  or get_env('FAST_API__AUTH__API_KEY__NAME' ) or 'X-API-Key'
-    key_value = api_key_value or get_env('FAST_API__AUTH__API_KEY__VALUE') or ''
+    key_name  = api_key_name  or get_env('FAST_API__AUTH__API_KEY__NAME' ) or tag_key_name  or 'X-API-Key'
+    key_value = api_key_value or get_env('FAST_API__AUTH__API_KEY__VALUE') or tag_key_value or ''
     _render_health(_health_check_once(base_url, key_name, key_value), base_url)
 
 
