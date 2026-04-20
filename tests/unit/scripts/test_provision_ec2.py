@@ -4,6 +4,9 @@
 # Scope (unit-level, no real AWS):
 #   • module surface          — exposes all expected helpers + provision/main.
 #   • constants               — t3.large, ports, IAM role/SG/tag names.
+#   • preflight_check         — credential failure exits with code 1;
+#                               warning when API key default is used;
+#                               summary output contains key info.
 #   • render_compose_yaml     — both image URIs, key env vars, network, ports.
 #   • render_user_data        — docker install, compose plugin, both pulls,
 #                               embedded compose YAML, docker compose up.
@@ -13,11 +16,16 @@
 # End-to-end create/terminate is out of scope (local-invoke script, not CI).
 # ═══════════════════════════════════════════════════════════════════════════════
 
+import io
+import sys
 from unittest import TestCase
+
+import pytest
 
 from scripts import provision_ec2
 from scripts.provision_ec2 import (DEFAULT_STAGE              ,
                                     EC2__AMI_NAME_AL2023       ,
+                                    preflight_check            ,
                                     EC2__INSTANCE_TYPE         ,
                                     EC2__PLAYWRIGHT_PORT       ,
                                     EC2__SIDECAR_ADMIN_PORT    ,
@@ -33,6 +41,70 @@ from scripts.provision_ec2 import (DEFAULT_STAGE              ,
 
 PLAYWRIGHT_URI = '123456789012.dkr.ecr.eu-west-2.amazonaws.com/sgraph_ai_service_playwright:latest'
 SIDECAR_URI    = '123456789012.dkr.ecr.eu-west-2.amazonaws.com/agent_mitmproxy:latest'
+FAKE_REGISTRY  = '123456789012.dkr.ecr.eu-west-2.amazonaws.com'
+
+
+def _stub_aws(fn):
+    """Stub aws_account_id / aws_region / ecr_registry_host for tests that don't need real creds."""
+    orig_account  = provision_ec2.aws_account_id
+    orig_region   = provision_ec2.aws_region
+    orig_registry = provision_ec2.ecr_registry_host
+    provision_ec2.aws_account_id    = lambda: '123456789012'
+    provision_ec2.aws_region        = lambda: 'eu-west-2'
+    provision_ec2.ecr_registry_host = lambda: FAKE_REGISTRY
+    try:
+        return fn()
+    finally:
+        provision_ec2.aws_account_id    = orig_account
+        provision_ec2.aws_region        = orig_region
+        provision_ec2.ecr_registry_host = orig_registry
+
+
+class test_preflight_check(TestCase):
+
+    def test__exits_1_when_aws_credentials_missing(self):
+        orig = provision_ec2.aws_account_id
+        provision_ec2.aws_account_id = lambda: (_ for _ in ()).throw(Exception('Unable to locate credentials'))
+        try:
+            with pytest.raises(SystemExit) as exc_info:
+                preflight_check()
+            assert exc_info.value.code == 1
+        finally:
+            provision_ec2.aws_account_id = orig
+
+    def test__prints_account_region_registry_and_image_uris(self, capsys=None):
+        output = io.StringIO()
+        orig_stdout = sys.stdout
+        sys.stdout  = output
+        try:
+            _stub_aws(preflight_check)
+        finally:
+            sys.stdout = orig_stdout
+        text = output.getvalue()
+        assert '123456789012'   in text
+        assert 'eu-west-2'      in text
+        assert FAKE_REGISTRY    in text
+        assert 'playwright'     in text
+        assert 'agent_mitmproxy' in text
+
+    def test__warns_when_api_key_value_not_set(self):
+        import os
+        orig_key = os.environ.pop('FAST_API__AUTH__API_KEY__VALUE', None)
+        output   = io.StringIO()
+        orig_stdout, sys.stdout = sys.stdout, output
+        try:
+            _stub_aws(preflight_check)
+        finally:
+            sys.stdout = orig_stdout
+            if orig_key is not None:
+                os.environ['FAST_API__AUTH__API_KEY__VALUE'] = orig_key
+        assert 'FAST_API__AUTH__API_KEY__VALUE' in output.getvalue()
+
+    def test__returns_account_region_registry(self):
+        result = _stub_aws(preflight_check)
+        assert result['account']  == '123456789012'
+        assert result['region']   == 'eu-west-2'
+        assert result['registry'] == FAKE_REGISTRY
 
 
 class test_module_surface(TestCase):

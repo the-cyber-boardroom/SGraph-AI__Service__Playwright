@@ -143,6 +143,107 @@ def default_sidecar_image_uri() -> str:
     return f'{ecr_registry_host()}/{SIDECAR_IMAGE_NAME}:latest'
 
 
+def preflight_check(playwright_image_uri: str = None, sidecar_image_uri: str = None) -> dict:
+    """Validate AWS credentials + resolve config. Prints a summary and exits on failure."""
+    errors = []
+
+    # ── AWS credentials ───────────────────────────────────────────────────────
+    try:
+        account  = aws_account_id()
+        region   = aws_region()
+        registry = ecr_registry_host()
+    except Exception as exc:
+        _print_preflight_error([
+            'AWS credentials not found.',
+            '',
+            f'  Error: {exc}',
+            '',
+            'Provide credentials via one of:',
+            '  export AWS_ACCESS_KEY_ID=...    AWS_SECRET_ACCESS_KEY=...    AWS_DEFAULT_REGION=...',
+            '  export AWS_PROFILE=<profile>    (uses ~/.aws/credentials)',
+            '  aws configure                   (interactive)',
+        ])
+
+    resolved_playwright = playwright_image_uri or f'{registry}/{PLAYWRIGHT_IMAGE_NAME}:latest'
+    resolved_sidecar    = sidecar_image_uri    or f'{registry}/{SIDECAR_IMAGE_NAME}:latest'
+
+    # ── API key ───────────────────────────────────────────────────────────────
+    api_key_name  = get_env('FAST_API__AUTH__API_KEY__NAME' ) or 'X-API-Key'
+    api_key_value = get_env('FAST_API__AUTH__API_KEY__VALUE')
+    if not api_key_value:
+        errors.append('FAST_API__AUTH__API_KEY__VALUE is not set — containers will use the insecure default "ec2-dev".')
+        api_key_value = 'ec2-dev  (default — set FAST_API__AUTH__API_KEY__VALUE to override)'
+
+    # ── Upstream forwarding (optional) ────────────────────────────────────────
+    upstream_url  = get_env('AGENT_MITMPROXY__UPSTREAM_URL' ) or ''
+    upstream_user = get_env('AGENT_MITMPROXY__UPSTREAM_USER') or ''
+    upstream_pass = get_env('AGENT_MITMPROXY__UPSTREAM_PASS') or ''
+    if upstream_url and not (upstream_user and upstream_pass):
+        errors.append('AGENT_MITMPROXY__UPSTREAM_URL is set but UPSTREAM_USER/PASS are missing — sidecar will try unauthenticated upstream.')
+
+    # ── Print summary ─────────────────────────────────────────────────────────
+    lines = [
+        '=== provision_ec2.py — preflight ===',
+        '',
+        'AWS:',
+        f'  account  : {account}',
+        f'  region   : {region}',
+        f'  registry : {registry}',
+        '',
+        'Images:',
+        f'  playwright : {resolved_playwright}',
+        f'  sidecar    : {resolved_sidecar}',
+        '',
+        'API key:',
+        f'  name  : {api_key_name}',
+        f'  value : {api_key_value}',
+        '',
+    ]
+    if upstream_url:
+        lines += [
+            'Upstream forwarding:',
+            f'  url  : {upstream_url}',
+            f'  user : {"(set)" if upstream_user else "(not set)"}',
+            f'  pass : {"(set)" if upstream_pass else "(not set)"}',
+            '',
+        ]
+    else:
+        lines += ['Upstream forwarding: none (sidecar runs in direct mode)', '']
+
+    lines += [
+        f'Stack: t3.large / AL2023 / IAM={IAM__ROLE_NAME} / SG={SG__NAME} / tag={TAG__NAME}',
+        f'Ports: playwright :{EC2__PLAYWRIGHT_PORT}  sidecar-admin :{EC2__SIDECAR_ADMIN_PORT}  (proxy :8080 Docker-network-only)',
+    ]
+
+    print('\n'.join(lines))
+
+    if errors:
+        print('\nWarnings:')
+        for e in errors:
+            print(f'  ⚠  {e}')
+
+    print()
+    return {'account': account, 'region': region, 'registry': registry}
+
+
+def _print_preflight_error(lines: list) -> None:
+    print('\nERROR: ' + '\n       '.join(lines[0:1]))
+    for line in lines[1:]:
+        print(f'       {line}' if line else '')
+    print()
+    sys.exit(1)
+
+
+    role = IAM_Role(role_name=IAM__ROLE_NAME)
+    if role.not_exists():
+        role.create_for_service__assume_role(IAM__ASSUME_ROLE_SERVICE)
+        role.create_instance_profile()
+        role.add_to_instance_profile()
+    for policy_arn in IAM__POLICY_ARNS:
+        role.iam.role_policy_attach(policy_arn)
+    return IAM__ROLE_NAME
+
+
 def ensure_instance_profile() -> str:
     role = IAM_Role(role_name=IAM__ROLE_NAME)
     if role.not_exists():
@@ -296,6 +397,9 @@ def main() -> int:
     parser.add_argument('--sidecar-image-uri'     , default=None         , help='Override sidecar ECR image URI')
     parser.add_argument('--terminate'             , action='store_true'  , help='Terminate all instances tagged Name=sg-playwright-ec2 and exit')
     args = parser.parse_args()
+
+    preflight_check(playwright_image_uri = args.playwright_image_uri,
+                    sidecar_image_uri    = args.sidecar_image_uri   )
 
     result = provision(stage                 = args.stage                ,
                         playwright_image_uri  = args.playwright_image_uri ,

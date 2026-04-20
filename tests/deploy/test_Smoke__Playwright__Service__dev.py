@@ -69,3 +69,16 @@ class test_Smoke__Playwright__Service__dev(TestCase):
     def test_4__unauthenticated_is_rejected(self):                                      # Middleware must block requests without the API key
         response = requests.get(f'{self.function_url}health/info', timeout=self.REQUEST_TIMEOUT_S)
         assert response.status_code == 401, f'expected 401 without API key header; got {response.status_code}'
+
+    BROWSER_TIMEOUT_S = 60                                                              # Browser cold-start + nav can take ~2-4s; 60s gives room for Lambda cold start
+
+    def test_5__browser_navigate_renders_page(self):                                    # Validates the full chain: boot shim → Playwright → real site; health checks can't catch broken code-loader paths
+        payload  = {'url': 'https://example.com'}
+        response = requests.post(f'{self.function_url}browser/get-content',
+                                  json    = payload            ,
+                                  headers = self.auth_headers  ,
+                                  timeout = self.BROWSER_TIMEOUT_S)
+        assert response.status_code == 200, f'browser/get-content failed: {response.status_code} {response.text[:200]}'
+        data = response.json()
+        assert 'html'         in data, 'response missing html field'
+        assert 'Example Domain' in data['html'], f'unexpected page content: {str(data["html"])[:300]}'

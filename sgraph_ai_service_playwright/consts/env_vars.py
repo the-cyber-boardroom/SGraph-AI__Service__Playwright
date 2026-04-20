@@ -37,7 +37,22 @@ ENV_VAR__SG_SEND_VAULT_KEY             = 'SG_PLAYWRIGHT__SG_SEND_VAULT_KEY'     
 # ── Browser defaults ─────────────────────────────────────────────────────────
 ENV_VAR__DEFAULT_HEADLESS              = 'SG_PLAYWRIGHT__DEFAULT_HEADLESS'
 ENV_VAR__DEFAULT_PROXY_URL             = 'SG_PLAYWRIGHT__DEFAULT_PROXY_URL'
-ENV_VAR__IGNORE_HTTPS_ERRORS           = 'SG_PLAYWRIGHT__IGNORE_HTTPS_ERRORS'       # For TLS-intercepting proxies
+# Boot-time proxy for all browser requests. Set this at container start, not per request.
+#
+# Deployment matrix:
+#   Lambda  — leave UNSET. Lambda goes direct to internet; no sidecar is available.
+#             Setting an authenticated proxy URL here will cause requests to hang
+#             (Chromium ignores launch-time proxy credentials — the bug the EC2
+#             sidecar exists to work around). Plain unauthenticated proxy URLs are
+#             accepted but untested and not officially supported on Lambda.
+#   EC2     — set to http://agent-mitmproxy:8080 (the Docker service name on sg-net).
+#             The sidecar handles upstream auth; no credentials cross the browser boundary.
+#   Laptop  — leave UNSET for direct testing, or point at a local mitmproxy if needed.
+ENV_VAR__IGNORE_HTTPS_ERRORS           = 'SG_PLAYWRIGHT__IGNORE_HTTPS_ERRORS'
+# Set to any non-empty value to pass ignore_https_errors=True to the browser context.
+# Required on EC2 where agent_mitmproxy does TLS interception (presents forged certs).
+# Must be UNSET on Lambda and laptop — those deployments connect directly to real TLS
+# endpoints and should reject cert errors normally.
 ENV_VAR__CHROMIUM_EXECUTABLE           = 'SG_PLAYWRIGHT__CHROMIUM_EXECUTABLE'       # Override path to Chromium binary (sandbox / custom Chrome / laptop)
 
 # ── Deployment target detection ──────────────────────────────────────────────
