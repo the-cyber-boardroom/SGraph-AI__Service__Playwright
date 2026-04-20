@@ -46,7 +46,7 @@ EC2__SIDECAR_ADMIN_PORT      = 8001                                             
 
 WATCHDOG_MAX_REQUEST_MS      = 120_000                                                  # 120s — covers Firefox + long upstream-proxy round-trips
 
-IAM__ROLE_NAME               = 'sg-playwright-ec2'
+IAM__ROLE_NAME               = 'playwright-ec2'                                         # AWS reserves 'sg-*' prefix — applies to SG names, IAM instance profiles, and resource tags
 IAM__ECR_READONLY_POLICY_ARN = 'arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly'
 IAM__SSM_CORE_POLICY_ARN     = 'arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore'  # SSM session manager — no SSH needed
 IAM__POLICY_ARNS             = (IAM__ECR_READONLY_POLICY_ARN, IAM__SSM_CORE_POLICY_ARN)
@@ -55,7 +55,7 @@ IAM__ASSUME_ROLE_SERVICE     = 'ec2.amazonaws.com'
 SG__NAME                     = 'playwright-ec2'                                         # AWS reserves 'sg-*' prefix for SG IDs
 SG__DESCRIPTION              = 'SG Playwright EC2 stack - ingress :8000 (API) + :8001 (sidecar admin)'
 
-TAG__NAME                    = 'sg-playwright-ec2'
+TAG__NAME                    = 'playwright-ec2'
 TAG__STAGE_KEY               = 'stage'
 DEFAULT_STAGE                = 'dev'
 
