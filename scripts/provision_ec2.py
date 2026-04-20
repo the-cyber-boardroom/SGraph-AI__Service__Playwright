@@ -813,20 +813,22 @@ def cmd_connect(target: Optional[str] = typer.Argument(None, help='Deploy-name o
 
 
 @app.command(name='exec')
-def cmd_exec(command   : str          = typer.Argument(..., help='Shell command to run on the EC2 host, or inside a container with --container.'),
+def cmd_exec(command   : Optional[str] = typer.Argument(None, help='Shell command to run on the EC2 host, or inside a container with --container.'),
              target    : Optional[str] = typer.Option(None, '--target', '-t', help='Deploy-name or instance-id (auto if only one).'),
+             cmd       : Optional[str] = typer.Option(None, '--cmd',    help='Alias for the positional COMMAND argument.'),
              container : Optional[str] = typer.Option(None, '--container', '-c',
                                                        help='Run inside this Compose service (playwright or agent-mitmproxy).') ):
     """Execute a shell command on the EC2 host or inside a Docker container via SSM."""
+    shell_cmd = command or cmd
+    if not shell_cmd:
+        raise typer.BadParameter('Provide a command as a positional argument or via --cmd.')
     ec2         = EC2()
     instance_id, _ = _resolve_target(ec2, target)
     if container:
-        cmd = f'docker compose -f {COMPOSE_FILE_PATH} exec -T {container} {command}'
-    else:
-        cmd = command
+        shell_cmd = f'docker compose -f {COMPOSE_FILE_PATH} exec -T {container} {shell_cmd}'
     c = Console(highlight=False, width=200)
-    c.print(f'  💻  [{instance_id}]{"[" + container + "]" if container else ""}  [dim]{cmd}[/]')
-    stdout, stderr = _ssm_run(instance_id, [cmd])
+    c.print(f'  💻  [{instance_id}]{"[" + container + "]" if container else ""}  [dim]{shell_cmd}[/]')
+    stdout, stderr = _ssm_run(instance_id, [shell_cmd])
     if stdout.strip():
         c.print(stdout.rstrip())
     if stderr.strip():
