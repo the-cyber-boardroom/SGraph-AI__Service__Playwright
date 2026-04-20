@@ -1,0 +1,54 @@
+# ═══════════════════════════════════════════════════════════════════════════════
+# SG Playwright + Agent Mitmproxy — docker-compose.yml
+#
+# Brings up both containers on a shared Docker network. The sidecar proxy
+# port (:8080) is Docker-network-only — not mapped to the host. Playwright
+# connects to it at http://agent-mitmproxy:8080 via the sg-net bridge.
+#
+# Usage (local dev):
+#   cp .env.example .env                    # fill in ECR_REGISTRY + secrets
+#   aws ecr get-login-password --region <region> \
+#     | docker login --username AWS --password-stdin <ECR_REGISTRY>
+#   docker compose pull
+#   docker compose up
+#
+# Playwright API:     http://localhost:8000
+# Sidecar admin API: http://localhost:8001
+# ═══════════════════════════════════════════════════════════════════════════════
+
+services:
+
+  playwright:
+    image: ${ECR_REGISTRY}/sgraph_ai_service_playwright:${IMAGE_TAG:-latest}
+    ports:
+      - "8000:8000"
+    environment:
+      FAST_API__AUTH__API_KEY__NAME:           ${FAST_API__AUTH__API_KEY__NAME:-X-API-Key}
+      FAST_API__AUTH__API_KEY__VALUE:          ${FAST_API__AUTH__API_KEY__VALUE:-change-me}
+      SG_PLAYWRIGHT__DEPLOYMENT_TARGET:        container
+      SG_PLAYWRIGHT__DEFAULT_PROXY_URL:        http://agent-mitmproxy:8080
+      SG_PLAYWRIGHT__IGNORE_HTTPS_ERRORS:      'true'
+      SG_PLAYWRIGHT__WATCHDOG_MAX_REQUEST_MS:  ${SG_PLAYWRIGHT__WATCHDOG_MAX_REQUEST_MS:-120000}
+    networks:
+      - sg-net
+    depends_on:
+      - agent-mitmproxy
+    restart: unless-stopped
+
+  agent-mitmproxy:
+    image: ${ECR_REGISTRY}/agent_mitmproxy:${IMAGE_TAG:-latest}
+    ports:
+      - "8001:8000"                            # sidecar admin API on host :8001; proxy :8080 stays on sg-net only
+    environment:
+      FAST_API__AUTH__API_KEY__NAME:        ${FAST_API__AUTH__API_KEY__NAME:-X-API-Key}
+      FAST_API__AUTH__API_KEY__VALUE:       ${FAST_API__AUTH__API_KEY__VALUE:-change-me}
+      AGENT_MITMPROXY__UPSTREAM_URL:        ${AGENT_MITMPROXY__UPSTREAM_URL:-}
+      AGENT_MITMPROXY__UPSTREAM_USER:       ${AGENT_MITMPROXY__UPSTREAM_USER:-}
+      AGENT_MITMPROXY__UPSTREAM_PASS:       ${AGENT_MITMPROXY__UPSTREAM_PASS:-}
+    networks:
+      - sg-net
+    restart: unless-stopped
+
+networks:
+  sg-net:
+    driver: bridge

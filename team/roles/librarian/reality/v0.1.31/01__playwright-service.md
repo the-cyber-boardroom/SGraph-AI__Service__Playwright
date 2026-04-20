@@ -101,7 +101,10 @@ Unchanged from v0.1.24, with the following exceptions from v0.1.33 (P2 proxy cle
 
 ---
 
-## EC2 spike (v0.1.31)
+## EC2 two-container stack (v0.1.33)
 
-- `scripts/provision_ec2.py` — throwaway EC2 spin-up to reproduce Firefox/WebKit-on-Lambda hangs on a t3.large AL2023 host. IAM role `sg-playwright-ec2-spike` + matching instance profile (attaches `AmazonEC2ContainerRegistryReadOnly` + `AmazonSSMManagedInstanceCore`). SG `playwright-ec2-spike` (no `sg-` prefix — AWS reserves that for SG IDs). UserData installs Docker, `aws ecr get-login-password`, `docker pull`, and runs the container on `:8000` with `FAST_API__AUTH__API_KEY__*` + `SG_PLAYWRIGHT__DEPLOYMENT_TARGET=container` + `SG_PLAYWRIGHT__WATCHDOG_MAX_REQUEST_MS=120000`. `--terminate` tears down any instance tagged `Name=sg-playwright-ec2-spike`.
-- Tests: `tests/unit/scripts/test_provision_ec2.py`.
+- `docker-compose.yml` (repo root) — brings up Playwright + agent_mitmproxy on a shared `sg-net` bridge network. Playwright on host `:8000`, sidecar admin API on host `:8001`, sidecar proxy `:8080` Docker-network-only (never on host). Reads from `.env` (see `.env.example`). `SG_PLAYWRIGHT__DEFAULT_PROXY_URL=http://agent-mitmproxy:8080` + `SG_PLAYWRIGHT__IGNORE_HTTPS_ERRORS=true` are wired in.
+- `.env.example` (repo root) — template for ECR registry, API key, optional upstream forwarding vars.
+- `scripts/provision_ec2.py` (v0.1.33) — unified EC2 provisioner replacing the two spike scripts. t3.large AL2023 instance; IAM role `sg-playwright-ec2` + SSM access; SG `playwright-ec2` opens `:8000` + `:8001` (sidecar proxy stays internal). UserData installs `docker docker-compose-plugin`, logs into ECR, pulls both images, writes `/opt/sg-playwright/docker-compose.yml` inline, runs `docker compose up -d`. `--terminate` tears down by `Name=sg-playwright-ec2` tag.
+- **DELETED** `scripts/provision_mitmproxy_ec2.py` and `tests/unit/scripts/test_provision_mitmproxy_ec2.py` — replaced by unified script above.
+- Tests: `tests/unit/scripts/test_provision_ec2.py` (19 tests).
