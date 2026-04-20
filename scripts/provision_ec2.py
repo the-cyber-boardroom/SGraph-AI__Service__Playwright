@@ -28,6 +28,7 @@ import argparse
 import json
 import sys
 import textwrap
+import time
 
 from osbot_aws.AWS_Config                                                                import AWS_Config
 from osbot_aws.aws.ec2.EC2                                                               import EC2
@@ -251,8 +252,17 @@ def ensure_instance_profile() -> str:
     role = IAM_Role(role_name=IAM__ROLE_NAME)
     if role.not_exists():
         role.create_for_service__assume_role(IAM__ASSUME_ROLE_SERVICE)
+    # Always ensure the instance profile exists and the role is attached —
+    # these calls are idempotent: catch EntityAlreadyExists / LimitExceeded
+    # so a partial previous run doesn't leave the profile missing.
+    try:
         role.create_instance_profile()
+    except Exception:
+        pass
+    try:
         role.add_to_instance_profile()
+    except Exception:
+        pass
     for policy_arn in IAM__POLICY_ARNS:
         role.iam.role_policy_attach(policy_arn)
     return IAM__ROLE_NAME
@@ -318,9 +328,18 @@ def run_instance(ec2: EC2, ami_id: str, security_group_id: str, instance_profile
               'TagSpecifications' : [{'ResourceType': 'instance',
                                       'Tags'        : [{'Key': 'Name'        , 'Value': TAG__NAME},
                                                        {'Key': TAG__STAGE_KEY, 'Value': stage    }]}]}
-    result      = ec2.client().run_instances(**kwargs)
-    instance_id = result.get('Instances', [{}])[0].get('InstanceId')
-    return instance_id
+    for attempt in range(5):
+        try:
+            result      = ec2.client().run_instances(**kwargs)
+            instance_id = result.get('Instances', [{}])[0].get('InstanceId')
+            return instance_id
+        except Exception as exc:
+            if 'Invalid IAM Instance Profile' in str(exc) and attempt < 4:
+                wait = 5 * (attempt + 1)
+                print(f'  IAM profile not yet visible to EC2, retrying in {wait}s (attempt {attempt + 1}/5)...')
+                time.sleep(wait)
+                continue
+            raise
 
 
 def find_instance_ids(ec2: EC2) -> list:
