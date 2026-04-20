@@ -148,21 +148,24 @@ def preflight_check(playwright_image_uri: str = None, sidecar_image_uri: str = N
     errors = []
 
     # ── AWS credentials ───────────────────────────────────────────────────────
+    _CREDS_HELP = [
+        'AWS credentials not found or not valid.',
+        '',
+        'Provide credentials via one of:',
+        '  export AWS_ACCESS_KEY_ID=...    AWS_SECRET_ACCESS_KEY=...    AWS_DEFAULT_REGION=...',
+        '  export AWS_PROFILE=<profile>    (uses ~/.aws/credentials)',
+        '  aws configure                   (interactive)',
+    ]
     try:
-        account  = aws_account_id()
-        region   = aws_region()
-        registry = ecr_registry_host()
+        account = aws_account_id()
+        region  = aws_region()
     except Exception as exc:
-        _print_preflight_error([
-            'AWS credentials not found.',
-            '',
-            f'  Error: {exc}',
-            '',
-            'Provide credentials via one of:',
-            '  export AWS_ACCESS_KEY_ID=...    AWS_SECRET_ACCESS_KEY=...    AWS_DEFAULT_REGION=...',
-            '  export AWS_PROFILE=<profile>    (uses ~/.aws/credentials)',
-            '  aws configure                   (interactive)',
-        ])
+        _print_preflight_error(_CREDS_HELP + ['', f'  Error: {exc}'])
+
+    if not account:                                                                      # AWS_Config returns None (not an exception) when STS call fails
+        _print_preflight_error(_CREDS_HELP)
+
+    registry = ecr_registry_host()
 
     resolved_playwright = playwright_image_uri or f'{registry}/{PLAYWRIGHT_IMAGE_NAME}:latest'
     resolved_sidecar    = sidecar_image_uri    or f'{registry}/{SIDECAR_IMAGE_NAME}:latest'

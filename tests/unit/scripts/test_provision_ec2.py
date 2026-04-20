@@ -62,9 +62,19 @@ def _stub_aws(fn):
 
 class test_preflight_check(TestCase):
 
-    def test__exits_1_when_aws_credentials_missing(self):
+    def test__exits_1_when_aws_credentials_missing_exception(self):
         orig = provision_ec2.aws_account_id
         provision_ec2.aws_account_id = lambda: (_ for _ in ()).throw(Exception('Unable to locate credentials'))
+        try:
+            with pytest.raises(SystemExit) as exc_info:
+                preflight_check()
+            assert exc_info.value.code == 1
+        finally:
+            provision_ec2.aws_account_id = orig
+
+    def test__exits_1_when_aws_account_id_returns_none(self):                           # AWS_Config returns None (not exception) when STS call fails silently
+        orig = provision_ec2.aws_account_id
+        provision_ec2.aws_account_id = lambda: None
         try:
             with pytest.raises(SystemExit) as exc_info:
                 preflight_check()
