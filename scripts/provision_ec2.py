@@ -67,7 +67,15 @@ IAM__ROLE_NAME               = 'playwright-ec2'                                 
 IAM__ECR_READONLY_POLICY_ARN = 'arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly'
 IAM__SSM_CORE_POLICY_ARN     = 'arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore'  # SSM session manager — no SSH needed
 IAM__POLICY_ARNS             = (IAM__ECR_READONLY_POLICY_ARN, IAM__SSM_CORE_POLICY_ARN)
+IAM__CLOUDWATCH_POLICY_ARN    = 'arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy'
+IAM__XRAY_POLICY_ARN          = 'arn:aws:iam::aws:policy/AWSXRayDaemonWriteAccess'
+IAM__PROMETHEUS_RW_POLICY_ARN = 'arn:aws:iam::aws:policy/AmazonPrometheusRemoteWriteAccess'
+IAM__OBSERVABILITY_POLICY_ARNS = (IAM__CLOUDWATCH_POLICY_ARN, IAM__XRAY_POLICY_ARN, IAM__PROMETHEUS_RW_POLICY_ARN)
 IAM__ASSUME_ROLE_SERVICE     = 'ec2.amazonaws.com'
+
+EC2__PROMETHEUS_PORT  = 9090
+EC2__GRAFANA_PORT     = 3000
+EC2__LOKI_PORT        = 3100
 
 SG__NAME                     = 'playwright-ec2'                                         # AWS reserves 'sg-*' prefix for SG IDs
 SG__DESCRIPTION              = 'SG Playwright EC2 stack - ingress :8000 (API) + :8001 (sidecar admin) — ALL open ports MUST be behind API key auth (including static sites)'
@@ -111,11 +119,13 @@ exec > >(tee /var/log/sg-playwright-start.log | logger -t sg-playwright) 2>&1
 echo "=== SG Playwright AMI boot at $(date) ==="
 
 mkdir -p /opt/sg-playwright
+mkdir -p /opt/sg-playwright/config/dashboards
 
 cat > /opt/sg-playwright/docker-compose.yml << 'SG_COMPOSE_EOF'
 {compose_content}
 SG_COMPOSE_EOF
 
+{observability_configs_section}
 docker compose -f /opt/sg-playwright/docker-compose.yml up -d
 
 echo "=== SG Playwright AMI start complete at $(date) ==="
@@ -170,10 +180,283 @@ COMPOSE_YAML_TEMPLATE = textwrap.dedent("""\
           - sg-net
         restart: always
 
+      prometheus:
+        image: prom/prometheus:v2.51.0
+        volumes:
+          - /opt/sg-playwright/config:/etc/prometheus:ro
+          - prometheus_data:/prometheus
+        command:
+          - '--config.file=/etc/prometheus/prometheus.yml'
+          - '--storage.tsdb.path=/prometheus'
+          - '--web.enable-lifecycle'
+        networks:
+          - sg-net
+        restart: always
+
+      grafana:
+        image: grafana/grafana:10.4.2
+        volumes:
+          - grafana_data:/var/lib/grafana
+          - /opt/sg-playwright/config/grafana-datasources.yaml:/etc/grafana/provisioning/datasources/datasources.yaml:ro
+          - /opt/sg-playwright/config/grafana-dashboards.yaml:/etc/grafana/provisioning/dashboards/dashboards.yaml:ro
+          - /opt/sg-playwright/config/dashboards:/var/lib/grafana/dashboards:ro
+        environment:
+          GF_AUTH_ANONYMOUS_ENABLED: 'false'
+          GF_SECURITY_ADMIN_PASSWORD: '{api_key_value}'
+        networks:
+          - sg-net
+        restart: always
+
+      cadvisor:
+        image: gcr.io/cadvisor/cadvisor:v0.49.1
+        privileged: true
+        volumes:
+          - /:/rootfs:ro
+          - /var/run:/var/run:ro
+          - /sys:/sys:ro
+          - /var/lib/docker:/var/lib/docker:ro
+        networks:
+          - sg-net
+        restart: always
+
+      node-exporter:
+        image: prom/node-exporter:v1.7.0
+        volumes:
+          - /proc:/host/proc:ro
+          - /sys:/host/sys:ro
+          - /:/rootfs:ro
+        command:
+          - '--path.procfs=/host/proc'
+          - '--path.sysfs=/host/sys'
+          - '--path.rootfs=/rootfs'
+          - '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($|/)'
+        networks:
+          - sg-net
+        restart: always
+
+      loki:
+        image: grafana/loki:2.9.8
+        volumes:
+          - loki_data:/loki
+          - /opt/sg-playwright/config:/etc/loki:ro
+        command: -config.file=/etc/loki/loki.yml
+        networks:
+          - sg-net
+        restart: always
+
+      promtail:
+        image: grafana/promtail:2.9.8
+        volumes:
+          - /var/lib/docker/containers:/var/lib/docker/containers:ro
+          - /var/run/docker.sock:/var/run/docker.sock
+          - /opt/sg-playwright/config:/etc/promtail:ro
+        command: -config.file=/etc/promtail/promtail.yml
+        networks:
+          - sg-net
+        restart: always
+
+      cloudwatch-agent:
+        image: amazon/cloudwatch-agent:latest
+        volumes:
+          - /opt/sg-playwright/config/cloudwatch-agent.json:/opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json:ro
+          - /var/run/docker.sock:/var/run/docker.sock:ro
+        networks:
+          - sg-net
+        restart: always
+
+      xray-daemon:
+        image: amazon/aws-xray-daemon:latest
+        ports:
+          - "2000:2000/udp"
+        networks:
+          - sg-net
+        restart: always
+
     networks:
       sg-net:
         driver: bridge
+
+    volumes:
+      prometheus_data:
+      grafana_data:
+      loki_data:
 """)
+
+
+PROMETHEUS_YML = """\
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    stack: sg-playwright
+
+scrape_configs:
+  - job_name: prometheus
+    static_configs:
+      - targets: ['localhost:9090']
+
+  - job_name: cadvisor
+    static_configs:
+      - targets: ['cadvisor:8080']
+
+  - job_name: node-exporter
+    static_configs:
+      - targets: ['node-exporter:9100']
+
+  - job_name: loki
+    static_configs:
+      - targets: ['loki:3100']
+
+  - job_name: grafana
+    static_configs:
+      - targets: ['grafana:3000']
+"""
+
+LOKI_YML = """\
+auth_enabled: false
+
+server:
+  http_listen_port: 3100
+
+ingester:
+  lifecycler:
+    address: 127.0.0.1
+    ring:
+      kvstore:
+        store: inmemory
+      replication_factor: 1
+  chunk_idle_period: 3m
+  chunk_retain_period: 1m
+
+schema_config:
+  configs:
+    - from: 2024-01-01
+      store: boltdb-shipper
+      object_store: filesystem
+      schema: v11
+      index:
+        prefix: index_
+        period: 24h
+
+storage_config:
+  boltdb_shipper:
+    active_index_directory: /loki/boltdb-shipper-active
+    cache_location: /loki/boltdb-shipper-cache
+    shared_store: filesystem
+  filesystem:
+    directory: /loki/chunks
+
+limits_config:
+  enforce_metric_name: false
+  reject_old_samples: true
+  reject_old_samples_max_age: 168h
+
+chunk_store_config:
+  max_look_back_period: 0s
+
+table_manager:
+  retention_deletes_enabled: false
+  retention_period: 0s
+"""
+
+PROMTAIL_YML = """\
+server:
+  http_listen_port: 9080
+  grpc_listen_port: 0
+
+positions:
+  filename: /tmp/positions.yaml
+
+clients:
+  - url: http://loki:3100/loki/api/v1/push
+
+scrape_configs:
+  - job_name: containers
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          job: containerlogs
+          __path__: /var/lib/docker/containers/*/*.log
+    pipeline_stages:
+      - docker: {}
+"""
+
+CLOUDWATCH_AGENT_JSON = """\
+{
+  "logs": {
+    "logs_collected": {
+      "files": {
+        "collect_list": [
+          {
+            "file_path": "/var/log/sg-playwright-setup.log",
+            "log_group_name": "/sg-playwright/setup",
+            "log_stream_name": "{instance_id}",
+            "timezone": "UTC"
+          }
+        ]
+      }
+    }
+  },
+  "metrics": {
+    "metrics_collected": {
+      "mem": {
+        "measurement": ["mem_used_percent"]
+      },
+      "disk": {
+        "measurement": ["disk_used_percent"],
+        "resources": ["/"]
+      }
+    },
+    "append_dimensions": {
+      "ImageId": "${aws:ImageId}",
+      "InstanceId": "${aws:InstanceId}",
+      "InstanceType": "${aws:InstanceType}"
+    }
+  }
+}
+"""
+
+GRAFANA_DATASOURCES_YAML = """\
+apiVersion: 1
+datasources:
+  - name: Prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    jsonData:
+      httpMethod: POST
+
+  - name: Loki
+    type: loki
+    access: proxy
+    url: http://loki:3100
+"""
+
+GRAFANA_DASHBOARDS_YAML = """\
+apiVersion: 1
+providers:
+  - name: sg-playwright
+    orgId: 1
+    folder: SG Playwright
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 30
+    options:
+      path: /var/lib/grafana/dashboards
+"""
+
+
+def render_observability_configs_section() -> str:
+    parts = []
+    parts.append(f"cat > /opt/sg-playwright/config/prometheus.yml << 'SG_PROM_EOF'\n{PROMETHEUS_YML}SG_PROM_EOF")
+    parts.append(f"cat > /opt/sg-playwright/config/loki.yml << 'SG_LOKI_EOF'\n{LOKI_YML}SG_LOKI_EOF")
+    parts.append(f"cat > /opt/sg-playwright/config/promtail.yml << 'SG_PROMTAIL_EOF'\n{PROMTAIL_YML}SG_PROMTAIL_EOF")
+    parts.append(f"cat > /opt/sg-playwright/config/cloudwatch-agent.json << 'SG_CW_EOF'\n{CLOUDWATCH_AGENT_JSON}SG_CW_EOF")
+    parts.append(f"cat > /opt/sg-playwright/config/grafana-datasources.yaml << 'SG_GDS_EOF'\n{GRAFANA_DATASOURCES_YAML}SG_GDS_EOF")
+    parts.append(f"cat > /opt/sg-playwright/config/grafana-dashboards.yaml << 'SG_GDASH_EOF'\n{GRAFANA_DASHBOARDS_YAML}SG_GDASH_EOF")
+    return '\n\n'.join(parts) + '\n'
 
 
 USER_DATA_TEMPLATE = """\
@@ -212,11 +495,13 @@ docker logout {registry}
 rm -f /root/.docker/config.json
 
 mkdir -p /opt/sg-playwright
+mkdir -p /opt/sg-playwright/config/dashboards
 
 cat > /opt/sg-playwright/docker-compose.yml << 'SG_COMPOSE_EOF'
 {compose_content}
 SG_COMPOSE_EOF
 
+{observability_configs_section}
 docker compose -f /opt/sg-playwright/docker-compose.yml up -d
 {shutdown_section}
 echo "=== SG Playwright setup complete at $(date) ==="
@@ -383,7 +668,7 @@ def ensure_instance_profile() -> str:
         role.add_to_instance_profile()
     except Exception:
         pass
-    for policy_arn in IAM__POLICY_ARNS:
+    for policy_arn in (*IAM__POLICY_ARNS, *IAM__OBSERVABILITY_POLICY_ARNS):
         role.iam.role_policy_attach(policy_arn)
     return IAM__ROLE_NAME
 
@@ -430,6 +715,7 @@ def render_compose_yaml(playwright_image_uri : str,
 def render_user_data(playwright_image_uri : str,
                       sidecar_image_uri    : str,
                       compose_content      : str,
+                      api_key_value        : str          = '',
                       max_hours            : Optional[int] = None) -> str:
     if max_hours:
         shutdown_section = (f'\n# Auto-terminate after {max_hours}h\n'
@@ -437,12 +723,13 @@ def render_user_data(playwright_image_uri : str,
                              f'echo "Auto-terminate timer started: {max_hours}h from now"\n')
     else:
         shutdown_section = ''
-    return USER_DATA_TEMPLATE.format(region               = aws_region()           ,
-                                     registry             = ecr_registry_host()    ,
-                                     playwright_image_uri = playwright_image_uri   ,
-                                     sidecar_image_uri    = sidecar_image_uri      ,
-                                     compose_content      = compose_content        ,
-                                     shutdown_section     = shutdown_section       )
+    return USER_DATA_TEMPLATE.format(region                        = aws_region()                        ,
+                                     registry                      = ecr_registry_host()                 ,
+                                     playwright_image_uri          = playwright_image_uri                ,
+                                     sidecar_image_uri             = sidecar_image_uri                   ,
+                                     compose_content               = compose_content                     ,
+                                     observability_configs_section = render_observability_configs_section(),
+                                     shutdown_section              = shutdown_section                    )
 
 
 def run_instance(ec2: EC2, ami_id: str, security_group_id: str, instance_profile_name: str,
@@ -529,6 +816,7 @@ def clean_instance_for_ami(instance_id: str) -> None:
         'docker logout 2>/dev/null || true',
         'rm -f /root/.docker/config.json',
         f'rm -f {COMPOSE_FILE_PATH}',
+        'rm -rf /opt/sg-playwright/config 2>/dev/null || true',
         'rm -f /var/lib/cloud/instance/user-data.txt 2>/dev/null || true',
         'find /var/lib/cloud/instances -name user-data.txt -delete 2>/dev/null || true',
         'truncate -s 0 /var/log/sg-playwright-setup.log 2>/dev/null || true',
@@ -622,12 +910,15 @@ def provision(stage                  : str          = DEFAULT_STAGE    ,
                                                  upstream_url         = upstream_url         ,
                                                  upstream_user        = upstream_user        ,
                                                  upstream_pass        = upstream_pass        )
+    obs_section = render_observability_configs_section()
     if from_ami:
-        user_data = AMI_USER_DATA_TEMPLATE.format(compose_content=compose_content)
+        user_data = AMI_USER_DATA_TEMPLATE.format(compose_content               = compose_content,
+                                                   observability_configs_section = obs_section    )
     else:
         user_data = render_user_data(playwright_image_uri = playwright_image_uri ,
                                      sidecar_image_uri    = sidecar_image_uri    ,
                                      compose_content      = compose_content      ,
+                                     api_key_value        = api_key_value        ,
                                      max_hours            = max_hours            )
 
     instance_profile_name = ensure_instance_profile()
@@ -1539,8 +1830,9 @@ def cmd_smoke(target          : Optional[str]  = typer.Argument(None, help='Depl
         c.print(f'  🔭  mitmproxy flows unavailable: {str(exc)[:80]}')
 
     c.print()
-    c.print(f'  Mitmproxy UI  →  [bold]{sidecar_url}/web/[/]')
-    c.print(f'  Local access  →  sg-ec2 forward {EC2__SIDECAR_ADMIN_PORT}  then  http://localhost:{EC2__SIDECAR_ADMIN_PORT}/web/')
+    c.print(f'  Mitmproxy UI  →  sg-ec2 forward {EC2__SIDECAR_ADMIN_PORT}  then  http://localhost:{EC2__SIDECAR_ADMIN_PORT}/web/')
+    c.print(f'  Grafana       →  sg-ec2 forward-grafana  then  http://localhost:{EC2__GRAFANA_PORT}/  (login: admin / <api-key>)')
+    c.print(f'  Prometheus    →  sg-ec2 forward-prometheus  then  http://localhost:{EC2__PROMETHEUS_PORT}/')
     c.print()
 
     if failed:
@@ -1567,6 +1859,80 @@ def cmd_health(ip           : Optional[str] = typer.Argument(None, help='Public 
     key_name  = api_key_name  or get_env('FAST_API__AUTH__API_KEY__NAME' ) or tag_key_name  or 'X-API-Key'
     key_value = api_key_value or get_env('FAST_API__AUTH__API_KEY__VALUE') or tag_key_value or ''
     _render_health(_health_check_once(base_url, key_name, key_value), base_url)
+
+
+@app.command(name='forward-grafana')
+def cmd_forward_grafana(target: Optional[str] = typer.Argument(None, help='Deploy-name or instance-id; auto-selects if only one instance.')):
+    """Forward Grafana (port 3000) to localhost via SSM. Login: admin / <api-key>."""
+    import subprocess
+    ec2                  = EC2()
+    instance_id, details = _resolve_target(ec2, target)
+    deploy_name          = _instance_deploy_name(details) or instance_id
+    api_key_value        = _instance_tag(details, TAG__API_KEY_VALUE_KEY)
+    c = Console(highlight=False, width=200)
+    c.print()
+    c.print(Panel(
+        f'[bold]📊  Grafana Forward[/]\n\n'
+        f'  instance   [bold]{deploy_name}[/]  [dim]{instance_id}[/]\n'
+        f'  tunnel     [bold]localhost:{EC2__GRAFANA_PORT}[/]\n\n'
+        f'  [green]Access:[/]  [bold]http://localhost:{EC2__GRAFANA_PORT}/[/]\n'
+        f'  [green]Login:[/]   admin / [bold]{api_key_value or "<api-key>"}[/]\n'
+        f'  [dim]Press Ctrl-C to close the tunnel.[/]',
+        border_style='bright_blue', expand=False))
+    c.print()
+    subprocess.run(['aws', 'ssm', 'start-session',
+                    '--target'       , instance_id,
+                    '--document-name', 'AWS-StartPortForwardingSession',
+                    '--parameters'   , json.dumps({'portNumber'     : [str(EC2__GRAFANA_PORT)],
+                                                   'localPortNumber': [str(EC2__GRAFANA_PORT)]})],
+                   check=False)
+
+
+@app.command(name='forward-prometheus')
+def cmd_forward_prometheus(target: Optional[str] = typer.Argument(None, help='Deploy-name or instance-id; auto-selects if only one instance.')):
+    """Forward Prometheus (port 9090) to localhost via SSM."""
+    import subprocess
+    ec2                  = EC2()
+    instance_id, details = _resolve_target(ec2, target)
+    deploy_name          = _instance_deploy_name(details) or instance_id
+    c = Console(highlight=False, width=200)
+    c.print()
+    c.print(Panel(
+        f'[bold]🔥  Prometheus Forward[/]\n\n'
+        f'  instance   [bold]{deploy_name}[/]  [dim]{instance_id}[/]\n'
+        f'  tunnel     [bold]localhost:{EC2__PROMETHEUS_PORT}[/]\n\n'
+        f'  [green]Access:[/]  [bold]http://localhost:{EC2__PROMETHEUS_PORT}/[/]\n'
+        f'  [dim]Press Ctrl-C to close the tunnel.[/]',
+        border_style='bright_blue', expand=False))
+    c.print()
+    subprocess.run(['aws', 'ssm', 'start-session',
+                    '--target'       , instance_id,
+                    '--document-name', 'AWS-StartPortForwardingSession',
+                    '--parameters'   , json.dumps({'portNumber'     : [str(EC2__PROMETHEUS_PORT)],
+                                                   'localPortNumber': [str(EC2__PROMETHEUS_PORT)]})],
+                   check=False)
+
+
+@app.command(name='metrics')
+def cmd_metrics(service : str           = typer.Argument('playwright', help='Service to query: playwright or mitmproxy.'),
+                target  : Optional[str] = typer.Option(None, '--target', '-t', help='Deploy-name or instance-id (auto if only one).') ):
+    """Fetch Prometheus metrics text from a service on the EC2 host via SSM."""
+    ec2             = EC2()
+    instance_id, d  = _resolve_target(ec2, target)
+    deploy_name     = _instance_deploy_name(d)
+    api_key_name    = _instance_tag(d, TAG__API_KEY_NAME_KEY)  or 'X-API-Key'
+    api_key_value   = _instance_tag(d, TAG__API_KEY_VALUE_KEY) or ''
+    port_map        = {'playwright': EC2__PLAYWRIGHT_PORT, 'mitmproxy': EC2__SIDECAR_ADMIN_PORT}
+    port            = port_map.get(service, EC2__PLAYWRIGHT_PORT)
+    cmd             = f"curl -s http://localhost:{port}/metrics -H '{api_key_name}: {api_key_value}'"
+    c = Console(highlight=False, width=200)
+    c.print(f'\n  📈  metrics [{service}] from [bold]{deploy_name}[/]  [dim]{instance_id}[/]')
+    stdout, stderr = _ssm_run(instance_id, [cmd], timeout=30)
+    if stdout.strip():
+        c.print(stdout.rstrip())
+    if stderr.strip():
+        c.print(f'[yellow]{stderr.rstrip()}[/]')
+    c.print()
 
 
 if __name__ == '__main__':

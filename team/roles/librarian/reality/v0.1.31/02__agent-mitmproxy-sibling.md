@@ -29,13 +29,15 @@ Both processes run as siblings under `supervisord` (PID 1), which forwards signa
 - `addons/`
   - `default_interceptor.py` — `Default_Interceptor`; `request()` stamps `HEADER__REQUEST_ID` (12-char hex) + `HEADER__REQUEST_TS`; `response()` echoes id, sets `HEADER__ELAPSED_MS` + `HEADER__VERSION`. Module-level `addons = [Default_Interceptor()]`.
   - `audit_log_addon.py` — `Audit_Log`; response-hook only; emits NDJSON to stdout (keys: `ts, flow_id, method, scheme, host, path, status, bytes_request, bytes_response, elapsed_ms, client_addr, proxy_user`). Decodes Basic `Proxy-Authorization` to surface the user.
-  - `addon_registry.py` — `addons = [*interceptor_addons, *audit_addons]` — loaded by mitmweb via `-s`.
+  - `prometheus_metrics_addon.py` — duck-typed addon `Prometheus_Metrics`; `response()` records `sg_mitmproxy_flows_total`, `sg_mitmproxy_flow_duration_seconds`, `sg_mitmproxy_bytes_request_total`, `sg_mitmproxy_bytes_response_total` into `MITMPROXY_REGISTRY` (isolated `CollectorRegistry`). No mitmproxy imports at module load time.
+  - `addon_registry.py` — `addons = [*interceptor_addons, *audit_addons, *metrics_addons]` — loaded by mitmweb via `-s`.
 - `fast_api/`
   - `Fast_API__Agent_Mitmproxy.py` — extends `osbot_fast_api.Fast_API`; sets `self.config.enable_api_key = True` then wires `Routes__Health`, `Routes__CA`, `Routes__Config`, `Routes__Web`.
   - `app.py` — `app = Fast_API__Agent_Mitmproxy().setup().app()` — what uvicorn imports.
   - `routes/Routes__Health.py` — `/health/info` (`service_name`, `service_version`, `proxy_mode`: `direct` or `upstream` derived from `ENV_VAR__UPSTREAM_URL` at request time — new in v0.1.33), `/health/status` (checks: CA cert exists, interceptor script exists).
   - `routes/Routes__CA.py` — `/ca/cert` (PEM bytes via `Response(..., media_type='application/x-pem-file')`), `/ca/info` (path, size, SHA-256 fingerprint, notBefore / notAfter from `cryptography.x509`). 503 when file missing.
   - `routes/Routes__Config.py` — `/config/interceptor` (read-only current script).
+  - `routes/Routes__Metrics.py` — `GET /metrics`; returns Prometheus text exposition from `MITMPROXY_REGISTRY` in `addons/prometheus_metrics_addon.py`. API-key-gated.
   - `routes/Routes__Web.py` — reverse-proxy for the mitmweb UI (internal `127.0.0.1:8081`). Async `httpx.AsyncClient` on `self.router.get('/')` + `self.router.get('/{path:path}')`. Strips `X-API-Key` + `Host` on the outbound call; strips `content-length` / `transfer-encoding` / `connection` / `keep-alive` on the response.
 - `schemas/` — one class per file, `Type_Safe` only.
   - `service/Schema__Agent_Mitmproxy__Info.py` — `service_name`, `service_version`, `proxy_mode: Safe_Str__Text` (new in v0.1.33)

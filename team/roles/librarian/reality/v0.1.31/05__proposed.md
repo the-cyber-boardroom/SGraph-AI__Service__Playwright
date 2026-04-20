@@ -30,4 +30,4 @@ See [README.md](README.md) for the index and split rationale.
 - EC2 deploy via CI — intentionally out of scope for phase 1. `scripts/provision_mitmproxy_ec2.py` runs on-demand from an operator laptop; no `workflow_dispatch` hook calls it yet.
 - Auth-protected mitmweb UI — today `Routes__Web` exposes the UI through the API-key-gated admin API, but the Basic `--proxyauth` that mitmweb itself enforces is independent. No SSO / federated auth; spike-grade creds only.
 - Addon registry hot-reload — the mitmweb process is restarted by supervisord on crash, but the addon list is not reloadable at runtime (would need a SIGHUP handler or a management endpoint).
-- Metrics / Prometheus scrape — the audit log is NDJSON on stdout; no `/metrics` endpoint, no cardinality controls.
+- Prometheus scrape of app metrics from Playwright/mitmproxy via Prometheus — auth bridge needed (`X-API-Key` vs Prometheus `authorization` mismatch). Infrastructure metrics (cadvisor, node-exporter) already scraped. App metrics accessible manually via `sg-ec2 metrics`.

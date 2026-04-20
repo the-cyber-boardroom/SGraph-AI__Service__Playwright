@@ -19,6 +19,10 @@ See [README.md](README.md) for the index and split rationale.
 - `POST /browser/get-url`
 - `POST /sequence/execute`
 
+### Metrics (1, added in v0.1.46 observability slice)
+
+- `GET /metrics` — Prometheus text exposition (Content-Type: `text/plain`). API-key-gated. Returns `sg_playwright_*` metrics from module-level `CollectorRegistry` in `metrics/Metrics__Collector.py`. Metrics populated by `Playwright__Service.run_one_shot()` and `browser_screenshot()`.
+
 ### Admin (8, landed in v0.1.29 — unauthenticated, read-only)
 
 - `GET /admin/health`                      — `{status, code_source}`; flips `loaded → degraded` when `set_last_error(…)` is called.
