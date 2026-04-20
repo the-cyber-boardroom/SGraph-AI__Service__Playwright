@@ -16,6 +16,9 @@ from osbot_fast_api.api.routes.Fast_API__Routes                                 
 from osbot_utils.utils.Env                                                               import get_env
 
 from agent_mitmproxy.consts                                                              import env_vars, paths
+
+PROXY_MODE__DIRECT   = 'direct'
+PROXY_MODE__UPSTREAM = 'upstream'
 from agent_mitmproxy.consts.version                                                      import version__agent_mitmproxy
 from agent_mitmproxy.schemas.service.Schema__Agent_Mitmproxy__Info                       import Schema__Agent_Mitmproxy__Info
 from agent_mitmproxy.schemas.service.Schema__Health                                      import Schema__Health
@@ -53,8 +56,10 @@ class Routes__Health(Fast_API__Routes):
     tag : str = TAG__ROUTES_HEALTH
 
     def info(self) -> Schema__Agent_Mitmproxy__Info:
+        mode = PROXY_MODE__UPSTREAM if get_env(env_vars.ENV_VAR__UPSTREAM_URL) else PROXY_MODE__DIRECT
         return Schema__Agent_Mitmproxy__Info(service_name    = SERVICE_NAME              ,
-                                             service_version = version__agent_mitmproxy  )
+                                             service_version = version__agent_mitmproxy  ,
+                                             proxy_mode      = mode                      )
 
     def status(self) -> Schema__Health:
         checks = _build_checks()

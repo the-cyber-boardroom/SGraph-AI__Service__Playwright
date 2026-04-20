@@ -40,6 +40,16 @@ class test_Routes__Health(TestCase):
         body = response.json()
         assert body['service_name'   ] == 'agent-mitmproxy'
         assert body['service_version'].startswith('v0.1.')
+        assert body['proxy_mode'     ] == 'direct'          # no upstream env var set in this suite
+
+    def test__info__upstream_mode(self):
+        os.environ['AGENT_MITMPROXY__UPSTREAM_URL'] = 'http://upstream-proxy:8080'
+        try:
+            response = self.client.get('/health/info', headers=self._auth_headers())
+            assert response.status_code == 200
+            assert response.json()['proxy_mode'] == 'upstream'
+        finally:
+            os.environ.pop('AGENT_MITMPROXY__UPSTREAM_URL', None)
 
     def test__status_runs_file_checks(self):
         response = self.client.get('/health/status', headers=self._auth_headers())

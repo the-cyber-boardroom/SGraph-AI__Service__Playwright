@@ -1,5 +1,5 @@
 # ═══════════════════════════════════════════════════════════════════════════════
-# Tests — agent_mitmproxy package scaffold (v0.1.32)
+# Tests — agent_mitmproxy package scaffold (v0.1.33)
 #
 # Smoke-tests that the package is importable and the version + env-var + path
 # constants load without side effects. Every downstream test relies on this
@@ -17,7 +17,7 @@ class test_agent_mitmproxy__scaffold(TestCase):
 
     def test__version_constant_matches_file(self):
         from agent_mitmproxy.consts.version                                          import version__agent_mitmproxy
-        assert str(version__agent_mitmproxy) == 'v0.1.32'
+        assert str(version__agent_mitmproxy) == 'v0.1.33'
 
     def test__env_var_names(self):
         from agent_mitmproxy.consts                                                  import env_vars
