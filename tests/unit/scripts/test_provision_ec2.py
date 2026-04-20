@@ -244,7 +244,9 @@ class test_render_user_data(TestCase):
 
     def test__installs_docker_and_compose_plugin(self):
         ud = self._render()
-        assert 'dnf install -y docker docker-compose-plugin' in ud
+        assert 'dnf install -y docker'              in ud
+        assert 'docker-compose-linux-x86_64'        in ud   # compose v2 plugin binary
+        assert '/usr/local/lib/docker/cli-plugins'  in ud
 
     def test__ecr_login_uses_region(self):
         ud = self._render()
@@ -290,7 +292,7 @@ class test_cli_surface(TestCase):
         from typer.testing import CliRunner
         result = CliRunner().invoke(provision_ec2.app, ['--help'])
         assert result.exit_code == 0
-        for cmd in ('create', 'list', 'delete', 'connect', 'exec', 'logs', 'forward', 'wait', 'health'):
+        for cmd in ('create', 'list', 'delete', 'connect', 'exec', 'logs', 'forward', 'wait', 'health', 'open'):
             assert cmd in result.output, f'command {cmd!r} missing from --help'
 
     def test__create_help_shows_expected_options(self):
