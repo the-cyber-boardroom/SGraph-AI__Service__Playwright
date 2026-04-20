@@ -814,17 +814,34 @@ def cmd_connect(target: Optional[str] = typer.Argument(None, help='Deploy-name o
 
 
 @app.command(name='exec')
-def cmd_exec(command   : Optional[str] = typer.Argument(None, help='Shell command to run on the EC2 host, or inside a container with --container.'),
-             target    : Optional[str] = typer.Option(None, '--target', '-t', help='Deploy-name or instance-id (auto if only one).'),
-             cmd       : Optional[str] = typer.Option(None, '--cmd',    help='Alias for the positional COMMAND argument.'),
+def cmd_exec(first     : str           = typer.Argument(...,  help='Deploy-name/instance-id, or shell command when only one instance exists.'),
+             second    : Optional[str] = typer.Argument(None, help='Shell command when first arg is the target.'),
+             cmd       : Optional[str] = typer.Option(None, '--cmd',    help='Shell command (alternative to positional).'),
+             target    : Optional[str] = typer.Option(None, '--target', '-t', help='Force target; first positional arg then becomes the command.'),
              container : Optional[str] = typer.Option(None, '--container', '-c',
                                                        help='Run inside this Compose service (playwright or agent-mitmproxy).') ):
-    """Execute a shell command on the EC2 host or inside a Docker container via SSM."""
-    shell_cmd = command or cmd
+    """Execute a shell command on the EC2 host or inside a Docker container via SSM.
+
+    Usage patterns:
+      sg-ec2 exec fresh-fermi "docker ps"        # explicit target + command
+      sg-ec2 exec "docker ps"                    # auto-select target + command
+      sg-ec2 exec fresh-fermi --cmd "docker ps"  # explicit target + --cmd
+      sg-ec2 exec --cmd "docker ps"              # auto-select + --cmd
+    """
+    if target:
+        resolved_target = target
+        shell_cmd       = second or first or cmd
+    elif second or cmd:
+        resolved_target = first          # first positional = target
+        shell_cmd       = second or cmd  # second positional or --cmd = command
+    else:
+        resolved_target = None           # auto-select
+        shell_cmd       = first          # only arg = command
+
     if not shell_cmd:
-        raise typer.BadParameter('Provide a command as a positional argument or via --cmd.')
-    ec2         = EC2()
-    instance_id, _ = _resolve_target(ec2, target)
+        raise typer.BadParameter('Provide a shell command.')
+    ec2             = EC2()
+    instance_id, _  = _resolve_target(ec2, resolved_target)
     if container:
         shell_cmd = f'docker compose -f {COMPOSE_FILE_PATH} exec -T {container} {shell_cmd}'
     c = Console(highlight=False, width=200)
