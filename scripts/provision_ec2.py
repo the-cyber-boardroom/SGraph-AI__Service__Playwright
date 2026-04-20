@@ -80,6 +80,7 @@ TAG__DEPLOY_NAME_KEY         = 'sg:deploy-name'                                 
 TAG__CREATOR_KEY             = 'sg:creator'                                             # Who launched this instance (git email or $USER)
 TAG__API_KEY_NAME_KEY        = 'sg:api-key-name'                                        # Stored so 'list' can show it
 TAG__API_KEY_VALUE_KEY       = 'sg:api-key-value'                                       # Stored in tags — only IAM credentials can read EC2 tags
+TAG__INSTANCE_TYPE_KEY       = 'sg:instance-type'                                        # Stored so 'list' can show it
 DEFAULT_STAGE                = 'dev'
 
 _ADJECTIVES = ['bold','bright','calm','clever','cool','daring','deep','eager',
@@ -217,7 +218,7 @@ cat > /opt/sg-playwright/docker-compose.yml << 'SG_COMPOSE_EOF'
 SG_COMPOSE_EOF
 
 docker compose -f /opt/sg-playwright/docker-compose.yml up -d
-
+{shutdown_section}
 echo "=== SG Playwright setup complete at $(date) ==="
 """
 
@@ -426,34 +427,45 @@ def render_compose_yaml(playwright_image_uri : str,
 
 def render_user_data(playwright_image_uri : str,
                       sidecar_image_uri    : str,
-                      compose_content      : str) -> str:
+                      compose_content      : str,
+                      max_hours            : Optional[int] = None) -> str:
+    if max_hours:
+        shutdown_section = (f'\n# Auto-terminate after {max_hours}h\n'
+                             f'systemd-run --on-active={max_hours}h /sbin/shutdown -h now\n'
+                             f'echo "Auto-terminate timer started: {max_hours}h from now"\n')
+    else:
+        shutdown_section = ''
     return USER_DATA_TEMPLATE.format(region               = aws_region()           ,
                                      registry             = ecr_registry_host()    ,
                                      playwright_image_uri = playwright_image_uri   ,
                                      sidecar_image_uri    = sidecar_image_uri      ,
-                                     compose_content      = compose_content        )
+                                     compose_content      = compose_content        ,
+                                     shutdown_section     = shutdown_section       )
 
 
 def run_instance(ec2: EC2, ami_id: str, security_group_id: str, instance_profile_name: str,
                   user_data: str, stage: str, deploy_name: str = '',
                   creator: str = '', api_key_name: str = '', api_key_value: str = '',
-                  instance_type: str = EC2__INSTANCE_TYPE) -> str:
+                  instance_type: str = EC2__INSTANCE_TYPE,
+                  max_hours: Optional[int] = None) -> str:
     display_name = f'{TAG__NAME}/{deploy_name}' if deploy_name else TAG__NAME
     tags = [{'Key': 'Name'              , 'Value': display_name    },
             {'Key': TAG__SERVICE_KEY    , 'Value': TAG__SERVICE_VALUE},  # immutable — not shown in Name column, survives console renames
             {'Key': TAG__STAGE_KEY      , 'Value': stage            },
             {'Key': TAG__DEPLOY_NAME_KEY, 'Value': deploy_name      },
             {'Key': TAG__CREATOR_KEY    , 'Value': creator      },
-            {'Key': TAG__API_KEY_NAME_KEY , 'Value': api_key_name  },
-            {'Key': TAG__API_KEY_VALUE_KEY, 'Value': api_key_value }]
-    kwargs = {'ImageId'           : ami_id                                                  ,
-              'InstanceType'      : instance_type                                           ,
-              'MinCount'          : 1                                                       ,
-              'MaxCount'          : 1                                                       ,
-              'IamInstanceProfile': {'Name': instance_profile_name}                         ,
-              'SecurityGroupIds'  : [security_group_id]                                     ,
-              'UserData'          : user_data                                               ,
-              'TagSpecifications' : [{'ResourceType': 'instance', 'Tags': tags}]            }
+            {'Key': TAG__API_KEY_NAME_KEY , 'Value': api_key_name   },
+            {'Key': TAG__API_KEY_VALUE_KEY, 'Value': api_key_value },
+            {'Key': TAG__INSTANCE_TYPE_KEY, 'Value': instance_type }]
+    kwargs = {'ImageId'                          : ami_id                                    ,
+              'InstanceType'                     : instance_type                             ,
+              'MinCount'                         : 1                                         ,
+              'MaxCount'                         : 1                                         ,
+              'IamInstanceProfile'               : {'Name': instance_profile_name}           ,
+              'SecurityGroupIds'                 : [security_group_id]                       ,
+              'UserData'                         : user_data                                 ,
+              'InstanceInitiatedShutdownBehavior': 'terminate'                               ,  # shutdown → terminate, not stop
+              'TagSpecifications'                : [{'ResourceType': 'instance', 'Tags': tags}]}
     for attempt in range(5):
         try:
             result      = ec2.client().run_instances(**kwargs)
@@ -574,13 +586,14 @@ def latest_healthy_ami(ec2: EC2) -> str:
     return images[0]['ImageId'] if images else None
 
 
-def provision(stage                  : str  = DEFAULT_STAGE    ,
-               playwright_image_uri  : str  = None             ,
-               sidecar_image_uri     : str  = None             ,
-               deploy_name           : str  = ''               ,
-               from_ami              : str  = None             ,    # use pre-baked AMI; skips install+pull
-               instance_type         : str  = EC2__INSTANCE_TYPE,
-               terminate             : bool = False            ) -> dict:
+def provision(stage                  : str          = DEFAULT_STAGE    ,
+               playwright_image_uri  : str          = None             ,
+               sidecar_image_uri     : str          = None             ,
+               deploy_name           : str          = ''               ,
+               from_ami              : str          = None             ,    # use pre-baked AMI; skips install+pull
+               instance_type         : str          = EC2__INSTANCE_TYPE,
+               max_hours             : Optional[int] = None            ,
+               terminate             : bool         = False            ) -> dict:
     ec2 = EC2()
 
     if terminate:
@@ -611,7 +624,8 @@ def provision(stage                  : str  = DEFAULT_STAGE    ,
     else:
         user_data = render_user_data(playwright_image_uri = playwright_image_uri ,
                                      sidecar_image_uri    = sidecar_image_uri    ,
-                                     compose_content      = compose_content      )
+                                     compose_content      = compose_content      ,
+                                     max_hours            = max_hours            )
 
     instance_profile_name = ensure_instance_profile()
     security_group_id     = ensure_security_group(ec2)
@@ -626,7 +640,8 @@ def provision(stage                  : str  = DEFAULT_STAGE    ,
                                           creator               = creator               ,
                                           api_key_name          = api_key_name          ,
                                           api_key_value         = api_key_value         ,
-                                          instance_type         = instance_type         )
+                                          instance_type         = instance_type         ,
+                                          max_hours             = max_hours             )
 
     ec2.wait_for_instance_running(instance_id)
     details       = ec2.instance_details(instance_id)
@@ -863,6 +878,7 @@ def create(stage                : str           = typer.Option(DEFAULT_STAGE, he
            sidecar_image_uri    : Optional[str] = typer.Option(None, '--sidecar-image-uri',    help='Override sidecar ECR image URI.')                       ,
            from_ami             : Optional[str] = typer.Option(None, '--from-ami',         help='Launch from a pre-baked AMI ID (skips docker install + image pull).'),
            instance_type        : Optional[str] = typer.Option(None, '--instance-type',    help=f'Instance type or preset 1–5 (default: {EC2__INSTANCE_TYPE}). E.g. --instance-type 3 or --instance-type c5.xlarge.'),
+           max_hours            : int           = typer.Option(4,    '--max-hours',        help='Auto-terminate after N hours (sets shutdown timer + terminate-on-shutdown). Default: 4.'),
            interactive          : bool          = typer.Option(False, '--interactive', '-i', help='Ask questions before launching (instance type, smoke workflow).')  ,
            smoke                : bool          = typer.Option(False, '--smoke',            help='After instance is up: run smoke test then delete (implies --wait).')  ,
            wait                 : bool          = typer.Option(False, '--wait',             help='Poll health until up.')                                     ,
@@ -884,13 +900,15 @@ def create(stage                : str           = typer.Option(DEFAULT_STAGE, he
 
     result           = provision(stage=stage, playwright_image_uri=playwright_image_uri,
                                   sidecar_image_uri=sidecar_image_uri, deploy_name=name or '',
-                                  from_ami=from_ami, instance_type=resolved_type)
+                                  from_ami=from_ami, instance_type=resolved_type,
+                                  max_hours=max_hours)
     _render_create_result(result)
     resolved_name    = result['deploy_name']
 
     if wait or run_smoke:
-        _cmd_wait(ip=result['public_ip'], api_key_name=result['api_key_name'],
-                  api_key_value=result['api_key_value'], timeout=timeout)
+        _cmd_wait(ip=result['public_ip'], port=EC2__PLAYWRIGHT_PORT,
+                  api_key_name=result['api_key_name'], api_key_value=result['api_key_value'],
+                  timeout=timeout, interval=10)
 
     if run_smoke:
         smoke_ok = True
@@ -916,21 +934,23 @@ def cmd_list():
         c.print('  [dim]No instances found.[/]')
         return
     t = Table(show_header=True, header_style='bold blue', box=None, padding=(0, 2))
-    t.add_column('deploy-name', style='bold')
-    t.add_column('instance-id', style='dim')
+    t.add_column('deploy-name',    style='bold')
+    t.add_column('instance-id',   style='dim')
     t.add_column('state')
-    t.add_column('public-ip',   style='green')
-    t.add_column('creator',     style='dim')
-    t.add_column('api-key',     style='dim')
+    t.add_column('instance-type', style='cyan')
+    t.add_column('public-ip',     style='green')
+    t.add_column('creator',       style='dim')
+    t.add_column('api-key',       style='dim')
     for iid, d in instances.items():
-        state_raw  = d.get('state', '?')
-        state      = state_raw.get('Name', '?') if isinstance(state_raw, dict) else str(state_raw)
-        ip         = d.get('public_ip', '')
-        deploy     = _instance_deploy_name(d)
-        creator    = _instance_tag(d, TAG__CREATOR_KEY)
-        api_key    = _instance_tag(d, TAG__API_KEY_VALUE_KEY)
-        colour     = 'green' if state == 'running' else 'yellow' if state == 'pending' else 'red'
-        t.add_row(deploy, iid, f'[{colour}]{state}[/]', ip, creator, api_key)
+        state_raw      = d.get('state', '?')
+        state          = state_raw.get('Name', '?') if isinstance(state_raw, dict) else str(state_raw)
+        ip             = d.get('public_ip', '')
+        deploy         = _instance_deploy_name(d)
+        creator        = _instance_tag(d, TAG__CREATOR_KEY)
+        api_key        = _instance_tag(d, TAG__API_KEY_VALUE_KEY)
+        instance_type  = _instance_tag(d, TAG__INSTANCE_TYPE_KEY) or d.get('instance_type', '?')
+        colour         = 'green' if state == 'running' else 'yellow' if state == 'pending' else 'red'
+        t.add_row(deploy, iid, f'[{colour}]{state}[/]', instance_type, ip, creator, api_key)
     c.print(t)
 
 
@@ -996,19 +1016,36 @@ def cmd_info(target: Optional[str] = typer.Argument(None, help='Deploy-name or i
 
 
 @app.command(name='delete')
-def cmd_delete(name: Optional[str] = typer.Argument(None, help='Deploy-name or instance-id; omit to delete ALL.')):
-    """Delete instance(s) by deploy-name/instance-id, or all if no argument given."""
-    ec2     = EC2()
-    c       = Console(highlight=False, width=200)
-    deleted = []
-    if name:
+def cmd_delete(name    : Optional[str] = typer.Argument(None,  help='Deploy-name or instance-id.'),
+               all_flag: bool          = typer.Option(False, '--all', help='Delete ALL playwright-ec2 instances.')):
+    """Delete one instance by name/id, or all with --all."""
+    ec2 = EC2()
+    c   = Console(highlight=False, width=200)
+    if all_flag:
+        instances = find_instances(ec2)
+        if not instances:
+            c.print('  [dim]No instances found.[/]')
+            return
+        c.print()
+        for d in instances:
+            iid    = d.get('instance_id', '')
+            deploy = _instance_deploy_name(d) or iid
+            c.print(f'  🗑️   [bold]{deploy}[/]  [dim]{iid}[/]')
+        c.print()
+        confirm = c.input(f'  [bold red]Delete all {len(instances)} instance(s)?[/] [dim][y/N][/] › ').strip().lower()
+        if confirm not in ('y', 'yes'):
+            c.print('  Aborted.')
+            return
+        deleted = terminate_instances(ec2)
+    elif name:
         instance_id, details = _resolve_target(ec2, name)
         deploy = _instance_deploy_name(details) or instance_id
         c.print(f'  🗑️   Deleting [bold]{deploy}[/]  [dim]{instance_id}[/]...')
         ec2.instance_terminate(instance_id)
         deleted = [instance_id]
     else:
-        deleted = terminate_instances(ec2)
+        c.print('  [red]Specify a deploy-name / instance-id, or pass --all to delete everything.[/]')
+        raise typer.Exit(code=1)
     c.print(f'  ✅  Deleted {len(deleted)} instance(s): [dim]{", ".join(deleted) or "none"}[/]')
 
 
@@ -1513,10 +1550,19 @@ def cmd_health(ip           : Optional[str] = typer.Argument(None, help='Public 
                api_key_name  : Optional[str] = typer.Option(None, envvar='FAST_API__AUTH__API_KEY__NAME' )       ,
                api_key_value : Optional[str] = typer.Option(None, envvar='FAST_API__AUTH__API_KEY__VALUE')       ):
     """Run health checks against a live instance and display results."""
-    actual_ip = _resolve_ip(EC2(), ip)
+    ec2           = EC2()
+    tag_key_name  = ''
+    tag_key_value = ''
+    if ip and ip.replace('.', '').isdigit():
+        actual_ip = ip
+    else:
+        _, details    = _resolve_target(ec2, ip)
+        actual_ip     = details.get('public_ip', '')
+        tag_key_name  = _instance_tag(details, TAG__API_KEY_NAME_KEY)
+        tag_key_value = _instance_tag(details, TAG__API_KEY_VALUE_KEY)
     base_url  = f'http://{actual_ip}:{port}'
-    key_name  = api_key_name  or get_env('FAST_API__AUTH__API_KEY__NAME' ) or 'X-API-Key'
-    key_value = api_key_value or get_env('FAST_API__AUTH__API_KEY__VALUE') or ''
+    key_name  = api_key_name  or get_env('FAST_API__AUTH__API_KEY__NAME' ) or tag_key_name  or 'X-API-Key'
+    key_value = api_key_value or get_env('FAST_API__AUTH__API_KEY__VALUE') or tag_key_value or ''
     _render_health(_health_check_once(base_url, key_name, key_value), base_url)
 
 
