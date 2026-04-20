@@ -97,12 +97,13 @@ jobs:
       - name: 'Bake AMI'
         id: bake
         run: |
-          AMI_ID=$(sg-ec2 bake-ami $DEPLOY_NAME 2>/dev/null)
+          AMI_ID=$(sg-ec2 bake-ami $DEPLOY_NAME)
           echo "ami_id=$AMI_ID" >> "$GITHUB_OUTPUT"
           echo "AMI ID: $AMI_ID"
 
       - name: 'Delete base EC2 (cost saving while AMI is created)'
-        run: sg-ec2 delete $DEPLOY_NAME
+        if: always()
+        run: sg-ec2 delete $DEPLOY_NAME || true
 
       - name: 'Wait for AMI to become available'
         run: sg-ec2 wait-ami ${{ steps.bake.outputs.ami_id }} --timeout 900
