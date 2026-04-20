@@ -250,8 +250,8 @@ def preflight_check(playwright_image_uri: str = None, sidecar_image_uri: str = N
 
 def _kv_table(*rows) -> Table:
     t = Table(box=None, show_header=False, padding=(0, 2), expand=False)
-    t.add_column(style='#555555', min_width=12, no_wrap=True)
-    t.add_column(style='#111111')
+    t.add_column(style='bold',    min_width=12, no_wrap=True)   # bold terminal-default: black on light bg, white on dark
+    t.add_column(style='default')                                # plain terminal-default foreground
     for k, v in rows:
         t.add_row(k, str(v))
     return t
@@ -264,43 +264,43 @@ def _print_preflight_summary(account, region, registry,
                               warnings, errors) -> None:
     c = Console(highlight=False, width=200)
 
-    c.print(Panel('[bold #111111] 🎭  SG Playwright EC2 Provisioner[/]  ·  [#555555]preflight check[/]',
+    c.print(Panel('[bold] 🎭  SG Playwright EC2 Provisioner[/]  ·  preflight check',
                   border_style='blue', expand=False))
     c.print()
 
-    c.print('  [bold #1a6fa8]☁️  AWS[/]')
+    c.print('  [bold blue]☁️  AWS[/]')
     c.print(_kv_table(('account',  account ),
                       ('region',   region  ),
                       ('registry', registry)))
     c.print()
 
-    c.print('  [bold #1a6fa8]🐳  Images[/]')
+    c.print('  [bold blue]🐳  Images[/]')
     c.print(_kv_table(('🎭 playwright', playwright_uri),
                       ('🔭 sidecar',    sidecar_uri   )))
     c.print()
 
-    c.print('  [bold #1a6fa8]🔑  API key[/]')
-    c.print(_kv_table(('name',  api_key_name                         ),
-                      ('value', f'[bold #1a7a1a]{api_key_value}[/]')))
+    c.print('  [bold blue]🔑  API key[/]')
+    c.print(_kv_table(('name',  api_key_name                    ),
+                      ('value', f'[bold green]{api_key_value}[/]')))
     c.print()
 
     if upstream_url:
-        c.print('  [bold #1a6fa8]🌐  Upstream forwarding[/]')
-        c.print(_kv_table(('url',  upstream_url                                                    ),
-                          ('user', '[#1a7a1a](set)[/]' if upstream_user else '[#cc2222](not set)[/]'),
-                          ('pass', '[#1a7a1a](set)[/]' if upstream_pass else '[#cc2222](not set)[/]')))
+        c.print('  [bold blue]🌐  Upstream forwarding[/]')
+        c.print(_kv_table(('url',  upstream_url                                              ),
+                          ('user', '[green](set)[/]' if upstream_user else '[red](not set)[/]'),
+                          ('pass', '[green](set)[/]' if upstream_pass else '[red](not set)[/]')))
     else:
-        c.print('  [bold #1a6fa8]🌐  Upstream[/]  [#555555]none — sidecar runs in direct mode[/]')
+        c.print('  [bold blue]🌐  Upstream[/]  none — sidecar runs in direct mode')
     c.print()
 
-    c.print(f'  [bold #1a6fa8]⚙️  Stack[/]   [#555555]t3.large · AL2023 · '
-            f'IAM={IAM__ROLE_NAME} · SG={SG__NAME} · tag={TAG__NAME}[/]')
+    c.print(f'  [bold blue]⚙️  Stack[/]   t3.large · AL2023 · '
+            f'IAM={IAM__ROLE_NAME} · SG={SG__NAME} · tag={TAG__NAME}')
     c.print()
 
-    c.print('  [bold #1a6fa8]🔌  Ports[/]')
-    c.print(_kv_table((f':{EC2__PLAYWRIGHT_PORT}',    f'playwright API       [#555555](public)[/]'         ),
-                      (f':{EC2__SIDECAR_ADMIN_PORT}', f'sidecar admin API    [#555555](public)[/]'         ),
-                      (':8080',                        '[#555555]mitmproxy proxy   (Docker-network-only)[/]')))
+    c.print('  [bold blue]🔌  Ports[/]')
+    c.print(_kv_table((f':{EC2__PLAYWRIGHT_PORT}',    'playwright API       (public)'),
+                      (f':{EC2__SIDECAR_ADMIN_PORT}', 'sidecar admin API    (public)'),
+                      (':8080',                        'mitmproxy proxy      (Docker-network-only)')))
     c.print()
 
     for w in warnings:
@@ -617,13 +617,13 @@ def _render_create_result(r: dict) -> None:
     c = Console(highlight=False, width=200)
     c.print()
     c.print(Panel(
-        f'[bold green]✅  Instance launched[/]  ·  [bright_white]{r["deploy_name"]}[/]  [dim]{r["instance_id"]}[/]',
+        f'[bold green]✅  Instance launched[/]  ·  [bold]{r["deploy_name"]}[/]  [dim]{r["instance_id"]}[/]',
         border_style='green', expand=False))
     c.print()
 
     left = Table(box=None, show_header=False, padding=(0, 2), expand=False)
-    left.add_column(style='white',        min_width=14, no_wrap=True)
-    left.add_column(style='bright_white')
+    left.add_column(style='bold',    min_width=14, no_wrap=True)
+    left.add_column(style='default')
     left.add_row('deploy-name', r['deploy_name']  )
     left.add_row('stage',       r['stage']        )
     left.add_row('creator',     r['creator']      )
@@ -631,8 +631,8 @@ def _render_create_result(r: dict) -> None:
     left.add_row('instance-id', r['instance_id']  )
 
     right = Table(box=None, show_header=False, padding=(0, 2), expand=False)
-    right.add_column(style='white',        min_width=14, no_wrap=True)
-    right.add_column(style='bright_white')
+    right.add_column(style='bold',    min_width=14, no_wrap=True)
+    right.add_column(style='default')
     right.add_row('public-ip',    r['public_ip']                               )
     right.add_row('playwright',   r['playwright_url'] or '—'                   )
     right.add_row('sidecar-admin',r['sidecar_admin_url'] or '—'                )
@@ -646,15 +646,15 @@ def _render_create_result(r: dict) -> None:
     c.print(cols)
 
     img = Table(box=None, show_header=False, padding=(0, 2), expand=False)
-    img.add_column(style='white',        min_width=10, no_wrap=True)
-    img.add_column(style='dim')
+    img.add_column(style='bold',    min_width=10, no_wrap=True)
+    img.add_column(style='default')
     img.add_row('playwright', r['playwright_image_uri'])
     img.add_row('sidecar',    r['sidecar_image_uri']  )
     c.print()
-    c.print('  [bold bright_cyan]🐳  Images[/]')
+    c.print('  [bold blue]🐳  Images[/]')
     c.print(img)
     c.print()
-    c.print(f'  [dim]sg-ec2 wait {r["deploy_name"]}   ·   sg-ec2 forward 8000   ·   sg-ec2 logs[/]')
+    c.print(f'  sg-ec2 wait {r["deploy_name"]}   ·   sg-ec2 forward 8000   ·   sg-ec2 logs')
     c.print()
 
 
@@ -705,8 +705,8 @@ def cmd_list():
     if not instances:
         c.print('  [dim]No instances found.[/]')
         return
-    t = Table(show_header=True, header_style='bold bright_cyan', box=None, padding=(0, 2))
-    t.add_column('deploy-name', style='bold white')
+    t = Table(show_header=True, header_style='bold blue', box=None, padding=(0, 2))
+    t.add_column('deploy-name', style='bold')
     t.add_column('instance-id', style='dim')
     t.add_column('state')
     t.add_column('public-ip',   style='green')
@@ -752,14 +752,13 @@ def cmd_info(target: Optional[str] = typer.Argument(None, help='Deploy-name or i
     c      = Console(highlight=False, width=200)
     c.print()
     c.print(Panel(
-        f'[bold]ℹ️   Instance info[/]  ·  [bright_white]{deploy_name}[/]  [dim]{instance_id}[/]  '
-        f'[{colour}]{state}[/]',
+        f'[bold]ℹ️   Instance info[/]  ·  {deploy_name}  [dim]{instance_id}[/]  [{colour}]{state}[/]',
         border_style=colour, expand=False))
     c.print()
 
     left = Table(box=None, show_header=False, padding=(0, 2), expand=False)
-    left.add_column(style='white',        min_width=14, no_wrap=True)
-    left.add_column(style='bright_white')
+    left.add_column(style='bold',    min_width=14, no_wrap=True)
+    left.add_column(style='default')
     left.add_row('deploy-name', r['deploy_name']  )
     left.add_row('stage',       r['stage']        )
     left.add_row('creator',     r['creator']      )
@@ -767,8 +766,8 @@ def cmd_info(target: Optional[str] = typer.Argument(None, help='Deploy-name or i
     left.add_row('instance-id', r['instance_id']  )
 
     right = Table(box=None, show_header=False, padding=(0, 2), expand=False)
-    right.add_column(style='white',        min_width=14, no_wrap=True)
-    right.add_column(style='bright_white')
+    right.add_column(style='bold',    min_width=14, no_wrap=True)
+    right.add_column(style='default')
     right.add_row('public-ip',     r['public_ip']                          )
     right.add_row('playwright',    r['playwright_url']                     )
     right.add_row('sidecar-admin', r['sidecar_admin_url']                  )
@@ -781,8 +780,8 @@ def cmd_info(target: Optional[str] = typer.Argument(None, help='Deploy-name or i
     cols.add_row(left, right)
     c.print(cols)
     c.print()
-    c.print(f'  [dim]sg-ec2 forward 8000 --target {deploy_name}   ·   '
-            f'sg-ec2 health {deploy_name}   ·   sg-ec2 logs --target {deploy_name}[/]')
+    c.print(f'  sg-ec2 forward 8000 --target {deploy_name}   ·   '
+            f'sg-ec2 health {deploy_name}   ·   sg-ec2 logs --target {deploy_name}')
     c.print()
 
 
@@ -795,7 +794,7 @@ def cmd_delete(name: Optional[str] = typer.Argument(None, help='Deploy-name or i
     if name:
         instance_id, details = _resolve_target(ec2, name)
         deploy = _instance_deploy_name(details) or instance_id
-        c.print(f'  🗑️   Deleting [bright_white]{deploy}[/]  [dim]{instance_id}[/]...')
+        c.print(f'  🗑️   Deleting [bold]{deploy}[/]  [dim]{instance_id}[/]...')
         ec2.instance_terminate(instance_id)
         deleted = [instance_id]
     else:
@@ -866,9 +865,9 @@ def cmd_forward(port   : str           = typer.Argument('8000', help='Port mappi
     c.print()
     c.print(Panel(
         f'[bold]🔀  SSM Port Forward[/]\n\n'
-        f'  instance   [bright_white]{deploy_name}[/]  [dim]{instance_id}  {public_ip}[/]\n'
-        f'  tunnel     [bright_white]localhost:{local_port}[/]  →  [bright_white]{public_ip}:{remote_port}[/]\n\n'
-        f'  [green]Access:[/]  [bright_white]http://localhost:{local_port}/[/]\n'
+        f'  instance   [bold]{deploy_name}[/]  [dim]{instance_id}  {public_ip}[/]\n'
+        f'  tunnel     [bold]localhost:{local_port}[/]  →  [bold]{public_ip}:{remote_port}[/]\n\n'
+        f'  [green]Access:[/]  [bold]http://localhost:{local_port}/[/]\n'
         f'  [dim]Press Ctrl-C to close the tunnel.[/]',
         border_style='bright_blue', expand=False))
     c.print()
@@ -909,6 +908,46 @@ def _cmd_wait(ip           : str           = typer.Argument(..., help='Public IP
         time.sleep(interval)
     typer.echo(f'  ❌  timed out after {timeout}s', err=True)
     raise typer.Exit(1)
+
+
+@app.command(name='open')
+def cmd_open(target: Optional[str] = typer.Argument(None, help='Deploy-name or instance-id; auto-selects if only one instance.')):
+    """Open the launcher UI in a browser, pre-filled with the instance connection details."""
+    import json
+    import pathlib
+    import tempfile
+    import webbrowser
+
+    ec2            = EC2()
+    instance_id, d = _resolve_target(ec2, target)
+    ip             = d.get('public_ip', '')
+    deploy_name    = _instance_deploy_name(d)
+    api_key_name   = _instance_tag(d, TAG__API_KEY_NAME_KEY)
+    api_key_value  = _instance_tag(d, TAG__API_KEY_VALUE_KEY)
+
+    site_dir  = (pathlib.Path(__file__).parent.parent / 'sgraph_ai_service_playwright__api_site').resolve()
+    index_url = site_dir.as_uri() + '/index.html'
+
+    config_str = json.dumps({'ip'      : ip                 ,
+                              'port'    : EC2__PLAYWRIGHT_PORT,
+                              'keyName' : api_key_name       ,
+                              'keyValue': api_key_value      })
+    bootstrap = (
+        '<!DOCTYPE html>\n<script>\n'
+        f'localStorage.setItem("sg_playwright_config", {json.dumps(config_str)});\n'
+        f'location.replace({json.dumps(index_url)});\n'
+        '</script>\n'
+    )
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.html', delete=False) as f:
+        f.write(bootstrap)
+        tmp_path = f.name
+
+    c = Console(highlight=False, width=200)
+    c.print()
+    c.print(f'  Opening launcher for [bold #111111]{deploy_name}[/]  [#555555]{ip}:{EC2__PLAYWRIGHT_PORT}[/]')
+    c.print(f'  [#555555]{index_url}[/]')
+    c.print()
+    webbrowser.open(f'file://{tmp_path}')
 
 
 @app.command(name='health')
