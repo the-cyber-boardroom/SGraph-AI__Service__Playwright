@@ -336,7 +336,8 @@ class test_cli_surface(TestCase):
         assert result.exit_code == 0
         out = _plain(result.output)
         for cmd in ('create', 'list', 'delete', 'connect', 'exec', 'logs', 'forward', 'wait',
-                    'health', 'open', 'screenshot', 'smoke', 'clean', 'bake-ami', 'wait-ami', 'tag-ami'):
+                    'health', 'open', 'screenshot', 'smoke', 'clean', 'bake-ami', 'wait-ami', 'tag-ami',
+                    'env', 'vault-clone'):
             assert cmd in out, f'command {cmd!r} missing from --help'
 
     def test__create_help_shows_expected_options(self):
