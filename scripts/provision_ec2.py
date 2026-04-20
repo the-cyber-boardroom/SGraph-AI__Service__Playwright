@@ -1270,14 +1270,26 @@ def cmd_connect(target: Optional[str] = typer.Argument(None, help='Deploy-name o
         c.print()
         raise typer.Exit(1)
 
-    typer.echo(f'  🔌  Opening SSM session → {instance_id}  (plugin: {plugin_path})')
-    result = subprocess.run(['aws', 'ssm', 'start-session', '--target', instance_id],
-                            check=False, capture_output=False)
+    def _do_connect():
+        typer.echo(f'  🔌  Opening SSM session → {instance_id}  (plugin: {plugin_path})')
+        return subprocess.run(['aws', 'ssm', 'start-session', '--target', instance_id],
+                              check=False, capture_output=False)
+
+    result = _do_connect()
     if result.returncode != 0:
         c.print()
-        c.print('  [yellow]⚠  Session ended with non-zero exit.[/]')
-        c.print(f'  Plugin found at: {plugin_path}')
-        c.print('  If you see "Standard_Stream not found", the plugin binary may be corrupt — try reinstalling:')
+        c.print('  [yellow]⚠  Session failed — restarting SSM agent on instance and retrying...[/]')
+        _ssm_run(instance_id, ['sudo systemctl restart amazon-ssm-agent'], timeout=30)
+        c.print('  [dim]waiting 5s for agent to come back...[/]')
+        time.sleep(5)
+        c.print()
+        result = _do_connect()
+
+    if result.returncode != 0:
+        c.print()
+        c.print('  [red]✗  Session failed after SSM agent restart.[/]')
+        c.print(f'  Plugin path: {plugin_path}')
+        c.print('  If you see "Standard_Stream not found", try:')
         c.print('    [bold]brew reinstall --cask session-manager-plugin[/]')
         c.print()
 
