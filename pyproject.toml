@@ -20,6 +20,7 @@ osbot-utils                  = "*"
 osbot-aws                    = "*"
 osbot-fast-api               = "*"
 osbot-fast-api-serverless    = "*"
+prometheus-client            = "*"
 typer                        = "*"
 
 [tool.poetry.scripts]
