@@ -375,9 +375,10 @@ def render_user_data(playwright_image_uri : str,
 def run_instance(ec2: EC2, ami_id: str, security_group_id: str, instance_profile_name: str,
                   user_data: str, stage: str, deploy_name: str = '',
                   creator: str = '', api_key_name: str = '', api_key_value: str = '') -> str:
-    tags = [{'Key': 'Name'              , 'Value': TAG__NAME  },
-            {'Key': TAG__STAGE_KEY      , 'Value': stage       },
-            {'Key': TAG__DEPLOY_NAME_KEY, 'Value': deploy_name },
+    display_name = f'{TAG__NAME}/{deploy_name}' if deploy_name else TAG__NAME
+    tags = [{'Key': 'Name'              , 'Value': display_name},
+            {'Key': TAG__STAGE_KEY      , 'Value': stage        },
+            {'Key': TAG__DEPLOY_NAME_KEY, 'Value': deploy_name  },
             {'Key': TAG__CREATOR_KEY    , 'Value': creator      },
             {'Key': TAG__API_KEY_NAME_KEY , 'Value': api_key_name  },
             {'Key': TAG__API_KEY_VALUE_KEY, 'Value': api_key_value }]
@@ -404,7 +405,7 @@ def run_instance(ec2: EC2, ami_id: str, security_group_id: str, instance_profile
 
 
 def find_instances(ec2: EC2) -> dict:
-    filters   = [{'Name': 'tag:Name'           , 'Values': [TAG__NAME]                                },
+    filters   = [{'Name': 'tag:Name'           , 'Values': [f'{TAG__NAME}*']                           },  # wildcard matches playwright-ec2 and playwright-ec2/bold-curie
                  {'Name': 'instance-state-name', 'Values': ['pending', 'running', 'stopping', 'stopped']}]
     return ec2.instances_details(filters=filters)
 
@@ -705,17 +706,83 @@ def cmd_list():
     c.print(t)
 
 
+@app.command(name='info')
+def cmd_info(target: Optional[str] = typer.Argument(None, help='Deploy-name or instance-id (auto if only one).')):
+    """Show full details for an instance, reading metadata from its tags."""
+    ec2             = EC2()
+    instance_id, d  = _resolve_target(ec2, target)
+    state_raw       = d.get('state', {})
+    state           = state_raw.get('Name', '?') if isinstance(state_raw, dict) else str(state_raw)
+    ip              = d.get('public_ip', '')
+    deploy_name     = _instance_deploy_name(d)
+    r = {
+        'instance_id'         : instance_id,
+        'deploy_name'         : deploy_name,
+        'stage'               : _instance_tag(d, TAG__STAGE_KEY),
+        'creator'             : _instance_tag(d, TAG__CREATOR_KEY),
+        'ami_id'              : d.get('image_id', '—'),
+        'public_ip'           : ip,
+        'playwright_url'      : f'http://{ip}:{EC2__PLAYWRIGHT_PORT}'    if ip else '—',
+        'sidecar_admin_url'   : f'http://{ip}:{EC2__SIDECAR_ADMIN_PORT}' if ip else '—',
+        'api_key_name'        : _instance_tag(d, TAG__API_KEY_NAME_KEY),
+        'api_key_value'       : _instance_tag(d, TAG__API_KEY_VALUE_KEY),
+        'playwright_image_uri': '(stored in compose file on instance)',
+        'sidecar_image_uri'   : '(stored in compose file on instance)',
+        'state'               : state,
+    }
+    colour = 'green' if state == 'running' else 'yellow' if state == 'pending' else 'red'
+    c      = Console(highlight=False, width=200)
+    c.print()
+    c.print(Panel(
+        f'[bold]ℹ️   Instance info[/]  ·  [bright_white]{deploy_name}[/]  [dim]{instance_id}[/]  '
+        f'[{colour}]{state}[/]',
+        border_style=colour, expand=False))
+    c.print()
+
+    left = Table(box=None, show_header=False, padding=(0, 2), expand=False)
+    left.add_column(style='white',        min_width=14, no_wrap=True)
+    left.add_column(style='bright_white')
+    left.add_row('deploy-name', r['deploy_name']  )
+    left.add_row('stage',       r['stage']        )
+    left.add_row('creator',     r['creator']      )
+    left.add_row('ami',         r['ami_id']       )
+    left.add_row('instance-id', r['instance_id']  )
+
+    right = Table(box=None, show_header=False, padding=(0, 2), expand=False)
+    right.add_column(style='white',        min_width=14, no_wrap=True)
+    right.add_column(style='bright_white')
+    right.add_row('public-ip',     r['public_ip']                          )
+    right.add_row('playwright',    r['playwright_url']                     )
+    right.add_row('sidecar-admin', r['sidecar_admin_url']                  )
+    right.add_row('api-key-name',  r['api_key_name']                       )
+    right.add_row('api-key-value', f'[bold green]{r["api_key_value"]}[/]'  )
+
+    cols = Table(box=None, show_header=False, padding=(0, 3), expand=False)
+    cols.add_column()
+    cols.add_column()
+    cols.add_row(left, right)
+    c.print(cols)
+    c.print()
+    c.print(f'  [dim]sg-ec2 forward 8000 --target {deploy_name}   ·   '
+            f'sg-ec2 health {deploy_name}   ·   sg-ec2 logs --target {deploy_name}[/]')
+    c.print()
+
+
 @app.command(name='delete')
 def cmd_delete(name: Optional[str] = typer.Argument(None, help='Deploy-name or instance-id; omit to delete ALL.')):
     """Delete instance(s) by deploy-name/instance-id, or all if no argument given."""
-    ec2 = EC2()
-    if name and name.startswith('i-'):
-        ec2.instance_terminate(name)
-        deleted = [name]
+    ec2     = EC2()
+    c       = Console(highlight=False, width=200)
+    deleted = []
+    if name:
+        instance_id, details = _resolve_target(ec2, name)
+        deploy = _instance_deploy_name(details) or instance_id
+        c.print(f'  🗑️   Deleting [bright_white]{deploy}[/]  [dim]{instance_id}[/]...')
+        ec2.instance_terminate(instance_id)
+        deleted = [instance_id]
     else:
-        deleted = terminate_instances(ec2, nickname=name or '')
-    c = Console(highlight=False, width=200)
-    c.print(f'  🗑️   Deleted {len(deleted)} instance(s): {", ".join(deleted) or "none"}')
+        deleted = terminate_instances(ec2)
+    c.print(f'  ✅  Deleted {len(deleted)} instance(s): [dim]{", ".join(deleted) or "none"}[/]')
 
 
 @app.command(name='connect')
