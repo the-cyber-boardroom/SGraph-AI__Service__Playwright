@@ -383,8 +383,13 @@ patterns are all reusable without modification.
 
 ## 16. GitHub Actions — ECR Push Pattern
 
-The Playwright service CI does not yet push to ECR (images are built and pushed manually
-or by a separate pipeline). For sg-send, the recommended workflow pattern is:
+The Playwright service CI **already pushes to ECR** via Job 3 ("Build + Push Docker Image
+to ECR") in `.github/workflows/ci-pipeline.yml`. It is triggered by `workflow_dispatch`
+(manual) on `dev` or automatically on push to `dev`. The push is pytest-driven via
+`tests/docker/test_ECR__Docker__SGraph-AI__Service__Playwright.py`.
+
+For sg-send, which does not have the same pytest-driven deploy infrastructure yet, the
+equivalent standard GitHub Actions pattern is:
 
 ```yaml
 # .github/workflows/docker-build.yml  (to be created)
