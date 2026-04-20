@@ -243,7 +243,8 @@ def default_sidecar_image_uri() -> str:
     return f'{ecr_registry_host()}/{SIDECAR_IMAGE_NAME}:latest'
 
 
-def preflight_check(playwright_image_uri: str = None, sidecar_image_uri: str = None) -> dict:
+def preflight_check(playwright_image_uri: str = None, sidecar_image_uri: str = None,
+                    instance_type: str = EC2__INSTANCE_TYPE) -> dict:
     """Validate AWS credentials + resolve config. Prints a summary and exits on failure."""
     errors   = []
     warnings = []
@@ -290,7 +291,7 @@ def preflight_check(playwright_image_uri: str = None, sidecar_image_uri: str = N
                              resolved_playwright, resolved_sidecar,
                              api_key_name, api_key_value,
                              upstream_url, upstream_user, upstream_pass,
-                             warnings, errors)
+                             warnings, errors, instance_type)
     return {'account': account, 'region': region, 'registry': registry, 'api_key_value': api_key_value}
 
 
@@ -307,7 +308,8 @@ def _print_preflight_summary(account, region, registry,
                               playwright_uri, sidecar_uri,
                               api_key_name, api_key_value,
                               upstream_url, upstream_user, upstream_pass,
-                              warnings, errors) -> None:
+                              warnings, errors,
+                              instance_type: str = EC2__INSTANCE_TYPE) -> None:
     c = Console(highlight=False, width=200)
 
     c.print(Panel('[bold] 🎭  SG Playwright EC2 Provisioner[/]  ·  preflight check',
@@ -339,7 +341,7 @@ def _print_preflight_summary(account, region, registry,
         c.print('  [bold blue]🌐  Upstream[/]  none — sidecar runs in direct mode')
     c.print()
 
-    c.print(f'  [bold blue]⚙️  Stack[/]   t3.large · AL2023 · '
+    c.print(f'  [bold blue]⚙️  Stack[/]   {instance_type} · AL2023 · '
             f'IAM={IAM__ROLE_NAME} · SG={SG__NAME} · tag={TAG__NAME}')
     c.print()
 
@@ -601,7 +603,8 @@ def provision(stage                  : str          = DEFAULT_STAGE    ,
         return {'action': 'terminate', 'instance_ids': terminated}
 
     preflight             = preflight_check(playwright_image_uri=playwright_image_uri,
-                                             sidecar_image_uri=sidecar_image_uri)
+                                             sidecar_image_uri=sidecar_image_uri,
+                                             instance_type=instance_type)
     api_key_name          = get_env('FAST_API__AUTH__API_KEY__NAME' ) or 'X-API-Key'
     api_key_value         = get_env('FAST_API__AUTH__API_KEY__VALUE') or preflight['api_key_value']
     upstream_url          = get_env('AGENT_MITMPROXY__UPSTREAM_URL' ) or ''
