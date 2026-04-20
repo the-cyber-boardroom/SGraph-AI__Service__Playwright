@@ -61,7 +61,7 @@ IAM__POLICY_ARNS             = (IAM__ECR_READONLY_POLICY_ARN, IAM__SSM_CORE_POLI
 IAM__ASSUME_ROLE_SERVICE     = 'ec2.amazonaws.com'
 
 SG__NAME                     = 'playwright-ec2'                                         # AWS reserves 'sg-*' prefix for SG IDs
-SG__DESCRIPTION              = 'SG Playwright EC2 stack - ingress :8000 (API) + :8001 (sidecar admin)'
+SG__DESCRIPTION              = 'SG Playwright EC2 stack - ingress :8000 (API) + :8001 (sidecar admin) — ALL open ports MUST be behind API key auth (including static sites)'
 
 TAG__NAME                    = 'playwright-ec2'
 TAG__SERVICE_KEY             = 'sg:service'                                             # Immutable identifier — find_instances filters on this, not Name (Name is user-editable in console)
@@ -88,6 +88,28 @@ SMOKE_URLS = ['https://www.google.com'   ,
               'https://sgraph.ai'         ,
               'https://send.sgraph.ai'    ,
               'https://news.bbc.co.uk'    ]
+
+TAG__AMI_STATUS_KEY = 'sg:ami-status'    # untested | healthy | unhealthy
+
+# Short user_data for AMI-based launches: Docker + images already baked in,
+# just write the compose file (fresh API key) and start containers.
+AMI_USER_DATA_TEMPLATE = """\
+#!/bin/bash
+set -euxo pipefail
+exec > >(tee /var/log/sg-playwright-start.log | logger -t sg-playwright) 2>&1
+
+echo "=== SG Playwright AMI boot at $(date) ==="
+
+mkdir -p /opt/sg-playwright
+
+cat > /opt/sg-playwright/docker-compose.yml << 'SG_COMPOSE_EOF'
+{compose_content}
+SG_COMPOSE_EOF
+
+docker compose -f /opt/sg-playwright/docker-compose.yml up -d
+
+echo "=== SG Playwright AMI start complete at $(date) ==="
+"""
 
 
 def _random_deploy_name() -> str:
@@ -477,10 +499,77 @@ def terminate_instances(ec2: EC2, nickname: str = '') -> list:
     return to_kill
 
 
+def clean_instance_for_ami(instance_id: str) -> None:
+    """Remove credentials, logs, and sensitive files before AMI snapshot."""
+    steps = [
+        f'docker compose -f {COMPOSE_FILE_PATH} stop',
+        'docker logout 2>/dev/null || true',
+        'rm -f /root/.docker/config.json',
+        f'rm -f {COMPOSE_FILE_PATH}',
+        'rm -f /var/lib/cloud/instance/user-data.txt 2>/dev/null || true',
+        'find /var/lib/cloud/instances -name user-data.txt -delete 2>/dev/null || true',
+        'truncate -s 0 /var/log/sg-playwright-setup.log 2>/dev/null || true',
+        'rm -f /var/log/cloud-init.log /var/log/cloud-init-output.log 2>/dev/null || true',
+        'journalctl --vacuum-time=1s 2>/dev/null || true',
+        'truncate -s 0 /root/.bash_history 2>/dev/null || true',
+        'truncate -s 0 /home/ec2-user/.bash_history 2>/dev/null || true',
+        'rm -rf /tmp/* 2>/dev/null || true',
+        'sync',
+    ]
+    for cmd in steps:
+        _ssm_run(instance_id, [cmd], timeout=60)
+
+
+def create_ami(ec2: EC2, instance_id: str, name: str) -> str:
+    """Create an AMI from a stopped/running instance. Returns ami_id."""
+    resp = ec2.client().create_image(
+        InstanceId      = instance_id,
+        Name            = name,
+        Description     = f'SG Playwright + agent_mitmproxy — {name}',
+        NoReboot        = True,
+        TagSpecifications = [{'ResourceType': 'image',
+                              'Tags': [{'Key': 'Name',              'Value': name            },
+                                       {'Key': TAG__SERVICE_KEY,    'Value': TAG__SERVICE_VALUE},
+                                       {'Key': TAG__AMI_STATUS_KEY, 'Value': 'untested'      }]}])
+    return resp['ImageId']
+
+
+def wait_ami_available(ec2: EC2, ami_id: str, timeout: int = 900) -> bool:
+    """Poll until AMI state is 'available' or 'failed'. Returns True on success."""
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        images = ec2.client().describe_images(ImageIds=[ami_id]).get('Images', [])
+        state  = images[0]['State'] if images else 'pending'
+        if state == 'available':
+            return True
+        if state == 'failed':
+            return False
+        time.sleep(15)
+    return False
+
+
+def tag_ami(ec2: EC2, ami_id: str, status: str) -> None:
+    """Set sg:ami-status tag on an AMI (untested | healthy | unhealthy)."""
+    ec2.client().create_tags(Resources=[ami_id],
+                              Tags=[{'Key': TAG__AMI_STATUS_KEY, 'Value': status}])
+
+
+def latest_healthy_ami(ec2: EC2) -> str:
+    """Return the most recently created healthy sg-playwright AMI ID, or None."""
+    resp   = ec2.client().describe_images(
+        Filters = [{'Name': f'tag:{TAG__SERVICE_KEY}',    'Values': [TAG__SERVICE_VALUE]},
+                   {'Name': f'tag:{TAG__AMI_STATUS_KEY}', 'Values': ['healthy']         },
+                   {'Name': 'state',                      'Values': ['available']       }],
+        Owners  = ['self'])
+    images = sorted(resp.get('Images', []), key=lambda x: x['CreationDate'], reverse=True)
+    return images[0]['ImageId'] if images else None
+
+
 def provision(stage                  : str  = DEFAULT_STAGE ,
                playwright_image_uri  : str  = None          ,
                sidecar_image_uri     : str  = None          ,
                deploy_name           : str  = ''            ,
+               from_ami              : str  = None          ,    # use pre-baked AMI; skips install+pull
                terminate             : bool = False         ) -> dict:
     ec2 = EC2()
 
@@ -507,13 +596,16 @@ def provision(stage                  : str  = DEFAULT_STAGE ,
                                                  upstream_url         = upstream_url         ,
                                                  upstream_user        = upstream_user        ,
                                                  upstream_pass        = upstream_pass        )
-    user_data             = render_user_data(playwright_image_uri = playwright_image_uri ,
-                                              sidecar_image_uri    = sidecar_image_uri    ,
-                                              compose_content      = compose_content      )
+    if from_ami:
+        user_data = AMI_USER_DATA_TEMPLATE.format(compose_content=compose_content)
+    else:
+        user_data = render_user_data(playwright_image_uri = playwright_image_uri ,
+                                     sidecar_image_uri    = sidecar_image_uri    ,
+                                     compose_content      = compose_content      )
 
     instance_profile_name = ensure_instance_profile()
     security_group_id     = ensure_security_group(ec2)
-    ami_id                = latest_al2023_ami_id(ec2)
+    ami_id                = from_ami or latest_al2023_ami_id(ec2)
     instance_id           = run_instance(ec2                   = ec2                   ,
                                           ami_id                = ami_id                ,
                                           security_group_id     = security_group_id     ,
@@ -697,15 +789,17 @@ def _render_health(results: dict, base_url: str) -> None:
 
 
 @app.command()
-def create(stage                : str           = typer.Option(DEFAULT_STAGE, help='Stage tag.')                                        ,
-           name                 : Optional[str] = typer.Option(None, '--name', help='Deploy name (default: random two-word).')          ,
+def create(stage                : str           = typer.Option(DEFAULT_STAGE, help='Stage tag.')                                         ,
+           name                 : Optional[str] = typer.Option(None, '--name',          help='Deploy name (default: random two-word).')  ,
            playwright_image_uri : Optional[str] = typer.Option(None, '--playwright-image-uri', help='Override Playwright ECR image URI.'),
            sidecar_image_uri    : Optional[str] = typer.Option(None, '--sidecar-image-uri',    help='Override sidecar ECR image URI.')   ,
-           wait                 : bool          = typer.Option(False, '--wait',    help='Poll health until up.')                         ,
-           timeout              : int           = typer.Option(300,  '--timeout', help='Max seconds to wait when --wait is set.')        ):
+           from_ami             : Optional[str] = typer.Option(None, '--from-ami',      help='Launch from a pre-baked AMI ID (skips docker install + image pull).'),
+           wait                 : bool          = typer.Option(False, '--wait',          help='Poll health until up.')                   ,
+           timeout              : int           = typer.Option(300,  '--timeout',        help='Max seconds to wait when --wait is set.') ):
     """Provision a t3.large EC2 instance running the Playwright + agent_mitmproxy stack."""
     result = provision(stage=stage, playwright_image_uri=playwright_image_uri,
-                       sidecar_image_uri=sidecar_image_uri, deploy_name=name or '')
+                       sidecar_image_uri=sidecar_image_uri, deploy_name=name or '',
+                       from_ami=from_ami)
     _render_create_result(result)
     if wait and result.get('playwright_url'):
         _cmd_wait(ip=result['public_ip'], api_key_name=result['api_key_name'],
@@ -952,6 +1046,65 @@ def _cmd_wait(ip           : Optional[str] = typer.Argument(None, help='Public I
         time.sleep(interval)
     typer.echo(f'  ❌  timed out after {timeout}s', err=True)
     raise typer.Exit(1)
+
+
+@app.command(name='clean')
+def cmd_clean(target: Optional[str] = typer.Argument(None, help='Deploy-name or instance-id; auto-selects if only one instance.')):
+    """Remove logs, credentials, and sensitive files from an instance before AMI bake."""
+    ec2             = EC2()
+    instance_id, d  = _resolve_target(ec2, target)
+    deploy_name     = _instance_deploy_name(d)
+    c               = Console(highlight=False, width=200)
+    c.print()
+    c.print(f'  🧹  Cleaning [bold]{deploy_name}[/]  [dim]{instance_id}[/] for AMI bake...')
+    clean_instance_for_ami(instance_id)
+    c.print(f'  ✅  Clean complete — credentials, logs, and user-data removed.')
+    c.print()
+
+
+@app.command(name='bake-ami')
+def cmd_bake_ami(target  : Optional[str] = typer.Argument(None, help='Deploy-name or instance-id; auto-selects if only one instance.'),
+                 ami_name : Optional[str] = typer.Option(None, '--name', help='AMI name (default: sg-playwright-{timestamp}).')):
+    """Create an AMI from a running instance. Prints the AMI ID to stdout for scripting."""
+    import datetime
+    ec2             = EC2()
+    instance_id, d  = _resolve_target(ec2, target)
+    deploy_name     = _instance_deploy_name(d)
+    name            = ami_name or f'sg-playwright-{datetime.datetime.utcnow().strftime("%Y%m%d-%H%M%S")}'
+    c               = Console(highlight=False, width=200, stderr=True)
+    c.print()
+    c.print(f'  📸  Creating AMI from [bold]{deploy_name}[/]  [dim]{instance_id}[/]')
+    c.print(f'  name: {name}')
+    ami_id = create_ami(ec2, instance_id, name)
+    c.print(f'  ✅  AMI creation started: [bold]{ami_id}[/]  (status: untested)')
+    c.print(f'  run [bold]sg-ec2 wait-ami {ami_id}[/] to poll until available')
+    c.print()
+    print(ami_id)                                                           # machine-readable to stdout
+
+
+@app.command(name='wait-ami')
+def cmd_wait_ami(ami_id  : str = typer.Argument(..., help='AMI ID to wait for.'),
+                 timeout : int = typer.Option(900, help='Max seconds to wait.')):
+    """Wait for an AMI to become available."""
+    c = Console(highlight=False, width=200)
+    c.print(f'\n  ⏳  Waiting for AMI [bold]{ami_id}[/] (timeout {timeout}s)...')
+    ok = wait_ami_available(EC2(), ami_id, timeout=timeout)
+    if ok:
+        c.print(f'  ✅  AMI {ami_id} is available\n')
+    else:
+        c.print(f'  ❌  AMI {ami_id} failed or timed out\n', stderr=True)
+        raise typer.Exit(1)
+
+
+@app.command(name='tag-ami')
+def cmd_tag_ami(ami_id : str = typer.Argument(..., help='AMI ID to tag.'),
+                status : str = typer.Option('healthy', '--status', help='Status tag value: healthy | unhealthy | untested.')):
+    """Tag an AMI with sg:ami-status (healthy, unhealthy, or untested)."""
+    if status not in ('healthy', 'unhealthy', 'untested'):
+        raise typer.BadParameter('--status must be healthy, unhealthy, or untested')
+    tag_ami(EC2(), ami_id, status)
+    colour = 'green' if status == 'healthy' else 'red' if status == 'unhealthy' else 'yellow'
+    Console(highlight=False).print(f'\n  [{colour}]●[/]  {ami_id}  sg:ami-status = {status}\n')
 
 
 @app.command(name='open')
