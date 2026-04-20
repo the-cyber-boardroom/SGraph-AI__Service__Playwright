@@ -65,8 +65,36 @@ SG__DESCRIPTION              = 'SG Playwright EC2 stack - ingress :8000 (API) + 
 
 TAG__NAME                    = 'playwright-ec2'
 TAG__STAGE_KEY               = 'stage'
-TAG__NICKNAME_KEY            = 'sg:nickname'                                            # Human-readable label; used by connect/delete to target a specific instance
+TAG__DEPLOY_NAME_KEY         = 'sg:deploy-name'                                         # Random two-word name (happy-turing); used by connect/delete/exec
+TAG__CREATOR_KEY             = 'sg:creator'                                             # Who launched this instance (git email or $USER)
+TAG__API_KEY_NAME_KEY        = 'sg:api-key-name'                                        # Stored so 'list' can show it
+TAG__API_KEY_VALUE_KEY       = 'sg:api-key-value'                                       # Stored in tags — only IAM credentials can read EC2 tags
 DEFAULT_STAGE                = 'dev'
+
+_ADJECTIVES = ['bold','bright','calm','clever','cool','daring','deep','eager',
+               'fast','fierce','fresh','grand','happy','keen','light','lucky',
+               'mellow','neat','quick','quiet','sharp','sleek','smart','swift','witty']
+_SCIENTISTS = ['bohr','curie','darwin','dirac','einstein','euler','faraday',
+               'fermi','feynman','galileo','gauss','hopper','hubble','lovelace',
+               'maxwell','newton','noether','pascal','planck','turing','tesla',
+               'volta','watt','wien','zeno']
+
+COMPOSE_PROJECT   = 'sg-playwright'
+COMPOSE_FILE_PATH = '/opt/sg-playwright/docker-compose.yml'
+
+
+def _random_deploy_name() -> str:
+    return f'{secrets.choice(_ADJECTIVES)}-{secrets.choice(_SCIENTISTS)}'
+
+
+def _get_creator() -> str:
+    import subprocess
+    try:
+        return subprocess.check_output(['git', 'config', 'user.email'],
+                                       stderr=subprocess.DEVNULL, text=True).strip()
+    except Exception:
+        import os
+        return os.environ.get('USER', 'unknown')
 
 
 COMPOSE_YAML_TEMPLATE = textwrap.dedent("""\
@@ -344,10 +372,15 @@ def render_user_data(playwright_image_uri : str,
                                      compose_content      = compose_content        )
 
 
-def run_instance(ec2: EC2, ami_id: str, security_group_id: str, instance_profile_name: str, user_data: str, stage: str, nickname: str = '') -> str:
-    tags = [{'Key': 'Name', 'Value': TAG__NAME}, {'Key': TAG__STAGE_KEY, 'Value': stage}]
-    if nickname:
-        tags.append({'Key': TAG__NICKNAME_KEY, 'Value': nickname})
+def run_instance(ec2: EC2, ami_id: str, security_group_id: str, instance_profile_name: str,
+                  user_data: str, stage: str, deploy_name: str = '',
+                  creator: str = '', api_key_name: str = '', api_key_value: str = '') -> str:
+    tags = [{'Key': 'Name'              , 'Value': TAG__NAME  },
+            {'Key': TAG__STAGE_KEY      , 'Value': stage       },
+            {'Key': TAG__DEPLOY_NAME_KEY, 'Value': deploy_name },
+            {'Key': TAG__CREATOR_KEY    , 'Value': creator      },
+            {'Key': TAG__API_KEY_NAME_KEY , 'Value': api_key_name  },
+            {'Key': TAG__API_KEY_VALUE_KEY, 'Value': api_key_value }]
     kwargs = {'ImageId'           : ami_id                                                  ,
               'InstanceType'      : EC2__INSTANCE_TYPE                                      ,
               'MinCount'          : 1                                                       ,
@@ -380,27 +413,31 @@ def find_instance_ids(ec2: EC2) -> list:
     return list(find_instances(ec2).keys())
 
 
-def _instance_nickname(details: dict) -> str:
+def _instance_tag(details: dict, key: str) -> str:
     for tag in details.get('tags', []):
-        if tag.get('Key') == TAG__NICKNAME_KEY:
+        if tag.get('Key') == key:
             return tag.get('Value', '')
     return ''
 
 
+def _instance_deploy_name(details: dict) -> str:
+    return _instance_tag(details, TAG__DEPLOY_NAME_KEY)
+
+
 def _resolve_instance_id(ec2: EC2, target: str) -> str:
-    """Accept an instance-id (i-…) or a nickname; return the instance-id."""
+    """Accept an instance-id (i-…) or a deploy-name; return the instance-id."""
     if target.startswith('i-'):
         return target
     for iid, details in find_instances(ec2).items():
-        if _instance_nickname(details) == target:
+        if _instance_deploy_name(details) == target:
             return iid
-    raise ValueError(f'No instance found with nickname {target!r}')
+    raise ValueError(f'No instance found with deploy-name {target!r}')
 
 
 def terminate_instances(ec2: EC2, nickname: str = '') -> list:
     instances = find_instances(ec2)
     to_kill   = [iid for iid, d in instances.items()
-                 if not nickname or _instance_nickname(d) == nickname]
+                 if not nickname or _instance_deploy_name(d) == nickname]
     for iid in to_kill:
         ec2.instance_terminate(iid)
     return to_kill
@@ -409,7 +446,7 @@ def terminate_instances(ec2: EC2, nickname: str = '') -> list:
 def provision(stage                  : str  = DEFAULT_STAGE ,
                playwright_image_uri  : str  = None          ,
                sidecar_image_uri     : str  = None          ,
-               nickname              : str  = ''            ,
+               deploy_name           : str  = ''            ,
                terminate             : bool = False         ) -> dict:
     ec2 = EC2()
 
@@ -426,6 +463,8 @@ def provision(stage                  : str  = DEFAULT_STAGE ,
     upstream_pass         = get_env('AGENT_MITMPROXY__UPSTREAM_PASS') or ''
     playwright_image_uri  = playwright_image_uri or default_playwright_image_uri()
     sidecar_image_uri     = sidecar_image_uri    or default_sidecar_image_uri()
+    resolved_deploy_name  = deploy_name or _random_deploy_name()
+    creator               = _get_creator()
 
     compose_content       = render_compose_yaml(playwright_image_uri = playwright_image_uri ,
                                                  sidecar_image_uri    = sidecar_image_uri    ,
@@ -447,7 +486,10 @@ def provision(stage                  : str  = DEFAULT_STAGE ,
                                           instance_profile_name = instance_profile_name ,
                                           user_data             = user_data             ,
                                           stage                 = stage                 ,
-                                          nickname              = nickname              )
+                                          deploy_name           = resolved_deploy_name  ,
+                                          creator               = creator               ,
+                                          api_key_name          = api_key_name          ,
+                                          api_key_value         = api_key_value         )
 
     ec2.wait_for_instance_running(instance_id)
     details       = ec2.instance_details(instance_id)
@@ -457,7 +499,8 @@ def provision(stage                  : str  = DEFAULT_STAGE ,
 
     return {'action'              : 'create'               ,
             'instance_id'        : instance_id             ,
-            'nickname'           : nickname                ,
+            'deploy_name'        : resolved_deploy_name    ,
+            'creator'            : creator                 ,
             'public_ip'          : public_ip               ,
             'playwright_url'     : playwright_url          ,
             'sidecar_admin_url'  : sidecar_url             ,
@@ -489,88 +532,205 @@ def _health_check_once(base_url: str, api_key_name: str, api_key_value: str) -> 
     return results
 
 
+def _resolve_target(ec2: EC2, target: Optional[str]) -> tuple:
+    """Resolve a deploy-name, instance-id, or None (auto-select) → (instance_id, details)."""
+    instances = find_instances(ec2)
+    if not instances:
+        typer.echo('  ❌  No playwright-ec2 instances found.', err=True)
+        raise typer.Exit(1)
+    if target is None:
+        if len(instances) == 1:
+            iid     = next(iter(instances))
+            return iid, instances[iid]
+        # Multiple instances — prompt
+        c = Console(highlight=False, width=200)
+        c.print('\n  [bold]Multiple instances found — pick one:[/]\n')
+        items = list(instances.items())
+        for i, (iid, d) in enumerate(items, 1):
+            state_raw = d.get('state', {})
+            state     = state_raw.get('Name', '?') if isinstance(state_raw, dict) else str(state_raw)
+            name      = _instance_deploy_name(d) or iid
+            ip        = d.get('public_ip', '?')
+            colour    = 'green' if state == 'running' else 'yellow'
+            c.print(f'  [{colour}]{i}[/]  {name}  {iid}  {ip}  [{colour}]{state}[/]')
+        c.print()
+        choice = typer.prompt('  Enter number').strip()
+        try:
+            iid = items[int(choice) - 1][0]
+            return iid, instances[iid]
+        except (ValueError, IndexError):
+            typer.echo('  ❌  Invalid choice.', err=True)
+            raise typer.Exit(1)
+    iid = _resolve_instance_id(ec2, target)
+    return iid, instances.get(iid, {})
+
+
+def _resolve_ip(ec2: EC2, target: str) -> str:
+    """Resolve a deploy-name, instance-id, or raw IP → public IP string."""
+    if target.replace('.', '').isdigit():
+        return target
+    iid, details = _resolve_target(ec2, target)
+    return details.get('public_ip', '')
+
+
+def _ssm_run(instance_id: str, commands: list, timeout: int = 60) -> tuple:
+    """Execute shell commands on an EC2 instance via SSM Run Command. Returns (stdout, stderr)."""
+    import boto3
+    ssm        = boto3.client('ssm', region_name=aws_region())
+    response   = ssm.send_command(InstanceIds      = [instance_id]          ,
+                                   DocumentName     = 'AWS-RunShellScript'   ,
+                                   Parameters       = {'commands': commands} ,
+                                   TimeoutSeconds   = timeout                )
+    command_id = response['Command']['CommandId']
+    deadline   = time.time() + timeout + 10
+    while time.time() < deadline:
+        time.sleep(3)
+        try:
+            inv = ssm.get_command_invocation(CommandId=command_id, InstanceId=instance_id)
+            if inv['Status'] not in ('Pending', 'InProgress', 'Delayed'):
+                return inv.get('StandardOutputContent', ''), inv.get('StandardErrorContent', '')
+        except ssm.exceptions.InvocationDoesNotExist:
+            pass
+    return '', 'Timed out waiting for SSM command result'
+
+
+def _render_health(results: dict, base_url: str) -> None:
+    c   = Console(highlight=False, width=200)
+    all_ok = all('status' in v and v['status'] == 200 for v in results.values())
+    c.print()
+    c.print(Panel(f'[bold]{"✅" if all_ok else "❌"}  Health — [cyan]{base_url}[/cyan][/]',
+                  border_style='green' if all_ok else 'red', expand=False))
+    for path, v in results.items():
+        if 'error' in v:
+            # Extract just the root cause from the long urllib3 error
+            err = str(v['error'])
+            short = err.split('(Caused by')[-1].strip().strip('()')
+            c.print(f'  [red]✗[/]  [dim]{path}[/]')
+            c.print(f'       [red]{short}[/]')
+        else:
+            colour = 'green' if v['status'] == 200 else 'yellow'
+            c.print(f'  [{colour}]{"✓" if v["status"] == 200 else "!"}[/]  [dim]{path}[/]  '
+                    f'[{colour}]HTTP {v["status"]}[/]')
+    if not all_ok:
+        c.print()
+        c.print('  [dim]💡  Service may still be starting — try:[/]  [bold]sg-ec2 wait <ip>[/]')
+    c.print()
+
+
 @app.command()
-def create(stage                : str           = typer.Option(DEFAULT_STAGE, help='Stage tag applied to the instance.')                          ,
-           name                 : Optional[str] = typer.Option(None         , '--name'                , help='Nickname for the instance (used by connect/delete).')  ,
-           playwright_image_uri : Optional[str] = typer.Option(None         , '--playwright-image-uri', help='Override Playwright ECR image URI.')  ,
-           sidecar_image_uri    : Optional[str] = typer.Option(None         , '--sidecar-image-uri'   , help='Override sidecar ECR image URI.')      ,
-           wait                 : bool          = typer.Option(False         , '--wait'                , help='Poll health endpoint until the service is up.') ,
-           timeout              : int           = typer.Option(300           , '--timeout'             , help='Max seconds to wait when --wait is set.')      ):
+def create(stage                : str           = typer.Option(DEFAULT_STAGE, help='Stage tag.')                                        ,
+           name                 : Optional[str] = typer.Option(None, '--name', help='Deploy name (default: random two-word).')          ,
+           playwright_image_uri : Optional[str] = typer.Option(None, '--playwright-image-uri', help='Override Playwright ECR image URI.'),
+           sidecar_image_uri    : Optional[str] = typer.Option(None, '--sidecar-image-uri',    help='Override sidecar ECR image URI.')   ,
+           wait                 : bool          = typer.Option(False, '--wait',    help='Poll health until up.')                         ,
+           timeout              : int           = typer.Option(300,  '--timeout', help='Max seconds to wait when --wait is set.')        ):
     """Provision a t3.large EC2 instance running the Playwright + agent_mitmproxy stack."""
     result = provision(stage=stage, playwright_image_uri=playwright_image_uri,
-                       sidecar_image_uri=sidecar_image_uri, nickname=name or '')
+                       sidecar_image_uri=sidecar_image_uri, deploy_name=name or '')
     typer.echo(json.dumps(result, indent=2, default=str))
     if wait and result.get('playwright_url'):
-        _cmd_wait(ip            = result['public_ip']    ,
-                  api_key_name  = result['api_key_name'] ,
-                  api_key_value = result['api_key_value'],
-                  timeout       = timeout                 )
+        _cmd_wait(ip=result['public_ip'], api_key_name=result['api_key_name'],
+                  api_key_value=result['api_key_value'], timeout=timeout)
 
 
 @app.command(name='list')
 def cmd_list():
-    """List all playwright-ec2 instances (pending, running, stopped)."""
+    """List all playwright-ec2 instances with metadata from tags."""
     c         = Console(highlight=False, width=200)
     instances = find_instances(EC2())
     if not instances:
         c.print('  [dim]No instances found.[/]')
         return
     t = Table(show_header=True, header_style='bold bright_cyan', box=None, padding=(0, 2))
-    t.add_column('instance-id',  style='dim')
-    t.add_column('nickname',     style='bold white')
+    t.add_column('deploy-name', style='bold white')
+    t.add_column('instance-id', style='dim')
     t.add_column('state')
-    t.add_column('public-ip',    style='green')
-    t.add_column('playwright-url')
+    t.add_column('public-ip',   style='green')
+    t.add_column('creator',     style='dim')
+    t.add_column('api-key',     style='dim')
     for iid, d in instances.items():
-        state_raw = d.get('state', '?')
-        state     = state_raw.get('Name', '?') if isinstance(state_raw, dict) else str(state_raw)
-        ip        = d.get('public_ip', '')
-        nickname  = _instance_nickname(d)
-        url       = f'http://{ip}:{EC2__PLAYWRIGHT_PORT}' if ip else ''
-        colour    = 'green' if state == 'running' else 'yellow' if state == 'pending' else 'red'
-        t.add_row(iid, nickname, f'[{colour}]{state}[/]', ip, url)
+        state_raw  = d.get('state', '?')
+        state      = state_raw.get('Name', '?') if isinstance(state_raw, dict) else str(state_raw)
+        ip         = d.get('public_ip', '')
+        deploy     = _instance_deploy_name(d)
+        creator    = _instance_tag(d, TAG__CREATOR_KEY)
+        api_key    = _instance_tag(d, TAG__API_KEY_VALUE_KEY)
+        colour     = 'green' if state == 'running' else 'yellow' if state == 'pending' else 'red'
+        t.add_row(deploy, iid, f'[{colour}]{state}[/]', ip, creator, api_key)
     c.print(t)
 
 
 @app.command(name='delete')
-def cmd_delete(name : Optional[str] = typer.Argument(None, help='Nickname or instance-id to delete; omit to delete ALL.')):
-    """Delete playwright-ec2 instance(s) by nickname/instance-id, or all if no argument given."""
-    ec2      = EC2()
-    nickname = '' if (name or '').startswith('i-') else (name or '')
+def cmd_delete(name: Optional[str] = typer.Argument(None, help='Deploy-name or instance-id; omit to delete ALL.')):
+    """Delete instance(s) by deploy-name/instance-id, or all if no argument given."""
+    ec2 = EC2()
     if name and name.startswith('i-'):
         ec2.instance_terminate(name)
         deleted = [name]
     else:
-        deleted = terminate_instances(ec2, nickname=nickname)
-    typer.echo(json.dumps({'action': 'delete', 'instance_ids': deleted}, indent=2))
+        deleted = terminate_instances(ec2, nickname=name or '')
+    c = Console(highlight=False, width=200)
+    c.print(f'  🗑️   Deleted {len(deleted)} instance(s): {", ".join(deleted) or "none"}')
 
 
 @app.command(name='connect')
-def cmd_connect(target : str = typer.Argument(..., help='Nickname (e.g. "mytest") or instance-id (i-…).')):
-    """Open an SSM session to an instance by nickname or instance-id (no SSH needed)."""
+def cmd_connect(target: Optional[str] = typer.Argument(None, help='Deploy-name or instance-id; auto-selects if only one instance.')):
+    """Open an interactive SSM shell session (no SSH/key-pair needed)."""
     import subprocess
     ec2         = EC2()
-    instance_id = _resolve_instance_id(ec2, target)
-    typer.echo(f'  🔌  Connecting to {instance_id} via SSM...')
+    instance_id, _ = _resolve_target(ec2, target)
+    typer.echo(f'  🔌  Opening SSM session → {instance_id}')
     subprocess.run(['aws', 'ssm', 'start-session', '--target', instance_id], check=False)
 
 
+@app.command(name='exec')
+def cmd_exec(command   : str          = typer.Argument(..., help='Shell command to run on the EC2 host, or inside a container with --container.'),
+             target    : Optional[str] = typer.Option(None, '--target', '-t', help='Deploy-name or instance-id (auto if only one).'),
+             container : Optional[str] = typer.Option(None, '--container', '-c',
+                                                       help='Run inside this Compose service (playwright or agent-mitmproxy).') ):
+    """Execute a shell command on the EC2 host or inside a Docker container via SSM."""
+    ec2         = EC2()
+    instance_id, _ = _resolve_target(ec2, target)
+    if container:
+        cmd = f'docker compose -f {COMPOSE_FILE_PATH} exec -T {container} {command}'
+    else:
+        cmd = command
+    c = Console(highlight=False, width=200)
+    c.print(f'  💻  [{instance_id}]{"[" + container + "]" if container else ""}  [dim]{cmd}[/]')
+    stdout, stderr = _ssm_run(instance_id, [cmd])
+    if stdout.strip():
+        c.print(stdout.rstrip())
+    if stderr.strip():
+        c.print(f'[yellow]{stderr.rstrip()}[/]')
+
+
+@app.command(name='logs')
+def cmd_logs(service : Optional[str] = typer.Option(None, '--service', '-s', help='Filter to one service (playwright or agent-mitmproxy).'),
+             tail    : int           = typer.Option(100, '--tail', help='Number of log lines to fetch.'),
+             target  : Optional[str] = typer.Option(None, '--target', '-t', help='Deploy-name or instance-id (auto if only one).') ):
+    """Fetch docker compose logs from the EC2 instance via SSM."""
+    ec2         = EC2()
+    instance_id, _ = _resolve_target(ec2, target)
+    svc   = service or ''
+    cmd   = f'docker compose -f {COMPOSE_FILE_PATH} logs --no-color --tail={tail} {svc}'.strip()
+    c     = Console(highlight=False, width=200)
+    c.print(f'  📋  Fetching logs from {instance_id}...')
+    stdout, stderr = _ssm_run(instance_id, [cmd], timeout=30)
+    if stdout.strip():
+        c.print(stdout.rstrip())
+    if stderr.strip():
+        c.print(f'[yellow]{stderr.rstrip()}[/]')
+
+
 @app.command(name='wait')
-def _cmd_wait(ip            : str           = typer.Argument(...  , help='Public IP or nickname of the instance.')              ,
-              port           : int           = typer.Option(EC2__PLAYWRIGHT_PORT, help='Service port.')                          ,
-              api_key_name   : Optional[str] = typer.Option(None  , envvar='FAST_API__AUTH__API_KEY__NAME' , help='API key header name.')  ,
-              api_key_value  : Optional[str] = typer.Option(None  , envvar='FAST_API__AUTH__API_KEY__VALUE', help='API key value.')         ,
-              timeout        : int           = typer.Option(300   , help='Max seconds to wait.')                                 ,
-              interval       : int           = typer.Option(10    , help='Seconds between attempts.')                            ):
-    """Poll the service health endpoint until it returns 200, then print results."""
-    # Resolve nickname → public IP if needed
-    actual_ip = ip
-    if not ip.replace('.', '').isdigit():
-        details    = find_instances(EC2())
-        for iid, d in details.items():
-            if _instance_nickname(d) == ip:
-                actual_ip = d.get('public_ip', '')
-                break
+def _cmd_wait(ip           : str           = typer.Argument(..., help='Public IP, deploy-name, or instance-id.'),
+              port          : int           = typer.Option(EC2__PLAYWRIGHT_PORT, help='Service port.')            ,
+              api_key_name  : Optional[str] = typer.Option(None, envvar='FAST_API__AUTH__API_KEY__NAME' )        ,
+              api_key_value : Optional[str] = typer.Option(None, envvar='FAST_API__AUTH__API_KEY__VALUE')        ,
+              timeout       : int           = typer.Option(300, help='Max seconds to wait.')                     ,
+              interval      : int           = typer.Option(10,  help='Seconds between attempts.')                ):
+    """Poll the health endpoint until the service responds 200."""
+    actual_ip = _resolve_ip(EC2(), ip)
     base_url  = f'http://{actual_ip}:{port}'
     key_name  = api_key_name  or get_env('FAST_API__AUTH__API_KEY__NAME' ) or 'X-API-Key'
     key_value = api_key_value or get_env('FAST_API__AUTH__API_KEY__VALUE') or ''
@@ -583,34 +743,27 @@ def _cmd_wait(ip            : str           = typer.Argument(...  , help='Public
             r = requests.get(f'{base_url}/health/status', headers={key_name: key_value}, timeout=8)
             if r.status_code == 200:
                 typer.echo(f'  ✅  healthy after {attempt} attempt(s)')
-                typer.echo(json.dumps(_health_check_once(base_url, key_name, key_value), indent=2))
+                _render_health(_health_check_once(base_url, key_name, key_value), base_url)
                 return
             typer.echo(f'  🔄  attempt {attempt}: HTTP {r.status_code} — retrying in {interval}s...')
         except Exception as exc:
-            typer.echo(f'  🔄  attempt {attempt}: {exc!s:.80} — retrying in {interval}s...')
+            typer.echo(f'  🔄  attempt {attempt}: {str(exc)[:80]} — retrying in {interval}s...')
         time.sleep(interval)
     typer.echo(f'  ❌  timed out after {timeout}s', err=True)
     raise typer.Exit(1)
 
 
 @app.command(name='health')
-def cmd_health(ip           : str           = typer.Argument(...  , help='Public IP or nickname of the instance.')              ,
-               port          : int           = typer.Option(EC2__PLAYWRIGHT_PORT, help='Service port.')                          ,
-               api_key_name  : Optional[str] = typer.Option(None  , envvar='FAST_API__AUTH__API_KEY__NAME' , help='API key header name.')  ,
-               api_key_value : Optional[str] = typer.Option(None  , envvar='FAST_API__AUTH__API_KEY__VALUE', help='API key value.')         ):
-    """Run health checks against a live instance and print results."""
-    # Resolve nickname → public IP if needed
-    actual_ip = ip
-    if not ip.replace('.', '').isdigit():
-        for iid, d in find_instances(EC2()).items():
-            if _instance_nickname(d) == ip:
-                actual_ip = d.get('public_ip', '')
-                break
+def cmd_health(ip           : str           = typer.Argument(..., help='Public IP, deploy-name, or instance-id.'),
+               port          : int           = typer.Option(EC2__PLAYWRIGHT_PORT, help='Service port.')           ,
+               api_key_name  : Optional[str] = typer.Option(None, envvar='FAST_API__AUTH__API_KEY__NAME' )       ,
+               api_key_value : Optional[str] = typer.Option(None, envvar='FAST_API__AUTH__API_KEY__VALUE')       ):
+    """Run health checks against a live instance and display results."""
+    actual_ip = _resolve_ip(EC2(), ip)
     base_url  = f'http://{actual_ip}:{port}'
     key_name  = api_key_name  or get_env('FAST_API__AUTH__API_KEY__NAME' ) or 'X-API-Key'
     key_value = api_key_value or get_env('FAST_API__AUTH__API_KEY__VALUE') or ''
-    results   = _health_check_once(base_url, key_name, key_value)
-    typer.echo(json.dumps(results, indent=2))
+    _render_health(_health_check_once(base_url, key_name, key_value), base_url)
 
 
 if __name__ == '__main__':
