@@ -886,11 +886,21 @@ def _cmd_wait(ip           : Optional[str] = typer.Argument(None, help='Public I
               api_key_value : Optional[str] = typer.Option(None, envvar='FAST_API__AUTH__API_KEY__VALUE')        ,
               timeout       : int           = typer.Option(300, help='Max seconds to wait.')                     ,
               interval      : int           = typer.Option(10,  help='Seconds between attempts.')                ):
-    """Poll the health endpoint until the service responds 200."""
-    actual_ip = _resolve_ip(EC2(), ip)
+    """Poll the health endpoint until the service responds (401 counts — key is in tags)."""
+    ec2 = EC2()
+    # Resolve target — also grab stored api key from tags when not supplied via option/env
+    if ip and ip.replace('.', '').isdigit():
+        actual_ip = ip
+        tag_key_name, tag_key_value = '', ''
+    else:
+        _, details    = _resolve_target(ec2, ip)
+        actual_ip     = details.get('public_ip', '')
+        tag_key_name  = _instance_tag(details, TAG__API_KEY_NAME_KEY)
+        tag_key_value = _instance_tag(details, TAG__API_KEY_VALUE_KEY)
+
     base_url  = f'http://{actual_ip}:{port}'
-    key_name  = api_key_name  or get_env('FAST_API__AUTH__API_KEY__NAME' ) or 'X-API-Key'
-    key_value = api_key_value or get_env('FAST_API__AUTH__API_KEY__VALUE') or ''
+    key_name  = api_key_name  or get_env('FAST_API__AUTH__API_KEY__NAME' ) or tag_key_name  or 'X-API-Key'
+    key_value = api_key_value or get_env('FAST_API__AUTH__API_KEY__VALUE') or tag_key_value or ''
     deadline  = time.time() + timeout
     typer.echo(f'  ⏳  Waiting for {base_url} (timeout {timeout}s)...')
     attempt = 0
@@ -898,8 +908,8 @@ def _cmd_wait(ip           : Optional[str] = typer.Argument(None, help='Public I
         attempt += 1
         try:
             r = requests.get(f'{base_url}/health/status', headers={key_name: key_value}, timeout=8)
-            if r.status_code == 200:
-                typer.echo(f'  ✅  healthy after {attempt} attempt(s)')
+            if r.status_code in (200, 401):              # 401 = service up, auth required
+                typer.echo(f'  ✅  service up after {attempt} attempt(s)  (HTTP {r.status_code})')
                 _render_health(_health_check_once(base_url, key_name, key_value), base_url)
                 return
             typer.echo(f'  🔄  attempt {attempt}: HTTP {r.status_code} — retrying in {interval}s...')
