@@ -29,7 +29,7 @@ import secrets
 import sys
 import textwrap
 import time
-from typing import Optional
+from typing import List, Optional
 
 import requests
 import typer
@@ -83,6 +83,11 @@ _SCIENTISTS = ['bohr','curie','darwin','dirac','einstein','euler','faraday',
 
 COMPOSE_PROJECT   = 'sg-playwright'
 COMPOSE_FILE_PATH = '/opt/sg-playwright/docker-compose.yml'
+
+SMOKE_URLS = ['https://www.google.com'   ,
+              'https://sgraph.ai'         ,
+              'https://send.sgraph.ai'    ,
+              'https://news.bbc.co.uk'    ]
 
 
 def _random_deploy_name() -> str:
@@ -978,6 +983,108 @@ def cmd_open(target: Optional[str] = typer.Argument(None, help='Deploy-name or i
     c.print(f'  [#555555]{index_url}[/]')
     c.print()
     webbrowser.open(f'file://{tmp_path}')
+
+
+@app.command(name='smoke')
+def cmd_smoke(target          : Optional[str]  = typer.Argument(None, help='Deploy-name or instance-id; auto-selects if only one instance.'),
+              url             : List[str]       = typer.Option([], '--url', '-u', help='URL to test (repeatable). Default: standard smoke set.'),
+              port            : int             = typer.Option(EC2__PLAYWRIGHT_PORT, help='Service port.'),
+              no_screenshot   : bool            = typer.Option(False, '--no-screenshot', help='Skip screenshot step (navigate timing only).'),
+              req_timeout     : int             = typer.Option(120, '--timeout', help='Per-request timeout in seconds.')):
+    """Screenshot smoke test across URLs — reports navigate timing, image size, and mitmproxy flow count."""
+    ec2            = EC2()
+    _, details     = _resolve_target(ec2, target)
+    ip             = details.get('public_ip', '')
+    key_name       = _instance_tag(details, TAG__API_KEY_NAME_KEY)  or 'X-API-Key'
+    key_value      = _instance_tag(details, TAG__API_KEY_VALUE_KEY) or ''
+    deploy_name    = _instance_deploy_name(details)
+    test_urls      = list(url) or SMOKE_URLS
+    base_url       = f'http://{ip}:{port}'
+    sidecar_url    = f'http://{ip}:{EC2__SIDECAR_ADMIN_PORT}'
+    auth_headers   = {key_name: key_value}
+    json_headers   = {**auth_headers, 'Content-Type': 'application/json', 'accept': 'application/json'}
+
+    c = Console(highlight=False, width=200)
+    c.print()
+    c.print(Panel(f'[bold]🧪  Smoke Test[/]  ·  {deploy_name}  [dim]{base_url}[/]', border_style='blue', expand=False))
+    c.print()
+
+    t = Table(show_header=True, header_style='bold blue', box=None, padding=(0, 2))
+    t.add_column('url',          style='bold', min_width=28, no_wrap=True)
+    t.add_column('status',       min_width=6)
+    t.add_column('total_ms',     min_width=10)
+    t.add_column('browser_ms',   min_width=11)
+    t.add_column('image_kb',     min_width=9)
+    t.add_column('final_url',    style='default')
+
+    for test_url in test_urls:
+        payload = {'url': test_url, 'wait_until': 'load', 'timeout_ms': 0}
+        try:
+            t0   = time.time()
+            nav  = requests.post(f'{base_url}/browser/navigate', json=payload, headers=json_headers, timeout=req_timeout)
+            elapsed_ms = int((time.time() - t0) * 1000)
+        except Exception as exc:
+            t.add_row(test_url, '[red]ERR[/]', '—', '—', '—', str(exc)[:60])
+            continue
+
+        if nav.status_code == 200:
+            try:
+                j = nav.json()
+            except Exception:
+                j = {}
+            total_ms   = j.get('duration_ms') or elapsed_ms
+            timings    = j.get('timings',   {})
+            browser_ms = timings.get('browser_launch_ms', '—')
+            final_url  = j.get('final_url', test_url)
+            status_str = '[green]200[/]'
+        else:
+            total_ms, browser_ms, final_url = elapsed_ms, '—', test_url
+            status_str = f'[red]{nav.status_code}[/]'
+
+        image_kb = '—'
+        if not no_screenshot and nav.status_code == 200:
+            try:
+                ss = requests.post(f'{base_url}/browser/screenshot', json=payload,
+                                   headers={**auth_headers, 'accept': 'image/png',
+                                            'Content-Type': 'application/json'},
+                                   timeout=req_timeout)
+                if ss.status_code == 200:
+                    image_kb = f'{len(ss.content) // 1024} KB'
+            except Exception:
+                pass
+
+        t.add_row(test_url, status_str,
+                  f'{total_ms} ms',
+                  f'{browser_ms} ms' if browser_ms != '—' else '—',
+                  image_kb, final_url)
+
+    c.print(t)
+    c.print()
+
+    # Mitmproxy flow stats via /web/flows REST API
+    try:
+        flows_r = requests.get(f'{sidecar_url}/web/flows', headers=auth_headers, timeout=15)
+        if flows_r.status_code == 200:
+            flows = flows_r.json()
+            if isinstance(flows, list):
+                hosts = {}
+                for f in flows:
+                    host = (f.get('request', {}) or {}).get('host', '?')
+                    hosts[host] = hosts.get(host, 0) + 1
+                c.print(f'  🔭  mitmproxy: [bold]{len(flows)}[/] flows captured across {len(hosts)} hosts')
+                for host, count in sorted(hosts.items(), key=lambda x: -x[1])[:6]:
+                    c.print(f'      [dim]{count:3d}[/]  {host}')
+            else:
+                c.print(f'  🔭  mitmproxy flows: {flows_r.text[:120]}')
+        else:
+            c.print(f'  🔭  mitmproxy /web/flows → HTTP {flows_r.status_code}')
+    except Exception as exc:
+        c.print(f'  🔭  mitmproxy flows unavailable: {str(exc)[:80]}')
+
+    c.print()
+    c.print(f'  Mitmproxy UI  →  [bold]{sidecar_url}/web/[/]')
+    c.print(f'  Local access  →  sg-ec2 forward {EC2__SIDECAR_ADMIN_PORT}  then  http://localhost:{EC2__SIDECAR_ADMIN_PORT}/web/')
+    c.print()
 
 
 @app.command(name='health')
