@@ -11,6 +11,7 @@
 from prometheus_client                                                               import generate_latest, CONTENT_TYPE_LATEST
 from fastapi.responses                                                               import Response
 from osbot_fast_api.api.routes.Fast_API__Routes                                      import Fast_API__Routes
+from osbot_fast_api.api.schemas.safe_str.Safe_Str__Fast_API__Route__Prefix            import Safe_Str__Fast_API__Route__Prefix
 
 from agent_mitmproxy.addons.prometheus_metrics_addon                                 import MITMPROXY_REGISTRY
 
@@ -27,4 +28,5 @@ class Routes__Metrics(Fast_API__Routes):
                         media_type = CONTENT_TYPE_LATEST                )
 
     def setup_routes(self):
+        self.prefix = Safe_Str__Fast_API__Route__Prefix('/')                        # Include router without prefix so /metrics (fn path) is the final path, not /metrics/metrics
         self.add_route_get(self.metrics)

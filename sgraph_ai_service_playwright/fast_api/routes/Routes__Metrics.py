@@ -11,6 +11,7 @@
 
 from fastapi.responses                                                               import Response
 from osbot_fast_api.api.routes.Fast_API__Routes                                      import Fast_API__Routes
+from osbot_fast_api.api.schemas.safe_str.Safe_Str__Fast_API__Route__Prefix            import Safe_Str__Fast_API__Route__Prefix
 
 from sgraph_ai_service_playwright.metrics.Metrics__Collector                         import Metrics__Collector
 
@@ -28,4 +29,5 @@ class Routes__Metrics(Fast_API__Routes):
                         media_type = self.collector.content_type()   )
 
     def setup_routes(self):
+        self.prefix = Safe_Str__Fast_API__Route__Prefix('/')                        # Include router without prefix so /metrics (fn path) is the final path, not /metrics/metrics
         self.add_route_get(self.metrics)
