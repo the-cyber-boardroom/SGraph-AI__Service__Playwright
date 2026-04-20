@@ -142,9 +142,22 @@ COMPOSE_YAML_TEMPLATE = textwrap.dedent("""\
 USER_DATA_TEMPLATE = """\
 #!/bin/bash
 set -euxo pipefail
+exec > >(tee /var/log/sg-playwright-setup.log | logger -t sg-playwright) 2>&1
 
-dnf install -y docker docker-compose-plugin
+echo "=== SG Playwright setup starting at $(date) ==="
+
+# docker-compose-plugin is not in AL2023 standard repos; install docker then add compose plugin binary
+dnf install -y docker
 systemctl enable --now docker
+
+# add ssm-user to docker group so 'docker' works without sudo inside SSM sessions
+usermod -aG docker ssm-user 2>/dev/null || true
+
+# install compose v2 as a Docker CLI plugin (no third-party repo needed)
+mkdir -p /usr/local/lib/docker/cli-plugins
+curl -sSL "https://github.com/docker/compose/releases/latest/download/docker-compose-linux-x86_64" \
+     -o /usr/local/lib/docker/cli-plugins/docker-compose
+chmod +x /usr/local/lib/docker/cli-plugins/docker-compose
 
 TOKEN=$(aws ecr get-login-password --region {region})
 echo "$TOKEN" | docker login --username AWS --password-stdin {registry}
@@ -159,6 +172,8 @@ cat > /opt/sg-playwright/docker-compose.yml << 'SG_COMPOSE_EOF'
 SG_COMPOSE_EOF
 
 docker compose -f /opt/sg-playwright/docker-compose.yml up -d
+
+echo "=== SG Playwright setup complete at $(date) ==="
 """
 
 
@@ -235,8 +250,8 @@ def preflight_check(playwright_image_uri: str = None, sidecar_image_uri: str = N
 
 def _kv_table(*rows) -> Table:
     t = Table(box=None, show_header=False, padding=(0, 2), expand=False)
-    t.add_column(style='white', min_width=12, no_wrap=True)
-    t.add_column(style='bright_white')
+    t.add_column(style='#555555', min_width=12, no_wrap=True)
+    t.add_column(style='#111111')
     for k, v in rows:
         t.add_row(k, str(v))
     return t
@@ -249,43 +264,43 @@ def _print_preflight_summary(account, region, registry,
                               warnings, errors) -> None:
     c = Console(highlight=False, width=200)
 
-    c.print(Panel('[bold white] 🎭  SG Playwright EC2 Provisioner[/]  ·  [dim]preflight check[/]',
-                  border_style='bright_blue', expand=False))
+    c.print(Panel('[bold #111111] 🎭  SG Playwright EC2 Provisioner[/]  ·  [#555555]preflight check[/]',
+                  border_style='blue', expand=False))
     c.print()
 
-    c.print('  [bold bright_cyan]☁️  AWS[/]')
+    c.print('  [bold #1a6fa8]☁️  AWS[/]')
     c.print(_kv_table(('account',  account ),
                       ('region',   region  ),
                       ('registry', registry)))
     c.print()
 
-    c.print('  [bold bright_cyan]🐳  Images[/]')
+    c.print('  [bold #1a6fa8]🐳  Images[/]')
     c.print(_kv_table(('🎭 playwright', playwright_uri),
                       ('🔭 sidecar',    sidecar_uri   )))
     c.print()
 
-    c.print('  [bold bright_cyan]🔑  API key[/]')
+    c.print('  [bold #1a6fa8]🔑  API key[/]')
     c.print(_kv_table(('name',  api_key_name                         ),
-                      ('value', f'[bold green]{api_key_value}[/bold green]')))
+                      ('value', f'[bold #1a7a1a]{api_key_value}[/]')))
     c.print()
 
     if upstream_url:
-        c.print('  [bold bright_cyan]🌐  Upstream forwarding[/]')
-        c.print(_kv_table(('url',  upstream_url                                              ),
-                          ('user', '[green](set)[/]' if upstream_user else '[red](not set)[/]'),
-                          ('pass', '[green](set)[/]' if upstream_pass else '[red](not set)[/]')))
+        c.print('  [bold #1a6fa8]🌐  Upstream forwarding[/]')
+        c.print(_kv_table(('url',  upstream_url                                                    ),
+                          ('user', '[#1a7a1a](set)[/]' if upstream_user else '[#cc2222](not set)[/]'),
+                          ('pass', '[#1a7a1a](set)[/]' if upstream_pass else '[#cc2222](not set)[/]')))
     else:
-        c.print('  [bold bright_cyan]🌐  Upstream[/]  [dim]none — sidecar runs in direct mode[/]')
+        c.print('  [bold #1a6fa8]🌐  Upstream[/]  [#555555]none — sidecar runs in direct mode[/]')
     c.print()
 
-    c.print(f'  [bold bright_cyan]⚙️  Stack[/]   [dim]t3.large · AL2023 · '
+    c.print(f'  [bold #1a6fa8]⚙️  Stack[/]   [#555555]t3.large · AL2023 · '
             f'IAM={IAM__ROLE_NAME} · SG={SG__NAME} · tag={TAG__NAME}[/]')
     c.print()
 
-    c.print('  [bold bright_cyan]🔌  Ports[/]')
-    c.print(_kv_table((f':{EC2__PLAYWRIGHT_PORT}',    f'playwright API       [dim](public)[/]'         ),
-                      (f':{EC2__SIDECAR_ADMIN_PORT}', f'sidecar admin API    [dim](public)[/]'         ),
-                      (':8080',                        '[dim]mitmproxy proxy   (Docker-network-only)[/]')))
+    c.print('  [bold #1a6fa8]🔌  Ports[/]')
+    c.print(_kv_table((f':{EC2__PLAYWRIGHT_PORT}',    f'playwright API       [#555555](public)[/]'         ),
+                      (f':{EC2__SIDECAR_ADMIN_PORT}', f'sidecar admin API    [#555555](public)[/]'         ),
+                      (':8080',                        '[#555555]mitmproxy proxy   (Docker-network-only)[/]')))
     c.print()
 
     for w in warnings:

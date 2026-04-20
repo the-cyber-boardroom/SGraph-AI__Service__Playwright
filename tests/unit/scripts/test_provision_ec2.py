@@ -244,7 +244,9 @@ class test_render_user_data(TestCase):
 
     def test__installs_docker_and_compose_plugin(self):
         ud = self._render()
-        assert 'dnf install -y docker docker-compose-plugin' in ud
+        assert 'dnf install -y docker'              in ud
+        assert 'docker-compose-linux-x86_64'        in ud   # compose v2 plugin binary
+        assert '/usr/local/lib/docker/cli-plugins'  in ud
 
     def test__ecr_login_uses_region(self):
         ud = self._render()
