@@ -34,7 +34,8 @@ Agents were confusing ideas described in briefs, dev-specs, and voice memos with
 
 ## Current Document
 
-- [`v0.1.29__what-exists-today.md`](v0.1.29__what-exists-today.md) *(current)* — v0.1.29 "first-pass agentic refactor": env-var rename `SG_PLAYWRIGHT__* → AGENTIC_*`, new L1/L2 subpackages `agentic_fastapi/` + `agentic_fastapi_aws/`, one-command `scripts/deploy_code.py` with S3-zip hot-swap, 8 `/admin/*` endpoints, SKILL files + `capabilities.json` stub, single-track CI with new `deploy-code` job. Public HTTP surface still 10 endpoints.
+- [`v0.1.31/README.md`](v0.1.31/README.md) *(current)* — first split-file reality doc. Covers Playwright v0.1.31 (EC2 spike, two-Lambda provisioning, SSM role, 120 s watchdog) plus the new `agent_mitmproxy` sibling package at v0.1.32 (mitmproxy admin FastAPI on :8000, mitmweb on :8080, reverse-proxied UI, two addons, its own Dockerfile + CI workflow).
+- [`v0.1.29__what-exists-today.md`](v0.1.29__what-exists-today.md) — superseded by `v0.1.31/`.
 - [`v0.1.24__what-exists-today.md`](v0.1.24__what-exists-today.md) — superseded.
 - [`v0.1.13__what-exists-today.md`](v0.1.13__what-exists-today.md) — superseded.
 - [`v0.1.12__what-exists-today.md`](v0.1.12__what-exists-today.md) — superseded.
@@ -45,6 +46,12 @@ Previous versions are kept for historical reference and should be clearly marked
 
 ## Naming Convention
 
-`v{version}__what-exists-today.md` where `{version}` matches `sgraph_ai_service_playwright/version` at the time of writing.
+Split into per-concern files from v0.1.31 onward:
+
+- Folder: `v{version}/` where `{version}` matches `sgraph_ai_service_playwright/version` at the time of writing.
+- `README.md` inside the folder is the index.
+- Content files: `{NN}__{slice}.md` (e.g. `01__playwright-service.md`, `02__agent-mitmproxy-sibling.md`). Numbering orders reading; slicing is by audience (service, sibling packages, docker/CI, tests, proposed).
+
+Older single-file reality docs use `v{version}__what-exists-today.md` (retained as-is for history).
 
 Only one current version exists at a time.
