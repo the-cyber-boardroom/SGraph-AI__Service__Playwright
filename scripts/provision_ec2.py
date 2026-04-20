@@ -126,6 +126,7 @@ COMPOSE_YAML_TEMPLATE = textwrap.dedent("""\
         environment:
           FAST_API__AUTH__API_KEY__NAME:  '{api_key_name}'
           FAST_API__AUTH__API_KEY__VALUE: '{api_key_value}'
+          AGENT_MITMPROXY__WEB_PASSWORD:  '{api_key_value}'
           AGENT_MITMPROXY__UPSTREAM_URL:  '{upstream_url}'
           AGENT_MITMPROXY__UPSTREAM_USER: '{upstream_user}'
           AGENT_MITMPROXY__UPSTREAM_PASS: '{upstream_pass}'

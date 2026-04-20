@@ -47,6 +47,11 @@ if [ -n "${AGENT_MITMPROXY__UPSTREAM_URL:-}" ]; then
     fi
 fi
 
+# Web UI password — set to a known value so operators can log in; unset = mitmweb generates a random one
+if [ -n "${AGENT_MITMPROXY__WEB_PASSWORD:-}" ]; then
+    MITMWEB_CMD="${MITMWEB_CMD} --web-password ${AGENT_MITMPROXY__WEB_PASSWORD}"
+fi
+
 # Fixed flags (always present)
 MITMWEB_CMD="${MITMWEB_CMD} --web-host 127.0.0.1"
 MITMWEB_CMD="${MITMWEB_CMD} --web-port 8081"
