@@ -24,6 +24,9 @@ osbot-fast-api-serverless    = "*"
 pytest         = "*"
 pytest-timeout = "*"
 
+[tool.pytest.ini_options]
+addopts = "--import-mode=importlib"                                                     # Avoid basename collisions between sibling test modules (e.g. tests/unit/fast_api/routes/test_Routes__Health.py vs tests/unit/agent_mitmproxy/test_Routes__Health.py) when both are collected in one run. Test dirs stay __init__.py-free per CLAUDE.md §20.
+
 [build-system]
 requires      = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"
