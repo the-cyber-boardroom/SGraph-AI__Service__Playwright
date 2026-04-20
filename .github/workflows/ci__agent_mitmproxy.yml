@@ -78,7 +78,7 @@ jobs:
       - name: Install dependencies
         run: |
           pip install -r agent_mitmproxy/requirements.txt
-          pip install pytest pytest-timeout httpx
+          pip install osbot-aws osbot-docker pytest pytest-timeout httpx        # osbot-aws/osbot-docker are build/deploy-time deps (used by Docker__Agent_Mitmproxy__Base + scripts/provision_mitmproxy_ec2.py), deliberately NOT in agent_mitmproxy/requirements.txt (the container doesn't need them at runtime). The unit tests import those modules at collection time though, so install them here.
 
       - name: Run unit tests
         timeout-minutes: 5
