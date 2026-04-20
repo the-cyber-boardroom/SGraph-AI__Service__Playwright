@@ -134,7 +134,7 @@ class test_module_surface(TestCase):
 
     def test__exposes_expected_symbols(self):
         for attr in ('provision'                  ,
-                     'main'                       ,
+                     'app'                        ,
                      'render_compose_yaml'        ,
                      'render_user_data'           ,
                      'default_playwright_image_uri',
@@ -284,17 +284,19 @@ class test_provision_terminate(TestCase):
         assert result     == {'action': 'terminate', 'instance_ids': ['i-abc123']}
 
 
-class test_argparse(TestCase):
+class test_cli_surface(TestCase):
 
-    def test__terminate_off_by_default_and_image_args_present(self):
-        import argparse
-        parser = argparse.ArgumentParser()
-        parser.add_argument('--stage'               , default=DEFAULT_STAGE)
-        parser.add_argument('--playwright-image-uri', default=None)
-        parser.add_argument('--sidecar-image-uri'   , default=None)
-        parser.add_argument('--terminate'           , action='store_true')
-        args = parser.parse_args([])
-        assert args.terminate             is False
-        assert args.stage                 == DEFAULT_STAGE
-        assert args.playwright_image_uri  is None
-        assert args.sidecar_image_uri     is None
+    def test__app_has_expected_commands(self):
+        from typer.testing import CliRunner
+        runner  = CliRunner()
+        result  = runner.invoke(provision_ec2.app, ['--help'])
+        assert result.exit_code == 0
+        for cmd in ('create', 'terminate', 'wait', 'health'):
+            assert cmd in result.output, f'command {cmd!r} missing from --help'
+
+    def test__create_help_shows_expected_options(self):
+        from typer.testing import CliRunner
+        result = CliRunner().invoke(provision_ec2.app, ['create', '--help'])
+        assert result.exit_code == 0
+        for opt in ('--stage', '--playwright-image-uri', '--sidecar-image-uri', '--wait', '--timeout'):
+            assert opt in result.output, f'option {opt!r} missing from create --help'

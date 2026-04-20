@@ -24,12 +24,15 @@
 # Cost note: t3.large on-demand is ~$0.083/h. Always --terminate when done.
 # ═══════════════════════════════════════════════════════════════════════════════
 
-import argparse
 import json
 import secrets
 import sys
 import textwrap
 import time
+from typing import Optional
+
+import requests
+import typer
 
 from osbot_aws.AWS_Config                                                                import AWS_Config
 from osbot_aws.aws.ec2.EC2                                                               import EC2
@@ -408,27 +411,96 @@ def provision(stage                  : str  = DEFAULT_STAGE ,
             'playwright_image_uri': playwright_image_uri   ,
             'sidecar_image_uri'  : sidecar_image_uri       ,
             'ami_id'             : ami_id                  ,
-            'stage'              : stage                   }
+            'stage'              : stage                   ,
+            'api_key_name'       : api_key_name            ,
+            'api_key_value'      : api_key_value           }
 
 
-def main() -> int:
-    parser = argparse.ArgumentParser(description='Provision an EC2 instance running the Playwright + agent_mitmproxy two-container stack via docker compose.')
-    parser.add_argument('--stage'                 , default=DEFAULT_STAGE, help="Stage tag applied to the instance (default: 'dev')")
-    parser.add_argument('--playwright-image-uri'  , default=None         , help='Override Playwright ECR image URI')
-    parser.add_argument('--sidecar-image-uri'     , default=None         , help='Override sidecar ECR image URI')
-    parser.add_argument('--terminate'             , action='store_true'  , help='Terminate all instances tagged Name=sg-playwright-ec2 and exit')
-    args = parser.parse_args()
+# ── Typer CLI ─────────────────────────────────────────────────────────────────
 
-    preflight_check(playwright_image_uri = args.playwright_image_uri,
-                    sidecar_image_uri    = args.sidecar_image_uri   )
+app = typer.Typer(name        = 'provision_ec2'                                     ,
+                   help        = 'Manage the Playwright + agent_mitmproxy EC2 stack.',
+                   add_completion = False                                            )
 
-    result = provision(stage                 = args.stage                ,
-                        playwright_image_uri  = args.playwright_image_uri ,
-                        sidecar_image_uri     = args.sidecar_image_uri    ,
-                        terminate             = args.terminate            )
-    print(json.dumps(result, indent=2, default=str))
-    return 0
+
+def _health_check_once(base_url: str, api_key_name: str, api_key_value: str) -> dict:
+    headers = {api_key_name: api_key_value} if api_key_value else {}
+    results = {}
+    for path in ('health/info', 'health/status', 'health/capabilities'):
+        try:
+            r = requests.get(f'{base_url}/{path}', headers=headers, timeout=10)
+            results[path] = {'status': r.status_code, 'body': r.json()}
+        except Exception as exc:
+            results[path] = {'error': str(exc)}
+    return results
+
+
+@app.command()
+def create(stage                 : str           = typer.Option(DEFAULT_STAGE, help='Stage tag applied to the instance.')             ,
+           playwright_image_uri  : Optional[str] = typer.Option(None         , '--playwright-image-uri', help='Override Playwright ECR image URI.'),
+           sidecar_image_uri     : Optional[str] = typer.Option(None         , '--sidecar-image-uri'   , help='Override sidecar ECR image URI.')   ,
+           wait                  : bool          = typer.Option(False        , '--wait'                 , help='Poll health endpoint until the service is up.'),
+           timeout               : int           = typer.Option(300          , '--timeout'              , help='Max seconds to wait when --wait is set.')      ):
+    """Provision a t3.large EC2 instance running the Playwright + agent_mitmproxy stack."""
+    result = provision(stage=stage, playwright_image_uri=playwright_image_uri, sidecar_image_uri=sidecar_image_uri)
+    typer.echo(json.dumps(result, indent=2, default=str))
+    if wait and result.get('playwright_url'):
+        _cmd_wait(ip            = result['public_ip']    ,
+                  api_key_name  = result['api_key_name'] ,
+                  api_key_value = result['api_key_value'],
+                  timeout       = timeout                 )
+
+
+@app.command(name='terminate')
+def cmd_terminate():
+    """Terminate all EC2 instances tagged Name=playwright-ec2."""
+    ec2        = EC2()
+    terminated = terminate_instances(ec2)
+    typer.echo(json.dumps({'action': 'terminate', 'instance_ids': terminated}, indent=2))
+
+
+@app.command(name='wait')
+def _cmd_wait(ip            : str           = typer.Argument(...  , help='Public IP of the EC2 instance.')                                             ,
+              port           : int           = typer.Option(EC2__PLAYWRIGHT_PORT, help='Service port.')                                                   ,
+              api_key_name   : Optional[str] = typer.Option(None  , envvar='FAST_API__AUTH__API_KEY__NAME' , help='API key header name.')                ,
+              api_key_value  : Optional[str] = typer.Option(None  , envvar='FAST_API__AUTH__API_KEY__VALUE', help='API key value.')                       ,
+              timeout        : int           = typer.Option(300   , help='Max seconds to wait.')                                                          ,
+              interval       : int           = typer.Option(10    , help='Seconds between attempts.')                                                     ):
+    """Poll the service health endpoint until it returns 200, then print results."""
+    base_url  = f'http://{ip}:{port}'
+    key_name  = api_key_name  or get_env('FAST_API__AUTH__API_KEY__NAME' ) or 'X-API-Key'
+    key_value = api_key_value or get_env('FAST_API__AUTH__API_KEY__VALUE') or ''
+    deadline  = time.time() + timeout
+    typer.echo(f'Waiting for {base_url} to become healthy (timeout {timeout}s)...')
+    attempt   = 0
+    while time.time() < deadline:
+        attempt += 1
+        try:
+            r = requests.get(f'{base_url}/health/status', headers={key_name: key_value}, timeout=8)
+            if r.status_code == 200:
+                typer.echo(f'  ✓ healthy after {attempt} attempt(s)')
+                typer.echo(json.dumps(_health_check_once(base_url, key_name, key_value), indent=2))
+                return
+            typer.echo(f'  attempt {attempt}: HTTP {r.status_code} — retrying in {interval}s...')
+        except Exception as exc:
+            typer.echo(f'  attempt {attempt}: {exc} — retrying in {interval}s...')
+        time.sleep(interval)
+    typer.echo(f'  ✗ timed out after {timeout}s', err=True)
+    raise typer.Exit(1)
+
+
+@app.command(name='health')
+def cmd_health(ip           : str           = typer.Argument(...  , help='Public IP of the EC2 instance.')                                             ,
+               port          : int           = typer.Option(EC2__PLAYWRIGHT_PORT, help='Service port.')                                                   ,
+               api_key_name  : Optional[str] = typer.Option(None  , envvar='FAST_API__AUTH__API_KEY__NAME' , help='API key header name.')                ,
+               api_key_value : Optional[str] = typer.Option(None  , envvar='FAST_API__AUTH__API_KEY__VALUE', help='API key value.')                       ):
+    """Run health checks against a live instance and print results."""
+    base_url  = f'http://{ip}:{port}'
+    key_name  = api_key_name  or get_env('FAST_API__AUTH__API_KEY__NAME' ) or 'X-API-Key'
+    key_value = api_key_value or get_env('FAST_API__AUTH__API_KEY__VALUE') or ''
+    results   = _health_check_once(base_url, key_name, key_value)
+    typer.echo(json.dumps(results, indent=2))
 
 
 if __name__ == '__main__':
-    sys.exit(main())
+    app()
