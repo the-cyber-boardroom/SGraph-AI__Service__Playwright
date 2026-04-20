@@ -257,6 +257,9 @@ class test_render_user_data(TestCase):
         ud = self._render()
         assert 'aws ecr get-login-password --region eu-west-2' in ud
         assert 'docker login --username AWS --password-stdin'  in ud
+        assert 'set +x'                                        in ud   # token never logged
+        assert 'docker logout'                                 in ud   # credential wiped after pull
+        assert 'rm -f /root/.docker/config.json'              in ud
 
     def test__pulls_both_images(self):
         ud = self._render()
