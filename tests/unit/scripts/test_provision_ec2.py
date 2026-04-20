@@ -110,11 +110,24 @@ class test_preflight_check(TestCase):
                 os.environ['FAST_API__AUTH__API_KEY__VALUE'] = orig_key
         assert 'FAST_API__AUTH__API_KEY__VALUE' in output.getvalue()
 
+    def test__generates_random_key_when_not_set(self):
+        import os
+        orig_key = os.environ.pop('FAST_API__AUTH__API_KEY__VALUE', None)
+        try:
+            result1 = _stub_aws(preflight_check)
+            result2 = _stub_aws(preflight_check)
+        finally:
+            if orig_key is not None:
+                os.environ['FAST_API__AUTH__API_KEY__VALUE'] = orig_key
+        assert result1['api_key_value']                                     # non-empty
+        assert result1['api_key_value'] != result2['api_key_value']         # different each run
+
     def test__returns_account_region_registry(self):
         result = _stub_aws(preflight_check)
-        assert result['account']  == '123456789012'
-        assert result['region']   == 'eu-west-2'
-        assert result['registry'] == FAKE_REGISTRY
+        assert result['account']      == '123456789012'
+        assert result['region']       == 'eu-west-2'
+        assert result['registry']     == FAKE_REGISTRY
+        assert result['api_key_value']                                      # always returned
 
 
 class test_module_surface(TestCase):

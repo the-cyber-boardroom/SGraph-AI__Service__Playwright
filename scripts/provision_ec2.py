@@ -26,6 +26,7 @@
 
 import argparse
 import json
+import secrets
 import sys
 import textwrap
 import time
@@ -146,7 +147,8 @@ def default_sidecar_image_uri() -> str:
 
 def preflight_check(playwright_image_uri: str = None, sidecar_image_uri: str = None) -> dict:
     """Validate AWS credentials + resolve config. Prints a summary and exits on failure."""
-    errors = []
+    errors   = []
+    warnings = []
 
     # ── AWS credentials ───────────────────────────────────────────────────────
     _CREDS_HELP = [
@@ -175,8 +177,8 @@ def preflight_check(playwright_image_uri: str = None, sidecar_image_uri: str = N
     api_key_name  = get_env('FAST_API__AUTH__API_KEY__NAME' ) or 'X-API-Key'
     api_key_value = get_env('FAST_API__AUTH__API_KEY__VALUE')
     if not api_key_value:
-        errors.append('FAST_API__AUTH__API_KEY__VALUE is not set — containers will use the insecure default "ec2-dev".')
-        api_key_value = 'ec2-dev  (default — set FAST_API__AUTH__API_KEY__VALUE to override)'
+        api_key_value = secrets.token_urlsafe(32)
+        warnings.append(f'FAST_API__AUTH__API_KEY__VALUE not set — generated a random key for this deployment: {api_key_value}')
 
     # ── Upstream forwarding (optional) ────────────────────────────────────────
     upstream_url  = get_env('AGENT_MITMPROXY__UPSTREAM_URL' ) or ''
@@ -221,13 +223,18 @@ def preflight_check(playwright_image_uri: str = None, sidecar_image_uri: str = N
 
     print('\n'.join(lines))
 
-    if errors:
+    if warnings:
         print('\nWarnings:')
+        for w in warnings:
+            print(f'  ⚠  {w}')
+
+    if errors:
+        print('\nErrors:')
         for e in errors:
-            print(f'  ⚠  {e}')
+            print(f'  ✗  {e}')
 
     print()
-    return {'account': account, 'region': region, 'registry': registry}
+    return {'account': account, 'region': region, 'registry': registry, 'api_key_value': api_key_value}
 
 
 def _print_preflight_error(lines: list) -> None:
@@ -236,16 +243,6 @@ def _print_preflight_error(lines: list) -> None:
         print(f'       {line}' if line else '')
     print()
     sys.exit(1)
-
-
-    role = IAM_Role(role_name=IAM__ROLE_NAME)
-    if role.not_exists():
-        role.create_for_service__assume_role(IAM__ASSUME_ROLE_SERVICE)
-        role.create_instance_profile()
-        role.add_to_instance_profile()
-    for policy_arn in IAM__POLICY_ARNS:
-        role.iam.role_policy_attach(policy_arn)
-    return IAM__ROLE_NAME
 
 
 def ensure_instance_profile() -> str:
@@ -366,8 +363,10 @@ def provision(stage                  : str  = DEFAULT_STAGE ,
         terminated = terminate_instances(ec2)
         return {'action': 'terminate', 'instance_ids': terminated}
 
+    preflight             = preflight_check(playwright_image_uri=playwright_image_uri,
+                                             sidecar_image_uri=sidecar_image_uri)
     api_key_name          = get_env('FAST_API__AUTH__API_KEY__NAME' ) or 'X-API-Key'
-    api_key_value         = get_env('FAST_API__AUTH__API_KEY__VALUE') or 'ec2-dev'
+    api_key_value         = get_env('FAST_API__AUTH__API_KEY__VALUE') or preflight['api_key_value']
     upstream_url          = get_env('AGENT_MITMPROXY__UPSTREAM_URL' ) or ''
     upstream_user         = get_env('AGENT_MITMPROXY__UPSTREAM_USER') or ''
     upstream_pass         = get_env('AGENT_MITMPROXY__UPSTREAM_PASS') or ''
