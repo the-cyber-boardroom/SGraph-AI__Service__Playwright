@@ -227,7 +227,7 @@ class test_render_compose_yaml(TestCase):
 
     def test__restart_always(self):
         yaml = self._render()
-        assert yaml.count('restart: always') == 2                                          # Both services
+        assert yaml.count('restart: always') >= 2                                          # playwright + sidecar + observability services
 
 
 class test_render_user_data(TestCase):
