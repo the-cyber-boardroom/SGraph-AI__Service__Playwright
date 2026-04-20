@@ -33,6 +33,9 @@ from typing import Optional
 
 import requests
 import typer
+from rich.console import Console
+from rich.panel   import Panel
+from rich.table   import Table
 
 from osbot_aws.AWS_Config                                                                import AWS_Config
 from osbot_aws.aws.ec2.EC2                                                               import EC2
@@ -62,6 +65,7 @@ SG__DESCRIPTION              = 'SG Playwright EC2 stack - ingress :8000 (API) + 
 
 TAG__NAME                    = 'playwright-ec2'
 TAG__STAGE_KEY               = 'stage'
+TAG__NICKNAME_KEY            = 'sg:nickname'                                            # Human-readable label; used by connect/delete to target a specific instance
 DEFAULT_STAGE                = 'dev'
 
 
@@ -191,60 +195,83 @@ def preflight_check(playwright_image_uri: str = None, sidecar_image_uri: str = N
         errors.append('AGENT_MITMPROXY__UPSTREAM_URL is set but UPSTREAM_USER/PASS are missing — sidecar will try unauthenticated upstream.')
 
     # ── Print summary ─────────────────────────────────────────────────────────
-    lines = [
-        '=== provision_ec2.py — preflight ===',
-        '',
-        'AWS:',
-        f'  account  : {account}',
-        f'  region   : {region}',
-        f'  registry : {registry}',
-        '',
-        'Images:',
-        f'  playwright : {resolved_playwright}',
-        f'  sidecar    : {resolved_sidecar}',
-        '',
-        'API key:',
-        f'  name  : {api_key_name}',
-        f'  value : {api_key_value}',
-        '',
-    ]
-    if upstream_url:
-        lines += [
-            'Upstream forwarding:',
-            f'  url  : {upstream_url}',
-            f'  user : {"(set)" if upstream_user else "(not set)"}',
-            f'  pass : {"(set)" if upstream_pass else "(not set)"}',
-            '',
-        ]
-    else:
-        lines += ['Upstream forwarding: none (sidecar runs in direct mode)', '']
-
-    lines += [
-        f'Stack: t3.large / AL2023 / IAM={IAM__ROLE_NAME} / SG={SG__NAME} / tag={TAG__NAME}',
-        f'Ports: playwright :{EC2__PLAYWRIGHT_PORT}  sidecar-admin :{EC2__SIDECAR_ADMIN_PORT}  (proxy :8080 Docker-network-only)',
-    ]
-
-    print('\n'.join(lines))
-
-    if warnings:
-        print('\nWarnings:')
-        for w in warnings:
-            print(f'  ⚠  {w}')
-
-    if errors:
-        print('\nErrors:')
-        for e in errors:
-            print(f'  ✗  {e}')
-
-    print()
+    _print_preflight_summary(account, region, registry,
+                             resolved_playwright, resolved_sidecar,
+                             api_key_name, api_key_value,
+                             upstream_url, upstream_user, upstream_pass,
+                             warnings, errors)
     return {'account': account, 'region': region, 'registry': registry, 'api_key_value': api_key_value}
 
 
+def _kv_table(*rows) -> Table:
+    t = Table(box=None, show_header=False, padding=(0, 2), expand=False)
+    t.add_column(style='dim white', min_width=12, no_wrap=True)
+    t.add_column(style='white')
+    for k, v in rows:
+        t.add_row(k, str(v))
+    return t
+
+
+def _print_preflight_summary(account, region, registry,
+                              playwright_uri, sidecar_uri,
+                              api_key_name, api_key_value,
+                              upstream_url, upstream_user, upstream_pass,
+                              warnings, errors) -> None:
+    c = Console(highlight=False, width=200)
+
+    c.print(Panel('[bold white] 🎭  SG Playwright EC2 Provisioner[/]  ·  [dim]preflight check[/]',
+                  border_style='bright_blue', expand=False))
+    c.print()
+
+    c.print('  [bold bright_cyan]☁️  AWS[/]')
+    c.print(_kv_table(('account',  account ),
+                      ('region',   region  ),
+                      ('registry', registry)))
+    c.print()
+
+    c.print('  [bold bright_cyan]🐳  Images[/]')
+    c.print(_kv_table(('🎭 playwright', playwright_uri),
+                      ('🔭 sidecar',    sidecar_uri   )))
+    c.print()
+
+    c.print('  [bold bright_cyan]🔑  API key[/]')
+    c.print(_kv_table(('name',  api_key_name                         ),
+                      ('value', f'[bold green]{api_key_value}[/bold green]')))
+    c.print()
+
+    if upstream_url:
+        c.print('  [bold bright_cyan]🌐  Upstream forwarding[/]')
+        c.print(_kv_table(('url',  upstream_url                                              ),
+                          ('user', '[green](set)[/]' if upstream_user else '[red](not set)[/]'),
+                          ('pass', '[green](set)[/]' if upstream_pass else '[red](not set)[/]')))
+    else:
+        c.print('  [bold bright_cyan]🌐  Upstream[/]  [dim]none — sidecar runs in direct mode[/]')
+    c.print()
+
+    c.print(f'  [bold bright_cyan]⚙️  Stack[/]   [dim]t3.large · AL2023 · '
+            f'IAM={IAM__ROLE_NAME} · SG={SG__NAME} · tag={TAG__NAME}[/]')
+    c.print()
+
+    c.print('  [bold bright_cyan]🔌  Ports[/]')
+    c.print(_kv_table((f':{EC2__PLAYWRIGHT_PORT}',    f'playwright API       [dim](public)[/]'         ),
+                      (f':{EC2__SIDECAR_ADMIN_PORT}', f'sidecar admin API    [dim](public)[/]'         ),
+                      (':8080',                        '[dim]mitmproxy proxy   (Docker-network-only)[/]')))
+    c.print()
+
+    for w in warnings:
+        c.print(f'  [bold yellow]⚠️  [/][yellow]{w}[/]')
+    if warnings:
+        c.print()
+
+    for e in errors:
+        c.print(f'  [bold red]✗  [/][red]{e}[/]')
+    if errors:
+        c.print()
+
+
 def _print_preflight_error(lines: list) -> None:
-    print('\nERROR: ' + '\n       '.join(lines[0:1]))
-    for line in lines[1:]:
-        print(f'       {line}' if line else '')
-    print()
+    c = Console(highlight=False, stderr=True)
+    c.print(Panel('\n'.join(lines), title='[bold red]ERROR[/]', border_style='red', expand=False))
     sys.exit(1)
 
 
@@ -317,7 +344,10 @@ def render_user_data(playwright_image_uri : str,
                                      compose_content      = compose_content        )
 
 
-def run_instance(ec2: EC2, ami_id: str, security_group_id: str, instance_profile_name: str, user_data: str, stage: str) -> str:
+def run_instance(ec2: EC2, ami_id: str, security_group_id: str, instance_profile_name: str, user_data: str, stage: str, nickname: str = '') -> str:
+    tags = [{'Key': 'Name', 'Value': TAG__NAME}, {'Key': TAG__STAGE_KEY, 'Value': stage}]
+    if nickname:
+        tags.append({'Key': TAG__NICKNAME_KEY, 'Value': nickname})
     kwargs = {'ImageId'           : ami_id                                                  ,
               'InstanceType'      : EC2__INSTANCE_TYPE                                      ,
               'MinCount'          : 1                                                       ,
@@ -325,9 +355,7 @@ def run_instance(ec2: EC2, ami_id: str, security_group_id: str, instance_profile
               'IamInstanceProfile': {'Name': instance_profile_name}                         ,
               'SecurityGroupIds'  : [security_group_id]                                     ,
               'UserData'          : user_data                                               ,
-              'TagSpecifications' : [{'ResourceType': 'instance',
-                                      'Tags'        : [{'Key': 'Name'        , 'Value': TAG__NAME},
-                                                       {'Key': TAG__STAGE_KEY, 'Value': stage    }]}]}
+              'TagSpecifications' : [{'ResourceType': 'instance', 'Tags': tags}]            }
     for attempt in range(5):
         try:
             result      = ec2.client().run_instances(**kwargs)
@@ -342,23 +370,46 @@ def run_instance(ec2: EC2, ami_id: str, security_group_id: str, instance_profile
             raise
 
 
+def find_instances(ec2: EC2) -> dict:
+    filters   = [{'Name': 'tag:Name'           , 'Values': [TAG__NAME]                                },
+                 {'Name': 'instance-state-name', 'Values': ['pending', 'running', 'stopping', 'stopped']}]
+    return ec2.instances_details(filters=filters)
+
+
 def find_instance_ids(ec2: EC2) -> list:
-    filters   = [{'Name': 'tag:Name'             , 'Values': [TAG__NAME]},
-                 {'Name': 'instance-state-name'  , 'Values': ['pending', 'running', 'stopping', 'stopped']}]
-    instances = ec2.instances_details(filters=filters)
-    return list(instances.keys())
+    return list(find_instances(ec2).keys())
 
 
-def terminate_instances(ec2: EC2) -> list:
-    instance_ids = find_instance_ids(ec2)
-    for instance_id in instance_ids:
-        ec2.instance_terminate(instance_id)
-    return instance_ids
+def _instance_nickname(details: dict) -> str:
+    for tag in details.get('tags', []):
+        if tag.get('Key') == TAG__NICKNAME_KEY:
+            return tag.get('Value', '')
+    return ''
+
+
+def _resolve_instance_id(ec2: EC2, target: str) -> str:
+    """Accept an instance-id (i-…) or a nickname; return the instance-id."""
+    if target.startswith('i-'):
+        return target
+    for iid, details in find_instances(ec2).items():
+        if _instance_nickname(details) == target:
+            return iid
+    raise ValueError(f'No instance found with nickname {target!r}')
+
+
+def terminate_instances(ec2: EC2, nickname: str = '') -> list:
+    instances = find_instances(ec2)
+    to_kill   = [iid for iid, d in instances.items()
+                 if not nickname or _instance_nickname(d) == nickname]
+    for iid in to_kill:
+        ec2.instance_terminate(iid)
+    return to_kill
 
 
 def provision(stage                  : str  = DEFAULT_STAGE ,
                playwright_image_uri  : str  = None          ,
                sidecar_image_uri     : str  = None          ,
+               nickname              : str  = ''            ,
                terminate             : bool = False         ) -> dict:
     ec2 = EC2()
 
@@ -395,7 +446,8 @@ def provision(stage                  : str  = DEFAULT_STAGE ,
                                           security_group_id     = security_group_id     ,
                                           instance_profile_name = instance_profile_name ,
                                           user_data             = user_data             ,
-                                          stage                 = stage                 )
+                                          stage                 = stage                 ,
+                                          nickname              = nickname              )
 
     ec2.wait_for_instance_running(instance_id)
     details       = ec2.instance_details(instance_id)
@@ -405,6 +457,7 @@ def provision(stage                  : str  = DEFAULT_STAGE ,
 
     return {'action'              : 'create'               ,
             'instance_id'        : instance_id             ,
+            'nickname'           : nickname                ,
             'public_ip'          : public_ip               ,
             'playwright_url'     : playwright_url          ,
             'sidecar_admin_url'  : sidecar_url             ,
@@ -437,13 +490,15 @@ def _health_check_once(base_url: str, api_key_name: str, api_key_value: str) -> 
 
 
 @app.command()
-def create(stage                 : str           = typer.Option(DEFAULT_STAGE, help='Stage tag applied to the instance.')             ,
-           playwright_image_uri  : Optional[str] = typer.Option(None         , '--playwright-image-uri', help='Override Playwright ECR image URI.'),
-           sidecar_image_uri     : Optional[str] = typer.Option(None         , '--sidecar-image-uri'   , help='Override sidecar ECR image URI.')   ,
-           wait                  : bool          = typer.Option(False        , '--wait'                 , help='Poll health endpoint until the service is up.'),
-           timeout               : int           = typer.Option(300          , '--timeout'              , help='Max seconds to wait when --wait is set.')      ):
+def create(stage                : str           = typer.Option(DEFAULT_STAGE, help='Stage tag applied to the instance.')                          ,
+           name                 : Optional[str] = typer.Option(None         , '--name'                , help='Nickname for the instance (used by connect/delete).')  ,
+           playwright_image_uri : Optional[str] = typer.Option(None         , '--playwright-image-uri', help='Override Playwright ECR image URI.')  ,
+           sidecar_image_uri    : Optional[str] = typer.Option(None         , '--sidecar-image-uri'   , help='Override sidecar ECR image URI.')      ,
+           wait                 : bool          = typer.Option(False         , '--wait'                , help='Poll health endpoint until the service is up.') ,
+           timeout              : int           = typer.Option(300           , '--timeout'             , help='Max seconds to wait when --wait is set.')      ):
     """Provision a t3.large EC2 instance running the Playwright + agent_mitmproxy stack."""
-    result = provision(stage=stage, playwright_image_uri=playwright_image_uri, sidecar_image_uri=sidecar_image_uri)
+    result = provision(stage=stage, playwright_image_uri=playwright_image_uri,
+                       sidecar_image_uri=sidecar_image_uri, nickname=name or '')
     typer.echo(json.dumps(result, indent=2, default=str))
     if wait and result.get('playwright_url'):
         _cmd_wait(ip            = result['public_ip']    ,
@@ -452,51 +507,105 @@ def create(stage                 : str           = typer.Option(DEFAULT_STAGE, h
                   timeout       = timeout                 )
 
 
-@app.command(name='terminate')
-def cmd_terminate():
-    """Terminate all EC2 instances tagged Name=playwright-ec2."""
-    ec2        = EC2()
-    terminated = terminate_instances(ec2)
-    typer.echo(json.dumps({'action': 'terminate', 'instance_ids': terminated}, indent=2))
+@app.command(name='list')
+def cmd_list():
+    """List all playwright-ec2 instances (pending, running, stopped)."""
+    c         = Console(highlight=False, width=200)
+    instances = find_instances(EC2())
+    if not instances:
+        c.print('  [dim]No instances found.[/]')
+        return
+    t = Table(show_header=True, header_style='bold bright_cyan', box=None, padding=(0, 2))
+    t.add_column('instance-id',  style='dim')
+    t.add_column('nickname',     style='bold white')
+    t.add_column('state')
+    t.add_column('public-ip',    style='green')
+    t.add_column('playwright-url')
+    for iid, d in instances.items():
+        state    = d.get('state', '?')
+        ip       = d.get('public_ip', '')
+        nickname = _instance_nickname(d)
+        url      = f'http://{ip}:{EC2__PLAYWRIGHT_PORT}' if ip else ''
+        colour   = 'green' if state == 'running' else 'yellow' if state == 'pending' else 'red'
+        t.add_row(iid, nickname, f'[{colour}]{state}[/]', ip, url)
+    c.print(t)
+
+
+@app.command(name='delete')
+def cmd_delete(name : Optional[str] = typer.Argument(None, help='Nickname or instance-id to delete; omit to delete ALL.')):
+    """Delete playwright-ec2 instance(s) by nickname/instance-id, or all if no argument given."""
+    ec2      = EC2()
+    nickname = '' if (name or '').startswith('i-') else (name or '')
+    if name and name.startswith('i-'):
+        ec2.instance_terminate(name)
+        deleted = [name]
+    else:
+        deleted = terminate_instances(ec2, nickname=nickname)
+    typer.echo(json.dumps({'action': 'delete', 'instance_ids': deleted}, indent=2))
+
+
+@app.command(name='connect')
+def cmd_connect(target : str = typer.Argument(..., help='Nickname (e.g. "mytest") or instance-id (i-…).')):
+    """Open an SSM session to an instance by nickname or instance-id (no SSH needed)."""
+    import subprocess
+    ec2         = EC2()
+    instance_id = _resolve_instance_id(ec2, target)
+    typer.echo(f'  🔌  Connecting to {instance_id} via SSM...')
+    subprocess.run(['aws', 'ssm', 'start-session', '--target', instance_id], check=False)
 
 
 @app.command(name='wait')
-def _cmd_wait(ip            : str           = typer.Argument(...  , help='Public IP of the EC2 instance.')                                             ,
-              port           : int           = typer.Option(EC2__PLAYWRIGHT_PORT, help='Service port.')                                                   ,
-              api_key_name   : Optional[str] = typer.Option(None  , envvar='FAST_API__AUTH__API_KEY__NAME' , help='API key header name.')                ,
-              api_key_value  : Optional[str] = typer.Option(None  , envvar='FAST_API__AUTH__API_KEY__VALUE', help='API key value.')                       ,
-              timeout        : int           = typer.Option(300   , help='Max seconds to wait.')                                                          ,
-              interval       : int           = typer.Option(10    , help='Seconds between attempts.')                                                     ):
+def _cmd_wait(ip            : str           = typer.Argument(...  , help='Public IP or nickname of the instance.')              ,
+              port           : int           = typer.Option(EC2__PLAYWRIGHT_PORT, help='Service port.')                          ,
+              api_key_name   : Optional[str] = typer.Option(None  , envvar='FAST_API__AUTH__API_KEY__NAME' , help='API key header name.')  ,
+              api_key_value  : Optional[str] = typer.Option(None  , envvar='FAST_API__AUTH__API_KEY__VALUE', help='API key value.')         ,
+              timeout        : int           = typer.Option(300   , help='Max seconds to wait.')                                 ,
+              interval       : int           = typer.Option(10    , help='Seconds between attempts.')                            ):
     """Poll the service health endpoint until it returns 200, then print results."""
-    base_url  = f'http://{ip}:{port}'
+    # Resolve nickname → public IP if needed
+    actual_ip = ip
+    if not ip.replace('.', '').isdigit():
+        details    = find_instances(EC2())
+        for iid, d in details.items():
+            if _instance_nickname(d) == ip:
+                actual_ip = d.get('public_ip', '')
+                break
+    base_url  = f'http://{actual_ip}:{port}'
     key_name  = api_key_name  or get_env('FAST_API__AUTH__API_KEY__NAME' ) or 'X-API-Key'
     key_value = api_key_value or get_env('FAST_API__AUTH__API_KEY__VALUE') or ''
     deadline  = time.time() + timeout
-    typer.echo(f'Waiting for {base_url} to become healthy (timeout {timeout}s)...')
-    attempt   = 0
+    typer.echo(f'  ⏳  Waiting for {base_url} (timeout {timeout}s)...')
+    attempt = 0
     while time.time() < deadline:
         attempt += 1
         try:
             r = requests.get(f'{base_url}/health/status', headers={key_name: key_value}, timeout=8)
             if r.status_code == 200:
-                typer.echo(f'  ✓ healthy after {attempt} attempt(s)')
+                typer.echo(f'  ✅  healthy after {attempt} attempt(s)')
                 typer.echo(json.dumps(_health_check_once(base_url, key_name, key_value), indent=2))
                 return
-            typer.echo(f'  attempt {attempt}: HTTP {r.status_code} — retrying in {interval}s...')
+            typer.echo(f'  🔄  attempt {attempt}: HTTP {r.status_code} — retrying in {interval}s...')
         except Exception as exc:
-            typer.echo(f'  attempt {attempt}: {exc} — retrying in {interval}s...')
+            typer.echo(f'  🔄  attempt {attempt}: {exc!s:.80} — retrying in {interval}s...')
         time.sleep(interval)
-    typer.echo(f'  ✗ timed out after {timeout}s', err=True)
+    typer.echo(f'  ❌  timed out after {timeout}s', err=True)
     raise typer.Exit(1)
 
 
 @app.command(name='health')
-def cmd_health(ip           : str           = typer.Argument(...  , help='Public IP of the EC2 instance.')                                             ,
-               port          : int           = typer.Option(EC2__PLAYWRIGHT_PORT, help='Service port.')                                                   ,
-               api_key_name  : Optional[str] = typer.Option(None  , envvar='FAST_API__AUTH__API_KEY__NAME' , help='API key header name.')                ,
-               api_key_value : Optional[str] = typer.Option(None  , envvar='FAST_API__AUTH__API_KEY__VALUE', help='API key value.')                       ):
+def cmd_health(ip           : str           = typer.Argument(...  , help='Public IP or nickname of the instance.')              ,
+               port          : int           = typer.Option(EC2__PLAYWRIGHT_PORT, help='Service port.')                          ,
+               api_key_name  : Optional[str] = typer.Option(None  , envvar='FAST_API__AUTH__API_KEY__NAME' , help='API key header name.')  ,
+               api_key_value : Optional[str] = typer.Option(None  , envvar='FAST_API__AUTH__API_KEY__VALUE', help='API key value.')         ):
     """Run health checks against a live instance and print results."""
-    base_url  = f'http://{ip}:{port}'
+    # Resolve nickname → public IP if needed
+    actual_ip = ip
+    if not ip.replace('.', '').isdigit():
+        for iid, d in find_instances(EC2()).items():
+            if _instance_nickname(d) == ip:
+                actual_ip = d.get('public_ip', '')
+                break
+    base_url  = f'http://{actual_ip}:{port}'
     key_name  = api_key_name  or get_env('FAST_API__AUTH__API_KEY__NAME' ) or 'X-API-Key'
     key_value = api_key_value or get_env('FAST_API__AUTH__API_KEY__VALUE') or ''
     results   = _health_check_once(base_url, key_name, key_value)
