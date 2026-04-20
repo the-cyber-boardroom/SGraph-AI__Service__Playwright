@@ -799,6 +799,16 @@ def _render_health(results: dict, base_url: str) -> None:
     c.print()
 
 
+def _resolve_instance_type(raw: Optional[str]) -> str:
+    """Accept preset number (1-5) or a literal type string; return the instance type."""
+    if raw is None:
+        return EC2__INSTANCE_TYPE
+    stripped = raw.strip()
+    if stripped.isdigit() and 1 <= int(stripped) <= 5:
+        return EC2__INSTANCE_TYPE_PRESETS[int(stripped) - 1][0]
+    return stripped or EC2__INSTANCE_TYPE
+
+
 def _pick_instance_type(c: Console) -> str:
     """Interactive instance-type picker — renders a Rich table and reads a choice."""
     c.print()
@@ -832,33 +842,69 @@ def _pick_instance_type(c: Console) -> str:
         c.print('  [red]Enter a number 1–6[/]')
 
 
+def _ask_smoke_workflow(c: Console) -> bool:
+    """Ask the user whether to run the full smoke workflow (create → wait → smoke → delete)."""
+    c.print()
+    c.rule('[dim]smoke workflow[/]')
+    c.print()
+    c.print('  After the instance is up, automatically:')
+    c.print('    1. [dim]wait[/]   — poll until the service responds')
+    c.print('    2. [dim]smoke[/]  — run the full 4-URL smoke test')
+    c.print('    3. [dim]delete[/] — terminate the instance (pass or fail)')
+    c.print()
+    raw = c.input('  [bold]Run smoke workflow?[/] [dim][Y/n][/] › ').strip().lower()
+    return raw in ('', 'y', 'yes')
+
+
 @app.command()
 def create(stage                : str           = typer.Option(DEFAULT_STAGE, help='Stage tag.')                                                              ,
            name                 : Optional[str] = typer.Option(None, '--name',             help='Deploy name (default: random two-word).')                   ,
            playwright_image_uri : Optional[str] = typer.Option(None, '--playwright-image-uri', help='Override Playwright ECR image URI.')                    ,
            sidecar_image_uri    : Optional[str] = typer.Option(None, '--sidecar-image-uri',    help='Override sidecar ECR image URI.')                       ,
            from_ami             : Optional[str] = typer.Option(None, '--from-ami',         help='Launch from a pre-baked AMI ID (skips docker install + image pull).'),
-           instance_type        : Optional[str] = typer.Option(None, '--instance-type',    help=f'EC2 instance type (default: {EC2__INSTANCE_TYPE}).'),
-           interactive          : bool          = typer.Option(False, '--interactive', '-i', help='Ask questions before launching (instance type, etc.).')   ,
+           instance_type        : Optional[str] = typer.Option(None, '--instance-type',    help=f'Instance type or preset 1–5 (default: {EC2__INSTANCE_TYPE}). E.g. --instance-type 3 or --instance-type c5.xlarge.'),
+           interactive          : bool          = typer.Option(False, '--interactive', '-i', help='Ask questions before launching (instance type, smoke workflow).')  ,
+           smoke                : bool          = typer.Option(False, '--smoke',            help='After instance is up: run smoke test then delete (implies --wait).')  ,
            wait                 : bool          = typer.Option(False, '--wait',             help='Poll health until up.')                                     ,
-           timeout              : int           = typer.Option(300,  '--timeout',           help='Max seconds to wait when --wait is set.')                  ):
+           timeout              : int           = typer.Option(600,  '--timeout',           help='Max seconds to wait when --wait or --smoke is set.')        ):
     """Provision an EC2 instance running the Playwright + agent_mitmproxy stack."""
     c = Console(highlight=False, width=200)
 
-    resolved_type = instance_type
-    if interactive and resolved_type is None:
+    resolved_type = _resolve_instance_type(instance_type)
+    run_smoke     = smoke
+
+    if interactive:
         c.print()
         c.print(Panel('[bold]⚙️  Create EC2 — configure instance[/]', border_style='blue', expand=False))
-        resolved_type = _pick_instance_type(c)
+        if instance_type is None:
+            resolved_type = _pick_instance_type(c)
+        if not run_smoke:
+            run_smoke = _ask_smoke_workflow(c)
+        c.print()
 
-    resolved_type = resolved_type or EC2__INSTANCE_TYPE
-    result = provision(stage=stage, playwright_image_uri=playwright_image_uri,
-                       sidecar_image_uri=sidecar_image_uri, deploy_name=name or '',
-                       from_ami=from_ami, instance_type=resolved_type)
+    result           = provision(stage=stage, playwright_image_uri=playwright_image_uri,
+                                  sidecar_image_uri=sidecar_image_uri, deploy_name=name or '',
+                                  from_ami=from_ami, instance_type=resolved_type)
     _render_create_result(result)
-    if wait and result.get('playwright_url'):
+    resolved_name    = result['deploy_name']
+
+    if wait or run_smoke:
         _cmd_wait(ip=result['public_ip'], api_key_name=result['api_key_name'],
                   api_key_value=result['api_key_value'], timeout=timeout)
+
+    if run_smoke:
+        smoke_ok = True
+        try:
+            cmd_smoke(target=resolved_name)                                          # cmd_smoke raises SystemExit(1) on failure
+        except SystemExit as e:
+            smoke_ok = (e.code == 0 or e.code is None)
+
+        c.print()
+        c.print(Panel(f'[bold]🗑️  Deleting {resolved_name}[/]', border_style='dim', expand=False))
+        cmd_delete(resolved_name)
+
+        if not smoke_ok:
+            raise typer.Exit(code=1)
 
 
 @app.command(name='list')
