@@ -418,9 +418,10 @@ def provision(stage                  : str  = DEFAULT_STAGE ,
 
 # ── Typer CLI ─────────────────────────────────────────────────────────────────
 
-app = typer.Typer(name        = 'provision_ec2'                                     ,
-                   help        = 'Manage the Playwright + agent_mitmproxy EC2 stack.',
-                   add_completion = False                                            )
+app = typer.Typer(name           = 'provision_ec2'                                     ,
+                   help           = 'Manage the Playwright + agent_mitmproxy EC2 stack.',
+                   no_args_is_help = True                                              ,
+                   add_completion  = False                                             )
 
 
 def _health_check_once(base_url: str, api_key_name: str, api_key_value: str) -> dict:
