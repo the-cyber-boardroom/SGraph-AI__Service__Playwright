@@ -6,6 +6,10 @@ name: Bake AMI — Playwright EC2
 # Phase 1 — Base EC2:  fresh AL2023 install → health + smoke → clean → snapshot
 # Phase 2 — AMI EC2:   launch from snapshot → health + smoke → tag healthy
 #
+# DEPLOY_NAME is set to ami-bake-{run_id} / ami-verify-{run_id} so that
+# sg-ec2 list clearly shows which instances belong to this pipeline run,
+# and every command can target the exact instance without interactive prompts.
+#
 # The AMI ID is the only value carried between phases; it is written to
 # $GITHUB_OUTPUT and referenced as steps.bake.outputs.ami_id throughout.
 
@@ -52,7 +56,7 @@ jobs:
       AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
       AWS_DEFAULT_REGION   : ${{ secrets.AWS_DEFAULT_REGION    }}
       AWS_ACCOUNT_ID       : ${{ secrets.AWS_ACCOUNT_ID        }}
-      # API key auto-generated per deployment (stored in EC2 tags)
+      DEPLOY_NAME          : ami-bake-${{ github.run_id }}
 
     steps:
 
@@ -69,36 +73,36 @@ jobs:
 
       # ── Base EC2 ──────────────────────────────────────────────────────────
 
-      - name: 'Create base EC2'
+      - name: 'Create base EC2 (${{ env.DEPLOY_NAME }})'
         run: |
           EXTRA=""
           [[ -n "${{ inputs.playwright_image_uri }}" ]] && EXTRA="$EXTRA --playwright-image-uri ${{ inputs.playwright_image_uri }}"
           [[ -n "${{ inputs.sidecar_image_uri    }}" ]] && EXTRA="$EXTRA --sidecar-image-uri    ${{ inputs.sidecar_image_uri    }}"
-          sg-ec2 create $EXTRA
+          sg-ec2 create --name $DEPLOY_NAME $EXTRA
 
       - name: 'Wait — base EC2 service up'
-        run: sg-ec2 wait --timeout 600
+        run: sg-ec2 wait $DEPLOY_NAME --timeout 600
 
       - name: 'Health check — base EC2'
-        run: sg-ec2 health
+        run: sg-ec2 health $DEPLOY_NAME
 
       - name: 'Smoke test — base EC2'
-        run: sg-ec2 smoke
+        run: sg-ec2 smoke $DEPLOY_NAME
 
       # ── Prepare for snapshot ──────────────────────────────────────────────
 
       - name: 'Clean instance (remove logs, credentials, user-data)'
-        run: sg-ec2 clean
+        run: sg-ec2 clean $DEPLOY_NAME
 
       - name: 'Bake AMI'
         id: bake
         run: |
-          AMI_ID=$(sg-ec2 bake-ami 2>/dev/null)
+          AMI_ID=$(sg-ec2 bake-ami $DEPLOY_NAME 2>/dev/null)
           echo "ami_id=$AMI_ID" >> "$GITHUB_OUTPUT"
           echo "AMI ID: $AMI_ID"
 
       - name: 'Delete base EC2 (cost saving while AMI is created)'
-        run: sg-ec2 delete
+        run: sg-ec2 delete $DEPLOY_NAME
 
       - name: 'Wait for AMI to become available'
         run: sg-ec2 wait-ami ${{ steps.bake.outputs.ami_id }} --timeout 900
@@ -117,6 +121,7 @@ jobs:
       AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
       AWS_DEFAULT_REGION   : ${{ secrets.AWS_DEFAULT_REGION    }}
       AWS_ACCOUNT_ID       : ${{ secrets.AWS_ACCOUNT_ID        }}
+      DEPLOY_NAME          : ami-verify-${{ github.run_id }}
 
     steps:
 
@@ -131,26 +136,26 @@ jobs:
       - name: Install sg-ec2
         run: pip install -r requirements.txt && pip install -e .
 
-      - name: 'Launch from AMI (tagged untested)'
-        run: sg-ec2 create --from-ami ${{ needs.bake.outputs.ami_id }}
+      - name: 'Launch from AMI (tagged untested) — ${{ env.DEPLOY_NAME }}'
+        run: sg-ec2 create --name $DEPLOY_NAME --from-ami ${{ needs.bake.outputs.ami_id }}
 
       - name: 'Wait — AMI-based EC2 service up'
-        run: sg-ec2 wait --timeout 300
+        run: sg-ec2 wait $DEPLOY_NAME --timeout 300
 
       - name: 'Health check — AMI instance'
-        run: sg-ec2 health
+        run: sg-ec2 health $DEPLOY_NAME
 
       - name: 'Smoke test — AMI instance'
-        run: sg-ec2 smoke
+        run: sg-ec2 smoke $DEPLOY_NAME
 
       - name: 'Tag AMI as healthy'
         run: sg-ec2 tag-ami ${{ needs.bake.outputs.ami_id }} --status healthy
 
       - name: 'Delete AMI-based EC2'
-        run: sg-ec2 delete
+        run: sg-ec2 delete $DEPLOY_NAME
 
       - name: 'Tag AMI as unhealthy (on failure)'
         if: failure()
         run: |
           sg-ec2 tag-ami ${{ needs.bake.outputs.ami_id }} --status unhealthy || true
-          sg-ec2 delete || true
+          sg-ec2 delete $DEPLOY_NAME || true
