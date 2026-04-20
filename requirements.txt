@@ -8,3 +8,4 @@ osbot-aws
 osbot-docker
 osbot-fast-api
 osbot-fast-api-serverless
+typer

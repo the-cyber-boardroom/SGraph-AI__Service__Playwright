@@ -19,6 +19,7 @@ osbot-utils                  = "*"
 osbot-aws                    = "*"
 osbot-fast-api               = "*"
 osbot-fast-api-serverless    = "*"
+typer                        = "*"
 
 [tool.poetry.group.dev.dependencies]
 pytest         = "*"
