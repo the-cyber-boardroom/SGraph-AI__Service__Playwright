@@ -64,6 +64,8 @@ SG__NAME                     = 'playwright-ec2'                                 
 SG__DESCRIPTION              = 'SG Playwright EC2 stack - ingress :8000 (API) + :8001 (sidecar admin)'
 
 TAG__NAME                    = 'playwright-ec2'
+TAG__SERVICE_KEY             = 'sg:service'                                             # Immutable identifier — find_instances filters on this, not Name (Name is user-editable in console)
+TAG__SERVICE_VALUE           = 'playwright-ec2'
 TAG__STAGE_KEY               = 'stage'
 TAG__DEPLOY_NAME_KEY         = 'sg:deploy-name'                                         # Random two-word name (happy-turing); used by connect/delete/exec
 TAG__CREATOR_KEY             = 'sg:creator'                                             # Who launched this instance (git email or $USER)
@@ -376,9 +378,10 @@ def run_instance(ec2: EC2, ami_id: str, security_group_id: str, instance_profile
                   user_data: str, stage: str, deploy_name: str = '',
                   creator: str = '', api_key_name: str = '', api_key_value: str = '') -> str:
     display_name = f'{TAG__NAME}/{deploy_name}' if deploy_name else TAG__NAME
-    tags = [{'Key': 'Name'              , 'Value': display_name},
-            {'Key': TAG__STAGE_KEY      , 'Value': stage        },
-            {'Key': TAG__DEPLOY_NAME_KEY, 'Value': deploy_name  },
+    tags = [{'Key': 'Name'              , 'Value': display_name    },
+            {'Key': TAG__SERVICE_KEY    , 'Value': TAG__SERVICE_VALUE},  # immutable — not shown in Name column, survives console renames
+            {'Key': TAG__STAGE_KEY      , 'Value': stage            },
+            {'Key': TAG__DEPLOY_NAME_KEY, 'Value': deploy_name      },
             {'Key': TAG__CREATOR_KEY    , 'Value': creator      },
             {'Key': TAG__API_KEY_NAME_KEY , 'Value': api_key_name  },
             {'Key': TAG__API_KEY_VALUE_KEY, 'Value': api_key_value }]
@@ -405,8 +408,8 @@ def run_instance(ec2: EC2, ami_id: str, security_group_id: str, instance_profile
 
 
 def find_instances(ec2: EC2) -> dict:
-    filters   = [{'Name': 'tag:Name'           , 'Values': [f'{TAG__NAME}*']                           },  # wildcard matches playwright-ec2 and playwright-ec2/bold-curie
-                 {'Name': 'instance-state-name', 'Values': ['pending', 'running', 'stopping', 'stopped']}]
+    filters   = [{'Name': f'tag:{TAG__SERVICE_KEY}', 'Values': [TAG__SERVICE_VALUE]                    },  # immutable — survives console Name renames
+                 {'Name': 'instance-state-name'    , 'Values': ['pending', 'running', 'stopping', 'stopped']}]
     return ec2.instances_details(filters=filters)
 
 
