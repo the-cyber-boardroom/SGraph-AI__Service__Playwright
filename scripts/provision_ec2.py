@@ -217,7 +217,7 @@ cat > /opt/sg-playwright/docker-compose.yml << 'SG_COMPOSE_EOF'
 SG_COMPOSE_EOF
 
 docker compose -f /opt/sg-playwright/docker-compose.yml up -d
-
+{shutdown_section}
 echo "=== SG Playwright setup complete at $(date) ==="
 """
 
@@ -426,18 +426,27 @@ def render_compose_yaml(playwright_image_uri : str,
 
 def render_user_data(playwright_image_uri : str,
                       sidecar_image_uri    : str,
-                      compose_content      : str) -> str:
+                      compose_content      : str,
+                      max_hours            : Optional[int] = None) -> str:
+    if max_hours:
+        shutdown_section = (f'\n# Auto-terminate after {max_hours}h\n'
+                             f'systemd-run --on-active={max_hours}h /sbin/shutdown -h now\n'
+                             f'echo "Auto-terminate timer started: {max_hours}h from now"\n')
+    else:
+        shutdown_section = ''
     return USER_DATA_TEMPLATE.format(region               = aws_region()           ,
                                      registry             = ecr_registry_host()    ,
                                      playwright_image_uri = playwright_image_uri   ,
                                      sidecar_image_uri    = sidecar_image_uri      ,
-                                     compose_content      = compose_content        )
+                                     compose_content      = compose_content        ,
+                                     shutdown_section     = shutdown_section       )
 
 
 def run_instance(ec2: EC2, ami_id: str, security_group_id: str, instance_profile_name: str,
                   user_data: str, stage: str, deploy_name: str = '',
                   creator: str = '', api_key_name: str = '', api_key_value: str = '',
-                  instance_type: str = EC2__INSTANCE_TYPE) -> str:
+                  instance_type: str = EC2__INSTANCE_TYPE,
+                  max_hours: Optional[int] = None) -> str:
     display_name = f'{TAG__NAME}/{deploy_name}' if deploy_name else TAG__NAME
     tags = [{'Key': 'Name'              , 'Value': display_name    },
             {'Key': TAG__SERVICE_KEY    , 'Value': TAG__SERVICE_VALUE},  # immutable — not shown in Name column, survives console renames
@@ -446,14 +455,15 @@ def run_instance(ec2: EC2, ami_id: str, security_group_id: str, instance_profile
             {'Key': TAG__CREATOR_KEY    , 'Value': creator      },
             {'Key': TAG__API_KEY_NAME_KEY , 'Value': api_key_name  },
             {'Key': TAG__API_KEY_VALUE_KEY, 'Value': api_key_value }]
-    kwargs = {'ImageId'           : ami_id                                                  ,
-              'InstanceType'      : instance_type                                           ,
-              'MinCount'          : 1                                                       ,
-              'MaxCount'          : 1                                                       ,
-              'IamInstanceProfile': {'Name': instance_profile_name}                         ,
-              'SecurityGroupIds'  : [security_group_id]                                     ,
-              'UserData'          : user_data                                               ,
-              'TagSpecifications' : [{'ResourceType': 'instance', 'Tags': tags}]            }
+    kwargs = {'ImageId'                          : ami_id                                    ,
+              'InstanceType'                     : instance_type                             ,
+              'MinCount'                         : 1                                         ,
+              'MaxCount'                         : 1                                         ,
+              'IamInstanceProfile'               : {'Name': instance_profile_name}           ,
+              'SecurityGroupIds'                 : [security_group_id]                       ,
+              'UserData'                         : user_data                                 ,
+              'InstanceInitiatedShutdownBehavior': 'terminate'                               ,  # shutdown → terminate, not stop
+              'TagSpecifications'                : [{'ResourceType': 'instance', 'Tags': tags}]}
     for attempt in range(5):
         try:
             result      = ec2.client().run_instances(**kwargs)
@@ -574,13 +584,14 @@ def latest_healthy_ami(ec2: EC2) -> str:
     return images[0]['ImageId'] if images else None
 
 
-def provision(stage                  : str  = DEFAULT_STAGE    ,
-               playwright_image_uri  : str  = None             ,
-               sidecar_image_uri     : str  = None             ,
-               deploy_name           : str  = ''               ,
-               from_ami              : str  = None             ,    # use pre-baked AMI; skips install+pull
-               instance_type         : str  = EC2__INSTANCE_TYPE,
-               terminate             : bool = False            ) -> dict:
+def provision(stage                  : str          = DEFAULT_STAGE    ,
+               playwright_image_uri  : str          = None             ,
+               sidecar_image_uri     : str          = None             ,
+               deploy_name           : str          = ''               ,
+               from_ami              : str          = None             ,    # use pre-baked AMI; skips install+pull
+               instance_type         : str          = EC2__INSTANCE_TYPE,
+               max_hours             : Optional[int] = None            ,
+               terminate             : bool         = False            ) -> dict:
     ec2 = EC2()
 
     if terminate:
@@ -611,7 +622,8 @@ def provision(stage                  : str  = DEFAULT_STAGE    ,
     else:
         user_data = render_user_data(playwright_image_uri = playwright_image_uri ,
                                      sidecar_image_uri    = sidecar_image_uri    ,
-                                     compose_content      = compose_content      )
+                                     compose_content      = compose_content      ,
+                                     max_hours            = max_hours            )
 
     instance_profile_name = ensure_instance_profile()
     security_group_id     = ensure_security_group(ec2)
@@ -626,7 +638,8 @@ def provision(stage                  : str  = DEFAULT_STAGE    ,
                                           creator               = creator               ,
                                           api_key_name          = api_key_name          ,
                                           api_key_value         = api_key_value         ,
-                                          instance_type         = instance_type         )
+                                          instance_type         = instance_type         ,
+                                          max_hours             = max_hours             )
 
     ec2.wait_for_instance_running(instance_id)
     details       = ec2.instance_details(instance_id)
@@ -863,6 +876,7 @@ def create(stage                : str           = typer.Option(DEFAULT_STAGE, he
            sidecar_image_uri    : Optional[str] = typer.Option(None, '--sidecar-image-uri',    help='Override sidecar ECR image URI.')                       ,
            from_ami             : Optional[str] = typer.Option(None, '--from-ami',         help='Launch from a pre-baked AMI ID (skips docker install + image pull).'),
            instance_type        : Optional[str] = typer.Option(None, '--instance-type',    help=f'Instance type or preset 1–5 (default: {EC2__INSTANCE_TYPE}). E.g. --instance-type 3 or --instance-type c5.xlarge.'),
+           max_hours            : Optional[int] = typer.Option(None, '--max-hours',        help='Auto-terminate after N hours (sets shutdown timer + terminate-on-shutdown).'),
            interactive          : bool          = typer.Option(False, '--interactive', '-i', help='Ask questions before launching (instance type, smoke workflow).')  ,
            smoke                : bool          = typer.Option(False, '--smoke',            help='After instance is up: run smoke test then delete (implies --wait).')  ,
            wait                 : bool          = typer.Option(False, '--wait',             help='Poll health until up.')                                     ,
@@ -884,7 +898,8 @@ def create(stage                : str           = typer.Option(DEFAULT_STAGE, he
 
     result           = provision(stage=stage, playwright_image_uri=playwright_image_uri,
                                   sidecar_image_uri=sidecar_image_uri, deploy_name=name or '',
-                                  from_ami=from_ami, instance_type=resolved_type)
+                                  from_ami=from_ami, instance_type=resolved_type,
+                                  max_hours=max_hours)
     _render_create_result(result)
     resolved_name    = result['deploy_name']
 
@@ -996,19 +1011,36 @@ def cmd_info(target: Optional[str] = typer.Argument(None, help='Deploy-name or i
 
 
 @app.command(name='delete')
-def cmd_delete(name: Optional[str] = typer.Argument(None, help='Deploy-name or instance-id; omit to delete ALL.')):
-    """Delete instance(s) by deploy-name/instance-id, or all if no argument given."""
-    ec2     = EC2()
-    c       = Console(highlight=False, width=200)
-    deleted = []
-    if name:
+def cmd_delete(name    : Optional[str] = typer.Argument(None,  help='Deploy-name or instance-id.'),
+               all_flag: bool          = typer.Option(False, '--all', help='Delete ALL playwright-ec2 instances.')):
+    """Delete one instance by name/id, or all with --all."""
+    ec2 = EC2()
+    c   = Console(highlight=False, width=200)
+    if all_flag:
+        instances = find_instances(ec2)
+        if not instances:
+            c.print('  [dim]No instances found.[/]')
+            return
+        c.print()
+        for d in instances:
+            iid    = d.get('instance_id', '')
+            deploy = _instance_deploy_name(d) or iid
+            c.print(f'  🗑️   [bold]{deploy}[/]  [dim]{iid}[/]')
+        c.print()
+        confirm = c.input(f'  [bold red]Delete all {len(instances)} instance(s)?[/] [dim][y/N][/] › ').strip().lower()
+        if confirm not in ('y', 'yes'):
+            c.print('  Aborted.')
+            return
+        deleted = terminate_instances(ec2)
+    elif name:
         instance_id, details = _resolve_target(ec2, name)
         deploy = _instance_deploy_name(details) or instance_id
         c.print(f'  🗑️   Deleting [bold]{deploy}[/]  [dim]{instance_id}[/]...')
         ec2.instance_terminate(instance_id)
         deleted = [instance_id]
     else:
-        deleted = terminate_instances(ec2)
+        c.print('  [red]Specify a deploy-name / instance-id, or pass --all to delete everything.[/]')
+        raise typer.Exit(code=1)
     c.print(f'  ✅  Deleted {len(deleted)} instance(s): [dim]{", ".join(deleted) or "none"}[/]')
 
 
