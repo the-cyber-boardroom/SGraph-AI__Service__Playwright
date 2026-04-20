@@ -145,9 +145,9 @@ class test_constants(TestCase):
         assert IAM__ECR_READONLY_POLICY_ARN  == 'arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly'
         assert IAM__SSM_CORE_POLICY_ARN      == 'arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore'
         assert IAM__POLICY_ARNS              == (IAM__ECR_READONLY_POLICY_ARN, IAM__SSM_CORE_POLICY_ARN)
-        assert IAM__ROLE_NAME                == 'sg-playwright-ec2'
-        assert SG__NAME                      == 'playwright-ec2'                           # AWS reserves 'sg-*' for SG IDs
-        assert TAG__NAME                     == 'sg-playwright-ec2'
+        assert IAM__ROLE_NAME                == 'playwright-ec2'                             # No 'sg-*' prefix — AWS reserves it for SG IDs, IAM profiles, and resource names
+        assert SG__NAME                      == 'playwright-ec2'
+        assert TAG__NAME                     == 'playwright-ec2'
         assert DEFAULT_STAGE                 == 'dev'
 
 
