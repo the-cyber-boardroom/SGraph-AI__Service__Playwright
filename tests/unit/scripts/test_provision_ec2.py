@@ -202,12 +202,11 @@ class test_render_compose_yaml(TestCase):
     def test__api_key_in_both_services(self):
         yaml = self._render(api_key_name='X-API-Key', api_key_value='test-secret')
         assert yaml.count("'X-API-Key'")    == 2                                           # Playwright + sidecar both get the key
-        assert yaml.count("'test-secret'")  == 3                                           # Playwright, sidecar FAST_API, sidecar WEB_PASSWORD
+        assert yaml.count("'test-secret'")  == 2                                           # Playwright FAST_API, sidecar FAST_API (no mitmweb password)
 
-    def test__mitmweb_web_password_set(self):
+    def test__mitmweb_has_no_separate_password(self):
         yaml = self._render(api_key_value='test-secret')
-        assert 'AGENT_MITMPROXY__WEB_PASSWORD' in yaml
-        assert yaml.count("'test-secret'") == 3                                            # same value used for mitmweb UI password
+        assert 'AGENT_MITMPROXY__WEB_PASSWORD' not in yaml                                 # POST-on-submit causes "Method Not Allowed" — no password needed
 
     def test__upstream_vars_included(self):
         yaml = self._render(upstream_url='http://corp:3128', upstream_user='u', upstream_pass='p')
