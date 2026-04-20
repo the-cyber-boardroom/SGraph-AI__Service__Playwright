@@ -23,8 +23,11 @@ osbot-fast-api-serverless    = "*"
 typer                        = "*"
 
 [tool.poetry.scripts]
-sg-play = "scripts.provision_ec2:app"
-sg-ec2  = "scripts.provision_ec2:app"
+sg-play    = "scripts.provision_ec2:app"
+sg-browser = "scripts.provision_ec2:app"
+sg-p       = "scripts.provision_ec2:app"
+sg-b       = "scripts.provision_ec2:app"
+sg-ec2     = "scripts.provision_ec2:app"
 
 [tool.poetry.group.dev.dependencies]
 pytest         = "*"
