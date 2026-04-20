@@ -55,6 +55,7 @@ from sgraph_ai_service_playwright.schemas.service.Schema__Service__Capabilities 
 from sgraph_ai_service_playwright.schemas.service.Schema__Service__Info                 import Schema__Service__Info
 from sgraph_ai_service_playwright.service.Browser__Launcher                             import Browser__Launcher
 from sgraph_ai_service_playwright.service.Capability__Detector                          import Capability__Detector
+from sgraph_ai_service_playwright.schemas.browser.Schema__Browser__Config               import Schema__Browser__Config
 from sgraph_ai_service_playwright.service.Credentials__Loader                           import Credentials__Loader
 from sgraph_ai_service_playwright.service.Request__Validator                            import Request__Validator
 from sgraph_ai_service_playwright.service.Sequence__Runner                              import Sequence__Runner
@@ -105,10 +106,17 @@ class Playwright__Service(Type_Safe):
     # Sequence__Runner (fresh Chromium per call + guaranteed teardown), and
     # extracts the one result the caller asked for.
 
+    def _with_viewport(self, browser_config, viewport):                                # Merge top-level viewport shorthand into browser_config
+        if viewport is None:
+            return browser_config
+        cfg = browser_config if browser_config is not None else Schema__Browser__Config()
+        cfg.viewport = viewport
+        return cfg
+
     def browser_navigate(self, request: Schema__Browser__Navigate__Request) -> Schema__Browser__One_Shot__Response:
         steps = [self.build_navigate_step(request.url, request.wait_until, request.timeout_ms),
                   dict(action = Enum__Step__Action.GET_URL.value)]
-        return self.run_one_shot(steps, request.browser_config, request.url, request.timeout_ms)
+        return self.run_one_shot(steps, self._with_viewport(request.browser_config, request.viewport), request.url, request.timeout_ms)
 
     def browser_click(self, request: Schema__Browser__Click__Request) -> Schema__Browser__One_Shot__Response:
         steps = [self.build_navigate_step(request.url, request.wait_until, request.timeout_ms),
@@ -147,7 +155,7 @@ class Playwright__Service(Type_Safe):
 
             capture_config = Schema__Capture__Config(screenshot = Schema__Artefact__Sink_Config(enabled = True                         ,
                                                                                                  sink    = Enum__Artefact__Sink.INLINE))
-            seq_request  = self.build_sequence_request(steps=steps, browser_config=request.browser_config, capture_config=capture_config, timeout_ms=request.timeout_ms)
+            seq_request  = self.build_sequence_request(steps=steps, browser_config=self._with_viewport(request.browser_config, request.viewport), capture_config=capture_config, timeout_ms=request.timeout_ms)
             seq_response = self.sequence_runner.execute(seq_request)
             self.raise_on_sequence_failure(seq_response)
 
