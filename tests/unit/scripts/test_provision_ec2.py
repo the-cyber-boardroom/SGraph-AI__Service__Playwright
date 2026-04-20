@@ -24,20 +24,22 @@ from unittest import TestCase
 import pytest
 
 from scripts import provision_ec2
-from scripts.provision_ec2 import (DEFAULT_STAGE              ,
-                                    EC2__AMI_NAME_AL2023       ,
-                                    preflight_check            ,
-                                    EC2__INSTANCE_TYPE         ,
-                                    EC2__PLAYWRIGHT_PORT       ,
-                                    EC2__SIDECAR_ADMIN_PORT    ,
-                                    IAM__ECR_READONLY_POLICY_ARN,
-                                    IAM__POLICY_ARNS           ,
-                                    IAM__ROLE_NAME             ,
-                                    IAM__SSM_CORE_POLICY_ARN   ,
-                                    SG__NAME                   ,
-                                    TAG__NAME                  ,
-                                    render_compose_yaml        ,
-                                    render_user_data           )
+from scripts.provision_ec2 import (DEFAULT_STAGE                ,
+                                    EC2__AMI_NAME_AL2023         ,
+                                    preflight_check              ,
+                                    EC2__INSTANCE_TYPE           ,
+                                    EC2__INSTANCE_TYPE_PRESETS   ,
+                                    EC2__PLAYWRIGHT_PORT         ,
+                                    EC2__SIDECAR_ADMIN_PORT      ,
+                                    IAM__ECR_READONLY_POLICY_ARN ,
+                                    IAM__POLICY_ARNS             ,
+                                    IAM__ROLE_NAME               ,
+                                    IAM__SSM_CORE_POLICY_ARN     ,
+                                    SG__NAME                     ,
+                                    TAG__NAME                    ,
+                                    _resolve_instance_type       ,
+                                    render_compose_yaml          ,
+                                    render_user_data             )
 
 
 PLAYWRIGHT_URI = '123456789012.dkr.ecr.eu-west-2.amazonaws.com/sgraph_ai_service_playwright:latest'
@@ -168,6 +170,27 @@ class test_constants(TestCase):
         assert SG__NAME                      == 'playwright-ec2'
         assert TAG__NAME                     == 'playwright-ec2'
         assert DEFAULT_STAGE                 == 'dev'
+
+
+class test_instance_type_presets(TestCase):
+
+    def test__five_presets_first_is_default(self):
+        assert len(EC2__INSTANCE_TYPE_PRESETS)   == 5
+        assert EC2__INSTANCE_TYPE_PRESETS[0][0]  == EC2__INSTANCE_TYPE          # t3.large is #1
+
+    def test__resolve_numeric_alias(self):
+        assert _resolve_instance_type('1')  == 't3.large'
+        assert _resolve_instance_type('2')  == 't3.xlarge'
+        assert _resolve_instance_type('3')  == 't3.2xlarge'
+        assert _resolve_instance_type('4')  == 'c5.xlarge'
+        assert _resolve_instance_type('5')  == 'm5.xlarge'
+
+    def test__resolve_literal_type_passthrough(self):
+        assert _resolve_instance_type('c6i.2xlarge') == 'c6i.2xlarge'
+        assert _resolve_instance_type('t3.large')    == 't3.large'
+
+    def test__resolve_none_returns_default(self):
+        assert _resolve_instance_type(None) == EC2__INSTANCE_TYPE
 
 
 class test_render_compose_yaml(TestCase):
@@ -319,5 +342,6 @@ class test_cli_surface(TestCase):
         result = CliRunner().invoke(provision_ec2.app, ['create', '--help'])
         assert result.exit_code == 0
         out = _plain(result.output)
-        for opt in ('--stage', '--name', '--playwright-image-uri', '--sidecar-image-uri', '--wait', '--timeout'):
+        for opt in ('--stage', '--name', '--playwright-image-uri', '--sidecar-image-uri',
+                    '--instance-type', '--interactive', '--smoke', '--wait', '--timeout'):
             assert opt in out, f'option {opt!r} missing from create --help'
