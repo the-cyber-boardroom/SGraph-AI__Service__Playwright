@@ -1285,18 +1285,15 @@ def cmd_env(target: Optional[str] = typer.Argument(None, help='Deploy-name or in
     api_key_name    = _instance_tag(d, TAG__API_KEY_NAME_KEY)  or 'X-API-Key'
     api_key_value   = _instance_tag(d, TAG__API_KEY_VALUE_KEY) or ''
     ip              = d.get('public_ip', '')
-    c               = Console(highlight=False, width=200)
-    c.print()
-    c.print(f'  [bold]# env — {deploy_name}  [dim]{instance_id}[/][/]')
-    c.print()
+    sys.stderr.write(f'\n  # env — {deploy_name}  {instance_id}\n\n')
     for line in [f'export DEPLOY_NAME={deploy_name!r}'              ,
                  f'export API_KEY_NAME={api_key_name!r}'            ,
                  f'export API_KEY_VALUE={api_key_value!r}'          ,
                  f'export EC2_IP={ip!r}'                            ,
                  f'export INSTANCE_ID={instance_id!r}'              ,
                  f"export SG_PLAYWRIGHT_URL='http://{ip}:{EC2__PLAYWRIGHT_PORT}'"]:
-        c.print(f'  {line}')
-    c.print()
+        print(line)
+    sys.stderr.write('\n')
 
 
 @app.command(name='vault-clone')
@@ -1367,12 +1364,15 @@ def cmd_exec(first      : str           = typer.Argument(...,  help='Deploy-name
     if container:
         shell_cmd = f'docker compose -f {COMPOSE_FILE_PATH} exec -T {container} {shell_cmd}'
     c = Console(highlight=False, width=200)
-    c.print(f'  💻  [{instance_id}]{"[" + container + "]" if container else ""}  [dim]{shell_cmd}[/]')
+    ctr_tag = f'[{container}]' if container else ''
+    c.print(f'  💻  [dim]{instance_id}{ctr_tag}[/]  {shell_cmd}')
     stdout, stderr = _ssm_run(instance_id, [shell_cmd])
     if stdout.strip():
-        c.print(stdout.rstrip())
+        print(stdout.rstrip())
     if stderr.strip():
-        c.print(f'[yellow]{stderr.rstrip()}[/]')
+        print(stderr.rstrip(), file=sys.stderr)
+    if not stdout.strip() and not stderr.strip():
+        c.print('  [dim](no output)[/]')
 
 
 @app.command(name='logs')
