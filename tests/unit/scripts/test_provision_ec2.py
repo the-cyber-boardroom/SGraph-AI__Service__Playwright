@@ -1,114 +1,205 @@
 # ═══════════════════════════════════════════════════════════════════════════════
-# Tests — scripts/provision_ec2.py (v0.1.31 — EC2 spike)
+# Tests — scripts/provision_ec2.py (v0.1.33 — two-container EC2 stack)
 #
 # Scope (unit-level, no real AWS):
-#   • module surface            — exposes provision / main / the pure helpers.
-#   • constants                 — t3.large, AL2023 AMI pattern, :8000, SG name.
-#   • user-data rendering       — includes image URI, ECR login, run command,
-#                                  API-key env vars.
-#   • provision(--terminate)    — short-circuits (no real AWS work needed when
-#                                  the EC2 facade is stubbed out).
+#   • module surface          — exposes all expected helpers + provision/main.
+#   • constants               — t3.large, ports, IAM role/SG/tag names.
+#   • render_compose_yaml     — both image URIs, key env vars, network, ports.
+#   • render_user_data        — docker install, compose plugin, both pulls,
+#                               embedded compose YAML, docker compose up.
+#   • provision(terminate)    — short-circuits via stubbed terminate helper.
+#   • argparse                — --terminate is off by default; new image args.
 #
-# End-to-end create/terminate verification is out of scope — the script is a
-# local-only spike, not a deployed surface.
+# End-to-end create/terminate is out of scope (local-invoke script, not CI).
 # ═══════════════════════════════════════════════════════════════════════════════
 
-from unittest                                                                            import TestCase
+from unittest import TestCase
 
-from scripts                                                                             import provision_ec2
-from scripts.provision_ec2                                                               import (DEFAULT_STAGE                ,
-                                                                                                 EC2__AMI_NAME_AL2023          ,
-                                                                                                 EC2__APP_PORT                 ,
-                                                                                                 EC2__INSTANCE_TYPE            ,
-                                                                                                 IAM__ECR_READONLY_POLICY_ARN  ,
-                                                                                                 IAM__POLICY_ARNS              ,
-                                                                                                 IAM__ROLE_NAME                ,
-                                                                                                 IAM__SSM_CORE_POLICY_ARN      ,
-                                                                                                 SG__NAME                      ,
-                                                                                                 TAG__NAME                     ,
-                                                                                                 render_user_data              )
+from scripts import provision_ec2
+from scripts.provision_ec2 import (DEFAULT_STAGE              ,
+                                    EC2__AMI_NAME_AL2023       ,
+                                    EC2__INSTANCE_TYPE         ,
+                                    EC2__PLAYWRIGHT_PORT       ,
+                                    EC2__SIDECAR_ADMIN_PORT    ,
+                                    IAM__ECR_READONLY_POLICY_ARN,
+                                    IAM__POLICY_ARNS           ,
+                                    IAM__ROLE_NAME             ,
+                                    IAM__SSM_CORE_POLICY_ARN   ,
+                                    SG__NAME                   ,
+                                    TAG__NAME                  ,
+                                    render_compose_yaml        ,
+                                    render_user_data           )
+
+
+PLAYWRIGHT_URI = '123456789012.dkr.ecr.eu-west-2.amazonaws.com/sgraph_ai_service_playwright:latest'
+SIDECAR_URI    = '123456789012.dkr.ecr.eu-west-2.amazonaws.com/agent_mitmproxy:latest'
 
 
 class test_module_surface(TestCase):
 
     def test__exposes_expected_symbols(self):
-        for attr in ('provision'                   ,
-                     'main'                        ,
-                     'render_user_data'            ,
-                     'default_image_uri'           ,
-                     'ensure_instance_profile'     ,
-                     'ensure_security_group'       ,
-                     'latest_al2023_ami_id'        ,
-                     'run_instance'                ,
-                     'find_spike_instance_ids'     ,
-                     'terminate_spike_instances'   ):
+        for attr in ('provision'                  ,
+                     'main'                       ,
+                     'render_compose_yaml'        ,
+                     'render_user_data'           ,
+                     'default_playwright_image_uri',
+                     'default_sidecar_image_uri'  ,
+                     'ensure_instance_profile'    ,
+                     'ensure_security_group'      ,
+                     'latest_al2023_ami_id'       ,
+                     'run_instance'               ,
+                     'find_instance_ids'          ,
+                     'terminate_instances'        ):
             assert hasattr(provision_ec2, attr), f'missing: {attr}'
 
 
 class test_constants(TestCase):
 
-    def test__spike_pins_match_design(self):                                              # Pinned values are contract with the operator — changing them is a breaking change for in-flight spike sessions
-        assert EC2__INSTANCE_TYPE           == 't3.large'
-        assert EC2__APP_PORT                == 8000
-        assert EC2__AMI_NAME_AL2023         .startswith('al2023-ami-')
-        assert IAM__ECR_READONLY_POLICY_ARN == 'arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly'
-        assert IAM__SSM_CORE_POLICY_ARN     == 'arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore'
-        assert IAM__POLICY_ARNS             == (IAM__ECR_READONLY_POLICY_ARN, IAM__SSM_CORE_POLICY_ARN)
-        assert IAM__ROLE_NAME               == 'sg-playwright-ec2-spike'
-        assert SG__NAME                     == 'playwright-ec2-spike'                     # AWS rejects group names matching 'sg-*' (reserved for SG IDs)
-        assert TAG__NAME                    == 'sg-playwright-ec2-spike'
-        assert DEFAULT_STAGE                == 'dev'
+    def test__stack_pins_match_design(self):
+        assert EC2__INSTANCE_TYPE            == 't3.large'                                 # Playwright + sidecar need the headroom
+        assert EC2__PLAYWRIGHT_PORT          == 8000
+        assert EC2__SIDECAR_ADMIN_PORT       == 8001
+        assert EC2__AMI_NAME_AL2023          .startswith('al2023-ami-')
+        assert IAM__ECR_READONLY_POLICY_ARN  == 'arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly'
+        assert IAM__SSM_CORE_POLICY_ARN      == 'arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore'
+        assert IAM__POLICY_ARNS              == (IAM__ECR_READONLY_POLICY_ARN, IAM__SSM_CORE_POLICY_ARN)
+        assert IAM__ROLE_NAME                == 'sg-playwright-ec2'
+        assert SG__NAME                      == 'playwright-ec2'                           # AWS reserves 'sg-*' for SG IDs
+        assert TAG__NAME                     == 'sg-playwright-ec2'
+        assert DEFAULT_STAGE                 == 'dev'
+
+
+class test_render_compose_yaml(TestCase):
+
+    def _render(self, **kwargs):
+        defaults = dict(playwright_image_uri = PLAYWRIGHT_URI,
+                        sidecar_image_uri    = SIDECAR_URI   ,
+                        api_key_name         = 'X-API-Key'   ,
+                        api_key_value        = 'test-secret' )
+        defaults.update(kwargs)
+        return render_compose_yaml(**defaults)
+
+    def test__contains_both_image_uris(self):
+        yaml = self._render()
+        assert PLAYWRIGHT_URI in yaml
+        assert SIDECAR_URI    in yaml
+
+    def test__playwright_on_correct_port(self):
+        yaml = self._render()
+        assert f'"{EC2__PLAYWRIGHT_PORT}:{EC2__PLAYWRIGHT_PORT}"' in yaml
+
+    def test__sidecar_admin_mapped_to_8001(self):
+        yaml = self._render()
+        assert f'"{EC2__SIDECAR_ADMIN_PORT}:8000"' in yaml
+
+    def test__playwright_routes_through_sidecar(self):
+        yaml = self._render()
+        assert 'SG_PLAYWRIGHT__DEFAULT_PROXY_URL:' in yaml
+        assert 'http://agent-mitmproxy:8080'       in yaml
+        assert 'SG_PLAYWRIGHT__IGNORE_HTTPS_ERRORS:' in yaml
+        assert "'true'"                              in yaml
+
+    def test__api_key_in_both_services(self):
+        yaml = self._render(api_key_name='X-API-Key', api_key_value='test-secret')
+        assert yaml.count("'X-API-Key'")    == 2                                           # Playwright + sidecar both get the key
+        assert yaml.count("'test-secret'")  == 2
+
+    def test__upstream_vars_included(self):
+        yaml = self._render(upstream_url='http://corp:3128', upstream_user='u', upstream_pass='p')
+        assert 'http://corp:3128' in yaml
+        assert "'u'"              in yaml
+        assert "'p'"              in yaml
+
+    def test__sg_net_network_defined(self):
+        yaml = self._render()
+        assert 'sg-net'        in yaml
+        assert 'driver: bridge' in yaml
+
+    def test__depends_on_sidecar(self):
+        yaml = self._render()
+        assert 'depends_on'      in yaml
+        assert 'agent-mitmproxy' in yaml
+
+    def test__restart_always(self):
+        yaml = self._render()
+        assert yaml.count('restart: always') == 2                                          # Both services
 
 
 class test_render_user_data(TestCase):
 
-    def test__includes_docker_install_and_ecr_pull_and_run(self):
-        image_uri = '123456789012.dkr.ecr.eu-west-1.amazonaws.com/sgraph_ai_service_playwright:latest'
-        original  = provision_ec2.aws_region
+    def _render(self, **kwargs):
+        compose           = render_compose_yaml(playwright_image_uri = PLAYWRIGHT_URI,
+                                                sidecar_image_uri    = SIDECAR_URI   ,
+                                                api_key_name         = 'X-API-Key'   ,
+                                                api_key_value        = 'secret'      )
+        orig_region   = provision_ec2.aws_region
+        orig_registry = provision_ec2.ecr_registry_host
         try:
-            provision_ec2.aws_region = lambda: 'eu-west-1'                                # Bypass AWS_Config read — render_user_data inlines region + registry host
-            user_data = render_user_data(image_uri=image_uri, api_key_name='X-API-Key', api_key_value='spike-secret')
+            provision_ec2.aws_region        = lambda: 'eu-west-2'
+            provision_ec2.ecr_registry_host = lambda: '123456789012.dkr.ecr.eu-west-2.amazonaws.com'
+            return render_user_data(playwright_image_uri = PLAYWRIGHT_URI ,
+                                    sidecar_image_uri    = SIDECAR_URI    ,
+                                    compose_content      = compose        )
         finally:
-            provision_ec2.aws_region = original
+            provision_ec2.aws_region        = orig_region
+            provision_ec2.ecr_registry_host = orig_registry
 
-        assert user_data.startswith('#!/bin/bash')
-        assert 'dnf install -y docker'                                                 in user_data
-        assert 'aws ecr get-login-password --region eu-west-1'                          in user_data
-        assert 'docker login --username AWS --password-stdin'                           in user_data
-        assert f'docker pull {image_uri}'                                               in user_data
-        assert f'-p {EC2__APP_PORT}:{EC2__APP_PORT}'                                    in user_data
-        assert "-e FAST_API__AUTH__API_KEY__NAME='X-API-Key'"                           in user_data
-        assert "-e FAST_API__AUTH__API_KEY__VALUE='spike-secret'"                       in user_data
-        assert '-e SG_PLAYWRIGHT__DEPLOYMENT_TARGET=container'                          in user_data
-        assert '-e SG_PLAYWRIGHT__WATCHDOG_MAX_REQUEST_MS=120000'                       in user_data     # Lambda-tuned 28s default kills Firefox + proxy mid-flight; 120s is safe for the spike
-        assert '--restart=always'                                                       in user_data
+    def test__starts_with_shebang(self):
+        assert self._render().startswith('#!/bin/bash')
+
+    def test__installs_docker_and_compose_plugin(self):
+        ud = self._render()
+        assert 'dnf install -y docker docker-compose-plugin' in ud
+
+    def test__ecr_login_uses_region(self):
+        ud = self._render()
+        assert 'aws ecr get-login-password --region eu-west-2' in ud
+        assert 'docker login --username AWS --password-stdin'  in ud
+
+    def test__pulls_both_images(self):
+        ud = self._render()
+        assert f'docker pull {PLAYWRIGHT_URI}' in ud
+        assert f'docker pull {SIDECAR_URI}'    in ud
+
+    def test__writes_compose_file_and_runs_up(self):
+        ud = self._render()
+        assert '/opt/sg-playwright/docker-compose.yml' in ud
+        assert 'docker compose'                        in ud
+        assert 'up -d'                                 in ud
+
+    def test__compose_content_embedded_verbatim(self):
+        ud = self._render()
+        assert PLAYWRIGHT_URI in ud
+        assert SIDECAR_URI    in ud
+        assert 'sg-net'       in ud
 
 
-class test_provision_terminate(TestCase):                                                 # --terminate short-circuits before any create path runs
+class test_provision_terminate(TestCase):
 
-    def test__terminate_calls_terminate_helper_only(self):
-        terminate_calls = []
-
-        original = provision_ec2.terminate_spike_instances
+    def test__terminate_calls_helper_and_returns_action(self):
+        calls = []
+        original = provision_ec2.terminate_instances
         try:
-            provision_ec2.terminate_spike_instances = lambda ec2: terminate_calls.append(ec2) or ['i-stub']
+            provision_ec2.terminate_instances = lambda ec2: calls.append(ec2) or ['i-abc123']
             result = provision_ec2.provision(terminate=True)
         finally:
-            provision_ec2.terminate_spike_instances = original
+            provision_ec2.terminate_instances = original
 
-        assert len(terminate_calls) == 1                                                  # Facade passed through unchanged
-        assert result               == {'action': 'terminate', 'instance_ids': ['i-stub']}
+        assert len(calls) == 1
+        assert result     == {'action': 'terminate', 'instance_ids': ['i-abc123']}
 
 
 class test_argparse(TestCase):
 
-    def test__terminate_is_off_by_default(self):                                          # Safety: invoking with no args must not wipe any running spike instance
+    def test__terminate_off_by_default_and_image_args_present(self):
         import argparse
         parser = argparse.ArgumentParser()
-        parser.add_argument('--stage'    , default=DEFAULT_STAGE)
-        parser.add_argument('--image-uri', default=None)
-        parser.add_argument('--terminate', action='store_true')
+        parser.add_argument('--stage'               , default=DEFAULT_STAGE)
+        parser.add_argument('--playwright-image-uri', default=None)
+        parser.add_argument('--sidecar-image-uri'   , default=None)
+        parser.add_argument('--terminate'           , action='store_true')
         args = parser.parse_args([])
-        assert args.terminate is False
-        assert args.stage     == DEFAULT_STAGE
-        assert args.image_uri is None
+        assert args.terminate             is False
+        assert args.stage                 == DEFAULT_STAGE
+        assert args.playwright_image_uri  is None
+        assert args.sidecar_image_uri     is None
