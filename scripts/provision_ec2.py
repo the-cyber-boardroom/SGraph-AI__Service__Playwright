@@ -1254,7 +1254,18 @@ def cmd_connect(target: Optional[str] = typer.Argument(None, help='Deploy-name o
     ec2         = EC2()
     instance_id, _ = _resolve_target(ec2, target)
     typer.echo(f'  🔌  Opening SSM session → {instance_id}')
-    subprocess.run(['aws', 'ssm', 'start-session', '--target', instance_id], check=False)
+    result = subprocess.run(['aws', 'ssm', 'start-session', '--target', instance_id],
+                            check=False, capture_output=False)
+    if result.returncode != 0:
+        c = Console(highlight=False, width=200)
+        c.print()
+        c.print('  [yellow]⚠  SSM session failed.[/]  If you see "Plugin with name Standard_Stream not found",')
+        c.print('  install the Session Manager plugin:')
+        c.print()
+        c.print('    [bold]brew install --cask session-manager-plugin[/]')
+        c.print()
+        c.print('  Or download from: https://docs.aws.amazon.com/systems-manager/latest/userguide/session-manager-working-with-install-plugin.html')
+        c.print()
 
 
 def _env_export_prefix(instance_id: str, details: dict) -> str:
