@@ -1,6 +1,6 @@
 [tool.poetry]
 name        = "sgraph-ai-service-playwright"
-version     = "v0.1.46"
+version     = "v0.1.48"
 description = "Browser automation FastAPI service for the SG/Send ecosystem. Runs identically on laptop, CI, Claude Web, Fargate, and Lambda."
 authors     = ["Dinis Cruz <dinis@the-cyber-boardroom.com>"]
 license     = "Apache-2.0"
@@ -24,7 +24,11 @@ prometheus-client            = "*"
 typer                        = "*"
 
 [tool.poetry.scripts]
-sg-ec2 = "scripts.provision_ec2:app"
+sg-play    = "scripts.provision_ec2:app"
+sg-browser = "scripts.provision_ec2:app"
+sg-p       = "scripts.provision_ec2:app"
+sg-b       = "scripts.provision_ec2:app"
+sg-ec2     = "scripts.provision_ec2:app"
 
 [tool.poetry.group.dev.dependencies]
 pytest         = "*"
