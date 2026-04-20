@@ -1150,7 +1150,8 @@ def cmd_list():
 
 
 @app.command(name='info')
-def cmd_info(target: Optional[str] = typer.Argument(None, help='Deploy-name or instance-id (auto if only one).')):
+def cmd_info(target   : Optional[str] = typer.Argument(None,  help='Deploy-name or instance-id (auto if only one).'),
+             json_flag: bool           = typer.Option(False, '--json', help='Output raw JSON instead of rich table.')):
     """Show full details for an instance, reading metadata from its tags."""
     ec2             = EC2()
     instance_id, d  = _resolve_target(ec2, target)
@@ -1173,6 +1174,9 @@ def cmd_info(target: Optional[str] = typer.Argument(None, help='Deploy-name or i
         'sidecar_image_uri'   : '(stored in compose file on instance)',
         'state'               : state,
     }
+    if json_flag:
+        print(json.dumps(r, indent=2))
+        return
     colour = 'green' if state == 'running' else 'yellow' if state == 'pending' else 'red'
     c      = Console(highlight=False, width=200)
     c.print()
