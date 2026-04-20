@@ -165,11 +165,20 @@ curl -sSL "https://github.com/docker/compose/releases/latest/download/docker-com
      -o /usr/local/lib/docker/cli-plugins/docker-compose
 chmod +x /usr/local/lib/docker/cli-plugins/docker-compose
 
-TOKEN=$(aws ecr get-login-password --region {region})
-echo "$TOKEN" | docker login --username AWS --password-stdin {registry}
+# ECR login — disable set -x so the token value is never written to logs
+set +x
+aws ecr get-login-password --region {region} \
+    | docker login --username AWS --password-stdin {registry}
+set -x
 
 docker pull {playwright_image_uri}
 docker pull {sidecar_image_uri}
+
+# Revoke the stored Docker credential immediately after pull — the instance
+# profile (AmazonEC2ContainerRegistryReadOnly) provides fresh tokens on demand
+# so nothing needs to persist.  This also keeps AMI snapshots credential-free.
+docker logout {registry}
+rm -f /root/.docker/config.json
 
 mkdir -p /opt/sg-playwright
 
