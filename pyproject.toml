@@ -5,7 +5,8 @@ description = "Browser automation FastAPI service for the SG/Send ecosystem. Run
 authors     = ["Dinis Cruz <dinis@the-cyber-boardroom.com>"]
 license     = "Apache-2.0"
 readme      = "README.md"
-packages    = [{ include = "sgraph_ai_service_playwright" }]
+packages    = [{ include = "sgraph_ai_service_playwright" },
+               { include = "scripts"                      }]
 include     = ["sgraph_ai_service_playwright/version"]
 
 [tool.poetry.dependencies]
@@ -20,6 +21,9 @@ osbot-aws                    = "*"
 osbot-fast-api               = "*"
 osbot-fast-api-serverless    = "*"
 typer                        = "*"
+
+[tool.poetry.scripts]
+sg-ec2 = "scripts.provision_ec2:app"
 
 [tool.poetry.group.dev.dependencies]
 pytest         = "*"

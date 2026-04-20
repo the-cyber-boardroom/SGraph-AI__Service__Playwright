@@ -522,11 +522,12 @@ def cmd_list():
     t.add_column('public-ip',    style='green')
     t.add_column('playwright-url')
     for iid, d in instances.items():
-        state    = d.get('state', '?')
-        ip       = d.get('public_ip', '')
-        nickname = _instance_nickname(d)
-        url      = f'http://{ip}:{EC2__PLAYWRIGHT_PORT}' if ip else ''
-        colour   = 'green' if state == 'running' else 'yellow' if state == 'pending' else 'red'
+        state_raw = d.get('state', '?')
+        state     = state_raw.get('Name', '?') if isinstance(state_raw, dict) else str(state_raw)
+        ip        = d.get('public_ip', '')
+        nickname  = _instance_nickname(d)
+        url       = f'http://{ip}:{EC2__PLAYWRIGHT_PORT}' if ip else ''
+        colour    = 'green' if state == 'running' else 'yellow' if state == 'pending' else 'red'
         t.add_row(iid, nickname, f'[{colour}]{state}[/]', ip, url)
     c.print(t)
 
