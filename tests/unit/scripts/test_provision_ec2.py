@@ -288,15 +288,14 @@ class test_cli_surface(TestCase):
 
     def test__app_has_expected_commands(self):
         from typer.testing import CliRunner
-        runner  = CliRunner()
-        result  = runner.invoke(provision_ec2.app, ['--help'])
+        result = CliRunner().invoke(provision_ec2.app, ['--help'])
         assert result.exit_code == 0
-        for cmd in ('create', 'terminate', 'wait', 'health'):
+        for cmd in ('create', 'list', 'delete', 'connect', 'wait', 'health'):
             assert cmd in result.output, f'command {cmd!r} missing from --help'
 
     def test__create_help_shows_expected_options(self):
         from typer.testing import CliRunner
         result = CliRunner().invoke(provision_ec2.app, ['create', '--help'])
         assert result.exit_code == 0
-        for opt in ('--stage', '--playwright-image-uri', '--sidecar-image-uri', '--wait', '--timeout'):
+        for opt in ('--stage', '--name', '--playwright-image-uri', '--sidecar-image-uri', '--wait', '--timeout'):
             assert opt in result.output, f'option {opt!r} missing from create --help'
