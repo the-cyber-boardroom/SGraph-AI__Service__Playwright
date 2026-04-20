@@ -1250,21 +1250,34 @@ def cmd_delete(name    : Optional[str] = typer.Argument(None,  help='Deploy-name
 @app.command(name='connect')
 def cmd_connect(target: Optional[str] = typer.Argument(None, help='Deploy-name or instance-id; auto-selects if only one instance.')):
     """Open an interactive SSM shell session (no SSH/key-pair needed)."""
-    import subprocess
+    import shutil, subprocess
+    c           = Console(highlight=False, width=200)
     ec2         = EC2()
     instance_id, _ = _resolve_target(ec2, target)
-    typer.echo(f'  🔌  Opening SSM session → {instance_id}')
+
+    # Check plugin is discoverable before attempting the session
+    plugin_path = (shutil.which('session-manager-plugin') or
+                   '/usr/local/sessionmanagerplugin/bin/session-manager-plugin')
+    import os
+    if not os.path.isfile(plugin_path):
+        c.print()
+        c.print('  [red]✗  session-manager-plugin not found in PATH.[/]')
+        c.print('  Fix with one of:')
+        c.print()
+        c.print('    [bold]sudo ln -s /usr/local/sessionmanagerplugin/bin/session-manager-plugin /usr/local/bin/session-manager-plugin[/]')
+        c.print('    [bold]brew install --cask session-manager-plugin[/]')
+        c.print()
+        raise typer.Exit(1)
+
+    typer.echo(f'  🔌  Opening SSM session → {instance_id}  (plugin: {plugin_path})')
     result = subprocess.run(['aws', 'ssm', 'start-session', '--target', instance_id],
                             check=False, capture_output=False)
     if result.returncode != 0:
-        c = Console(highlight=False, width=200)
         c.print()
-        c.print('  [yellow]⚠  SSM session failed.[/]  If you see "Plugin with name Standard_Stream not found",')
-        c.print('  install the Session Manager plugin:')
-        c.print()
-        c.print('    [bold]brew install --cask session-manager-plugin[/]')
-        c.print()
-        c.print('  Or download from: https://docs.aws.amazon.com/systems-manager/latest/userguide/session-manager-working-with-install-plugin.html')
+        c.print('  [yellow]⚠  Session ended with non-zero exit.[/]')
+        c.print(f'  Plugin found at: {plugin_path}')
+        c.print('  If you see "Standard_Stream not found", the plugin binary may be corrupt — try reinstalling:')
+        c.print('    [bold]brew reinstall --cask session-manager-plugin[/]')
         c.print()
 
 
