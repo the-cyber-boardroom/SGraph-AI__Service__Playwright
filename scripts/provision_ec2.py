@@ -1146,6 +1146,87 @@ def cmd_open(target: Optional[str] = typer.Argument(None, help='Deploy-name or i
     webbrowser.open(f'file://{tmp_path}')
 
 
+@app.command(name='screenshot')
+def cmd_screenshot(
+        url         : str            = typer.Argument(...,                    help='URL to screenshot.'),
+        target      : Optional[str]  = typer.Option(None, '--target', '-t',  help='Deploy-name or instance-id; auto-selects if only one instance.'),
+        full_page   : bool           = typer.Option(True,  '--full-page/--viewport-only',
+                                                    help='Capture full page height (default) or only visible viewport.'),
+        width       : int            = typer.Option(1280,  '--width',         help='Viewport width in pixels.'),
+        height      : int            = typer.Option(800,   '--height',        help='Viewport height in pixels.'),
+        wait_until  : str            = typer.Option('load','--wait-until',    help='Playwright waitUntil: load, domcontentloaded, networkidle.'),
+        timeout_ms  : int            = typer.Option(0,     '--timeout-ms',    help='Navigation timeout in ms (0 = Playwright default).'),
+        port        : int            = typer.Option(EC2__PLAYWRIGHT_PORT,     help='Service port.'),
+        save        : Optional[str]  = typer.Option(None, '--save',           help='Save PNG to this path instead of a temp file.'),
+        no_open     : bool           = typer.Option(False, '--no-open',       help='Do not open the screenshot in the system viewer.')):
+    """Take a quick screenshot — navigate to URL, capture PNG, open locally."""
+    import pathlib
+    import tempfile
+    import webbrowser
+
+    ec2          = EC2()
+    _, details   = _resolve_target(ec2, target)
+    ip           = details.get('public_ip', '')
+    key_name     = _instance_tag(details, TAG__API_KEY_NAME_KEY)  or 'X-API-Key'
+    key_value    = _instance_tag(details, TAG__API_KEY_VALUE_KEY) or ''
+    deploy_name  = _instance_deploy_name(details)
+    base_url     = f'http://{ip}:{port}'
+
+    payload = {
+        'url'        : url,
+        'full_page'  : full_page,
+        'viewport'   : {'width': width, 'height': height},
+        'wait_until' : wait_until,
+        'timeout_ms' : timeout_ms,
+    }
+
+    c = Console(highlight=False, width=200)
+    c.print()
+    c.print(Panel(f'[bold]📸  Screenshot[/]  ·  {deploy_name}  [dim]{base_url}[/]', border_style='blue', expand=False))
+    c.print(f'  [dim]url={url}  full_page={full_page}  {width}×{height}  wait_until={wait_until}[/]')
+    c.print()
+    c.print('  → requesting...', end='')
+
+    t0 = time.time()
+    try:
+        resp = requests.post(
+            f'{base_url}/browser/screenshot',
+            json    = payload,
+            headers = {key_name: key_value, 'accept': 'image/png', 'Content-Type': 'application/json'},
+            timeout = 120,
+        )
+    except Exception as exc:
+        c.print(f'  [red]ERR  {exc}[/]')
+        raise typer.Exit(code=1)
+
+    elapsed_ms = int((time.time() - t0) * 1000)
+
+    if resp.status_code != 200:
+        c.print(f'  [red]HTTP {resp.status_code}  {resp.text[:120]}[/]')
+        raise typer.Exit(code=1)
+
+    kb = len(resp.content) // 1024
+    c.print(f'  [green]{elapsed_ms} ms  {kb} KB[/]')
+    c.print()
+
+    out_path = save or tempfile.mktemp(suffix='.png', prefix='sg_screenshot_')
+    pathlib.Path(out_path).write_bytes(resp.content)
+
+    c.print(_kv_table(
+        ('URL',       url),
+        ('Size',      f'{kb} KB  ({len(resp.content):,} bytes)'),
+        ('Elapsed',   f'{elapsed_ms} ms'),
+        ('Viewport',  f'{width}×{height}  full_page={full_page}'),
+        ('Saved to',  out_path),
+    ))
+    c.print()
+
+    if not no_open:
+        webbrowser.open(f'file://{out_path}')
+        c.print(f'  [dim]opened in system viewer[/]')
+        c.print()
+
+
 @app.command(name='smoke')
 def cmd_smoke(target          : Optional[str]  = typer.Argument(None, help='Deploy-name or instance-id; auto-selects if only one instance.'),
               url             : List[str]       = typer.Option([], '--url', '-u', help='URL to test (repeatable). Default: standard smoke set.'),
