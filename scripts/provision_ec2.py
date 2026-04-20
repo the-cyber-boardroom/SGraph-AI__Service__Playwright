@@ -26,6 +26,7 @@
 
 import json
 import secrets
+import shlex
 import sys
 import textwrap
 import time
@@ -1351,6 +1352,113 @@ def cmd_vault_clone(target : Optional[str] = typer.Argument(None, help='Deploy-n
     c.print(f'  [bold green]Vault ready at {dir}[/]')
     c.print(f'  Run: [bold]sg-play env {deploy_name}[/]  to get the instance env vars')
     c.print()
+
+
+@app.command(name='run')
+def cmd_run(vault_key          : str           = typer.Argument(...,  help='Vault key (id:secret from sgit).'),
+            scenario           : Optional[str] = typer.Argument(None, help='Scenario folder in vault (e.g. scenarios/00__pre-flight).'),
+            access_token       : Optional[str] = typer.Option(None,  '--access-token', envvar='SGIT_WRITE_TOKEN',
+                                                              help='Write token for sgit push; also read from $SGIT_WRITE_TOKEN.'),
+            target             : Optional[str] = typer.Option(None,  '--target', '-t', help='Deploy-name or instance-id (auto if only one).'),
+            container          : Optional[str] = typer.Option(None,  '--container', '-c',
+                                                              help='Pipe each script into this Compose service via docker exec.'),
+            read_only          : bool          = typer.Option(False, '--read-only',     help='Clone + run but skip vault push.'),
+            work_dir           : str           = typer.Option('/tmp/sg-investigation',  '--work-dir',
+                                                              help='Working directory on the EC2 instance.'),
+            per_script_timeout : int           = typer.Option(120,  '--timeout',        help='Per-script timeout in seconds.'),
+            total_timeout      : int           = typer.Option(1800, '--total-timeout',   help='Overall SSM command timeout in seconds.')):
+    """Clone a vault onto an EC2 instance, run its scenario scripts, push outputs back.
+
+    Usage:
+      sgpl run bql3zl0ky2lhvmhofrj33815:qp0flfte scenarios/00__pre-flight \\
+               --access-token $SGIT_WRITE_TOKEN --target cool-dirac
+      sgpl run bql3zl0ky2lhvmhofrj33815:qp0flfte --read-only  # inspect without push
+      sgpl run bql3zl0ky2lhvmhofrj33815:qp0flfte scenarios/00__pre-flight \\
+               --container playwright --target cool-dirac
+    """
+    if not read_only and not access_token:
+        typer.echo('Error: provide --access-token (or $SGIT_WRITE_TOKEN), or pass --read-only to skip push.', err=True)
+        raise typer.Exit(1)
+
+    ec2             = EC2()
+    instance_id, d  = _resolve_target(ec2, target)
+    deploy_name     = _instance_deploy_name(d)
+    c               = Console(highlight=False, width=200)
+
+    script_dir = f'{work_dir}/{scenario}/scripts' if scenario else f'{work_dir}/scripts'
+    output_dir = f'{work_dir}/{scenario}/outputs' if scenario else f'{work_dir}/outputs'
+
+    if container:
+        run_cmd = f'cat "$script" | docker compose -f {COMPOSE_FILE_PATH} exec -T {shlex.quote(container)} bash'
+    else:
+        run_cmd = 'bash "$script"'
+
+    push_block = ''
+    if not read_only:
+        tok = shlex.quote(access_token)
+        scen_q = shlex.quote(scenario or '.')
+        push_block = f'''\
+echo "=== push outputs ==="
+cd {shlex.quote(work_dir)}
+SGIT_WRITE_TOKEN={tok} sgit add {scen_q}/outputs/
+SGIT_WRITE_TOKEN={tok} sgit commit -m "run: {scenario or 'all'} outputs $(date -u +%Y-%m-%dT%H:%M:%SZ)" 2>&1 || true
+SGIT_WRITE_TOKEN={tok} sgit push 2>&1
+unset SGIT_WRITE_TOKEN
+echo "pushed"
+'''
+
+    remote_script = f'''\
+#!/bin/bash
+set -uo pipefail
+
+echo "=== install sgit-ai ==="
+pip install -q sgit-ai --break-system-packages 2>&1 | tail -2
+
+echo "=== clone vault ==="
+rm -rf {shlex.quote(work_dir)}
+mkdir -p {shlex.quote(work_dir)}
+sgit clone {shlex.quote(vault_key)} {shlex.quote(work_dir)}
+echo "cloned"
+
+mkdir -p {shlex.quote(output_dir)}
+
+echo "=== run scripts ==="
+for script in $(find {shlex.quote(script_dir)} -maxdepth 1 -name "*.sh" 2>/dev/null | sort); do
+    name=$(basename "$script" .sh)
+    echo "--- $name"
+    chmod +x "$script"
+    timeout {per_script_timeout} {run_cmd} > {shlex.quote(output_dir)}/"${{name}}__out.txt" 2>&1
+    rc=$?
+    lines=$(wc -l < {shlex.quote(output_dir)}/"${{name}}__out.txt" 2>/dev/null || echo 0)
+    echo "  exit=$rc  ${{lines}}L  outputs/${{name}}__out.txt"
+done
+
+{push_block}
+echo "=== outputs ==="
+find {shlex.quote(output_dir)} -type f 2>/dev/null | sort | while read f; do
+    echo "  $(wc -l < "$f")L  $f"
+done
+echo "=== done ==="
+'''
+
+    c.print()
+    c.print(Panel(f'[bold]▶  vault run[/]  ·  {deploy_name}  [dim]{instance_id}[/]', border_style='blue', expand=False))
+    c.print(f'  vault    : {vault_key.split(":")[0]}:***')
+    if scenario:
+        c.print(f'  scenario : {scenario}')
+    if container:
+        c.print(f'  container: {container}')
+    c.print(f'  work-dir : {work_dir}')
+    c.print(f'  push     : {"no (--read-only)" if read_only else "yes"}')
+    c.print()
+
+    stdout, stderr = _ssm_run(instance_id, [remote_script], timeout=total_timeout)
+    if stdout.strip():
+        print(stdout.rstrip())
+    if stderr.strip():
+        print(stderr.rstrip(), file=sys.stderr)
+    if not stdout.strip() and not stderr.strip():
+        c.print('  [yellow](no output — check SSM agent status with: sgpl exec "sudo systemctl status amazon-ssm-agent")[/]')
 
 
 @app.command(name='exec')
