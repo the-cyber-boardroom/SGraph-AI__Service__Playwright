@@ -1334,13 +1334,15 @@ def cmd_env(target: Optional[str] = typer.Argument(None, help='Deploy-name or in
 
 
 @app.command(name='vault-clone')
-def cmd_vault_clone(target : Optional[str] = typer.Argument(None, help='Deploy-name or instance-id; auto-selects if only one instance.'),
-                    key    : str           = typer.Argument(...,  help='Vault key (id:secret format from sgit).'),
-                    dir    : str           = typer.Option('/home/ssm-user', '--dir', help='Directory to clone into on the instance.')):
-    """Install sgit-ai on the EC2 instance and clone a vault into /home/ssm-user (or --dir).
+def cmd_vault_clone(target  : Optional[str] = typer.Argument(None, help='Deploy-name or instance-id; auto-selects if only one instance.'),
+                    key     : str           = typer.Argument(...,  help='Vault key (id:secret format from sgit).'),
+                    work_dir: str           = typer.Option('/home/ssm-user/sg-investigation', '--work-dir',
+                                                           help='Exact vault root path on the instance (EC2 host, not container).')):
+    """Install sgit-ai on the EC2 instance and clone a vault to an exact path.
 
     Usage:
       sg-play vault-clone quiet-volta bql3zl0ky2lhvmhofrj33815:qp0flfte
+      sg-play vault-clone quiet-volta bql3zl0ky2lhvmhofrj33815:qp0flfte --work-dir /home/ssm-user/perf-baseline
     """
     ec2             = EC2()
     instance_id, d  = _resolve_target(ec2, target)
@@ -1350,20 +1352,44 @@ def cmd_vault_clone(target : Optional[str] = typer.Argument(None, help='Deploy-n
     c.print(Panel(f'[bold]📦  Vault clone → {deploy_name}[/]  [dim]{instance_id}[/]',
                   border_style='blue', expand=False))
     c.print()
-    steps = [('Installing sgit-ai',      f'pip install sgit-ai --break-system-packages -q'),
-             ('Cloning vault',           f'cd {dir} && sgit clone {key}')]
+    steps = [('Installing sgit-ai', 'pip install sgit-ai --break-system-packages -q'),
+             ('Cloning vault',      _vault_clone_sh(key, work_dir))]
     for label, command in steps:
         c.print(f'  ⏳  {label}...')
         stdout, stderr = _ssm_run(instance_id, [command], timeout=120)
         if stdout.strip():
-            c.print(stdout.rstrip())
+            print(stdout.rstrip())
         if stderr.strip():
-            c.print(f'[yellow]{stderr.rstrip()}[/]')
+            print(stderr.rstrip(), file=sys.stderr)
         c.print(f'  ✅  {label} done')
     c.print()
-    c.print(f'  [bold green]Vault ready at {dir}[/]')
-    c.print(f'  Run: [bold]sg-play env {deploy_name}[/]  to get the instance env vars')
+    c.print(f'  [bold green]Vault root: {work_dir}[/]')
+    c.print(f'  Use [bold]--work-dir {work_dir}[/] with vault-run / vault-list / vault-commit / vault-push')
     c.print()
+
+
+def _vault_clone_sh(vault_key: str, work_dir: str) -> str:
+    """Return a shell fragment that clones vault_key to the exact work_dir path.
+
+    sgit creates a subdirectory named after the key's secret part (the part
+    after ':').  We clone into the parent, then rename the subdirectory to
+    match the requested work_dir basename so all subsequent commands see a
+    consistent path.
+    """
+    secret   = vault_key.split(':')[-1]
+    wq       = shlex.quote(work_dir)
+    sq       = shlex.quote(secret)
+    parent_q = shlex.quote(work_dir.rstrip('/').rsplit('/', 1)[0] or '/')
+    name_q   = shlex.quote(work_dir.rstrip('/').rsplit('/', 1)[-1])
+    return f'''\
+rm -rf {wq}
+mkdir -p {parent_q}
+cd {parent_q}
+sgit clone {shlex.quote(vault_key)} 2>&1
+if [ -d {sq} ] && [ {sq} != {name_q} ]; then
+    mv {sq} {name_q}
+fi
+echo "vault root: {work_dir}"'''
 
 
 def _vault_ssm(instance_id: str, shell: str, timeout: int = 60) -> None:
@@ -1380,7 +1406,7 @@ def _vault_ssm(instance_id: str, shell: str, timeout: int = 60) -> None:
 @app.command(name='vault-list')
 def cmd_vault_list(target  : Optional[str] = typer.Argument(None, help='Deploy-name or instance-id (auto if only one).'),
                    path    : str           = typer.Option('.',   '--path', '-p', help='Sub-path within --work-dir to list.'),
-                   work_dir: str           = typer.Option('/tmp/sg-investigation', '--work-dir', help='Vault working dir on the instance.')):
+                   work_dir: str           = typer.Option('/home/ssm-user/sg-investigation', '--work-dir', help='Vault working dir on the instance.')):
     """List files in the vault working directory on the instance."""
     ec2             = EC2()
     instance_id, _  = _resolve_target(ec2, target)
@@ -1392,7 +1418,7 @@ def cmd_vault_list(target  : Optional[str] = typer.Argument(None, help='Deploy-n
 def cmd_vault_run(script   : str           = typer.Argument(...,  help='Script path relative to --work-dir (e.g. scenarios/00__pre-flight/scripts/01__health.sh).'),
                   target   : Optional[str] = typer.Option(None,  '--target', '-t', help='Deploy-name or instance-id (auto if only one).'),
                   container: Optional[str] = typer.Option(None,  '--container', '-c', help='Pipe script into this Compose service via docker exec.'),
-                  work_dir : str           = typer.Option('/tmp/sg-investigation', '--work-dir', help='Vault working dir on the instance.'),
+                  work_dir : str           = typer.Option('/home/ssm-user/sg-investigation', '--work-dir', help='Vault working dir on the instance.'),
                   save     : Optional[str] = typer.Option(None,  '--save', '-o', help='Save output to this path within --work-dir.'),
                   timeout  : int           = typer.Option(120,   '--timeout', help='Script timeout in seconds.')):
     """Run a single bash or python script from the vault on the EC2 instance."""
@@ -1416,7 +1442,7 @@ def cmd_vault_run(script   : str           = typer.Argument(...,  help='Script p
 @app.command(name='vault-commit')
 def cmd_vault_commit(target  : Optional[str] = typer.Argument(None, help='Deploy-name or instance-id (auto if only one).'),
                      message : str           = typer.Option('investigation outputs', '--message', '-m', help='Commit message.'),
-                     work_dir: str           = typer.Option('/tmp/sg-investigation', '--work-dir', help='Vault working dir on the instance.')):
+                     work_dir: str           = typer.Option('/home/ssm-user/sg-investigation', '--work-dir', help='Vault working dir on the instance.')):
     """Stage all changes in the vault and commit."""
     ec2             = EC2()
     instance_id, _  = _resolve_target(ec2, target)
@@ -1430,7 +1456,7 @@ def cmd_vault_commit(target  : Optional[str] = typer.Argument(None, help='Deploy
 def cmd_vault_push(target      : Optional[str] = typer.Argument(None, help='Deploy-name or instance-id (auto if only one).'),
                    access_token: Optional[str] = typer.Option(None, '--access-token', envvar='SGIT_WRITE_TOKEN',
                                                                help='Write token; also read from $SGIT_WRITE_TOKEN.'),
-                   work_dir    : str           = typer.Option('/tmp/sg-investigation', '--work-dir', help='Vault working dir on the instance.')):
+                   work_dir    : str           = typer.Option('/home/ssm-user/sg-investigation', '--work-dir', help='Vault working dir on the instance.')):
     """Push the vault working directory back to origin."""
     if not access_token:
         typer.echo('Error: provide --access-token or set $SGIT_WRITE_TOKEN', err=True)
@@ -1444,7 +1470,7 @@ def cmd_vault_push(target      : Optional[str] = typer.Argument(None, help='Depl
 
 @app.command(name='vault-pull')
 def cmd_vault_pull(target  : Optional[str] = typer.Argument(None, help='Deploy-name or instance-id (auto if only one).'),
-                   work_dir: str           = typer.Option('/tmp/sg-investigation', '--work-dir', help='Vault working dir on the instance.')):
+                   work_dir: str           = typer.Option('/home/ssm-user/sg-investigation', '--work-dir', help='Vault working dir on the instance.')):
     """Pull latest changes into the vault working directory."""
     ec2             = EC2()
     instance_id, _  = _resolve_target(ec2, target)
@@ -1460,7 +1486,7 @@ def cmd_run(vault_key          : str           = typer.Argument(...,  help='Vaul
             container          : Optional[str] = typer.Option(None,  '--container', '-c',
                                                               help='Pipe each script into this Compose service via docker exec.'),
             read_only          : bool          = typer.Option(False, '--read-only',     help='Clone + run but skip vault push.'),
-            work_dir           : str           = typer.Option('/tmp/sg-investigation',  '--work-dir',
+            work_dir           : str           = typer.Option('/home/ssm-user/sg-investigation',  '--work-dir',
                                                               help='Working directory on the EC2 instance.'),
             per_script_timeout : int           = typer.Option(120,  '--timeout',        help='Per-script timeout in seconds.'),
             total_timeout      : int           = typer.Option(1800, '--total-timeout',   help='Overall SSM command timeout in seconds.')):
@@ -1512,10 +1538,7 @@ echo "=== install sgit-ai ==="
 pip install -q sgit-ai --break-system-packages 2>&1 | tail -2
 
 echo "=== clone vault ==="
-rm -rf {shlex.quote(work_dir)}
-mkdir -p {shlex.quote(work_dir)}
-sgit clone {shlex.quote(vault_key)} {shlex.quote(work_dir)}
-echo "cloned"
+{_vault_clone_sh(vault_key, work_dir)}
 
 mkdir -p {shlex.quote(output_dir)}
 
