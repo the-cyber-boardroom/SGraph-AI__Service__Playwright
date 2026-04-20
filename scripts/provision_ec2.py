@@ -153,7 +153,6 @@ COMPOSE_YAML_TEMPLATE = textwrap.dedent("""\
         environment:
           FAST_API__AUTH__API_KEY__NAME:  '{api_key_name}'
           FAST_API__AUTH__API_KEY__VALUE: '{api_key_value}'
-          AGENT_MITMPROXY__WEB_PASSWORD:  '{api_key_value}'
           AGENT_MITMPROXY__UPSTREAM_URL:  '{upstream_url}'
           AGENT_MITMPROXY__UPSTREAM_USER: '{upstream_user}'
           AGENT_MITMPROXY__UPSTREAM_PASS: '{upstream_pass}'
@@ -1172,39 +1171,59 @@ def cmd_smoke(target          : Optional[str]  = typer.Argument(None, help='Depl
     c.print()
 
     t = Table(show_header=True, header_style='bold blue', box=None, padding=(0, 2))
-    t.add_column('url',          style='bold', min_width=28, no_wrap=True)
-    t.add_column('status',       min_width=6)
-    t.add_column('total_ms',     min_width=10)
-    t.add_column('browser_ms',   min_width=11)
-    t.add_column('image_kb',     min_width=9)
-    t.add_column('final_url',    style='default')
+    t.add_column('url',        style='bold', min_width=28, no_wrap=True)
+    t.add_column('status',     min_width=6)
+    t.add_column('1st_ms',     min_width=10, justify='right')  # cold start (includes browser launch)
+    t.add_column('warm_ms',    min_width=10, justify='right')  # avg of 2nd + 3rd (browser warm)
+    t.add_column('image_kb',   min_width=9)
+    t.add_column('final_url',  style='default')
 
     for test_url in test_urls:
         payload = {'url': test_url, 'wait_until': 'load', 'timeout_ms': 0}
-        try:
-            t0   = time.time()
-            nav  = requests.post(f'{base_url}/browser/navigate', json=payload, headers=json_headers, timeout=req_timeout)
-            elapsed_ms = int((time.time() - t0) * 1000)
-        except Exception as exc:
-            t.add_row(test_url, '[red]ERR[/]', '—', '—', '—', str(exc)[:60])
+
+        durations = []
+        last_nav  = None
+        error_msg = None
+        for req_num in range(3):
+            try:
+                t0      = time.time()
+                nav     = requests.post(f'{base_url}/browser/navigate', json=payload, headers=json_headers, timeout=req_timeout)
+                elapsed = int((time.time() - t0) * 1000)
+                if nav.status_code == 200:
+                    try:
+                        j = nav.json()
+                        ms = j.get('duration_ms') or elapsed
+                    except Exception:
+                        ms = elapsed
+                else:
+                    ms = elapsed
+                durations.append(ms)
+                if req_num == 0:
+                    last_nav = nav
+            except Exception as exc:
+                error_msg = str(exc)[:60]
+                break
+
+        if error_msg and not durations:
+            t.add_row(test_url, '[red]ERR[/]', '—', '—', '—', error_msg)
             continue
 
-        if nav.status_code == 200:
+        first_ms = durations[0] if durations else 0
+        warm_ms  = int(sum(durations[1:]) / len(durations[1:])) if len(durations) >= 2 else None
+
+        if last_nav and last_nav.status_code == 200:
             try:
-                j = nav.json()
+                j = last_nav.json()
             except Exception:
                 j = {}
-            total_ms   = j.get('duration_ms') or elapsed_ms
-            timings    = j.get('timings',   {})
-            browser_ms = timings.get('browser_launch_ms', '—')
             final_url  = j.get('final_url', test_url)
             status_str = '[green]200[/]'
         else:
-            total_ms, browser_ms, final_url = elapsed_ms, '—', test_url
-            status_str = f'[red]{nav.status_code}[/]'
+            final_url  = test_url
+            status_str = f'[red]{last_nav.status_code if last_nav else "ERR"}[/]'
 
         image_kb = '—'
-        if not no_screenshot and nav.status_code == 200:
+        if not no_screenshot and last_nav and last_nav.status_code == 200:
             try:
                 ss = requests.post(f'{base_url}/browser/screenshot', json=payload,
                                    headers={**auth_headers, 'accept': 'image/png',
@@ -1215,10 +1234,8 @@ def cmd_smoke(target          : Optional[str]  = typer.Argument(None, help='Depl
             except Exception:
                 pass
 
-        t.add_row(test_url, status_str,
-                  f'{total_ms} ms',
-                  f'{browser_ms} ms' if browser_ms != '—' else '—',
-                  image_kb, final_url)
+        warm_str = f'{warm_ms} ms' if warm_ms is not None else '—'
+        t.add_row(test_url, status_str, f'{first_ms} ms', warm_str, image_kb, final_url)
 
     c.print(t)
     c.print()
