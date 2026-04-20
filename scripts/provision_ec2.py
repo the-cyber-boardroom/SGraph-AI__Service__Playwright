@@ -1168,44 +1168,51 @@ def cmd_smoke(target          : Optional[str]  = typer.Argument(None, help='Depl
     c = Console(highlight=False, width=200)
     c.print()
     c.print(Panel(f'[bold]🧪  Smoke Test[/]  ·  {deploy_name}  [dim]{base_url}[/]', border_style='blue', expand=False))
+    c.print(f'  [dim]{len(test_urls)} URLs · 3 requests each (1 cold + 2 warm) · screenshot per URL[/]')
     c.print()
 
-    t = Table(show_header=True, header_style='bold blue', box=None, padding=(0, 2))
-    t.add_column('url',        style='bold', min_width=28, no_wrap=True)
-    t.add_column('status',     min_width=6)
-    t.add_column('1st_ms',     min_width=10, justify='right')  # cold start (includes browser launch)
-    t.add_column('warm_ms',    min_width=10, justify='right')  # avg of 2nd + 3rd (browser warm)
-    t.add_column('image_kb',   min_width=9)
-    t.add_column('final_url',  style='default')
+    smoke_t0 = time.time()
+    rows     = []   # accumulated for summary table
+    passed   = 0
+    failed   = 0
 
-    for test_url in test_urls:
+    for idx, test_url in enumerate(test_urls, 1):
+        c.print(f'  [{idx}/{len(test_urls)}] [bold]{test_url}[/]')
         payload = {'url': test_url, 'wait_until': 'load', 'timeout_ms': 0}
 
         durations = []
         last_nav  = None
         error_msg = None
+
         for req_num in range(3):
+            label = 'cold' if req_num == 0 else f'warm {req_num}'
+            c.print(f'        {label:<7}  · ', end='')
             try:
                 t0      = time.time()
                 nav     = requests.post(f'{base_url}/browser/navigate', json=payload, headers=json_headers, timeout=req_timeout)
                 elapsed = int((time.time() - t0) * 1000)
                 if nav.status_code == 200:
                     try:
-                        j = nav.json()
-                        ms = j.get('duration_ms') or elapsed
+                        ms = nav.json().get('duration_ms') or elapsed
                     except Exception:
                         ms = elapsed
+                    c.print(f'[green]{elapsed:>6} ms[/]')
                 else:
                     ms = elapsed
+                    c.print(f'[red]HTTP {nav.status_code}  {elapsed} ms[/]')
                 durations.append(ms)
                 if req_num == 0:
                     last_nav = nav
             except Exception as exc:
                 error_msg = str(exc)[:60]
+                c.print(f'[red]ERR  {error_msg}[/]')
                 break
 
         if error_msg and not durations:
-            t.add_row(test_url, '[red]ERR[/]', '—', '—', '—', error_msg)
+            c.print(f'        [red]✗ connection error[/]')
+            c.print()
+            rows.append((test_url, '[red]ERR[/]', '—', '—', '—', error_msg))
+            failed += 1
             continue
 
         first_ms = durations[0] if durations else 0
@@ -1218,29 +1225,77 @@ def cmd_smoke(target          : Optional[str]  = typer.Argument(None, help='Depl
                 j = {}
             final_url  = j.get('final_url', test_url)
             status_str = '[green]200[/]'
+            ok         = True
         else:
             final_url  = test_url
             status_str = f'[red]{last_nav.status_code if last_nav else "ERR"}[/]'
+            ok         = False
 
         image_kb = '—'
-        if not no_screenshot and last_nav and last_nav.status_code == 200:
+        if not no_screenshot and ok:
+            c.print(f'        {"shot":<7}  · ', end='')
             try:
                 ss = requests.post(f'{base_url}/browser/screenshot', json=payload,
                                    headers={**auth_headers, 'accept': 'image/png',
                                             'Content-Type': 'application/json'},
                                    timeout=req_timeout)
                 if ss.status_code == 200:
-                    image_kb = f'{len(ss.content) // 1024} KB'
+                    kb       = len(ss.content) // 1024
+                    image_kb = f'{kb} KB'
+                    c.print(f'[green]{kb:>6} KB[/]')
+                else:
+                    c.print(f'[red]HTTP {ss.status_code}[/]')
             except Exception:
-                pass
+                c.print('[red]ERR[/]')
 
         warm_str = f'{warm_ms} ms' if warm_ms is not None else '—'
-        t.add_row(test_url, status_str, f'{first_ms} ms', warm_str, image_kb, final_url)
+        if ok:
+            c.print(f'        [green]✓ 200[/]  cold=[bold]{first_ms} ms[/]  warm={warm_str}  {image_kb}')
+            passed += 1
+        else:
+            c.print(f'        [red]✗ {status_str}[/]  cold={first_ms} ms')
+            failed += 1
+        c.print()
+        rows.append((test_url, status_str, f'{first_ms} ms', warm_str, image_kb, final_url))
 
+    # ── Summary table ─────────────────────────────────────────────────────────
+    elapsed_total = int(time.time() - smoke_t0)
+    overall_color = 'green' if failed == 0 else 'red'
+    overall_icon  = '✓' if failed == 0 else '✗'
+    c.rule(f'[{overall_color}]{overall_icon}  {passed}/{len(test_urls)} passed[/]  ·  {elapsed_total}s total')
+    c.print()
+
+    t = Table(show_header=True, header_style='bold blue', box=None, padding=(0, 2))
+    t.add_column('url',        style='bold', min_width=28, no_wrap=True)
+    t.add_column('status',     min_width=6)
+    t.add_column('1st_ms',     min_width=10, justify='right')
+    t.add_column('warm_ms',    min_width=10, justify='right')
+    t.add_column('image_kb',   min_width=9)
+    t.add_column('final_url',  style='default')
+    for row in rows:
+        t.add_row(*row)
     c.print(t)
     c.print()
 
-    # Mitmproxy flow stats via /web/flows REST API
+    # ── Aggregate stats ───────────────────────────────────────────────────────
+    cold_vals  = [int(r[2].replace(' ms','')) for r in rows if r[2] != '—']
+    warm_vals  = [int(r[3].replace(' ms','')) for r in rows if r[3] != '—']
+    kb_vals    = [int(r[4].replace(' KB','')) for r in rows if r[4] != '—']
+    avg_cold   = int(sum(cold_vals) / len(cold_vals)) if cold_vals else None
+    avg_warm   = int(sum(warm_vals) / len(warm_vals)) if warm_vals else None
+    total_kb   = sum(kb_vals)
+    stats = _kv_table(
+        ('URLs tested',    f'{len(test_urls)}'),
+        ('Passed / failed', f'[green]{passed}[/] / [{"red" if failed else "dim"}]{failed}[/]'),
+        ('Avg cold (1st)', f'{avg_cold} ms' if avg_cold else '—'),
+        ('Avg warm (2+3)', f'{avg_warm} ms' if avg_warm else '—'),
+        ('Total screenshot', f'{total_kb} KB' if kb_vals else '—'),
+        ('Total elapsed',   f'{elapsed_total}s'),
+    )
+    c.print(stats)
+    c.print()
+
+    # ── Mitmproxy flow stats ──────────────────────────────────────────────────
     try:
         flows_r = requests.get(f'{sidecar_url}/web/flows', headers=auth_headers, timeout=15)
         if flows_r.status_code == 200:
@@ -1250,7 +1305,7 @@ def cmd_smoke(target          : Optional[str]  = typer.Argument(None, help='Depl
                 for f in flows:
                     host = (f.get('request', {}) or {}).get('host', '?')
                     hosts[host] = hosts.get(host, 0) + 1
-                c.print(f'  🔭  mitmproxy: [bold]{len(flows)}[/] flows captured across {len(hosts)} hosts')
+                c.print(f'  🔭  mitmproxy: [bold]{len(flows)}[/] flows across {len(hosts)} hosts')
                 for host, count in sorted(hosts.items(), key=lambda x: -x[1])[:6]:
                     c.print(f'      [dim]{count:3d}[/]  {host}')
             else:
@@ -1264,6 +1319,9 @@ def cmd_smoke(target          : Optional[str]  = typer.Argument(None, help='Depl
     c.print(f'  Mitmproxy UI  →  [bold]{sidecar_url}/web/[/]')
     c.print(f'  Local access  →  sg-ec2 forward {EC2__SIDECAR_ADMIN_PORT}  then  http://localhost:{EC2__SIDECAR_ADMIN_PORT}/web/')
     c.print()
+
+    if failed:
+        raise typer.Exit(code=1)
 
 
 @app.command(name='health')
