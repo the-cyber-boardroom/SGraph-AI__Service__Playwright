@@ -1027,8 +1027,7 @@ def cmd_delete(name    : Optional[str] = typer.Argument(None,  help='Deploy-name
             c.print('  [dim]No instances found.[/]')
             return
         c.print()
-        for d in instances:
-            iid    = d.get('instance_id', '')
+        for iid, d in instances.items():
             deploy = _instance_deploy_name(d) or iid
             c.print(f'  🗑️   [bold]{deploy}[/]  [dim]{iid}[/]')
         c.print()
