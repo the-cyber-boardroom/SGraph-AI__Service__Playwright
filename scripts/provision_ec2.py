@@ -1253,13 +1253,89 @@ def cmd_connect(target: Optional[str] = typer.Argument(None, help='Deploy-name o
     subprocess.run(['aws', 'ssm', 'start-session', '--target', instance_id], check=False)
 
 
+def _env_export_prefix(instance_id: str, details: dict) -> str:
+    """Build a shell export block from instance tags — prepend to any command for automatic env injection."""
+    deploy_name   = _instance_deploy_name(details)
+    api_key_name  = _instance_tag(details, TAG__API_KEY_NAME_KEY)  or 'X-API-Key'
+    api_key_value = _instance_tag(details, TAG__API_KEY_VALUE_KEY) or ''
+    ip            = details.get('public_ip', '')
+    return (f'export DEPLOY_NAME={deploy_name!r} '
+            f'API_KEY_NAME={api_key_name!r} '
+            f'API_KEY_VALUE={api_key_value!r} '
+            f'EC2_IP={ip!r} '
+            f'INSTANCE_ID={instance_id!r} '
+            f'SG_PLAYWRIGHT_URL=\'http://{ip}:{EC2__PLAYWRIGHT_PORT}\' && ')
+
+
+@app.command(name='env')
+def cmd_env(target: Optional[str] = typer.Argument(None, help='Deploy-name or instance-id; auto-selects if only one instance.')):
+    """Print export statements for all instance env vars (eval-able in bash/zsh).
+
+    Usage:
+      eval $(sg-play env quiet-volta)   # set vars in your current shell
+      sg-play env quiet-volta           # inspect / paste into SSM session
+    """
+    ec2             = EC2()
+    instance_id, d  = _resolve_target(ec2, target)
+    deploy_name     = _instance_deploy_name(d)
+    api_key_name    = _instance_tag(d, TAG__API_KEY_NAME_KEY)  or 'X-API-Key'
+    api_key_value   = _instance_tag(d, TAG__API_KEY_VALUE_KEY) or ''
+    ip              = d.get('public_ip', '')
+    c               = Console(highlight=False, width=200)
+    c.print()
+    c.print(f'  [bold]# env — {deploy_name}  [dim]{instance_id}[/][/]')
+    c.print()
+    for line in [f'export DEPLOY_NAME={deploy_name!r}'              ,
+                 f'export API_KEY_NAME={api_key_name!r}'            ,
+                 f'export API_KEY_VALUE={api_key_value!r}'          ,
+                 f'export EC2_IP={ip!r}'                            ,
+                 f'export INSTANCE_ID={instance_id!r}'              ,
+                 f"export SG_PLAYWRIGHT_URL='http://{ip}:{EC2__PLAYWRIGHT_PORT}'"]:
+        c.print(f'  {line}')
+    c.print()
+
+
+@app.command(name='vault-clone')
+def cmd_vault_clone(target : Optional[str] = typer.Argument(None, help='Deploy-name or instance-id; auto-selects if only one instance.'),
+                    key    : str           = typer.Argument(...,  help='Vault key (id:secret format from sgit).'),
+                    dir    : str           = typer.Option('/home/ssm-user', '--dir', help='Directory to clone into on the instance.')):
+    """Install sgit-ai on the EC2 instance and clone a vault into /home/ssm-user (or --dir).
+
+    Usage:
+      sg-play vault-clone quiet-volta bql3zl0ky2lhvmhofrj33815:qp0flfte
+    """
+    ec2             = EC2()
+    instance_id, d  = _resolve_target(ec2, target)
+    deploy_name     = _instance_deploy_name(d)
+    c               = Console(highlight=False, width=200)
+    c.print()
+    c.print(Panel(f'[bold]📦  Vault clone → {deploy_name}[/]  [dim]{instance_id}[/]',
+                  border_style='blue', expand=False))
+    c.print()
+    steps = [('Installing sgit-ai',      f'pip install sgit-ai --break-system-packages -q'),
+             ('Cloning vault',           f'cd {dir} && sgit clone {key}')]
+    for label, command in steps:
+        c.print(f'  ⏳  {label}...')
+        stdout, stderr = _ssm_run(instance_id, [command], timeout=120)
+        if stdout.strip():
+            c.print(stdout.rstrip())
+        if stderr.strip():
+            c.print(f'[yellow]{stderr.rstrip()}[/]')
+        c.print(f'  ✅  {label} done')
+    c.print()
+    c.print(f'  [bold green]Vault ready at {dir}[/]')
+    c.print(f'  Run: [bold]sg-play env {deploy_name}[/]  to get the instance env vars')
+    c.print()
+
+
 @app.command(name='exec')
-def cmd_exec(first     : str           = typer.Argument(...,  help='Deploy-name/instance-id, or shell command when only one instance exists.'),
-             second    : Optional[str] = typer.Argument(None, help='Shell command when first arg is the target.'),
-             cmd       : Optional[str] = typer.Option(None, '--cmd',    help='Shell command (alternative to positional).'),
-             target    : Optional[str] = typer.Option(None, '--target', '-t', help='Force target; first positional arg then becomes the command.'),
-             container : Optional[str] = typer.Option(None, '--container', '-c',
-                                                       help='Run inside this Compose service (playwright or agent-mitmproxy).') ):
+def cmd_exec(first      : str           = typer.Argument(...,  help='Deploy-name/instance-id, or shell command when only one instance exists.'),
+             second     : Optional[str] = typer.Argument(None, help='Shell command when first arg is the target.'),
+             cmd        : Optional[str] = typer.Option(None, '--cmd',         help='Shell command (alternative to positional).'),
+             target     : Optional[str] = typer.Option(None, '--target', '-t',help='Force target; first positional arg then becomes the command.'),
+             container  : Optional[str] = typer.Option(None, '--container', '-c',
+                                                        help='Run inside this Compose service (playwright or agent-mitmproxy).'),
+             inject_env : bool          = typer.Option(False, '--inject-env', help='Prepend DEPLOY_NAME/API_KEY_VALUE/EC2_IP/INSTANCE_ID from tags.') ):
     """Execute a shell command on the EC2 host or inside a Docker container via SSM.
 
     Usage patterns:
@@ -1281,7 +1357,9 @@ def cmd_exec(first     : str           = typer.Argument(...,  help='Deploy-name/
     if not shell_cmd:
         raise typer.BadParameter('Provide a shell command.')
     ec2             = EC2()
-    instance_id, _  = _resolve_target(ec2, resolved_target)
+    instance_id, d  = _resolve_target(ec2, resolved_target)
+    if inject_env:
+        shell_cmd = _env_export_prefix(instance_id, d) + shell_cmd
     if container:
         shell_cmd = f'docker compose -f {COMPOSE_FILE_PATH} exec -T {container} {shell_cmd}'
     c = Console(highlight=False, width=200)
