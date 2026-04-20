@@ -80,7 +80,7 @@ jobs:
 
       - name: Run unit tests
         timeout-minutes: 5
-        run: python -m pytest tests/unit/ -v --timeout=30
+        run: python -m pytest tests/unit/ -v --timeout=30 --ignore=tests/unit/agent_mitmproxy   # agent_mitmproxy has its own pipeline (.github/workflows/ci__agent_mitmproxy.yml) and its own requirements.txt — don't sweep it in here
 
   # ════════════════════════════════════════════════════════════════════════════
   # Job 2: Check AWS Credentials (gate for every job that touches AWS)
@@ -290,9 +290,10 @@ jobs:
     name: "Upload Code (S3 zip)"
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    needs: [increment-tag, check-aws-credentials]
+    needs: [run-unit-tests, increment-tag, check-aws-credentials]
     if: |
       always() &&
+      needs.run-unit-tests.result == 'success' &&
       needs.check-aws-credentials.outputs.has-credentials == 'true' &&
       (needs.increment-tag.result == 'success' || needs.increment-tag.result == 'skipped')
     steps:
@@ -348,9 +349,10 @@ jobs:
     name: "Provision Lambdas (baseline + agentic)"
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    needs: [build-and-push-image, deploy-code, check-aws-credentials]
+    needs: [run-unit-tests, build-and-push-image, deploy-code, check-aws-credentials]
     if: |
       always() &&
+      needs.run-unit-tests.result == 'success' &&
       needs.check-aws-credentials.outputs.has-credentials == 'true' &&
       needs.deploy-code.result == 'success' &&
       (needs.build-and-push-image.result == 'success' || needs.build-and-push-image.result == 'skipped')
