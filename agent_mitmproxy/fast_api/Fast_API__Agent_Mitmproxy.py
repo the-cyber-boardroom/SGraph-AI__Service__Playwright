@@ -15,6 +15,7 @@ from osbot_fast_api.api.Fast_API                                                
 from agent_mitmproxy.fast_api.routes.Routes__CA                                          import Routes__CA
 from agent_mitmproxy.fast_api.routes.Routes__Config                                      import Routes__Config
 from agent_mitmproxy.fast_api.routes.Routes__Health                                      import Routes__Health
+from agent_mitmproxy.fast_api.routes.Routes__Metrics                                     import Routes__Metrics
 from agent_mitmproxy.fast_api.routes.Routes__Web                                         import Routes__Web
 
 
@@ -25,7 +26,8 @@ class Fast_API__Agent_Mitmproxy(Fast_API):
         self.config.enable_api_key = True                                                # X-API-Key required for every route (default routes like /docs stay open per osbot-fast-api defaults)
 
     def setup_routes(self):
-        self.add_routes(Routes__Health)
-        self.add_routes(Routes__CA    )
-        self.add_routes(Routes__Config)
-        self.add_routes(Routes__Web   )
+        self.add_routes(Routes__Health )
+        self.add_routes(Routes__CA     )
+        self.add_routes(Routes__Config )
+        self.add_routes(Routes__Metrics)
+        self.add_routes(Routes__Web    )

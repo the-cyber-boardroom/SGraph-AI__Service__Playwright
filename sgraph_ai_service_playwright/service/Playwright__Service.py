@@ -53,6 +53,7 @@ from sgraph_ai_service_playwright.schemas.sequence.Schema__Sequence__Response   
 from sgraph_ai_service_playwright.schemas.service.Schema__Health                        import Schema__Health
 from sgraph_ai_service_playwright.schemas.service.Schema__Service__Capabilities         import Schema__Service__Capabilities
 from sgraph_ai_service_playwright.schemas.service.Schema__Service__Info                 import Schema__Service__Info
+from sgraph_ai_service_playwright.metrics.Metrics__Collector                            import Metrics__Collector
 from sgraph_ai_service_playwright.service.Browser__Launcher                             import Browser__Launcher
 from sgraph_ai_service_playwright.service.Capability__Detector                          import Capability__Detector
 from sgraph_ai_service_playwright.schemas.browser.Schema__Browser__Config               import Schema__Browser__Config
@@ -65,6 +66,7 @@ class Playwright__Service(Type_Safe):
 
     capability_detector : Capability__Detector
     browser_launcher    : Browser__Launcher
+    metrics_collector   : Metrics__Collector
     request_validator   : Request__Validator
     credentials_loader  : Credentials__Loader
     sequence_runner     : Sequence__Runner
@@ -116,32 +118,32 @@ class Playwright__Service(Type_Safe):
     def browser_navigate(self, request: Schema__Browser__Navigate__Request) -> Schema__Browser__One_Shot__Response:
         steps = [self.build_navigate_step(request.url, request.wait_until, request.timeout_ms),
                   dict(action = Enum__Step__Action.GET_URL.value)]
-        return self.run_one_shot(steps, self._with_viewport(request.browser_config, request.viewport), request.url, request.timeout_ms)
+        return self.run_one_shot(steps, self._with_viewport(request.browser_config, request.viewport), request.url, request.timeout_ms, endpoint='navigate')
 
     def browser_click(self, request: Schema__Browser__Click__Request) -> Schema__Browser__One_Shot__Response:
         steps = [self.build_navigate_step(request.url, request.wait_until, request.timeout_ms),
                   dict(action = Enum__Step__Action.CLICK.value, selector = str(request.selector)),
                   dict(action = Enum__Step__Action.GET_URL.value)]
-        return self.run_one_shot(steps, request.browser_config, request.url, request.timeout_ms)
+        return self.run_one_shot(steps, request.browser_config, request.url, request.timeout_ms, endpoint='click')
 
     def browser_fill(self, request: Schema__Browser__Fill__Request) -> Schema__Browser__One_Shot__Response:
         steps = [self.build_navigate_step(request.url, request.wait_until, request.timeout_ms),
                   dict(action = Enum__Step__Action.FILL.value, selector = str(request.selector), value = str(request.value)),
                   dict(action = Enum__Step__Action.GET_URL.value)]
-        return self.run_one_shot(steps, request.browser_config, request.url, request.timeout_ms)
+        return self.run_one_shot(steps, request.browser_config, request.url, request.timeout_ms, endpoint='fill')
 
     def browser_get_content(self, request: Schema__Browser__Get_Content__Request) -> Schema__Browser__One_Shot__Response:
         steps = [self.build_navigate_step(request.url, request.wait_until, request.timeout_ms)]
         self.maybe_append_click(steps, request.click)
         steps.append(dict(action = Enum__Step__Action.GET_URL.value))
         steps.append(dict(action = Enum__Step__Action.GET_CONTENT.value, inline_in_response = True))
-        return self.run_one_shot(steps, request.browser_config, request.url, request.timeout_ms)
+        return self.run_one_shot(steps, request.browser_config, request.url, request.timeout_ms, endpoint='get-content')
 
     def browser_get_url(self, request: Schema__Browser__Get_Url__Request) -> Schema__Browser__One_Shot__Response:
         steps = [self.build_navigate_step(request.url, request.wait_until, request.timeout_ms)]
         self.maybe_append_click(steps, request.click)
         steps.append(dict(action = Enum__Step__Action.GET_URL.value))
-        return self.run_one_shot(steps, request.browser_config, request.url, request.timeout_ms)
+        return self.run_one_shot(steps, request.browser_config, request.url, request.timeout_ms, endpoint='get-url')
 
     def browser_screenshot(self, request: Schema__Browser__Screenshot__Request) -> Schema__Browser__Screenshot__Result:
         try:
@@ -162,17 +164,22 @@ class Playwright__Service(Type_Safe):
             for artefact in seq_response.artefacts:
                 if artefact.artefact_type == Enum__Artefact__Type.SCREENSHOT and artefact.inline_b64 is not None:
                     png_bytes = base64.b64decode(str(artefact.inline_b64))
-                    return Schema__Browser__Screenshot__Result(png_bytes = png_bytes             ,
-                                                                timings   = seq_response.timings  )
+                    result    = Schema__Browser__Screenshot__Result(png_bytes = png_bytes            ,
+                                                                     timings   = seq_response.timings )
+                    self.metrics_collector.record_timings(seq_response.timings, 'screenshot', '2xx')
+                    return result
             raise HTTPException(500, 'Screenshot artefact missing from sequence response')
         except HTTPException:
+            self.metrics_collector.record_timings(None, 'screenshot', '5xx')
             raise
         except Exception as error:
+            self.metrics_collector.record_timings(None, 'screenshot', '5xx')
             raise HTTPException(502, self.error_detail('browser_screenshot', error))
 
     # ─── One-shot plumbing ────────────────────────────────────────────────────
 
-    def run_one_shot(self, steps: list, browser_config, url, timeout_ms) -> Schema__Browser__One_Shot__Response:
+    def run_one_shot(self, steps: list, browser_config, url, timeout_ms,
+                     endpoint: str = 'unknown') -> Schema__Browser__One_Shot__Response:
         try:
             self.setup()
             seq_request  = self.build_sequence_request(steps=steps, browser_config=browser_config, capture_config=Schema__Capture__Config(), timeout_ms=timeout_ms)
@@ -187,15 +194,19 @@ class Playwright__Service(Type_Safe):
                 if result.action == Enum__Step__Action.GET_CONTENT and getattr(result, 'content', None) is not None:
                     html = str(result.content)
 
-            return Schema__Browser__One_Shot__Response(url         = url                                          ,
-                                                        final_url   = final_url                                    ,
-                                                        html        = Safe_Str__Page__Content(html) if html is not None else None,
-                                                        trace_id    = seq_response.trace_id                        ,
-                                                        duration_ms = seq_response.total_duration_ms               ,
-                                                        timings     = seq_response.timings                         )
+            response = Schema__Browser__One_Shot__Response(url         = url                                          ,
+                                                            final_url   = final_url                                    ,
+                                                            html        = Safe_Str__Page__Content(html) if html is not None else None,
+                                                            trace_id    = seq_response.trace_id                        ,
+                                                            duration_ms = seq_response.total_duration_ms               ,
+                                                            timings     = seq_response.timings                         )
+            self.metrics_collector.record_timings(seq_response.timings, endpoint, '2xx')
+            return response
         except HTTPException:
+            self.metrics_collector.record_timings(None, endpoint, '5xx')
             raise
         except Exception as error:
+            self.metrics_collector.record_timings(None, endpoint, '5xx')
             raise HTTPException(502, self.error_detail('browser_one_shot', error))
 
     def build_navigate_step(self, url, wait_until, timeout_ms) -> dict:
