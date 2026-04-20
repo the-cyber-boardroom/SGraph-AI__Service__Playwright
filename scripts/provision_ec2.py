@@ -916,7 +916,8 @@ def create(stage                : str           = typer.Option(DEFAULT_STAGE, he
     if run_smoke:
         smoke_ok = True
         try:
-            cmd_smoke(target=resolved_name)                                          # cmd_smoke raises SystemExit(1) on failure
+            cmd_smoke(target=resolved_name, url=(), port=EC2__PLAYWRIGHT_PORT,        # explicit values avoid OptionInfo objects when called from Python
+                      no_screenshot=False, req_timeout=120)
         except SystemExit as e:
             smoke_ok = (e.code == 0 or e.code is None)
 
