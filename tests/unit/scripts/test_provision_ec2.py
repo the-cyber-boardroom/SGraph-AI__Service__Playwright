@@ -144,7 +144,12 @@ class test_module_surface(TestCase):
                      'latest_al2023_ami_id'       ,
                      'run_instance'               ,
                      'find_instance_ids'          ,
-                     'terminate_instances'        ):
+                     'terminate_instances'        ,
+                     'clean_instance_for_ami'     ,
+                     'create_ami'                 ,
+                     'wait_ami_available'         ,
+                     'tag_ami'                    ,
+                     'latest_healthy_ami'         ):
             assert hasattr(provision_ec2, attr), f'missing: {attr}'
 
 
@@ -300,7 +305,8 @@ class test_cli_surface(TestCase):
         from typer.testing import CliRunner
         result = CliRunner().invoke(provision_ec2.app, ['--help'])
         assert result.exit_code == 0
-        for cmd in ('create', 'list', 'delete', 'connect', 'exec', 'logs', 'forward', 'wait', 'health', 'open', 'smoke'):
+        for cmd in ('create', 'list', 'delete', 'connect', 'exec', 'logs', 'forward', 'wait',
+                    'health', 'open', 'smoke', 'clean', 'bake-ami', 'wait-ami', 'tag-ami'):
             assert cmd in result.output, f'command {cmd!r} missing from --help'
 
     def test__create_help_shows_expected_options(self):

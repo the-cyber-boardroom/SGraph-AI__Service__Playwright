@@ -128,12 +128,22 @@ curl -sSL "https://github.com/docker/compose/releases/latest/download/docker-com
      -o /usr/local/lib/docker/cli-plugins/docker-compose
 chmod +x /usr/local/lib/docker/cli-plugins/docker-compose
 
-# ECR login
-TOKEN=$(aws ecr get-login-password --region {region})
-echo "$TOKEN" | docker login --username AWS --password-stdin {registry}
+# ECR login — disable set -x so the token value is NEVER written to logs
+# (set -euxo pipefail would otherwise print the expanded token on stderr)
+set +x
+aws ecr get-login-password --region {region} \
+    | docker login --username AWS --password-stdin {registry}
+set -x
 
 docker pull {playwright_image_uri}
 # (pull sidecar too when running two containers)
+
+# Revoke stored Docker credential immediately after pull.
+# The IAM instance profile (AmazonEC2ContainerRegistryReadOnly) provides
+# fresh tokens on demand — nothing needs to persist on disk.
+# This also keeps AMI snapshots credential-free.
+docker logout {registry}
+rm -f /root/.docker/config.json
 
 mkdir -p /opt/sg-playwright
 cat > /opt/sg-playwright/docker-compose.yml << 'SG_COMPOSE_EOF'
@@ -152,6 +162,11 @@ echo "=== setup complete at $(date) ==="
 2. Add `ssm-user` to the docker group so `docker` works without `sudo` in SSM sessions.
 3. Log everything to `/var/log/sg-playwright-setup.log` — check it later with
    `sg-ec2 exec <name> --cmd "cat /var/log/sg-playwright-setup.log"`.
+4. **Never let the ECR token persist.** `set -euxo` logs every command with expanded
+   variables — `set +x` before the login block prevents the token appearing in logs.
+   `docker logout` + `rm -f ~/.docker/config.json` after pulls ensures the token is not
+   on disk (in running instances or AMI snapshots). The instance profile re-authenticates
+   on demand whenever a fresh pull is needed.
 
 For a **single-container sg-send** deployment, the compose file can be replaced with a
 plain `docker run`:
@@ -383,8 +398,13 @@ patterns are all reusable without modification.
 
 ## 16. GitHub Actions — ECR Push Pattern
 
-The Playwright service CI does not yet push to ECR (images are built and pushed manually
-or by a separate pipeline). For sg-send, the recommended workflow pattern is:
+The Playwright service CI **already pushes to ECR** via Job 3 ("Build + Push Docker Image
+to ECR") in `.github/workflows/ci-pipeline.yml`. It is triggered by `workflow_dispatch`
+(manual) on `dev` or automatically on push to `dev`. The push is pytest-driven via
+`tests/docker/test_ECR__Docker__SGraph-AI__Service__Playwright.py`.
+
+For sg-send, which does not have the same pytest-driven deploy infrastructure yet, the
+equivalent standard GitHub Actions pattern is:
 
 ```yaml
 # .github/workflows/docker-build.yml  (to be created)
