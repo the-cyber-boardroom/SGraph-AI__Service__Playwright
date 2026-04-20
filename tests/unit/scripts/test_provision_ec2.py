@@ -17,6 +17,7 @@
 # ═══════════════════════════════════════════════════════════════════════════════
 
 import io
+import re
 import sys
 from unittest import TestCase
 
@@ -298,19 +299,25 @@ class test_provision_terminate(TestCase):
         assert result     == {'action': 'terminate', 'instance_ids': ['i-abc123']}
 
 
+def _plain(text: str) -> str:
+    return re.sub(r'\x1b\[[0-9;]*[a-zA-Z]', '', text)
+
+
 class test_cli_surface(TestCase):
 
     def test__app_has_expected_commands(self):
         from typer.testing import CliRunner
         result = CliRunner().invoke(provision_ec2.app, ['--help'])
         assert result.exit_code == 0
+        out = _plain(result.output)
         for cmd in ('create', 'list', 'delete', 'connect', 'exec', 'logs', 'forward', 'wait',
                     'health', 'open', 'smoke', 'clean', 'bake-ami', 'wait-ami', 'tag-ami'):
-            assert cmd in result.output, f'command {cmd!r} missing from --help'
+            assert cmd in out, f'command {cmd!r} missing from --help'
 
     def test__create_help_shows_expected_options(self):
         from typer.testing import CliRunner
         result = CliRunner().invoke(provision_ec2.app, ['create', '--help'])
         assert result.exit_code == 0
+        out = _plain(result.output)
         for opt in ('--stage', '--name', '--playwright-image-uri', '--sidecar-image-uri', '--wait', '--timeout'):
-            assert opt in result.output, f'option {opt!r} missing from create --help'
+            assert opt in out, f'option {opt!r} missing from create --help'
