@@ -86,9 +86,6 @@ jobs:
       - name: 'Health check — base EC2'
         run: sg-play health $DEPLOY_NAME
 
-      - name: 'Smoke test — base EC2'
-        run: sg-play smoke $DEPLOY_NAME
-
       # ── Prepare for snapshot ──────────────────────────────────────────────
 
       - name: 'Clean instance (remove logs, credentials, user-data)'

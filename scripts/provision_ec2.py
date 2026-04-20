@@ -548,7 +548,7 @@ def create_ami(ec2: EC2, instance_id: str, name: str) -> str:
     resp = ec2.client().create_image(
         InstanceId      = instance_id,
         Name            = name,
-        Description     = f'SG Playwright + agent_mitmproxy — {name}',
+        Description     = f'SG Playwright + agent_mitmproxy - {name}',
         NoReboot        = True,
         TagSpecifications = [{'ResourceType': 'image',
                               'Tags': [{'Key': 'Name',              'Value': name            },
