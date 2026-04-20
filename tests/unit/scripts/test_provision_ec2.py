@@ -319,5 +319,6 @@ class test_cli_surface(TestCase):
         result = CliRunner().invoke(provision_ec2.app, ['create', '--help'])
         assert result.exit_code == 0
         out = _plain(result.output)
-        for opt in ('--stage', '--name', '--playwright-image-uri', '--sidecar-image-uri', '--wait', '--timeout'):
+        for opt in ('--stage', '--name', '--playwright-image-uri', '--sidecar-image-uri',
+                    '--instance-type', '--interactive', '--wait', '--timeout'):
             assert opt in out, f'option {opt!r} missing from create --help'

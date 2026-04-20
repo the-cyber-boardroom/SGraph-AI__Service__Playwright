@@ -48,6 +48,15 @@ from agent_mitmproxy.docker.Docker__Agent_Mitmproxy__Base                       
 
 EC2__INSTANCE_TYPE           = 't3.large'                                               # 2 vCPU / 8 GB RAM — Playwright + sidecar fit; Firefox + WebKit need the headroom
 EC2__AMI_NAME_AL2023         = 'al2023-ami-2023.*-x86_64'
+
+# ── Instance-type presets (shown by sg-ec2 create --interactive) ──────────────
+EC2__INSTANCE_TYPE_PRESETS = [
+    ('t3.large'   , 2, 8  , 0.0832, 'burstable · current default'           ),
+    ('t3.xlarge'  , 4, 16 , 0.1664, 'burstable · 2× RAM'                    ),
+    ('t3.2xlarge' , 8, 32 , 0.3328, 'burstable · 4× RAM'                    ),
+    ('c5.xlarge'  , 4, 8  , 0.1700, 'compute-optimised · sustained CPU'      ),
+    ('m5.xlarge'  , 4, 16 , 0.1920, 'general purpose · sustained · balanced' ),
+]
 EC2__AMI_OWNER_AMAZON        = 'amazon'
 EC2__PLAYWRIGHT_PORT         = 8000                                                     # Playwright API — exposed to the world via SG
 EC2__SIDECAR_ADMIN_PORT      = 8001                                                     # Sidecar admin API (host port mapping of container :8000) — exposed via SG, API-key gated
@@ -427,7 +436,8 @@ def render_user_data(playwright_image_uri : str,
 
 def run_instance(ec2: EC2, ami_id: str, security_group_id: str, instance_profile_name: str,
                   user_data: str, stage: str, deploy_name: str = '',
-                  creator: str = '', api_key_name: str = '', api_key_value: str = '') -> str:
+                  creator: str = '', api_key_name: str = '', api_key_value: str = '',
+                  instance_type: str = EC2__INSTANCE_TYPE) -> str:
     display_name = f'{TAG__NAME}/{deploy_name}' if deploy_name else TAG__NAME
     tags = [{'Key': 'Name'              , 'Value': display_name    },
             {'Key': TAG__SERVICE_KEY    , 'Value': TAG__SERVICE_VALUE},  # immutable — not shown in Name column, survives console renames
@@ -437,7 +447,7 @@ def run_instance(ec2: EC2, ami_id: str, security_group_id: str, instance_profile
             {'Key': TAG__API_KEY_NAME_KEY , 'Value': api_key_name  },
             {'Key': TAG__API_KEY_VALUE_KEY, 'Value': api_key_value }]
     kwargs = {'ImageId'           : ami_id                                                  ,
-              'InstanceType'      : EC2__INSTANCE_TYPE                                      ,
+              'InstanceType'      : instance_type                                           ,
               'MinCount'          : 1                                                       ,
               'MaxCount'          : 1                                                       ,
               'IamInstanceProfile': {'Name': instance_profile_name}                         ,
@@ -564,12 +574,13 @@ def latest_healthy_ami(ec2: EC2) -> str:
     return images[0]['ImageId'] if images else None
 
 
-def provision(stage                  : str  = DEFAULT_STAGE ,
-               playwright_image_uri  : str  = None          ,
-               sidecar_image_uri     : str  = None          ,
-               deploy_name           : str  = ''            ,
-               from_ami              : str  = None          ,    # use pre-baked AMI; skips install+pull
-               terminate             : bool = False         ) -> dict:
+def provision(stage                  : str  = DEFAULT_STAGE    ,
+               playwright_image_uri  : str  = None             ,
+               sidecar_image_uri     : str  = None             ,
+               deploy_name           : str  = ''               ,
+               from_ami              : str  = None             ,    # use pre-baked AMI; skips install+pull
+               instance_type         : str  = EC2__INSTANCE_TYPE,
+               terminate             : bool = False            ) -> dict:
     ec2 = EC2()
 
     if terminate:
@@ -614,7 +625,8 @@ def provision(stage                  : str  = DEFAULT_STAGE ,
                                           deploy_name           = resolved_deploy_name  ,
                                           creator               = creator               ,
                                           api_key_name          = api_key_name          ,
-                                          api_key_value         = api_key_value         )
+                                          api_key_value         = api_key_value         ,
+                                          instance_type         = instance_type         )
 
     ec2.wait_for_instance_running(instance_id)
     details       = ec2.instance_details(instance_id)
@@ -787,18 +799,62 @@ def _render_health(results: dict, base_url: str) -> None:
     c.print()
 
 
+def _pick_instance_type(c: Console) -> str:
+    """Interactive instance-type picker — renders a Rich table and reads a choice."""
+    c.print()
+    t = Table(show_header=True, header_style='bold blue', box=None, padding=(0, 2))
+    t.add_column('#',           justify='right',  min_width=2)
+    t.add_column('type',        style='bold',     min_width=12, no_wrap=True)
+    t.add_column('vCPU',        justify='right',  min_width=5)
+    t.add_column('RAM',         justify='right',  min_width=6)
+    t.add_column('$/hr',        justify='right',  min_width=8)
+    t.add_column('notes',       style='default')
+    for i, (itype, vcpu, ram, price, notes) in enumerate(EC2__INSTANCE_TYPE_PRESETS, 1):
+        marker = '  [green]←  default[/]' if itype == EC2__INSTANCE_TYPE else ''
+        t.add_row(str(i), itype, str(vcpu), f'{ram} GB', f'${price:.4f}', notes + marker)
+    t.add_row('6', 'custom', '—', '—', '—', 'enter your own instance type')
+    c.print(t)
+    c.print()
+
+    while True:
+        raw = c.input('  [bold]Choose instance type[/] [dim](1–6)[/] › ').strip()
+        if raw.isdigit() and 1 <= int(raw) <= 5:
+            chosen = EC2__INSTANCE_TYPE_PRESETS[int(raw) - 1][0]
+            c.print(f'  → [green]{chosen}[/]')
+            c.print()
+            return chosen
+        if raw == '6':
+            custom = c.input('  [bold]Instance type[/] › ').strip()
+            if custom:
+                c.print(f'  → [green]{custom}[/]')
+                c.print()
+                return custom
+        c.print('  [red]Enter a number 1–6[/]')
+
+
 @app.command()
-def create(stage                : str           = typer.Option(DEFAULT_STAGE, help='Stage tag.')                                         ,
-           name                 : Optional[str] = typer.Option(None, '--name',          help='Deploy name (default: random two-word).')  ,
-           playwright_image_uri : Optional[str] = typer.Option(None, '--playwright-image-uri', help='Override Playwright ECR image URI.'),
-           sidecar_image_uri    : Optional[str] = typer.Option(None, '--sidecar-image-uri',    help='Override sidecar ECR image URI.')   ,
-           from_ami             : Optional[str] = typer.Option(None, '--from-ami',      help='Launch from a pre-baked AMI ID (skips docker install + image pull).'),
-           wait                 : bool          = typer.Option(False, '--wait',          help='Poll health until up.')                   ,
-           timeout              : int           = typer.Option(300,  '--timeout',        help='Max seconds to wait when --wait is set.') ):
-    """Provision a t3.large EC2 instance running the Playwright + agent_mitmproxy stack."""
+def create(stage                : str           = typer.Option(DEFAULT_STAGE, help='Stage tag.')                                                              ,
+           name                 : Optional[str] = typer.Option(None, '--name',             help='Deploy name (default: random two-word).')                   ,
+           playwright_image_uri : Optional[str] = typer.Option(None, '--playwright-image-uri', help='Override Playwright ECR image URI.')                    ,
+           sidecar_image_uri    : Optional[str] = typer.Option(None, '--sidecar-image-uri',    help='Override sidecar ECR image URI.')                       ,
+           from_ami             : Optional[str] = typer.Option(None, '--from-ami',         help='Launch from a pre-baked AMI ID (skips docker install + image pull).'),
+           instance_type        : Optional[str] = typer.Option(None, '--instance-type',    help=f'EC2 instance type (default: {EC2__INSTANCE_TYPE}).'),
+           interactive          : bool          = typer.Option(False, '--interactive', '-i', help='Ask questions before launching (instance type, etc.).')   ,
+           wait                 : bool          = typer.Option(False, '--wait',             help='Poll health until up.')                                     ,
+           timeout              : int           = typer.Option(300,  '--timeout',           help='Max seconds to wait when --wait is set.')                  ):
+    """Provision an EC2 instance running the Playwright + agent_mitmproxy stack."""
+    c = Console(highlight=False, width=200)
+
+    resolved_type = instance_type
+    if interactive and resolved_type is None:
+        c.print()
+        c.print(Panel('[bold]⚙️  Create EC2 — configure instance[/]', border_style='blue', expand=False))
+        resolved_type = _pick_instance_type(c)
+
+    resolved_type = resolved_type or EC2__INSTANCE_TYPE
     result = provision(stage=stage, playwright_image_uri=playwright_image_uri,
                        sidecar_image_uri=sidecar_image_uri, deploy_name=name or '',
-                       from_ami=from_ami)
+                       from_ami=from_ami, instance_type=resolved_type)
     _render_create_result(result)
     if wait and result.get('playwright_url'):
         _cmd_wait(ip=result['public_ip'], api_key_name=result['api_key_name'],
