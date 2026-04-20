@@ -13,7 +13,6 @@ from osbot_utils.type_safe.primitives.domains.http.safe_str.Safe_Str__Http__User
 from osbot_utils.type_safe.primitives.domains.identifiers.safe_str.Safe_Str__Key                     import Safe_Str__Key
 from osbot_utils.type_safe.primitives.domains.web.safe_str.Safe_Str__Url                             import Safe_Str__Url
 
-from sgraph_ai_service_playwright.schemas.browser.Schema__Proxy__Config                              import Schema__Proxy__Config
 from sgraph_ai_service_playwright.schemas.browser.Schema__Viewport                                   import Schema__Viewport
 from sgraph_ai_service_playwright.schemas.enums.Enum__Browser__Name                                  import Enum__Browser__Name
 from sgraph_ai_service_playwright.schemas.enums.Enum__Browser__Provider                              import Enum__Browser__Provider
@@ -25,7 +24,6 @@ class Schema__Browser__Config(Type_Safe):                                       
     browser_name     : Enum__Browser__Name     = Enum__Browser__Name.CHROMIUM
     headless         : bool                    = True
     launch_args      : List[Safe_Str__Browser__Launch_Arg]                          # Caller list replaces defaults entirely
-    proxy            : Schema__Proxy__Config   = None
     viewport         : Schema__Viewport
     user_agent       : Safe_Str__Http__User_Agent = None                            # Override UA string
     locale           : Safe_Str__Key = "en-GB"                                      # Browser locale

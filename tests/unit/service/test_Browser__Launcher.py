@@ -13,20 +13,17 @@ from unittest                                                                   
 
 import pytest
 
-from sgraph_ai_service_playwright.consts.env_vars                                             import ENV_VAR__CHROMIUM_EXECUTABLE
+from sgraph_ai_service_playwright.consts.env_vars                                             import ENV_VAR__CHROMIUM_EXECUTABLE, ENV_VAR__DEFAULT_PROXY_URL
 from sgraph_ai_service_playwright.schemas.browser.Schema__Browser__Config                     import Schema__Browser__Config
 from sgraph_ai_service_playwright.schemas.browser.Schema__Browser__Launch__Result              import Schema__Browser__Launch__Result
-from sgraph_ai_service_playwright.schemas.browser.Schema__Proxy__Auth__Basic                  import Schema__Proxy__Auth__Basic
-from sgraph_ai_service_playwright.schemas.browser.Schema__Proxy__Config                       import Schema__Proxy__Config
 from sgraph_ai_service_playwright.schemas.enums.Enum__Browser__Name                           import Enum__Browser__Name
 from sgraph_ai_service_playwright.schemas.enums.Enum__Browser__Provider                       import Enum__Browser__Provider
-from sgraph_ai_service_playwright.schemas.primitives.host.Safe_Str__Host                      import Safe_Str__Host
 from sgraph_ai_service_playwright.schemas.primitives.identifiers.Session_Id                   import Session_Id
 from sgraph_ai_service_playwright.service.Browser__Launcher                                    import Browser__Launcher
 
 
 class _EnvScrub:                                                                   # Snapshot + restore just the env vars this class reads — keeps tests hermetic without monkeypatch
-    VARS = (ENV_VAR__CHROMIUM_EXECUTABLE,)
+    VARS = (ENV_VAR__CHROMIUM_EXECUTABLE, ENV_VAR__DEFAULT_PROXY_URL)
     def __enter__(self):
         self.saved = {k: os.environ.get(k) for k in self.VARS}
         for k in self.VARS: os.environ.pop(k, None)
@@ -117,54 +114,28 @@ class test_build_launch_kwargs(TestCase):
             kw = bl.build_launch_kwargs(_cfg(launch_args=['--no-sandbox', '--disable-gpu']))
             assert kw['args'] == ['--no-sandbox', '--disable-gpu']
 
-    def test__proxy_server_and_bypass_flattened_to_dict(self):                     # Schema__Proxy__Config -> Playwright proxy dict (server + bypass ONLY — auth goes via CDP Fetch, not launch kwargs)
+    def test__no_proxy_when_env_var_unset(self):                                   # Lambda / laptop with no sidecar — no proxy key in launch kwargs
         with _EnvScrub():
-            proxy = Schema__Proxy__Config(server = 'http://proxy.example.com:8080'                             ,
-                                          bypass = [Safe_Str__Host('localhost'), Safe_Str__Host('internal.corp')])
             bl = Browser__Launcher()
-            kw = bl.build_launch_kwargs(_cfg(proxy=proxy))
-            assert kw['proxy'] == {'server': 'http://proxy.example.com:8080'  ,
-                                   'bypass': 'localhost,internal.corp'        }
+            kw = bl.build_launch_kwargs(_cfg())
+            assert 'proxy' not in kw
 
-    def test__proxy_auth_never_reaches_launch_kwargs_on_chromium(self):            # Regression for QA Bug #1: chromium.launch(proxy={username,password}) silently no-ops on headless shell — auth must NOT be passed via launch kwargs on Chromium (uses CDP Fetch binder instead)
+    def test__proxy_server_set_from_env_var(self):                                 # EC2 sidecar deployment — proxy URL from boot-time env, no credentials
         with _EnvScrub():
-            auth  = Schema__Proxy__Auth__Basic(username='u', password='p')
-            proxy = Schema__Proxy__Config(server = 'http://proxy:3128' ,
-                                          auth   = auth                )
+            os.environ[ENV_VAR__DEFAULT_PROXY_URL] = 'http://agent-mitmproxy:8080'
             bl = Browser__Launcher()
-            kw = bl.build_launch_kwargs(_cfg(proxy=proxy))                         # Default browser_name=CHROMIUM
-            assert kw['proxy'] == {'server': 'http://proxy:3128'}                  # Only server — no username/password/auth keys
+            kw = bl.build_launch_kwargs(_cfg())
+            assert kw['proxy'] == {'server': 'http://agent-mitmproxy:8080'}         # Server only — no username/password/bypass
             assert 'username' not in kw['proxy']
             assert 'password' not in kw['proxy']
 
-    def test__proxy_auth_flows_through_for_firefox(self):                          # Firefox honours launch-time username/password — no CDP workaround needed
+    def test__proxy_env_var_applies_to_all_browser_types(self):                    # Same env var, same result regardless of browser engine
         with _EnvScrub():
-            auth  = Schema__Proxy__Auth__Basic(username='firefox-user', password='ff-pass-1')
-            proxy = Schema__Proxy__Config(server = 'http://proxy:3128' ,
-                                          auth   = auth                )
+            os.environ[ENV_VAR__DEFAULT_PROXY_URL] = 'http://agent-mitmproxy:8080'
             bl = Browser__Launcher()
-            kw = bl.build_launch_kwargs(_cfg(browser_name=Enum__Browser__Name.FIREFOX, proxy=proxy))
-            assert kw['proxy'] == {'server'  : 'http://proxy:3128' ,
-                                   'username': 'firefox-user'      ,
-                                   'password': 'ff-pass-1'         }
-
-    def test__proxy_auth_flows_through_for_webkit(self):                           # WebKit honours launch-time username/password — no CDP workaround needed
-        with _EnvScrub():
-            auth  = Schema__Proxy__Auth__Basic(username='wk-user', password='wk-pass-7')
-            proxy = Schema__Proxy__Config(server = 'http://proxy:3128' ,
-                                          auth   = auth                )
-            bl = Browser__Launcher()
-            kw = bl.build_launch_kwargs(_cfg(browser_name=Enum__Browser__Name.WEBKIT, proxy=proxy))
-            assert kw['proxy'] == {'server'  : 'http://proxy:3128' ,
-                                   'username': 'wk-user'           ,
-                                   'password': 'wk-pass-7'         }
-
-    def test__proxy_without_auth_passes_only_server(self):
-        with _EnvScrub():
-            proxy = Schema__Proxy__Config(server='http://proxy:3128')
-            bl = Browser__Launcher()
-            kw = bl.build_launch_kwargs(_cfg(proxy=proxy))
-            assert kw['proxy'] == {'server': 'http://proxy:3128'}                   # No username/password/bypass keys
+            for browser_name in (Enum__Browser__Name.CHROMIUM, Enum__Browser__Name.FIREFOX, Enum__Browser__Name.WEBKIT):
+                kw = bl.build_launch_kwargs(_cfg(browser_name=browser_name))
+                assert kw['proxy'] == {'server': 'http://agent-mitmproxy:8080'}
 
     def test__firefox_gets_no_chromium_default_args(self):                         # --no-sandbox et al would break Firefox launch; only Chromium gets them
         with _EnvScrub():

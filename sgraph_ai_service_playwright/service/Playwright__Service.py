@@ -56,7 +56,6 @@ from sgraph_ai_service_playwright.schemas.service.Schema__Service__Info         
 from sgraph_ai_service_playwright.service.Browser__Launcher                             import Browser__Launcher
 from sgraph_ai_service_playwright.service.Capability__Detector                          import Capability__Detector
 from sgraph_ai_service_playwright.service.Credentials__Loader                           import Credentials__Loader
-from sgraph_ai_service_playwright.service.Proxy__Auth__Binder                           import Proxy__Auth__Binder
 from sgraph_ai_service_playwright.service.Request__Validator                            import Request__Validator
 from sgraph_ai_service_playwright.service.Sequence__Runner                              import Sequence__Runner
 
@@ -67,7 +66,6 @@ class Playwright__Service(Type_Safe):
     browser_launcher    : Browser__Launcher
     request_validator   : Request__Validator
     credentials_loader  : Credentials__Loader
-    proxy_auth_binder   : Proxy__Auth__Binder
     sequence_runner     : Sequence__Runner
 
     def setup(self) -> 'Playwright__Service':
@@ -77,7 +75,6 @@ class Playwright__Service(Type_Safe):
         self.sequence_runner.request_validator   = self.request_validator
         self.sequence_runner.browser_launcher    = self.browser_launcher
         self.sequence_runner.credentials_loader  = self.credentials_loader
-        self.sequence_runner.proxy_auth_binder   = self.proxy_auth_binder
         return self
 
     # ─── Health surface ───────────────────────────────────────────────────────

@@ -8,14 +8,11 @@
 # to associate the launch with a session_id, then stop(session_id) tears
 # both down cleanly.
 #
-# Browser engine choice drives proxy-auth strategy:
-#   • Chromium — chromium.launch(proxy={'username',...}) silently no-ops on
-#     the modern headless shell (QA bug #1), so auth is applied post-context
-#     via Proxy__Auth__Binder (CDP Fetch). build_proxy_dict() returns
-#     server + bypass only for CHROMIUM.
-#   • Firefox / WebKit — pass username + password natively in the launch-time
-#     proxy dict. No CDP workaround needed (and CDP isn't available on them
-#     anyway, so the binder must be skipped at the call site).
+# Proxy: boot-time only, not per-request. When SG_PLAYWRIGHT__DEFAULT_PROXY_URL
+# is set (EC2 sidecar deployments), every browser launch passes
+# proxy={'server': url} — no credentials, no bypass. Security comes from Docker
+# network isolation (the sidecar's :8080 is unreachable from outside the EC2
+# instance). Lambda deployments leave the env var unset; Playwright goes direct.
 #
 # Responsibilities:
 #   • launch(browser_config) -> Schema__Browser__Launch__Result (browser + playwright + timings)
@@ -26,9 +23,7 @@
 #
 # Env var escape hatch:
 #   SG_PLAYWRIGHT__CHROMIUM_EXECUTABLE — absolute path to a Chromium binary.
-#   Useful when (a) Playwright's default resolution points at a rev not
-#   installed on disk (this sandbox), or (b) a laptop wants to use system
-#   Chrome. When unset, Playwright picks its default.
+#   SG_PLAYWRIGHT__DEFAULT_PROXY_URL   — http://agent-mitmproxy:8080 on EC2.
 #
 # This class is the ONLY place allowed to import from playwright.sync_api
 # outside of Step__Executor (spec §10). The rest of the service treats
@@ -42,7 +37,7 @@ from typing                                                                     
 from osbot_utils.type_safe.Type_Safe                                                            import Type_Safe
 from osbot_utils.utils.Env                                                                      import get_env
 
-from sgraph_ai_service_playwright.consts.env_vars                                               import ENV_VAR__CHROMIUM_EXECUTABLE
+from sgraph_ai_service_playwright.consts.env_vars                                               import ENV_VAR__CHROMIUM_EXECUTABLE, ENV_VAR__DEFAULT_PROXY_URL
 from sgraph_ai_service_playwright.schemas.browser.Schema__Browser__Config                       import Schema__Browser__Config
 from sgraph_ai_service_playwright.schemas.browser.Schema__Browser__Launch__Result               import Schema__Browser__Launch__Result
 from sgraph_ai_service_playwright.schemas.enums.Enum__Browser__Name                             import Enum__Browser__Name
@@ -82,8 +77,7 @@ class Browser__Launcher(Type_Safe):
                                                 playwright          = playwright                                       ,
                                                 playwright_start_ms = Safe_UInt__Milliseconds(ts_after_pw      - ts_before_pw     ),
                                                 browser_launch_ms   = Safe_UInt__Milliseconds(ts_after_browser - ts_before_browser),
-                                                browser_name        = browser_config.browser_name                      ,
-                                                proxy               = browser_config.proxy                             )   # Retained so page-creation sites can apply ignore_https_errors + CDP auth (Chromium only)
+                                                browser_name        = browser_config.browser_name                      )
 
     def register(self, session_id: Session_Id, result: Schema__Browser__Launch__Result) -> None:
         self.browsers[session_id] = result                                           # Both handles tracked together so stop() can close both
@@ -129,20 +123,14 @@ class Browser__Launcher(Type_Safe):
         if args:
             kwargs['args'] = args
 
-        if browser_config.proxy is not None:
-            kwargs['proxy'] = self.build_proxy_dict(browser_config.proxy, browser_config.browser_name)
+        proxy_url = get_env(ENV_VAR__DEFAULT_PROXY_URL)                              # Boot-time only — set on EC2 to point at the agent_mitmproxy sidecar
+        if proxy_url:
+            kwargs['proxy'] = self.build_proxy_dict(proxy_url)
 
         return kwargs
 
-    def build_proxy_dict(self, proxy, browser_name: Enum__Browser__Name) -> Dict[str, Any]:   # Firefox/WebKit take username+password natively; Chromium must use CDP Fetch instead (auth=None here)
-        out : Dict[str, Any] = {'server': str(proxy.server)}
-        bypass_hosts = [str(h) for h in (proxy.bypass or [])]
-        if bypass_hosts:
-            out['bypass'] = ','.join(bypass_hosts)
-        if proxy.auth is not None and browser_name != Enum__Browser__Name.CHROMIUM:  # Chromium-launch auth silently no-ops (QA bug #1) — only Firefox/WebKit honour it here
-            out['username'] = str(proxy.auth.username)
-            out['password'] = str(proxy.auth.password)
-        return out
+    def build_proxy_dict(self, proxy_url: str) -> Dict[str, Any]:                   # No credentials, no bypass — sidecar handles auth; isolation is Docker network
+        return {'server': proxy_url}
 
     def healthcheck(self) -> Schema__Health__Check:
         return Schema__Health__Check(check_name = 'browser_launcher'                                       ,

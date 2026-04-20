@@ -12,7 +12,8 @@
 #   4. Validate browser_config — CDP endpoint URL required when provider=cdp_connect.
 #   5. Launch a fresh Chromium (Schema__Browser__Launch__Result) — mint an
 #      internal session_id for the launcher's per-request key + teardown hook.
-#   6. Create context + page; apply proxy TLS-ignore; bind CDP Fetch auth.
+#   6. Create context + page; apply SG_PLAYWRIGHT__IGNORE_HTTPS_ERRORS if set
+#      (needed when the agent_mitmproxy sidecar does TLS interception on EC2).
 #   7. Apply optional credentials (cookies / storage state / headers) to the
 #      fresh context via Credentials__Loader.
 #   8. Iterate:
@@ -34,10 +35,9 @@ from osbot_utils.type_safe.Type_Safe                                            
 from osbot_utils.type_safe.primitives.core.Safe_UInt                                                import Safe_UInt
 from osbot_utils.utils.Env                                                                          import get_env
 
-from sgraph_ai_service_playwright.consts.env_vars                                                   import ENV_VAR__REQUEST_DEADLINE_MS
+from sgraph_ai_service_playwright.consts.env_vars                                                   import ENV_VAR__IGNORE_HTTPS_ERRORS, ENV_VAR__REQUEST_DEADLINE_MS
 from sgraph_ai_service_playwright.schemas.artefact.Schema__Artefact__Ref                            import Schema__Artefact__Ref
 from sgraph_ai_service_playwright.schemas.browser.Schema__Browser__Config                           import Schema__Browser__Config
-from sgraph_ai_service_playwright.schemas.enums.Enum__Browser__Name                                 import Enum__Browser__Name
 from sgraph_ai_service_playwright.schemas.enums.Enum__Sequence__Status                              import Enum__Sequence__Status
 from sgraph_ai_service_playwright.schemas.enums.Enum__Step__Status                                  import Enum__Step__Status
 from sgraph_ai_service_playwright.schemas.primitives.identifiers.Safe_Str__Trace_Id                 import Safe_Str__Trace_Id
@@ -53,7 +53,6 @@ from sgraph_ai_service_playwright.schemas.steps.Schema__Step__Base              
 from sgraph_ai_service_playwright.service.Browser__Launcher                                         import Browser__Launcher
 from sgraph_ai_service_playwright.service.Capability__Detector                                      import Capability__Detector
 from sgraph_ai_service_playwright.service.Credentials__Loader                                       import Credentials__Loader
-from sgraph_ai_service_playwright.service.Proxy__Auth__Binder                                       import Proxy__Auth__Binder
 from sgraph_ai_service_playwright.service.Request__Validator                                        import Request__Validator
 from sgraph_ai_service_playwright.service.Sequence__Dispatcher                                      import Sequence__Dispatcher
 from sgraph_ai_service_playwright.service.Step__Executor                                            import Step__Executor
@@ -70,7 +69,6 @@ class Sequence__Runner(Type_Safe):
     step_executor       : Step__Executor
     browser_launcher    : Browser__Launcher
     credentials_loader  : Credentials__Loader
-    proxy_auth_binder   : Proxy__Auth__Binder
 
     def execute(self, request: Schema__Sequence__Request) -> Schema__Sequence__Response:
         sequence_id    = request.sequence_id or Sequence_Id()
@@ -165,28 +163,19 @@ class Sequence__Runner(Type_Safe):
                                            timings           = timings                                           )
 
     def get_or_create_page(self, browser: Any, session_id: Any) -> Any:              # Freshly launched browser has no context / page — create on demand
-        launch_result = self.browser_launcher.browsers.get(session_id)
-        proxy         = launch_result.proxy        if launch_result is not None else None
-        browser_name  = launch_result.browser_name if launch_result is not None else Enum__Browser__Name.CHROMIUM
-
         contexts = browser.contexts                                                  # Playwright sync API: `contexts` is a @property returning List[BrowserContext]
         if contexts:
             context = contexts[0]
         else:
             ctx_kwargs = {}
-            if proxy is not None and bool(proxy.ignore_https_errors):
-                ctx_kwargs['ignore_https_errors'] = True                             # TLS interception (mitmproxy et al) — otherwise NET::ERR_CERT_AUTHORITY_INVALID
+            if get_env(ENV_VAR__IGNORE_HTTPS_ERRORS):
+                ctx_kwargs['ignore_https_errors'] = True                             # Set on EC2 when the agent_mitmproxy sidecar does TLS interception
             context = browser.new_context(**ctx_kwargs)
 
         pages = context.pages
         if pages:
-            page = pages[0]
-        else:
-            page = context.new_page()
-            if (proxy is not None and proxy.auth is not None                         # Chromium-only CDP Fetch binding — Firefox/WebKit accept creds natively at launch time,
-                and browser_name == Enum__Browser__Name.CHROMIUM):                   # and don't expose CDP, so bind() would fail or be a pointless no-op on them.
-                self.proxy_auth_binder.bind(context, page, proxy.auth)
-        return page
+            return pages[0]
+        return context.new_page()
 
     def skipped_result(self, step: Schema__Step__Base, step_index: int) -> Schema__Step__Result__Base:
         step_id = step.id if step.id is not None else Step_Id(str(step_index))

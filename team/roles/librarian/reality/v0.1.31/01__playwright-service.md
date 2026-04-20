@@ -34,9 +34,14 @@ Plus osbot-fast-api's `/auth/set-cookie-form` HTML UI + `/auth/set-auth-cookie` 
 
 ---
 
-## Service classes — 10 of 10 live
+## Service classes — 9 of 10 live (v0.1.33)
 
-Unchanged from v0.1.24.
+- **DELETED** `service/Proxy__Auth__Binder.py` — CDP Fetch dance for Chromium proxy auth. Now dead code: the `agent_mitmproxy` sidecar handles upstream auth; Playwright sees an unauthenticated local proxy.
+- `service/Browser__Launcher.py` — `build_proxy_dict()` now reads `SG_PLAYWRIGHT__DEFAULT_PROXY_URL` env var (no per-request proxy; auth branching removed).
+- `service/Sequence__Runner.py` — `get_or_create_page()` reads `SG_PLAYWRIGHT__IGNORE_HTTPS_ERRORS` env var; no longer calls `proxy_auth_binder.bind()`.
+- `service/Playwright__Service.py` — `proxy_auth_binder` field removed.
+
+All other 9 service classes unchanged from v0.1.24.
 
 ---
 
@@ -68,7 +73,12 @@ All schemas are one-class-per-file, `Type_Safe` only, no Pydantic, no Literals.
 
 ### Other schema folders
 
-Unchanged from v0.1.24.
+Unchanged from v0.1.24, with the following exceptions from v0.1.33 (P2 proxy cleanup):
+
+- **DELETED** `schemas/browser/Schema__Proxy__Config.py` — proxy is now boot-time infrastructure, not per-request.
+- **DELETED** `schemas/browser/Schema__Proxy__Auth__Basic.py` — same reason.
+- `schemas/browser/Schema__Browser__Config.py` — `proxy: Schema__Proxy__Config` field removed.
+- `schemas/browser/Schema__Browser__Launch__Result.py` — `proxy: Schema__Proxy__Config` field removed.
 
 ---
 

@@ -23,13 +23,11 @@ from sgraph_ai_service_playwright.consts.env_vars                               
                                                                                                     ENV_VAR__CI                    ,
                                                                                                     ENV_VAR__CLAUDE_SESSION        ,
                                                                                                     ENV_VAR__DEPLOYMENT_TARGET     ,
+                                                                                                    ENV_VAR__IGNORE_HTTPS_ERRORS   ,
                                                                                                     ENV_VAR__SG_SEND_BASE_URL      )
 from sgraph_ai_service_playwright.schemas.browser.Schema__Browser__Config                   import Schema__Browser__Config
 from sgraph_ai_service_playwright.schemas.browser.Schema__Browser__Launch__Result            import Schema__Browser__Launch__Result
-from sgraph_ai_service_playwright.schemas.browser.Schema__Proxy__Auth__Basic                import Schema__Proxy__Auth__Basic
-from sgraph_ai_service_playwright.schemas.browser.Schema__Proxy__Config                     import Schema__Proxy__Config
 from sgraph_ai_service_playwright.schemas.capture.Schema__Capture__Config                   import Schema__Capture__Config
-from sgraph_ai_service_playwright.schemas.enums.Enum__Browser__Name                          import Enum__Browser__Name
 from sgraph_ai_service_playwright.schemas.enums.Enum__Sequence__Status                       import Enum__Sequence__Status
 from sgraph_ai_service_playwright.schemas.enums.Enum__Step__Status                           import Enum__Step__Status
 from sgraph_ai_service_playwright.schemas.primitives.identifiers.Session_Id                  import Session_Id
@@ -39,13 +37,13 @@ from sgraph_ai_service_playwright.service.Artefact__Writer                      
 from sgraph_ai_service_playwright.service.Browser__Launcher                                 import Browser__Launcher
 from sgraph_ai_service_playwright.service.Credentials__Loader                               import Credentials__Loader
 from sgraph_ai_service_playwright.service.Playwright__Service                               import Playwright__Service
-from sgraph_ai_service_playwright.service.Proxy__Auth__Binder                               import Proxy__Auth__Binder
 
 
 ENV_KEYS = [ENV_VAR__AWS_LAMBDA_RUNTIME_API,
             ENV_VAR__CI                    ,
             ENV_VAR__CLAUDE_SESSION        ,
             ENV_VAR__DEPLOYMENT_TARGET     ,
+            ENV_VAR__IGNORE_HTTPS_ERRORS   ,
             ENV_VAR__SG_SEND_BASE_URL      ]
 
 
@@ -84,7 +82,8 @@ class _FakePage:                                                                
 
 
 class _FakeContext:
-    def __init__(self):
+    def __init__(self, **kwargs):
+        self._kwargs = kwargs                                                         # Capture new_context() kwargs for assertions (e.g. ignore_https_errors)
         self.pages = []
     def new_page(self):
         page = _FakePage()
@@ -102,7 +101,7 @@ class _FakeBrowser:
     def contexts(self):
         return self._contexts
     def new_context(self, **kwargs):
-        context = _FakeContext()
+        context = _FakeContext(**kwargs)                                              # Forward kwargs so tests can inspect ignore_https_errors et al
         self._contexts.append(context)
         return context
     def close(self): pass
@@ -280,41 +279,30 @@ class test_execute__clean_state_between_requests(TestCase):                     
         assert len(launcher.stopped) == 1                                           # Teardown still ran despite the step failure
 
 
-class _RecordingBinder(Proxy__Auth__Binder):                                         # Subclass so Type_Safe allows assignment back onto Sequence__Runner.proxy_auth_binder
-    calls : list                                                                     # List[(context, page, auth)]
-    def bind(self, context, page, auth):
-        self.calls.append((context, page, auth))
+class test_get_or_create_page_ignore_https_errors(TestCase):                        # EC2 sidecar deployment: IGNORE_HTTPS_ERRORS env var sets ignore_https_errors on the browser context
 
-
-class test_get_or_create_page_cdp_binder_gate(TestCase):                            # The CDP Fetch binder is Chromium-only — must be skipped on Firefox/WebKit (they accept proxy creds natively at launch, and don't expose CDP anyway)
-
-    def _run(self, browser_name):                                                   # Shared setup: register a launch result with browser_name + proxy.auth, then call get_or_create_page with a recording binder
+    def _make_context_and_call(self, set_env: bool):
         service, launcher = _build_service()
         runner  = service.sequence_runner
-        binder  = _RecordingBinder()
-        runner.proxy_auth_binder = binder                                            # Swap in the recorder subclass; Type_Safe accepts it because it extends Proxy__Auth__Binder
 
         session_id = Session_Id()
-        auth       = Schema__Proxy__Auth__Basic(username='u', password='p')
-        proxy      = Schema__Proxy__Config(server='http://proxy:3128', auth=auth)
         launcher.browsers[session_id] = Schema__Browser__Launch__Result(browser             = _FakeBrowser()  ,
                                                                         playwright          = _FakePlaywright(),
                                                                         playwright_start_ms = 0                ,
-                                                                        browser_launch_ms   = 0                ,
-                                                                        browser_name        = browser_name     ,
-                                                                        proxy               = proxy            )
+                                                                        browser_launch_ms   = 0                )
         browser = launcher.browsers[session_id].browser
-        runner.get_or_create_page(browser, session_id)                               # Triggers the bind-or-skip decision
-        return binder
+        return runner, browser, session_id
 
-    def test__binder_called_on_chromium(self):                                      # Baseline: Chromium still needs CDP Fetch for proxy auth
-        binder = self._run(Enum__Browser__Name.CHROMIUM)
-        assert len(binder.calls) == 1
+    def test__ignore_https_errors_not_set_by_default(self):
+        with _EnvScrub(**{ENV_VAR__DEPLOYMENT_TARGET: 'lambda'}):
+            runner, browser, sid = self._make_context_and_call(set_env=False)
+            runner.get_or_create_page(browser, sid)
+        ctx = browser.contexts[0]
+        assert ctx._kwargs.get('ignore_https_errors') is not True                   # Not passed — direct mode, no sidecar
 
-    def test__binder_skipped_on_firefox(self):                                      # Firefox accepts creds natively at launch — CDP is unavailable / pointless
-        binder = self._run(Enum__Browser__Name.FIREFOX)
-        assert binder.calls == []
-
-    def test__binder_skipped_on_webkit(self):                                       # WebKit accepts creds natively at launch — CDP is unavailable / pointless
-        binder = self._run(Enum__Browser__Name.WEBKIT)
-        assert binder.calls == []
+    def test__ignore_https_errors_set_when_env_var_present(self):
+        with _EnvScrub(**{ENV_VAR__DEPLOYMENT_TARGET: 'lambda', ENV_VAR__IGNORE_HTTPS_ERRORS: 'true'}):
+            runner, browser, sid = self._make_context_and_call(set_env=True)
+            runner.get_or_create_page(browser, sid)
+        ctx = browser.contexts[0]
+        assert ctx._kwargs.get('ignore_https_errors') is True                       # EC2 sidecar does TLS interception — must accept forged certs

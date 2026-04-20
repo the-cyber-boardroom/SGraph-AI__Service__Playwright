@@ -43,7 +43,6 @@ from sgraph_ai_service_playwright.service.Browser__Launcher                     
 from sgraph_ai_service_playwright.service.Capability__Detector                              import Capability__Detector
 from sgraph_ai_service_playwright.service.Credentials__Loader                               import Credentials__Loader
 from sgraph_ai_service_playwright.service.Playwright__Service                               import Playwright__Service
-from sgraph_ai_service_playwright.service.Proxy__Auth__Binder                               import Proxy__Auth__Binder
 from sgraph_ai_service_playwright.service.Sequence__Runner                                  import Sequence__Runner
 
 
@@ -184,7 +183,6 @@ class test_setup(TestCase):
         assert service.sequence_runner.browser_launcher    is service.browser_launcher
         assert service.sequence_runner.credentials_loader  is service.credentials_loader
         assert service.sequence_runner.request_validator   is service.request_validator
-        assert service.sequence_runner.proxy_auth_binder   is service.proxy_auth_binder
 
 
 class test_get_service_info(TestCase):
@@ -240,7 +238,6 @@ class test_composition(TestCase):
         assert isinstance(service.capability_detector, Capability__Detector)
         assert isinstance(service.browser_launcher   , Browser__Launcher   )
         assert isinstance(service.credentials_loader , Credentials__Loader )
-        assert isinstance(service.proxy_auth_binder  , Proxy__Auth__Binder )
         assert isinstance(service.sequence_runner    , Sequence__Runner    )
 
 

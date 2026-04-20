@@ -3,8 +3,9 @@
 #
 # Flat, Swagger-friendly body for POST /browser/navigate. One-shot: fresh
 # Chromium per call, run the navigate, tear down. Optional browser_config
-# lets callers pass proxy settings (incl. Schema__Proxy__Auth__Basic) on a
-# per-request basis — stateless by design.
+# controls engine, headless, viewport, user-agent, locale, timezone.
+# Proxy is boot-time infrastructure (SG_PLAYWRIGHT__DEFAULT_PROXY_URL), not
+# a per-request API parameter.
 # ═══════════════════════════════════════════════════════════════════════════════
 
 from osbot_utils.type_safe.Type_Safe                                                               import Type_Safe
