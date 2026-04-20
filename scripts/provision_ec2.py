@@ -233,8 +233,8 @@ def preflight_check(playwright_image_uri: str = None, sidecar_image_uri: str = N
 
 def _kv_table(*rows) -> Table:
     t = Table(box=None, show_header=False, padding=(0, 2), expand=False)
-    t.add_column(style='dim white', min_width=12, no_wrap=True)
-    t.add_column(style='white')
+    t.add_column(style='white', min_width=12, no_wrap=True)
+    t.add_column(style='bright_white')
     for k, v in rows:
         t.add_row(k, str(v))
     return t
@@ -594,6 +594,51 @@ def _ssm_run(instance_id: str, commands: list, timeout: int = 60) -> tuple:
     return '', 'Timed out waiting for SSM command result'
 
 
+def _render_create_result(r: dict) -> None:
+    c = Console(highlight=False, width=200)
+    c.print()
+    c.print(Panel(
+        f'[bold green]✅  Instance launched[/]  ·  [bright_white]{r["deploy_name"]}[/]  [dim]{r["instance_id"]}[/]',
+        border_style='green', expand=False))
+    c.print()
+
+    left = Table(box=None, show_header=False, padding=(0, 2), expand=False)
+    left.add_column(style='white',        min_width=14, no_wrap=True)
+    left.add_column(style='bright_white')
+    left.add_row('deploy-name', r['deploy_name']  )
+    left.add_row('stage',       r['stage']        )
+    left.add_row('creator',     r['creator']      )
+    left.add_row('ami',         r['ami_id']       )
+    left.add_row('instance-id', r['instance_id']  )
+
+    right = Table(box=None, show_header=False, padding=(0, 2), expand=False)
+    right.add_column(style='white',        min_width=14, no_wrap=True)
+    right.add_column(style='bright_white')
+    right.add_row('public-ip',    r['public_ip']                               )
+    right.add_row('playwright',   r['playwright_url'] or '—'                   )
+    right.add_row('sidecar-admin',r['sidecar_admin_url'] or '—'                )
+    right.add_row('api-key-name', r['api_key_name']                            )
+    right.add_row('api-key-value',f'[bold green]{r["api_key_value"]}[/]'       )
+
+    cols = Table(box=None, show_header=False, padding=(0, 3), expand=False)
+    cols.add_column()
+    cols.add_column()
+    cols.add_row(left, right)
+    c.print(cols)
+
+    img = Table(box=None, show_header=False, padding=(0, 2), expand=False)
+    img.add_column(style='white',        min_width=10, no_wrap=True)
+    img.add_column(style='dim')
+    img.add_row('playwright', r['playwright_image_uri'])
+    img.add_row('sidecar',    r['sidecar_image_uri']  )
+    c.print()
+    c.print('  [bold bright_cyan]🐳  Images[/]')
+    c.print(img)
+    c.print()
+    c.print(f'  [dim]sg-ec2 wait {r["deploy_name"]}   ·   sg-ec2 forward 8000   ·   sg-ec2 logs[/]')
+    c.print()
+
+
 def _render_health(results: dict, base_url: str) -> None:
     c   = Console(highlight=False, width=200)
     all_ok = all('status' in v and v['status'] == 200 for v in results.values())
@@ -627,7 +672,7 @@ def create(stage                : str           = typer.Option(DEFAULT_STAGE, he
     """Provision a t3.large EC2 instance running the Playwright + agent_mitmproxy stack."""
     result = provision(stage=stage, playwright_image_uri=playwright_image_uri,
                        sidecar_image_uri=sidecar_image_uri, deploy_name=name or '')
-    typer.echo(json.dumps(result, indent=2, default=str))
+    _render_create_result(result)
     if wait and result.get('playwright_url'):
         _cmd_wait(ip=result['public_ip'], api_key_name=result['api_key_name'],
                   api_key_value=result['api_key_value'], timeout=timeout)
@@ -720,6 +765,34 @@ def cmd_logs(service : Optional[str] = typer.Option(None, '--service', '-s', hel
         c.print(stdout.rstrip())
     if stderr.strip():
         c.print(f'[yellow]{stderr.rstrip()}[/]')
+
+
+@app.command(name='forward')
+def cmd_forward(port   : str           = typer.Argument('8000', help='Port mapping — local:remote or just remote (uses same local port). e.g. 8000 or 9000:8000.'),
+                target : Optional[str] = typer.Option(None, '--target', '-t', help='Deploy-name or instance-id (auto if only one).') ):
+    """Forward a local port to the EC2 instance via SSM — no security group rule required."""
+    import subprocess
+    local_port, remote_port = port.split(':', 1) if ':' in port else (port, port)
+    ec2         = EC2()
+    instance_id, details = _resolve_target(ec2, target)
+    public_ip   = details.get('public_ip', instance_id)
+    deploy_name = _instance_deploy_name(details) or instance_id
+    c = Console(highlight=False, width=200)
+    c.print()
+    c.print(Panel(
+        f'[bold]🔀  SSM Port Forward[/]\n\n'
+        f'  instance   [bright_white]{deploy_name}[/]  [dim]{instance_id}  {public_ip}[/]\n'
+        f'  tunnel     [bright_white]localhost:{local_port}[/]  →  [bright_white]{public_ip}:{remote_port}[/]\n\n'
+        f'  [green]Access:[/]  [bright_white]http://localhost:{local_port}/[/]\n'
+        f'  [dim]Press Ctrl-C to close the tunnel.[/]',
+        border_style='bright_blue', expand=False))
+    c.print()
+    subprocess.run(['aws', 'ssm', 'start-session',
+                    '--target'       , instance_id,
+                    '--document-name', 'AWS-StartPortForwardingSession',
+                    '--parameters'   , json.dumps({'portNumber'     : [remote_port],
+                                                   'localPortNumber': [local_port ]})],
+                   check=False)
 
 
 @app.command(name='wait')

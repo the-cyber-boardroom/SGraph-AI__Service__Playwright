@@ -290,7 +290,7 @@ class test_cli_surface(TestCase):
         from typer.testing import CliRunner
         result = CliRunner().invoke(provision_ec2.app, ['--help'])
         assert result.exit_code == 0
-        for cmd in ('create', 'list', 'delete', 'connect', 'wait', 'health'):
+        for cmd in ('create', 'list', 'delete', 'connect', 'exec', 'logs', 'forward', 'wait', 'health'):
             assert cmd in result.output, f'command {cmd!r} missing from --help'
 
     def test__create_help_shows_expected_options(self):
