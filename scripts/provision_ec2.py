@@ -1338,7 +1338,7 @@ def cmd_vault_clone(target   : Optional[str] = typer.Argument(None, help='Deploy
                     key      : str           = typer.Argument(...,  help='Vault key (id:secret format from sgit).'),
                     container: Optional[str] = typer.Option('playwright', '--container', '-c',
                                                             help='Install sgit-ai and clone vault inside this Compose service (pass "" for EC2 host).'),
-                    work_dir : str           = typer.Option('/tmp/sg-investigation', '--work-dir',
+                    work_dir : str           = typer.Option('/root/sg-investigation', '--work-dir',
                                                            help='Exact vault root path (inside container when --container is set).')):
     """Install sgit-ai and clone a vault — defaults to running inside the playwright container.
 
@@ -1355,6 +1355,9 @@ def cmd_vault_clone(target   : Optional[str] = typer.Argument(None, help='Deploy
     c.print(Panel(f'[bold]📦  Vault clone → {deploy_name}[/]  [dim]{instance_id}[/]  '
                   f'[blue]{("container: " + container) if container else "EC2 host"}[/]',
                   border_style='blue', expand=False))
+    c.print()
+    c.print('  [dim]disk space check...[/]')
+    _vault_ssm(instance_id, 'df -h / 2>/dev/null | tail -1', container=ctr)
     c.print()
     steps = [('Installing sgit-ai', 'pip install sgit-ai --break-system-packages -q'),
              ('Cloning vault',      _vault_clone_sh(key, work_dir))]
@@ -1410,7 +1413,7 @@ def _vault_ssm(instance_id: str, shell: str, timeout: int = 60, container: Optio
 def cmd_vault_list(target   : Optional[str] = typer.Argument(None, help='Deploy-name or instance-id (auto if only one).'),
                    path     : str           = typer.Option('.',          '--path',      '-p', help='Sub-path within --work-dir to list.'),
                    container: Optional[str] = typer.Option('playwright', '--container', '-c', help='Run inside this Compose service (pass "" to run on EC2 host).'),
-                   work_dir : str           = typer.Option('/tmp/sg-investigation', '--work-dir', help='Vault root (inside container when --container is set).')):
+                   work_dir : str           = typer.Option('/root/sg-investigation', '--work-dir', help='Vault root (inside container when --container is set).')):
     """List files in the vault working directory."""
     ec2             = EC2()
     instance_id, _  = _resolve_target(ec2, target)
@@ -1423,7 +1426,7 @@ def cmd_vault_list(target   : Optional[str] = typer.Argument(None, help='Deploy-
 def cmd_vault_run(script   : str           = typer.Argument(...,  help='Script path relative to --work-dir (e.g. scenarios/00__pre-flight/scripts/01__health.sh).'),
                   target   : Optional[str] = typer.Option(None,          '--target',    '-t', help='Deploy-name or instance-id (auto if only one).'),
                   container: Optional[str] = typer.Option('playwright',  '--container', '-c', help='Run inside this Compose service (pass "" to run on EC2 host).'),
-                  work_dir : str           = typer.Option('/tmp/sg-investigation', '--work-dir', help='Vault root (inside container when --container is set).'),
+                  work_dir : str           = typer.Option('/root/sg-investigation', '--work-dir', help='Vault root (inside container when --container is set).'),
                   save     : Optional[str] = typer.Option(None,  '--save', '-o', help='Save output to this path within --work-dir.'),
                   timeout  : int           = typer.Option(120,   '--timeout', help='Script timeout in seconds.')):
     """Run a single bash or python script from the vault."""
@@ -1446,7 +1449,7 @@ def cmd_vault_run(script   : str           = typer.Argument(...,  help='Script p
 def cmd_vault_commit(target   : Optional[str] = typer.Argument(None, help='Deploy-name or instance-id (auto if only one).'),
                      message  : str           = typer.Option('investigation outputs', '--message', '-m', help='Commit message.'),
                      container: Optional[str] = typer.Option('playwright', '--container', '-c', help='Run inside this Compose service (pass "" for EC2 host).'),
-                     work_dir : str           = typer.Option('/tmp/sg-investigation', '--work-dir', help='Vault root.')):
+                     work_dir : str           = typer.Option('/root/sg-investigation', '--work-dir', help='Vault root.')):
     """Stage all changes in the vault and commit."""
     ec2             = EC2()
     instance_id, _  = _resolve_target(ec2, target)
@@ -1460,7 +1463,7 @@ def cmd_vault_push(target      : Optional[str] = typer.Argument(None, help='Depl
                    access_token: Optional[str] = typer.Option(None, '--access-token', envvar='SGIT_WRITE_TOKEN',
                                                                help='Write token; also read from $SGIT_WRITE_TOKEN.'),
                    container   : Optional[str] = typer.Option('playwright', '--container', '-c', help='Run inside this Compose service (pass "" for EC2 host).'),
-                   work_dir    : str           = typer.Option('/tmp/sg-investigation', '--work-dir', help='Vault root.')):
+                   work_dir    : str           = typer.Option('/root/sg-investigation', '--work-dir', help='Vault root.')):
     """Push the vault back to origin."""
     if not access_token:
         typer.echo('Error: provide --access-token or set $SGIT_WRITE_TOKEN', err=True)
@@ -1476,7 +1479,7 @@ def cmd_vault_push(target      : Optional[str] = typer.Argument(None, help='Depl
 @app.command(name='vault-pull')
 def cmd_vault_pull(target   : Optional[str] = typer.Argument(None, help='Deploy-name or instance-id (auto if only one).'),
                    container: Optional[str] = typer.Option('playwright', '--container', '-c', help='Run inside this Compose service (pass "" for EC2 host).'),
-                   work_dir : str           = typer.Option('/tmp/sg-investigation', '--work-dir', help='Vault root.')):
+                   work_dir : str           = typer.Option('/root/sg-investigation', '--work-dir', help='Vault root.')):
     """Pull latest changes into the vault."""
     ec2             = EC2()
     instance_id, _  = _resolve_target(ec2, target)
