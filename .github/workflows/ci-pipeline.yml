@@ -189,6 +189,15 @@ jobs:
           pip install -e .
           pip install pytest pytest-timeout
 
+      - name: Authenticate to AWS Public ECR                                        # Avoids rate-limit errors when pulling public.ecr.aws base images (e.g. aws-lambda-adapter). Authenticated pulls are unthrottled.
+        run: |
+          aws ecr-public get-login-password --region us-east-1 | \
+            docker login --username AWS --password-stdin public.ecr.aws
+        env:
+          AWS_SECRET_ACCESS_KEY : ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION    : ${{ secrets.AWS_DEFAULT_REGION    }}
+          AWS_ACCESS_KEY_ID     : ${{ secrets.AWS_ACCESS_KEY_ID     }}
+
       - name: Build Docker image via pytest
         run: |
           python -m pytest tests/docker/test_Build__Docker__SGraph-AI__Service__Playwright.py::test_build_docker_image -v -s
