@@ -160,7 +160,7 @@ class test_module_surface(TestCase):
 class test_constants(TestCase):
 
     def test__stack_pins_match_design(self):
-        assert EC2__INSTANCE_TYPE            == 't3.large'                                 # Playwright + sidecar need the headroom
+        assert EC2__INSTANCE_TYPE            == 'm6i.xlarge'                               # fixed CPU, 16GB RAM, fits full observability stack
         assert EC2__PLAYWRIGHT_PORT          == 8000
         assert EC2__SIDECAR_ADMIN_PORT       == 8001
         assert EC2__AMI_NAME_AL2023          .startswith('al2023-ami-')
@@ -178,14 +178,14 @@ class test_instance_type_presets(TestCase):
 
     def test__five_presets_first_is_default(self):
         assert len(EC2__INSTANCE_TYPE_PRESETS)   == 5
-        assert EC2__INSTANCE_TYPE_PRESETS[0][0]  == EC2__INSTANCE_TYPE          # t3.large is #1
+        assert EC2__INSTANCE_TYPE_PRESETS[0][0]  == EC2__INSTANCE_TYPE          # m6i.xlarge is #1
 
     def test__resolve_numeric_alias(self):
-        assert _resolve_instance_type('1')  == 't3.large'
-        assert _resolve_instance_type('2')  == 't3.xlarge'
-        assert _resolve_instance_type('3')  == 't3.2xlarge'
-        assert _resolve_instance_type('4')  == 'c5.xlarge'
-        assert _resolve_instance_type('5')  == 'm5.xlarge'
+        assert _resolve_instance_type('1')  == 'm6i.xlarge'
+        assert _resolve_instance_type('2')  == 'c6i.xlarge'
+        assert _resolve_instance_type('3')  == 'm6i.2xlarge'
+        assert _resolve_instance_type('4')  == 't3.large'
+        assert _resolve_instance_type('5')  == 't3.xlarge'
 
     def test__resolve_literal_type_passthrough(self):
         assert _resolve_instance_type('c6i.2xlarge') == 'c6i.2xlarge'
