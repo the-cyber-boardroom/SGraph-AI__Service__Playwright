@@ -16,6 +16,6 @@ from sgraph_ai_service_playwright.schemas.screenshot.Schema__Screenshot__Request
 
 
 class Schema__Screenshot__Batch__Request(Type_Safe):
-    items               : List[Schema__Screenshot__Request] = []                    # Form 1: independent browser sessions
-    steps               : List[Schema__Screenshot__Request] = []                    # Form 2: sequential steps in one session
+    items               : List[Schema__Screenshot__Request]                          # Form 1: independent browser sessions
+    steps               : List[Schema__Screenshot__Request]                          # Form 2: sequential steps in one session
     screenshot_per_step : bool                              = False                 # Form 2 only: capture after each step
