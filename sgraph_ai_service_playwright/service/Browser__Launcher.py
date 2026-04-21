@@ -87,14 +87,21 @@ class Browser__Launcher(Type_Safe):
         if result is None:
             return Safe_UInt__Milliseconds(0)                                        # Idempotent — double-close is a no-op, not an error
         ts_before_close = self.now_ms()
-        try:
-            result.playwright.stop()                                                 # Kill the Node subprocess first — terminates Chromium immediately without waiting for network drain
-        except Exception:
-            pass
-        try:
-            result.browser.close()                                                   # Fast-fails (CDP channel gone); swallowed — keeps stop() idempotent
-        except Exception:
-            pass
+        import threading
+
+        def _teardown():
+            try:
+                result.playwright.stop()                                             # Kills the Node subprocess + Chromium child
+            except Exception:
+                pass
+            try:
+                result.browser.close()                                               # Fast-fails (CDP channel gone); swallowed
+            except Exception:
+                pass
+
+        t = threading.Thread(target=_teardown, daemon=True)                         # daemon=True: thread never blocks process exit
+        t.start()
+        t.join(timeout=2.0)                                                          # Wait at most 2s; abandon if Chromium is draining mitmproxy keep-alive connections
         return Safe_UInt__Milliseconds(self.now_ms() - ts_before_close)
 
     def stop_all(self) -> None:
