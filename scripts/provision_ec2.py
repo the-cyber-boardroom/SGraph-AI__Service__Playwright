@@ -10,7 +10,7 @@
 #   2. Ensures a security group allowing :8000 (Playwright API) and :8001
 #      (sidecar admin API) ingress. The sidecar proxy (:8080) stays on the
 #      Docker bridge — never exposed to the host.
-#   3. Runs a t3.large AL2023 instance. UserData installs Docker + the Compose
+#   3. Runs a m6i.xlarge AL2023 instance. UserData installs Docker + the Compose
 #      plugin, logs into ECR, pulls both images, writes docker-compose.yml and
 #      runs `docker compose up -d`.
 #   4. Waits for the instance to reach `running`, prints both service URLs.
@@ -21,7 +21,7 @@
 # Direct boto3 use — same narrow exception as earlier versions: osbot_aws
 # EC2.instance_create() does not expose the UserData kwarg.
 #
-# Cost note: t3.large on-demand is ~$0.083/h. Always --terminate when done.
+# Cost note: m6i.xlarge on-demand is ~$0.192/h. Always --terminate when done.
 # ═══════════════════════════════════════════════════════════════════════════════
 
 import json
@@ -47,16 +47,16 @@ from sgraph_ai_service_playwright.docker.Docker__SGraph_AI__Service__Playwright_
 from agent_mitmproxy.docker.Docker__Agent_Mitmproxy__Base                                import IMAGE_NAME as SIDECAR_IMAGE_NAME
 
 
-EC2__INSTANCE_TYPE           = 't3.large'                                               # 2 vCPU / 8 GB RAM — Playwright + sidecar fit; Firefox + WebKit need the headroom
+EC2__INSTANCE_TYPE           = 'm6i.xlarge'                                             # 4 vCPU / 16 GB RAM — fixed CPU (no burst credits), fits full observability stack
 EC2__AMI_NAME_AL2023         = 'al2023-ami-2023.*-x86_64'
 
 # ── Instance-type presets (shown by sg-ec2 create --interactive) ──────────────
 EC2__INSTANCE_TYPE_PRESETS = [
-    ('t3.large'   , 2, 8  , 0.0832, 'burstable · current default'           ),
-    ('t3.xlarge'  , 4, 16 , 0.1664, 'burstable · 2× RAM'                    ),
-    ('t3.2xlarge' , 8, 32 , 0.3328, 'burstable · 4× RAM'                    ),
-    ('c5.xlarge'  , 4, 8  , 0.1700, 'compute-optimised · sustained CPU'      ),
-    ('m5.xlarge'  , 4, 16 , 0.1920, 'general purpose · sustained · balanced' ),
+    ('m6i.xlarge' , 4, 16 , 0.1920, 'default · fixed CPU · balanced RAM'     ),
+    ('c6i.xlarge' , 4, 8  , 0.1700, 'compute-optimised · lower cost'         ),
+    ('m6i.2xlarge', 8, 32 , 0.3840, 'double RAM · heavy investigation'        ),
+    ('t3.large'   , 2, 8  , 0.0832, 'burstable · dev/test only'              ),
+    ('t3.xlarge'  , 4, 16 , 0.1664, 'burstable · dev/test only'              ),
 ]
 EC2__AMI_OWNER_AMAZON        = 'amazon'
 EC2__PLAYWRIGHT_PORT         = 8000                                                     # Playwright API — exposed to the world via SG
