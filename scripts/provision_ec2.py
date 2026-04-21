@@ -645,6 +645,10 @@ def run_instance(ec2: EC2, ami_id: str, security_group_id: str, instance_profile
               'IamInstanceProfile'               : {'Name': instance_profile_name}           ,
               'SecurityGroupIds'                 : [security_group_id]                       ,
               'UserData'                         : user_data                                 ,
+              'BlockDeviceMappings'              : [{'DeviceName': '/dev/xvda',
+                                                     'Ebs'       : {'VolumeSize'          : 30,
+                                                                    'VolumeType'          : 'gp3',
+                                                                    'DeleteOnTermination' : True}}],
               'InstanceInitiatedShutdownBehavior': 'terminate'                               ,  # shutdown → terminate, not stop
               'TagSpecifications'                : [{'ResourceType': 'instance', 'Tags': tags}]}
     for attempt in range(5):
