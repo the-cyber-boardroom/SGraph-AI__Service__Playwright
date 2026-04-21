@@ -1441,7 +1441,7 @@ def _vault_shell(instance_id: str, shell: str, container: Optional[str] = None) 
         Console(highlight=False).print('  Install: [bold]brew install --cask session-manager-plugin[/]')
         return 1
     if container:
-        shell = f'docker exec -it {shlex.quote(container)} bash -c {shlex.quote(shell)}'
+        shell = f'sudo docker exec -it {shlex.quote(container)} bash -c {shlex.quote(shell)}'
     params = json.dumps({'command': [shell]})
     result = subprocess.run(
         ['aws', 'ssm', 'start-session',
