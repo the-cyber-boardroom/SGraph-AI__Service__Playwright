@@ -31,6 +31,7 @@ from sgraph_ai_service_playwright.agentic_fastapi.Agentic_FastAPI               
 from sgraph_ai_service_playwright.fast_api.routes.Routes__Browser                    import Routes__Browser
 from sgraph_ai_service_playwright.fast_api.routes.Routes__Health                     import Routes__Health
 from sgraph_ai_service_playwright.fast_api.routes.Routes__Metrics                    import Routes__Metrics
+from sgraph_ai_service_playwright.fast_api.routes.Routes__Screenshot                 import Routes__Screenshot
 from sgraph_ai_service_playwright.fast_api.routes.Routes__Sequence                   import Routes__Sequence
 from sgraph_ai_service_playwright.service.Playwright__Service                        import Playwright__Service
 from sgraph_ai_service_playwright.service.Request__Watchdog                          import Request__Watchdog
@@ -63,7 +64,8 @@ class Fast_API__Playwright__Service(Agentic_FastAPI):
     def setup_routes(self):
         super().setup_routes()                                                      # Agentic_FastAPI mounts the /admin/* surface (health, info, manifest, SKILLs, capabilities)
         self.add_routes(Routes__Health   , service=self.service)
-        self.add_routes(Routes__Browser  , service=self.service)
-        self.add_routes(Routes__Sequence , service=self.service)
+        self.add_routes(Routes__Browser    , service=self.service)
+        self.add_routes(Routes__Sequence   , service=self.service)
+        self.add_routes(Routes__Screenshot , service=self.service)
         self.add_routes(Routes__Metrics  )                                          # No service injection — reads from module-level _REGISTRY in Metrics__Collector
         self.add_routes(Routes__Set_Cookie)                                         # /auth/set-cookie-form (HTML UI) + /auth/set-auth-cookie (POST) — both in AUTH__EXCLUDED_PATHS so they bypass the API-key middleware

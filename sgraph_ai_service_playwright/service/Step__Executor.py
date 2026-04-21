@@ -43,6 +43,7 @@ from sgraph_ai_service_playwright.schemas.steps.Schema__Step__Click             
 from sgraph_ai_service_playwright.schemas.steps.Schema__Step__Fill                                  import Schema__Step__Fill
 from sgraph_ai_service_playwright.schemas.steps.Schema__Step__Get_Content                           import Schema__Step__Get_Content
 from sgraph_ai_service_playwright.schemas.steps.Schema__Step__Get_Url                               import Schema__Step__Get_Url
+from sgraph_ai_service_playwright.schemas.steps.Schema__Step__Evaluate                              import Schema__Step__Evaluate
 from sgraph_ai_service_playwright.schemas.steps.Schema__Step__Navigate                              import Schema__Step__Navigate
 from sgraph_ai_service_playwright.schemas.steps.Schema__Step__Screenshot                            import Schema__Step__Screenshot
 from sgraph_ai_service_playwright.service.Artefact__Writer                                          import Artefact__Writer
@@ -71,6 +72,7 @@ class Step__Executor(Type_Safe):
         elif action == Enum__Step__Action.SCREENSHOT  : return self.execute_screenshot  (page, step, step_index, capture_config)
         elif action == Enum__Step__Action.GET_CONTENT : return self.execute_get_content (page, step, step_index, capture_config)
         elif action == Enum__Step__Action.GET_URL     : return self.execute_get_url     (page, step, step_index, capture_config)
+        elif action == Enum__Step__Action.EVALUATE    : return self.execute_evaluate    (page, step, step_index, capture_config)
         raise NotImplementedError(f'Step__Executor.execute({action.value}): {DEFERRED_MESSAGE}')
 
     # ─── First-pass action handlers ────────────────────────────────────────────
@@ -180,6 +182,14 @@ class Step__Executor(Type_Safe):
                                                  artefacts     = base.artefacts     ,
                                                  url           = Safe_Str__Url('http://error.invalid/'))
 
+    def execute_evaluate(self, page, step: Schema__Step__Evaluate, step_index: int, capture_config: Schema__Capture__Config) -> Schema__Step__Result__Base:
+        started_ms = self.now_ms()
+        try:
+            page.evaluate(str(step.expression))
+            return self.passed_result(step, step_index, started_ms)
+        except Exception as error:
+            return self.failed_result(step, step_index, started_ms, error)
+
     # ─── Deferred action handlers — Phase 2.11 ─────────────────────────────────
 
     def execute_press         (self, page, step, step_index, capture_config): raise NotImplementedError(f'PRESS: {DEFERRED_MESSAGE}')
@@ -189,7 +199,6 @@ class Step__Executor(Type_Safe):
     def execute_wait_for      (self, page, step, step_index, capture_config): raise NotImplementedError(f'WAIT_FOR: {DEFERRED_MESSAGE}')
     def execute_video_start   (self, page, step, step_index, capture_config): raise NotImplementedError(f'VIDEO_START: {DEFERRED_MESSAGE} (context-level API)')
     def execute_video_stop    (self, page, step, step_index, capture_config): raise NotImplementedError(f'VIDEO_STOP: {DEFERRED_MESSAGE} (context-level API)')
-    def execute_evaluate      (self, page, step, step_index, capture_config): raise NotImplementedError(f'EVALUATE: {DEFERRED_MESSAGE} (allowlist-gated)')
     def execute_dispatch_event(self, page, step, step_index, capture_config): raise NotImplementedError(f'DISPATCH_EVENT: {DEFERRED_MESSAGE}')
     def execute_set_viewport  (self, page, step, step_index, capture_config): raise NotImplementedError(f'SET_VIEWPORT: {DEFERRED_MESSAGE}')
 

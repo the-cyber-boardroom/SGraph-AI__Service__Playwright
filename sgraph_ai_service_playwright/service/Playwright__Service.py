@@ -32,6 +32,11 @@ from osbot_utils.type_safe.Type_Safe                                            
 from osbot_utils.type_safe.primitives.domains.web.safe_str.Safe_Str__Url                import Safe_Str__Url
 
 from sgraph_ai_service_playwright.schemas.artefact.Schema__Artefact__Sink_Config        import Schema__Artefact__Sink_Config
+from sgraph_ai_service_playwright.schemas.enums.Enum__Screenshot__Format                import Enum__Screenshot__Format
+from sgraph_ai_service_playwright.schemas.screenshot.Schema__Screenshot__Batch__Request import Schema__Screenshot__Batch__Request
+from sgraph_ai_service_playwright.schemas.screenshot.Schema__Screenshot__Batch__Response import Schema__Screenshot__Batch__Response
+from sgraph_ai_service_playwright.schemas.screenshot.Schema__Screenshot__Request        import Schema__Screenshot__Request
+from sgraph_ai_service_playwright.schemas.screenshot.Schema__Screenshot__Response       import Schema__Screenshot__Response
 from sgraph_ai_service_playwright.schemas.browser.Schema__Browser__Click__Request       import Schema__Browser__Click__Request
 from sgraph_ai_service_playwright.schemas.browser.Schema__Browser__Fill__Request        import Schema__Browser__Fill__Request
 from sgraph_ai_service_playwright.schemas.browser.Schema__Browser__Get_Content__Request import Schema__Browser__Get_Content__Request
@@ -120,6 +125,94 @@ class Playwright__Service(Type_Safe):
     def execute_sequence(self, request: Schema__Sequence__Request) -> Schema__Sequence__Response:
         self.setup()
         return self._run_sequence(request)
+
+    # ─── Simple screenshot surface (/screenshot, /screenshot/batch) ─────────────
+
+    def screenshot_simple(self, request: Schema__Screenshot__Request) -> Schema__Screenshot__Response:
+        try:
+            self.setup()
+            steps = [self.build_navigate_step(request.url, None, None)]
+            if request.javascript:
+                js = str(request.javascript)
+                if js:
+                    steps.append(dict(action=Enum__Step__Action.EVALUATE.value, expression=js))
+            if request.click:
+                sel = str(request.click)
+                if sel:
+                    steps.append(dict(action=Enum__Step__Action.CLICK.value, selector=sel))
+            if request.format == Enum__Screenshot__Format.HTML:
+                steps.append(dict(action=Enum__Step__Action.GET_CONTENT.value, inline_in_response=True))
+                capture_config = Schema__Capture__Config()
+            else:
+                steps.append(dict(action=Enum__Step__Action.SCREENSHOT.value, full_page=bool(request.full_page)))
+                capture_config = Schema__Capture__Config(screenshot=Schema__Artefact__Sink_Config(enabled=True, sink=Enum__Artefact__Sink.INLINE))
+            seq_request  = self.build_sequence_request(steps=steps, browser_config=None, capture_config=capture_config)
+            seq_response = self._run_sequence(seq_request)
+            self.raise_on_sequence_failure(seq_response)
+            if request.format == Enum__Screenshot__Format.HTML:
+                html = next((str(r.content) for r in seq_response.step_results
+                             if r.action == Enum__Step__Action.GET_CONTENT and getattr(r, 'content', None)), '')
+                return Schema__Screenshot__Response(url        = request.url                      ,
+                                                     html       = Safe_Str__Page__Content(html)   ,
+                                                     duration_ms= seq_response.total_duration_ms  ,
+                                                     trace_id   = seq_response.trace_id           )
+            for artefact in seq_response.artefacts:
+                if artefact.artefact_type == Enum__Artefact__Type.SCREENSHOT and artefact.inline_b64 is not None:
+                    return Schema__Screenshot__Response(url           = request.url                     ,
+                                                         screenshot_b64= str(artefact.inline_b64)       ,
+                                                         duration_ms   = seq_response.total_duration_ms ,
+                                                         trace_id      = seq_response.trace_id          )
+            raise HTTPException(500, 'Screenshot artefact missing from sequence response')
+        except HTTPException:
+            raise
+        except Exception as error:
+            raise HTTPException(502, self.error_detail('screenshot_simple', error))
+
+    def screenshot_batch(self, request: Schema__Screenshot__Batch__Request) -> Schema__Screenshot__Batch__Response:
+        try:
+            self.setup()
+            t_start = self.now_ms()
+            if request.items:
+                screenshots = [self.screenshot_simple(item) for item in request.items]
+                return Schema__Screenshot__Batch__Response(screenshots = screenshots,
+                                                            duration_ms = self.now_ms() - t_start)
+            if request.steps:
+                return self._screenshot_steps(request.steps, request.screenshot_per_step)
+            return Schema__Screenshot__Batch__Response()
+        except HTTPException:
+            raise
+        except Exception as error:
+            raise HTTPException(502, self.error_detail('screenshot_batch', error))
+
+    def _screenshot_steps(self, steps, screenshot_per_step: bool) -> Schema__Screenshot__Batch__Response:
+        seq_steps = []
+        n         = len(steps)
+        for i, step in enumerate(steps):
+            seq_steps.append(self.build_navigate_step(step.url, None, None))
+            if step.javascript:
+                js = str(step.javascript)
+                if js:
+                    seq_steps.append(dict(action=Enum__Step__Action.EVALUATE.value, expression=js))
+            if step.click:
+                sel = str(step.click)
+                if sel:
+                    seq_steps.append(dict(action=Enum__Step__Action.CLICK.value, selector=sel))
+            if screenshot_per_step or i == n - 1:
+                seq_steps.append(dict(action=Enum__Step__Action.SCREENSHOT.value, full_page=False))
+        capture_config = Schema__Capture__Config(screenshot=Schema__Artefact__Sink_Config(enabled=True, sink=Enum__Artefact__Sink.INLINE))
+        seq_request    = self.build_sequence_request(steps=seq_steps, browser_config=None, capture_config=capture_config)
+        seq_response   = self._run_sequence(seq_request)
+        self.raise_on_sequence_failure(seq_response)
+        screenshots = [Schema__Screenshot__Response(screenshot_b64=str(a.inline_b64),
+                                                     duration_ms   =seq_response.total_duration_ms)
+                       for a in seq_response.artefacts
+                       if a.artefact_type == Enum__Artefact__Type.SCREENSHOT and a.inline_b64 is not None]
+        return Schema__Screenshot__Batch__Response(screenshots = screenshots,
+                                                    duration_ms = seq_response.total_duration_ms)
+
+    def now_ms(self) -> int:
+        import time
+        return int(time.time() * 1000)
 
     # ─── One-shot /browser/* surface (v0.1.24) ────────────────────────────────
     # Each method builds a tiny throwaway sequence, runs it through
@@ -228,7 +321,9 @@ class Playwright__Service(Type_Safe):
             raise HTTPException(502, self.error_detail('browser_one_shot', error))
 
     def build_navigate_step(self, url, wait_until, timeout_ms) -> dict:
-        step = dict(action = Enum__Step__Action.NAVIGATE.value, url = str(url), wait_until = wait_until.value)
+        from sgraph_ai_service_playwright.schemas.enums.Enum__Wait__State import Enum__Wait__State
+        wait = (wait_until or Enum__Wait__State.LOAD).value
+        step = dict(action = Enum__Step__Action.NAVIGATE.value, url = str(url), wait_until = wait)
         if timeout_ms is not None and int(timeout_ms) > 0:
             step['timeout_ms'] = int(timeout_ms)
         return step
