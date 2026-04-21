@@ -1879,6 +1879,36 @@ def cmd_tag_ami(ami_id : str = typer.Argument(..., help='AMI ID to tag.'),
     Console(highlight=False).print(f'\n  [{colour}]●[/]  {ami_id}  sg:ami-status = {status}\n')
 
 
+@app.command(name='list-amis')
+def cmd_list_amis():
+    """List all sg-playwright AMIs in the current region with their status and age."""
+    c    = Console(highlight=False, width=200)
+    ec2  = EC2()
+    resp = ec2.client().describe_images(
+        Filters = [{'Name': f'tag:{TAG__SERVICE_KEY}', 'Values': [TAG__SERVICE_VALUE]}],
+        Owners  = ['self'])
+    images = sorted(resp.get('Images', []), key=lambda x: x['CreationDate'], reverse=True)
+    if not images:
+        c.print('  [dim]No sg-playwright AMIs found.[/]')
+        return
+    t = Table(show_header=True, header_style='bold blue', box=None, padding=(0, 2))
+    t.add_column('ami-id',       style='bold')
+    t.add_column('name',         style='default')
+    t.add_column('status',       style='default')
+    t.add_column('state',        style='default')
+    t.add_column('created',      style='dim')
+    for img in images:
+        ami_id  = img['ImageId']
+        name    = img.get('Name', '—')
+        state   = img.get('State', '?')
+        created = img.get('CreationDate', '?')[:19].replace('T', ' ')   # 2026-04-21 12:34:56
+        status  = next((t['Value'] for t in img.get('Tags', []) if t['Key'] == TAG__AMI_STATUS_KEY), '—')
+        s_colour = 'green' if status == 'healthy' else 'red' if status == 'unhealthy' else 'yellow'
+        d_colour = 'green' if state   == 'available' else 'yellow'
+        t.add_row(ami_id, name, f'[{s_colour}]{status}[/]', f'[{d_colour}]{state}[/]', created)
+    c.print(t)
+
+
 @app.command(name='open')
 def cmd_open(target: Optional[str] = typer.Argument(None, help='Deploy-name or instance-id; auto-selects if only one instance.')):
     """Open the launcher UI in a browser, pre-filled with the instance connection details."""
