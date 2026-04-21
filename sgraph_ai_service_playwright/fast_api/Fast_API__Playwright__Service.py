@@ -31,6 +31,7 @@ from osbot_fast_api.api.routes.Routes__Set_Cookie                               
 from sgraph_ai_service_playwright.agentic_fastapi.Agentic_FastAPI                    import Agentic_FastAPI
 from sgraph_ai_service_playwright.fast_api.routes.Routes__Browser                    import Routes__Browser
 from sgraph_ai_service_playwright.fast_api.routes.Routes__Health                     import Routes__Health
+from sgraph_ai_service_playwright.fast_api.routes.Routes__Index                      import Routes__Index
 from sgraph_ai_service_playwright.fast_api.routes.Routes__Metrics                    import Routes__Metrics
 from sgraph_ai_service_playwright.fast_api.routes.Routes__Screenshot                 import Routes__Screenshot
 from sgraph_ai_service_playwright.fast_api.routes.Routes__Sequence                   import Routes__Sequence
@@ -86,6 +87,7 @@ class Fast_API__Playwright__Service(Agentic_FastAPI):
 
     def setup_routes(self):
         super().setup_routes()                                                      # Agentic_FastAPI mounts the /admin/* surface (health, info, manifest, SKILLs, capabilities)
+        self.add_routes(Routes__Index    )                                          # GET / — static "Try it out" mini-site
         self.add_routes(Routes__Health   , service=self.service)
         self.add_routes(Routes__Browser    , service=self.service)
         self.add_routes(Routes__Sequence   , service=self.service)
