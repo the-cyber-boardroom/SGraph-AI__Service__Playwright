@@ -1,7 +1,11 @@
 name: Bake AMI — Playwright EC2
 
-# Triggered manually or automatically after a successful ECR image push.
-# Each step is a separate GH Actions step so the progress is visible in the UI.
+# Triggered manually (workflow_dispatch) or automatically via workflow_call
+# from ci-pipeline.yml / ci__agent_mitmproxy.yml — fires only when a new ECR
+# image was actually pushed (build-and-push-image.result == 'success').
+# NOT triggered on every commit — the workflow_run trigger that fired on every
+# successful CI Pipeline - DEV run has been replaced with explicit workflow_call
+# so the bake is gated on the image push, not on CI passing.
 #
 # Phase 1 — Base EC2:  fresh AL2023 install → health + smoke → clean → snapshot
 # Phase 2 — AMI EC2:   launch from snapshot → health + smoke → tag healthy
@@ -25,11 +29,16 @@ on:
         required: false
         type: string
 
-  workflow_run:
-    workflows: ['CI Pipeline - DEV']
-    types: [completed]
-    # Only bake when the upstream CI succeeded
-    branches: [dev]
+  workflow_call:
+    inputs:
+      playwright_image_uri:
+        description: 'Playwright ECR image URI (leave blank for latest)'
+        required: false
+        type: string
+      sidecar_image_uri:
+        description: 'Sidecar ECR image URI (leave blank for latest)'
+        required: false
+        type: string
 
 env:
   PYTHON_VERSION: '3.12'
@@ -43,10 +52,9 @@ jobs:
     name: 'Bake AMI'
     runs-on: ubuntu-latest
     timeout-minutes: 60
-    # Skip if triggered by workflow_run that did not succeed
     if: >
       github.event_name == 'workflow_dispatch' ||
-      github.event.workflow_run.conclusion == 'success'
+      github.event_name == 'workflow_call'
 
     outputs:
       ami_id: ${{ steps.bake.outputs.ami_id }}
@@ -56,6 +64,8 @@ jobs:
       AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
       AWS_DEFAULT_REGION   : ${{ secrets.AWS_DEFAULT_REGION    }}
       AWS_ACCOUNT_ID       : ${{ secrets.AWS_ACCOUNT_ID        }}
+      AMP_REMOTE_WRITE_URL : ${{ secrets.AMP_REMOTE_WRITE_URL  }}
+      OPENSEARCH_ENDPOINT  : ${{ secrets.OPENSEARCH_ENDPOINT   }}
       DEPLOY_NAME          : ami-bake-${{ github.run_id }}
 
     steps:
@@ -119,6 +129,8 @@ jobs:
       AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
       AWS_DEFAULT_REGION   : ${{ secrets.AWS_DEFAULT_REGION    }}
       AWS_ACCOUNT_ID       : ${{ secrets.AWS_ACCOUNT_ID        }}
+      AMP_REMOTE_WRITE_URL : ${{ secrets.AMP_REMOTE_WRITE_URL  }}
+      OPENSEARCH_ENDPOINT  : ${{ secrets.OPENSEARCH_ENDPOINT   }}
       DEPLOY_NAME          : ami-verify-${{ github.run_id }}
 
     steps:
