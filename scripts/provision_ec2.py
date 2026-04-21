@@ -1600,25 +1600,25 @@ def cmd_exec(first      : str           = typer.Argument(...,  help='Deploy-name
              cmd        : Optional[str] = typer.Option(None, '--cmd',         help='Shell command (alternative to positional).'),
              target     : Optional[str] = typer.Option(None, '--target', '-t',help='Force target; first positional arg then becomes the command.'),
              container  : Optional[str] = typer.Option(None, '--container', '-c',
-                                                        help='Run inside this Compose service (playwright or agent-mitmproxy).'),
+                                                        help='Run inside this container (full name or compose service name, e.g. sg-playwright-playwright-1 or playwright).'),
              inject_env : bool          = typer.Option(False, '--inject-env', help='Prepend DEPLOY_NAME/API_KEY_VALUE/EC2_IP/INSTANCE_ID from tags.') ):
     """Execute a shell command on the EC2 host or inside a Docker container via SSM.
 
     Usage patterns:
-      sg-ec2 exec fresh-fermi "docker ps"        # explicit target + command
-      sg-ec2 exec "docker ps"                    # auto-select target + command
-      sg-ec2 exec fresh-fermi --cmd "docker ps"  # explicit target + --cmd
-      sg-ec2 exec --cmd "docker ps"              # auto-select + --cmd
+      sgpl exec "docker ps"                                         # host, auto-select target
+      sgpl exec fierce-hubble "docker ps"                          # host, explicit target
+      sgpl exec "ls /" --container sg-playwright-playwright-1      # inside container (full name)
+      sgpl exec "ls /" --container playwright                      # inside container (service name)
     """
     if target:
         resolved_target = target
         shell_cmd       = second or first or cmd
     elif second or cmd:
-        resolved_target = first          # first positional = target
-        shell_cmd       = second or cmd  # second positional or --cmd = command
+        resolved_target = first
+        shell_cmd       = second or cmd
     else:
-        resolved_target = None           # auto-select
-        shell_cmd       = first          # only arg = command
+        resolved_target = None
+        shell_cmd       = first
 
     if not shell_cmd:
         raise typer.BadParameter('Provide a shell command.')
@@ -1627,7 +1627,7 @@ def cmd_exec(first      : str           = typer.Argument(...,  help='Deploy-name
     if inject_env:
         shell_cmd = _env_export_prefix(instance_id, d) + shell_cmd
     if container:
-        shell_cmd = f'docker compose -f {COMPOSE_FILE_PATH} exec -T {container} {shell_cmd}'
+        shell_cmd = f'docker exec {shlex.quote(container)} bash -c {shlex.quote(shell_cmd)}'
     c = Console(highlight=False, width=200)
     ctr_tag = f'[{container}]' if container else ''
     c.print(f'  💻  [dim]{instance_id}{ctr_tag}[/]  {shell_cmd}')
