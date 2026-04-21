@@ -192,3 +192,15 @@ jobs:
           AWS_DEFAULT_REGION    : ${{ secrets.AWS_DEFAULT_REGION    }}
           AWS_ACCOUNT_ID        : ${{ secrets.AWS_ACCOUNT_ID        }}
           AWS_ACCESS_KEY_ID     : ${{ secrets.AWS_ACCESS_KEY_ID     }}
+
+  # ════════════════════════════════════════════════════════════════════════════
+  # Job 5: Bake AMI — fires only when a new mitmproxy image was pushed
+  #   Gated on build-and-push-image.result == 'success' (not 'skipped') so
+  #   test-only pushes never trigger a bake.
+  # ════════════════════════════════════════════════════════════════════════════
+  call-bake-ami:
+    name: "Trigger AMI Bake (mitmproxy image updated)"
+    needs: [build-and-push-image]
+    if: needs.build-and-push-image.result == 'success'
+    uses: ./.github/workflows/bake-ami.yml
+    secrets: inherit
