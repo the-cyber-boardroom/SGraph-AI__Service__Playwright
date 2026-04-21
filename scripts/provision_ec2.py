@@ -1130,28 +1130,40 @@ def create(stage                : str           = typer.Option(DEFAULT_STAGE, he
 def cmd_list():
     """List all playwright-ec2 instances with metadata from tags."""
     c         = Console(highlight=False, width=200)
-    instances = find_instances(EC2())
+    ec2       = EC2()
+    instances = find_instances(ec2)
     if not instances:
         c.print('  [dim]No instances found.[/]')
         return
+    resp         = ec2.client().describe_images(
+        Filters  = [{'Name': f'tag:{TAG__SERVICE_KEY}', 'Values': [TAG__SERVICE_VALUE]}],
+        Owners   = ['self'])
+    project_amis = {img['ImageId']: img.get('Name', '') for img in resp.get('Images', [])}
     t = Table(show_header=True, header_style='bold blue', box=None, padding=(0, 2))
     t.add_column('deploy-name',    style='bold')
     t.add_column('instance-id',   style='dim')
     t.add_column('state')
+    t.add_column('launch',        style='cyan')
     t.add_column('instance-type', style='cyan')
     t.add_column('public-ip',     style='green')
     t.add_column('creator',       style='dim')
     t.add_column('api-key',       style='dim')
     for iid, d in instances.items():
-        state_raw      = d.get('state', '?')
-        state          = state_raw.get('Name', '?') if isinstance(state_raw, dict) else str(state_raw)
-        ip             = d.get('public_ip', '')
-        deploy         = _instance_deploy_name(d)
-        creator        = _instance_tag(d, TAG__CREATOR_KEY)
-        api_key        = _instance_tag(d, TAG__API_KEY_VALUE_KEY)
-        instance_type  = _instance_tag(d, TAG__INSTANCE_TYPE_KEY) or d.get('instance_type', '?')
-        colour         = 'green' if state == 'running' else 'yellow' if state == 'pending' else 'red'
-        t.add_row(deploy, iid, f'[{colour}]{state}[/]', instance_type, ip, creator, api_key)
+        state_raw     = d.get('state', '?')
+        state         = state_raw.get('Name', '?') if isinstance(state_raw, dict) else str(state_raw)
+        ip            = d.get('public_ip', '')
+        deploy        = _instance_deploy_name(d)
+        creator       = _instance_tag(d, TAG__CREATOR_KEY)
+        api_key       = _instance_tag(d, TAG__API_KEY_VALUE_KEY)
+        instance_type = _instance_tag(d, TAG__INSTANCE_TYPE_KEY) or d.get('instance_type', '?')
+        image_id      = d.get('image_id', '')
+        if image_id in project_amis:
+            ami_name  = project_amis[image_id]
+            launch    = f'[magenta]ami[/] [dim]{ami_name or image_id}[/]'
+        else:
+            launch    = '[blue]docker[/]'
+        colour        = 'green' if state == 'running' else 'yellow' if state == 'pending' else 'red'
+        t.add_row(deploy, iid, f'[{colour}]{state}[/]', launch, instance_type, ip, creator, api_key)
     c.print(t)
 
 
@@ -1881,32 +1893,95 @@ def cmd_tag_ami(ami_id : str = typer.Argument(..., help='AMI ID to tag.'),
 
 @app.command(name='list-amis')
 def cmd_list_amis():
-    """List all sg-playwright AMIs in the current region with their status and age."""
-    c    = Console(highlight=False, width=200)
-    ec2  = EC2()
-    resp = ec2.client().describe_images(
+    """List all sg-playwright AMIs in the current region with their status, age, and running instances."""
+    c         = Console(highlight=False, width=200)
+    ec2       = EC2()
+    resp      = ec2.client().describe_images(
         Filters = [{'Name': f'tag:{TAG__SERVICE_KEY}', 'Values': [TAG__SERVICE_VALUE]}],
         Owners  = ['self'])
-    images = sorted(resp.get('Images', []), key=lambda x: x['CreationDate'], reverse=True)
+    images    = sorted(resp.get('Images', []), key=lambda x: x['CreationDate'], reverse=True)
     if not images:
         c.print('  [dim]No sg-playwright AMIs found.[/]')
         return
+    instances     = find_instances(ec2)                                        # {iid: details}
+    ami_instances : dict = {}                                                  # ami_id → list of deploy-names
+    for iid, d in instances.items():
+        img_id = d.get('image_id', '')
+        if img_id:
+            ami_instances.setdefault(img_id, []).append(_instance_deploy_name(d) or iid)
     t = Table(show_header=True, header_style='bold blue', box=None, padding=(0, 2))
-    t.add_column('ami-id',       style='bold')
-    t.add_column('name',         style='default')
-    t.add_column('status',       style='default')
-    t.add_column('state',        style='default')
-    t.add_column('created',      style='dim')
-    for img in images:
-        ami_id  = img['ImageId']
-        name    = img.get('Name', '—')
-        state   = img.get('State', '?')
-        created = img.get('CreationDate', '?')[:19].replace('T', ' ')   # 2026-04-21 12:34:56
-        status  = next((t['Value'] for t in img.get('Tags', []) if t['Key'] == TAG__AMI_STATUS_KEY), '—')
+    t.add_column('#',          style='dim',     no_wrap=True)
+    t.add_column('ami-id',     style='bold',    no_wrap=True)
+    t.add_column('name',       style='default')
+    t.add_column('status',     style='default', no_wrap=True)
+    t.add_column('state',      style='default', no_wrap=True)
+    t.add_column('created',    style='dim',     no_wrap=True)
+    t.add_column('instances',  style='cyan')
+    for idx, img in enumerate(images, 1):
+        ami_id   = img['ImageId']
+        name     = img.get('Name', '—')
+        state    = img.get('State', '?')
+        created  = img.get('CreationDate', '?')[:19].replace('T', ' ')
+        status   = next((tg['Value'] for tg in img.get('Tags', []) if tg['Key'] == TAG__AMI_STATUS_KEY), '—')
+        running  = ami_instances.get(ami_id, [])
         s_colour = 'green' if status == 'healthy' else 'red' if status == 'unhealthy' else 'yellow'
         d_colour = 'green' if state   == 'available' else 'yellow'
-        t.add_row(ami_id, name, f'[{s_colour}]{status}[/]', f'[{d_colour}]{state}[/]', created)
+        inst_str = ', '.join(running) if running else '[dim]—[/]'
+        t.add_row(str(idx), ami_id, name, f'[{s_colour}]{status}[/]', f'[{d_colour}]{state}[/]', created, inst_str)
     c.print(t)
+
+
+@app.command(name='create-from-ami')
+def cmd_create_from_ami(
+        ami_id         : Optional[str] = typer.Argument(None,                  help='AMI ID to launch from. Omit to pick interactively.'),
+        name           : Optional[str] = typer.Option(None,  '--name',         help='Deploy name (default: random two-word).'),
+        instance_type  : Optional[str] = typer.Option(None,  '--instance-type',help=f'Instance type or preset 1–5 (default: {EC2__INSTANCE_TYPE}).'),
+        max_hours      : int           = typer.Option(4,     '--max-hours',    help='Auto-terminate after N hours. Default: 4.'),
+        wait           : bool          = typer.Option(False, '--wait',         help='Poll health until up.'),
+        smoke          : bool          = typer.Option(False, '--smoke',        help='After instance is up: run smoke test then delete.')):
+    """Launch an EC2 instance from a pre-baked sg-playwright AMI (fast boot — no docker install or image pull)."""
+    c   = Console(highlight=False, width=200)
+    ec2 = EC2()
+
+    if ami_id is None:
+        resp   = ec2.client().describe_images(
+            Filters = [{'Name': f'tag:{TAG__SERVICE_KEY}', 'Values': [TAG__SERVICE_VALUE]},
+                       {'Name': 'state',                   'Values': ['available']        }],
+            Owners  = ['self'])
+        images = sorted(resp.get('Images', []), key=lambda x: x['CreationDate'], reverse=True)
+        if not images:
+            c.print('  [red]✗  No sg-playwright AMIs found. Run [bold]sgpl bake-ami[/] first.[/]')
+            raise typer.Exit(1)
+        healthy = [img for img in images
+                   if next((tg['Value'] for tg in img.get('Tags', []) if tg['Key'] == TAG__AMI_STATUS_KEY), '') == 'healthy']
+        chosen = (healthy or images)[0]                                        # prefer healthy, fall back to latest
+        ami_id = chosen['ImageId']
+        status = next((tg['Value'] for tg in chosen.get('Tags', []) if tg['Key'] == TAG__AMI_STATUS_KEY), '—')
+        c.print(f'\n  → using latest: [bold]{ami_id}[/]  {chosen.get("Name", "?")}  [dim]({status})[/]\n')
+
+    resolved_type = _resolve_instance_type(instance_type)
+    result        = provision(stage=DEFAULT_STAGE, deploy_name=name or '', from_ami=ami_id,
+                               instance_type=resolved_type, max_hours=max_hours)
+    _render_create_result(result)
+    resolved_name = result['deploy_name']
+
+    if wait or smoke:
+        _cmd_wait(ip=result['public_ip'], port=EC2__PLAYWRIGHT_PORT,
+                  api_key_name=result['api_key_name'], api_key_value=result['api_key_value'],
+                  timeout=600, interval=10)
+
+    if smoke:
+        smoke_ok = True
+        try:
+            cmd_smoke(target=resolved_name, url=(), port=EC2__PLAYWRIGHT_PORT,
+                      no_screenshot=False, req_timeout=120)
+        except SystemExit as e:
+            smoke_ok = (e.code == 0 or e.code is None)
+        c.print()
+        c.print(Panel(f'[bold]🗑️  Deleting {resolved_name}[/]', border_style='dim', expand=False))
+        cmd_delete(resolved_name)
+        if not smoke_ok:
+            raise typer.Exit(code=1)
 
 
 @app.command(name='open')
