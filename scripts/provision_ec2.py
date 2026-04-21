@@ -1140,30 +1140,24 @@ def cmd_list():
         Owners   = ['self'])
     project_amis = {img['ImageId']: img.get('Name', '') for img in resp.get('Images', [])}
     t = Table(show_header=True, header_style='bold blue', box=None, padding=(0, 2))
-    t.add_column('deploy-name',    style='bold')
+    t.add_column('deploy-name',   style='bold')
     t.add_column('instance-id',   style='dim')
     t.add_column('state')
-    t.add_column('launch',        style='cyan')
+    t.add_column('launch',        style='cyan', no_wrap=True)
     t.add_column('instance-type', style='cyan')
     t.add_column('public-ip',     style='green')
     t.add_column('creator',       style='dim')
-    t.add_column('api-key',       style='dim')
     for iid, d in instances.items():
         state_raw     = d.get('state', '?')
         state         = state_raw.get('Name', '?') if isinstance(state_raw, dict) else str(state_raw)
         ip            = d.get('public_ip', '')
         deploy        = _instance_deploy_name(d)
         creator       = _instance_tag(d, TAG__CREATOR_KEY)
-        api_key       = _instance_tag(d, TAG__API_KEY_VALUE_KEY)
         instance_type = _instance_tag(d, TAG__INSTANCE_TYPE_KEY) or d.get('instance_type', '?')
         image_id      = d.get('image_id', '')
-        if image_id in project_amis:
-            ami_name  = project_amis[image_id]
-            launch    = f'[magenta]ami[/] [dim]{ami_name or image_id}[/]'
-        else:
-            launch    = '[blue]docker[/]'
+        launch        = '[magenta]ami[/]' if image_id in project_amis else '[blue]docker[/]'
         colour        = 'green' if state == 'running' else 'yellow' if state == 'pending' else 'red'
-        t.add_row(deploy, iid, f'[{colour}]{state}[/]', launch, instance_type, ip, creator, api_key)
+        t.add_row(deploy, iid, f'[{colour}]{state}[/]', launch, instance_type, ip, creator)
     c.print(t)
 
 
