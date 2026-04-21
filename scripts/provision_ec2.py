@@ -97,7 +97,8 @@ _SCIENTISTS = ['bohr','curie','darwin','dirac','einstein','euler','faraday',
                'volta','watt','wien','zeno']
 
 COMPOSE_PROJECT   = 'sg-playwright'
-COMPOSE_FILE_PATH = '/opt/sg-playwright/docker-compose.yml'
+COMPOSE_FILE_PATH            = '/opt/sg-playwright/docker-compose.yml'
+DOCKER__PLAYWRIGHT_CONTAINER = 'sg-playwright-playwright-1'
 
 SMOKE_URLS = ['https://www.google.com'   ,
               'https://sgraph.ai'         ,
@@ -1632,6 +1633,26 @@ def cmd_exec(first      : str           = typer.Argument(...,  help='Deploy-name
     ctr_tag = f'[{container}]' if container else ''
     c.print(f'  💻  [dim]{instance_id}{ctr_tag}[/]  {shell_cmd}')
     stdout, stderr = _ssm_run(instance_id, [shell_cmd])
+    if stdout.strip():
+        print(stdout.rstrip())
+    if stderr.strip():
+        print(stderr.rstrip(), file=sys.stderr)
+    if not stdout.strip() and not stderr.strip():
+        c.print('  [dim](no output)[/]')
+
+
+@app.command(name='exec-c')
+def cmd_exec_c(shell_cmd: str           = typer.Argument(...,  help='Shell command to run inside the playwright container.'),
+               target   : Optional[str] = typer.Option(None, '--target', '-t', help='Deploy-name or instance-id (auto if only one).'),
+               container: str           = typer.Option(DOCKER__PLAYWRIGHT_CONTAINER, '--container', '-c',
+                                                        help='Container name (defaults to sg-playwright-playwright-1).')):
+    """Run a command inside the playwright container — shorthand for exec --container sg-playwright-playwright-1."""
+    ec2             = EC2()
+    instance_id, _  = _resolve_target(ec2, target)
+    wrapped         = f'docker exec {shlex.quote(container)} bash -c {shlex.quote(shell_cmd)}'
+    c               = Console(highlight=False, width=200)
+    c.print(f'  💻  [dim]{instance_id}[{container}][/]  {shell_cmd}')
+    stdout, stderr  = _ssm_run(instance_id, [wrapped])
     if stdout.strip():
         print(stdout.rstrip())
     if stderr.strip():
