@@ -87,21 +87,16 @@ class Browser__Launcher(Type_Safe):
         if result is None:
             return Safe_UInt__Milliseconds(0)                                        # Idempotent — double-close is a no-op, not an error
         ts_before_close = self.now_ms()
-        import threading
-
-        def _teardown():
-            try:
-                result.playwright.stop()                                             # Kills the Node subprocess + Chromium child
-            except Exception:
-                pass
-            try:
-                result.browser.close()                                               # Fast-fails (CDP channel gone); swallowed
-            except Exception:
-                pass
-
-        t = threading.Thread(target=_teardown, daemon=True)                         # daemon=True: thread never blocks process exit
-        t.start()
-        t.join(timeout=2.0)                                                          # Wait at most 2s; abandon if Chromium is draining mitmproxy keep-alive connections
+        if not self._sigkill_tree(result.playwright):                                # Fast path: SIGKILL Node.js + Chromium child — instant, no drain wait
+            import threading                                                          # Slow fallback: graceful stop in background thread, capped at 2s
+            def _teardown():
+                try:    result.playwright.stop()
+                except: pass
+                try:    result.browser.close()
+                except: pass
+            t = threading.Thread(target=_teardown, daemon=True)
+            t.start()
+            t.join(timeout=2.0)
         return Safe_UInt__Milliseconds(self.now_ms() - ts_before_close)
 
     def stop_all(self) -> None:
@@ -109,6 +104,43 @@ class Browser__Launcher(Type_Safe):
             self.stop(session_id)
 
     # ─── helpers ───────────────────────────────────────────────────────────────
+
+    def _sigkill_tree(self, playwright_handle) -> bool:
+        """SIGKILL the Node.js subprocess and its Chromium child. Returns True if the PID was reachable."""
+        import os, signal
+        node_pid = self._node_pid(playwright_handle)
+        if not node_pid:
+            return False
+        for child_pid in self._proc_children(node_pid):                              # Kill Chromium children before Node.js so they don't get re-parented to init
+            try:    os.kill(child_pid, signal.SIGKILL)
+            except: pass
+        try:    os.kill(node_pid, signal.SIGKILL)
+        except: pass
+        return True
+
+    def _node_pid(self, playwright_handle) -> int:                                   # Navigate Playwright internals: SyncPlaywright → async Playwright → Connection → PipeTransport → Popen.pid
+        try:    return playwright_handle._impl_obj._connection._transport._proc.pid
+        except: return 0
+
+    def _proc_children(self, pid: int) -> List[int]:                                 # Scan /proc for immediate children of pid (Linux-only; no-op on macOS/Lambda)
+        import os
+        children: List[int] = []
+        try:
+            for entry in os.scandir('/proc'):
+                if not entry.name.isdigit():
+                    continue
+                try:
+                    with open(f'/proc/{entry.name}/status') as f:
+                        for line in f:
+                            if line.startswith('PPid:'):
+                                if int(line.split()[1]) == pid:
+                                    children.append(int(entry.name))
+                                break
+                except (OSError, ValueError):
+                    pass
+        except OSError:
+            pass
+        return children
 
     def assert_provider_supported(self, browser_config: Schema__Browser__Config) -> None:
         if browser_config.provider != Enum__Browser__Provider.LOCAL_SUBPROCESS:
