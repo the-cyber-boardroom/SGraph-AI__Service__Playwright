@@ -16,7 +16,10 @@ from sgraph_ai_service_playwright.schemas.primitives.browser.Safe_Str__JS__Expre
 
 class JS__Expression__Allowlist(Type_Safe):                                         # Deny-all by default
     allowed_expressions : List[Safe_Str__JS__Expression]                            # Exact-match trusted JS strings
+    allow_all           : bool = False                                              # Bypass allowlist — screenshot surface sets this (each call is an isolated session)
 
-    def is_allowed(self, expression: Safe_Str__JS__Expression) -> bool:             # Exact-match check against the configured list
+    def is_allowed(self, expression: Safe_Str__JS__Expression) -> bool:             # Exact-match check; allow_all bypasses for trusted callers
+        if self.allow_all:
+            return True
         candidate = str(expression)
         return any(str(allowed) == candidate for allowed in self.allowed_expressions)

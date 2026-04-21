@@ -63,6 +63,7 @@ from sgraph_ai_service_playwright.service.Browser__Launcher                     
 from sgraph_ai_service_playwright.service.Capability__Detector                          import Capability__Detector
 from sgraph_ai_service_playwright.schemas.browser.Schema__Browser__Config               import Schema__Browser__Config
 from sgraph_ai_service_playwright.service.Credentials__Loader                           import Credentials__Loader
+from sgraph_ai_service_playwright.service.JS__Expression__Allowlist                     import JS__Expression__Allowlist
 from sgraph_ai_service_playwright.service.Request__Validator                            import Request__Validator
 from sgraph_ai_service_playwright.service.Sequence__Runner                              import Sequence__Runner
 
@@ -85,6 +86,14 @@ class Playwright__Service(Type_Safe):
         self.sequence_runner.credentials_loader  = self.credentials_loader
         return self
 
+    def _screenshot_runner(self) -> Sequence__Runner:                               # Dedicated runner for the screenshot surface — JS allowlist bypassed (each call is an isolated ephemeral session)
+        validator = Request__Validator(js_allowlist=JS__Expression__Allowlist(allow_all=True))
+        runner    = Sequence__Runner(capability_detector = self.capability_detector  ,
+                                     request_validator   = validator                 ,
+                                     browser_launcher    = self.browser_launcher     ,
+                                     credentials_loader  = self.credentials_loader   )
+        return runner
+
     # ─── Health surface ───────────────────────────────────────────────────────
 
     def get_service_info(self) -> Schema__Service__Info:
@@ -105,10 +114,13 @@ class Playwright__Service(Type_Safe):
     # ─── Sequence surface (unchanged URL) ─────────────────────────────────────
 
     def _run_sequence(self, request: Schema__Sequence__Request) -> Schema__Sequence__Response:
-        """Run a sequence via Sequence__Runner.
+        return self._run_sequence_via(request, self.sequence_runner)
+
+    def _run_sequence_via(self, request: Schema__Sequence__Request, runner: Sequence__Runner) -> Schema__Sequence__Response:
+        """Dispatch a sequence through the given runner.
 
         Playwright's sync API raises if called from inside an asyncio event loop
-        (Lambda / Mangum runs the ASGI app inside asyncio.run()). Detect this and
+        (Lambda / Lambda Web Adapter runs the ASGI app inside asyncio.run()). Detect this and
         dispatch to a fresh ThreadPoolExecutor thread that has no running loop.
         On EC2 / local the try block raises RuntimeError immediately and we call
         execute() directly — zero overhead on the fast path.
@@ -118,9 +130,9 @@ class Playwright__Service(Type_Safe):
             asyncio.get_running_loop()
             from concurrent.futures import ThreadPoolExecutor
             with ThreadPoolExecutor(max_workers=1) as pool:                          # Fresh thread has no running event loop
-                return pool.submit(self.sequence_runner.execute, request).result()
+                return pool.submit(runner.execute, request).result()
         except RuntimeError:
-            return self.sequence_runner.execute(request)                             # No loop running — EC2 / local, call directly
+            return runner.execute(request)                                           # No loop running — EC2 / local, call directly
 
     def execute_sequence(self, request: Schema__Sequence__Request) -> Schema__Sequence__Response:
         self.setup()
@@ -147,7 +159,7 @@ class Playwright__Service(Type_Safe):
                 steps.append(dict(action=Enum__Step__Action.SCREENSHOT.value, full_page=bool(request.full_page)))
                 capture_config = Schema__Capture__Config(screenshot=Schema__Artefact__Sink_Config(enabled=True, sink=Enum__Artefact__Sink.INLINE))
             seq_request  = self.build_sequence_request(steps=steps, browser_config=None, capture_config=capture_config)
-            seq_response = self._run_sequence(seq_request)
+            seq_response = self._run_sequence_via(seq_request, self._screenshot_runner())
             self.raise_on_sequence_failure(seq_response)
             if request.format == Enum__Screenshot__Format.HTML:
                 html = next((str(r.content) for r in seq_response.step_results
@@ -201,7 +213,7 @@ class Playwright__Service(Type_Safe):
                 seq_steps.append(dict(action=Enum__Step__Action.SCREENSHOT.value, full_page=False))
         capture_config = Schema__Capture__Config(screenshot=Schema__Artefact__Sink_Config(enabled=True, sink=Enum__Artefact__Sink.INLINE))
         seq_request    = self.build_sequence_request(steps=seq_steps, browser_config=None, capture_config=capture_config)
-        seq_response   = self._run_sequence(seq_request)
+        seq_response   = self._run_sequence_via(seq_request, self._screenshot_runner())
         self.raise_on_sequence_failure(seq_response)
         screenshots = [Schema__Screenshot__Response(screenshot_b64=str(a.inline_b64),
                                                      duration_ms   =seq_response.total_duration_ms)
