@@ -1434,7 +1434,7 @@ def _vault_shell(instance_id: str, shell: str, container: Optional[str] = None) 
     When container is set, wraps the command with docker exec so it runs inside the container.
     Returns the process exit code.
     """
-    import json, os, shutil
+    import json, os, shutil, subprocess
     plugin = shutil.which('session-manager-plugin') or '/usr/local/sessionmanagerplugin/bin/session-manager-plugin'
     if not os.path.isfile(plugin):
         Console(highlight=False).print('  [red]✗  session-manager-plugin not found — streaming requires the plugin.[/]')
