@@ -1299,6 +1299,20 @@ def cmd_connect(target: Optional[str] = typer.Argument(None, help='Deploy-name o
         c.print()
 
 
+@app.command(name='shell')
+def cmd_shell(target   : Optional[str] = typer.Argument(None, help='Deploy-name or instance-id (auto if only one).'),
+              container: str           = typer.Option(DOCKER__PLAYWRIGHT_CONTAINER, '--container', '-c',
+                                                      help='Container to shell into (default: playwright).')):
+    """Open an interactive bash shell inside the specified container via SSM (no SSH needed)."""
+    ec2             = EC2()
+    instance_id, _  = _resolve_target(ec2, target)
+    c               = Console(highlight=False, width=200)
+    c.print(f'\n  🐚  Connecting to [bold]{container}[/] on [dim]{instance_id}[/] …\n')
+    rc = _vault_shell(instance_id, 'bash', container=container)
+    if rc != 0:
+        c.print(f'\n  [red]✗  Shell exited with code {rc}[/]')
+
+
 def _env_export_prefix(instance_id: str, details: dict) -> str:
     """Build a shell export block from instance tags — prepend to any command for automatic env injection."""
     deploy_name   = _instance_deploy_name(details)
@@ -1414,6 +1428,30 @@ def _vault_ssm(instance_id: str, shell: str, timeout: int = 60, container: Optio
         Console(highlight=False).print('  [dim](no output)[/]')
 
 
+def _vault_shell(instance_id: str, shell: str, container: Optional[str] = None) -> int:
+    """Run a command via SSM start-session (streams output in real time, requires session-manager-plugin).
+
+    When container is set, wraps the command with docker exec so it runs inside the container.
+    Returns the process exit code.
+    """
+    import json, os, shutil
+    plugin = shutil.which('session-manager-plugin') or '/usr/local/sessionmanagerplugin/bin/session-manager-plugin'
+    if not os.path.isfile(plugin):
+        Console(highlight=False).print('  [red]✗  session-manager-plugin not found — streaming requires the plugin.[/]')
+        Console(highlight=False).print('  Install: [bold]brew install --cask session-manager-plugin[/]')
+        return 1
+    if container:
+        shell = f'docker exec -it {shlex.quote(container)} bash -c {shlex.quote(shell)}'
+    params = json.dumps({'command': [shell]})
+    result = subprocess.run(
+        ['aws', 'ssm', 'start-session',
+         '--target', instance_id,
+         '--document-name', 'AWS-StartInteractiveCommand',
+         '--parameters', params],
+        check=False)
+    return result.returncode
+
+
 @app.command(name='vault-list')
 def cmd_vault_list(target   : Optional[str] = typer.Argument(None, help='Deploy-name or instance-id (auto if only one).'),
                    path     : str           = typer.Option('.',          '--path',      '-p', help='Sub-path within --work-dir to list.'),
@@ -1433,7 +1471,9 @@ def cmd_vault_run(script   : str           = typer.Argument(...,  help='Script p
                   container: Optional[str] = typer.Option('playwright',  '--container', '-c', help='Run inside this Compose service (pass "" to run on EC2 host).'),
                   work_dir : str           = typer.Option('/root/sg-investigation', '--work-dir', help='Vault root (inside container when --container is set).'),
                   save     : Optional[str] = typer.Option(None,  '--save', '-o', help='Save output to this path within --work-dir.'),
-                  timeout  : int           = typer.Option(120,   '--timeout', help='Script timeout in seconds.')):
+                  timeout  : int           = typer.Option(120,   '--timeout', help='Script timeout in seconds.'),
+                  stream   : bool          = typer.Option(True,  '--stream/--no-stream',
+                                                          help='Stream output in real time via SSM start-session (requires session-manager-plugin). Use --no-stream to collect and return output after completion.')):
     """Run a single bash or python script from the vault.
 
     Interpreter is chosen by extension: .py → python3, anything else → bash.
@@ -1452,8 +1492,11 @@ def cmd_vault_run(script   : str           = typer.Argument(...,  help='Script p
         shell = f'mkdir -p $(dirname {shlex.quote(save_path)}) && {run_cmd} | tee {shlex.quote(save_path)}'
     else:
         shell = run_cmd
-    _vault_ssm(instance_id, f'{env_prefix}chmod +x {shlex.quote(full_script)} 2>/dev/null; {shell}',
-               timeout=timeout + 10, container=container or None)
+    full_shell = f'{env_prefix}chmod +x {shlex.quote(full_script)} 2>/dev/null; {shell}'
+    if stream:
+        _vault_shell(instance_id, full_shell, container=container or None)
+    else:
+        _vault_ssm(instance_id, full_shell, timeout=timeout + 10, container=container or None)
 
 
 @app.command(name='vault-commit')
@@ -1495,6 +1538,29 @@ def cmd_vault_pull(target   : Optional[str] = typer.Argument(None, help='Deploy-
     ec2             = EC2()
     instance_id, _  = _resolve_target(ec2, target)
     _vault_ssm(instance_id, f'cd {shlex.quote(work_dir)} && sgit pull 2>&1', container=container or None)
+
+
+@app.command(name='vault-status')
+def cmd_vault_status(target   : Optional[str] = typer.Argument(None, help='Deploy-name or instance-id (auto if only one).'),
+                     container: Optional[str] = typer.Option('playwright', '--container', '-c', help='Run inside this Compose service (pass "" for EC2 host).'),
+                     work_dir : str           = typer.Option('/root/sg-investigation', '--work-dir', help='Vault root.')):
+    """Show vault status: working-tree changes, recent commits, and output files."""
+    ec2             = EC2()
+    instance_id, _  = _resolve_target(ec2, target)
+    shell = f'''\
+cd {shlex.quote(work_dir)} 2>/dev/null || {{ echo "vault not found at {work_dir}"; exit 1; }}
+echo "=== status ==="
+sgit status 2>&1
+echo ""
+echo "=== recent commits ==="
+sgit log --oneline -5 2>&1 || true
+echo ""
+echo "=== outputs ==="
+find . -path "*/outputs/*" -type f 2>/dev/null | sort | while read f; do
+    echo "  $(wc -l < "$f" 2>/dev/null || echo 0)L  $f"
+done
+'''
+    _vault_ssm(instance_id, shell, container=container or None)
 
 
 @app.command(name='run')
