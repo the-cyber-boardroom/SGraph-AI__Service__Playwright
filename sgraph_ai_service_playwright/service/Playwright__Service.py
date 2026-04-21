@@ -99,9 +99,27 @@ class Playwright__Service(Type_Safe):
 
     # ─── Sequence surface (unchanged URL) ─────────────────────────────────────
 
+    def _run_sequence(self, request: Schema__Sequence__Request) -> Schema__Sequence__Response:
+        """Run a sequence via Sequence__Runner.
+
+        Playwright's sync API raises if called from inside an asyncio event loop
+        (Lambda / Mangum runs the ASGI app inside asyncio.run()). Detect this and
+        dispatch to a fresh ThreadPoolExecutor thread that has no running loop.
+        On EC2 / local the try block raises RuntimeError immediately and we call
+        execute() directly — zero overhead on the fast path.
+        """
+        import asyncio
+        try:
+            asyncio.get_running_loop()
+            from concurrent.futures import ThreadPoolExecutor
+            with ThreadPoolExecutor(max_workers=1) as pool:                          # Fresh thread has no running event loop
+                return pool.submit(self.sequence_runner.execute, request).result()
+        except RuntimeError:
+            return self.sequence_runner.execute(request)                             # No loop running — EC2 / local, call directly
+
     def execute_sequence(self, request: Schema__Sequence__Request) -> Schema__Sequence__Response:
         self.setup()
-        return self.sequence_runner.execute(request)
+        return self._run_sequence(request)
 
     # ─── One-shot /browser/* surface (v0.1.24) ────────────────────────────────
     # Each method builds a tiny throwaway sequence, runs it through
@@ -158,7 +176,7 @@ class Playwright__Service(Type_Safe):
             capture_config = Schema__Capture__Config(screenshot = Schema__Artefact__Sink_Config(enabled = True                         ,
                                                                                                  sink    = Enum__Artefact__Sink.INLINE))
             seq_request  = self.build_sequence_request(steps=steps, browser_config=self._with_viewport(request.browser_config, request.viewport), capture_config=capture_config, timeout_ms=request.timeout_ms)
-            seq_response = self.sequence_runner.execute(seq_request)
+            seq_response = self._run_sequence(seq_request)
             self.raise_on_sequence_failure(seq_response)
 
             for artefact in seq_response.artefacts:
@@ -183,7 +201,7 @@ class Playwright__Service(Type_Safe):
         try:
             self.setup()
             seq_request  = self.build_sequence_request(steps=steps, browser_config=browser_config, capture_config=Schema__Capture__Config(), timeout_ms=timeout_ms)
-            seq_response = self.sequence_runner.execute(seq_request)
+            seq_response = self._run_sequence(seq_request)
             self.raise_on_sequence_failure(seq_response)
 
             final_url : Safe_Str__Url = Safe_Str__Url(str(url))                      # Fallback if GET_URL somehow missing
