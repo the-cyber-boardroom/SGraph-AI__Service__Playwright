@@ -38,8 +38,8 @@ from sgraph_ai_service_playwright.fast_api.routes.Routes__Sequence              
 from sgraph_ai_service_playwright.service.Playwright__Service                        import Playwright__Service
 from sgraph_ai_service_playwright.service.Request__Watchdog                          import Request__Watchdog
 
-SCREENSHOT_EXAMPLE      = {'url': 'https://sgraph.ai'}
-SCREENSHOT_BATCH_EXAMPLE = {'items': [{'url': 'https://sgraph.ai'}]}
+SCREENSHOT_EXAMPLE      = {'url': 'https://sgraph.ai', 'click': None, 'javascript': None, 'full_page': False, 'format': 'png'}
+SCREENSHOT_BATCH_EXAMPLE = {'items': [{'url': 'https://sgraph.ai', 'click': None, 'javascript': None, 'full_page': False, 'format': 'png'}]}
 
 
 class Fast_API__Playwright__Service(Agentic_FastAPI):
