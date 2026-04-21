@@ -335,7 +335,7 @@ class test_cli_surface(TestCase):
         result = CliRunner().invoke(provision_ec2.app, ['--help'])
         assert result.exit_code == 0
         out = _plain(result.output)
-        for cmd in ('create', 'list', 'delete', 'connect', 'exec', 'logs', 'forward', 'wait',
+        for cmd in ('create', 'list', 'delete', 'connect', 'exec', 'exec-c', 'logs', 'forward', 'wait',
                     'health', 'open', 'screenshot', 'smoke', 'clean', 'bake-ami', 'wait-ami', 'tag-ami',
                     'env', 'vault-clone', 'vault-list', 'vault-run', 'vault-commit', 'vault-push', 'vault-pull', 'run'):
             assert cmd in out, f'command {cmd!r} missing from --help'

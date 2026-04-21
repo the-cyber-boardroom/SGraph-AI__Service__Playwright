@@ -97,7 +97,8 @@ _SCIENTISTS = ['bohr','curie','darwin','dirac','einstein','euler','faraday',
                'volta','watt','wien','zeno']
 
 COMPOSE_PROJECT   = 'sg-playwright'
-COMPOSE_FILE_PATH = '/opt/sg-playwright/docker-compose.yml'
+COMPOSE_FILE_PATH            = '/opt/sg-playwright/docker-compose.yml'
+DOCKER__PLAYWRIGHT_CONTAINER = 'sg-playwright-playwright-1'
 
 SMOKE_URLS = ['https://www.google.com'   ,
               'https://sgraph.ai'         ,
@@ -1600,25 +1601,25 @@ def cmd_exec(first      : str           = typer.Argument(...,  help='Deploy-name
              cmd        : Optional[str] = typer.Option(None, '--cmd',         help='Shell command (alternative to positional).'),
              target     : Optional[str] = typer.Option(None, '--target', '-t',help='Force target; first positional arg then becomes the command.'),
              container  : Optional[str] = typer.Option(None, '--container', '-c',
-                                                        help='Run inside this Compose service (playwright or agent-mitmproxy).'),
+                                                        help='Run inside this container (full name or compose service name, e.g. sg-playwright-playwright-1 or playwright).'),
              inject_env : bool          = typer.Option(False, '--inject-env', help='Prepend DEPLOY_NAME/API_KEY_VALUE/EC2_IP/INSTANCE_ID from tags.') ):
     """Execute a shell command on the EC2 host or inside a Docker container via SSM.
 
     Usage patterns:
-      sg-ec2 exec fresh-fermi "docker ps"        # explicit target + command
-      sg-ec2 exec "docker ps"                    # auto-select target + command
-      sg-ec2 exec fresh-fermi --cmd "docker ps"  # explicit target + --cmd
-      sg-ec2 exec --cmd "docker ps"              # auto-select + --cmd
+      sgpl exec "docker ps"                                         # host, auto-select target
+      sgpl exec fierce-hubble "docker ps"                          # host, explicit target
+      sgpl exec "ls /" --container sg-playwright-playwright-1      # inside container (full name)
+      sgpl exec "ls /" --container playwright                      # inside container (service name)
     """
     if target:
         resolved_target = target
         shell_cmd       = second or first or cmd
     elif second or cmd:
-        resolved_target = first          # first positional = target
-        shell_cmd       = second or cmd  # second positional or --cmd = command
+        resolved_target = first
+        shell_cmd       = second or cmd
     else:
-        resolved_target = None           # auto-select
-        shell_cmd       = first          # only arg = command
+        resolved_target = None
+        shell_cmd       = first
 
     if not shell_cmd:
         raise typer.BadParameter('Provide a shell command.')
@@ -1627,11 +1628,31 @@ def cmd_exec(first      : str           = typer.Argument(...,  help='Deploy-name
     if inject_env:
         shell_cmd = _env_export_prefix(instance_id, d) + shell_cmd
     if container:
-        shell_cmd = f'docker compose -f {COMPOSE_FILE_PATH} exec -T {container} {shell_cmd}'
+        shell_cmd = f'docker exec {shlex.quote(container)} bash -c {shlex.quote(shell_cmd)}'
     c = Console(highlight=False, width=200)
     ctr_tag = f'[{container}]' if container else ''
     c.print(f'  💻  [dim]{instance_id}{ctr_tag}[/]  {shell_cmd}')
     stdout, stderr = _ssm_run(instance_id, [shell_cmd])
+    if stdout.strip():
+        print(stdout.rstrip())
+    if stderr.strip():
+        print(stderr.rstrip(), file=sys.stderr)
+    if not stdout.strip() and not stderr.strip():
+        c.print('  [dim](no output)[/]')
+
+
+@app.command(name='exec-c')
+def cmd_exec_c(shell_cmd: str           = typer.Argument(...,  help='Shell command to run inside the playwright container.'),
+               target   : Optional[str] = typer.Option(None, '--target', '-t', help='Deploy-name or instance-id (auto if only one).'),
+               container: str           = typer.Option(DOCKER__PLAYWRIGHT_CONTAINER, '--container', '-c',
+                                                        help='Container name (defaults to sg-playwright-playwright-1).')):
+    """Run a command inside the playwright container — shorthand for exec --container sg-playwright-playwright-1."""
+    ec2             = EC2()
+    instance_id, _  = _resolve_target(ec2, target)
+    wrapped         = f'docker exec {shlex.quote(container)} bash -c {shlex.quote(shell_cmd)}'
+    c               = Console(highlight=False, width=200)
+    c.print(f'  💻  [dim]{instance_id}[{container}][/]  {shell_cmd}')
+    stdout, stderr  = _ssm_run(instance_id, [wrapped])
     if stdout.strip():
         print(stdout.rstrip())
     if stderr.strip():
