@@ -88,11 +88,11 @@ class Browser__Launcher(Type_Safe):
             return Safe_UInt__Milliseconds(0)                                        # Idempotent — double-close is a no-op, not an error
         ts_before_close = self.now_ms()
         try:
-            result.browser.close()
-        except Exception:                                                            # Browser may already be dead; swallow — no useful recovery
+            result.playwright.stop()                                                 # Kill the Node subprocess first — terminates Chromium immediately without waiting for network drain
+        except Exception:
             pass
         try:
-            result.playwright.stop()                                                 # Kills the Node subprocess — matches the one we started in launch()
+            result.browser.close()                                                   # Fast-fails (CDP channel gone); swallowed — keeps stop() idempotent
         except Exception:
             pass
         return Safe_UInt__Milliseconds(self.now_ms() - ts_before_close)
