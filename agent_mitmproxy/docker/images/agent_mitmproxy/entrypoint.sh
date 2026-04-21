@@ -45,6 +45,7 @@ if [ -n "${AGENT_MITMPROXY__UPSTREAM_URL:-}" ]; then
     if [ -n "${AGENT_MITMPROXY__UPSTREAM_USER:-}" ] && [ -n "${AGENT_MITMPROXY__UPSTREAM_PASS:-}" ]; then
         MITMWEB_CMD="${MITMWEB_CMD} --set upstream_auth=${AGENT_MITMPROXY__UPSTREAM_USER}:${AGENT_MITMPROXY__UPSTREAM_PASS}"
     fi
+    MITMWEB_CMD="${MITMWEB_CMD} --ssl-insecure"                                  # upstream always presents a forged cert; skip verification
 fi
 
 # Web UI password — set to a known value so operators can log in; unset = mitmweb generates a random one
