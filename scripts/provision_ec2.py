@@ -1434,19 +1434,25 @@ def cmd_vault_run(script   : str           = typer.Argument(...,  help='Script p
                   work_dir : str           = typer.Option('/root/sg-investigation', '--work-dir', help='Vault root (inside container when --container is set).'),
                   save     : Optional[str] = typer.Option(None,  '--save', '-o', help='Save output to this path within --work-dir.'),
                   timeout  : int           = typer.Option(120,   '--timeout', help='Script timeout in seconds.')):
-    """Run a single bash or python script from the vault."""
+    """Run a single bash or python script from the vault.
+
+    Interpreter is chosen by extension: .py → python3, anything else → bash.
+    Instance env vars (DEPLOY_NAME, API_KEY_VALUE, EC2_IP, etc.) are always
+    exported so scripts can reference them without extra setup.
+    """
     ec2             = EC2()
-    instance_id, _  = _resolve_target(ec2, target)
+    instance_id, d  = _resolve_target(ec2, target)
     full_script     = f'{work_dir}/{script}'
     ext             = script.rsplit('.', 1)[-1] if '.' in script else ''
     interpreter     = 'python3' if ext == 'py' else 'bash'
+    env_prefix      = _env_export_prefix(instance_id, d)
     run_cmd         = f'timeout {timeout} {interpreter} {shlex.quote(full_script)}'
     if save:
         save_path = f'{work_dir}/{save}'
         shell = f'mkdir -p $(dirname {shlex.quote(save_path)}) && {run_cmd} | tee {shlex.quote(save_path)}'
     else:
         shell = run_cmd
-    _vault_ssm(instance_id, f'chmod +x {shlex.quote(full_script)} 2>/dev/null; {shell}',
+    _vault_ssm(instance_id, f'{env_prefix}chmod +x {shlex.quote(full_script)} 2>/dev/null; {shell}',
                timeout=timeout + 10, container=container or None)
 
 
