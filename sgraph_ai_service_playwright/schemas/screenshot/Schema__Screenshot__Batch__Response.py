@@ -11,5 +11,5 @@ from sgraph_ai_service_playwright.schemas.screenshot.Schema__Screenshot__Respons
 
 
 class Schema__Screenshot__Batch__Response(Type_Safe):
-    screenshots : List[Schema__Screenshot__Response] = []
+    screenshots : List[Schema__Screenshot__Response]
     duration_ms : Safe_UInt__Milliseconds            = Safe_UInt__Milliseconds(0)
