@@ -173,6 +173,7 @@ COMPOSE_YAML_TEMPLATE = textwrap.dedent("""\
           AGENT_MITMPROXY__UPSTREAM_URL:  '{upstream_url}'
           AGENT_MITMPROXY__UPSTREAM_USER: '{upstream_user}'
           AGENT_MITMPROXY__UPSTREAM_PASS: '{upstream_pass}'
+          AGENT_MITMPROXY__HTTP2:         '{http2}'
         networks:
           - sg-net
         restart: always
@@ -585,6 +586,7 @@ def render_compose_yaml(playwright_image_uri : str,
                          upstream_url         : str = '',
                          upstream_user        : str = '',
                          upstream_pass        : str = '',
+                         http2                : str = '',
                          watchdog_max_request_ms: int = WATCHDOG_MAX_REQUEST_MS) -> str:
     return COMPOSE_YAML_TEMPLATE.format(playwright_image_uri    = playwright_image_uri    ,
                                         sidecar_image_uri       = sidecar_image_uri       ,
@@ -595,6 +597,7 @@ def render_compose_yaml(playwright_image_uri : str,
                                         upstream_url            = upstream_url            ,
                                         upstream_user           = upstream_user           ,
                                         upstream_pass           = upstream_pass           ,
+                                        http2                   = http2                   ,
                                         watchdog_max_request_ms = watchdog_max_request_ms )
 
 
@@ -783,7 +786,8 @@ def provision(stage                  : str          = DEFAULT_STAGE    ,
                terminate             : bool         = False            ,
                upstream_url          : str          = ''               ,    # CLI-supplied proxy; falls back to env var
                upstream_user         : str          = ''               ,
-               upstream_pass         : str          = ''               ) -> dict:
+               upstream_pass         : str          = ''               ,
+               http2                 : str          = ''               ) -> dict:    # 'false' → --set http2=false; fixes InvalidBodyLengthError
     ec2 = EC2()
 
     if terminate:
@@ -798,6 +802,7 @@ def provision(stage                  : str          = DEFAULT_STAGE    ,
     upstream_url          = upstream_url  or get_env('AGENT_MITMPROXY__UPSTREAM_URL' ) or ''
     upstream_user         = upstream_user or get_env('AGENT_MITMPROXY__UPSTREAM_USER') or ''
     upstream_pass         = upstream_pass or get_env('AGENT_MITMPROXY__UPSTREAM_PASS') or ''
+    http2                 = http2         or get_env('AGENT_MITMPROXY__HTTP2'         ) or ''
     playwright_image_uri  = playwright_image_uri or default_playwright_image_uri()
     sidecar_image_uri     = sidecar_image_uri    or default_sidecar_image_uri()
     resolved_deploy_name  = deploy_name or _random_deploy_name()
@@ -812,7 +817,8 @@ def provision(stage                  : str          = DEFAULT_STAGE    ,
                                                  api_key_value        = api_key_value        ,
                                                  upstream_url         = upstream_url         ,
                                                  upstream_user        = upstream_user        ,
-                                                 upstream_pass        = upstream_pass        )
+                                                 upstream_pass        = upstream_pass        ,
+                                                 http2                = http2                )
     obs_section = render_observability_configs_section(region               = aws_region()       ,
                                                         amp_remote_write_url = amp_remote_write_url,
                                                         opensearch_endpoint  = opensearch_endpoint ,
@@ -1086,10 +1092,11 @@ def create(stage                : str           = typer.Option(DEFAULT_STAGE, he
            smoke                : bool          = typer.Option(False, '--smoke',            help='After instance is up: run smoke test then delete (implies --wait).')  ,
            wait                 : bool          = typer.Option(False, '--wait',             help='Poll health until up.')                                     ,
            timeout              : int           = typer.Option(600,  '--timeout',           help='Max seconds to wait when --wait or --smoke is set.')        ,
-           upstream_url         : Optional[str] = typer.Option(None, '--upstream-url',    help='Upstream proxy URL for agent_mitmproxy, e.g. http://proxy.example.com:8080.')  ,
-           upstream_user        : Optional[str] = typer.Option(None, '--upstream-user',   help='Username for upstream proxy authentication.')                                  ,
-           upstream_pass        : Optional[str] = typer.Option(None, '--upstream-pass',   help='Password for upstream proxy authentication.')                                  ,
-           env_file             : Optional[str] = typer.Option(None, '--env-file',        help='Path to a .env file; values are merged under CLI flags (CLI wins on conflict).')):
+           upstream_url         : Optional[str] = typer.Option(None,  '--upstream-url',    help='Upstream proxy URL for agent_mitmproxy, e.g. http://proxy.example.com:8080.')  ,
+           upstream_user        : Optional[str] = typer.Option(None,  '--upstream-user',   help='Username for upstream proxy authentication.')                                  ,
+           upstream_pass        : Optional[str] = typer.Option(None,  '--upstream-pass',   help='Password for upstream proxy authentication.')                                  ,
+           disable_http2        : bool          = typer.Option(False, '--disable-http2',   help='Set http2=false on the sidecar (fixes InvalidBodyLengthError on some proxies).'),
+           env_file             : Optional[str] = typer.Option(None,  '--env-file',        help='Path to a .env file; values are merged under CLI flags (CLI wins on conflict).')):
     """Provision an EC2 instance running the Playwright + agent_mitmproxy stack."""
     c = Console(highlight=False, width=200)
 
@@ -1100,6 +1107,8 @@ def create(stage                : str           = typer.Option(DEFAULT_STAGE, he
         upstream_url  = upstream_url  or env_values.get('AGENT_MITMPROXY__UPSTREAM_URL' ) or ''
         upstream_user = upstream_user or env_values.get('AGENT_MITMPROXY__UPSTREAM_USER') or ''
         upstream_pass = upstream_pass or env_values.get('AGENT_MITMPROXY__UPSTREAM_PASS') or ''
+        if not disable_http2:
+            disable_http2 = (env_values.get('AGENT_MITMPROXY__HTTP2', '').lower() == 'false')
 
     resolved_type = _resolve_instance_type(instance_type)
     run_smoke     = smoke
@@ -1118,7 +1127,8 @@ def create(stage                : str           = typer.Option(DEFAULT_STAGE, he
                                   from_ami=from_ami, instance_type=resolved_type,
                                   max_hours=max_hours,
                                   upstream_url=upstream_url or '', upstream_user=upstream_user or '',
-                                  upstream_pass=upstream_pass or '')
+                                  upstream_pass=upstream_pass or '',
+                                  http2='false' if disable_http2 else '')
     _render_create_result(result)
     resolved_name    = result['deploy_name']
 

@@ -45,6 +45,7 @@ services:
       AGENT_MITMPROXY__UPSTREAM_URL:        ${AGENT_MITMPROXY__UPSTREAM_URL:-}
       AGENT_MITMPROXY__UPSTREAM_USER:       ${AGENT_MITMPROXY__UPSTREAM_USER:-}
       AGENT_MITMPROXY__UPSTREAM_PASS:       ${AGENT_MITMPROXY__UPSTREAM_PASS:-}
+      AGENT_MITMPROXY__HTTP2:               ${AGENT_MITMPROXY__HTTP2:-}
     networks:
       - sg-net
     restart: unless-stopped
