@@ -179,9 +179,9 @@ details>.db{padding-top:8px;display:flex;flex-direction:column;gap:8px;}
 
   <!-- API key (always visible) -->
   <div style="padding:12px 16px 0;flex-shrink:0;">
-    <label>API Key</label>
+    <label>API Key <span style="color:var(--muted);font-weight:400">(optional)</span></label>
     <div class="kr">
-      <input id="api-key" type="password" placeholder="paste your API key…">
+      <input id="api-key" type="password" placeholder="leave blank if not required">
       <button class="ib" onclick="toggleKeyVis()">👁</button>
     </div>
   </div>
@@ -312,7 +312,6 @@ async function execSingle() {
   const click  = document.getElementById('click-sel').value.trim();
   const full   = document.getElementById('full-page').checked;
   if (!url)    { setStatus('s','⚠ URL required',true); return; }
-  if (!apiKey) { setStatus('s','⚠ API key required',true); return; }
   const body = {url, format:fmt};
   if (js)    body.javascript = js;
   if (click) body.click      = click;
@@ -424,7 +423,6 @@ function getCardItems() {
 
 async function execBatch() {
   const apiKey = keyEl.value.trim();
-  if (!apiKey) { setStatus('b','⚠ API key required',true); return; }
   const isSteps = batchMode === 'steps';
   const allCards = getCardItems();
   const items    = isSteps ? allCards : allCards.filter(x => x.url);
@@ -480,9 +478,9 @@ function escHtml(s) {
 
 // ── Shared helpers ──
 function post(path, key, body) {
-  return fetch(path, {method:'POST',
-    headers:{'Content-Type':'application/json','X-API-Key':key},
-    body:JSON.stringify(body)});
+  const headers = {'Content-Type':'application/json'};
+  if (key) headers['X-API-Key'] = key;
+  return fetch(path, {method:'POST', headers, body:JSON.stringify(body)});
 }
 
 function setBusy(which, on) {
