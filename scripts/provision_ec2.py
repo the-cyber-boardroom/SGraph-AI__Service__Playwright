@@ -780,7 +780,10 @@ def provision(stage                  : str          = DEFAULT_STAGE    ,
                from_ami              : str          = None             ,    # use pre-baked AMI; skips install+pull
                instance_type         : str          = EC2__INSTANCE_TYPE,
                max_hours             : Optional[int] = None            ,
-               terminate             : bool         = False            ) -> dict:
+               terminate             : bool         = False            ,
+               upstream_url          : str          = ''               ,    # CLI-supplied proxy; falls back to env var
+               upstream_user         : str          = ''               ,
+               upstream_pass         : str          = ''               ) -> dict:
     ec2 = EC2()
 
     if terminate:
@@ -792,9 +795,9 @@ def provision(stage                  : str          = DEFAULT_STAGE    ,
                                              instance_type=instance_type)
     api_key_name          = get_env('FAST_API__AUTH__API_KEY__NAME' ) or 'X-API-Key'
     api_key_value         = get_env('FAST_API__AUTH__API_KEY__VALUE') or preflight['api_key_value']
-    upstream_url          = get_env('AGENT_MITMPROXY__UPSTREAM_URL' ) or ''
-    upstream_user         = get_env('AGENT_MITMPROXY__UPSTREAM_USER') or ''
-    upstream_pass         = get_env('AGENT_MITMPROXY__UPSTREAM_PASS') or ''
+    upstream_url          = upstream_url  or get_env('AGENT_MITMPROXY__UPSTREAM_URL' ) or ''
+    upstream_user         = upstream_user or get_env('AGENT_MITMPROXY__UPSTREAM_USER') or ''
+    upstream_pass         = upstream_pass or get_env('AGENT_MITMPROXY__UPSTREAM_PASS') or ''
     playwright_image_uri  = playwright_image_uri or default_playwright_image_uri()
     sidecar_image_uri     = sidecar_image_uri    or default_sidecar_image_uri()
     resolved_deploy_name  = deploy_name or _random_deploy_name()
@@ -1082,9 +1085,21 @@ def create(stage                : str           = typer.Option(DEFAULT_STAGE, he
            interactive          : bool          = typer.Option(False, '--interactive', '-i', help='Ask questions before launching (instance type, smoke workflow).')  ,
            smoke                : bool          = typer.Option(False, '--smoke',            help='After instance is up: run smoke test then delete (implies --wait).')  ,
            wait                 : bool          = typer.Option(False, '--wait',             help='Poll health until up.')                                     ,
-           timeout              : int           = typer.Option(600,  '--timeout',           help='Max seconds to wait when --wait or --smoke is set.')        ):
+           timeout              : int           = typer.Option(600,  '--timeout',           help='Max seconds to wait when --wait or --smoke is set.')        ,
+           upstream_url         : Optional[str] = typer.Option(None, '--upstream-url',    help='Upstream proxy URL for agent_mitmproxy, e.g. http://proxy.example.com:8080.')  ,
+           upstream_user        : Optional[str] = typer.Option(None, '--upstream-user',   help='Username for upstream proxy authentication.')                                  ,
+           upstream_pass        : Optional[str] = typer.Option(None, '--upstream-pass',   help='Password for upstream proxy authentication.')                                  ,
+           env_file             : Optional[str] = typer.Option(None, '--env-file',        help='Path to a .env file; values are merged under CLI flags (CLI wins on conflict).')):
     """Provision an EC2 instance running the Playwright + agent_mitmproxy stack."""
     c = Console(highlight=False, width=200)
+
+    # ── Load .env file (CLI flags take precedence) ────────────────────────────
+    if env_file:
+        import dotenv                                                            # python-dotenv; already a dev dep
+        env_values   = dotenv.dotenv_values(env_file)
+        upstream_url  = upstream_url  or env_values.get('AGENT_MITMPROXY__UPSTREAM_URL' ) or ''
+        upstream_user = upstream_user or env_values.get('AGENT_MITMPROXY__UPSTREAM_USER') or ''
+        upstream_pass = upstream_pass or env_values.get('AGENT_MITMPROXY__UPSTREAM_PASS') or ''
 
     resolved_type = _resolve_instance_type(instance_type)
     run_smoke     = smoke
@@ -1101,7 +1116,9 @@ def create(stage                : str           = typer.Option(DEFAULT_STAGE, he
     result           = provision(stage=stage, playwright_image_uri=playwright_image_uri,
                                   sidecar_image_uri=sidecar_image_uri, deploy_name=name or '',
                                   from_ami=from_ami, instance_type=resolved_type,
-                                  max_hours=max_hours)
+                                  max_hours=max_hours,
+                                  upstream_url=upstream_url or '', upstream_user=upstream_user or '',
+                                  upstream_pass=upstream_pass or '')
     _render_create_result(result)
     resolved_name    = result['deploy_name']
 
