@@ -137,12 +137,32 @@ details>.db{padding-top:8px;display:flex;flex-direction:column;gap:8px;}
 
 /* batch results grid */
 .batch-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px;}
-.batch-thumb{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;}
+.batch-thumb{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;cursor:pointer;transition:border-color .15s;}
+.batch-thumb:hover{border-color:var(--accent);}
 .batch-thumb img{width:100%;display:block;}
 .batch-thumb .thumb-label{padding:6px 8px;font-size:.72rem;color:var(--muted);
                            white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
 .batch-thumb pre{padding:8px;font-size:.68rem;font-family:monospace;white-space:pre-wrap;
                  word-break:break-all;max-height:160px;overflow:auto;}
+/* ── Lightbox ── */
+#lb{display:none;position:fixed;inset:0;background:rgba(0,0,0,.88);z-index:1000;
+    align-items:center;justify-content:center;padding:20px;}
+#lb.open{display:flex;}
+#lb-inner{position:relative;max-width:96vw;max-height:94vh;display:flex;flex-direction:column;gap:8px;}
+#lb-img{max-width:100%;max-height:calc(94vh - 60px);border-radius:6px;display:block;object-fit:contain;}
+#lb-pre{max-width:90vw;max-height:calc(94vh - 60px);overflow:auto;background:var(--surface);
+        border:1px solid var(--border);border-radius:6px;padding:16px;font-size:.82rem;
+        font-family:monospace;white-space:pre-wrap;word-break:break-all;color:var(--text);}
+#lb-footer{display:flex;align-items:center;gap:12px;}
+#lb-label{font-size:.8rem;color:var(--muted);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+#lb-nav{display:flex;gap:8px;}
+#lb-nav button{background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius);
+               color:var(--text);padding:5px 14px;cursor:pointer;font-size:.8rem;}
+#lb-nav button:hover{border-color:var(--accent);color:var(--accent);}
+#lb-close{position:absolute;top:-12px;right:-12px;width:28px;height:28px;border-radius:50%;
+          background:var(--surface2);border:1px solid var(--border);color:var(--text);
+          font-size:1rem;cursor:pointer;display:flex;align-items:center;justify-content:center;line-height:1;}
+#lb-close:hover{background:var(--danger);border-color:var(--danger);}
 </style>
 </head>
 <body>
@@ -439,6 +459,8 @@ function showBatchGrid(shots, items, totalMs) {
     const url   = (items[i]||{}).url || `#${i+1}`;
     const thumb = document.createElement('div');
     thumb.className = 'batch-thumb';
+    thumb.title = 'Click to maximise';
+    thumb.onclick = () => openLightbox(shots, items, i);
     if (s.screenshot_b64) {
       thumb.innerHTML = `<img src="data:image/png;base64,${s.screenshot_b64}" loading="lazy">
         <div class="thumb-label" title="${url}">${i+1}. ${url}</div>`;
@@ -522,7 +544,56 @@ document.addEventListener('keydown', e => {
   if (active==='tab-single') execSingle();
   else                       execBatch();
 });
+
+// ── Lightbox ──
+let lbShots = [], lbIdx = 0, lbItems = [];
+function openLightbox(shots, items, idx) {
+  lbShots = shots; lbItems = items; lbIdx = idx;
+  renderLightbox();
+  document.getElementById('lb').classList.add('open');
+}
+function renderLightbox() {
+  const s     = lbShots[lbIdx];
+  const url   = (lbItems[lbIdx]||{}).url || `#${lbIdx+1}`;
+  const img   = document.getElementById('lb-img');
+  const pre   = document.getElementById('lb-pre');
+  const label = document.getElementById('lb-label');
+  label.textContent = `${lbIdx+1} / ${lbShots.length}  —  ${url}`;
+  if (s.screenshot_b64) {
+    img.src = 'data:image/png;base64,'+s.screenshot_b64;
+    img.style.display = 'block'; pre.style.display = 'none';
+  } else if (s.html) {
+    pre.textContent = s.html; pre.style.display = 'block'; img.style.display = 'none';
+  }
+  document.getElementById('lb-prev').disabled = lbIdx === 0;
+  document.getElementById('lb-next').disabled = lbIdx === lbShots.length - 1;
+}
+function closeLightbox() { document.getElementById('lb').classList.remove('open'); }
+document.addEventListener('keydown', e => {
+  const lb = document.getElementById('lb');
+  if (!lb.classList.contains('open')) return;
+  if (e.key === 'Escape')      closeLightbox();
+  if (e.key === 'ArrowLeft'  && lbIdx > 0)                lbIdx--, renderLightbox();
+  if (e.key === 'ArrowRight' && lbIdx < lbShots.length-1) lbIdx++, renderLightbox();
+});
+document.getElementById('lb').addEventListener('click', e => {
+  if (e.target === document.getElementById('lb')) closeLightbox();
+});
 </script>
+<div id="lb" role="dialog" aria-modal="true">
+  <div id="lb-inner">
+    <button id="lb-close" onclick="closeLightbox()" title="Close (Esc)">×</button>
+    <img  id="lb-img" alt="screenshot">
+    <pre  id="lb-pre" style="display:none"></pre>
+    <div  id="lb-footer">
+      <span id="lb-label"></span>
+      <div  id="lb-nav">
+        <button id="lb-prev" onclick="lbIdx--;renderLightbox()">← prev</button>
+        <button id="lb-next" onclick="lbIdx++;renderLightbox()">next →</button>
+      </div>
+    </div>
+  </div>
+</div>
 </body>
 </html>
 """
