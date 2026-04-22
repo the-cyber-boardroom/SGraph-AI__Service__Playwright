@@ -227,8 +227,8 @@ class test_render_compose_yaml(TestCase):
 
     def test__api_key_in_both_services(self):
         yaml = self._render(api_key_name='X-API-Key', api_key_value='test-secret')
-        assert yaml.count("'X-API-Key'")    == 2                                           # Playwright + sidecar both get the key
-        assert yaml.count("'test-secret'")  == 2                                           # Playwright FAST_API, sidecar FAST_API (no mitmweb password)
+        assert yaml.count("'X-API-Key'")    == 2                                           # playwright + sidecar FAST_API key name
+        assert yaml.count("'test-secret'")  == 3                                           # playwright FAST_API + sidecar FAST_API + browser PASSWD (KasmVNC)
 
     def test__mitmweb_has_no_separate_password(self):
         yaml = self._render(api_key_value='test-secret')
