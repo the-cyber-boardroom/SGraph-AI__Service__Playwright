@@ -1317,15 +1317,12 @@ def cmd_delete(name    : Optional[str] = typer.Argument(None,  help='Deploy-name
             c.print('  Aborted.')
             return
         deleted = terminate_instances(ec2)
-    elif name:
+    else:
         instance_id, details = _resolve_target(ec2, name)
         deploy = _instance_deploy_name(details) or instance_id
         c.print(f'  🗑️   Deleting [bold]{deploy}[/]  [dim]{instance_id}[/]...')
         ec2.instance_terminate(instance_id)
         deleted = [instance_id]
-    else:
-        c.print('  [red]Specify a deploy-name / instance-id, or pass --all to delete everything.[/]')
-        raise typer.Exit(code=1)
     c.print(f'  ✅  Deleted {len(deleted)} instance(s): [dim]{", ".join(deleted) or "none"}[/]')
 
 
@@ -1864,12 +1861,14 @@ def _cmd_wait(ip           : Optional[str] = typer.Argument(None, help='Public I
               interval      : int           = typer.Option(10,  help='Seconds between attempts.')                ):
     """Poll the health endpoint until the service responds (401 counts — key is in tags)."""
     ec2 = EC2()
+    c   = Console(highlight=False, width=200)
     # Resolve target — also grab stored api key from tags when not supplied via option/env
+    instance_id = None
     if ip and ip.replace('.', '').isdigit():
         actual_ip = ip
         tag_key_name, tag_key_value = '', ''
     else:
-        _, details    = _resolve_target(ec2, ip)
+        instance_id, details = _resolve_target(ec2, ip)
         actual_ip     = details.get('public_ip', '')
         tag_key_name  = _instance_tag(details, TAG__API_KEY_NAME_KEY)
         tag_key_value = _instance_tag(details, TAG__API_KEY_VALUE_KEY)
@@ -1878,21 +1877,66 @@ def _cmd_wait(ip           : Optional[str] = typer.Argument(None, help='Public I
     key_name  = api_key_name  or get_env('FAST_API__AUTH__API_KEY__NAME' ) or tag_key_name  or 'X-API-Key'
     key_value = api_key_value or get_env('FAST_API__AUTH__API_KEY__VALUE') or tag_key_value or ''
     deadline  = time.time() + timeout
-    typer.echo(f'  ⏳  Waiting for {base_url} (timeout {timeout}s)...')
-    attempt = 0
+    c.print(f'\n  ⏳  Waiting for {base_url} (timeout {timeout}s)...\n')
+
+    def _print_instance_status() -> None:
+        if not instance_id:
+            return
+        try:
+            stdout, _ = _ssm_run(instance_id, [
+                'echo "~~containers~~" && '
+                'docker ps -a --format "  {{.Names}}\\t{{.Status}}\\t{{.Image}}" 2>/dev/null || echo "  (docker not ready)"',
+                'echo "~~start-log~~" && '
+                'tail -20 /var/log/sg-playwright-start.log 2>/dev/null || echo "  (no log yet)"',
+            ], timeout=20)
+        except Exception:
+            return
+        if not stdout.strip():
+            return
+        section = None
+        c.print()
+        for raw in stdout.splitlines():
+            line = raw.rstrip()
+            if line == '~~containers~~':
+                section = 'containers'
+                c.print('  [bold blue]containers[/]')
+                continue
+            if line == '~~start-log~~':
+                section = 'log'
+                c.print('  [bold blue]start log[/]')
+                continue
+            if section == 'containers':
+                colour = 'green' if 'Up' in line else ('red' if 'Exited' in line else 'yellow')
+                c.print(f'  [{colour}]{line}[/]')
+            else:
+                # highlight errors / key milestones in the boot log
+                if any(kw in line for kw in ('error', 'Error', 'ERROR', 'failed', 'FAILED')):
+                    c.print(f'  [red]{line}[/]')
+                elif any(kw in line for kw in ('===', 'docker pull', 'docker compose', 'Pulling', 'Pull complete', 'Started')):
+                    c.print(f'  [bold]{line}[/]')
+                else:
+                    c.print(f'  [dim]{line}[/]')
+        c.print()
+
+    attempt       = 0
+    status_every  = 3                                      # SSM status check every N HTTP attempts
     while time.time() < deadline:
         attempt += 1
         try:
             r = requests.get(f'{base_url}/health/status', headers={key_name: key_value}, timeout=8)
             if r.status_code in (200, 401):              # 401 = service up, auth required
-                typer.echo(f'  ✅  service up after {attempt} attempt(s)  (HTTP {r.status_code})')
+                c.print(f'  ✅  service up after {attempt} attempt(s)  (HTTP {r.status_code})')
                 _render_health(_health_check_once(base_url, key_name, key_value), base_url)
                 return
-            typer.echo(f'  🔄  attempt {attempt}: HTTP {r.status_code} — retrying in {interval}s...')
+            c.print(f'  🔄  attempt {attempt}: HTTP {r.status_code} — retrying in {interval}s...')
         except Exception as exc:
-            typer.echo(f'  🔄  attempt {attempt}: {str(exc)[:80]} — retrying in {interval}s...')
+            c.print(f'  🔄  attempt {attempt}: [dim]{str(exc)[:100]}[/] — retrying in {interval}s...')
+        if attempt % status_every == 0:
+            _print_instance_status()
         time.sleep(interval)
-    typer.echo(f'  ❌  timed out after {timeout}s', err=True)
+    c.print(f'\n  ❌  timed out after {timeout}s', err=True)
+    # Final status dump on timeout so you can see exactly what failed
+    _print_instance_status()
     raise typer.Exit(1)
 
 
