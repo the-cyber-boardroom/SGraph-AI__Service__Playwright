@@ -76,6 +76,8 @@ IAM__ASSUME_ROLE_SERVICE       = 'ec2.amazonaws.com'
 EC2__PROMETHEUS_PORT      = 9090
 EC2__BROWSER_INTERNAL_PORT = 3000                                                      # linuxserver/chromium KasmVNC — SSM-forward only, never exposed in SG
 EC2__BROWSER_IMAGE         = 'lscr.io/linuxserver/chromium:latest'                     # public image — pulled explicitly before compose up
+EC2__PORTAINER_PORT        = 9000                                                      # Portainer CE — SSM-forward only; first login sets admin password
+EC2__PORTAINER_IMAGE       = 'portainer/portainer-ce:latest'                           # public image — pulled explicitly before compose up
 
 SG__NAME                     = 'playwright-ec2'                                         # AWS reserves 'sg-*' prefix for SG IDs
 SG__DESCRIPTION              = 'SG Playwright EC2 stack - ingress :8000 (Playwright API) + :8001 (sidecar admin) + :3000 (streaming browser) — all ports behind API key / KasmVNC password auth'
@@ -126,7 +128,8 @@ cat > /opt/sg-playwright/docker-compose.yml << 'SG_COMPOSE_EOF'
 SG_COMPOSE_EOF
 
 {observability_configs_section}
-docker pull {browser_image_uri} || true    # pull public image if not baked into AMI
+docker pull {browser_image_uri}    || true    # pull public images if not baked into AMI
+docker pull {portainer_image_uri}  || true
 docker compose -f /opt/sg-playwright/docker-compose.yml up -d
 
 echo "=== SG Playwright AMI start complete at $(date) ==="
@@ -255,12 +258,24 @@ COMPOSE_YAML_TEMPLATE = textwrap.dedent("""\
           - sg-net
         restart: always
 
+      portainer:
+        image: {portainer_image_uri}
+        ports:
+          - "127.0.0.1:{portainer_port}:{portainer_port}"
+        volumes:
+          - /var/run/docker.sock:/var/run/docker.sock
+          - portainer_data:/data
+        networks:
+          - sg-net
+        restart: always
+
     networks:
       sg-net:
         driver: bridge
 
     volumes:
       prometheus_data:
+      portainer_data:
 """)
 
 
@@ -394,6 +409,7 @@ set -x
 docker pull {playwright_image_uri}
 docker pull {sidecar_image_uri}
 docker pull {browser_image_uri}
+docker pull {portainer_image_uri}
 
 # Revoke the stored Docker credential immediately after pull — the instance
 # profile (AmazonEC2ContainerRegistryReadOnly) provides fresh tokens on demand
@@ -628,6 +644,8 @@ def render_compose_yaml(playwright_image_uri : str,
                                         sidecar_admin_port      = EC2__SIDECAR_ADMIN_PORT     ,
                                         browser_port            = EC2__BROWSER_INTERNAL_PORT  ,
                                         browser_image_uri       = EC2__BROWSER_IMAGE          ,
+                                        portainer_port          = EC2__PORTAINER_PORT         ,
+                                        portainer_image_uri     = EC2__PORTAINER_IMAGE        ,
                                         api_key_name            = api_key_name                ,
                                         api_key_value           = api_key_value               ,
                                         upstream_url            = upstream_url                ,
@@ -660,6 +678,7 @@ def render_user_data(playwright_image_uri  : str,
                                      playwright_image_uri          = playwright_image_uri   ,
                                      sidecar_image_uri             = sidecar_image_uri      ,
                                      browser_image_uri             = EC2__BROWSER_IMAGE     ,
+                                     portainer_image_uri           = EC2__PORTAINER_IMAGE   ,
                                      compose_content               = compose_content        ,
                                      observability_configs_section = obs_section            ,
                                      shutdown_section              = shutdown_section       )
@@ -865,7 +884,8 @@ def provision(stage                  : str          = DEFAULT_STAGE    ,
     if from_ami:
         user_data = AMI_USER_DATA_TEMPLATE.format(compose_content               = compose_content,
                                                    observability_configs_section = obs_section    ,
-                                                   browser_image_uri             = EC2__BROWSER_IMAGE)
+                                                   browser_image_uri             = EC2__BROWSER_IMAGE  ,
+                                                   portainer_image_uri           = EC2__PORTAINER_IMAGE)
     else:
         user_data = render_user_data(playwright_image_uri  = playwright_image_uri ,
                                      sidecar_image_uri     = sidecar_image_uri    ,
@@ -2384,9 +2404,10 @@ def cmd_smoke(target          : Optional[str]  = typer.Argument(None, help='Depl
         c.print(f'  🔭  mitmproxy flows unavailable: {str(exc)[:80]}')
 
     c.print()
-    c.print(f'  Mitmproxy UI  →  sg-ec2 forward {EC2__MITMWEB_TUNNEL_PORT}  then  http://localhost:{EC2__MITMWEB_TUNNEL_PORT}/')
-    c.print(f'  Browser       →  sg-ec2 forward-browser       then  http://localhost:{EC2__BROWSER_INTERNAL_PORT}/')
-    c.print(f'  Prometheus    →  sg-ec2 forward-prometheus     then  http://localhost:{EC2__PROMETHEUS_PORT}/')
+    c.print(f'  Mitmproxy UI  →  sg-ec2 forward {EC2__MITMWEB_TUNNEL_PORT}   then  http://localhost:{EC2__MITMWEB_TUNNEL_PORT}/')
+    c.print(f'  Browser       →  sg-ec2 forward-browser        then  http://localhost:{EC2__BROWSER_INTERNAL_PORT}/')
+    c.print(f'  Portainer     →  sg-ec2 forward-portainer      then  http://localhost:{EC2__PORTAINER_PORT}/')
+    c.print(f'  Prometheus    →  sg-ec2 forward-prometheus      then  http://localhost:{EC2__PROMETHEUS_PORT}/')
     c.print()
 
     if failed:
@@ -2468,6 +2489,32 @@ def cmd_forward_browser(target: Optional[str] = typer.Argument(None, help='Deplo
                     '--document-name', 'AWS-StartPortForwardingSession',
                     '--parameters'   , json.dumps({'portNumber'     : [str(EC2__BROWSER_INTERNAL_PORT)],
                                                    'localPortNumber': [str(EC2__BROWSER_INTERNAL_PORT)]})],
+                   check=False)
+
+
+@app.command(name='forward-portainer')
+def cmd_forward_portainer(target: Optional[str] = typer.Argument(None, help='Deploy-name or instance-id; auto-selects if only one instance.')):
+    """Forward Portainer CE (port 9000) to localhost via SSM — Docker management UI."""
+    import subprocess
+    ec2                  = EC2()
+    instance_id, details = _resolve_target(ec2, target)
+    deploy_name          = _instance_deploy_name(details) or instance_id
+    c = Console(highlight=False, width=200)
+    c.print()
+    c.print(Panel(
+        f'[bold]🐳  Portainer Forward[/]\n\n'
+        f'  instance   [bold]{deploy_name}[/]  [dim]{instance_id}[/]\n'
+        f'  tunnel     [bold]localhost:{EC2__PORTAINER_PORT}[/]\n\n'
+        f'  [green]Access:[/]  [bold]http://localhost:{EC2__PORTAINER_PORT}/[/]\n'
+        f'  [dim]First visit sets the admin password. Use your API key value.[/]\n'
+        f'  [dim]Press Ctrl-C to close the tunnel.[/]',
+        border_style='bright_blue', expand=False))
+    c.print()
+    subprocess.run(['aws', 'ssm', 'start-session',
+                    '--target'       , instance_id,
+                    '--document-name', 'AWS-StartPortForwardingSession',
+                    '--parameters'   , json.dumps({'portNumber'     : [str(EC2__PORTAINER_PORT)],
+                                                   'localPortNumber': [str(EC2__PORTAINER_PORT)]})],
                    check=False)
 
 
