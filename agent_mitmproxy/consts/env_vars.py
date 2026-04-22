@@ -31,7 +31,6 @@ ENV_VAR__INTERCEPTOR_PATH         = 'AGENT_MITMPROXY__INTERCEPTOR_PATH'         
 # ── mitmweb + admin API wiring ───────────────────────────────────────────────
 ENV_VAR__MITMWEB_HOST             = 'AGENT_MITMPROXY__MITMWEB_HOST'             # Default 127.0.0.1 — NOT exposed on SG
 ENV_VAR__MITMWEB_PORT             = 'AGENT_MITMPROXY__MITMWEB_PORT'             # Default 8081
-ENV_VAR__MITMWEB_WEB_PASSWORD     = 'AGENT_MITMPROXY__WEB_PASSWORD'             # mitmweb --web-password; unset = random password generated at startup
 ENV_VAR__ADMIN_API_PORT           = 'AGENT_MITMPROXY__ADMIN_API_PORT'           # Default 8000
 
 # ── API-key middleware (Serverless__Fast_API convention — shared with Playwright) ─
