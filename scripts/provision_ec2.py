@@ -349,8 +349,9 @@ def render_observability_configs_section(region           : str,
     prometheus_yml = PROMETHEUS_YML_TEMPLATE.format(remote_write_section=remote_write_section)
 
     if opensearch_endpoint:
+        opensearch_host = opensearch_endpoint.removeprefix('https://').removeprefix('http://')
         output_section = FLUENT_BIT_OUTPUT_OPENSEARCH.format(
-            opensearch_endpoint = opensearch_endpoint,
+            opensearch_endpoint = opensearch_host,
             region              = region)
     else:
         output_section = FLUENT_BIT_OUTPUT_STDOUT
