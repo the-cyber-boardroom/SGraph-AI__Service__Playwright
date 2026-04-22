@@ -1882,34 +1882,35 @@ def _cmd_wait(ip           : Optional[str] = typer.Argument(None, help='Public I
     def _print_instance_status() -> None:
         if not instance_id:
             return
+        c.print(f'  [dim]── instance status ({instance_id}) ──[/]')
         try:
             stdout, _ = _ssm_run(instance_id, [
                 'echo "~~containers~~" && '
-                'docker ps -a --format "  {{.Names}}\\t{{.Status}}\\t{{.Image}}" 2>/dev/null || echo "  (docker not ready)"',
+                'docker ps -a --format "  {{.Names}}\\t{{.Status}}\\t{{.Image}}" 2>/dev/null || echo "  (docker not ready yet)"',
                 'echo "~~start-log~~" && '
-                'tail -20 /var/log/sg-playwright-start.log 2>/dev/null || echo "  (no log yet)"',
-            ], timeout=20)
-        except Exception:
+                'tail -20 /var/log/sg-playwright-start.log 2>/dev/null || echo "  (log not yet available)"',
+            ], timeout=15)
+        except Exception as e:
+            c.print(f'  [dim]  SSM not reachable yet: {str(e)[:60]}[/]')
             return
         if not stdout.strip():
+            c.print('  [dim]  SSM agent not ready yet[/]')
             return
         section = None
-        c.print()
         for raw in stdout.splitlines():
             line = raw.rstrip()
             if line == '~~containers~~':
                 section = 'containers'
-                c.print('  [bold blue]containers[/]')
+                c.print('  [bold blue]containers:[/]')
                 continue
             if line == '~~start-log~~':
                 section = 'log'
-                c.print('  [bold blue]start log[/]')
+                c.print('  [bold blue]start log:[/]')
                 continue
             if section == 'containers':
                 colour = 'green' if 'Up' in line else ('red' if 'Exited' in line else 'yellow')
                 c.print(f'  [{colour}]{line}[/]')
             else:
-                # highlight errors / key milestones in the boot log
                 if any(kw in line for kw in ('error', 'Error', 'ERROR', 'failed', 'FAILED')):
                     c.print(f'  [red]{line}[/]')
                 elif any(kw in line for kw in ('===', 'docker pull', 'docker compose', 'Pulling', 'Pull complete', 'Started')):
