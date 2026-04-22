@@ -167,6 +167,7 @@ COMPOSE_YAML_TEMPLATE = textwrap.dedent("""\
         image: {sidecar_image_uri}
         ports:
           - "{sidecar_admin_port}:8000"
+          - "127.0.0.1:8080:8080"
         environment:
           FAST_API__AUTH__API_KEY__NAME:  '{api_key_name}'
           FAST_API__AUTH__API_KEY__VALUE: '{api_key_value}'
