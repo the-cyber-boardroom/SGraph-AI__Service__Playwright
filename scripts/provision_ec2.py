@@ -803,6 +803,8 @@ def provision(stage                  : str          = DEFAULT_STAGE    ,
     upstream_user         = upstream_user or get_env('AGENT_MITMPROXY__UPSTREAM_USER') or ''
     upstream_pass         = upstream_pass or get_env('AGENT_MITMPROXY__UPSTREAM_PASS') or ''
     http2                 = http2         or get_env('AGENT_MITMPROXY__HTTP2'         ) or ''
+    if upstream_url and not http2:                                              # upstream proxies trigger InvalidBodyLengthError with HTTP/2; disable unless explicitly overridden
+        http2 = 'false'
     playwright_image_uri  = playwright_image_uri or default_playwright_image_uri()
     sidecar_image_uri     = sidecar_image_uri    or default_sidecar_image_uri()
     resolved_deploy_name  = deploy_name or _random_deploy_name()
@@ -1095,7 +1097,7 @@ def create(stage                : str           = typer.Option(DEFAULT_STAGE, he
            upstream_url         : Optional[str] = typer.Option(None,  '--upstream-url',    help='Upstream proxy URL for agent_mitmproxy, e.g. http://proxy.example.com:8080.')  ,
            upstream_user        : Optional[str] = typer.Option(None,  '--upstream-user',   help='Username for upstream proxy authentication.')                                  ,
            upstream_pass        : Optional[str] = typer.Option(None,  '--upstream-pass',   help='Password for upstream proxy authentication.')                                  ,
-           disable_http2        : bool          = typer.Option(False, '--disable-http2',   help='Set http2=false on the sidecar (fixes InvalidBodyLengthError on some proxies).'),
+           disable_http2        : bool          = typer.Option(False, '--disable-http2',   help='Force http2=false on the sidecar. Auto-applied when --upstream-url is set.'),
            env_file             : Optional[str] = typer.Option(None,  '--env-file',        help='Path to a .env file; values are merged under CLI flags (CLI wins on conflict).')):
     """Provision an EC2 instance running the Playwright + agent_mitmproxy stack."""
     c = Console(highlight=False, width=200)
