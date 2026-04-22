@@ -1317,15 +1317,12 @@ def cmd_delete(name    : Optional[str] = typer.Argument(None,  help='Deploy-name
             c.print('  Aborted.')
             return
         deleted = terminate_instances(ec2)
-    elif name:
+    else:
         instance_id, details = _resolve_target(ec2, name)
         deploy = _instance_deploy_name(details) or instance_id
         c.print(f'  🗑️   Deleting [bold]{deploy}[/]  [dim]{instance_id}[/]...')
         ec2.instance_terminate(instance_id)
         deleted = [instance_id]
-    else:
-        c.print('  [red]Specify a deploy-name / instance-id, or pass --all to delete everything.[/]')
-        raise typer.Exit(code=1)
     c.print(f'  ✅  Deleted {len(deleted)} instance(s): [dim]{", ".join(deleted) or "none"}[/]')
 
 
