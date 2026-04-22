@@ -141,6 +141,8 @@ class Playwright__Service(Type_Safe):
     # ─── Simple screenshot surface (/screenshot, /screenshot/batch) ─────────────
 
     def screenshot_simple(self, request: Schema__Screenshot__Request) -> Schema__Screenshot__Response:
+        if not request.url or not str(request.url):
+            raise HTTPException(422, self.error_detail('screenshot_simple', 'url is required'))
         try:
             self.setup()
             steps = [self.build_navigate_step(request.url, None, None)]
@@ -200,7 +202,9 @@ class Playwright__Service(Type_Safe):
         seq_steps = []
         n         = len(steps)
         for i, step in enumerate(steps):
-            seq_steps.append(self.build_navigate_step(step.url, None, None))
+            url_str = str(step.url) if step.url else ''
+            if url_str:
+                seq_steps.append(self.build_navigate_step(step.url, None, None))
             if step.javascript:
                 js = str(step.javascript)
                 if js:

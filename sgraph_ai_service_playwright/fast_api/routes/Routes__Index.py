@@ -324,9 +324,7 @@ function setBatchMode(m) {
   document.getElementById('bm-items').classList.toggle('active', m==='items');
   document.getElementById('bm-steps').classList.toggle('active', m==='steps');
   document.getElementById('sps-row').style.display = m==='steps' ? 'flex' : 'none';
-  // re-label cards
-  document.querySelectorAll('.card-num').forEach((el,i) =>
-    el.textContent = m==='steps' ? `step ${i+1}` : `#${i+1}`);
+  reNumberCards();
 }
 
 // ── URL cards ──
@@ -383,33 +381,37 @@ function removeCard(id) {
   reNumberCards();
 }
 function reNumberCards() {
+  const isSteps = batchMode === 'steps';
   document.querySelectorAll('.url-card').forEach((el, i) => {
-    const num = el.querySelector('.card-num');
-    num.textContent = batchMode==='steps' ? `step ${i+1}` : `#${i+1}`;
+    el.querySelector('.card-num').textContent = isSteps ? `step ${i+1}` : `#${i+1}`;
+    el.querySelector('input[type=text]').placeholder =
+      (isSteps && i > 0) ? 'URL optional — stays on current page' : 'https://…';
   });
 }
 
 function getCardItems() {
   return [...document.querySelectorAll('.url-card')].map(el => {
     const id  = el.dataset.id;
-    const url = el.querySelector('input[type=text]').value.trim();
+    const url = el.querySelector('input[type=text]').value.trim() || null;
     const d   = {...(cardData[id]||{}), url};
-    // clean nulls
     const out = {url: d.url, format: d.format||'png'};
     if (d.javascript) out.javascript = d.javascript;
     if (d.click)      out.click      = d.click;
     if (d.full_page)  out.full_page  = true;
     return out;
-  }).filter(x => x.url);
+  });
 }
 
 async function execBatch() {
   const apiKey = keyEl.value.trim();
   if (!apiKey) { setStatus('b','⚠ API key required',true); return; }
-  const items = getCardItems();
+  const isSteps = batchMode === 'steps';
+  const allCards = getCardItems();
+  const items    = isSteps ? allCards : allCards.filter(x => x.url);
   if (!items.length) { setStatus('b','⚠ Add at least one URL',true); return; }
+  if (isSteps && !items[0].url) { setStatus('b','⚠ First step must have a URL',true); return; }
   const sps = document.getElementById('sps-chk').checked;
-  const body = batchMode==='items'
+  const body = !isSteps
     ? {items}
     : {steps: items, screenshot_per_step: sps};
   setBusy('b', true);

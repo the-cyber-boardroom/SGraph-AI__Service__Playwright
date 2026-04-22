@@ -11,7 +11,7 @@ from sgraph_ai_service_playwright.schemas.primitives.browser.Safe_Str__Selector 
 
 
 class Schema__Screenshot__Request(Type_Safe):
-    url         : Safe_Str__Url
+    url         : Safe_Str__Url            = None                                   # None = stay on current page (steps mode only)
     click       : Safe_Str__Selector      = None                                    # Element to click after load (e.g. cookie banner)
     javascript  : Safe_Str__JS__Expression = None                                   # JS to execute after load, before screenshot
     full_page   : bool                    = False
