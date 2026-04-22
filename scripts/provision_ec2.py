@@ -983,7 +983,7 @@ def _ssm_run(instance_id: str, commands: list, timeout: int = 60) -> tuple:
     response   = ssm.send_command(InstanceIds      = [instance_id]          ,
                                    DocumentName     = 'AWS-RunShellScript'   ,
                                    Parameters       = {'commands': commands} ,
-                                   TimeoutSeconds   = timeout                )
+                                   TimeoutSeconds   = max(30, timeout)       )  # SSM minimum is 30
     command_id = response['Command']['CommandId']
     deadline   = time.time() + timeout + 10
     while time.time() < deadline:
