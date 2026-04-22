@@ -22,6 +22,7 @@ ENV_VAR__PROXY_AUTH_PASS          = 'AGENT_MITMPROXY__PROXY_AUTH_PASS'
 ENV_VAR__UPSTREAM_URL             = 'AGENT_MITMPROXY__UPSTREAM_URL'
 ENV_VAR__UPSTREAM_USER            = 'AGENT_MITMPROXY__UPSTREAM_USER'
 ENV_VAR__UPSTREAM_PASS            = 'AGENT_MITMPROXY__UPSTREAM_PASS'
+ENV_VAR__HTTP2                    = 'AGENT_MITMPROXY__HTTP2'                    # 'false' → --set http2=false; fixes InvalidBodyLengthError on some upstream proxies
 
 # ── Filesystem wiring ────────────────────────────────────────────────────────
 ENV_VAR__CA_CERT_PATH             = 'AGENT_MITMPROXY__CA_CERT_PATH'             # Default /root/.mitmproxy/mitmproxy-ca-cert.pem (written by mitmweb on first start)

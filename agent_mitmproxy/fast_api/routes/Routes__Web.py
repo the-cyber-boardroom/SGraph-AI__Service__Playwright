@@ -40,10 +40,13 @@ async def _proxy_to_mitmweb(request: Request, upstream_path: str, api_key_header
     import httpx
 
     upstream_url = f'{_upstream_base_url()}/{upstream_path}' if upstream_path else f'{_upstream_base_url()}/'
+    body         = await request.body()
     async with httpx.AsyncClient(timeout=30.0) as client:
-        response = await client.get(upstream_url,
-                                    headers = _forward_headers(request, api_key_header_name),
-                                    params  = request.query_params                           )
+        response = await client.request(method  = request.method                                    ,
+                                         url     = upstream_url                                      ,
+                                         headers = _forward_headers(request, api_key_header_name)   ,
+                                         params  = request.query_params                              ,
+                                         content = body or None                                      )
 
     passthrough_headers = {k: v for k, v in response.headers.items() if k.lower() not in HOP_BY_HOP_HEADERS}
 
@@ -53,6 +56,9 @@ async def _proxy_to_mitmweb(request: Request, upstream_path: str, api_key_header
                     media_type  = response.headers.get('content-type'))
 
 
+ALL_METHODS = ['GET', 'POST', 'PUT', 'DELETE', 'HEAD', 'OPTIONS', 'PATCH']
+
+
 class Routes__Web(Fast_API__Routes):
     tag : str = TAG__ROUTES_WEB
 
@@ -60,10 +66,10 @@ class Routes__Web(Fast_API__Routes):
         router              = self.router
         api_key_header_name = get_env(env_vars.ENV_VAR__API_KEY_NAME) or 'X-API-Key'
 
-        @router.get('/')
+        @router.api_route('/', methods=ALL_METHODS)
         async def web_index(request: Request):
             return await _proxy_to_mitmweb(request, '', api_key_header_name)
 
-        @router.get('/{path:path}')
+        @router.api_route('/{path:path}', methods=ALL_METHODS)
         async def web_passthrough(request: Request, path: str):
             return await _proxy_to_mitmweb(request, path, api_key_header_name)

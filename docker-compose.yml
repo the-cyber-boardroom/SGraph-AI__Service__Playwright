@@ -38,13 +38,15 @@ services:
   agent-mitmproxy:
     image: ${ECR_REGISTRY}/agent_mitmproxy:${IMAGE_TAG:-latest}
     ports:
-      - "8001:8000"                            # sidecar admin API on host :8001; proxy :8080 stays on sg-net only
+      - "8001:8000"                            # sidecar admin API on host :8001
+      - "127.0.0.1:8080:8080"                  # proxy — loopback only; reach from laptop via: sgpl forward 8080
     environment:
       FAST_API__AUTH__API_KEY__NAME:        ${FAST_API__AUTH__API_KEY__NAME:-X-API-Key}
       FAST_API__AUTH__API_KEY__VALUE:       ${FAST_API__AUTH__API_KEY__VALUE:-change-me}
       AGENT_MITMPROXY__UPSTREAM_URL:        ${AGENT_MITMPROXY__UPSTREAM_URL:-}
       AGENT_MITMPROXY__UPSTREAM_USER:       ${AGENT_MITMPROXY__UPSTREAM_USER:-}
       AGENT_MITMPROXY__UPSTREAM_PASS:       ${AGENT_MITMPROXY__UPSTREAM_PASS:-}
+      AGENT_MITMPROXY__HTTP2:               ${AGENT_MITMPROXY__HTTP2:-}
     networks:
       - sg-net
     restart: unless-stopped

@@ -53,6 +53,11 @@ if [ -n "${AGENT_MITMPROXY__WEB_PASSWORD:-}" ]; then
     MITMWEB_CMD="${MITMWEB_CMD} --web-password ${AGENT_MITMPROXY__WEB_PASSWORD}"
 fi
 
+# HTTP/2 on upstream connections — disable to fix InvalidBodyLengthError with some proxies
+if [ "${AGENT_MITMPROXY__HTTP2:-true}" = "false" ]; then
+    MITMWEB_CMD="${MITMWEB_CMD} --set http2=false"
+fi
+
 # Fixed flags (always present)
 MITMWEB_CMD="${MITMWEB_CMD} --web-host 127.0.0.1"
 MITMWEB_CMD="${MITMWEB_CMD} --web-port 8081"
