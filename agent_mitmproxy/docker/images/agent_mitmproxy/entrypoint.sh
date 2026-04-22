@@ -48,9 +48,10 @@ if [ -n "${AGENT_MITMPROXY__UPSTREAM_URL:-}" ]; then
     MITMWEB_CMD="${MITMWEB_CMD} --ssl-insecure"                                  # upstream always presents a forged cert; skip verification
 fi
 
-# Web UI password — set to a known value so operators can log in; unset = mitmweb generates a random one
-if [ -n "${AGENT_MITMPROXY__WEB_PASSWORD:-}" ]; then
-    MITMWEB_CMD="${MITMWEB_CMD} --web-password ${AGENT_MITMPROXY__WEB_PASSWORD}"
+# Web UI password — explicit var wins; falls back to the shared API key; unset = mitmweb random token
+_web_pwd="${AGENT_MITMPROXY__WEB_PASSWORD:-${FAST_API__AUTH__API_KEY__VALUE:-}}"
+if [ -n "${_web_pwd}" ]; then
+    MITMWEB_CMD="${MITMWEB_CMD} --web-password ${_web_pwd}"
 fi
 
 # HTTP/2 on upstream connections — disable to fix InvalidBodyLengthError with some proxies
