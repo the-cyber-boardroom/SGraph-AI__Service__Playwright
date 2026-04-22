@@ -75,6 +75,7 @@ IAM__ASSUME_ROLE_SERVICE       = 'ec2.amazonaws.com'
 
 EC2__PROMETHEUS_PORT      = 9090
 EC2__BROWSER_INTERNAL_PORT = 3000                                                      # linuxserver/chromium KasmVNC — SSM-forward only, never exposed in SG
+EC2__BROWSER_IMAGE         = 'lscr.io/linuxserver/chromium:latest'                     # public image — pulled explicitly before compose up
 
 SG__NAME                     = 'playwright-ec2'                                         # AWS reserves 'sg-*' prefix for SG IDs
 SG__DESCRIPTION              = 'SG Playwright EC2 stack - ingress :8000 (Playwright API) + :8001 (sidecar admin) + :3000 (streaming browser) — all ports behind API key / KasmVNC password auth'
@@ -125,6 +126,7 @@ cat > /opt/sg-playwright/docker-compose.yml << 'SG_COMPOSE_EOF'
 SG_COMPOSE_EOF
 
 {observability_configs_section}
+docker pull {browser_image_uri} || true    # pull public image if not baked into AMI
 docker compose -f /opt/sg-playwright/docker-compose.yml up -d
 
 echo "=== SG Playwright AMI start complete at $(date) ==="
@@ -182,7 +184,7 @@ COMPOSE_YAML_TEMPLATE = textwrap.dedent("""\
         restart: always
 
       browser:
-        image: lscr.io/linuxserver/chromium:latest
+        image: {browser_image_uri}
         ports:
           - "{browser_port}:{browser_port}"
         environment:
@@ -391,6 +393,7 @@ set -x
 
 docker pull {playwright_image_uri}
 docker pull {sidecar_image_uri}
+docker pull {browser_image_uri}
 
 # Revoke the stored Docker credential immediately after pull — the instance
 # profile (AmazonEC2ContainerRegistryReadOnly) provides fresh tokens on demand
@@ -624,6 +627,7 @@ def render_compose_yaml(playwright_image_uri : str,
                                         playwright_port         = EC2__PLAYWRIGHT_PORT        ,
                                         sidecar_admin_port      = EC2__SIDECAR_ADMIN_PORT     ,
                                         browser_port            = EC2__BROWSER_INTERNAL_PORT  ,
+                                        browser_image_uri       = EC2__BROWSER_IMAGE          ,
                                         api_key_name            = api_key_name                ,
                                         api_key_value           = api_key_value               ,
                                         upstream_url            = upstream_url                ,
@@ -655,6 +659,7 @@ def render_user_data(playwright_image_uri  : str,
                                      registry                      = ecr_registry_host()    ,
                                      playwright_image_uri          = playwright_image_uri   ,
                                      sidecar_image_uri             = sidecar_image_uri      ,
+                                     browser_image_uri             = EC2__BROWSER_IMAGE     ,
                                      compose_content               = compose_content        ,
                                      observability_configs_section = obs_section            ,
                                      shutdown_section              = shutdown_section       )
@@ -859,7 +864,8 @@ def provision(stage                  : str          = DEFAULT_STAGE    ,
                                                         stage                = stage               )
     if from_ami:
         user_data = AMI_USER_DATA_TEMPLATE.format(compose_content               = compose_content,
-                                                   observability_configs_section = obs_section    )
+                                                   observability_configs_section = obs_section    ,
+                                                   browser_image_uri             = EC2__BROWSER_IMAGE)
     else:
         user_data = render_user_data(playwright_image_uri  = playwright_image_uri ,
                                      sidecar_image_uri     = sidecar_image_uri    ,
