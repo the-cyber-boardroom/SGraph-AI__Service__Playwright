@@ -61,6 +61,7 @@ EC2__INSTANCE_TYPE_PRESETS = [
 EC2__AMI_OWNER_AMAZON        = 'amazon'
 EC2__PLAYWRIGHT_PORT         = 8000                                                     # Playwright API — exposed to the world via SG
 EC2__SIDECAR_ADMIN_PORT      = 8001                                                     # Sidecar admin API (host port mapping of container :8000) — exposed via SG, API-key gated
+EC2__MITMWEB_TUNNEL_PORT    = 18080                                                    # mitmweb proxy UI — loopback only; reach via: sgpl forward 18080
 
 WATCHDOG_MAX_REQUEST_MS      = 120_000                                                  # 120s — covers Firefox + long upstream-proxy round-trips
 
@@ -2299,7 +2300,7 @@ def cmd_smoke(target          : Optional[str]  = typer.Argument(None, help='Depl
         c.print(f'  🔭  mitmproxy flows unavailable: {str(exc)[:80]}')
 
     c.print()
-    c.print(f'  Mitmproxy UI  →  sg-ec2 forward {EC2__SIDECAR_ADMIN_PORT}  then  http://localhost:{EC2__SIDECAR_ADMIN_PORT}/web/')
+    c.print(f'  Mitmproxy UI  →  sg-ec2 forward {EC2__MITMWEB_TUNNEL_PORT}  then  http://localhost:{EC2__MITMWEB_TUNNEL_PORT}/')
     c.print(f'  Prometheus    →  sg-ec2 forward-prometheus  then  http://localhost:{EC2__PROMETHEUS_PORT}/')
     c.print()
 
