@@ -73,10 +73,11 @@ IAM__PROMETHEUS_RW_POLICY_ARN  = 'arn:aws:iam::aws:policy/AmazonPrometheusRemote
 IAM__OBSERVABILITY_POLICY_ARNS = (IAM__PROMETHEUS_RW_POLICY_ARN,)                           # OpenSearch write access is domain-specific — added via resource policy (see library/docs/runbooks/aws-observability-setup.md)
 IAM__ASSUME_ROLE_SERVICE       = 'ec2.amazonaws.com'
 
-EC2__PROMETHEUS_PORT  = 9090
+EC2__PROMETHEUS_PORT      = 9090
+EC2__BROWSER_INTERNAL_PORT = 3000                                                      # linuxserver/chromium KasmVNC — SSM-forward only, never exposed in SG
 
 SG__NAME                     = 'playwright-ec2'                                         # AWS reserves 'sg-*' prefix for SG IDs
-SG__DESCRIPTION              = 'SG Playwright EC2 stack - ingress :8000 (API) + :8001 (sidecar admin) — ALL open ports MUST be behind API key auth (including static sites)'
+SG__DESCRIPTION              = 'SG Playwright EC2 stack - ingress :8000 (Playwright API) + :8001 (sidecar admin) + :3000 (streaming browser) — all ports behind API key / KasmVNC password auth'
 
 TAG__NAME                    = 'playwright-ec2'
 TAG__SERVICE_KEY             = 'sg:service'                                             # Immutable identifier — find_instances filters on this, not Name (Name is user-editable in console)
@@ -179,6 +180,27 @@ COMPOSE_YAML_TEMPLATE = textwrap.dedent("""\
         networks:
           - sg-net
         restart: always
+
+      browser:
+        image: lscr.io/linuxserver/chromium:latest
+        ports:
+          - "{browser_port}:{browser_port}"
+        environment:
+          PUID:       1000
+          PGID:       1000
+          TZ:         Etc/UTC
+          PASSWD:     '{api_key_value}'
+          CHROME_CLI: >-
+            --proxy-server=http://agent-mitmproxy:8080
+            --ignore-certificate-errors
+            --no-first-run
+            --disable-sync
+        shm_size: "1gb"
+        networks:
+          - sg-net
+        depends_on:
+          - agent-mitmproxy
+        restart: unless-stopped
 
       cadvisor:
         image: gcr.io/cadvisor/cadvisor:v0.49.1
@@ -520,9 +542,10 @@ def _print_preflight_summary(account, region, registry,
     c.print()
 
     c.print('  [bold blue]🔌  Ports[/]')
-    c.print(_kv_table((f':{EC2__PLAYWRIGHT_PORT}',    'playwright API       (public)'),
-                      (f':{EC2__SIDECAR_ADMIN_PORT}', 'sidecar admin API    (public)'),
-                      (':8080',                        'mitmproxy proxy      (Docker-network-only)')))
+    c.print(_kv_table((f':{EC2__PLAYWRIGHT_PORT}',        'playwright API         (public, API-key gated)' ),
+                      (f':{EC2__SIDECAR_ADMIN_PORT}',     'sidecar admin API      (public, API-key gated)' ),
+                      (f':{EC2__BROWSER_INTERNAL_PORT}',  'streaming browser      (public, KasmVNC password = API key)'),
+                      (':8080',                            'mitmproxy proxy        (Docker-network-only)'   )))
     c.print()
 
     for w in warnings:
@@ -565,11 +588,17 @@ def ensure_instance_profile() -> str:
 def ensure_security_group(ec2: EC2) -> str:
     existing = ec2.security_group(security_group_name=SG__NAME)
     if existing:
-        return existing.get('GroupId')
-    create_result     = ec2.security_group_create(security_group_name=SG__NAME, description=SG__DESCRIPTION)
-    security_group_id = create_result.get('data', {}).get('security_group_id')
-    ec2.security_group_authorize_ingress(security_group_id=security_group_id, port=EC2__PLAYWRIGHT_PORT)    # :8000 — Playwright API
-    ec2.security_group_authorize_ingress(security_group_id=security_group_id, port=EC2__SIDECAR_ADMIN_PORT) # :8001 — sidecar admin API
+        security_group_id = existing.get('GroupId')
+    else:
+        create_result     = ec2.security_group_create(security_group_name=SG__NAME, description=SG__DESCRIPTION)
+        security_group_id = create_result.get('data', {}).get('security_group_id')
+    for port in (EC2__PLAYWRIGHT_PORT       ,   # :8000 — Playwright API
+                 EC2__SIDECAR_ADMIN_PORT    ,   # :8001 — sidecar admin API
+                 EC2__BROWSER_INTERNAL_PORT ):  # :3000 — streaming browser (KasmVNC, password-gated)
+        try:
+            ec2.security_group_authorize_ingress(security_group_id=security_group_id, port=port)
+        except Exception:
+            pass                                # rule already exists — idempotent
     return security_group_id
 
 
@@ -590,17 +619,18 @@ def render_compose_yaml(playwright_image_uri : str,
                          upstream_pass        : str = '',
                          http2                : str = '',
                          watchdog_max_request_ms: int = WATCHDOG_MAX_REQUEST_MS) -> str:
-    return COMPOSE_YAML_TEMPLATE.format(playwright_image_uri    = playwright_image_uri    ,
-                                        sidecar_image_uri       = sidecar_image_uri       ,
-                                        playwright_port         = EC2__PLAYWRIGHT_PORT    ,
-                                        sidecar_admin_port      = EC2__SIDECAR_ADMIN_PORT ,
-                                        api_key_name            = api_key_name            ,
-                                        api_key_value           = api_key_value           ,
-                                        upstream_url            = upstream_url            ,
-                                        upstream_user           = upstream_user           ,
-                                        upstream_pass           = upstream_pass           ,
-                                        http2                   = http2                   ,
-                                        watchdog_max_request_ms = watchdog_max_request_ms )
+    return COMPOSE_YAML_TEMPLATE.format(playwright_image_uri    = playwright_image_uri        ,
+                                        sidecar_image_uri       = sidecar_image_uri           ,
+                                        playwright_port         = EC2__PLAYWRIGHT_PORT        ,
+                                        sidecar_admin_port      = EC2__SIDECAR_ADMIN_PORT     ,
+                                        browser_port            = EC2__BROWSER_INTERNAL_PORT  ,
+                                        api_key_name            = api_key_name                ,
+                                        api_key_value           = api_key_value               ,
+                                        upstream_url            = upstream_url                ,
+                                        upstream_user           = upstream_user               ,
+                                        upstream_pass           = upstream_pass               ,
+                                        http2                   = http2                       ,
+                                        watchdog_max_request_ms = watchdog_max_request_ms     )
 
 
 def render_user_data(playwright_image_uri  : str,
@@ -859,8 +889,9 @@ def provision(stage                  : str          = DEFAULT_STAGE    ,
     ec2.wait_for_instance_running(instance_id)
     details       = ec2.instance_details(instance_id)
     public_ip     = details.get('public_ip')
-    playwright_url = f'http://{public_ip}:{EC2__PLAYWRIGHT_PORT}'    if public_ip else None
-    sidecar_url    = f'http://{public_ip}:{EC2__SIDECAR_ADMIN_PORT}' if public_ip else None
+    playwright_url = f'http://{public_ip}:{EC2__PLAYWRIGHT_PORT}'        if public_ip else None
+    sidecar_url    = f'http://{public_ip}:{EC2__SIDECAR_ADMIN_PORT}'   if public_ip else None
+    browser_url    = f'http://{public_ip}:{EC2__BROWSER_INTERNAL_PORT}' if public_ip else None
 
     return {'action'              : 'create'               ,
             'instance_id'        : instance_id             ,
@@ -869,6 +900,7 @@ def provision(stage                  : str          = DEFAULT_STAGE    ,
             'public_ip'          : public_ip               ,
             'playwright_url'     : playwright_url          ,
             'sidecar_admin_url'  : sidecar_url             ,
+            'browser_url'        : browser_url             ,
             'playwright_image_uri': playwright_image_uri   ,
             'sidecar_image_uri'  : sidecar_image_uri       ,
             'ami_id'             : ami_id                  ,
@@ -982,6 +1014,7 @@ def _render_create_result(r: dict) -> None:
     right.add_row('public-ip',    r['public_ip']                               )
     right.add_row('playwright',   r['playwright_url'] or '—'                   )
     right.add_row('sidecar-admin',r['sidecar_admin_url'] or '—'                )
+    right.add_row('browser',      r.get('browser_url') or '—'                  )
     right.add_row('api-key-name', r['api_key_name']                            )
     right.add_row('api-key-value',f'[bold green]{r["api_key_value"]}[/]'       )
 
@@ -2301,7 +2334,8 @@ def cmd_smoke(target          : Optional[str]  = typer.Argument(None, help='Depl
 
     c.print()
     c.print(f'  Mitmproxy UI  →  sg-ec2 forward {EC2__MITMWEB_TUNNEL_PORT}  then  http://localhost:{EC2__MITMWEB_TUNNEL_PORT}/')
-    c.print(f'  Prometheus    →  sg-ec2 forward-prometheus  then  http://localhost:{EC2__PROMETHEUS_PORT}/')
+    c.print(f'  Browser       →  sg-ec2 forward-browser       then  http://localhost:{EC2__BROWSER_INTERNAL_PORT}/')
+    c.print(f'  Prometheus    →  sg-ec2 forward-prometheus     then  http://localhost:{EC2__PROMETHEUS_PORT}/')
     c.print()
 
     if failed:
@@ -2352,6 +2386,37 @@ def cmd_forward_prometheus(target: Optional[str] = typer.Argument(None, help='De
                     '--document-name', 'AWS-StartPortForwardingSession',
                     '--parameters'   , json.dumps({'portNumber'     : [str(EC2__PROMETHEUS_PORT)],
                                                    'localPortNumber': [str(EC2__PROMETHEUS_PORT)]})],
+                   check=False)
+
+
+@app.command(name='forward-browser')
+def cmd_forward_browser(target: Optional[str] = typer.Argument(None, help='Deploy-name or instance-id; auto-selects if only one instance.')):
+    """Forward the streaming browser (linuxserver/chromium) to localhost via SSM.
+
+    Opens a real Chrome session pre-configured to route through mitmproxy —
+    the manual equivalent of what the playwright containers do automatically.
+    All traffic is visible in real time at sg-ec2 forward 8001 → /web/flows.
+    """
+    import subprocess
+    ec2                  = EC2()
+    instance_id, details = _resolve_target(ec2, target)
+    deploy_name          = _instance_deploy_name(details) or instance_id
+    c = Console(highlight=False, width=200)
+    c.print()
+    c.print(Panel(
+        f'[bold]🌐  Browser Forward[/]\n\n'
+        f'  instance   [bold]{deploy_name}[/]  [dim]{instance_id}[/]\n'
+        f'  tunnel     [bold]localhost:{EC2__BROWSER_INTERNAL_PORT}[/]\n\n'
+        f'  [green]Access:[/]  [bold]http://localhost:{EC2__BROWSER_INTERNAL_PORT}/[/]\n'
+        f'  [dim]All traffic routes through mitmproxy — flows visible via sg-ec2 forward {EC2__SIDECAR_ADMIN_PORT}[/]\n'
+        f'  [dim]Press Ctrl-C to close the tunnel.[/]',
+        border_style='bright_blue', expand=False))
+    c.print()
+    subprocess.run(['aws', 'ssm', 'start-session',
+                    '--target'       , instance_id,
+                    '--document-name', 'AWS-StartPortForwardingSession',
+                    '--parameters'   , json.dumps({'portNumber'     : [str(EC2__BROWSER_INTERNAL_PORT)],
+                                                   'localPortNumber': [str(EC2__BROWSER_INTERNAL_PORT)]})],
                    check=False)
 
 
