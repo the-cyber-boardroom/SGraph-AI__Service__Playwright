@@ -25,15 +25,21 @@
 
 import uuid
 
+from fastapi.openapi.utils                                                          import get_openapi
 from osbot_fast_api.api.routes.Routes__Set_Cookie                                    import Routes__Set_Cookie
 
 from sgraph_ai_service_playwright.agentic_fastapi.Agentic_FastAPI                    import Agentic_FastAPI
 from sgraph_ai_service_playwright.fast_api.routes.Routes__Browser                    import Routes__Browser
 from sgraph_ai_service_playwright.fast_api.routes.Routes__Health                     import Routes__Health
+from sgraph_ai_service_playwright.fast_api.routes.Routes__Index                      import Routes__Index
 from sgraph_ai_service_playwright.fast_api.routes.Routes__Metrics                    import Routes__Metrics
+from sgraph_ai_service_playwright.fast_api.routes.Routes__Screenshot                 import Routes__Screenshot
 from sgraph_ai_service_playwright.fast_api.routes.Routes__Sequence                   import Routes__Sequence
 from sgraph_ai_service_playwright.service.Playwright__Service                        import Playwright__Service
 from sgraph_ai_service_playwright.service.Request__Watchdog                          import Request__Watchdog
+
+SCREENSHOT_EXAMPLE      = {'url': 'https://sgraph.ai', 'click': None, 'javascript': None, 'full_page': False, 'format': 'png'}
+SCREENSHOT_BATCH_EXAMPLE = {'items': [{'url': 'https://sgraph.ai', 'click': None, 'javascript': None, 'full_page': False, 'format': 'png'}]}
 
 
 class Fast_API__Playwright__Service(Agentic_FastAPI):
@@ -45,7 +51,26 @@ class Fast_API__Playwright__Service(Agentic_FastAPI):
         self.watchdog.setup().start()                                               # Background thread — disabled via ENV_VAR__WATCHDOG_DISABLED='1' for local / tests
         result = super().setup()                                                    # API-key middleware is enabled by Serverless__Fast_API__Config default (reads FAST_API__AUTH__API_KEY__NAME / FAST_API__AUTH__API_KEY__VALUE)
         self.attach_watchdog_middleware()                                           # Needs the app instance built by super().setup()
+        self.attach_screenshot_examples()                                           # Inject Swagger UI example values for /screenshot and /screenshot/batch
         return result
+
+    def attach_screenshot_examples(self):
+        app = self.app()
+
+        def custom_openapi():
+            if app.openapi_schema:
+                return app.openapi_schema
+            schema = get_openapi(title=app.title, version=app.version, routes=app.routes)
+            for path, example in (('/screenshot', SCREENSHOT_EXAMPLE), ('/screenshot/batch', SCREENSHOT_BATCH_EXAMPLE)):
+                try:
+                    body = schema['paths'][path]['post']['requestBody']['content']['application/json']
+                    body['example'] = example
+                except KeyError:
+                    pass
+            app.openapi_schema = schema
+            return schema
+
+        app.openapi = custom_openapi
 
     def attach_watchdog_middleware(self):
         watchdog = self.watchdog
@@ -62,8 +87,10 @@ class Fast_API__Playwright__Service(Agentic_FastAPI):
 
     def setup_routes(self):
         super().setup_routes()                                                      # Agentic_FastAPI mounts the /admin/* surface (health, info, manifest, SKILLs, capabilities)
+        self.add_routes(Routes__Index    )                                          # GET / — static "Try it out" mini-site
         self.add_routes(Routes__Health   , service=self.service)
-        self.add_routes(Routes__Browser  , service=self.service)
-        self.add_routes(Routes__Sequence , service=self.service)
+        self.add_routes(Routes__Browser    , service=self.service)
+        self.add_routes(Routes__Sequence   , service=self.service)
+        self.add_routes(Routes__Screenshot , service=self.service)
         self.add_routes(Routes__Metrics  )                                          # No service injection — reads from module-level _REGISTRY in Metrics__Collector
         self.add_routes(Routes__Set_Cookie)                                         # /auth/set-cookie-form (HTML UI) + /auth/set-auth-cookie (POST) — both in AUTH__EXCLUDED_PATHS so they bypass the API-key middleware

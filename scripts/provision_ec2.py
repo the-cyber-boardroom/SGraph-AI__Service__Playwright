@@ -10,7 +10,7 @@
 #   2. Ensures a security group allowing :8000 (Playwright API) and :8001
 #      (sidecar admin API) ingress. The sidecar proxy (:8080) stays on the
 #      Docker bridge — never exposed to the host.
-#   3. Runs a t3.large AL2023 instance. UserData installs Docker + the Compose
+#   3. Runs a m6i.xlarge AL2023 instance. UserData installs Docker + the Compose
 #      plugin, logs into ECR, pulls both images, writes docker-compose.yml and
 #      runs `docker compose up -d`.
 #   4. Waits for the instance to reach `running`, prints both service URLs.
@@ -21,11 +21,12 @@
 # Direct boto3 use — same narrow exception as earlier versions: osbot_aws
 # EC2.instance_create() does not expose the UserData kwarg.
 #
-# Cost note: t3.large on-demand is ~$0.083/h. Always --terminate when done.
+# Cost note: m6i.xlarge on-demand is ~$0.192/h. Always --terminate when done.
 # ═══════════════════════════════════════════════════════════════════════════════
 
 import json
 import secrets
+import shlex
 import sys
 import textwrap
 import time
@@ -46,20 +47,21 @@ from sgraph_ai_service_playwright.docker.Docker__SGraph_AI__Service__Playwright_
 from agent_mitmproxy.docker.Docker__Agent_Mitmproxy__Base                                import IMAGE_NAME as SIDECAR_IMAGE_NAME
 
 
-EC2__INSTANCE_TYPE           = 't3.large'                                               # 2 vCPU / 8 GB RAM — Playwright + sidecar fit; Firefox + WebKit need the headroom
+EC2__INSTANCE_TYPE           = 'm6i.xlarge'                                             # 4 vCPU / 16 GB RAM — fixed CPU (no burst credits), fits full observability stack
 EC2__AMI_NAME_AL2023         = 'al2023-ami-2023.*-x86_64'
 
 # ── Instance-type presets (shown by sg-ec2 create --interactive) ──────────────
 EC2__INSTANCE_TYPE_PRESETS = [
-    ('t3.large'   , 2, 8  , 0.0832, 'burstable · current default'           ),
-    ('t3.xlarge'  , 4, 16 , 0.1664, 'burstable · 2× RAM'                    ),
-    ('t3.2xlarge' , 8, 32 , 0.3328, 'burstable · 4× RAM'                    ),
-    ('c5.xlarge'  , 4, 8  , 0.1700, 'compute-optimised · sustained CPU'      ),
-    ('m5.xlarge'  , 4, 16 , 0.1920, 'general purpose · sustained · balanced' ),
+    ('m6i.xlarge' , 4, 16 , 0.1920, 'default · fixed CPU · balanced RAM'     ),
+    ('c6i.xlarge' , 4, 8  , 0.1700, 'compute-optimised · lower cost'         ),
+    ('m6i.2xlarge', 8, 32 , 0.3840, 'double RAM · heavy investigation'        ),
+    ('t3.large'   , 2, 8  , 0.0832, 'burstable · dev/test only'              ),
+    ('t3.xlarge'  , 4, 16 , 0.1664, 'burstable · dev/test only'              ),
 ]
 EC2__AMI_OWNER_AMAZON        = 'amazon'
 EC2__PLAYWRIGHT_PORT         = 8000                                                     # Playwright API — exposed to the world via SG
 EC2__SIDECAR_ADMIN_PORT      = 8001                                                     # Sidecar admin API (host port mapping of container :8000) — exposed via SG, API-key gated
+EC2__MITMWEB_TUNNEL_PORT    = 18080                                                    # mitmweb proxy UI — loopback only; reach via: sgpl forward 18080
 
 WATCHDOG_MAX_REQUEST_MS      = 120_000                                                  # 120s — covers Firefox + long upstream-proxy round-trips
 
@@ -97,7 +99,8 @@ _SCIENTISTS = ['bohr','curie','darwin','dirac','einstein','euler','faraday',
                'volta','watt','wien','zeno']
 
 COMPOSE_PROJECT   = 'sg-playwright'
-COMPOSE_FILE_PATH = '/opt/sg-playwright/docker-compose.yml'
+COMPOSE_FILE_PATH            = '/opt/sg-playwright/docker-compose.yml'
+DOCKER__PLAYWRIGHT_CONTAINER = 'sg-playwright-playwright-1'
 
 SMOKE_URLS = ['https://www.google.com'   ,
               'https://sgraph.ai'         ,
@@ -166,12 +169,14 @@ COMPOSE_YAML_TEMPLATE = textwrap.dedent("""\
         image: {sidecar_image_uri}
         ports:
           - "{sidecar_admin_port}:8000"
+          - "127.0.0.1:18080:8080"
         environment:
           FAST_API__AUTH__API_KEY__NAME:  '{api_key_name}'
           FAST_API__AUTH__API_KEY__VALUE: '{api_key_value}'
           AGENT_MITMPROXY__UPSTREAM_URL:  '{upstream_url}'
           AGENT_MITMPROXY__UPSTREAM_USER: '{upstream_user}'
           AGENT_MITMPROXY__UPSTREAM_PASS: '{upstream_pass}'
+          AGENT_MITMPROXY__HTTP2:         '{http2}'
         networks:
           - sg-net
         restart: always
@@ -612,6 +617,7 @@ def render_compose_yaml(playwright_image_uri : str,
                          upstream_url         : str = '',
                          upstream_user        : str = '',
                          upstream_pass        : str = '',
+                         http2                : str = '',
                          watchdog_max_request_ms: int = WATCHDOG_MAX_REQUEST_MS) -> str:
     return COMPOSE_YAML_TEMPLATE.format(playwright_image_uri    = playwright_image_uri        ,
                                         sidecar_image_uri       = sidecar_image_uri           ,
@@ -623,6 +629,7 @@ def render_compose_yaml(playwright_image_uri : str,
                                         upstream_url            = upstream_url                ,
                                         upstream_user           = upstream_user               ,
                                         upstream_pass           = upstream_pass               ,
+                                        http2                   = http2                       ,
                                         watchdog_max_request_ms = watchdog_max_request_ms     )
 
 
@@ -674,6 +681,10 @@ def run_instance(ec2: EC2, ami_id: str, security_group_id: str, instance_profile
               'IamInstanceProfile'               : {'Name': instance_profile_name}           ,
               'SecurityGroupIds'                 : [security_group_id]                       ,
               'UserData'                         : user_data                                 ,
+              'BlockDeviceMappings'              : [{'DeviceName': '/dev/xvda',
+                                                     'Ebs'       : {'VolumeSize'          : 30,
+                                                                    'VolumeType'          : 'gp3',
+                                                                    'DeleteOnTermination' : True}}],
               'InstanceInitiatedShutdownBehavior': 'terminate'                               ,  # shutdown → terminate, not stop
               'TagSpecifications'                : [{'ResourceType': 'instance', 'Tags': tags}]}
     for attempt in range(5):
@@ -804,7 +815,11 @@ def provision(stage                  : str          = DEFAULT_STAGE    ,
                from_ami              : str          = None             ,    # use pre-baked AMI; skips install+pull
                instance_type         : str          = EC2__INSTANCE_TYPE,
                max_hours             : Optional[int] = None            ,
-               terminate             : bool         = False            ) -> dict:
+               terminate             : bool         = False            ,
+               upstream_url          : str          = ''               ,    # CLI-supplied proxy; falls back to env var
+               upstream_user         : str          = ''               ,
+               upstream_pass         : str          = ''               ,
+               http2                 : str          = ''               ) -> dict:    # 'false' → --set http2=false; fixes InvalidBodyLengthError
     ec2 = EC2()
 
     if terminate:
@@ -816,9 +831,12 @@ def provision(stage                  : str          = DEFAULT_STAGE    ,
                                              instance_type=instance_type)
     api_key_name          = get_env('FAST_API__AUTH__API_KEY__NAME' ) or 'X-API-Key'
     api_key_value         = get_env('FAST_API__AUTH__API_KEY__VALUE') or preflight['api_key_value']
-    upstream_url          = get_env('AGENT_MITMPROXY__UPSTREAM_URL' ) or ''
-    upstream_user         = get_env('AGENT_MITMPROXY__UPSTREAM_USER') or ''
-    upstream_pass         = get_env('AGENT_MITMPROXY__UPSTREAM_PASS') or ''
+    upstream_url          = upstream_url  or get_env('AGENT_MITMPROXY__UPSTREAM_URL' ) or ''
+    upstream_user         = upstream_user or get_env('AGENT_MITMPROXY__UPSTREAM_USER') or ''
+    upstream_pass         = upstream_pass or get_env('AGENT_MITMPROXY__UPSTREAM_PASS') or ''
+    http2                 = http2         or get_env('AGENT_MITMPROXY__HTTP2'         ) or ''
+    if upstream_url and not http2:                                              # upstream proxies trigger InvalidBodyLengthError with HTTP/2; disable unless explicitly overridden
+        http2 = 'false'
     playwright_image_uri  = playwright_image_uri or default_playwright_image_uri()
     sidecar_image_uri     = sidecar_image_uri    or default_sidecar_image_uri()
     resolved_deploy_name  = deploy_name or _random_deploy_name()
@@ -833,7 +851,8 @@ def provision(stage                  : str          = DEFAULT_STAGE    ,
                                                  api_key_value        = api_key_value        ,
                                                  upstream_url         = upstream_url         ,
                                                  upstream_user        = upstream_user        ,
-                                                 upstream_pass        = upstream_pass        )
+                                                 upstream_pass        = upstream_pass        ,
+                                                 http2                = http2                )
     obs_section = render_observability_configs_section(region               = aws_region()       ,
                                                         amp_remote_write_url = amp_remote_write_url,
                                                         opensearch_endpoint  = opensearch_endpoint ,
@@ -1109,9 +1128,24 @@ def create(stage                : str           = typer.Option(DEFAULT_STAGE, he
            interactive          : bool          = typer.Option(False, '--interactive', '-i', help='Ask questions before launching (instance type, smoke workflow).')  ,
            smoke                : bool          = typer.Option(False, '--smoke',            help='After instance is up: run smoke test then delete (implies --wait).')  ,
            wait                 : bool          = typer.Option(False, '--wait',             help='Poll health until up.')                                     ,
-           timeout              : int           = typer.Option(600,  '--timeout',           help='Max seconds to wait when --wait or --smoke is set.')        ):
+           timeout              : int           = typer.Option(600,  '--timeout',           help='Max seconds to wait when --wait or --smoke is set.')        ,
+           upstream_url         : Optional[str] = typer.Option(None,  '--upstream-url',    help='Upstream proxy URL for agent_mitmproxy, e.g. http://proxy.example.com:8080.')  ,
+           upstream_user        : Optional[str] = typer.Option(None,  '--upstream-user',   help='Username for upstream proxy authentication.')                                  ,
+           upstream_pass        : Optional[str] = typer.Option(None,  '--upstream-pass',   help='Password for upstream proxy authentication.')                                  ,
+           disable_http2        : bool          = typer.Option(False, '--disable-http2',   help='Force http2=false on the sidecar. Auto-applied when --upstream-url is set.'),
+           env_file             : Optional[str] = typer.Option(None,  '--env-file',        help='Path to a .env file; values are merged under CLI flags (CLI wins on conflict).')):
     """Provision an EC2 instance running the Playwright + agent_mitmproxy stack."""
     c = Console(highlight=False, width=200)
+
+    # ── Load .env file (CLI flags take precedence) ────────────────────────────
+    if env_file:
+        import dotenv                                                            # python-dotenv; already a dev dep
+        env_values   = dotenv.dotenv_values(env_file)
+        upstream_url  = upstream_url  or env_values.get('AGENT_MITMPROXY__UPSTREAM_URL' ) or ''
+        upstream_user = upstream_user or env_values.get('AGENT_MITMPROXY__UPSTREAM_USER') or ''
+        upstream_pass = upstream_pass or env_values.get('AGENT_MITMPROXY__UPSTREAM_PASS') or ''
+        if not disable_http2:
+            disable_http2 = (env_values.get('AGENT_MITMPROXY__HTTP2', '').lower() == 'false')
 
     resolved_type = _resolve_instance_type(instance_type)
     run_smoke     = smoke
@@ -1128,7 +1162,10 @@ def create(stage                : str           = typer.Option(DEFAULT_STAGE, he
     result           = provision(stage=stage, playwright_image_uri=playwright_image_uri,
                                   sidecar_image_uri=sidecar_image_uri, deploy_name=name or '',
                                   from_ami=from_ami, instance_type=resolved_type,
-                                  max_hours=max_hours)
+                                  max_hours=max_hours,
+                                  upstream_url=upstream_url or '', upstream_user=upstream_user or '',
+                                  upstream_pass=upstream_pass or '',
+                                  http2='false' if disable_http2 else '')
     _render_create_result(result)
     resolved_name    = result['deploy_name']
 
@@ -1157,33 +1194,40 @@ def create(stage                : str           = typer.Option(DEFAULT_STAGE, he
 def cmd_list():
     """List all playwright-ec2 instances with metadata from tags."""
     c         = Console(highlight=False, width=200)
-    instances = find_instances(EC2())
+    ec2       = EC2()
+    instances = find_instances(ec2)
     if not instances:
         c.print('  [dim]No instances found.[/]')
         return
+    resp         = ec2.client().describe_images(
+        Filters  = [{'Name': f'tag:{TAG__SERVICE_KEY}', 'Values': [TAG__SERVICE_VALUE]}],
+        Owners   = ['self'])
+    project_amis = {img['ImageId']: img.get('Name', '') for img in resp.get('Images', [])}
     t = Table(show_header=True, header_style='bold blue', box=None, padding=(0, 2))
-    t.add_column('deploy-name',    style='bold')
+    t.add_column('deploy-name',   style='bold')
     t.add_column('instance-id',   style='dim')
     t.add_column('state')
+    t.add_column('launch',        style='cyan', no_wrap=True)
     t.add_column('instance-type', style='cyan')
     t.add_column('public-ip',     style='green')
     t.add_column('creator',       style='dim')
-    t.add_column('api-key',       style='dim')
     for iid, d in instances.items():
-        state_raw      = d.get('state', '?')
-        state          = state_raw.get('Name', '?') if isinstance(state_raw, dict) else str(state_raw)
-        ip             = d.get('public_ip', '')
-        deploy         = _instance_deploy_name(d)
-        creator        = _instance_tag(d, TAG__CREATOR_KEY)
-        api_key        = _instance_tag(d, TAG__API_KEY_VALUE_KEY)
-        instance_type  = _instance_tag(d, TAG__INSTANCE_TYPE_KEY) or d.get('instance_type', '?')
-        colour         = 'green' if state == 'running' else 'yellow' if state == 'pending' else 'red'
-        t.add_row(deploy, iid, f'[{colour}]{state}[/]', instance_type, ip, creator, api_key)
+        state_raw     = d.get('state', '?')
+        state         = state_raw.get('Name', '?') if isinstance(state_raw, dict) else str(state_raw)
+        ip            = d.get('public_ip', '')
+        deploy        = _instance_deploy_name(d)
+        creator       = _instance_tag(d, TAG__CREATOR_KEY)
+        instance_type = _instance_tag(d, TAG__INSTANCE_TYPE_KEY) or d.get('instance_type', '?')
+        image_id      = d.get('image_id', '')
+        launch        = '[magenta]ami[/]' if image_id in project_amis else '[blue]docker[/]'
+        colour        = 'green' if state == 'running' else 'yellow' if state == 'pending' else 'red'
+        t.add_row(deploy, iid, f'[{colour}]{state}[/]', launch, instance_type, ip, creator)
     c.print(t)
 
 
 @app.command(name='info')
-def cmd_info(target: Optional[str] = typer.Argument(None, help='Deploy-name or instance-id (auto if only one).')):
+def cmd_info(target   : Optional[str] = typer.Argument(None,  help='Deploy-name or instance-id (auto if only one).'),
+             json_flag: bool           = typer.Option(False, '--json', help='Output raw JSON instead of rich table.')):
     """Show full details for an instance, reading metadata from its tags."""
     ec2             = EC2()
     instance_id, d  = _resolve_target(ec2, target)
@@ -1206,6 +1250,9 @@ def cmd_info(target: Optional[str] = typer.Argument(None, help='Deploy-name or i
         'sidecar_image_uri'   : '(stored in compose file on instance)',
         'state'               : state,
     }
+    if json_flag:
+        print(json.dumps(r, indent=2))
+        return
     colour = 'green' if state == 'running' else 'yellow' if state == 'pending' else 'red'
     c      = Console(highlight=False, width=200)
     c.print()
@@ -1279,11 +1326,61 @@ def cmd_delete(name    : Optional[str] = typer.Argument(None,  help='Deploy-name
 @app.command(name='connect')
 def cmd_connect(target: Optional[str] = typer.Argument(None, help='Deploy-name or instance-id; auto-selects if only one instance.')):
     """Open an interactive SSM shell session (no SSH/key-pair needed)."""
-    import subprocess
+    import shutil, subprocess
+    c           = Console(highlight=False, width=200)
     ec2         = EC2()
     instance_id, _ = _resolve_target(ec2, target)
-    typer.echo(f'  🔌  Opening SSM session → {instance_id}')
-    subprocess.run(['aws', 'ssm', 'start-session', '--target', instance_id], check=False)
+
+    # Check plugin is discoverable before attempting the session
+    plugin_path = (shutil.which('session-manager-plugin') or
+                   '/usr/local/sessionmanagerplugin/bin/session-manager-plugin')
+    import os
+    if not os.path.isfile(plugin_path):
+        c.print()
+        c.print('  [red]✗  session-manager-plugin not found in PATH.[/]')
+        c.print('  Fix with one of:')
+        c.print()
+        c.print('    [bold]sudo ln -s /usr/local/sessionmanagerplugin/bin/session-manager-plugin /usr/local/bin/session-manager-plugin[/]')
+        c.print('    [bold]brew install --cask session-manager-plugin[/]')
+        c.print()
+        raise typer.Exit(1)
+
+    def _do_connect():
+        typer.echo(f'  🔌  Opening SSM session → {instance_id}  (plugin: {plugin_path})')
+        return subprocess.run(['aws', 'ssm', 'start-session', '--target', instance_id],
+                              check=False, capture_output=False)
+
+    result = _do_connect()
+    if result.returncode != 0:
+        c.print()
+        c.print('  [yellow]⚠  Session failed — restarting SSM agent on instance and retrying...[/]')
+        _ssm_run(instance_id, ['sudo systemctl restart amazon-ssm-agent'], timeout=30)
+        c.print('  [dim]waiting 5s for agent to come back...[/]')
+        time.sleep(5)
+        c.print()
+        result = _do_connect()
+
+    if result.returncode != 0:
+        c.print()
+        c.print('  [red]✗  Session failed after SSM agent restart.[/]')
+        c.print(f'  Plugin path: {plugin_path}')
+        c.print('  If you see "Standard_Stream not found", try:')
+        c.print('    [bold]brew reinstall --cask session-manager-plugin[/]')
+        c.print()
+
+
+@app.command(name='shell')
+def cmd_shell(target   : Optional[str] = typer.Argument(None, help='Deploy-name or instance-id (auto if only one).'),
+              container: str           = typer.Option(DOCKER__PLAYWRIGHT_CONTAINER, '--container', '-c',
+                                                      help='Container to shell into (default: playwright).')):
+    """Open an interactive bash shell inside the specified container via SSM (no SSH needed)."""
+    ec2             = EC2()
+    instance_id, _  = _resolve_target(ec2, target)
+    c               = Console(highlight=False, width=200)
+    c.print(f'\n  🐚  Connecting to [bold]{container}[/] on [dim]{instance_id}[/] …\n')
+    rc = _vault_shell(instance_id, 'bash', container=container)
+    if rc != 0:
+        c.print(f'\n  [red]✗  Shell exited with code {rc}[/]')
 
 
 def _env_export_prefix(instance_id: str, details: dict) -> str:
@@ -1314,51 +1411,330 @@ def cmd_env(target: Optional[str] = typer.Argument(None, help='Deploy-name or in
     api_key_name    = _instance_tag(d, TAG__API_KEY_NAME_KEY)  or 'X-API-Key'
     api_key_value   = _instance_tag(d, TAG__API_KEY_VALUE_KEY) or ''
     ip              = d.get('public_ip', '')
-    c               = Console(highlight=False, width=200)
-    c.print()
-    c.print(f'  [bold]# env — {deploy_name}  [dim]{instance_id}[/][/]')
-    c.print()
+    sys.stderr.write(f'\n  # env — {deploy_name}  {instance_id}\n\n')
     for line in [f'export DEPLOY_NAME={deploy_name!r}'              ,
                  f'export API_KEY_NAME={api_key_name!r}'            ,
                  f'export API_KEY_VALUE={api_key_value!r}'          ,
                  f'export EC2_IP={ip!r}'                            ,
                  f'export INSTANCE_ID={instance_id!r}'              ,
                  f"export SG_PLAYWRIGHT_URL='http://{ip}:{EC2__PLAYWRIGHT_PORT}'"]:
-        c.print(f'  {line}')
-    c.print()
+        print(line)
+    sys.stderr.write('\n')
 
 
 @app.command(name='vault-clone')
-def cmd_vault_clone(target : Optional[str] = typer.Argument(None, help='Deploy-name or instance-id; auto-selects if only one instance.'),
-                    key    : str           = typer.Argument(...,  help='Vault key (id:secret format from sgit).'),
-                    dir    : str           = typer.Option('/home/ssm-user', '--dir', help='Directory to clone into on the instance.')):
-    """Install sgit-ai on the EC2 instance and clone a vault into /home/ssm-user (or --dir).
+def cmd_vault_clone(target   : Optional[str] = typer.Argument(None, help='Deploy-name or instance-id; auto-selects if only one instance.'),
+                    key      : str           = typer.Argument(...,  help='Vault key (id:secret format from sgit).'),
+                    container: Optional[str] = typer.Option('playwright', '--container', '-c',
+                                                            help='Install sgit-ai and clone vault inside this Compose service (pass "" for EC2 host).'),
+                    work_dir : str           = typer.Option('/root/sg-investigation', '--work-dir',
+                                                           help='Exact vault root path (inside container when --container is set).')):
+    """Install sgit-ai and clone a vault — defaults to running inside the playwright container.
 
     Usage:
-      sg-play vault-clone quiet-volta bql3zl0ky2lhvmhofrj33815:qp0flfte
+      sg-play vault-clone fierce-hubble bql3zl0ky2lhvmhofrj33815:qp0flfte
+      sg-play vault-clone fierce-hubble bql3zl0ky2lhvmhofrj33815:qp0flfte --container ""  # EC2 host
     """
     ec2             = EC2()
     instance_id, d  = _resolve_target(ec2, target)
     deploy_name     = _instance_deploy_name(d)
     c               = Console(highlight=False, width=200)
+    ctr             = container or None
     c.print()
-    c.print(Panel(f'[bold]📦  Vault clone → {deploy_name}[/]  [dim]{instance_id}[/]',
+    c.print(Panel(f'[bold]📦  Vault clone → {deploy_name}[/]  [dim]{instance_id}[/]  '
+                  f'[blue]{("container: " + container) if container else "EC2 host"}[/]',
                   border_style='blue', expand=False))
     c.print()
-    steps = [('Installing sgit-ai',      f'pip install sgit-ai --break-system-packages -q'),
-             ('Cloning vault',           f'cd {dir} && sgit clone {key}')]
+    c.print('  [dim]disk space check...[/]')
+    _vault_ssm(instance_id, 'df -h / 2>/dev/null | tail -1', container=ctr)
+    c.print()
+    steps = [('Installing sgit-ai', 'pip install sgit-ai --break-system-packages -q'),
+             ('Cloning vault',      _vault_clone_sh(key, work_dir))]
     for label, command in steps:
         c.print(f'  ⏳  {label}...')
-        stdout, stderr = _ssm_run(instance_id, [command], timeout=120)
-        if stdout.strip():
-            c.print(stdout.rstrip())
-        if stderr.strip():
-            c.print(f'[yellow]{stderr.rstrip()}[/]')
+        _vault_ssm(instance_id, command, timeout=120, container=ctr)
         c.print(f'  ✅  {label} done')
     c.print()
-    c.print(f'  [bold green]Vault ready at {dir}[/]')
-    c.print(f'  Run: [bold]sg-play env {deploy_name}[/]  to get the instance env vars')
+    c.print(f'  [bold green]Vault root: {work_dir}[/]  {"(in container: " + container + ")" if container else "(on EC2 host)"}')
+    c.print(f'  Use [bold]--work-dir {work_dir}[/] with vault-run / vault-list / vault-commit / vault-push')
     c.print()
+
+
+def _vault_clone_sh(vault_key: str, work_dir: str) -> str:
+    """Return a shell fragment that clones vault_key to the exact work_dir path.
+
+    sgit creates a subdirectory named after the key's secret part (the part
+    after ':').  We clone into the parent, then rename the subdirectory to
+    match the requested work_dir basename so all subsequent commands see a
+    consistent path.
+    """
+    secret   = vault_key.split(':')[-1]
+    wq       = shlex.quote(work_dir)
+    sq       = shlex.quote(secret)
+    parent_q = shlex.quote(work_dir.rstrip('/').rsplit('/', 1)[0] or '/')
+    name_q   = shlex.quote(work_dir.rstrip('/').rsplit('/', 1)[-1])
+    return f'''\
+rm -rf {wq}
+mkdir -p {parent_q}
+cd {parent_q}
+sgit clone {shlex.quote(vault_key)} 2>&1
+if [ -d {sq} ] && [ {sq} != {name_q} ]; then
+    mv {sq} {name_q}
+fi
+echo "vault root: {work_dir}"'''
+
+
+def _vault_ssm(instance_id: str, shell: str, timeout: int = 60, container: Optional[str] = None) -> None:
+    """Run a vault shell command via SSM; wraps with docker compose exec when container is set."""
+    if container:
+        inner = shlex.quote(f'set -uo pipefail; {shell}')
+        shell = f'docker compose -f {COMPOSE_FILE_PATH} exec -T {shlex.quote(container)} bash -c {inner}'
+    stdout, stderr = _ssm_run(instance_id, [shell], timeout=timeout)
+    if stdout.strip():
+        print(stdout.rstrip())
+    if stderr.strip():
+        print(stderr.rstrip(), file=sys.stderr)
+    if not stdout.strip() and not stderr.strip():
+        Console(highlight=False).print('  [dim](no output)[/]')
+
+
+def _vault_shell(instance_id: str, shell: str, container: Optional[str] = None) -> int:
+    """Run a command via SSM start-session (streams output in real time, requires session-manager-plugin).
+
+    When container is set, wraps the command with docker exec so it runs inside the container.
+    Returns the process exit code.
+    """
+    import json, os, shutil, subprocess
+    plugin = shutil.which('session-manager-plugin') or '/usr/local/sessionmanagerplugin/bin/session-manager-plugin'
+    if not os.path.isfile(plugin):
+        Console(highlight=False).print('  [red]✗  session-manager-plugin not found — streaming requires the plugin.[/]')
+        Console(highlight=False).print('  Install: [bold]brew install --cask session-manager-plugin[/]')
+        return 1
+    if container:
+        shell = f'sudo docker exec -it {shlex.quote(container)} bash -c {shlex.quote(shell)}'
+    params = json.dumps({'command': [shell]})
+    result = subprocess.run(
+        ['aws', 'ssm', 'start-session',
+         '--target', instance_id,
+         '--document-name', 'AWS-StartInteractiveCommand',
+         '--parameters', params],
+        check=False)
+    return result.returncode
+
+
+@app.command(name='vault-list')
+def cmd_vault_list(target   : Optional[str] = typer.Argument(None, help='Deploy-name or instance-id (auto if only one).'),
+                   path     : str           = typer.Option('.',          '--path',      '-p', help='Sub-path within --work-dir to list.'),
+                   container: Optional[str] = typer.Option('playwright', '--container', '-c', help='Run inside this Compose service (pass "" to run on EC2 host).'),
+                   work_dir : str           = typer.Option('/root/sg-investigation', '--work-dir', help='Vault root (inside container when --container is set).')):
+    """List files in the vault working directory."""
+    ec2             = EC2()
+    instance_id, _  = _resolve_target(ec2, target)
+    full_path       = f'{work_dir}/{path}'.rstrip('/')
+    _vault_ssm(instance_id, f'find {shlex.quote(full_path)} -type f 2>/dev/null | sort',
+               container=container or None)
+
+
+@app.command(name='vault-run')
+def cmd_vault_run(script   : str           = typer.Argument(...,  help='Script path relative to --work-dir (e.g. scenarios/00__pre-flight/scripts/01__health.sh).'),
+                  target   : Optional[str] = typer.Option(None,          '--target',    '-t', help='Deploy-name or instance-id (auto if only one).'),
+                  container: Optional[str] = typer.Option('playwright',  '--container', '-c', help='Run inside this Compose service (pass "" to run on EC2 host).'),
+                  work_dir : str           = typer.Option('/root/sg-investigation', '--work-dir', help='Vault root (inside container when --container is set).'),
+                  save     : Optional[str] = typer.Option(None,  '--save', '-o', help='Save output to this path within --work-dir.'),
+                  timeout  : int           = typer.Option(120,   '--timeout', help='Script timeout in seconds.'),
+                  stream   : bool          = typer.Option(True,  '--stream/--no-stream',
+                                                          help='Stream output in real time via SSM start-session (requires session-manager-plugin). Use --no-stream to collect and return output after completion.')):
+    """Run a single bash or python script from the vault.
+
+    Interpreter is chosen by extension: .py → python3, anything else → bash.
+    Instance env vars (DEPLOY_NAME, API_KEY_VALUE, EC2_IP, etc.) are always
+    exported so scripts can reference them without extra setup.
+    """
+    ec2             = EC2()
+    instance_id, d  = _resolve_target(ec2, target)
+    full_script     = f'{work_dir}/{script}'
+    ext             = script.rsplit('.', 1)[-1] if '.' in script else ''
+    interpreter     = 'python3' if ext == 'py' else 'bash'
+    env_prefix      = _env_export_prefix(instance_id, d)
+    run_cmd         = f'timeout {timeout} {interpreter} {shlex.quote(full_script)}'
+    if save:
+        save_path = f'{work_dir}/{save}'
+        shell = f'mkdir -p $(dirname {shlex.quote(save_path)}) && {run_cmd} | tee {shlex.quote(save_path)}'
+    else:
+        shell = run_cmd
+    full_shell = f'{env_prefix}chmod +x {shlex.quote(full_script)} 2>/dev/null; {shell}'
+    if stream:
+        _vault_shell(instance_id, full_shell, container=container or None)
+    else:
+        _vault_ssm(instance_id, full_shell, timeout=timeout + 10, container=container or None)
+
+
+@app.command(name='vault-commit')
+def cmd_vault_commit(target   : Optional[str] = typer.Argument(None, help='Deploy-name or instance-id (auto if only one).'),
+                     message  : str           = typer.Option('investigation outputs', '--message', '-m', help='Commit message.'),
+                     container: Optional[str] = typer.Option('playwright', '--container', '-c', help='Run inside this Compose service (pass "" for EC2 host).'),
+                     work_dir : str           = typer.Option('/root/sg-investigation', '--work-dir', help='Vault root.')):
+    """Stage all changes in the vault and commit."""
+    ec2             = EC2()
+    instance_id, _  = _resolve_target(ec2, target)
+    _vault_ssm(instance_id,
+               f'cd {shlex.quote(work_dir)} && sgit add -A && sgit commit -m {shlex.quote(message)} 2>&1 || echo "(nothing to commit)"',
+               container=container or None)
+
+
+@app.command(name='vault-push')
+def cmd_vault_push(target      : Optional[str] = typer.Argument(None, help='Deploy-name or instance-id (auto if only one).'),
+                   access_token: Optional[str] = typer.Option(None, '--access-token', envvar='SGIT_WRITE_TOKEN',
+                                                               help='Write token; also read from $SGIT_WRITE_TOKEN.'),
+                   container   : Optional[str] = typer.Option('playwright', '--container', '-c', help='Run inside this Compose service (pass "" for EC2 host).'),
+                   work_dir    : str           = typer.Option('/root/sg-investigation', '--work-dir', help='Vault root.')):
+    """Push the vault back to origin."""
+    if not access_token:
+        typer.echo('Error: provide --access-token or set $SGIT_WRITE_TOKEN', err=True)
+        raise typer.Exit(1)
+    ec2             = EC2()
+    instance_id, _  = _resolve_target(ec2, target)
+    tok             = shlex.quote(access_token)
+    _vault_ssm(instance_id,
+               f'cd {shlex.quote(work_dir)} && SGIT_WRITE_TOKEN={tok} sgit push 2>&1; unset SGIT_WRITE_TOKEN',
+               container=container or None)
+
+
+@app.command(name='vault-pull')
+def cmd_vault_pull(target   : Optional[str] = typer.Argument(None, help='Deploy-name or instance-id (auto if only one).'),
+                   container: Optional[str] = typer.Option('playwright', '--container', '-c', help='Run inside this Compose service (pass "" for EC2 host).'),
+                   work_dir : str           = typer.Option('/root/sg-investigation', '--work-dir', help='Vault root.')):
+    """Pull latest changes into the vault."""
+    ec2             = EC2()
+    instance_id, _  = _resolve_target(ec2, target)
+    _vault_ssm(instance_id, f'cd {shlex.quote(work_dir)} && sgit pull 2>&1', container=container or None)
+
+
+@app.command(name='vault-status')
+def cmd_vault_status(target   : Optional[str] = typer.Argument(None, help='Deploy-name or instance-id (auto if only one).'),
+                     container: Optional[str] = typer.Option('playwright', '--container', '-c', help='Run inside this Compose service (pass "" for EC2 host).'),
+                     work_dir : str           = typer.Option('/root/sg-investigation', '--work-dir', help='Vault root.')):
+    """Show vault status: working-tree changes, recent commits, and output files."""
+    ec2             = EC2()
+    instance_id, _  = _resolve_target(ec2, target)
+    shell = f'''\
+cd {shlex.quote(work_dir)} 2>/dev/null || {{ echo "vault not found at {work_dir}"; exit 1; }}
+echo "=== status ==="
+sgit status 2>&1
+echo ""
+echo "=== recent commits ==="
+sgit log --oneline -5 2>&1 || true
+echo ""
+echo "=== outputs ==="
+find . -path "*/outputs/*" -type f 2>/dev/null | sort | while read f; do
+    echo "  $(wc -l < "$f" 2>/dev/null || echo 0)L  $f"
+done
+'''
+    _vault_ssm(instance_id, shell, container=container or None)
+
+
+@app.command(name='run')
+def cmd_run(vault_key          : str           = typer.Argument(...,  help='Vault key (id:secret from sgit).'),
+            scenario           : Optional[str] = typer.Argument(None, help='Scenario folder in vault (e.g. scenarios/00__pre-flight).'),
+            access_token       : Optional[str] = typer.Option(None,  '--access-token', envvar='SGIT_WRITE_TOKEN',
+                                                              help='Write token for sgit push; also read from $SGIT_WRITE_TOKEN.'),
+            target             : Optional[str] = typer.Option(None,  '--target', '-t', help='Deploy-name or instance-id (auto if only one).'),
+            container          : Optional[str] = typer.Option('playwright', '--container', '-c',
+                                                              help='Run scripts inside this Compose service (pass "" to run on EC2 host).'),
+            read_only          : bool          = typer.Option(False, '--read-only',     help='Clone + run but skip vault push.'),
+            work_dir           : str           = typer.Option('/home/ssm-user/sg-investigation',  '--work-dir',
+                                                              help='Working directory on the EC2 instance.'),
+            per_script_timeout : int           = typer.Option(120,  '--timeout',        help='Per-script timeout in seconds.'),
+            total_timeout      : int           = typer.Option(1800, '--total-timeout',   help='Overall SSM command timeout in seconds.')):
+    """Clone a vault onto an EC2 instance, run its scenario scripts, push outputs back.
+
+    Usage:
+      sgpl run bql3zl0ky2lhvmhofrj33815:qp0flfte scenarios/00__pre-flight \\
+               --access-token $SGIT_WRITE_TOKEN --target cool-dirac
+      sgpl run bql3zl0ky2lhvmhofrj33815:qp0flfte --read-only  # inspect without push
+      sgpl run bql3zl0ky2lhvmhofrj33815:qp0flfte scenarios/00__pre-flight \\
+               --container playwright --target cool-dirac
+    """
+    if not read_only and not access_token:
+        typer.echo('Error: provide --access-token (or $SGIT_WRITE_TOKEN), or pass --read-only to skip push.', err=True)
+        raise typer.Exit(1)
+
+    ec2             = EC2()
+    instance_id, d  = _resolve_target(ec2, target)
+    deploy_name     = _instance_deploy_name(d)
+    c               = Console(highlight=False, width=200)
+
+    script_dir = f'{work_dir}/{scenario}/scripts' if scenario else f'{work_dir}/scripts'
+    output_dir = f'{work_dir}/{scenario}/outputs' if scenario else f'{work_dir}/outputs'
+
+    if container:
+        run_cmd = f'cat "$script" | docker compose -f {COMPOSE_FILE_PATH} exec -T {shlex.quote(container)} bash'
+    else:
+        run_cmd = 'bash "$script"'
+
+    push_block = ''
+    if not read_only:
+        tok = shlex.quote(access_token)
+        scen_q = shlex.quote(scenario or '.')
+        push_block = f'''\
+echo "=== push outputs ==="
+cd {shlex.quote(work_dir)}
+SGIT_WRITE_TOKEN={tok} sgit add {scen_q}/outputs/
+SGIT_WRITE_TOKEN={tok} sgit commit -m "run: {scenario or 'all'} outputs $(date -u +%Y-%m-%dT%H:%M:%SZ)" 2>&1 || true
+SGIT_WRITE_TOKEN={tok} sgit push 2>&1
+unset SGIT_WRITE_TOKEN
+echo "pushed"
+'''
+
+    remote_script = f'''\
+#!/bin/bash
+set -uo pipefail
+
+echo "=== install sgit-ai ==="
+pip install -q sgit-ai --break-system-packages 2>&1 | tail -2
+
+echo "=== clone vault ==="
+{_vault_clone_sh(vault_key, work_dir)}
+
+mkdir -p {shlex.quote(output_dir)}
+
+echo "=== run scripts ==="
+for script in $(find {shlex.quote(script_dir)} -maxdepth 1 -name "*.sh" 2>/dev/null | sort); do
+    name=$(basename "$script" .sh)
+    echo "--- $name"
+    chmod +x "$script"
+    timeout {per_script_timeout} {run_cmd} > {shlex.quote(output_dir)}/"${{name}}__out.txt" 2>&1
+    rc=$?
+    lines=$(wc -l < {shlex.quote(output_dir)}/"${{name}}__out.txt" 2>/dev/null || echo 0)
+    echo "  exit=$rc  ${{lines}}L  outputs/${{name}}__out.txt"
+done
+
+{push_block}
+echo "=== outputs ==="
+find {shlex.quote(output_dir)} -type f 2>/dev/null | sort | while read f; do
+    echo "  $(wc -l < "$f")L  $f"
+done
+echo "=== done ==="
+'''
+
+    c.print()
+    c.print(Panel(f'[bold]▶  vault run[/]  ·  {deploy_name}  [dim]{instance_id}[/]', border_style='blue', expand=False))
+    c.print(f'  vault    : {vault_key.split(":")[0]}:***')
+    if scenario:
+        c.print(f'  scenario : {scenario}')
+    if container:
+        c.print(f'  container: {container}')
+    c.print(f'  work-dir : {work_dir}')
+    c.print(f'  push     : {"no (--read-only)" if read_only else "yes"}')
+    c.print()
+
+    stdout, stderr = _ssm_run(instance_id, [remote_script], timeout=total_timeout)
+    if stdout.strip():
+        print(stdout.rstrip())
+    if stderr.strip():
+        print(stderr.rstrip(), file=sys.stderr)
+    if not stdout.strip() and not stderr.strip():
+        c.print('  [yellow](no output — check SSM agent status with: sgpl exec "sudo systemctl status amazon-ssm-agent")[/]')
 
 
 @app.command(name='exec')
@@ -1367,25 +1743,25 @@ def cmd_exec(first      : str           = typer.Argument(...,  help='Deploy-name
              cmd        : Optional[str] = typer.Option(None, '--cmd',         help='Shell command (alternative to positional).'),
              target     : Optional[str] = typer.Option(None, '--target', '-t',help='Force target; first positional arg then becomes the command.'),
              container  : Optional[str] = typer.Option(None, '--container', '-c',
-                                                        help='Run inside this Compose service (playwright or agent-mitmproxy).'),
+                                                        help='Run inside this container (full name or compose service name, e.g. sg-playwright-playwright-1 or playwright).'),
              inject_env : bool          = typer.Option(False, '--inject-env', help='Prepend DEPLOY_NAME/API_KEY_VALUE/EC2_IP/INSTANCE_ID from tags.') ):
     """Execute a shell command on the EC2 host or inside a Docker container via SSM.
 
     Usage patterns:
-      sg-ec2 exec fresh-fermi "docker ps"        # explicit target + command
-      sg-ec2 exec "docker ps"                    # auto-select target + command
-      sg-ec2 exec fresh-fermi --cmd "docker ps"  # explicit target + --cmd
-      sg-ec2 exec --cmd "docker ps"              # auto-select + --cmd
+      sgpl exec "docker ps"                                         # host, auto-select target
+      sgpl exec fierce-hubble "docker ps"                          # host, explicit target
+      sgpl exec "ls /" --container sg-playwright-playwright-1      # inside container (full name)
+      sgpl exec "ls /" --container playwright                      # inside container (service name)
     """
     if target:
         resolved_target = target
         shell_cmd       = second or first or cmd
     elif second or cmd:
-        resolved_target = first          # first positional = target
-        shell_cmd       = second or cmd  # second positional or --cmd = command
+        resolved_target = first
+        shell_cmd       = second or cmd
     else:
-        resolved_target = None           # auto-select
-        shell_cmd       = first          # only arg = command
+        resolved_target = None
+        shell_cmd       = first
 
     if not shell_cmd:
         raise typer.BadParameter('Provide a shell command.')
@@ -1394,14 +1770,37 @@ def cmd_exec(first      : str           = typer.Argument(...,  help='Deploy-name
     if inject_env:
         shell_cmd = _env_export_prefix(instance_id, d) + shell_cmd
     if container:
-        shell_cmd = f'docker compose -f {COMPOSE_FILE_PATH} exec -T {container} {shell_cmd}'
+        shell_cmd = f'docker exec {shlex.quote(container)} bash -c {shlex.quote(shell_cmd)}'
     c = Console(highlight=False, width=200)
-    c.print(f'  💻  [{instance_id}]{"[" + container + "]" if container else ""}  [dim]{shell_cmd}[/]')
+    ctr_tag = f'[{container}]' if container else ''
+    c.print(f'  💻  [dim]{instance_id}{ctr_tag}[/]  {shell_cmd}')
     stdout, stderr = _ssm_run(instance_id, [shell_cmd])
     if stdout.strip():
-        c.print(stdout.rstrip())
+        print(stdout.rstrip())
     if stderr.strip():
-        c.print(f'[yellow]{stderr.rstrip()}[/]')
+        print(stderr.rstrip(), file=sys.stderr)
+    if not stdout.strip() and not stderr.strip():
+        c.print('  [dim](no output)[/]')
+
+
+@app.command(name='exec-c')
+def cmd_exec_c(shell_cmd: str           = typer.Argument(...,  help='Shell command to run inside the playwright container.'),
+               target   : Optional[str] = typer.Option(None, '--target', '-t', help='Deploy-name or instance-id (auto if only one).'),
+               container: str           = typer.Option(DOCKER__PLAYWRIGHT_CONTAINER, '--container', '-c',
+                                                        help='Container name (defaults to sg-playwright-playwright-1).')):
+    """Run a command inside the playwright container — shorthand for exec --container sg-playwright-playwright-1."""
+    ec2             = EC2()
+    instance_id, _  = _resolve_target(ec2, target)
+    wrapped         = f'docker exec {shlex.quote(container)} bash -c {shlex.quote(shell_cmd)}'
+    c               = Console(highlight=False, width=200)
+    c.print(f'  💻  [dim]{instance_id}[{container}][/]  {shell_cmd}')
+    stdout, stderr  = _ssm_run(instance_id, [wrapped])
+    if stdout.strip():
+        print(stdout.rstrip())
+    if stderr.strip():
+        print(stderr.rstrip(), file=sys.stderr)
+    if not stdout.strip() and not stderr.strip():
+        c.print('  [dim](no output)[/]')
 
 
 @app.command(name='logs')
@@ -1548,6 +1947,99 @@ def cmd_tag_ami(ami_id : str = typer.Argument(..., help='AMI ID to tag.'),
     tag_ami(EC2(), ami_id, status)
     colour = 'green' if status == 'healthy' else 'red' if status == 'unhealthy' else 'yellow'
     Console(highlight=False).print(f'\n  [{colour}]●[/]  {ami_id}  sg:ami-status = {status}\n')
+
+
+@app.command(name='list-amis')
+def cmd_list_amis():
+    """List all sg-playwright AMIs in the current region with their status, age, and running instances."""
+    c         = Console(highlight=False, width=200)
+    ec2       = EC2()
+    resp      = ec2.client().describe_images(
+        Filters = [{'Name': f'tag:{TAG__SERVICE_KEY}', 'Values': [TAG__SERVICE_VALUE]}],
+        Owners  = ['self'])
+    images    = sorted(resp.get('Images', []), key=lambda x: x['CreationDate'], reverse=True)
+    if not images:
+        c.print('  [dim]No sg-playwright AMIs found.[/]')
+        return
+    instances     = find_instances(ec2)                                        # {iid: details}
+    ami_instances : dict = {}                                                  # ami_id → list of deploy-names
+    for iid, d in instances.items():
+        img_id = d.get('image_id', '')
+        if img_id:
+            ami_instances.setdefault(img_id, []).append(_instance_deploy_name(d) or iid)
+    t = Table(show_header=True, header_style='bold blue', box=None, padding=(0, 2))
+    t.add_column('#',          style='dim',     no_wrap=True)
+    t.add_column('ami-id',     style='bold',    no_wrap=True)
+    t.add_column('name',       style='default')
+    t.add_column('status',     style='default', no_wrap=True)
+    t.add_column('state',      style='default', no_wrap=True)
+    t.add_column('created',    style='dim',     no_wrap=True)
+    t.add_column('instances',  style='cyan')
+    for idx, img in enumerate(images, 1):
+        ami_id   = img['ImageId']
+        name     = img.get('Name', '—')
+        state    = img.get('State', '?')
+        created  = img.get('CreationDate', '?')[:19].replace('T', ' ')
+        status   = next((tg['Value'] for tg in img.get('Tags', []) if tg['Key'] == TAG__AMI_STATUS_KEY), '—')
+        running  = ami_instances.get(ami_id, [])
+        s_colour = 'green' if status == 'healthy' else 'red' if status == 'unhealthy' else 'yellow'
+        d_colour = 'green' if state   == 'available' else 'yellow'
+        inst_str = ', '.join(running) if running else '[dim]—[/]'
+        t.add_row(str(idx), ami_id, name, f'[{s_colour}]{status}[/]', f'[{d_colour}]{state}[/]', created, inst_str)
+    c.print(t)
+
+
+@app.command(name='create-from-ami')
+def cmd_create_from_ami(
+        ami_id         : Optional[str] = typer.Argument(None,                  help='AMI ID to launch from. Omit to pick interactively.'),
+        name           : Optional[str] = typer.Option(None,  '--name',         help='Deploy name (default: random two-word).'),
+        instance_type  : Optional[str] = typer.Option(None,  '--instance-type',help=f'Instance type or preset 1–5 (default: {EC2__INSTANCE_TYPE}).'),
+        max_hours      : int           = typer.Option(4,     '--max-hours',    help='Auto-terminate after N hours. Default: 4.'),
+        wait           : bool          = typer.Option(False, '--wait',         help='Poll health until up.'),
+        smoke          : bool          = typer.Option(False, '--smoke',        help='After instance is up: run smoke test then delete.')):
+    """Launch an EC2 instance from a pre-baked sg-playwright AMI (fast boot — no docker install or image pull)."""
+    c   = Console(highlight=False, width=200)
+    ec2 = EC2()
+
+    if ami_id is None:
+        resp   = ec2.client().describe_images(
+            Filters = [{'Name': f'tag:{TAG__SERVICE_KEY}', 'Values': [TAG__SERVICE_VALUE]},
+                       {'Name': 'state',                   'Values': ['available']        }],
+            Owners  = ['self'])
+        images = sorted(resp.get('Images', []), key=lambda x: x['CreationDate'], reverse=True)
+        if not images:
+            c.print('  [red]✗  No sg-playwright AMIs found. Run [bold]sgpl bake-ami[/] first.[/]')
+            raise typer.Exit(1)
+        healthy = [img for img in images
+                   if next((tg['Value'] for tg in img.get('Tags', []) if tg['Key'] == TAG__AMI_STATUS_KEY), '') == 'healthy']
+        chosen = (healthy or images)[0]                                        # prefer healthy, fall back to latest
+        ami_id = chosen['ImageId']
+        status = next((tg['Value'] for tg in chosen.get('Tags', []) if tg['Key'] == TAG__AMI_STATUS_KEY), '—')
+        c.print(f'\n  → using latest: [bold]{ami_id}[/]  {chosen.get("Name", "?")}  [dim]({status})[/]\n')
+
+    resolved_type = _resolve_instance_type(instance_type)
+    result        = provision(stage=DEFAULT_STAGE, deploy_name=name or '', from_ami=ami_id,
+                               instance_type=resolved_type, max_hours=max_hours)
+    _render_create_result(result)
+    resolved_name = result['deploy_name']
+
+    if wait or smoke:
+        _cmd_wait(ip=result['public_ip'], port=EC2__PLAYWRIGHT_PORT,
+                  api_key_name=result['api_key_name'], api_key_value=result['api_key_value'],
+                  timeout=600, interval=10)
+
+    if smoke:
+        smoke_ok = True
+        try:
+            cmd_smoke(target=resolved_name, url=(), port=EC2__PLAYWRIGHT_PORT,
+                      no_screenshot=False, req_timeout=120)
+        except SystemExit as e:
+            smoke_ok = (e.code == 0 or e.code is None)
+        c.print()
+        c.print(Panel(f'[bold]🗑️  Deleting {resolved_name}[/]', border_style='dim', expand=False))
+        cmd_delete(resolved_name)
+        if not smoke_ok:
+            raise typer.Exit(code=1)
 
 
 @app.command(name='open')
@@ -1841,7 +2333,7 @@ def cmd_smoke(target          : Optional[str]  = typer.Argument(None, help='Depl
         c.print(f'  🔭  mitmproxy flows unavailable: {str(exc)[:80]}')
 
     c.print()
-    c.print(f'  Mitmproxy UI  →  sg-ec2 forward {EC2__SIDECAR_ADMIN_PORT}    then  http://localhost:{EC2__SIDECAR_ADMIN_PORT}/web/')
+    c.print(f'  Mitmproxy UI  →  sg-ec2 forward {EC2__MITMWEB_TUNNEL_PORT}  then  http://localhost:{EC2__MITMWEB_TUNNEL_PORT}/')
     c.print(f'  Browser       →  sg-ec2 forward-browser       then  http://localhost:{EC2__BROWSER_INTERNAL_PORT}/')
     c.print(f'  Prometheus    →  sg-ec2 forward-prometheus     then  http://localhost:{EC2__PROMETHEUS_PORT}/')
     c.print()

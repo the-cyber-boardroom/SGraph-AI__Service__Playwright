@@ -108,26 +108,27 @@ jobs:
   # Job 2b: Detect Image-Relevant Changes (path filter — skip image rebuilds
   #   when no image-relevant file changed).
   #
-  #   Python-only changes ship via the S3-zip overlay (the agentic Lambda hot-
-  #   loads from s3://<bucket>/apps/<app>/<stage>/vX.Y.Z.zip on boot), so the
-  #   Docker image doesn't need rebuilding for routine code changes. Only
-  #   trigger a rebuild when:
-  #     • Dockerfile or any file under sgraph_ai_service_playwright/docker/images/
-  #       (the dockerfile itself lives under images/<app>/dockerfile, and any
-  #       other file under images/ would be COPYed into the image context)
-  #     • requirements.txt (new Python deps need to live in the image)
-  #     • lambda_entry.py   (the boot shim is baked in — cannot hot-swap)
-  #   NOTE: sgraph_ai_service_playwright/docker/*.py is deploy-time tooling
-  #   (Build__Docker__*, Lambda__Docker__*) — never executed at Lambda runtime.
-  #   Excluding it from the filter means touching provisioning scripts doesn't
-  #   force a ~4-5 min image rebuild when the code-only path would suffice.
-  #   Bypass the filter with the `force_image_rebuild` workflow-dispatch input.
+  #   Two deployment targets read from the Docker image in different ways:
+  #
+  #   Lambda (agentic variant): Python source ships via S3-zip overlay —
+  #     the Lambda hot-loads from s3://<bucket>/apps/<app>/<stage>/vX.Y.Z.zip
+  #     on boot, so only Dockerfile / requirements.txt / lambda_entry.py changes
+  #     need an image rebuild (lambda-image filter).
+  #
+  #   EC2 (container stack): pulls the ECR image directly — no S3 overlay.
+  #     Any change to sgraph_ai_service_playwright/** is baked into the image
+  #     and must trigger a rebuild (ec2-image filter).
+  #     sgraph_ai_service_playwright/docker/** is excluded: that is deploy-time
+  #     tooling (Build__Docker__*, Lambda__Docker__*), never executed at runtime.
+  #
+  #   image-rebuild-needed = true when EITHER filter matches.
+  #   Bypass both filters with the `force_image_rebuild` workflow-dispatch input.
   # ════════════════════════════════════════════════════════════════════════════
   detect-changes:
     name: Detect Image-Relevant Changes
     runs-on: ubuntu-latest
     outputs:
-      image-rebuild-needed: ${{ steps.filter.outputs.image }}
+      image-rebuild-needed: ${{ steps.combine.outputs.image-rebuild-needed }}
     steps:
       - uses: actions/checkout@v5
 
@@ -136,11 +137,24 @@ jobs:
         uses: dorny/paths-filter@v3
         with:
           filters: |
-            image:
+            lambda-image:
               - 'Dockerfile'
               - 'requirements.txt'
               - 'lambda_entry.py'
               - 'sgraph_ai_service_playwright/docker/images/**'
+            ec2-image:
+              - 'sgraph_ai_service_playwright/**'
+              - '!sgraph_ai_service_playwright/docker/**'
+
+      - name: Combine image-rebuild outputs
+        id: combine
+        run: |
+          if [[ "${{ steps.filter.outputs.lambda-image }}" == "true" || \
+                "${{ steps.filter.outputs.ec2-image }}"   == "true" ]]; then
+            echo "image-rebuild-needed=true"  >> $GITHUB_OUTPUT
+          else
+            echo "image-rebuild-needed=false" >> $GITHUB_OUTPUT
+          fi
 
   # ════════════════════════════════════════════════════════════════════════════
   # Job 3: Build + Push Docker Image to ECR (single job — no tar save/reload)
@@ -174,6 +188,15 @@ jobs:
           pip install -r requirements.txt
           pip install -e .
           pip install pytest pytest-timeout
+
+      - name: Authenticate to AWS Public ECR                                        # Avoids rate-limit errors when pulling public.ecr.aws base images (e.g. aws-lambda-adapter). Authenticated pulls are unthrottled.
+        run: |
+          aws ecr-public get-login-password --region us-east-1 | \
+            docker login --username AWS --password-stdin public.ecr.aws
+        env:
+          AWS_SECRET_ACCESS_KEY : ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION    : ${{ secrets.AWS_DEFAULT_REGION    }}
+          AWS_ACCESS_KEY_ID     : ${{ secrets.AWS_ACCESS_KEY_ID     }}
 
       - name: Build Docker image via pytest
         run: |
@@ -442,19 +465,32 @@ jobs:
 
   # ════════════════════════════════════════════════════════════════════════════
   # Job 7: Smoke Test (invoke deployed Lambda)
+  #   Runs after provision-lambdas completes. Hits /health/info, /health/status,
+  #   /health/capabilities, and browser/get-content against the Lambda Function
+  #   URL. Validates the full boot-shim → Playwright → real-site chain.
   # ════════════════════════════════════════════════════════════════════════════
   smoke-test:
     name: "Smoke Test (Lambda)"
     runs-on: ubuntu-latest
-    timeout-minutes: 5
-    needs: [deploy-lambda]
-    if: false                                                                       # v0.1.29: disabled — Day 4 folds the smoke test into scripts/deploy_code.py
+    timeout-minutes: 10
+    needs: [provision-lambdas, check-aws-credentials]
+    if: |
+      always() &&
+      needs.provision-lambdas.result == 'success' &&
+      needs.check-aws-credentials.outputs.has-credentials == 'true'
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.git_branch }}
+
+      - name: Git Update Current Branch
+        uses: owasp-sbot/OSBot-GitHub-Actions/.github/actions/git__update_branch@dev
 
       - uses: actions/setup-python@v6
         with:
           python-version: '3.12'
+          cache: 'pip'
+          cache-dependency-path: 'requirements.txt'
 
       - name: Install dependencies
         run: |
@@ -463,8 +499,9 @@ jobs:
           pip install pytest pytest-timeout
 
       - name: Smoke test deployed Lambda
+        timeout-minutes: 8
         run: |
-          python -m pytest tests/deploy/test_Smoke__Playwright__Service__${{ inputs.target_deploy }}.py -v -s
+          python -m pytest tests/deploy/test_Smoke__Playwright__Service__${{ inputs.target_deploy }}.py -v -s --timeout=90
         env:
           AWS_SECRET_ACCESS_KEY          : ${{ secrets.AWS_SECRET_ACCESS_KEY          }}
           AWS_DEFAULT_REGION             : ${{ secrets.AWS_DEFAULT_REGION             }}
