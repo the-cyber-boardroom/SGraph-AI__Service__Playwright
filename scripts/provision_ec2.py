@@ -71,7 +71,8 @@ IAM__PROMETHEUS_RW_POLICY_ARN  = 'arn:aws:iam::aws:policy/AmazonPrometheusRemote
 IAM__OBSERVABILITY_POLICY_ARNS = (IAM__PROMETHEUS_RW_POLICY_ARN,)                           # OpenSearch write access is domain-specific — added via resource policy (see library/docs/runbooks/aws-observability-setup.md)
 IAM__ASSUME_ROLE_SERVICE       = 'ec2.amazonaws.com'
 
-EC2__PROMETHEUS_PORT  = 9090
+EC2__PROMETHEUS_PORT      = 9090
+EC2__BROWSER_INTERNAL_PORT = 3000                                                      # linuxserver/chromium KasmVNC — SSM-forward only, never exposed in SG
 
 SG__NAME                     = 'playwright-ec2'                                         # AWS reserves 'sg-*' prefix for SG IDs
 SG__DESCRIPTION              = 'SG Playwright EC2 stack - ingress :8000 (API) + :8001 (sidecar admin) — ALL open ports MUST be behind API key auth (including static sites)'
@@ -174,6 +175,24 @@ COMPOSE_YAML_TEMPLATE = textwrap.dedent("""\
         networks:
           - sg-net
         restart: always
+
+      browser:
+        image: lscr.io/linuxserver/chromium:latest
+        environment:
+          PUID:       1000
+          PGID:       1000
+          TZ:         Etc/UTC
+          CHROME_CLI: >-
+            --proxy-server=http://agent-mitmproxy:8080
+            --ignore-certificate-errors
+            --no-first-run
+            --disable-sync
+        shm_size: "1gb"
+        networks:
+          - sg-net
+        depends_on:
+          - agent-mitmproxy
+        restart: unless-stopped
 
       cadvisor:
         image: gcr.io/cadvisor/cadvisor:v0.49.1
@@ -1808,8 +1827,9 @@ def cmd_smoke(target          : Optional[str]  = typer.Argument(None, help='Depl
         c.print(f'  🔭  mitmproxy flows unavailable: {str(exc)[:80]}')
 
     c.print()
-    c.print(f'  Mitmproxy UI  →  sg-ec2 forward {EC2__SIDECAR_ADMIN_PORT}  then  http://localhost:{EC2__SIDECAR_ADMIN_PORT}/web/')
-    c.print(f'  Prometheus    →  sg-ec2 forward-prometheus  then  http://localhost:{EC2__PROMETHEUS_PORT}/')
+    c.print(f'  Mitmproxy UI  →  sg-ec2 forward {EC2__SIDECAR_ADMIN_PORT}    then  http://localhost:{EC2__SIDECAR_ADMIN_PORT}/web/')
+    c.print(f'  Browser       →  sg-ec2 forward-browser       then  http://localhost:{EC2__BROWSER_INTERNAL_PORT}/')
+    c.print(f'  Prometheus    →  sg-ec2 forward-prometheus     then  http://localhost:{EC2__PROMETHEUS_PORT}/')
     c.print()
 
     if failed:
@@ -1860,6 +1880,37 @@ def cmd_forward_prometheus(target: Optional[str] = typer.Argument(None, help='De
                     '--document-name', 'AWS-StartPortForwardingSession',
                     '--parameters'   , json.dumps({'portNumber'     : [str(EC2__PROMETHEUS_PORT)],
                                                    'localPortNumber': [str(EC2__PROMETHEUS_PORT)]})],
+                   check=False)
+
+
+@app.command(name='forward-browser')
+def cmd_forward_browser(target: Optional[str] = typer.Argument(None, help='Deploy-name or instance-id; auto-selects if only one instance.')):
+    """Forward the streaming browser (linuxserver/chromium) to localhost via SSM.
+
+    Opens a real Chrome session pre-configured to route through mitmproxy —
+    the manual equivalent of what the playwright containers do automatically.
+    All traffic is visible in real time at sg-ec2 forward 8001 → /web/flows.
+    """
+    import subprocess
+    ec2                  = EC2()
+    instance_id, details = _resolve_target(ec2, target)
+    deploy_name          = _instance_deploy_name(details) or instance_id
+    c = Console(highlight=False, width=200)
+    c.print()
+    c.print(Panel(
+        f'[bold]🌐  Browser Forward[/]\n\n'
+        f'  instance   [bold]{deploy_name}[/]  [dim]{instance_id}[/]\n'
+        f'  tunnel     [bold]localhost:{EC2__BROWSER_INTERNAL_PORT}[/]\n\n'
+        f'  [green]Access:[/]  [bold]http://localhost:{EC2__BROWSER_INTERNAL_PORT}/[/]\n'
+        f'  [dim]All traffic routes through mitmproxy — flows visible via sg-ec2 forward {EC2__SIDECAR_ADMIN_PORT}[/]\n'
+        f'  [dim]Press Ctrl-C to close the tunnel.[/]',
+        border_style='bright_blue', expand=False))
+    c.print()
+    subprocess.run(['aws', 'ssm', 'start-session',
+                    '--target'       , instance_id,
+                    '--document-name', 'AWS-StartPortForwardingSession',
+                    '--parameters'   , json.dumps({'portNumber'     : [str(EC2__BROWSER_INTERNAL_PORT)],
+                                                   'localPortNumber': [str(EC2__BROWSER_INTERNAL_PORT)]})],
                    check=False)
 
 
