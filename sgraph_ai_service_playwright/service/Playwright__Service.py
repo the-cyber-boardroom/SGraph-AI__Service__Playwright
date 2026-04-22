@@ -199,8 +199,9 @@ class Playwright__Service(Type_Safe):
             raise HTTPException(502, self.error_detail('screenshot_batch', error))
 
     def _screenshot_steps(self, steps, screenshot_per_step: bool) -> Schema__Screenshot__Batch__Response:
-        seq_steps = []
-        n         = len(steps)
+        seq_steps  = []
+        result_map = []                                                          # ('png'|'html') per capture step, in sequence order
+        n          = len(steps)
         for i, step in enumerate(steps):
             url_str = str(step.url) if step.url else ''
             if url_str:
@@ -214,15 +215,32 @@ class Playwright__Service(Type_Safe):
                 if sel:
                     seq_steps.append(dict(action=Enum__Step__Action.CLICK.value, selector=sel))
             if screenshot_per_step or i == n - 1:
-                seq_steps.append(dict(action=Enum__Step__Action.SCREENSHOT.value, full_page=False))
+                want_html = (step.format == Enum__Screenshot__Format.HTML)
+                if want_html:
+                    seq_steps.append(dict(action=Enum__Step__Action.GET_CONTENT.value, inline_in_response=True))
+                    result_map.append('html')
+                else:
+                    seq_steps.append(dict(action=Enum__Step__Action.SCREENSHOT.value, full_page=False))
+                    result_map.append('png')
         capture_config = Schema__Capture__Config(screenshot=Schema__Artefact__Sink_Config(enabled=True, sink=Enum__Artefact__Sink.INLINE))
         seq_request    = self.build_sequence_request(steps=seq_steps, browser_config=None, capture_config=capture_config)
         seq_response   = self._run_sequence_via(seq_request, self._screenshot_runner())
         self.raise_on_sequence_failure(seq_response)
-        screenshots = [Schema__Screenshot__Response(screenshot_b64=str(a.inline_b64),
-                                                     duration_ms   =seq_response.total_duration_ms)
-                       for a in seq_response.artefacts
-                       if a.artefact_type == Enum__Artefact__Type.SCREENSHOT and a.inline_b64 is not None]
+        png_artefacts = [a for a in seq_response.artefacts
+                         if a.artefact_type == Enum__Artefact__Type.SCREENSHOT and a.inline_b64 is not None]
+        html_results  = [r for r in seq_response.step_results
+                         if r.action == Enum__Step__Action.GET_CONTENT and getattr(r, 'content', None)]
+        screenshots = []
+        png_i = html_i = 0
+        for kind in result_map:
+            if kind == 'png' and png_i < len(png_artefacts):
+                a = png_artefacts[png_i]; png_i += 1
+                screenshots.append(Schema__Screenshot__Response(screenshot_b64=str(a.inline_b64),
+                                                                  duration_ms   =seq_response.total_duration_ms))
+            elif kind == 'html' and html_i < len(html_results):
+                r = html_results[html_i]; html_i += 1
+                screenshots.append(Schema__Screenshot__Response(html       =Safe_Str__Page__Content(str(r.content)),
+                                                                  duration_ms=seq_response.total_duration_ms))
         return Schema__Screenshot__Batch__Response(screenshots = screenshots,
                                                     duration_ms = seq_response.total_duration_ms)
 
