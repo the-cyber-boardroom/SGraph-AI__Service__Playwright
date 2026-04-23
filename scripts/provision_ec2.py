@@ -1004,8 +1004,8 @@ app = typer.Typer(name           = 'provision_ec2'                              
                    add_completion  = False                                             )
 
 from scripts.observability import app as _observability_app              # noqa: E402
-app.add_typer(_observability_app, name='observability')
-app.add_typer(_observability_app, name='op')
+app.add_typer(_observability_app, name='observability', hidden=True)
+app.add_typer(_observability_app, name='ob',            hidden=True)
 
 
 def _health_check_once(base_url: str, api_key_name: str, api_key_value: str) -> dict:
