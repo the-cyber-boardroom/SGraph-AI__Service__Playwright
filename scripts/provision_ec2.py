@@ -456,10 +456,12 @@ def render_observability_configs_section(region           : str,
 def render_browser_proxy_section(api_key_value: str = '') -> str:
     nginx_conf = NGINX_BROWSER_CONF_TEMPLATE.format(browser_port=EC2__BROWSER_INTERNAL_PORT)
     # token_urlsafe keys are base64url (A-Za-z0-9_-) — safe to embed in single-quoted shell string
+    # Capture hash into a variable first so redirect only runs if openssl succeeded
     htpasswd_line = (
-        f"printf 'viewer:%s\\n' "
-        f"\"$(openssl passwd -apr1 '{api_key_value}')\" "
-        f"> /opt/sg-playwright/config/browser-certs/.htpasswd\n"
+        f"_htpw=$(openssl passwd -apr1 '{api_key_value}')\n"
+        f"echo \"viewer:$_htpw\" > /opt/sg-playwright/config/browser-certs/.htpasswd\n"
+        f"[ -s /opt/sg-playwright/config/browser-certs/.htpasswd ] "
+        f"|| {{ echo 'ERROR: .htpasswd is empty — openssl passwd -apr1 failed' >&2; exit 1; }}\n"
         f"chmod 644 /opt/sg-playwright/config/browser-certs/.htpasswd\n"
     )
     return (
@@ -597,6 +599,13 @@ def preflight_check(playwright_image_uri: str = None, sidecar_image_uri: str = N
     if not opensearch_endpoint:
         warnings.append('OPENSEARCH_ENDPOINT not set — Fluent Bit will log to stdout only (no shipping to OpenSearch).')
 
+    # ── iam:PassRole check ────────────────────────────────────────────────────
+    passrole = ensure_caller_passrole(account)
+    if not passrole['ok'] or passrole['action'] == 'skipped':
+        warnings.append(f"iam:PassRole not verified ({passrole['detail']}) — run 'sp ensure-passrole' if sp create fails with UnauthorizedOperation.")
+    elif passrole['action'] == 'created':
+        warnings.append(f"iam:PassRole policy was missing — attached automatically ({passrole['detail']}).")
+
     # ── Print summary ─────────────────────────────────────────────────────────
     _print_preflight_summary(account, region, registry,
                              resolved_playwright, resolved_sidecar,
@@ -678,6 +687,97 @@ def _print_preflight_error(lines: list) -> None:
     c = Console(highlight=False, stderr=True)
     c.print(Panel('\n'.join(lines), title='[bold red]ERROR[/]', border_style='red', expand=False))
     sys.exit(1)
+
+
+IAM__PASSROLE_POLICY_NAME = 'sg-playwright-passrole-ec2'
+
+
+def _decode_aws_auth_error(exc: Exception) -> str:
+    """If exc is an UnauthorizedOperation with an encoded message, decode and return it.
+
+    Returns the decoded JSON string, or empty string if not applicable.
+    """
+    import boto3, re
+    msg = str(exc)
+    if 'Encoded authorization failure message:' not in msg:
+        return ''
+    match = re.search(r'Encoded authorization failure message:\s*(\S+)', msg)
+    if not match:
+        return ''
+    encoded = match.group(1)
+    try:
+        decoded = boto3.client('sts').decode_authorization_message(EncodedMessage=encoded)
+        return decoded.get('DecodedMessage', '')
+    except Exception:
+        return ''
+
+
+def _print_auth_error(exc: Exception) -> None:
+    """Print a clear UnauthorizedOperation block, auto-decoding the encoded message."""
+    c       = Console(highlight=False)
+    decoded = _decode_aws_auth_error(exc)
+    c.print(f'\n  [bold red]✗  UnauthorizedOperation[/]\n  {exc}\n')
+    if decoded:
+        try:
+            detail = json.loads(decoded)
+            action = detail.get('context', {}).get('action', '?')
+            c.print(f'  [bold]Decoded:[/] the caller lacks permission for [bold]{action}[/]')
+            for stmt in detail.get('policies', []):
+                c.print(f'    [dim]{stmt}[/]')
+        except Exception:
+            c.print(f'  [bold]Decoded message:[/]\n{decoded}')
+    else:
+        c.print('  [dim](Run: aws sts decode-authorization-message --encoded-message <blob> to decode manually)[/]')
+
+
+def ensure_caller_passrole(account: str) -> dict:
+    """Attach a minimal iam:PassRole inline policy to the current IAM user.
+
+    Safe by construction:
+    - Resource is pinned to playwright-ec2 role ARN only (not '*')
+    - Condition iam:PassedToService=ec2.amazonaws.com prevents passing the
+      role to any other service (Lambda, ECS, etc.)
+
+    Only works when the caller is an IAM user (not a role/federated identity).
+    Returns {'ok': True/False, 'action': 'created'|'already_exists'|'skipped', 'detail': str}.
+    """
+    import boto3
+
+    role_arn    = f'arn:aws:iam::{account}:role/{IAM__ROLE_NAME}'
+    policy_doc  = json.dumps({
+        'Version'  : '2012-10-17',
+        'Statement': [{
+            'Sid'      : 'PassRoleToEC2Only',
+            'Effect'   : 'Allow',
+            'Action'   : 'iam:PassRole',
+            'Resource' : role_arn,
+            'Condition': {'StringEquals': {'iam:PassedToService': 'ec2.amazonaws.com'}},
+        }],
+    })
+
+    sts      = boto3.client('sts')
+    identity = sts.get_caller_identity()
+    arn      = identity.get('Arn', '')
+
+    if ':user/' not in arn:
+        return {'ok': False, 'action': 'skipped',
+                'detail': f'Caller is not an IAM user ({arn}) — attach the policy manually in the console.'}
+
+    username = arn.split(':user/')[-1]
+    iam      = boto3.client('iam')
+
+    existing = iam.list_user_policies(UserName=username).get('PolicyNames', [])
+    if IAM__PASSROLE_POLICY_NAME in existing:
+        return {'ok': True, 'action': 'already_exists', 'detail': f'Policy {IAM__PASSROLE_POLICY_NAME!r} already attached to {username}.'}
+
+    try:
+        iam.put_user_policy(UserName=username, PolicyName=IAM__PASSROLE_POLICY_NAME, PolicyDocument=policy_doc)
+    except Exception as exc:
+        if 'UnauthorizedOperation' in str(exc) or 'AccessDenied' in str(exc):
+            _print_auth_error(exc)
+        raise
+    return {'ok': True, 'action': 'created',
+            'detail': f'Attached inline policy {IAM__PASSROLE_POLICY_NAME!r} to {username} (PassRole → {role_arn}, EC2 only).'}
 
 
 def ensure_instance_profile() -> str:
@@ -850,6 +950,9 @@ def run_instance(ec2: EC2, ami_id: str, security_group_id: str, instance_profile
                 print(f'  IAM profile not yet visible to EC2, retrying in {wait}s (attempt {attempt + 1}/5)...')
                 time.sleep(wait)
                 continue
+            if 'UnauthorizedOperation' in str(exc):
+                _print_auth_error(exc)
+                raise typer.Exit(1)
             raise
 
 
@@ -1046,9 +1149,9 @@ def provision(stage                  : str          = DEFAULT_STAGE    ,
     ec2.wait_for_instance_running(instance_id)
     details       = ec2.instance_details(instance_id)
     public_ip     = details.get('public_ip')
-    playwright_url = f'http://{public_ip}:{EC2__PLAYWRIGHT_PORT}'        if public_ip else None
-    sidecar_url    = f'http://{public_ip}:{EC2__SIDECAR_ADMIN_PORT}'   if public_ip else None
-    browser_url    = f'http://{public_ip}:{EC2__BROWSER_INTERNAL_PORT}' if public_ip else None
+    playwright_url = f'http://{public_ip}:{EC2__PLAYWRIGHT_PORT}'         if public_ip else None
+    sidecar_url    = f'http://{public_ip}:{EC2__SIDECAR_ADMIN_PORT}'    if public_ip else None
+    browser_url    = f'https://{public_ip}:{EC2__BROWSER_INTERNAL_PORT}' if public_ip else None
 
     return {'action'              : 'create'               ,
             'instance_id'        : instance_id             ,
@@ -1416,8 +1519,9 @@ def cmd_info(target   : Optional[str] = typer.Argument(None,  help='Deploy-name 
         'creator'             : _instance_tag(d, TAG__CREATOR_KEY),
         'ami_id'              : d.get('image_id', '—'),
         'public_ip'           : ip,
-        'playwright_url'      : f'http://{ip}:{EC2__PLAYWRIGHT_PORT}'    if ip else '—',
-        'sidecar_admin_url'   : f'http://{ip}:{EC2__SIDECAR_ADMIN_PORT}' if ip else '—',
+        'playwright_url'      : f'http://{ip}:{EC2__PLAYWRIGHT_PORT}'          if ip else '—',
+        'sidecar_admin_url'   : f'http://{ip}:{EC2__SIDECAR_ADMIN_PORT}'    if ip else '—',
+        'browser_url'         : f'https://{ip}:{EC2__BROWSER_INTERNAL_PORT}' if ip else '—',
         'api_key_name'        : _instance_tag(d, TAG__API_KEY_NAME_KEY),
         'api_key_value'       : _instance_tag(d, TAG__API_KEY_VALUE_KEY),
         'playwright_image_uri': '(stored in compose file on instance)',
@@ -1450,6 +1554,7 @@ def cmd_info(target   : Optional[str] = typer.Argument(None,  help='Deploy-name 
     right.add_row('public-ip',     r['public_ip']                          )
     right.add_row('playwright',    r['playwright_url']                     )
     right.add_row('sidecar-admin', r['sidecar_admin_url']                  )
+    right.add_row('browser',       r['browser_url']                        )
     right.add_row('api-key-name',  r['api_key_name']                       )
     right.add_row('api-key-value', f'[bold green]{r["api_key_value"]}[/]'  )
 
@@ -1932,14 +2037,19 @@ def cmd_exec(ctx        : typer.Context,
     # Determine whether `first` is a target name or the start of the command
     if target:
         resolved_target = target
-        shell_cmd       = ' '.join([first] + extra) if not cmd else cmd
+        shell_cmd       = shlex.join([first] + extra) if not cmd else cmd
     elif cmd:
         resolved_target = first
         shell_cmd       = cmd
     elif extra:
-        # first word is target, rest is the command
-        resolved_target = first
-        shell_cmd       = ' '.join(extra)
+        # If first matches a known instance name/id it is the target; extra is the command.
+        # Otherwise treat first+extra as the full command with auto-select target.
+        if first in instances or any(_instance_deploy_name(d) == first for d in instances.values()):
+            resolved_target = first
+            shell_cmd       = shlex.join(extra)
+        else:
+            resolved_target = None
+            shell_cmd       = shlex.join([first] + extra)
     elif first in instances or any(_instance_deploy_name(d) == first for d in instances.values()):
         # first matches a known instance — but no command given; error
         raise typer.BadParameter('Provide a shell command after the target name.')
@@ -2697,6 +2807,44 @@ def cmd_metrics(service : str           = typer.Argument('playwright', help='Ser
         c.print(stdout.rstrip())
     if stderr.strip():
         c.print(f'[yellow]{stderr.rstrip()}[/]')
+    c.print()
+
+
+@app.command(name='ensure-passrole')
+def cmd_ensure_passrole():
+    """Attach a minimal iam:PassRole inline policy to the current IAM user.
+
+    Required for sp create to succeed when calling RunInstances with an IAM
+    instance profile. The policy is scoped to the playwright-ec2 role only,
+    with a condition restricting PassRole to ec2.amazonaws.com — it cannot
+    be used to pass the role to Lambda, ECS, or any other service.
+
+    Policy attached: sg-playwright-passrole-ec2 (inline, on the IAM user)
+    """
+    c       = Console(highlight=False)
+    account = aws_account_id()
+    c.print()
+    result  = ensure_caller_passrole(account)
+    if result['ok']:
+        action = result['action']
+        if action == 'already_exists':
+            c.print(f"  [green]✓[/]  {result['detail']}")
+        else:
+            c.print(f"  [green]✓  Policy created.[/]  {result['detail']}")
+            c.print()
+            c.print('  [dim]Policy document:[/]')
+            role_arn = f'arn:aws:iam::{account}:role/{IAM__ROLE_NAME}'
+            c.print(f'  [dim]  Action:    iam:PassRole[/]')
+            c.print(f'  [dim]  Resource:  {role_arn}[/]')
+            c.print(f'  [dim]  Condition: iam:PassedToService = ec2.amazonaws.com[/]')
+    else:
+        c.print(f"  [yellow]⚠  Skipped.[/]  {result['detail']}")
+        c.print()
+        c.print('  Attach this inline policy manually to your IAM user in the AWS console:')
+        role_arn = f'arn:aws:iam::{account}:role/{IAM__ROLE_NAME}'
+        c.print(f'    Action:    iam:PassRole')
+        c.print(f'    Resource:  {role_arn}')
+        c.print(f'    Condition: iam:PassedToService = ec2.amazonaws.com')
     c.print()
 
 
