@@ -125,6 +125,7 @@ cat > /opt/sg-playwright/docker-compose.yml << 'SG_COMPOSE_EOF'
 SG_COMPOSE_EOF
 
 {observability_configs_section}
+{browser_proxy_section}
 docker compose -f /opt/sg-playwright/docker-compose.yml up -d
 
 echo "=== SG Playwright AMI start complete at $(date) ==="
@@ -183,8 +184,6 @@ COMPOSE_YAML_TEMPLATE = textwrap.dedent("""\
 
       browser:
         image: lscr.io/linuxserver/chromium:latest
-        ports:
-          - "{browser_port}:{browser_port}"
         environment:
           PUID:       1000
           PGID:       1000
@@ -200,6 +199,19 @@ COMPOSE_YAML_TEMPLATE = textwrap.dedent("""\
           - sg-net
         depends_on:
           - agent-mitmproxy
+        restart: unless-stopped
+
+      browser-proxy:
+        image: nginx:alpine
+        ports:
+          - "{browser_port}:{browser_port}"
+        volumes:
+          - /opt/sg-playwright/config/nginx-browser.conf:/etc/nginx/conf.d/default.conf:ro
+          - /opt/sg-playwright/config/browser-certs:/etc/nginx/certs:ro
+        networks:
+          - sg-net
+        depends_on:
+          - browser
         restart: unless-stopped
 
       cadvisor:
@@ -336,6 +348,23 @@ FLUENT_BIT_OUTPUT_STDOUT = """\
     Match  *
 """
 
+NGINX_BROWSER_CONF_TEMPLATE = """\
+server {{
+    listen {browser_port} ssl;
+    ssl_certificate     /etc/nginx/certs/cert.pem;
+    ssl_certificate_key /etc/nginx/certs/key.pem;
+    ssl_protocols       TLSv1.2 TLSv1.3;
+    location / {{
+        proxy_pass         http://browser:3000;
+        proxy_http_version 1.1;
+        proxy_set_header   Upgrade    $http_upgrade;
+        proxy_set_header   Connection upgrade;
+        proxy_set_header   Host       $host;
+        proxy_read_timeout 86400;
+    }}
+}}
+"""
+
 
 def render_observability_configs_section(region           : str,
                                           amp_remote_write_url: str = '',
@@ -362,6 +391,20 @@ def render_observability_configs_section(region           : str,
         f"cat > /opt/sg-playwright/config/fluent-bit.conf << 'SG_FB_EOF'\n{fluent_bit_conf}SG_FB_EOF",
     ]
     return '\n\n'.join(parts) + '\n'
+
+
+def render_browser_proxy_section() -> str:
+    nginx_conf = NGINX_BROWSER_CONF_TEMPLATE.format(browser_port=EC2__BROWSER_INTERNAL_PORT)
+    return (
+        'mkdir -p /opt/sg-playwright/config/browser-certs\n'
+        'openssl req -x509 -nodes -days 3650 -newkey rsa:2048'
+        ' -keyout /opt/sg-playwright/config/browser-certs/key.pem'
+        ' -out    /opt/sg-playwright/config/browser-certs/cert.pem'
+        " -subj   '/CN=sg-playwright-browser'\n\n"
+        f"cat > /opt/sg-playwright/config/nginx-browser.conf << 'SG_NGINX_EOF'\n"
+        f"{nginx_conf}"
+        f"SG_NGINX_EOF\n"
+    )
 
 
 USER_DATA_TEMPLATE = """\
@@ -406,6 +449,7 @@ cat > /opt/sg-playwright/docker-compose.yml << 'SG_COMPOSE_EOF'
 SG_COMPOSE_EOF
 
 {observability_configs_section}
+{browser_proxy_section}
 docker compose -f /opt/sg-playwright/docker-compose.yml up -d
 {shutdown_section}
 echo "=== SG Playwright setup complete at $(date) ==="
@@ -658,6 +702,7 @@ def render_user_data(playwright_image_uri  : str,
                                      sidecar_image_uri             = sidecar_image_uri      ,
                                      compose_content               = compose_content        ,
                                      observability_configs_section = obs_section            ,
+                                     browser_proxy_section         = render_browser_proxy_section(),
                                      shutdown_section              = shutdown_section       )
 
 
@@ -860,7 +905,8 @@ def provision(stage                  : str          = DEFAULT_STAGE    ,
                                                         stage                = stage               )
     if from_ami:
         user_data = AMI_USER_DATA_TEMPLATE.format(compose_content               = compose_content,
-                                                   observability_configs_section = obs_section    )
+                                                   observability_configs_section = obs_section    ,
+                                                   browser_proxy_section         = render_browser_proxy_section())
     else:
         user_data = render_user_data(playwright_image_uri  = playwright_image_uri ,
                                      sidecar_image_uri     = sidecar_image_uri    ,
