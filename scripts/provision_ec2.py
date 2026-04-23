@@ -30,6 +30,7 @@ import shlex
 import sys
 import textwrap
 import time
+from pathlib import Path
 from typing import List, Optional
 
 import requests
@@ -111,6 +112,8 @@ SMOKE_URLS = ['https://www.google.com'   ,
               'https://news.bbc.co.uk'    ]
 
 TAG__AMI_STATUS_KEY = 'sg:ami-status'    # untested | healthy | unhealthy
+
+DASHBOARDS_DIR = Path(__file__).parent.parent / 'library' / 'docs' / 'ops' / 'dashboards'
 
 # Short user_data for AMI-based launches: Docker + images already baked in,
 # just write the compose file (fresh API key) and start containers.
@@ -422,6 +425,76 @@ def render_browser_proxy_section() -> str:
         f"{nginx_conf}"
         f"SG_NGINX_EOF\n"
     )
+
+
+def _import_opensearch_dashboards(opensearch_endpoint: str) -> dict:
+    """POST the saved-objects NDJSON to /_dashboards/api/saved_objects/_import using SigV4."""
+    import boto3
+    from botocore.auth import SigV4Auth
+    from botocore.awsrequest import AWSRequest
+
+    ndjson_path = DASHBOARDS_DIR / 'opensearch-instance-lifecycle.ndjson'
+    if not ndjson_path.exists():
+        return {'ok': False, 'error': f'File not found: {ndjson_path}'}
+
+    host         = opensearch_endpoint.removeprefix('https://').removeprefix('http://')
+    url          = f'https://{host}/_dashboards/api/saved_objects/_import?overwrite=true'
+    boundary     = 'SG_DASHBOARD_BOUNDARY'
+    ndjson_bytes = ndjson_path.read_bytes()
+    body         = (
+        f'--{boundary}\r\nContent-Disposition: form-data; name="file"; '
+        f'filename="opensearch-instance-lifecycle.ndjson"\r\n'
+        f'Content-Type: application/octet-stream\r\n\r\n'
+    ).encode() + ndjson_bytes + f'\r\n--{boundary}--\r\n'.encode()
+
+    session = boto3.Session()
+    creds   = session.get_credentials()
+    region  = aws_region()
+    aws_req = AWSRequest(method='POST', url=url, data=body,
+                         headers={'Content-Type': f'multipart/form-data; boundary={boundary}',
+                                  'osd-xsrf': 'true'})
+    SigV4Auth(creds, 'es', region).add_auth(aws_req)
+    resp    = requests.post(url, data=body, headers=dict(aws_req.headers), timeout=30)
+    return {'ok': resp.status_code < 300, 'status': resp.status_code, 'body': resp.text[:800]}
+
+
+def _import_grafana_dashboard(grafana_workspace_url: str,
+                               amp_datasource_name: str = 'grafana-amazonprometheus-datasource') -> dict:
+    """Create a short-lived AMG API key, import the metrics dashboard, delete the key."""
+    import boto3
+
+    dash_path = DASHBOARDS_DIR / 'grafana-sg-playwright-metrics.json'
+    if not dash_path.exists():
+        return {'ok': False, 'error': f'File not found: {dash_path}'}
+
+    workspace_url = grafana_workspace_url.rstrip('/')
+    host          = workspace_url.removeprefix('https://').removeprefix('http://')
+    workspace_id  = host.split('.')[0]                                               # g-xxxxxxxx
+
+    grafana  = boto3.client('grafana', region_name=aws_region())                     # boto3 direct: osbot-aws has no AMG support
+    key_name = f'sg-import-{int(time.time())}'
+    key_resp = grafana.create_workspace_api_key(
+        keyName=key_name, keyRole='ADMIN', secondsToLive=300, workspaceId=workspace_id)
+    api_key  = key_resp['key']
+
+    try:
+        payload = {
+            'dashboard' : json.loads(dash_path.read_text()),
+            'overwrite' : True,
+            'inputs'    : [{'name': 'DS_AMP', 'type': 'datasource',
+                            'pluginId': 'grafana-amazonprometheus-datasource',
+                            'value': amp_datasource_name}],
+        }
+        resp = requests.post(f'{workspace_url}/api/dashboards/import',
+                             headers={'Authorization': f'Bearer {api_key}',
+                                      'Content-Type': 'application/json'},
+                             json=payload, timeout=30)
+        return {'ok': resp.status_code < 300, 'status': resp.status_code, 'body': resp.text[:800]}
+    finally:
+        try:
+            grafana.delete_workspace_api_key(keyName=key_name, workspaceId=workspace_id)
+        except Exception:
+            pass
 
 
 USER_DATA_TEMPLATE = """\
@@ -2589,6 +2662,157 @@ def cmd_metrics(service : str           = typer.Argument('playwright', help='Ser
         c.print(stdout.rstrip())
     if stderr.strip():
         c.print(f'[yellow]{stderr.rstrip()}[/]')
+    c.print()
+
+
+@app.command(name='import-dashboards')
+def cmd_import_dashboards(
+    amp_datasource: str = typer.Option('grafana-amazonprometheus-datasource', '--amp-datasource',
+                                        help='Grafana data-source name/uid to bind to DS_AMP.'),
+):
+    """Import OpenSearch + Grafana dashboards from library/docs/ops/dashboards/.
+
+    Reads OPENSEARCH_ENDPOINT and GRAFANA_WORKSPACE_URL from the environment.
+    Safe to re-run — both APIs use overwrite=true so existing objects are updated.
+    """
+    c = Console(highlight=False)
+    opensearch_endpoint   = get_env('OPENSEARCH_ENDPOINT',   '')
+    grafana_workspace_url = get_env('GRAFANA_WORKSPACE_URL', '')
+
+    if not opensearch_endpoint and not grafana_workspace_url:
+        c.print('[red]Set at least one of OPENSEARCH_ENDPOINT or GRAFANA_WORKSPACE_URL.[/]')
+        raise typer.Exit(1)
+
+    c.print()
+    if opensearch_endpoint:
+        c.print(f'  🔍  OpenSearch  →  [bold]{opensearch_endpoint}[/]')
+        result = _import_opensearch_dashboards(opensearch_endpoint)
+        if result.get('ok'):
+            c.print('      [green]✓ saved-objects imported (index pattern + 5 visualisations + dashboard)[/]')
+        else:
+            c.print(f'      [red]✗ HTTP {result.get("status")} — {result.get("body") or result.get("error")}[/]')
+
+    if grafana_workspace_url:
+        c.print(f'  📊  Grafana     →  [bold]{grafana_workspace_url}[/]')
+        result = _import_grafana_dashboard(grafana_workspace_url, amp_datasource)
+        if result.get('ok'):
+            c.print('      [green]✓ dashboard imported (Container & Host Metrics — 9 panels)[/]')
+        else:
+            c.print(f'      [red]✗ HTTP {result.get("status")} — {result.get("body") or result.get("error")}[/]')
+    c.print()
+
+
+@app.command(name='create-observability')
+def cmd_create_observability(
+    name   : str = typer.Option('sg-playwright-logs', '--name', help='OpenSearch domain name and AMP workspace alias.'),
+    region : Optional[str] = typer.Option(None, '--region', help='AWS region (defaults to configured region).'),
+):
+    """Create AMP workspace + OpenSearch domain and print the env-var exports.
+
+    Idempotent: safe to re-run if either resource already exists.
+    After creation, run:  sp import-dashboards
+    """
+    import boto3
+
+    region_str = region or aws_region()
+    account    = aws_account_id()
+    c          = Console(highlight=False)
+
+    c.print(f'\n  Creating observability stack in [bold]{region_str}[/] (account [dim]{account}[/])\n')
+
+    # ── AMP workspace ────────────────────────────────────────────────────────
+    amp    = boto3.client('amp', region_name=region_str)
+    ws_list = amp.list_workspaces(alias=name).get('workspaces', [])
+    if ws_list:
+        ws_id  = ws_list[0]['workspaceId']
+        c.print(f'  [yellow]AMP workspace already exists[/]  ({ws_id})')
+    else:
+        ws     = amp.create_workspace(alias=name)
+        ws_id  = ws['workspaceId']
+        c.print(f'  [green]✓ AMP workspace created[/]  ({ws_id})')
+
+    amp_rw_url = (f'https://aps-workspaces.{region_str}.amazonaws.com'
+                  f'/workspaces/{ws_id}/api/v1/remote_write')
+
+    # ── OpenSearch domain ────────────────────────────────────────────────────
+    os_client = boto3.client('opensearch', region_name=region_str)
+    try:
+        domain_info = os_client.describe_domain(DomainName=name)
+        endpoint    = domain_info['DomainStatus'].get('Endpoint', '<provisioning — check console>')
+        c.print(f'  [yellow]OpenSearch domain already exists[/]  ({name})')
+    except os_client.exceptions.ResourceNotFoundException:
+        os_client.create_domain(
+            DomainName   = name,
+            EngineVersion= 'OpenSearch_2.17',
+            ClusterConfig= {'InstanceType': 't3.small.search', 'InstanceCount': 1},
+            EBSOptions   = {'EBSEnabled': True, 'VolumeType': 'gp3', 'VolumeSize': 20},
+            AccessPolicies = json.dumps({
+                'Version': '2012-10-17',
+                'Statement': [{'Effect': 'Allow', 'Principal': {'AWS': '*'},
+                               'Action': 'es:*',
+                               'Resource': f'arn:aws:es:{region_str}:{account}:domain/{name}/*'}]}),
+            AdvancedSecurityOptions = {
+                'Enabled': True, 'InternalUserDatabaseEnabled': True,
+                'MasterUserOptions': {'MasterUserName': 'admin',
+                                      'MasterUserPassword': secrets.token_urlsafe(16)}},
+            NodeToNodeEncryptionOptions = {'Enabled': True},
+            EncryptionAtRestOptions     = {'Enabled': True},
+            DomainEndpointOptions       = {'EnforceHTTPS': True},
+        )
+        endpoint = f'<provisioning — takes ~15 min, check AWS console for domain: {name}>'
+        c.print(f'  [green]✓ OpenSearch domain creation started[/]  (domain: {name}, OpenSearch 2.17)')
+        c.print(f'  [dim]  After domain is active, map backend roles in OpenSearch Dashboards:[/]')
+        c.print(f'  [dim]  Security → Roles → all_access → Backend roles → add playwright-ec2 role ARN[/]')
+
+    os_endpoint = endpoint
+
+    # ── Print exports ────────────────────────────────────────────────────────
+    c.print(f'\n  [bold]Once OpenSearch is active, set these env vars and run sp import-dashboards:[/]\n')
+    c.print(f'  export AMP_REMOTE_WRITE_URL="{amp_rw_url}"')
+    c.print(f'  export OPENSEARCH_ENDPOINT="{os_endpoint}"')
+    c.print()
+
+
+@app.command(name='delete-observability')
+def cmd_delete_observability(
+    name   : str = typer.Option('sg-playwright-logs', '--name', help='OpenSearch domain name and AMP workspace alias.'),
+    region : Optional[str] = typer.Option(None, '--region', help='AWS region (defaults to configured region).'),
+    yes    : bool = typer.Option(False, '--yes', '-y', help='Skip confirmation prompt.'),
+):
+    """Delete AMP workspace and OpenSearch domain (makes the observability stack disposable).
+
+    Data is permanently deleted. Use with caution.
+    """
+    import boto3
+
+    region_str = region or aws_region()
+    c          = Console(highlight=False)
+
+    if not yes:
+        c.print(f'\n  [bold red]This will permanently delete:[/]')
+        c.print(f'  • AMP workspace with alias [bold]{name}[/]')
+        c.print(f'  • OpenSearch domain [bold]{name}[/] (all log data)')
+        confirmed = typer.confirm('\n  Are you sure?', default=False)
+        if not confirmed:
+            c.print('  Aborted.')
+            raise typer.Exit(0)
+
+    c.print()
+    amp = boto3.client('amp', region_name=region_str)
+    ws_list = amp.list_workspaces(alias=name).get('workspaces', [])
+    if ws_list:
+        for ws in ws_list:
+            amp.delete_workspace(workspaceId=ws['workspaceId'])
+            c.print(f'  [green]✓ AMP workspace deleted[/]  ({ws["workspaceId"]})')
+    else:
+        c.print(f'  [dim]No AMP workspace found with alias {name!r}[/]')
+
+    os_client = boto3.client('opensearch', region_name=region_str)
+    try:
+        os_client.delete_domain(DomainName=name)
+        c.print(f'  [green]✓ OpenSearch domain deletion started[/]  ({name}) — takes ~10 min')
+    except os_client.exceptions.ResourceNotFoundException:
+        c.print(f'  [dim]No OpenSearch domain found: {name!r}[/]')
     c.print()
 
 
