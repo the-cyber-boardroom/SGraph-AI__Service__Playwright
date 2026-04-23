@@ -729,47 +729,58 @@ def _do_import_os_saved_objects(endpoint: str, region: str, c: Console,
     Uses basic auth when admin_user+admin_pass are supplied (preferred — bypasses FGAC
     backend-role requirement). Falls back to SigV4 when credentials are absent.
     """
-    src      = ndjson_path or (DASHBOARDS_DIR / 'opensearch-instance-lifecycle.ndjson')
+    src = ndjson_path or (DASHBOARDS_DIR / 'opensearch-instance-lifecycle.ndjson')
     if not src.exists():
         c.print(f'  [red]✗ File not found: {src}[/]')
         return False
-    # Strip system-managed fields OS Dashboards 3.x rejects on import
-    # (version, updated_at, migrationVersion were Kibana 7.x conventions)
-    _STRIP = {'version', 'updated_at', 'migrationVersion'}
-    clean_lines = []
+
+    # OS Dashboards 3.x schema is stricter — strip fields no longer in the type registry
+    _TOP_STRIP  = {'version', 'updated_at', 'migrationVersion'}
+    # 'version' (int) inside attributes is a Kibana 7.x artefact; 'hits'/'uiStateJSON' removed in OS 3.x
+    _ATTR_STRIP = {'version', 'uiStateJSON', 'hits'}
+    # index-pattern 'fields' is auto-discovered by OS from the index mapping
+    _TYPE_ATTR_STRIP = {'index-pattern': {'fields'}}
+
+    objects = []
     for raw in src.read_bytes().splitlines():
         if not raw.strip():
             continue
         obj = json.loads(raw)
-        for f in _STRIP:
+        for f in _TOP_STRIP:
             obj.pop(f, None)
-        clean_lines.append(json.dumps(obj).encode())
-    ndjson_bytes = b'\n'.join(clean_lines) + b'\n'
-    # security_tenant in both header and query param — OS 3.x may require either
-    url      = (f'https://{endpoint}/_dashboards/api/saved_objects/_import'
-                f'?overwrite=true&security_tenant=global')
-    boundary = 'SG_OB_BOUNDARY'
-    body     = (
-        f'--{boundary}\r\nContent-Disposition: form-data; name="file"; '
-        f'filename="{src.name}"\r\nContent-Type: application/octet-stream\r\n\r\n'
-    ).encode() + ndjson_bytes + f'\r\n--{boundary}--\r\n'.encode()
-    hdrs     = {'Content-Type': f'multipart/form-data; boundary={boundary}',
-                'osd-xsrf': 'true', 'securitytenant': 'global'}
-    if admin_user and admin_pass:
-        resp = requests.post(url, data=body, headers=hdrs,
-                             auth=(admin_user, admin_pass), timeout=30)
-    else:
-        session = boto3.Session()
-        creds   = session.get_credentials()
-        aws_req = AWSRequest(method='POST', url=url, data=body, headers=hdrs)
-        SigV4Auth(creds, 'es', region).add_auth(aws_req)
-        resp    = requests.post(url, data=body, headers=dict(aws_req.headers), timeout=30)
-    if resp.status_code < 300:
-        c.print(f'  [green]✓ OS saved objects imported[/]  ({src.name})')
+        attrs = obj.get('attributes', {})
+        for f in _ATTR_STRIP:
+            attrs.pop(f, None)
+        for f in _TYPE_ATTR_STRIP.get(obj.get('type', ''), set()):
+            attrs.pop(f, None)
+        objects.append(obj)
+
+    # POST objects individually — gives per-object error messages instead of one opaque 400
+    auth = (admin_user, admin_pass) if admin_user else None
+    hdrs = {'Content-Type': 'application/json', 'osd-xsrf': 'true', 'securitytenant': 'global'}
+    base = f'https://{endpoint}/_dashboards'
+    ok = fail = 0
+    for obj in objects:
+        otype = obj.get('type')
+        oid   = obj.get('id')
+        url   = f'{base}/api/saved_objects/{otype}/{oid}?overwrite=true&security_tenant=global'
+        body  = {'attributes': obj.get('attributes', {})}
+        if obj.get('references'):
+            body['references'] = obj['references']
+        kw = dict(json=body, headers=hdrs, timeout=30)
+        if auth:
+            kw['auth'] = auth
+        resp = requests.post(url, **kw)
+        if resp.status_code < 300:
+            ok += 1
+        else:
+            c.print(f'  [red]✗ {otype}/{oid}  HTTP {resp.status_code}:[/] {resp.text[:300]}')
+            fail += 1
+    if fail == 0:
+        c.print(f'  [green]✓ OS saved objects imported[/]  ({ok} objects, {src.name})')
         return True
-    c.print(f'  [red]✗ OS import HTTP {resp.status_code}[/]')
-    c.print(f'  [dim]{resp.text}[/]')
-    return False
+    c.print(f'  [yellow]⚠ {ok} imported, {fail} failed[/]')
+    return fail == 0
 
 
 def _do_export_os_saved_objects(endpoint: str, region: str, output: Path, c: Console):
