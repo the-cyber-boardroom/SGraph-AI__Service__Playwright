@@ -341,20 +341,23 @@ def cmd_wait(name:   Optional[str] = typer.Argument(None),
 # ── AMG helpers ────────────────────────────────────────────────────────────────
 
 def _map_backend_role(endpoint: str, role_arn: str, admin_user: str, admin_pass: str, c: Console):
-    """GET existing all_access backend_roles, merge role_arn in, then PUT back."""
+    """GET existing all_access mapping, merge role_arn in, PUT back — preserving all fields."""
     url  = f'https://{endpoint}/_plugins/_security/api/rolesmapping/all_access'
     auth = (admin_user, admin_pass)
     try:
-        existing = []
+        current = {}
         get_resp = requests.get(url, auth=auth, timeout=30)
         if get_resp.status_code == 200:
-            existing = get_resp.json().get('all_access', {}).get('backend_roles', [])
-        if role_arn in existing:
+            current = get_resp.json().get('all_access', {})
+        backend_roles = list(current.get('backend_roles', []))
+        users         = list(current.get('users', []))
+        hosts         = list(current.get('hosts', []))
+        if role_arn in backend_roles:
             c.print(f'  [dim]Backend role already mapped:[/]  {role_arn.split("/")[-1]}')
             return True
-        existing.append(role_arn)
+        backend_roles.append(role_arn)
         put_resp = requests.put(url,
-                                data=json.dumps({'backend_roles': existing}).encode(),
+                                json={'backend_roles': backend_roles, 'users': users, 'hosts': hosts},
                                 headers={'Content-Type': 'application/json'},
                                 auth=auth, timeout=30)
         if put_resp.status_code < 300:
@@ -365,6 +368,36 @@ def _map_backend_role(endpoint: str, role_arn: str, admin_user: str, admin_pass:
         return False
     except Exception as e:
         c.print(f'  [yellow]⚠ Role mapping error:[/] {e}')
+        return False
+
+
+def _map_admin_user(endpoint: str, admin_user: str, admin_pass: str, c: Console):
+    """Add admin_user to all_access users list so Dashboards grants tenant access."""
+    url  = f'https://{endpoint}/_plugins/_security/api/rolesmapping/all_access'
+    auth = (admin_user, admin_pass)
+    try:
+        current = {}
+        get_resp = requests.get(url, auth=auth, timeout=30)
+        if get_resp.status_code == 200:
+            current = get_resp.json().get('all_access', {})
+        backend_roles = list(current.get('backend_roles', []))
+        users         = list(current.get('users', []))
+        hosts         = list(current.get('hosts', []))
+        if admin_user in users:
+            c.print(f'  [dim]Admin user already in all_access mapping[/]')
+            return True
+        users.append(admin_user)
+        put_resp = requests.put(url,
+                                json={'backend_roles': backend_roles, 'users': users, 'hosts': hosts},
+                                headers={'Content-Type': 'application/json'},
+                                auth=auth, timeout=30)
+        if put_resp.status_code < 300:
+            c.print(f'  [green]✓ Admin user mapped to all_access[/]  (enables Dashboards tenant access)')
+            return True
+        c.print(f'  [yellow]⚠ Admin user mapping failed ({put_resp.status_code})[/]')
+        return False
+    except Exception as e:
+        c.print(f'  [yellow]⚠ Admin mapping error:[/] {e}')
         return False
 
 
@@ -598,6 +631,9 @@ def _cmd_create_inner(name, r, account, amp, osc, no_wait, no_import, c,
     if eff_user and ep:
         ec2_role = f'arn:aws:iam::{account}:role/{IAM_ROLE_NAME}'
         _map_backend_role(ep, ec2_role, eff_user, eff_pass, c)
+        # Explicitly add admin user to all_access users list so Dashboards grants
+        # tenant selection (OS 3.x doesn't auto-grant tenant access to master user)
+        _map_admin_user(ep, eff_user, eff_pass, c)
 
     # ── OpenSearch saved-objects import ────────────────────────────────────
     if not no_import and ep:
