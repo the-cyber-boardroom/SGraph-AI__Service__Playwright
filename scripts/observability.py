@@ -734,17 +734,33 @@ def _do_import_os_saved_objects(endpoint: str, region: str, c: Console,
     hdrs = {'Content-Type': 'application/json', 'osd-xsrf': 'true', 'securitytenant': 'global'}
     base = f'https://{endpoint}/_dashboards'
 
-    # ── Data View (replaces index-pattern in OS 3.x) ────────────────────────────
-    dv_url  = f'{base}/api/data_views/data_view'
-    dv_body = {'data_view': {'title': OPENSEARCH_INDEX, 'timeFieldName': '@timestamp',
-                              'id': OPENSEARCH_INDEX}, 'override': True}
-    resp = requests.post(dv_url, json=dv_body, headers=hdrs, auth=auth, timeout=30)
-    if resp.status_code < 300:
-        c.print(f'  [green]✓ Data View created[/]  ({OPENSEARCH_INDEX})')
-        c.print(f'  [dim]  Explore logs: https://{endpoint}/_dashboards/app/discover[/]')
-    else:
+    # ── Data View / Index Pattern ────────────────────────────────────────────────
+    # OSD 3.x forked before Kibana renamed index_patterns → data_views, so the live
+    # path varies by OSD build.  Try both; first non-404 wins.
+    _DV_TRIES = [
+        (f'{base}/api/data_views/data_view',
+         {'data_view': {'title': OPENSEARCH_INDEX, 'timeFieldName': '@timestamp',
+                         'id': OPENSEARCH_INDEX}, 'override': True}),
+        (f'{base}/api/index_patterns/index_pattern',
+         {'index_pattern': {'title': OPENSEARCH_INDEX, 'timeFieldName': '@timestamp'},
+          'override': True}),
+    ]
+    dv_ok = False
+    for dv_url, dv_body in _DV_TRIES:
+        resp = requests.post(dv_url, json=dv_body, headers=hdrs, auth=auth, timeout=30)
+        if resp.status_code < 300:
+            c.print(f'  [green]✓ Data View / index pattern created[/]  ({OPENSEARCH_INDEX})')
+            c.print(f'  [dim]  Explore logs: https://{endpoint}/_dashboards/app/discover[/]')
+            dv_ok = True
+            break
+        if resp.status_code == 404:
+            continue  # try next path
         c.print(f'  [red]✗ Data View HTTP {resp.status_code}:[/] {resp.text[:300]}')
         return False
+    if not dv_ok:
+        c.print(f'  [yellow]⚠ Could not auto-create Data View (both API paths returned 404).[/]')
+        c.print(f'  [yellow]  Create manually: OS Dashboards → Stack Management → Data Views[/]')
+        c.print(f'    Title: {OPENSEARCH_INDEX}  |  Time field: @timestamp')
 
     # ── Visualizations + dashboard (saved objects API — soft fail) ───────────────
     src = ndjson_path or (DASHBOARDS_DIR / 'opensearch-instance-lifecycle.ndjson')
