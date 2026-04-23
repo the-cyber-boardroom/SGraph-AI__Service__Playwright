@@ -735,8 +735,7 @@ def _do_import_os_saved_objects(endpoint: str, region: str, c: Console,
     base = f'https://{endpoint}/_dashboards'
 
     # ── Data View / Index Pattern ────────────────────────────────────────────────
-    # OSD 3.x forked before Kibana renamed index_patterns → data_views, so the live
-    # path varies by OSD build.  Try both; first non-404 wins.
+    # AWS OSD 3.x varies: try all known API paths + saved-object types; first win used.
     _DV_TRIES = [
         (f'{base}/api/data_views/data_view',
          {'data_view': {'title': OPENSEARCH_INDEX, 'timeFieldName': '@timestamp',
@@ -744,6 +743,12 @@ def _do_import_os_saved_objects(endpoint: str, region: str, c: Console,
         (f'{base}/api/index_patterns/index_pattern',
          {'index_pattern': {'title': OPENSEARCH_INDEX, 'timeFieldName': '@timestamp'},
           'override': True}),
+        # OS 3.x may have renamed the saved-object type from index-pattern → data-view
+        (f'{base}/api/saved_objects/data-view/{OPENSEARCH_INDEX}?overwrite=true&security_tenant=global',
+         {'attributes': {'title': OPENSEARCH_INDEX, 'timeFieldName': '@timestamp'}}),
+        (f'{base}/api/saved_objects/index-pattern/{OPENSEARCH_INDEX}?overwrite=true&security_tenant=global',
+         {'attributes': {'title': OPENSEARCH_INDEX, 'timeFieldName': '@timestamp',
+                          'fields': '[]'}}),
     ]
     dv_ok = False
     for dv_url, dv_body in _DV_TRIES:
@@ -753,12 +758,12 @@ def _do_import_os_saved_objects(endpoint: str, region: str, c: Console,
             c.print(f'  [dim]  Explore logs: https://{endpoint}/_dashboards/app/discover[/]')
             dv_ok = True
             break
-        if resp.status_code == 404:
+        if resp.status_code in (400, 404):
             continue  # try next path
         c.print(f'  [red]✗ Data View HTTP {resp.status_code}:[/] {resp.text[:300]}')
-        return False
+        break
     if not dv_ok:
-        c.print(f'  [yellow]⚠ Could not auto-create Data View (both API paths returned 404).[/]')
+        c.print(f'  [yellow]⚠ Could not auto-create Data View (all API paths failed).[/]')
         c.print(f'  [yellow]  Create manually: OS Dashboards → Stack Management → Data Views[/]')
         c.print(f'    Title: {OPENSEARCH_INDEX}  |  Time field: @timestamp')
 
@@ -784,7 +789,8 @@ def _do_import_os_saved_objects(endpoint: str, region: str, c: Console,
             attrs.pop(f, None)
         otype = obj.get('type')
         oid   = obj.get('id')
-        url   = f'{base}/api/saved_objects/{otype}/{oid}?overwrite=true'
+        # security_tenant in both header and query param for OSD 3.x compat
+        url   = f'{base}/api/saved_objects/{otype}/{oid}?overwrite=true&security_tenant=global'
         body  = {'attributes': attrs}
         if obj.get('references'):
             body['references'] = obj['references']
@@ -792,7 +798,7 @@ def _do_import_os_saved_objects(endpoint: str, region: str, c: Console,
         if resp.status_code < 300:
             ok += 1
         else:
-            c.print(f'  [dim yellow]  ⚠ {otype}/{oid}: {resp.status_code}[/]')
+            c.print(f'  [dim yellow]  ⚠ {otype}/{oid}: {resp.status_code} {resp.text[:120]}[/]')
             fail += 1
 
     if ok:
