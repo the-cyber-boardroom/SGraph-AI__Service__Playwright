@@ -76,6 +76,8 @@ IAM__ASSUME_ROLE_SERVICE       = 'ec2.amazonaws.com'
 EC2__PROMETHEUS_PORT      = 9090
 EC2__BROWSER_INTERNAL_PORT = 3000                                                      # linuxserver/chromium KasmVNC — SSM-forward only, never exposed in SG
 EC2__BROWSER_IMAGE         = 'lscr.io/linuxserver/chromium:latest'                     # public image — pulled explicitly before compose up
+EC2__PORTAINER_PORT        = 9000                                                      # Portainer CE — SSM-forward only; first login sets admin password
+EC2__PORTAINER_IMAGE       = 'portainer/portainer-ce:latest'                           # public image — pulled explicitly before compose up
 
 SG__NAME                     = 'playwright-ec2'                                         # AWS reserves 'sg-*' prefix for SG IDs
 SG__DESCRIPTION              = 'SG Playwright EC2 stack - ingress :8000 (Playwright API) + :8001 (sidecar admin) + :3000 (streaming browser) — all ports behind API key / KasmVNC password auth'
@@ -127,7 +129,8 @@ SG_COMPOSE_EOF
 
 {observability_configs_section}
 {browser_proxy_section}
-docker pull {browser_image_uri} || true    # pull public image if not baked into AMI
+docker pull {browser_image_uri}   || true    # pull public images if not baked into AMI
+docker pull {portainer_image_uri} || true
 docker compose -f /opt/sg-playwright/docker-compose.yml up -d
 
 echo "=== SG Playwright AMI start complete at $(date) ==="
@@ -267,12 +270,24 @@ COMPOSE_YAML_TEMPLATE = textwrap.dedent("""\
           - sg-net
         restart: always
 
+      portainer:
+        image: {portainer_image_uri}
+        ports:
+          - "127.0.0.1:{portainer_port}:{portainer_port}"
+        volumes:
+          - /var/run/docker.sock:/var/run/docker.sock
+          - portainer_data:/data
+        networks:
+          - sg-net
+        restart: always
+
     networks:
       sg-net:
         driver: bridge
 
     volumes:
       prometheus_data:
+      portainer_data:
 """)
 
 
@@ -438,6 +453,7 @@ set -x
 docker pull {playwright_image_uri}
 docker pull {sidecar_image_uri}
 docker pull {browser_image_uri}
+docker pull {portainer_image_uri}
 
 # Revoke the stored Docker credential immediately after pull — the instance
 # profile (AmazonEC2ContainerRegistryReadOnly) provides fresh tokens on demand
@@ -673,6 +689,8 @@ def render_compose_yaml(playwright_image_uri : str,
                                         sidecar_admin_port      = EC2__SIDECAR_ADMIN_PORT     ,
                                         browser_port            = EC2__BROWSER_INTERNAL_PORT  ,
                                         browser_image_uri       = EC2__BROWSER_IMAGE          ,
+                                        portainer_port          = EC2__PORTAINER_PORT         ,
+                                        portainer_image_uri     = EC2__PORTAINER_IMAGE        ,
                                         api_key_name            = api_key_name                ,
                                         api_key_value           = api_key_value               ,
                                         upstream_url            = upstream_url                ,
@@ -705,6 +723,7 @@ def render_user_data(playwright_image_uri  : str,
                                      playwright_image_uri          = playwright_image_uri   ,
                                      sidecar_image_uri             = sidecar_image_uri      ,
                                      browser_image_uri             = EC2__BROWSER_IMAGE     ,
+                                     portainer_image_uri           = EC2__PORTAINER_IMAGE   ,
                                      compose_content               = compose_content        ,
                                      observability_configs_section = obs_section            ,
                                      browser_proxy_section         = render_browser_proxy_section(),
@@ -909,10 +928,11 @@ def provision(stage                  : str          = DEFAULT_STAGE    ,
                                                         opensearch_endpoint  = opensearch_endpoint ,
                                                         stage                = stage               )
     if from_ami:
-        user_data = AMI_USER_DATA_TEMPLATE.format(compose_content               = compose_content,
-                                                   observability_configs_section = obs_section    ,
+        user_data = AMI_USER_DATA_TEMPLATE.format(compose_content               = compose_content      ,
+                                                   observability_configs_section = obs_section            ,
                                                    browser_proxy_section         = render_browser_proxy_section(),
-                                                   browser_image_uri             = EC2__BROWSER_IMAGE)
+                                                   browser_image_uri             = EC2__BROWSER_IMAGE      ,
+                                                   portainer_image_uri           = EC2__PORTAINER_IMAGE    )
     else:
         user_data = render_user_data(playwright_image_uri  = playwright_image_uri ,
                                      sidecar_image_uri     = sidecar_image_uri    ,
@@ -1031,7 +1051,7 @@ def _ssm_run(instance_id: str, commands: list, timeout: int = 60) -> tuple:
     response   = ssm.send_command(InstanceIds      = [instance_id]          ,
                                    DocumentName     = 'AWS-RunShellScript'   ,
                                    Parameters       = {'commands': commands} ,
-                                   TimeoutSeconds   = timeout                )
+                                   TimeoutSeconds   = max(30, timeout)       )  # SSM minimum is 30
     command_id = response['Command']['CommandId']
     deadline   = time.time() + timeout + 10
     while time.time() < deadline:
@@ -1369,15 +1389,12 @@ def cmd_delete(name    : Optional[str] = typer.Argument(None,  help='Deploy-name
             c.print('  Aborted.')
             return
         deleted = terminate_instances(ec2)
-    elif name:
+    else:
         instance_id, details = _resolve_target(ec2, name)
         deploy = _instance_deploy_name(details) or instance_id
         c.print(f'  🗑️   Deleting [bold]{deploy}[/]  [dim]{instance_id}[/]...')
         ec2.instance_terminate(instance_id)
         deleted = [instance_id]
-    else:
-        c.print('  [red]Specify a deploy-name / instance-id, or pass --all to delete everything.[/]')
-        raise typer.Exit(code=1)
     c.print(f'  ✅  Deleted {len(deleted)} instance(s): [dim]{", ".join(deleted) or "none"}[/]')
 
 
@@ -1916,12 +1933,14 @@ def _cmd_wait(ip           : Optional[str] = typer.Argument(None, help='Public I
               interval      : int           = typer.Option(10,  help='Seconds between attempts.')                ):
     """Poll the health endpoint until the service responds (401 counts — key is in tags)."""
     ec2 = EC2()
+    c   = Console(highlight=False, width=200)
     # Resolve target — also grab stored api key from tags when not supplied via option/env
+    instance_id = None
     if ip and ip.replace('.', '').isdigit():
         actual_ip = ip
         tag_key_name, tag_key_value = '', ''
     else:
-        _, details    = _resolve_target(ec2, ip)
+        instance_id, details = _resolve_target(ec2, ip)
         actual_ip     = details.get('public_ip', '')
         tag_key_name  = _instance_tag(details, TAG__API_KEY_NAME_KEY)
         tag_key_value = _instance_tag(details, TAG__API_KEY_VALUE_KEY)
@@ -1930,21 +1949,67 @@ def _cmd_wait(ip           : Optional[str] = typer.Argument(None, help='Public I
     key_name  = api_key_name  or get_env('FAST_API__AUTH__API_KEY__NAME' ) or tag_key_name  or 'X-API-Key'
     key_value = api_key_value or get_env('FAST_API__AUTH__API_KEY__VALUE') or tag_key_value or ''
     deadline  = time.time() + timeout
-    typer.echo(f'  ⏳  Waiting for {base_url} (timeout {timeout}s)...')
-    attempt = 0
+    c.print(f'\n  ⏳  Waiting for {base_url} (timeout {timeout}s)...\n')
+
+    def _print_instance_status() -> None:
+        if not instance_id:
+            return
+        c.print(f'  [dim]── instance status ({instance_id}) ──[/]')
+        try:
+            stdout, _ = _ssm_run(instance_id, [
+                'echo "~~containers~~" && '
+                'docker ps -a --format "  {{.Names}}\\t{{.Status}}\\t{{.Image}}" 2>/dev/null || echo "  (docker not ready yet)"',
+                'echo "~~start-log~~" && '
+                'tail -20 /var/log/sg-playwright-start.log 2>/dev/null || echo "  (log not yet available)"',
+            ], timeout=15)
+        except Exception as e:
+            c.print(f'  [dim]  SSM not reachable yet: {str(e)[:60]}[/]')
+            return
+        if not stdout.strip():
+            c.print('  [dim]  SSM agent not ready yet[/]')
+            return
+        section = None
+        for raw in stdout.splitlines():
+            line = raw.rstrip()
+            if line == '~~containers~~':
+                section = 'containers'
+                c.print('  [bold blue]containers:[/]')
+                continue
+            if line == '~~start-log~~':
+                section = 'log'
+                c.print('  [bold blue]start log:[/]')
+                continue
+            if section == 'containers':
+                colour = 'green' if 'Up' in line else ('red' if 'Exited' in line else 'yellow')
+                c.print(f'  [{colour}]{line}[/]')
+            else:
+                if any(kw in line for kw in ('error', 'Error', 'ERROR', 'failed', 'FAILED')):
+                    c.print(f'  [red]{line}[/]')
+                elif any(kw in line for kw in ('===', 'docker pull', 'docker compose', 'Pulling', 'Pull complete', 'Started')):
+                    c.print(f'  [bold]{line}[/]')
+                else:
+                    c.print(f'  [dim]{line}[/]')
+        c.print()
+
+    attempt       = 0
+    status_every  = 3                                      # SSM status check every N HTTP attempts
     while time.time() < deadline:
         attempt += 1
         try:
             r = requests.get(f'{base_url}/health/status', headers={key_name: key_value}, timeout=8)
             if r.status_code in (200, 401):              # 401 = service up, auth required
-                typer.echo(f'  ✅  service up after {attempt} attempt(s)  (HTTP {r.status_code})')
+                c.print(f'  ✅  service up after {attempt} attempt(s)  (HTTP {r.status_code})')
                 _render_health(_health_check_once(base_url, key_name, key_value), base_url)
                 return
-            typer.echo(f'  🔄  attempt {attempt}: HTTP {r.status_code} — retrying in {interval}s...')
+            c.print(f'  🔄  attempt {attempt}: HTTP {r.status_code} — retrying in {interval}s...')
         except Exception as exc:
-            typer.echo(f'  🔄  attempt {attempt}: {str(exc)[:80]} — retrying in {interval}s...')
+            c.print(f'  🔄  attempt {attempt}: [dim]{str(exc)[:100]}[/] — retrying in {interval}s...')
+        if attempt % status_every == 0:
+            _print_instance_status()
         time.sleep(interval)
-    typer.echo(f'  ❌  timed out after {timeout}s', err=True)
+    c.print(f'\n  ❌  timed out after {timeout}s', err=True)
+    # Final status dump on timeout so you can see exactly what failed
+    _print_instance_status()
     raise typer.Exit(1)
 
 
@@ -2391,9 +2456,10 @@ def cmd_smoke(target          : Optional[str]  = typer.Argument(None, help='Depl
         c.print(f'  🔭  mitmproxy flows unavailable: {str(exc)[:80]}')
 
     c.print()
-    c.print(f'  Mitmproxy UI  →  sg-ec2 forward {EC2__MITMWEB_TUNNEL_PORT}  then  http://localhost:{EC2__MITMWEB_TUNNEL_PORT}/')
-    c.print(f'  Browser       →  sg-ec2 forward-browser       then  http://localhost:{EC2__BROWSER_INTERNAL_PORT}/')
-    c.print(f'  Prometheus    →  sg-ec2 forward-prometheus     then  http://localhost:{EC2__PROMETHEUS_PORT}/')
+    c.print(f'  Mitmproxy UI  →  sg-ec2 forward {EC2__MITMWEB_TUNNEL_PORT}   then  http://localhost:{EC2__MITMWEB_TUNNEL_PORT}/')
+    c.print(f'  Browser       →  sg-ec2 forward-browser        then  http://localhost:{EC2__BROWSER_INTERNAL_PORT}/')
+    c.print(f'  Portainer     →  sg-ec2 forward-portainer      then  http://localhost:{EC2__PORTAINER_PORT}/')
+    c.print(f'  Prometheus    →  sg-ec2 forward-prometheus      then  http://localhost:{EC2__PROMETHEUS_PORT}/')
     c.print()
 
     if failed:
@@ -2475,6 +2541,32 @@ def cmd_forward_browser(target: Optional[str] = typer.Argument(None, help='Deplo
                     '--document-name', 'AWS-StartPortForwardingSession',
                     '--parameters'   , json.dumps({'portNumber'     : [str(EC2__BROWSER_INTERNAL_PORT)],
                                                    'localPortNumber': [str(EC2__BROWSER_INTERNAL_PORT)]})],
+                   check=False)
+
+
+@app.command(name='forward-portainer')
+def cmd_forward_portainer(target: Optional[str] = typer.Argument(None, help='Deploy-name or instance-id; auto-selects if only one instance.')):
+    """Forward Portainer CE (port 9000) to localhost via SSM — Docker management UI."""
+    import subprocess
+    ec2                  = EC2()
+    instance_id, details = _resolve_target(ec2, target)
+    deploy_name          = _instance_deploy_name(details) or instance_id
+    c = Console(highlight=False, width=200)
+    c.print()
+    c.print(Panel(
+        f'[bold]🐳  Portainer Forward[/]\n\n'
+        f'  instance   [bold]{deploy_name}[/]  [dim]{instance_id}[/]\n'
+        f'  tunnel     [bold]localhost:{EC2__PORTAINER_PORT}[/]\n\n'
+        f'  [green]Access:[/]  [bold]http://localhost:{EC2__PORTAINER_PORT}/[/]\n'
+        f'  [dim]First visit sets the admin password. Use your API key value.[/]\n'
+        f'  [dim]Press Ctrl-C to close the tunnel.[/]',
+        border_style='bright_blue', expand=False))
+    c.print()
+    subprocess.run(['aws', 'ssm', 'start-session',
+                    '--target'       , instance_id,
+                    '--document-name', 'AWS-StartPortForwardingSession',
+                    '--parameters'   , json.dumps({'portNumber'     : [str(EC2__PORTAINER_PORT)],
+                                                   'localPortNumber': [str(EC2__PORTAINER_PORT)]})],
                    check=False)
 
 
