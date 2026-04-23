@@ -1861,9 +1861,9 @@ echo "=== done ==="
         c.print('  [yellow](no output — check SSM agent status with: sgpl exec "sudo systemctl status amazon-ssm-agent")[/]')
 
 
-@app.command(name='exec')
-def cmd_exec(first      : str           = typer.Argument(...,  help='Deploy-name/instance-id, or shell command when only one instance exists.'),
-             second     : Optional[str] = typer.Argument(None, help='Shell command when first arg is the target.'),
+@app.command(name='exec', context_settings={'allow_extra_args': True, 'ignore_unknown_options': True})
+def cmd_exec(ctx        : typer.Context,
+             first      : str           = typer.Argument(...,  help='Deploy-name/instance-id, or start of shell command when only one instance exists.'),
              cmd        : Optional[str] = typer.Option(None, '--cmd',         help='Shell command (alternative to positional).'),
              target     : Optional[str] = typer.Option(None, '--target', '-t',help='Force target; first positional arg then becomes the command.'),
              container  : Optional[str] = typer.Option(None, '--container', '-c',
@@ -1873,16 +1873,29 @@ def cmd_exec(first      : str           = typer.Argument(...,  help='Deploy-name
 
     Usage patterns:
       sgpl exec "docker ps"                                         # host, auto-select target
-      sgpl exec fierce-hubble "docker ps"                          # host, explicit target
+      sgpl exec deep-tesla docker ps -a                            # host, explicit target, unquoted
+      sgpl exec fierce-hubble "docker ps"                          # host, explicit target, quoted
       sgpl exec "ls /" --container sg-playwright-playwright-1      # inside container (full name)
       sgpl exec "ls /" --container playwright                      # inside container (service name)
     """
+    # ctx.args holds any extra positional words after `first` (e.g. "docker ps -a" → ['ps', '-a'])
+    extra    = ctx.args or []
+    ec2      = EC2()
+    instances = find_instances(ec2)
+    # Determine whether `first` is a target name or the start of the command
     if target:
         resolved_target = target
-        shell_cmd       = second or first or cmd
-    elif second or cmd:
+        shell_cmd       = ' '.join([first] + extra) if not cmd else cmd
+    elif cmd:
         resolved_target = first
-        shell_cmd       = second or cmd
+        shell_cmd       = cmd
+    elif extra:
+        # first word is target, rest is the command
+        resolved_target = first
+        shell_cmd       = ' '.join(extra)
+    elif first in instances or any(_instance_deploy_name(d) == first for d in instances.values()):
+        # first matches a known instance — but no command given; error
+        raise typer.BadParameter('Provide a shell command after the target name.')
     else:
         resolved_target = None
         shell_cmd       = first
