@@ -174,9 +174,7 @@ def _uptime_str(launch_time) -> str:
     return f'{mins}m'
 
 
-COMPOSE_YAML_TEMPLATE = textwrap.dedent("""\
-    services:
-
+COMPOSE_SVC_PLAYWRIGHT = textwrap.dedent("""\
       playwright:
         image: {playwright_image_uri}
         ports:
@@ -193,7 +191,9 @@ COMPOSE_YAML_TEMPLATE = textwrap.dedent("""\
         depends_on:
           - agent-mitmproxy
         restart: always
+""")
 
+COMPOSE_SVC_MITMPROXY = textwrap.dedent("""\
       agent-mitmproxy:
         image: {sidecar_image_uri}
         ports:
@@ -209,7 +209,10 @@ COMPOSE_YAML_TEMPLATE = textwrap.dedent("""\
         networks:
           - sg-net
         restart: always
+""")
 
+# browser + browser-proxy: only when upstream proxy is configured
+COMPOSE_SVC_BROWSER = textwrap.dedent("""\
       browser:
         image: {browser_image_uri}
         environment:
@@ -228,7 +231,9 @@ COMPOSE_YAML_TEMPLATE = textwrap.dedent("""\
         depends_on:
           - agent-mitmproxy
         restart: unless-stopped
+""")
 
+COMPOSE_SVC_BROWSER_PROXY = textwrap.dedent("""\
       browser-proxy:
         image: nginx:alpine
         ports:
@@ -241,7 +246,10 @@ COMPOSE_YAML_TEMPLATE = textwrap.dedent("""\
         depends_on:
           - browser
         restart: unless-stopped
+""")
 
+# cadvisor + node-exporter + prometheus: only when AMP_REMOTE_WRITE_URL is configured
+COMPOSE_SVC_CADVISOR = textwrap.dedent("""\
       cadvisor:
         image: gcr.io/cadvisor/cadvisor:v0.49.1
         privileged: true
@@ -253,7 +261,9 @@ COMPOSE_YAML_TEMPLATE = textwrap.dedent("""\
         networks:
           - sg-net
         restart: always
+""")
 
+COMPOSE_SVC_NODE_EXPORTER = textwrap.dedent("""\
       node-exporter:
         image: prom/node-exporter:v1.7.0
         volumes:
@@ -268,7 +278,9 @@ COMPOSE_YAML_TEMPLATE = textwrap.dedent("""\
         networks:
           - sg-net
         restart: always
+""")
 
+COMPOSE_SVC_PROMETHEUS = textwrap.dedent("""\
       prometheus:
         image: prom/prometheus:v2.51.0
         volumes:
@@ -282,7 +294,10 @@ COMPOSE_YAML_TEMPLATE = textwrap.dedent("""\
         networks:
           - sg-net
         restart: always
+""")
 
+# fluent-bit: only when OPENSEARCH_ENDPOINT is configured
+COMPOSE_SVC_FLUENT_BIT = textwrap.dedent("""\
       fluent-bit:
         image: amazon/aws-for-fluent-bit:stable
         volumes:
@@ -292,7 +307,9 @@ COMPOSE_YAML_TEMPLATE = textwrap.dedent("""\
         networks:
           - sg-net
         restart: always
+""")
 
+COMPOSE_SVC_PORTAINER = textwrap.dedent("""\
       portainer:
         image: {portainer_image_uri}
         ports:
@@ -303,14 +320,15 @@ COMPOSE_YAML_TEMPLATE = textwrap.dedent("""\
         networks:
           - sg-net
         restart: always
+""")
 
+COMPOSE_FOOTER = textwrap.dedent("""\
     networks:
       sg-net:
         driver: bridge
 
     volumes:
-      prometheus_data:
-      portainer_data:
+{volume_lines}
 """)
 
 
@@ -811,30 +829,57 @@ def latest_al2023_ami_id(ec2: EC2) -> str:
     return images[0].get('ImageId')
 
 
-def render_compose_yaml(playwright_image_uri : str,
-                         sidecar_image_uri    : str,
-                         api_key_name         : str,
-                         api_key_value        : str,
-                         upstream_url         : str = '',
-                         upstream_user        : str = '',
-                         upstream_pass        : str = '',
-                         http2                : str = '',
+def render_compose_yaml(playwright_image_uri    : str,
+                         sidecar_image_uri      : str,
+                         api_key_name           : str,
+                         api_key_value          : str,
+                         upstream_url           : str = '',
+                         upstream_user          : str = '',
+                         upstream_pass          : str = '',
+                         http2                  : str = '',
+                         amp_remote_write_url   : str = '',
+                         opensearch_endpoint    : str = '',
                          watchdog_max_request_ms: int = WATCHDOG_MAX_REQUEST_MS) -> str:
-    return COMPOSE_YAML_TEMPLATE.format(playwright_image_uri    = playwright_image_uri        ,
-                                        sidecar_image_uri       = sidecar_image_uri           ,
-                                        playwright_port         = EC2__PLAYWRIGHT_PORT        ,
-                                        sidecar_admin_port      = EC2__SIDECAR_ADMIN_PORT     ,
-                                        browser_port            = EC2__BROWSER_INTERNAL_PORT  ,
-                                        browser_image_uri       = EC2__BROWSER_IMAGE          ,
-                                        portainer_port          = EC2__PORTAINER_PORT         ,
-                                        portainer_image_uri     = EC2__PORTAINER_IMAGE        ,
-                                        api_key_name            = api_key_name                ,
-                                        api_key_value           = api_key_value               ,
-                                        upstream_url            = upstream_url                ,
-                                        upstream_user           = upstream_user               ,
-                                        upstream_pass           = upstream_pass               ,
-                                        http2                   = http2                       ,
-                                        watchdog_max_request_ms = watchdog_max_request_ms     )
+    fmt = dict(playwright_image_uri    = playwright_image_uri,
+               sidecar_image_uri       = sidecar_image_uri,
+               playwright_port         = EC2__PLAYWRIGHT_PORT,
+               sidecar_admin_port      = EC2__SIDECAR_ADMIN_PORT,
+               browser_port            = EC2__BROWSER_INTERNAL_PORT,
+               browser_image_uri       = EC2__BROWSER_IMAGE,
+               portainer_port          = EC2__PORTAINER_PORT,
+               portainer_image_uri     = EC2__PORTAINER_IMAGE,
+               api_key_name            = api_key_name,
+               api_key_value           = api_key_value,
+               upstream_url            = upstream_url,
+               upstream_user           = upstream_user,
+               upstream_pass           = upstream_pass,
+               http2                   = http2,
+               watchdog_max_request_ms = watchdog_max_request_ms)
+
+    services  = ['services:\n']
+    services += [COMPOSE_SVC_PLAYWRIGHT.format(**fmt)]
+    services += [COMPOSE_SVC_MITMPROXY.format(**fmt)]
+
+    if upstream_url:                                    # browser VNC + nginx only with upstream proxy
+        services += [COMPOSE_SVC_BROWSER.format(**fmt)]
+        services += [COMPOSE_SVC_BROWSER_PROXY.format(**fmt)]
+
+    if amp_remote_write_url:                            # metrics stack only with AMP
+        services += [COMPOSE_SVC_CADVISOR]
+        services += [COMPOSE_SVC_NODE_EXPORTER]
+        services += [COMPOSE_SVC_PROMETHEUS]
+
+    if opensearch_endpoint:                             # log shipper only with OpenSearch
+        services += [COMPOSE_SVC_FLUENT_BIT]
+
+    services += [COMPOSE_SVC_PORTAINER.format(**fmt)]
+
+    volumes = ['      portainer_data:']
+    if amp_remote_write_url:
+        volumes.insert(0, '      prometheus_data:')
+
+    footer = COMPOSE_FOOTER.format(volume_lines='\n'.join(volumes))
+    return '\n'.join(services) + '\n' + footer
 
 
 def render_user_data(playwright_image_uri  : str,
@@ -1055,14 +1100,16 @@ def provision(stage                  : str          = DEFAULT_STAGE    ,
     amp_remote_write_url  = get_env('AMP_REMOTE_WRITE_URL' ) or ''
     opensearch_endpoint   = get_env('OPENSEARCH_ENDPOINT'  ) or ''
 
-    compose_content       = render_compose_yaml(playwright_image_uri = playwright_image_uri ,
-                                                 sidecar_image_uri    = sidecar_image_uri    ,
-                                                 api_key_name         = api_key_name         ,
-                                                 api_key_value        = api_key_value        ,
-                                                 upstream_url         = upstream_url         ,
-                                                 upstream_user        = upstream_user        ,
-                                                 upstream_pass        = upstream_pass        ,
-                                                 http2                = http2                )
+    compose_content       = render_compose_yaml(playwright_image_uri  = playwright_image_uri ,
+                                                 sidecar_image_uri     = sidecar_image_uri    ,
+                                                 api_key_name          = api_key_name         ,
+                                                 api_key_value         = api_key_value        ,
+                                                 upstream_url          = upstream_url         ,
+                                                 upstream_user         = upstream_user        ,
+                                                 upstream_pass         = upstream_pass        ,
+                                                 http2                 = http2                ,
+                                                 amp_remote_write_url  = amp_remote_write_url ,
+                                                 opensearch_endpoint   = opensearch_endpoint  )
     obs_section = render_observability_configs_section(region               = aws_region()       ,
                                                         amp_remote_write_url = amp_remote_write_url,
                                                         opensearch_endpoint  = opensearch_endpoint ,
