@@ -368,7 +368,39 @@ def _map_backend_role(endpoint: str, role_arn: str, admin_user: str, admin_pass:
         return False
 
 
-def _create_amg_workspace(name: str, r: str, c: Console):
+GRAFANA_ROLE_NAME = 'sg-playwright-grafana'
+
+
+def _ensure_grafana_role(account: str, r: str) -> str:
+    """Return ARN of sg-playwright-grafana IAM role, creating it if absent."""
+    iam = boto3.client('iam')
+    try:
+        return iam.get_role(RoleName=GRAFANA_ROLE_NAME)['Role']['Arn']
+    except iam.exceptions.NoSuchEntityException:
+        pass
+    trust = json.dumps({
+        'Version': '2012-10-17',
+        'Statement': [{'Effect': 'Allow',
+                       'Principal': {'Service': 'grafana.amazonaws.com'},
+                       'Action': 'sts:AssumeRole',
+                       'Condition': {
+                           'StringEquals':  {'aws:SourceAccount': account},
+                           'StringLike':    {'aws:SourceArn': f'arn:aws:grafana:{r}:{account}:/workspaces/*'}
+                       }}]
+    })
+    arn = iam.create_role(RoleName=GRAFANA_ROLE_NAME,
+                          AssumeRolePolicyDocument=trust,
+                          Description='AMG workspace role for SG Playwright observability')['Role']['Arn']
+    for policy in ('arn:aws:iam::aws:policy/AmazonPrometheusQueryAccess',
+                   'arn:aws:iam::aws:policy/AWSGrafanaWorkspacePermissionManagement'):
+        try:
+            iam.attach_role_policy(RoleName=GRAFANA_ROLE_NAME, PolicyArn=policy)
+        except Exception:
+            pass
+    return arn
+
+
+def _create_amg_workspace(name: str, r: str, account: str, c: Console):
     """Create or find an AMG workspace. Returns (ws_id, endpoint) or (None, None)."""
     grafana  = boto3.client('grafana', region_name=r)
     existing = _amg_workspaces(r)
@@ -380,10 +412,12 @@ def _create_amg_workspace(name: str, r: str, c: Console):
         c.print(f'  [yellow]AMG workspace exists[/]  {ws_id}')
         return ws_id, ep
     try:
+        role_arn = _ensure_grafana_role(account, r)
         ws_id = grafana.create_workspace(
             accountAccessType       = 'CURRENT_ACCOUNT',
             authenticationProviders = ['AWS_SSO'],
-            permissionType          = 'SERVICE_MANAGED',
+            permissionType          = 'CUSTOMER_MANAGED',
+            workspaceRoleArn        = role_arn,
             workspaceName           = name,
             workspaceDescription    = f'SG Playwright observability — {name}',
         )['workspace']['id']
@@ -552,7 +586,7 @@ def _cmd_create_inner(name, r, account, amp, osc, no_wait, no_import, c,
     grafana_url = ''
     if not no_grafana:
         c.print(f'\n  [bold]Grafana (AMG)[/]\n')
-        amg_ws_id, grafana_ep = _create_amg_workspace(name, r, c)
+        amg_ws_id, grafana_ep = _create_amg_workspace(name, r, account, c)
         if amg_ws_id and grafana_ep:
             grafana_url = f'https://{grafana_ep}'
             # Map Grafana service role in OpenSearch so AMG can read logs
@@ -671,7 +705,8 @@ def _do_import_os_saved_objects(endpoint: str, region: str, c: Console,
         f'--{boundary}\r\nContent-Disposition: form-data; name="file"; '
         f'filename="{src.name}"\r\nContent-Type: application/octet-stream\r\n\r\n'
     ).encode() + src.read_bytes() + f'\r\n--{boundary}--\r\n'.encode()
-    hdrs     = {'Content-Type': f'multipart/form-data; boundary={boundary}', 'osd-xsrf': 'true'}
+    hdrs     = {'Content-Type': f'multipart/form-data; boundary={boundary}',
+                'osd-xsrf': 'true', 'securitytenant': 'global'}
     if admin_user and admin_pass:
         resp = requests.post(url, data=body, headers=hdrs,
                              auth=(admin_user, admin_pass), timeout=30)
