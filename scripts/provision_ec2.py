@@ -645,7 +645,11 @@ def _print_preflight_error(lines: list) -> None:
 def ensure_instance_profile() -> str:
     role = IAM_Role(role_name=IAM__ROLE_NAME)
     if role.not_exists():
-        role.create_for_service__assume_role(IAM__ASSUME_ROLE_SERVICE)
+        try:
+            role.create_for_service__assume_role(IAM__ASSUME_ROLE_SERVICE)
+        except Exception as e:
+            if 'EntityAlreadyExists' not in str(e):
+                raise
     # Always ensure the instance profile exists and the role is attached —
     # these calls are idempotent: catch EntityAlreadyExists / LimitExceeded
     # so a partial previous run doesn't leave the profile missing.

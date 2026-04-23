@@ -197,7 +197,8 @@ def cmd_list(region: Optional[str] = typer.Option(None, '--region')):
     t.add_column('OpenSearch')
     t.add_column('Endpoint', style='dim')
     for s in stacks:
-        amp_st = s['amp']['status']       if s['amp']         else '[red]missing[/]'
+        amp_st = (s['amp'].get('status', {}).get('statusCode', '?')
+                  if s['amp'] else '[red]missing[/]')
         os_st  = ('[yellow]processing[/]' if s['opensearch'] and s['opensearch'].get('Processing')
                   else 'active'           if s['opensearch']
                   else '[red]missing[/]')
@@ -226,7 +227,7 @@ def cmd_info(name:   Optional[str] = typer.Argument(None),
         rw_url = _amp_rw_url(ws, r)
         c.print('  [bold cyan]AMP[/]')
         c.print(f'    Workspace ID : {ws["workspaceId"]}')
-        c.print(f'    Status       : {ws["status"]}')
+        c.print(f'    Status       : {ws.get("status", {}).get("statusCode", "?")}')
         c.print(f'    Remote Write : {rw_url}')
         c.print()
     else:
@@ -266,7 +267,7 @@ def _wait_active(amp_client, os_client, ws_id: str, domain: str, c: Console):
     # AMP — fast, poll every 15s up to 5 min
     for attempt in range(20):
         ws = amp_client.describe_workspace(workspaceId=ws_id)['workspace']
-        if ws['status'] == 'ACTIVE':
+        if ws.get('status', {}).get('statusCode') == 'ACTIVE':
             c.print(f'  [green]✓ AMP ACTIVE[/]  ({attempt * 15}s)')
             break
         time.sleep(15)
@@ -307,20 +308,7 @@ def cmd_wait(name:   Optional[str] = typer.Argument(None),
 
 # ── create ─────────────────────────────────────────────────────────────────────
 
-@app.command('create')
-def cmd_create(
-    name     : str           = typer.Argument(..., help='Stack name — becomes AMP alias and OpenSearch domain name.'),
-    region   : Optional[str] = typer.Option(None, '--region'),
-    no_wait  : bool          = typer.Option(False, '--no-wait', help='Return immediately; use ob wait later.'),
-    no_import: bool          = typer.Option(False, '--no-import', help='Skip auto-importing dashboards.'),
-):
-    """Create an AMP workspace + OpenSearch domain, then wait until both are active."""
-    r       = region or _region()
-    account = _account()
-    c       = Console(highlight=False)
-    amp     = boto3.client('amp',        region_name=r)
-    osc     = boto3.client('opensearch', region_name=r)
-
+def _cmd_create_inner(name, r, account, amp, osc, no_wait, no_import, c):
     c.print(f'\n  [bold]Creating:[/] {name!r}  [dim]({r} / {account})[/]\n')
 
     # ── AMP ────────────────────────────────────────────────────────────────
@@ -337,7 +325,7 @@ def cmd_create(
     try:
         osc.describe_domain(DomainName=name)
         c.print(f'  [yellow]OpenSearch domain exists[/]  {name}')
-    except osc.exceptions.ResourceNotFoundException:
+    except osc.exceptions.ResourceNotFoundException:  # domain doesn't exist yet — create it
         master_password = _generate_os_password()
         osc.create_domain(
             DomainName   = name,
@@ -397,6 +385,31 @@ def cmd_create(
     c.print(f'    export AMP_REMOTE_WRITE_URL="{_amp_rw_url({"workspaceId": ws_id}, r)}"')
     c.print(f'    export OPENSEARCH_ENDPOINT="{ep}"')
     c.print()
+
+
+@app.command('create')
+def cmd_create(
+    name     : str           = typer.Argument(..., help='Stack name — becomes AMP alias and OpenSearch domain name.'),
+    region   : Optional[str] = typer.Option(None, '--region'),
+    no_wait  : bool          = typer.Option(False, '--no-wait', help='Return immediately; use ob wait later.'),
+    no_import: bool          = typer.Option(False, '--no-import', help='Skip auto-importing dashboards.'),
+):
+    """Create an AMP workspace + OpenSearch domain, then wait until both are active."""
+    r       = region or _region()
+    account = _account()
+    c       = Console(highlight=False)
+    amp     = boto3.client('amp',        region_name=r)
+    osc     = boto3.client('opensearch', region_name=r)
+    try:
+        _cmd_create_inner(name, r, account, amp, osc, no_wait, no_import, c)
+    except Exception as exc:
+        if 'AccessDeniedException' in type(exc).__name__ or 'AccessDenied' in str(exc):
+            c.print(f'\n  [red]AccessDenied:[/] {exc}\n')
+            c.print('  Add the [bold]sg-playwright-observability[/] inline policy to SG-Deploy-User.')
+            c.print('  See: library/docs/ops/v0.1.72__observability-platform.md\n')
+            c.print('  Once permissions are fixed, re-run the same command — it is idempotent.\n')
+            raise typer.Exit(1)
+        raise
 
 
 # ── delete ─────────────────────────────────────────────────────────────────────
