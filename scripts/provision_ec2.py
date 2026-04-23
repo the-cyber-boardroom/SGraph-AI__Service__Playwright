@@ -682,7 +682,7 @@ def render_user_data(playwright_image_uri  : str,
                       sidecar_image_uri     : str,
                       compose_content       : str,
                       api_key_value         : str          = '',
-                      max_hours             : Optional[int] = None,
+                      max_hours             : int          = 1,
                       amp_remote_write_url  : str          = '',
                       opensearch_endpoint   : str          = '',
                       stage                 : str          = DEFAULT_STAGE) -> str:
@@ -860,7 +860,7 @@ def provision(stage                  : str          = DEFAULT_STAGE    ,
                deploy_name           : str          = ''               ,
                from_ami              : str          = None             ,    # use pre-baked AMI; skips install+pull
                instance_type         : str          = EC2__INSTANCE_TYPE,
-               max_hours             : Optional[int] = None            ,
+               max_hours             : int           = 1               ,
                terminate             : bool         = False            ,
                upstream_url          : str          = ''               ,    # CLI-supplied proxy; falls back to env var
                upstream_user         : str          = ''               ,
@@ -953,7 +953,8 @@ def provision(stage                  : str          = DEFAULT_STAGE    ,
             'ami_id'             : ami_id                  ,
             'stage'              : stage                   ,
             'api_key_name'       : api_key_name            ,
-            'api_key_value'      : api_key_value           }
+            'api_key_value'      : api_key_value           ,
+            'max_hours'          : max_hours               }
 
 
 # ── Typer CLI ─────────────────────────────────────────────────────────────────
@@ -1039,7 +1040,10 @@ def _ssm_run(instance_id: str, commands: list, timeout: int = 60) -> tuple:
 
 
 def _render_create_result(r: dict) -> None:
-    c = Console(highlight=False, width=200)
+    c     = Console(highlight=False, width=200)
+    max_h         = r.get('max_hours', 0)
+    timeout_label = (f'[bold yellow]{max_h}h[/]  (sp delete {r["deploy_name"]} to cancel early)'
+                     if max_h else '[dim]none — delete manually[/]')
     c.print()
     c.print(Panel(
         f'[bold green]✅  Instance launched[/]  ·  [bold]{r["deploy_name"]}[/]  [dim]{r["instance_id"]}[/]',
@@ -1054,6 +1058,7 @@ def _render_create_result(r: dict) -> None:
     left.add_row('creator',     r['creator']      )
     left.add_row('ami',         r['ami_id']       )
     left.add_row('instance-id', r['instance_id']  )
+    left.add_row('auto-delete', timeout_label     )
 
     right = Table(box=None, show_header=False, padding=(0, 2), expand=False)
     right.add_column(style='bold',    min_width=14, no_wrap=True)
@@ -1171,7 +1176,7 @@ def create(stage                : str           = typer.Option(DEFAULT_STAGE, he
            sidecar_image_uri    : Optional[str] = typer.Option(None, '--sidecar-image-uri',    help='Override sidecar ECR image URI.')                       ,
            from_ami             : Optional[str] = typer.Option(None, '--from-ami',         help='Launch from a pre-baked AMI ID (skips docker install + image pull).'),
            instance_type        : Optional[str] = typer.Option(None, '--instance-type',    help=f'Instance type or preset 1–5 (default: {EC2__INSTANCE_TYPE}). E.g. --instance-type 3 or --instance-type c5.xlarge.'),
-           max_hours            : int           = typer.Option(4,    '--max-hours',        help='Auto-terminate after N hours (sets shutdown timer + terminate-on-shutdown). Default: 4.'),
+           max_hours            : int           = typer.Option(1,    '--max-hours',        help='Auto-terminate after N hours. Default: 1. Pass 0 to disable.'),
            interactive          : bool          = typer.Option(False, '--interactive', '-i', help='Ask questions before launching (instance type, smoke workflow).')  ,
            smoke                : bool          = typer.Option(False, '--smoke',            help='After instance is up: run smoke test then delete (implies --wait).')  ,
            wait                 : bool          = typer.Option(False, '--wait',             help='Poll health until up.')                                     ,
@@ -2041,7 +2046,7 @@ def cmd_create_from_ami(
         ami_id         : Optional[str] = typer.Argument(None,                  help='AMI ID to launch from. Omit to pick interactively.'),
         name           : Optional[str] = typer.Option(None,  '--name',         help='Deploy name (default: random two-word).'),
         instance_type  : Optional[str] = typer.Option(None,  '--instance-type',help=f'Instance type or preset 1–5 (default: {EC2__INSTANCE_TYPE}).'),
-        max_hours      : int           = typer.Option(4,     '--max-hours',    help='Auto-terminate after N hours. Default: 4.'),
+        max_hours      : int           = typer.Option(1,     '--max-hours',    help='Auto-terminate after N hours. Default: 1. Pass 0 to disable.'),
         wait           : bool          = typer.Option(False, '--wait',         help='Poll health until up.'),
         smoke          : bool          = typer.Option(False, '--smoke',        help='After instance is up: run smoke test then delete.')):
     """Launch an EC2 instance from a pre-baked sg-playwright AMI (fast boot — no docker install or image pull)."""
