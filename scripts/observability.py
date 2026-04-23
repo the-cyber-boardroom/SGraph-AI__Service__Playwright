@@ -100,13 +100,29 @@ def _os_domains(region: str) -> dict:
     return out
 
 
+def _amg_workspaces(region: str) -> dict:
+    """workspace_name → workspace dict for every AMG workspace in the region."""
+    out = {}
+    try:
+        grafana = boto3.client('grafana', region_name=region)
+        pages   = grafana.get_paginator('list_workspaces').paginate()
+        for page in pages:
+            for ws in page.get('workspaces', []):
+                out[ws['name']] = ws
+    except Exception:
+        pass
+    return out
+
+
 def _list_stacks(region: str) -> list:
-    """Return all stacks — AMP alias / OpenSearch domain name pairs."""
+    """Return all stacks — AMP alias / OpenSearch domain / AMG workspace triples."""
     amp_ws  = _amp_workspaces(region)
     os_doms = _os_domains(region)
+    amg_ws  = _amg_workspaces(region)
     out     = []
-    for name in sorted(set(amp_ws) | set(os_doms)):
-        out.append({'name': name, 'amp': amp_ws.get(name), 'opensearch': os_doms.get(name)})
+    for name in sorted(set(amp_ws) | set(os_doms) | set(amg_ws)):
+        out.append({'name': name, 'amp': amp_ws.get(name),
+                    'opensearch': os_doms.get(name), 'grafana': amg_ws.get(name)})
     return out
 
 
@@ -195,6 +211,7 @@ def cmd_list(region: Optional[str] = typer.Option(None, '--region')):
     t.add_column('Name',        style='bold')
     t.add_column('AMP')
     t.add_column('OpenSearch')
+    t.add_column('Grafana')
     t.add_column('Endpoint', style='dim')
     for s in stacks:
         amp_st = (s['amp'].get('status', {}).get('statusCode', '?')
@@ -202,8 +219,10 @@ def cmd_list(region: Optional[str] = typer.Option(None, '--region')):
         os_st  = ('[yellow]processing[/]' if s['opensearch'] and s['opensearch'].get('Processing')
                   else 'active'           if s['opensearch']
                   else '[red]missing[/]')
+        g_st   = (s['grafana'].get('status', '?') if s.get('grafana')
+                  else '[red]missing[/]')
         ep     = (_os_endpoint(s['opensearch'])[:55] if s['opensearch'] else '')
-        t.add_row(s['name'], amp_st, os_st, ep)
+        t.add_row(s['name'], amp_st, os_st, g_st, ep)
     c.print()
     c.print(t)
     c.print()
@@ -218,7 +237,7 @@ def cmd_info(name:   Optional[str] = typer.Argument(None),
     r          = region or _region()
     stack_name = _resolve_stack(name, r)
     by_name    = {s['name']: s for s in _list_stacks(r)}
-    s          = by_name.get(stack_name, {'name': stack_name, 'amp': None, 'opensearch': None})
+    s          = by_name.get(stack_name, {'name': stack_name, 'amp': None, 'opensearch': None, 'grafana': None})
     c          = Console(highlight=False)
     c.print(f'\n  [bold]Stack:[/] {stack_name}\n')
 
@@ -248,6 +267,19 @@ def cmd_info(name:   Optional[str] = typer.Argument(None),
         c.print()
     else:
         c.print('  [bold cyan]OpenSearch[/]  [red]not found[/]\n')
+
+    if s.get('grafana'):
+        gws = s['grafana']
+        ep  = gws.get('endpoint', '')
+        gid = gws.get('id', '')
+        c.print('  [bold cyan]Grafana (AMG)[/]')
+        c.print(f'    Workspace ID : {gid}')
+        c.print(f'    Status       : {gws.get("status", "?")}')
+        if ep:
+            c.print(f'    URL          : https://{ep}')
+        c.print()
+    else:
+        c.print('  [bold cyan]Grafana (AMG)[/]  [dim]not found — run ob create to provision[/]\n')
 
     if s['amp'] and s['opensearch']:
         ep = _os_endpoint(s['opensearch'])
@@ -306,10 +338,144 @@ def cmd_wait(name:   Optional[str] = typer.Argument(None),
     c.print()
 
 
+# ── AMG helpers ────────────────────────────────────────────────────────────────
+
+def _map_backend_role(endpoint: str, role_arn: str, admin_user: str, admin_pass: str, c: Console):
+    """GET existing all_access backend_roles, merge role_arn in, then PUT back."""
+    url  = f'https://{endpoint}/_plugins/_security/api/rolesmapping/all_access'
+    auth = (admin_user, admin_pass)
+    try:
+        existing = []
+        get_resp = requests.get(url, auth=auth, timeout=30)
+        if get_resp.status_code == 200:
+            existing = get_resp.json().get('all_access', {}).get('backend_roles', [])
+        if role_arn in existing:
+            c.print(f'  [dim]Backend role already mapped:[/]  {role_arn.split("/")[-1]}')
+            return True
+        existing.append(role_arn)
+        put_resp = requests.put(url,
+                                data=json.dumps({'backend_roles': existing}).encode(),
+                                headers={'Content-Type': 'application/json'},
+                                auth=auth, timeout=30)
+        if put_resp.status_code < 300:
+            c.print(f'  [green]✓ Backend role mapped[/]  {role_arn.split("/")[-1]}')
+            return True
+        c.print(f'  [yellow]⚠ Role mapping failed ({put_resp.status_code})[/]')
+        c.print(f'    Map manually: Security → all_access → Backend roles → {role_arn}')
+        return False
+    except Exception as e:
+        c.print(f'  [yellow]⚠ Role mapping error:[/] {e}')
+        return False
+
+
+def _create_amg_workspace(name: str, r: str, c: Console):
+    """Create or find an AMG workspace. Returns (ws_id, endpoint) or (None, None)."""
+    grafana  = boto3.client('grafana', region_name=r)
+    existing = _amg_workspaces(r)
+    if name in existing:
+        ws    = existing[name]
+        ws_id = ws['id']
+        desc  = grafana.describe_workspace(workspaceId=ws_id)['workspace']
+        ep    = desc.get('endpoint', '')
+        c.print(f'  [yellow]AMG workspace exists[/]  {ws_id}')
+        return ws_id, ep
+    try:
+        ws_id = grafana.create_workspace(
+            accountAccessType       = 'CURRENT_ACCOUNT',
+            authenticationProviders = ['AWS_SSO'],
+            permissionType          = 'SERVICE_MANAGED',
+            workspaceName           = name,
+            workspaceDescription    = f'SG Playwright observability — {name}',
+        )['workspace']['id']
+        c.print(f'  [green]✓ AMG workspace creating[/]  {ws_id}')
+    except Exception as e:
+        msg = str(e)
+        if any(k in msg for k in ('sso', 'SSO', 'IdentityCenter', 'AccessDenied', 'identity')):
+            c.print(f'  [yellow]⚠ AMG creation skipped:[/] AWS IAM Identity Center not configured.')
+            c.print(f'    Create manually and run:  sp ob dashboard-import {name} --grafana-url <url>')
+        else:
+            c.print(f'  [yellow]⚠ AMG creation failed:[/] {e}')
+        return None, None
+    for attempt in range(24):
+        desc   = grafana.describe_workspace(workspaceId=ws_id)['workspace']
+        status = desc.get('status', '?')
+        if status == 'ACTIVE':
+            ep = desc.get('endpoint', '')
+            c.print(f'  [green]✓ AMG ACTIVE[/]  https://{ep}  ({attempt * 15}s)')
+            return ws_id, ep
+        if status in ('FAILED', 'DELETING', 'DELETED'):
+            c.print(f'  [red]✗ AMG workspace {status}[/]')
+            return None, None
+        time.sleep(15)
+        c.print(f'  [dim]  AMG {status}…  ({attempt * 15}s)[/]')
+    c.print(f'  [yellow]⚠ AMG timed out — check AWS console[/]')
+    return None, None
+
+
+def _setup_amg_datasources(ws_id: str, endpoint: str, r: str,
+                            amp_ws_id: str, os_endpoint: str, c: Console):
+    """Add AMP + OpenSearch data sources to AMG and import the metrics dashboard."""
+    grafana  = boto3.client('grafana', region_name=r)
+    key_name = f'sg-setup-{int(time.time())}'
+    try:
+        api_key = grafana.create_workspace_api_key(
+            keyName=key_name, keyRole='ADMIN', secondsToLive=300,
+            workspaceId=ws_id)['key']
+    except Exception as e:
+        c.print(f'  [yellow]⚠ AMG API key creation failed:[/] {e}')
+        return
+    base    = f'https://{endpoint}'
+    headers = {'Authorization': f'Bearer {api_key}', 'Content-Type': 'application/json'}
+    ds_name = 'Amazon Managed Service for Prometheus'
+    try:
+        amp_url = f'https://aps-workspaces.{r}.amazonaws.com/workspaces/{amp_ws_id}/'
+        body    = {'name': ds_name, 'type': 'grafana-amazonprometheus-datasource',
+                   'url': amp_url, 'access': 'proxy', 'isDefault': True,
+                   'jsonData': {'httpMethod': 'POST', 'sigV4Auth': True,
+                                'sigV4AuthType': 'workspace_iam_role', 'sigV4Region': r}}
+        resp = requests.post(f'{base}/api/datasources', headers=headers, json=body, timeout=30)
+        if resp.status_code in (200, 409):
+            c.print(f'  [green]✓ AMP data source added[/]')
+        else:
+            c.print(f'  [yellow]⚠ AMP datasource HTTP {resp.status_code}:[/] {resp.text[:200]}')
+        if os_endpoint:
+            os_body = {'name': 'Amazon OpenSearch Service',
+                       'type': 'grafana-opensearch-datasource',
+                       'url': f'https://{os_endpoint}', 'access': 'proxy',
+                       'jsonData': {'database': OPENSEARCH_INDEX, 'sigV4Auth': True,
+                                    'sigV4AuthType': 'workspace_iam_role', 'sigV4Region': r,
+                                    'timeField': '@timestamp', 'flavor': 'opensearch',
+                                    'version': '2.3.0'}}
+            resp2 = requests.post(f'{base}/api/datasources', headers=headers,
+                                  json=os_body, timeout=30)
+            if resp2.status_code in (200, 409):
+                c.print(f'  [green]✓ OpenSearch data source added[/]')
+            else:
+                c.print(f'  [dim]  OpenSearch datasource HTTP {resp2.status_code}'
+                        f' (known OS 3.x compat issue — use OpenSearch Dashboards for logs)[/]')
+        dash_path = DASHBOARDS_DIR / 'grafana-sg-playwright-metrics.json'
+        if dash_path.exists():
+            payload = {'dashboard': json.loads(dash_path.read_text()), 'overwrite': True,
+                       'inputs': [{'name': 'DS_AMP', 'type': 'datasource',
+                                   'pluginId': 'grafana-amazonprometheus-datasource',
+                                   'value': ds_name}]}
+            dr = requests.post(f'{base}/api/dashboards/import', headers=headers,
+                               json=payload, timeout=30)
+            if dr.status_code < 300:
+                c.print(f'  [green]✓ Grafana dashboard imported[/]')
+            else:
+                c.print(f'  [yellow]⚠ Dashboard import HTTP {dr.status_code}:[/] {dr.text[:200]}')
+    finally:
+        try:
+            grafana.delete_workspace_api_key(keyName=key_name, workspaceId=ws_id)
+        except Exception:
+            pass
+
+
 # ── create ─────────────────────────────────────────────────────────────────────
 
 def _cmd_create_inner(name, r, account, amp, osc, no_wait, no_import, c,
-                       admin_user='', admin_pass=''):
+                       admin_user='', admin_pass='', no_grafana=False):
     c.print(f'\n  [bold]Creating:[/] {name!r}  [dim]({r} / {account})[/]\n')
 
     # ── AMP ────────────────────────────────────────────────────────────────
@@ -360,39 +526,53 @@ def _cmd_create_inner(name, r, account, amp, osc, no_wait, no_import, c,
     # ── Wait ───────────────────────────────────────────────────────────────
     _wait_active(amp, osc, ws_id, name, c)
 
-    # ── Auto-map backend role ──────────────────────────────────────────────
-    ep = _os_endpoint(osc.describe_domain(DomainName=name)['DomainStatus'])
-    if master_password and ep:
-        role_arn = f'arn:aws:iam::{account}:role/{IAM_ROLE_NAME}'
-        url      = f'https://{ep}/_plugins/_security/api/rolesmapping/all_access'
-        resp     = requests.put(url,
-                                data=json.dumps({'backend_roles': [role_arn]}).encode(),
-                                headers={'Content-Type': 'application/json'},
-                                auth=('admin', master_password), timeout=30)
-        if resp.status_code < 300:
-            c.print(f'  [green]✓ Backend role mapped[/]  ({role_arn})')
-        else:
-            c.print(f'  [yellow]⚠ Role mapping failed ({resp.status_code})[/]')
-            c.print(f'    Map manually: Security → all_access → Backend roles → {role_arn}')
+    # ── Backend role mapping ───────────────────────────────────────────────
+    ep            = _os_endpoint(osc.describe_domain(DomainName=name)['DomainStatus'])
+    eff_user      = admin_user or ('admin' if master_password else '')
+    eff_pass      = admin_pass or (master_password or '')
+    if eff_user and ep:
+        ec2_role  = f'arn:aws:iam::{account}:role/{IAM_ROLE_NAME}'
+        _map_backend_role(ep, ec2_role, eff_user, eff_pass, c)
+    elif ep:
+        c.print('  [yellow]⚠ No admin credentials — backend role mapping skipped.[/]')
+        c.print(f'    Re-run with OB_OS_ADMIN_USER/OB_OS_ADMIN_PASS to map arn:.../role/{IAM_ROLE_NAME}')
 
-    # ── Auto-import dashboards ─────────────────────────────────────────────
-    # Prefer explicit creds → freshly-generated master password → env vars → SigV4 fallback
-    import_user = admin_user or ('admin' if master_password else '')
-    import_pass = admin_pass or (master_password or '')
+    # ── OpenSearch saved-objects import ────────────────────────────────────
     if not no_import and ep:
-        if not import_user:
+        if not eff_user:
             c.print('  [yellow]⚠ No admin credentials for dashboard import.[/]')
             c.print('    Set OB_OS_ADMIN_USER / OB_OS_ADMIN_PASS or pass --admin-user / --admin-pass')
             c.print('    then run:  sp ob dashboard-import ' + name)
         else:
             _do_import_os_saved_objects(ep, r, c,
-                                        admin_user=import_user,
-                                        admin_pass=import_pass)
+                                        admin_user=eff_user,
+                                        admin_pass=eff_pass)
+
+    # ── Grafana (AMG) ──────────────────────────────────────────────────────
+    grafana_url = ''
+    if not no_grafana:
+        c.print(f'\n  [bold]Grafana (AMG)[/]\n')
+        amg_ws_id, grafana_ep = _create_amg_workspace(name, r, c)
+        if amg_ws_id and grafana_ep:
+            grafana_url = f'https://{grafana_ep}'
+            # Map Grafana service role in OpenSearch so AMG can read logs
+            if eff_user and ep:
+                grafana_client = boto3.client('grafana', region_name=r)
+                try:
+                    gws_desc = grafana_client.describe_workspace(workspaceId=amg_ws_id)['workspace']
+                    g_role   = gws_desc.get('workspaceRoleArn', '')
+                    if g_role:
+                        _map_backend_role(ep, g_role, eff_user, eff_pass, c)
+                except Exception:
+                    pass
+            _setup_amg_datasources(amg_ws_id, grafana_ep, r, ws_id, ep, c)
 
     # ── Summary ────────────────────────────────────────────────────────────
     c.print(f'\n  [bold]Env exports for sp create:[/]')
     c.print(f'    export AMP_REMOTE_WRITE_URL="{_amp_rw_url({"workspaceId": ws_id}, r)}"')
     c.print(f'    export OPENSEARCH_ENDPOINT="{ep}"')
+    if grafana_url:
+        c.print(f'    export GRAFANA_WORKSPACE_URL="{grafana_url}"')
     c.print()
 
 
@@ -402,12 +582,13 @@ def cmd_create(
     region     : Optional[str] = typer.Option(None, '--region'),
     no_wait    : bool          = typer.Option(False, '--no-wait',    help='Return immediately; use ob wait later.'),
     no_import  : bool          = typer.Option(False, '--no-import',  help='Skip auto-importing dashboards.'),
+    no_grafana : bool          = typer.Option(False, '--no-grafana', help='Skip AMG workspace creation.'),
     admin_user : str           = typer.Option('', '--admin-user', envvar='OB_OS_ADMIN_USER',
                                               help='OpenSearch admin username for dashboard import on re-runs.'),
     admin_pass : str           = typer.Option('', '--admin-pass', envvar='OB_OS_ADMIN_PASS',
                                               help='OpenSearch admin password for dashboard import on re-runs.'),
 ):
-    """Create an AMP workspace + OpenSearch domain, then wait until both are active."""
+    """Create a full observability stack: AMP + OpenSearch + Grafana (AMG)."""
     r       = region or _region()
     account = _account()
     c       = Console(highlight=False)
@@ -415,7 +596,7 @@ def cmd_create(
     osc     = boto3.client('opensearch', region_name=r)
     try:
         _cmd_create_inner(name, r, account, amp, osc, no_wait, no_import, c,
-                          admin_user=admin_user, admin_pass=admin_pass)
+                          admin_user=admin_user, admin_pass=admin_pass, no_grafana=no_grafana)
     except Exception as exc:
         if 'AccessDeniedException' in type(exc).__name__ or 'AccessDenied' in str(exc):
             c.print(f'\n  [red]AccessDenied:[/] {exc}\n')
@@ -438,15 +619,20 @@ def cmd_delete(
     r          = region or _region()
     stack_name = _resolve_stack(name, r)
     c          = Console(highlight=False)
+    amg_ws   = _amg_workspaces(r)
+    has_amg  = stack_name in amg_ws
     if not yes:
         c.print(f'\n  [bold red]Permanently deletes:[/]')
-        c.print(f'  • AMP workspace  alias={stack_name!r}')
+        c.print(f'  • AMP workspace      alias={stack_name!r}')
         c.print(f'  • OpenSearch domain  name={stack_name!r}  (all log data)')
+        if has_amg:
+            c.print(f'  • AMG workspace      name={stack_name!r}')
         if not typer.confirm('\n  Confirm?', default=False):
             raise typer.Exit(0)
     c.print()
-    amp = boto3.client('amp',        region_name=r)
-    osc = boto3.client('opensearch', region_name=r)
+    amp     = boto3.client('amp',        region_name=r)
+    osc     = boto3.client('opensearch', region_name=r)
+    grafana = boto3.client('grafana',    region_name=r)
     for ws in amp.list_workspaces(alias=stack_name).get('workspaces', []):
         amp.delete_workspace(workspaceId=ws['workspaceId'])
         c.print(f'  [green]✓ AMP workspace deleted[/]  {ws["workspaceId"]}')
@@ -455,6 +641,13 @@ def cmd_delete(
         c.print(f'  [green]✓ OpenSearch deletion started[/]  (~10 min to complete)')
     except osc.exceptions.ResourceNotFoundException:
         c.print(f'  [dim]OpenSearch domain {stack_name!r} not found[/]')
+    if has_amg:
+        gws_id = amg_ws[stack_name]['id']
+        try:
+            grafana.delete_workspace(workspaceId=gws_id)
+            c.print(f'  [green]✓ AMG workspace deleted[/]  {gws_id}')
+        except Exception as e:
+            c.print(f'  [yellow]⚠ AMG deletion failed:[/] {e}')
     c.print()
 
 
