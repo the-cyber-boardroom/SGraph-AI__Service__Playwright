@@ -581,6 +581,13 @@ def preflight_check(playwright_image_uri: str = None, sidecar_image_uri: str = N
     if not opensearch_endpoint:
         warnings.append('OPENSEARCH_ENDPOINT not set — Fluent Bit will log to stdout only (no shipping to OpenSearch).')
 
+    # ── iam:PassRole check ────────────────────────────────────────────────────
+    passrole = ensure_caller_passrole(account)
+    if not passrole['ok'] or passrole['action'] == 'skipped':
+        warnings.append(f"iam:PassRole not verified ({passrole['detail']}) — run 'sp ensure-passrole' if sp create fails with UnauthorizedOperation.")
+    elif passrole['action'] == 'created':
+        warnings.append(f"iam:PassRole policy was missing — attached automatically ({passrole['detail']}).")
+
     # ── Print summary ─────────────────────────────────────────────────────────
     _print_preflight_summary(account, region, registry,
                              resolved_playwright, resolved_sidecar,
@@ -662,6 +669,54 @@ def _print_preflight_error(lines: list) -> None:
     c = Console(highlight=False, stderr=True)
     c.print(Panel('\n'.join(lines), title='[bold red]ERROR[/]', border_style='red', expand=False))
     sys.exit(1)
+
+
+IAM__PASSROLE_POLICY_NAME = 'sg-playwright-passrole-ec2'
+
+
+def ensure_caller_passrole(account: str) -> dict:
+    """Attach a minimal iam:PassRole inline policy to the current IAM user.
+
+    Safe by construction:
+    - Resource is pinned to playwright-ec2 role ARN only (not '*')
+    - Condition iam:PassedToService=ec2.amazonaws.com prevents passing the
+      role to any other service (Lambda, ECS, etc.)
+
+    Only works when the caller is an IAM user (not a role/federated identity).
+    Returns {'ok': True/False, 'action': 'created'|'already_exists'|'skipped', 'detail': str}.
+    """
+    import boto3
+
+    role_arn    = f'arn:aws:iam::{account}:role/{IAM__ROLE_NAME}'
+    policy_doc  = json.dumps({
+        'Version'  : '2012-10-17',
+        'Statement': [{
+            'Sid'      : 'PassRoleToEC2Only',
+            'Effect'   : 'Allow',
+            'Action'   : 'iam:PassRole',
+            'Resource' : role_arn,
+            'Condition': {'StringEquals': {'iam:PassedToService': 'ec2.amazonaws.com'}},
+        }],
+    })
+
+    sts      = boto3.client('sts')
+    identity = sts.get_caller_identity()
+    arn      = identity.get('Arn', '')
+
+    if ':user/' not in arn:
+        return {'ok': False, 'action': 'skipped',
+                'detail': f'Caller is not an IAM user ({arn}) — attach the policy manually in the console.'}
+
+    username = arn.split(':user/')[-1]
+    iam      = boto3.client('iam')
+
+    existing = [p['PolicyName'] for p in iam.list_user_policies(UserName=username).get('PolicyNames', [])]
+    if IAM__PASSROLE_POLICY_NAME in existing:
+        return {'ok': True, 'action': 'already_exists', 'detail': f'Policy {IAM__PASSROLE_POLICY_NAME!r} already attached to {username}.'}
+
+    iam.put_user_policy(UserName=username, PolicyName=IAM__PASSROLE_POLICY_NAME, PolicyDocument=policy_doc)
+    return {'ok': True, 'action': 'created',
+            'detail': f'Attached inline policy {IAM__PASSROLE_POLICY_NAME!r} to {username} (PassRole → {role_arn}, EC2 only).'}
 
 
 def ensure_instance_profile() -> str:
@@ -2654,6 +2709,44 @@ def cmd_metrics(service : str           = typer.Argument('playwright', help='Ser
         c.print(stdout.rstrip())
     if stderr.strip():
         c.print(f'[yellow]{stderr.rstrip()}[/]')
+    c.print()
+
+
+@app.command(name='ensure-passrole')
+def cmd_ensure_passrole():
+    """Attach a minimal iam:PassRole inline policy to the current IAM user.
+
+    Required for sp create to succeed when calling RunInstances with an IAM
+    instance profile. The policy is scoped to the playwright-ec2 role only,
+    with a condition restricting PassRole to ec2.amazonaws.com — it cannot
+    be used to pass the role to Lambda, ECS, or any other service.
+
+    Policy attached: sg-playwright-passrole-ec2 (inline, on the IAM user)
+    """
+    c       = Console(highlight=False)
+    account = aws_account_id()
+    c.print()
+    result  = ensure_caller_passrole(account)
+    if result['ok']:
+        action = result['action']
+        if action == 'already_exists':
+            c.print(f"  [green]✓[/]  {result['detail']}")
+        else:
+            c.print(f"  [green]✓  Policy created.[/]  {result['detail']}")
+            c.print()
+            c.print('  [dim]Policy document:[/]')
+            role_arn = f'arn:aws:iam::{account}:role/{IAM__ROLE_NAME}'
+            c.print(f'  [dim]  Action:    iam:PassRole[/]')
+            c.print(f'  [dim]  Resource:  {role_arn}[/]')
+            c.print(f'  [dim]  Condition: iam:PassedToService = ec2.amazonaws.com[/]')
+    else:
+        c.print(f"  [yellow]⚠  Skipped.[/]  {result['detail']}")
+        c.print()
+        c.print('  Attach this inline policy manually to your IAM user in the AWS console:')
+        role_arn = f'arn:aws:iam::{account}:role/{IAM__ROLE_NAME}'
+        c.print(f'    Action:    iam:PassRole')
+        c.print(f'    Resource:  {role_arn}')
+        c.print(f'    Condition: iam:PassedToService = ec2.amazonaws.com')
     c.print()
 
 
