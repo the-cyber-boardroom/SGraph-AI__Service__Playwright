@@ -567,16 +567,37 @@ def _cmd_create_inner(name, r, account, amp, osc, no_wait, no_import, c,
     # ── Wait for OpenSearch (long) ─────────────────────────────────────────
     _wait_active(amp, osc, ws_id, name, c)
 
-    # ── Backend role mapping ───────────────────────────────────────────────
-    ep            = _os_endpoint(osc.describe_domain(DomainName=name)['DomainStatus'])
-    eff_user      = admin_user or ('admin' if master_password else '')
-    eff_pass      = admin_pass or (master_password or '')
+    # ── Resolve + verify admin credentials ────────────────────────────────
+    ep = _os_endpoint(osc.describe_domain(DomainName=name)['DomainStatus'])
+    # master_password (freshly generated this run) always takes priority — it is
+    # guaranteed correct. env-var overrides are only used on re-runs (master_password=None).
+    if master_password:
+        eff_user, eff_pass = 'admin', master_password
+    else:
+        eff_user, eff_pass = admin_user, admin_pass
+
+    if not eff_user and ep:
+        c.print('  [yellow]⚠ No admin credentials — skipping role mapping and dashboard import.[/]')
+        c.print(f'    export OB_OS_ADMIN_USER=admin')
+        c.print(f'    export OB_OS_ADMIN_PASS="<your-master-password>"')
+        c.print(f'    sp ob create {name}')
+
     if eff_user and ep:
-        ec2_role  = f'arn:aws:iam::{account}:role/{IAM_ROLE_NAME}'
+        # Pre-check credentials before making changes
+        probe = requests.get(f'https://{ep}/', auth=(eff_user, eff_pass), timeout=15)
+        if probe.status_code == 401:
+            c.print(f'\n  [red]✗ Admin credentials rejected (401).[/]')
+            c.print(f'    The username/password for [bold]{ep}[/] is incorrect.')
+            c.print(f'\n  Fix, then re-run (idempotent):')
+            c.print(f'    export OB_OS_ADMIN_USER=admin')
+            c.print(f'    export OB_OS_ADMIN_PASS="<correct-password>"')
+            c.print(f'    sp ob create {name}\n')
+            return
+
+    # ── Backend role mapping ───────────────────────────────────────────────
+    if eff_user and ep:
+        ec2_role = f'arn:aws:iam::{account}:role/{IAM_ROLE_NAME}'
         _map_backend_role(ep, ec2_role, eff_user, eff_pass, c)
-    elif ep:
-        c.print('  [yellow]⚠ No admin credentials — backend role mapping skipped.[/]')
-        c.print(f'    Re-run with OB_OS_ADMIN_USER/OB_OS_ADMIN_PASS to map arn:.../role/{IAM_ROLE_NAME}')
 
     # ── OpenSearch saved-objects import ────────────────────────────────────
     if not no_import and ep:
