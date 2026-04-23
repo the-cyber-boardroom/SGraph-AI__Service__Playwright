@@ -674,6 +674,44 @@ def _print_preflight_error(lines: list) -> None:
 IAM__PASSROLE_POLICY_NAME = 'sg-playwright-passrole-ec2'
 
 
+def _decode_aws_auth_error(exc: Exception) -> str:
+    """If exc is an UnauthorizedOperation with an encoded message, decode and return it.
+
+    Returns the decoded JSON string, or empty string if not applicable.
+    """
+    import boto3, re
+    msg = str(exc)
+    if 'Encoded authorization failure message:' not in msg:
+        return ''
+    match = re.search(r'Encoded authorization failure message:\s*(\S+)', msg)
+    if not match:
+        return ''
+    encoded = match.group(1)
+    try:
+        decoded = boto3.client('sts').decode_authorization_message(EncodedMessage=encoded)
+        return decoded.get('DecodedMessage', '')
+    except Exception:
+        return ''
+
+
+def _print_auth_error(exc: Exception) -> None:
+    """Print a clear UnauthorizedOperation block, auto-decoding the encoded message."""
+    c       = Console(highlight=False)
+    decoded = _decode_aws_auth_error(exc)
+    c.print(f'\n  [bold red]✗  UnauthorizedOperation[/]\n  {exc}\n')
+    if decoded:
+        try:
+            detail = json.loads(decoded)
+            action = detail.get('context', {}).get('action', '?')
+            c.print(f'  [bold]Decoded:[/] the caller lacks permission for [bold]{action}[/]')
+            for stmt in detail.get('policies', []):
+                c.print(f'    [dim]{stmt}[/]')
+        except Exception:
+            c.print(f'  [bold]Decoded message:[/]\n{decoded}')
+    else:
+        c.print('  [dim](Run: aws sts decode-authorization-message --encoded-message <blob> to decode manually)[/]')
+
+
 def ensure_caller_passrole(account: str) -> dict:
     """Attach a minimal iam:PassRole inline policy to the current IAM user.
 
@@ -714,7 +752,12 @@ def ensure_caller_passrole(account: str) -> dict:
     if IAM__PASSROLE_POLICY_NAME in existing:
         return {'ok': True, 'action': 'already_exists', 'detail': f'Policy {IAM__PASSROLE_POLICY_NAME!r} already attached to {username}.'}
 
-    iam.put_user_policy(UserName=username, PolicyName=IAM__PASSROLE_POLICY_NAME, PolicyDocument=policy_doc)
+    try:
+        iam.put_user_policy(UserName=username, PolicyName=IAM__PASSROLE_POLICY_NAME, PolicyDocument=policy_doc)
+    except Exception as exc:
+        if 'UnauthorizedOperation' in str(exc) or 'AccessDenied' in str(exc):
+            _print_auth_error(exc)
+        raise
     return {'ok': True, 'action': 'created',
             'detail': f'Attached inline policy {IAM__PASSROLE_POLICY_NAME!r} to {username} (PassRole → {role_arn}, EC2 only).'}
 
@@ -862,6 +905,9 @@ def run_instance(ec2: EC2, ami_id: str, security_group_id: str, instance_profile
                 print(f'  IAM profile not yet visible to EC2, retrying in {wait}s (attempt {attempt + 1}/5)...')
                 time.sleep(wait)
                 continue
+            if 'UnauthorizedOperation' in str(exc):
+                _print_auth_error(exc)
+                raise typer.Exit(1)
             raise
 
 
