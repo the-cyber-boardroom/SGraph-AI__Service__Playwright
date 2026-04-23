@@ -423,12 +423,8 @@ def _create_amg_workspace(name: str, r: str, account: str, c: Console):
         )['workspace']['id']
         c.print(f'  [green]✓ AMG workspace creating[/]  {ws_id}')
     except Exception as e:
-        msg = str(e)
-        if any(k in msg for k in ('sso', 'SSO', 'IdentityCenter', 'AccessDenied', 'identity')):
-            c.print(f'  [yellow]⚠ AMG creation skipped:[/] AWS IAM Identity Center not configured.')
-            c.print(f'    Create manually and run:  sp ob dashboard-import {name} --grafana-url <url>')
-        else:
-            c.print(f'  [yellow]⚠ AMG creation failed:[/] {e}')
+        c.print(f'  [yellow]⚠ AMG creation failed:[/] {e}')
+        c.print(f'    Create manually and run:  sp ob dashboard-import {name} --grafana-url <url>')
         return None, None
     for attempt in range(24):
         desc   = grafana.describe_workspace(workspaceId=ws_id)['workspace']
@@ -578,9 +574,11 @@ def _cmd_create_inner(name, r, account, amp, osc, no_wait, no_import, c,
             c.print('    Set OB_OS_ADMIN_USER / OB_OS_ADMIN_PASS or pass --admin-user / --admin-pass')
             c.print('    then run:  sp ob dashboard-import ' + name)
         else:
-            _do_import_os_saved_objects(ep, r, c,
-                                        admin_user=eff_user,
-                                        admin_pass=eff_pass)
+            ok = _do_import_os_saved_objects(ep, r, c, admin_user=eff_user, admin_pass=eff_pass)
+            if not ok:
+                c.print('  [red]Stopping — fix OS import error above before continuing.[/]\n')
+                c.print(f'  Re-run: sp ob create {name} (command is idempotent)\n')
+                return
 
     # ── Grafana (AMG) ──────────────────────────────────────────────────────
     grafana_url = ''
@@ -698,8 +696,10 @@ def _do_import_os_saved_objects(endpoint: str, region: str, c: Console,
     src      = ndjson_path or (DASHBOARDS_DIR / 'opensearch-instance-lifecycle.ndjson')
     if not src.exists():
         c.print(f'  [red]✗ File not found: {src}[/]')
-        return
-    url      = f'https://{endpoint}/_dashboards/api/saved_objects/_import?overwrite=true'
+        return False
+    # security_tenant in both header and query param — OS 3.x may require either
+    url      = (f'https://{endpoint}/_dashboards/api/saved_objects/_import'
+                f'?overwrite=true&security_tenant=global')
     boundary = 'SG_OB_BOUNDARY'
     body     = (
         f'--{boundary}\r\nContent-Disposition: form-data; name="file"; '
@@ -718,8 +718,10 @@ def _do_import_os_saved_objects(endpoint: str, region: str, c: Console,
         resp    = requests.post(url, data=body, headers=dict(aws_req.headers), timeout=30)
     if resp.status_code < 300:
         c.print(f'  [green]✓ OS saved objects imported[/]  ({src.name})')
-    else:
-        c.print(f'  [red]✗ OS import HTTP {resp.status_code}:[/] {resp.text[:200]}')
+        return True
+    c.print(f'  [red]✗ OS import HTTP {resp.status_code}[/]')
+    c.print(f'  [dim]{resp.text}[/]')
+    return False
 
 
 def _do_export_os_saved_objects(endpoint: str, region: str, output: Path, c: Console):
