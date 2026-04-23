@@ -724,63 +724,66 @@ def cmd_delete(
 def _do_import_os_saved_objects(endpoint: str, region: str, c: Console,
                                  ndjson_path: Optional[Path] = None,
                                  admin_user: str = '', admin_pass: str = ''):
-    """POST an NDJSON file to /_dashboards/api/saved_objects/_import.
+    """Create a Data View + import dashboards into OS Dashboards 3.x.
 
-    Uses basic auth when admin_user+admin_pass are supplied (preferred — bypasses FGAC
-    backend-role requirement). Falls back to SigV4 when credentials are absent.
+    OS 3.x replaced the index-pattern saved object type with the Data Views API.
+    Visualizations and dashboards still use the saved objects API (soft-fail: Discover
+    works as soon as the Data View exists even if legacy viz types are not supported).
     """
-    src = ndjson_path or (DASHBOARDS_DIR / 'opensearch-instance-lifecycle.ndjson')
-    if not src.exists():
-        c.print(f'  [red]✗ File not found: {src}[/]')
+    auth = (admin_user, admin_pass) if admin_user else None
+    hdrs = {'Content-Type': 'application/json', 'osd-xsrf': 'true', 'securitytenant': 'global'}
+    base = f'https://{endpoint}/_dashboards'
+
+    # ── Data View (replaces index-pattern in OS 3.x) ────────────────────────────
+    dv_url  = f'{base}/api/data_views/data_view'
+    dv_body = {'data_view': {'title': OPENSEARCH_INDEX, 'timeFieldName': '@timestamp',
+                              'id': OPENSEARCH_INDEX}, 'override': True}
+    resp = requests.post(dv_url, json=dv_body, headers=hdrs, auth=auth, timeout=30)
+    if resp.status_code < 300:
+        c.print(f'  [green]✓ Data View created[/]  ({OPENSEARCH_INDEX})')
+        c.print(f'  [dim]  Explore logs: https://{endpoint}/_dashboards/app/discover[/]')
+    else:
+        c.print(f'  [red]✗ Data View HTTP {resp.status_code}:[/] {resp.text[:300]}')
         return False
 
-    # OS Dashboards 3.x schema is stricter — strip fields no longer in the type registry
-    _TOP_STRIP  = {'version', 'updated_at', 'migrationVersion'}
-    # 'version' (int) inside attributes is a Kibana 7.x artefact; 'hits'/'uiStateJSON' removed in OS 3.x
-    _ATTR_STRIP = {'version', 'uiStateJSON', 'hits'}
-    # index-pattern 'fields' is auto-discovered by OS from the index mapping
-    _TYPE_ATTR_STRIP = {'index-pattern': {'fields'}}
+    # ── Visualizations + dashboard (saved objects API — soft fail) ───────────────
+    src = ndjson_path or (DASHBOARDS_DIR / 'opensearch-instance-lifecycle.ndjson')
+    if not src.exists():
+        return True  # Data View is the critical part
 
-    objects = []
+    _TOP_STRIP  = {'version', 'updated_at', 'migrationVersion'}
+    _ATTR_STRIP = {'version', 'uiStateJSON', 'hits'}
+
+    ok = fail = 0
     for raw in src.read_bytes().splitlines():
         if not raw.strip():
             continue
         obj = json.loads(raw)
+        if obj.get('type') == 'index-pattern':
+            continue  # handled via Data Views API above
         for f in _TOP_STRIP:
             obj.pop(f, None)
         attrs = obj.get('attributes', {})
         for f in _ATTR_STRIP:
             attrs.pop(f, None)
-        for f in _TYPE_ATTR_STRIP.get(obj.get('type', ''), set()):
-            attrs.pop(f, None)
-        objects.append(obj)
-
-    # POST objects individually — gives per-object error messages instead of one opaque 400
-    auth = (admin_user, admin_pass) if admin_user else None
-    hdrs = {'Content-Type': 'application/json', 'osd-xsrf': 'true', 'securitytenant': 'global'}
-    base = f'https://{endpoint}/_dashboards'
-    ok = fail = 0
-    for obj in objects:
         otype = obj.get('type')
         oid   = obj.get('id')
-        url   = f'{base}/api/saved_objects/{otype}/{oid}?overwrite=true&security_tenant=global'
-        body  = {'attributes': obj.get('attributes', {})}
+        url   = f'{base}/api/saved_objects/{otype}/{oid}?overwrite=true'
+        body  = {'attributes': attrs}
         if obj.get('references'):
             body['references'] = obj['references']
-        kw = dict(json=body, headers=hdrs, timeout=30)
-        if auth:
-            kw['auth'] = auth
-        resp = requests.post(url, **kw)
+        resp  = requests.post(url, json=body, headers=hdrs, auth=auth, timeout=30)
         if resp.status_code < 300:
             ok += 1
         else:
-            c.print(f'  [red]✗ {otype}/{oid}  HTTP {resp.status_code}:[/] {resp.text[:300]}')
+            c.print(f'  [dim yellow]  ⚠ {otype}/{oid}: {resp.status_code}[/]')
             fail += 1
-    if fail == 0:
-        c.print(f'  [green]✓ OS saved objects imported[/]  ({ok} objects, {src.name})')
-        return True
-    c.print(f'  [yellow]⚠ {ok} imported, {fail} failed[/]')
-    return fail == 0
+
+    if ok:
+        c.print(f'  [green]✓ {ok} visualizations/dashboards imported[/]')
+    if fail:
+        c.print(f'  [dim]  ⚠ {fail} objects skipped (import manually via OS Dashboards → Stack Management → Saved Objects)[/]')
+    return True  # Data View created — Discover is usable regardless
 
 
 def _do_export_os_saved_objects(endpoint: str, region: str, output: Path, c: Console):
