@@ -442,7 +442,7 @@ def render_browser_proxy_section(api_key_value: str = '') -> str:
         f"printf 'viewer:%s\\n' "
         f"\"$(openssl passwd -apr1 '{api_key_value}')\" "
         f"> /opt/sg-playwright/config/browser-certs/.htpasswd\n"
-        f"chmod 600 /opt/sg-playwright/config/browser-certs/.htpasswd\n"
+        f"chmod 644 /opt/sg-playwright/config/browser-certs/.htpasswd\n"
     )
     return (
         'mkdir -p /opt/sg-playwright/config/browser-certs\n'
