@@ -123,6 +123,10 @@ AMI_USER_DATA_TEMPLATE = """\
 set -euxo pipefail
 exec > >(tee /var/log/sg-playwright-start.log | logger -t sg-playwright) 2>&1
 
+BOOT_STATUS_FILE=/var/log/sg-playwright-boot-status
+echo "PENDING $(date --iso-8601=seconds)" > "$BOOT_STATUS_FILE"
+trap 'echo "FAILED at $(date --iso-8601=seconds) — exit $?" > "$BOOT_STATUS_FILE"' EXIT
+
 echo "=== SG Playwright AMI boot at $(date) ==="
 
 mkdir -p /opt/sg-playwright/config
@@ -138,6 +142,8 @@ docker pull {portainer_image_uri} || true
 docker compose -f /opt/sg-playwright/docker-compose.yml up -d
 
 echo "=== SG Playwright AMI start complete at $(date) ==="
+echo "OK $(date --iso-8601=seconds)" > "$BOOT_STATUS_FILE"
+trap - EXIT
 """
 
 
@@ -482,6 +488,10 @@ USER_DATA_TEMPLATE = """\
 set -euxo pipefail
 exec > >(tee /var/log/sg-playwright-setup.log | logger -t sg-playwright) 2>&1
 
+BOOT_STATUS_FILE=/var/log/sg-playwright-boot-status
+echo "PENDING $(date --iso-8601=seconds)" > "$BOOT_STATUS_FILE"
+trap 'echo "FAILED at $(date --iso-8601=seconds) — exit $?" > "$BOOT_STATUS_FILE"' EXIT
+
 echo "=== SG Playwright setup starting at $(date) ==="
 
 # docker-compose-plugin is not in AL2023 standard repos; install docker then add compose plugin binary
@@ -525,6 +535,8 @@ SG_COMPOSE_EOF
 docker compose -f /opt/sg-playwright/docker-compose.yml up -d
 {shutdown_section}
 echo "=== SG Playwright setup complete at $(date) ==="
+echo "OK $(date --iso-8601=seconds)" > "$BOOT_STATUS_FILE"
+trap - EXIT
 """
 
 
@@ -1323,9 +1335,14 @@ def _render_health(results: dict, base_url: str) -> None:
             colour = 'green' if v['status'] == 200 else 'yellow'
             c.print(f'  [{colour}]{"✓" if v["status"] == 200 else "!"}[/]  [dim]{path}[/]  '
                     f'[{colour}]HTTP {v["status"]}[/]')
+    all_connection_errors = all('error' in v for v in results.values())
     if not all_ok:
         c.print()
-        c.print('  [dim]💡  Service may still be starting — try:[/]  [bold]sg-ec2 wait <ip>[/]')
+        if all_connection_errors:
+            c.print('  [dim]💡  Service not reachable — containers may not have started.[/]')
+            c.print('  [dim]    Run:[/]  [bold]sp diagnose[/]  [dim]to see boot log, docker state, and port listeners[/]')
+        else:
+            c.print('  [dim]💡  Service may still be starting — try:[/]  [bold]sg-ec2 wait <ip>[/]')
     c.print()
 
 
@@ -2113,6 +2130,86 @@ def cmd_logs(service : Optional[str] = typer.Option(None, '--service', '-s', hel
         c.print(stdout.rstrip())
     if stderr.strip():
         c.print(f'[yellow]{stderr.rstrip()}[/]')
+
+
+# ── diagnose ───────────────────────────────────────────────────────────────────
+
+_DIAGNOSE_CHECKS = [
+    ('Boot status',
+     'cat /var/log/sg-playwright-boot-status 2>/dev/null || echo "(no boot-status file — pre-diagnose image)"'),
+    ('Setup log (last 60 lines)',
+     'tail -n 60 /var/log/sg-playwright-setup.log 2>/dev/null'
+     ' || tail -n 60 /var/log/sg-playwright-start.log 2>/dev/null'
+     ' || echo "(no setup log found)"'),
+    ('Cloud-init status',
+     'cloud-init status --long 2>/dev/null || echo "(cloud-init not available)"'),
+    ('Docker daemon',
+     'systemctl is-active docker && echo "docker: active" || echo "docker: NOT active"'),
+    ('Docker images',
+     'docker images --format "table {{.Repository}}\\t{{.Tag}}\\t{{.Size}}\\t{{.CreatedSince}}" 2>/dev/null || echo "(docker not running)"'),
+    ('All containers (running + stopped)',
+     'docker ps -a --format "table {{.Names}}\\t{{.Image}}\\t{{.Status}}\\t{{.Ports}}" 2>/dev/null || echo "(docker not running)"'),
+    ('Compose file',
+     f'ls -la {COMPOSE_FILE_PATH} 2>/dev/null && echo "--- content ---" && cat {COMPOSE_FILE_PATH} 2>/dev/null || echo "(compose file missing)"'),
+    ('Compose service status',
+     f'docker compose -f {COMPOSE_FILE_PATH} ps 2>&1 || echo "(compose status failed)"'),
+    ('Listening ports',
+     'ss -tlnp 2>/dev/null | grep -E "8000|8001|9000|9090|3000|5601" || echo "(none of the expected ports are listening)"'),
+    ('Disk',
+     'df -h / /var/lib/docker 2>/dev/null | tail -n +1'),
+    ('Memory',
+     'free -h'),
+    ('Recent kernel / OOM errors',
+     'journalctl -k --since "1 hour ago" --no-pager -q 2>/dev/null | grep -iE "oom|kill|error|fail" | tail -20 || echo "(no kernel errors)"'),
+]
+
+
+@app.command(name='diagnose')
+def cmd_diagnose(
+    target : Optional[str] = typer.Argument(None, help='Deploy-name or instance-id; auto-selects if only one instance.'),
+    quick  : bool          = typer.Option(False, '--quick', '-q', help='Skip setup log and cloud-init; just show containers + ports.'),
+):
+    """Deep system diagnosis via SSM — boot log, docker state, ports, disk, OOM. Use when sp health fails."""
+    ec2             = EC2()
+    instance_id, d  = _resolve_target(ec2, target)
+    deploy_name     = _instance_deploy_name(d) or instance_id
+    public_ip       = d.get('public_ip', '?')
+    c               = Console(highlight=False, width=200)
+    c.print()
+    c.print(Panel(
+        f'[bold]🔬  Diagnose[/]  [dim]{deploy_name}[/]  {instance_id}  {public_ip}',
+        border_style='cyan', expand=False))
+    c.print()
+
+    skip_slow = {'Setup log (last 60 lines)', 'Cloud-init status', 'Recent kernel / OOM errors'}
+    for label, cmd in _DIAGNOSE_CHECKS:
+        if quick and label in skip_slow:
+            continue
+        c.print(f'  [bold cyan]── {label}[/]')
+        stdout, stderr = _ssm_run(instance_id, [cmd], timeout=45)
+        output = (stdout or stderr or '(no output)').rstrip()
+        for line in output.splitlines():
+            # Highlight failure signals
+            colour = 'red' if any(k in line.lower() for k in ('fail', 'error', 'oom', 'killed', 'exit')) \
+                     else 'yellow' if 'warn' in line.lower() \
+                     else 'green' if any(k in line.lower() for k in ('ok', 'active', 'running', 'up')) \
+                     else ''
+            if colour:
+                c.print(f'  [{colour}]{line}[/]')
+            else:
+                c.print(f'  {line}')
+        c.print()
+
+    # API reachability (HTTP, no SSM needed)
+    c.print('  [bold cyan]── API health endpoints[/]')
+    tag_key_name  = _instance_tag(d, TAG__API_KEY_NAME_KEY)
+    tag_key_value = _instance_tag(d, TAG__API_KEY_VALUE_KEY)
+    base_url = f'http://{public_ip}:{EC2__PLAYWRIGHT_PORT}'
+    results  = _health_check_once(base_url, tag_key_name or 'X-API-Key', tag_key_value)
+    _render_health(results, base_url)
+    c.print()
+    c.print('  [dim]Tip: sp logs --target {target} — see docker compose stdout[/]')
+    c.print()
 
 
 @app.command(name='forward')
