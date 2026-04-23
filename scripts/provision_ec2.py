@@ -372,6 +372,8 @@ server {{
     ssl_certificate_key /etc/nginx/certs/key.pem;
     ssl_protocols       TLSv1.2 TLSv1.3;
     location / {{
+        auth_basic           "VNC Viewer";
+        auth_basic_user_file /etc/nginx/certs/.htpasswd;
         proxy_pass         http://browser:3000;
         proxy_http_version 1.1;
         proxy_set_header   Upgrade    $http_upgrade;
@@ -410,14 +412,22 @@ def render_observability_configs_section(region           : str,
     return '\n\n'.join(parts) + '\n'
 
 
-def render_browser_proxy_section() -> str:
+def render_browser_proxy_section(api_key_value: str = '') -> str:
     nginx_conf = NGINX_BROWSER_CONF_TEMPLATE.format(browser_port=EC2__BROWSER_INTERNAL_PORT)
+    # token_urlsafe keys are base64url (A-Za-z0-9_-) — safe to embed in single-quoted shell string
+    htpasswd_line = (
+        f"printf 'viewer:%s\\n' "
+        f"\"$(openssl passwd -apr1 '{api_key_value}')\" "
+        f"> /opt/sg-playwright/config/browser-certs/.htpasswd\n"
+        f"chmod 600 /opt/sg-playwright/config/browser-certs/.htpasswd\n"
+    )
     return (
         'mkdir -p /opt/sg-playwright/config/browser-certs\n'
         'openssl req -x509 -nodes -days 3650 -newkey rsa:2048'
         ' -keyout /opt/sg-playwright/config/browser-certs/key.pem'
         ' -out    /opt/sg-playwright/config/browser-certs/cert.pem'
         " -subj   '/CN=sg-playwright-browser'\n\n"
+        f"{htpasswd_line}\n"
         f"cat > /opt/sg-playwright/config/nginx-browser.conf << 'SG_NGINX_EOF'\n"
         f"{nginx_conf}"
         f"SG_NGINX_EOF\n"
@@ -726,7 +736,7 @@ def render_user_data(playwright_image_uri  : str,
                                      portainer_image_uri           = EC2__PORTAINER_IMAGE   ,
                                      compose_content               = compose_content        ,
                                      observability_configs_section = obs_section            ,
-                                     browser_proxy_section         = render_browser_proxy_section(),
+                                     browser_proxy_section         = render_browser_proxy_section(api_key_value=api_key_value),
                                      shutdown_section              = shutdown_section       )
 
 
@@ -930,7 +940,7 @@ def provision(stage                  : str          = DEFAULT_STAGE    ,
     if from_ami:
         user_data = AMI_USER_DATA_TEMPLATE.format(compose_content               = compose_content      ,
                                                    observability_configs_section = obs_section            ,
-                                                   browser_proxy_section         = render_browser_proxy_section(),
+                                                   browser_proxy_section         = render_browser_proxy_section(api_key_value=api_key_value),
                                                    browser_image_uri             = EC2__BROWSER_IMAGE      ,
                                                    portainer_image_uri           = EC2__PORTAINER_IMAGE    )
     else:
