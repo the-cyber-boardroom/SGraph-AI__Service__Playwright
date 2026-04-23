@@ -554,6 +554,8 @@ def _cmd_create_inner(name, r, account, amp, osc, no_wait, no_import, c,
     else:
         ws_id = amp.create_workspace(alias=name)['workspaceId']
         c.print(f'  [green]✓ AMP workspace created[/]  {ws_id}')
+    amp_rw = _amp_rw_url({'workspaceId': ws_id}, r)
+    c.print(f'  [dim]  export AMP_REMOTE_WRITE_URL="{amp_rw}"[/]')
 
     # ── OpenSearch ─────────────────────────────────────────────────────────
     master_password = None
@@ -583,15 +585,18 @@ def _cmd_create_inner(name, r, account, amp, osc, no_wait, no_import, c,
         )
         c.print(f'  [green]✓ OpenSearch creation started[/]  '
                 f'({OPENSEARCH_INSTANCE}, {OPENSEARCH_VOLUME_GB} GB gp3, {OPENSEARCH_ENGINE})')
-        c.print(f'\n  [bold yellow]Save this master password (printed once):[/]')
-        c.print(f'    Username : admin')
-        c.print(f'    Password : {master_password}\n')
+        c.print(f'\n  [bold yellow]Master password (printed once — save now):[/]')
+        c.print(f'    export OB_OS_ADMIN_USER=admin')
+        c.print(f'    export OB_OS_ADMIN_PASS="{master_password}"\n')
 
     # ── Kick off AMG now (parallel with OpenSearch ~15 min wait) ──────────
     amg_ws_id = None
     if not no_grafana and not no_wait:
         c.print(f'\n  [bold]Grafana (AMG)[/] — starting in parallel with OpenSearch\n')
         amg_ws_id = _start_amg_workspace(name, r, account, c)
+        if amg_ws_id:
+            _amg_url = f'https://{amg_ws_id}.grafana-workspace.{r}.amazonaws.com'
+            c.print(f'  [dim]  export GRAFANA_WORKSPACE_URL="{_amg_url}"[/]')
 
     if no_wait:
         c.print('  [dim]--no-wait: use ob wait or ob info to track status.[/]\n')
@@ -602,6 +607,8 @@ def _cmd_create_inner(name, r, account, amp, osc, no_wait, no_import, c,
 
     # ── Resolve + verify admin credentials ────────────────────────────────
     ep = _os_endpoint(osc.describe_domain(DomainName=name)['DomainStatus'])
+    if ep:
+        c.print(f'  [dim]  export OPENSEARCH_ENDPOINT="{ep}"[/]')
     # master_password (freshly generated this run) always takes priority — it is
     # guaranteed correct. env-var overrides are only used on re-runs (master_password=None).
     if master_password:
