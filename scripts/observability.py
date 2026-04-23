@@ -22,7 +22,7 @@ from rich.table   import Table
 
 from osbot_aws.AWS_Config import AWS_Config
 
-app = typer.Typer(name='ob', help='Observability stack management (AMP + OpenSearch).',
+app = typer.Typer(help='Observability stack management (AMP + OpenSearch).',
                   no_args_is_help=True)
 
 # ── Constants ──────────────────────────────────────────────────────────────────

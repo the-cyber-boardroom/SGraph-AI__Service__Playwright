@@ -1003,6 +1003,10 @@ app = typer.Typer(name           = 'provision_ec2'                              
                    no_args_is_help = True                                              ,
                    add_completion  = False                                             )
 
+from scripts.observability import app as _observability_app              # noqa: E402
+app.add_typer(_observability_app, name='observability')
+app.add_typer(_observability_app, name='op')
+
 
 def _health_check_once(base_url: str, api_key_name: str, api_key_value: str) -> dict:
     headers = {api_key_name: api_key_value} if api_key_value else {}
