@@ -437,8 +437,15 @@ def render_browser_proxy_section(api_key_value: str = '') -> str:
     )
 
 
-def _import_opensearch_dashboards(opensearch_endpoint: str) -> dict:
-    """POST the saved-objects NDJSON to /_dashboards/api/saved_objects/_import using SigV4."""
+def _import_opensearch_dashboards(opensearch_endpoint: str,
+                                   admin_user: str = '',
+                                   admin_pass: str = '') -> dict:
+    """POST the saved-objects NDJSON to /_dashboards/api/saved_objects/_import.
+
+    Uses basic auth when admin_user+admin_pass are supplied (preferred — bypasses FGAC
+    backend-role requirement). Falls back to SigV4 when credentials are absent, which
+    requires the caller's IAM principal to be mapped to all_access in OpenSearch FGAC.
+    """
     import boto3
     from botocore.auth import SigV4Auth
     from botocore.awsrequest import AWSRequest
@@ -457,14 +464,19 @@ def _import_opensearch_dashboards(opensearch_endpoint: str) -> dict:
         f'Content-Type: application/octet-stream\r\n\r\n'
     ).encode() + ndjson_bytes + f'\r\n--{boundary}--\r\n'.encode()
 
-    session = boto3.Session()
-    creds   = session.get_credentials()
-    region  = aws_region()
-    aws_req = AWSRequest(method='POST', url=url, data=body,
-                         headers={'Content-Type': f'multipart/form-data; boundary={boundary}',
-                                  'osd-xsrf': 'true'})
-    SigV4Auth(creds, 'es', region).add_auth(aws_req)
-    resp    = requests.post(url, data=body, headers=dict(aws_req.headers), timeout=30)
+    base_headers = {'Content-Type': f'multipart/form-data; boundary={boundary}', 'osd-xsrf': 'true'}
+
+    if admin_user and admin_pass:
+        resp = requests.post(url, data=body, headers=base_headers,
+                             auth=(admin_user, admin_pass), timeout=30)
+    else:
+        session = boto3.Session()
+        creds   = session.get_credentials()
+        region  = aws_region()
+        aws_req = AWSRequest(method='POST', url=url, data=body, headers=base_headers)
+        SigV4Auth(creds, 'es', region).add_auth(aws_req)
+        resp    = requests.post(url, data=body, headers=dict(aws_req.headers), timeout=30)
+
     return {'ok': resp.status_code < 300, 'status': resp.status_code, 'body': resp.text[:800]}
 
 
@@ -2684,10 +2696,16 @@ def cmd_import_dashboards(
 
     Reads OPENSEARCH_ENDPOINT and GRAFANA_WORKSPACE_URL from the environment.
     Safe to re-run — both APIs use overwrite=true so existing objects are updated.
+
+    OpenSearch auth: set OPENSEARCH_USER + OPENSEARCH_PASS to use basic auth (recommended).
+    Without these, SigV4 is used — requires the IAM principal to be mapped to all_access
+    in OpenSearch FGAC (Security → Roles → all_access → Backend roles).
     """
     c = Console(highlight=False)
     opensearch_endpoint   = get_env('OPENSEARCH_ENDPOINT',   '')
     grafana_workspace_url = get_env('GRAFANA_WORKSPACE_URL', '')
+    opensearch_user       = get_env('OPENSEARCH_USER',        '')
+    opensearch_pass       = get_env('OPENSEARCH_PASS',        '')
 
     if not opensearch_endpoint and not grafana_workspace_url:
         c.print('[red]Set at least one of OPENSEARCH_ENDPOINT or GRAFANA_WORKSPACE_URL.[/]')
@@ -2695,12 +2713,18 @@ def cmd_import_dashboards(
 
     c.print()
     if opensearch_endpoint:
-        c.print(f'  🔍  OpenSearch  →  [bold]{opensearch_endpoint}[/]')
-        result = _import_opensearch_dashboards(opensearch_endpoint)
+        auth_mode = 'basic auth' if (opensearch_user and opensearch_pass) else 'SigV4'
+        c.print(f'  🔍  OpenSearch  →  [bold]{opensearch_endpoint}[/]  [dim]({auth_mode})[/]')
+        result = _import_opensearch_dashboards(opensearch_endpoint, opensearch_user, opensearch_pass)
         if result.get('ok'):
             c.print('      [green]✓ saved-objects imported (index pattern + 5 visualisations + dashboard)[/]')
         else:
             c.print(f'      [red]✗ HTTP {result.get("status")} — {result.get("body") or result.get("error")}[/]')
+            if result.get('status') == 403:
+                c.print('      [yellow]Hint: SigV4 caller has no FGAC backend-role mapping.[/]')
+                c.print('      [yellow]Fix A: export OPENSEARCH_USER=admin OPENSEARCH_PASS=<password> and retry.[/]')
+                c.print('      [yellow]Fix B: OpenSearch Dashboards → Security → Roles → all_access → Backend roles[/]')
+                c.print(f'      [yellow]        → add your IAM ARN, then retry.[/]')
 
     if grafana_workspace_url:
         c.print(f'  📊  Grafana     →  [bold]{grafana_workspace_url}[/]')
