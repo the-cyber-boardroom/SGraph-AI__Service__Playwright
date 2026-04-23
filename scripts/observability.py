@@ -733,6 +733,18 @@ def _do_import_os_saved_objects(endpoint: str, region: str, c: Console,
     if not src.exists():
         c.print(f'  [red]✗ File not found: {src}[/]')
         return False
+    # Strip system-managed fields OS Dashboards 3.x rejects on import
+    # (version, updated_at, migrationVersion were Kibana 7.x conventions)
+    _STRIP = {'version', 'updated_at', 'migrationVersion'}
+    clean_lines = []
+    for raw in src.read_bytes().splitlines():
+        if not raw.strip():
+            continue
+        obj = json.loads(raw)
+        for f in _STRIP:
+            obj.pop(f, None)
+        clean_lines.append(json.dumps(obj).encode())
+    ndjson_bytes = b'\n'.join(clean_lines) + b'\n'
     # security_tenant in both header and query param — OS 3.x may require either
     url      = (f'https://{endpoint}/_dashboards/api/saved_objects/_import'
                 f'?overwrite=true&security_tenant=global')
@@ -740,7 +752,7 @@ def _do_import_os_saved_objects(endpoint: str, region: str, c: Console,
     body     = (
         f'--{boundary}\r\nContent-Disposition: form-data; name="file"; '
         f'filename="{src.name}"\r\nContent-Type: application/octet-stream\r\n\r\n'
-    ).encode() + src.read_bytes() + f'\r\n--{boundary}--\r\n'.encode()
+    ).encode() + ndjson_bytes + f'\r\n--{boundary}--\r\n'.encode()
     hdrs     = {'Content-Type': f'multipart/form-data; boundary={boundary}',
                 'osd-xsrf': 'true', 'securitytenant': 'global'}
     if admin_user and admin_pass:
