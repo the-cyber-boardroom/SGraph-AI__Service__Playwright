@@ -308,7 +308,8 @@ def cmd_wait(name:   Optional[str] = typer.Argument(None),
 
 # ── create ─────────────────────────────────────────────────────────────────────
 
-def _cmd_create_inner(name, r, account, amp, osc, no_wait, no_import, c):
+def _cmd_create_inner(name, r, account, amp, osc, no_wait, no_import, c,
+                       admin_user='', admin_pass=''):
     c.print(f'\n  [bold]Creating:[/] {name!r}  [dim]({r} / {account})[/]\n')
 
     # ── AMP ────────────────────────────────────────────────────────────────
@@ -375,10 +376,18 @@ def _cmd_create_inner(name, r, account, amp, osc, no_wait, no_import, c):
             c.print(f'    Map manually: Security → all_access → Backend roles → {role_arn}')
 
     # ── Auto-import dashboards ─────────────────────────────────────────────
+    # Prefer explicit creds → freshly-generated master password → env vars → SigV4 fallback
+    import_user = admin_user or ('admin' if master_password else '')
+    import_pass = admin_pass or (master_password or '')
     if not no_import and ep:
-        _do_import_os_saved_objects(ep, r, c,
-                                    admin_user='admin' if master_password else '',
-                                    admin_pass=master_password or '')
+        if not import_user:
+            c.print('  [yellow]⚠ No admin credentials for dashboard import.[/]')
+            c.print('    Set OB_OS_ADMIN_USER / OB_OS_ADMIN_PASS or pass --admin-user / --admin-pass')
+            c.print('    then run:  sp ob dashboard-import ' + name)
+        else:
+            _do_import_os_saved_objects(ep, r, c,
+                                        admin_user=import_user,
+                                        admin_pass=import_pass)
 
     # ── Summary ────────────────────────────────────────────────────────────
     c.print(f'\n  [bold]Env exports for sp create:[/]')
@@ -389,10 +398,14 @@ def _cmd_create_inner(name, r, account, amp, osc, no_wait, no_import, c):
 
 @app.command('create')
 def cmd_create(
-    name     : str           = typer.Argument(..., help='Stack name — becomes AMP alias and OpenSearch domain name.'),
-    region   : Optional[str] = typer.Option(None, '--region'),
-    no_wait  : bool          = typer.Option(False, '--no-wait', help='Return immediately; use ob wait later.'),
-    no_import: bool          = typer.Option(False, '--no-import', help='Skip auto-importing dashboards.'),
+    name       : str           = typer.Argument(..., help='Stack name — becomes AMP alias and OpenSearch domain name.'),
+    region     : Optional[str] = typer.Option(None, '--region'),
+    no_wait    : bool          = typer.Option(False, '--no-wait',    help='Return immediately; use ob wait later.'),
+    no_import  : bool          = typer.Option(False, '--no-import',  help='Skip auto-importing dashboards.'),
+    admin_user : str           = typer.Option('', '--admin-user', envvar='OB_OS_ADMIN_USER',
+                                              help='OpenSearch admin username for dashboard import on re-runs.'),
+    admin_pass : str           = typer.Option('', '--admin-pass', envvar='OB_OS_ADMIN_PASS',
+                                              help='OpenSearch admin password for dashboard import on re-runs.'),
 ):
     """Create an AMP workspace + OpenSearch domain, then wait until both are active."""
     r       = region or _region()
@@ -401,7 +414,8 @@ def cmd_create(
     amp     = boto3.client('amp',        region_name=r)
     osc     = boto3.client('opensearch', region_name=r)
     try:
-        _cmd_create_inner(name, r, account, amp, osc, no_wait, no_import, c)
+        _cmd_create_inner(name, r, account, amp, osc, no_wait, no_import, c,
+                          admin_user=admin_user, admin_pass=admin_pass)
     except Exception as exc:
         if 'AccessDeniedException' in type(exc).__name__ or 'AccessDenied' in str(exc):
             c.print(f'\n  [red]AccessDenied:[/] {exc}\n')
