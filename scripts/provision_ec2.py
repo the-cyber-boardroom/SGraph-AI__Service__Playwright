@@ -30,6 +30,7 @@ import shlex
 import sys
 import textwrap
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import List, Optional
 
@@ -152,6 +153,25 @@ def _get_creator() -> str:
     except Exception:
         import os
         return os.environ.get('USER', 'unknown')
+
+
+def _uptime_str(launch_time) -> str:
+    if not launch_time:
+        return '?'
+    if not isinstance(launch_time, datetime):
+        return '?'
+    lt = launch_time if launch_time.tzinfo else launch_time.replace(tzinfo=timezone.utc)
+    secs = int((datetime.now(timezone.utc) - lt).total_seconds())
+    if secs < 0:
+        return '?'
+    days, rem  = divmod(secs, 86400)
+    hours, rem = divmod(rem, 3600)
+    mins       = rem // 60
+    if days:
+        return f'{days}d {hours}h'
+    if hours:
+        return f'{hours}h {mins}m'
+    return f'{mins}m'
 
 
 COMPOSE_YAML_TEMPLATE = textwrap.dedent("""\
@@ -1302,10 +1322,17 @@ def cmd_list():
         Filters  = [{'Name': f'tag:{TAG__SERVICE_KEY}', 'Values': [TAG__SERVICE_VALUE]}],
         Owners   = ['self'])
     project_amis = {img['ImageId']: img.get('Name', '') for img in resp.get('Images', [])}
+    # Fetch launch times in one call (osbot_aws has a typo in 'LauchTime')
+    raw_resp   = ec2.client().describe_instances(InstanceIds=list(instances.keys()))
+    launch_map = {}
+    for r in raw_resp.get('Reservations', []):
+        for inst in r.get('Instances', []):
+            launch_map[inst['InstanceId']] = inst.get('LaunchTime')
     t = Table(show_header=True, header_style='bold blue', box=None, padding=(0, 2))
     t.add_column('deploy-name',   style='bold')
     t.add_column('instance-id',   style='dim')
     t.add_column('state')
+    t.add_column('uptime',        style='yellow', no_wrap=True)
     t.add_column('launch',        style='cyan', no_wrap=True)
     t.add_column('instance-type', style='cyan')
     t.add_column('public-ip',     style='green')
@@ -1320,7 +1347,8 @@ def cmd_list():
         image_id      = d.get('image_id', '')
         launch        = '[magenta]ami[/]' if image_id in project_amis else '[blue]docker[/]'
         colour        = 'green' if state == 'running' else 'yellow' if state == 'pending' else 'red'
-        t.add_row(deploy, iid, f'[{colour}]{state}[/]', launch, instance_type, ip, creator)
+        uptime        = _uptime_str(launch_map.get(iid)) if state == 'running' else '[dim]—[/]'
+        t.add_row(deploy, iid, f'[{colour}]{state}[/]', uptime, launch, instance_type, ip, creator)
     c.print(t)
 
 
@@ -2052,11 +2080,10 @@ def cmd_clean(target: Optional[str] = typer.Argument(None, help='Deploy-name or 
 def cmd_bake_ami(target  : Optional[str] = typer.Argument(None, help='Deploy-name or instance-id; auto-selects if only one instance.'),
                  ami_name : Optional[str] = typer.Option(None, '--name', help='AMI name (default: sg-playwright-{timestamp}).')):
     """Create an AMI from a running instance. Prints the AMI ID to stdout for scripting."""
-    import datetime
     ec2             = EC2()
     instance_id, d  = _resolve_target(ec2, target)
     deploy_name     = _instance_deploy_name(d)
-    name            = ami_name or f'sg-playwright-{datetime.datetime.utcnow().strftime("%Y%m%d-%H%M%S")}'
+    name            = ami_name or f'sg-playwright-{datetime.utcnow().strftime("%Y%m%d-%H%M%S")}'
     c               = Console(highlight=False, width=200, stderr=True)
     c.print()
     c.print(f'  📸  Creating AMI from [bold]{deploy_name}[/]  [dim]{instance_id}[/]')
