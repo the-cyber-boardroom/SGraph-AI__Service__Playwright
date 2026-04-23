@@ -20,10 +20,13 @@ from botocore.awsrequest                                                        
 
 from osbot_utils.type_safe.Type_Safe                                                import Type_Safe
 
-from sgraph_ai_service_playwright__cli.observability.enums.Enum__Stack__Component__Status import Enum__Stack__Component__Status
-from sgraph_ai_service_playwright__cli.observability.schemas.Schema__Stack__Component__AMP        import Schema__Stack__Component__AMP
-from sgraph_ai_service_playwright__cli.observability.schemas.Schema__Stack__Component__OpenSearch import Schema__Stack__Component__OpenSearch
-from sgraph_ai_service_playwright__cli.observability.schemas.Schema__Stack__Component__Grafana    import Schema__Stack__Component__Grafana
+from sgraph_ai_service_playwright__cli.observability.enums.Enum__Component__Delete__Outcome      import Enum__Component__Delete__Outcome
+from sgraph_ai_service_playwright__cli.observability.enums.Enum__Stack__Component__Kind          import Enum__Stack__Component__Kind
+from sgraph_ai_service_playwright__cli.observability.enums.Enum__Stack__Component__Status        import Enum__Stack__Component__Status
+from sgraph_ai_service_playwright__cli.observability.schemas.Schema__Stack__Component__AMP               import Schema__Stack__Component__AMP
+from sgraph_ai_service_playwright__cli.observability.schemas.Schema__Stack__Component__Delete__Result    import Schema__Stack__Component__Delete__Result
+from sgraph_ai_service_playwright__cli.observability.schemas.Schema__Stack__Component__OpenSearch        import Schema__Stack__Component__OpenSearch
+from sgraph_ai_service_playwright__cli.observability.schemas.Schema__Stack__Component__Grafana           import Schema__Stack__Component__Grafana
 
 
 AMP_STATUS_MAP = {'ACTIVE'       : Enum__Stack__Component__Status.ACTIVE  ,        # AWS AMP exposes these status codes on workspace.status.statusCode
@@ -101,6 +104,64 @@ class Observability__AWS__Client(Type_Safe):                                    
         except Exception:
             pass
         return out
+
+    def amp_delete_workspace(self, region: str, alias: str) -> Schema__Stack__Component__Delete__Result:
+        result = Schema__Stack__Component__Delete__Result(kind = Enum__Stack__Component__Kind.AMP)
+        try:
+            amp        = boto3.client('amp', region_name=region)
+            workspaces = amp.list_workspaces(alias=alias).get('workspaces', [])     # Aliased lookup — cheaper than paginating all
+            if not workspaces:
+                result.outcome = Enum__Component__Delete__Outcome.NOT_FOUND
+                return result
+            last_id = ''
+            for ws in workspaces:
+                amp.delete_workspace(workspaceId=ws['workspaceId'])
+                last_id = ws['workspaceId']
+            result.outcome     = Enum__Component__Delete__Outcome.DELETED
+            result.resource_id = last_id                                            # Most-recent deleted id (single workspace in practice)
+        except Exception as exc:
+            result.outcome       = Enum__Component__Delete__Outcome.FAILED
+            result.error_message = str(exc)
+        return result
+
+    def opensearch_delete_domain(self, region: str, domain_name: str) -> Schema__Stack__Component__Delete__Result:
+        result = Schema__Stack__Component__Delete__Result(kind        = Enum__Stack__Component__Kind.OPENSEARCH,
+                                                          resource_id = domain_name                            )
+        try:
+            osc = boto3.client('opensearch', region_name=region)
+            try:
+                osc.delete_domain(DomainName=domain_name)
+                result.outcome = Enum__Component__Delete__Outcome.DELETED           # AWS returns immediately; the domain enters DELETING state for ~10 min
+            except osc.exceptions.ResourceNotFoundException:
+                result.outcome     = Enum__Component__Delete__Outcome.NOT_FOUND
+                result.resource_id = ''                                             # Nothing matched — clear the id to avoid misleading callers
+        except Exception as exc:
+            result.outcome       = Enum__Component__Delete__Outcome.FAILED
+            result.error_message = str(exc)
+        return result
+
+    def amg_delete_workspace(self, region: str, name: str) -> Schema__Stack__Component__Delete__Result:
+        result = Schema__Stack__Component__Delete__Result(kind = Enum__Stack__Component__Kind.GRAFANA)
+        try:
+            grafana       = boto3.client('grafana', region_name=region)
+            workspace_id  = ''
+            for page in grafana.get_paginator('list_workspaces').paginate():        # AMG has no alias-lookup API; paginate to find by name
+                for ws in page.get('workspaces', []):
+                    if ws.get('name') == name:
+                        workspace_id = ws.get('id', '')
+                        break
+                if workspace_id:
+                    break
+            if not workspace_id:
+                result.outcome = Enum__Component__Delete__Outcome.NOT_FOUND
+                return result
+            grafana.delete_workspace(workspaceId=workspace_id)
+            result.outcome     = Enum__Component__Delete__Outcome.DELETED
+            result.resource_id = workspace_id
+        except Exception as exc:
+            result.outcome       = Enum__Component__Delete__Outcome.FAILED
+            result.error_message = str(exc)
+        return result
 
     def opensearch_document_count(self, endpoint: str, region: str, index: str) -> int:
         if not endpoint or not index:                                               # No endpoint yet (provisioning) — skip the round trip

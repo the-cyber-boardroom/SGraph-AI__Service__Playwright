@@ -15,12 +15,14 @@ from osbot_utils.type_safe.type_safe_core.decorators.type_safe                  
 
 from osbot_aws.AWS_Config                                                           import AWS_Config
 
-from sgraph_ai_service_playwright__cli.observability.collections.List__Stack__Info     import List__Stack__Info
-from sgraph_ai_service_playwright__cli.observability.primitives.Safe_Str__AWS__Region   import Safe_Str__AWS__Region
-from sgraph_ai_service_playwright__cli.observability.primitives.Safe_Str__Stack__Name   import Safe_Str__Stack__Name
-from sgraph_ai_service_playwright__cli.observability.schemas.Schema__Stack__Info       import Schema__Stack__Info
-from sgraph_ai_service_playwright__cli.observability.schemas.Schema__Stack__List       import Schema__Stack__List
-from sgraph_ai_service_playwright__cli.observability.service.Observability__AWS__Client import Observability__AWS__Client
+from sgraph_ai_service_playwright__cli.observability.collections.List__Stack__Component__Delete__Result import List__Stack__Component__Delete__Result
+from sgraph_ai_service_playwright__cli.observability.collections.List__Stack__Info                      import List__Stack__Info
+from sgraph_ai_service_playwright__cli.observability.primitives.Safe_Str__AWS__Region                   import Safe_Str__AWS__Region
+from sgraph_ai_service_playwright__cli.observability.primitives.Safe_Str__Stack__Name                   import Safe_Str__Stack__Name
+from sgraph_ai_service_playwright__cli.observability.schemas.Schema__Stack__Delete__Response            import Schema__Stack__Delete__Response
+from sgraph_ai_service_playwright__cli.observability.schemas.Schema__Stack__Info                        import Schema__Stack__Info
+from sgraph_ai_service_playwright__cli.observability.schemas.Schema__Stack__List                        import Schema__Stack__List
+from sgraph_ai_service_playwright__cli.observability.service.Observability__AWS__Client                 import Observability__AWS__Client
 
 
 DEFAULT_REGION          = 'eu-west-2'                                               # Matches the legacy CLI fallback
@@ -70,6 +72,22 @@ class Observability__Service(Type_Safe):                                        
                 region   = resolved_region          ,
                 index    = self.opensearch_index    )
         return info
+
+    @type_safe
+    def delete_stack(self, name   : Safe_Str__Stack__Name     ,
+                           region : Safe_Str__AWS__Region = None
+                      ) -> Schema__Stack__Delete__Response:
+        resolved_region = self.resolve_region(region)
+        lookup          = str(name)                                                 # Plain-str key to match AWS response shapes
+
+        results = List__Stack__Component__Delete__Result()
+        results.append(self.aws_client.amp_delete_workspace   (region = resolved_region, alias       = lookup))
+        results.append(self.aws_client.opensearch_delete_domain(region = resolved_region, domain_name = lookup))
+        results.append(self.aws_client.amg_delete_workspace   (region = resolved_region, name        = lookup))
+
+        return Schema__Stack__Delete__Response(name    = name            ,
+                                               region  = resolved_region ,
+                                               results = results         )
 
     def resolve_region(self, region: Safe_Str__AWS__Region = None) -> Safe_Str__AWS__Region:
         if region:                                                                  # Explicit argument wins

@@ -1,6 +1,7 @@
-# Reality — SP CLI / FastAPI Duality Refactor — Slice 1
+# Reality — SP CLI / FastAPI Duality Refactor
 
-**Status:** partial (read-only surface only). Writes to CLI entrypoints unchanged.
+**Status:** partial — read-only surface + delete mutation implemented.
+Other mutation ops (create/backup/restore/dashboard-import/data-export/data-import) and CLI wrappers still PROPOSED.
 
 This file tracks what exists today for the refactor proposed in
 [`team/comms/briefs/v0.1.72__sp-cli-fastapi-duality.md`](../../../../comms/briefs/v0.1.72__sp-cli-fastapi-duality.md).
@@ -24,31 +25,36 @@ Type_Safe refactor of the `sp` / `ob` CLI. Nothing under
 | `primitives/Safe_Int__Document__Count.py` | OS doc count; `-1` sentinel = not queried. |
 | `enums/Enum__Stack__Component__Status.py` | Normalised lifecycle state across AMP/OS/AMG. |
 | `enums/Enum__Stack__Component__Kind.py` | Identifies which AWS service a component represents. |
+| `enums/Enum__Component__Delete__Outcome.py` | Per-component delete result code — DELETED / NOT_FOUND / FAILED. |
 | `schemas/Schema__Stack__Component__AMP.py` | AMP workspace view. |
 | `schemas/Schema__Stack__Component__OpenSearch.py` | OpenSearch domain view. |
 | `schemas/Schema__Stack__Component__Grafana.py` | AMG workspace view. |
 | `schemas/Schema__Stack__Info.py` | Aggregate stack view (AMP + OS + AMG; each nullable). |
 | `schemas/Schema__Stack__List.py` | `list_stacks` response envelope (carries region). |
+| `schemas/Schema__Stack__Component__Delete__Result.py` | Per-component delete outcome (kind + outcome + resource_id + error_message). |
+| `schemas/Schema__Stack__Delete__Response.py` | `delete_stack` response envelope (name, region, results). |
 | `collections/List__Stack__Info.py` | `Type_Safe__List` subclass for `Schema__Stack__Info`. |
-| `service/Observability__AWS__Client.py` | Isolated boto3 + SigV4 boundary. **Only file in this package that imports boto3.** |
-| `service/Observability__Service.py` | Pure logic: `list_stacks`, `get_stack_info`, `resolve_region`. |
+| `collections/List__Stack__Component__Delete__Result.py` | `Type_Safe__List` subclass for delete results. |
+| `service/Observability__AWS__Client.py` | Isolated boto3 + SigV4 boundary. **Only file in this package that imports boto3.** Methods: `amp_workspaces`, `opensearch_domains`, `amg_workspaces`, `opensearch_document_count`, `amp_delete_workspace`, `opensearch_delete_domain`, `amg_delete_workspace`. |
+| `service/Observability__Service.py` | Pure logic: `list_stacks`, `get_stack_info`, `delete_stack`, `resolve_region`. |
 
-### Tests (21 passing, 0 skipped)
+### Tests (26 passing, 0 skipped)
 
 | File | Coverage |
 |------|----------|
 | `tests/unit/sgraph_ai_service_playwright__cli/observability/primitives/test_Safe_Str__Stack__Name.py` | 7 cases — valid/invalid names, length boundaries, auto-init empty. |
 | `tests/unit/.../primitives/test_Safe_Str__AWS__Region.py` | 3 cases — valid regions, empty allowed, bad shapes rejected. |
 | `tests/unit/.../schemas/test_Schema__Stack__Info.py` | 4 cases — init, composition with components, JSON round-trip, `.obj()` coverage. |
-| `tests/unit/.../service/Observability__AWS__Client__In_Memory.py` | In-memory test double (real subclass — no mocks). |
+| `tests/unit/.../service/Observability__AWS__Client__In_Memory.py` | In-memory test double (real subclass — no mocks). Fixture fields for listings + delete outcomes. |
 | `tests/unit/.../service/test_Observability__Service.py` | 7 cases — list (populated + empty), get (populated / missing / endpoint-less), region resolution. |
+| `tests/unit/.../service/test_Observability__Service__delete.py` | 5 cases — all deleted, all missing, partial-missing, forced failure, JSON round-trip. |
 
 ---
 
 ## What does NOT exist yet (still PROPOSED)
 
-- CLI wrappers in the new package — typer `app` still lives in `scripts/observability.py` and `scripts/provision_ec2.py`.
-- Mutation operations (`create`, `delete`, `backup`, `restore`, `dashboard-import`, `data-export`, `data-import`).
+- CLI wrappers in the new package — typer `app` still lives in `scripts/observability.py` and `scripts/provision_ec2.py`. The new `delete_stack` service method is not yet wired to `ob delete`.
+- Other mutation operations (`create`, `backup`, `restore`, `dashboard-import`, `data-export`, `data-import`).
 - EC2 refactor (`Ec2__Service`) — provision_ec2.py at 2847 lines is untouched.
 - FastAPI routes (`/v1/observability/*`).
 - GH Actions workflows (`obs-morning.yml`, `obs-evening.yml`).
