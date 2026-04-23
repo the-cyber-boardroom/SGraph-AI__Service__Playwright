@@ -438,10 +438,12 @@ def render_observability_configs_section(region           : str,
 def render_browser_proxy_section(api_key_value: str = '') -> str:
     nginx_conf = NGINX_BROWSER_CONF_TEMPLATE.format(browser_port=EC2__BROWSER_INTERNAL_PORT)
     # token_urlsafe keys are base64url (A-Za-z0-9_-) — safe to embed in single-quoted shell string
+    # Capture hash into a variable first so redirect only runs if openssl succeeded
     htpasswd_line = (
-        f"printf 'viewer:%s\\n' "
-        f"\"$(openssl passwd -apr1 '{api_key_value}')\" "
-        f"> /opt/sg-playwright/config/browser-certs/.htpasswd\n"
+        f"_htpw=$(openssl passwd -apr1 '{api_key_value}')\n"
+        f"echo \"viewer:$_htpw\" > /opt/sg-playwright/config/browser-certs/.htpasswd\n"
+        f"[ -s /opt/sg-playwright/config/browser-certs/.htpasswd ] "
+        f"|| {{ echo 'ERROR: .htpasswd is empty — openssl passwd -apr1 failed' >&2; exit 1; }}\n"
         f"chmod 644 /opt/sg-playwright/config/browser-certs/.htpasswd\n"
     )
     return (
