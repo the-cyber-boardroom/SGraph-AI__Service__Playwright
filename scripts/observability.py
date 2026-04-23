@@ -400,17 +400,14 @@ def _ensure_grafana_role(account: str, r: str) -> str:
     return arn
 
 
-def _create_amg_workspace(name: str, r: str, account: str, c: Console):
-    """Create or find an AMG workspace. Returns (ws_id, endpoint) or (None, None)."""
+def _start_amg_workspace(name: str, r: str, account: str, c: Console) -> Optional[str]:
+    """Kick off AMG workspace creation. Returns ws_id immediately (no waiting)."""
     grafana  = boto3.client('grafana', region_name=r)
     existing = _amg_workspaces(r)
     if name in existing:
-        ws    = existing[name]
-        ws_id = ws['id']
-        desc  = grafana.describe_workspace(workspaceId=ws_id)['workspace']
-        ep    = desc.get('endpoint', '')
+        ws_id = existing[name]['id']
         c.print(f'  [yellow]AMG workspace exists[/]  {ws_id}')
-        return ws_id, ep
+        return ws_id
     try:
         role_arn = _ensure_grafana_role(account, r)
         ws_id = grafana.create_workspace(
@@ -421,25 +418,33 @@ def _create_amg_workspace(name: str, r: str, account: str, c: Console):
             workspaceName           = name,
             workspaceDescription    = f'SG Playwright observability — {name}',
         )['workspace']['id']
-        c.print(f'  [green]✓ AMG workspace creating[/]  {ws_id}')
+        c.print(f'  [green]✓ AMG workspace kicked off[/]  {ws_id}  [dim](~2 min — runs while OpenSearch provisions)[/]')
+        return ws_id
     except Exception as e:
         c.print(f'  [yellow]⚠ AMG creation failed:[/] {e}')
         c.print(f'    Create manually and run:  sp ob dashboard-import {name} --grafana-url <url>')
-        return None, None
+        return None
+
+
+def _wait_amg_active(ws_id: str, r: str, c: Console) -> Optional[str]:
+    """Poll until AMG workspace is ACTIVE. Returns endpoint or None."""
+    grafana = boto3.client('grafana', region_name=r)
     for attempt in range(24):
         desc   = grafana.describe_workspace(workspaceId=ws_id)['workspace']
         status = desc.get('status', '?')
         if status == 'ACTIVE':
             ep = desc.get('endpoint', '')
-            c.print(f'  [green]✓ AMG ACTIVE[/]  https://{ep}  ({attempt * 15}s)')
-            return ws_id, ep
+            waited = f'{attempt * 15}s' if attempt else 'already active'
+            c.print(f'  [green]✓ AMG ACTIVE[/]  https://{ep}  ({waited})')
+            return ep
         if status in ('FAILED', 'DELETING', 'DELETED'):
             c.print(f'  [red]✗ AMG workspace {status}[/]')
-            return None, None
+            return None
+        if attempt > 0:
+            c.print(f'  [dim]  AMG {status}…  ({attempt * 15}s)[/]')
         time.sleep(15)
-        c.print(f'  [dim]  AMG {status}…  ({attempt * 15}s)[/]')
     c.print(f'  [yellow]⚠ AMG timed out — check AWS console[/]')
-    return None, None
+    return None
 
 
 def _setup_amg_datasources(ws_id: str, endpoint: str, r: str,
@@ -549,23 +554,50 @@ def _cmd_create_inner(name, r, account, amp, osc, no_wait, no_import, c,
         c.print(f'    Username : admin')
         c.print(f'    Password : {master_password}\n')
 
+    # ── Kick off AMG now (parallel with OpenSearch ~15 min wait) ──────────
+    amg_ws_id = None
+    if not no_grafana and not no_wait:
+        c.print(f'\n  [bold]Grafana (AMG)[/] — starting in parallel with OpenSearch\n')
+        amg_ws_id = _start_amg_workspace(name, r, account, c)
+
     if no_wait:
         c.print('  [dim]--no-wait: use ob wait or ob info to track status.[/]\n')
         return
 
-    # ── Wait ───────────────────────────────────────────────────────────────
+    # ── Wait for OpenSearch (long) ─────────────────────────────────────────
     _wait_active(amp, osc, ws_id, name, c)
 
-    # ── Backend role mapping ───────────────────────────────────────────────
-    ep            = _os_endpoint(osc.describe_domain(DomainName=name)['DomainStatus'])
-    eff_user      = admin_user or ('admin' if master_password else '')
-    eff_pass      = admin_pass or (master_password or '')
+    # ── Resolve + verify admin credentials ────────────────────────────────
+    ep = _os_endpoint(osc.describe_domain(DomainName=name)['DomainStatus'])
+    # master_password (freshly generated this run) always takes priority — it is
+    # guaranteed correct. env-var overrides are only used on re-runs (master_password=None).
+    if master_password:
+        eff_user, eff_pass = 'admin', master_password
+    else:
+        eff_user, eff_pass = admin_user, admin_pass
+
+    if not eff_user and ep:
+        c.print('  [yellow]⚠ No admin credentials — skipping role mapping and dashboard import.[/]')
+        c.print(f'    export OB_OS_ADMIN_USER=admin')
+        c.print(f'    export OB_OS_ADMIN_PASS="<your-master-password>"')
+        c.print(f'    sp ob create {name}')
+
     if eff_user and ep:
-        ec2_role  = f'arn:aws:iam::{account}:role/{IAM_ROLE_NAME}'
+        # Pre-check credentials before making changes
+        probe = requests.get(f'https://{ep}/', auth=(eff_user, eff_pass), timeout=15)
+        if probe.status_code == 401:
+            c.print(f'\n  [red]✗ Admin credentials rejected (401).[/]')
+            c.print(f'    The username/password for [bold]{ep}[/] is incorrect.')
+            c.print(f'\n  Fix, then re-run (idempotent):')
+            c.print(f'    export OB_OS_ADMIN_USER=admin')
+            c.print(f'    export OB_OS_ADMIN_PASS="<correct-password>"')
+            c.print(f'    sp ob create {name}\n')
+            return
+
+    # ── Backend role mapping ───────────────────────────────────────────────
+    if eff_user and ep:
+        ec2_role = f'arn:aws:iam::{account}:role/{IAM_ROLE_NAME}'
         _map_backend_role(ep, ec2_role, eff_user, eff_pass, c)
-    elif ep:
-        c.print('  [yellow]⚠ No admin credentials — backend role mapping skipped.[/]')
-        c.print(f'    Re-run with OB_OS_ADMIN_USER/OB_OS_ADMIN_PASS to map arn:.../role/{IAM_ROLE_NAME}')
 
     # ── OpenSearch saved-objects import ────────────────────────────────────
     if not no_import and ep:
@@ -580,11 +612,15 @@ def _cmd_create_inner(name, r, account, amp, osc, no_wait, no_import, c,
                 c.print(f'  Re-run: sp ob create {name} (command is idempotent)\n')
                 return
 
-    # ── Grafana (AMG) ──────────────────────────────────────────────────────
+    # ── Grafana (AMG) — wait for workspace kicked off earlier ─────────────
     grafana_url = ''
     if not no_grafana:
-        c.print(f'\n  [bold]Grafana (AMG)[/]\n')
-        amg_ws_id, grafana_ep = _create_amg_workspace(name, r, account, c)
+        if not amg_ws_id:
+            # --no-wait path or late start: kick off now
+            amg_ws_id = _start_amg_workspace(name, r, account, c)
+        if amg_ws_id:
+            c.print(f'\n  [bold]Grafana (AMG)[/] — waiting for ACTIVE\n')
+        grafana_ep = _wait_amg_active(amg_ws_id, r, c) if amg_ws_id else None
         if amg_ws_id and grafana_ep:
             grafana_url = f'https://{grafana_ep}'
             # Map Grafana service role in OpenSearch so AMG can read logs
