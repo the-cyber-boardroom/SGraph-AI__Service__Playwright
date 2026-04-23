@@ -768,22 +768,28 @@ def cmd_delete(
 # ── Dashboard helpers ──────────────────────────────────────────────────────────
 
 def _sys_idx_write(endpoint: str, doc_id: str, doc: dict,
-                   admin_user: str, admin_pass: str) -> bool:
+                   admin_user: str, admin_pass: str,
+                   c: Console = None) -> bool:
     """Write a saved-object doc directly to the .opensearch_dashboards system index.
 
     Bypasses the Dashboards API (and its schema validation) entirely.
-    Tries multiple index name variants used by different AWS OS versions.
+    Tries multiple index name variants; no HEAD probe — just attempt PUT directly.
+    AWS OpenSearch blocks HEAD on system indices but may allow PUT.
     """
     auth = (admin_user, admin_pass)
     hdrs = {'Content-Type': 'application/json'}
     for idx in ('.opensearch_dashboards', '.opensearch_dashboards_1', '.kibana', '.kibana_1'):
-        probe = requests.head(f'https://{endpoint}/{idx}', auth=auth, timeout=10)
-        if probe.status_code != 200:
-            continue
         url  = f'https://{endpoint}/{idx}/_doc/{doc_id}?refresh=true'
-        resp = requests.put(url, json=doc, headers=hdrs, auth=auth, timeout=30)
+        try:
+            resp = requests.put(url, json=doc, headers=hdrs, auth=auth, timeout=30)
+        except Exception as e:
+            if c:
+                c.print(f'  [dim]  sys-idx {idx}: error {e}[/]')
+            continue
         if resp.status_code < 300:
             return True
+        if c:
+            c.print(f'  [dim]  sys-idx {idx}: HTTP {resp.status_code}[/]')
     return False
 
 
@@ -830,7 +836,7 @@ def _do_import_os_saved_objects(endpoint: str, region: str, c: Console,
                                      'fields': '[]'},
                   'references': [], 'namespaces': ['default']}
         dv_ok = _sys_idx_write(endpoint, f'index-pattern:{OPENSEARCH_INDEX}', dv_doc,
-                                admin_user, admin_pass)
+                                admin_user, admin_pass, c)
 
     if dv_ok:
         c.print(f'  [green]✓ Data View created[/]  ({OPENSEARCH_INDEX})')
@@ -847,36 +853,80 @@ def _do_import_os_saved_objects(endpoint: str, region: str, c: Console,
     _TOP_STRIP  = {'version', 'updated_at', 'migrationVersion'}
     _ATTR_STRIP = {'version', 'uiStateJSON', 'hits'}
 
-    ok = api_fail = sys_ok = sys_fail = 0
+    # Build list of all non-index-pattern objects to import
+    objects = []
     for raw in src.read_bytes().splitlines():
         if not raw.strip():
             continue
         obj = json.loads(raw)
         if obj.get('type') == 'index-pattern':
-            continue  # handled above
+            continue
         for f in _TOP_STRIP:
             obj.pop(f, None)
         attrs = obj.get('attributes', {})
         for f in _ATTR_STRIP:
             attrs.pop(f, None)
-        otype = obj.get('type')
-        oid   = obj.get('id')
-        refs  = obj.get('references', [])
+        objects.append({'type': obj.get('type'), 'id': obj.get('id'),
+                        'attributes': attrs, 'references': obj.get('references', [])})
 
-        # Try Dashboards API first
+    ok = api_fail = sys_ok = sys_fail = 0
+    first_400_shown = False
+
+    # ── Strategy A: _bulk_create (one round-trip, may avoid per-object validation) ──
+    if objects and admin_user:
+        bulk_url  = f'{base}/api/saved_objects/_bulk_create?overwrite=true'
+        bulk_resp = requests.post(bulk_url, json=objects, headers=hdrs, auth=auth, timeout=30)
+        if bulk_resp.status_code < 300:
+            saved = bulk_resp.json().get('saved_objects', [])
+            bulk_ok  = [o for o in saved if 'error' not in o]
+            bulk_err = [o for o in saved if 'error' in o]
+            if bulk_ok and not bulk_err:
+                c.print(f'  [green]✓ {len(bulk_ok)} visualizations/dashboards imported[/]  (bulk API)')
+                return True
+            if bulk_ok:
+                ok += len(bulk_ok)
+                # Only retry the failed ones below
+                failed_ids = {o['id'] for o in bulk_err}
+                objects = [o for o in objects if o['id'] in failed_ids]
+        elif bulk_resp.status_code not in (400, 404, 405):
+            c.print(f'  [dim]  bulk_create HTTP {bulk_resp.status_code}[/]')
+
+    # ── Strategy B: per-object Dashboards API → system index fallback ─────────────
+    for obj in objects:
+        otype = obj['type']
+        oid   = obj['id']
+        attrs = obj['attributes']
+        refs  = obj['references']
+
+        # Try 1: POST with references
         url  = f'{base}/api/saved_objects/{otype}/{oid}?overwrite=true&security_tenant=global'
         resp = requests.post(url, json={'attributes': attrs, 'references': refs},
                              headers=hdrs, auth=auth, timeout=30)
         if resp.status_code < 300:
             ok += 1
             continue
+
+        # Print the first 400 body so we can see what the API is rejecting
+        if resp.status_code == 400 and not first_400_shown:
+            c.print(f'  [dim]  API 400 sample ({otype}):[/]')
+            c.print(f'  [dim]  {resp.text[:400]}[/]')
+            first_400_shown = True
+
+        # Try 2: POST without references (in case that key is the unknown field)
+        if resp.status_code == 400:
+            resp2 = requests.post(url, json={'attributes': attrs},
+                                  headers=hdrs, auth=auth, timeout=30)
+            if resp2.status_code < 300:
+                ok += 1
+                continue
+
         api_fail += 1
 
-        # Fallback: write directly to system index
+        # Try 3: direct system-index write (bypasses API schema validation entirely)
         if admin_user:
             sys_doc = {'type': otype, otype: attrs, 'references': refs,
                        'namespaces': ['default']}
-            if _sys_idx_write(endpoint, f'{otype}:{oid}', sys_doc, admin_user, admin_pass):
+            if _sys_idx_write(endpoint, f'{otype}:{oid}', sys_doc, admin_user, admin_pass, c):
                 sys_ok += 1
             else:
                 sys_fail += 1
