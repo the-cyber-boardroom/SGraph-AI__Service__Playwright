@@ -1,0 +1,28 @@
+# ═══════════════════════════════════════════════════════════════════════════════
+# SP CLI — Fast_API__SP__CLI
+# Stand-alone FastAPI app exposing the SP CLI management surface (EC2 and —
+# when wired — observability) as HTTP routes. Mounts Routes__Ec2 under /ec2.
+#
+# Extends osbot_fast_api.Fast_API (not Serverless__Fast_API) — the app is
+# expected to run under uvicorn inside a container or on a local machine.
+# A Lambda adapter can wrap this later without changing the app itself.
+#
+# Auth: inherits the X-API-Key middleware from osbot_fast_api when
+# FAST_API__AUTH__API_KEY__VALUE is set. Unset = open for local development.
+# ═══════════════════════════════════════════════════════════════════════════════
+
+from osbot_fast_api.api.Fast_API                                                    import Fast_API
+
+from sgraph_ai_service_playwright__cli.ec2.service.Ec2__Service                     import Ec2__Service
+from sgraph_ai_service_playwright__cli.fast_api.routes.Routes__Ec2                  import Routes__Ec2
+
+
+class Fast_API__SP__CLI(Fast_API):
+    ec2_service : Ec2__Service                                                      # Shared across all Routes__Ec2 requests; Type_Safe auto-initialises
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.config.enable_api_key = True                                           # X-API-Key enforced when FAST_API__AUTH__API_KEY__VALUE is set; unset = open
+
+    def setup_routes(self):
+        self.add_routes(Routes__Ec2, service=self.ec2_service)

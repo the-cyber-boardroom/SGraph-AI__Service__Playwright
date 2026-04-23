@@ -15,7 +15,8 @@ The reality doc was split into per-concern files this cycle (previously a single
 3. [`03__docker-and-ci.md`](03__docker-and-ci.md) — Docker images + CI workflows (Playwright + mitmproxy).
 4. [`04__tests.md`](04__tests.md) — Unit / integration / deploy test inventory by area.
 5. [`05__proposed.md`](05__proposed.md) — What does NOT exist yet (aspirations, deferred work).
-6. [`06__sp-cli-duality-refactor.md`](06__sp-cli-duality-refactor.md) — **NEW.** First slice of the `sgraph_ai_service_playwright__cli/` sibling package: read-only `Observability__Service` (`list_stacks`, `get_stack_info`) + schemas + isolated boto3 boundary.
+6. [`06__sp-cli-duality-refactor.md`](06__sp-cli-duality-refactor.md) — **NEW.** First slices of the `sgraph_ai_service_playwright__cli/` sibling package: read-only `Observability__Service` (`list_stacks`, `get_stack_info`) + `delete_stack` + schemas + isolated boto3 boundary.
+7. [`07__sp-cli-ec2-fastapi.md`](07__sp-cli-ec2-fastapi.md) — **NEW.** EC2 create/info/delete exposed as HTTP routes via `Fast_API__SP__CLI` (stand-alone) + `Ec2__Service` adapter over `scripts/provision_ec2.py` + Lambda handler.
 
 ---
 
