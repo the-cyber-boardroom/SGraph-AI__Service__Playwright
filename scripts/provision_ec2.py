@@ -2042,9 +2042,14 @@ def cmd_exec(ctx        : typer.Context,
         resolved_target = first
         shell_cmd       = cmd
     elif extra:
-        # first word is target, rest is the command; shlex.join preserves per-token quoting
-        resolved_target = first
-        shell_cmd       = shlex.join(extra)
+        # If first matches a known instance name/id it is the target; extra is the command.
+        # Otherwise treat first+extra as the full command with auto-select target.
+        if first in instances or any(_instance_deploy_name(d) == first for d in instances.values()):
+            resolved_target = first
+            shell_cmd       = shlex.join(extra)
+        else:
+            resolved_target = None
+            shell_cmd       = shlex.join([first] + extra)
     elif first in instances or any(_instance_deploy_name(d) == first for d in instances.values()):
         # first matches a known instance — but no command given; error
         raise typer.BadParameter('Provide a shell command after the target name.')
