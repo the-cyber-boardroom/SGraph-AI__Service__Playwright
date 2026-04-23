@@ -999,9 +999,9 @@ def provision(stage                  : str          = DEFAULT_STAGE    ,
     ec2.wait_for_instance_running(instance_id)
     details       = ec2.instance_details(instance_id)
     public_ip     = details.get('public_ip')
-    playwright_url = f'http://{public_ip}:{EC2__PLAYWRIGHT_PORT}'        if public_ip else None
-    sidecar_url    = f'http://{public_ip}:{EC2__SIDECAR_ADMIN_PORT}'   if public_ip else None
-    browser_url    = f'http://{public_ip}:{EC2__BROWSER_INTERNAL_PORT}' if public_ip else None
+    playwright_url = f'http://{public_ip}:{EC2__PLAYWRIGHT_PORT}'         if public_ip else None
+    sidecar_url    = f'http://{public_ip}:{EC2__SIDECAR_ADMIN_PORT}'    if public_ip else None
+    browser_url    = f'https://{public_ip}:{EC2__BROWSER_INTERNAL_PORT}' if public_ip else None
 
     return {'action'              : 'create'               ,
             'instance_id'        : instance_id             ,
@@ -1369,8 +1369,9 @@ def cmd_info(target   : Optional[str] = typer.Argument(None,  help='Deploy-name 
         'creator'             : _instance_tag(d, TAG__CREATOR_KEY),
         'ami_id'              : d.get('image_id', '—'),
         'public_ip'           : ip,
-        'playwright_url'      : f'http://{ip}:{EC2__PLAYWRIGHT_PORT}'    if ip else '—',
-        'sidecar_admin_url'   : f'http://{ip}:{EC2__SIDECAR_ADMIN_PORT}' if ip else '—',
+        'playwright_url'      : f'http://{ip}:{EC2__PLAYWRIGHT_PORT}'          if ip else '—',
+        'sidecar_admin_url'   : f'http://{ip}:{EC2__SIDECAR_ADMIN_PORT}'    if ip else '—',
+        'browser_url'         : f'https://{ip}:{EC2__BROWSER_INTERNAL_PORT}' if ip else '—',
         'api_key_name'        : _instance_tag(d, TAG__API_KEY_NAME_KEY),
         'api_key_value'       : _instance_tag(d, TAG__API_KEY_VALUE_KEY),
         'playwright_image_uri': '(stored in compose file on instance)',
@@ -1403,6 +1404,7 @@ def cmd_info(target   : Optional[str] = typer.Argument(None,  help='Deploy-name 
     right.add_row('public-ip',     r['public_ip']                          )
     right.add_row('playwright',    r['playwright_url']                     )
     right.add_row('sidecar-admin', r['sidecar_admin_url']                  )
+    right.add_row('browser',       r['browser_url']                        )
     right.add_row('api-key-name',  r['api_key_name']                       )
     right.add_row('api-key-value', f'[bold green]{r["api_key_value"]}[/]'  )
 
@@ -1885,14 +1887,14 @@ def cmd_exec(ctx        : typer.Context,
     # Determine whether `first` is a target name or the start of the command
     if target:
         resolved_target = target
-        shell_cmd       = ' '.join([first] + extra) if not cmd else cmd
+        shell_cmd       = shlex.join([first] + extra) if not cmd else cmd
     elif cmd:
         resolved_target = first
         shell_cmd       = cmd
     elif extra:
-        # first word is target, rest is the command
+        # first word is target, rest is the command; shlex.join preserves per-token quoting
         resolved_target = first
-        shell_cmd       = ' '.join(extra)
+        shell_cmd       = shlex.join(extra)
     elif first in instances or any(_instance_deploy_name(d) == first for d in instances.values()):
         # first matches a known instance — but no command given; error
         raise typer.BadParameter('Provide a shell command after the target name.')
