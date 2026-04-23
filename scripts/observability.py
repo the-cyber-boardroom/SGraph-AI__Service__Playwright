@@ -609,6 +609,7 @@ def _cmd_create_inner(name, r, account, amp, osc, no_wait, no_import, c,
     ep = _os_endpoint(osc.describe_domain(DomainName=name)['DomainStatus'])
     if ep:
         c.print(f'  [dim]  export OPENSEARCH_ENDPOINT="{ep}"[/]')
+        c.print(f'  [dim]  Dashboards: https://{ep}/_dashboards/[/]')
     # master_password (freshly generated this run) always takes priority — it is
     # guaranteed correct. env-var overrides are only used on re-runs (master_password=None).
     if master_password:
@@ -682,6 +683,8 @@ def _cmd_create_inner(name, r, account, amp, osc, no_wait, no_import, c,
     c.print(f'\n  [bold]Env exports for sp create:[/]')
     c.print(f'    export AMP_REMOTE_WRITE_URL="{_amp_rw_url({"workspaceId": ws_id}, r)}"')
     c.print(f'    export OPENSEARCH_ENDPOINT="{ep}"')
+    if ep:
+        c.print(f'    # Dashboards: https://{ep}/_dashboards/')
     if grafana_url:
         c.print(f'    export GRAFANA_WORKSPACE_URL="{grafana_url}"')
     c.print()
@@ -764,21 +767,40 @@ def cmd_delete(
 
 # ── Dashboard helpers ──────────────────────────────────────────────────────────
 
+def _sys_idx_write(endpoint: str, doc_id: str, doc: dict,
+                   admin_user: str, admin_pass: str) -> bool:
+    """Write a saved-object doc directly to the .opensearch_dashboards system index.
+
+    Bypasses the Dashboards API (and its schema validation) entirely.
+    Tries multiple index name variants used by different AWS OS versions.
+    """
+    auth = (admin_user, admin_pass)
+    hdrs = {'Content-Type': 'application/json'}
+    for idx in ('.opensearch_dashboards', '.opensearch_dashboards_1', '.kibana', '.kibana_1'):
+        probe = requests.head(f'https://{endpoint}/{idx}', auth=auth, timeout=10)
+        if probe.status_code != 200:
+            continue
+        url  = f'https://{endpoint}/{idx}/_doc/{doc_id}?refresh=true'
+        resp = requests.put(url, json=doc, headers=hdrs, auth=auth, timeout=30)
+        if resp.status_code < 300:
+            return True
+    return False
+
+
 def _do_import_os_saved_objects(endpoint: str, region: str, c: Console,
                                  ndjson_path: Optional[Path] = None,
                                  admin_user: str = '', admin_pass: str = ''):
-    """Create a Data View + import dashboards into OS Dashboards 3.x.
+    """Create a Data View + import dashboards.
 
-    OS 3.x replaced the index-pattern saved object type with the Data Views API.
-    Visualizations and dashboards still use the saved objects API (soft-fail: Discover
-    works as soon as the Data View exists even if legacy viz types are not supported).
+    Strategy (each step falls back to the next):
+    1. Dashboards REST API (data_views / index_patterns / saved_objects)
+    2. Direct write to .opensearch_dashboards system index — bypasses schema validation
     """
     auth = (admin_user, admin_pass) if admin_user else None
     hdrs = {'Content-Type': 'application/json', 'osd-xsrf': 'true', 'securitytenant': 'global'}
     base = f'https://{endpoint}/_dashboards'
 
-    # ── Data View / Index Pattern ────────────────────────────────────────────────
-    # AWS OSD 3.x varies: try all known API paths + saved-object types; first win used.
+    # ── Data View ───────────────────────────────────────────────────────────────
     _DV_TRIES = [
         (f'{base}/api/data_views/data_view',
          {'data_view': {'title': OPENSEARCH_INDEX, 'timeFieldName': '@timestamp',
@@ -786,7 +808,6 @@ def _do_import_os_saved_objects(endpoint: str, region: str, c: Console,
         (f'{base}/api/index_patterns/index_pattern',
          {'index_pattern': {'title': OPENSEARCH_INDEX, 'timeFieldName': '@timestamp'},
           'override': True}),
-        # OS 3.x may have renamed the saved-object type from index-pattern → data-view
         (f'{base}/api/saved_objects/data-view/{OPENSEARCH_INDEX}?overwrite=true&security_tenant=global',
          {'attributes': {'title': OPENSEARCH_INDEX, 'timeFieldName': '@timestamp'}}),
         (f'{base}/api/saved_objects/index-pattern/{OPENSEARCH_INDEX}?overwrite=true&security_tenant=global',
@@ -797,34 +818,42 @@ def _do_import_os_saved_objects(endpoint: str, region: str, c: Console,
     for dv_url, dv_body in _DV_TRIES:
         resp = requests.post(dv_url, json=dv_body, headers=hdrs, auth=auth, timeout=30)
         if resp.status_code < 300:
-            c.print(f'  [green]✓ Data View / index pattern created[/]  ({OPENSEARCH_INDEX})')
-            c.print(f'  [dim]  Explore logs: https://{endpoint}/_dashboards/app/discover[/]')
             dv_ok = True
             break
-        if resp.status_code in (400, 404):
-            continue  # try next path
-        c.print(f'  [red]✗ Data View HTTP {resp.status_code}:[/] {resp.text[:300]}')
-        break
-    if not dv_ok:
-        c.print(f'  [yellow]⚠ Could not auto-create Data View (all API paths failed).[/]')
-        c.print(f'  [yellow]  Create manually: OS Dashboards → Stack Management → Data Views[/]')
+        if resp.status_code not in (400, 404):
+            break  # unexpected error — don't retry
+
+    if not dv_ok and admin_user:
+        # Fallback: write directly to the system index (bypasses Dashboards API validation)
+        dv_doc = {'type': 'index-pattern',
+                  'index-pattern': {'title': OPENSEARCH_INDEX, 'timeFieldName': '@timestamp',
+                                     'fields': '[]'},
+                  'references': [], 'namespaces': ['default']}
+        dv_ok = _sys_idx_write(endpoint, f'index-pattern:{OPENSEARCH_INDEX}', dv_doc,
+                                admin_user, admin_pass)
+
+    if dv_ok:
+        c.print(f'  [green]✓ Data View created[/]  ({OPENSEARCH_INDEX})')
+    else:
+        c.print(f'  [yellow]⚠ Data View not created — manual step:[/]')
+        c.print(f'    OS Dashboards → Stack Management → Data Views')
         c.print(f'    Title: {OPENSEARCH_INDEX}  |  Time field: @timestamp')
 
-    # ── Visualizations + dashboard (saved objects API — soft fail) ───────────────
+    # ── Visualizations + dashboard ───────────────────────────────────────────────
     src = ndjson_path or (DASHBOARDS_DIR / 'opensearch-instance-lifecycle.ndjson')
     if not src.exists():
-        return True  # Data View is the critical part
+        return True
 
     _TOP_STRIP  = {'version', 'updated_at', 'migrationVersion'}
     _ATTR_STRIP = {'version', 'uiStateJSON', 'hits'}
 
-    ok = fail = 0
+    ok = api_fail = sys_ok = sys_fail = 0
     for raw in src.read_bytes().splitlines():
         if not raw.strip():
             continue
         obj = json.loads(raw)
         if obj.get('type') == 'index-pattern':
-            continue  # handled via Data Views API above
+            continue  # handled above
         for f in _TOP_STRIP:
             obj.pop(f, None)
         attrs = obj.get('attributes', {})
@@ -832,23 +861,35 @@ def _do_import_os_saved_objects(endpoint: str, region: str, c: Console,
             attrs.pop(f, None)
         otype = obj.get('type')
         oid   = obj.get('id')
-        # security_tenant in both header and query param for OSD 3.x compat
-        url   = f'{base}/api/saved_objects/{otype}/{oid}?overwrite=true&security_tenant=global'
-        body  = {'attributes': attrs}
-        if obj.get('references'):
-            body['references'] = obj['references']
-        resp  = requests.post(url, json=body, headers=hdrs, auth=auth, timeout=30)
+        refs  = obj.get('references', [])
+
+        # Try Dashboards API first
+        url  = f'{base}/api/saved_objects/{otype}/{oid}?overwrite=true&security_tenant=global'
+        resp = requests.post(url, json={'attributes': attrs, 'references': refs},
+                             headers=hdrs, auth=auth, timeout=30)
         if resp.status_code < 300:
             ok += 1
-        else:
-            c.print(f'  [dim yellow]  ⚠ {otype}/{oid}: {resp.status_code} {resp.text[:120]}[/]')
-            fail += 1
+            continue
+        api_fail += 1
 
-    if ok:
-        c.print(f'  [green]✓ {ok} visualizations/dashboards imported[/]')
-    if fail:
-        c.print(f'  [dim]  ⚠ {fail} objects skipped (import manually via OS Dashboards → Stack Management → Saved Objects)[/]')
-    return True  # Data View created — Discover is usable regardless
+        # Fallback: write directly to system index
+        if admin_user:
+            sys_doc = {'type': otype, otype: attrs, 'references': refs,
+                       'namespaces': ['default']}
+            if _sys_idx_write(endpoint, f'{otype}:{oid}', sys_doc, admin_user, admin_pass):
+                sys_ok += 1
+            else:
+                sys_fail += 1
+
+    total_ok = ok + sys_ok
+    if total_ok:
+        via = f'  ({ok} via API, {sys_ok} via system index)' if sys_ok else ''
+        c.print(f'  [green]✓ {total_ok} visualizations/dashboards imported[/]{via}')
+    if sys_fail:
+        c.print(f'  [yellow]⚠ {sys_fail} objects could not be imported[/]')
+        c.print(f'    Import manually: OS Dashboards → Stack Management → Saved Objects → Import')
+        c.print(f'    File: {DASHBOARDS_DIR / "opensearch-instance-lifecycle.ndjson"}')
+    return True
 
 
 def _do_export_os_saved_objects(endpoint: str, region: str, output: Path, c: Console):
