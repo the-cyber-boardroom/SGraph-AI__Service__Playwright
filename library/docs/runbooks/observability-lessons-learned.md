@@ -109,8 +109,8 @@ Two separate bugs:
 - **`X-Request-Id` validation**: OpenSearch 3.x requires 32 hex chars without dashes; Grafana sends a UUID with dashes.
 - **SigV4 service name**: The AMG OpenSearch plugin sends the wrong service name to OpenSearch 3.x.
 
-**Recommendation:** Use OpenSearch **2.x** (2.17 is latest stable) if you need Grafana integration.  
-For logs-only via OpenSearch Dashboards, 3.x works fine.
+**Recommendation:** Use OpenSearch **3.x** (3.5 is current) — we use OpenSearch Dashboards natively for logs so the Grafana plugin incompatibilities are irrelevant.  
+Only drop to 2.x if you specifically need the Grafana OpenSearch plugin for log queries inside Grafana.
 
 ### 3. OpenSearch FGAC needs backend role mapping even with a resource policy
 

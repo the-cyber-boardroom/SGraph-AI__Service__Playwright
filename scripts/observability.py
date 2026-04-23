@@ -27,7 +27,7 @@ app = typer.Typer(help='Observability stack management (AMP + OpenSearch).',
 
 # ── Constants ──────────────────────────────────────────────────────────────────
 
-OPENSEARCH_ENGINE    = 'OpenSearch_2.17'
+OPENSEARCH_ENGINE    = 'OpenSearch_3.5'
 OPENSEARCH_INSTANCE  = 't3.small.search'   # smallest instance with FGAC support
 OPENSEARCH_VOLUME_GB = 10                  # minimum gp3 volume
 OPENSEARCH_INDEX     = 'sg-playwright-logs'
