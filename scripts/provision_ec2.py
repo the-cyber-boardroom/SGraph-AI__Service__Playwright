@@ -28,7 +28,6 @@ import json
 import secrets
 import shlex
 import sys
-import textwrap
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -180,162 +179,162 @@ def _uptime_str(launch_time) -> str:
     return f'{mins}m'
 
 
-COMPOSE_SVC_PLAYWRIGHT = textwrap.dedent("""\
-      playwright:
-        image: {playwright_image_uri}
-        ports:
-          - "{playwright_port}:{playwright_port}"
-        environment:
-          FAST_API__AUTH__API_KEY__NAME:          '{api_key_name}'
-          FAST_API__AUTH__API_KEY__VALUE:         '{api_key_value}'
-          SG_PLAYWRIGHT__DEPLOYMENT_TARGET:       container
-          SG_PLAYWRIGHT__DEFAULT_PROXY_URL:       http://agent-mitmproxy:8080
-          SG_PLAYWRIGHT__IGNORE_HTTPS_ERRORS:     'true'
-          SG_PLAYWRIGHT__WATCHDOG_MAX_REQUEST_MS: {watchdog_max_request_ms}
-        networks:
-          - sg-net
-        depends_on:
-          - agent-mitmproxy
-        restart: always
-""")
+COMPOSE_SVC_PLAYWRIGHT = """\
+  playwright:
+    image: {playwright_image_uri}
+    ports:
+      - "{playwright_port}:{playwright_port}"
+    environment:
+      FAST_API__AUTH__API_KEY__NAME:          '{api_key_name}'
+      FAST_API__AUTH__API_KEY__VALUE:         '{api_key_value}'
+      SG_PLAYWRIGHT__DEPLOYMENT_TARGET:       container
+      SG_PLAYWRIGHT__DEFAULT_PROXY_URL:       "http://agent-mitmproxy:8080"
+      SG_PLAYWRIGHT__IGNORE_HTTPS_ERRORS:     'true'
+      SG_PLAYWRIGHT__WATCHDOG_MAX_REQUEST_MS: {watchdog_max_request_ms}
+    networks:
+      - sg-net
+    depends_on:
+      - agent-mitmproxy
+    restart: always
+"""
 
-COMPOSE_SVC_MITMPROXY = textwrap.dedent("""\
-      agent-mitmproxy:
-        image: {sidecar_image_uri}
-        ports:
-          - "{sidecar_admin_port}:8000"
-          - "127.0.0.1:18080:8080"
-        environment:
-          FAST_API__AUTH__API_KEY__NAME:  '{api_key_name}'
-          FAST_API__AUTH__API_KEY__VALUE: '{api_key_value}'
-          AGENT_MITMPROXY__UPSTREAM_URL:  '{upstream_url}'
-          AGENT_MITMPROXY__UPSTREAM_USER: '{upstream_user}'
-          AGENT_MITMPROXY__UPSTREAM_PASS: '{upstream_pass}'
-          AGENT_MITMPROXY__HTTP2:         '{http2}'
-        networks:
-          - sg-net
-        restart: always
-""")
+COMPOSE_SVC_MITMPROXY = """\
+  agent-mitmproxy:
+    image: {sidecar_image_uri}
+    ports:
+      - "{sidecar_admin_port}:8000"
+      - "127.0.0.1:18080:8080"
+    environment:
+      FAST_API__AUTH__API_KEY__NAME:  '{api_key_name}'
+      FAST_API__AUTH__API_KEY__VALUE: '{api_key_value}'
+      AGENT_MITMPROXY__UPSTREAM_URL:  '{upstream_url}'
+      AGENT_MITMPROXY__UPSTREAM_USER: '{upstream_user}'
+      AGENT_MITMPROXY__UPSTREAM_PASS: '{upstream_pass}'
+      AGENT_MITMPROXY__HTTP2:         '{http2}'
+    networks:
+      - sg-net
+    restart: always
+"""
 
 # browser + browser-proxy: only when upstream proxy is configured
-COMPOSE_SVC_BROWSER = textwrap.dedent("""\
-      browser:
-        image: {browser_image_uri}
-        environment:
-          PUID:       1000
-          PGID:       1000
-          TZ:         Etc/UTC
-          PASSWD:     '{api_key_value}'
-          CHROME_CLI: >-
-            --proxy-server=http://agent-mitmproxy:8080
-            --ignore-certificate-errors
-            --no-first-run
-            --disable-sync
-        shm_size: "1gb"
-        networks:
-          - sg-net
-        depends_on:
-          - agent-mitmproxy
-        restart: unless-stopped
-""")
+COMPOSE_SVC_BROWSER = """\
+  browser:
+    image: {browser_image_uri}
+    environment:
+      PUID:       1000
+      PGID:       1000
+      TZ:         Etc/UTC
+      PASSWD:     '{api_key_value}'
+      CHROME_CLI: >-
+        --proxy-server=http://agent-mitmproxy:8080
+        --ignore-certificate-errors
+        --no-first-run
+        --disable-sync
+    shm_size: "1gb"
+    networks:
+      - sg-net
+    depends_on:
+      - agent-mitmproxy
+    restart: unless-stopped
+"""
 
-COMPOSE_SVC_BROWSER_PROXY = textwrap.dedent("""\
-      browser-proxy:
-        image: nginx:alpine
-        ports:
-          - "{browser_port}:{browser_port}"
-        volumes:
-          - /opt/sg-playwright/config/nginx-browser.conf:/etc/nginx/conf.d/default.conf:ro
-          - /opt/sg-playwright/config/browser-certs:/etc/nginx/certs:ro
-        networks:
-          - sg-net
-        depends_on:
-          - browser
-        restart: unless-stopped
-""")
+COMPOSE_SVC_BROWSER_PROXY = """\
+  browser-proxy:
+    image: nginx:alpine
+    ports:
+      - "{browser_port}:{browser_port}"
+    volumes:
+      - /opt/sg-playwright/config/nginx-browser.conf:/etc/nginx/conf.d/default.conf:ro
+      - /opt/sg-playwright/config/browser-certs:/etc/nginx/certs:ro
+    networks:
+      - sg-net
+    depends_on:
+      - browser
+    restart: unless-stopped
+"""
 
 # cadvisor + node-exporter + prometheus: only when AMP_REMOTE_WRITE_URL is configured
-COMPOSE_SVC_CADVISOR = textwrap.dedent("""\
-      cadvisor:
-        image: gcr.io/cadvisor/cadvisor:v0.49.1
-        privileged: true
-        volumes:
-          - /:/rootfs:ro
-          - /var/run:/var/run:ro
-          - /sys:/sys:ro
-          - /var/lib/docker:/var/lib/docker:ro
-        networks:
-          - sg-net
-        restart: always
-""")
+COMPOSE_SVC_CADVISOR = """\
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:v0.49.1
+    privileged: true
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker:/var/lib/docker:ro
+    networks:
+      - sg-net
+    restart: always
+"""
 
-COMPOSE_SVC_NODE_EXPORTER = textwrap.dedent("""\
-      node-exporter:
-        image: prom/node-exporter:v1.7.0
-        volumes:
-          - /proc:/host/proc:ro
-          - /sys:/host/sys:ro
-          - /:/rootfs:ro
-        command:
-          - '--path.procfs=/host/proc'
-          - '--path.sysfs=/host/sys'
-          - '--path.rootfs=/rootfs'
-          - '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)'
-        networks:
-          - sg-net
-        restart: always
-""")
+COMPOSE_SVC_NODE_EXPORTER = """\
+  node-exporter:
+    image: prom/node-exporter:v1.7.0
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+    command:
+      - '--path.procfs=/host/proc'
+      - '--path.sysfs=/host/sys'
+      - '--path.rootfs=/rootfs'
+      - '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)'
+    networks:
+      - sg-net
+    restart: always
+"""
 
-COMPOSE_SVC_PROMETHEUS = textwrap.dedent("""\
-      prometheus:
-        image: prom/prometheus:v2.51.0
-        volumes:
-          - /opt/sg-playwright/config/prometheus.yml:/etc/prometheus/prometheus.yml:ro
-          - prometheus_data:/prometheus
-        command:
-          - '--config.file=/etc/prometheus/prometheus.yml'
-          - '--storage.tsdb.path=/prometheus'
-          - '--storage.tsdb.retention.time=24h'
-          - '--web.enable-lifecycle'
-        networks:
-          - sg-net
-        restart: always
-""")
+COMPOSE_SVC_PROMETHEUS = """\
+  prometheus:
+    image: prom/prometheus:v2.51.0
+    volumes:
+      - /opt/sg-playwright/config/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=24h'
+      - '--web.enable-lifecycle'
+    networks:
+      - sg-net
+    restart: always
+"""
 
 # fluent-bit: only when OPENSEARCH_ENDPOINT is configured
-COMPOSE_SVC_FLUENT_BIT = textwrap.dedent("""\
-      fluent-bit:
-        image: amazon/aws-for-fluent-bit:stable
-        volumes:
-          - /var/lib/docker/containers:/var/lib/docker/containers:ro
-          - /var/run/docker.sock:/var/run/docker.sock:ro
-          - /opt/sg-playwright/config/fluent-bit.conf:/fluent-bit/etc/fluent-bit.conf:ro
-        networks:
-          - sg-net
-        restart: always
-""")
-
-COMPOSE_SVC_PORTAINER = textwrap.dedent("""\
-      portainer:
-        image: {portainer_image_uri}
-        ports:
-          - "127.0.0.1:{portainer_port}:{portainer_port}"
-        volumes:
-          - /var/run/docker.sock:/var/run/docker.sock
-          - portainer_data:/data
-        networks:
-          - sg-net
-        restart: always
-""")
-
-COMPOSE_FOOTER = textwrap.dedent("""\
-    networks:
-      sg-net:
-        driver: bridge
-
+COMPOSE_SVC_FLUENT_BIT = """\
+  fluent-bit:
+    image: amazon/aws-for-fluent-bit:stable
     volumes:
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /opt/sg-playwright/config/fluent-bit.conf:/fluent-bit/etc/fluent-bit.conf:ro
+    networks:
+      - sg-net
+    restart: always
+"""
+
+COMPOSE_SVC_PORTAINER = """\
+  portainer:
+    image: {portainer_image_uri}
+    ports:
+      - "127.0.0.1:{portainer_port}:{portainer_port}"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - portainer_data:/data
+    networks:
+      - sg-net
+    restart: always
+"""
+
+COMPOSE_FOOTER = """\
+networks:
+  sg-net:
+    driver: bridge
+
+volumes:
 {volume_lines}
-""")
+"""
 
 
 PROMETHEUS_YML_TEMPLATE = """\
@@ -886,9 +885,9 @@ def render_compose_yaml(playwright_image_uri    : str,
 
     services += [COMPOSE_SVC_PORTAINER.format(**fmt)]
 
-    volumes = ['      portainer_data:']
+    volumes = ['  portainer_data:']
     if amp_remote_write_url:
-        volumes.insert(0, '      prometheus_data:')
+        volumes.insert(0, '  prometheus_data:')
 
     footer = COMPOSE_FOOTER.format(volume_lines='\n'.join(volumes))
     return '\n'.join(services) + '\n' + footer
