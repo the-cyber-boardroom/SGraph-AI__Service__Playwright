@@ -739,7 +739,7 @@ def render_user_data(playwright_image_uri  : str,
                                      portainer_image_uri           = EC2__PORTAINER_IMAGE   ,
                                      compose_content               = compose_content        ,
                                      observability_configs_section = obs_section            ,
-                                     browser_proxy_section         = render_browser_proxy_section(api_key_value),
+                                     browser_proxy_section         = render_browser_proxy_section(api_key_value=api_key_value),
                                      shutdown_section              = shutdown_section       )
 
 
@@ -943,7 +943,7 @@ def provision(stage                  : str          = DEFAULT_STAGE    ,
     if from_ami:
         user_data = AMI_USER_DATA_TEMPLATE.format(compose_content               = compose_content      ,
                                                    observability_configs_section = obs_section            ,
-                                                   browser_proxy_section         = render_browser_proxy_section(api_key_value),
+                                                   browser_proxy_section         = render_browser_proxy_section(api_key_value=api_key_value),
                                                    browser_image_uri             = EC2__BROWSER_IMAGE      ,
                                                    portainer_image_uri           = EC2__PORTAINER_IMAGE    )
     else:

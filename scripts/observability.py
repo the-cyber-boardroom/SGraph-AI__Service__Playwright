@@ -388,7 +388,9 @@ def cmd_create(
 
     # ── Auto-import dashboards ─────────────────────────────────────────────
     if not no_import and ep:
-        _do_import_os_saved_objects(ep, r, c)
+        _do_import_os_saved_objects(ep, r, c,
+                                    admin_user='admin' if master_password else '',
+                                    admin_pass=master_password or '')
 
     # ── Summary ────────────────────────────────────────────────────────────
     c.print(f'\n  [bold]Env exports for sp create:[/]')
@@ -432,8 +434,13 @@ def cmd_delete(
 # ── Dashboard helpers ──────────────────────────────────────────────────────────
 
 def _do_import_os_saved_objects(endpoint: str, region: str, c: Console,
-                                 ndjson_path: Optional[Path] = None):
-    """POST an NDJSON file to /_dashboards/api/saved_objects/_import (SigV4)."""
+                                 ndjson_path: Optional[Path] = None,
+                                 admin_user: str = '', admin_pass: str = ''):
+    """POST an NDJSON file to /_dashboards/api/saved_objects/_import.
+
+    Uses basic auth when admin_user+admin_pass are supplied (preferred — bypasses FGAC
+    backend-role requirement). Falls back to SigV4 when credentials are absent.
+    """
     src      = ndjson_path or (DASHBOARDS_DIR / 'opensearch-instance-lifecycle.ndjson')
     if not src.exists():
         c.print(f'  [red]✗ File not found: {src}[/]')
@@ -444,13 +451,16 @@ def _do_import_os_saved_objects(endpoint: str, region: str, c: Console,
         f'--{boundary}\r\nContent-Disposition: form-data; name="file"; '
         f'filename="{src.name}"\r\nContent-Type: application/octet-stream\r\n\r\n'
     ).encode() + src.read_bytes() + f'\r\n--{boundary}--\r\n'.encode()
-    session  = boto3.Session()
-    creds    = session.get_credentials()
-    aws_req  = AWSRequest(method='POST', url=url, data=body,
-                          headers={'Content-Type': f'multipart/form-data; boundary={boundary}',
-                                   'osd-xsrf': 'true'})
-    SigV4Auth(creds, 'es', region).add_auth(aws_req)
-    resp     = requests.post(url, data=body, headers=dict(aws_req.headers), timeout=30)
+    hdrs     = {'Content-Type': f'multipart/form-data; boundary={boundary}', 'osd-xsrf': 'true'}
+    if admin_user and admin_pass:
+        resp = requests.post(url, data=body, headers=hdrs,
+                             auth=(admin_user, admin_pass), timeout=30)
+    else:
+        session = boto3.Session()
+        creds   = session.get_credentials()
+        aws_req = AWSRequest(method='POST', url=url, data=body, headers=hdrs)
+        SigV4Auth(creds, 'es', region).add_auth(aws_req)
+        resp    = requests.post(url, data=body, headers=dict(aws_req.headers), timeout=30)
     if resp.status_code < 300:
         c.print(f'  [green]✓ OS saved objects imported[/]  ({src.name})')
     else:
@@ -538,6 +548,8 @@ def cmd_dashboard_import(
     region      : Optional[str] = typer.Option(None, '--region'),
     grafana_url : Optional[str] = typer.Option(None, '--grafana-url', envvar='GRAFANA_WORKSPACE_URL'),
     amp_ds      : str           = typer.Option('grafana-amazonprometheus-datasource', '--amp-datasource'),
+    admin_user  : str           = typer.Option('', '--admin-user', help='OpenSearch master username (bypasses FGAC backend-role requirement).'),
+    admin_pass  : str           = typer.Option('', '--admin-pass', help='OpenSearch master password.'),
 ):
     """Import OpenSearch saved objects + Grafana dashboard from library/docs/ops/dashboards/."""
     r          = region or _region()
@@ -550,7 +562,7 @@ def cmd_dashboard_import(
     ep = _os_endpoint(s['opensearch'])
     c  = Console(highlight=False)
     c.print(f'\n  Importing dashboards → [bold]{stack_name}[/]\n')
-    _do_import_os_saved_objects(ep, r, c)
+    _do_import_os_saved_objects(ep, r, c, admin_user=admin_user, admin_pass=admin_pass)
     if grafana_url:
         for f in (DASHBOARDS_DIR / 'grafana-sg-playwright-metrics.json',):
             if f.exists():
