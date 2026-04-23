@@ -548,8 +548,10 @@ def cmd_dashboard_import(
     region      : Optional[str] = typer.Option(None, '--region'),
     grafana_url : Optional[str] = typer.Option(None, '--grafana-url', envvar='GRAFANA_WORKSPACE_URL'),
     amp_ds      : str           = typer.Option('grafana-amazonprometheus-datasource', '--amp-datasource'),
-    admin_user  : str           = typer.Option('', '--admin-user', help='OpenSearch master username (bypasses FGAC backend-role requirement).'),
-    admin_pass  : str           = typer.Option('', '--admin-pass', help='OpenSearch master password.'),
+    admin_user  : str           = typer.Option('', '--admin-user', envvar='OB_OS_ADMIN_USER',
+                                               help='OpenSearch master username (bypasses FGAC backend-role requirement).'),
+    admin_pass  : str           = typer.Option('', '--admin-pass', envvar='OB_OS_ADMIN_PASS',
+                                               help='OpenSearch master password.'),
 ):
     """Import OpenSearch saved objects + Grafana dashboard from library/docs/ops/dashboards/."""
     r          = region or _region()
