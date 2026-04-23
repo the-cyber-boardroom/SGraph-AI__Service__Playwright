@@ -766,7 +766,7 @@ def ensure_caller_passrole(account: str) -> dict:
     username = arn.split(':user/')[-1]
     iam      = boto3.client('iam')
 
-    existing = [p['PolicyName'] for p in iam.list_user_policies(UserName=username).get('PolicyNames', [])]
+    existing = iam.list_user_policies(UserName=username).get('PolicyNames', [])
     if IAM__PASSROLE_POLICY_NAME in existing:
         return {'ok': True, 'action': 'already_exists', 'detail': f'Policy {IAM__PASSROLE_POLICY_NAME!r} already attached to {username}.'}
 
