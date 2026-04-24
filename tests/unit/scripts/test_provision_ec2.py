@@ -226,7 +226,8 @@ class test_render_compose_yaml(TestCase):
         assert "'true'"                              in yaml
 
     def test__api_key_in_both_services(self):
-        yaml = self._render(api_key_name='X-API-Key', api_key_value='test-secret')
+        yaml = self._render(api_key_name='X-API-Key', api_key_value='test-secret',
+                            upstream_url='http://corp:3128')                                 # upstream_url required — browser service is conditional
         assert yaml.count("'X-API-Key'")    == 2                                           # playwright + sidecar FAST_API key name
         assert yaml.count("'test-secret'")  == 3                                           # playwright FAST_API + sidecar FAST_API + browser PASSWD (KasmVNC)
 
