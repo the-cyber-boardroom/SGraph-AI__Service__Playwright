@@ -767,6 +767,37 @@ def cmd_delete(
 
 # ── Dashboard helpers ──────────────────────────────────────────────────────────
 
+def _verify_index_pattern_exists(base: str, hdrs: dict, auth) -> bool:
+    """Return True if the index pattern is actually readable via the Dashboards API.
+
+    Used to catch AWS OpenSearch versions that return 200 on creation but don't persist.
+    """
+    check_urls = [
+        f'{base}/api/data_views/data_view/{OPENSEARCH_INDEX}',
+        f'{base}/api/saved_objects/index-pattern/{OPENSEARCH_INDEX}',
+        f'{base}/api/saved_objects/data-view/{OPENSEARCH_INDEX}',
+    ]
+    for url in check_urls:
+        try:
+            r = requests.get(url, headers=hdrs, auth=auth, timeout=15)
+        except Exception:
+            continue
+        if r.status_code == 200:
+            return True
+    # Also check via _find in case ID doesn't match exactly
+    for obj_type in ('index-pattern', 'data-view'):
+        try:
+            r = requests.get(f'{base}/api/saved_objects/_find?type={obj_type}&per_page=100',
+                             headers=hdrs, auth=auth, timeout=15)
+        except Exception:
+            continue
+        if r.status_code < 300:
+            objects = r.json().get('saved_objects', [])
+            if any(OPENSEARCH_INDEX == o.get('attributes', {}).get('title') for o in objects):
+                return True
+    return False
+
+
 def _sys_idx_write(endpoint: str, doc_id: str, doc: dict,
                    admin_user: str, admin_pass: str,
                    c: Console = None) -> bool:
@@ -847,8 +878,10 @@ def _do_import_os_saved_objects(endpoint: str, region: str, c: Console,
     for dv_url, dv_body in _DV_TRIES:
         resp = requests.post(dv_url, json=dv_body, headers=hdrs, auth=auth, timeout=30)
         if resp.status_code < 300:
-            dv_ok = True
-            break
+            # Some AWS OpenSearch versions return 200 but don't persist — verify immediately
+            dv_ok = _verify_index_pattern_exists(base, hdrs, auth)
+            if dv_ok:
+                break
         if resp.status_code >= 500:
             break  # server error — stop retrying
 
@@ -1061,8 +1094,9 @@ def _check_os_dashboards(endpoint: str, region: str, c: Console,
         hdrs = {'Content-Type': 'application/json', 'osd-xsrf': 'true',
                 'securitytenant': tenant}
         patterns = []
-        for path in (f'/api/saved_objects/_find?type=index-pattern&per_page=100',
-                     f'/api/data_views'):
+        for path in ('/api/saved_objects/_find?type=index-pattern&per_page=100',
+                     '/api/saved_objects/_find?type=data-view&per_page=100',
+                     '/api/data_views/data_view'):
             try:
                 resp = requests.get(f'{base}{path}', headers=hdrs, auth=auth, timeout=15)
             except Exception:
@@ -1070,8 +1104,11 @@ def _check_os_dashboards(endpoint: str, region: str, c: Console,
             if resp.status_code >= 300:
                 continue
             data = resp.json()
-            patterns += [p.get('attributes', p).get('title', p.get('title', ''))
-                         for p in data.get('saved_objects', data.get('data_views', []))]
+            for p in data.get('saved_objects', data.get('data_views', [])):
+                title = (p.get('attributes', {}).get('title')
+                         or p.get('title') or p.get('id', ''))
+                if title:
+                    patterns.append(title)
             if patterns:
                 break
 
