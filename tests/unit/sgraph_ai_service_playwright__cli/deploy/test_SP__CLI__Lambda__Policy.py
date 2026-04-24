@@ -79,10 +79,37 @@ class test_SP__CLI__Lambda__Policy(TestCase):
         assert principal == {'Service': 'lambda.amazonaws.com'}
         assert doc['Statement'][0]['Action'] == 'sts:AssumeRole'
 
+    def test_document_observability__covers_three_services(self):                  # One consolidated policy for AMP + OpenSearch + AMG; read + delete only
+        doc  = self.policy.document_observability()
+        sids = {s['Sid'] for s in doc['Statement']}
+        assert sids == {'AmpReadDelete', 'OpenSearchDescribe', 'OpenSearchHttpRead', 'GrafanaReadDelete'}
+
+        amp      = next(s for s in doc['Statement'] if s['Sid'] == 'AmpReadDelete'     )
+        opensrch = next(s for s in doc['Statement'] if s['Sid'] == 'OpenSearchDescribe')
+        grafana  = next(s for s in doc['Statement'] if s['Sid'] == 'GrafanaReadDelete' )
+        os_http  = next(s for s in doc['Statement'] if s['Sid'] == 'OpenSearchHttpRead')
+
+        assert 'aps:ListWorkspaces'     in amp     ['Action']                       # AMP uses aps: prefix (not amp:)
+        assert 'aps:DeleteWorkspace'    in amp     ['Action']
+        assert 'es:ListDomainNames'     in opensrch['Action']
+        assert 'es:DeleteDomain'        in opensrch['Action']
+        assert 'grafana:ListWorkspaces' in grafana ['Action']
+        assert 'grafana:DeleteWorkspace'in grafana ['Action']
+        assert 'es:ESHttpGet'           in os_http ['Action']                       # SigV4 doc-count call
+
+    def test_document_observability__no_create_or_write_actions(self):              # Read + delete surface only — no create/update paths yet
+        doc = self.policy.document_observability()
+        for statement in doc['Statement']:
+            for action in statement['Action']:
+                assert 'Create'  not in action, f'unexpected create action: {action}'
+                assert 'Update'  not in action, f'unexpected update action: {action}'
+                assert 'Put'     not in action, f'unexpected put action: {action}'
+                assert 'Post'    not in action, f'unexpected post action: {action}'
+
     def test_all_documents_are_json_serialisable(self):                             # IAM rejects non-JSON; serialise every doc as a smoke test
         for name in ('document_ec2_management', 'document_iam_passrole',
                      'document_ecr_read'      , 'document_sts_helpers' ,
-                     'assume_role_document'   ):
+                     'document_observability' , 'assume_role_document' ):
             method    = getattr(self.policy, name)
             json_text = json.dumps(method())
             assert isinstance(json_text, str)

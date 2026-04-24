@@ -33,6 +33,7 @@ Trust policy: only `lambda.amazonaws.com` can assume. Inline policies
 | `sp-cli-iam-passrole`                   | `iam:PassRole` ARN-scoped to `arn:aws:iam::{account}:role/playwright-ec2`, condition `iam:PassedToService = ec2.amazonaws.com`. Plus `iam:Get/CreateInstanceProfile / AddRoleToInstanceProfile` on the same role + profile. Never `*`. |
 | `sp-cli-ecr-read`                       | Pull-only: `GetAuthorizationToken / BatchGetImage / DescribeImages`. No push rights. |
 | `sp-cli-sts-helpers`                    | `sts:GetCallerIdentity`, `sts:DecodeAuthorizationMessage` — for preflight + the auto-decode error pretty-printer. |
+| `sp-cli-observability`                  | READ + DELETE only. `aps:List/Describe/DeleteWorkspace` (AMP), `es:List/Describe/DeleteDomain` + `es:ESHttpGet` (OpenSearch, incl. the SigV4 doc-count call), `grafana:List/Describe/DeleteWorkspace`. No create or update actions. |
 
 ---
 
