@@ -23,12 +23,19 @@ URL**. No changes to `Fast_API__Playwright__Service` or its Lambda.
 
 ## IAM role: `sp-playwright-cli-lambda`
 
-Trust policy: only `lambda.amazonaws.com` can assume. Inline policies
-(all built in `SP__CLI__Lambda__Policy`):
+Trust policy: only `lambda.amazonaws.com` can assume. **All five sp-cli-*
+policies are INLINE** (attached via `put_role_policy`) — not customer-managed
+standalone resources. Rationale:
+
+- Smaller CI permissions footprint: the deploy identity needs only
+  `iam:PutRolePolicy` (per-role), not `iam:CreatePolicy` +
+  `iam:AttachRolePolicy` (account-level).
+- Zero orphan cleanup — deleting the role removes the policies too.
+- `put_role_policy` is naturally idempotent.
 
 | Inline policy | Scope |
 |---------------|-------|
-| `AWSLambdaBasicExecutionRole` (managed) | CloudWatch logs |
+| `AWSLambdaBasicExecutionRole` (managed, attached by ARN) | CloudWatch logs |
 | `sp-cli-ec2-management`                 | `ec2:RunInstances / TerminateInstances / Describe* / CreateSecurityGroup / AuthorizeSecurityGroup* / CreateTags` — all on `Resource: *` (EC2 does not support resource-level scoping on RunInstances without elaborate tag conditions) |
 | `sp-cli-iam-passrole`                   | `iam:PassRole` ARN-scoped to `arn:aws:iam::{account}:role/playwright-ec2`, condition `iam:PassedToService = ec2.amazonaws.com`. Plus `iam:Get/CreateInstanceProfile / AddRoleToInstanceProfile` on the same role + profile. Never `*`. |
 | `sp-cli-ecr-read`                       | Pull-only: `GetAuthorizationToken / BatchGetImage / DescribeImages`. No push rights. |
