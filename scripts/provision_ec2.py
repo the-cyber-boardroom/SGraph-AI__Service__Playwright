@@ -1295,6 +1295,10 @@ from scripts.observability import app as _observability_app, _check_os_dashboard
 app.add_typer(_observability_app, name='observability', hidden=True)
 app.add_typer(_observability_app, name='ob',            hidden=True)
 
+from scripts.elastic import app as _elastic_app  # noqa: E402
+app.add_typer(_elastic_app, name='elastic'        )                                  # ephemeral Elastic+Kibana EC2 stacks
+app.add_typer(_elastic_app, name='el',     hidden=True)                              # short alias
+
 
 def _health_check_once(base_url: str, api_key_name: str, api_key_value: str) -> dict:
     headers = {api_key_name: api_key_value} if api_key_value else {}
