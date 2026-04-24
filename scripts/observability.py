@@ -797,20 +797,15 @@ def _do_import_os_saved_objects(endpoint: str, region: str, c: Console,
     base = f'https://{endpoint}/_dashboards'
 
     # ── Index pattern ───────────────────────────────────────────────────────────
-    ip_body = {'attributes': {'title': OPENSEARCH_INDEX, 'timeFieldName': '@timestamp'}}
-    body_str = json.dumps(ip_body)
-    url = f'{base}/api/saved_objects/index-pattern/{OPENSEARCH_INDEX}?overwrite=true'
+    # Body: title + timeFieldName only — 'fields' key causes AOS 400 regardless of value.
+    # URL:  tenant set via header only — &security_tenant= in query string also causes 400.
+    # data= used instead of json= to match curl behaviour exactly.
+    ip_body  = {'attributes': {'title': OPENSEARCH_INDEX, 'timeFieldName': '@timestamp'}}
+    url      = f'{base}/api/saved_objects/index-pattern/{OPENSEARCH_INDEX}?overwrite=true'
+    resp     = requests.post(url, data=json.dumps(ip_body), headers=hdrs, auth=auth, timeout=30)
+    c.print(f'  [dim]  POST index-pattern: HTTP {resp.status_code}[/]')
 
-    c.print(f'  [dim]  DEBUG request:[/]')
-    c.print(f'  [dim]    URL:     POST {url}[/]')
-    c.print(f'  [dim]    Headers: {dict(hdrs)}[/]')
-    c.print(f'  [dim]    Body:    {body_str}[/]')
-    c.print(f'  [dim]    Auth:    ({admin_user}, {"*" * len(admin_pass)})[/]')
-
-    resp = requests.post(url, data=body_str, headers=hdrs, auth=auth, timeout=30)
-    c.print(f'  [dim]  Response HTTP {resp.status_code}[/]')
-    c.print(f'  [dim]  Response headers: {dict(resp.headers)}[/]')
-    c.print(f'  [dim]  Response body:    {resp.text[:600]}[/]')
+    dv_ok = _verify_index_pattern_exists(base, hdrs, auth)
 
     dv_ok = _verify_index_pattern_exists(base, hdrs, auth)
     if dv_ok:
