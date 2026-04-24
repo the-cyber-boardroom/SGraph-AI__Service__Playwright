@@ -310,6 +310,61 @@ class test_render_user_data(TestCase):
         assert 'sg-net'       in ud
 
 
+class test_render_observability_configs(TestCase):
+
+    def _render_obs(self, **kwargs):
+        orig_region   = provision_ec2.aws_region
+        orig_registry = provision_ec2.ecr_registry_host
+        try:
+            provision_ec2.aws_region        = lambda: 'eu-west-2'
+            provision_ec2.ecr_registry_host = lambda: FAKE_REGISTRY
+            from scripts.provision_ec2 import render_observability_configs_section
+            return render_observability_configs_section(region='eu-west-2', stage='dev', **kwargs)
+        finally:
+            provision_ec2.aws_region        = orig_region
+            provision_ec2.ecr_registry_host = orig_registry
+
+    def test__writes_prometheus_yml(self):
+        obs = self._render_obs()
+        assert 'prometheus.yml'  in obs
+        assert 'scrape_interval' in obs
+
+    def test__writes_parsers_custom_conf(self):
+        obs = self._render_obs()
+        assert 'parsers_custom.conf' in obs
+        assert 'uvicorn_access'      in obs
+        assert 'http_method'         in obs
+        assert 'http_path'           in obs
+        assert 'http_status'         in obs
+
+    def test__writes_fluent_bit_conf(self):
+        obs = self._render_obs()
+        assert 'fluent-bit.conf'          in obs
+        assert 'Parsers_File'             in obs
+        assert 'parsers_custom.conf'      in obs
+        assert 'Path_Key  container_path' in obs or 'Path_Key          container_path' in obs
+        assert 'Parser       uvicorn_access' in obs or 'uvicorn_access' in obs
+
+    def test__health_check_drop_filter_present(self):
+        obs = self._render_obs()
+        assert 'Exclude http_path' in obs
+        assert '/health/'          in obs
+
+    def test__blank_line_drop_filter_present(self):
+        obs = self._render_obs()
+        assert r'Regex  log  \S' in obs
+
+    def test__opensearch_output_when_endpoint_given(self):
+        obs = self._render_obs(opensearch_endpoint='https://my-os.eu-west-2.es.amazonaws.com')
+        assert 'my-os.eu-west-2.es.amazonaws.com' in obs
+        assert 'AWS_Auth          On'              in obs
+        assert 'sg-playwright-logs'                in obs
+
+    def test__stdout_output_when_no_endpoint(self):
+        obs = self._render_obs()
+        assert 'Name   stdout' in obs
+
+
 class test_provision_terminate(TestCase):
 
     def test__terminate_calls_helper_and_returns_action(self):
