@@ -12,6 +12,7 @@ from sgraph_ai_service_playwright__cli.ec2.schemas.Schema__Ec2__Create__Request 
 from sgraph_ai_service_playwright__cli.ec2.schemas.Schema__Ec2__Create__Response    import Schema__Ec2__Create__Response
 from sgraph_ai_service_playwright__cli.ec2.schemas.Schema__Ec2__Delete__Response    import Schema__Ec2__Delete__Response
 from sgraph_ai_service_playwright__cli.ec2.schemas.Schema__Ec2__Instance__Info      import Schema__Ec2__Instance__Info
+from sgraph_ai_service_playwright__cli.ec2.schemas.Schema__Ec2__Instance__List      import Schema__Ec2__Instance__List, List__Ec2__Instance__Info
 from sgraph_ai_service_playwright__cli.ec2.service.Ec2__Service                     import Ec2__Service
 
 
@@ -27,6 +28,16 @@ class Ec2__Service__In_Memory(Ec2__Service):
 
     def get_instance_info(self, target: str) -> Schema__Ec2__Instance__Info:
         return self.fixture_instances.get(str(target))                              # Safe_Str hash ≠ plain-str hash; normalise
+
+    def list_instances(self) -> Schema__Ec2__Instance__List:                        # Dedup by instance_id — fixture_instances maps both deploy-name AND instance-id to the same Schema
+        seen      = set()
+        instances = List__Ec2__Instance__Info()
+        for info in self.fixture_instances.values():
+            key = str(info.instance_id)
+            if key and key not in seen:
+                seen.add(key)
+                instances.append(info)
+        return Schema__Ec2__Instance__List(region='eu-west-2', instances=instances)
 
     def delete_instance(self, target: str) -> Schema__Ec2__Delete__Response:
         info = self.fixture_instances.get(str(target))

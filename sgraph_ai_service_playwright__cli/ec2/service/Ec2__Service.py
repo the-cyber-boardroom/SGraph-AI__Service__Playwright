@@ -29,6 +29,7 @@ from sgraph_ai_service_playwright__cli.ec2.schemas.Schema__Ec2__Create__Request 
 from sgraph_ai_service_playwright__cli.ec2.schemas.Schema__Ec2__Create__Response       import Schema__Ec2__Create__Response
 from sgraph_ai_service_playwright__cli.ec2.schemas.Schema__Ec2__Delete__Response       import Schema__Ec2__Delete__Response
 from sgraph_ai_service_playwright__cli.ec2.schemas.Schema__Ec2__Instance__Info         import Schema__Ec2__Instance__Info
+from sgraph_ai_service_playwright__cli.ec2.schemas.Schema__Ec2__Instance__List         import Schema__Ec2__Instance__List, List__Ec2__Instance__Info
 from sgraph_ai_service_playwright__cli.ec2.schemas.Schema__Ec2__Preflight              import Schema__Ec2__Preflight
 
 
@@ -97,10 +98,25 @@ class Ec2__Service(Type_Safe):                                                  
                                              preflight            = preflight                             )
 
     @type_safe
-    def get_instance_info(self, target: str) -> Schema__Ec2__Instance__Info:
-        from scripts.provision_ec2 import (find_instances               ,
-                                           _instance_tag                ,
-                                           _instance_deploy_name        ,
+    def list_instances(self) -> Schema__Ec2__Instance__List:                        # Equivalent of `sp list` — every tagged playwright-ec2 instance in the Lambda's region
+        from scripts.provision_ec2 import find_instances
+
+        from osbot_aws.AWS_Config                                  import AWS_Config
+        from osbot_aws.aws.ec2.EC2                                 import EC2
+
+        ec2        = EC2()
+        instances  = find_instances(ec2) or {}
+        result     = List__Ec2__Instance__Info()
+        for instance_id in sorted(instances.keys()):
+            info = self.build_instance_info(instance_id, instances[instance_id])
+            if info is not None:
+                result.append(info)
+        return Schema__Ec2__Instance__List(region    = AWS_Config().aws_session_region_name() or '',
+                                           instances = result                                   )
+
+    def build_instance_info(self, instance_id: str, details: dict) -> Schema__Ec2__Instance__Info:     # Shared between list_instances and get_instance_info — same dict → schema mapping
+        from scripts.provision_ec2 import (_instance_tag                 ,
+                                           _instance_deploy_name         ,
                                            TAG__STAGE_KEY                ,
                                            TAG__CREATOR_KEY              ,
                                            TAG__API_KEY_NAME_KEY         ,
@@ -108,31 +124,34 @@ class Ec2__Service(Type_Safe):                                                  
                                            EC2__PLAYWRIGHT_PORT          ,
                                            EC2__SIDECAR_ADMIN_PORT       ,
                                            EC2__BROWSER_INTERNAL_PORT    )
-        from osbot_aws.aws.ec2.EC2                                   import EC2
+        state_raw = details.get('state', {})
+        state_str = state_raw.get('Name', '') if isinstance(state_raw, dict) else str(state_raw)
+        ip        = details.get('public_ip', '') or ''
+        return Schema__Ec2__Instance__Info(instance_id          = instance_id                                   ,
+                                           deploy_name          = _instance_deploy_name(details) or ''          ,
+                                           stage                = _instance_tag(details, TAG__STAGE_KEY)        ,
+                                           creator              = _instance_tag(details, TAG__CREATOR_KEY)      ,
+                                           ami_id               = details.get('image_id', '')                   ,
+                                           public_ip            = ip                                            ,
+                                           playwright_url       = f'http://{ip}:{EC2__PLAYWRIGHT_PORT}'         if ip else '',
+                                           sidecar_admin_url    = f'http://{ip}:{EC2__SIDECAR_ADMIN_PORT}'      if ip else '',
+                                           browser_url          = f'https://{ip}:{EC2__BROWSER_INTERNAL_PORT}'  if ip else '',
+                                           api_key_name         = _instance_tag(details, TAG__API_KEY_NAME_KEY) ,
+                                           api_key_value        = _instance_tag(details, TAG__API_KEY_VALUE_KEY),
+                                           playwright_image_uri = '(stored in compose file on instance)'        ,
+                                           sidecar_image_uri    = '(stored in compose file on instance)'        ,
+                                           state                = self.parse_state(state_str)                   )
+
+    @type_safe
+    def get_instance_info(self, target: str) -> Schema__Ec2__Instance__Info:
+        from scripts.provision_ec2 import find_instances
+        from osbot_aws.aws.ec2.EC2   import EC2
 
         ec2             = EC2()
         instance_id, d  = self.resolve_target(ec2, target, find_instances)
         if instance_id is None:
             return None                                                             # Caller maps to 404
-
-        state_raw = d.get('state', {})
-        state_str = state_raw.get('Name', '') if isinstance(state_raw, dict) else str(state_raw)
-        ip        = d.get('public_ip', '') or ''
-
-        return Schema__Ec2__Instance__Info(instance_id          = instance_id                              ,
-                                           deploy_name          = _instance_deploy_name(d) or ''           ,
-                                           stage                = _instance_tag(d, TAG__STAGE_KEY)         ,
-                                           creator              = _instance_tag(d, TAG__CREATOR_KEY)       ,
-                                           ami_id               = d.get('image_id', '')                    ,
-                                           public_ip            = ip                                       ,
-                                           playwright_url       = f'http://{ip}:{EC2__PLAYWRIGHT_PORT}'         if ip else '',
-                                           sidecar_admin_url    = f'http://{ip}:{EC2__SIDECAR_ADMIN_PORT}'    if ip else '',
-                                           browser_url          = f'https://{ip}:{EC2__BROWSER_INTERNAL_PORT}' if ip else '',
-                                           api_key_name         = _instance_tag(d, TAG__API_KEY_NAME_KEY )    ,
-                                           api_key_value        = _instance_tag(d, TAG__API_KEY_VALUE_KEY)    ,
-                                           playwright_image_uri = '(stored in compose file on instance)'      ,
-                                           sidecar_image_uri    = '(stored in compose file on instance)'      ,
-                                           state                = self.parse_state(state_str)                 )
+        return self.build_instance_info(instance_id, d)
 
     @type_safe
     def delete_instance(self, target: str) -> Schema__Ec2__Delete__Response:
