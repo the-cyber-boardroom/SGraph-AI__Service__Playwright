@@ -797,16 +797,20 @@ def _do_import_os_saved_objects(endpoint: str, region: str, c: Console,
     base = f'https://{endpoint}/_dashboards'
 
     # ── Index pattern ───────────────────────────────────────────────────────────
-    # Do NOT include 'fields' in the POST body — AOS returns HTTP 400
-    # ("definition for this key is missing") whether fields is empty or populated.
-    # OSD auto-discovers fields from the index mapping after the pattern is saved.
-    # (Confirmed: working curl sends only title + timeFieldName.)
     ip_body = {'attributes': {'title': OPENSEARCH_INDEX, 'timeFieldName': '@timestamp'}}
-    url = (f'{base}/api/saved_objects/index-pattern/{OPENSEARCH_INDEX}'
-           f'?overwrite=true&security_tenant=global')
-    resp = requests.post(url, json=ip_body, headers=hdrs, auth=auth, timeout=30)
-    c.print(f'  [dim]  POST index-pattern: HTTP {resp.status_code}  '
-            f'{resp.text[:200].strip()}[/]')
+    body_str = json.dumps(ip_body)
+    url = f'{base}/api/saved_objects/index-pattern/{OPENSEARCH_INDEX}?overwrite=true'
+
+    c.print(f'  [dim]  DEBUG request:[/]')
+    c.print(f'  [dim]    URL:     POST {url}[/]')
+    c.print(f'  [dim]    Headers: {dict(hdrs)}[/]')
+    c.print(f'  [dim]    Body:    {body_str}[/]')
+    c.print(f'  [dim]    Auth:    ({admin_user}, {"*" * len(admin_pass)})[/]')
+
+    resp = requests.post(url, data=body_str, headers=hdrs, auth=auth, timeout=30)
+    c.print(f'  [dim]  Response HTTP {resp.status_code}[/]')
+    c.print(f'  [dim]  Response headers: {dict(resp.headers)}[/]')
+    c.print(f'  [dim]  Response body:    {resp.text[:600]}[/]')
 
     dv_ok = _verify_index_pattern_exists(base, hdrs, auth)
     if dv_ok:
