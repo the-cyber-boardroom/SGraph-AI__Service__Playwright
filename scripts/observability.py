@@ -1042,6 +1042,97 @@ def _do_export_grafana(workspace_url: str, output_dir: Path, c: Console):
             pass
 
 
+def _check_os_dashboards(endpoint: str, region: str, c: Console,
+                          admin_user: str = '', admin_pass: str = '') -> bool:
+    """Verify index patterns and saved objects are visible in OpenSearch Dashboards.
+
+    Queries both the Dashboards REST API and the system index directly, across
+    the global and private tenants, so we can pinpoint tenant-mismatch issues.
+    Returns True if the expected index pattern is visible in at least one tenant.
+    """
+    auth = (admin_user, admin_pass) if admin_user else None
+    base = f'https://{endpoint}/_dashboards'
+
+    c.print(f'\n  [bold]OpenSearch Dashboards health check[/]\n')
+
+    # ── 1. Check Dashboards API across tenants ──────────────────────────────────
+    found_tenants = []
+    for tenant in ('global', 'private', '__user__'):
+        hdrs = {'Content-Type': 'application/json', 'osd-xsrf': 'true',
+                'securitytenant': tenant}
+        patterns = []
+        for path in (f'/api/saved_objects/_find?type=index-pattern&per_page=100',
+                     f'/api/data_views'):
+            try:
+                resp = requests.get(f'{base}{path}', headers=hdrs, auth=auth, timeout=15)
+            except Exception:
+                continue
+            if resp.status_code >= 300:
+                continue
+            data = resp.json()
+            patterns += [p.get('attributes', p).get('title', p.get('title', ''))
+                         for p in data.get('saved_objects', data.get('data_views', []))]
+            if patterns:
+                break
+
+        has_target = any(OPENSEARCH_INDEX in p for p in patterns)
+        icon        = '[green]✓[/]' if has_target else '[yellow]—[/]'
+        c.print(f'    {icon}  tenant=[bold]{tenant}[/]  index-patterns: '
+                f'{patterns or "(none)"}')
+        if has_target:
+            found_tenants.append(tenant)
+
+    # ── 2. Check saved objects (dashboards + visualizations) ───────────────────
+    hdrs_global = {'Content-Type': 'application/json', 'osd-xsrf': 'true',
+                   'securitytenant': 'global'}
+    for obj_type in ('dashboard', 'visualization'):
+        try:
+            resp = requests.get(f'{base}/api/saved_objects/_find?type={obj_type}&per_page=100',
+                                headers=hdrs_global, auth=auth, timeout=15)
+        except Exception:
+            continue
+        if resp.status_code < 300:
+            objs = resp.json().get('saved_objects', [])
+            names = [o.get('attributes', {}).get('title', o.get('id', '?')) for o in objs]
+            icon  = '[green]✓[/]' if names else '[yellow]—[/]'
+            c.print(f'    {icon}  {obj_type}s (global):  {names or "(none)"}')
+
+    # ── 3. System index direct read via SigV4 ─────────────────────────────────
+    doc_id = f'index-pattern:{OPENSEARCH_INDEX}'
+    sys_found = False
+    for idx in ('.opensearch_dashboards', '.opensearch_dashboards_1', '.kibana', '.kibana_1'):
+        try:
+            resp = _sigv4('GET', f'https://{endpoint}/{idx}/_doc/{doc_id}', region)
+        except Exception:
+            continue
+        if resp.status_code == 200:
+            c.print(f'    [green]✓[/]  system index [dim]{idx}[/]:  doc found (id={doc_id!r})')
+            sys_found = True
+            break
+        if resp.status_code == 404:
+            c.print(f'    [yellow]—[/]  system index [dim]{idx}[/]:  doc not found')
+            break
+
+    # ── 4. Advice if tenant mismatch ───────────────────────────────────────────
+    if sys_found and not found_tenants:
+        c.print(f'\n  [yellow]⚠ Index pattern exists in the system index but is not '
+                f'visible via any Dashboards tenant.[/]')
+        c.print(f'    This usually means the doc was written to the system index but '
+                f'Dashboards has not picked it up.')
+        c.print(f'    Try: OS Dashboards → top-right avatar → Switch tenants → Global,')
+        c.print(f'    then Stack Management → Index Patterns — check if it appears there.')
+    elif found_tenants and 'global' not in found_tenants:
+        c.print(f'\n  [yellow]⚠ Index pattern is in tenant(s) {found_tenants} but NOT '
+                f'in [bold]global[/].[/]')
+        c.print(f'    Switch to that tenant in the Dashboards UI to see it.')
+    elif 'global' in found_tenants:
+        c.print(f'\n  [green]✓ Index pattern visible in global tenant — '
+                f'switch to Global in the Dashboards UI if you do not see it.[/]')
+
+    c.print()
+    return bool(found_tenants or sys_found)
+
+
 # ── dashboard-import ───────────────────────────────────────────────────────────
 
 @app.command('dashboard-import')
@@ -1071,7 +1162,32 @@ def cmd_dashboard_import(
         for f in (DASHBOARDS_DIR / 'grafana-sg-playwright-metrics.json',):
             if f.exists():
                 _do_import_grafana(grafana_url, f, c, amp_ds)
+    _check_os_dashboards(ep, r, c, admin_user=admin_user, admin_pass=admin_pass)
     c.print()
+
+
+# ── dashboard-check ────────────────────────────────────────────────────────────
+
+@app.command('dashboard-check')
+def cmd_dashboard_check(
+    name       : Optional[str] = typer.Argument(None),
+    region     : Optional[str] = typer.Option(None, '--region'),
+    admin_user : str           = typer.Option('', '--admin-user', envvar='OB_OS_ADMIN_USER'),
+    admin_pass : str           = typer.Option('', '--admin-pass', envvar='OB_OS_ADMIN_PASS'),
+):
+    """Verify index patterns and saved objects are visible in OpenSearch Dashboards."""
+    r          = region or _region()
+    stack_name = _resolve_stack(name, r)
+    by_name    = {s['name']: s for s in _list_stacks(r)}
+    s          = by_name.get(stack_name)
+    if not s or not s['opensearch']:
+        typer.echo(f'Stack {stack_name!r} not found or missing OpenSearch domain.', err=True)
+        raise typer.Exit(1)
+    ep = _os_endpoint(s['opensearch'])
+    c  = Console(highlight=False)
+    ok = _check_os_dashboards(ep, r, c, admin_user=admin_user, admin_pass=admin_pass)
+    if not ok:
+        raise typer.Exit(1)
 
 
 # ── dashboard-export ───────────────────────────────────────────────────────────
