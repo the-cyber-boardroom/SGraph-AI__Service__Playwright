@@ -33,7 +33,7 @@ APP_NAME                         = 'sp-playwright-cli'
 DEFAULT_STAGE                    = 'dev'
 
 AGENTIC_APP_NAME_VALUE           = APP_NAME                                         # AGENTIC_APP_NAME env var on the agentic Lambda — pins the S3 bucket folder
-AGENTIC_DEFAULT_VERSION_FALLBACK = 'v0.0.1'                                         # Used when the version file is missing; matches sgraph_ai_service_playwright__cli/version
+AGENTIC_DEFAULT_VERSION_FALLBACK = 'v0.0.1'                                         # Used when the shared version file (sgraph_ai_service_playwright/version) is missing
 
 LAMBDA_MEMORY_MB                 = 1024                                             # Adapter-sized; AWS API calls don't need Playwright's 5120MB
 LAMBDA_TIMEOUT_SECS              = 120                                              # sp create takes ~60s; buffer 2x

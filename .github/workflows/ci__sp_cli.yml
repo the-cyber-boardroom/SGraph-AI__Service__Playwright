@@ -145,23 +145,60 @@ jobs:
               - 'scripts/__init__.py'
 
   # ════════════════════════════════════════════════════════════════════════════
-  # Job 4: Build + Push Docker Image to ECR    [main branch only]
+  # Job 4: Increment Tag    [push to dev / main, or workflow_dispatch]
+  #   Bumps sgraph_ai_service_playwright/version (the SHARED version file —
+  #   single source of truth across the main Playwright service AND the SP
+  #   CLI). dev = minor bump, main = major bump. Mirrors the increment-tag
+  #   job in ci-pipeline.yml so both pipelines drive the same version stream.
+  #
+  #   The bumped commit is pushed back to the branch by the action; downstream
+  #   jobs check out github.ref_name to pick up the fresh value before they
+  #   build the image / package the zip / set AGENTIC_APP_VERSION.
+  # ════════════════════════════════════════════════════════════════════════════
+  increment-tag:
+    name: Increment Tag (dev=minor, main=major)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    needs: [run-unit-tests]
+    if: |
+      github.event_name == 'push' &&
+      (github.ref_name == 'dev' || github.ref_name == 'main')
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Increment Tag
+        uses: owasp-sbot/OSBot-GitHub-Actions/.github/actions/git__increment-tag@dev
+        with:
+          release_type: ${{ github.ref_name == 'main' && 'major' || 'minor' }}
+
+  # ════════════════════════════════════════════════════════════════════════════
+  # Job 5: Build + Push Docker Image to ECR    [main branch only]
   #   Branch-gated: only fires on push to main (or workflow_dispatch with
   #   force_image_rebuild=true). dev pushes skip this entirely — the existing
   #   image is reused and the agentic Lambda hot-swaps via S3 zip.
   #
   #   Build context is the repo root; the dockerfile's COPYs are rooted there.
+  #
+  #   Checks out github.ref_name (not the original push SHA) so the image
+  #   bakes the version bumped by increment-tag.
   # ════════════════════════════════════════════════════════════════════════════
   build-and-push-image:
     name: "Build + Push Docker Image to ECR"
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    needs: [run-unit-tests, check-aws-credentials]
+    needs: [run-unit-tests, check-aws-credentials, increment-tag]
     if: |
+      always() &&
+      needs.run-unit-tests.result == 'success' &&
       needs.check-aws-credentials.outputs.has-credentials == 'true' &&
+      (needs.increment-tag.result == 'success' || needs.increment-tag.result == 'skipped') &&
       (github.ref_name == 'main' || inputs.force_image_rebuild)
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.ref_name }}                                                # Pick up the version-file bump pushed by increment-tag
 
       - uses: actions/setup-python@v6
         with:
@@ -210,14 +247,17 @@ jobs:
     name: "Provision SP CLI Lambda (role + image + function URL)"
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    needs: [run-unit-tests, build-and-push-image, check-aws-credentials]
+    needs: [run-unit-tests, build-and-push-image, check-aws-credentials, increment-tag]
     if: |
       always() &&
       needs.run-unit-tests.result == 'success' &&
       needs.check-aws-credentials.outputs.has-credentials == 'true' &&
-      needs.build-and-push-image.result == 'success'
+      needs.build-and-push-image.result == 'success' &&
+      (needs.increment-tag.result == 'success' || needs.increment-tag.result == 'skipped')
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.ref_name }}                                                # Pick up the version-file bump pushed by increment-tag — provision pins AGENTIC_APP_VERSION
 
       - uses: actions/setup-python@v6
         with:
@@ -272,15 +312,18 @@ jobs:
     name: "Deploy SP CLI code (S3 zip + AGENTIC_APP_VERSION flip)"
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    needs: [run-unit-tests, check-aws-credentials, detect-changes, provision-sp-cli-lambda]
+    needs: [run-unit-tests, check-aws-credentials, detect-changes, provision-sp-cli-lambda, increment-tag]
     if: |
       always() &&
       needs.run-unit-tests.result == 'success' &&
       needs.check-aws-credentials.outputs.has-credentials == 'true' &&
       needs.detect-changes.outputs.code-deploy-needed == 'true' &&
-      (needs.provision-sp-cli-lambda.result == 'success' || needs.provision-sp-cli-lambda.result == 'skipped')
+      (needs.provision-sp-cli-lambda.result == 'success' || needs.provision-sp-cli-lambda.result == 'skipped') &&
+      (needs.increment-tag.result == 'success' || needs.increment-tag.result == 'skipped')
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.ref_name }}                                                # Pick up the version-file bump pushed by increment-tag — deploy_code reads sgraph_ai_service_playwright/version for the S3 key + AGENTIC_APP_VERSION flip
 
       - uses: actions/setup-python@v6
         with:
