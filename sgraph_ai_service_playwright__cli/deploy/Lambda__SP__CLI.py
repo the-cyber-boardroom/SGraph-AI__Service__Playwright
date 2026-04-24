@@ -85,9 +85,14 @@ class Lambda__SP__CLI(Type_Safe):
                 'lambda_name'  : self.lambda_name()}
 
     def set_env_vars(self, lambda_function) -> None:
-        env_vars = {'FAST_API__AUTH__API_KEY__NAME'  : get_env('FAST_API__AUTH__API_KEY__NAME'  ) or 'X-API-Key',   # Middleware rejects all requests without these; default NAME keeps the CLI + service in sync
-                    'FAST_API__AUTH__API_KEY__VALUE' : get_env('FAST_API__AUTH__API_KEY__VALUE' ),
-                    'AWS_DEFAULT_REGION'             : get_env('AWS_DEFAULT_REGION'             )}
+        # Lambda auto-populates AWS_REGION + AWS_ACCESS_KEY_* from the execution
+        # role; passing any of those as a user env var triggers
+        # InvalidParameterValueException ("reserved keys"). In particular
+        # AWS_DEFAULT_REGION is on the reserved list — osbot-aws's AWS_Config
+        # reads it, so sgraph_ai_service_playwright__cli/fast_api/lambda_handler.py
+        # bridges AWS_REGION → AWS_DEFAULT_REGION at process start instead.
+        env_vars = {'FAST_API__AUTH__API_KEY__NAME'  : get_env('FAST_API__AUTH__API_KEY__NAME'  ) or 'X-API-Key',
+                    'FAST_API__AUTH__API_KEY__VALUE' : get_env('FAST_API__AUTH__API_KEY__VALUE' )}
         for key, value in env_vars.items():
             if value:
                 lambda_function.set_env_variable(key, value)
