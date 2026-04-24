@@ -767,6 +767,37 @@ def cmd_delete(
 
 # ── Dashboard helpers ──────────────────────────────────────────────────────────
 
+def _verify_index_pattern_exists(base: str, hdrs: dict, auth) -> bool:
+    """Return True if the index pattern is actually readable via the Dashboards API.
+
+    Used to catch AWS OpenSearch versions that return 200 on creation but don't persist.
+    """
+    check_urls = [
+        f'{base}/api/data_views/data_view/{OPENSEARCH_INDEX}',
+        f'{base}/api/saved_objects/index-pattern/{OPENSEARCH_INDEX}',
+        f'{base}/api/saved_objects/data-view/{OPENSEARCH_INDEX}',
+    ]
+    for url in check_urls:
+        try:
+            r = requests.get(url, headers=hdrs, auth=auth, timeout=15)
+        except Exception:
+            continue
+        if r.status_code == 200:
+            return True
+    # Also check via _find in case ID doesn't match exactly
+    for obj_type in ('index-pattern', 'data-view'):
+        try:
+            r = requests.get(f'{base}/api/saved_objects/_find?type={obj_type}&per_page=100',
+                             headers=hdrs, auth=auth, timeout=15)
+        except Exception:
+            continue
+        if r.status_code < 300:
+            objects = r.json().get('saved_objects', [])
+            if any(OPENSEARCH_INDEX == o.get('attributes', {}).get('title') for o in objects):
+                return True
+    return False
+
+
 def _sys_idx_write(endpoint: str, doc_id: str, doc: dict,
                    admin_user: str, admin_pass: str,
                    c: Console = None) -> bool:
@@ -793,6 +824,28 @@ def _sys_idx_write(endpoint: str, doc_id: str, doc: dict,
     return False
 
 
+def _sys_idx_write_sigv4(endpoint: str, region: str, doc_id: str, doc: dict,
+                          c: Console = None) -> bool:
+    """Write a saved-object doc to the .opensearch_dashboards system index using SigV4.
+
+    Used when no admin credentials are available; falls back to IAM-based auth.
+    """
+    body = json.dumps(doc).encode()
+    for idx in ('.opensearch_dashboards', '.opensearch_dashboards_1', '.kibana', '.kibana_1'):
+        url  = f'https://{endpoint}/{idx}/_doc/{doc_id}?refresh=true'
+        try:
+            resp = _sigv4('PUT', url, region, body)
+        except Exception as e:
+            if c:
+                c.print(f'  [dim]  sigv4 sys-idx {idx}: error {e}[/]')
+            continue
+        if resp.status_code < 300:
+            return True
+        if c:
+            c.print(f'  [dim]  sigv4 sys-idx {idx}: HTTP {resp.status_code}[/]')
+    return False
+
+
 def _do_import_os_saved_objects(endpoint: str, region: str, c: Console,
                                  ndjson_path: Optional[Path] = None,
                                  admin_user: str = '', admin_pass: str = ''):
@@ -800,7 +853,8 @@ def _do_import_os_saved_objects(endpoint: str, region: str, c: Console,
 
     Strategy (each step falls back to the next):
     1. Dashboards REST API (data_views / index_patterns / saved_objects)
-    2. Direct write to .opensearch_dashboards system index — bypasses schema validation
+    2. Direct write to .opensearch_dashboards system index — basic auth (admin_user)
+    3. Direct write to .opensearch_dashboards system index — SigV4 (IAM role)
     """
     auth = (admin_user, admin_pass) if admin_user else None
     hdrs = {'Content-Type': 'application/json', 'osd-xsrf': 'true', 'securitytenant': 'global'}
@@ -824,19 +878,25 @@ def _do_import_os_saved_objects(endpoint: str, region: str, c: Console,
     for dv_url, dv_body in _DV_TRIES:
         resp = requests.post(dv_url, json=dv_body, headers=hdrs, auth=auth, timeout=30)
         if resp.status_code < 300:
-            dv_ok = True
-            break
-        if resp.status_code not in (400, 404):
-            break  # unexpected error — don't retry
+            # Some AWS OpenSearch versions return 200 but don't persist — verify immediately
+            dv_ok = _verify_index_pattern_exists(base, hdrs, auth)
+            if dv_ok:
+                break
+        if resp.status_code >= 500:
+            break  # server error — stop retrying
+
+    dv_doc = {'type': 'index-pattern',
+              'index-pattern': {'title': OPENSEARCH_INDEX, 'timeFieldName': '@timestamp',
+                                 'fields': '[]'},
+              'references': [], 'namespaces': ['default']}
+    dv_id  = f'index-pattern:{OPENSEARCH_INDEX}'
 
     if not dv_ok and admin_user:
-        # Fallback: write directly to the system index (bypasses Dashboards API validation)
-        dv_doc = {'type': 'index-pattern',
-                  'index-pattern': {'title': OPENSEARCH_INDEX, 'timeFieldName': '@timestamp',
-                                     'fields': '[]'},
-                  'references': [], 'namespaces': ['default']}
-        dv_ok = _sys_idx_write(endpoint, f'index-pattern:{OPENSEARCH_INDEX}', dv_doc,
-                                admin_user, admin_pass, c)
+        dv_ok = _sys_idx_write(endpoint, dv_id, dv_doc, admin_user, admin_pass, c)
+
+    if not dv_ok:
+        # SigV4 fallback — writes directly to system index via IAM; bypasses Dashboards FGAC
+        dv_ok = _sys_idx_write_sigv4(endpoint, region, dv_id, dv_doc, c)
 
     if dv_ok:
         c.print(f'  [green]✓ Data View created[/]  ({OPENSEARCH_INDEX})')
@@ -872,12 +932,12 @@ def _do_import_os_saved_objects(endpoint: str, region: str, c: Console,
     ok = api_fail = sys_ok = sys_fail = 0
     first_400_shown = False
 
-    # ── Strategy A: _bulk_create (one round-trip, may avoid per-object validation) ──
-    if objects and admin_user:
+    # ── Strategy A: _bulk_create via Dashboards API ────────────────────────────
+    if objects:
         bulk_url  = f'{base}/api/saved_objects/_bulk_create?overwrite=true'
         bulk_resp = requests.post(bulk_url, json=objects, headers=hdrs, auth=auth, timeout=30)
         if bulk_resp.status_code < 300:
-            saved = bulk_resp.json().get('saved_objects', [])
+            saved    = bulk_resp.json().get('saved_objects', [])
             bulk_ok  = [o for o in saved if 'error' not in o]
             bulk_err = [o for o in saved if 'error' in o]
             if bulk_ok and not bulk_err:
@@ -885,20 +945,18 @@ def _do_import_os_saved_objects(endpoint: str, region: str, c: Console,
                 return True
             if bulk_ok:
                 ok += len(bulk_ok)
-                # Only retry the failed ones below
                 failed_ids = {o['id'] for o in bulk_err}
                 objects = [o for o in objects if o['id'] in failed_ids]
         elif bulk_resp.status_code not in (400, 404, 405):
             c.print(f'  [dim]  bulk_create HTTP {bulk_resp.status_code}[/]')
 
-    # ── Strategy B: per-object Dashboards API → system index fallback ─────────────
+    # ── Strategy B: per-object Dashboards API → system index → SigV4 ──────────
     for obj in objects:
         otype = obj['type']
         oid   = obj['id']
         attrs = obj['attributes']
         refs  = obj['references']
 
-        # Try 1: POST with references
         url  = f'{base}/api/saved_objects/{otype}/{oid}?overwrite=true&security_tenant=global'
         resp = requests.post(url, json={'attributes': attrs, 'references': refs},
                              headers=hdrs, auth=auth, timeout=30)
@@ -906,13 +964,12 @@ def _do_import_os_saved_objects(endpoint: str, region: str, c: Console,
             ok += 1
             continue
 
-        # Print the first 400 body so we can see what the API is rejecting
         if resp.status_code == 400 and not first_400_shown:
             c.print(f'  [dim]  API 400 sample ({otype}):[/]')
             c.print(f'  [dim]  {resp.text[:400]}[/]')
             first_400_shown = True
 
-        # Try 2: POST without references (in case that key is the unknown field)
+        # Retry without references on schema rejection
         if resp.status_code == 400:
             resp2 = requests.post(url, json={'attributes': attrs},
                                   headers=hdrs, auth=auth, timeout=30)
@@ -921,15 +978,18 @@ def _do_import_os_saved_objects(endpoint: str, region: str, c: Console,
                 continue
 
         api_fail += 1
+        sys_doc = {'type': otype, otype: attrs, 'references': refs, 'namespaces': ['default']}
 
-        # Try 3: direct system-index write (bypasses API schema validation entirely)
-        if admin_user:
-            sys_doc = {'type': otype, otype: attrs, 'references': refs,
-                       'namespaces': ['default']}
-            if _sys_idx_write(endpoint, f'{otype}:{oid}', sys_doc, admin_user, admin_pass, c):
-                sys_ok += 1
-            else:
-                sys_fail += 1
+        # System index write — basic auth
+        if admin_user and _sys_idx_write(endpoint, f'{otype}:{oid}', sys_doc, admin_user, admin_pass, c):
+            sys_ok += 1
+            continue
+
+        # System index write — SigV4 fallback
+        if _sys_idx_write_sigv4(endpoint, region, f'{otype}:{oid}', sys_doc, c):
+            sys_ok += 1
+        else:
+            sys_fail += 1
 
     total_ok = ok + sys_ok
     if total_ok:
@@ -1015,6 +1075,101 @@ def _do_export_grafana(workspace_url: str, output_dir: Path, c: Console):
             pass
 
 
+def _check_os_dashboards(endpoint: str, region: str, c: Console,
+                          admin_user: str = '', admin_pass: str = '') -> bool:
+    """Verify index patterns and saved objects are visible in OpenSearch Dashboards.
+
+    Queries both the Dashboards REST API and the system index directly, across
+    the global and private tenants, so we can pinpoint tenant-mismatch issues.
+    Returns True if the expected index pattern is visible in at least one tenant.
+    """
+    auth = (admin_user, admin_pass) if admin_user else None
+    base = f'https://{endpoint}/_dashboards'
+
+    c.print(f'\n  [bold]OpenSearch Dashboards health check[/]\n')
+
+    # ── 1. Check Dashboards API across tenants ──────────────────────────────────
+    found_tenants = []
+    for tenant in ('global', 'private', '__user__'):
+        hdrs = {'Content-Type': 'application/json', 'osd-xsrf': 'true',
+                'securitytenant': tenant}
+        patterns = []
+        for path in ('/api/saved_objects/_find?type=index-pattern&per_page=100',
+                     '/api/saved_objects/_find?type=data-view&per_page=100',
+                     '/api/data_views/data_view'):
+            try:
+                resp = requests.get(f'{base}{path}', headers=hdrs, auth=auth, timeout=15)
+            except Exception:
+                continue
+            if resp.status_code >= 300:
+                continue
+            data = resp.json()
+            for p in data.get('saved_objects', data.get('data_views', [])):
+                title = (p.get('attributes', {}).get('title')
+                         or p.get('title') or p.get('id', ''))
+                if title:
+                    patterns.append(title)
+            if patterns:
+                break
+
+        has_target = any(OPENSEARCH_INDEX in p for p in patterns)
+        icon        = '[green]✓[/]' if has_target else '[yellow]—[/]'
+        c.print(f'    {icon}  tenant=[bold]{tenant}[/]  index-patterns: '
+                f'{patterns or "(none)"}')
+        if has_target:
+            found_tenants.append(tenant)
+
+    # ── 2. Check saved objects (dashboards + visualizations) ───────────────────
+    hdrs_global = {'Content-Type': 'application/json', 'osd-xsrf': 'true',
+                   'securitytenant': 'global'}
+    for obj_type in ('dashboard', 'visualization'):
+        try:
+            resp = requests.get(f'{base}/api/saved_objects/_find?type={obj_type}&per_page=100',
+                                headers=hdrs_global, auth=auth, timeout=15)
+        except Exception:
+            continue
+        if resp.status_code < 300:
+            objs = resp.json().get('saved_objects', [])
+            names = [o.get('attributes', {}).get('title', o.get('id', '?')) for o in objs]
+            icon  = '[green]✓[/]' if names else '[yellow]—[/]'
+            c.print(f'    {icon}  {obj_type}s (global):  {names or "(none)"}')
+
+    # ── 3. System index direct read via SigV4 ─────────────────────────────────
+    doc_id = f'index-pattern:{OPENSEARCH_INDEX}'
+    sys_found = False
+    for idx in ('.opensearch_dashboards', '.opensearch_dashboards_1', '.kibana', '.kibana_1'):
+        try:
+            resp = _sigv4('GET', f'https://{endpoint}/{idx}/_doc/{doc_id}', region)
+        except Exception:
+            continue
+        if resp.status_code == 200:
+            c.print(f'    [green]✓[/]  system index [dim]{idx}[/]:  doc found (id={doc_id!r})')
+            sys_found = True
+            break
+        if resp.status_code == 404:
+            c.print(f'    [yellow]—[/]  system index [dim]{idx}[/]:  doc not found')
+            break
+
+    # ── 4. Advice if tenant mismatch ───────────────────────────────────────────
+    if sys_found and not found_tenants:
+        c.print(f'\n  [yellow]⚠ Index pattern exists in the system index but is not '
+                f'visible via any Dashboards tenant.[/]')
+        c.print(f'    This usually means the doc was written to the system index but '
+                f'Dashboards has not picked it up.')
+        c.print(f'    Try: OS Dashboards → top-right avatar → Switch tenants → Global,')
+        c.print(f'    then Stack Management → Index Patterns — check if it appears there.')
+    elif found_tenants and 'global' not in found_tenants:
+        c.print(f'\n  [yellow]⚠ Index pattern is in tenant(s) {found_tenants} but NOT '
+                f'in [bold]global[/].[/]')
+        c.print(f'    Switch to that tenant in the Dashboards UI to see it.')
+    elif 'global' in found_tenants:
+        c.print(f'\n  [green]✓ Index pattern visible in global tenant — '
+                f'switch to Global in the Dashboards UI if you do not see it.[/]')
+
+    c.print()
+    return bool(found_tenants or sys_found)
+
+
 # ── dashboard-import ───────────────────────────────────────────────────────────
 
 @app.command('dashboard-import')
@@ -1044,7 +1199,32 @@ def cmd_dashboard_import(
         for f in (DASHBOARDS_DIR / 'grafana-sg-playwright-metrics.json',):
             if f.exists():
                 _do_import_grafana(grafana_url, f, c, amp_ds)
+    _check_os_dashboards(ep, r, c, admin_user=admin_user, admin_pass=admin_pass)
     c.print()
+
+
+# ── dashboard-check ────────────────────────────────────────────────────────────
+
+@app.command('dashboard-check')
+def cmd_dashboard_check(
+    name       : Optional[str] = typer.Argument(None),
+    region     : Optional[str] = typer.Option(None, '--region'),
+    admin_user : str           = typer.Option('', '--admin-user', envvar='OB_OS_ADMIN_USER'),
+    admin_pass : str           = typer.Option('', '--admin-pass', envvar='OB_OS_ADMIN_PASS'),
+):
+    """Verify index patterns and saved objects are visible in OpenSearch Dashboards."""
+    r          = region or _region()
+    stack_name = _resolve_stack(name, r)
+    by_name    = {s['name']: s for s in _list_stacks(r)}
+    s          = by_name.get(stack_name)
+    if not s or not s['opensearch']:
+        typer.echo(f'Stack {stack_name!r} not found or missing OpenSearch domain.', err=True)
+        raise typer.Exit(1)
+    ep = _os_endpoint(s['opensearch'])
+    c  = Console(highlight=False)
+    ok = _check_os_dashboards(ep, r, c, admin_user=admin_user, admin_pass=admin_pass)
+    if not ok:
+        raise typer.Exit(1)
 
 
 # ── dashboard-export ───────────────────────────────────────────────────────────

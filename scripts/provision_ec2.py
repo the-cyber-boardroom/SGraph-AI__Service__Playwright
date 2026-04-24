@@ -28,7 +28,6 @@ import json
 import secrets
 import shlex
 import sys
-import textwrap
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -137,7 +136,7 @@ SG_COMPOSE_EOF
 
 {observability_configs_section}
 {browser_proxy_section}
-docker pull {browser_image_uri}   || true    # pull public images if not baked into AMI
+{browser_image_pull}
 docker pull {portainer_image_uri} || true
 docker compose -f /opt/sg-playwright/docker-compose.yml up -d
 
@@ -180,162 +179,162 @@ def _uptime_str(launch_time) -> str:
     return f'{mins}m'
 
 
-COMPOSE_SVC_PLAYWRIGHT = textwrap.dedent("""\
-      playwright:
-        image: {playwright_image_uri}
-        ports:
-          - "{playwright_port}:{playwright_port}"
-        environment:
-          FAST_API__AUTH__API_KEY__NAME:          '{api_key_name}'
-          FAST_API__AUTH__API_KEY__VALUE:         '{api_key_value}'
-          SG_PLAYWRIGHT__DEPLOYMENT_TARGET:       container
-          SG_PLAYWRIGHT__DEFAULT_PROXY_URL:       http://agent-mitmproxy:8080
-          SG_PLAYWRIGHT__IGNORE_HTTPS_ERRORS:     'true'
-          SG_PLAYWRIGHT__WATCHDOG_MAX_REQUEST_MS: {watchdog_max_request_ms}
-        networks:
-          - sg-net
-        depends_on:
-          - agent-mitmproxy
-        restart: always
-""")
+COMPOSE_SVC_PLAYWRIGHT = """\
+  playwright:
+    image: {playwright_image_uri}
+    ports:
+      - "{playwright_port}:{playwright_port}"
+    environment:
+      FAST_API__AUTH__API_KEY__NAME:          '{api_key_name}'
+      FAST_API__AUTH__API_KEY__VALUE:         '{api_key_value}'
+      SG_PLAYWRIGHT__DEPLOYMENT_TARGET:       container
+      SG_PLAYWRIGHT__DEFAULT_PROXY_URL:       "http://agent-mitmproxy:8080"
+      SG_PLAYWRIGHT__IGNORE_HTTPS_ERRORS:     'true'
+      SG_PLAYWRIGHT__WATCHDOG_MAX_REQUEST_MS: {watchdog_max_request_ms}
+    networks:
+      - sg-net
+    depends_on:
+      - agent-mitmproxy
+    restart: always
+"""
 
-COMPOSE_SVC_MITMPROXY = textwrap.dedent("""\
-      agent-mitmproxy:
-        image: {sidecar_image_uri}
-        ports:
-          - "{sidecar_admin_port}:8000"
-          - "127.0.0.1:18080:8080"
-        environment:
-          FAST_API__AUTH__API_KEY__NAME:  '{api_key_name}'
-          FAST_API__AUTH__API_KEY__VALUE: '{api_key_value}'
-          AGENT_MITMPROXY__UPSTREAM_URL:  '{upstream_url}'
-          AGENT_MITMPROXY__UPSTREAM_USER: '{upstream_user}'
-          AGENT_MITMPROXY__UPSTREAM_PASS: '{upstream_pass}'
-          AGENT_MITMPROXY__HTTP2:         '{http2}'
-        networks:
-          - sg-net
-        restart: always
-""")
+COMPOSE_SVC_MITMPROXY = """\
+  agent-mitmproxy:
+    image: {sidecar_image_uri}
+    ports:
+      - "{sidecar_admin_port}:8000"
+      - "127.0.0.1:18080:8080"
+    environment:
+      FAST_API__AUTH__API_KEY__NAME:  '{api_key_name}'
+      FAST_API__AUTH__API_KEY__VALUE: '{api_key_value}'
+      AGENT_MITMPROXY__UPSTREAM_URL:  '{upstream_url}'
+      AGENT_MITMPROXY__UPSTREAM_USER: '{upstream_user}'
+      AGENT_MITMPROXY__UPSTREAM_PASS: '{upstream_pass}'
+      AGENT_MITMPROXY__HTTP2:         '{http2}'
+    networks:
+      - sg-net
+    restart: always
+"""
 
 # browser + browser-proxy: only when upstream proxy is configured
-COMPOSE_SVC_BROWSER = textwrap.dedent("""\
-      browser:
-        image: {browser_image_uri}
-        environment:
-          PUID:       1000
-          PGID:       1000
-          TZ:         Etc/UTC
-          PASSWD:     '{api_key_value}'
-          CHROME_CLI: >-
-            --proxy-server=http://agent-mitmproxy:8080
-            --ignore-certificate-errors
-            --no-first-run
-            --disable-sync
-        shm_size: "1gb"
-        networks:
-          - sg-net
-        depends_on:
-          - agent-mitmproxy
-        restart: unless-stopped
-""")
+COMPOSE_SVC_BROWSER = """\
+  browser:
+    image: {browser_image_uri}
+    environment:
+      PUID:       1000
+      PGID:       1000
+      TZ:         Etc/UTC
+      PASSWD:     '{api_key_value}'
+      CHROME_CLI: >-
+        --proxy-server=http://agent-mitmproxy:8080
+        --ignore-certificate-errors
+        --no-first-run
+        --disable-sync
+    shm_size: "1gb"
+    networks:
+      - sg-net
+    depends_on:
+      - agent-mitmproxy
+    restart: unless-stopped
+"""
 
-COMPOSE_SVC_BROWSER_PROXY = textwrap.dedent("""\
-      browser-proxy:
-        image: nginx:alpine
-        ports:
-          - "{browser_port}:{browser_port}"
-        volumes:
-          - /opt/sg-playwright/config/nginx-browser.conf:/etc/nginx/conf.d/default.conf:ro
-          - /opt/sg-playwright/config/browser-certs:/etc/nginx/certs:ro
-        networks:
-          - sg-net
-        depends_on:
-          - browser
-        restart: unless-stopped
-""")
+COMPOSE_SVC_BROWSER_PROXY = """\
+  browser-proxy:
+    image: nginx:alpine
+    ports:
+      - "{browser_port}:{browser_port}"
+    volumes:
+      - /opt/sg-playwright/config/nginx-browser.conf:/etc/nginx/conf.d/default.conf:ro
+      - /opt/sg-playwright/config/browser-certs:/etc/nginx/certs:ro
+    networks:
+      - sg-net
+    depends_on:
+      - browser
+    restart: unless-stopped
+"""
 
 # cadvisor + node-exporter + prometheus: only when AMP_REMOTE_WRITE_URL is configured
-COMPOSE_SVC_CADVISOR = textwrap.dedent("""\
-      cadvisor:
-        image: gcr.io/cadvisor/cadvisor:v0.49.1
-        privileged: true
-        volumes:
-          - /:/rootfs:ro
-          - /var/run:/var/run:ro
-          - /sys:/sys:ro
-          - /var/lib/docker:/var/lib/docker:ro
-        networks:
-          - sg-net
-        restart: always
-""")
+COMPOSE_SVC_CADVISOR = """\
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:v0.49.1
+    privileged: true
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker:/var/lib/docker:ro
+    networks:
+      - sg-net
+    restart: always
+"""
 
-COMPOSE_SVC_NODE_EXPORTER = textwrap.dedent("""\
-      node-exporter:
-        image: prom/node-exporter:v1.7.0
-        volumes:
-          - /proc:/host/proc:ro
-          - /sys:/host/sys:ro
-          - /:/rootfs:ro
-        command:
-          - '--path.procfs=/host/proc'
-          - '--path.sysfs=/host/sys'
-          - '--path.rootfs=/rootfs'
-          - '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)'
-        networks:
-          - sg-net
-        restart: always
-""")
+COMPOSE_SVC_NODE_EXPORTER = """\
+  node-exporter:
+    image: prom/node-exporter:v1.7.0
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+    command:
+      - '--path.procfs=/host/proc'
+      - '--path.sysfs=/host/sys'
+      - '--path.rootfs=/rootfs'
+      - '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)'
+    networks:
+      - sg-net
+    restart: always
+"""
 
-COMPOSE_SVC_PROMETHEUS = textwrap.dedent("""\
-      prometheus:
-        image: prom/prometheus:v2.51.0
-        volumes:
-          - /opt/sg-playwright/config/prometheus.yml:/etc/prometheus/prometheus.yml:ro
-          - prometheus_data:/prometheus
-        command:
-          - '--config.file=/etc/prometheus/prometheus.yml'
-          - '--storage.tsdb.path=/prometheus'
-          - '--storage.tsdb.retention.time=24h'
-          - '--web.enable-lifecycle'
-        networks:
-          - sg-net
-        restart: always
-""")
+COMPOSE_SVC_PROMETHEUS = """\
+  prometheus:
+    image: prom/prometheus:v2.51.0
+    volumes:
+      - /opt/sg-playwright/config/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=24h'
+      - '--web.enable-lifecycle'
+    networks:
+      - sg-net
+    restart: always
+"""
 
 # fluent-bit: only when OPENSEARCH_ENDPOINT is configured
-COMPOSE_SVC_FLUENT_BIT = textwrap.dedent("""\
-      fluent-bit:
-        image: amazon/aws-for-fluent-bit:stable
-        volumes:
-          - /var/lib/docker/containers:/var/lib/docker/containers:ro
-          - /var/run/docker.sock:/var/run/docker.sock:ro
-          - /opt/sg-playwright/config/fluent-bit.conf:/fluent-bit/etc/fluent-bit.conf:ro
-        networks:
-          - sg-net
-        restart: always
-""")
-
-COMPOSE_SVC_PORTAINER = textwrap.dedent("""\
-      portainer:
-        image: {portainer_image_uri}
-        ports:
-          - "127.0.0.1:{portainer_port}:{portainer_port}"
-        volumes:
-          - /var/run/docker.sock:/var/run/docker.sock
-          - portainer_data:/data
-        networks:
-          - sg-net
-        restart: always
-""")
-
-COMPOSE_FOOTER = textwrap.dedent("""\
-    networks:
-      sg-net:
-        driver: bridge
-
+COMPOSE_SVC_FLUENT_BIT = """\
+  fluent-bit:
+    image: amazon/aws-for-fluent-bit:stable
     volumes:
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /opt/sg-playwright/config/fluent-bit.conf:/fluent-bit/etc/fluent-bit.conf:ro
+    networks:
+      - sg-net
+    restart: always
+"""
+
+COMPOSE_SVC_PORTAINER = """\
+  portainer:
+    image: {portainer_image_uri}
+    ports:
+      - "127.0.0.1:{portainer_port}:{portainer_port}"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - portainer_data:/data
+    networks:
+      - sg-net
+    restart: always
+"""
+
+COMPOSE_FOOTER = """\
+networks:
+  sg-net:
+    driver: bridge
+
+volumes:
 {volume_lines}
-""")
+"""
 
 
 PROMETHEUS_YML_TEMPLATE = """\
@@ -515,7 +514,7 @@ set -x
 
 docker pull {playwright_image_uri}
 docker pull {sidecar_image_uri}
-docker pull {browser_image_uri}
+{browser_image_pull}
 docker pull {portainer_image_uri}
 
 # Revoke the stored Docker credential immediately after pull — the instance
@@ -678,10 +677,15 @@ def _print_preflight_summary(account, region, registry,
     c.print()
 
     c.print('  [bold blue]🔌  Ports[/]')
-    c.print(_kv_table((f':{EC2__PLAYWRIGHT_PORT}',        'playwright API         (public, API-key gated)' ),
-                      (f':{EC2__SIDECAR_ADMIN_PORT}',     'sidecar admin API      (public, API-key gated)' ),
-                      (f':{EC2__BROWSER_INTERNAL_PORT}',  'streaming browser      (public, KasmVNC password = API key)'),
-                      (':8080',                            'mitmproxy proxy        (Docker-network-only)'   )))
+    port_rows = [
+        (f':{EC2__PLAYWRIGHT_PORT}',    'playwright API         (public, API-key gated)'),
+        (f':{EC2__SIDECAR_ADMIN_PORT}', 'sidecar admin API      (public, API-key gated)'),
+        (':8080',                        'mitmproxy proxy        (Docker-network-only)'  ),
+    ]
+    if upstream_url:
+        port_rows.insert(2, (f':{EC2__BROWSER_INTERNAL_PORT}',
+                             'streaming browser      (public, KasmVNC password = API key)'))
+    c.print(_kv_table(*port_rows))
     c.print()
 
     for w in warnings:
@@ -886,9 +890,9 @@ def render_compose_yaml(playwright_image_uri    : str,
 
     services += [COMPOSE_SVC_PORTAINER.format(**fmt)]
 
-    volumes = ['      portainer_data:']
+    volumes = ['  portainer_data:']
     if amp_remote_write_url:
-        volumes.insert(0, '      prometheus_data:')
+        volumes.insert(0, '  prometheus_data:')
 
     footer = COMPOSE_FOOTER.format(volume_lines='\n'.join(volumes))
     return '\n'.join(services) + '\n' + footer
@@ -901,22 +905,25 @@ def render_user_data(playwright_image_uri  : str,
                       max_hours             : int          = 1,
                       amp_remote_write_url  : str          = '',
                       opensearch_endpoint   : str          = '',
-                      stage                 : str          = DEFAULT_STAGE) -> str:
+                      stage                 : str          = DEFAULT_STAGE,
+                      upstream_url          : str          = '') -> str:
     if max_hours:
         shutdown_section = (f'\n# Auto-terminate after {max_hours}h\n'
                              f'systemd-run --on-active={max_hours}h /sbin/shutdown -h now\n'
                              f'echo "Auto-terminate timer started: {max_hours}h from now"\n')
     else:
         shutdown_section = ''
-    obs_section = render_observability_configs_section(region               = aws_region()       ,
-                                                        amp_remote_write_url = amp_remote_write_url,
-                                                        opensearch_endpoint  = opensearch_endpoint ,
-                                                        stage                = stage               )
+    obs_section          = render_observability_configs_section(region               = aws_region()       ,
+                                                                 amp_remote_write_url = amp_remote_write_url,
+                                                                 opensearch_endpoint  = opensearch_endpoint ,
+                                                                 stage                = stage               )
+    browser_image_pull   = (f'docker pull {EC2__BROWSER_IMAGE}' if upstream_url
+                             else '# browser image skipped — no upstream proxy configured')
     return USER_DATA_TEMPLATE.format(region                        = aws_region()           ,
                                      registry                      = ecr_registry_host()    ,
                                      playwright_image_uri          = playwright_image_uri   ,
                                      sidecar_image_uri             = sidecar_image_uri      ,
-                                     browser_image_uri             = EC2__BROWSER_IMAGE     ,
+                                     browser_image_pull            = browser_image_pull     ,
                                      portainer_image_uri           = EC2__PORTAINER_IMAGE   ,
                                      compose_content               = compose_content        ,
                                      observability_configs_section = obs_section            ,
@@ -1126,12 +1133,14 @@ def provision(stage                  : str          = DEFAULT_STAGE    ,
                                                         amp_remote_write_url = amp_remote_write_url,
                                                         opensearch_endpoint  = opensearch_endpoint ,
                                                         stage                = stage               )
+    browser_image_pull_ami = (f'docker pull {EC2__BROWSER_IMAGE} || true'
+                               if upstream_url else '')
     if from_ami:
-        user_data = AMI_USER_DATA_TEMPLATE.format(compose_content               = compose_content      ,
-                                                   observability_configs_section = obs_section            ,
+        user_data = AMI_USER_DATA_TEMPLATE.format(compose_content               = compose_content                 ,
+                                                   observability_configs_section = obs_section                      ,
                                                    browser_proxy_section         = render_browser_proxy_section(api_key_value=api_key_value),
-                                                   browser_image_uri             = EC2__BROWSER_IMAGE      ,
-                                                   portainer_image_uri           = EC2__PORTAINER_IMAGE    )
+                                                   browser_image_pull            = browser_image_pull_ami           ,
+                                                   portainer_image_uri           = EC2__PORTAINER_IMAGE             )
     else:
         user_data = render_user_data(playwright_image_uri  = playwright_image_uri ,
                                      sidecar_image_uri     = sidecar_image_uri    ,
@@ -1140,7 +1149,8 @@ def provision(stage                  : str          = DEFAULT_STAGE    ,
                                      max_hours             = max_hours            ,
                                      amp_remote_write_url  = amp_remote_write_url ,
                                      opensearch_endpoint   = opensearch_endpoint  ,
-                                     stage                 = stage                )
+                                     stage                 = stage                ,
+                                     upstream_url          = upstream_url         )
 
     instance_profile_name = ensure_instance_profile()
     security_group_id     = ensure_security_group(ec2)
@@ -1162,8 +1172,9 @@ def provision(stage                  : str          = DEFAULT_STAGE    ,
     details       = ec2.instance_details(instance_id)
     public_ip     = details.get('public_ip')
     playwright_url = f'http://{public_ip}:{EC2__PLAYWRIGHT_PORT}'         if public_ip else None
-    sidecar_url    = f'http://{public_ip}:{EC2__SIDECAR_ADMIN_PORT}'    if public_ip else None
-    browser_url    = f'https://{public_ip}:{EC2__BROWSER_INTERNAL_PORT}' if public_ip else None
+    sidecar_url    = f'http://{public_ip}:{EC2__SIDECAR_ADMIN_PORT}'     if public_ip else None
+    browser_url    = (f'https://{public_ip}:{EC2__BROWSER_INTERNAL_PORT}'
+                      if public_ip and upstream_url else None)
 
     return {'action'              : 'create'               ,
             'instance_id'        : instance_id             ,
@@ -1189,7 +1200,7 @@ app = typer.Typer(name           = 'provision_ec2'                              
                    no_args_is_help = True                                              ,
                    add_completion  = False                                             )
 
-from scripts.observability import app as _observability_app              # noqa: E402
+from scripts.observability import app as _observability_app, _check_os_dashboards, _os_endpoint, _list_stacks  # noqa: E402
 app.add_typer(_observability_app, name='observability', hidden=True)
 app.add_typer(_observability_app, name='ob',            hidden=True)
 
@@ -1295,7 +1306,8 @@ def _render_create_result(r: dict) -> None:
     right.add_row('public-ip',    r['public_ip']                               )
     right.add_row('playwright',   r['playwright_url'] or '—'                   )
     right.add_row('sidecar-admin',r['sidecar_admin_url'] or '—'                )
-    right.add_row('browser',      r.get('browser_url') or '—'                  )
+    if r.get('browser_url'):
+        right.add_row('browser',  r['browser_url']                             )
     right.add_row('api-key-name', r['api_key_name']                            )
     right.add_row('api-key-value',f'[bold green]{r["api_key_value"]}[/]'       )
 
@@ -2208,6 +2220,19 @@ def cmd_diagnose(
     results  = _health_check_once(base_url, tag_key_name or 'X-API-Key', tag_key_value)
     _render_health(results, base_url)
     c.print()
+
+    # OpenSearch Dashboards check (if the stack has an OpenSearch endpoint)
+    opensearch_ep = get_env('OPENSEARCH_ENDPOINT') or ''
+    if not opensearch_ep:
+        stacks = {s['name']: s for s in _list_stacks(aws_region())}
+        for s in stacks.values():
+            if s.get('opensearch'):
+                opensearch_ep = _os_endpoint(s['opensearch'])
+                break
+    if opensearch_ep:
+        c.print('  [bold cyan]── OpenSearch Dashboards objects[/]')
+        _check_os_dashboards(opensearch_ep, aws_region(), c)
+
     c.print('  [dim]Tip: sp logs --target {target} — see docker compose stdout[/]')
     c.print()
 
