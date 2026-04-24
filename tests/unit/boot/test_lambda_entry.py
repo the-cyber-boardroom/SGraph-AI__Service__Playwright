@@ -21,6 +21,12 @@ class test_module_surface(TestCase):
         assert callable(lambda_entry.main)
         assert callable(lambda_entry.run)
 
+    def test__build_shim_wires_playwright_class_path(self):                         # Locks the adapter contract — the baked image must boot the Playwright FastAPI, not whatever the shim defaults to
+        shim = lambda_entry.build_shim()
+        assert str(shim.fast_api_class_path) == lambda_entry.PLAYWRIGHT_FAST_API_CLASS_PATH
+        assert str(shim.service_label)       == lambda_entry.PLAYWRIGHT_SERVICE_LABEL
+        assert str(shim.fast_api_class_path).endswith('.Fast_API__Playwright__Service')
+
     def test__module_level_state_starts_unpinned(self):
         assert lambda_entry.error       is None or isinstance(lambda_entry.error, str)   # May have been pinned by an earlier test; tolerate either
         assert lambda_entry.handler     is None or callable(lambda_entry.handler)

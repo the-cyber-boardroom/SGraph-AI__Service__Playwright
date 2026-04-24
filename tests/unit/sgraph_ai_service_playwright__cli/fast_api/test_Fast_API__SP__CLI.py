@@ -104,6 +104,15 @@ class test_Fast_API__SP__CLI(TestCase):
         assert str(self.in_memory.last_create.stage) == 'dev'
         assert int(self.in_memory.last_create.max_hours) == 1
 
+    def test_get_instances__list(self):                                             # GET /ec2/instances — sp list equivalent
+        response = self.client.get('/ec2/instances', headers=self._headers())
+        assert response.status_code == 200
+        body = response.json()
+        assert body['region']            == 'eu-west-2'
+        assert len(body['instances'])    == 1
+        assert body['instances'][0]['instance_id'] == INSTANCE_ID
+        assert body['instances'][0]['deploy_name'] == DEPLOY_NAME
+
     def test_get_instances_target__by_deploy_name(self):
         response = self.client.get(f'/ec2/instances/{DEPLOY_NAME}', headers=self._headers())
         assert response.status_code == 200

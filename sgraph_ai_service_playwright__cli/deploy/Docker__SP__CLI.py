@@ -93,7 +93,7 @@ class Docker__SP__CLI(Type_Safe):
         finally:
             shutil.rmtree(build_context, ignore_errors=True)
 
-    def stage_build_context(self, build_context: str) -> None:                      # Populate a tempdir with dockerfile + requirements + the two source trees referenced by COPY
+    def stage_build_context(self, build_context: str) -> None:                      # Populate a tempdir with dockerfile + requirements + the three source trees referenced by COPY
         src_image_folder = self.path_images() / self.image_folder_name
         repo_root        = self.repo_root()
 
@@ -101,6 +101,9 @@ class Docker__SP__CLI(Type_Safe):
         shutil.copy    (str(src_image_folder / 'requirements.txt'), os.path.join(build_context, 'requirements.txt'))
         shutil.copytree(str(repo_root / 'sgraph_ai_service_playwright__cli') ,
                         os.path.join(build_context, 'sgraph_ai_service_playwright__cli') ,
+                        ignore=ignore_build_noise)
+        shutil.copytree(str(repo_root / 'sgraph_ai_service_playwright')      ,            # Needed by scripts.provision_ec2's top-level import of IMAGE_NAME; Playwright's own imports are lazy so no runtime dep explosion
+                        os.path.join(build_context, 'sgraph_ai_service_playwright')      ,
                         ignore=ignore_build_noise)
         shutil.copytree(str(repo_root / 'scripts') ,
                         os.path.join(build_context, 'scripts') ,

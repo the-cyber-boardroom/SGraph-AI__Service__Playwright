@@ -32,6 +32,10 @@ class Routes__Ec2(Fast_API__Routes):
     def instances(self, body: Schema__Ec2__Create__Request) -> dict:                # POST /ec2/instances
         return self.service.create(body).json()
 
+    def list_instances(self) -> dict:                                               # GET /ec2/instances — equivalent of `sp list`
+        return self.service.list_instances().json()
+    list_instances.__route_path__ = '/instances'                                    # Share path /ec2/instances with the POST; disambiguated by HTTP verb
+
     def get_instance(self, target: str) -> dict:                                    # GET /ec2/instances/{target}
         info = self.service.get_instance_info(target)
         if info is None:
@@ -48,5 +52,6 @@ class Routes__Ec2(Fast_API__Routes):
 
     def setup_routes(self):
         self.add_route_post  (self.instances      )
+        self.add_route_get   (self.list_instances )
         self.add_route_get   (self.get_instance   )
         self.add_route_delete(self.delete_instance)
