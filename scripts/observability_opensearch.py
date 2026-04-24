@@ -18,7 +18,7 @@ from scripts.observability_utils import (
     _region, _sigv4, _os_req, _os_resolve, _backup_path, _latest_backup,
 )
 
-os_app = typer.Typer(help='OpenSearch index, index-pattern, and dashboard management.',
+os_app = typer.Typer(help='OpenSearch index, index-pattern, and dashboard management. (alias: os)',
                      no_args_is_help=True)
 
 # ── Dashboard helpers ──────────────────────────────────────────────────────────

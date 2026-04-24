@@ -6,8 +6,6 @@
 
 import json
 import time
-from datetime import datetime, timezone
-from pathlib import Path
 from typing import Optional
 
 import boto3
@@ -18,18 +16,17 @@ from rich.table   import Table
 
 from scripts.observability_utils import (
     OPENSEARCH_ENGINE, OPENSEARCH_INSTANCE, OPENSEARCH_VOLUME_GB, OPENSEARCH_INDEX,
-    IAM_ROLE_NAME, DASHBOARDS_DIR, BACKUPS_DIR,
+    IAM_ROLE_NAME, DASHBOARDS_DIR,
     _region, _account, _amp_workspaces, _os_domains, _amg_workspaces,
     _list_stacks, _resolve_stack, _os_endpoint, _amp_rw_url, _os_doc_count,
-    _generate_os_password, _backup_path, _latest_backup,
+    _generate_os_password,
 )
 from scripts.observability_opensearch import (
     os_app,
-    _scroll_export, _bulk_import,
-    _do_import_os_saved_objects, _do_export_os_saved_objects,
-    _do_import_grafana, _do_export_grafana,
+    _do_import_os_saved_objects,
     _check_os_dashboards,
 )
+from scripts.observability_backup import bk_app
 
 app = typer.Typer(help='Observability stack management (AMP + OpenSearch).',
                   no_args_is_help=True)
@@ -603,116 +600,10 @@ def cmd_delete(
     c.print()
 
 
-# ── backup ─────────────────────────────────────────────────────────────────────
-
-@app.command('backup')
-def cmd_backup(
-    name        : Optional[str] = typer.Argument(None),
-    region      : Optional[str] = typer.Option(None, '--region'),
-    output_dir  : Optional[str] = typer.Option(None, '--output-dir', '-o'),
-    grafana_url : Optional[str] = typer.Option(None, '--grafana-url', envvar='GRAFANA_WORKSPACE_URL'),
-    index       : str           = typer.Option(OPENSEARCH_INDEX, '--index'),
-    admin_user  : str           = typer.Option('', '--admin-user', envvar='OB_OS_ADMIN_USER',
-                                               help='Admin credentials — required for dashboard export and data read if SG-Deploy-User is not mapped in OpenSearch.'),
-    admin_pass  : str           = typer.Option('', '--admin-pass', envvar='OB_OS_ADMIN_PASS'),
-):
-    """Full backup: data-export + dashboard-export into a timestamped directory."""
-    r          = region or _region()
-    stack_name = _resolve_stack(name, r)
-    by_name    = {s['name']: s for s in _list_stacks(r)}
-    s          = by_name.get(stack_name)
-    if not s or not s['opensearch']:
-        typer.echo(f'Stack {stack_name!r} not found.', err=True)
-        raise typer.Exit(1)
-    ep   = _os_endpoint(s['opensearch'])
-    ts   = datetime.now(timezone.utc).strftime('%Y-%m-%d_%H%M%S')
-    out  = Path(output_dir) if output_dir else BACKUPS_DIR / stack_name / ts
-    out.mkdir(parents=True, exist_ok=True)
-    auth = (admin_user, admin_pass) if admin_user else None
-    c    = Console(highlight=False)
-    c.print(f'\n  [bold]Backup:[/] {stack_name!r}  →  {out}\n')
-
-    ndjson = out / f'{index}.ndjson'
-    count  = _scroll_export(ep, r, index, ndjson, c, auth=auth)
-
-    ddir = out / 'dashboards'
-    ddir.mkdir(exist_ok=True)
-    _do_export_os_saved_objects(ep, r, ddir / 'opensearch-saved-objects.ndjson', c,
-                                admin_user=admin_user, admin_pass=admin_pass)
-    if grafana_url:
-        gdir = ddir / 'grafana'
-        gdir.mkdir(exist_ok=True)
-        _do_export_grafana(grafana_url, gdir, c)
-
-    manifest = {'stack': stack_name, 'timestamp': ts, 'region': r,
-                'index': index, 'doc_count': count,
-                'amp_workspace_id': s['amp']['workspaceId'] if s['amp'] else None,
-                'opensearch_endpoint': ep}
-    (out / 'manifest.json').write_text(json.dumps(manifest, indent=2))
-    c.print(f'\n  [green]✓ Backup complete[/]  {count:,} docs  →  {out}\n')
-
-
-# ── restore ────────────────────────────────────────────────────────────────────
-
-@app.command('restore')
-def cmd_restore(
-    name        : Optional[str] = typer.Argument(None, help='Target stack to restore into.'),
-    region      : Optional[str] = typer.Option(None, '--region'),
-    backup_dir  : Optional[str] = typer.Option(None, '--backup-dir', '-b',
-                                               help='Exact backup directory (contains manifest.json).'),
-    from_stack  : Optional[str] = typer.Option(None, '--from',
-                                               help='Source stack — uses its latest backup.'),
-    grafana_url : Optional[str] = typer.Option(None, '--grafana-url', envvar='GRAFANA_WORKSPACE_URL'),
-    index       : str           = typer.Option(OPENSEARCH_INDEX, '--index'),
-    admin_user  : str           = typer.Option('', '--admin-user', envvar='OB_OS_ADMIN_USER'),
-    admin_pass  : str           = typer.Option('', '--admin-pass', envvar='OB_OS_ADMIN_PASS'),
-):
-    """Restore data + dashboards from a backup directory into a stack."""
-    r          = region or _region()
-    stack_name = _resolve_stack(name, r)
-    by_name    = {s['name']: s for s in _list_stacks(r)}
-    s          = by_name.get(stack_name)
-    if not s or not s['opensearch']:
-        typer.echo(f'Target stack {stack_name!r} not found.', err=True)
-        raise typer.Exit(1)
-    ep   = _os_endpoint(s['opensearch'])
-    bdir = (Path(backup_dir) if backup_dir
-            else _latest_backup(from_stack) if from_stack
-            else _latest_backup(stack_name))
-    if not bdir or not bdir.exists():
-        typer.echo('No backup found. Use --backup-dir or --from <stack>.', err=True)
-        raise typer.Exit(1)
-    auth     = (admin_user, admin_pass) if admin_user else None
-    c        = Console(highlight=False)
-    manifest = json.loads((bdir / 'manifest.json').read_text()) if (bdir / 'manifest.json').exists() else {}
-    c.print(f'\n  [bold]Restore:[/] {bdir}  →  {stack_name!r}\n')
-    if manifest:
-        c.print(f'  Source: {manifest.get("stack")} / {manifest.get("timestamp")} / '
-                f'{manifest.get("doc_count", "?")} docs\n')
-
-    ndjson = bdir / f'{index}.ndjson'
-    if ndjson.exists():
-        n = _bulk_import(ep, r, index, ndjson, c, auth=auth)
-        c.print(f'  [green]✓ Imported {n:,} documents[/]')
-    else:
-        c.print(f'  [dim]No data file at {ndjson}[/]')
-
-    saved_obj = bdir / 'dashboards' / 'opensearch-saved-objects.ndjson'
-    if saved_obj.exists():
-        _do_import_os_saved_objects(ep, r, c, saved_obj,
-                                    admin_user=admin_user, admin_pass=admin_pass)
-
-    if grafana_url:
-        gdir = bdir / 'dashboards' / 'grafana'
-        if gdir.exists():
-            for f in gdir.glob('*.json'):
-                _do_import_grafana(grafana_url, f, c)
-
-    c.print(f'\n  [green]✓ Restore complete[/]\n')
-
-
 app.add_typer(os_app, name='open-search')
-app.add_typer(os_app, name='os')
+app.add_typer(os_app, name='os',           hidden=True)
+app.add_typer(bk_app, name='backup-mgmt')
+app.add_typer(bk_app, name='bk',           hidden=True)
 
 if __name__ == '__main__':
     app()
