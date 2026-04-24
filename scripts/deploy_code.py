@@ -67,8 +67,8 @@ def ensure_bucket(s3: S3, bucket_name: str, region_name: str) -> bool:          
     return True
 
 
-def upload_zip(bucket_name: str, s3_key: str) -> int:                               # Returns byte count so callers / CI logs can sanity-check
-    zb = build_code_zip()
+def upload_zip(bucket_name: str, s3_key: str, package_names: list = None) -> int:   # Returns byte count so callers / CI logs can sanity-check
+    zb = build_code_zip(package_names)
     zb.save_to_s3(bucket_name, s3_key)
     size = len(zb.zip_bytes)
     print(f'uploaded {size:,} bytes to s3://{bucket_name}/{s3_key}')
@@ -126,7 +126,8 @@ def deploy(stage        : str                   ,
            version      : str = None             ,
            region_name  : str = None             ,
            update_lambda: bool = False           ,
-           smoke        : bool = False           ) -> dict:
+           smoke        : bool = False           ,
+           package_names: list = None            ) -> dict:                         # Pass e.g. ['sgraph_ai_service_playwright__cli', 'scripts'] for sibling apps
 
     version      = version or str(version__sgraph_ai_service_playwright)
     lambda_name  = lambda_name or f'{app_name}-{stage}'
@@ -135,15 +136,16 @@ def deploy(stage        : str                   ,
     s3_key       = KEY_FORMAT.format(app_name=app_name, stage=stage, version=version)
 
     ensure_bucket(s3, bucket_name, resolve_region(region_name))
-    size = upload_zip(bucket_name, s3_key)
+    size = upload_zip(bucket_name, s3_key, package_names)
 
-    result = {'bucket'     : bucket_name,
-              'key'        : s3_key     ,
-              'bytes'      : size       ,
-              'app_name'   : app_name   ,
-              'stage'      : stage      ,
-              'version'    : version    ,
-              'lambda_name': lambda_name}
+    result = {'bucket'       : bucket_name,
+              'key'          : s3_key     ,
+              'bytes'        : size       ,
+              'app_name'     : app_name   ,
+              'stage'        : stage      ,
+              'version'      : version    ,
+              'lambda_name'  : lambda_name,
+              'package_names': package_names or ['sgraph_ai_service_playwright']}
 
     if update_lambda:                                                               # Opt-in: requires the Lambda to exist AND its image to understand AGENTIC_* env vars
         result['env_update'] = update_lambda_env(lambda_name, app_name, stage, version)
@@ -162,15 +164,18 @@ def main() -> int:
     parser.add_argument('--region'        , default=None             , help='Override AWS region (default: boto3 session region)')
     parser.add_argument('--update-lambda' , action='store_true'      , help='Flip the Lambda env vars to point at the new version (requires the Lambda to exist AND run the agentic image)')
     parser.add_argument('--smoke'         , action='store_true'      , help='After --update-lambda, probe /admin/health to verify code_source. Ignored without --update-lambda.')
+    parser.add_argument('--package'       , action='append', default=None, dest='package_names', metavar='NAME',
+                                                                      help='Folder name(s) to include in the zip. Repeatable. Default: sgraph_ai_service_playwright')
     args = parser.parse_args()
 
-    deploy(stage         = args.stage      ,
-           app_name      = args.app_name   ,
-           lambda_name   = args.lambda_name,
-           version       = args.version    ,
-           region_name   = args.region     ,
-           update_lambda = args.update_lambda,
-           smoke         = args.smoke        )
+    deploy(stage         = args.stage         ,
+           app_name      = args.app_name      ,
+           lambda_name   = args.lambda_name   ,
+           version       = args.version       ,
+           region_name   = args.region        ,
+           update_lambda = args.update_lambda ,
+           smoke         = args.smoke         ,
+           package_names = args.package_names )
     return 0
 
 
