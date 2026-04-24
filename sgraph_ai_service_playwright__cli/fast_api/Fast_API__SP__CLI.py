@@ -14,15 +14,25 @@
 from osbot_fast_api.api.Fast_API                                                    import Fast_API
 
 from sgraph_ai_service_playwright__cli.ec2.service.Ec2__Service                     import Ec2__Service
+from sgraph_ai_service_playwright__cli.fast_api.exception_handlers                  import register_type_safe_handlers
 from sgraph_ai_service_playwright__cli.fast_api.routes.Routes__Ec2                  import Routes__Ec2
+from sgraph_ai_service_playwright__cli.fast_api.routes.Routes__Observability        import Routes__Observability
+from sgraph_ai_service_playwright__cli.observability.service.Observability__Service import Observability__Service
 
 
 class Fast_API__SP__CLI(Fast_API):
-    ec2_service : Ec2__Service                                                      # Shared across all Routes__Ec2 requests; Type_Safe auto-initialises
+    ec2_service           : Ec2__Service                                            # Shared across all Routes__Ec2 requests; Type_Safe auto-initialises
+    observability_service : Observability__Service                                  # Shared across all Routes__Observability requests
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.config.enable_api_key = True                                           # X-API-Key enforced when FAST_API__AUTH__API_KEY__VALUE is set; unset = open
 
+    def setup(self):
+        result = super().setup()
+        register_type_safe_handlers(self.app())                                     # Maps osbot-fast-api's Type_Safe converter ValueError → 422 (instead of FastAPI's default 500)
+        return result
+
     def setup_routes(self):
-        self.add_routes(Routes__Ec2, service=self.ec2_service)
+        self.add_routes(Routes__Ec2           , service=self.ec2_service          )
+        self.add_routes(Routes__Observability , service=self.observability_service)

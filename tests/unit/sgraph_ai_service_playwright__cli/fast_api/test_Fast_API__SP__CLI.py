@@ -131,12 +131,15 @@ class test_Fast_API__SP__CLI(TestCase):
         response = self.client.delete('/ec2/instances/nosuch-thing', headers=self._headers())
         assert response.status_code == 404
 
-    def test_post_instances__rejects_invalid_deploy_name(self):                     # Safe_Str__Deploy_Name regex rejects anything that's not adjective-noun
-        from fastapi.testclient import TestClient
-        raw_client = TestClient(self.fast_api.app(), raise_server_exceptions=False) # osbot-fast-api's Type_Safe converter raises ValueError on invalid input; FastAPI's default handler turns it into 500. Follow-up: convert those to 422 at the framework layer.
-        response   = raw_client.post('/ec2/instances', headers=self._headers(),
-                                                       json={'deploy_name': 'NOT_VALID!'})
-        assert response.status_code >= 400                                          # Rejected — exact code (500 today, 422 once the framework catches ValueError) is a separate concern
+    def test_post_instances__rejects_invalid_deploy_name(self):                     # Safe_Str__Deploy_Name regex rejects; exception handler converts ValueError -> 422
+        response = self.client.post('/ec2/instances', headers=self._headers(),
+                                                      json={'deploy_name': 'NOT_VALID!'})
+        assert response.status_code == 422
+        body = response.json()
+        assert body['detail'][0]['type']      == 'type_safe_value_error'
+        assert body['detail'][0]['primitive'] == 'Safe_Str__Deploy_Name'
+        assert 'does not match required pattern' in body['detail'][0]['msg']
+        assert 'Type-safe primitive rejected'    in body['hint']
 
     def test_unauthenticated__is_rejected(self):                                    # Sanity — no header = 401
         response = self.client.get(f'/ec2/instances/{DEPLOY_NAME}')
