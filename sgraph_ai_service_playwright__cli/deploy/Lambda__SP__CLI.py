@@ -26,9 +26,14 @@ from osbot_aws.deploy.Deploy_Lambda                                             
 from osbot_utils.type_safe.Type_Safe                                                import Type_Safe
 from osbot_utils.utils.Env                                                          import get_env
 
+from sgraph_ai_service_playwright__cli.deploy.Enum__Lambda__Variant                 import Enum__Lambda__Variant
+
 
 APP_NAME                         = 'sp-playwright-cli'
 DEFAULT_STAGE                    = 'dev'
+
+AGENTIC_APP_NAME_VALUE           = APP_NAME                                         # AGENTIC_APP_NAME env var on the agentic Lambda — pins the S3 bucket folder
+AGENTIC_DEFAULT_VERSION_FALLBACK = 'v0.0.1'                                         # Used when the version file is missing; matches sgraph_ai_service_playwright__cli/version
 
 LAMBDA_MEMORY_MB                 = 1024                                             # Adapter-sized; AWS API calls don't need Playwright's 5120MB
 LAMBDA_TIMEOUT_SECS              = 120                                              # sp create takes ~60s; buffer 2x
@@ -46,11 +51,15 @@ FUNCTION_URL_PRINCIPAL           = '*'
 
 
 class Lambda__SP__CLI(Type_Safe):
-    stage    : str = DEFAULT_STAGE
+    stage    : str                  = DEFAULT_STAGE
+    variant  : Enum__Lambda__Variant = Enum__Lambda__Variant.AGENTIC                # Default to agentic — preserves the existing single-Lambda deployment name
     role_arn : str                                                                  # Required — set by the provisioner after SP__CLI__Lambda__Role.ensure()
     image_uri: str                                                                  # Required — set by the provisioner after Docker__SP__CLI.build_and_push()
+    version  : str                  = ''                                            # Required when variant=AGENTIC; pins AGENTIC_APP_VERSION env var
 
-    def lambda_name(self) -> str:                                                   # e.g. sp-playwright-cli-dev
+    def lambda_name(self) -> str:                                                   # AGENTIC: 'sp-playwright-cli-dev' | BASELINE: 'sp-playwright-cli-baseline-dev'
+        if self.variant == Enum__Lambda__Variant.BASELINE:
+            return f'{APP_NAME}-baseline-{self.stage}'
         return f'{APP_NAME}-{self.stage}'
 
     def upsert(self, wait_for_active: bool = True) -> dict:                         # Idempotent — never deletes; preserves Function URL host UUID
@@ -93,6 +102,15 @@ class Lambda__SP__CLI(Type_Safe):
         # bridges AWS_REGION → AWS_DEFAULT_REGION at process start instead.
         env_vars = {'FAST_API__AUTH__API_KEY__NAME'  : get_env('FAST_API__AUTH__API_KEY__NAME'  ) or 'X-API-Key',
                     'FAST_API__AUTH__API_KEY__VALUE' : get_env('FAST_API__AUTH__API_KEY__VALUE' )}
+
+        if self.variant == Enum__Lambda__Variant.AGENTIC:                           # AGENTIC: pin S3-zip coordinates so the boot shim downloads them on cold start
+            version = self.version or AGENTIC_DEFAULT_VERSION_FALLBACK
+            env_vars['AGENTIC_APP_NAME'   ] = AGENTIC_APP_NAME_VALUE
+            env_vars['AGENTIC_APP_STAGE'  ] = self.stage
+            env_vars['AGENTIC_APP_VERSION'] = version
+        # BASELINE: no AGENTIC_APP_* env vars — lambda_handler detects absence
+        # and boots Fast_API__SP__CLI directly from the baked image.
+
         for key, value in env_vars.items():
             if value:
                 lambda_function.set_env_variable(key, value)
