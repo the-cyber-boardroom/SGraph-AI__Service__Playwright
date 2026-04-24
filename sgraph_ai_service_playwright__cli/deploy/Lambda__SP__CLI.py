@@ -72,6 +72,9 @@ class Lambda__SP__CLI(Type_Safe):
             create_result = {'status': 'ok', 'name': lambda_function.name, 'data': {'mode': 'update'}}
         else:
             create_result = lambda_function.create()
+            if create_result.get('status') != 'ok':                                 # osbot-aws swallows create_function exceptions into a dict — surface them so CI fails loudly instead of bleeding into wait_for_state_active as a misleading ResourceNotFoundException
+                raise RuntimeError(f'Lambda create failed for {lambda_function.name!r}: {create_result}')
+            print(f'[Lambda__SP__CLI] created {lambda_function.name!r}: {create_result.get("data", {}).get("FunctionArn", "<no arn>")}')
 
         if wait_for_active:
             lambda_function.wait_for_state_active(max_wait_count=80)
