@@ -677,10 +677,15 @@ def _print_preflight_summary(account, region, registry,
     c.print()
 
     c.print('  [bold blue]🔌  Ports[/]')
-    c.print(_kv_table((f':{EC2__PLAYWRIGHT_PORT}',        'playwright API         (public, API-key gated)' ),
-                      (f':{EC2__SIDECAR_ADMIN_PORT}',     'sidecar admin API      (public, API-key gated)' ),
-                      (f':{EC2__BROWSER_INTERNAL_PORT}',  'streaming browser      (public, KasmVNC password = API key)'),
-                      (':8080',                            'mitmproxy proxy        (Docker-network-only)'   )))
+    port_rows = [
+        (f':{EC2__PLAYWRIGHT_PORT}',    'playwright API         (public, API-key gated)'),
+        (f':{EC2__SIDECAR_ADMIN_PORT}', 'sidecar admin API      (public, API-key gated)'),
+        (':8080',                        'mitmproxy proxy        (Docker-network-only)'  ),
+    ]
+    if upstream_url:
+        port_rows.insert(2, (f':{EC2__BROWSER_INTERNAL_PORT}',
+                             'streaming browser      (public, KasmVNC password = API key)'))
+    c.print(_kv_table(*port_rows))
     c.print()
 
     for w in warnings:
@@ -1167,8 +1172,9 @@ def provision(stage                  : str          = DEFAULT_STAGE    ,
     details       = ec2.instance_details(instance_id)
     public_ip     = details.get('public_ip')
     playwright_url = f'http://{public_ip}:{EC2__PLAYWRIGHT_PORT}'         if public_ip else None
-    sidecar_url    = f'http://{public_ip}:{EC2__SIDECAR_ADMIN_PORT}'    if public_ip else None
-    browser_url    = f'https://{public_ip}:{EC2__BROWSER_INTERNAL_PORT}' if public_ip else None
+    sidecar_url    = f'http://{public_ip}:{EC2__SIDECAR_ADMIN_PORT}'     if public_ip else None
+    browser_url    = (f'https://{public_ip}:{EC2__BROWSER_INTERNAL_PORT}'
+                      if public_ip and upstream_url else None)
 
     return {'action'              : 'create'               ,
             'instance_id'        : instance_id             ,
@@ -1300,7 +1306,8 @@ def _render_create_result(r: dict) -> None:
     right.add_row('public-ip',    r['public_ip']                               )
     right.add_row('playwright',   r['playwright_url'] or '—'                   )
     right.add_row('sidecar-admin',r['sidecar_admin_url'] or '—'                )
-    right.add_row('browser',      r.get('browser_url') or '—'                  )
+    if r.get('browser_url'):
+        right.add_row('browser',  r['browser_url']                             )
     right.add_row('api-key-name', r['api_key_name']                            )
     right.add_row('api-key-value',f'[bold green]{r["api_key_value"]}[/]'       )
 
