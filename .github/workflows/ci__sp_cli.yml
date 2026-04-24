@@ -117,14 +117,21 @@ jobs:
           fi
 
   # ════════════════════════════════════════════════════════════════════════════
-  # Job 3: Detect Image-Relevant Changes (path filter — skip rebuilds on
-  #   test-only or documentation-only churn; --force via workflow_dispatch).
+  # Job 3: Detect what needs rebuilding
+  #   • image-rebuild-needed   → Dockerfile / requirements / deploy/images changes
+  #   • code-deploy-needed     → any Python change under the hot-swap trees
+  #                              (everything that gets zipped into the S3 hot-swap)
+  #
+  #   Path filters are cheap; running a full image rebuild on code-only changes
+  #   is not. image-rebuild-needed is strictly a SUBSET of code-deploy-needed
+  #   (every image-relevant change is also code-relevant, but not vice versa).
   # ════════════════════════════════════════════════════════════════════════════
   detect-changes:
-    name: Detect Image-Relevant Changes
+    name: Detect Image + Code Changes
     runs-on: ubuntu-latest
     outputs:
       image-rebuild-needed: ${{ steps.filter.outputs.image }}
+      code-deploy-needed  : ${{ steps.filter.outputs.code  }}
     steps:
       - uses: actions/checkout@v5
 
@@ -134,12 +141,10 @@ jobs:
         with:
           filters: |
             image:
-              - 'sgraph_ai_service_playwright__cli/ec2/**'
-              - 'sgraph_ai_service_playwright__cli/observability/**'
-              - 'sgraph_ai_service_playwright__cli/fast_api/**'
               - 'sgraph_ai_service_playwright__cli/deploy/images/**'
               - 'sgraph_ai_service_playwright__cli/version'
-              - 'sgraph_ai_service_playwright__cli/__init__.py'
+            code:
+              - 'sgraph_ai_service_playwright__cli/**'
               - 'scripts/provision_ec2.py'
               - 'scripts/observability.py'
               - 'scripts/__init__.py'
@@ -257,3 +262,58 @@ jobs:
           AWS_ACCESS_KEY_ID              : ${{ secrets.AWS_ACCESS_KEY_ID              }}
           FAST_API__AUTH__API_KEY__NAME  : ${{ secrets.FAST_API__AUTH__API_KEY__NAME  }}
           FAST_API__AUTH__API_KEY__VALUE : ${{ secrets.FAST_API__AUTH__API_KEY__VALUE }}
+
+  # ════════════════════════════════════════════════════════════════════════════
+  # Job 6: Deploy code zip (fast-path hot-swap)
+  #   Packages sgraph_ai_service_playwright__cli/ + scripts/ into a zip,
+  #   uploads to s3://<account>--sgraph-ai--<region>/apps/sp-playwright-cli/<stage>/<version>.zip,
+  #   then flips AGENTIC_APP_VERSION on the agentic Lambda (sp-playwright-cli-<stage>)
+  #   so the next cold start pulls the fresh code.
+  #
+  #   Runs AFTER provision-sp-cli-lambda so the agentic Lambda exists + has
+  #   AGENTIC_APP_* env vars. Fast path (~10 s) when no image rebuild was
+  #   needed. Gated on code-deploy-needed so doc-only PRs skip it.
+  # ════════════════════════════════════════════════════════════════════════════
+  deploy-sp-cli-code:
+    name: "Deploy SP CLI code (S3 zip + AGENTIC_APP_VERSION flip)"
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: [provision-sp-cli-lambda, check-aws-credentials, detect-changes]
+    if: |
+      always() &&
+      needs.provision-sp-cli-lambda.result == 'success' &&
+      needs.check-aws-credentials.outputs.has-credentials == 'true' &&
+      needs.detect-changes.outputs.code-deploy-needed == 'true'
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+          cache-dependency-path: 'sgraph_ai_service_playwright__cli/deploy/images/sp_cli/requirements.txt'
+
+      - name: Install dependencies
+        run: |
+          pip install -r sgraph_ai_service_playwright__cli/deploy/images/sp_cli/requirements.txt
+
+      - name: Resolve deployment stage
+        id: stage
+        run: |
+          if [[ -n "${{ inputs.stage }}" ]]; then
+            echo "stage=${{ inputs.stage }}" >> $GITHUB_OUTPUT
+          elif [[ "${{ github.ref_name }}" == "main" ]]; then
+            echo "stage=${{ env.DEFAULT_STAGE_MAIN }}" >> $GITHUB_OUTPUT
+          else
+            echo "stage=${{ env.DEFAULT_STAGE_DEV }}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Package + upload code zip + flip Lambda env
+        run: |
+          python -m sgraph_ai_service_playwright__cli.deploy.deploy_code \
+            --stage ${{ steps.stage.outputs.stage }} --update-lambda
+        env:
+          AWS_SECRET_ACCESS_KEY : ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION    : ${{ secrets.AWS_DEFAULT_REGION    }}
+          AWS_ACCOUNT_ID        : ${{ secrets.AWS_ACCOUNT_ID        }}
+          AWS_ACCESS_KEY_ID     : ${{ secrets.AWS_ACCESS_KEY_ID     }}
