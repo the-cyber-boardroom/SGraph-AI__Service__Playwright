@@ -140,6 +140,12 @@ SG_COMPOSE_EOF
 docker pull {portainer_image_uri} || true
 docker compose -f /opt/sg-playwright/docker-compose.yml up -d
 
+# Write container ID → service name map for fluent-bit log enrichment
+sleep 5
+docker ps --format '{{{{.ID}}}} {{{{.Names}}}}' \
+  | sed 's/ sg-playwright-/ /; s/-[0-9]*$//' \
+  > /opt/sg-playwright/config/container-names.txt || true
+
 echo "=== SG Playwright AMI start complete at $(date) ==="
 echo "OK $(date --iso-8601=seconds)" > "$BOOT_STATUS_FILE"
 trap - EXIT
@@ -305,11 +311,11 @@ COMPOSE_SVC_PROMETHEUS = """\
 COMPOSE_SVC_FLUENT_BIT = """\
   fluent-bit:
     image: amazon/aws-for-fluent-bit:stable
+    command: /fluent-bit/bin/fluent-bit -c /opt/sg-playwright/config/fluent-bit.conf
     volumes:
       - /var/lib/docker/containers:/var/lib/docker/containers:ro
       - /var/run/docker.sock:/var/run/docker.sock:ro
-      - /opt/sg-playwright/config/fluent-bit.conf:/fluent-bit/etc/fluent-bit.conf:ro
-      - /opt/sg-playwright/config/parsers_custom.conf:/fluent-bit/etc/parsers_custom.conf:ro
+      - /opt/sg-playwright/config:/opt/sg-playwright/config:ro
     networks:
       - sg-net
     restart: always
@@ -375,13 +381,44 @@ FLUENT_BIT_PARSERS_CUSTOM = """\
     Types       http_status:integer
 """
 
+# Lua filter: maps 12-char container ID → service name by reading container-names.txt
+# The names file is written by the host after `docker compose up -d` so it's always fresh.
+# Short-ID lookup matches the 12-char prefix that `docker ps` shows.
+FLUENT_BIT_LUA_CONTAINER_NAME = """\
+local cache    = {}
+local map_file = "/opt/sg-playwright/config/container-names.txt"
+
+local function load_map()
+    local f = io.open(map_file, "r")
+    if not f then return end
+    for line in f:lines() do
+        local id, name = line:match("^(%S+)%s+(.+)$")
+        if id and name then cache[id] = name end
+    end
+    f:close()
+end
+
+load_map()
+
+function add_container_name(tag, timestamp, record)
+    local path = record["container_path"]
+    if not path then return 0, timestamp, record end
+    local cid = path:match("/containers/([0-9a-f]+)/")
+    if not cid then return 0, timestamp, record end
+    local short = cid:sub(1, 12)
+    if not cache[short] then load_map() end         -- reload if container started after fluent-bit
+    record["container_name"] = cache[short] or short
+    return 1, timestamp, record
+end
+"""
+
 FLUENT_BIT_CONF_TEMPLATE = """\
 [SERVICE]
     Flush         1
     Daemon        Off
     Log_Level     info
     Parsers_File  /fluent-bit/etc/parsers.conf
-    Parsers_File  /fluent-bit/etc/parsers_custom.conf
+    Parsers_File  /opt/sg-playwright/config/parsers_custom.conf
 
 [INPUT]
     Name              tail
@@ -398,6 +435,13 @@ FLUENT_BIT_CONF_TEMPLATE = """\
     Match   *
     Record  stack        sg-playwright
     Record  environment  {stage}
+
+# Add container_name field by looking up the short container ID in container-names.txt
+[FILTER]
+    Name    lua
+    Match   docker.*
+    script  /opt/sg-playwright/config/container_name.lua
+    call    add_container_name
 
 # Parse FastAPI/uvicorn access log lines into structured fields
 [FILTER]
@@ -487,6 +531,7 @@ def render_observability_configs_section(region           : str,
     parts = [
         f"cat > /opt/sg-playwright/config/prometheus.yml << 'SG_PROM_EOF'\n{prometheus_yml}SG_PROM_EOF",
         f"cat > /opt/sg-playwright/config/parsers_custom.conf << 'SG_FB_PARSERS_EOF'\n{FLUENT_BIT_PARSERS_CUSTOM}SG_FB_PARSERS_EOF",
+        f"cat > /opt/sg-playwright/config/container_name.lua << 'SG_FB_LUA_EOF'\n{FLUENT_BIT_LUA_CONTAINER_NAME}SG_FB_LUA_EOF",
         f"cat > /opt/sg-playwright/config/fluent-bit.conf << 'SG_FB_EOF'\n{fluent_bit_conf}SG_FB_EOF",
     ]
     return '\n\n'.join(parts) + '\n'
@@ -566,6 +611,13 @@ SG_COMPOSE_EOF
 {observability_configs_section}
 {browser_proxy_section}
 docker compose -f /opt/sg-playwright/docker-compose.yml up -d
+
+# Write container ID → service name map for fluent-bit log enrichment
+sleep 5
+docker ps --format '{{{{.ID}}}} {{{{.Names}}}}' \
+  | sed 's/ sg-playwright-/ /; s/-[0-9]*$//' \
+  > /opt/sg-playwright/config/container-names.txt || true
+
 {shutdown_section}
 echo "=== SG Playwright setup complete at $(date) ==="
 echo "OK $(date --iso-8601=seconds)" > "$BOOT_STATUS_FILE"
