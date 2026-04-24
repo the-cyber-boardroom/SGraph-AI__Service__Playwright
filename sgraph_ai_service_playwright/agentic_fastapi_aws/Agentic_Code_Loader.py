@@ -42,6 +42,10 @@ DEFAULT_KEY_FORMAT    = 'apps/{app_name}/{stage}/{version}.zip'                 
 PASSTHROUGH_TOKEN     = 'passthrough:sys.path'                                      # Provenance string when no source is configured
 
 
+def log_s3_fallback(reason: str) -> None:                                           # Stderr -> CloudWatch; surfaces why the agentic Lambda is running baked code
+    print(f'[Agentic_Code_Loader] S3 fallback -> passthrough ({reason})', file=sys.stderr)
+
+
 class Agentic_Code_Loader(Type_Safe):
 
     def resolve(self) -> str:                                                       # Precedence: local > S3 > passthrough
@@ -66,12 +70,14 @@ class Agentic_Code_Loader(Type_Safe):
         override = os.environ.get(ENV_VAR__AGENTIC_CODE_SOURCE_S3_KEY)
         if override:
             return override
-        app_name = os.environ[ENV_VAR__AGENTIC_APP_NAME]
-        stage    = os.environ[ENV_VAR__AGENTIC_APP_STAGE]
-        version  = os.environ[ENV_VAR__AGENTIC_APP_VERSION]
+        app_name = os.environ.get(ENV_VAR__AGENTIC_APP_NAME   , '')
+        stage    = os.environ.get(ENV_VAR__AGENTIC_APP_STAGE  , '')
+        version  = os.environ.get(ENV_VAR__AGENTIC_APP_VERSION, '')
+        if not (app_name and stage and version):                                    # Missing one = can't build the key; caller falls through to passthrough
+            return ''
         return DEFAULT_KEY_FORMAT.format(app_name=app_name, stage=stage, version=version)
 
-    def load_from_s3(self):
+    def load_from_s3(self):                                                         # Soft-fail: any S3 error (NoSuchKey, AccessDenied, transient) → return None so resolve() falls to passthrough and the Lambda boots baked code
         if os.environ.get(ENV_VAR__AGENTIC_CODE_LOCAL_PATH):                        # Local override already handled upstream
             return None
         if not os.environ.get(ENV_VAR__AWS_REGION):                                 # Not on Lambda
@@ -81,28 +87,44 @@ class Agentic_Code_Loader(Type_Safe):
             return None
 
         import boto3, io, zipfile                                                   # Deferred imports — keep module-level import graph minimal
+        from botocore.exceptions                                                    import ClientError
 
         region_name = os.environ[ENV_VAR__AWS_REGION]
-        account_id  = boto3.client('sts').get_caller_identity()['Account']
-        bucket_name = self.resolve_s3_bucket(account_id, region_name)
         s3_key      = self.resolve_s3_key()
-        target_dir  = f'{CODE_CACHE_ROOT}/{bucket_name}/{s3_key}'
+        if not s3_key:
+            log_s3_fallback('missing AGENTIC_APP_VERSION/STAGE/NAME — cannot resolve S3 key')
+            return None
 
-        if self.cache_is_fresh(target_dir, bucket_name, s3_key):                    # Warm-invocation short-circuit — ~200 ms saved per hit
+        try:
+            account_id  = boto3.client('sts').get_caller_identity()['Account']
+            bucket_name = self.resolve_s3_bucket(account_id, region_name)
+            target_dir  = f'{CODE_CACHE_ROOT}/{bucket_name}/{s3_key}'
+
+            if self.cache_is_fresh(target_dir, bucket_name, s3_key):                # Warm-invocation short-circuit — ~200 ms saved per hit
+                sys.path.insert(0, target_dir)
+                return f's3:{bucket_name}/{s3_key}→{target_dir} (cached)'
+
+            os.makedirs(target_dir, exist_ok=True)
+            response  = boto3.client('s3').get_object(Bucket=bucket_name, Key=s3_key)
+            zip_bytes = response['Body'].read()
+            etag      = response.get('ETag', '').strip('"')
+
+            with zipfile.ZipFile(io.BytesIO(zip_bytes), 'r') as zip_ref:
+                zip_ref.extractall(target_dir)
+
+            self.write_cache_etag(target_dir, etag)
             sys.path.insert(0, target_dir)
-            return f's3:{bucket_name}/{s3_key}→{target_dir} (cached)'
-
-        os.makedirs(target_dir, exist_ok=True)
-        response  = boto3.client('s3').get_object(Bucket=bucket_name, Key=s3_key)
-        zip_bytes = response['Body'].read()
-        etag      = response.get('ETag', '').strip('"')
-
-        with zipfile.ZipFile(io.BytesIO(zip_bytes), 'r') as zip_ref:
-            zip_ref.extractall(target_dir)
-
-        self.write_cache_etag(target_dir, etag)
-        sys.path.insert(0, target_dir)
-        return f's3:{bucket_name}/{s3_key}→{target_dir}'
+            return f's3:{bucket_name}/{s3_key}→{target_dir}'
+        except ClientError as exc:                                                  # NoSuchKey (zip not uploaded yet), AccessDenied, throttling, etc.
+            error_code = exc.response.get('Error', {}).get('Code', 'Unknown')
+            log_s3_fallback(f'{error_code} on s3 key {s3_key!r}')
+            return None
+        except zipfile.BadZipFile as exc:                                           # Downloaded something but it's not a valid zip
+            log_s3_fallback(f'BadZipFile on s3 key {s3_key!r}: {exc}')
+            return None
+        except OSError as exc:                                                      # Extraction / filesystem errors (disk full, perms)
+            log_s3_fallback(f'OSError extracting {s3_key!r}: {exc}')
+            return None
 
     def cache_is_fresh(self, target_dir: str, bucket_name: str, s3_key: str) -> bool:   # ETag comparison — if S3 object unchanged and cache exists, reuse
         etag_file = os.path.join(target_dir, '.etag')

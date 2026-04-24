@@ -138,6 +138,26 @@ class test_resolve_s3_key(TestCase):
                           ENV_VAR__AGENTIC_CODE_SOURCE_S3_KEY    : 'custom/path.zip'  }):
             assert Agentic_Code_Loader().resolve_s3_key() == 'custom/path.zip'
 
+    def test__returns_empty_string_when_required_env_var_missing(self):             # Soft-fail: without all three APP_NAME/STAGE/VERSION set, key can't be built — caller falls to passthrough
+        with _EnvScrub(**{ENV_VAR__AGENTIC_APP_NAME : 'sg-playwright'}):
+            assert Agentic_Code_Loader().resolve_s3_key() == ''
+        with _EnvScrub(**{ENV_VAR__AGENTIC_APP_NAME  : 'sg-playwright',
+                          ENV_VAR__AGENTIC_APP_STAGE : 'dev'          }):
+            assert Agentic_Code_Loader().resolve_s3_key() == ''
+
+
+class test_load_from_s3__soft_fail(TestCase):                                       # NoSuchKey + extraction errors fall through to passthrough so the Lambda still boots (baked code)
+
+    def test__returns_none_when_s3_key_cannot_be_built(self):                       # APP_NAME set but VERSION missing — resolve_s3_key returns ''
+        with _EnvScrub(**{ENV_VAR__AWS_REGION       : 'eu-west-2'     ,
+                          ENV_VAR__AGENTIC_APP_NAME : 'sp-playwright-cli'}), _SysPathSnapshot():
+            assert Agentic_Code_Loader().load_from_s3() is None
+
+    def test__resolve_falls_to_passthrough_on_malformed_agentic_config(self):       # End-to-end: malformed agentic config MUST NOT raise
+        with _EnvScrub(**{ENV_VAR__AWS_REGION       : 'eu-west-2'     ,
+                          ENV_VAR__AGENTIC_APP_NAME : 'sp-playwright-cli'}), _SysPathSnapshot():
+            assert Agentic_Code_Loader().resolve() == PASSTHROUGH_TOKEN
+
 
 class test_resolve(TestCase):
 
