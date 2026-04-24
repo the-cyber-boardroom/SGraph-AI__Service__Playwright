@@ -767,153 +767,85 @@ def cmd_delete(
 
 # ── Dashboard helpers ──────────────────────────────────────────────────────────
 
-def _verify_index_pattern_exists(base: str, hdrs: dict, auth) -> bool:
-    """Return True if the index pattern is actually readable via the Dashboards API.
+def _fetch_index_fields(base: str, hdrs: dict, auth) -> str:
+    """Fetch live field list for OPENSEARCH_INDEX via the Dashboards wildcard API.
 
-    Used to catch AWS OpenSearch versions that return 200 on creation but don't persist.
+    Returns a JSON-encoded string (the format OSD saved-objects expects for
+    the 'fields' attribute).  Falls back to '[]' on any error.
     """
-    check_urls = [
-        f'{base}/api/data_views/data_view/{OPENSEARCH_INDEX}',
-        f'{base}/api/saved_objects/index-pattern/{OPENSEARCH_INDEX}',
-        f'{base}/api/saved_objects/data-view/{OPENSEARCH_INDEX}',
-    ]
-    for url in check_urls:
-        try:
-            r = requests.get(url, headers=hdrs, auth=auth, timeout=15)
-        except Exception:
-            continue
-        if r.status_code == 200:
-            return True
-    # Also check via _find in case ID doesn't match exactly
-    for obj_type in ('index-pattern', 'data-view'):
-        try:
-            r = requests.get(f'{base}/api/saved_objects/_find?type={obj_type}&per_page=100',
-                             headers=hdrs, auth=auth, timeout=15)
-        except Exception:
-            continue
+    url = (f'{base}/api/index_patterns/_fields_for_wildcard'
+           f'?pattern={OPENSEARCH_INDEX}'
+           f'&meta_fields=_source&meta_fields=_id&meta_fields=_type'
+           f'&meta_fields=_index&meta_fields=_score')
+    try:
+        r = requests.get(url, headers=hdrs, auth=auth, timeout=15)
         if r.status_code < 300:
-            objects = r.json().get('saved_objects', [])
-            if any(OPENSEARCH_INDEX == o.get('attributes', {}).get('title') for o in objects):
-                return True
-    return False
+            fields = r.json().get('fields', [])
+            return json.dumps(fields)
+    except Exception:
+        pass
+    return '[]'
 
 
-def _sys_idx_write(endpoint: str, doc_id: str, doc: dict,
-                   admin_user: str, admin_pass: str,
-                   c: Console = None) -> bool:
-    """Write a saved-object doc directly to the .opensearch_dashboards system index.
+def _verify_index_pattern_exists(base: str, hdrs: dict, auth) -> bool:
+    """Return True only if the saved object is readable AND has the right title.
 
-    Bypasses the Dashboards API (and its schema validation) entirely.
-    Tries multiple index name variants; no HEAD probe — just attempt PUT directly.
-    AWS OpenSearch blocks HEAD on system indices but may allow PUT.
+    Checks the response body — not just the HTTP status — to catch AWS
+    OpenSearch versions that return 200 on creation but don't persist.
     """
-    auth = (admin_user, admin_pass)
-    hdrs = {'Content-Type': 'application/json'}
-    for idx in ('.opensearch_dashboards', '.opensearch_dashboards_1', '.kibana', '.kibana_1'):
-        url  = f'https://{endpoint}/{idx}/_doc/{doc_id}?refresh=true'
-        try:
-            resp = requests.put(url, json=doc, headers=hdrs, auth=auth, timeout=30)
-        except Exception as e:
-            if c:
-                c.print(f'  [dim]  sys-idx {idx}: error {e}[/]')
-            continue
-        if resp.status_code < 300:
-            return True
-        if c:
-            c.print(f'  [dim]  sys-idx {idx}: HTTP {resp.status_code}[/]')
-    return False
-
-
-def _sys_idx_write_sigv4(endpoint: str, region: str, doc_id: str, doc: dict,
-                          c: Console = None) -> bool:
-    """Write a saved-object doc to the .opensearch_dashboards system index using SigV4.
-
-    Used when no admin credentials are available; falls back to IAM-based auth.
-    """
-    body = json.dumps(doc).encode()
-    for idx in ('.opensearch_dashboards', '.opensearch_dashboards_1', '.kibana', '.kibana_1'):
-        url  = f'https://{endpoint}/{idx}/_doc/{doc_id}?refresh=true'
-        try:
-            resp = _sigv4('PUT', url, region, body)
-        except Exception as e:
-            if c:
-                c.print(f'  [dim]  sigv4 sys-idx {idx}: error {e}[/]')
-            continue
-        if resp.status_code < 300:
-            return True
-        if c:
-            c.print(f'  [dim]  sigv4 sys-idx {idx}: HTTP {resp.status_code}[/]')
-    return False
+    r = requests.get(f'{base}/api/saved_objects/index-pattern/{OPENSEARCH_INDEX}',
+                     headers=hdrs, auth=auth, timeout=15)
+    if r.status_code >= 300:
+        return False
+    try:
+        return r.json().get('attributes', {}).get('title') == OPENSEARCH_INDEX
+    except (ValueError, AttributeError):
+        return False
 
 
 def _do_import_os_saved_objects(endpoint: str, region: str, c: Console,
                                  ndjson_path: Optional[Path] = None,
                                  admin_user: str = '', admin_pass: str = ''):
-    """Create a Data View + import dashboards.
+    """Create index pattern + import dashboards using admin basic-auth.
 
-    Strategy (each step falls back to the next):
-    1. Dashboards REST API (data_views / index_patterns / saved_objects)
-    2. Direct write to .opensearch_dashboards system index — basic auth (admin_user)
-    3. Direct write to .opensearch_dashboards system index — SigV4 (IAM role)
+    Requires admin_user / admin_pass — IAM / SigV4 cannot write saved objects
+    on AWS-managed OpenSearch with FGAC + system-index restriction enabled.
+    Callers should abort before reaching here if credentials are missing.
     """
-    auth = (admin_user, admin_pass) if admin_user else None
+    auth = (admin_user, admin_pass)
     hdrs = {'Content-Type': 'application/json', 'osd-xsrf': 'true', 'securitytenant': 'global'}
     base = f'https://{endpoint}/_dashboards'
 
-    # ── Data View ───────────────────────────────────────────────────────────────
-    _DV_TRIES = [
-        (f'{base}/api/data_views/data_view',
-         {'data_view': {'title': OPENSEARCH_INDEX, 'timeFieldName': '@timestamp',
-                         'id': OPENSEARCH_INDEX}, 'override': True}),
-        (f'{base}/api/index_patterns/index_pattern',
-         {'index_pattern': {'title': OPENSEARCH_INDEX, 'timeFieldName': '@timestamp'},
-          'override': True}),
-        (f'{base}/api/saved_objects/data-view/{OPENSEARCH_INDEX}?overwrite=true&security_tenant=global',
-         {'attributes': {'title': OPENSEARCH_INDEX, 'timeFieldName': '@timestamp'}}),
-        (f'{base}/api/saved_objects/index-pattern/{OPENSEARCH_INDEX}?overwrite=true&security_tenant=global',
-         {'attributes': {'title': OPENSEARCH_INDEX, 'timeFieldName': '@timestamp',
-                          'fields': '[]'}}),
-    ]
-    dv_ok = False
-    for dv_url, dv_body in _DV_TRIES:
-        resp = requests.post(dv_url, json=dv_body, headers=hdrs, auth=auth, timeout=30)
-        if resp.status_code < 300:
-            # Some AWS OpenSearch versions return 200 but don't persist — verify immediately
-            dv_ok = _verify_index_pattern_exists(base, hdrs, auth)
-            if dv_ok:
-                break
-        if resp.status_code >= 500:
-            break  # server error — stop retrying
+    # ── Index pattern ───────────────────────────────────────────────────────────
+    # Fetch live field list first so the pattern is immediately usable.
+    fields_str = _fetch_index_fields(base, hdrs, auth)
+    c.print(f'  [dim]  fields fetched: {len(json.loads(fields_str))} fields[/]')
 
-    dv_doc = {'type': 'index-pattern',
-              'index-pattern': {'title': OPENSEARCH_INDEX, 'timeFieldName': '@timestamp',
-                                 'fields': '[]'},
-              'references': [], 'namespaces': ['default']}
-    dv_id  = f'index-pattern:{OPENSEARCH_INDEX}'
+    ip_body = {'attributes': {'title': OPENSEARCH_INDEX,
+                               'timeFieldName': '@timestamp',
+                               'fields': fields_str}}
+    url = (f'{base}/api/saved_objects/index-pattern/{OPENSEARCH_INDEX}'
+           f'?overwrite=true&security_tenant=global')
+    resp = requests.post(url, json=ip_body, headers=hdrs, auth=auth, timeout=30)
+    c.print(f'  [dim]  POST index-pattern: HTTP {resp.status_code}  '
+            f'{resp.text[:200].strip()}[/]')
 
-    if not dv_ok and admin_user:
-        dv_ok = _sys_idx_write(endpoint, dv_id, dv_doc, admin_user, admin_pass, c)
-
-    if not dv_ok:
-        # SigV4 fallback — writes directly to system index via IAM; bypasses Dashboards FGAC
-        dv_ok = _sys_idx_write_sigv4(endpoint, region, dv_id, dv_doc, c)
-
+    dv_ok = _verify_index_pattern_exists(base, hdrs, auth)
     if dv_ok:
-        c.print(f'  [green]✓ Data View created[/]  ({OPENSEARCH_INDEX})')
+        c.print(f'  [green]✓ Index pattern created[/]  ({OPENSEARCH_INDEX})')
     else:
-        c.print(f'  [yellow]⚠ Data View not created — manual step:[/]')
-        c.print(f'    OS Dashboards → Stack Management → Data Views')
-        c.print(f'    Title: {OPENSEARCH_INDEX}  |  Time field: @timestamp')
+        c.print(f'  [red]✗ Index pattern creation failed (HTTP {resp.status_code})[/]')
+        c.print(f'    Response: {resp.text[:400]}')
+        c.print(f'    Check admin credentials and that the domain has FGAC enabled.')
 
     # ── Visualizations + dashboard ───────────────────────────────────────────────
     src = ndjson_path or (DASHBOARDS_DIR / 'opensearch-instance-lifecycle.ndjson')
     if not src.exists():
-        return True
+        return dv_ok
 
     _TOP_STRIP  = {'version', 'updated_at', 'migrationVersion'}
     _ATTR_STRIP = {'version', 'uiStateJSON', 'hits'}
 
-    # Build list of all non-index-pattern objects to import
     objects = []
     for raw in src.read_bytes().splitlines():
         if not raw.strip():
@@ -929,77 +861,31 @@ def _do_import_os_saved_objects(endpoint: str, region: str, c: Console,
         objects.append({'type': obj.get('type'), 'id': obj.get('id'),
                         'attributes': attrs, 'references': obj.get('references', [])})
 
-    ok = api_fail = sys_ok = sys_fail = 0
-    first_400_shown = False
+    if not objects:
+        return dv_ok
 
-    # ── Strategy A: _bulk_create via Dashboards API ────────────────────────────
-    if objects:
-        bulk_url  = f'{base}/api/saved_objects/_bulk_create?overwrite=true'
-        bulk_resp = requests.post(bulk_url, json=objects, headers=hdrs, auth=auth, timeout=30)
-        if bulk_resp.status_code < 300:
-            saved    = bulk_resp.json().get('saved_objects', [])
-            bulk_ok  = [o for o in saved if 'error' not in o]
-            bulk_err = [o for o in saved if 'error' in o]
-            if bulk_ok and not bulk_err:
-                c.print(f'  [green]✓ {len(bulk_ok)} visualizations/dashboards imported[/]  (bulk API)')
-                return True
-            if bulk_ok:
-                ok += len(bulk_ok)
-                failed_ids = {o['id'] for o in bulk_err}
-                objects = [o for o in objects if o['id'] in failed_ids]
-        elif bulk_resp.status_code not in (400, 404, 405):
-            c.print(f'  [dim]  bulk_create HTTP {bulk_resp.status_code}[/]')
+    bulk_url  = f'{base}/api/saved_objects/_bulk_create?overwrite=true'
+    bulk_resp = requests.post(bulk_url, json=objects, headers=hdrs, auth=auth, timeout=30)
+    c.print(f'  [dim]  _bulk_create: HTTP {bulk_resp.status_code}[/]')
 
-    # ── Strategy B: per-object Dashboards API → system index → SigV4 ──────────
-    for obj in objects:
-        otype = obj['type']
-        oid   = obj['id']
-        attrs = obj['attributes']
-        refs  = obj['references']
+    if bulk_resp.status_code < 300:
+        saved    = bulk_resp.json().get('saved_objects', [])
+        bulk_ok  = [o for o in saved if 'error' not in o]
+        bulk_err = [o for o in saved if 'error'     in o]
+        if bulk_ok:
+            c.print(f'  [green]✓ {len(bulk_ok)} visualizations/dashboards imported[/]')
+        if bulk_err:
+            c.print(f'  [yellow]⚠ {len(bulk_err)} objects had errors:[/]')
+            for e in bulk_err[:5]:
+                c.print(f'    {e.get("type")} {e.get("id")}: '
+                        f'{e.get("error", {}).get("message", "?")}')
+        return dv_ok
 
-        url  = f'{base}/api/saved_objects/{otype}/{oid}?overwrite=true&security_tenant=global'
-        resp = requests.post(url, json={'attributes': attrs, 'references': refs},
-                             headers=hdrs, auth=auth, timeout=30)
-        if resp.status_code < 300:
-            ok += 1
-            continue
-
-        if resp.status_code == 400 and not first_400_shown:
-            c.print(f'  [dim]  API 400 sample ({otype}):[/]')
-            c.print(f'  [dim]  {resp.text[:400]}[/]')
-            first_400_shown = True
-
-        # Retry without references on schema rejection
-        if resp.status_code == 400:
-            resp2 = requests.post(url, json={'attributes': attrs},
-                                  headers=hdrs, auth=auth, timeout=30)
-            if resp2.status_code < 300:
-                ok += 1
-                continue
-
-        api_fail += 1
-        sys_doc = {'type': otype, otype: attrs, 'references': refs, 'namespaces': ['default']}
-
-        # System index write — basic auth
-        if admin_user and _sys_idx_write(endpoint, f'{otype}:{oid}', sys_doc, admin_user, admin_pass, c):
-            sys_ok += 1
-            continue
-
-        # System index write — SigV4 fallback
-        if _sys_idx_write_sigv4(endpoint, region, f'{otype}:{oid}', sys_doc, c):
-            sys_ok += 1
-        else:
-            sys_fail += 1
-
-    total_ok = ok + sys_ok
-    if total_ok:
-        via = f'  ({ok} via API, {sys_ok} via system index)' if sys_ok else ''
-        c.print(f'  [green]✓ {total_ok} visualizations/dashboards imported[/]{via}')
-    if sys_fail:
-        c.print(f'  [yellow]⚠ {sys_fail} objects could not be imported[/]')
-        c.print(f'    Import manually: OS Dashboards → Stack Management → Saved Objects → Import')
-        c.print(f'    File: {DASHBOARDS_DIR / "opensearch-instance-lifecycle.ndjson"}')
-    return True
+    c.print(f'  [red]✗ bulk_create failed: HTTP {bulk_resp.status_code}[/]')
+    c.print(f'    {bulk_resp.text[:400]}')
+    c.print(f'    Import manually: OS Dashboards → Stack Management → Saved Objects → Import')
+    c.print(f'    File: {DASHBOARDS_DIR / "opensearch-instance-lifecycle.ndjson"}')
+    return dv_ok
 
 
 def _do_export_os_saved_objects(endpoint: str, region: str, output: Path, c: Console):
@@ -1179,11 +1065,25 @@ def cmd_dashboard_import(
     grafana_url : Optional[str] = typer.Option(None, '--grafana-url', envvar='GRAFANA_WORKSPACE_URL'),
     amp_ds      : str           = typer.Option('grafana-amazonprometheus-datasource', '--amp-datasource'),
     admin_user  : str           = typer.Option('', '--admin-user', envvar='OB_OS_ADMIN_USER',
-                                               help='OpenSearch master username (bypasses FGAC backend-role requirement).'),
+                                               help='OpenSearch master username.'),
     admin_pass  : str           = typer.Option('', '--admin-pass', envvar='OB_OS_ADMIN_PASS',
                                                help='OpenSearch master password.'),
 ):
-    """Import OpenSearch saved objects + Grafana dashboard from library/docs/ops/dashboards/."""
+    """Import OpenSearch saved objects + Grafana dashboard from library/docs/ops/dashboards/.
+
+    Requires --admin-user / --admin-pass (or OB_OS_ADMIN_USER / OB_OS_ADMIN_PASS env vars).
+    IAM / SigV4 cannot write saved objects on AWS-managed OpenSearch with FGAC enabled.
+    """
+    if not admin_user or not admin_pass:
+        typer.echo(
+            '\nError: admin credentials required.\n'
+            '  export OB_OS_ADMIN_USER=admin\n'
+            '  export OB_OS_ADMIN_PASS="<master-password>"\n'
+            '\n'
+            'The master password was set when the OpenSearch domain was created.\n'
+            'Retrieve it from AWS Secrets Manager if you do not have it locally.\n',
+            err=True)
+        raise typer.Exit(1)
     r          = region or _region()
     stack_name = _resolve_stack(name, r)
     by_name    = {s['name']: s for s in _list_stacks(r)}
