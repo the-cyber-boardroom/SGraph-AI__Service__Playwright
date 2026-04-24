@@ -17,6 +17,7 @@ The reality doc was split into per-concern files this cycle (previously a single
 5. [`05__proposed.md`](05__proposed.md) — What does NOT exist yet (aspirations, deferred work).
 6. [`06__sp-cli-duality-refactor.md`](06__sp-cli-duality-refactor.md) — **NEW.** First slices of the `sgraph_ai_service_playwright__cli/` sibling package: read-only `Observability__Service` (`list_stacks`, `get_stack_info`) + `delete_stack` + schemas + isolated boto3 boundary.
 7. [`07__sp-cli-ec2-fastapi.md`](07__sp-cli-ec2-fastapi.md) — **NEW.** EC2 create/info/delete exposed as HTTP routes via `Fast_API__SP__CLI` (stand-alone) + `Ec2__Service` adapter over `scripts/provision_ec2.py` + Lambda handler.
+8. [`08__sp-cli-lambda-deploy.md`](08__sp-cli-lambda-deploy.md) — **NEW.** Deploys the SP CLI app as its own AWS Lambda: dedicated IAM role (ARN-scoped PassRole), minimal Python 3.12 image (no Chromium), ECR repo, Function URL.
 
 ---
 

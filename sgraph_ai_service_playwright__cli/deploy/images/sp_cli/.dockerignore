@@ -1,0 +1,10 @@
+# Docker build context is the repo root (see Docker__SP__CLI.build_kwargs).
+# Exclude everything except the two folders the image actually needs.
+
+**
+!sgraph_ai_service_playwright__cli/**
+!scripts/**
+sgraph_ai_service_playwright__cli/deploy/images/**
+**/__pycache__/**
+**/.pytest_cache/**
+**/*.pyc
