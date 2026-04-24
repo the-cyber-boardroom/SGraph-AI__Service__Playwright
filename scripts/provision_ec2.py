@@ -77,8 +77,8 @@ IAM__ASSUME_ROLE_SERVICE       = 'ec2.amazonaws.com'
 EC2__PROMETHEUS_PORT      = 9090
 EC2__BROWSER_INTERNAL_PORT = 3000                                                      # linuxserver/chromium KasmVNC — SSM-forward only, never exposed in SG
 EC2__BROWSER_IMAGE         = 'lscr.io/linuxserver/chromium:latest'                     # public image — pulled explicitly before compose up
-EC2__PORTAINER_PORT        = 9000                                                      # Portainer CE — SSM-forward only; first login sets admin password
-EC2__PORTAINER_IMAGE       = 'portainer/portainer-ce:latest'                           # public image — pulled explicitly before compose up
+EC2__DOCKGE_PORT           = 5001                                                      # Dockge — SSM-forward only; first login sets admin password
+EC2__DOCKGE_IMAGE          = 'louislam/dockge:1'                                       # public image — pulled explicitly before compose up
 
 SG__NAME                     = 'playwright-ec2'                                         # AWS reserves 'sg-*' prefix for SG IDs
 SG__DESCRIPTION              = 'SG Playwright EC2 stack - ingress :8000 (Playwright API) + :8001 (sidecar admin) + :3000 (streaming browser) — all ports behind API key / KasmVNC password auth'
@@ -128,7 +128,7 @@ trap 'echo "FAILED at $(date --iso-8601=seconds) — exit $?" > "$BOOT_STATUS_FI
 
 echo "=== SG Playwright AMI boot at $(date) ==="
 
-mkdir -p /opt/sg-playwright/config
+mkdir -p /opt/sg-playwright/config /opt/dockge/data
 
 cat > /opt/sg-playwright/docker-compose.yml << 'SG_COMPOSE_EOF'
 {compose_content}
@@ -137,7 +137,7 @@ SG_COMPOSE_EOF
 {observability_configs_section}
 {browser_proxy_section}
 {browser_image_pull}
-docker pull {portainer_image_uri} || true
+docker pull {dockge_image} || true
 docker compose -f /opt/sg-playwright/docker-compose.yml up -d
 
 # Write container ID → service name map for fluent-bit log enrichment
@@ -321,14 +321,16 @@ COMPOSE_SVC_FLUENT_BIT = """\
     restart: always
 """
 
-COMPOSE_SVC_PORTAINER = """\
-  portainer:
-    image: {portainer_image_uri}
+COMPOSE_SVC_DOCKGE = """\
+  dockge:
+    image: {dockge_image}
     ports:
-      - "127.0.0.1:{portainer_port}:{portainer_port}"
+      - "127.0.0.1:{dockge_port}:{dockge_port}"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-      - portainer_data:/data
+      - /opt/dockge/data:/app/data
+    environment:
+      DOCKGE_STACKS_DIR: /opt
     networks:
       - sg-net
     restart: always
@@ -549,7 +551,7 @@ def render_browser_proxy_section(api_key_value: str = '') -> str:
         f"chmod 644 /opt/sg-playwright/config/browser-certs/.htpasswd\n"
     )
     return (
-        'mkdir -p /opt/sg-playwright/config/browser-certs\n'
+        'mkdir -p /opt/sg-playwright/config /opt/dockge/data/browser-certs\n'
         'openssl req -x509 -nodes -days 3650 -newkey rsa:2048'
         ' -keyout /opt/sg-playwright/config/browser-certs/key.pem'
         ' -out    /opt/sg-playwright/config/browser-certs/cert.pem'
@@ -594,7 +596,7 @@ set -x
 docker pull {playwright_image_uri}
 docker pull {sidecar_image_uri}
 {browser_image_pull}
-docker pull {portainer_image_uri}
+docker pull {dockge_image}
 
 # Revoke the stored Docker credential immediately after pull — the instance
 # profile (AmazonEC2ContainerRegistryReadOnly) provides fresh tokens on demand
@@ -602,7 +604,7 @@ docker pull {portainer_image_uri}
 docker logout {registry}
 rm -f /root/.docker/config.json
 
-mkdir -p /opt/sg-playwright/config
+mkdir -p /opt/sg-playwright/config /opt/dockge/data
 
 cat > /opt/sg-playwright/docker-compose.yml << 'SG_COMPOSE_EOF'
 {compose_content}
@@ -948,8 +950,8 @@ def render_compose_yaml(playwright_image_uri    : str,
                sidecar_admin_port      = EC2__SIDECAR_ADMIN_PORT,
                browser_port            = EC2__BROWSER_INTERNAL_PORT,
                browser_image_uri       = EC2__BROWSER_IMAGE,
-               portainer_port          = EC2__PORTAINER_PORT,
-               portainer_image_uri     = EC2__PORTAINER_IMAGE,
+               dockge_port             = EC2__DOCKGE_PORT,
+               dockge_image            = EC2__DOCKGE_IMAGE,
                api_key_name            = api_key_name,
                api_key_value           = api_key_value,
                upstream_url            = upstream_url,
@@ -974,13 +976,16 @@ def render_compose_yaml(playwright_image_uri    : str,
     if opensearch_endpoint:                             # log shipper only with OpenSearch
         services += [COMPOSE_SVC_FLUENT_BIT]
 
-    services += [COMPOSE_SVC_PORTAINER.format(**fmt)]
+    services += [COMPOSE_SVC_DOCKGE.format(**fmt)]
 
-    volumes = ['  portainer_data:']
+    volumes = []
     if amp_remote_write_url:
-        volumes.insert(0, '  prometheus_data:')
+        volumes.append('  prometheus_data:')
 
-    footer = COMPOSE_FOOTER.format(volume_lines='\n'.join(volumes))
+    if volumes:
+        footer = COMPOSE_FOOTER.format(volume_lines='\n'.join(volumes))
+    else:
+        footer = 'networks:\n  sg-net:\n    driver: bridge\n'
     return '\n'.join(services) + '\n' + footer
 
 
@@ -1010,7 +1015,7 @@ def render_user_data(playwright_image_uri  : str,
                                      playwright_image_uri          = playwright_image_uri   ,
                                      sidecar_image_uri             = sidecar_image_uri      ,
                                      browser_image_pull            = browser_image_pull     ,
-                                     portainer_image_uri           = EC2__PORTAINER_IMAGE   ,
+                                     dockge_image                  = EC2__DOCKGE_IMAGE      ,
                                      compose_content               = compose_content        ,
                                      observability_configs_section = obs_section            ,
                                      browser_proxy_section         = render_browser_proxy_section(api_key_value=api_key_value),
@@ -1226,7 +1231,7 @@ def provision(stage                  : str          = DEFAULT_STAGE    ,
                                                    observability_configs_section = obs_section                      ,
                                                    browser_proxy_section         = render_browser_proxy_section(api_key_value=api_key_value),
                                                    browser_image_pull            = browser_image_pull_ami           ,
-                                                   portainer_image_uri           = EC2__PORTAINER_IMAGE             )
+                                                   dockge_image                  = EC2__DOCKGE_IMAGE               )
     else:
         user_data = render_user_data(playwright_image_uri  = playwright_image_uri ,
                                      sidecar_image_uri     = sidecar_image_uri    ,
@@ -2252,7 +2257,7 @@ _DIAGNOSE_CHECKS = [
     ('Compose service status',
      f'docker compose -f {COMPOSE_FILE_PATH} ps 2>&1 || echo "(compose status failed)"'),
     ('Listening ports',
-     'ss -tlnp 2>/dev/null | grep -E "8000|8001|9000|9090|3000|5601" || echo "(none of the expected ports are listening)"'),
+     'ss -tlnp 2>/dev/null | grep -E "8000|8001|5001|9090|3000|5601" || echo "(none of the expected ports are listening)"'),
     ('Disk',
      'df -h / /var/lib/docker 2>/dev/null | tail -n +1'),
     ('Memory',
@@ -2884,7 +2889,7 @@ def cmd_smoke(target          : Optional[str]  = typer.Argument(None, help='Depl
     c.print()
     c.print(f'  Mitmproxy UI  →  sg-ec2 forward {EC2__MITMWEB_TUNNEL_PORT}   then  http://localhost:{EC2__MITMWEB_TUNNEL_PORT}/')
     c.print(f'  Browser       →  sg-ec2 forward-browser        then  http://localhost:{EC2__BROWSER_INTERNAL_PORT}/')
-    c.print(f'  Portainer     →  sg-ec2 forward-portainer      then  http://localhost:{EC2__PORTAINER_PORT}/')
+    c.print(f'  Dockge        →  sg-ec2 forward-dockge         then  http://localhost:{EC2__DOCKGE_PORT}/')
     c.print(f'  Prometheus    →  sg-ec2 forward-prometheus      then  http://localhost:{EC2__PROMETHEUS_PORT}/')
     c.print()
 
@@ -2970,9 +2975,9 @@ def cmd_forward_browser(target: Optional[str] = typer.Argument(None, help='Deplo
                    check=False)
 
 
-@app.command(name='forward-portainer')
-def cmd_forward_portainer(target: Optional[str] = typer.Argument(None, help='Deploy-name or instance-id; auto-selects if only one instance.')):
-    """Forward Portainer CE (port 9000) to localhost via SSM — Docker management UI."""
+@app.command(name='forward-dockge')
+def cmd_forward_dockge(target: Optional[str] = typer.Argument(None, help='Deploy-name or instance-id; auto-selects if only one instance.')):
+    """Forward Dockge (port 5001) to localhost via SSM — Docker Compose management UI."""
     import subprocess
     ec2                  = EC2()
     instance_id, details = _resolve_target(ec2, target)
@@ -2980,19 +2985,19 @@ def cmd_forward_portainer(target: Optional[str] = typer.Argument(None, help='Dep
     c = Console(highlight=False, width=200)
     c.print()
     c.print(Panel(
-        f'[bold]🐳  Portainer Forward[/]\n\n'
+        f'[bold]🐳  Dockge Forward[/]\n\n'
         f'  instance   [bold]{deploy_name}[/]  [dim]{instance_id}[/]\n'
-        f'  tunnel     [bold]localhost:{EC2__PORTAINER_PORT}[/]\n\n'
-        f'  [green]Access:[/]  [bold]http://localhost:{EC2__PORTAINER_PORT}/[/]\n'
-        f'  [dim]First visit sets the admin password. Use your API key value.[/]\n'
+        f'  tunnel     [bold]localhost:{EC2__DOCKGE_PORT}[/]\n\n'
+        f'  [green]Access:[/]  [bold]http://localhost:{EC2__DOCKGE_PORT}/[/]\n'
+        f'  [dim]First visit sets the admin password.[/]\n'
         f'  [dim]Press Ctrl-C to close the tunnel.[/]',
         border_style='bright_blue', expand=False))
     c.print()
     subprocess.run(['aws', 'ssm', 'start-session',
                     '--target'       , instance_id,
                     '--document-name', 'AWS-StartPortForwardingSession',
-                    '--parameters'   , json.dumps({'portNumber'     : [str(EC2__PORTAINER_PORT)],
-                                                   'localPortNumber': [str(EC2__PORTAINER_PORT)]})],
+                    '--parameters'   , json.dumps({'portNumber'     : [str(EC2__DOCKGE_PORT)],
+                                                   'localPortNumber': [str(EC2__DOCKGE_PORT)]})],
                    check=False)
 
 
