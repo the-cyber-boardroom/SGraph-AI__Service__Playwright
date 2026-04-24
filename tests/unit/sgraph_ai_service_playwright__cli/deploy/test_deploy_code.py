@@ -24,18 +24,18 @@ class test_module_surface(TestCase):
     def test__package_names_are_the_two_hot_swap_trees(self):                       # Locked — the zip MUST contain both trees in the right order (builder copies package-name prefix for each)
         assert PACKAGE_NAMES == ['sgraph_ai_service_playwright__cli', 'scripts']
 
-    def test__version_file_is_the_sp_cli_version(self):                             # Version source is the __cli package's file, NOT the Playwright package
-        assert VERSION_FILE_RELATIVE == 'sgraph_ai_service_playwright__cli/version'
+    def test__version_file_is_shared_with_main_service(self):                       # Single source of truth — the CLI inherits the main Playwright service version
+        assert VERSION_FILE_RELATIVE == 'sgraph_ai_service_playwright/version'
 
 
 class test_read_version(TestCase):
 
-    def test__reads_the_cli_version_file(self):                                     # File exists in repo-root — should match its contents (stripped)
+    def test__reads_the_shared_version_file(self):                                  # File exists in repo-root — should match its contents (stripped)
         value = read_version()
         assert value                                                                # Non-empty
-        assert value.startswith('v')                                                # Follows Safe_Str__Version convention (matches Playwright's version file too)
+        assert value.startswith('v')                                                # Follows Safe_Str__Version convention
 
-    def test__value_matches_cli_version_file_exactly(self):
+    def test__value_matches_shared_version_file_exactly(self):
         from pathlib import Path
         repo_root = Path(__file__).resolve().parents[4]                             # tests/unit/.../deploy/test_deploy_code.py → repo root (4 parents up)
         assert (repo_root / 'pyproject.toml').is_file()                             # Sanity — we located the repo root

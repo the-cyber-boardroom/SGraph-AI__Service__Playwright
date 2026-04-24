@@ -13,9 +13,10 @@
 #   • sgraph_ai_service_playwright__cli  — the Type_Safe service + routes + deploy helpers
 #   • scripts                            — provision_ec2 + observability (imported lazily by Ec2__Service)
 #
-# Version source: sgraph_ai_service_playwright__cli/version (single-line file).
-# Override via --version VX.Y.Z. Uploads are IMMUTABLE — bump the version file
-# for every code change that should be rolled to the Lambda.
+# Version source: sgraph_ai_service_playwright/version (single-line file —
+# shared with the main Playwright service so both deployables move in lockstep).
+# Override via --version VX.Y.Z. Uploads are IMMUTABLE — the CI pipeline runs
+# git__increment-tag on every push to dev/main so the version bumps automatically.
 # ═══════════════════════════════════════════════════════════════════════════════
 
 import argparse
@@ -30,10 +31,10 @@ from scripts.deploy_code                                                        
 
 
 PACKAGE_NAMES          = ['sgraph_ai_service_playwright__cli', 'scripts']           # Two trees included in the zip (see module header)
-VERSION_FILE_RELATIVE  = 'sgraph_ai_service_playwright__cli/version'                # Single-line file — one version string per line
+VERSION_FILE_RELATIVE  = 'sgraph_ai_service_playwright/version'                     # Shared with the main Playwright service — single source of truth bumped by git__increment-tag
 
 
-def read_version() -> str:                                                          # Reads the SP CLI version file from the repo root; falls back to 'v0.0.1' if missing
+def read_version() -> str:                                                          # Reads the shared version file at the repo root; falls back to 'v0.0.1' if missing
     repo_root = Path(__file__).resolve().parents[2]
     path      = repo_root / VERSION_FILE_RELATIVE
     if not path.is_file():
@@ -44,7 +45,7 @@ def read_version() -> str:                                                      
 class Deploy__SP__CLI__Code(Type_Safe):
 
     def run(self, stage         : str         ,
-                  version       : str  = ''    ,                                    # Empty → read from sgraph_ai_service_playwright__cli/version
+                  version       : str  = ''    ,                                    # Empty → read from sgraph_ai_service_playwright/version (shared with main service)
                   region_name   : str  = ''    ,                                    # Empty → AWS_DEFAULT_REGION env / boto3 session
                   update_lambda : bool = False ,                                    # True → flip AGENTIC_APP_VERSION on sp-playwright-cli-{stage}
                   smoke         : bool = False                                      # Ignored without --update-lambda
@@ -65,7 +66,7 @@ class Deploy__SP__CLI__Code(Type_Safe):
 def main() -> int:
     parser = argparse.ArgumentParser(description='Package the SP CLI source, upload to S3, and optionally flip AGENTIC_APP_VERSION on the agentic Lambda.')
     parser.add_argument('--stage'        , required=True      , help='Deployment stage (e.g. dev, prod)')
-    parser.add_argument('--version'      , default=''         , help='Override version string (default: sgraph_ai_service_playwright__cli/version)')
+    parser.add_argument('--version'      , default=''         , help='Override version string (default: sgraph_ai_service_playwright/version — shared with main service)')
     parser.add_argument('--region'       , default=''         , help='Override AWS region (default: boto3 session region)')
     parser.add_argument('--update-lambda', action='store_true', help='Flip AGENTIC_APP_VERSION on sp-playwright-cli-{stage} after the upload')
     parser.add_argument('--smoke'        , action='store_true', help='After --update-lambda, probe /admin/health to verify code_source')
