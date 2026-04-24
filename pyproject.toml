@@ -1,6 +1,6 @@
 [tool.poetry]
 name        = "sgraph-ai-service-playwright"
-version     = "v0.1.78"
+version     = "v0.1.79"
 description = "Browser automation FastAPI service for the SG/Send ecosystem. Runs identically on laptop, CI, Claude Web, Fargate, and Lambda."
 authors     = ["Dinis Cruz <dinis@the-cyber-boardroom.com>"]
 license     = "Apache-2.0"
