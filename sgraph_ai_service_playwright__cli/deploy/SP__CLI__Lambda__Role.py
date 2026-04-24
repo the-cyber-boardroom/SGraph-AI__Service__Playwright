@@ -38,6 +38,7 @@ POLICY_NAME__IAM         = 'sp-cli-iam-passrole'
 POLICY_NAME__ECR         = 'sp-cli-ecr-read'
 POLICY_NAME__STS         = 'sp-cli-sts-helpers'
 POLICY_NAME__OBS         = 'sp-cli-observability'
+POLICY_NAME__S3          = 'sp-cli-agentic-code-read'                               # s3:GetObject on the agentic code zip bucket; required for Agentic_Code_Loader cold-start hot-swap
 
 
 class SP__CLI__Lambda__Role(Type_Safe):
@@ -52,11 +53,12 @@ class SP__CLI__Lambda__Role(Type_Safe):
 
         role.iam.role_policy_attach(LAMBDA_EXEC_MANAGED_ARN)                        # Attach the AWS-managed policy — idempotent; attaches by ARN (no CreatePolicy needed)
 
-        inline_policies = {POLICY_NAME__EC2: policy.document_ec2_management() ,     # Inline policies — put_role_policy is an upsert; no CreatePolicy needed
-                           POLICY_NAME__IAM: policy.document_iam_passrole   () ,
+        inline_policies = {POLICY_NAME__EC2: policy.document_ec2_management () ,    # Inline policies: put_role_policy is an upsert; no CreatePolicy needed
+                           POLICY_NAME__IAM: policy.document_iam_passrole    () ,
                            POLICY_NAME__ECR: policy.document_ecr_read        () ,
                            POLICY_NAME__STS: policy.document_sts_helpers     () ,
-                           POLICY_NAME__OBS: policy.document_observability   () }
+                           POLICY_NAME__OBS: policy.document_observability   () ,
+                           POLICY_NAME__S3 : policy.document_agentic_code_read()}
         for policy_name, document in inline_policies.items():
             role.iam.role_policy_add(policy_name=policy_name, policy_document=json_dumps(document))
 

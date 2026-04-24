@@ -8,9 +8,11 @@
 import json
 from unittest                                                                                                              import TestCase
 
-from sgraph_ai_service_playwright__cli.deploy.SP__CLI__Lambda__Policy                                                      import (SP__CLI__Lambda__Policy   ,
+from sgraph_ai_service_playwright__cli.deploy.SP__CLI__Lambda__Policy                                                      import (SP__CLI__Lambda__Policy    ,
                                                                                                                                 EC2_ROLE_NAME              ,
-                                                                                                                                EC2_SERVICE_PRINCIPAL      )
+                                                                                                                                EC2_SERVICE_PRINCIPAL      ,
+                                                                                                                                AGENTIC_CODE_BUCKET_PREFIX ,
+                                                                                                                                AGENTIC_CODE_APP_NAME      )
 
 
 TEST_ACCOUNT = '745506449035'
@@ -106,10 +108,28 @@ class test_SP__CLI__Lambda__Policy(TestCase):
                 assert 'Put'     not in action, f'unexpected put action: {action}'
                 assert 'Post'    not in action, f'unexpected post action: {action}'
 
+    def test_document_agentic_code_read__scoped_to_app_prefix(self):                # The Lambda only ever reads its own code zip — bucket region wildcarded, key prefix locked to apps/sp-playwright-cli/*
+        doc      = self.policy.document_agentic_code_read()
+        s3_stmt  = next(s for s in doc['Statement'] if s['Sid'] == 'AgenticCodeRead')
+        expected = (f'arn:aws:s3:::{TEST_ACCOUNT}--{AGENTIC_CODE_BUCKET_PREFIX}--*'
+                    f'/apps/{AGENTIC_CODE_APP_NAME}/*')
+
+        assert s3_stmt['Effect']   == 'Allow'
+        assert s3_stmt['Action']   == ['s3:GetObject']
+        assert s3_stmt['Resource'] == expected
+        assert s3_stmt['Resource'] != '*'                                            # Never blanket access
+
+    def test_document_agentic_code_read__no_write_actions(self):                    # Read-only - the CI user holds the upload credential, never the Lambda
+        doc = self.policy.document_agentic_code_read()
+        for statement in doc['Statement']:
+            for action in statement['Action']:
+                assert action.startswith('s3:Get'), f'unexpected action: {action}'  # GetObject only; HeadObject is implied
+
     def test_all_documents_are_json_serialisable(self):                             # IAM rejects non-JSON; serialise every doc as a smoke test
-        for name in ('document_ec2_management', 'document_iam_passrole',
-                     'document_ecr_read'      , 'document_sts_helpers' ,
-                     'document_observability' , 'assume_role_document' ):
+        for name in ('document_ec2_management'  , 'document_iam_passrole'    ,
+                     'document_ecr_read'        , 'document_sts_helpers'     ,
+                     'document_observability'   , 'document_agentic_code_read',
+                     'assume_role_document'     ):
             method    = getattr(self.policy, name)
             json_text = json.dumps(method())
             assert isinstance(json_text, str)
