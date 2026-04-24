@@ -1,25 +1,28 @@
 # ═══════════════════════════════════════════════════════════════════════════════
 # CI Pipeline — SP CLI Lambda
 #
-# Separate from the Playwright + agent_mitmproxy pipelines. Runs ONLY when
-# files that affect the SP CLI Lambda change, so Playwright-only or
-# mitmproxy-only PRs do not pay for an SP CLI rebuild.
+# Two execution paths, branch-gated:
 #
-# Jobs:
-#   1. run-unit-tests         — pytest against the SP CLI unit suite.
-#   2. check-aws-credentials  — gates every AWS-touching job.
-#   3. detect-changes         — paths-filter; skips image rebuild on
-#                               test-only or docs-only churn.
-#   4. build-and-push-image   — builds the `sp-playwright-cli` image from
-#                               the repo-root context and pushes to ECR
-#                               (via Docker__SP__CLI).
-#   5. provision-sp-cli-lambda — runs the full deploy chain:
-#                               role → image → Lambda → Function URL
-#                               (via sgraph_ai_service_playwright__cli.deploy.provision).
+#   • Push to `dev`  → CODE-ONLY FAST PATH (~30 s round trip)
+#                       unit tests → deploy-sp-cli-code (zip + S3 + flip
+#                       AGENTIC_APP_VERSION on the agentic Lambda).
+#                       Image is NOT rebuilt; provision is NOT run. The
+#                       agentic Lambda picks up the new code on next cold
+#                       start via Agentic_Boot_Shim → S3 download.
 #
-# The SP CLI Lambda is image-only — no S3 zip overlay. When no image-relevant
-# files change we still run provision-sp-cli-lambda so env-var / role tweaks
-# land in place; the image pointer just stays on the existing :latest tag.
+#   • Push to `main` → FULL DEPLOY (~3 min round trip)
+#                       unit tests → build-and-push-image → provision
+#                       (both baseline + agentic variants) →
+#                       deploy-sp-cli-code. Stage = 'prod'.
+#
+#   • workflow_dispatch with `force_image_rebuild=true` overrides the gate
+#     and runs the full deploy regardless of branch.
+#
+# Pre-conditions for the dev fast path
+# ────────────────────────────────────
+# The Lambda(s) must already exist. First-time setup: push to main (or run
+# workflow_dispatch with force_image_rebuild=true) so build + provision
+# create the function + Function URL. After that, dev pushes hot-swap.
 # ═══════════════════════════════════════════════════════════════════════════════
 
 name: CI Pipeline - SP CLI Lambda
@@ -33,7 +36,7 @@ on:
         type: string
         default: 'dev'
       force_image_rebuild:
-        description: 'Force Docker image rebuild even when no image-relevant files changed'
+        description: 'Force full deploy (image rebuild + provision) regardless of branch'
         required: false
         type: boolean
         default: false
@@ -117,20 +120,15 @@ jobs:
           fi
 
   # ════════════════════════════════════════════════════════════════════════════
-  # Job 3: Detect what needs rebuilding
-  #   • image-rebuild-needed   → Dockerfile / requirements / deploy/images changes
-  #   • code-deploy-needed     → any Python change under the hot-swap trees
-  #                              (everything that gets zipped into the S3 hot-swap)
-  #
-  #   Path filters are cheap; running a full image rebuild on code-only changes
-  #   is not. image-rebuild-needed is strictly a SUBSET of code-deploy-needed
-  #   (every image-relevant change is also code-relevant, but not vice versa).
+  # Job 3: Detect code changes
+  #   The image-rebuild gate is now BRANCH-based (main, or workflow_dispatch
+  #   with force_image_rebuild=true). This job only filters out test/docs-only
+  #   changes from the code-deploy fast path.
   # ════════════════════════════════════════════════════════════════════════════
   detect-changes:
-    name: Detect Image + Code Changes
+    name: Detect Code Changes
     runs-on: ubuntu-latest
     outputs:
-      image-rebuild-needed: ${{ steps.filter.outputs.image }}
       code-deploy-needed  : ${{ steps.filter.outputs.code  }}
     steps:
       - uses: actions/checkout@v5
@@ -140,9 +138,6 @@ jobs:
         uses: dorny/paths-filter@v3
         with:
           filters: |
-            image:
-              - 'sgraph_ai_service_playwright__cli/deploy/images/**'
-              - 'sgraph_ai_service_playwright__cli/version'
             code:
               - 'sgraph_ai_service_playwright__cli/**'
               - 'scripts/provision_ec2.py'
@@ -150,24 +145,21 @@ jobs:
               - 'scripts/__init__.py'
 
   # ════════════════════════════════════════════════════════════════════════════
-  # Job 4: Build + Push Docker Image to ECR
-  #   Build context is the repo root; the dockerfile's COPYs are rooted there
-  #   and .dockerignore under images/sp_cli/ scopes the context down to just
-  #   sgraph_ai_service_playwright__cli/ + scripts/.
+  # Job 4: Build + Push Docker Image to ECR    [main branch only]
+  #   Branch-gated: only fires on push to main (or workflow_dispatch with
+  #   force_image_rebuild=true). dev pushes skip this entirely — the existing
+  #   image is reused and the agentic Lambda hot-swaps via S3 zip.
   #
-  #   Skipped when detect-changes reports no image-relevant changes AND
-  #   force_image_rebuild is false — the previously-pushed :latest is left in
-  #   place. provision-sp-cli-lambda will then re-run role + env-var upsert
-  #   without touching the image pointer.
+  #   Build context is the repo root; the dockerfile's COPYs are rooted there.
   # ════════════════════════════════════════════════════════════════════════════
   build-and-push-image:
     name: "Build + Push Docker Image to ECR"
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    needs: [run-unit-tests, check-aws-credentials, detect-changes]
+    needs: [run-unit-tests, check-aws-credentials]
     if: |
       needs.check-aws-credentials.outputs.has-credentials == 'true' &&
-      (needs.detect-changes.outputs.image-rebuild-needed == 'true' || inputs.force_image_rebuild)
+      (github.ref_name == 'main' || inputs.force_image_rebuild)
     steps:
       - uses: actions/checkout@v5
 
@@ -207,16 +199,12 @@ jobs:
           AWS_ACCESS_KEY_ID     : ${{ secrets.AWS_ACCESS_KEY_ID     }}
 
   # ════════════════════════════════════════════════════════════════════════════
-  # Job 5: Provision the SP CLI Lambda (role → image reference → function URL)
-  #   Idempotent — safe to run on every CI pass:
-  #     • role exists    → attach policies idempotently
-  #     • lambda exists  → update_function_configuration + env vars
-  #     • URL exists     → preserved (host UUID stays stable)
+  # Job 5: Provision the SP CLI Lambda(s)    [main branch only]
+  #   Branch-gated, same as build-and-push-image. dev pushes skip this; the
+  #   Lambda already exists from a prior main deploy and just gets its
+  #   AGENTIC_APP_VERSION env var flipped by deploy-sp-cli-code.
   #
-  #   Runs AFTER build-and-push-image, but also runs when build-and-push-image
-  #   was SKIPPED (image reused). A missing Lambda will fail here with a
-  #   descriptive error — force the first deploy via workflow_dispatch with
-  #   force_image_rebuild=true.
+  #   On main: provisions BOTH variants (baseline + agentic), idempotent.
   # ════════════════════════════════════════════════════════════════════════════
   provision-sp-cli-lambda:
     name: "Provision SP CLI Lambda (role + image + function URL)"
@@ -227,7 +215,7 @@ jobs:
       always() &&
       needs.run-unit-tests.result == 'success' &&
       needs.check-aws-credentials.outputs.has-credentials == 'true' &&
-      (needs.build-and-push-image.result == 'success' || needs.build-and-push-image.result == 'skipped')
+      needs.build-and-push-image.result == 'success'
     steps:
       - uses: actions/checkout@v5
 
@@ -264,26 +252,33 @@ jobs:
           FAST_API__AUTH__API_KEY__VALUE : ${{ secrets.FAST_API__AUTH__API_KEY__VALUE }}
 
   # ════════════════════════════════════════════════════════════════════════════
-  # Job 6: Deploy code zip (fast-path hot-swap)
+  # Job 6: Deploy code zip (the hot-swap)    [dev + main]
   #   Packages sgraph_ai_service_playwright__cli/ + scripts/ into a zip,
   #   uploads to s3://<account>--sgraph-ai--<region>/apps/sp-playwright-cli/<stage>/<version>.zip,
   #   then flips AGENTIC_APP_VERSION on the agentic Lambda (sp-playwright-cli-<stage>)
   #   so the next cold start pulls the fresh code.
   #
-  #   Runs AFTER provision-sp-cli-lambda so the agentic Lambda exists + has
-  #   AGENTIC_APP_* env vars. Fast path (~10 s) when no image rebuild was
-  #   needed. Gated on code-deploy-needed so doc-only PRs skip it.
+  #   Runs on BOTH dev and main:
+  #     • dev  → fast path (~30 s end-to-end). provision-sp-cli-lambda was
+  #              SKIPPED (no image rebuild); the existing Lambda just gets
+  #              its env var flipped.
+  #     • main → runs AFTER provision-sp-cli-lambda completes. Same zip
+  #              upload + env flip; the freshly-provisioned Lambda picks up
+  #              the matching code on first cold start.
+  #
+  #   Gated on code-deploy-needed so doc-only PRs skip it.
   # ════════════════════════════════════════════════════════════════════════════
   deploy-sp-cli-code:
     name: "Deploy SP CLI code (S3 zip + AGENTIC_APP_VERSION flip)"
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    needs: [provision-sp-cli-lambda, check-aws-credentials, detect-changes]
+    needs: [run-unit-tests, check-aws-credentials, detect-changes, provision-sp-cli-lambda]
     if: |
       always() &&
-      needs.provision-sp-cli-lambda.result == 'success' &&
+      needs.run-unit-tests.result == 'success' &&
       needs.check-aws-credentials.outputs.has-credentials == 'true' &&
-      needs.detect-changes.outputs.code-deploy-needed == 'true'
+      needs.detect-changes.outputs.code-deploy-needed == 'true' &&
+      (needs.provision-sp-cli-lambda.result == 'success' || needs.provision-sp-cli-lambda.result == 'skipped')
     steps:
       - uses: actions/checkout@v5
 
