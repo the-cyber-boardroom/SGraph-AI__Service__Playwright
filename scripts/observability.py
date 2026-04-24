@@ -25,6 +25,9 @@ from osbot_aws.AWS_Config import AWS_Config
 app = typer.Typer(help='Observability stack management (AMP + OpenSearch).',
                   no_args_is_help=True)
 
+os_app = typer.Typer(help='OpenSearch index, index-pattern, and dashboard management.',
+                     no_args_is_help=True)
+
 # ── Constants ──────────────────────────────────────────────────────────────────
 
 OPENSEARCH_ENGINE    = 'OpenSearch_3.5'
@@ -181,6 +184,17 @@ def _generate_os_password() -> str:
                 and any(c.isdigit() for c in pwd)
                 and any(c in specials for c in pwd)):
             return pwd
+
+
+def _os_resolve(name: Optional[str], region: str):
+    """Resolve stack name → (endpoint, stack_name). Exits if not found."""
+    stack_name = _resolve_stack(name, region)
+    by_name    = {s['name']: s for s in _list_stacks(region)}
+    s          = by_name.get(stack_name)
+    if not s or not s['opensearch']:
+        typer.echo(f'Stack {stack_name!r} not found or missing OpenSearch domain.', err=True)
+        raise typer.Exit(1)
+    return _os_endpoint(s['opensearch']), stack_name
 
 
 def _backup_path(stack_name: str) -> Path:
@@ -767,18 +781,19 @@ def cmd_delete(
 
 # ── Dashboard helpers ──────────────────────────────────────────────────────────
 
-def _verify_index_pattern_exists(base: str, hdrs: dict, auth) -> bool:
+def _verify_index_pattern_exists(base: str, hdrs: dict, auth,
+                                  pattern_id: str = OPENSEARCH_INDEX) -> bool:
     """Return True only if the saved object is readable AND has the right title.
 
     Checks the response body — not just the HTTP status — to catch AWS
     OpenSearch versions that return 200 on creation but don't persist.
     """
-    r = requests.get(f'{base}/api/saved_objects/index-pattern/{OPENSEARCH_INDEX}',
+    r = requests.get(f'{base}/api/saved_objects/index-pattern/{pattern_id}',
                      headers=hdrs, auth=auth, timeout=15)
     if r.status_code >= 300:
         return False
     try:
-        return r.json().get('attributes', {}).get('title') == OPENSEARCH_INDEX
+        return r.json().get('attributes', {}).get('title') == pattern_id
     except (ValueError, AttributeError):
         return False
 
@@ -804,8 +819,6 @@ def _do_import_os_saved_objects(endpoint: str, region: str, c: Console,
     url      = f'{base}/api/saved_objects/index-pattern/{OPENSEARCH_INDEX}?overwrite=true'
     resp     = requests.post(url, data=json.dumps(ip_body), headers=hdrs, auth=auth, timeout=30)
     c.print(f'  [dim]  POST index-pattern: HTTP {resp.status_code}[/]')
-
-    dv_ok = _verify_index_pattern_exists(base, hdrs, auth)
 
     dv_ok = _verify_index_pattern_exists(base, hdrs, auth)
     if dv_ok:
@@ -1035,7 +1048,7 @@ def _check_os_dashboards(endpoint: str, region: str, c: Console,
 
 # ── dashboard-import ───────────────────────────────────────────────────────────
 
-@app.command('dashboard-import')
+@os_app.command('dashboard-import')
 def cmd_dashboard_import(
     name        : Optional[str] = typer.Argument(None),
     region      : Optional[str] = typer.Option(None, '--region'),
@@ -1061,15 +1074,9 @@ def cmd_dashboard_import(
             'Retrieve it from AWS Secrets Manager if you do not have it locally.\n',
             err=True)
         raise typer.Exit(1)
-    r          = region or _region()
-    stack_name = _resolve_stack(name, r)
-    by_name    = {s['name']: s for s in _list_stacks(r)}
-    s          = by_name.get(stack_name)
-    if not s or not s['opensearch']:
-        typer.echo(f'Stack {stack_name!r} not found or missing OpenSearch domain.', err=True)
-        raise typer.Exit(1)
-    ep = _os_endpoint(s['opensearch'])
-    c  = Console(highlight=False)
+    r              = region or _region()
+    ep, stack_name = _os_resolve(name, r)
+    c              = Console(highlight=False)
     c.print(f'\n  Importing dashboards → [bold]{stack_name}[/]\n')
     _do_import_os_saved_objects(ep, r, c, admin_user=admin_user, admin_pass=admin_pass)
     if grafana_url:
@@ -1082,7 +1089,7 @@ def cmd_dashboard_import(
 
 # ── dashboard-check ────────────────────────────────────────────────────────────
 
-@app.command('dashboard-check')
+@os_app.command('dashboard-check')
 def cmd_dashboard_check(
     name       : Optional[str] = typer.Argument(None),
     region     : Optional[str] = typer.Option(None, '--region'),
@@ -1090,23 +1097,17 @@ def cmd_dashboard_check(
     admin_pass : str           = typer.Option('', '--admin-pass', envvar='OB_OS_ADMIN_PASS'),
 ):
     """Verify index patterns and saved objects are visible in OpenSearch Dashboards."""
-    r          = region or _region()
-    stack_name = _resolve_stack(name, r)
-    by_name    = {s['name']: s for s in _list_stacks(r)}
-    s          = by_name.get(stack_name)
-    if not s or not s['opensearch']:
-        typer.echo(f'Stack {stack_name!r} not found or missing OpenSearch domain.', err=True)
-        raise typer.Exit(1)
-    ep = _os_endpoint(s['opensearch'])
-    c  = Console(highlight=False)
-    ok = _check_os_dashboards(ep, r, c, admin_user=admin_user, admin_pass=admin_pass)
+    r              = region or _region()
+    ep, stack_name = _os_resolve(name, r)
+    c              = Console(highlight=False)
+    ok             = _check_os_dashboards(ep, r, c, admin_user=admin_user, admin_pass=admin_pass)
     if not ok:
         raise typer.Exit(1)
 
 
 # ── dashboard-export ───────────────────────────────────────────────────────────
 
-@app.command('dashboard-export')
+@os_app.command('dashboard-export')
 def cmd_dashboard_export(
     name        : Optional[str] = typer.Argument(None),
     region      : Optional[str] = typer.Option(None, '--region'),
@@ -1114,17 +1115,11 @@ def cmd_dashboard_export(
     grafana_url : Optional[str] = typer.Option(None, '--grafana-url', envvar='GRAFANA_WORKSPACE_URL'),
 ):
     """Export OpenSearch saved objects (and Grafana dashboards) to a local directory."""
-    r          = region or _region()
-    stack_name = _resolve_stack(name, r)
-    by_name    = {s['name']: s for s in _list_stacks(r)}
-    s          = by_name.get(stack_name)
-    if not s or not s['opensearch']:
-        typer.echo(f'Stack {stack_name!r} not found.', err=True)
-        raise typer.Exit(1)
-    ep       = _os_endpoint(s['opensearch'])
-    out      = Path(output_dir) if output_dir else _backup_path(stack_name) / 'dashboards'
+    r              = region or _region()
+    ep, stack_name = _os_resolve(name, r)
+    out            = Path(output_dir) if output_dir else _backup_path(stack_name) / 'dashboards'
     out.mkdir(parents=True, exist_ok=True)
-    c        = Console(highlight=False)
+    c              = Console(highlight=False)
     c.print(f'\n  Exporting dashboards for [bold]{stack_name}[/] → {out}\n')
     _do_export_os_saved_objects(ep, r, out / 'opensearch-saved-objects.ndjson', c)
     if grafana_url:
@@ -1202,7 +1197,7 @@ def _bulk_import(endpoint: str, region: str, index: str,
 
 # ── data-export ────────────────────────────────────────────────────────────────
 
-@app.command('data-export')
+@os_app.command('data-export')
 def cmd_data_export(
     name       : Optional[str] = typer.Argument(None),
     region     : Optional[str] = typer.Option(None, '--region'),
@@ -1210,26 +1205,20 @@ def cmd_data_export(
     index      : str           = typer.Option(OPENSEARCH_INDEX, '--index'),
 ):
     """Export all OpenSearch log documents to NDJSON via the scroll API."""
-    r          = region or _region()
-    stack_name = _resolve_stack(name, r)
-    by_name    = {s['name']: s for s in _list_stacks(r)}
-    s          = by_name.get(stack_name)
-    if not s or not s['opensearch']:
-        typer.echo(f'Stack {stack_name!r} not found.', err=True)
-        raise typer.Exit(1)
-    ep   = _os_endpoint(s['opensearch'])
-    out  = Path(output_dir) if output_dir else _backup_path(stack_name)
+    r              = region or _region()
+    ep, stack_name = _os_resolve(name, r)
+    out            = Path(output_dir) if output_dir else _backup_path(stack_name)
     out.mkdir(parents=True, exist_ok=True)
-    dest = out / f'{index}.ndjson'
-    c    = Console(highlight=False)
+    dest           = out / f'{index}.ndjson'
+    c              = Console(highlight=False)
     c.print(f'\n  Exporting [bold]{index}[/] from {stack_name!r} → {dest}\n')
-    n    = _scroll_export(ep, r, index, dest, c)
+    n              = _scroll_export(ep, r, index, dest, c)
     c.print(f'\n  [green]✓ Exported {n:,} documents[/]  →  {dest}\n')
 
 
 # ── data-import ────────────────────────────────────────────────────────────────
 
-@app.command('data-import')
+@os_app.command('data-import')
 def cmd_data_import(
     name       : Optional[str] = typer.Argument(None),
     region     : Optional[str] = typer.Option(None, '--region'),
@@ -1237,15 +1226,11 @@ def cmd_data_import(
     index      : str           = typer.Option(OPENSEARCH_INDEX, '--index'),
 ):
     """Bulk-import an NDJSON file of log documents into an OpenSearch index."""
-    r          = region or _region()
-    stack_name = _resolve_stack(name, r)
-    by_name    = {s['name']: s for s in _list_stacks(r)}
-    s          = by_name.get(stack_name)
-    if not s or not s['opensearch']:
-        typer.echo(f'Stack {stack_name!r} not found.', err=True)
-        raise typer.Exit(1)
-    ep  = _os_endpoint(s['opensearch'])
-    src = Path(input_file) if input_file else _latest_backup(stack_name) / f'{index}.ndjson' if _latest_backup(stack_name) else None
+    r              = region or _region()
+    ep, stack_name = _os_resolve(name, r)
+    src            = (Path(input_file) if input_file
+                      else _latest_backup(stack_name) / f'{index}.ndjson' if _latest_backup(stack_name)
+                      else None)
     if not src or not src.exists():
         typer.echo(f'No input file. Pass --input-file or run ob backup first.', err=True)
         raise typer.Exit(1)
@@ -1253,6 +1238,201 @@ def cmd_data_import(
     c.print(f'\n  Importing {src} → [bold]{stack_name}[/] / {index!r}\n')
     n = _bulk_import(ep, r, index, src, c)
     c.print(f'\n  [green]✓ Imported {n:,} documents[/]\n')
+
+
+# ── index-list ─────────────────────────────────────────────────────────────────
+
+@os_app.command('index-list')
+def cmd_index_list(
+    name    : Optional[str] = typer.Argument(None),
+    region  : Optional[str] = typer.Option(None, '--region'),
+    pattern : str           = typer.Option('*', '--pattern', '-p',
+                                           help='Index name pattern (default: all).'),
+):
+    """List all indices in the OpenSearch domain."""
+    r              = region or _region()
+    ep, stack_name = _os_resolve(name, r)
+    c              = Console(highlight=False)
+    c.print(f'\n  Indices in [bold]{stack_name}[/]\n')
+    resp = _sigv4('GET', f'https://{ep}/_cat/indices/{pattern}?format=json&s=index', r)
+    if resp.status_code >= 300:
+        c.print(f'  [red]✗ HTTP {resp.status_code}:[/] {resp.text[:300]}')
+        raise typer.Exit(1)
+    indices = resp.json()
+    tbl = Table(show_header=True, header_style='bold', box=None)
+    tbl.add_column('Index')
+    tbl.add_column('Health', justify='center')
+    tbl.add_column('Status', justify='center')
+    tbl.add_column('Docs',   justify='right')
+    tbl.add_column('Size',   justify='right')
+    for idx in indices:
+        health = idx.get('health', '?')
+        hcolor = {'green': 'green', 'yellow': 'yellow', 'red': 'red'}.get(health, '')
+        tbl.add_row(
+            idx.get('index', '?'),
+            f'[{hcolor}]{health}[/{hcolor}]' if hcolor else health,
+            idx.get('status', '?'),
+            idx.get('docs.count', '0'),
+            idx.get('store.size', '?'),
+        )
+    c.print(tbl)
+    c.print()
+
+
+# ── index-info ─────────────────────────────────────────────────────────────────
+
+@os_app.command('index-info')
+def cmd_index_info(
+    index_name : str           = typer.Argument(..., help='Index name.'),
+    name       : Optional[str] = typer.Option(None, '--stack'),
+    region     : Optional[str] = typer.Option(None, '--region'),
+):
+    """Show mapping, settings, and doc count for an OpenSearch index."""
+    r              = region or _region()
+    ep, stack_name = _os_resolve(name, r)
+    c              = Console(highlight=False)
+    c.print(f'\n  [bold]{index_name}[/] on [bold]{stack_name}[/]\n')
+    for suffix, label in (('/_count', 'Doc count'), ('/_mapping', 'Mapping'), ('/_settings', 'Settings')):
+        resp = _sigv4('GET', f'https://{ep}/{index_name}{suffix}', r)
+        c.print(f'  [bold]{label}[/]  (HTTP {resp.status_code})')
+        if resp.status_code < 300:
+            c.print(f'    {json.dumps(resp.json(), indent=2)[:800]}')
+        else:
+            c.print(f'    [red]{resp.text[:200]}[/]')
+        c.print()
+
+
+# ── index-delete ───────────────────────────────────────────────────────────────
+
+@os_app.command('index-delete')
+def cmd_index_delete(
+    index_name : str           = typer.Argument(..., help='Index name to delete.'),
+    name       : Optional[str] = typer.Option(None, '--stack'),
+    region     : Optional[str] = typer.Option(None, '--region'),
+    yes        : bool          = typer.Option(False, '--yes', '-y'),
+):
+    """Delete an OpenSearch index and all its documents. Irreversible."""
+    r              = region or _region()
+    ep, stack_name = _os_resolve(name, r)
+    c              = Console(highlight=False)
+    if not yes:
+        if not typer.confirm(f'\n  Permanently delete index {index_name!r} on {stack_name!r}?',
+                             default=False):
+            raise typer.Exit(0)
+    resp = _sigv4('DELETE', f'https://{ep}/{index_name}', r)
+    if resp.status_code < 300:
+        c.print(f'\n  [green]✓ Index {index_name!r} deleted[/]\n')
+    else:
+        c.print(f'\n  [red]✗ HTTP {resp.status_code}:[/] {resp.text[:300]}\n')
+        raise typer.Exit(1)
+
+
+# ── pattern-list ───────────────────────────────────────────────────────────────
+
+@os_app.command('pattern-list')
+def cmd_pattern_list(
+    name       : Optional[str] = typer.Argument(None),
+    region     : Optional[str] = typer.Option(None, '--region'),
+    admin_user : str           = typer.Option('', '--admin-user', envvar='OB_OS_ADMIN_USER'),
+    admin_pass : str           = typer.Option('', '--admin-pass', envvar='OB_OS_ADMIN_PASS'),
+):
+    """List all index patterns in OpenSearch Dashboards (global tenant)."""
+    r              = region or _region()
+    ep, stack_name = _os_resolve(name, r)
+    auth           = (admin_user, admin_pass) if admin_user else None
+    hdrs           = {'Content-Type': 'application/json', 'osd-xsrf': 'true',
+                      'securitytenant': 'global'}
+    base           = f'https://{ep}/_dashboards'
+    c              = Console(highlight=False)
+    resp = requests.get(f'{base}/api/saved_objects/_find?type=index-pattern&per_page=100',
+                        headers=hdrs, auth=auth, timeout=15)
+    if resp.status_code >= 300:
+        c.print(f'  [red]✗ HTTP {resp.status_code}:[/] {resp.text[:300]}')
+        raise typer.Exit(1)
+    patterns = resp.json().get('saved_objects', [])
+    c.print(f'\n  Index patterns in [bold]{stack_name}[/] (global tenant)\n')
+    if not patterns:
+        c.print('  (none)\n')
+        return
+    tbl = Table(show_header=True, header_style='bold', box=None)
+    tbl.add_column('ID')
+    tbl.add_column('Title')
+    tbl.add_column('Time field')
+    for p in patterns:
+        attrs = p.get('attributes', {})
+        tbl.add_row(p.get('id', '?'), attrs.get('title', '?'), attrs.get('timeFieldName', '—'))
+    c.print(tbl)
+    c.print()
+
+
+# ── pattern-create ─────────────────────────────────────────────────────────────
+
+@os_app.command('pattern-create')
+def cmd_pattern_create(
+    pattern_id : str           = typer.Argument(..., help='Pattern title / ID (e.g. sg-playwright-logs).'),
+    name       : Optional[str] = typer.Option(None, '--stack'),
+    region     : Optional[str] = typer.Option(None, '--region'),
+    time_field : str           = typer.Option('@timestamp', '--time-field'),
+    admin_user : str           = typer.Option('', '--admin-user', envvar='OB_OS_ADMIN_USER'),
+    admin_pass : str           = typer.Option('', '--admin-pass', envvar='OB_OS_ADMIN_PASS'),
+):
+    """Create an index pattern in OpenSearch Dashboards (global tenant)."""
+    if not admin_user or not admin_pass:
+        typer.echo('\nError: admin credentials required.\n'
+                   '  export OB_OS_ADMIN_USER=admin\n'
+                   '  export OB_OS_ADMIN_PASS="<master-password>"\n', err=True)
+        raise typer.Exit(1)
+    r              = region or _region()
+    ep, stack_name = _os_resolve(name, r)
+    auth           = (admin_user, admin_pass)
+    hdrs           = {'Content-Type': 'application/json', 'osd-xsrf': 'true',
+                      'securitytenant': 'global'}
+    base           = f'https://{ep}/_dashboards'
+    body           = {'attributes': {'title': pattern_id, 'timeFieldName': time_field}}
+    url            = f'{base}/api/saved_objects/index-pattern/{pattern_id}?overwrite=true'
+    resp           = requests.post(url, data=json.dumps(body), headers=hdrs, auth=auth, timeout=30)
+    c              = Console(highlight=False)
+    if resp.status_code < 300 and _verify_index_pattern_exists(base, hdrs, auth, pattern_id):
+        c.print(f'\n  [green]✓ Index pattern {pattern_id!r} created in {stack_name!r}[/]\n')
+    else:
+        c.print(f'\n  [red]✗ HTTP {resp.status_code}:[/] {resp.text[:400]}\n')
+        raise typer.Exit(1)
+
+
+# ── pattern-delete ─────────────────────────────────────────────────────────────
+
+@os_app.command('pattern-delete')
+def cmd_pattern_delete(
+    pattern_id : str           = typer.Argument(..., help='Pattern ID to delete.'),
+    name       : Optional[str] = typer.Option(None, '--stack'),
+    region     : Optional[str] = typer.Option(None, '--region'),
+    admin_user : str           = typer.Option('', '--admin-user', envvar='OB_OS_ADMIN_USER'),
+    admin_pass : str           = typer.Option('', '--admin-pass', envvar='OB_OS_ADMIN_PASS'),
+    yes        : bool          = typer.Option(False, '--yes', '-y'),
+):
+    """Delete an index pattern from OpenSearch Dashboards (global tenant)."""
+    if not admin_user or not admin_pass:
+        typer.echo('\nError: admin credentials required.\n'
+                   '  export OB_OS_ADMIN_USER=admin\n'
+                   '  export OB_OS_ADMIN_PASS="<master-password>"\n', err=True)
+        raise typer.Exit(1)
+    r              = region or _region()
+    ep, stack_name = _os_resolve(name, r)
+    c              = Console(highlight=False)
+    if not yes:
+        if not typer.confirm(f'\n  Delete index pattern {pattern_id!r} from {stack_name!r}?',
+                             default=False):
+            raise typer.Exit(0)
+    auth = (admin_user, admin_pass)
+    hdrs = {'Content-Type': 'application/json', 'osd-xsrf': 'true', 'securitytenant': 'global'}
+    base = f'https://{ep}/_dashboards'
+    resp = requests.delete(f'{base}/api/saved_objects/index-pattern/{pattern_id}',
+                           headers=hdrs, auth=auth, timeout=15)
+    if resp.status_code < 300:
+        c.print(f'\n  [green]✓ Index pattern {pattern_id!r} deleted from {stack_name!r}[/]\n')
+    else:
+        c.print(f'\n  [red]✗ HTTP {resp.status_code}:[/] {resp.text[:300]}\n')
+        raise typer.Exit(1)
 
 
 # ── backup ─────────────────────────────────────────────────────────────────────
@@ -1353,6 +1533,9 @@ def cmd_restore(
 
     c.print(f'\n  [green]✓ Restore complete[/]\n')
 
+
+app.add_typer(os_app, name='open-search')
+app.add_typer(os_app, name='os')
 
 if __name__ == '__main__':
     app()
