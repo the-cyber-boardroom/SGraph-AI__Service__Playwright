@@ -25,10 +25,38 @@ class test_build_code_zip(TestCase):
 
         with zipfile.ZipFile(io.BytesIO(zb.zip_bytes), 'r') as zf:
             names = zf.namelist()
-        assert any(n.endswith('consts/version.py')                    for n in names)
-        assert any(n.endswith('service/Capability__Detector.py')      for n in names)
+        assert any(n == 'sgraph_ai_service_playwright/consts/version.py'               for n in names)   # Locks the zip shape — package prefix MUST be present so `import sgraph_ai_service_playwright.consts.version` resolves after sys.path.insert on the extract dir
+        assert any(n == 'sgraph_ai_service_playwright/service/Capability__Detector.py' for n in names)
+        assert all(n.startswith('sgraph_ai_service_playwright/')                       for n in names)
+        assert all(n.endswith  ('.py'                            )                     for n in names)
+        assert not any('__pycache__' in n                                              for n in names)
+
+    def test__accepts_multiple_package_names(self):                                 # Locks the sibling-app contract: a list of folder names all get zipped in
+        zb = package_code.build_code_zip(package_names=['sgraph_ai_service_playwright__cli', 'scripts'])
+        with zipfile.ZipFile(io.BytesIO(zb.zip_bytes), 'r') as zf:
+            names = zf.namelist()
+
+        assert any(n.startswith('sgraph_ai_service_playwright__cli/') for n in names)
+        assert any(n.startswith('scripts/')                           for n in names)
+        assert not any(n.startswith('sgraph_ai_service_playwright/')  for n in names)  # Default package NOT included — list overrides
         assert all(n.endswith('.py')                                  for n in names)
-        assert not any('__pycache__' in n                             for n in names)
+
+    def test__empty_list_falls_back_to_default(self):                               # Belt-and-braces — main(--package) never used = default Playwright package
+        zb_none  = package_code.build_code_zip(package_names=None)
+        zb_empty = package_code.build_code_zip(package_names=[])
+        assert len(zb_none.zip_bytes)  > 1000
+        assert len(zb_empty.zip_bytes) > 1000
+
+        with zipfile.ZipFile(io.BytesIO(zb_empty.zip_bytes), 'r') as zf:
+            names = zf.namelist()
+        assert any(n.startswith('sgraph_ai_service_playwright/')      for n in names)
+
+    def test__multi_package_entries_are_importable(self):                           # Belt-and-braces on the real use case — both prefixes must appear intact
+        zb = package_code.build_code_zip(package_names=['sgraph_ai_service_playwright__cli', 'scripts'])
+        with zipfile.ZipFile(io.BytesIO(zb.zip_bytes), 'r') as zf:
+            names = zf.namelist()
+        assert any(n == 'sgraph_ai_service_playwright__cli/fast_api/lambda_handler.py' for n in names)
+        assert any(n == 'scripts/provision_ec2.py'                                     for n in names)
 
 
 class test_module_surface(TestCase):

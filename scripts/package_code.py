@@ -24,6 +24,8 @@ import sys
 from osbot_aws.AWS_Config                                                                       import AWS_Config
 from osbot_aws.aws.s3.S3                                                                        import S3
 from osbot_aws.aws.s3.S3__Zip_Bytes                                                             import S3__Zip_Bytes
+from osbot_utils.utils.Files                                                                    import files_list
+from osbot_utils.utils.Regex                                                                    import list__match_regexes
 
 from sgraph_ai_service_playwright.consts.version                                                import version__sgraph_ai_service_playwright
 
@@ -46,39 +48,61 @@ def resolve_bucket_name(region_name: str = None) -> str:                        
     return BUCKET_NAME_FORMAT.format(account_id=account_id, region_name=region_name)
 
 
-def build_code_zip() -> S3__Zip_Bytes:                                              # Pure packaging — no S3 yet, so callers can inspect the bytes
-    zb = S3__Zip_Bytes(s3=S3())
-    zb.add_folder__from_disk(PACKAGE_NAME, SOURCE_FILE_REGEX)
+def build_code_zip(package_names: list = None) -> S3__Zip_Bytes:                    # Pure packaging — no S3 yet, so callers can inspect the bytes
+    # Package-name prefix MUST be preserved in zip entries so Agentic_Code_Loader
+    # can extract + add one sys.path entry and still resolve
+    # `import <package_name>.x.y`. Pre-v0.1.77 used add_folder__from_disk which
+    # stripped the prefix — extracted zips were not actually importable by
+    # package name. That went unnoticed because no Lambda consumed the S3 zip
+    # yet ("S3-only until agentic image ships"). Now that the shim is generic
+    # and sibling Lambdas will really boot from the zip, the fix matters.
+    #
+    # Implementation: add_files__from_disk(base_path, files, path_prefix) strips
+    # `base_path` from each entry then re-adds `path_prefix`. Setting both to
+    # `{name}/` keeps the prefix intact while letting us combine multiple
+    # package trees in one zip.
+    names = package_names or [PACKAGE_NAME]                                         # Default preserves the Playwright-only entrypoint; sibling apps pass e.g. ['sgraph_ai_service_playwright__cli', 'scripts']
+    zb    = S3__Zip_Bytes(s3=S3())
+    for name in names:
+        files = list__match_regexes(files_list(name), SOURCE_FILE_REGEX)
+        zb.add_files__from_disk(base_path=name, files_to_add=files, path_prefix=f'{name}/')
     return zb
 
 
-def deploy_code(stage: str, app_name: str = DEFAULT_APP_NAME, version: str = None, region_name: str = None) -> dict:
+def deploy_code(stage: str, app_name: str = DEFAULT_APP_NAME, version: str = None, region_name: str = None, package_names: list = None) -> dict:
     version      = version or str(version__sgraph_ai_service_playwright)
     bucket_name  = resolve_bucket_name(region_name)
     s3_key       = KEY_FORMAT.format(app_name=app_name, stage=stage, version=version)
 
-    zb           = build_code_zip()
+    zb           = build_code_zip(package_names)
     zb.save_to_s3(bucket_name, s3_key)
 
-    result = {'bucket'   : bucket_name         ,
-              'key'      : s3_key              ,
-              'app_name' : app_name            ,
-              'stage'    : stage               ,
-              'version'  : version             ,
-              'bytes'    : len(zb.zip_bytes)    }                                   # Size surfaced in CI logs — quick sanity check for accidental empty zips
+    result = {'bucket'       : bucket_name         ,
+              'key'          : s3_key              ,
+              'app_name'     : app_name            ,
+              'stage'        : stage               ,
+              'version'      : version             ,
+              'package_names': package_names or [PACKAGE_NAME],
+              'bytes'        : len(zb.zip_bytes)    }                               # Size surfaced in CI logs — quick sanity check for accidental empty zips
     print(f'uploaded {result["bytes"]:,} bytes to s3://{bucket_name}/{s3_key}')
     return result
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description='Package and upload the sg-playwright code zip.')
+    parser = argparse.ArgumentParser(description='Package and upload a code zip to the agentic-bucket S3 layout.')
     parser.add_argument('--stage'   , required=True             , help="Deployment stage: 'dev', 'main', or 'prod'")
     parser.add_argument('--app-name', default=DEFAULT_APP_NAME  , help=f'App name (default: {DEFAULT_APP_NAME})')
     parser.add_argument('--version' , default=None              , help='Override version string (default: repo version file)')
     parser.add_argument('--region'  , default=None              , help='Override AWS region (default: boto3 session region)')
+    parser.add_argument('--package' , action='append', default=None, dest='package_names', metavar='NAME',
+                                                                   help=f'Folder name(s) to include in the zip. Repeatable. Default: {PACKAGE_NAME}')
     args = parser.parse_args()
 
-    deploy_code(stage=args.stage, app_name=args.app_name, version=args.version, region_name=args.region)
+    deploy_code(stage         = args.stage        ,
+                app_name      = args.app_name     ,
+                version       = args.version      ,
+                region_name   = args.region       ,
+                package_names = args.package_names)
     return 0
 
 
