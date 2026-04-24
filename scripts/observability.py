@@ -817,13 +817,17 @@ def _do_import_os_saved_objects(endpoint: str, region: str, c: Console,
     base = f'https://{endpoint}/_dashboards'
 
     # ── Index pattern ───────────────────────────────────────────────────────────
-    # Fetch live field list first so the pattern is immediately usable.
-    fields_str = _fetch_index_fields(base, hdrs, auth)
-    c.print(f'  [dim]  fields fetched: {len(json.loads(fields_str))} fields[/]')
+    # Fetch live field list; only include in body when non-empty.
+    # Sending fields:'[]' causes a 400 ("definition for this key is missing") on AOS —
+    # omitting it entirely lets OSD auto-discover fields, which matches the working curl.
+    fields_str  = _fetch_index_fields(base, hdrs, auth)
+    fields_list = json.loads(fields_str)
+    c.print(f'  [dim]  fields fetched: {len(fields_list)}[/]')
 
-    ip_body = {'attributes': {'title': OPENSEARCH_INDEX,
-                               'timeFieldName': '@timestamp',
-                               'fields': fields_str}}
+    ip_attrs = {'title': OPENSEARCH_INDEX, 'timeFieldName': '@timestamp'}
+    if fields_list:
+        ip_attrs['fields'] = fields_str
+    ip_body = {'attributes': ip_attrs}
     url = (f'{base}/api/saved_objects/index-pattern/{OPENSEARCH_INDEX}'
            f'?overwrite=true&security_tenant=global')
     resp = requests.post(url, json=ip_body, headers=hdrs, auth=auth, timeout=30)
