@@ -309,6 +309,7 @@ COMPOSE_SVC_FLUENT_BIT = """\
       - /var/lib/docker/containers:/var/lib/docker/containers:ro
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - /opt/sg-playwright/config/fluent-bit.conf:/fluent-bit/etc/fluent-bit.conf:ro
+      - /opt/sg-playwright/config/parsers_custom.conf:/fluent-bit/etc/parsers_custom.conf:ro
     networks:
       - sg-net
     restart: always
@@ -365,12 +366,22 @@ remote_write:
       capacity:             2500
 """
 
+FLUENT_BIT_PARSERS_CUSTOM = """\
+# uvicorn/FastAPI access log: INFO:     <ip>:<port> - "<METHOD> <path> HTTP/<ver>" <status> <text>
+[PARSER]
+    Name        uvicorn_access
+    Format      regex
+    Regex       ^INFO:\\s+(?<client_ip>[^:]+):\\d+ - "(?<http_method>[A-Z]+) (?<http_path>[^ ]+) HTTP/[^"]*" (?<http_status>\\d+)
+    Types       http_status:integer
+"""
+
 FLUENT_BIT_CONF_TEMPLATE = """\
 [SERVICE]
     Flush         1
     Daemon        Off
     Log_Level     info
     Parsers_File  /fluent-bit/etc/parsers.conf
+    Parsers_File  /fluent-bit/etc/parsers_custom.conf
 
 [INPUT]
     Name              tail
@@ -380,12 +391,34 @@ FLUENT_BIT_CONF_TEMPLATE = """\
     Refresh_Interval  5
     Mem_Buf_Limit     5MB
     Skip_Long_Lines   On
+    Path_Key          container_path
 
 [FILTER]
     Name    record_modifier
     Match   *
     Record  stack        sg-playwright
     Record  environment  {stage}
+
+# Parse FastAPI/uvicorn access log lines into structured fields
+[FILTER]
+    Name         parser
+    Match        docker.*
+    Key_Name     log
+    Parser       uvicorn_access
+    Reserve_Data On
+    Preserve_Key On
+
+# Drop /health/ polling — high-volume noise with no signal value
+[FILTER]
+    Name    grep
+    Match   docker.*
+    Exclude http_path  ^/health/
+
+# Drop blank / whitespace-only log lines
+[FILTER]
+    Name   grep
+    Match  docker.*
+    Regex  log  \\S
 
 {output_section}"""
 
@@ -453,6 +486,7 @@ def render_observability_configs_section(region           : str,
 
     parts = [
         f"cat > /opt/sg-playwright/config/prometheus.yml << 'SG_PROM_EOF'\n{prometheus_yml}SG_PROM_EOF",
+        f"cat > /opt/sg-playwright/config/parsers_custom.conf << 'SG_FB_PARSERS_EOF'\n{FLUENT_BIT_PARSERS_CUSTOM}SG_FB_PARSERS_EOF",
         f"cat > /opt/sg-playwright/config/fluent-bit.conf << 'SG_FB_EOF'\n{fluent_bit_conf}SG_FB_EOF",
     ]
     return '\n\n'.join(parts) + '\n'
