@@ -136,7 +136,7 @@ SG_COMPOSE_EOF
 
 {observability_configs_section}
 {browser_proxy_section}
-docker pull {browser_image_uri}   || true    # pull public images if not baked into AMI
+{browser_image_pull}
 docker pull {portainer_image_uri} || true
 docker compose -f /opt/sg-playwright/docker-compose.yml up -d
 
@@ -514,7 +514,7 @@ set -x
 
 docker pull {playwright_image_uri}
 docker pull {sidecar_image_uri}
-docker pull {browser_image_uri}
+{browser_image_pull}
 docker pull {portainer_image_uri}
 
 # Revoke the stored Docker credential immediately after pull — the instance
@@ -900,22 +900,25 @@ def render_user_data(playwright_image_uri  : str,
                       max_hours             : int          = 1,
                       amp_remote_write_url  : str          = '',
                       opensearch_endpoint   : str          = '',
-                      stage                 : str          = DEFAULT_STAGE) -> str:
+                      stage                 : str          = DEFAULT_STAGE,
+                      upstream_url          : str          = '') -> str:
     if max_hours:
         shutdown_section = (f'\n# Auto-terminate after {max_hours}h\n'
                              f'systemd-run --on-active={max_hours}h /sbin/shutdown -h now\n'
                              f'echo "Auto-terminate timer started: {max_hours}h from now"\n')
     else:
         shutdown_section = ''
-    obs_section = render_observability_configs_section(region               = aws_region()       ,
-                                                        amp_remote_write_url = amp_remote_write_url,
-                                                        opensearch_endpoint  = opensearch_endpoint ,
-                                                        stage                = stage               )
+    obs_section          = render_observability_configs_section(region               = aws_region()       ,
+                                                                 amp_remote_write_url = amp_remote_write_url,
+                                                                 opensearch_endpoint  = opensearch_endpoint ,
+                                                                 stage                = stage               )
+    browser_image_pull   = (f'docker pull {EC2__BROWSER_IMAGE}' if upstream_url
+                             else '# browser image skipped — no upstream proxy configured')
     return USER_DATA_TEMPLATE.format(region                        = aws_region()           ,
                                      registry                      = ecr_registry_host()    ,
                                      playwright_image_uri          = playwright_image_uri   ,
                                      sidecar_image_uri             = sidecar_image_uri      ,
-                                     browser_image_uri             = EC2__BROWSER_IMAGE     ,
+                                     browser_image_pull            = browser_image_pull     ,
                                      portainer_image_uri           = EC2__PORTAINER_IMAGE   ,
                                      compose_content               = compose_content        ,
                                      observability_configs_section = obs_section            ,
@@ -1125,12 +1128,14 @@ def provision(stage                  : str          = DEFAULT_STAGE    ,
                                                         amp_remote_write_url = amp_remote_write_url,
                                                         opensearch_endpoint  = opensearch_endpoint ,
                                                         stage                = stage               )
+    browser_image_pull_ami = (f'docker pull {EC2__BROWSER_IMAGE} || true'
+                               if upstream_url else '')
     if from_ami:
-        user_data = AMI_USER_DATA_TEMPLATE.format(compose_content               = compose_content      ,
-                                                   observability_configs_section = obs_section            ,
+        user_data = AMI_USER_DATA_TEMPLATE.format(compose_content               = compose_content                 ,
+                                                   observability_configs_section = obs_section                      ,
                                                    browser_proxy_section         = render_browser_proxy_section(api_key_value=api_key_value),
-                                                   browser_image_uri             = EC2__BROWSER_IMAGE      ,
-                                                   portainer_image_uri           = EC2__PORTAINER_IMAGE    )
+                                                   browser_image_pull            = browser_image_pull_ami           ,
+                                                   portainer_image_uri           = EC2__PORTAINER_IMAGE             )
     else:
         user_data = render_user_data(playwright_image_uri  = playwright_image_uri ,
                                      sidecar_image_uri     = sidecar_image_uri    ,
@@ -1139,7 +1144,8 @@ def provision(stage                  : str          = DEFAULT_STAGE    ,
                                      max_hours             = max_hours            ,
                                      amp_remote_write_url  = amp_remote_write_url ,
                                      opensearch_endpoint   = opensearch_endpoint  ,
-                                     stage                 = stage                )
+                                     stage                 = stage                ,
+                                     upstream_url          = upstream_url         )
 
     instance_profile_name = ensure_instance_profile()
     security_group_id     = ensure_security_group(ec2)
