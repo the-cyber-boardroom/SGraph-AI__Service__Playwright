@@ -61,7 +61,7 @@ class test_Elastic__Service(TestCase):
 
         assert type(response)                  is Schema__Elastic__Create__Response
         assert str(response.stack_name)        .startswith('elastic-')              # adjective-scientist
-        assert str(response.aws_name_tag)      == f'elastic-{str(response.stack_name)}'
+        assert str(response.aws_name_tag)      == str(response.stack_name)          # No double-prefix when stack_name already starts with "elastic-"
         assert str(response.region)            == REGION
         assert str(response.ami_id)            == DEFAULT_FIXTURE_AMI
         assert str(response.instance_type)     == 't3.medium'
@@ -70,12 +70,18 @@ class test_Elastic__Service(TestCase):
         assert str(response.elastic_password)  != ''                                # Generated, returned once
         assert response.state                  == Enum__Elastic__State.PENDING
 
-    def test_create__honours_user_supplied_name(self):
+    def test_create__honours_user_supplied_name(self):                              # User-supplied names get the "elastic-" prefix on the AWS Name tag
         service  = build_service()
         request  = Schema__Elastic__Create__Request(stack_name='my-stack', region=REGION)
         response = service.create(request)
         assert str(response.stack_name)   == 'my-stack'
-        assert str(response.aws_name_tag) == 'elastic-my-stack'                     # Always prefixed in EC2 console
+        assert str(response.aws_name_tag) == 'elastic-my-stack'
+
+    def test_create__user_supplied_name_already_prefixed_is_not_doubled(self):      # Regression: stack_name='elastic-foo' must not yield 'elastic-elastic-foo'
+        service  = build_service()
+        response = service.create(Schema__Elastic__Create__Request(stack_name='elastic-foo', region=REGION))
+        assert str(response.stack_name)   == 'elastic-foo'
+        assert str(response.aws_name_tag) == 'elastic-foo'
 
     def test_create__sg_locked_to_caller_ip(self):                                  # Service must pass caller IP into ensure_security_group
         service = build_service()

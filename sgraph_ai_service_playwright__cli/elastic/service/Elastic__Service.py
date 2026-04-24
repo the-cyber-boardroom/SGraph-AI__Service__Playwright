@@ -33,7 +33,7 @@ from sgraph_ai_service_playwright__cli.elastic.schemas.Schema__Elastic__List    
 from sgraph_ai_service_playwright__cli.elastic.schemas.Schema__Elastic__Seed__Request    import Schema__Elastic__Seed__Request
 from sgraph_ai_service_playwright__cli.elastic.schemas.Schema__Elastic__Seed__Response   import Schema__Elastic__Seed__Response
 from sgraph_ai_service_playwright__cli.elastic.service.Caller__IP__Detector         import Caller__IP__Detector
-from sgraph_ai_service_playwright__cli.elastic.service.Elastic__AWS__Client         import Elastic__AWS__Client
+from sgraph_ai_service_playwright__cli.elastic.service.Elastic__AWS__Client         import Elastic__AWS__Client, aws_name_for_stack
 from sgraph_ai_service_playwright__cli.elastic.service.Elastic__HTTP__Client        import Elastic__HTTP__Client
 from sgraph_ai_service_playwright__cli.elastic.service.Elastic__User__Data__Builder import Elastic__User__Data__Builder
 from sgraph_ai_service_playwright__cli.elastic.service.Synthetic__Data__Generator   import Synthetic__Data__Generator
@@ -84,7 +84,7 @@ class Elastic__Service(Type_Safe):                                              
                                                         caller_ip        = caller_ip        ,
                                                         creator          = creator          )
         return Schema__Elastic__Create__Response(stack_name        = stack_name                                  ,
-                                                 aws_name_tag      = f'elastic-{str(stack_name)}'                ,
+                                                 aws_name_tag      = aws_name_for_stack(stack_name)              ,  # "elastic-..." marker, no doubles
                                                  instance_id       = instance_id                                  ,
                                                  region            = region                                       ,
                                                  ami_id            = ami_id                                       ,

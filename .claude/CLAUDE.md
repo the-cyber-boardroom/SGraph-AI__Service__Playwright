@@ -118,40 +118,45 @@ Six personas, one shared codebase. Pick the role that fits the task before you s
 12. **No AWS credentials in Git.** Live in GH Actions repository secrets only. Never in `.env.example`, never in any committed file.
 13. **No vault keys in Git.** Vault keys (e.g. `sgit` dev-pack key) are shared out-of-band. If one appears in a diff, block the commit.
 
+### AWS Resource Naming
+
+14. **Security group `GroupName` must NOT start with `sg-`.** AWS reserves the `sg-*` prefix for security group IDs and rejects `CreateSecurityGroup` with `InvalidParameterValue` if the GroupName matches that pattern. Use a suffix instead (e.g. `{stack}-sg`) or a non-`sg-` prefix. Tracked precedent: `scripts/provision_ec2.py:83` (`SG__NAME = 'playwright-ec2'`), `sgraph_ai_service_playwright__cli/elastic/service/Elastic__AWS__Client.py` (`sg_name_for_stack` helper).
+15. **AWS Name tag — never double-prefix.** When the logical name already carries the namespace (e.g. `elastic-quiet-fermi`), do not wrap it again into `elastic-elastic-quiet-fermi`. Use a helper that prefixes only when missing — see `aws_name_for_stack` in `Elastic__AWS__Client.py`.
+
 ### Responsibility Boundaries
 
-14. **Step__Executor** is the ONLY class that calls `page.*` Playwright methods (with `Browser__Launcher` carve-out for process lifecycle)
-15. **Artefact__Writer** is the ONLY class that writes to sinks
-16. **Request__Validator** contains ALL cross-schema validation
-17. **Routes have no logic** — pure delegation to `Playwright__Service`
+16. **Step__Executor** is the ONLY class that calls `page.*` Playwright methods (with `Browser__Launcher` carve-out for process lifecycle)
+17. **Artefact__Writer** is the ONLY class that writes to sinks
+18. **Request__Validator** contains ALL cross-schema validation
+19. **Routes have no logic** — pure delegation to `Playwright__Service`
 
 ### Class / File Naming
 
-18. **Python identifier safety** — the spec uses names like `Docker__SGraph-AI__Service__Playwright__Base` with a hyphen in `SGraph-AI`. Python identifiers cannot contain hyphens. Normalised form:
+20. **Python identifier safety** — the spec uses names like `Docker__SGraph-AI__Service__Playwright__Base` with a hyphen in `SGraph-AI`. Python identifiers cannot contain hyphens. Normalised form:
     - Class names and module names use `SGraph_AI` (underscore) — e.g. `Docker__SGraph_AI__Service__Playwright__Base`
     - Repo root and test filenames retain `SGraph-AI` where the spec is explicit (filenames allow hyphens)
-19. **One class per file.** Every `Safe_*`, `Enum__*`, `Schema__*`, and `List__*` / `Dict__*` collection class lives in its own file named exactly after the class. When a module would otherwise declare multiple such classes, replace it with a same-named folder containing per-class files. Callers import from the class file directly. Registries (module-level constants + helper functions, e.g. `STEP_SCHEMAS`) are the one exception — they live in a single `*_registry.py` under `dispatcher/` because they are logic, not a schema.
-20. **`__init__.py` stays empty.** Every package inside `sgraph_ai_service_playwright/` uses an empty `__init__.py`. Never re-export symbols — callers import from the fully-qualified per-class path. Never commit an empty `__init__.py` in a folder that shares a name with a sibling `.py` module: Python's import system prefers the package and every import under the module breaks.
+21. **One class per file.** Every `Safe_*`, `Enum__*`, `Schema__*`, and `List__*` / `Dict__*` collection class lives in its own file named exactly after the class. When a module would otherwise declare multiple such classes, replace it with a same-named folder containing per-class files. Callers import from the class file directly. Registries (module-level constants + helper functions, e.g. `STEP_SCHEMAS`) are the one exception — they live in a single `*_registry.py` under `dispatcher/` because they are logic, not a schema.
+22. **`__init__.py` stays empty.** Every package inside `sgraph_ai_service_playwright/` uses an empty `__init__.py`. Never re-export symbols — callers import from the fully-qualified per-class path. Never commit an empty `__init__.py` in a folder that shares a name with a sibling `.py` module: Python's import system prefers the package and every import under the module breaks.
 
 ### Human Folders — Read-Only for Agents
 
-21. **`team/humans/dinis_cruz/briefs/`** — HUMAN-ONLY. Agents must NEVER create files there.
-22. **`team/humans/dinis_cruz/debriefs/`** — HUMAN-ONLY. Agents must NEVER edit files there.
-23. **Agent outputs** go to `team/humans/dinis_cruz/claude-code-web/MM/DD/HH/`
+23. **`team/humans/dinis_cruz/briefs/`** — HUMAN-ONLY. Agents must NEVER create files there.
+24. **`team/humans/dinis_cruz/debriefs/`** — HUMAN-ONLY. Agents must NEVER edit files there.
+25. **Agent outputs** go to `team/humans/dinis_cruz/claude-code-web/MM/DD/HH/`
 
 ### Debrief Depth
 
-24. **Every slice gets a debrief** under `team/claude/debriefs/`, indexed in `team/claude/debriefs/index.md`.
-25. **Debriefs classify failures** using the good-failure / bad-failure convention:
+26. **Every slice gets a debrief** under `team/claude/debriefs/`, indexed in `team/claude/debriefs/index.md`.
+27. **Debriefs classify failures** using the good-failure / bad-failure convention:
     - **Good failure** — surfaced early, caught by tests, informed a better design.
     - **Bad failure** — silenced, worked around, or re-introduced. A bad failure is an implicit follow-up request.
-26. **Commit hash is backfilled** into the debrief index once the Dev commit lands. The Historian chases stragglers.
+28. **Commit hash is backfilled** into the debrief index once the Dev commit lands. The Historian chases stragglers.
 
 ### Git
 
-27. **Default branch:** `dev`
-28. **Branch naming:** `claude/{description}-{session-id}`
-29. **Agents never push to `dev` directly.** Open a PR from the feature branch.
+29. **Default branch:** `dev`
+30. **Branch naming:** `claude/{description}-{session-id}`
+31. **Agents never push to `dev` directly.** Open a PR from the feature branch.
 
 ---
 
