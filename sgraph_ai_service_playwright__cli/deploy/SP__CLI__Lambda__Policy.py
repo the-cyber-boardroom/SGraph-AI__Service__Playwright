@@ -101,6 +101,32 @@ class SP__CLI__Lambda__Policy(Type_Safe):
                                             'sts:DecodeAuthorizationMessage'    ],
                                'Resource': '*'                                                      }]}
 
+    def document_observability(self) -> dict:                                       # Covers the three AWS observability services Observability__Service talks to. READ + DELETE only — creates/updates are deferred until those mutation paths land.
+        return {'Version'  : '2012-10-17',
+                'Statement': [{'Sid'     : 'AmpReadDelete',                         # Amazon Managed Service for Prometheus uses the aps: namespace
+                               'Effect'  : 'Allow',
+                               'Action'  : ['aps:ListWorkspaces'                    ,
+                                            'aps:DescribeWorkspace'                 ,
+                                            'aps:DeleteWorkspace'                   ],
+                               'Resource': '*'                                                      },
+                              {'Sid'     : 'OpenSearchDescribe',                    # Domain-list / describe is account-wide; can't be ARN-scoped
+                               'Effect'  : 'Allow',
+                               'Action'  : ['es:ListDomainNames'                    ,
+                                            'es:DescribeDomain'                     ,
+                                            'es:DescribeDomains'                    ,
+                                            'es:DeleteDomain'                       ],
+                               'Resource': '*'                                                      },
+                              {'Sid'     : 'OpenSearchHttpRead',                    # SigV4-signed HTTP GET on /{index}/_count — required for Observability__AWS__Client.opensearch_document_count
+                               'Effect'  : 'Allow',
+                               'Action'  : ['es:ESHttpGet'                          ],
+                               'Resource': '*'                                                      },
+                              {'Sid'     : 'GrafanaReadDelete',
+                               'Effect'  : 'Allow',
+                               'Action'  : ['grafana:ListWorkspaces'                ,
+                                            'grafana:DescribeWorkspace'             ,
+                                            'grafana:DeleteWorkspace'               ],
+                               'Resource': '*'                                                      }]}
+
     def assume_role_document(self) -> dict:                                         # Trust policy — Lambda service can assume this role
         return {'Version'  : '2012-10-17',
                 'Statement': [{'Effect'   : 'Allow',
