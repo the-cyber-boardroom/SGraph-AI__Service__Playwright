@@ -2,6 +2,9 @@
 # SP CLI — Deploy orchestrator
 # Runs the full provision chain for the SP CLI Lambda, in order:
 #
+#   0. CI__User__Passrole.ensure()        — grant iam:PassRole on the Lambda
+#                                           role to the CI user (one-time;
+#                                           idempotent afterwards)
 #   1. SP__CLI__Lambda__Role.ensure()     — create/update execution role
 #   2. Docker__SP__CLI.build_and_push()   — build image, push to ECR
 #   3. Lambda__SP__CLI.upsert()           — create/update Lambda, wire URL
@@ -11,7 +14,7 @@
 #
 # CI split: the GH Actions workflow runs step 2 in its own job (so image
 # rebuilds are cached / skipped independently) and then runs this
-# orchestrator with --skip-build so steps 1 + 3 execute against the
+# orchestrator with --skip-build so steps 0, 1, 3 execute against the
 # already-published image. --skip-build also avoids pulling in osbot-docker
 # on the provision job, keeping its install list minimal.
 #
@@ -25,6 +28,7 @@ import sys
 
 from osbot_utils.type_safe.Type_Safe                                                import Type_Safe
 
+from sgraph_ai_service_playwright__cli.deploy.CI__User__Passrole                    import CI__User__Passrole
 from sgraph_ai_service_playwright__cli.deploy.Docker__SP__CLI                       import Docker__SP__CLI
 from sgraph_ai_service_playwright__cli.deploy.Lambda__SP__CLI                       import Lambda__SP__CLI
 from sgraph_ai_service_playwright__cli.deploy.SP__CLI__Lambda__Role                 import SP__CLI__Lambda__Role
@@ -36,14 +40,18 @@ class Provision__SP__CLI(Type_Safe):
                   skip_build      : bool                = False  ,                  # CI flips this on when the prior job already built + pushed
                   wait_for_active : bool                = True
              ) -> dict:
-        role_result   = SP__CLI__Lambda__Role().ensure()
-        docker_result = self.resolve_image(skip_build)
-        lambda_result = Lambda__SP__CLI(stage     = stage                 ,
-                                        role_arn  = role_result['role_arn'],
-                                        image_uri = docker_result['image_uri']).upsert(wait_for_active=wait_for_active)
-        return {'role'   : role_result  ,
-                'docker' : docker_result,
-                'lambda' : lambda_result}
+        passrole_result = CI__User__Passrole().ensure()                             # Bootstrap: without iam:PassRole on the Lambda role, lambda.CreateFunction fails with AccessDenied (see ci pass #7 for the original symptom)
+        print(f'[provision] passrole: {passrole_result}')
+
+        role_result     = SP__CLI__Lambda__Role().ensure()
+        docker_result   = self.resolve_image(skip_build)
+        lambda_result   = Lambda__SP__CLI(stage     = stage                 ,
+                                          role_arn  = role_result['role_arn'],
+                                          image_uri = docker_result['image_uri']).upsert(wait_for_active=wait_for_active)
+        return {'passrole': passrole_result,
+                'role'    : role_result    ,
+                'docker'  : docker_result  ,
+                'lambda'  : lambda_result  }
 
     def resolve_image(self, skip_build: bool) -> dict:
         if skip_build:                                                              # Just compute the URI — no setup, no osbot-docker, no daemon
