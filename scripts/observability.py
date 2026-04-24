@@ -793,6 +793,28 @@ def _sys_idx_write(endpoint: str, doc_id: str, doc: dict,
     return False
 
 
+def _sys_idx_write_sigv4(endpoint: str, region: str, doc_id: str, doc: dict,
+                          c: Console = None) -> bool:
+    """Write a saved-object doc to the .opensearch_dashboards system index using SigV4.
+
+    Used when no admin credentials are available; falls back to IAM-based auth.
+    """
+    body = json.dumps(doc).encode()
+    for idx in ('.opensearch_dashboards', '.opensearch_dashboards_1', '.kibana', '.kibana_1'):
+        url  = f'https://{endpoint}/{idx}/_doc/{doc_id}?refresh=true'
+        try:
+            resp = _sigv4('PUT', url, region, body)
+        except Exception as e:
+            if c:
+                c.print(f'  [dim]  sigv4 sys-idx {idx}: error {e}[/]')
+            continue
+        if resp.status_code < 300:
+            return True
+        if c:
+            c.print(f'  [dim]  sigv4 sys-idx {idx}: HTTP {resp.status_code}[/]')
+    return False
+
+
 def _do_import_os_saved_objects(endpoint: str, region: str, c: Console,
                                  ndjson_path: Optional[Path] = None,
                                  admin_user: str = '', admin_pass: str = ''):
@@ -800,7 +822,8 @@ def _do_import_os_saved_objects(endpoint: str, region: str, c: Console,
 
     Strategy (each step falls back to the next):
     1. Dashboards REST API (data_views / index_patterns / saved_objects)
-    2. Direct write to .opensearch_dashboards system index — bypasses schema validation
+    2. Direct write to .opensearch_dashboards system index — basic auth (admin_user)
+    3. Direct write to .opensearch_dashboards system index — SigV4 (IAM role)
     """
     auth = (admin_user, admin_pass) if admin_user else None
     hdrs = {'Content-Type': 'application/json', 'osd-xsrf': 'true', 'securitytenant': 'global'}
@@ -826,17 +849,21 @@ def _do_import_os_saved_objects(endpoint: str, region: str, c: Console,
         if resp.status_code < 300:
             dv_ok = True
             break
-        if resp.status_code not in (400, 404):
-            break  # unexpected error — don't retry
+        if resp.status_code >= 500:
+            break  # server error — stop retrying
+
+    dv_doc = {'type': 'index-pattern',
+              'index-pattern': {'title': OPENSEARCH_INDEX, 'timeFieldName': '@timestamp',
+                                 'fields': '[]'},
+              'references': [], 'namespaces': ['default']}
+    dv_id  = f'index-pattern:{OPENSEARCH_INDEX}'
 
     if not dv_ok and admin_user:
-        # Fallback: write directly to the system index (bypasses Dashboards API validation)
-        dv_doc = {'type': 'index-pattern',
-                  'index-pattern': {'title': OPENSEARCH_INDEX, 'timeFieldName': '@timestamp',
-                                     'fields': '[]'},
-                  'references': [], 'namespaces': ['default']}
-        dv_ok = _sys_idx_write(endpoint, f'index-pattern:{OPENSEARCH_INDEX}', dv_doc,
-                                admin_user, admin_pass, c)
+        dv_ok = _sys_idx_write(endpoint, dv_id, dv_doc, admin_user, admin_pass, c)
+
+    if not dv_ok:
+        # SigV4 fallback — writes directly to system index via IAM; bypasses Dashboards FGAC
+        dv_ok = _sys_idx_write_sigv4(endpoint, region, dv_id, dv_doc, c)
 
     if dv_ok:
         c.print(f'  [green]✓ Data View created[/]  ({OPENSEARCH_INDEX})')
@@ -872,12 +899,12 @@ def _do_import_os_saved_objects(endpoint: str, region: str, c: Console,
     ok = api_fail = sys_ok = sys_fail = 0
     first_400_shown = False
 
-    # ── Strategy A: _bulk_create (one round-trip, may avoid per-object validation) ──
-    if objects and admin_user:
+    # ── Strategy A: _bulk_create via Dashboards API ────────────────────────────
+    if objects:
         bulk_url  = f'{base}/api/saved_objects/_bulk_create?overwrite=true'
         bulk_resp = requests.post(bulk_url, json=objects, headers=hdrs, auth=auth, timeout=30)
         if bulk_resp.status_code < 300:
-            saved = bulk_resp.json().get('saved_objects', [])
+            saved    = bulk_resp.json().get('saved_objects', [])
             bulk_ok  = [o for o in saved if 'error' not in o]
             bulk_err = [o for o in saved if 'error' in o]
             if bulk_ok and not bulk_err:
@@ -885,20 +912,18 @@ def _do_import_os_saved_objects(endpoint: str, region: str, c: Console,
                 return True
             if bulk_ok:
                 ok += len(bulk_ok)
-                # Only retry the failed ones below
                 failed_ids = {o['id'] for o in bulk_err}
                 objects = [o for o in objects if o['id'] in failed_ids]
         elif bulk_resp.status_code not in (400, 404, 405):
             c.print(f'  [dim]  bulk_create HTTP {bulk_resp.status_code}[/]')
 
-    # ── Strategy B: per-object Dashboards API → system index fallback ─────────────
+    # ── Strategy B: per-object Dashboards API → system index → SigV4 ──────────
     for obj in objects:
         otype = obj['type']
         oid   = obj['id']
         attrs = obj['attributes']
         refs  = obj['references']
 
-        # Try 1: POST with references
         url  = f'{base}/api/saved_objects/{otype}/{oid}?overwrite=true&security_tenant=global'
         resp = requests.post(url, json={'attributes': attrs, 'references': refs},
                              headers=hdrs, auth=auth, timeout=30)
@@ -906,13 +931,12 @@ def _do_import_os_saved_objects(endpoint: str, region: str, c: Console,
             ok += 1
             continue
 
-        # Print the first 400 body so we can see what the API is rejecting
         if resp.status_code == 400 and not first_400_shown:
             c.print(f'  [dim]  API 400 sample ({otype}):[/]')
             c.print(f'  [dim]  {resp.text[:400]}[/]')
             first_400_shown = True
 
-        # Try 2: POST without references (in case that key is the unknown field)
+        # Retry without references on schema rejection
         if resp.status_code == 400:
             resp2 = requests.post(url, json={'attributes': attrs},
                                   headers=hdrs, auth=auth, timeout=30)
@@ -921,15 +945,18 @@ def _do_import_os_saved_objects(endpoint: str, region: str, c: Console,
                 continue
 
         api_fail += 1
+        sys_doc = {'type': otype, otype: attrs, 'references': refs, 'namespaces': ['default']}
 
-        # Try 3: direct system-index write (bypasses API schema validation entirely)
-        if admin_user:
-            sys_doc = {'type': otype, otype: attrs, 'references': refs,
-                       'namespaces': ['default']}
-            if _sys_idx_write(endpoint, f'{otype}:{oid}', sys_doc, admin_user, admin_pass, c):
-                sys_ok += 1
-            else:
-                sys_fail += 1
+        # System index write — basic auth
+        if admin_user and _sys_idx_write(endpoint, f'{otype}:{oid}', sys_doc, admin_user, admin_pass, c):
+            sys_ok += 1
+            continue
+
+        # System index write — SigV4 fallback
+        if _sys_idx_write_sigv4(endpoint, region, f'{otype}:{oid}', sys_doc, c):
+            sys_ok += 1
+        else:
+            sys_fail += 1
 
     total_ok = ok + sys_ok
     if total_ok:
