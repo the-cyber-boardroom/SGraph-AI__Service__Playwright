@@ -77,8 +77,8 @@ IAM__ASSUME_ROLE_SERVICE       = 'ec2.amazonaws.com'
 EC2__PROMETHEUS_PORT      = 9090
 EC2__BROWSER_INTERNAL_PORT = 3000                                                      # linuxserver/chromium KasmVNC — SSM-forward only, never exposed in SG
 EC2__BROWSER_IMAGE         = 'lscr.io/linuxserver/chromium:latest'                     # public image — pulled explicitly before compose up
-EC2__PORTAINER_PORT        = 9000                                                      # Portainer CE — SSM-forward only; first login sets admin password
-EC2__PORTAINER_IMAGE       = 'portainer/portainer-ce:latest'                           # public image — pulled explicitly before compose up
+EC2__DOCKGE_PORT           = 5001                                                      # Dockge — SSM-forward only; first login sets admin password
+EC2__DOCKGE_IMAGE          = 'louislam/dockge:1'                                       # public image — pulled explicitly before compose up
 
 SG__NAME                     = 'playwright-ec2'                                         # AWS reserves 'sg-*' prefix for SG IDs
 SG__DESCRIPTION              = 'SG Playwright EC2 stack - ingress :8000 (Playwright API) + :8001 (sidecar admin) + :3000 (streaming browser) — all ports behind API key / KasmVNC password auth'
@@ -128,7 +128,7 @@ trap 'echo "FAILED at $(date --iso-8601=seconds) — exit $?" > "$BOOT_STATUS_FI
 
 echo "=== SG Playwright AMI boot at $(date) ==="
 
-mkdir -p /opt/sg-playwright/config
+mkdir -p /opt/sg-playwright/config /opt/dockge/data
 
 cat > /opt/sg-playwright/docker-compose.yml << 'SG_COMPOSE_EOF'
 {compose_content}
@@ -137,8 +137,14 @@ SG_COMPOSE_EOF
 {observability_configs_section}
 {browser_proxy_section}
 {browser_image_pull}
-docker pull {portainer_image_uri} || true
+docker pull {dockge_image} || true
 docker compose -f /opt/sg-playwright/docker-compose.yml up -d
+
+# Write container ID → service name map for fluent-bit log enrichment
+sleep 5
+docker ps --format '{{{{.ID}}}} {{{{.Names}}}}' \
+  | sed 's/ sg-playwright-/ /; s/-[0-9]*$//' \
+  > /opt/sg-playwright/config/container-names.txt || true
 
 echo "=== SG Playwright AMI start complete at $(date) ==="
 echo "OK $(date --iso-8601=seconds)" > "$BOOT_STATUS_FILE"
@@ -305,23 +311,26 @@ COMPOSE_SVC_PROMETHEUS = """\
 COMPOSE_SVC_FLUENT_BIT = """\
   fluent-bit:
     image: amazon/aws-for-fluent-bit:stable
+    command: /fluent-bit/bin/fluent-bit -c /opt/sg-playwright/config/fluent-bit.conf
     volumes:
       - /var/lib/docker/containers:/var/lib/docker/containers:ro
       - /var/run/docker.sock:/var/run/docker.sock:ro
-      - /opt/sg-playwright/config/fluent-bit.conf:/fluent-bit/etc/fluent-bit.conf:ro
+      - /opt/sg-playwright/config:/opt/sg-playwright/config:ro
     networks:
       - sg-net
     restart: always
 """
 
-COMPOSE_SVC_PORTAINER = """\
-  portainer:
-    image: {portainer_image_uri}
+COMPOSE_SVC_DOCKGE = """\
+  dockge:
+    image: {dockge_image}
     ports:
-      - "127.0.0.1:{portainer_port}:{portainer_port}"
+      - "127.0.0.1:{dockge_port}:{dockge_port}"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-      - portainer_data:/data
+      - /opt/dockge/data:/app/data
+    environment:
+      DOCKGE_STACKS_DIR: /opt
     networks:
       - sg-net
     restart: always
@@ -365,12 +374,53 @@ remote_write:
       capacity:             2500
 """
 
+FLUENT_BIT_PARSERS_CUSTOM = """\
+# uvicorn/FastAPI access log: INFO:     <ip>:<port> - "<METHOD> <path> HTTP/<ver>" <status> <text>
+[PARSER]
+    Name        uvicorn_access
+    Format      regex
+    Regex       ^INFO:\\s+(?<client_ip>[^:]+):\\d+ - "(?<http_method>[A-Z]+) (?<http_path>[^ ]+) HTTP/[^"]*" (?<http_status>\\d+)
+    Types       http_status:integer
+"""
+
+# Lua filter: maps 12-char container ID → service name by reading container-names.txt
+# The names file is written by the host after `docker compose up -d` so it's always fresh.
+# Short-ID lookup matches the 12-char prefix that `docker ps` shows.
+FLUENT_BIT_LUA_CONTAINER_NAME = """\
+local cache    = {}
+local map_file = "/opt/sg-playwright/config/container-names.txt"
+
+local function load_map()
+    local f = io.open(map_file, "r")
+    if not f then return end
+    for line in f:lines() do
+        local id, name = line:match("^(%S+)%s+(.+)$")
+        if id and name then cache[id] = name end
+    end
+    f:close()
+end
+
+load_map()
+
+function add_container_name(tag, timestamp, record)
+    local path = record["container_path"]
+    if not path then return 0, timestamp, record end
+    local cid = path:match("/containers/([0-9a-f]+)/")
+    if not cid then return 0, timestamp, record end
+    local short = cid:sub(1, 12)
+    if not cache[short] then load_map() end         -- reload if container started after fluent-bit
+    record["container_name"] = cache[short] or short
+    return 1, timestamp, record
+end
+"""
+
 FLUENT_BIT_CONF_TEMPLATE = """\
 [SERVICE]
     Flush         1
     Daemon        Off
     Log_Level     info
     Parsers_File  /fluent-bit/etc/parsers.conf
+    Parsers_File  /opt/sg-playwright/config/parsers_custom.conf
 
 [INPUT]
     Name              tail
@@ -380,12 +430,41 @@ FLUENT_BIT_CONF_TEMPLATE = """\
     Refresh_Interval  5
     Mem_Buf_Limit     5MB
     Skip_Long_Lines   On
+    Path_Key          container_path
 
 [FILTER]
     Name    record_modifier
     Match   *
     Record  stack        sg-playwright
     Record  environment  {stage}
+
+# Add container_name field by looking up the short container ID in container-names.txt
+[FILTER]
+    Name    lua
+    Match   docker.*
+    script  /opt/sg-playwright/config/container_name.lua
+    call    add_container_name
+
+# Parse FastAPI/uvicorn access log lines into structured fields
+[FILTER]
+    Name         parser
+    Match        docker.*
+    Key_Name     log
+    Parser       uvicorn_access
+    Reserve_Data On
+    Preserve_Key On
+
+# Drop /health/ polling — high-volume noise with no signal value
+[FILTER]
+    Name    grep
+    Match   docker.*
+    Exclude http_path  ^/health/
+
+# Drop blank / whitespace-only log lines
+[FILTER]
+    Name   grep
+    Match  docker.*
+    Regex  log  \\S
 
 {output_section}"""
 
@@ -453,6 +532,8 @@ def render_observability_configs_section(region           : str,
 
     parts = [
         f"cat > /opt/sg-playwright/config/prometheus.yml << 'SG_PROM_EOF'\n{prometheus_yml}SG_PROM_EOF",
+        f"cat > /opt/sg-playwright/config/parsers_custom.conf << 'SG_FB_PARSERS_EOF'\n{FLUENT_BIT_PARSERS_CUSTOM}SG_FB_PARSERS_EOF",
+        f"cat > /opt/sg-playwright/config/container_name.lua << 'SG_FB_LUA_EOF'\n{FLUENT_BIT_LUA_CONTAINER_NAME}SG_FB_LUA_EOF",
         f"cat > /opt/sg-playwright/config/fluent-bit.conf << 'SG_FB_EOF'\n{fluent_bit_conf}SG_FB_EOF",
     ]
     return '\n\n'.join(parts) + '\n'
@@ -470,7 +551,7 @@ def render_browser_proxy_section(api_key_value: str = '') -> str:
         f"chmod 644 /opt/sg-playwright/config/browser-certs/.htpasswd\n"
     )
     return (
-        'mkdir -p /opt/sg-playwright/config/browser-certs\n'
+        'mkdir -p /opt/sg-playwright/config /opt/dockge/data/browser-certs\n'
         'openssl req -x509 -nodes -days 3650 -newkey rsa:2048'
         ' -keyout /opt/sg-playwright/config/browser-certs/key.pem'
         ' -out    /opt/sg-playwright/config/browser-certs/cert.pem'
@@ -515,7 +596,7 @@ set -x
 docker pull {playwright_image_uri}
 docker pull {sidecar_image_uri}
 {browser_image_pull}
-docker pull {portainer_image_uri}
+docker pull {dockge_image}
 
 # Revoke the stored Docker credential immediately after pull — the instance
 # profile (AmazonEC2ContainerRegistryReadOnly) provides fresh tokens on demand
@@ -523,7 +604,7 @@ docker pull {portainer_image_uri}
 docker logout {registry}
 rm -f /root/.docker/config.json
 
-mkdir -p /opt/sg-playwright/config
+mkdir -p /opt/sg-playwright/config /opt/dockge/data
 
 cat > /opt/sg-playwright/docker-compose.yml << 'SG_COMPOSE_EOF'
 {compose_content}
@@ -532,6 +613,13 @@ SG_COMPOSE_EOF
 {observability_configs_section}
 {browser_proxy_section}
 docker compose -f /opt/sg-playwright/docker-compose.yml up -d
+
+# Write container ID → service name map for fluent-bit log enrichment
+sleep 5
+docker ps --format '{{{{.ID}}}} {{{{.Names}}}}' \
+  | sed 's/ sg-playwright-/ /; s/-[0-9]*$//' \
+  > /opt/sg-playwright/config/container-names.txt || true
+
 {shutdown_section}
 echo "=== SG Playwright setup complete at $(date) ==="
 echo "OK $(date --iso-8601=seconds)" > "$BOOT_STATUS_FILE"
@@ -862,8 +950,8 @@ def render_compose_yaml(playwright_image_uri    : str,
                sidecar_admin_port      = EC2__SIDECAR_ADMIN_PORT,
                browser_port            = EC2__BROWSER_INTERNAL_PORT,
                browser_image_uri       = EC2__BROWSER_IMAGE,
-               portainer_port          = EC2__PORTAINER_PORT,
-               portainer_image_uri     = EC2__PORTAINER_IMAGE,
+               dockge_port             = EC2__DOCKGE_PORT,
+               dockge_image            = EC2__DOCKGE_IMAGE,
                api_key_name            = api_key_name,
                api_key_value           = api_key_value,
                upstream_url            = upstream_url,
@@ -888,13 +976,16 @@ def render_compose_yaml(playwright_image_uri    : str,
     if opensearch_endpoint:                             # log shipper only with OpenSearch
         services += [COMPOSE_SVC_FLUENT_BIT]
 
-    services += [COMPOSE_SVC_PORTAINER.format(**fmt)]
+    services += [COMPOSE_SVC_DOCKGE.format(**fmt)]
 
-    volumes = ['  portainer_data:']
+    volumes = []
     if amp_remote_write_url:
-        volumes.insert(0, '  prometheus_data:')
+        volumes.append('  prometheus_data:')
 
-    footer = COMPOSE_FOOTER.format(volume_lines='\n'.join(volumes))
+    if volumes:
+        footer = COMPOSE_FOOTER.format(volume_lines='\n'.join(volumes))
+    else:
+        footer = 'networks:\n  sg-net:\n    driver: bridge\n'
     return '\n'.join(services) + '\n' + footer
 
 
@@ -924,7 +1015,7 @@ def render_user_data(playwright_image_uri  : str,
                                      playwright_image_uri          = playwright_image_uri   ,
                                      sidecar_image_uri             = sidecar_image_uri      ,
                                      browser_image_pull            = browser_image_pull     ,
-                                     portainer_image_uri           = EC2__PORTAINER_IMAGE   ,
+                                     dockge_image                  = EC2__DOCKGE_IMAGE      ,
                                      compose_content               = compose_content        ,
                                      observability_configs_section = obs_section            ,
                                      browser_proxy_section         = render_browser_proxy_section(api_key_value=api_key_value),
@@ -1140,7 +1231,7 @@ def provision(stage                  : str          = DEFAULT_STAGE    ,
                                                    observability_configs_section = obs_section                      ,
                                                    browser_proxy_section         = render_browser_proxy_section(api_key_value=api_key_value),
                                                    browser_image_pull            = browser_image_pull_ami           ,
-                                                   portainer_image_uri           = EC2__PORTAINER_IMAGE             )
+                                                   dockge_image                  = EC2__DOCKGE_IMAGE               )
     else:
         user_data = render_user_data(playwright_image_uri  = playwright_image_uri ,
                                      sidecar_image_uri     = sidecar_image_uri    ,
@@ -2166,7 +2257,7 @@ _DIAGNOSE_CHECKS = [
     ('Compose service status',
      f'docker compose -f {COMPOSE_FILE_PATH} ps 2>&1 || echo "(compose status failed)"'),
     ('Listening ports',
-     'ss -tlnp 2>/dev/null | grep -E "8000|8001|9000|9090|3000|5601" || echo "(none of the expected ports are listening)"'),
+     'ss -tlnp 2>/dev/null | grep -E "8000|8001|5001|9090|3000|5601" || echo "(none of the expected ports are listening)"'),
     ('Disk',
      'df -h / /var/lib/docker 2>/dev/null | tail -n +1'),
     ('Memory',
@@ -2798,7 +2889,7 @@ def cmd_smoke(target          : Optional[str]  = typer.Argument(None, help='Depl
     c.print()
     c.print(f'  Mitmproxy UI  →  sg-ec2 forward {EC2__MITMWEB_TUNNEL_PORT}   then  http://localhost:{EC2__MITMWEB_TUNNEL_PORT}/')
     c.print(f'  Browser       →  sg-ec2 forward-browser        then  http://localhost:{EC2__BROWSER_INTERNAL_PORT}/')
-    c.print(f'  Portainer     →  sg-ec2 forward-portainer      then  http://localhost:{EC2__PORTAINER_PORT}/')
+    c.print(f'  Dockge        →  sg-ec2 forward-dockge         then  http://localhost:{EC2__DOCKGE_PORT}/')
     c.print(f'  Prometheus    →  sg-ec2 forward-prometheus      then  http://localhost:{EC2__PROMETHEUS_PORT}/')
     c.print()
 
@@ -2884,9 +2975,9 @@ def cmd_forward_browser(target: Optional[str] = typer.Argument(None, help='Deplo
                    check=False)
 
 
-@app.command(name='forward-portainer')
-def cmd_forward_portainer(target: Optional[str] = typer.Argument(None, help='Deploy-name or instance-id; auto-selects if only one instance.')):
-    """Forward Portainer CE (port 9000) to localhost via SSM — Docker management UI."""
+@app.command(name='forward-dockge')
+def cmd_forward_dockge(target: Optional[str] = typer.Argument(None, help='Deploy-name or instance-id; auto-selects if only one instance.')):
+    """Forward Dockge (port 5001) to localhost via SSM — Docker Compose management UI."""
     import subprocess
     ec2                  = EC2()
     instance_id, details = _resolve_target(ec2, target)
@@ -2894,19 +2985,19 @@ def cmd_forward_portainer(target: Optional[str] = typer.Argument(None, help='Dep
     c = Console(highlight=False, width=200)
     c.print()
     c.print(Panel(
-        f'[bold]🐳  Portainer Forward[/]\n\n'
+        f'[bold]🐳  Dockge Forward[/]\n\n'
         f'  instance   [bold]{deploy_name}[/]  [dim]{instance_id}[/]\n'
-        f'  tunnel     [bold]localhost:{EC2__PORTAINER_PORT}[/]\n\n'
-        f'  [green]Access:[/]  [bold]http://localhost:{EC2__PORTAINER_PORT}/[/]\n'
-        f'  [dim]First visit sets the admin password. Use your API key value.[/]\n'
+        f'  tunnel     [bold]localhost:{EC2__DOCKGE_PORT}[/]\n\n'
+        f'  [green]Access:[/]  [bold]http://localhost:{EC2__DOCKGE_PORT}/[/]\n'
+        f'  [dim]First visit sets the admin password.[/]\n'
         f'  [dim]Press Ctrl-C to close the tunnel.[/]',
         border_style='bright_blue', expand=False))
     c.print()
     subprocess.run(['aws', 'ssm', 'start-session',
                     '--target'       , instance_id,
                     '--document-name', 'AWS-StartPortForwardingSession',
-                    '--parameters'   , json.dumps({'portNumber'     : [str(EC2__PORTAINER_PORT)],
-                                                   'localPortNumber': [str(EC2__PORTAINER_PORT)]})],
+                    '--parameters'   , json.dumps({'portNumber'     : [str(EC2__DOCKGE_PORT)],
+                                                   'localPortNumber': [str(EC2__DOCKGE_PORT)]})],
                    check=False)
 
 
