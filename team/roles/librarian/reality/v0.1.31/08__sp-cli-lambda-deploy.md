@@ -99,14 +99,29 @@ Prints the Function URL on success.
 
 ---
 
+## CI workflow
+
+`.github/workflows/ci__sp_cli.yml` — runs on push/PR to any of
+`sgraph_ai_service_playwright__cli/**`, `scripts/provision_ec2.py`,
+`scripts/observability.py`, the workflow itself, or the SP CLI unit tests.
+Also triggerable via `workflow_dispatch` with optional stage override +
+`force_image_rebuild` toggle.
+
+| Job | What it does |
+|-----|--------------|
+| `run-unit-tests`          | `pytest tests/unit/sgraph_ai_service_playwright__cli/` |
+| `check-aws-credentials`   | Gate — skips AWS-touching jobs when `AWS_ACCESS_KEY_ID` etc. are missing |
+| `detect-changes`          | paths-filter — skips image rebuild on test-only churn |
+| `build-and-push-image`    | `Docker__SP__CLI().setup().build_and_push()` — repo-root context |
+| `provision-sp-cli-lambda` | `python -m sgraph_ai_service_playwright__cli.deploy.provision --stage <resolved>` — runs even when the image is reused so role/env-var tweaks land idempotently |
+
+Stage resolution: `workflow_dispatch` input wins; else `main` → `prod`, any
+other branch → `dev`.
+
 ## Known gaps / follow-ups
 
-1. **GH Actions workflow not yet wired** — the deploy command exists, but
-   `.github/workflows/...` does not call it. Follow-up: add a
-   `provision-sp-cli-lambda` job on the `main` branch matching the
-   Playwright `provision-lambdas` pattern.
-2. **No live verification** — all tests are unit-level. Follow-up
+1. **No live verification** — all tests are unit-level. Follow-up
    deploy-via-pytest (numbered tests: `test_1__ensure_role`, `test_2__build_push_image`, etc.) would provide real-AWS confidence, mirroring `tests/deploy/`.
-3. **Type_Safe 422 issue** — the framework still returns HTTP 500 on
+2. **Type_Safe 422 issue** — the framework still returns HTTP 500 on
    invalid request bodies (carried over from slice 3; not specific to the
    Lambda).

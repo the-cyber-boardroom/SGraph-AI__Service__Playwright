@@ -1,0 +1,259 @@
+# ═══════════════════════════════════════════════════════════════════════════════
+# CI Pipeline — SP CLI Lambda
+#
+# Separate from the Playwright + agent_mitmproxy pipelines. Runs ONLY when
+# files that affect the SP CLI Lambda change, so Playwright-only or
+# mitmproxy-only PRs do not pay for an SP CLI rebuild.
+#
+# Jobs:
+#   1. run-unit-tests         — pytest against the SP CLI unit suite.
+#   2. check-aws-credentials  — gates every AWS-touching job.
+#   3. detect-changes         — paths-filter; skips image rebuild on
+#                               test-only or docs-only churn.
+#   4. build-and-push-image   — builds the `sp-playwright-cli` image from
+#                               the repo-root context and pushes to ECR
+#                               (via Docker__SP__CLI).
+#   5. provision-sp-cli-lambda — runs the full deploy chain:
+#                               role → image → Lambda → Function URL
+#                               (via sgraph_ai_service_playwright__cli.deploy.provision).
+#
+# The SP CLI Lambda is image-only — no S3 zip overlay. When no image-relevant
+# files change we still run provision-sp-cli-lambda so env-var / role tweaks
+# land in place; the image pointer just stays on the existing :latest tag.
+# ═══════════════════════════════════════════════════════════════════════════════
+
+name: CI Pipeline - SP CLI Lambda
+
+on:
+  workflow_dispatch:
+    inputs:
+      stage:
+        description: 'Deployment stage (forms the Lambda name sp-playwright-cli-<stage>)'
+        required: false
+        type: string
+        default: 'dev'
+      force_image_rebuild:
+        description: 'Force Docker image rebuild even when no image-relevant files changed'
+        required: false
+        type: boolean
+        default: false
+  push:
+    branches:
+      - dev
+      - main
+    paths:
+      - 'sgraph_ai_service_playwright__cli/**'
+      - 'scripts/provision_ec2.py'
+      - 'scripts/observability.py'
+      - 'tests/unit/sgraph_ai_service_playwright__cli/**'
+      - '.github/workflows/ci__sp_cli.yml'
+  pull_request:
+    paths:
+      - 'sgraph_ai_service_playwright__cli/**'
+      - 'scripts/provision_ec2.py'
+      - 'scripts/observability.py'
+      - 'tests/unit/sgraph_ai_service_playwright__cli/**'
+      - '.github/workflows/ci__sp_cli.yml'
+
+env:
+  IMAGE_NAME : 'sp-playwright-cli'
+  # Push to dev → deploy to dev; push to main → deploy to prod. workflow_dispatch overrides via input.
+  DEFAULT_STAGE_DEV  : 'dev'
+  DEFAULT_STAGE_MAIN : 'prod'
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+
+  # ════════════════════════════════════════════════════════════════════════════
+  # Job 1: Unit Tests (no Docker, no AWS)
+  # ════════════════════════════════════════════════════════════════════════════
+  run-unit-tests:
+    name: "Run Unit Tests"
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+          cache-dependency-path: 'sgraph_ai_service_playwright__cli/deploy/images/sp_cli/requirements.txt'
+
+      - name: Install dependencies
+        run: |
+          # Install the Lambda's runtime deps (same set the image will bake in) plus the build/deploy-time extras the unit tests import at collection time (mangum + osbot-aws + typer are already in the runtime list; pytest is the only test-only pin).
+          pip install -r sgraph_ai_service_playwright__cli/deploy/images/sp_cli/requirements.txt
+          pip install pytest pytest-timeout httpx                                  # httpx is the TestClient transport
+
+      - name: Run SP CLI unit tests
+        timeout-minutes: 5
+        run: |
+          python -m pytest tests/unit/sgraph_ai_service_playwright__cli/ -v --timeout=30
+
+  # ════════════════════════════════════════════════════════════════════════════
+  # Job 2: Check AWS Credentials (gate for every AWS-touching job)
+  # ════════════════════════════════════════════════════════════════════════════
+  check-aws-credentials:
+    name: Check AWS Credentials
+    runs-on: ubuntu-latest
+    outputs:
+      has-credentials: ${{ steps.check.outputs.has-credentials }}
+    steps:
+      - name: Check if AWS credentials are configured
+        id: check
+        run: |
+          if [[ -n "${{ secrets.AWS_ACCESS_KEY_ID }}" ]] && \
+             [[ -n "${{ secrets.AWS_SECRET_ACCESS_KEY }}" ]] && \
+             [[ -n "${{ secrets.AWS_DEFAULT_REGION }}" ]] && \
+             [[ -n "${{ secrets.AWS_ACCOUNT_ID }}" ]]; then
+            echo "has-credentials=true" >> $GITHUB_OUTPUT
+          else
+            echo "has-credentials=false" >> $GITHUB_OUTPUT
+            echo "AWS credentials not configured — image push + Lambda provision skipped"
+          fi
+
+  # ════════════════════════════════════════════════════════════════════════════
+  # Job 3: Detect Image-Relevant Changes (path filter — skip rebuilds on
+  #   test-only or documentation-only churn; --force via workflow_dispatch).
+  # ════════════════════════════════════════════════════════════════════════════
+  detect-changes:
+    name: Detect Image-Relevant Changes
+    runs-on: ubuntu-latest
+    outputs:
+      image-rebuild-needed: ${{ steps.filter.outputs.image }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Filter paths
+        id: filter
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            image:
+              - 'sgraph_ai_service_playwright__cli/ec2/**'
+              - 'sgraph_ai_service_playwright__cli/observability/**'
+              - 'sgraph_ai_service_playwright__cli/fast_api/**'
+              - 'sgraph_ai_service_playwright__cli/deploy/images/**'
+              - 'sgraph_ai_service_playwright__cli/version'
+              - 'sgraph_ai_service_playwright__cli/__init__.py'
+              - 'scripts/provision_ec2.py'
+              - 'scripts/observability.py'
+              - 'scripts/__init__.py'
+
+  # ════════════════════════════════════════════════════════════════════════════
+  # Job 4: Build + Push Docker Image to ECR
+  #   Build context is the repo root; the dockerfile's COPYs are rooted there
+  #   and .dockerignore under images/sp_cli/ scopes the context down to just
+  #   sgraph_ai_service_playwright__cli/ + scripts/.
+  #
+  #   Skipped when detect-changes reports no image-relevant changes AND
+  #   force_image_rebuild is false — the previously-pushed :latest is left in
+  #   place. provision-sp-cli-lambda will then re-run role + env-var upsert
+  #   without touching the image pointer.
+  # ════════════════════════════════════════════════════════════════════════════
+  build-and-push-image:
+    name: "Build + Push Docker Image to ECR"
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs: [run-unit-tests, check-aws-credentials, detect-changes]
+    if: |
+      needs.check-aws-credentials.outputs.has-credentials == 'true' &&
+      (needs.detect-changes.outputs.image-rebuild-needed == 'true' || inputs.force_image_rebuild)
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+          cache-dependency-path: 'sgraph_ai_service_playwright__cli/deploy/images/sp_cli/requirements.txt'
+
+      - name: Install dependencies
+        run: |
+          # Same runtime deps used by the build helpers; osbot-docker is needed by the ECR push helper in Docker__SP__CLI (via osbot-aws.helpers.Create_Image_ECR).
+          pip install -r sgraph_ai_service_playwright__cli/deploy/images/sp_cli/requirements.txt
+          pip install osbot-docker
+
+      - name: Authenticate to AWS Public ECR                                        # public.ecr.aws/lambda/python is our base — authenticated pulls are unthrottled
+        run: |
+          aws ecr-public get-login-password --region us-east-1 | \
+            docker login --username AWS --password-stdin public.ecr.aws
+        env:
+          AWS_SECRET_ACCESS_KEY : ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION    : ${{ secrets.AWS_DEFAULT_REGION    }}
+          AWS_ACCESS_KEY_ID     : ${{ secrets.AWS_ACCESS_KEY_ID     }}
+
+      - name: Build + push via Docker__SP__CLI
+        run: |
+          python -c "
+          from sgraph_ai_service_playwright__cli.deploy.Docker__SP__CLI import Docker__SP__CLI
+          docker = Docker__SP__CLI().setup()
+          result = docker.build_and_push()
+          print('image_uri:', result['image_uri'])
+          "
+        env:
+          AWS_SECRET_ACCESS_KEY : ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION    : ${{ secrets.AWS_DEFAULT_REGION    }}
+          AWS_ACCOUNT_ID        : ${{ secrets.AWS_ACCOUNT_ID        }}
+          AWS_ACCESS_KEY_ID     : ${{ secrets.AWS_ACCESS_KEY_ID     }}
+
+  # ════════════════════════════════════════════════════════════════════════════
+  # Job 5: Provision the SP CLI Lambda (role → image reference → function URL)
+  #   Idempotent — safe to run on every CI pass:
+  #     • role exists    → attach policies idempotently
+  #     • lambda exists  → update_function_configuration + env vars
+  #     • URL exists     → preserved (host UUID stays stable)
+  #
+  #   Runs AFTER build-and-push-image, but also runs when build-and-push-image
+  #   was SKIPPED (image reused). A missing Lambda will fail here with a
+  #   descriptive error — force the first deploy via workflow_dispatch with
+  #   force_image_rebuild=true.
+  # ════════════════════════════════════════════════════════════════════════════
+  provision-sp-cli-lambda:
+    name: "Provision SP CLI Lambda (role + image + function URL)"
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: [run-unit-tests, build-and-push-image, check-aws-credentials]
+    if: |
+      always() &&
+      needs.run-unit-tests.result == 'success' &&
+      needs.check-aws-credentials.outputs.has-credentials == 'true' &&
+      (needs.build-and-push-image.result == 'success' || needs.build-and-push-image.result == 'skipped')
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+          cache-dependency-path: 'sgraph_ai_service_playwright__cli/deploy/images/sp_cli/requirements.txt'
+
+      - name: Install dependencies
+        run: |
+          pip install -r sgraph_ai_service_playwright__cli/deploy/images/sp_cli/requirements.txt
+
+      - name: Resolve deployment stage                                               # workflow_dispatch input wins; otherwise dev→dev, main→prod
+        id: stage
+        run: |
+          if [[ -n "${{ inputs.stage }}" ]]; then
+            echo "stage=${{ inputs.stage }}" >> $GITHUB_OUTPUT
+          elif [[ "${{ github.ref_name }}" == "main" ]]; then
+            echo "stage=${{ env.DEFAULT_STAGE_MAIN }}" >> $GITHUB_OUTPUT
+          else
+            echo "stage=${{ env.DEFAULT_STAGE_DEV }}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Provision SP CLI Lambda
+        run: |
+          python -m sgraph_ai_service_playwright__cli.deploy.provision --stage ${{ steps.stage.outputs.stage }}
+        env:
+          AWS_SECRET_ACCESS_KEY          : ${{ secrets.AWS_SECRET_ACCESS_KEY          }}
+          AWS_DEFAULT_REGION             : ${{ secrets.AWS_DEFAULT_REGION             }}
+          AWS_ACCOUNT_ID                 : ${{ secrets.AWS_ACCOUNT_ID                 }}
+          AWS_ACCESS_KEY_ID              : ${{ secrets.AWS_ACCESS_KEY_ID              }}
+          FAST_API__AUTH__API_KEY__NAME  : ${{ secrets.FAST_API__AUTH__API_KEY__NAME  }}
+          FAST_API__AUTH__API_KEY__VALUE : ${{ secrets.FAST_API__AUTH__API_KEY__VALUE }}
