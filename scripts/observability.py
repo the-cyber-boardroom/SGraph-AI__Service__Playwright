@@ -767,26 +767,6 @@ def cmd_delete(
 
 # ── Dashboard helpers ──────────────────────────────────────────────────────────
 
-def _fetch_index_fields(base: str, hdrs: dict, auth) -> str:
-    """Fetch live field list for OPENSEARCH_INDEX via the Dashboards wildcard API.
-
-    Returns a JSON-encoded string (the format OSD saved-objects expects for
-    the 'fields' attribute).  Falls back to '[]' on any error.
-    """
-    url = (f'{base}/api/index_patterns/_fields_for_wildcard'
-           f'?pattern={OPENSEARCH_INDEX}'
-           f'&meta_fields=_source&meta_fields=_id&meta_fields=_type'
-           f'&meta_fields=_index&meta_fields=_score')
-    try:
-        r = requests.get(url, headers=hdrs, auth=auth, timeout=15)
-        if r.status_code < 300:
-            fields = r.json().get('fields', [])
-            return json.dumps(fields)
-    except Exception:
-        pass
-    return '[]'
-
-
 def _verify_index_pattern_exists(base: str, hdrs: dict, auth) -> bool:
     """Return True only if the saved object is readable AND has the right title.
 
@@ -817,17 +797,11 @@ def _do_import_os_saved_objects(endpoint: str, region: str, c: Console,
     base = f'https://{endpoint}/_dashboards'
 
     # ── Index pattern ───────────────────────────────────────────────────────────
-    # Fetch live field list; only include in body when non-empty.
-    # Sending fields:'[]' causes a 400 ("definition for this key is missing") on AOS —
-    # omitting it entirely lets OSD auto-discover fields, which matches the working curl.
-    fields_str  = _fetch_index_fields(base, hdrs, auth)
-    fields_list = json.loads(fields_str)
-    c.print(f'  [dim]  fields fetched: {len(fields_list)}[/]')
-
-    ip_attrs = {'title': OPENSEARCH_INDEX, 'timeFieldName': '@timestamp'}
-    if fields_list:
-        ip_attrs['fields'] = fields_str
-    ip_body = {'attributes': ip_attrs}
+    # Do NOT include 'fields' in the POST body — AOS returns HTTP 400
+    # ("definition for this key is missing") whether fields is empty or populated.
+    # OSD auto-discovers fields from the index mapping after the pattern is saved.
+    # (Confirmed: working curl sends only title + timeFieldName.)
+    ip_body = {'attributes': {'title': OPENSEARCH_INDEX, 'timeFieldName': '@timestamp'}}
     url = (f'{base}/api/saved_objects/index-pattern/{OPENSEARCH_INDEX}'
            f'?overwrite=true&security_tenant=global')
     resp = requests.post(url, json=ip_body, headers=hdrs, auth=auth, timeout=30)
