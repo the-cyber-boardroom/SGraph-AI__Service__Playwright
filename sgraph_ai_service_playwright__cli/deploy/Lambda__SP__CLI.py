@@ -54,7 +54,7 @@ class Lambda__SP__CLI(Type_Safe):
         return f'{APP_NAME}-{self.stage}'
 
     def upsert(self, wait_for_active: bool = True) -> dict:                         # Idempotent — never deletes; preserves Function URL host UUID
-        deploy_lambda                  = Deploy_Lambda(handler=None, lambda_name=self.lambda_name())
+        deploy_lambda                  = Deploy_Lambda(handler=LAMBDA_HANDLER, lambda_name=self.lambda_name())   # Deploy_Lambda accepts the handler path as a string; passing None blows up on `handler.__module__`. The actual handler resolution for container-image Lambdas comes from the Dockerfile CMD; this string is informational on the Python side.
         lambda_function                = deploy_lambda.lambda_function()
         lambda_function.image_uri      = self.image_uri
         lambda_function.architecture   = LAMBDA_ARCHITECTURE
