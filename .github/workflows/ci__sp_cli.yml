@@ -249,7 +249,7 @@ jobs:
 
       - name: Provision SP CLI Lambda
         run: |
-          python -m sgraph_ai_service_playwright__cli.deploy.provision --stage ${{ steps.stage.outputs.stage }}
+          python -m sgraph_ai_service_playwright__cli.deploy.provision --stage ${{ steps.stage.outputs.stage }} --skip-build   # Image was built + pushed in the prior job; --skip-build avoids re-running the Docker build (and avoids pulling in osbot-docker)
         env:
           AWS_SECRET_ACCESS_KEY          : ${{ secrets.AWS_SECRET_ACCESS_KEY          }}
           AWS_DEFAULT_REGION             : ${{ secrets.AWS_DEFAULT_REGION             }}

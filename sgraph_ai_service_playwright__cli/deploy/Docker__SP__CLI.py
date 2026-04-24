@@ -25,6 +25,7 @@ import shutil
 import tempfile
 from pathlib                                                                        import Path
 
+from osbot_aws.AWS_Config                                                           import AWS_Config
 from osbot_aws.helpers.Create_Image_ECR                                             import Create_Image_ECR
 
 from osbot_utils.type_safe.Type_Safe                                                import Type_Safe
@@ -44,9 +45,9 @@ def ignore_build_noise(directory, names):                                       
 class Docker__SP__CLI(Type_Safe):
     image_name        : str    = IMAGE_NAME
     image_folder_name : str    = IMAGE_FOLDER_NAME
-    create_image_ecr  : object = None                                               # Create_Image_ECR — lazy; instantiated in setup()
+    create_image_ecr  : object = None                                               # Create_Image_ECR — lazy; instantiated in setup(). Skipped when only image_uri() is needed.
 
-    def setup(self) -> 'Docker__SP__CLI':
+    def setup(self) -> 'Docker__SP__CLI':                                           # Only call when a build or push is about to happen — imports osbot-docker
         self.create_image_ecr = Create_Image_ECR(image_name  = self.image_name,
                                                  path_images = str(self.path_images()))
         return self
@@ -63,8 +64,9 @@ class Docker__SP__CLI(Type_Safe):
     def path_requirements(self) -> Path:
         return self.path_images() / self.image_folder_name / 'requirements.txt'
 
-    def repository(self) -> str:
-        return self.create_image_ecr.image_repository()
+    def repository(self) -> str:                                                    # ECR repo URI — computed directly from AWS_Config so callers that only need the URI (e.g. the provision-lambda CI step) do NOT need osbot-docker installed
+        config = AWS_Config()
+        return f'{config.aws_session_account_id()}.dkr.ecr.{config.aws_session_region_name()}.amazonaws.com/{self.image_name}'
 
     def image_uri(self) -> str:
         return f'{self.repository()}:latest'
