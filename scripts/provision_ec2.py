@@ -1194,7 +1194,7 @@ app = typer.Typer(name           = 'provision_ec2'                              
                    no_args_is_help = True                                              ,
                    add_completion  = False                                             )
 
-from scripts.observability import app as _observability_app              # noqa: E402
+from scripts.observability import app as _observability_app, _check_os_dashboards, _os_endpoint, _list_stacks  # noqa: E402
 app.add_typer(_observability_app, name='observability', hidden=True)
 app.add_typer(_observability_app, name='ob',            hidden=True)
 
@@ -2213,6 +2213,19 @@ def cmd_diagnose(
     results  = _health_check_once(base_url, tag_key_name or 'X-API-Key', tag_key_value)
     _render_health(results, base_url)
     c.print()
+
+    # OpenSearch Dashboards check (if the stack has an OpenSearch endpoint)
+    opensearch_ep = get_env('OPENSEARCH_ENDPOINT') or ''
+    if not opensearch_ep:
+        stacks = {s['name']: s for s in _list_stacks(aws_region())}
+        for s in stacks.values():
+            if s.get('opensearch'):
+                opensearch_ep = _os_endpoint(s['opensearch'])
+                break
+    if opensearch_ep:
+        c.print('  [bold cyan]── OpenSearch Dashboards objects[/]')
+        _check_os_dashboards(opensearch_ep, aws_region(), c)
+
     c.print('  [dim]Tip: sp logs --target {target} — see docker compose stdout[/]')
     c.print()
 
