@@ -11,6 +11,8 @@
 # FAST_API__AUTH__API_KEY__VALUE is set. Unset = open for local development.
 # ═══════════════════════════════════════════════════════════════════════════════
 
+from mangum                                                                         import Mangum
+
 from osbot_fast_api.api.Fast_API                                                    import Fast_API
 
 from sgraph_ai_service_playwright__cli.ec2.service.Ec2__Service                     import Ec2__Service
@@ -32,6 +34,9 @@ class Fast_API__SP__CLI(Fast_API):
         result = super().setup()
         register_type_safe_handlers(self.app())                                     # Maps osbot-fast-api's Type_Safe converter ValueError → 422 (instead of FastAPI's default 500)
         return result
+
+    def handler(self):                                                              # Lambda handler — wraps the FastAPI app with Mangum. Same shape as Serverless__Fast_API.handler() so Agentic_Boot_Shim can call it without knowing this isn't a Serverless__Fast_API subclass.
+        return Mangum(self.app(), lifespan='off')
 
     def setup_routes(self):
         self.add_routes(Routes__Ec2           , service=self.ec2_service          )

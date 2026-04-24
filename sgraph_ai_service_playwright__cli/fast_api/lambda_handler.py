@@ -1,9 +1,17 @@
 # ═══════════════════════════════════════════════════════════════════════════════
 # SP CLI — Lambda handler
-# Entrypoint for running the SP CLI FastAPI app on AWS Lambda via Mangum.
-# Import this module (not a function) from the Lambda runtime handler setting:
+# Entrypoint for running the SP CLI FastAPI app on AWS Lambda.
 #
 #   sgraph_ai_service_playwright__cli.fast_api.lambda_handler.handler
+#
+# Two boot paths, selected by env at cold-start:
+#
+#   • Agentic    — AGENTIC_APP_NAME is set. Routes through Agentic_Boot_Shim
+#                  which downloads the pinned S3 zip, prepends to sys.path,
+#                  then imports Fast_API__SP__CLI from the (potentially fresh)
+#                  on-disk copy. Code-only deploys hot-swap via the shim.
+#   • Baseline   — AGENTIC_APP_NAME unset. Boots Fast_API__SP__CLI directly
+#                  from the baked image. Always-available rollback path.
 #
 # Uvicorn / local dev does not use this file — it instantiates
 # Fast_API__SP__CLI directly.
@@ -22,11 +30,29 @@ import os
 
 os.environ.setdefault('AWS_DEFAULT_REGION', os.environ.get('AWS_REGION', ''))       # Bridge — see module header
 
-from mangum                                                                         import Mangum
 
-from sgraph_ai_service_playwright__cli.fast_api.Fast_API__SP__CLI                   import Fast_API__SP__CLI
+SP_CLI_FAST_API_CLASS_PATH = 'sgraph_ai_service_playwright__cli.fast_api.Fast_API__SP__CLI.Fast_API__SP__CLI'
+SP_CLI_SERVICE_LABEL       = 'SP CLI service'
+ENV_VAR__AGENTIC_APP_NAME  = 'AGENTIC_APP_NAME'                                     # Presence = agentic mode; absence = baseline
 
 
-fast_api = Fast_API__SP__CLI().setup()                                              # Module-level init — cold-start cost paid once per container
-app      = fast_api.app()
-handler  = Mangum(app, lifespan='off')                                              # Lambda Web Adapter not required for the SP CLI app; Mangum is lighter
+def is_agentic_mode() -> bool:
+    return bool(os.environ.get(ENV_VAR__AGENTIC_APP_NAME))
+
+
+def boot_via_shim():                                                                # Agentic path — Agentic_Code_Loader pulls the S3 zip, then Fast_API__SP__CLI imports from the extracted copy
+    from sgraph_ai_service_playwright.agentic_fastapi_aws.Agentic_Boot_Shim import Agentic_Boot_Shim
+    shim = Agentic_Boot_Shim(fast_api_class_path = SP_CLI_FAST_API_CLASS_PATH ,
+                             service_label       = SP_CLI_SERVICE_LABEL        )
+    error, handler_inner, _app, _code_source = shim.boot()
+    if error:
+        raise RuntimeError(error)                                                   # Surfaces in CloudWatch; Lambda treats as Init failure
+    return handler_inner
+
+
+def boot_baseline():                                                                # Baseline path — direct import from baked image; no S3, no shim
+    from sgraph_ai_service_playwright__cli.fast_api.Fast_API__SP__CLI import Fast_API__SP__CLI
+    return Fast_API__SP__CLI().setup().handler()
+
+
+handler = boot_via_shim() if is_agentic_mode() else boot_baseline()                 # Module-level — cold-start cost paid once per container
