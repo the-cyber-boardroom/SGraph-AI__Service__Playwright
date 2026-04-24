@@ -10,6 +10,7 @@
 # result via Rich tables.
 # ═══════════════════════════════════════════════════════════════════════════════
 
+import functools
 from typing                                                                         import Optional
 
 import typer
@@ -20,6 +21,7 @@ from sgraph_ai_service_playwright__cli.elastic.primitives.Safe_Str__Elastic__Sta
 from sgraph_ai_service_playwright__cli.elastic.primitives.Safe_Str__Elastic__Password    import Safe_Str__Elastic__Password
 from sgraph_ai_service_playwright__cli.elastic.schemas.Schema__Elastic__Create__Request  import Schema__Elastic__Create__Request
 from sgraph_ai_service_playwright__cli.elastic.schemas.Schema__Elastic__Seed__Request    import Schema__Elastic__Seed__Request
+from sgraph_ai_service_playwright__cli.elastic.service.AWS__Error__Translator       import AWS__Error__Translator
 from sgraph_ai_service_playwright__cli.elastic.service.Elastic__Service             import Elastic__Service
 
 
@@ -31,9 +33,34 @@ def build_service() -> Elastic__Service:                                        
     return Elastic__Service()
 
 
+def aws_error_handler(fn):                                                          # Wraps every command so AWS-side failures render friendly text; surprises still re-raise
+    @functools.wraps(fn)
+    def wrapped(*args, **kwargs):
+        try:
+            return fn(*args, **kwargs)
+        except typer.Exit:
+            raise
+        except KeyboardInterrupt:
+            raise
+        except Exception as exc:
+            hint = AWS__Error__Translator().translate(exc)
+            if not hint.recognised:                                                 # Unknown exception — let Typer / Python show the trace
+                raise
+            console = Console(highlight=False, stderr=True)
+            console.print()
+            console.print(f'  [red]✗[/]  [bold]{str(hint.headline)}[/]')
+            console.print(f'     {str(hint.body)}')
+            for action in hint.hints:
+                console.print(f'     [dim]›[/] {action}')
+            console.print()
+            raise typer.Exit(int(hint.exit_code))
+    return wrapped
+
+
 # ── create ─────────────────────────────────────────────────────────────────────
 
 @app.command('create')
+@aws_error_handler
 def cmd_create(stack_name   : Optional[str] = typer.Argument (None,           help='Stack name (auto-generated if omitted: elastic-{adj}-{scientist}).'),
                region       : Optional[str] = typer.Option   (None, '--region',  help='AWS region (defaults to AWS_Config session region).'),
                instance_type: Optional[str] = typer.Option   (None, '--instance-type', help='EC2 instance type (default t3.medium).'),
@@ -74,6 +101,7 @@ def cmd_create(stack_name   : Optional[str] = typer.Argument (None,           he
 # ── list ───────────────────────────────────────────────────────────────────────
 
 @app.command('list')
+@aws_error_handler
 def cmd_list(region: Optional[str] = typer.Option(None, '--region')):
     """List ephemeral elastic stacks in a region."""
     service = build_service()
@@ -102,6 +130,7 @@ def cmd_list(region: Optional[str] = typer.Option(None, '--region')):
 # ── info ───────────────────────────────────────────────────────────────────────
 
 @app.command('info')
+@aws_error_handler
 def cmd_info(stack_name: str = typer.Argument(..., help='Stack name.'),
              region    : Optional[str] = typer.Option(None, '--region')):
     """Show full details for a single stack. Does NOT include the elastic password."""
@@ -131,6 +160,7 @@ def cmd_info(stack_name: str = typer.Argument(..., help='Stack name.'),
 # ── wait ───────────────────────────────────────────────────────────────────────
 
 @app.command('wait')
+@aws_error_handler
 def cmd_wait(stack_name : str           = typer.Argument(..., help='Stack name.'),
              timeout    : int           = typer.Option (600, '--timeout', help='Total seconds to wait (default 600).'),
              region     : Optional[str] = typer.Option (None, '--region')):
@@ -150,6 +180,7 @@ def cmd_wait(stack_name : str           = typer.Argument(..., help='Stack name.'
 # ── delete ─────────────────────────────────────────────────────────────────────
 
 @app.command('delete')
+@aws_error_handler
 def cmd_delete(stack_name : str           = typer.Argument(..., help='Stack name.'),
                region     : Optional[str] = typer.Option (None, '--region')):
     """Terminate the EC2 instance and best-effort delete its security group."""
@@ -167,6 +198,7 @@ def cmd_delete(stack_name : str           = typer.Argument(..., help='Stack name
 # ── seed ───────────────────────────────────────────────────────────────────────
 
 @app.command('seed')
+@aws_error_handler
 def cmd_seed(stack_name : str           = typer.Argument(...,  help='Stack name.'),
              docs       : int           = typer.Option (10_000, '--docs',        help='Document count (default 10000).'),
              index      : str           = typer.Option ('sg-synthetic', '--index'),
