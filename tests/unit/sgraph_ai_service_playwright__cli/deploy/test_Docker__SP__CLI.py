@@ -64,11 +64,14 @@ class test_Docker__SP__CLI(TestCase):
             assert os.path.isfile(os.path.join(staging, DOCKERFILE_NAME))
             assert os.path.isfile(os.path.join(staging, 'requirements.txt'))
             assert os.path.isdir (os.path.join(staging, 'sgraph_ai_service_playwright__cli'))
+            assert os.path.isdir (os.path.join(staging, 'sgraph_ai_service_playwright'))           # Shared boot shim + version file
+            assert os.path.isdir (os.path.join(staging, 'agent_mitmproxy'))                        # IMAGE_NAME constant for provision_ec2
             assert os.path.isdir (os.path.join(staging, 'scripts'))
 
             assert os.path.isfile(os.path.join(staging, 'sgraph_ai_service_playwright__cli',
                                                'fast_api', 'lambda_handler.py'))    # The handler the Lambda CMD references
             assert os.path.isfile(os.path.join(staging, 'scripts', 'provision_ec2.py'))
+            assert os.path.isfile(os.path.join(staging, 'sgraph_ai_service_playwright', 'version'))             # Baked at /var/task; runtime_version reads it as a fallback when AGENTIC_APP_VERSION is unset
 
             assert not os.path.isdir(os.path.join(staging, 'sgraph_ai_service_playwright__cli', 'deploy', 'images'))   # images/ folder is filtered out by ignore_build_noise
         finally:
