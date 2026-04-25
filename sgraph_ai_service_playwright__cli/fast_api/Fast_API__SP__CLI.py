@@ -19,6 +19,7 @@ from sgraph_ai_service_playwright__cli.ec2.service.Ec2__Service                 
 from sgraph_ai_service_playwright__cli.fast_api.exception_handlers                  import register_type_safe_handlers
 from sgraph_ai_service_playwright__cli.fast_api.routes.Routes__Ec2                  import Routes__Ec2
 from sgraph_ai_service_playwright__cli.fast_api.routes.Routes__Observability        import Routes__Observability
+from sgraph_ai_service_playwright__cli.fast_api.runtime_version                     import resolve_version
 from sgraph_ai_service_playwright__cli.observability.service.Observability__Service import Observability__Service
 
 
@@ -29,6 +30,7 @@ class Fast_API__SP__CLI(Fast_API):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.config.enable_api_key = True                                           # X-API-Key enforced when FAST_API__AUTH__API_KEY__VALUE is set; unset = open
+        self.config.version        = resolve_version()                              # Surface the deployed SP CLI version on /docs + /openapi.json instead of osbot-fast-api's package version
 
     def setup(self):
         result = super().setup()
