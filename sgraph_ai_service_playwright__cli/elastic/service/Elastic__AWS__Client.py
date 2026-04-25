@@ -58,6 +58,9 @@ KIBANA_PORT_EXTERNAL = 443                                                      
 INSTANCE_PROFILE_NAME = 'sg-elastic-ec2'                                            # IAM role + instance profile share the same name (single-purpose: AmazonSSMManagedInstanceCore for connect/exec)
 SSM_MANAGED_POLICY_ARN = 'arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore'
 
+IAM_ROLE_DESCRIPTION = 'SG ephemeral elastic - SSM agent access'                    # ASCII only. AWS IAM Description regex rejects em-dash (U+2014) and other multi-byte unicode.
+
+
 EC2_TRUST_POLICY = {                                                                # AssumeRolePolicyDocument for an EC2-only role
     'Version'  : '2012-10-17',
     'Statement': [{'Effect'   : 'Allow'                                  ,

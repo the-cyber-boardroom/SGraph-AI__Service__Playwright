@@ -11,6 +11,7 @@ from unittest                                                                   
 
 from sgraph_ai_service_playwright__cli.elastic.service.Elastic__AWS__Client         import (
     Elastic__AWS__Client    ,
+    IAM_ROLE_DESCRIPTION     ,
     INSTANCE_PROFILE_NAME    ,
     SSM_MANAGED_POLICY_ARN   ,
 )
@@ -102,3 +103,13 @@ class test_ensure_instance_profile(TestCase):
         statements = role['AssumeRolePolicyDocument']['Statement']
         assert statements[0]['Principal']['Service'] == 'ec2.amazonaws.com'
         assert statements[0]['Action']               == 'sts:AssumeRole'
+
+
+    def test_role_description_is_ascii_only(self):
+        # AWS IAM Description regex rejects multi-byte unicode (incl. em-dash U+2014)
+        for ch in IAM_ROLE_DESCRIPTION:
+            ord_ = ord(ch)
+            allowed = (ord_ in (0x09, 0x0A, 0x0D)
+                       or 0x20 <= ord_ <= 0x7E
+                       or 0xA1 <= ord_ <= 0xFF)
+            assert allowed, f'IAM_ROLE_DESCRIPTION contains disallowed character {ch!r} (U+{ord_:04X})'
