@@ -22,6 +22,7 @@ from osbot_utils.type_safe.type_safe_core.decorators.type_safe                  
 
 from sgraph_ai_service_playwright__cli.elastic.collections.List__Schema__Kibana__Saved_Object import List__Schema__Kibana__Saved_Object
 from sgraph_ai_service_playwright__cli.elastic.enums.Enum__Saved_Object__Type       import Enum__Saved_Object__Type
+from sgraph_ai_service_playwright__cli.elastic.schemas.Schema__Kibana__Data_View__Result import Schema__Kibana__Data_View__Result
 from sgraph_ai_service_playwright__cli.elastic.schemas.Schema__Kibana__Find__Response   import Schema__Kibana__Find__Response
 from sgraph_ai_service_playwright__cli.elastic.schemas.Schema__Kibana__Import__Result   import Schema__Kibana__Import__Result
 from sgraph_ai_service_playwright__cli.elastic.schemas.Schema__Kibana__Saved_Object  import Schema__Kibana__Saved_Object
@@ -130,3 +131,57 @@ class Kibana__Saved_Objects__Client(Elastic__HTTP__Client):                     
                                               error_count   = len(errors)                          ,
                                               http_status   = status                               ,
                                               first_error   = first_err                            )
+
+    @type_safe
+    def ensure_data_view(self, base_url        : str ,
+                                username        : str ,
+                                password        : str ,
+                                title           : str ,                              # Index name (or pattern) e.g. "sg-synthetic"
+                                time_field_name : str = 'timestamp'
+                          ) -> Schema__Kibana__Data_View__Result:
+        # Step 1: list existing data views and skip when one already matches the title — keeps `sp el seed` idempotent across reruns
+        find_url     = base_url.rstrip('/') + f'/api/saved_objects/_find?type=index-pattern&per_page=200'
+        find_headers = basic_auth_header(username, password)
+        find_resp    = self.request('GET', find_url, headers=find_headers)
+        find_status  = int(find_resp.status_code)
+        if find_status >= 300:
+            return Schema__Kibana__Data_View__Result(title       = title       ,
+                                                     http_status = find_status ,
+                                                     error       = f'HTTP {find_status} on _find: {(find_resp.text or "")[:500]}')
+        try:
+            find_payload = find_resp.json() or {}
+        except Exception:
+            return Schema__Kibana__Data_View__Result(title=title, http_status=find_status, error='_find returned non-JSON')
+        for raw in find_payload.get('saved_objects', []):
+            attrs = raw.get('attributes', {}) or {}
+            if str(attrs.get('title', '')) == title:
+                return Schema__Kibana__Data_View__Result(id          = str(raw.get('id', '')),
+                                                         title       = title                  ,
+                                                         created     = False                  ,
+                                                         http_status = find_status            ,
+                                                         error       = ''                     )
+
+        # Step 2: not found — POST to /api/data_views/data_view to create it
+        create_url    = base_url.rstrip('/') + '/api/data_views/data_view'
+        create_body   = json.dumps({'data_view': {'title'           : title,
+                                                   'name'            : title,
+                                                   'timeFieldName'   : time_field_name}}).encode('utf-8')
+        create_headers = {**basic_auth_header(username, password),
+                          **KBN_XSRF_HEADER                       ,
+                          'Content-Type': 'application/json'      }
+        create_resp   = self.request('POST', create_url, headers=create_headers, data=create_body)
+        create_status = int(create_resp.status_code)
+        if create_status >= 300:
+            return Schema__Kibana__Data_View__Result(title       = title         ,
+                                                     http_status = create_status ,
+                                                     error       = f'HTTP {create_status}: {(create_resp.text or "")[:500]}')
+        try:
+            create_payload = create_resp.json() or {}
+        except Exception:
+            return Schema__Kibana__Data_View__Result(title=title, http_status=create_status, error='create returned non-JSON')
+        new_view = create_payload.get('data_view') or {}
+        return Schema__Kibana__Data_View__Result(id          = str(new_view.get('id', '')),
+                                                 title       = title                       ,
+                                                 created     = True                        ,
+                                                 http_status = create_status               ,
+                                                 error       = ''                          )

@@ -255,6 +255,21 @@ class Elastic__Service(Type_Safe):                                              
         elapsed_ms = max(int(time.monotonic() * 1000) - start_ms, 1)
         rate       = int(posted * 1000 / elapsed_ms)
 
+        # Ensure a Kibana data view exists for the seeded index — bypasses the "Now create a data view" wall in Discover.
+        # Only attempted when the bulk-post landed at least one doc; nothing to look at otherwise.
+        dv_id      = ''
+        dv_created = False
+        dv_error   = ''
+        if request.create_data_view and posted > 0:
+            dv = self.saved_objects_client.ensure_data_view(base_url        = str(info.kibana_url)         ,
+                                                             username        = 'elastic'                    ,
+                                                             password        = password                     ,
+                                                             title           = str(request.index)           ,
+                                                             time_field_name = str(request.time_field_name) )
+            dv_id      = str(dv.id)
+            dv_created = bool(dv.created)
+            dv_error   = str(dv.error)
+
         return Schema__Elastic__Seed__Response(stack_name         = request.stack_name ,
                                                index              = request.index      ,
                                                documents_posted   = posted              ,
@@ -263,7 +278,10 @@ class Elastic__Service(Type_Safe):                                              
                                                duration_ms        = elapsed_ms          ,
                                                docs_per_second    = rate                ,
                                                last_http_status   = last_status         ,
-                                               last_error_message = last_err_msg        )
+                                               last_error_message = last_err_msg        ,
+                                               data_view_id       = dv_id               ,
+                                               data_view_created  = dv_created          ,
+                                               data_view_error    = dv_error            )
 
     @type_safe
     def health(self, stack_name : Safe_Str__Elastic__Stack__Name ,
