@@ -27,7 +27,7 @@ from sgraph_ai_service_playwright__cli.elastic.schemas.Schema__Kibana__Data_View
 from sgraph_ai_service_playwright__cli.elastic.schemas.Schema__Kibana__Find__Response   import Schema__Kibana__Find__Response
 from sgraph_ai_service_playwright__cli.elastic.schemas.Schema__Kibana__Import__Result   import Schema__Kibana__Import__Result
 from sgraph_ai_service_playwright__cli.elastic.schemas.Schema__Kibana__Saved_Object  import Schema__Kibana__Saved_Object
-from sgraph_ai_service_playwright__cli.elastic.service.Default__Dashboard__Generator import Default__Dashboard__Generator
+from sgraph_ai_service_playwright__cli.elastic.service.Default__Dashboard__Generator import Default__Dashboard__Generator, all_dashboard_object_refs
 from sgraph_ai_service_playwright__cli.elastic.service.Elastic__HTTP__Client        import Elastic__HTTP__Client
 from sgraph_ai_service_playwright__cli.elastic.service.Kibana__Disabled_Features    import DEFAULT_DISABLED_FEATURES
 
@@ -251,6 +251,31 @@ class Kibana__Saved_Objects__Client(Elastic__HTTP__Client):                     
         return True, put_status, ''
 
     @type_safe
+    def delete_saved_objects(self, base_url : str  ,                                # Best-effort idempotent bulk delete via DELETE /api/saved_objects/{type}/{id}. Returns count deleted (excludes 404s).
+                                    username : str  ,
+                                    password : str  ,
+                                    objects  : list                                  # [(type, id), ...]
+                              ) -> int:
+        deleted = 0
+        headers = {**basic_auth_header(username, password), **KBN_XSRF_HEADER}
+        for obj_type, obj_id in objects:
+            url      = base_url.rstrip('/') + f'/api/saved_objects/{obj_type}/{obj_id}'
+            response = self.request('DELETE', url, headers=headers)
+            status   = int(response.status_code)
+            if status == 200:
+                deleted += 1
+            # 404 = already gone (idempotent); any other code is silently skipped — this is best-effort cleanup
+        return deleted
+
+    @type_safe
+    def delete_default_dashboard_objects(self, base_url : str ,                     # Convenience: delete every saved object related to the auto-generated dashboard, both new (visualization) and legacy (lens) IDs. Used by sp el wipe and as a self-healing pre-step in ensure_default_dashboard.
+                                                 username : str ,
+                                                 password : str
+                                          ) -> int:
+        return self.delete_saved_objects(base_url=base_url, username=username, password=password,
+                                          objects=all_dashboard_object_refs())
+
+    @type_safe
     def ensure_default_dashboard(self, base_url     : str ,
                                         username     : str ,
                                         password     : str ,
@@ -258,6 +283,14 @@ class Kibana__Saved_Objects__Client(Elastic__HTTP__Client):                     
                                         data_view_id : str ,
                                         time_field   : str = 'timestamp'
                                   ) -> Schema__Kibana__Dashboard__Result:
+        # Self-healing pre-step: delete any previously-imported dashboard objects (both
+        # current visualization IDs AND the legacy lens IDs from earlier attempts).
+        # Stale half-migrated Lens documents otherwise crash savedobjects-service with
+        # "Cannot read properties of undefined (reading 'layers')" on every subsequent
+        # import. overwrite=true on import is not enough — it doesn't re-migrate the
+        # broken docs, just rejects the new ones with HTTP 500.
+        self.delete_default_dashboard_objects(base_url=base_url, username=username, password=password)
+
         # Programmatically build the ndjson — every panel needs the data view id baked in
         generator    = Default__Dashboard__Generator()
         ndjson       = generator.build_ndjson(index=index, data_view_id=data_view_id, time_field=time_field)

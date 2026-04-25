@@ -521,8 +521,13 @@ def cmd_wipe(stack_name : Optional[str] = typer.Argument(None, help='Stack name.
         if deleted:
             return f'  [green]✓[/]  {label}: deleted'
         return f'  [dim]·[/]  {label}: did not exist'
-    c.print(render_row('index    ', result['index_deleted']    , result['index_status']    , result['index_error']))
-    c.print(render_row('data view', result['data_view_deleted'], result['data_view_status'], result['data_view_error']))
+    c.print(render_row('index     ', result['index_deleted']    , result['index_status']    , result['index_error']))
+    c.print(render_row('data view ', result['data_view_deleted'], result['data_view_status'], result['data_view_error']))
+    dash_count = int(result.get('dashboard_objects_deleted', 0))
+    if dash_count > 0:
+        c.print(f'  [green]✓[/]  dashboard : {dash_count} saved object(s) deleted')
+    else:
+        c.print(f'  [dim]·[/]  dashboard : nothing to clean')
     c.print()
 
 
