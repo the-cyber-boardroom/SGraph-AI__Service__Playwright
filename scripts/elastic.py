@@ -19,6 +19,7 @@ import typer
 from rich.console                                                                   import Console
 from rich.table                                                                     import Table
 
+from sgraph_ai_service_playwright__cli.elastic.enums.Enum__Saved_Object__Type       import Enum__Saved_Object__Type
 from sgraph_ai_service_playwright__cli.elastic.primitives.Safe_Str__Elastic__Stack__Name import Safe_Str__Elastic__Stack__Name
 from sgraph_ai_service_playwright__cli.elastic.primitives.Safe_Str__Elastic__Password    import Safe_Str__Elastic__Password
 from sgraph_ai_service_playwright__cli.elastic.schemas.Schema__Elastic__Create__Request  import Schema__Elastic__Create__Request
@@ -233,10 +234,11 @@ def cmd_wait(stack_name : Optional[str] = typer.Argument(None, help='Stack name.
     c.print(f'\n  [bold]Waiting for stack[/] [cyan]{stack_name}[/]  '
             f'[dim](polling every {poll_seconds}s, up to {timeout}s total)[/]')
 
-    milestones   = {'first_running'       : None,                                   # EC2 instance enters "running"
-                    'first_upstream_down' : None,                                   # nginx answers but Kibana container still booting (502/503)
-                    'first_booting'       : None,                                   # Kibana answered but not 200 yet
-                    'first_ready'         : None}                                   # Kibana /api/status 200
+    milestones   = {'first_running'        : None,                                  # EC2 instance enters "running"
+                    'first_elastic_ready'  : None,                                  # ES /_cluster/health returns yellow|green — can start indexing here
+                    'first_upstream_down'  : None,                                  # nginx answers but Kibana container still booting (502/503)
+                    'first_booting'        : None,                                  # Kibana answered but not 200 yet
+                    'first_ready'          : None}                                  # Kibana /api/status 200
     tick_count   = {'n': 0}
 
     status = Status('initialising probe...', console=c, spinner='dots')
@@ -244,22 +246,27 @@ def cmd_wait(stack_name : Optional[str] = typer.Argument(None, help='Stack name.
     try:
         def on_tick(tick):
             tick_count['n'] = tick.attempt
-            state_str = str(tick.info.state)
-            probe_str = str(tick.probe)
-            if state_str == 'running'        and milestones['first_running']       is None: milestones['first_running']       = tick.elapsed_ms
-            if probe_str == 'upstream-down'  and milestones['first_upstream_down'] is None: milestones['first_upstream_down'] = tick.elapsed_ms
-            if probe_str == 'booting'        and milestones['first_booting']       is None: milestones['first_booting']       = tick.elapsed_ms
-            if probe_str == 'ready'          and milestones['first_ready']         is None: milestones['first_ready']         = tick.elapsed_ms
+            state_str       = str(tick.info.state)
+            probe_str       = str(tick.probe)
+            es_probe_str    = str(tick.elastic_probe)
+            if state_str    == 'running'        and milestones['first_running']       is None: milestones['first_running']       = tick.elapsed_ms
+            if es_probe_str in ('yellow', 'green') and milestones['first_elastic_ready'] is None:
+                milestones['first_elastic_ready'] = tick.elapsed_ms
+            if probe_str    == 'upstream-down'  and milestones['first_upstream_down'] is None: milestones['first_upstream_down'] = tick.elapsed_ms
+            if probe_str    == 'booting'        and milestones['first_booting']       is None: milestones['first_booting']       = tick.elapsed_ms
+            if probe_str    == 'ready'          and milestones['first_ready']         is None: milestones['first_ready']         = tick.elapsed_ms
             ip      = str(tick.info.public_ip) or '—'
             secs    = tick.elapsed_ms // 1000
             status.update(f'[dim][{secs:>3}s  #{tick.attempt:02d}][/]  '
                           f'state=[bold]{state_str}[/]  ip={ip}  '
-                          f'probe=[bold]{probe_str}[/]  — {tick.message}')
-        info = service.wait_until_ready(stack_name  = Safe_Str__Elastic__Stack__Name(stack_name),
-                                        region      = region or ''                              ,
-                                        timeout     = timeout                                   ,
-                                        poll_seconds= poll_seconds                              ,
-                                        on_progress = on_tick                                   )
+                          f'es=[bold]{es_probe_str}[/]  '
+                          f'kibana=[bold]{probe_str}[/]  — {tick.message}')
+        info = service.wait_until_ready(stack_name      = Safe_Str__Elastic__Stack__Name(stack_name),
+                                        region          = region or ''                              ,
+                                        timeout         = timeout                                   ,
+                                        poll_seconds    = poll_seconds                              ,
+                                        elastic_password= os.environ.get('SG_ELASTIC_PASSWORD', '') ,
+                                        on_progress     = on_tick                                   )
     finally:
         status.stop()
 
@@ -278,11 +285,12 @@ def cmd_wait(stack_name : Optional[str] = typer.Argument(None, help='Stack name.
     t = Table(show_header=False, box=None, padding=(0, 2))
     t.add_column(style='dim', justify='right')
     t.add_column()
-    t.add_row('state → running'       , fmt_ms(milestones['first_running']      ))
-    t.add_row('nginx up (502/503)'    , fmt_ms(milestones['first_upstream_down']))
-    t.add_row('kibana booting (<200)' , fmt_ms(milestones['first_booting']      ))
-    t.add_row('kibana ready (200)'    , fmt_ms(milestones['first_ready']        ))
-    t.add_row('total polls / time'    , f'[bold]{tick_count["n"]}[/] polls over [bold]{info.state}[/] — see above')
+    t.add_row('state → running'        , fmt_ms(milestones['first_running']       ))
+    t.add_row('elastic ready (y/g)'    , fmt_ms(milestones['first_elastic_ready'] ))
+    t.add_row('nginx up (502/503)'     , fmt_ms(milestones['first_upstream_down'] ))
+    t.add_row('kibana booting (<200)'  , fmt_ms(milestones['first_booting']       ))
+    t.add_row('kibana ready (200)'     , fmt_ms(milestones['first_ready']         ))
+    t.add_row('total polls / time'     , f'[bold]{tick_count["n"]}[/] polls over [bold]{info.state}[/] — see above')
     c.print()
     c.print(t)
     c.print()
@@ -450,3 +458,148 @@ def cmd_seed(stack_name : Optional[str] = typer.Argument(None, help='Stack name.
             c.print('     [dim]› This is almost always SG_ELASTIC_PASSWORD not matching the live stack.[/]')
             c.print('     [dim]› Re-export with the password from the most recent `sp elastic create` output.[/]')
     c.print()
+
+
+# ── dashboard / data-view (Kibana saved objects) ───────────────────────────────
+#
+# Both sub-apps share the same plumbing — list / export / import — only the
+# saved-object type differs (`dashboard` vs `index-pattern`). We define one
+# pair of helper functions and bind them to two Typer sub-apps so the wire
+# format stays identical from the user's POV.
+
+def require_password(password: Optional[str]) -> None:                              # Same pre-flight as cmd_seed; abort early so users don't get cryptic 401s
+    if not password and not os.environ.get('SG_ELASTIC_PASSWORD'):
+        c = Console(highlight=False)
+        c.print('\n  [yellow]⚠[/]  SG_ELASTIC_PASSWORD is not set.')
+        c.print('     [dim]Re-export it from the most recent `sp elastic create` output, or pass --password.[/]\n')
+        raise typer.Exit(1)
+
+
+def render_auth_hint(c: Console, status: int) -> None:                              # Common 401/403 hint shared by all dashboard/data-view paths
+    if status == 401 or status == 403:
+        c.print('     [dim]› SG_ELASTIC_PASSWORD does not match the live stack — re-export from the most recent `sp elastic create`.[/]')
+
+
+def saved_objects_list_cmd(label: str, object_type: Enum__Saved_Object__Type,
+                           stack_name: Optional[str], password: Optional[str], page_size: int):
+    require_password(password)
+    service     = build_service()
+    stack_name  = resolve_stack_name(service, stack_name, None)
+    response    = service.saved_objects_find(stack_name  = Safe_Str__Elastic__Stack__Name(stack_name),
+                                             object_type = object_type                                ,
+                                             password    = password or ''                             ,
+                                             page_size   = page_size                                  )
+    c = Console(highlight=False)
+    if str(response.error):
+        c.print(f'\n  [red]✗  {label} list failed[/]  [dim](http {response.http_status})[/]')
+        c.print(f'     [dim]{str(response.error)}[/]')
+        render_auth_hint(c, response.http_status)
+        c.print()
+        raise typer.Exit(2)
+    if response.total == 0:
+        c.print(f'\n  [dim]No {label}s in {stack_name}.[/]\n')
+        return
+    t = Table(show_header=True, header_style='bold', box=None, padding=(0, 2))
+    t.add_column('Title', style='bold')
+    t.add_column('ID',    style='dim')
+    t.add_column('Updated')
+    for obj in response.objects:
+        t.add_row(str(obj.title) or '—', str(obj.id), str(obj.updated_at))
+    c.print()
+    c.print(t)
+    c.print(f'\n  [dim]{response.total} {label}(s) in {stack_name}[/]\n')
+
+
+def saved_objects_export_cmd(label: str, object_type: Enum__Saved_Object__Type,
+                             stack_name: Optional[str], password: Optional[str], output: str,
+                             include_references_deep: bool):
+    require_password(password)
+    service     = build_service()
+    stack_name  = resolve_stack_name(service, stack_name, None)
+    response    = service.saved_objects_export(stack_name              = Safe_Str__Elastic__Stack__Name(stack_name),
+                                                object_type             = object_type                               ,
+                                                output_path             = output                                    ,
+                                                password                = password or ''                            ,
+                                                include_references_deep = include_references_deep                   )
+    c = Console(highlight=False)
+    if str(response.error):
+        c.print(f'\n  [red]✗  {label} export failed[/]  [dim](http {response.http_status})[/]')
+        c.print(f'     [dim]{str(response.error)}[/]')
+        render_auth_hint(c, response.http_status)
+        c.print()
+        raise typer.Exit(2)
+    c.print(f'\n  ✅  Exported [bold]{response.object_count}[/] {label}(s) from [bold]{stack_name}[/]')
+    c.print(f'     [dim]→ {str(response.file_path)}  ({response.bytes_written} bytes)[/]\n')
+
+
+def saved_objects_import_cmd(label: str, stack_name: Optional[str], password: Optional[str],
+                             input_path: str, overwrite: bool):
+    require_password(password)
+    if not os.path.isfile(input_path):                                              # Fail fast — Kibana would return a confusing error for an empty body
+        Console(highlight=False, stderr=True).print(f'\n  [red]✗  No such file: {input_path}[/]\n')
+        raise typer.Exit(1)
+    service     = build_service()
+    stack_name  = resolve_stack_name(service, stack_name, None)
+    response    = service.saved_objects_import(stack_name = Safe_Str__Elastic__Stack__Name(stack_name),
+                                                input_path = input_path                                 ,
+                                                password   = password or ''                             ,
+                                                overwrite  = overwrite                                  )
+    c = Console(highlight=False)
+    if not response.success and response.error_count == 0 and str(response.first_error):
+        c.print(f'\n  [red]✗  {label} import failed[/]  [dim](http {response.http_status})[/]')
+        c.print(f'     [dim]{str(response.first_error)}[/]')
+        render_auth_hint(c, response.http_status)
+        c.print()
+        raise typer.Exit(2)
+    icon = '✅' if response.success else '⚠'
+    c.print(f'\n  {icon}  Imported [bold]{response.success_count}[/] {label}(s) into [bold]{stack_name}[/]'
+            f'  [dim](errors: {response.error_count}, http {response.http_status})[/]')
+    if response.error_count > 0 and str(response.first_error):
+        c.print(f'     [dim]first error:[/] {str(response.first_error)}')
+    c.print()
+
+
+# Sub-app factory — same three commands for both `dashboard` and `data-view`,
+# bound to the right Enum__Saved_Object__Type. Keeps the wire format symmetric.
+
+def make_saved_objects_app(label: str, object_type: Enum__Saved_Object__Type, help_text: str) -> typer.Typer:
+    sub_app = typer.Typer(help=help_text, no_args_is_help=True)
+
+    @sub_app.command('list')
+    @aws_error_handler
+    def list_cmd(stack_name: Optional[str] = typer.Argument(None, help='Stack name. Auto-picks when only one stack exists.'),
+                 password  : Optional[str] = typer.Option  (None, '--password', help='Elastic password (else $SG_ELASTIC_PASSWORD).'),
+                 page_size : int           = typer.Option  (100,  '--page-size', help='Max objects per Kibana _find page.')):
+        f"""List {label}s on the stack."""
+        saved_objects_list_cmd(label, object_type, stack_name, password, page_size)
+
+    @sub_app.command('export')
+    @aws_error_handler
+    def export_cmd(stack_name             : Optional[str] = typer.Argument(None, help='Stack name. Auto-picks when only one stack exists.'),
+                   output                  : str           = typer.Option  (..., '--output', '-o', help='Where to write the ndjson export.'),
+                   password                : Optional[str] = typer.Option  (None, '--password', help='Elastic password (else $SG_ELASTIC_PASSWORD).'),
+                   include_references_deep : bool          = typer.Option  (True, '--deep/--no-deep', help='Pull in referenced objects (lens/visualization/search/data-view) so the ndjson is self-contained.')):
+        f"""Export all {label}s as ndjson."""
+        saved_objects_export_cmd(label, object_type, stack_name, password, output, include_references_deep)
+
+    @sub_app.command('import')
+    @aws_error_handler
+    def import_cmd(input_path : str           = typer.Argument(...,  help='Path to a Kibana ndjson export.'),
+                   stack_name : Optional[str] = typer.Option  (None, '--stack', help='Stack name. Auto-picks when only one stack exists.'),
+                   password   : Optional[str] = typer.Option  (None, '--password', help='Elastic password (else $SG_ELASTIC_PASSWORD).'),
+                   overwrite  : bool          = typer.Option  (True, '--overwrite/--no-overwrite', help='Replace conflicting objects (Kibana default behaviour).')):
+        f"""Import {label}s from an ndjson file."""
+        saved_objects_import_cmd(label, stack_name, password, input_path, overwrite)
+
+    return sub_app
+
+
+dashboard_app = make_saved_objects_app(label       = 'dashboard'                                ,
+                                        object_type = Enum__Saved_Object__Type.DASHBOARD          ,
+                                        help_text   = 'Manage Kibana dashboards (list / export / import).')
+data_view_app = make_saved_objects_app(label       = 'data view'                                ,
+                                        object_type = Enum__Saved_Object__Type.DATA_VIEW          ,
+                                        help_text   = 'Manage Kibana data views (renamed "index pattern" in 8.x).')
+
+app.add_typer(dashboard_app, name='dashboard')
+app.add_typer(data_view_app, name='data-view')

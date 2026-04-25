@@ -29,6 +29,7 @@ from osbot_utils.type_safe.Type_Safe                                            
 from osbot_utils.type_safe.type_safe_core.decorators.type_safe                      import type_safe
 
 from sgraph_ai_service_playwright__cli.elastic.collections.List__Schema__Log__Document   import List__Schema__Log__Document
+from sgraph_ai_service_playwright__cli.elastic.enums.Enum__Elastic__Probe__Status   import Enum__Elastic__Probe__Status
 from sgraph_ai_service_playwright__cli.elastic.enums.Enum__Kibana__Probe__Status    import Enum__Kibana__Probe__Status
 
 
@@ -55,6 +56,38 @@ class Elastic__HTTP__Client(Type_Safe):
     @type_safe
     def kibana_ready(self, base_url: str) -> bool:                                  # Back-compat bool wrapper around kibana_probe()
         return self.kibana_probe(base_url) == Enum__Kibana__Probe__Status.READY
+
+    @type_safe
+    def elastic_probe(self, base_url: str, username: str = '', password: str = '') -> Enum__Elastic__Probe__Status:
+        url     = base_url.rstrip('/') + '/_elastic/_cluster/health'
+        headers = {}
+        if username and password:                                                   # Auth is optional — without creds we still detect UNREACHABLE vs AUTH_REQUIRED
+            import base64
+            auth_token = base64.b64encode(f'{username}:{password}'.encode()).decode()
+            headers['Authorization'] = f'Basic {auth_token}'
+        try:
+            response = self.request('GET', url, headers=headers)
+        except Exception:
+            return Enum__Elastic__Probe__Status.UNREACHABLE                         # Connection refused / DNS fail / timeout
+        code = int(response.status_code)
+        if code == 401 or code == 403:
+            return Enum__Elastic__Probe__Status.AUTH_REQUIRED
+        if 500 <= code < 600:                                                       # nginx 502/503/504 — ES container still starting
+            return Enum__Elastic__Probe__Status.UNREACHABLE
+        if code != 200:
+            return Enum__Elastic__Probe__Status.UNKNOWN
+        try:
+            payload = response.json() or {}
+        except Exception:
+            return Enum__Elastic__Probe__Status.UNKNOWN
+        status = str(payload.get('status', '')).lower()
+        if status == 'green':
+            return Enum__Elastic__Probe__Status.GREEN
+        if status == 'yellow':                                                      # Single-node clusters rest at yellow because replicas have nowhere to go — still ready for writes
+            return Enum__Elastic__Probe__Status.YELLOW
+        if status == 'red':
+            return Enum__Elastic__Probe__Status.RED
+        return Enum__Elastic__Probe__Status.UNKNOWN
 
     @type_safe
     def kibana_probe(self, base_url: str) -> Enum__Kibana__Probe__Status:

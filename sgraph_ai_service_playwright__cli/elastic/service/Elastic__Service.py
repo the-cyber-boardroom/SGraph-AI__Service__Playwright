@@ -22,8 +22,10 @@ from osbot_aws.AWS_Config                                                       
 
 from sgraph_ai_service_playwright__cli.ec2.collections.List__Instance__Id           import List__Instance__Id
 from sgraph_ai_service_playwright__cli.elastic.collections.List__Schema__Elastic__Info  import List__Schema__Elastic__Info
+from sgraph_ai_service_playwright__cli.elastic.enums.Enum__Elastic__Probe__Status   import Enum__Elastic__Probe__Status
 from sgraph_ai_service_playwright__cli.elastic.enums.Enum__Elastic__State           import Enum__Elastic__State
 from sgraph_ai_service_playwright__cli.elastic.enums.Enum__Kibana__Probe__Status    import Enum__Kibana__Probe__Status
+from sgraph_ai_service_playwright__cli.elastic.enums.Enum__Saved_Object__Type       import Enum__Saved_Object__Type
 from sgraph_ai_service_playwright__cli.elastic.primitives.Safe_Str__Elastic__Password    import Safe_Str__Elastic__Password
 from sgraph_ai_service_playwright__cli.elastic.primitives.Safe_Str__Elastic__Stack__Name import Safe_Str__Elastic__Stack__Name
 from sgraph_ai_service_playwright__cli.elastic.primitives.Safe_Str__IP__Address     import Safe_Str__IP__Address
@@ -35,11 +37,15 @@ from sgraph_ai_service_playwright__cli.elastic.schemas.Schema__Elastic__List    
 from sgraph_ai_service_playwright__cli.elastic.schemas.Schema__Elastic__Seed__Request    import Schema__Elastic__Seed__Request
 from sgraph_ai_service_playwright__cli.elastic.schemas.Schema__Elastic__Seed__Response   import Schema__Elastic__Seed__Response
 from sgraph_ai_service_playwright__cli.elastic.schemas.Schema__Exec__Result         import Schema__Exec__Result
+from sgraph_ai_service_playwright__cli.elastic.schemas.Schema__Kibana__Export__Result import Schema__Kibana__Export__Result
+from sgraph_ai_service_playwright__cli.elastic.schemas.Schema__Kibana__Find__Response import Schema__Kibana__Find__Response
+from sgraph_ai_service_playwright__cli.elastic.schemas.Schema__Kibana__Import__Result import Schema__Kibana__Import__Result
 from sgraph_ai_service_playwright__cli.elastic.schemas.Schema__Wait__Tick           import Schema__Wait__Tick
 from sgraph_ai_service_playwright__cli.elastic.service.Caller__IP__Detector         import Caller__IP__Detector
 from sgraph_ai_service_playwright__cli.elastic.service.Elastic__AWS__Client         import Elastic__AWS__Client, aws_name_for_stack
 from sgraph_ai_service_playwright__cli.elastic.service.Elastic__HTTP__Client        import Elastic__HTTP__Client
 from sgraph_ai_service_playwright__cli.elastic.service.Elastic__User__Data__Builder import Elastic__User__Data__Builder
+from sgraph_ai_service_playwright__cli.elastic.service.Kibana__Saved_Objects__Client import Kibana__Saved_Objects__Client
 from sgraph_ai_service_playwright__cli.elastic.service.Synthetic__Data__Generator   import Synthetic__Data__Generator
 from sgraph_ai_service_playwright__cli.observability.primitives.Safe_Str__AWS__Region    import Safe_Str__AWS__Region
 
@@ -66,11 +72,12 @@ SCIENTISTS = ['bohr','curie','darwin','dirac','einstein','euler','faraday',
 
 
 class Elastic__Service(Type_Safe):                                                  # Pure-logic orchestrator
-    aws_client       : Elastic__AWS__Client
-    http_client      : Elastic__HTTP__Client
-    ip_detector      : Caller__IP__Detector
-    user_data_builder: Elastic__User__Data__Builder
-    data_generator   : Synthetic__Data__Generator
+    aws_client            : Elastic__AWS__Client
+    http_client           : Elastic__HTTP__Client
+    saved_objects_client  : Kibana__Saved_Objects__Client
+    ip_detector           : Caller__IP__Detector
+    user_data_builder     : Elastic__User__Data__Builder
+    data_generator        : Synthetic__Data__Generator
 
     @type_safe
     def create(self, request: Schema__Elastic__Create__Request) -> Schema__Elastic__Create__Response:
@@ -135,35 +142,40 @@ class Elastic__Service(Type_Safe):                                              
         details['__region'] = str(resolved)
         return self.aws_client.build_instance_info(details)
 
-    def wait_until_ready(self, stack_name  : Safe_Str__Elastic__Stack__Name      ,
-                               region      : Safe_Str__AWS__Region    = None     ,
-                               timeout     : int                      = 600      ,
-                               poll_seconds: int                      = 10       ,
-                               on_progress : Callable                 = None     ,  # Invoked with Schema__Wait__Tick each poll; CLI drives the Rich spinner
-                               sleep_fn    : Callable                 = time.sleep   # Injectable so tests drive the loop without real sleeps
+    def wait_until_ready(self, stack_name      : Safe_Str__Elastic__Stack__Name      ,
+                               region          : Safe_Str__AWS__Region    = None     ,
+                               timeout         : int                      = 600      ,
+                               poll_seconds    : int                      = 10       ,
+                               elastic_password: str                      = ''       ,  # Optional — when supplied, ES probe runs authenticated and can distinguish AUTH_REQUIRED from UNREACHABLE
+                               on_progress     : Callable                 = None     ,  # Invoked with Schema__Wait__Tick each poll; CLI drives the Rich spinner
+                               sleep_fn        : Callable                 = time.sleep   # Injectable so tests drive the loop without real sleeps
                           ) -> Schema__Elastic__Info:
-        resolved = self.resolve_region(region)
-        start    = time.monotonic()
-        deadline = start + max(timeout, 1)
-        poll_sec = max(poll_seconds, 1)
-        attempt  = 0
-        info     = self.get_stack_info(stack_name = stack_name, region = resolved)
+        resolved   = self.resolve_region(region)
+        password   = elastic_password or os.environ.get('SG_ELASTIC_PASSWORD', '')
+        start      = time.monotonic()
+        deadline   = start + max(timeout, 1)
+        poll_sec   = max(poll_seconds, 1)
+        attempt    = 0
+        info       = self.get_stack_info(stack_name = stack_name, region = resolved)
         while time.monotonic() < deadline:
             attempt += 1
             info     = self.get_stack_info(stack_name = stack_name, region = resolved)
             probe    = Enum__Kibana__Probe__Status.UNREACHABLE
+            es_probe = Enum__Elastic__Probe__Status.UNREACHABLE
             message  = f'instance state = {info.state}'
             if info.state == Enum__Elastic__State.RUNNING and str(info.kibana_url):
+                es_probe = self.http_client.elastic_probe(str(info.kibana_url), 'elastic', password)  # ES is up first; probe it on every tick to surface "ES ready" before Kibana
                 probe    = self.http_client.kibana_probe(str(info.kibana_url))
                 message  = PROBE_MESSAGES.get(probe, PROBE_MESSAGES[Enum__Kibana__Probe__Status.UNKNOWN])
                 if probe == Enum__Kibana__Probe__Status.READY:
                     info.state = Enum__Elastic__State.READY
 
-            tick = Schema__Wait__Tick(attempt    = attempt                            ,
-                                      info       = info                               ,
-                                      probe      = probe                              ,
-                                      message    = message                            ,
-                                      elapsed_ms = int((time.monotonic() - start) * 1000))
+            tick = Schema__Wait__Tick(attempt       = attempt                            ,
+                                      info          = info                               ,
+                                      probe         = probe                              ,
+                                      elastic_probe = es_probe                           ,
+                                      message       = message                            ,
+                                      elapsed_ms    = int((time.monotonic() - start) * 1000))
             if on_progress is not None:
                 on_progress(tick)
 
@@ -274,6 +286,67 @@ class Elastic__Service(Type_Safe):                                              
         result.status      = status
         result.duration_ms = int((time.monotonic() - start) * 1000)
         return result
+
+    @type_safe
+    def saved_objects_find(self, stack_name : Safe_Str__Elastic__Stack__Name ,
+                                  object_type: Enum__Saved_Object__Type      ,
+                                  password   : str                            = '',
+                                  page_size  : int                            = 100
+                            ) -> Schema__Kibana__Find__Response:
+        info     = self.get_stack_info(stack_name = stack_name)
+        if not str(info.kibana_url):
+            return Schema__Kibana__Find__Response()                                 # No public IP yet — empty result, http_status stays 0
+        pwd      = password or os.environ.get('SG_ELASTIC_PASSWORD', '')
+        return self.saved_objects_client.find(base_url    = str(info.kibana_url),
+                                              username    = 'elastic'           ,
+                                              password    = pwd                  ,
+                                              object_type = object_type          ,
+                                              page_size   = page_size            )
+
+    @type_safe
+    def saved_objects_export(self, stack_name : Safe_Str__Elastic__Stack__Name ,
+                                    object_type: Enum__Saved_Object__Type      ,
+                                    output_path: str                            ,
+                                    password   : str                            = '',
+                                    include_references_deep: bool               = True
+                              ) -> Schema__Kibana__Export__Result:
+        info     = self.get_stack_info(stack_name = stack_name)
+        if not str(info.kibana_url):
+            return Schema__Kibana__Export__Result(error = 'no kibana url for stack — is the EC2 instance running?')
+        pwd      = password or os.environ.get('SG_ELASTIC_PASSWORD', '')
+        ndjson, status, err = self.saved_objects_client.export(base_url               = str(info.kibana_url) ,
+                                                                username               = 'elastic'            ,
+                                                                password               = pwd                  ,
+                                                                object_type            = object_type          ,
+                                                                include_references_deep= include_references_deep)
+        if err:
+            return Schema__Kibana__Export__Result(http_status = status, error = err)
+        with open(output_path, 'wb') as f:                                          # Verbatim ndjson — written as bytes so re-import round-trips byte-identical
+            f.write(ndjson)
+        line_count = sum(1 for line in ndjson.splitlines() if line.strip())
+        return Schema__Kibana__Export__Result(object_count  = line_count   ,
+                                              bytes_written = len(ndjson)  ,
+                                              file_path     = output_path  ,
+                                              http_status   = status       ,
+                                              error         = ''            )
+
+    @type_safe
+    def saved_objects_import(self, stack_name : Safe_Str__Elastic__Stack__Name ,
+                                    input_path : str                            ,
+                                    password   : str                            = '',
+                                    overwrite  : bool                           = True
+                              ) -> Schema__Kibana__Import__Result:
+        info     = self.get_stack_info(stack_name = stack_name)
+        if not str(info.kibana_url):
+            return Schema__Kibana__Import__Result(first_error = 'no kibana url for stack — is the EC2 instance running?')
+        pwd      = password or os.environ.get('SG_ELASTIC_PASSWORD', '')
+        with open(input_path, 'rb') as f:
+            ndjson = f.read()
+        return self.saved_objects_client.import_objects(base_url     = str(info.kibana_url),
+                                                        username     = 'elastic'           ,
+                                                        password     = pwd                  ,
+                                                        ndjson_bytes = ndjson               ,
+                                                        overwrite    = overwrite            )
 
     def random_stack_name(self) -> str:
         return f'elastic-{secrets.choice(ADJECTIVES)}-{secrets.choice(SCIENTISTS)}'
