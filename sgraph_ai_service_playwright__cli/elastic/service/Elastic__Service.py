@@ -21,9 +21,11 @@ from osbot_utils.type_safe.type_safe_core.decorators.type_safe                  
 from osbot_aws.AWS_Config                                                           import AWS_Config
 
 from sgraph_ai_service_playwright__cli.ec2.collections.List__Instance__Id           import List__Instance__Id
+from sgraph_ai_service_playwright__cli.elastic.collections.List__Schema__Elastic__Health__Check import List__Schema__Elastic__Health__Check
 from sgraph_ai_service_playwright__cli.elastic.collections.List__Schema__Elastic__Info  import List__Schema__Elastic__Info
 from sgraph_ai_service_playwright__cli.elastic.enums.Enum__Elastic__Probe__Status   import Enum__Elastic__Probe__Status
 from sgraph_ai_service_playwright__cli.elastic.enums.Enum__Elastic__State           import Enum__Elastic__State
+from sgraph_ai_service_playwright__cli.elastic.enums.Enum__Health__Status           import Enum__Health__Status
 from sgraph_ai_service_playwright__cli.elastic.enums.Enum__Kibana__Probe__Status    import Enum__Kibana__Probe__Status
 from sgraph_ai_service_playwright__cli.elastic.enums.Enum__Saved_Object__Type       import Enum__Saved_Object__Type
 from sgraph_ai_service_playwright__cli.elastic.primitives.Safe_Str__Elastic__Password    import Safe_Str__Elastic__Password
@@ -34,6 +36,8 @@ from sgraph_ai_service_playwright__cli.elastic.schemas.Schema__Elastic__Create__
 from sgraph_ai_service_playwright__cli.elastic.schemas.Schema__Elastic__Delete__Response import Schema__Elastic__Delete__Response
 from sgraph_ai_service_playwright__cli.elastic.schemas.Schema__Elastic__Info        import Schema__Elastic__Info
 from sgraph_ai_service_playwright__cli.elastic.schemas.Schema__Elastic__List        import Schema__Elastic__List
+from sgraph_ai_service_playwright__cli.elastic.schemas.Schema__Elastic__Health__Check import Schema__Elastic__Health__Check
+from sgraph_ai_service_playwright__cli.elastic.schemas.Schema__Elastic__Health__Response import Schema__Elastic__Health__Response
 from sgraph_ai_service_playwright__cli.elastic.schemas.Schema__Elastic__Seed__Request    import Schema__Elastic__Seed__Request
 from sgraph_ai_service_playwright__cli.elastic.schemas.Schema__Elastic__Seed__Response   import Schema__Elastic__Seed__Response
 from sgraph_ai_service_playwright__cli.elastic.schemas.Schema__Exec__Result         import Schema__Exec__Result
@@ -260,6 +264,109 @@ class Elastic__Service(Type_Safe):                                              
                                                docs_per_second    = rate                ,
                                                last_http_status   = last_status         ,
                                                last_error_message = last_err_msg        )
+
+    @type_safe
+    def health(self, stack_name : Safe_Str__Elastic__Stack__Name ,
+                     password   : str                            = '',
+                     check_ssm  : bool                           = True
+                ) -> Schema__Elastic__Health__Response:
+        checks   = List__Schema__Elastic__Health__Check()
+        info     = self.get_stack_info(stack_name = stack_name)
+        password = password or os.environ.get('SG_ELASTIC_PASSWORD', '')
+
+        # 1) EC2 state                                                              # If the instance isn't running there's nothing more to check from the network side
+        state_str  = str(info.state)
+        ec2_status = Enum__Health__Status.OK if state_str == 'running' else Enum__Health__Status.FAIL
+        ec2_detail = f'state={state_str}' if state_str else 'no instance found for stack'
+        checks.append(Schema__Elastic__Health__Check(name='ec2-state', status=ec2_status, detail=ec2_detail))
+        if not str(info.instance_id):                                               # No instance — bail; everything else would be pointless skips
+            return Schema__Elastic__Health__Response(stack_name=stack_name, all_ok=False, checks=checks)
+
+        # 2) Public IP                                                              # Without a public IP the SG/TCP/HTTP checks all skip
+        public_ip = str(info.public_ip)
+        if public_ip:
+            checks.append(Schema__Elastic__Health__Check(name='public-ip', status=Enum__Health__Status.OK, detail=public_ip))
+        else:
+            checks.append(Schema__Elastic__Health__Check(name='public-ip', status=Enum__Health__Status.WARN, detail='no public ip yet - instance may still be initialising'))
+
+        # 3) SG ingress vs current caller IP                                        # Most common failure mode: home/office IP rotated since `sp el create`
+        current_ip = str(self.ip_detector.detect())
+        sg_id      = str(info.security_group_id)
+        if not sg_id:
+            checks.append(Schema__Elastic__Health__Check(name='sg-ingress', status=Enum__Health__Status.SKIP, detail='no security group on instance'))
+        else:
+            ingress = self.aws_client.describe_security_group_ingress(str(info.region), sg_id)
+            allowed = [r for r in ingress if int(r.get('port') or 0) == 443]
+            if not allowed:
+                checks.append(Schema__Elastic__Health__Check(name='sg-ingress', status=Enum__Health__Status.FAIL,
+                                                              detail=f'no :443 ingress on {sg_id} - recreate the stack'))
+            else:
+                cidrs    = [r['cidr'] for r in allowed]
+                if any(c == f'{current_ip}/32' for c in cidrs):
+                    checks.append(Schema__Elastic__Health__Check(name='sg-ingress', status=Enum__Health__Status.OK,
+                                                                  detail=f'{current_ip}/32 allowed on :443'))
+                else:
+                    checks.append(Schema__Elastic__Health__Check(name='sg-ingress', status=Enum__Health__Status.FAIL,
+                                                                  detail=f'current IP {current_ip} not in allowed CIDRs {cidrs} - your IP rotated since create'))
+
+        # 4) TCP :443                                                               # The network-level check — catches "ConnectTimeout" before any HTTPS handshake
+        if public_ip:
+            import socket
+            try:
+                with socket.create_connection((public_ip, 443), timeout=5):
+                    checks.append(Schema__Elastic__Health__Check(name='tcp-443', status=Enum__Health__Status.OK,
+                                                                  detail=f'reachable in <5s'))
+            except Exception as exc:
+                checks.append(Schema__Elastic__Health__Check(name='tcp-443', status=Enum__Health__Status.FAIL,
+                                                              detail=f'cannot connect to {public_ip}:443 - {type(exc).__name__}'))
+        else:
+            checks.append(Schema__Elastic__Health__Check(name='tcp-443', status=Enum__Health__Status.SKIP, detail='no public IP'))
+
+        # 5/6) Elastic + Kibana probes                                              # Skipped if we don't even have a URL; they internally handle UNREACHABLE
+        url = str(info.kibana_url)
+        if url:
+            es_probe = self.http_client.elastic_probe(url, 'elastic', password)
+            if es_probe.is_ready():
+                checks.append(Schema__Elastic__Health__Check(name='elastic',
+                                                              status=Enum__Health__Status.OK   if es_probe == Enum__Elastic__Probe__Status.GREEN else Enum__Health__Status.WARN,
+                                                              detail=f'/_cluster/health = {es_probe} (yellow is normal on single-node)'))
+            elif es_probe == Enum__Elastic__Probe__Status.AUTH_REQUIRED:
+                checks.append(Schema__Elastic__Health__Check(name='elastic', status=Enum__Health__Status.FAIL,
+                                                              detail='/_cluster/health returned 401/403 - SG_ELASTIC_PASSWORD does not match'))
+            else:
+                checks.append(Schema__Elastic__Health__Check(name='elastic', status=Enum__Health__Status.FAIL,
+                                                              detail=f'/_cluster/health = {es_probe}'))
+
+            kb_probe = self.http_client.kibana_probe(url)
+            kb_status = Enum__Health__Status.OK if kb_probe == Enum__Kibana__Probe__Status.READY else Enum__Health__Status.FAIL
+            checks.append(Schema__Elastic__Health__Check(name='kibana', status=kb_status,
+                                                          detail=f'/api/status probe = {kb_probe}'))
+        else:
+            checks.append(Schema__Elastic__Health__Check(name='elastic', status=Enum__Health__Status.SKIP, detail='no URL'))
+            checks.append(Schema__Elastic__Health__Check(name='kibana',  status=Enum__Health__Status.SKIP, detail='no URL'))
+
+        # 7/8) SSM-side checks                                                      # Run via the existing SSM seam — works even when :443 is unreachable from the caller
+        if check_ssm:
+            ssm_calls = [('ssm-boot-status', 'cat /var/log/sg-elastic-boot-status 2>/dev/null || echo MISSING'),
+                          ('ssm-docker'     , 'docker ps --format "{{.Names}}: {{.Status}}" 2>/dev/null | head -10')]
+            for name, command in ssm_calls:
+                stdout, stderr, code, status = self.aws_client.ssm_send_command(region      = str(info.region)  ,
+                                                                                instance_id = str(info.instance_id),
+                                                                                commands    = [command]            ,
+                                                                                timeout     = 30                   )
+                if code == 0:
+                    text = (str(stdout) or '').strip().splitlines()[0:6]            # Snip to fit the diagnostic line
+                    checks.append(Schema__Elastic__Health__Check(name=name, status=Enum__Health__Status.OK,
+                                                                  detail=' | '.join(text) or '(no output)'))
+                else:
+                    checks.append(Schema__Elastic__Health__Check(name=name, status=Enum__Health__Status.FAIL,
+                                                                  detail=f'SSM exit={code} status={status}'))
+        else:
+            checks.append(Schema__Elastic__Health__Check(name='ssm-boot-status', status=Enum__Health__Status.SKIP, detail='--no-ssm'))
+            checks.append(Schema__Elastic__Health__Check(name='ssm-docker'     , status=Enum__Health__Status.SKIP, detail='--no-ssm'))
+
+        all_ok = all(c.status in (Enum__Health__Status.OK, Enum__Health__Status.SKIP) for c in checks)
+        return Schema__Elastic__Health__Response(stack_name=stack_name, all_ok=all_ok, checks=checks)
 
     @type_safe
     def run_on_instance(self, stack_name : Safe_Str__Elastic__Stack__Name ,

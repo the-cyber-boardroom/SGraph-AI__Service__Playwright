@@ -319,6 +319,44 @@ def cmd_wait(stack_name : Optional[str] = typer.Argument(None, help='Stack name.
     c.print()
 
 
+# ── health ─────────────────────────────────────────────────────────────────────
+
+@app.command('health')
+@aws_error_handler
+def cmd_health(stack_name: Optional[str] = typer.Argument(None, help='Stack name. Auto-picks when only one stack exists; prompts on multiple.'),
+               password  : Optional[str] = typer.Option  (None, '--password', help='Elastic password (else $SG_ELASTIC_PASSWORD).'),
+               check_ssm : bool          = typer.Option  (True, '--ssm/--no-ssm', help='Run SSM-side checks (boot status + docker ps). Default on.')):
+    """Diagnose a stack: EC2 state, SG ingress vs current IP, TCP :443, Elastic + Kibana probes, plus SSM-side boot status and `docker ps`."""
+    service     = build_service()
+    stack_name  = resolve_stack_name(service, stack_name, None)
+    response    = service.health(stack_name = Safe_Str__Elastic__Stack__Name(stack_name),
+                                  password   = password or ''                            ,
+                                  check_ssm  = check_ssm                                  )
+
+    icon_for = {'ok': '[green]✓[/]', 'warn': '[yellow]⚠[/]', 'fail': '[red]✗[/]', 'skip': '[dim]·[/]'}
+    c = Console(highlight=False)
+    rollup_icon = '[green]✓[/]' if response.all_ok else '[red]✗[/]'
+    c.print(f'\n  {rollup_icon}  Health for [bold]{stack_name}[/]  [dim](pass --no-ssm to skip the SSM checks)[/]\n')
+    t = Table(show_header=True, header_style='bold', box=None, padding=(0, 2))
+    t.add_column('', width=2)
+    t.add_column('Check')
+    t.add_column('Detail', style='dim')
+    for chk in response.checks:
+        t.add_row(icon_for.get(str(chk.status), '·'), str(chk.name), rich_escape(str(chk.detail)))
+    c.print(t)
+
+    if not response.all_ok:                                                          # When something failed, print a targeted next-step hint based on the worst check
+        sg_fail   = any(str(chk.name) == 'sg-ingress' and str(chk.status) == 'fail' for chk in response.checks)
+        tcp_fail  = any(str(chk.name) == 'tcp-443'    and str(chk.status) == 'fail' for chk in response.checks)
+        auth_fail = any(str(chk.name) == 'elastic'    and str(chk.status) == 'fail' and 'SG_ELASTIC_PASSWORD' in str(chk.detail) for chk in response.checks)
+        c.print()
+        if sg_fail or tcp_fail:
+            c.print('  [yellow]Likely fix:[/] your public IP rotated since `sp el create`. Recreate the stack so the SG ingress matches your current IP, or update the SG manually.')
+        if auth_fail:
+            c.print('  [yellow]Likely fix:[/] re-export SG_ELASTIC_PASSWORD with the value from the most recent `sp el create` output.')
+    c.print()
+
+
 # ── delete ─────────────────────────────────────────────────────────────────────
 
 @app.command('delete')

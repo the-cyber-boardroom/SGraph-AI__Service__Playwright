@@ -290,6 +290,23 @@ class Elastic__AWS__Client(Type_Safe):                                          
             return False
 
     @type_safe
+    def describe_security_group_ingress(self, region: str, security_group_id: str) -> list:  # Returns list of {'port': N, 'cidr': '1.2.3.4/32'} — drives the SG-vs-current-IP health check
+        ec2 = self.ec2_client(region)
+        try:
+            response = ec2.describe_security_groups(GroupIds=[security_group_id])
+        except Exception:
+            return []
+        groups = response.get('SecurityGroups', [])
+        if not groups:
+            return []
+        rules = []
+        for permission in groups[0].get('IpPermissions', []) or []:
+            from_port = permission.get('FromPort')                                  # AWS reports from/to-port for a range; port 443 has both = 443
+            for ip_range in permission.get('IpRanges', []) or []:
+                rules.append({'port': from_port, 'cidr': str(ip_range.get('CidrIp', ''))})
+        return rules
+
+    @type_safe
     def ssm_send_command(self, region     : str  ,
                                instance_id: str  ,
                                commands   : list ,
