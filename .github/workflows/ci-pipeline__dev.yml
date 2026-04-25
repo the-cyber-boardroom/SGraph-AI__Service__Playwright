@@ -17,6 +17,8 @@ on:
       - 'tests/unit/agent_mitmproxy/**'
       - 'scripts/provision_ec2.py'
       - 'scripts/observability.py'
+      - 'scripts/run_sp_cli.py'
+      - 'scripts/sp-cli__run-locally.sh'
       - '.github/workflows/ci__sp_cli.yml'
       - '.github/workflows/ci__agent_mitmproxy.yml'
       - 'team/**'
