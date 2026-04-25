@@ -887,20 +887,21 @@ def _wait_for_ami(service, ami_id: str, c: Console, timeout: int = 1200, poll_se
 
 @ami_app.command('create')
 @aws_error_handler
-def cmd_ami_create(stack_name   : Optional[str] = typer.Argument(None, help='Stack name to bake. Auto-picks when only one stack exists. Ignored with --from-scratch (a fresh stack is created instead).'),
+def cmd_ami_create(stack_name   : Optional[str] = typer.Argument(None, help='Stack to bake. OMIT for the default "from scratch" flow (creates + seeds + bakes + tears down). Pass an explicit stack name to bake an existing running stack instead.'),
                    ami_name     : Optional[str] = typer.Option  (None, '--name', help='AMI Name tag (defaults to "Ephemeral Kibana - <stack> - <ts>").'),
                    reboot       : bool          = typer.Option  (False, '--reboot/--no-reboot', help='Reboot the instance during AMI creation. Default: no-reboot (safer; ES has restart=unless-stopped, journal-replay handles in-flight writes).'),
-                   wait         : bool          = typer.Option  (False, '--wait', help='Block until the AMI moves from pending → available (5-10 min on a single EBS volume).'),
-                   from_scratch : bool          = typer.Option  (False, '--from-scratch', help='Create a fresh stack, seed it (data view + dashboard), bake the AMI, then delete the source stack. Single command for "I want a fresh AMI from nothing". Implies --wait.'),
-                   keep_source  : bool          = typer.Option  (False, '--keep-source', help='With --from-scratch: keep the source stack running after the bake (default: delete it to save money).'),
-                   password     : Optional[str] = typer.Option  (None, '--password', help='With --from-scratch: bake-time elastic password. Falls back to $SG_ELASTIC_PASSWORD; auto-generated if neither.'),
-                   instance_type: Optional[str] = typer.Option  (None, '--instance-type', help='With --from-scratch: EC2 instance type for the source stack (default m6i.xlarge).')):
-    """Bake the running stack's EBS volume into an AMI tagged sg:purpose=elastic. With --from-scratch, also creates the source stack first (seeded + dashboarded) and tears it down after."""
+                   wait         : bool          = typer.Option  (False, '--wait', help='When baking an existing stack, block until pending → available (5-10 min). Always implied in the from-scratch flow.'),
+                   keep_source  : bool          = typer.Option  (False, '--keep-source', help='From-scratch only: keep the source stack running after the bake (default: delete it to save money).'),
+                   password     : Optional[str] = typer.Option  (None, '--password', help='From-scratch only: bake-time elastic password. Falls back to $SG_ELASTIC_PASSWORD; auto-generated if neither.'),
+                   instance_type: Optional[str] = typer.Option  (None, '--instance-type', help='From-scratch only: EC2 instance type for the source stack (default m6i.xlarge).')):
+    """Bake an "Ephemeral Kibana" AMI. Default (no STACK arg): runs the full chain from nothing — create + seed + dashboard + bake + delete source. Pass an existing stack name to bake it as-is instead."""
     import time as _time
     service = build_service()
     c       = Console(highlight=False)
 
-    if from_scratch:
+    # Default mode: no stack name supplied → run the full chain from scratch.
+    # Explicit stack name → bake that stack as-is (advanced/legacy path).
+    if not stack_name:
         # ── Phase 1/5: create a fresh stack ─────────────────────────────────────
         t0_ms     = int(_time.monotonic() * 1000)
         pwd_input = password or os.environ.get('SG_ELASTIC_PASSWORD', '')
