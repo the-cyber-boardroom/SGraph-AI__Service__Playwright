@@ -324,13 +324,14 @@ jobs:
     name: "Deploy SP CLI code (S3 zip + AGENTIC_APP_VERSION flip)"
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    needs: [run-unit-tests, check-aws-credentials, detect-changes, provision-sp-cli-lambda, increment-tag]
+    needs: [run-unit-tests, check-aws-credentials, detect-changes, build-and-push-image, provision-sp-cli-lambda, increment-tag]
     if: |
       always() &&
       needs.run-unit-tests.result == 'success' &&
       needs.check-aws-credentials.outputs.has-credentials == 'true' &&
       (needs.detect-changes.outputs.code-deploy-needed == 'true' || github.event_name == 'workflow_dispatch') &&
-      (needs.provision-sp-cli-lambda.result == 'success' || needs.provision-sp-cli-lambda.result == 'skipped') &&
+      needs.build-and-push-image.result != 'failure' &&
+      needs.provision-sp-cli-lambda.result != 'failure' &&
       (needs.increment-tag.result == 'success' || needs.increment-tag.result == 'skipped')
     steps:
       - uses: actions/checkout@v5
