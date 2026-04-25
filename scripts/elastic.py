@@ -44,6 +44,35 @@ def humanize_uptime(seconds: int) -> str:                                       
     return f'{seconds}s'
 
 
+def fmt_ms_since(ms_value):                                                          # Render an integer ms value as "  93s  (93784 ms)" or "—" when None
+    if ms_value is None:
+        return '[dim]—[/]'
+    return f'[bold]{ms_value // 1000:>3}s[/]  [dim]({ms_value} ms)[/]'
+
+
+def render_bootstrap_stats(c, t0_ms: int, launch_ms: int, milestones_ms: dict, wait_done_ms: int,
+                           seed_done_ms: int = None, seed_response = None) -> None:
+    """Stats panel printed at the end of `sp el create --wait [--seed]`.
+    Every value is wall-clock ms since the command was invoked.
+    """
+    import time as _time
+    total_ms = (int(_time.monotonic() * 1000) - t0_ms)
+    t = Table(show_header=False, box=None, padding=(0, 2), title='[bold]Bootstrap timeline[/]', title_justify='left')
+    t.add_column(style='dim', justify='right')
+    t.add_column()
+    t.add_row('aws launch returned' , fmt_ms_since(launch_ms))
+    t.add_row('elastic ready (y/g)' , fmt_ms_since(milestones_ms.get('es_ready')))
+    t.add_row('kibana ready (200)'  , fmt_ms_since(milestones_ms.get('kibana_ready')))
+    t.add_row('wait phase finished' , fmt_ms_since(wait_done_ms))
+    if seed_done_ms is not None:
+        t.add_row('seed finished'       , fmt_ms_since(seed_done_ms))
+    t.add_row('[bold]total wall time[/]', fmt_ms_since(total_ms))
+    c.print(t)
+    if seed_response is not None and seed_response.documents_posted > 0:
+        c.print(f'  [dim]bulk-post:[/] {seed_response.duration_ms} ms · {seed_response.docs_per_second} docs/sec · {seed_response.batches} batches')
+    c.print()
+
+
 app = typer.Typer(help='Ephemeral Elasticsearch + Kibana EC2 stacks (single-node, MB-scale).',
                   no_args_is_help=True)
 
@@ -142,13 +171,16 @@ def cmd_create(stack_name   : Optional[str] = typer.Argument (None,           he
                wait         : bool          = typer.Option   (False, '--wait', help='After launch, poll until Kibana is ready (~3 min).'),
                seed         : bool          = typer.Option   (False, '--seed', help='After --wait, bulk-load 10k synthetic logs + create the data view + import the default dashboard. Implies --wait.')):
     """Launch a new ephemeral Elastic+Kibana EC2 stack. Prints ELASTIC_PASSWORD once. With --wait/--seed, runs the full bootstrap in one go."""
+    import time as _time
+    t0_ms = int(_time.monotonic() * 1000)                                            # Wall clock start — anchors the per-milestone deltas printed at the end
     service = build_service()
     request = Schema__Elastic__Create__Request(stack_name    = stack_name    or '' ,
                                                region        = region        or '' ,
                                                instance_type = instance_type or '' ,
                                                from_ami      = from_ami      or '' ,
                                                max_hours     = max(int(max_hours), 0))
-    response = service.create(request)
+    response   = service.create(request)
+    launch_ms  = int(_time.monotonic() * 1000) - t0_ms                               # AWS run_instances round-trip
     c = Console(highlight=False)
     c.print()
     c.print(f'  [bold]Stack launched[/]  [dim](state: {response.state})[/]')
@@ -189,11 +221,18 @@ def cmd_create(stack_name   : Optional[str] = typer.Argument (None,           he
     stack_str   = str(response.stack_name)
     pwd         = str(response.elastic_password)
     c.print(f'  [bold]Waiting for Kibana[/]  [dim](polling every 10s, up to 900s — fresh boot is ~3 min)[/]')
+    wait_t0_ms     = int(_time.monotonic() * 1000)                                  # When we started polling — used to translate tick.elapsed_ms (since wait start) to wall-clock-since-create
+    milestones_ms  = {'es_ready': None, 'kibana_ready': None}                       # Wall-clock ms since t0_ms
     status = Status('initialising probe...', console=c, spinner='dots')
     status.start()
     try:
         def on_tick(tick):
             secs = tick.elapsed_ms // 1000
+            es_str = str(tick.elastic_probe)
+            kb_str = str(tick.probe)
+            wall_ms = (wait_t0_ms - t0_ms) + tick.elapsed_ms                        # tick.elapsed_ms is from wait_until_ready start; rebase to "since create"
+            if es_str in ('yellow', 'green') and milestones_ms['es_ready']     is None: milestones_ms['es_ready']     = wall_ms
+            if kb_str == 'ready'             and milestones_ms['kibana_ready'] is None: milestones_ms['kibana_ready'] = wall_ms
             status.update(f'[dim][{secs:>3}s  #{tick.attempt:02d}][/]  '
                           f'state=[bold]{tick.info.state}[/]  '
                           f'es=[bold]{tick.elastic_probe}[/]  '
@@ -205,12 +244,14 @@ def cmd_create(stack_name   : Optional[str] = typer.Argument (None,           he
                                         on_progress     = on_tick                                   )
     finally:
         status.stop()
+    wait_done_ms = int(_time.monotonic() * 1000) - t0_ms
     if str(info.state) != 'ready':
         c.print(f'  [red]✗[/]  Stack did not reach ready (state={info.state})  [dim]— `sp el info {stack_str}` for details[/]\n')
         raise typer.Exit(2)
     c.print(f'  [green]✓[/]  Kibana is ready at [bold]{str(info.kibana_url)}[/]\n')
 
     if not seed:
+        render_bootstrap_stats(c, t0_ms, launch_ms, milestones_ms, wait_done_ms)
         c.print('  [bold]Next step[/]:')
         c.print(f'    export SG_ELASTIC_PASSWORD={pwd}')
         c.print(f'    sp elastic seed {stack_str}        [dim]# bulk-load 10k synthetic log docs + create the dashboard[/]\n')
@@ -218,6 +259,7 @@ def cmd_create(stack_name   : Optional[str] = typer.Argument (None,           he
 
     # --seed: also load 10k synthetic docs, create the data view + dashboard
     c.print(f'  [bold]Seeding[/]  [dim](10000 docs, default index sg-synthetic, default dashboard)[/]')
+    seed_t0_ms = int(_time.monotonic() * 1000)
     seed_request = Schema__Elastic__Seed__Request(stack_name       = Safe_Str__Elastic__Stack__Name(stack_str),
                                                    index            = 'sg-synthetic'                            ,
                                                    document_count   = 10_000                                    ,
@@ -228,6 +270,7 @@ def cmd_create(stack_name   : Optional[str] = typer.Argument (None,           he
                                                    time_field_name  = 'timestamp'                               ,
                                                    create_dashboard = True                                      )
     seed_response = service.seed_stack(seed_request)
+    seed_done_ms  = int(_time.monotonic() * 1000) - t0_ms
     c.print(f'  [green]✓[/]  posted [bold]{seed_response.documents_posted}[/] docs to {seed_response.index}  [dim]({seed_response.duration_ms} ms, {seed_response.docs_per_second} docs/sec)[/]')
     if str(seed_response.data_view_id):
         verb = 'created' if seed_response.data_view_created else 'reused'
@@ -235,6 +278,8 @@ def cmd_create(stack_name   : Optional[str] = typer.Argument (None,           he
     if str(seed_response.dashboard_id):
         c.print(f'  [green]✓[/]  dashboard imported  [dim]"{rich_escape(str(seed_response.dashboard_title))}" ({seed_response.dashboard_objects} objects)[/]')
     c.print()
+    render_bootstrap_stats(c, t0_ms, launch_ms, milestones_ms, wait_done_ms,
+                            seed_done_ms=seed_done_ms, seed_response=seed_response)
     c.print('  [bold]Open Kibana[/]:')
     c.print(f'    [bold]{str(info.kibana_url)}app/dashboards[/]  [dim]# user: elastic / password above[/]')
     c.print(f'    export SG_ELASTIC_PASSWORD={pwd}\n')
