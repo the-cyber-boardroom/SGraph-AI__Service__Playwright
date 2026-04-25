@@ -33,6 +33,43 @@ def build_service() -> Elastic__Service:                                        
     return Elastic__Service()
 
 
+def resolve_stack_name(service   : Elastic__Service ,                               # Pick a stack name when the user didn't pass one: 0 → exit, 1 → auto-use, N → prompt
+                       provided  : Optional[str]    ,
+                       region    : Optional[str]    ,
+                       prompt_fn = None                                              # Tests inject a fake for the multi-stack branch; defaults to typer.prompt
+                       ) -> str:
+    if provided:
+        return provided
+    listing = service.list_stacks(region=region or '')
+    names   = [str(s.stack_name) for s in listing.stacks if str(s.stack_name)]
+    region_label = str(listing.region) or 'the current region'
+
+    if len(names) == 0:
+        err = Console(highlight=False, stderr=True)
+        err.print(f'\n  [yellow]No elastic stacks in {region_label}.[/]  Run: [bold]sp elastic create[/]\n')
+        raise typer.Exit(1)
+
+    if len(names) == 1:
+        Console(highlight=False).print(f'\n  [dim]One stack found — using [bold]{names[0]}[/][/]')
+        return names[0]
+
+    c = Console(highlight=False)
+    c.print(f'\n  [bold]Multiple stacks in {region_label}:[/]')
+    for idx, name in enumerate(names, start=1):
+        c.print(f'    {idx}. {name}')
+    if prompt_fn is None:
+        prompt_fn = lambda: typer.prompt('\n  Pick a stack number', type=int)
+    raw = prompt_fn()
+    try:
+        choice = int(raw)
+    except (TypeError, ValueError):
+        choice = -1
+    if choice < 1 or choice > len(names):
+        Console(highlight=False, stderr=True).print(f'\n  [red]Invalid selection: {raw}[/]\n')
+        raise typer.Exit(1)
+    return names[choice - 1]
+
+
 def aws_error_handler(fn):                                                          # Wraps every command so AWS-side failures render friendly text; surprises still re-raise
     @functools.wraps(fn)
     def wrapped(*args, **kwargs):
@@ -131,10 +168,11 @@ def cmd_list(region: Optional[str] = typer.Option(None, '--region')):
 
 @app.command('info')
 @aws_error_handler
-def cmd_info(stack_name: str = typer.Argument(..., help='Stack name.'),
-             region    : Optional[str] = typer.Option(None, '--region')):
+def cmd_info(stack_name: Optional[str] = typer.Argument(None, help='Stack name. Auto-picks when only one stack exists; prompts on multiple.'),
+             region    : Optional[str] = typer.Option  (None, '--region')):
     """Show full details for a single stack. Does NOT include the elastic password."""
-    service = build_service()
+    service    = build_service()
+    stack_name = resolve_stack_name(service, stack_name, region)
     info    = service.get_stack_info(stack_name = Safe_Str__Elastic__Stack__Name(stack_name),
                                      region     = region or '')
     c = Console(highlight=False)
@@ -161,30 +199,50 @@ def cmd_info(stack_name: str = typer.Argument(..., help='Stack name.'),
 
 @app.command('wait')
 @aws_error_handler
-def cmd_wait(stack_name : str           = typer.Argument(..., help='Stack name.'),
-             timeout    : int           = typer.Option (600, '--timeout', help='Total seconds to wait (default 600).'),
+def cmd_wait(stack_name : Optional[str] = typer.Argument(None, help='Stack name. Auto-picks when only one stack exists; prompts on multiple.'),
+             timeout    : int           = typer.Option (600, '--timeout', help='Max total wait in seconds. Polling interval is --poll-seconds.'),
+             poll_seconds: int          = typer.Option (10, '--poll-seconds', help='Seconds between polls (default 10).'),
              region     : Optional[str] = typer.Option (None, '--region')):
-    """Poll until Kibana on the stack returns HTTP 200, or timeout."""
-    service = build_service()
-    c       = Console(highlight=False)
-    c.print(f'\n  ⏳  Waiting for stack [bold]{stack_name}[/] (timeout {timeout}s)...')
-    info = service.wait_until_ready(stack_name = Safe_Str__Elastic__Stack__Name(stack_name),
-                                    region     = region or ''                              ,
-                                    timeout    = timeout                                   )
+    """Poll until Kibana returns HTTP 200. Live status: connection / nginx / Kibana."""
+    from rich.status                                                                import Status
+    service    = build_service()
+    stack_name = resolve_stack_name(service, stack_name, region)
+    c          = Console(highlight=False)
+    c.print(f'\n  [bold]Waiting for stack[/] [cyan]{stack_name}[/]  '
+            f'[dim](polling every {poll_seconds}s, up to {timeout}s total)[/]')
+    status = Status('initialising probe...', console=c, spinner='dots')
+    status.start()
+    try:
+        def on_tick(tick):
+            ip      = str(tick.info.public_ip) or '—'
+            state   = str(tick.info.state)
+            secs    = tick.elapsed_ms // 1000
+            status.update(f'[dim][{secs:>3}s  #{tick.attempt:02d}][/]  '
+                          f'state=[bold]{state}[/]  ip={ip}  '
+                          f'probe=[bold]{tick.probe}[/]  — {tick.message}')
+        info = service.wait_until_ready(stack_name  = Safe_Str__Elastic__Stack__Name(stack_name),
+                                        region      = region or ''                              ,
+                                        timeout     = timeout                                   ,
+                                        poll_seconds= poll_seconds                              ,
+                                        on_progress = on_tick                                   )
+    finally:
+        status.stop()
     if str(info.state) == 'ready':
         c.print(f'  ✅  Kibana is ready at [bold]{str(info.kibana_url)}[/]\n')
     else:
-        c.print(f'  ❌  Stack {stack_name} not ready (state: {info.state})\n')
+        c.print(f'  ❌  Stack {stack_name} not ready (state: {info.state})  '
+                f'[dim]— re-run `sp elastic wait` or `sp elastic info` for details[/]\n')
 
 
 # ── delete ─────────────────────────────────────────────────────────────────────
 
 @app.command('delete')
 @aws_error_handler
-def cmd_delete(stack_name : str           = typer.Argument(..., help='Stack name.'),
+def cmd_delete(stack_name : Optional[str] = typer.Argument(None, help='Stack name. Auto-picks when only one stack exists; prompts on multiple.'),
                region     : Optional[str] = typer.Option (None, '--region')):
     """Terminate the EC2 instance and best-effort delete its security group."""
-    service = build_service()
+    service    = build_service()
+    stack_name = resolve_stack_name(service, stack_name, region)
     response = service.delete_stack(stack_name = Safe_Str__Elastic__Stack__Name(stack_name),
                                     region     = region or '')
     c = Console(highlight=False)
@@ -199,14 +257,15 @@ def cmd_delete(stack_name : str           = typer.Argument(..., help='Stack name
 
 @app.command('seed')
 @aws_error_handler
-def cmd_seed(stack_name : str           = typer.Argument(...,  help='Stack name.'),
-             docs       : int           = typer.Option (10_000, '--docs',        help='Document count (default 10000).'),
-             index      : str           = typer.Option ('sg-synthetic', '--index'),
-             window_days: int           = typer.Option (7,    '--window-days',  help='Spread timestamps over the last N days.'),
-             batch_size : int           = typer.Option (1_000,'--batch-size'),
-             password   : Optional[str] = typer.Option (None, '--password',     help='Elastic password (else $SG_ELASTIC_PASSWORD).')):
+def cmd_seed(stack_name : Optional[str] = typer.Argument(None, help='Stack name. Auto-picks when only one stack exists; prompts on multiple.'),
+             docs       : int           = typer.Option  (10_000, '--docs',        help='Document count (default 10000).'),
+             index      : str           = typer.Option  ('sg-synthetic', '--index'),
+             window_days: int           = typer.Option  (7,    '--window-days',  help='Spread timestamps over the last N days.'),
+             batch_size : int           = typer.Option  (1_000,'--batch-size'),
+             password   : Optional[str] = typer.Option  (None, '--password',     help='Elastic password (else $SG_ELASTIC_PASSWORD).')):
     """Generate and bulk-post synthetic log documents to the stack's Elastic."""
-    service = build_service()
+    service    = build_service()
+    stack_name = resolve_stack_name(service, stack_name, None)
     request = Schema__Elastic__Seed__Request(stack_name       = Safe_Str__Elastic__Stack__Name(stack_name),
                                              index            = index                                     ,
                                              document_count   = docs                                      ,
