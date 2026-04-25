@@ -743,6 +743,87 @@ def cmd_seed(stack_name      : Optional[str] = typer.Argument(None, help='Stack 
     c.print()
 
 
+# ── ami (snapshot management) ─────────────────────────────────────────────────
+#
+# AMIs are created from a running stack via `sp el ami create`. They're tagged
+# sg:purpose=elastic so list/delete only touch our own images. Snapshots
+# behind each AMI are cleaned up on delete (AWS retains them by default).
+
+ami_app = typer.Typer(help='Manage ephemeral elastic AMIs (list / create / delete).', no_args_is_help=True)
+
+
+@ami_app.command('list')
+@aws_error_handler
+def cmd_ami_list(region: Optional[str] = typer.Option(None, '--region')):
+    """List elastic AMIs in a region."""
+    service = build_service()
+    amis    = service.list_amis(region=region or '')
+    c = Console(highlight=False)
+    if len(amis) == 0:
+        c.print(f'\n  [dim]No elastic AMIs in {region or "this region"}.[/]  Run: [bold]sp el ami create[/]\n')
+        return
+    t = Table(show_header=True, header_style='bold', box=None, padding=(0, 2))
+    t.add_column('AMI id'        , style='bold')
+    t.add_column('Name')
+    t.add_column('Source stack'  , style='dim')
+    t.add_column('State')
+    t.add_column('Created'        , style='dim')
+    for ami in amis:
+        t.add_row(str(ami.ami_id),
+                  rich_escape(str(ami.name)),
+                  str(ami.source_stack) or '—',
+                  str(ami.state),
+                  str(ami.creation_date))
+    c.print()
+    c.print(t)
+    c.print(f'\n  [dim]{len(amis)} AMI(s)[/]\n')
+
+
+@ami_app.command('create')
+@aws_error_handler
+def cmd_ami_create(stack_name : Optional[str] = typer.Argument(None, help='Stack name to bake. Auto-picks when only one stack exists; prompts on multiple.'),
+                   ami_name   : Optional[str] = typer.Option  (None, '--name', help='AMI Name tag (defaults to sg-elastic-ami-<stack>-<unix-ts>).'),
+                   reboot     : bool          = typer.Option  (False, '--reboot/--no-reboot', help='Reboot the instance during AMI creation. Default: no-reboot (safer; ES has restart=unless-stopped, journal-replay handles in-flight writes).')):
+    """Bake the running stack's EBS volume into an AMI tagged sg:purpose=elastic. Snapshots inherit the same tags. Returns the AMI id; AWS marks it pending — `sp el ami list` shows when it's available."""
+    service    = build_service()
+    stack_name = resolve_stack_name(service, stack_name, None)
+    result     = service.create_ami_from_stack(stack_name = Safe_Str__Elastic__Stack__Name(stack_name),
+                                                ami_name   = ami_name or ''                            ,
+                                                no_reboot  = not reboot                                )
+    c = Console(highlight=False)
+    c.print()
+    if result['error']:
+        c.print(f'  [red]✗[/]  AMI creation failed: {rich_escape(str(result["error"]))}\n')
+        raise typer.Exit(2)
+    c.print(f'  [green]✓[/]  Started AMI bake from [bold]{stack_name}[/]')
+    c.print(f'     [dim]instance:[/] {result["instance_id"]}')
+    c.print(f'     [dim]ami-id:  [/] [bold]{result["ami_id"]}[/]')
+    c.print(f'     [dim]Track progress: `sp el ami list` (state moves pending → available; usually 5-10 min for a single-volume EBS).[/]\n')
+
+
+@ami_app.command('delete')
+@aws_error_handler
+def cmd_ami_delete(ami_id : str  = typer.Argument(...,           help='AMI id to deregister (and delete its EBS snapshots).'),
+                   region : Optional[str] = typer.Option(None, '--region'),
+                   yes    : bool = typer.Option(False, '--yes', '-y', help='Skip the y/N confirmation.')):
+    """Deregister an AMI and delete the EBS snapshots behind it. AWS keeps snapshots when you only deregister — this command cleans both so you don't pay for orphaned storage."""
+    if not yes:
+        if not typer.confirm(f'  Deregister {ami_id} and delete its snapshots?', default=False):
+            Console(highlight=False).print('  [dim]aborted[/]\n')
+            raise typer.Exit(0)
+    service = build_service()
+    result  = service.delete_ami(ami_id=ami_id, region=region or '')
+    c = Console(highlight=False)
+    c.print()
+    if result['deregistered']:
+        c.print(f'  [green]✓[/]  Deregistered [bold]{ami_id}[/]  [dim]({result["snapshots_deleted"]} snapshot(s) deleted)[/]\n')
+    else:
+        c.print(f'  [yellow]·[/]  No such AMI: {ami_id}\n')
+
+
+app.add_typer(ami_app, name='ami')
+
+
 # ── dashboard / data-view (Kibana saved objects) ───────────────────────────────
 #
 # Both sub-apps share the same plumbing — list / export / import — only the

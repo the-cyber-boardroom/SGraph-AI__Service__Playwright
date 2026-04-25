@@ -41,6 +41,9 @@ class Elastic__AWS__Client__In_Memory(Elastic__AWS__Client):
     last_launch_profile : str = ''                                                  # Captured for assertions on launch_instance(IamInstanceProfile.Name)
     last_launch_max_hours: int = 0                                                  # Captured for assertions on the auto-terminate timer
     fixture_sg_ingress  : list                                                      # describe_security_group_ingress() returns this verbatim
+    fixture_amis        : list                                                      # list_elastic_amis() returns this verbatim
+    created_amis        : list                                                      # [(region, instance_id, ...), ...] — captured by create_ami_from_instance
+    deregistered_amis   : list                                                      # [(region, ami_id), ...] — captured by deregister_ami
 
     def resolve_latest_al2023_ami(self, region: str) -> str:
         return self.fixture_ami or DEFAULT_FIXTURE_AMI
@@ -112,6 +115,21 @@ class Elastic__AWS__Client__In_Memory(Elastic__AWS__Client):
 
     def describe_security_group_ingress(self, region: str, security_group_id: str) -> list:
         return list(self.fixture_sg_ingress)                                        # Tests prime the list to drive the sg-ingress health check
+
+    def list_elastic_amis(self, region: str) -> list:
+        return list(self.fixture_amis)
+
+    def create_ami_from_instance(self, region, instance_id, stack_name, ami_name, description='', no_reboot=True):
+        ami_id = f'ami-fixture{len(self.created_amis):08x}'
+        self.created_amis.append({'region': region, 'instance_id': instance_id,
+                                   'stack_name': str(stack_name), 'ami_name': ami_name,
+                                   'description': description, 'no_reboot': no_reboot,
+                                   'ami_id': ami_id})
+        return ami_id
+
+    def deregister_ami(self, region: str, ami_id: str) -> tuple:
+        self.deregistered_amis.append((region, ami_id))
+        return True, 1                                                              # 1 snapshot deleted in fixture mode
 
     def ssm_send_command(self, region, instance_id, commands, timeout=60):          # type: ignore[override]
         self.ssm_calls.append((str(instance_id), list(commands)))
