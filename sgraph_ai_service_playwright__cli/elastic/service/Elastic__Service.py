@@ -13,6 +13,7 @@
 import os
 import secrets
 import time
+from typing                                                                         import Callable
 
 from osbot_utils.type_safe.Type_Safe                                                import Type_Safe
 from osbot_utils.type_safe.type_safe_core.decorators.type_safe                      import type_safe
@@ -22,6 +23,7 @@ from osbot_aws.AWS_Config                                                       
 from sgraph_ai_service_playwright__cli.ec2.collections.List__Instance__Id           import List__Instance__Id
 from sgraph_ai_service_playwright__cli.elastic.collections.List__Schema__Elastic__Info  import List__Schema__Elastic__Info
 from sgraph_ai_service_playwright__cli.elastic.enums.Enum__Elastic__State           import Enum__Elastic__State
+from sgraph_ai_service_playwright__cli.elastic.enums.Enum__Kibana__Probe__Status    import Enum__Kibana__Probe__Status
 from sgraph_ai_service_playwright__cli.elastic.primitives.Safe_Str__Elastic__Password    import Safe_Str__Elastic__Password
 from sgraph_ai_service_playwright__cli.elastic.primitives.Safe_Str__Elastic__Stack__Name import Safe_Str__Elastic__Stack__Name
 from sgraph_ai_service_playwright__cli.elastic.primitives.Safe_Str__IP__Address     import Safe_Str__IP__Address
@@ -32,12 +34,22 @@ from sgraph_ai_service_playwright__cli.elastic.schemas.Schema__Elastic__Info    
 from sgraph_ai_service_playwright__cli.elastic.schemas.Schema__Elastic__List        import Schema__Elastic__List
 from sgraph_ai_service_playwright__cli.elastic.schemas.Schema__Elastic__Seed__Request    import Schema__Elastic__Seed__Request
 from sgraph_ai_service_playwright__cli.elastic.schemas.Schema__Elastic__Seed__Response   import Schema__Elastic__Seed__Response
+from sgraph_ai_service_playwright__cli.elastic.schemas.Schema__Wait__Tick           import Schema__Wait__Tick
 from sgraph_ai_service_playwright__cli.elastic.service.Caller__IP__Detector         import Caller__IP__Detector
 from sgraph_ai_service_playwright__cli.elastic.service.Elastic__AWS__Client         import Elastic__AWS__Client, aws_name_for_stack
 from sgraph_ai_service_playwright__cli.elastic.service.Elastic__HTTP__Client        import Elastic__HTTP__Client
 from sgraph_ai_service_playwright__cli.elastic.service.Elastic__User__Data__Builder import Elastic__User__Data__Builder
 from sgraph_ai_service_playwright__cli.elastic.service.Synthetic__Data__Generator   import Synthetic__Data__Generator
 from sgraph_ai_service_playwright__cli.observability.primitives.Safe_Str__AWS__Region    import Safe_Str__AWS__Region
+
+
+PROBE_MESSAGES = {                                                                  # Human-friendly text the CLI renders per tick
+    Enum__Kibana__Probe__Status.UNREACHABLE  : 'nothing answering on :443 yet (instance or nginx still starting).',
+    Enum__Kibana__Probe__Status.UPSTREAM_DOWN: 'nginx is up but Kibana container is still booting (502/503).',
+    Enum__Kibana__Probe__Status.BOOTING      : 'Kibana answered but not 200 yet.',
+    Enum__Kibana__Probe__Status.READY        : 'Kibana is ready.',
+    Enum__Kibana__Probe__Status.UNKNOWN      : 'Kibana probe returned an unexpected status.',
+}
 
 
 DEFAULT_REGION        = 'eu-west-2'
@@ -120,24 +132,43 @@ class Elastic__Service(Type_Safe):                                              
         details['__region'] = str(resolved)
         return self.aws_client.build_instance_info(details)
 
-    @type_safe
-    def wait_until_ready(self, stack_name : Safe_Str__Elastic__Stack__Name ,
-                               region     : Safe_Str__AWS__Region          = None ,
-                               timeout    : int                            = 600  ,
-                               poll_seconds: int                           = 10
-                          ) -> Schema__Elastic__Info:                               # Polls describe + Kibana /api/status; returns the latest Info
+    def wait_until_ready(self, stack_name  : Safe_Str__Elastic__Stack__Name      ,
+                               region      : Safe_Str__AWS__Region    = None     ,
+                               timeout     : int                      = 600      ,
+                               poll_seconds: int                      = 10       ,
+                               on_progress : Callable                 = None     ,  # Invoked with Schema__Wait__Tick each poll; CLI drives the Rich spinner
+                               sleep_fn    : Callable                 = time.sleep   # Injectable so tests drive the loop without real sleeps
+                          ) -> Schema__Elastic__Info:
         resolved = self.resolve_region(region)
-        deadline = time.time() + max(timeout, 1)
+        start    = time.monotonic()
+        deadline = start + max(timeout, 1)
+        poll_sec = max(poll_seconds, 1)
+        attempt  = 0
         info     = self.get_stack_info(stack_name = stack_name, region = resolved)
-        while time.time() < deadline:
-            info = self.get_stack_info(stack_name = stack_name, region = resolved)
+        while time.monotonic() < deadline:
+            attempt += 1
+            info     = self.get_stack_info(stack_name = stack_name, region = resolved)
+            probe    = Enum__Kibana__Probe__Status.UNREACHABLE
+            message  = f'instance state = {info.state}'
             if info.state == Enum__Elastic__State.RUNNING and str(info.kibana_url):
-                if self.http_client.kibana_ready(str(info.kibana_url)):
+                probe    = self.http_client.kibana_probe(str(info.kibana_url))
+                message  = PROBE_MESSAGES.get(probe, PROBE_MESSAGES[Enum__Kibana__Probe__Status.UNKNOWN])
+                if probe == Enum__Kibana__Probe__Status.READY:
                     info.state = Enum__Elastic__State.READY
-                    return info
+
+            tick = Schema__Wait__Tick(attempt    = attempt                            ,
+                                      info       = info                               ,
+                                      probe      = probe                              ,
+                                      message    = message                            ,
+                                      elapsed_ms = int((time.monotonic() - start) * 1000))
+            if on_progress is not None:
+                on_progress(tick)
+
+            if info.state == Enum__Elastic__State.READY:
+                return info
             if info.state in (Enum__Elastic__State.TERMINATING, Enum__Elastic__State.TERMINATED):
                 return info
-            time.sleep(max(poll_seconds, 1))
+            sleep_fn(poll_sec)
         return info
 
     @type_safe

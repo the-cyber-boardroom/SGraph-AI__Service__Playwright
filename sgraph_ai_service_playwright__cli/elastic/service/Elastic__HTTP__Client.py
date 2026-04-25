@@ -19,14 +19,17 @@
 # ═══════════════════════════════════════════════════════════════════════════════
 
 import json
+import warnings
 from typing                                                                         import Tuple
 
 import requests
+from urllib3.exceptions                                                             import InsecureRequestWarning
 
 from osbot_utils.type_safe.Type_Safe                                                import Type_Safe
 from osbot_utils.type_safe.type_safe_core.decorators.type_safe                      import type_safe
 
 from sgraph_ai_service_playwright__cli.elastic.collections.List__Schema__Log__Document   import List__Schema__Log__Document
+from sgraph_ai_service_playwright__cli.elastic.enums.Enum__Kibana__Probe__Status    import Enum__Kibana__Probe__Status
 
 
 DEFAULT_TIMEOUT = 30
@@ -40,21 +43,34 @@ class Elastic__HTTP__Client(Type_Safe):
                       headers: dict = None,
                       data   : bytes = None
                 ) -> requests.Response:
-        return requests.request(method = method            ,
-                                url    = url               ,
-                                headers= headers or {}     ,
-                                data   = data              ,
-                                timeout= self.timeout      ,
-                                verify = self.verify       )
+        with warnings.catch_warnings():                                             # verify=False is intentional (self-signed cert) — silence urllib3's noise for our requests only, without touching global warning filters
+            warnings.simplefilter('ignore', InsecureRequestWarning)
+            return requests.request(method = method            ,
+                                    url    = url               ,
+                                    headers= headers or {}     ,
+                                    data   = data              ,
+                                    timeout= self.timeout      ,
+                                    verify = self.verify       )
 
     @type_safe
-    def kibana_ready(self, base_url: str) -> bool:
+    def kibana_ready(self, base_url: str) -> bool:                                  # Back-compat bool wrapper around kibana_probe()
+        return self.kibana_probe(base_url) == Enum__Kibana__Probe__Status.READY
+
+    @type_safe
+    def kibana_probe(self, base_url: str) -> Enum__Kibana__Probe__Status:
         url = base_url.rstrip('/') + '/api/status'
         try:
             response = self.request('GET', url)
-            return response.status_code == 200
-        except Exception:                                                           # Network errors during boot are expected — caller retries
-            return False
+        except Exception:
+            return Enum__Kibana__Probe__Status.UNREACHABLE                          # Connection refused / DNS fail / timeout — nothing answering yet
+        code = int(response.status_code)
+        if code == 200:
+            return Enum__Kibana__Probe__Status.READY
+        if 500 <= code < 600:
+            return Enum__Kibana__Probe__Status.UPSTREAM_DOWN                        # nginx 502/503/504 — nginx is up, Kibana container isn't (yet)
+        if 300 <= code < 500:
+            return Enum__Kibana__Probe__Status.BOOTING                              # Rare: Kibana answered but not 200
+        return Enum__Kibana__Probe__Status.UNKNOWN
 
     @type_safe
     def bulk_post(self, base_url : str                          ,
