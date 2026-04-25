@@ -470,14 +470,44 @@ def cmd_health(stack_name: Optional[str] = typer.Argument(None, help='Stack name
 
 @app.command('delete')
 @aws_error_handler
-def cmd_delete(stack_name : Optional[str] = typer.Argument(None, help='Stack name. Auto-picks when only one stack exists; prompts on multiple.'),
-               region     : Optional[str] = typer.Option (None, '--region')):
-    """Terminate the EC2 instance and best-effort delete its security group."""
-    service    = build_service()
+def cmd_delete(stack_name : Optional[str] = typer.Argument(None, help='Stack name. Auto-picks when only one stack exists; prompts on multiple. Ignored when --all is set.'),
+               region     : Optional[str] = typer.Option (None, '--region'),
+               all_stacks : bool          = typer.Option (False, '--all', help='Terminate every elastic stack in the region.'),
+               yes        : bool          = typer.Option (False, '--yes', '-y', help='Skip the y/N confirmation prompt.')):
+    """Terminate the EC2 instance and best-effort delete its security group. With --all, terminates every elastic stack in the region."""
+    service = build_service()
+    c       = Console(highlight=False)
+
+    if all_stacks:
+        listing    = service.list_stacks(region=region or '')
+        names      = [str(s.stack_name) for s in listing.stacks if str(s.stack_name)]
+        region_str = str(listing.region)
+        if not names:
+            c.print(f'\n  [dim]No elastic stacks in {region_str}.[/]\n')
+            return
+        c.print(f'\n  [bold]About to delete {len(names)} stack(s) in {region_str}:[/]')
+        for n in names:
+            c.print(f'    [red]✗[/] {n}')
+        if not yes:
+            if not typer.confirm('\n  Proceed?', default=False):
+                c.print('  [dim]aborted[/]\n')
+                raise typer.Exit(0)
+        c.print()
+        deleted_count = 0
+        for n in names:
+            response = service.delete_stack(stack_name = Safe_Str__Elastic__Stack__Name(n),
+                                            region     = region or '')
+            if len(response.terminated_instance_ids) > 0:
+                c.print(f'  [green]✓[/] terminated [bold]{n}[/]  [dim](instance {str(response.target)}, sg-deleted: {response.security_group_deleted})[/]')
+                deleted_count += 1
+            else:
+                c.print(f'  [yellow]·[/] skipped [bold]{n}[/]  [dim](no instance found — may already be terminating)[/]')
+        c.print(f'\n  [bold]Done — {deleted_count} stack(s) terminated.[/]\n')
+        return
+
     stack_name = resolve_stack_name(service, stack_name, region)
     response = service.delete_stack(stack_name = Safe_Str__Elastic__Stack__Name(stack_name),
                                     region     = region or '')
-    c = Console(highlight=False)
     if len(response.terminated_instance_ids) == 0:
         c.print(f'\n  [yellow]No such stack:[/] {stack_name}\n')
         return
