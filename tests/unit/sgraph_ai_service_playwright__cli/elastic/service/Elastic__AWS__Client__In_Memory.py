@@ -39,6 +39,8 @@ class Elastic__AWS__Client__In_Memory(Elastic__AWS__Client):
     fixture_ssm_status  : str = 'Success'
     fixture_profile_name: str = 'sg-elastic-ec2'                                    # Returned by ensure_instance_profile()
     last_launch_profile : str = ''                                                  # Captured for assertions on launch_instance(IamInstanceProfile.Name)
+    last_launch_max_hours: int = 0                                                  # Captured for assertions on the auto-terminate timer
+    fixture_sg_ingress  : list                                                      # describe_security_group_ingress() returns this verbatim
 
     def resolve_latest_al2023_ami(self, region: str) -> str:
         return self.fixture_ami or DEFAULT_FIXTURE_AMI
@@ -62,11 +64,13 @@ class Elastic__AWS__Client__In_Memory(Elastic__AWS__Client):
                               user_data             : str                           ,
                               caller_ip             : Safe_Str__IP__Address         ,
                               instance_profile_name : str                           ,
-                              creator               : str                           = ''
+                              creator               : str                           = '',
+                              max_hours             : int                           = 0
                          ) -> str:
         self.last_launch_user_data = user_data
         self.last_launch_ami       = ami_id
         self.last_launch_profile   = str(instance_profile_name)
+        self.last_launch_max_hours = int(max_hours)
         suffix      = f'{len(self.fixture_instances):017x}'                         # Stable, unique 17-hex suffix per launch
         instance_id = f'i-{suffix}'
         details = {'InstanceId'  : instance_id                                       ,
@@ -105,6 +109,9 @@ class Elastic__AWS__Client__In_Memory(Elastic__AWS__Client):
     def delete_security_group(self, region: str, security_group_id: str) -> bool:
         self.deleted_sg_ids.append(security_group_id)
         return True
+
+    def describe_security_group_ingress(self, region: str, security_group_id: str) -> list:
+        return list(self.fixture_sg_ingress)                                        # Tests prime the list to drive the sg-ingress health check
 
     def ssm_send_command(self, region, instance_id, commands, timeout=60):          # type: ignore[override]
         self.ssm_calls.append((str(instance_id), list(commands)))

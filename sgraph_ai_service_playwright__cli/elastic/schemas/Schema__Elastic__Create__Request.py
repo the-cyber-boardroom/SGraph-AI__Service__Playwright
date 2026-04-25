@@ -21,3 +21,4 @@ class Schema__Elastic__Create__Request(Type_Safe):
     instance_type : Safe_Str__Text                 = ''                             # Safe_Str__Text preserves the dot in "t3.medium"; Safe_Str__Id would coerce to "t3_medium"
     from_ami      : Safe_Str__AMI__Id              = ''                             # Empty → latest AL2023 resolved by service
     caller_ip     : Safe_Str__IP__Address          = ''                             # Empty → service calls Caller__IP__Detector
+    max_hours     : int                            = 1                              # Auto-terminate after N hours; 0 disables. Mirrors `sp create` so an elastic stack doesn't run overnight at ~$0.19/h.
