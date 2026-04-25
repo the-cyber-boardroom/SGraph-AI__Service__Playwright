@@ -138,8 +138,10 @@ def cmd_create(stack_name   : Optional[str] = typer.Argument (None,           he
                region       : Optional[str] = typer.Option   (None, '--region',  help='AWS region (defaults to AWS_Config session region).'),
                instance_type: Optional[str] = typer.Option   (None, '--instance-type', help='EC2 instance type (default t3.medium).'),
                from_ami     : Optional[str] = typer.Option   (None, '--from-ami', help='AMI id (defaults to latest AL2023 via SSM).'),
-               max_hours    : int           = typer.Option   (1,    '--max-hours', help='Auto-terminate after N hours. Default: 1. Pass 0 to disable.')):
-    """Launch a new ephemeral Elastic+Kibana EC2 stack. Prints ELASTIC_PASSWORD once."""
+               max_hours    : int           = typer.Option   (1,    '--max-hours', help='Auto-terminate after N hours. Default: 1. Pass 0 to disable.'),
+               wait         : bool          = typer.Option   (False, '--wait', help='After launch, poll until Kibana is ready (~3 min).'),
+               seed         : bool          = typer.Option   (False, '--seed', help='After --wait, bulk-load 10k synthetic logs + create the data view + import the default dashboard. Implies --wait.')):
+    """Launch a new ephemeral Elastic+Kibana EC2 stack. Prints ELASTIC_PASSWORD once. With --wait/--seed, runs the full bootstrap in one go."""
     service = build_service()
     request = Schema__Elastic__Create__Request(stack_name    = stack_name    or '' ,
                                                region        = region        or '' ,
@@ -170,11 +172,72 @@ def cmd_create(stack_name   : Optional[str] = typer.Argument (None,           he
         t.add_row('auto-terminate', '[yellow]disabled[/]  [dim](runs until you `sp elastic delete`)[/]')
     c.print(t)
     c.print()
-    c.print('  [bold]Next steps[/]:')
-    c.print(f'    export SG_ELASTIC_PASSWORD={str(response.elastic_password)}')
-    c.print(f'    sp elastic wait {str(response.stack_name)}        [dim]# poll until Kibana is ready[/]')
-    c.print(f'    sp elastic seed {str(response.stack_name)}        [dim]# bulk-load 10k synthetic log docs[/]')
+
+    if seed:                                                                         # --seed implies --wait (seed needs Kibana up + responsive)
+        wait = True
+
+    if not wait:
+        c.print('  [bold]Next steps[/]:')
+        c.print(f'    export SG_ELASTIC_PASSWORD={str(response.elastic_password)}')
+        c.print(f'    sp elastic wait {str(response.stack_name)}        [dim]# poll until Kibana is ready[/]')
+        c.print(f'    sp elastic seed {str(response.stack_name)}        [dim]# bulk-load 10k synthetic log docs[/]')
+        c.print()
+        return
+
+    # --wait: poll until Kibana is ready, with the same Rich spinner as `sp el wait`
+    from rich.status                                                                import Status
+    stack_str   = str(response.stack_name)
+    pwd         = str(response.elastic_password)
+    c.print(f'  [bold]Waiting for Kibana[/]  [dim](polling every 10s, up to 900s — fresh boot is ~3 min)[/]')
+    status = Status('initialising probe...', console=c, spinner='dots')
+    status.start()
+    try:
+        def on_tick(tick):
+            secs = tick.elapsed_ms // 1000
+            status.update(f'[dim][{secs:>3}s  #{tick.attempt:02d}][/]  '
+                          f'state=[bold]{tick.info.state}[/]  '
+                          f'es=[bold]{tick.elastic_probe}[/]  '
+                          f'kibana=[bold]{tick.probe}[/]  — {tick.message}')
+        info = service.wait_until_ready(stack_name      = Safe_Str__Elastic__Stack__Name(stack_str),
+                                        timeout         = 900                                       ,
+                                        poll_seconds    = 10                                        ,
+                                        elastic_password= pwd                                       ,
+                                        on_progress     = on_tick                                   )
+    finally:
+        status.stop()
+    if str(info.state) != 'ready':
+        c.print(f'  [red]✗[/]  Stack did not reach ready (state={info.state})  [dim]— `sp el info {stack_str}` for details[/]\n')
+        raise typer.Exit(2)
+    c.print(f'  [green]✓[/]  Kibana is ready at [bold]{str(info.kibana_url)}[/]\n')
+
+    if not seed:
+        c.print('  [bold]Next step[/]:')
+        c.print(f'    export SG_ELASTIC_PASSWORD={pwd}')
+        c.print(f'    sp elastic seed {stack_str}        [dim]# bulk-load 10k synthetic log docs + create the dashboard[/]\n')
+        return
+
+    # --seed: also load 10k synthetic docs, create the data view + dashboard
+    c.print(f'  [bold]Seeding[/]  [dim](10000 docs, default index sg-synthetic, default dashboard)[/]')
+    seed_request = Schema__Elastic__Seed__Request(stack_name       = Safe_Str__Elastic__Stack__Name(stack_str),
+                                                   index            = 'sg-synthetic'                            ,
+                                                   document_count   = 10_000                                    ,
+                                                   window_days      = 7                                         ,
+                                                   elastic_password = Safe_Str__Elastic__Password(pwd)          ,
+                                                   batch_size       = 1_000                                     ,
+                                                   create_data_view = True                                      ,
+                                                   time_field_name  = 'timestamp'                               ,
+                                                   create_dashboard = True                                      )
+    seed_response = service.seed_stack(seed_request)
+    c.print(f'  [green]✓[/]  posted [bold]{seed_response.documents_posted}[/] docs to {seed_response.index}  [dim]({seed_response.duration_ms} ms, {seed_response.docs_per_second} docs/sec)[/]')
+    if str(seed_response.data_view_id):
+        verb = 'created' if seed_response.data_view_created else 'reused'
+        c.print(f'  [green]✓[/]  data view {verb}  [dim]id={rich_escape(str(seed_response.data_view_id))}[/]')
+    if str(seed_response.dashboard_id):
+        c.print(f'  [green]✓[/]  dashboard imported  [dim]"{rich_escape(str(seed_response.dashboard_title))}" ({seed_response.dashboard_objects} objects)[/]')
     c.print()
+    c.print('  [bold]Open Kibana[/]:')
+    c.print(f'    [bold]{str(info.kibana_url)}app/dashboards[/]  [dim]# user: elastic / password above[/]')
+    c.print(f'    export SG_ELASTIC_PASSWORD={pwd}\n')
 
 
 # ── list ───────────────────────────────────────────────────────────────────────
@@ -521,8 +584,13 @@ def cmd_wipe(stack_name : Optional[str] = typer.Argument(None, help='Stack name.
         if deleted:
             return f'  [green]✓[/]  {label}: deleted'
         return f'  [dim]·[/]  {label}: did not exist'
-    c.print(render_row('index    ', result['index_deleted']    , result['index_status']    , result['index_error']))
-    c.print(render_row('data view', result['data_view_deleted'], result['data_view_status'], result['data_view_error']))
+    c.print(render_row('index     ', result['index_deleted']    , result['index_status']    , result['index_error']))
+    c.print(render_row('data view ', result['data_view_deleted'], result['data_view_status'], result['data_view_error']))
+    dash_count = int(result.get('dashboard_objects_deleted', 0))
+    if dash_count > 0:
+        c.print(f'  [green]✓[/]  dashboard : {dash_count} saved object(s) deleted')
+    else:
+        c.print(f'  [dim]·[/]  dashboard : nothing to clean')
     c.print()
 
 

@@ -24,6 +24,8 @@ class Kibana__Saved_Objects__Client__In_Memory(Kibana__Saved_Objects__Client):
     fixture_dashboard_error   : str  = ''
     harden_calls              : list                                                 # [(base_url, space_id, features), ...]
     fixture_harden_error      : str  = ''
+    delete_object_calls       : list                                                 # [(base_url, [(type, id), ...]), ...]
+    fixture_delete_object_count : int = 0                                            # What delete_saved_objects returns
 
     def ensure_data_view(self, base_url        : str ,
                                 username        : str ,
@@ -52,6 +54,13 @@ class Kibana__Saved_Objects__Client__In_Memory(Kibana__Saved_Objects__Client):
         if self.fixture_harden_error:
             return False, 0, self.fixture_harden_error
         return True, 200, ''
+
+    def delete_saved_objects(self, base_url: str, username: str, password: str, objects: list) -> int:
+        self.delete_object_calls.append((base_url, list(objects)))
+        return int(self.fixture_delete_object_count)
+
+    def delete_default_dashboard_objects(self, base_url: str, username: str, password: str) -> int:
+        return self.delete_saved_objects(base_url, username, password, [])
 
     def ensure_default_dashboard(self, base_url     : str ,
                                         username     : str ,

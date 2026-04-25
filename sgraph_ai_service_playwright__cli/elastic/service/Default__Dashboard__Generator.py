@@ -39,6 +39,24 @@ VIS_ID__VOLUME_BY_LEVEL       = 'sg-vis-volume-by-level'
 VIS_ID__TOP_SERVICES          = 'sg-vis-top-services'
 VIS_ID__AVG_DURATION          = 'sg-vis-avg-duration'
 
+# Old IDs from the first Lens-based attempt — still listed so that `wipe` and
+# the pre-import cleanup remove any stale half-migrated documents Kibana
+# would otherwise keep choking on (savedobjects-service: "Cannot read
+# properties of undefined").
+LEGACY_LENS_IDS = ['sg-lens-log-levels', 'sg-lens-volume-by-level',
+                    'sg-lens-top-services', 'sg-lens-avg-duration']
+
+# Every saved object related to the default dashboard, by (type, id) — the
+# canonical list used to clean state before re-import and during `sp el wipe`.
+def all_dashboard_object_refs() -> list:
+    return ([('dashboard'    , DASHBOARD_ID            )]
+          + [('visualization', VIS_ID__LOG_LEVELS      ),
+             ('visualization', VIS_ID__VOLUME_BY_LEVEL ),
+             ('visualization', VIS_ID__TOP_SERVICES    ),
+             ('visualization', VIS_ID__AVG_DURATION    )]
+          + [('lens', lid) for lid in LEGACY_LENS_IDS])
+
+
 # Reference name Kibana looks up when resolving the data view on a Vis Editor
 # visualization. The legacy convention encodes the path inside the JSON-string
 # searchSourceJSON.
