@@ -11,6 +11,7 @@
 # ═══════════════════════════════════════════════════════════════════════════════
 
 import functools
+import traceback
 from typing                                                                         import Optional
 
 import typer
@@ -25,8 +26,19 @@ from sgraph_ai_service_playwright__cli.elastic.service.AWS__Error__Translator   
 from sgraph_ai_service_playwright__cli.elastic.service.Elastic__Service             import Elastic__Service
 
 
+DEBUG_TRACE = False                                                                 # Toggled by the --debug callback below; aws_error_handler reads this on each error
+
+
 app = typer.Typer(help='Ephemeral Elasticsearch + Kibana EC2 stacks (single-node, MB-scale).',
                   no_args_is_help=True)
+
+
+@app.callback()
+def _elastic_root(debug: bool = typer.Option(False, '--debug',
+                                              help='Show the full Python traceback on errors. Off by default — friendly one-line summary only.')):
+    """Manage ephemeral Elastic+Kibana stacks. Pass --debug before a sub-command to get full tracebacks."""
+    global DEBUG_TRACE
+    DEBUG_TRACE = debug
 
 
 def build_service() -> Elastic__Service:                                            # Single construction site so tests can swap with __In_Memory subclass
@@ -80,17 +92,26 @@ def aws_error_handler(fn):                                                      
         except KeyboardInterrupt:
             raise
         except Exception as exc:
-            hint = AWS__Error__Translator().translate(exc)
-            if not hint.recognised:                                                 # Unknown exception — let Typer / Python show the trace
-                raise
+            hint    = AWS__Error__Translator().translate(exc)
             console = Console(highlight=False, stderr=True)
             console.print()
-            console.print(f'  [red]✗[/]  [bold]{str(hint.headline)}[/]')
-            console.print(f'     {str(hint.body)}')
-            for action in hint.hints:
-                console.print(f'     [dim]›[/] {action}')
+            if hint.recognised:                                                     # Known AWS-side problem class — friendly headline + hints
+                console.print(f'  [red]✗[/]  [bold]{str(hint.headline)}[/]')
+                console.print(f'     {str(hint.body)}')
+                for action in hint.hints:
+                    console.print(f'     [dim]›[/] {action}')
+                exit_code = int(hint.exit_code)
+            else:                                                                   # Unknown — print compact type+message; full trace only with --debug
+                console.print(f'  [red]✗[/]  [bold]{type(exc).__name__}[/]: {exc}')
+                if not DEBUG_TRACE:
+                    console.print('     [dim]› Re-run with [bold]sp elastic --debug ...[/] (or [bold]sp el --debug ...[/]) to see the full Python traceback.[/]')
+                exit_code = 2
+            if DEBUG_TRACE:                                                         # Same flag for both branches — caller asked for the trace, show it
+                console.print()
+                console.print('[dim]── traceback ──────────────────────────────────────────────[/]')
+                console.print(traceback.format_exc(), end='')
             console.print()
-            raise typer.Exit(int(hint.exit_code))
+            raise typer.Exit(exit_code)
     return wrapped
 
 
