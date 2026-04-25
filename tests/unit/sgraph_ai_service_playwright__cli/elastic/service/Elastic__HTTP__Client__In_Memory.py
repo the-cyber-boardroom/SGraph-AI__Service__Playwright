@@ -29,6 +29,6 @@ class Elastic__HTTP__Client__In_Memory(Elastic__HTTP__Client):
                         password : str                          ,
                         index    : str                          ,
                         docs     : List__Schema__Log__Document
-                   ) -> Tuple[int, int]:
+                   ) -> Tuple[int, int, int, str]:
         self.bulk_calls.append((base_url, index, len(docs)))
-        return len(docs), 0                                                         # Always succeeds in fixture mode
+        return len(docs), 0, 200, ''                                                # Always succeeds in fixture mode

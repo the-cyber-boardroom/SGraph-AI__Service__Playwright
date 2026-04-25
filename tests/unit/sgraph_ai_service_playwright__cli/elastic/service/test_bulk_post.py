@@ -52,14 +52,16 @@ class test_bulk_post(TestCase):
         docs.append(build_doc('second message'))
 
         client = Capturing__Client()
-        posted, failed = client.bulk_post(base_url = 'https://host.example' ,
-                                          username = 'elastic'              ,
-                                          password = 'pw'                   ,
-                                          index    = 'sg-synthetic'          ,
-                                          docs     = docs                    )
+        posted, failed, status, err = client.bulk_post(base_url = 'https://host.example' ,
+                                                       username = 'elastic'              ,
+                                                       password = 'pw'                   ,
+                                                       index    = 'sg-synthetic'          ,
+                                                       docs     = docs                    )
 
         assert posted == 2
         assert failed == 0
+        assert status == 200
+        assert err    == ''
         assert client.last_method == 'POST'
         assert client.last_url    == 'https://host.example/_elastic/_bulk'
         assert client.last_headers.get('Content-Type') == 'application/x-ndjson'
@@ -86,8 +88,38 @@ class test_bulk_post(TestCase):
         assert 'timestamp'      in doc_0
 
     def test_empty_docs_returns_zero_zero_without_http_call(self):
-        client         = Capturing__Client()
-        posted, failed = client.bulk_post('https://host', 'elastic', 'pw', 'idx',
-                                          List__Schema__Log__Document())
-        assert (posted, failed)      == (0, 0)
+        client = Capturing__Client()
+        posted, failed, status, err = client.bulk_post('https://host', 'elastic', 'pw', 'idx',
+                                                       List__Schema__Log__Document())
+        assert (posted, failed, status, err) == (0, 0, 0, '')
         assert client.last_method    == ''                                          # request() never called
+
+
+class Rejecting__Client(Capturing__Client):                                         # Returns HTTP 401 to mimic SG_ELASTIC_PASSWORD mismatch
+    def request(self, method: str, url: str, *, headers: dict = None, data: bytes = None) -> requests.Response:
+        super().request(method, url, headers=headers, data=data)
+        response = requests.Response()
+        response.status_code = 401
+        response._content    = b'{"error":"unauthorized","reason":"basic auth failed"}'
+        return response
+
+
+class test_bulk_post__http_error_surfacing(TestCase):
+
+    def test_unauthorized_returns_status_and_body_snippet(self):
+        # Regression for "posted 0, failed 10000, no reason shown". A 401
+        # from _bulk must surface as (0, all_failed, 401, "HTTP 401: ...body...")
+        # so Schema__Elastic__Seed__Response can include last_http_status and
+        # the CLI can tell the user to re-check SG_ELASTIC_PASSWORD.
+        docs = List__Schema__Log__Document()
+        for i in range(3):
+            docs.append(build_doc(f'msg {i}'))
+
+        client = Rejecting__Client()
+        posted, failed, status, err = client.bulk_post('https://host', 'elastic', 'wrong',
+                                                       'sg-synthetic', docs)
+        assert posted == 0
+        assert failed == 3
+        assert status == 401
+        assert 'HTTP 401' in err
+        assert 'unauthorized' in err

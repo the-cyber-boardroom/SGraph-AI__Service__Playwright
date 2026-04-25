@@ -78,9 +78,9 @@ class Elastic__HTTP__Client(Type_Safe):
                         password : str                          ,
                         index    : str                          ,
                         docs     : List__Schema__Log__Document
-                   ) -> Tuple[int, int]:                                            # (posted, failed)
+                   ) -> Tuple[int, int, int, str]:                                  # (posted, failed, http_status, error_message)
         if len(docs) == 0:
-            return 0, 0
+            return 0, 0, 0, ''
 
         import base64
         auth_raw   = f'{username}:{password}'.encode()
@@ -96,15 +96,21 @@ class Elastic__HTTP__Client(Type_Safe):
         body = ('\n'.join(body_lines) + '\n').encode('utf-8')
 
         response = self.request('POST', url, headers=headers, data=body)
-        if response.status_code >= 300:
-            return 0, len(docs)
+        status   = int(response.status_code)
+        if status >= 300:                                                           # Whole batch rejected — capture the WHY so callers can surface it
+            raw_body = (response.text or '')[:500]                                  # Trim so it fits Safe_Str__Diagnostic's max_length and isn't spammy in CLI output
+            return 0, len(docs), status, f'HTTP {status}: {raw_body}'
 
         payload = response.json() or {}
         failed  = 0
+        err_msg = ''
         if payload.get('errors'):
             for item in payload.get('items', []):
                 action = next(iter(item.values()), {})
                 if int(action.get('status', 0)) >= 300:
                     failed += 1
+                    if not err_msg:                                                 # Capture first per-item error for display
+                        reason = action.get('error', {}).get('reason', '')
+                        err_msg = f'per-item HTTP {action.get("status")}: {reason}'[:500]
         posted = len(docs) - failed
-        return posted, failed
+        return posted, failed, status, err_msg

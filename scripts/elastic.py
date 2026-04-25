@@ -11,6 +11,7 @@
 # ═══════════════════════════════════════════════════════════════════════════════
 
 import functools
+import os
 import traceback
 from typing                                                                         import Optional
 
@@ -407,6 +408,13 @@ def cmd_seed(stack_name : Optional[str] = typer.Argument(None, help='Stack name.
              batch_size : int           = typer.Option  (1_000,'--batch-size'),
              password   : Optional[str] = typer.Option  (None, '--password',     help='Elastic password (else $SG_ELASTIC_PASSWORD).')):
     """Generate and bulk-post synthetic log documents to the stack's Elastic."""
+    if not password and not os.environ.get('SG_ELASTIC_PASSWORD'):                  # Fail fast before any AWS/HTTP work — the most common seed mistake is forgetting to export the password printed by `sp elastic create`
+        c = Console(highlight=False)
+        c.print('\n  [yellow]⚠[/]  SG_ELASTIC_PASSWORD is not set.')
+        c.print('     [dim]Re-export it from the most recent `sp elastic create` output, e.g.:[/]')
+        c.print('     [bold]export SG_ELASTIC_PASSWORD=<password-from-create>[/]')
+        c.print('     [dim]Or pass it explicitly via --password.[/]\n')
+        raise typer.Exit(1)
     service    = build_service()
     stack_name = resolve_stack_name(service, stack_name, None)
     request = Schema__Elastic__Seed__Request(stack_name       = Safe_Str__Elastic__Stack__Name(stack_name),
@@ -424,12 +432,21 @@ def cmd_seed(stack_name : Optional[str] = typer.Argument(None, help='Stack name.
     t = Table(show_header=False, box=None, padding=(0, 2))
     t.add_column(style='dim', justify='right')
     t.add_column(style='bold')
-    t.add_row('stack',     str(response.stack_name      ))
-    t.add_row('index',     str(response.index           ))
-    t.add_row('posted',    str(response.documents_posted))
-    t.add_row('failed',    str(response.documents_failed))
-    t.add_row('batches',   str(response.batches         ))
-    t.add_row('duration',  f'{response.duration_ms} ms')
-    t.add_row('rate',      f'{response.docs_per_second} docs/sec')
+    t.add_row('stack',       str(response.stack_name      ))
+    t.add_row('index',       str(response.index           ))
+    t.add_row('posted',      str(response.documents_posted))
+    t.add_row('failed',      str(response.documents_failed))
+    t.add_row('batches',     str(response.batches         ))
+    t.add_row('duration',    f'{response.duration_ms} ms')
+    t.add_row('rate',        f'{response.docs_per_second} docs/sec')
+    t.add_row('http status', str(response.last_http_status))
     c.print(t)
+    if response.documents_failed > 0:                                               # Surface the WHY so the user isn't guessing (previously swallowed silently)
+        c.print()
+        c.print(f'  [red]✗  {response.documents_failed} of {response.documents_failed + response.documents_posted} docs rejected.[/]')
+        if str(response.last_error_message):
+            c.print(f'     [dim]first error:[/] {str(response.last_error_message)}')
+        if response.last_http_status == 401 or response.last_http_status == 403:
+            c.print('     [dim]› This is almost always SG_ELASTIC_PASSWORD not matching the live stack.[/]')
+            c.print('     [dim]› Re-export with the password from the most recent `sp elastic create` output.[/]')
     c.print()

@@ -214,30 +214,37 @@ class Elastic__Service(Type_Safe):                                              
         posted   = 0
         failed   = 0
         batches  = 0
+        last_status  = 0
+        last_err_msg = ''
         batch_size = max(int(request.batch_size), 1)
         for offset in range(0, len(docs), batch_size):
             chunk = type(docs)()                                                    # Fresh List__Schema__Log__Document for the slice
             for d in docs[offset:offset + batch_size]:
                 chunk.append(d)
-            batch_posted, batch_failed = self.http_client.bulk_post(
+            batch_posted, batch_failed, http_status, err = self.http_client.bulk_post(
                 base_url = str(info.kibana_url) ,
                 username = 'elastic'             ,
                 password = password              ,
                 index    = str(request.index)    ,
                 docs     = chunk                  )
-            posted  += batch_posted
-            failed  += batch_failed
-            batches += 1
+            posted      += batch_posted
+            failed      += batch_failed
+            batches     += 1
+            last_status  = http_status
+            if err and not last_err_msg:                                            # First error sticks so the user sees the root cause, not the tail
+                last_err_msg = err
         elapsed_ms = max(int(time.monotonic() * 1000) - start_ms, 1)
         rate       = int(posted * 1000 / elapsed_ms)
 
-        return Schema__Elastic__Seed__Response(stack_name       = request.stack_name ,
-                                               index            = request.index      ,
-                                               documents_posted = posted              ,
-                                               documents_failed = failed              ,
-                                               batches          = batches             ,
-                                               duration_ms      = elapsed_ms          ,
-                                               docs_per_second  = rate                )
+        return Schema__Elastic__Seed__Response(stack_name         = request.stack_name ,
+                                               index              = request.index      ,
+                                               documents_posted   = posted              ,
+                                               documents_failed   = failed              ,
+                                               batches            = batches             ,
+                                               duration_ms        = elapsed_ms          ,
+                                               docs_per_second    = rate                ,
+                                               last_http_status   = last_status         ,
+                                               last_error_message = last_err_msg        )
 
     @type_safe
     def run_on_instance(self, stack_name : Safe_Str__Elastic__Stack__Name ,
