@@ -79,3 +79,21 @@ class test_AWS__Error__Translator(TestCase):
         hint = self.translator.translate(RuntimeError('boom'))
         assert hint.recognised    is False
         assert str(hint.category) == 'unknown'
+
+    def test_translate__client_error_body_preserves_arn(self):
+        # Regression: Safe_Str__Text turned the slash in arn:aws:iam::...:role/foo
+        # into an underscore when displayed, so the user copy-pasted the wrong
+        # ARN into their IAM policy. Schema body now uses Safe_Str__Diagnostic;
+        # this test pins that the slash and colons survive the round-trip.
+        msg  = 'User: arn:aws:iam::745506449035:user/SG-Deploy-User is not authorized to perform: iam:PassRole on resource: arn:aws:iam::745506449035:role/sg-elastic-ec2'
+        hint = self.translator.translate(make_client_error('AccessDenied', msg))
+        assert hint.recognised        is True
+        assert 'arn:aws:iam::745506449035:role/sg-elastic-ec2' in str(hint.body)
+        assert 'arn:aws:iam::745506449035:user/SG-Deploy-User' in str(hint.body)
+        assert ':role/'                                       in str(hint.body)     # The exact path segment the user needs to copy
+        assert ':role_'                                       not in str(hint.body) # And NOT the mangled form
+
+    def test_translate__client_error_body_preserves_punctuation(self):              # Generalises the ARN test — every URL/path/keyvalue char must survive
+        msg  = 'POST https://example.com:443/_elastic/_bulk -> 401 (key=value, {a:b})'
+        hint = self.translator.translate(make_client_error('AccessDenied', msg))
+        assert str(hint.body) == msg                                                # Exact round-trip — any mangling is a regression
