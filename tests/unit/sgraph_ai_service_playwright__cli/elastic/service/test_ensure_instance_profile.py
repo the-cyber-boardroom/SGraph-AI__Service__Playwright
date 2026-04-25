@@ -21,6 +21,10 @@ class FakeIAMNoSuchEntity(Exception):
     pass
 
 
+class FakeIAMLimitExceeded(Exception):
+    pass
+
+
 class FakeIAM:                                                                      # Minimal IAM client surface — only what ensure_instance_profile uses
     def __init__(self):
         self.roles    = {}                                                          # name → {role document}
@@ -28,7 +32,8 @@ class FakeIAM:                                                                  
         self.attached = []                                                          # [(role_name, policy_arn), ...]
         self.calls    = []
         self.last_create_role_kwargs = None                                         # Captures the EXACT kwargs the production code passed to create_role
-        self.exceptions = type('E', (), {'NoSuchEntityException': FakeIAMNoSuchEntity})
+        self.exceptions = type('E', (), {'NoSuchEntityException' : FakeIAMNoSuchEntity ,
+                                         'LimitExceededException': FakeIAMLimitExceeded})
 
     def get_role(self, RoleName):
         self.calls.append(('get_role', RoleName))
@@ -136,3 +141,72 @@ class test_ensure_instance_profile(TestCase):
                        or 0x20 <= ord_ <= 0x7E
                        or 0xA1 <= ord_ <= 0xFF)
             assert allowed, f'Description sent to create_role contains disallowed character {ch!r} (U+{ord_:04X})'
+
+    def test_profile_exists_without_role__role_is_added(self):
+        # Regression for the state the user hit in production: the EC2
+        # console showed "No roles attached to instance profile: sg-elastic-ec2".
+        # Whatever got us there, ensure_instance_profile must self-heal on
+        # the next run.
+        client          = ClientWithFakeIAM()
+        client.fake_iam = FakeIAM()
+        # Pre-seed: role exists, profile exists, but profile has NO roles attached
+        client.fake_iam.roles[INSTANCE_PROFILE_NAME]    = {'RoleName': INSTANCE_PROFILE_NAME,
+                                                           'AssumeRolePolicyDocument': {'Version':'2012-10-17','Statement':[]}}
+        client.fake_iam.profiles[INSTANCE_PROFILE_NAME] = {'InstanceProfile': {'InstanceProfileName': INSTANCE_PROFILE_NAME,
+                                                                               'Roles': []}}
+
+        client.ensure_instance_profile('eu-west-2')
+
+        roles_in_profile = client.fake_iam.profiles[INSTANCE_PROFILE_NAME]['InstanceProfile']['Roles']
+        assert any(r['RoleName'] == INSTANCE_PROFILE_NAME for r in roles_in_profile), \
+            'ensure_instance_profile must attach the role when the profile exists without one'
+
+    def test_iam_eventual_consistency__retries_then_succeeds(self):
+        # Freshly created profiles can briefly return NoSuchEntity from
+        # add_role_to_instance_profile. ensure_role_in_instance_profile must
+        # retry rather than surface a one-off NoSuchEntity.
+        client          = ClientWithFakeIAM()
+        client.fake_iam = FakeIAM()
+        client.fake_iam.roles[INSTANCE_PROFILE_NAME]    = {'RoleName': INSTANCE_PROFILE_NAME,
+                                                           'AssumeRolePolicyDocument': {'Version':'2012-10-17','Statement':[]}}
+        client.fake_iam.profiles[INSTANCE_PROFILE_NAME] = {'InstanceProfile': {'InstanceProfileName': INSTANCE_PROFILE_NAME,
+                                                                               'Roles': []}}
+        original_add = client.fake_iam.add_role_to_instance_profile
+        state = {'calls': 0}
+        def flaky(InstanceProfileName, RoleName):
+            state['calls'] += 1
+            if state['calls'] == 1:
+                raise FakeIAMNoSuchEntity('not visible yet')
+            return original_add(InstanceProfileName=InstanceProfileName, RoleName=RoleName)
+        client.fake_iam.add_role_to_instance_profile = flaky
+        # Zero out the sleep to keep the test fast
+        import sgraph_ai_service_playwright__cli.elastic.service.Elastic__AWS__Client as mod
+        saved_sleep = mod.time.sleep
+        mod.time.sleep = lambda s: None
+        try:
+            client.ensure_instance_profile('eu-west-2')
+        finally:
+            mod.time.sleep = saved_sleep
+
+        assert state['calls']                       >= 2                            # Retried at least once
+        roles_in_profile = client.fake_iam.profiles[INSTANCE_PROFILE_NAME]['InstanceProfile']['Roles']
+        assert any(r['RoleName'] == INSTANCE_PROFILE_NAME for r in roles_in_profile)
+
+    def test_limit_exceeded__raises_instead_of_swallowing(self):
+        # If the profile already has a DIFFERENT role attached (AWS caps at 1 role
+        # per profile), ensure_instance_profile must surface the error rather
+        # than silently continue — that was the original bug: except Exception: pass.
+        client          = ClientWithFakeIAM()
+        client.fake_iam = FakeIAM()
+        client.fake_iam.roles[INSTANCE_PROFILE_NAME]    = {'RoleName': INSTANCE_PROFILE_NAME}
+        client.fake_iam.profiles[INSTANCE_PROFILE_NAME] = {'InstanceProfile': {'InstanceProfileName': INSTANCE_PROFILE_NAME,
+                                                                               'Roles': []}}
+        def boom(InstanceProfileName, RoleName):
+            raise FakeIAMLimitExceeded('one-role limit')
+        client.fake_iam.add_role_to_instance_profile = boom
+
+        try:
+            client.ensure_instance_profile('eu-west-2')
+            assert False, 'expected LimitExceededException to propagate'
+        except FakeIAMLimitExceeded:
+            pass

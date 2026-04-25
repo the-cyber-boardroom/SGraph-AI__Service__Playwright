@@ -108,8 +108,8 @@ class Elastic__AWS__Client(Type_Safe):                                          
 
     @type_safe
     def ensure_instance_profile(self, region: str) -> str:                          # Idempotent: ensure role + instance profile + SSM policy attachment exist; returns profile name
-        iam     = self.iam_client(region)
-        name    = INSTANCE_PROFILE_NAME
+        iam       = self.iam_client(region)
+        name      = INSTANCE_PROFILE_NAME
         not_found = iam.exceptions.NoSuchEntityException
 
         try:                                                                        # 1) IAM role
@@ -119,25 +119,34 @@ class Elastic__AWS__Client(Type_Safe):                                          
                             AssumeRolePolicyDocument = json.dumps(EC2_TRUST_POLICY)   ,
                             Description              = IAM_ROLE_DESCRIPTION)
 
-        try:                                                                        # 2) AmazonSSMManagedInstanceCore attachment (idempotent — attach is no-op if already there)
+        try:                                                                        # 2) AmazonSSMManagedInstanceCore attachment (AWS no-ops if already attached)
             iam.attach_role_policy(RoleName=name, PolicyArn=SSM_MANAGED_POLICY_ARN)
-        except Exception:                                                           # AWS doesn't error on already-attached, but other CIs / mocks might
+        except Exception:
             pass
 
-        try:                                                                        # 3) Instance profile
+        try:                                                                        # 3) Instance profile (create only if missing)
             iam.get_instance_profile(InstanceProfileName=name)
         except not_found:
             iam.create_instance_profile(InstanceProfileName=name)
-            iam.add_role_to_instance_profile(InstanceProfileName=name, RoleName=name)
 
-        try:                                                                        # 4) Make sure the role is in the profile (separate call, in case profile pre-existed without role)
-            profile = iam.get_instance_profile(InstanceProfileName=name)
-            roles   = profile.get('InstanceProfile', {}).get('Roles', [])
-            if not any(r.get('RoleName') == name for r in roles):
-                iam.add_role_to_instance_profile(InstanceProfileName=name, RoleName=name)
-        except Exception:
-            pass
+        self.ensure_role_in_instance_profile(iam, name)                             # 4) Link role <-> profile (idempotent, retries on IAM eventual consistency)
         return name
+
+    def ensure_role_in_instance_profile(self, iam, name: str) -> None:              # Attach `name` role to `name` profile if not already — NEVER swallows errors silently; retries NoSuchEntity for IAM propagation
+        for attempt in range(4):
+            try:
+                profile = iam.get_instance_profile(InstanceProfileName=name)
+                roles   = profile.get('InstanceProfile', {}).get('Roles', [])
+                if any(r.get('RoleName') == name for r in roles):
+                    return                                                          # Already linked — idempotent no-op
+                iam.add_role_to_instance_profile(InstanceProfileName=name, RoleName=name)
+                return
+            except iam.exceptions.NoSuchEntityException:                            # Profile or role not visible to IAM yet (just created) — back off and retry
+                if attempt == 3:
+                    raise
+                time.sleep(5)
+            except iam.exceptions.LimitExceededException:                           # Profile already has a (different) role — can't attach a second; caller needs to intervene
+                raise
 
     @type_safe
     def resolve_latest_al2023_ami(self, region: str) -> str:
