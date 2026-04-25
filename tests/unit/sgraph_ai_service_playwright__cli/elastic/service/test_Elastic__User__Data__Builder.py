@@ -55,3 +55,12 @@ class test_Elastic__User__Data__Builder(TestCase):
 
     def test_xpack_security_enabled(self):                                          # Brief requires basic-auth on the elastic user
         assert 'xpack.security.enabled=true' in self.rendered
+
+    def test_schedules_delayed_ssm_agent_restart(self):                             # Without this, the SSM agent gets stuck in credential-failure backoff
+        # Regression: the agent boots before IAM has propagated our just-created
+        # role. A scheduled restart 90s into boot gives IAM time to settle and
+        # the agent re-reads instance metadata. Pin the systemd-run line so it
+        # can't get accidentally removed.
+        assert 'systemd-run --on-active=90'    in self.rendered
+        assert 'sg-elastic-ssm-restart'        in self.rendered
+        assert 'systemctl restart amazon-ssm-agent' in self.rendered

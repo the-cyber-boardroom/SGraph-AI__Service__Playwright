@@ -164,6 +164,17 @@ EOF_COMPOSE
 cd /opt/sg-elastic
 docker compose --env-file /opt/sg-elastic/.env up -d
 
+# ── Schedule a delayed SSM-agent restart ───────────────────────────────────────
+# The agent that started at boot may have failed to assume our IAM role because
+# IAM was still propagating (the role is created seconds before RunInstances is
+# called by `sp elastic create`). Once the agent enters credential-failure
+# backoff it doesn't self-recover quickly. Restarting after 90s gives IAM time
+# to settle and the agent re-reads instance metadata cleanly. systemd-run
+# survives the user-data process exiting; the unit runs once and disappears.
+systemd-run --on-active=90 --unit=sg-elastic-ssm-restart \
+    /bin/bash -c 'systemctl restart amazon-ssm-agent && \
+                  echo "[$(date --iso-8601=seconds)] sg-elastic: restarted amazon-ssm-agent" >> /var/log/sg-elastic-start.log'
+
 echo "=== SG Elastic start complete at $(date) ==="
 echo "OK $(date --iso-8601=seconds)" > "$BOOT_STATUS_FILE"
 trap - EXIT
