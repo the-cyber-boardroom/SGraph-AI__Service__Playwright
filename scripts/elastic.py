@@ -17,6 +17,7 @@ from typing                                                                     
 
 import typer
 from rich.console                                                                   import Console
+from rich.markup                                                                    import escape as rich_escape
 from rich.table                                                                     import Table
 
 from sgraph_ai_service_playwright__cli.elastic.enums.Enum__Saved_Object__Type       import Enum__Saved_Object__Type
@@ -98,13 +99,13 @@ def aws_error_handler(fn):                                                      
             console = Console(highlight=False, stderr=True)
             console.print()
             if hint.recognised:                                                     # Known AWS-side problem class — friendly headline + hints
-                console.print(f'  [red]✗[/]  [bold]{str(hint.headline)}[/]')
-                console.print(f'     {str(hint.body)}')
-                for action in hint.hints:
-                    console.print(f'     [dim]›[/] {action}')
+                console.print(f'  [red]✗[/]  [bold]{rich_escape(str(hint.headline))}[/]')
+                console.print(f'     {rich_escape(str(hint.body))}')
+                for action in hint.hints:                                           # AWS messages can include "[ec2.amazonaws.com]" or ARNs — escape so Rich doesn't try to parse them as markup
+                    console.print(f'     [dim]›[/] {rich_escape(str(action))}')
                 exit_code = int(hint.exit_code)
             else:                                                                   # Unknown — print compact type+message; full trace only with --debug
-                console.print(f'  [red]✗[/]  [bold]{type(exc).__name__}[/]: {exc}')
+                console.print(f'  [red]✗[/]  [bold]{type(exc).__name__}[/]: {rich_escape(str(exc))}')
                 if not DEBUG_TRACE:
                     console.print('     [dim]› Re-run with [bold]sp elastic --debug ...[/] (or [bold]sp el --debug ...[/]) to see the full Python traceback.[/]')
                 exit_code = 2
@@ -452,8 +453,8 @@ def cmd_seed(stack_name : Optional[str] = typer.Argument(None, help='Stack name.
     if response.documents_failed > 0:                                               # Surface the WHY so the user isn't guessing (previously swallowed silently)
         c.print()
         c.print(f'  [red]✗  {response.documents_failed} of {response.documents_failed + response.documents_posted} docs rejected.[/]')
-        if str(response.last_error_message):
-            c.print(f'     [dim]first error:[/] {str(response.last_error_message)}')
+        if str(response.last_error_message):                                        # Body can contain "for REST request [/_bulk]" — escape so Rich doesn't read [/...] as a closing markup tag
+            c.print(f'     [dim]first error:[/] {rich_escape(str(response.last_error_message))}')
         if response.last_http_status == 401 or response.last_http_status == 403:
             c.print('     [dim]› This is almost always SG_ELASTIC_PASSWORD not matching the live stack.[/]')
             c.print('     [dim]› Re-export with the password from the most recent `sp elastic create` output.[/]')
@@ -492,7 +493,7 @@ def saved_objects_list_cmd(label: str, object_type: Enum__Saved_Object__Type,
     c = Console(highlight=False)
     if str(response.error):
         c.print(f'\n  [red]✗  {label} list failed[/]  [dim](http {response.http_status})[/]')
-        c.print(f'     [dim]{str(response.error)}[/]')
+        c.print(f'     [dim]{rich_escape(str(response.error))}[/]')                 # Kibana error bodies can contain bracketed text; escape so Rich doesn't crash on it
         render_auth_hint(c, response.http_status)
         c.print()
         raise typer.Exit(2)
@@ -503,8 +504,8 @@ def saved_objects_list_cmd(label: str, object_type: Enum__Saved_Object__Type,
     t.add_column('Title', style='bold')
     t.add_column('ID',    style='dim')
     t.add_column('Updated')
-    for obj in response.objects:
-        t.add_row(str(obj.title) or '—', str(obj.id), str(obj.updated_at))
+    for obj in response.objects:                                                    # Title is user-supplied (dashboard name) and may contain brackets — Table cells render with markup by default, so escape
+        t.add_row(rich_escape(str(obj.title)) or '—', str(obj.id), str(obj.updated_at))
     c.print()
     c.print(t)
     c.print(f'\n  [dim]{response.total} {label}(s) in {stack_name}[/]\n')
@@ -524,12 +525,12 @@ def saved_objects_export_cmd(label: str, object_type: Enum__Saved_Object__Type,
     c = Console(highlight=False)
     if str(response.error):
         c.print(f'\n  [red]✗  {label} export failed[/]  [dim](http {response.http_status})[/]')
-        c.print(f'     [dim]{str(response.error)}[/]')
+        c.print(f'     [dim]{rich_escape(str(response.error))}[/]')
         render_auth_hint(c, response.http_status)
         c.print()
         raise typer.Exit(2)
     c.print(f'\n  ✅  Exported [bold]{response.object_count}[/] {label}(s) from [bold]{stack_name}[/]')
-    c.print(f'     [dim]→ {str(response.file_path)}  ({response.bytes_written} bytes)[/]\n')
+    c.print(f'     [dim]→ {rich_escape(str(response.file_path))}  ({response.bytes_written} bytes)[/]\n')
 
 
 def saved_objects_import_cmd(label: str, stack_name: Optional[str], password: Optional[str],
@@ -547,7 +548,7 @@ def saved_objects_import_cmd(label: str, stack_name: Optional[str], password: Op
     c = Console(highlight=False)
     if not response.success and response.error_count == 0 and str(response.first_error):
         c.print(f'\n  [red]✗  {label} import failed[/]  [dim](http {response.http_status})[/]')
-        c.print(f'     [dim]{str(response.first_error)}[/]')
+        c.print(f'     [dim]{rich_escape(str(response.first_error))}[/]')
         render_auth_hint(c, response.http_status)
         c.print()
         raise typer.Exit(2)
@@ -555,7 +556,7 @@ def saved_objects_import_cmd(label: str, stack_name: Optional[str], password: Op
     c.print(f'\n  {icon}  Imported [bold]{response.success_count}[/] {label}(s) into [bold]{stack_name}[/]'
             f'  [dim](errors: {response.error_count}, http {response.http_status})[/]')
     if response.error_count > 0 and str(response.first_error):
-        c.print(f'     [dim]first error:[/] {str(response.first_error)}')
+        c.print(f'     [dim]first error:[/] {rich_escape(str(response.first_error))}')
     c.print()
 
 

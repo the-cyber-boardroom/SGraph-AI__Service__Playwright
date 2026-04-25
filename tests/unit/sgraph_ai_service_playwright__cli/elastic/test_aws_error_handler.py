@@ -129,3 +129,25 @@ class test_aws_error_handler(TestCase):
             assert '--debug'        in output                                       # Hint pointing the user at --debug
         finally:
             elastic_mod.Console = original_console
+
+    def test_exception_text_with_bracket_markup_does_not_crash(self):                # Regression: ES error bodies contain "for REST request [/_bulk]" which Rich would parse as a closing markup tag — handler must escape before rendering
+        import io as _io
+        import scripts.elastic as elastic_mod
+        from rich.console import Console as _Console
+        original_console = _Console
+        captured        = _io.StringIO()
+        elastic_mod.Console = lambda *a, **kw: original_console(file=captured, force_terminal=False, highlight=False)
+        elastic_mod.DEBUG_TRACE = False
+        try:
+            @aws_error_handler
+            def fn():
+                raise RuntimeError('unable to authenticate user [elastic] for REST request [/_bulk]')
+            try:
+                fn()
+            except typer.Exit as exc:
+                assert exc.exit_code == 2
+            output = captured.getvalue()
+            assert 'RuntimeError' in output
+            assert '/_bulk'       in output                                         # Literal text survived (escaped, not stripped)
+        finally:
+            elastic_mod.Console = original_console
