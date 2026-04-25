@@ -149,6 +149,31 @@ services:
       - XPACK_SECURITY_ENCRYPTIONKEY=${{KIBANA_ENCRYPTION_KEY}}
       - XPACK_REPORTING_ENCRYPTIONKEY=${{KIBANA_ENCRYPTION_KEY}}
       - SERVER_PUBLICBASEURL=https://localhost
+      # ── Slim feature set ─────────────────────────────────────────────
+      # Default Kibana ships every solution UI (Fleet, APM, ML, Maps,
+      # Observability, Security, Synthetics, …). We only need Discover,
+      # Dashboard, and Index Management for this slice. The image itself
+      # can't be shrunk (official Elastic image is fixed) but disabling
+      # these plugins removes ~2/3 of the side-nav and shortens boot.
+      - XPACK_FLEET_ENABLED=false
+      - XPACK_FLEET_AGENTS_ENABLED=false
+      - XPACK_APM_UI_ENABLED=false
+      - XPACK_OBSERVABILITY_ENABLED=false
+      - XPACK_INFRA_ENABLED=false
+      - XPACK_UPTIME_ENABLED=false
+      - XPACK_SYNTHETICS_ENABLED=false
+      - XPACK_SLO_ENABLED=false
+      - XPACK_ML_ENABLED=false
+      - XPACK_MAPS_ENABLED=false
+      - XPACK_GRAPH_ENABLED=false
+      - XPACK_CANVAS_ENABLED=false
+      - XPACK_OSQUERY_ENABLED=false
+      - XPACK_SECURITYSOLUTION_ENABLED=false
+      - XPACK_CASES_ENABLED=false
+      - ENTERPRISESEARCH_ENABLED=false
+      - XPACK_PROFILING_ENABLED=false
+      # Hide the on-boarding "Add data" tour — we already seeded data
+      - HOME_DISABLEWELCOMESCREEN=true
     depends_on:
       - elasticsearch
     ports:
