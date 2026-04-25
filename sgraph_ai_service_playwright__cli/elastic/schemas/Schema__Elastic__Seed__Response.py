@@ -27,3 +27,7 @@ class Schema__Elastic__Seed__Response(Type_Safe):
     data_view_id       : Safe_Str__Text                                             # Kibana-generated UUID; empty when --no-data-view or creation failed
     data_view_created  : bool             = False                                   # True when this seed call created the data view; False when it already existed
     data_view_error    : Safe_Str__Diagnostic                                       # Empty on success / when --no-data-view; carries HTTP error otherwise
+    dashboard_id       : Safe_Str__Text                                             # Deterministic id from Default__Dashboard__Generator; empty when --no-dashboard or import failed before the request
+    dashboard_title    : Safe_Str__Text                                             # Human-readable name shown in the seed table
+    dashboard_objects  : int              = 0                                       # How many saved objects were imported (panels + dashboard); 0 on failure
+    dashboard_error    : Safe_Str__Diagnostic                                       # Empty on success / when --no-dashboard
