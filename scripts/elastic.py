@@ -470,13 +470,15 @@ def cmd_exec(ctx        : typer.Context                                         
 
 @app.command('seed')
 @aws_error_handler
-def cmd_seed(stack_name : Optional[str] = typer.Argument(None, help='Stack name. Auto-picks when only one stack exists; prompts on multiple.'),
-             docs       : int           = typer.Option  (10_000, '--docs',        help='Document count (default 10000).'),
-             index      : str           = typer.Option  ('sg-synthetic', '--index'),
-             window_days: int           = typer.Option  (7,    '--window-days',  help='Spread timestamps over the last N days.'),
-             batch_size : int           = typer.Option  (1_000,'--batch-size'),
-             password   : Optional[str] = typer.Option  (None, '--password',     help='Elastic password (else $SG_ELASTIC_PASSWORD).')):
-    """Generate and bulk-post synthetic log documents to the stack's Elastic."""
+def cmd_seed(stack_name      : Optional[str] = typer.Argument(None, help='Stack name. Auto-picks when only one stack exists; prompts on multiple.'),
+             docs            : int           = typer.Option  (10_000, '--docs',        help='Document count (default 10000).'),
+             index           : str           = typer.Option  ('sg-synthetic', '--index'),
+             window_days     : int           = typer.Option  (7,    '--window-days',  help='Spread timestamps over the last N days.'),
+             batch_size      : int           = typer.Option  (1_000,'--batch-size'),
+             password        : Optional[str] = typer.Option  (None, '--password',     help='Elastic password (else $SG_ELASTIC_PASSWORD).'),
+             create_data_view: bool          = typer.Option  (True, '--data-view/--no-data-view', help='After bulk-post, ensure a Kibana data view points at the index. Default on — bypasses the "Now create a data view" wall in Discover.'),
+             time_field      : str           = typer.Option  ('timestamp', '--time-field', help='Time field name the data view uses for time-based filtering.')):
+    """Generate and bulk-post synthetic log documents to the stack's Elastic. Also creates a Kibana data view by default."""
     if not password and not os.environ.get('SG_ELASTIC_PASSWORD'):                  # Fail fast before any AWS/HTTP work — the most common seed mistake is forgetting to export the password printed by `sp elastic create`
         c = Console(highlight=False)
         c.print('\n  [yellow]⚠[/]  SG_ELASTIC_PASSWORD is not set.')
@@ -491,7 +493,9 @@ def cmd_seed(stack_name : Optional[str] = typer.Argument(None, help='Stack name.
                                              document_count   = docs                                      ,
                                              window_days      = window_days                               ,
                                              elastic_password = Safe_Str__Elastic__Password(password) if password else Safe_Str__Elastic__Password(''),
-                                             batch_size       = batch_size                                )
+                                             batch_size       = batch_size                                ,
+                                             create_data_view = create_data_view                          ,
+                                             time_field_name  = time_field                                )
     response = service.seed_stack(request)
     c = Console(highlight=False)
     if response.documents_posted == 0 and response.documents_failed == 0:
@@ -509,6 +513,14 @@ def cmd_seed(stack_name : Optional[str] = typer.Argument(None, help='Stack name.
     t.add_row('duration',    f'{response.duration_ms} ms')
     t.add_row('rate',        f'{response.docs_per_second} docs/sec')
     t.add_row('http status', str(response.last_http_status))
+    if create_data_view:
+        if str(response.data_view_error):
+            t.add_row('data view',   f'[yellow]not created[/]  [dim]({rich_escape(str(response.data_view_error))})[/]')
+        elif str(response.data_view_id):
+            verb = 'created' if response.data_view_created else 'already existed'
+            t.add_row('data view',   f'[green]{verb}[/]  [dim]id={rich_escape(str(response.data_view_id))}[/]')
+        else:
+            t.add_row('data view',   '[dim]skipped (no docs posted)[/]')
     c.print(t)
     if response.documents_failed > 0:                                               # Surface the WHY so the user isn't guessing (previously swallowed silently)
         c.print()

@@ -7,6 +7,7 @@
 # ═══════════════════════════════════════════════════════════════════════════════
 
 from osbot_utils.type_safe.Type_Safe                                                import Type_Safe
+from osbot_utils.type_safe.primitives.domains.common.safe_str.Safe_Str__Text        import Safe_Str__Text
 from osbot_utils.type_safe.primitives.domains.identifiers.safe_str.Safe_Str__Id     import Safe_Str__Id
 
 from sgraph_ai_service_playwright__cli.elastic.primitives.Safe_Str__Elastic__Stack__Name import Safe_Str__Elastic__Stack__Name
@@ -20,3 +21,5 @@ class Schema__Elastic__Seed__Request(Type_Safe):
     window_days      : int                           = 7                            # Spread timestamps over the last N days ending now
     elastic_password : Safe_Str__Elastic__Password                                  # Empty → service reads from env var SG_ELASTIC_PASSWORD
     batch_size       : int                           = 1_000                        # _bulk body size per round trip
+    create_data_view : bool                          = True                         # After bulk-post, ensure a Kibana data view points at the index — bypasses the "Now create a data view" wall in Discover
+    time_field_name  : Safe_Str__Text                = 'timestamp'                  # The field the data view uses for time-based filtering / Discover histogram

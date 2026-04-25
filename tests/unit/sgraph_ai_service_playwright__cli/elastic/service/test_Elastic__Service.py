@@ -22,8 +22,9 @@ from sgraph_ai_service_playwright__cli.elastic.service.Elastic__User__Data__Buil
 from sgraph_ai_service_playwright__cli.elastic.service.Synthetic__Data__Generator   import Synthetic__Data__Generator
 
 from tests.unit.sgraph_ai_service_playwright__cli.elastic.service.Caller__IP__Detector__In_Memory  import Caller__IP__Detector__In_Memory
-from tests.unit.sgraph_ai_service_playwright__cli.elastic.service.Elastic__AWS__Client__In_Memory  import Elastic__AWS__Client__In_Memory, DEFAULT_FIXTURE_AMI
-from tests.unit.sgraph_ai_service_playwright__cli.elastic.service.Elastic__HTTP__Client__In_Memory import Elastic__HTTP__Client__In_Memory
+from tests.unit.sgraph_ai_service_playwright__cli.elastic.service.Elastic__AWS__Client__In_Memory     import Elastic__AWS__Client__In_Memory, DEFAULT_FIXTURE_AMI
+from tests.unit.sgraph_ai_service_playwright__cli.elastic.service.Elastic__HTTP__Client__In_Memory    import Elastic__HTTP__Client__In_Memory
+from tests.unit.sgraph_ai_service_playwright__cli.elastic.service.Kibana__Saved_Objects__Client__In_Memory import Kibana__Saved_Objects__Client__In_Memory
 
 
 REGION = 'eu-west-2'
@@ -39,11 +40,13 @@ def build_service(kibana_ready: bool = True) -> Elastic__Service:
     http = Elastic__HTTP__Client__In_Memory(fixture_kibana_ready   = kibana_ready ,
                                             fixture_probe_sequence = []           ,
                                             bulk_calls             = []           )
-    return Elastic__Service(aws_client        = aws                                  ,
-                            http_client       = http                                 ,
-                            ip_detector       = Caller__IP__Detector__In_Memory()    ,
-                            user_data_builder = Elastic__User__Data__Builder()       ,
-                            data_generator    = Synthetic__Data__Generator(seed=99)  )
+    saved = Kibana__Saved_Objects__Client__In_Memory(ensure_calls=[])               # Always wire the in-memory saved-objects client — seed_stack uses it for ensure_data_view
+    return Elastic__Service(aws_client           = aws                                  ,
+                            http_client          = http                                 ,
+                            saved_objects_client = saved                                ,
+                            ip_detector          = Caller__IP__Detector__In_Memory()    ,
+                            user_data_builder    = Elastic__User__Data__Builder()       ,
+                            data_generator       = Synthetic__Data__Generator(seed=99)  )
 
 
 class test_Elastic__Service(TestCase):

@@ -7,6 +7,7 @@
 # ═══════════════════════════════════════════════════════════════════════════════
 
 from osbot_utils.type_safe.Type_Safe                                                import Type_Safe
+from osbot_utils.type_safe.primitives.domains.common.safe_str.Safe_Str__Text        import Safe_Str__Text
 from osbot_utils.type_safe.primitives.domains.identifiers.safe_str.Safe_Str__Id     import Safe_Str__Id
 
 from sgraph_ai_service_playwright__cli.elastic.primitives.Safe_Str__Diagnostic      import Safe_Str__Diagnostic
@@ -23,3 +24,6 @@ class Schema__Elastic__Seed__Response(Type_Safe):
     docs_per_second    : int              = 0                                       # Integer for Type_Safe simplicity — float precision not needed
     last_http_status   : int              = 0                                       # Most recent HTTP status code from _bulk; 0 if no request made
     last_error_message : Safe_Str__Diagnostic                                       # First non-OK response body (truncated); empty on success
+    data_view_id       : Safe_Str__Text                                             # Kibana-generated UUID; empty when --no-data-view or creation failed
+    data_view_created  : bool             = False                                   # True when this seed call created the data view; False when it already existed
+    data_view_error    : Safe_Str__Diagnostic                                       # Empty on success / when --no-data-view; carries HTTP error otherwise
