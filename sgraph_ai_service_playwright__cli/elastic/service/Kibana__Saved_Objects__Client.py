@@ -133,6 +133,37 @@ class Kibana__Saved_Objects__Client(Elastic__HTTP__Client):                     
                                               first_error   = first_err                            )
 
     @type_safe
+    def delete_data_view_by_title(self, base_url : str ,                            # Idempotent helper: find by exact title via _find, DELETE if present
+                                         username : str ,
+                                         password : str ,
+                                         title    : str
+                                   ) -> Tuple[bool, int, str]:                      # (deleted, http_status, error_message); deleted=False with status=200 means "did not exist"
+        find_url     = base_url.rstrip('/') + f'/api/saved_objects/_find?type=index-pattern&per_page=200'
+        find_headers = basic_auth_header(username, password)
+        find_resp    = self.request('GET', find_url, headers=find_headers)
+        if int(find_resp.status_code) >= 300:
+            return False, int(find_resp.status_code), f'HTTP {find_resp.status_code} on _find: {(find_resp.text or "")[:500]}'
+        try:
+            payload = find_resp.json() or {}
+        except Exception:
+            return False, int(find_resp.status_code), '_find returned non-JSON'
+        target_id = ''
+        for raw in payload.get('saved_objects', []):
+            attrs = raw.get('attributes', {}) or {}
+            if str(attrs.get('title', '')) == title:
+                target_id = str(raw.get('id', ''))
+                break
+        if not target_id:
+            return False, 200, ''                                                   # Not found — idempotent success
+        del_url     = base_url.rstrip('/') + f'/api/data_views/data_view/{target_id}'
+        del_headers = {**basic_auth_header(username, password), **KBN_XSRF_HEADER}
+        del_resp    = self.request('DELETE', del_url, headers=del_headers)
+        del_status  = int(del_resp.status_code)
+        if del_status >= 300:
+            return False, del_status, f'HTTP {del_status}: {(del_resp.text or "")[:500]}'
+        return True, del_status, ''
+
+    @type_safe
     def ensure_data_view(self, base_url        : str ,
                                 username        : str ,
                                 password        : str ,

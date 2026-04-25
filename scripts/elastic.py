@@ -335,7 +335,8 @@ def cmd_health(stack_name: Optional[str] = typer.Argument(None, help='Stack name
 
     icon_for = {'ok': '[green]✓[/]', 'warn': '[yellow]⚠[/]', 'fail': '[red]✗[/]', 'skip': '[dim]·[/]'}
     c = Console(highlight=False)
-    rollup_icon = '[green]✓[/]' if response.all_ok else '[red]✗[/]'
+    has_warn    = any(str(chk.status) == 'warn' for chk in response.checks)         # WARN never fails the rollup (yellow on single-node is normal) but should still surface as ⚠ not ✓
+    rollup_icon = '[red]✗[/]' if not response.all_ok else ('[yellow]⚠[/]' if has_warn else '[green]✓[/]')
     c.print(f'\n  {rollup_icon}  Health for [bold]{stack_name}[/]  [dim](pass --no-ssm to skip the SSM checks)[/]\n')
     t = Table(show_header=True, header_style='bold', box=None, padding=(0, 2))
     t.add_column('', width=2)
@@ -466,6 +467,40 @@ def cmd_exec(ctx        : typer.Context                                         
     if not str(result.stdout).strip() and not str(result.stderr).strip():
         c.print('  [dim](no output)[/]')
     c.print(f'  [dim]→ status={result.status}  exit={result.exit_code}  duration={result.duration_ms}ms[/]\n')
+
+
+@app.command('wipe')
+@aws_error_handler
+def cmd_wipe(stack_name : Optional[str] = typer.Argument(None, help='Stack name. Auto-picks when only one stack exists; prompts on multiple.'),
+             index      : str           = typer.Option  ('sg-synthetic', '--index', help='Index name to delete (also the data view title).'),
+             password   : Optional[str] = typer.Option  (None, '--password', help='Elastic password (else $SG_ELASTIC_PASSWORD).'),
+             yes        : bool          = typer.Option  (False, '--yes', '-y', help='Skip the y/N confirmation prompt.')):
+    """Delete the seed-data: drop the Elastic index AND remove its Kibana data view. Idempotent — does nothing if neither exists."""
+    if not password and not os.environ.get('SG_ELASTIC_PASSWORD'):
+        c = Console(highlight=False)
+        c.print('\n  [yellow]⚠[/]  SG_ELASTIC_PASSWORD is not set.')
+        c.print('     [dim]Re-export it from the most recent `sp elastic create` output, or pass --password.[/]\n')
+        raise typer.Exit(1)
+    service    = build_service()
+    stack_name = resolve_stack_name(service, stack_name, None)
+    if not yes:                                                                      # Confirm before destructive — typer.confirm exits cleanly on ^C / N
+        if not typer.confirm(f'  Delete index {index!r} and its data view from {stack_name}?', default=False):
+            Console(highlight=False).print('  [dim]aborted[/]\n')
+            raise typer.Exit(0)
+    result = service.wipe_seed(stack_name = Safe_Str__Elastic__Stack__Name(stack_name),
+                                index      = index                                     ,
+                                password   = password or ''                             )
+    c = Console(highlight=False)
+    c.print()
+    def render_row(label, deleted, status, err):
+        if err:
+            return f'  [red]✗[/]  {label}: HTTP {status} — {rich_escape(str(err))}'
+        if deleted:
+            return f'  [green]✓[/]  {label}: deleted'
+        return f'  [dim]·[/]  {label}: did not exist'
+    c.print(render_row('index    ', result['index_deleted']    , result['index_status']    , result['index_error']))
+    c.print(render_row('data view', result['data_view_deleted'], result['data_view_status'], result['data_view_error']))
+    c.print()
 
 
 @app.command('seed')

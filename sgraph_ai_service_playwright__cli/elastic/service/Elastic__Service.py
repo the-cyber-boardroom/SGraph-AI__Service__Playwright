@@ -284,6 +284,21 @@ class Elastic__Service(Type_Safe):                                              
                                                data_view_error    = dv_error            )
 
     @type_safe
+    def wipe_seed(self, stack_name : Safe_Str__Elastic__Stack__Name ,               # Delete the ES index + Kibana data view created by `sp el seed`. Idempotent.
+                        index      : str                            = 'sg-synthetic',
+                        password   : str                            = ''
+                   ) -> dict:                                                       # {'index_deleted': bool, 'index_status': int, 'index_error': str, 'data_view_deleted': bool, 'data_view_status': int, 'data_view_error': str}
+        info = self.get_stack_info(stack_name = stack_name)
+        if not str(info.kibana_url):
+            return {'index_deleted': False, 'index_status': 0, 'index_error': 'no kibana url for stack',
+                    'data_view_deleted': False, 'data_view_status': 0, 'data_view_error': 'no kibana url for stack'}
+        pwd = password or os.environ.get('SG_ELASTIC_PASSWORD', '')
+        idx_deleted, idx_status, idx_err = self.http_client.delete_index(base_url=str(info.kibana_url), username='elastic', password=pwd, index=index)
+        dv_deleted , dv_status , dv_err  = self.saved_objects_client.delete_data_view_by_title(base_url=str(info.kibana_url), username='elastic', password=pwd, title=index)
+        return {'index_deleted'    : idx_deleted, 'index_status'    : idx_status, 'index_error'    : idx_err,
+                'data_view_deleted': dv_deleted , 'data_view_status': dv_status , 'data_view_error': dv_err }
+
+    @type_safe
     def health(self, stack_name : Safe_Str__Elastic__Stack__Name ,
                      password   : str                            = '',
                      check_ssm  : bool                           = True
@@ -383,7 +398,8 @@ class Elastic__Service(Type_Safe):                                              
             checks.append(Schema__Elastic__Health__Check(name='ssm-boot-status', status=Enum__Health__Status.SKIP, detail='--no-ssm'))
             checks.append(Schema__Elastic__Health__Check(name='ssm-docker'     , status=Enum__Health__Status.SKIP, detail='--no-ssm'))
 
-        all_ok = all(c.status in (Enum__Health__Status.OK, Enum__Health__Status.SKIP) for c in checks)
+        # Rollup: WARN does NOT fail the rollup (it means "expected non-OK", e.g. yellow on single-node ES is normal). Only FAIL flips all_ok false.
+        all_ok = not any(c.status == Enum__Health__Status.FAIL for c in checks)
         return Schema__Elastic__Health__Response(stack_name=stack_name, all_ok=all_ok, checks=checks)
 
     @type_safe

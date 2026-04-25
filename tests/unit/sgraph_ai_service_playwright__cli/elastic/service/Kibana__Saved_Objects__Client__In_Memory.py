@@ -5,15 +5,19 @@
 # network. No mocks.
 # ═══════════════════════════════════════════════════════════════════════════════
 
+from typing                                                                         import Tuple
+
 from sgraph_ai_service_playwright__cli.elastic.schemas.Schema__Kibana__Data_View__Result import Schema__Kibana__Data_View__Result
 from sgraph_ai_service_playwright__cli.elastic.service.Kibana__Saved_Objects__Client    import Kibana__Saved_Objects__Client
 
 
 class Kibana__Saved_Objects__Client__In_Memory(Kibana__Saved_Objects__Client):
     ensure_calls       : list                                                       # [(base_url, title, time_field), ...]
+    delete_calls       : list                                                       # [(base_url, title), ...] — wipe path
     fixture_view_id    : str  = 'dv-fixture-uuid'                                   # Returned by the next ensure_data_view call
     fixture_created    : bool = True                                                # True → "we created it", False → "already existed"
     fixture_error      : str  = ''                                                  # Non-empty makes ensure_data_view return a failure result
+    fixture_view_existed_for_delete : bool = True                                   # Drives delete_data_view_by_title return value
 
     def ensure_data_view(self, base_url        : str ,
                                 username        : str ,
@@ -31,3 +35,7 @@ class Kibana__Saved_Objects__Client__In_Memory(Kibana__Saved_Objects__Client):
                                                  created     = bool(self.fixture_created),
                                                  http_status = 200                  ,
                                                  error       = ''                   )
+
+    def delete_data_view_by_title(self, base_url: str, username: str, password: str, title: str) -> Tuple[bool, int, str]:
+        self.delete_calls.append((base_url, title))
+        return bool(self.fixture_view_existed_for_delete), 200, ''

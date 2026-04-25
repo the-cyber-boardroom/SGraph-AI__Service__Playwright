@@ -17,6 +17,7 @@ class Elastic__HTTP__Client__In_Memory(Elastic__HTTP__Client):
     fixture_probe_sequence  : list                                                  # Queue of Enum__Kibana__Probe__Status values consumed by kibana_probe(); empty → falls back to fixture_kibana_ready
     fixture_elastic_sequence: list                                                  # Queue of Enum__Elastic__Probe__Status values consumed by elastic_probe(); empty → defaults to YELLOW when fixture_kibana_ready, else UNREACHABLE
     bulk_calls              : list                                                  # [(base_url, index, doc_count), ...]
+    delete_index_calls      : list                                                  # [(base_url, index), ...] — captured by the wipe path
 
     def kibana_ready(self, base_url: str) -> bool:
         return bool(self.fixture_kibana_ready)
@@ -39,3 +40,7 @@ class Elastic__HTTP__Client__In_Memory(Elastic__HTTP__Client):
                    ) -> Tuple[int, int, int, str]:
         self.bulk_calls.append((base_url, index, len(docs)))
         return len(docs), 0, 200, ''                                                # Always succeeds in fixture mode
+
+    def delete_index(self, base_url: str, username: str, password: str, index: str) -> Tuple[bool, int, str]:
+        self.delete_index_calls.append((base_url, index))
+        return True, 200, ''                                                         # Always succeeds in fixture mode
