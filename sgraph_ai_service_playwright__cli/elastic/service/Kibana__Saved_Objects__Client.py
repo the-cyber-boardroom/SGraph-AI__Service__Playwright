@@ -22,10 +22,12 @@ from osbot_utils.type_safe.type_safe_core.decorators.type_safe                  
 
 from sgraph_ai_service_playwright__cli.elastic.collections.List__Schema__Kibana__Saved_Object import List__Schema__Kibana__Saved_Object
 from sgraph_ai_service_playwright__cli.elastic.enums.Enum__Saved_Object__Type       import Enum__Saved_Object__Type
+from sgraph_ai_service_playwright__cli.elastic.schemas.Schema__Kibana__Dashboard__Result import Schema__Kibana__Dashboard__Result
 from sgraph_ai_service_playwright__cli.elastic.schemas.Schema__Kibana__Data_View__Result import Schema__Kibana__Data_View__Result
 from sgraph_ai_service_playwright__cli.elastic.schemas.Schema__Kibana__Find__Response   import Schema__Kibana__Find__Response
 from sgraph_ai_service_playwright__cli.elastic.schemas.Schema__Kibana__Import__Result   import Schema__Kibana__Import__Result
 from sgraph_ai_service_playwright__cli.elastic.schemas.Schema__Kibana__Saved_Object  import Schema__Kibana__Saved_Object
+from sgraph_ai_service_playwright__cli.elastic.service.Default__Dashboard__Generator import Default__Dashboard__Generator
 from sgraph_ai_service_playwright__cli.elastic.service.Elastic__HTTP__Client        import Elastic__HTTP__Client
 
 
@@ -216,3 +218,72 @@ class Kibana__Saved_Objects__Client(Elastic__HTTP__Client):                     
                                                  created     = True                        ,
                                                  http_status = create_status               ,
                                                  error       = ''                          )
+
+    @type_safe
+    def disable_space_features(self, base_url : str ,                               # PUT /api/spaces/space/<space_id> with disabledFeatures — hides solution groups (Observability, Security) from the Kibana side-nav. Idempotent: PUT replaces the space config.
+                                      username : str ,
+                                      password : str ,
+                                      space_id : str = 'default'                    ,
+                                      features : list = None
+                                ) -> Tuple[bool, int, str]:                         # (ok, http_status, error)
+        # Default feature list covers the noisy solution groups: Observability, Security,
+        # plus heavy management-only features we don't need for the slim "Discover +
+        # Dashboard + Index Management" UX.
+        default_features = ['observability', 'apm', 'infrastructure', 'logs',
+                             'uptime', 'siem', 'securitySolutionAttackDiscovery',
+                             'securitySolutionAssistant', 'securitySolutionCases',
+                             'securitySolutionTimeline', 'securitySolutionNotes',
+                             'fleet', 'fleetv2', 'osquery',
+                             'ml', 'maps', 'graph', 'canvas',
+                             'enterpriseSearch', 'searchInferenceEndpoints',
+                             'searchPlayground', 'searchSynonyms', 'searchQueryRules',
+                             'slo', 'cases', 'observabilityCases', 'generalCases']
+        target_features = list(features) if features is not None else default_features
+
+        # PUT /api/spaces/space/<id> requires the existing space body — fetch first to preserve name/description
+        get_url     = base_url.rstrip('/') + f'/api/spaces/space/{space_id}'
+        get_headers = basic_auth_header(username, password)
+        get_resp    = self.request('GET', get_url, headers=get_headers)
+        if int(get_resp.status_code) >= 300:
+            return False, int(get_resp.status_code), f'HTTP {get_resp.status_code} reading space: {(get_resp.text or "")[:500]}'
+        try:
+            space = get_resp.json() or {}
+        except Exception:
+            return False, int(get_resp.status_code), 'space GET returned non-JSON'
+
+        space['disabledFeatures'] = target_features                                 # Replace, don't merge — caller controls the full list
+        put_headers = {**basic_auth_header(username, password), **KBN_XSRF_HEADER, 'Content-Type': 'application/json'}
+        put_resp    = self.request('PUT', get_url, headers=put_headers, data=json.dumps(space).encode('utf-8'))
+        put_status  = int(put_resp.status_code)
+        if put_status >= 300:
+            return False, put_status, f'HTTP {put_status}: {(put_resp.text or "")[:500]}'
+        return True, put_status, ''
+
+    @type_safe
+    def ensure_default_dashboard(self, base_url     : str ,
+                                        username     : str ,
+                                        password     : str ,
+                                        index        : str ,
+                                        data_view_id : str ,
+                                        time_field   : str = 'timestamp'
+                                  ) -> Schema__Kibana__Dashboard__Result:
+        # Programmatically build the ndjson — every panel needs the data view id baked in
+        generator    = Default__Dashboard__Generator()
+        ndjson       = generator.build_ndjson(index=index, data_view_id=data_view_id, time_field=time_field)
+        title        = generator.dashboard_title()
+        dashboard_id = generator.dashboard_id()
+
+        # Re-use the existing import path — overwrite=true so seed is idempotent across reruns
+        result = self.import_objects(base_url=base_url, username=username, password=password,
+                                      ndjson_bytes=ndjson, overwrite=True)
+        if not result.success and result.error_count == 0 and str(result.first_error):
+            return Schema__Kibana__Dashboard__Result(id          = dashboard_id          ,
+                                                     title       = title                  ,
+                                                     http_status = result.http_status     ,
+                                                     error       = str(result.first_error))
+        return Schema__Kibana__Dashboard__Result(id           = dashboard_id            ,
+                                                 title        = title                    ,
+                                                 object_count = result.success_count     ,
+                                                 created      = result.success_count > 0,
+                                                 http_status  = result.http_status       ,
+                                                 error        = str(result.first_error)  if result.error_count > 0 else '')

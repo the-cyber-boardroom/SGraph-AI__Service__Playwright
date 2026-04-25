@@ -23,3 +23,4 @@ class Schema__Elastic__Seed__Request(Type_Safe):
     batch_size       : int                           = 1_000                        # _bulk body size per round trip
     create_data_view : bool                          = True                         # After bulk-post, ensure a Kibana data view points at the index — bypasses the "Now create a data view" wall in Discover
     time_field_name  : Safe_Str__Text                = 'timestamp'                  # The field the data view uses for time-based filtering / Discover histogram
+    create_dashboard : bool                          = True                         # After data view, also import the default 4-panel "Synthetic Logs Overview" dashboard

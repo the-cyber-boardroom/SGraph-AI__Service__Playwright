@@ -270,6 +270,23 @@ class Elastic__Service(Type_Safe):                                              
             dv_created = bool(dv.created)
             dv_error   = str(dv.error)
 
+        # Import the default 4-panel "Synthetic Logs Overview" dashboard. Needs the data view id, so chained after.
+        db_id      = ''
+        db_title   = ''
+        db_objects = 0
+        db_error   = ''
+        if request.create_dashboard and posted > 0 and dv_id and not dv_error:
+            db = self.saved_objects_client.ensure_default_dashboard(base_url     = str(info.kibana_url)         ,
+                                                                     username     = 'elastic'                    ,
+                                                                     password     = password                     ,
+                                                                     index        = str(request.index)           ,
+                                                                     data_view_id = dv_id                         ,
+                                                                     time_field   = str(request.time_field_name) )
+            db_id      = str(db.id)
+            db_title   = str(db.title)
+            db_objects = int(db.object_count)
+            db_error   = str(db.error)
+
         return Schema__Elastic__Seed__Response(stack_name         = request.stack_name ,
                                                index              = request.index      ,
                                                documents_posted   = posted              ,
@@ -281,7 +298,22 @@ class Elastic__Service(Type_Safe):                                              
                                                last_error_message = last_err_msg        ,
                                                data_view_id       = dv_id               ,
                                                data_view_created  = dv_created          ,
-                                               data_view_error    = dv_error            )
+                                               data_view_error    = dv_error            ,
+                                               dashboard_id       = db_id               ,
+                                               dashboard_title    = db_title            ,
+                                               dashboard_objects  = db_objects          ,
+                                               dashboard_error    = db_error            )
+
+    @type_safe
+    def harden_kibana(self, stack_name : Safe_Str__Elastic__Stack__Name ,           # Disable Observability / Security / Fleet / ML side-nav groups in the default Kibana space
+                            password   : str                            = ''
+                       ) -> dict:                                                   # {'ok': bool, 'http_status': int, 'error': str}
+        info = self.get_stack_info(stack_name = stack_name)
+        if not str(info.kibana_url):
+            return {'ok': False, 'http_status': 0, 'error': 'no kibana url for stack'}
+        pwd = password or os.environ.get('SG_ELASTIC_PASSWORD', '')
+        ok, status, err = self.saved_objects_client.disable_space_features(base_url=str(info.kibana_url), username='elastic', password=pwd)
+        return {'ok': ok, 'http_status': status, 'error': err}
 
     @type_safe
     def wipe_seed(self, stack_name : Safe_Str__Elastic__Stack__Name ,               # Delete the ES index + Kibana data view created by `sp el seed`. Idempotent.

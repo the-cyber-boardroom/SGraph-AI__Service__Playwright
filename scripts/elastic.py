@@ -469,6 +469,29 @@ def cmd_exec(ctx        : typer.Context                                         
     c.print(f'  [dim]→ status={result.status}  exit={result.exit_code}  duration={result.duration_ms}ms[/]\n')
 
 
+@app.command('harden')
+@aws_error_handler
+def cmd_harden(stack_name : Optional[str] = typer.Argument(None, help='Stack name. Auto-picks when only one stack exists; prompts on multiple.'),
+               password   : Optional[str] = typer.Option  (None, '--password', help='Elastic password (else $SG_ELASTIC_PASSWORD).')):
+    """Hide unused Kibana solution groups (Observability, Security, Fleet, ML, Maps, ...) from the side-nav. Idempotent — safe to re-run."""
+    if not password and not os.environ.get('SG_ELASTIC_PASSWORD'):
+        c = Console(highlight=False)
+        c.print('\n  [yellow]⚠[/]  SG_ELASTIC_PASSWORD is not set. Pass --password or export it first.\n')
+        raise typer.Exit(1)
+    service    = build_service()
+    stack_name = resolve_stack_name(service, stack_name, None)
+    result     = service.harden_kibana(stack_name=Safe_Str__Elastic__Stack__Name(stack_name),
+                                        password=password or '')
+    c = Console(highlight=False)
+    c.print()
+    if result['ok']:
+        c.print(f'  [green]✓[/]  Side-nav hardened on [bold]{stack_name}[/]  [dim](Observability + Security + Fleet + ML + Maps disabled in default space)[/]')
+        c.print(f'     [dim]Refresh Kibana in your browser to see the slimmer nav.[/]')
+    else:
+        c.print(f'  [red]✗[/]  Failed: HTTP {result["http_status"]} — {rich_escape(str(result["error"]))}')
+    c.print()
+
+
 @app.command('wipe')
 @aws_error_handler
 def cmd_wipe(stack_name : Optional[str] = typer.Argument(None, help='Stack name. Auto-picks when only one stack exists; prompts on multiple.'),
@@ -512,8 +535,9 @@ def cmd_seed(stack_name      : Optional[str] = typer.Argument(None, help='Stack 
              batch_size      : int           = typer.Option  (1_000,'--batch-size'),
              password        : Optional[str] = typer.Option  (None, '--password',     help='Elastic password (else $SG_ELASTIC_PASSWORD).'),
              create_data_view: bool          = typer.Option  (True, '--data-view/--no-data-view', help='After bulk-post, ensure a Kibana data view points at the index. Default on — bypasses the "Now create a data view" wall in Discover.'),
-             time_field      : str           = typer.Option  ('timestamp', '--time-field', help='Time field name the data view uses for time-based filtering.')):
-    """Generate and bulk-post synthetic log documents to the stack's Elastic. Also creates a Kibana data view by default."""
+             time_field      : str           = typer.Option  ('timestamp', '--time-field', help='Time field name the data view uses for time-based filtering.'),
+             create_dashboard: bool          = typer.Option  (True, '--dashboard/--no-dashboard', help='After data view, also import the default 4-panel "Synthetic Logs Overview" dashboard.')):
+    """Generate and bulk-post synthetic log documents to the stack's Elastic. Also creates a Kibana data view AND a default dashboard by default."""
     if not password and not os.environ.get('SG_ELASTIC_PASSWORD'):                  # Fail fast before any AWS/HTTP work — the most common seed mistake is forgetting to export the password printed by `sp elastic create`
         c = Console(highlight=False)
         c.print('\n  [yellow]⚠[/]  SG_ELASTIC_PASSWORD is not set.')
@@ -530,7 +554,8 @@ def cmd_seed(stack_name      : Optional[str] = typer.Argument(None, help='Stack 
                                              elastic_password = Safe_Str__Elastic__Password(password) if password else Safe_Str__Elastic__Password(''),
                                              batch_size       = batch_size                                ,
                                              create_data_view = create_data_view                          ,
-                                             time_field_name  = time_field                                )
+                                             time_field_name  = time_field                                ,
+                                             create_dashboard = create_dashboard                          )
     response = service.seed_stack(request)
     c = Console(highlight=False)
     if response.documents_posted == 0 and response.documents_failed == 0:
@@ -556,6 +581,13 @@ def cmd_seed(stack_name      : Optional[str] = typer.Argument(None, help='Stack 
             t.add_row('data view',   f'[green]{verb}[/]  [dim]id={rich_escape(str(response.data_view_id))}[/]')
         else:
             t.add_row('data view',   '[dim]skipped (no docs posted)[/]')
+    if create_dashboard:
+        if str(response.dashboard_error):
+            t.add_row('dashboard',   f'[yellow]not imported[/]  [dim]({rich_escape(str(response.dashboard_error))})[/]')
+        elif str(response.dashboard_id):
+            t.add_row('dashboard',   f'[green]{response.dashboard_objects} objects imported[/]  [dim]"{rich_escape(str(response.dashboard_title))}"[/]')
+        else:
+            t.add_row('dashboard',   '[dim]skipped (data view missing)[/]')
     c.print(t)
     if response.documents_failed > 0:                                               # Surface the WHY so the user isn't guessing (previously swallowed silently)
         c.print()
