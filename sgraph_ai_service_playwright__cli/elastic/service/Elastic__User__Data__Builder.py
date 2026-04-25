@@ -65,9 +65,11 @@ echo 'vm.max_map_count=262144' > /etc/sysctl.d/99-elastic.conf
 # ── Stack directory + password env ─────────────────────────────────────────────
 mkdir -p /opt/sg-elastic/certs
 umask 077
+KIBANA_ENCRYPTION_KEY=$(openssl rand -hex 32)                                  # 64 hex chars — meets Kibana's >= 32-byte requirement for xpack.encryptedSavedObjects (8.10+ exits 78 without it)
 cat > /opt/sg-elastic/.env <<'EOF_ENV'
 ELASTIC_PASSWORD={elastic_password}
 EOF_ENV
+echo "KIBANA_ENCRYPTION_KEY=${{KIBANA_ENCRYPTION_KEY}}" >> /opt/sg-elastic/.env
 chmod 600 /opt/sg-elastic/.env
 umask 022
 
@@ -139,9 +141,14 @@ services:
   kibana:
     image: docker.elastic.co/kibana/kibana:{kibana_version}
     environment:
+      # Service-account token auth — Kibana 8.x refuses ELASTICSEARCH_USERNAME=elastic (the superuser).
+      # The token is minted by user-data after ES is up, then injected via --env-file.
       - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
-      - ELASTICSEARCH_USERNAME=elastic
-      - ELASTICSEARCH_PASSWORD=${{ELASTIC_PASSWORD}}
+      - ELASTICSEARCH_SERVICEACCOUNTTOKEN=${{KIBANA_SERVICE_TOKEN}}
+      - XPACK_ENCRYPTEDSAVEDOBJECTS_ENCRYPTIONKEY=${{KIBANA_ENCRYPTION_KEY}}
+      - XPACK_SECURITY_ENCRYPTIONKEY=${{KIBANA_ENCRYPTION_KEY}}
+      - XPACK_REPORTING_ENCRYPTIONKEY=${{KIBANA_ENCRYPTION_KEY}}
+      - SERVER_PUBLICBASEURL=https://localhost
     depends_on:
       - elasticsearch
     ports:
@@ -160,9 +167,47 @@ services:
     restart: unless-stopped
 EOF_COMPOSE
 
-# ── Launch stack ───────────────────────────────────────────────────────────────
+# ── Launch stack (staged: ES → token mint → Kibana + nginx) ───────────────────
 cd /opt/sg-elastic
-docker compose --env-file /opt/sg-elastic/.env up -d
+
+# 1) Start Elasticsearch first. Kibana 8.x refuses ELASTICSEARCH_USERNAME=elastic
+#    (the superuser) so we mint a service-account token after ES is healthy and
+#    hand that to Kibana as ELASTICSEARCH_SERVICEACCOUNTTOKEN.
+docker compose --env-file /opt/sg-elastic/.env up -d elasticsearch
+
+# 2) Wait for Elasticsearch to accept authenticated requests (up to ~120s).
+echo "[$(date --iso-8601=seconds)] Waiting for Elasticsearch /_cluster/health ..."
+ES_READY=false
+for i in $(seq 1 60); do
+    if docker exec sg-elastic-elasticsearch-1 curl -sf \
+            -u "elastic:{elastic_password}" http://localhost:9200/_cluster/health >/dev/null 2>&1; then
+        echo "[$(date --iso-8601=seconds)] Elasticsearch is ready (attempt $i)"
+        ES_READY=true
+        break
+    fi
+    sleep 2
+done
+[ "$ES_READY" != "true" ] && echo "[$(date --iso-8601=seconds)] WARN: ES never went ready; continuing anyway"
+
+# 3) Mint a service-account token for Kibana. Format is stable:
+#    "SERVICE_TOKEN elastic/kibana/<name> = <token>" — we grab the last field.
+#    Token name includes a timestamp so retries are idempotent.
+TOKEN_NAME="sg-kibana-$(date +%s)"
+TOKEN_OUTPUT=$(docker exec sg-elastic-elasticsearch-1 \
+                   bin/elasticsearch-service-tokens create elastic/kibana "$TOKEN_NAME")
+KIBANA_SERVICE_TOKEN=$(echo "$TOKEN_OUTPUT" | awk -F '= ' '/= /{{print $2; exit}}')
+if [ -z "$KIBANA_SERVICE_TOKEN" ]; then
+    echo "[$(date --iso-8601=seconds)] FATAL: service-account token mint returned empty; raw: $TOKEN_OUTPUT"
+    exit 1
+fi
+
+umask 077
+echo "KIBANA_SERVICE_TOKEN=${{KIBANA_SERVICE_TOKEN}}" >> /opt/sg-elastic/.env
+chmod 600 /opt/sg-elastic/.env
+umask 022
+
+# 4) Start Kibana + nginx now that the token is in .env
+docker compose --env-file /opt/sg-elastic/.env up -d kibana nginx
 
 echo "=== SG Elastic start complete at $(date) ==="
 echo "OK $(date --iso-8601=seconds)" > "$BOOT_STATUS_FILE"

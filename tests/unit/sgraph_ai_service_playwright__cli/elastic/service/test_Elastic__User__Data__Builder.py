@@ -55,3 +55,27 @@ class test_Elastic__User__Data__Builder(TestCase):
 
     def test_xpack_security_enabled(self):                                          # Brief requires basic-auth on the elastic user
         assert 'xpack.security.enabled=true' in self.rendered
+
+    def test_kibana_uses_service_account_token_not_elastic_superuser(self):
+        # Regression: Kibana 8.13 refuses ELASTICSEARCH_USERNAME=elastic with
+        # exit 78 ("value of 'elastic' is forbidden"). Must use a service
+        # account token minted from ES after it's up.
+        assert 'ELASTICSEARCH_SERVICEACCOUNTTOKEN=${KIBANA_SERVICE_TOKEN}' in self.rendered
+        # Match only the docker-compose env-var list syntax ("- KEY=VAL"), not explanatory comments
+        assert '- ELASTICSEARCH_USERNAME=' not in self.rendered
+        assert '- ELASTICSEARCH_PASSWORD=' not in self.rendered
+
+    def test_encryption_keys_set_for_kibana(self):                                  # Kibana 8.10+ hard-fails boot if encryptedSavedObjects key is missing
+        for var in ('XPACK_ENCRYPTEDSAVEDOBJECTS_ENCRYPTIONKEY',
+                    'XPACK_SECURITY_ENCRYPTIONKEY'             ,
+                    'XPACK_REPORTING_ENCRYPTIONKEY'            ):
+            assert f'{var}=${{KIBANA_ENCRYPTION_KEY}}' in self.rendered
+        assert 'KIBANA_ENCRYPTION_KEY=$(openssl rand -hex 32)' in self.rendered     # Generated at boot, written to .env
+
+    def test_staged_boot_sequence(self):                                            # ES first, then token mint, then Kibana + nginx — order matters
+        es_up        = self.rendered.find('up -d elasticsearch')
+        token_create = self.rendered.find('bin/elasticsearch-service-tokens create elastic/kibana')
+        kibana_up    = self.rendered.find('up -d kibana nginx')
+        assert es_up        >= 0
+        assert token_create >  es_up
+        assert kibana_up    >  token_create
