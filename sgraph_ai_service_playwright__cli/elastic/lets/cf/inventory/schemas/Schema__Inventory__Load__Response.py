@@ -7,6 +7,7 @@
 
 from osbot_utils.type_safe.Type_Safe                                                import Type_Safe
 from osbot_utils.type_safe.primitives.domains.common.safe_str.Safe_Str__Text        import Safe_Str__Text
+from osbot_utils.type_safe.primitives.domains.web.safe_str.Safe_Str__Url            import Safe_Str__Url
 
 from sgraph_ai_service_playwright__cli.elastic.primitives.Safe_Str__Elastic__Stack__Name import Safe_Str__Elastic__Stack__Name
 from sgraph_ai_service_playwright__cli.elastic.lets.cf.inventory.primitives.Safe_Str__Pipeline__Run__Id import Safe_Str__Pipeline__Run__Id
@@ -29,5 +30,5 @@ class Schema__Inventory__Load__Response(Type_Safe):
     duration_ms      : int                           = 0
     last_http_status : int                           = 0                            # HTTP status of the final bulk-post call (0 if dry_run)
     error_message    : Safe_Str__Text                                               # Empty on success
-    kibana_url       : Safe_Str__Text                                               # https://{ip}/app/dashboards (or Discover URL)
+    kibana_url       : Safe_Str__Url                                                # Safe_Str__Url preserves "://" and ":port" — see Schema__Elastic__Create__Response
     dry_run          : bool                          = False                        # True = nothing was actually indexed

@@ -1237,3 +1237,6 @@ data_view_app = make_saved_objects_app(label       = 'data view'                
 
 app.add_typer(dashboard_app, name='dashboard')
 app.add_typer(data_view_app, name='data-view')
+
+from scripts.elastic_lets import app as _lets_app                                   # noqa: E402  — late import to avoid circular dependency (elastic_lets imports build_service from this module)
+app.add_typer(_lets_app, name='lets')                                               # `sp el lets cf inventory ...` — LETS pipelines on the ephemeral Kibana
