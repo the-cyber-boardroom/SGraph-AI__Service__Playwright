@@ -16,11 +16,11 @@
 # re-imports the app on source changes.
 #
 # Usage:
-#   ./scripts/sp-cli__run-locally.sh                # binds 0.0.0.0:10062
+#   ./scripts/sp-cli__run-locally.sh                # binds 0.0.0.0:10071
 #   PORT=9000 ./scripts/sp-cli__run-locally.sh      # custom port
 # ───────────────────────────────────────────────────────────────────────────────
 
-PORT="${PORT:-10062}"
+PORT="${PORT:-10071}"
 HOST="${HOST:-0.0.0.0}"
 
 # ─── Load env vars from .local-server.env (if present) ────────────────────────
