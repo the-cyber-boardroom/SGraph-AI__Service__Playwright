@@ -354,7 +354,7 @@ class Elastic__Service(Type_Safe):                                              
                                                                                 instance_id = str(info.instance_id),
                                                                                 commands    = [command]            ,
                                                                                 timeout     = 30                   )
-                if code == 0:
+                if status == 'Success' or code == 0:                                # AWS reports both — treat either as OK so a non-zero-but-Success edge case still surfaces output
                     text = (str(stdout) or '').strip().splitlines()[0:6]            # Snip to fit the diagnostic line
                     checks.append(Schema__Elastic__Health__Check(name=name, status=Enum__Health__Status.OK,
                                                                   detail=' | '.join(text) or '(no output)'))

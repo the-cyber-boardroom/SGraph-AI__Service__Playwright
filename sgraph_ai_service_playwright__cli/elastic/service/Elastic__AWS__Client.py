@@ -330,9 +330,11 @@ class Elastic__AWS__Client(Type_Safe):                                          
                 continue
             status = str(inv.get('Status', ''))
             if status not in ('Pending', 'InProgress', 'Delayed'):
+                response_code = inv.get('ResponseCode')                             # Don't use `... or -1` — 0 (success) is falsy and would collapse to -1
+                exit_code     = -1 if response_code is None else int(response_code)
                 return (str(inv.get('StandardOutputContent', '')) ,
                         str(inv.get('StandardErrorContent', ''))  ,
-                        int(inv.get('ResponseCode', -1) or -1)    ,
+                        exit_code                                  ,
                         status                                    )
         return '', 'Timed out waiting for SSM command result', -1, 'TimedOut'
 
