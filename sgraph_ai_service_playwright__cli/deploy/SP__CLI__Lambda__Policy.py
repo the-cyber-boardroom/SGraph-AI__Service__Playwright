@@ -1,18 +1,24 @@
 # ═══════════════════════════════════════════════════════════════════════════════
-# SP CLI — SP__CLI__Lambda__Policy
-# Builds the four inline IAM policy documents attached to the SP CLI Lambda
+# SP CLI - SP__CLI__Lambda__Policy
+# Builds the inline IAM policy documents attached to the SP CLI Lambda
 # execution role. Each document is tightly scoped:
 #
-#   • ec2_management — run/terminate instances, describe everything needed for
-#                      preflight, create+authorize security groups, tag resources
-#   • iam_passrole   — PassRole scoped to arn:aws:iam::{account}:role/playwright-ec2
-#                      with iam:PassedToService=ec2.amazonaws.com (matches the
-#                      narrow policy sp ensure-passrole attaches to the CLI user)
-#   • ecr_read       — pull ECR image metadata + auth tokens for preflight
-#   • sts_helpers    — GetCallerIdentity + DecodeAuthorizationMessage (the latter
-#                      is used by the auto-decode error pretty-printer)
+#   . ec2_management      - run/terminate instances, describe everything needed
+#                           for preflight, create+authorize security groups,
+#                           tag resources
+#   . iam_passrole        - PassRole scoped to arn:aws:iam::{account}:role/playwright-ec2
+#                           with iam:PassedToService=ec2.amazonaws.com (matches
+#                           the narrow policy sp ensure-passrole attaches)
+#   . ecr_read            - pull ECR image metadata + auth tokens for preflight
+#   . sts_helpers         - GetCallerIdentity + DecodeAuthorizationMessage
+#                           (the latter is used by the auto-decode pretty-printer)
+#   . observability       - read + delete on AMP / OpenSearch / Grafana
+#   . agentic_code_read   - s3:GetObject on apps/sp-playwright-cli/* in the
+#                           account's sgraph-ai code bucket. Required by
+#                           Agentic_Code_Loader to download the hot-swap zip
+#                           pinned by AGENTIC_APP_VERSION on cold start.
 #
-# Class exposes the four policies via document_*() methods so tests can assert
+# Class exposes the policies via document_*() methods so tests can assert
 # the IAM Action list verbatim without a live AWS account.
 # ═══════════════════════════════════════════════════════════════════════════════
 
@@ -21,8 +27,10 @@ from osbot_utils.type_safe.Type_Safe                                            
 from sgraph_ai_service_playwright__cli.ec2.primitives.Safe_Str__AWS__Account_Id     import Safe_Str__AWS__Account_Id
 
 
-EC2_ROLE_NAME          = 'playwright-ec2'                                           # The EC2 instance role the CLI lambda needs to PassRole onto
-EC2_SERVICE_PRINCIPAL  = 'ec2.amazonaws.com'
+EC2_ROLE_NAME              = 'playwright-ec2'                                       # The EC2 instance role the CLI lambda needs to PassRole onto
+EC2_SERVICE_PRINCIPAL      = 'ec2.amazonaws.com'
+AGENTIC_CODE_BUCKET_PREFIX = 'sgraph-ai'                                            # Matches Agentic_Code_Loader.DEFAULT_BUCKET_FORMAT = '{account}--sgraph-ai--{region}'
+AGENTIC_CODE_APP_NAME      = 'sp-playwright-cli'                                    # Matches Lambda__SP__CLI.APP_NAME and the S3 key prefix written by Deploy__SP__CLI__Code
 
 
 class SP__CLI__Lambda__Policy(Type_Safe):
@@ -127,7 +135,16 @@ class SP__CLI__Lambda__Policy(Type_Safe):
                                             'grafana:DeleteWorkspace'               ],
                                'Resource': '*'                                                      }]}
 
-    def assume_role_document(self) -> dict:                                         # Trust policy — Lambda service can assume this role
+    def document_agentic_code_read(self) -> dict:                                   # s3:GetObject on the account's sgraph-ai code bucket scoped to apps/sp-playwright-cli/*. Region is wildcarded because the role is global per account; the Lambda only ever runs in one region per stage.
+        bucket_arn_pattern = f'arn:aws:s3:::{self.aws_account}--{AGENTIC_CODE_BUCKET_PREFIX}--*'
+        key_prefix         = f'apps/{AGENTIC_CODE_APP_NAME}/*'
+        return {'Version'  : '2012-10-17',
+                'Statement': [{'Sid'     : 'AgenticCodeRead',
+                               'Effect'  : 'Allow',
+                               'Action'  : ['s3:GetObject'                          ],   # IAM treats HeadObject as s3:GetObject, so this also covers the ETag freshness check
+                               'Resource': f'{bucket_arn_pattern}/{key_prefix}'        }]}
+
+    def assume_role_document(self) -> dict:                                         # Trust policy: Lambda service can assume this role
         return {'Version'  : '2012-10-17',
                 'Statement': [{'Effect'   : 'Allow',
                                'Principal': {'Service': 'lambda.amazonaws.com'},
