@@ -32,6 +32,15 @@ from sgraph_ai_service_playwright__cli.elastic.service.Elastic__Service         
 DEBUG_TRACE = False                                                                 # Toggled by the --debug callback below; aws_error_handler reads this on each error
 
 
+def join_command_args_for_shell(parts: list) -> str:                                # `sp el exec` shell-command joiner. shlex.join wraps a single pre-composed argument in quotes ("'grep X file'") which the remote shell then treats as the literal command path. When the user passed one quoted string, use it as-is; otherwise shlex.join handles per-arg escaping for the multi-word case.
+    import shlex
+    if not parts:
+        return ''
+    if len(parts) == 1:
+        return parts[0]
+    return shlex.join(parts)
+
+
 def humanize_uptime(seconds: int) -> str:                                            # Compact "3h 12m" / "47m" / "12s" — no calendar lib, deliberately rough
     if seconds <= 0:
         return '—'
@@ -291,7 +300,7 @@ def cmd_create(stack_name   : Optional[str] = typer.Argument (None,           he
 
 @app.command('create-from-ami')
 @aws_error_handler
-def cmd_create_from_ami(ami_id        : str           = typer.Argument(...,         help='AMI id to launch (use `sp el ami list` to find one).'),
+def cmd_create_from_ami(ami_id        : Optional[str] = typer.Argument(None,        help='AMI id to launch. OMIT to auto-pick the latest available AMI; use `sp el ami list` to see all.'),
                          stack_name    : Optional[str] = typer.Argument(None,        help='Stack name (auto-generated if omitted).'),
                          region        : Optional[str] = typer.Option  (None, '--region'),
                          instance_type : Optional[str] = typer.Option  (None, '--instance-type'),
@@ -301,6 +310,21 @@ def cmd_create_from_ami(ami_id        : str           = typer.Argument(...,     
     import time as _time
     t0_ms   = int(_time.monotonic() * 1000)
     service = build_service()
+
+    if not ami_id:                                                                  # Auto-pick the latest available AMI — same one-stack-auto-picks-itself UX as wait/info/seed
+        amis = service.list_amis(region=region or '')
+        available = [a for a in amis if str(a.state) == 'available']
+        if not available:
+            err = Console(highlight=False, stderr=True)
+            if amis:
+                err.print(f'\n  [yellow]No AMIs in [bold]available[/] state.[/]  Run [bold]sp el ami list[/] to see status — pending bakes need [bold]sp el ami wait[/].\n')
+            else:
+                err.print(f'\n  [yellow]No elastic AMIs found.[/]  Run [bold]sp el ami create[/] first.\n')
+            raise typer.Exit(1)
+        latest = sorted(available, key=lambda a: str(a.creation_date), reverse=True)[0]    # ISO-8601 strings sort lexicographically — newer first
+        ami_id = str(latest.ami_id)
+        Console(highlight=False).print(f'\n  [dim]No AMI specified — using latest available: [bold]{ami_id}[/]  [dim]({rich_escape(str(latest.name))})[/]')
+
     request = Schema__Elastic__Create__Request(stack_name    = stack_name    or '' ,
                                                region        = region        or '' ,
                                                instance_type = instance_type or '' ,
@@ -666,10 +690,10 @@ def cmd_exec(ctx        : typer.Context                                         
     elif extra:                                                                     # positional command after first; first might be a stack name OR command word
         if first in names:
             stack_name = first
-            shell_cmd  = shlex.join(extra)
+            shell_cmd  = join_command_args_for_shell(extra)
         else:
             stack_name = None
-            shell_cmd  = shlex.join([first] + extra)
+            shell_cmd  = join_command_args_for_shell([first] + extra)
     else:                                                                           # only `first` — treat as command, auto-pick stack
         stack_name = None
         shell_cmd  = first
@@ -887,17 +911,121 @@ def _wait_for_ami(service, ami_id: str, c: Console, timeout: int = 1200, poll_se
 
 @ami_app.command('create')
 @aws_error_handler
-def cmd_ami_create(stack_name : Optional[str] = typer.Argument(None, help='Stack name to bake. Auto-picks when only one stack exists; prompts on multiple.'),
-                   ami_name   : Optional[str] = typer.Option  (None, '--name', help='AMI Name tag (defaults to "Ephemeral Kibana - <stack> - <ts>").'),
-                   reboot     : bool          = typer.Option  (False, '--reboot/--no-reboot', help='Reboot the instance during AMI creation. Default: no-reboot (safer; ES has restart=unless-stopped, journal-replay handles in-flight writes).'),
-                   wait       : bool          = typer.Option  (False, '--wait', help='Block until the AMI moves from pending → available (5-10 min on a single EBS volume).')):
-    """Bake the running stack's EBS volume into an AMI tagged sg:purpose=elastic. Snapshots inherit the same tags. Returns the AMI id; AWS marks it pending — pass --wait or run `sp el ami wait AMI-ID` to block until available."""
-    service    = build_service()
+def cmd_ami_create(stack_name   : Optional[str] = typer.Argument(None, help='Stack to bake. OMIT for the default "from scratch" flow (creates + seeds + bakes + tears down). Pass an explicit stack name to bake an existing running stack instead.'),
+                   ami_name     : Optional[str] = typer.Option  (None, '--name', help='AMI Name tag (defaults to "Ephemeral Kibana - <stack> - <ts>").'),
+                   reboot       : bool          = typer.Option  (False, '--reboot/--no-reboot', help='Reboot the instance during AMI creation. Default: no-reboot (safer; ES has restart=unless-stopped, journal-replay handles in-flight writes).'),
+                   wait         : bool          = typer.Option  (False, '--wait', help='When baking an existing stack, block until pending → available (5-10 min). Always implied in the from-scratch flow.'),
+                   keep_source  : bool          = typer.Option  (False, '--keep-source', help='From-scratch only: keep the source stack running after the bake (default: delete it to save money).'),
+                   password     : Optional[str] = typer.Option  (None, '--password', help='From-scratch only: bake-time elastic password. Falls back to $SG_ELASTIC_PASSWORD; auto-generated if neither.'),
+                   instance_type: Optional[str] = typer.Option  (None, '--instance-type', help='From-scratch only: EC2 instance type for the source stack (default m6i.xlarge).')):
+    """Bake an "Ephemeral Kibana" AMI. Default (no STACK arg): runs the full chain from nothing — create + seed + dashboard + bake + delete source. Pass an existing stack name to bake it as-is instead."""
+    import time as _time
+    service = build_service()
+    c       = Console(highlight=False)
+
+    # Default mode: no stack name supplied → run the full chain from scratch.
+    # Explicit stack name → bake that stack as-is (advanced/legacy path).
+    if not stack_name:
+        # ── Phase 1/5: create a fresh stack ─────────────────────────────────────
+        t0_ms     = int(_time.monotonic() * 1000)
+        pwd_input = password or os.environ.get('SG_ELASTIC_PASSWORD', '')
+        c.print(f'\n  [bold]Phase 1/5: Create fresh stack[/]  [dim](no stack name supplied → auto-generated)[/]')
+        create_request = Schema__Elastic__Create__Request(stack_name       = ''                                  ,
+                                                           region           = ''                                  ,
+                                                           instance_type    = instance_type or ''                 ,
+                                                           from_ami         = ''                                  ,
+                                                           max_hours        = 1                                   ,  # 1h ceiling — bake should finish well before this
+                                                           elastic_password = Safe_Str__Elastic__Password(pwd_input) if pwd_input else Safe_Str__Elastic__Password(''))
+        create_response = service.create(create_request)
+        source_stack    = str(create_response.stack_name)
+        baked_password  = str(create_response.elastic_password)
+        c.print(f'  [green]✓[/]  launched [bold]{source_stack}[/]  [dim](instance {str(create_response.instance_id)})[/]')
+
+        # ── Phase 2/5: wait for Kibana ──────────────────────────────────────────
+        from rich.status import Status
+        c.print(f'\n  [bold]Phase 2/5: Wait for Kibana ready[/]  [dim](~3 min)[/]')
+        status = Status('initialising probe...', console=c, spinner='dots')
+        status.start()
+        try:
+            def on_tick(tick):
+                secs = tick.elapsed_ms // 1000
+                status.update(f'[dim][{secs:>3}s  #{tick.attempt:02d}][/]  '
+                              f'state=[bold]{tick.info.state}[/]  '
+                              f'es=[bold]{tick.elastic_probe}[/]  '
+                              f'kibana=[bold]{tick.probe}[/]  — {tick.message}')
+            info = service.wait_until_ready(stack_name      = Safe_Str__Elastic__Stack__Name(source_stack),
+                                            timeout         = 900                                          ,
+                                            poll_seconds    = 10                                           ,
+                                            elastic_password= baked_password                               ,
+                                            on_progress     = on_tick                                      )
+        finally:
+            status.stop()
+        if str(info.state) != 'ready':
+            c.print(f'  [red]✗[/]  Stack did not reach ready (state={info.state})  [dim]— `sp el info {source_stack}` for details[/]\n')
+            raise typer.Exit(2)
+        c.print(f'  [green]✓[/]  Kibana is ready at [bold]{str(info.kibana_url)}[/]')
+
+        # ── Phase 3/5: seed (also creates data view + dashboard) ───────────────
+        c.print(f'\n  [bold]Phase 3/5: Seed (10k synthetic logs + data view + dashboard)[/]')
+        seed_request = Schema__Elastic__Seed__Request(stack_name       = Safe_Str__Elastic__Stack__Name(source_stack),
+                                                       index            = 'sg-synthetic'                              ,
+                                                       document_count   = 10_000                                      ,
+                                                       window_days      = 7                                           ,
+                                                       elastic_password = Safe_Str__Elastic__Password(baked_password) ,
+                                                       batch_size       = 1_000                                       ,
+                                                       create_data_view = True                                        ,
+                                                       time_field_name  = 'timestamp'                                 ,
+                                                       create_dashboard = True                                        )
+        seed_response = service.seed_stack(seed_request)
+        c.print(f'  [green]✓[/]  posted {seed_response.documents_posted} docs  [dim]({seed_response.duration_ms} ms)[/]')
+        if str(seed_response.dashboard_id):
+            c.print(f'  [green]✓[/]  dashboard imported  [dim]"{rich_escape(str(seed_response.dashboard_title))}"[/]')
+
+        # ── Phase 4/5: trigger AMI bake ────────────────────────────────────────
+        c.print(f'\n  [bold]Phase 4/5: Bake AMI[/]')
+        bake_result = service.create_ami_from_stack(stack_name = Safe_Str__Elastic__Stack__Name(source_stack),
+                                                     ami_name   = ami_name or ''                              ,
+                                                     no_reboot  = not reboot                                  )
+        if bake_result['error']:
+            c.print(f'  [red]✗[/]  AMI bake failed: {rich_escape(str(bake_result["error"]))}\n')
+            raise typer.Exit(2)
+        new_ami_id = bake_result['ami_id']
+        c.print(f'  [green]✓[/]  bake started  [dim]ami-id={new_ami_id}[/]')
+
+        # ── Phase 5/5: wait for AMI available ──────────────────────────────────
+        c.print(f'\n  [bold]Phase 5/5: Wait for AMI available[/]  [dim](typical bake: 5-10 min)[/]')
+        final_state = _wait_for_ami(service, new_ami_id, c)
+        c.print()
+        if final_state != 'available':
+            c.print(f'  [red]✗[/]  AMI did not become available (final state: [bold]{final_state}[/])  [dim]source stack [bold]{source_stack}[/] left running for diagnosis[/]\n')
+            raise typer.Exit(2)
+        c.print(f'  [green]✓[/]  AMI [bold]{new_ami_id}[/] is [bold]available[/]')
+
+        # ── Optional cleanup: delete source stack ──────────────────────────────
+        if keep_source:
+            c.print(f'\n  [yellow]·[/]  --keep-source set — leaving [bold]{source_stack}[/] running')
+        else:
+            c.print(f'\n  [bold]Cleanup:[/] terminating source stack [bold]{source_stack}[/]')
+            del_resp = service.delete_stack(stack_name=Safe_Str__Elastic__Stack__Name(source_stack))
+            if len(del_resp.terminated_instance_ids) > 0:
+                c.print(f'  [green]✓[/]  terminated  [dim]({str(del_resp.target)}, sg-deleted: {del_resp.security_group_deleted})[/]')
+
+        # ── Summary ────────────────────────────────────────────────────────────
+        total_ms = int(_time.monotonic() * 1000) - t0_ms
+        c.print()
+        c.print(f'  [bold]Bake-from-scratch complete[/]  [dim]total {total_ms // 1000}s ({total_ms} ms)[/]')
+        c.print(f'    [dim]ami-id:  [/] [bold]{new_ami_id}[/]')
+        c.print(f'    [dim]password:[/] [bold]{rich_escape(baked_password)}[/]  [dim](baked into the AMI; same on every launch from it)[/]')
+        c.print()
+        c.print('  [bold]Launch a fresh stack from this AMI[/]:')
+        c.print(f'    sp el create-from-ami {new_ami_id} --wait        [dim]# ~30-60s vs ~3 min[/]\n')
+        return
+
+    # ── Original flow: bake from an existing running stack ─────────────────────
     stack_name = resolve_stack_name(service, stack_name, None)
     result     = service.create_ami_from_stack(stack_name = Safe_Str__Elastic__Stack__Name(stack_name),
                                                 ami_name   = ami_name or ''                            ,
                                                 no_reboot  = not reboot                                )
-    c = Console(highlight=False)
     c.print()
     if result['error']:
         c.print(f'  [red]✗[/]  AMI creation failed: {rich_escape(str(result["error"]))}\n')
