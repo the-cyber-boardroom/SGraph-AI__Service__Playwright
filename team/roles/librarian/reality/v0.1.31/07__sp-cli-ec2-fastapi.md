@@ -1,24 +1,32 @@
 # Reality — SP CLI EC2 FastAPI Routes — Slice 3
 
-**Status:** partial — create/info/delete for EC2 instances exposed as HTTP
-routes in a **stand-alone** FastAPI app (`Fast_API__SP__CLI`). The existing
-`Fast_API__Playwright__Service` is not modified. `scripts/provision_ec2.py`
-is not modified — the new service adapts its existing functions.
+**Status:** partial — list/info/create/delete for EC2 instances exposed as
+HTTP routes in a **stand-alone** FastAPI app (`Fast_API__SP__CLI`). The
+existing `Fast_API__Playwright__Service` is not modified.
+`scripts/provision_ec2.py` is not modified — the new service adapts its
+existing functions.
 
 ---
 
-## New routes
+## Routes — action-mapped under `/ec2/playwright/...`
 
-| Method | Path | Handler | Request → Response |
-|--------|------|---------|--------------------|
-| POST   | `/ec2/instances`          | `Routes__Ec2.instances`       | `Schema__Ec2__Create__Request` → `Schema__Ec2__Create__Response` |
-| GET    | `/ec2/instances/{target}` | `Routes__Ec2.get_instance`    | path param `target` (deploy-name or instance-id) → `Schema__Ec2__Instance__Info` (404 when no match) |
-| DELETE | `/ec2/instances/{target}` | `Routes__Ec2.delete_instance` | path param `target` → `Schema__Ec2__Delete__Response` (404 when no match) |
+| Method | Path                                | Handler                                    | Request → Response |
+|--------|-------------------------------------|--------------------------------------------|--------------------|
+| GET    | `/ec2/playwright/list`              | `Routes__Ec2__Playwright.list_instances`   | (no body) → `Schema__Ec2__Instance__List` |
+| GET    | `/ec2/playwright/info/{name}`       | `Routes__Ec2__Playwright.info`             | path `{name}` (deploy-name or instance-id) → `Schema__Ec2__Instance__Info` (404 on miss) |
+| POST   | `/ec2/playwright/create`            | `Routes__Ec2__Playwright.create`           | `Schema__Ec2__Create__Request` → `Schema__Ec2__Create__Response` (deploy_name from body or auto-generated) |
+| POST   | `/ec2/playwright/create/{name}`     | `Routes__Ec2__Playwright.create_named`     | path `{name}` + `Schema__Ec2__Create__Request` → `Schema__Ec2__Create__Response` (path overrides body's `deploy_name`) |
+| DELETE | `/ec2/playwright/delete/{name}`     | `Routes__Ec2__Playwright.delete`           | path `{name}` → `Schema__Ec2__Delete__Response` (404 on miss) |
 
-`Routes__Ec2.delete_instance` and `Routes__Ec2.get_instance` share the same
-URL; the osbot-fast-api path parser normally derives the path from the
-method name, so both methods carry an explicit `__route_path__` attribute
-to let them co-exist on `/instances/{target}` under different verbs.
+The URL shape mirrors the `sp <command> [<name>]` CLI: `/ec2/playwright/`
+is the resource group (Playwright EC2 stack: Playwright service +
+agent_mitmproxy sidecar + headless Chromium), `{command}` is the action,
+`{name}` is the instance handle. `name` accepts either the deploy-name or
+the instance-id — `Ec2__Service.resolve_target` handles both.
+
+Each method carries an explicit `__route_path__` so the handler name and
+the URL path are decoupled (the parser would otherwise derive paths from
+the method name, which can't express `/info/{name}` cleanly).
 
 API-key middleware (`config.enable_api_key = True`) is on by default —
 requests need an `X-API-Key` header matching `FAST_API__AUTH__API_KEY__VALUE`.
@@ -57,7 +65,7 @@ requests need an `X-API-Key` header matching `FAST_API__AUTH__API_KEY__VALUE`.
 
 | File | Role |
 |------|------|
-| `routes/Routes__Ec2.py`                     | `Fast_API__Routes` subclass; three endpoints |
+| `routes/Routes__Ec2__Playwright.py`         | `Fast_API__Routes` subclass; five endpoints under `/ec2/playwright/` (list / info / create / create-named / delete) |
 | `Fast_API__SP__CLI.py`                      | Stand-alone app; `config.enable_api_key = True` |
 | `lambda_handler.py`                         | Mangum wrapper for AWS Lambda deploys |
 
@@ -66,7 +74,7 @@ requests need an `X-API-Key` header matching `FAST_API__AUTH__API_KEY__VALUE`.
 | File | Coverage |
 |------|----------|
 | `tests/unit/.../ec2/service/Ec2__Service__In_Memory.py`     | Real subclass (no mocks); captures `last_create` + `last_deleted` for assertions |
-| `tests/unit/.../fast_api/test_Fast_API__SP__CLI.py`         | 8 TestClient cases — POST/GET/DELETE happy paths, 404 on missing target, 401 on missing API key, invalid input → ≥400 |
+| `tests/unit/.../fast_api/test_Fast_API__SP__CLI.py`         | 10 TestClient cases — list / info-by-name / info-by-id / 404 / create (auto-name) / create-named (path overrides body) / delete / delete-404 / 422 on invalid `deploy_name` / 401 on missing API key |
 
 ## Design notes
 

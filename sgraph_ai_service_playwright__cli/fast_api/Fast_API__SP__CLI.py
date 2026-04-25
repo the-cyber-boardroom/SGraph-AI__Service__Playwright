@@ -17,7 +17,7 @@ from osbot_fast_api.api.Fast_API                                                
 
 from sgraph_ai_service_playwright__cli.ec2.service.Ec2__Service                     import Ec2__Service
 from sgraph_ai_service_playwright__cli.fast_api.exception_handlers                  import register_type_safe_handlers
-from sgraph_ai_service_playwright__cli.fast_api.routes.Routes__Ec2                  import Routes__Ec2
+from sgraph_ai_service_playwright__cli.fast_api.routes.Routes__Ec2__Playwright      import Routes__Ec2__Playwright
 from sgraph_ai_service_playwright__cli.fast_api.routes.Routes__Observability        import Routes__Observability
 from sgraph_ai_service_playwright__cli.fast_api.runtime_version                     import resolve_version
 from sgraph_ai_service_playwright__cli.observability.service.Observability__Service import Observability__Service
@@ -41,5 +41,5 @@ class Fast_API__SP__CLI(Fast_API):
         return Mangum(self.app(), lifespan='off')
 
     def setup_routes(self):
-        self.add_routes(Routes__Ec2           , service=self.ec2_service          )
-        self.add_routes(Routes__Observability , service=self.observability_service)
+        self.add_routes(Routes__Ec2__Playwright , service=self.ec2_service          )
+        self.add_routes(Routes__Observability   , service=self.observability_service)
