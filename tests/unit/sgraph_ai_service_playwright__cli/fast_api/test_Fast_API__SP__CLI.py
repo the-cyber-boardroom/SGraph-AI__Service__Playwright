@@ -90,59 +90,66 @@ class test_Fast_API__SP__CLI(TestCase):
     def _headers(self) -> dict:
         return {API_KEY_NAME: API_KEY_VALUE}
 
-    def test_post_instances__create(self):
-        response = self.client.post('/ec2/instances', headers=self._headers(),
-                                                      json={'stage': 'dev', 'max_hours': 1})
+    def test_post_create__without_name(self):                                       # POST /ec2/playwright/create — auto-generated deploy_name
+        response = self.client.post('/ec2/playwright/create', headers=self._headers(),
+                                                              json={'stage': 'dev', 'max_hours': 1})
         assert response.status_code == 200
         body = response.json()
-        assert body['instance_id']                 == INSTANCE_ID
-        assert body['deploy_name']                 == DEPLOY_NAME
-        assert body['public_ip']                   == IP
-        assert body['preflight']['aws_account']    == '745506449035'
+        assert body['instance_id']                    == INSTANCE_ID
+        assert body['deploy_name']                    == DEPLOY_NAME
+        assert body['public_ip']                      == IP
+        assert body['preflight']['aws_account']       == '745506449035'
         assert body['preflight']['api_key_generated'] is True
-        assert body['api_key_value']                != ''                           # Returned once on create
-        assert str(self.in_memory.last_create.stage) == 'dev'
+        assert body['api_key_value']                  != ''                         # Returned once on create
+        assert str(self.in_memory.last_create.stage)     == 'dev'
         assert int(self.in_memory.last_create.max_hours) == 1
+        assert str(self.in_memory.last_create.deploy_name) == ''                    # No name pinned -> body had none and path had none
 
-    def test_get_instances__list(self):                                             # GET /ec2/instances — sp list equivalent
-        response = self.client.get('/ec2/instances', headers=self._headers())
+    def test_post_create__with_name(self):                                          # POST /ec2/playwright/create/{name} — path name wins over body
+        response = self.client.post('/ec2/playwright/create/pinned-name', headers=self._headers(),
+                                                                          json={'stage': 'dev', 'deploy_name': 'unused-value'})
+        assert response.status_code == 200
+        assert str(self.in_memory.last_create.deploy_name) == 'pinned-name'         # Path overrode the body's 'unused-value'
+
+    def test_get_list(self):                                                        # GET /ec2/playwright/list
+        response = self.client.get('/ec2/playwright/list', headers=self._headers())
         assert response.status_code == 200
         body = response.json()
-        assert body['region']            == 'eu-west-2'
-        assert len(body['instances'])    == 1
+        assert body['region']                      == 'eu-west-2'
+        assert len(body['instances'])              == 1
         assert body['instances'][0]['instance_id'] == INSTANCE_ID
         assert body['instances'][0]['deploy_name'] == DEPLOY_NAME
 
-    def test_get_instances_target__by_deploy_name(self):
-        response = self.client.get(f'/ec2/instances/{DEPLOY_NAME}', headers=self._headers())
+    def test_get_info__by_deploy_name(self):
+        response = self.client.get(f'/ec2/playwright/info/{DEPLOY_NAME}', headers=self._headers())
         assert response.status_code == 200
         body = response.json()
         assert body['instance_id'] == INSTANCE_ID
         assert body['state']       == 'running'
 
-    def test_get_instances_target__by_instance_id(self):
-        response = self.client.get(f'/ec2/instances/{INSTANCE_ID}', headers=self._headers())
+    def test_get_info__by_instance_id(self):
+        response = self.client.get(f'/ec2/playwright/info/{INSTANCE_ID}', headers=self._headers())
         assert response.status_code == 200
         assert response.json()['deploy_name'] == DEPLOY_NAME
 
-    def test_get_instances_target__not_found(self):
-        response = self.client.get('/ec2/instances/nosuch-thing', headers=self._headers())
+    def test_get_info__not_found(self):
+        response = self.client.get('/ec2/playwright/info/nosuch-thing', headers=self._headers())
         assert response.status_code == 404
 
-    def test_delete_instances_target(self):
-        response = self.client.delete(f'/ec2/instances/{DEPLOY_NAME}', headers=self._headers())
+    def test_delete(self):
+        response = self.client.delete(f'/ec2/playwright/delete/{DEPLOY_NAME}', headers=self._headers())
         assert response.status_code == 200
         body = response.json()
         assert body['terminated_instance_ids'] == [INSTANCE_ID]
-        assert body['deploy_name']              == DEPLOY_NAME
+        assert body['deploy_name']             == DEPLOY_NAME
 
-    def test_delete_instances_target__not_found(self):
-        response = self.client.delete('/ec2/instances/nosuch-thing', headers=self._headers())
+    def test_delete__not_found(self):
+        response = self.client.delete('/ec2/playwright/delete/nosuch-thing', headers=self._headers())
         assert response.status_code == 404
 
-    def test_post_instances__rejects_invalid_deploy_name(self):                     # Safe_Str__Deploy_Name regex rejects; exception handler converts ValueError -> 422
-        response = self.client.post('/ec2/instances', headers=self._headers(),
-                                                      json={'deploy_name': 'NOT_VALID!'})
+    def test_post_create__rejects_invalid_deploy_name(self):                        # Safe_Str__Deploy_Name regex rejects; exception handler converts ValueError -> 422
+        response = self.client.post('/ec2/playwright/create', headers=self._headers(),
+                                                              json={'deploy_name': 'NOT_VALID!'})
         assert response.status_code == 422
         body = response.json()
         assert body['detail'][0]['type']      == 'type_safe_value_error'
@@ -151,5 +158,5 @@ class test_Fast_API__SP__CLI(TestCase):
         assert 'Type-safe primitive rejected'    in body['hint']
 
     def test_unauthenticated__is_rejected(self):                                    # Sanity — no header = 401
-        response = self.client.get(f'/ec2/instances/{DEPLOY_NAME}')
+        response = self.client.get(f'/ec2/playwright/info/{DEPLOY_NAME}')
         assert response.status_code == 401
