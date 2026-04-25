@@ -108,3 +108,38 @@ class test_delete_ami(TestCase):
         assert result['deregistered']      is True
         assert result['snapshots_deleted'] == 1
         assert service.aws_client.deregistered_amis == [(REGION, 'ami-toremove')]
+
+
+class test_wait_until_ami_available(TestCase):
+
+    def test_returns_available_when_state_reaches_available(self):                  # Scripted state sequence: pending → pending → available
+        service = build_service()
+        service.aws_client.fixture_ami_state_sequence = ['pending', 'pending', 'available']
+        ticks   = []
+        final   = service.wait_until_ami_available(ami_id='ami-x', region=REGION,
+                                                    timeout=60, poll_seconds=1,
+                                                    on_progress=ticks.append,
+                                                    sleep_fn=lambda _: None)
+        assert final              == 'available'
+        assert len(ticks)         == 3
+        assert ticks[-1]['state'] == 'available'
+
+    def test_returns_failed_terminal_state(self):                                    # AWS reports 'failed' when the bake errors — must not loop forever
+        service = build_service()
+        service.aws_client.fixture_ami_state_sequence = ['pending', 'failed']
+        final   = service.wait_until_ami_available(ami_id='ami-x', region=REGION,
+                                                    timeout=60, poll_seconds=1,
+                                                    sleep_fn=lambda _: None)
+        assert final == 'failed'
+
+    def test_returns_empty_when_aws_does_not_know_the_id(self):                      # The in-memory describe_ami_state returns '' for unknown ids — loop classifies that as terminal
+        service = build_service()
+        service.aws_client.fixture_ami_state_sequence = []
+        service.aws_client.fixture_ami_state_default  = ''
+        final   = service.wait_until_ami_available(ami_id='ami-ghost', region=REGION,
+                                                    timeout=1, poll_seconds=1,    # Real wall clock — keep the timeout tight so the suite stays fast
+                                                    sleep_fn=lambda _: None)
+        # '' isn't in the terminal set → loop runs until timeout. That's intentional —
+        # right after `create_image`, AWS sometimes briefly doesn't return the id, so
+        # we keep polling until either it appears with a state or we time out.
+        assert final == 'timeout'

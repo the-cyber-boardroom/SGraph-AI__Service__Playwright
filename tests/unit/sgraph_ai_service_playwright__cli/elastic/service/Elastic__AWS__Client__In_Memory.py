@@ -44,6 +44,8 @@ class Elastic__AWS__Client__In_Memory(Elastic__AWS__Client):
     fixture_amis        : list                                                      # list_elastic_amis() returns this verbatim
     created_amis        : list                                                      # [(region, instance_id, ...), ...] — captured by create_ami_from_instance
     deregistered_amis   : list                                                      # [(region, ami_id), ...] — captured by deregister_ami
+    fixture_ami_state_sequence: list                                                 # Queue of states returned by describe_ami_state(); pops the head per call
+    fixture_ami_state_default : str  = 'available'                                  # When the sequence is empty
 
     def resolve_latest_al2023_ami(self, region: str) -> str:
         return self.fixture_ami or DEFAULT_FIXTURE_AMI
@@ -130,6 +132,11 @@ class Elastic__AWS__Client__In_Memory(Elastic__AWS__Client):
     def deregister_ami(self, region: str, ami_id: str) -> tuple:
         self.deregistered_amis.append((region, ami_id))
         return True, 1                                                              # 1 snapshot deleted in fixture mode
+
+    def describe_ami_state(self, region: str, ami_id: str) -> str:                  # Tests prime fixture_ami_state_sequence with a list of states; each call pops the head
+        if self.fixture_ami_state_sequence:
+            return str(self.fixture_ami_state_sequence.pop(0))
+        return self.fixture_ami_state_default                                       # Default for tests that don't care about the sequence
 
     def ssm_send_command(self, region, instance_id, commands, timeout=60):          # type: ignore[override]
         self.ssm_calls.append((str(instance_id), list(commands)))
