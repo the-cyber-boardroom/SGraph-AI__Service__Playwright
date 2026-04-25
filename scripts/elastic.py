@@ -168,17 +168,20 @@ def cmd_create(stack_name   : Optional[str] = typer.Argument (None,           he
                instance_type: Optional[str] = typer.Option   (None, '--instance-type', help='EC2 instance type (default t3.medium).'),
                from_ami     : Optional[str] = typer.Option   (None, '--from-ami', help='AMI id (defaults to latest AL2023 via SSM).'),
                max_hours    : int           = typer.Option   (1,    '--max-hours', help='Auto-terminate after N hours. Default: 1. Pass 0 to disable.'),
+               password     : Optional[str] = typer.Option   (None, '--password', help='Elastic password to bake into the stack. Falls back to $SG_ELASTIC_PASSWORD; if neither is set, a random one is generated. Setting this keeps a consistent password across local stacks and any AMIs you bake.'),
                wait         : bool          = typer.Option   (False, '--wait', help='After launch, poll until Kibana is ready (~3 min).'),
                seed         : bool          = typer.Option   (False, '--seed', help='After --wait, bulk-load 10k synthetic logs + create the data view + import the default dashboard. Implies --wait.')):
     """Launch a new ephemeral Elastic+Kibana EC2 stack. Prints ELASTIC_PASSWORD once. With --wait/--seed, runs the full bootstrap in one go."""
     import time as _time
     t0_ms = int(_time.monotonic() * 1000)                                            # Wall clock start — anchors the per-milestone deltas printed at the end
+    pwd_input = password or os.environ.get('SG_ELASTIC_PASSWORD', '')                # --password wins; else fall back to the env var so a single export covers create+seed
     service = build_service()
-    request = Schema__Elastic__Create__Request(stack_name    = stack_name    or '' ,
-                                               region        = region        or '' ,
-                                               instance_type = instance_type or '' ,
-                                               from_ami      = from_ami      or '' ,
-                                               max_hours     = max(int(max_hours), 0))
+    request = Schema__Elastic__Create__Request(stack_name      = stack_name    or '' ,
+                                               region          = region        or '' ,
+                                               instance_type   = instance_type or '' ,
+                                               from_ami        = from_ami      or '' ,
+                                               max_hours       = max(int(max_hours), 0),
+                                               elastic_password= Safe_Str__Elastic__Password(pwd_input) if pwd_input else Safe_Str__Elastic__Password(''))
     response   = service.create(request)
     launch_ms  = int(_time.monotonic() * 1000) - t0_ms                               # AWS run_instances round-trip
     c = Console(highlight=False)
@@ -197,7 +200,8 @@ def cmd_create(stack_name   : Optional[str] = typer.Argument (None,           he
     t.add_row('security-grp' , str(response.security_group_id))
     t.add_row('caller-ip'    , f'{str(response.caller_ip)}/32 (ingress on :443)')
     t.add_row('elastic-user' , str(response.elastic_username))
-    t.add_row('elastic-pass' , str(response.elastic_password))
+    pwd_source = 'from --password' if password else ('from $SG_ELASTIC_PASSWORD' if pwd_input else 'auto-generated')
+    t.add_row('elastic-pass' , f'{str(response.elastic_password)}  [dim]({pwd_source})[/]')
     if max_hours > 0:
         t.add_row('auto-terminate', f'{max_hours}h from boot  [dim](pass --max-hours 0 to disable)[/]')
     else:

@@ -77,7 +77,7 @@ class test_create_ami_from_stack(TestCase):
         assert len(service.aws_client.created_amis) == 1
         captured = service.aws_client.created_amis[0]
         assert captured['stack_name'].startswith('only') or captured['stack_name'] == 'only'
-        assert captured['ami_name'].startswith('sg-elastic-ami-')                   # Default name pattern
+        assert captured['ami_name'].startswith('Ephemeral Kibana')                  # Default name pattern: "Ephemeral Kibana - <stack> - <ts>"
         assert captured['no_reboot'] is True                                        # Default: don't reboot ES while baking
 
     def test_honours_custom_name_and_reboot_flag(self):
