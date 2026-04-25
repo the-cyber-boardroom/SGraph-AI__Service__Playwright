@@ -33,7 +33,8 @@ def build_running_service(probe_sequence):                                      
                                            fixture_instances = {}                   ,
                                            fixture_sg_id     = 'sg-0fixture00000000',
                                            terminated_ids    = []                   ,
-                                           deleted_sg_ids    = []                   )
+                                           deleted_sg_ids    = []                   ,
+                                           ssm_calls         = []                   )
     http = Elastic__HTTP__Client__In_Memory(fixture_kibana_ready   = False          ,
                                             fixture_probe_sequence = list(probe_sequence),
                                             bulk_calls             = []             )

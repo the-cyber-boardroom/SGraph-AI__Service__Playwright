@@ -255,6 +255,96 @@ def cmd_delete(stack_name : Optional[str] = typer.Argument(None, help='Stack nam
 
 # ── seed ───────────────────────────────────────────────────────────────────────
 
+@app.command('connect')
+@aws_error_handler
+def cmd_connect(stack_name: Optional[str] = typer.Argument(None, help='Stack name. Auto-picks when only one stack exists; prompts on multiple.'),
+                region    : Optional[str] = typer.Option (None, '--region')):
+    """Open an interactive SSM shell on the EC2 host (no SSH/key-pair needed)."""
+    import os
+    import shutil
+    import subprocess
+    service    = build_service()
+    stack_name = resolve_stack_name(service, stack_name, region)
+    info       = service.get_stack_info(stack_name = Safe_Str__Elastic__Stack__Name(stack_name),
+                                        region     = region or '')
+    c = Console(highlight=False)
+    if not str(info.instance_id):
+        c.print(f'\n  [yellow]No such stack:[/] {stack_name}\n')
+        raise typer.Exit(1)
+
+    plugin_path = (shutil.which('session-manager-plugin') or
+                   '/usr/local/sessionmanagerplugin/bin/session-manager-plugin')
+    if not os.path.isfile(plugin_path):
+        c.print('\n  [red]✗  session-manager-plugin not found in PATH.[/]')
+        c.print('  Fix with one of:')
+        c.print('    [bold]sudo ln -s /usr/local/sessionmanagerplugin/bin/session-manager-plugin /usr/local/bin/session-manager-plugin[/]')
+        c.print('    [bold]brew install --cask session-manager-plugin[/]\n')
+        raise typer.Exit(1)
+
+    c.print(f'\n  🔌  Opening SSM session → [bold]{stack_name}[/] [dim]({info.instance_id})[/]\n')
+    args = ['aws', 'ssm', 'start-session', '--target', str(info.instance_id)]
+    if str(info.region):
+        args += ['--region', str(info.region)]
+    result = subprocess.run(args, check=False, capture_output=False)
+    if result.returncode != 0:
+        c.print(f'\n  [red]✗  Session ended with code {result.returncode}.[/]')
+        c.print('  [dim]If you saw "Standard_Stream not found", run: brew reinstall --cask session-manager-plugin[/]\n')
+
+
+@app.command('exec', context_settings={'allow_extra_args': True, 'ignore_unknown_options': True})
+@aws_error_handler
+def cmd_exec(ctx        : typer.Context                                                       ,
+             first      : str           = typer.Argument(...,  help='Stack name OR start of the shell command (when only one stack exists).'),
+             cmd        : Optional[str] = typer.Option(None, '--cmd',                          help='Shell command (alternative to positional).'),
+             region     : Optional[str] = typer.Option(None, '--region')                      ,
+             timeout    : int           = typer.Option(60,   '--timeout',                      help='Seconds to wait for the command to complete (min 30).')):
+    """Run a shell command on the EC2 host via SSM and print stdout/stderr.
+
+    Usage:
+      sp elastic exec "docker ps"                   # auto-pick stack, run command
+      sp elastic exec elastic-foo "docker ps"       # explicit stack + command
+      sp elastic exec --cmd "uptime"                # auto-pick stack, command via flag
+    """
+    import shlex
+    extra   = ctx.args or []
+    service = build_service()
+    listing = service.list_stacks(region=region or '')
+    names   = [str(s.stack_name) for s in listing.stacks if str(s.stack_name)]
+
+    if cmd is not None:                                                             # --cmd supplied → first is the stack name (or empty for auto-pick)
+        stack_name = first if first else None
+        shell_cmd  = cmd
+    elif extra:                                                                     # positional command after first; first might be a stack name OR command word
+        if first in names:
+            stack_name = first
+            shell_cmd  = shlex.join(extra)
+        else:
+            stack_name = None
+            shell_cmd  = shlex.join([first] + extra)
+    else:                                                                           # only `first` — treat as command, auto-pick stack
+        stack_name = None
+        shell_cmd  = first
+
+    stack_name = resolve_stack_name(service, stack_name, region)
+    if not shell_cmd:
+        raise typer.BadParameter('Provide a shell command.')
+
+    c = Console(highlight=False)
+    c.print(f'\n  💻  [bold]{stack_name}[/]  [dim]$ {shell_cmd}[/]')
+    result = service.run_on_instance(stack_name = Safe_Str__Elastic__Stack__Name(stack_name),
+                                     command    = shell_cmd                                  ,
+                                     region     = region or ''                               ,
+                                     timeout    = timeout                                    )
+    if str(result.stdout).strip():
+        print(str(result.stdout).rstrip())
+    if str(result.stderr).strip():
+        import sys as _sys
+        print(str(result.stderr).rstrip(), file=_sys.stderr)
+    if not str(result.stdout).strip() and not str(result.stderr).strip():
+        c.print('  [dim](no output)[/]')
+    c.print(f'  [dim]→ status={result.status}  exit={result.exit_code}  duration={result.duration_ms}ms[/]\n')
+
+
 @app.command('seed')
 @aws_error_handler
 def cmd_seed(stack_name : Optional[str] = typer.Argument(None, help='Stack name. Auto-picks when only one stack exists; prompts on multiple.'),

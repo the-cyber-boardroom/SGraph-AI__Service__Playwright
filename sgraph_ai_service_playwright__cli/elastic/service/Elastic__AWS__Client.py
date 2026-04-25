@@ -29,7 +29,8 @@
 #     avoids cosmetic doubles like "elastic-elastic-quiet-fermi".
 # ═══════════════════════════════════════════════════════════════════════════════
 
-from typing                                                                         import Dict, Optional
+import time
+from typing                                                                         import Dict, Optional, Tuple
 
 import boto3                                                                        # EXCEPTION — see module header
 
@@ -203,6 +204,36 @@ class Elastic__AWS__Client(Type_Safe):                                          
             return True
         except Exception:                                                           # Often fails while the instance is still terminating — best effort
             return False
+
+    @type_safe
+    def ssm_send_command(self, region     : str  ,
+                               instance_id: str  ,
+                               commands   : list ,
+                               timeout    : int  = 60
+                          ) -> Tuple[str, str, int, str]:                           # (stdout, stderr, exit_code, status); exit_code = -1 on timeout/error
+        ssm = self.ssm_client(region)
+        try:
+            response   = ssm.send_command(InstanceIds    = [instance_id]          ,
+                                          DocumentName   = 'AWS-RunShellScript'   ,
+                                          Parameters     = {'commands': commands} ,
+                                          TimeoutSeconds = max(30, timeout)       )
+        except Exception as exc:
+            return '', f'SSM send_command failed: {exc}', -1, 'Failed'
+        command_id = response['Command']['CommandId']
+        deadline   = time.time() + timeout + 10
+        while time.time() < deadline:
+            time.sleep(2)
+            try:
+                inv = ssm.get_command_invocation(CommandId=command_id, InstanceId=instance_id)
+            except ssm.exceptions.InvocationDoesNotExist:
+                continue
+            status = str(inv.get('Status', ''))
+            if status not in ('Pending', 'InProgress', 'Delayed'):
+                return (str(inv.get('StandardOutputContent', '')) ,
+                        str(inv.get('StandardErrorContent', ''))  ,
+                        int(inv.get('ResponseCode', -1) or -1)    ,
+                        status                                    )
+        return '', 'Timed out waiting for SSM command result', -1, 'TimedOut'
 
     def build_instance_info(self, details: dict) -> Schema__Elastic__Info:          # Shared mapper used by list + info
         state_raw = details.get('State', {})

@@ -34,6 +34,7 @@ from sgraph_ai_service_playwright__cli.elastic.schemas.Schema__Elastic__Info    
 from sgraph_ai_service_playwright__cli.elastic.schemas.Schema__Elastic__List        import Schema__Elastic__List
 from sgraph_ai_service_playwright__cli.elastic.schemas.Schema__Elastic__Seed__Request    import Schema__Elastic__Seed__Request
 from sgraph_ai_service_playwright__cli.elastic.schemas.Schema__Elastic__Seed__Response   import Schema__Elastic__Seed__Response
+from sgraph_ai_service_playwright__cli.elastic.schemas.Schema__Exec__Result         import Schema__Exec__Result
 from sgraph_ai_service_playwright__cli.elastic.schemas.Schema__Wait__Tick           import Schema__Wait__Tick
 from sgraph_ai_service_playwright__cli.elastic.service.Caller__IP__Detector         import Caller__IP__Detector
 from sgraph_ai_service_playwright__cli.elastic.service.Elastic__AWS__Client         import Elastic__AWS__Client, aws_name_for_stack
@@ -235,6 +236,35 @@ class Elastic__Service(Type_Safe):                                              
                                                batches          = batches             ,
                                                duration_ms      = elapsed_ms          ,
                                                docs_per_second  = rate                )
+
+    @type_safe
+    def run_on_instance(self, stack_name : Safe_Str__Elastic__Stack__Name ,
+                              command    : str                            ,
+                              region     : Safe_Str__AWS__Region          = None ,
+                              timeout    : int                            = 60
+                         ) -> Schema__Exec__Result:
+        resolved = self.resolve_region(region)
+        info     = self.get_stack_info(stack_name = stack_name, region = resolved)
+        result   = Schema__Exec__Result(stack_name  = stack_name                 ,
+                                        instance_id = info.instance_id           ,
+                                        command     = command                    ,
+                                        exit_code   = -1                         ,
+                                        status      = ''                         )
+        if not str(info.instance_id):
+            result.stderr = f'No such stack: {stack_name}'
+            result.status = 'NotFound'
+            return result
+        start = time.monotonic()
+        stdout, stderr, code, status = self.aws_client.ssm_send_command(region      = str(resolved)      ,
+                                                                        instance_id = str(info.instance_id),
+                                                                        commands    = [command]            ,
+                                                                        timeout     = max(timeout, 1)      )
+        result.stdout      = stdout
+        result.stderr      = stderr
+        result.exit_code   = code
+        result.status      = status
+        result.duration_ms = int((time.monotonic() - start) * 1000)
+        return result
 
     def random_stack_name(self) -> str:
         return f'elastic-{secrets.choice(ADJECTIVES)}-{secrets.choice(SCIENTISTS)}'

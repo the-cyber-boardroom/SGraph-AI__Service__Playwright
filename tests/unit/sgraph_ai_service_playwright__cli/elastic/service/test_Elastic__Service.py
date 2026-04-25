@@ -34,7 +34,8 @@ def build_service(kibana_ready: bool = True) -> Elastic__Service:
                                            fixture_instances = {}                  ,
                                            fixture_sg_id     = 'sg-0fixture00000000',
                                            terminated_ids    = []                  ,
-                                           deleted_sg_ids    = []                  )
+                                           deleted_sg_ids    = []                  ,
+                                           ssm_calls         = []                  )
     http = Elastic__HTTP__Client__In_Memory(fixture_kibana_ready   = kibana_ready ,
                                             fixture_probe_sequence = []           ,
                                             bulk_calls             = []           )

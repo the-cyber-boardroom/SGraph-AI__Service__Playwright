@@ -32,6 +32,11 @@ class Elastic__AWS__Client__In_Memory(Elastic__AWS__Client):
     last_launch_ami     : str = ''
     terminated_ids      : list                                                      # Order-preserving record of terminate_instance calls
     deleted_sg_ids      : list
+    ssm_calls           : list                                                      # [(instance_id, commands), ...] — captured for assertions
+    fixture_ssm_stdout  : str = ''                                                  # What the next ssm_send_command returns
+    fixture_ssm_stderr  : str = ''
+    fixture_ssm_exit_code: int = 0
+    fixture_ssm_status  : str = 'Success'
 
     def resolve_latest_al2023_ami(self, region: str) -> str:
         return self.fixture_ami or DEFAULT_FIXTURE_AMI
@@ -93,3 +98,12 @@ class Elastic__AWS__Client__In_Memory(Elastic__AWS__Client):
     def delete_security_group(self, region: str, security_group_id: str) -> bool:
         self.deleted_sg_ids.append(security_group_id)
         return True
+
+    def ssm_send_command(self, region, instance_id, commands, timeout=60):          # type: ignore[override]
+        self.ssm_calls.append((str(instance_id), list(commands)))
+        if instance_id not in self.fixture_instances:                               # No such instance — mirror the real client's "Failed" path
+            return '', f'Unknown instance {instance_id}', -1, 'Failed'
+        return (str(self.fixture_ssm_stdout)        ,
+                str(self.fixture_ssm_stderr)        ,
+                int(self.fixture_ssm_exit_code)     ,
+                str(self.fixture_ssm_status or 'Success'))
