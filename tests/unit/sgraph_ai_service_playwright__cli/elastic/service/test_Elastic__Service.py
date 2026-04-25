@@ -66,7 +66,7 @@ class test_Elastic__Service(TestCase):
         assert str(response.aws_name_tag)      == str(response.stack_name)          # No double-prefix when stack_name already starts with "elastic-"
         assert str(response.region)            == REGION
         assert str(response.ami_id)            == DEFAULT_FIXTURE_AMI
-        assert str(response.instance_type)     == 't3.medium'
+        assert str(response.instance_type)     == 'm6i.xlarge'
         assert str(response.security_group_id) == 'sg-0fixture00000000'
         assert str(response.caller_ip)         == '203.0.113.42'
         assert str(response.elastic_password)  != ''                                # Generated, returned once

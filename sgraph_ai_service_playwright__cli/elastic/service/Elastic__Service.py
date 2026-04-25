@@ -54,7 +54,7 @@ PROBE_MESSAGES = {                                                              
 
 
 DEFAULT_REGION        = 'eu-west-2'
-DEFAULT_INSTANCE_TYPE = 't3.medium'                                                 # 4 GB RAM — comfortable for single-node ES + Kibana + nginx
+DEFAULT_INSTANCE_TYPE = 'm6i.xlarge'                                                # 4 vCPU / 16 GB — matches sp create. t3.medium (4 GB) was tight for ES+Kibana+nginx; Kibana would stall under memory pressure during boot.
 
 ADJECTIVES = ['bold','bright','calm','clever','cool','daring','deep','eager',       # Matches scripts.provision_ec2._random_deploy_name vocabulary
               'fast','fierce','fresh','grand','happy','keen','light','lucky',

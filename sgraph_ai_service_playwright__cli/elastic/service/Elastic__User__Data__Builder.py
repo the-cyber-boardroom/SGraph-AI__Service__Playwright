@@ -34,7 +34,7 @@ from sgraph_ai_service_playwright__cli.elastic.primitives.Safe_Str__Elastic__Sta
 ELASTIC_VERSION = '8.13.4'                                                          # Matches library/docs/ops/v0.1.72__elastic-kibana-ec2.md spec
 KIBANA_VERSION  = '8.13.4'
 NGINX_VERSION   = 'alpine'
-ES_JAVA_OPTS    = '-Xms1g -Xmx1g'                                                   # Fits a t3.medium (4 GB) comfortably; leaves room for Kibana + nginx
+ES_JAVA_OPTS    = '-Xms4g -Xmx4g'                                                   # Default sized for m6i.xlarge (16 GB). Kibana ~1.5 GB + nginx + OS = comfortable on 16 GB. Override via Elastic__User__Data__Builder(es_java_opts=...) for smaller boxes.
 
 
 USER_DATA_TEMPLATE = """\
