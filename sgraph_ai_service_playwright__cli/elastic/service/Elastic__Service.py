@@ -307,6 +307,49 @@ class Elastic__Service(Type_Safe):                                              
                                                dashboard_error    = db_error            )
 
     @type_safe
+    def create_from_ami(self, request: Schema__Elastic__Create__Request) -> Schema__Elastic__Create__Response:
+        # Fast-launch path: minimal user-data (no install steps), AMI already carries
+        # docker-compose + certs + .env + harden. Password is whatever was baked.
+        if not str(request.from_ami):
+            raise ValueError('create_from_ami requires --from-ami AMI-ID')
+        region        = self.resolve_region(request.region)
+        stack_name    = request.stack_name if str(request.stack_name) else Safe_Str__Elastic__Stack__Name(self.random_stack_name())
+        caller_ip     = request.caller_ip  if str(request.caller_ip)  else self.ip_detector.detect()
+        instance_type = str(request.instance_type) or DEFAULT_INSTANCE_TYPE
+        ami_id        = str(request.from_ami)
+        creator       = self.resolve_creator()
+
+        sg_id         = self.aws_client.ensure_security_group(region     = str(region)      ,
+                                                              stack_name = stack_name        ,
+                                                              caller_ip  = caller_ip         ,
+                                                              creator    = creator           )
+        profile_name  = self.aws_client.ensure_instance_profile(str(region))
+        max_hours     = max(int(request.max_hours), 0)
+        user_data     = self.user_data_builder.render_fast(stack_name = stack_name, max_hours = max_hours)
+        instance_id   = self.aws_client.launch_instance(region                = str(region)    ,
+                                                        stack_name            = stack_name     ,
+                                                        ami_id                = ami_id          ,
+                                                        instance_type         = instance_type   ,
+                                                        security_group_id     = sg_id           ,
+                                                        user_data             = user_data       ,
+                                                        caller_ip             = caller_ip       ,
+                                                        instance_profile_name = profile_name    ,
+                                                        creator               = creator         ,
+                                                        max_hours             = max_hours       )
+        return Schema__Elastic__Create__Response(stack_name        = stack_name                                  ,
+                                                 aws_name_tag      = aws_name_for_stack(stack_name)              ,
+                                                 instance_id       = instance_id                                  ,
+                                                 region            = region                                       ,
+                                                 ami_id            = ami_id                                       ,
+                                                 instance_type     = instance_type                                ,
+                                                 security_group_id = sg_id                                        ,
+                                                 caller_ip         = caller_ip                                    ,
+                                                 public_ip         = ''                                           ,
+                                                 kibana_url        = ''                                           ,
+                                                 elastic_password  = Safe_Str__Elastic__Password('')              ,  # Bake-time password lives in the AMI's /opt/sg-elastic/.env — fetch via `sp el exec`
+                                                 state             = Enum__Elastic__State.PENDING                 )
+
+    @type_safe
     def list_amis(self, region: Safe_Str__AWS__Region = None) -> List__Schema__Elastic__AMI__Info:
         resolved = self.resolve_region(region)
         raw_list = self.aws_client.list_elastic_amis(str(resolved))

@@ -285,6 +285,89 @@ def cmd_create(stack_name   : Optional[str] = typer.Argument (None,           he
     c.print(f'    export SG_ELASTIC_PASSWORD={pwd}\n')
 
 
+@app.command('create-from-ami')
+@aws_error_handler
+def cmd_create_from_ami(ami_id        : str           = typer.Argument(...,         help='AMI id to launch (use `sp el ami list` to find one).'),
+                         stack_name    : Optional[str] = typer.Argument(None,        help='Stack name (auto-generated if omitted).'),
+                         region        : Optional[str] = typer.Option  (None, '--region'),
+                         instance_type : Optional[str] = typer.Option  (None, '--instance-type'),
+                         max_hours     : int           = typer.Option  (1,    '--max-hours', help='Auto-terminate after N hours. Default: 1. Pass 0 to disable.'),
+                         wait          : bool          = typer.Option  (False, '--wait', help='Poll until Kibana is ready (~30-60s on a baked AMI).')):
+    """Launch an EC2 stack from a pre-baked AMI. Skips the install user-data — AMI already carries docker-compose, certs, .env, and the harden script. Password is baked into the AMI; fetch it via `sp el exec STACK -- 'cat /opt/sg-elastic/.env'`."""
+    import time as _time
+    t0_ms   = int(_time.monotonic() * 1000)
+    service = build_service()
+    request = Schema__Elastic__Create__Request(stack_name    = stack_name    or '' ,
+                                               region        = region        or '' ,
+                                               instance_type = instance_type or '' ,
+                                               from_ami      = ami_id              ,
+                                               max_hours     = max(int(max_hours), 0))
+    response   = service.create_from_ami(request)
+    launch_ms  = int(_time.monotonic() * 1000) - t0_ms
+    c = Console(highlight=False)
+    c.print()
+    c.print(f'  [bold]Fast-launched from AMI[/]  [dim](state: {response.state})[/]')
+    c.print()
+    t = Table(show_header=False, box=None, padding=(0, 2))
+    t.add_column(style='dim', justify='right')
+    t.add_column(style='bold')
+    t.add_row('stack-name'   , str(response.stack_name      ))
+    t.add_row('instance-id'  , str(response.instance_id     ))
+    t.add_row('region'       , str(response.region          ))
+    t.add_row('instance-type', str(response.instance_type   ))
+    t.add_row('from-ami'     , str(response.ami_id          ))
+    t.add_row('security-grp' , str(response.security_group_id))
+    t.add_row('caller-ip'    , f'{str(response.caller_ip)}/32 (ingress on :443)')
+    t.add_row('elastic-user' , 'elastic')
+    t.add_row('elastic-pass' , '[dim]baked into AMI — fetch via `sp el exec`[/]')
+    if max_hours > 0:
+        t.add_row('auto-terminate', f'{max_hours}h from boot  [dim](pass --max-hours 0 to disable)[/]')
+    else:
+        t.add_row('auto-terminate', '[yellow]disabled[/]')
+    c.print(t)
+    c.print()
+    c.print('  [bold]Get the elastic password[/]:')
+    c.print(f'    sp el exec {str(response.stack_name)} -- "grep ELASTIC_PASSWORD /opt/sg-elastic/.env"')
+    c.print()
+
+    if not wait:
+        c.print('  [bold]Next steps[/]:')
+        c.print(f'    sp elastic wait {str(response.stack_name)}        [dim]# typically 30-60s on a baked AMI[/]\n')
+        return
+
+    from rich.status                                                                import Status
+    stack_str   = str(response.stack_name)
+    c.print(f'  [bold]Waiting for Kibana[/]  [dim](polling every 5s, up to 300s — baked AMIs typically come up in 30-60s)[/]')
+    milestones_ms = {'es_ready': None, 'kibana_ready': None}
+    wait_t0_ms    = int(_time.monotonic() * 1000)
+    status = Status('initialising probe...', console=c, spinner='dots')
+    status.start()
+    try:
+        def on_tick(tick):
+            secs    = tick.elapsed_ms // 1000
+            es_str  = str(tick.elastic_probe)
+            kb_str  = str(tick.probe)
+            wall_ms = (wait_t0_ms - t0_ms) + tick.elapsed_ms
+            if es_str in ('yellow', 'green') and milestones_ms['es_ready']     is None: milestones_ms['es_ready']     = wall_ms
+            if kb_str == 'ready'             and milestones_ms['kibana_ready'] is None: milestones_ms['kibana_ready'] = wall_ms
+            status.update(f'[dim][{secs:>3}s  #{tick.attempt:02d}][/]  '
+                          f'state=[bold]{tick.info.state}[/]  '
+                          f'es=[bold]{tick.elastic_probe}[/]  '
+                          f'kibana=[bold]{tick.probe}[/]  — {tick.message}')
+        info = service.wait_until_ready(stack_name      = Safe_Str__Elastic__Stack__Name(stack_str),
+                                        timeout         = 300                                       ,  # AMIs reuse on-disk state — much faster than fresh install
+                                        poll_seconds    = 5                                         ,
+                                        on_progress     = on_tick                                   )
+    finally:
+        status.stop()
+    wait_done_ms = int(_time.monotonic() * 1000) - t0_ms
+    if str(info.state) != 'ready':
+        c.print(f'  [red]✗[/]  Stack did not reach ready (state={info.state})  [dim]— `sp el info {stack_str}` for details[/]\n')
+        raise typer.Exit(2)
+    c.print(f'  [green]✓[/]  Kibana is ready at [bold]{str(info.kibana_url)}[/]\n')
+    render_bootstrap_stats(c, t0_ms, launch_ms, milestones_ms, wait_done_ms)
+
+
 # ── list ───────────────────────────────────────────────────────────────────────
 
 @app.command('list')
