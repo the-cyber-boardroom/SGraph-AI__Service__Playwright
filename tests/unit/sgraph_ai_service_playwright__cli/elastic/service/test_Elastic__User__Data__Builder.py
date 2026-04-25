@@ -79,3 +79,22 @@ class test_Elastic__User__Data__Builder(TestCase):
         assert es_up        >= 0
         assert token_create >  es_up
         assert kibana_up    >  token_create
+
+    def test_jq_installed_for_harden_script(self):                                   # The boot-time harden uses jq to merge disabledFeatures into the existing space body
+        assert 'dnf install -y docker openssl jq' in self.rendered
+
+    def test_harden_script_runs_after_kibana_starts(self):                           # Harden waits for Kibana then PUTs disabledFeatures — bakes the side-nav cleanup into boot so AMI snapshots are self-contained
+        kibana_up = self.rendered.find('up -d kibana nginx')
+        harden    = self.rendered.find('harden-kibana.sh')
+        assert kibana_up >= 0
+        assert harden    >  kibana_up
+        # Background runner so cloud-init doesn't block on the 60-90s Kibana boot
+        assert 'nohup /opt/sg-elastic/harden-kibana.sh' in self.rendered
+
+    def test_harden_disables_observability_security_and_fleet(self):                 # The whole point: hide Observability + Security + Fleet from the side-nav at first boot
+        for feature in ('observability', 'siem', 'fleet', 'ml', 'maps'):
+            assert f'"{feature}"' in self.rendered, f'expected disabledFeatures to include {feature}'
+
+    def test_harden_uses_spaces_api_with_basic_auth(self):
+        assert '/api/spaces/space/default'   in self.rendered
+        assert '-u "elastic:${ELASTIC_PASSWORD}"' in self.rendered                   # Basic-auth via the env-file password — same one minted at boot

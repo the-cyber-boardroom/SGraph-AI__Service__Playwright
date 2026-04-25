@@ -29,6 +29,7 @@ from sgraph_ai_service_playwright__cli.elastic.schemas.Schema__Kibana__Import__R
 from sgraph_ai_service_playwright__cli.elastic.schemas.Schema__Kibana__Saved_Object  import Schema__Kibana__Saved_Object
 from sgraph_ai_service_playwright__cli.elastic.service.Default__Dashboard__Generator import Default__Dashboard__Generator
 from sgraph_ai_service_playwright__cli.elastic.service.Elastic__HTTP__Client        import Elastic__HTTP__Client
+from sgraph_ai_service_playwright__cli.elastic.service.Kibana__Disabled_Features    import DEFAULT_DISABLED_FEATURES
 
 
 KBN_XSRF_HEADER = {'kbn-xsrf': 'true'}                                              # Required for every non-GET Kibana API call (CSRF guard)
@@ -226,19 +227,9 @@ class Kibana__Saved_Objects__Client(Elastic__HTTP__Client):                     
                                       space_id : str = 'default'                    ,
                                       features : list = None
                                 ) -> Tuple[bool, int, str]:                         # (ok, http_status, error)
-        # Default feature list covers the noisy solution groups: Observability, Security,
-        # plus heavy management-only features we don't need for the slim "Discover +
-        # Dashboard + Index Management" UX.
-        default_features = ['observability', 'apm', 'infrastructure', 'logs',
-                             'uptime', 'siem', 'securitySolutionAttackDiscovery',
-                             'securitySolutionAssistant', 'securitySolutionCases',
-                             'securitySolutionTimeline', 'securitySolutionNotes',
-                             'fleet', 'fleetv2', 'osquery',
-                             'ml', 'maps', 'graph', 'canvas',
-                             'enterpriseSearch', 'searchInferenceEndpoints',
-                             'searchPlayground', 'searchSynonyms', 'searchQueryRules',
-                             'slo', 'cases', 'observabilityCases', 'generalCases']
-        target_features = list(features) if features is not None else default_features
+        # Default list lives in Kibana__Disabled_Features.DEFAULT_DISABLED_FEATURES so the
+        # cloud-init harden script and this runtime fallback stay in sync.
+        target_features = list(features) if features is not None else list(DEFAULT_DISABLED_FEATURES)
 
         # PUT /api/spaces/space/<id> requires the existing space body — fetch first to preserve name/description
         get_url     = base_url.rstrip('/') + f'/api/spaces/space/{space_id}'

@@ -29,6 +29,7 @@ from osbot_utils.type_safe.type_safe_core.decorators.type_safe                  
 
 from sgraph_ai_service_playwright__cli.elastic.primitives.Safe_Str__Elastic__Password    import Safe_Str__Elastic__Password
 from sgraph_ai_service_playwright__cli.elastic.primitives.Safe_Str__Elastic__Stack__Name import Safe_Str__Elastic__Stack__Name
+from sgraph_ai_service_playwright__cli.elastic.service.Kibana__Disabled_Features    import DEFAULT_DISABLED_FEATURES
 
 
 ELASTIC_VERSION = '8.13.4'                                                          # Matches library/docs/ops/v0.1.72__elastic-kibana-ec2.md spec
@@ -50,7 +51,7 @@ echo "=== SG Elastic boot at $(date) — stack={stack_name} ==="
 
 # ── Docker + Compose plugin ────────────────────────────────────────────────────
 dnf update -y
-dnf install -y docker openssl
+dnf install -y docker openssl jq
 systemctl enable --now docker
 usermod -aG docker ec2-user
 mkdir -p /usr/local/lib/docker/cli-plugins
@@ -234,6 +235,36 @@ umask 022
 # 4) Start Kibana + nginx now that the token is in .env
 docker compose --env-file /opt/sg-elastic/.env up -d kibana nginx
 
+# 5) Background harden: once Kibana is reachable, hide the unused solution groups
+#    (Observability, Security, Fleet, ML, Maps, ...) from the default space's
+#    side-nav. Stored in the .kibana index, so AMI snapshots taken AFTER this
+#    runs are self-contained — no follow-up CLI step on instances launched from
+#    the AMI. Idempotent: re-running just re-applies the same disabledFeatures.
+cat > /opt/sg-elastic/harden-kibana.sh <<'EOF_HARDEN'
+#!/bin/bash
+set -e
+# .env carries ELASTIC_PASSWORD
+set -a; source /opt/sg-elastic/.env; set +a
+DISABLED_FEATURES_JSON='{disabled_features_json}'
+echo "[$(date --iso-8601=seconds)] [harden] Waiting for Kibana /api/status ..."
+for i in $(seq 1 120); do
+    if curl -sfk -u "elastic:${{ELASTIC_PASSWORD}}" http://localhost:5601/api/status >/dev/null 2>&1; then
+        echo "[$(date --iso-8601=seconds)] [harden] Kibana up — applying disabledFeatures"
+        SPACE=$(curl -sfk -u "elastic:${{ELASTIC_PASSWORD}}" http://localhost:5601/api/spaces/space/default)
+        UPDATED=$(echo "$SPACE" | jq --argjson df "$DISABLED_FEATURES_JSON" '.disabledFeatures = $df')
+        echo "$UPDATED" | curl -sfk -X PUT -u "elastic:${{ELASTIC_PASSWORD}}" \
+            -H 'Content-Type: application/json' -H 'kbn-xsrf: true' \
+            -d @- http://localhost:5601/api/spaces/space/default
+        echo "[$(date --iso-8601=seconds)] [harden] Side-nav hardened"
+        exit 0
+    fi
+    sleep 5
+done
+echo "[$(date --iso-8601=seconds)] [harden] WARN: Kibana never came up; harden skipped"
+EOF_HARDEN
+chmod +x /opt/sg-elastic/harden-kibana.sh
+nohup /opt/sg-elastic/harden-kibana.sh > /var/log/sg-elastic-harden.log 2>&1 &
+
 echo "=== SG Elastic start complete at $(date) ==="
 echo "OK $(date --iso-8601=seconds)" > "$BOOT_STATUS_FILE"
 trap - EXIT
@@ -262,11 +293,14 @@ class Elastic__User__Data__Builder(Type_Safe):
                      elastic_password : Safe_Str__Elastic__Password    ,
                      max_hours        : int                            = 0  # 0 disables auto-terminate; the CLI defaults to 1h via Schema__Elastic__Create__Request
                 ) -> str:
-        shutdown_section = SHUTDOWN_SECTION_TEMPLATE.format(max_hours=int(max_hours)) if int(max_hours) > 0 else ''
-        return USER_DATA_TEMPLATE.format(stack_name       = str(stack_name      )  ,
-                                         elastic_password = str(elastic_password)  ,
-                                         elastic_version  = str(self.elastic_version),
-                                         kibana_version   = str(self.kibana_version ),
-                                         nginx_version    = str(self.nginx_version  ),
-                                         es_java_opts     = str(self.es_java_opts   ),
-                                         shutdown_section = shutdown_section          )
+        import json as _json
+        shutdown_section       = SHUTDOWN_SECTION_TEMPLATE.format(max_hours=int(max_hours)) if int(max_hours) > 0 else ''
+        disabled_features_json = _json.dumps(DEFAULT_DISABLED_FEATURES)              # Embedded into the bash harden script as a literal JSON array
+        return USER_DATA_TEMPLATE.format(stack_name             = str(stack_name      )  ,
+                                         elastic_password       = str(elastic_password)  ,
+                                         elastic_version        = str(self.elastic_version),
+                                         kibana_version         = str(self.kibana_version ),
+                                         nginx_version          = str(self.nginx_version  ),
+                                         es_java_opts           = str(self.es_java_opts   ),
+                                         shutdown_section       = shutdown_section          ,
+                                         disabled_features_json = disabled_features_json    )

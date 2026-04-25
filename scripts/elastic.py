@@ -473,7 +473,7 @@ def cmd_exec(ctx        : typer.Context                                         
 @aws_error_handler
 def cmd_harden(stack_name : Optional[str] = typer.Argument(None, help='Stack name. Auto-picks when only one stack exists; prompts on multiple.'),
                password   : Optional[str] = typer.Option  (None, '--password', help='Elastic password (else $SG_ELASTIC_PASSWORD).')):
-    """Hide unused Kibana solution groups (Observability, Security, Fleet, ML, Maps, ...) from the side-nav. Idempotent — safe to re-run."""
+    """Hide unused Kibana solution groups (Observability, Security, Fleet, ML, Maps, ...) from the side-nav. Stacks created on or after 2026-04-25 do this at boot — this command is a fallback for older AMIs or for re-applying. Idempotent."""
     if not password and not os.environ.get('SG_ELASTIC_PASSWORD'):
         c = Console(highlight=False)
         c.print('\n  [yellow]⚠[/]  SG_ELASTIC_PASSWORD is not set. Pass --password or export it first.\n')
