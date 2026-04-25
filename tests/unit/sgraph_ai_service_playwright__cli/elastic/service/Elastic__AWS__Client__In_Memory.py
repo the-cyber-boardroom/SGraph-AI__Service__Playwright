@@ -37,9 +37,14 @@ class Elastic__AWS__Client__In_Memory(Elastic__AWS__Client):
     fixture_ssm_stderr  : str = ''
     fixture_ssm_exit_code: int = 0
     fixture_ssm_status  : str = 'Success'
+    fixture_profile_name: str = 'sg-elastic-ec2'                                    # Returned by ensure_instance_profile()
+    last_launch_profile : str = ''                                                  # Captured for assertions on launch_instance(IamInstanceProfile.Name)
 
     def resolve_latest_al2023_ami(self, region: str) -> str:
         return self.fixture_ami or DEFAULT_FIXTURE_AMI
+
+    def ensure_instance_profile(self, region: str) -> str:
+        return self.fixture_profile_name
 
     def ensure_security_group(self, region    : str                          ,
                                     stack_name: Safe_Str__Elastic__Stack__Name,
@@ -49,17 +54,19 @@ class Elastic__AWS__Client__In_Memory(Elastic__AWS__Client):
         self.last_sg_caller_ip = str(caller_ip)
         return self.fixture_sg_id or 'sg-0fixture00000000'
 
-    def launch_instance(self, region        : str                          ,
-                              stack_name    : Safe_Str__Elastic__Stack__Name,
-                              ami_id        : str                           ,
-                              instance_type : str                           ,
-                              security_group_id: str                        ,
-                              user_data     : str                           ,
-                              caller_ip     : Safe_Str__IP__Address         ,
-                              creator       : str                           = ''
+    def launch_instance(self, region                : str                          ,
+                              stack_name            : Safe_Str__Elastic__Stack__Name,
+                              ami_id                : str                           ,
+                              instance_type         : str                           ,
+                              security_group_id     : str                           ,
+                              user_data             : str                           ,
+                              caller_ip             : Safe_Str__IP__Address         ,
+                              instance_profile_name : str                           ,
+                              creator               : str                           = ''
                          ) -> str:
         self.last_launch_user_data = user_data
         self.last_launch_ami       = ami_id
+        self.last_launch_profile   = str(instance_profile_name)
         suffix      = f'{len(self.fixture_instances):017x}'                         # Stable, unique 17-hex suffix per launch
         instance_id = f'i-{suffix}'
         details = {'InstanceId'  : instance_id                                       ,

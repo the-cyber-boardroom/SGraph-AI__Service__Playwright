@@ -90,6 +90,11 @@ class test_Elastic__Service(TestCase):
         service.create(Schema__Elastic__Create__Request(region=REGION))
         assert service.aws_client.last_sg_caller_ip == '203.0.113.42'
 
+    def test_create__attaches_iam_instance_profile(self):                           # Required for SSM connect/exec; without this AWS returns TargetNotConnected
+        service = build_service()
+        service.create(Schema__Elastic__Create__Request(region=REGION))
+        assert service.aws_client.last_launch_profile == 'sg-elastic-ec2'
+
     def test_create__user_data_contains_password_and_stack_name(self):
         service  = build_service()
         response = service.create(Schema__Elastic__Create__Request(stack_name='ck-1', region=REGION))

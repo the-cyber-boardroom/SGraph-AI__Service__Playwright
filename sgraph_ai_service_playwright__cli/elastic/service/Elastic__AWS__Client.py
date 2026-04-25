@@ -29,6 +29,7 @@
 #     avoids cosmetic doubles like "elastic-elastic-quiet-fermi".
 # ═══════════════════════════════════════════════════════════════════════════════
 
+import json
 import time
 from typing                                                                         import Dict, Optional, Tuple
 
@@ -53,6 +54,16 @@ TAG_CREATOR_KEY     = 'sg:creator'
 AL2023_SSM_PARAMETER = '/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64'
 
 KIBANA_PORT_EXTERNAL = 443                                                          # nginx TLS; serves Kibana at / and ES at /_elastic/*
+
+INSTANCE_PROFILE_NAME = 'sg-elastic-ec2'                                            # IAM role + instance profile share the same name (single-purpose: AmazonSSMManagedInstanceCore for connect/exec)
+SSM_MANAGED_POLICY_ARN = 'arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore'
+
+EC2_TRUST_POLICY = {                                                                # AssumeRolePolicyDocument for an EC2-only role
+    'Version'  : '2012-10-17',
+    'Statement': [{'Effect'   : 'Allow'                                  ,
+                   'Principal': {'Service': 'ec2.amazonaws.com'}         ,
+                   'Action'   : 'sts:AssumeRole'                         }]
+}
 
 
 def instance_tag(details: dict, key: str) -> str:                                   # Helper mirroring scripts.provision_ec2._instance_tag
@@ -88,6 +99,42 @@ class Elastic__AWS__Client(Type_Safe):                                          
 
     def ssm_client(self, region: str):
         return boto3.client('ssm', region_name=region)
+
+    def iam_client(self, region: str):                                              # IAM is a global service; region is ignored but kept for parameter symmetry
+        return boto3.client('iam', region_name=region)
+
+    @type_safe
+    def ensure_instance_profile(self, region: str) -> str:                          # Idempotent: ensure role + instance profile + SSM policy attachment exist; returns profile name
+        iam     = self.iam_client(region)
+        name    = INSTANCE_PROFILE_NAME
+        not_found = iam.exceptions.NoSuchEntityException
+
+        try:                                                                        # 1) IAM role
+            iam.get_role(RoleName=name)
+        except not_found:
+            iam.create_role(RoleName                  = name                          ,
+                            AssumeRolePolicyDocument = json.dumps(EC2_TRUST_POLICY)   ,
+                            Description              = 'SG ephemeral elastic — SSM agent access')
+
+        try:                                                                        # 2) AmazonSSMManagedInstanceCore attachment (idempotent — attach is no-op if already there)
+            iam.attach_role_policy(RoleName=name, PolicyArn=SSM_MANAGED_POLICY_ARN)
+        except Exception:                                                           # AWS doesn't error on already-attached, but other CIs / mocks might
+            pass
+
+        try:                                                                        # 3) Instance profile
+            iam.get_instance_profile(InstanceProfileName=name)
+        except not_found:
+            iam.create_instance_profile(InstanceProfileName=name)
+            iam.add_role_to_instance_profile(InstanceProfileName=name, RoleName=name)
+
+        try:                                                                        # 4) Make sure the role is in the profile (separate call, in case profile pre-existed without role)
+            profile = iam.get_instance_profile(InstanceProfileName=name)
+            roles   = profile.get('InstanceProfile', {}).get('Roles', [])
+            if not any(r.get('RoleName') == name for r in roles):
+                iam.add_role_to_instance_profile(InstanceProfileName=name, RoleName=name)
+        except Exception:
+            pass
+        return name
 
     @type_safe
     def resolve_latest_al2023_ami(self, region: str) -> str:
@@ -136,17 +183,18 @@ class Elastic__AWS__Client(Type_Safe):                                          
         return sg_id
 
     @type_safe
-    def launch_instance(self, region        : str                          ,
-                              stack_name    : Safe_Str__Elastic__Stack__Name,
-                              ami_id        : str                           ,
-                              instance_type : str                           ,
-                              security_group_id: str                        ,
-                              user_data     : str                           ,
-                              caller_ip     : Safe_Str__IP__Address         ,
-                              creator       : str                           = ''
+    def launch_instance(self, region                : str                          ,
+                              stack_name            : Safe_Str__Elastic__Stack__Name,
+                              ami_id                : str                           ,
+                              instance_type         : str                           ,
+                              security_group_id     : str                           ,
+                              user_data             : str                           ,
+                              caller_ip             : Safe_Str__IP__Address         ,
+                              instance_profile_name : str                           ,  # e.g. INSTANCE_PROFILE_NAME — required for SSM connect/exec
+                              creator               : str                           = ''
                          ) -> str:
         ec2    = self.ec2_client(region)
-        result = ec2.run_instances(
+        kwargs = dict(
             ImageId          = ami_id                                    ,
             InstanceType     = instance_type                             ,
             MinCount         = 1                                          ,
@@ -155,8 +203,19 @@ class Elastic__AWS__Client(Type_Safe):                                          
             UserData         = user_data                                  ,
             TagSpecifications=[{
                 'ResourceType': 'instance',
-                'Tags'        : self.build_tags(stack_name, caller_ip, creator)}]
+                'Tags'        : self.build_tags(stack_name, caller_ip, creator)}],
+            IamInstanceProfile = {'Name': str(instance_profile_name)}     ,  # SSM agent uses this role to register with Systems Manager
         )
+        for attempt in range(3):                                                    # IAM is eventually consistent — retry on InvalidParameterValue mentioning the profile
+            try:
+                result = ec2.run_instances(**kwargs)
+                break
+            except Exception as exc:
+                msg = str(exc)
+                if attempt < 2 and 'InvalidParameterValue' in msg and 'instance profile' in msg.lower():
+                    time.sleep(5)
+                    continue
+                raise
         instances = result.get('Instances', [])
         if not instances:
             return ''
