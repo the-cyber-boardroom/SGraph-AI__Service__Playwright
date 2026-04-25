@@ -106,6 +106,26 @@ class Elastic__HTTP__Client(Type_Safe):
         return Enum__Kibana__Probe__Status.UNKNOWN
 
     @type_safe
+    def delete_index(self, base_url : str ,                                         # DELETE /_elastic/<index> via the nginx rewrite. Idempotent: 404 collapses to "did not exist".
+                           username : str ,
+                           password : str ,
+                           index    : str
+                       ) -> Tuple[bool, int, str]:                                  # (deleted, http_status, error_message)
+        import base64
+        if not index:
+            return False, 0, 'no index name'
+        auth_token = base64.b64encode(f'{username}:{password}'.encode()).decode()
+        url        = base_url.rstrip('/') + f'/_elastic/{index}'
+        headers    = {'Authorization': f'Basic {auth_token}'}
+        response   = self.request('DELETE', url, headers=headers)
+        status     = int(response.status_code)
+        if status == 200:
+            return True, status, ''
+        if status == 404:
+            return False, status, ''                                                # No such index — treat as success-no-op
+        return False, status, f'HTTP {status}: {(response.text or "")[:500]}'
+
+    @type_safe
     def bulk_post(self, base_url : str                          ,
                         username : str                          ,
                         password : str                          ,
