@@ -32,6 +32,15 @@ from sgraph_ai_service_playwright__cli.elastic.service.Elastic__Service         
 DEBUG_TRACE = False                                                                 # Toggled by the --debug callback below; aws_error_handler reads this on each error
 
 
+def join_command_args_for_shell(parts: list) -> str:                                # `sp el exec` shell-command joiner. shlex.join wraps a single pre-composed argument in quotes ("'grep X file'") which the remote shell then treats as the literal command path. When the user passed one quoted string, use it as-is; otherwise shlex.join handles per-arg escaping for the multi-word case.
+    import shlex
+    if not parts:
+        return ''
+    if len(parts) == 1:
+        return parts[0]
+    return shlex.join(parts)
+
+
 def humanize_uptime(seconds: int) -> str:                                            # Compact "3h 12m" / "47m" / "12s" — no calendar lib, deliberately rough
     if seconds <= 0:
         return '—'
@@ -681,10 +690,10 @@ def cmd_exec(ctx        : typer.Context                                         
     elif extra:                                                                     # positional command after first; first might be a stack name OR command word
         if first in names:
             stack_name = first
-            shell_cmd  = shlex.join(extra)
+            shell_cmd  = join_command_args_for_shell(extra)
         else:
             stack_name = None
-            shell_cmd  = shlex.join([first] + extra)
+            shell_cmd  = join_command_args_for_shell([first] + extra)
     else:                                                                           # only `first` — treat as command, auto-pick stack
         stack_name = None
         shell_cmd  = first
