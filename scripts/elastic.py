@@ -231,16 +231,29 @@ def cmd_wait(stack_name : Optional[str] = typer.Argument(None, help='Stack name.
     c          = Console(highlight=False)
     c.print(f'\n  [bold]Waiting for stack[/] [cyan]{stack_name}[/]  '
             f'[dim](polling every {poll_seconds}s, up to {timeout}s total)[/]')
+
+    milestones   = {'first_running'       : None,                                   # EC2 instance enters "running"
+                    'first_upstream_down' : None,                                   # nginx answers but Kibana container still booting (502/503)
+                    'first_booting'       : None,                                   # Kibana answered but not 200 yet
+                    'first_ready'         : None}                                   # Kibana /api/status 200
+    tick_count   = {'n': 0}
+
     status = Status('initialising probe...', console=c, spinner='dots')
     status.start()
     try:
         def on_tick(tick):
+            tick_count['n'] = tick.attempt
+            state_str = str(tick.info.state)
+            probe_str = str(tick.probe)
+            if state_str == 'running'        and milestones['first_running']       is None: milestones['first_running']       = tick.elapsed_ms
+            if probe_str == 'upstream-down'  and milestones['first_upstream_down'] is None: milestones['first_upstream_down'] = tick.elapsed_ms
+            if probe_str == 'booting'        and milestones['first_booting']       is None: milestones['first_booting']       = tick.elapsed_ms
+            if probe_str == 'ready'          and milestones['first_ready']         is None: milestones['first_ready']         = tick.elapsed_ms
             ip      = str(tick.info.public_ip) or '—'
-            state   = str(tick.info.state)
             secs    = tick.elapsed_ms // 1000
             status.update(f'[dim][{secs:>3}s  #{tick.attempt:02d}][/]  '
-                          f'state=[bold]{state}[/]  ip={ip}  '
-                          f'probe=[bold]{tick.probe}[/]  — {tick.message}')
+                          f'state=[bold]{state_str}[/]  ip={ip}  '
+                          f'probe=[bold]{probe_str}[/]  — {tick.message}')
         info = service.wait_until_ready(stack_name  = Safe_Str__Elastic__Stack__Name(stack_name),
                                         region      = region or ''                              ,
                                         timeout     = timeout                                   ,
@@ -248,11 +261,30 @@ def cmd_wait(stack_name : Optional[str] = typer.Argument(None, help='Stack name.
                                         on_progress = on_tick                                   )
     finally:
         status.stop()
+
+    def fmt_ms(ms):                                                                 # "—" when the milestone was never reached within the wait window
+        if ms is None:
+            return '[dim]—[/]'
+        secs = ms // 1000
+        return f'[bold]{secs:>3}s[/]  [dim]({ms} ms)[/]'
+
     if str(info.state) == 'ready':
-        c.print(f'  ✅  Kibana is ready at [bold]{str(info.kibana_url)}[/]\n')
+        c.print(f'  ✅  Kibana is ready at [bold]{str(info.kibana_url)}[/]')
     else:
         c.print(f'  ❌  Stack {stack_name} not ready (state: {info.state})  '
-                f'[dim]— re-run `sp elastic wait` or `sp elastic info` for details[/]\n')
+                f'[dim]— re-run `sp elastic wait` or `sp elastic info` for details[/]')
+
+    t = Table(show_header=False, box=None, padding=(0, 2))
+    t.add_column(style='dim', justify='right')
+    t.add_column()
+    t.add_row('state → running'       , fmt_ms(milestones['first_running']      ))
+    t.add_row('nginx up (502/503)'    , fmt_ms(milestones['first_upstream_down']))
+    t.add_row('kibana booting (<200)' , fmt_ms(milestones['first_booting']      ))
+    t.add_row('kibana ready (200)'    , fmt_ms(milestones['first_ready']        ))
+    t.add_row('total polls / time'    , f'[bold]{tick_count["n"]}[/] polls over [bold]{info.state}[/] — see above')
+    c.print()
+    c.print(t)
+    c.print()
 
 
 # ── delete ─────────────────────────────────────────────────────────────────────

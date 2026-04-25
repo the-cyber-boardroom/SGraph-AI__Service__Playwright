@@ -92,7 +92,7 @@ class Elastic__HTTP__Client(Type_Safe):
         body_lines = []
         for doc in docs:
             body_lines.append(json.dumps({'index': {'_index': index}}))
-            body_lines.append(doc.json())                                           # Type_Safe schemas serialise via .json()
+            body_lines.append(json.dumps(doc.json()))                               # Type_Safe .json() returns a dict, not a string — wrap with json.dumps() to produce the NDJSON line
         body = ('\n'.join(body_lines) + '\n').encode('utf-8')
 
         response = self.request('POST', url, headers=headers, data=body)
