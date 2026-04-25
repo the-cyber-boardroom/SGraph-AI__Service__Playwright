@@ -313,7 +313,12 @@ jobs:
   #              upload + env flip; the freshly-provisioned Lambda picks up
   #              the matching code on first cold start.
   #
-  #   Gated on code-deploy-needed so doc-only PRs skip it.
+  #   Gated on code-deploy-needed so doc-only / workflow-only PRs skip it.
+  #   workflow_dispatch is the escape hatch: a manual run always deploys
+  #   whatever's at the current sgraph_ai_service_playwright/version (no
+  #   version bump - increment-tag stays push-only). Use it to recover
+  #   from an out-of-sync state where the version file moved but the
+  #   Lambda's AGENTIC_APP_VERSION did not.
   # ════════════════════════════════════════════════════════════════════════════
   deploy-sp-cli-code:
     name: "Deploy SP CLI code (S3 zip + AGENTIC_APP_VERSION flip)"
@@ -324,7 +329,7 @@ jobs:
       always() &&
       needs.run-unit-tests.result == 'success' &&
       needs.check-aws-credentials.outputs.has-credentials == 'true' &&
-      needs.detect-changes.outputs.code-deploy-needed == 'true' &&
+      (needs.detect-changes.outputs.code-deploy-needed == 'true' || github.event_name == 'workflow_dispatch') &&
       (needs.provision-sp-cli-lambda.result == 'success' || needs.provision-sp-cli-lambda.result == 'skipped') &&
       (needs.increment-tag.result == 'success' || needs.increment-tag.result == 'skipped')
     steps:
