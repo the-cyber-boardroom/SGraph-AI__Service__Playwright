@@ -32,6 +32,7 @@ philosophy on this codebase.
 | [`03__schemas-and-modules.md`](03__schemas-and-modules.md) | Type_Safe schema list, module layout, service classes |
 | [`04__elastic-and-dashboard.md`](04__elastic-and-dashboard.md) | Index naming, data view, dashboard panels |
 | [`05__acceptance-and-out-of-scope.md`](05__acceptance-and-out-of-scope.md) | Acceptance criteria, non-goals, slice 2/3 sketch |
+| [`06__implementation-phases.md`](06__implementation-phases.md) | Side-effect analysis + 7 PR-sized phases for Dev pickup |
 
 Why split into a folder: the reality doc moved to per-concern files at v0.1.31
 for the same reason — easier to edit one section without re-reading the
