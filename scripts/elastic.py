@@ -32,6 +32,18 @@ from sgraph_ai_service_playwright__cli.elastic.service.Elastic__Service         
 DEBUG_TRACE = False                                                                 # Toggled by the --debug callback below; aws_error_handler reads this on each error
 
 
+def humanize_uptime(seconds: int) -> str:                                            # Compact "3h 12m" / "47m" / "12s" — no calendar lib, deliberately rough
+    if seconds <= 0:
+        return '—'
+    days,    rem = divmod(seconds, 86400)
+    hours,   rem = divmod(rem,     3600)
+    minutes, _   = divmod(rem,     60)
+    if days:    return f'{days}d {hours}h'
+    if hours:   return f'{hours}h {minutes}m'
+    if minutes: return f'{minutes}m'
+    return f'{seconds}s'
+
+
 app = typer.Typer(help='Ephemeral Elasticsearch + Kibana EC2 stacks (single-node, MB-scale).',
                   no_args_is_help=True)
 
@@ -125,13 +137,15 @@ def aws_error_handler(fn):                                                      
 def cmd_create(stack_name   : Optional[str] = typer.Argument (None,           help='Stack name (auto-generated if omitted: elastic-{adj}-{scientist}).'),
                region       : Optional[str] = typer.Option   (None, '--region',  help='AWS region (defaults to AWS_Config session region).'),
                instance_type: Optional[str] = typer.Option   (None, '--instance-type', help='EC2 instance type (default t3.medium).'),
-               from_ami     : Optional[str] = typer.Option   (None, '--from-ami', help='AMI id (defaults to latest AL2023 via SSM).')):
+               from_ami     : Optional[str] = typer.Option   (None, '--from-ami', help='AMI id (defaults to latest AL2023 via SSM).'),
+               max_hours    : int           = typer.Option   (1,    '--max-hours', help='Auto-terminate after N hours. Default: 1. Pass 0 to disable.')):
     """Launch a new ephemeral Elastic+Kibana EC2 stack. Prints ELASTIC_PASSWORD once."""
     service = build_service()
     request = Schema__Elastic__Create__Request(stack_name    = stack_name    or '' ,
                                                region        = region        or '' ,
                                                instance_type = instance_type or '' ,
-                                               from_ami      = from_ami      or '' )
+                                               from_ami      = from_ami      or '' ,
+                                               max_hours     = max(int(max_hours), 0))
     response = service.create(request)
     c = Console(highlight=False)
     c.print()
@@ -150,6 +164,10 @@ def cmd_create(stack_name   : Optional[str] = typer.Argument (None,           he
     t.add_row('caller-ip'    , f'{str(response.caller_ip)}/32 (ingress on :443)')
     t.add_row('elastic-user' , str(response.elastic_username))
     t.add_row('elastic-pass' , str(response.elastic_password))
+    if max_hours > 0:
+        t.add_row('auto-terminate', f'{max_hours}h from boot  [dim](pass --max-hours 0 to disable)[/]')
+    else:
+        t.add_row('auto-terminate', '[yellow]disabled[/]  [dim](runs until you `sp elastic delete`)[/]')
     c.print(t)
     c.print()
     c.print('  [bold]Next steps[/]:')
@@ -175,12 +193,14 @@ def cmd_list(region: Optional[str] = typer.Option(None, '--region')):
     t.add_column('Stack',        style='bold')
     t.add_column('Instance')
     t.add_column('State')
+    t.add_column('Uptime')
     t.add_column('Public IP')
     t.add_column('Kibana URL', style='dim')
     for info in response.stacks:
         t.add_row(str(info.stack_name)   ,
                   str(info.instance_id)  ,
                   str(info.state)        ,
+                  humanize_uptime(int(info.uptime_seconds)),
                   str(info.public_ip) or '—',
                   str(info.kibana_url) or '—')
     c.print()
@@ -215,6 +235,8 @@ def cmd_info(stack_name: Optional[str] = typer.Argument(None, help='Stack name. 
     t.add_row('allowed-ip'   , f'{str(info.allowed_ip)}/32' if str(info.allowed_ip) else '—')
     t.add_row('public-ip'    , str(info.public_ip       ) or '—')
     t.add_row('kibana-url'   , str(info.kibana_url      ) or '—')
+    t.add_row('launched'     , str(info.launch_time     ) or '—')
+    t.add_row('uptime'       , humanize_uptime(int(info.uptime_seconds)))
     c.print(t)
     c.print()
 

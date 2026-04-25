@@ -237,6 +237,17 @@ docker compose --env-file /opt/sg-elastic/.env up -d kibana nginx
 echo "=== SG Elastic start complete at $(date) ==="
 echo "OK $(date --iso-8601=seconds)" > "$BOOT_STATUS_FILE"
 trap - EXIT
+{shutdown_section}
+"""
+
+
+SHUTDOWN_SECTION_TEMPLATE = """
+# ── Auto-terminate after {max_hours}h ─────────────────────────────────────────
+# Schedules `shutdown -h now` via systemd-run. Paired with
+# InstanceInitiatedShutdownBehavior=terminate in run_instances so a halt
+# becomes a terminate. Pass max_hours=0 (the CLI's --max-hours 0) to skip.
+systemd-run --on-active={max_hours}h /sbin/shutdown -h now
+echo "Auto-terminate timer started: {max_hours}h from now"
 """
 
 
@@ -248,11 +259,14 @@ class Elastic__User__Data__Builder(Type_Safe):
 
     @type_safe
     def render(self, stack_name       : Safe_Str__Elastic__Stack__Name ,
-                     elastic_password : Safe_Str__Elastic__Password
+                     elastic_password : Safe_Str__Elastic__Password    ,
+                     max_hours        : int                            = 0  # 0 disables auto-terminate; the CLI defaults to 1h via Schema__Elastic__Create__Request
                 ) -> str:
+        shutdown_section = SHUTDOWN_SECTION_TEMPLATE.format(max_hours=int(max_hours)) if int(max_hours) > 0 else ''
         return USER_DATA_TEMPLATE.format(stack_name       = str(stack_name      )  ,
                                          elastic_password = str(elastic_password)  ,
                                          elastic_version  = str(self.elastic_version),
                                          kibana_version   = str(self.kibana_version ),
                                          nginx_version    = str(self.nginx_version  ),
-                                         es_java_opts     = str(self.es_java_opts   ))
+                                         es_java_opts     = str(self.es_java_opts   ),
+                                         shutdown_section = shutdown_section          )

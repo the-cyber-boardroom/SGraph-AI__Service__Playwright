@@ -31,6 +31,7 @@
 
 import json
 import time
+from datetime                                                                       import datetime, timezone
 from typing                                                                         import Dict, Optional, Tuple
 
 import boto3                                                                        # EXCEPTION — see module header
@@ -83,6 +84,15 @@ def aws_name_for_stack(stack_name: str) -> str:                                 
 
 def sg_name_for_stack(stack_name: str) -> str:                                      # SG GroupName — never starts with "sg-" (AWS reserves that prefix for SG IDs)
     return f'{str(stack_name)}-sg'
+
+
+def launch_time_and_uptime(launch_time):                                            # Returns (iso_str, uptime_seconds). Boto3 hands us a datetime; tests pass a string or None.
+    if launch_time is None or launch_time == '':
+        return '', 0
+    if isinstance(launch_time, datetime):
+        dt = launch_time if launch_time.tzinfo else launch_time.replace(tzinfo=timezone.utc)
+        return dt.isoformat(), max(int((datetime.now(timezone.utc) - dt).total_seconds()), 0)
+    return str(launch_time), 0                                                      # Unknown shape — preserve the string, can't compute uptime
 
 
 def elastic_state_from_ec2(state_str: str) -> Enum__Elastic__State:
@@ -203,7 +213,8 @@ class Elastic__AWS__Client(Type_Safe):                                          
                               user_data             : str                           ,
                               caller_ip             : Safe_Str__IP__Address         ,
                               instance_profile_name : str                           ,  # e.g. INSTANCE_PROFILE_NAME — required for SSM connect/exec
-                              creator               : str                           = ''
+                              creator               : str                           = '',
+                              max_hours             : int                           = 0   # When > 0, instance terminates on shutdown (paired with the user-data systemd-run timer)
                          ) -> str:
         ec2    = self.ec2_client(region)
         kwargs = dict(
@@ -218,6 +229,8 @@ class Elastic__AWS__Client(Type_Safe):                                          
                 'Tags'        : self.build_tags(stack_name, caller_ip, creator)}],
             IamInstanceProfile = {'Name': str(instance_profile_name)}     ,  # SSM agent uses this role to register with Systems Manager
         )
+        if max_hours > 0:                                                            # Pair with the shutdown timer in user-data so `shutdown -h now` actually terminates the instance instead of just stopping it
+            kwargs['InstanceInitiatedShutdownBehavior'] = 'terminate'
         for attempt in range(3):                                                    # IAM is eventually consistent — retry on InvalidParameterValue mentioning the profile
             try:
                 result = ec2.run_instances(**kwargs)
@@ -312,6 +325,7 @@ class Elastic__AWS__Client(Type_Safe):                                          
         public_ip = details.get('PublicIpAddress', '') or ''
         sg_list   = details.get('SecurityGroups', [])
         sg_id     = str(sg_list[0].get('GroupId', '')) if sg_list else ''
+        launch_raw, uptime_secs = launch_time_and_uptime(details.get('LaunchTime'))  # Compute once — list() and info() both render uptime so the mapper owns both
         return Schema__Elastic__Info(stack_name       = instance_tag(details, TAG_STACK_NAME_KEY) ,
                                      aws_name_tag     = instance_tag(details, 'Name')             ,
                                      instance_id      = str(details.get('InstanceId', ''))        ,
@@ -322,7 +336,9 @@ class Elastic__AWS__Client(Type_Safe):                                          
                                      allowed_ip       = instance_tag(details, TAG_ALLOWED_IP_KEY) ,
                                      public_ip        = public_ip                                  ,
                                      kibana_url       = f'https://{public_ip}/' if public_ip else '',
-                                     state            = elastic_state_from_ec2(state_str)         )
+                                     state            = elastic_state_from_ec2(state_str)         ,
+                                     launch_time      = launch_raw                                  ,
+                                     uptime_seconds   = uptime_secs                                 )
 
     def build_tags(self, stack_name: Safe_Str__Elastic__Stack__Name ,
                          caller_ip : Safe_Str__IP__Address         ,

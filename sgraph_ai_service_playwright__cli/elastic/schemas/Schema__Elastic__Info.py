@@ -31,3 +31,5 @@ class Schema__Elastic__Info(Type_Safe):
     public_ip        : Safe_Str__Text                                               # Dots preserved; URL goes in kibana_url below
     kibana_url       : Safe_Str__Url                                                # Preserves "://" and ":port"
     state            : Enum__Elastic__State   = Enum__Elastic__State.UNKNOWN
+    launch_time      : Safe_Str__Text                                               # ISO-8601 EC2 LaunchTime; empty when AWS hasn't reported it yet (still pending)
+    uptime_seconds   : int                    = 0                                   # Seconds since LaunchTime — 0 when launch_time is empty

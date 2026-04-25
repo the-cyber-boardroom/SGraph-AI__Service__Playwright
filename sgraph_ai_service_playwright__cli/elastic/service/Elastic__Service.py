@@ -94,8 +94,10 @@ class Elastic__Service(Type_Safe):                                              
                                                               caller_ip  = caller_ip         ,
                                                               creator    = creator           )
         profile_name  = self.aws_client.ensure_instance_profile(str(region))                  # IAM role + profile with AmazonSSMManagedInstanceCore — required for `sp elastic connect/exec`
+        max_hours     = max(int(request.max_hours), 0)                                        # Negative collapses to 0 (= no auto-terminate)
         user_data     = self.user_data_builder.render(stack_name       = stack_name  ,
-                                                      elastic_password = password    )
+                                                      elastic_password = password    ,
+                                                      max_hours        = max_hours   )
         instance_id   = self.aws_client.launch_instance(region                = str(region)    ,
                                                         stack_name            = stack_name     ,
                                                         ami_id                = ami_id          ,
@@ -104,7 +106,8 @@ class Elastic__Service(Type_Safe):                                              
                                                         user_data             = user_data       ,
                                                         caller_ip             = caller_ip       ,
                                                         instance_profile_name = profile_name    ,
-                                                        creator               = creator         )
+                                                        creator               = creator         ,
+                                                        max_hours             = max_hours       )
         return Schema__Elastic__Create__Response(stack_name        = stack_name                                  ,
                                                  aws_name_tag      = aws_name_for_stack(stack_name)              ,  # "elastic-..." marker, no doubles
                                                  instance_id       = instance_id                                  ,
