@@ -27,6 +27,7 @@ class FakeIAM:                                                                  
         self.profiles = {}                                                          # name → {InstanceProfile: {..., Roles: [...]}}
         self.attached = []                                                          # [(role_name, policy_arn), ...]
         self.calls    = []
+        self.last_create_role_kwargs = None                                         # Captures the EXACT kwargs the production code passed to create_role
         self.exceptions = type('E', (), {'NoSuchEntityException': FakeIAMNoSuchEntity})
 
     def get_role(self, RoleName):
@@ -37,6 +38,9 @@ class FakeIAM:                                                                  
 
     def create_role(self, RoleName, AssumeRolePolicyDocument, Description=''):
         self.calls.append(('create_role', RoleName))
+        self.last_create_role_kwargs = {'RoleName'                : RoleName                ,
+                                        'AssumeRolePolicyDocument': AssumeRolePolicyDocument,
+                                        'Description'             : Description             }
         self.roles[RoleName] = {'RoleName': RoleName,
                                 'AssumeRolePolicyDocument': json.loads(AssumeRolePolicyDocument)}
 
@@ -113,3 +117,22 @@ class test_ensure_instance_profile(TestCase):
                        or 0x20 <= ord_ <= 0x7E
                        or 0xA1 <= ord_ <= 0xFF)
             assert allowed, f'IAM_ROLE_DESCRIPTION contains disallowed character {ch!r} (U+{ord_:04X})'
+
+    def test_create_role_is_called_with_the_constant_not_a_literal(self):
+        # Regression: a previous bug had ensure_instance_profile defining
+        # IAM_ROLE_DESCRIPTION at module level (clean ASCII) but the actual
+        # create_role call still used a string literal with an em-dash.
+        # Pin that the value passed at the call site IS the constant.
+        client          = ClientWithFakeIAM()
+        client.fake_iam = FakeIAM()
+        client.ensure_instance_profile('eu-west-2')
+        kwargs = client.fake_iam.last_create_role_kwargs
+        assert kwargs is not None, 'create_role was never called'
+        assert kwargs['Description'] == IAM_ROLE_DESCRIPTION
+        # And the description Python actually sent must satisfy AWS's regex
+        for ch in kwargs['Description']:
+            ord_ = ord(ch)
+            allowed = (ord_ in (0x09, 0x0A, 0x0D)
+                       or 0x20 <= ord_ <= 0x7E
+                       or 0xA1 <= ord_ <= 0xFF)
+            assert allowed, f'Description sent to create_role contains disallowed character {ch!r} (U+{ord_:04X})'

@@ -117,7 +117,7 @@ class Elastic__AWS__Client(Type_Safe):                                          
         except not_found:
             iam.create_role(RoleName                  = name                          ,
                             AssumeRolePolicyDocument = json.dumps(EC2_TRUST_POLICY)   ,
-                            Description              = 'SG ephemeral elastic — SSM agent access')
+                            Description              = IAM_ROLE_DESCRIPTION)
 
         try:                                                                        # 2) AmazonSSMManagedInstanceCore attachment (idempotent — attach is no-op if already there)
             iam.attach_role_policy(RoleName=name, PolicyArn=SSM_MANAGED_POLICY_ARN)
