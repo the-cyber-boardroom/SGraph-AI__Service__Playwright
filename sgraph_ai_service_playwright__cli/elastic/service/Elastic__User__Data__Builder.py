@@ -272,6 +272,31 @@ trap - EXIT
 """
 
 
+FAST_USER_DATA_TEMPLATE = """\
+#!/bin/bash
+# Fast-launch cloud-init: AMI already has docker-compose, certs, .env, harden
+# script in place. Containers auto-start via `restart: unless-stopped`. We only
+# need to schedule the per-instance auto-terminate timer.
+set -euxo pipefail
+exec > >(tee /var/log/sg-elastic-fast-boot.log | logger -t sg-elastic) 2>&1
+
+BOOT_STATUS_FILE=/var/log/sg-elastic-boot-status
+echo "PENDING $(date --iso-8601=seconds)" > "$BOOT_STATUS_FILE"
+echo "=== SG Elastic fast-boot from AMI at $(date) — stack={stack_name} ==="
+
+# Containers auto-start via the AMI's docker-compose (restart=unless-stopped).
+# Wait briefly for docker daemon then nudge compose to be sure.
+systemctl is-active --quiet docker || systemctl start docker
+if [ -f /opt/sg-elastic/docker-compose.yml ]; then
+    cd /opt/sg-elastic
+    docker compose --env-file /opt/sg-elastic/.env up -d || true
+fi
+
+echo "OK $(date --iso-8601=seconds)" > "$BOOT_STATUS_FILE"
+{shutdown_section}
+"""
+
+
 SHUTDOWN_SECTION_TEMPLATE = """
 # ── Auto-terminate after {max_hours}h ─────────────────────────────────────────
 # Schedules `shutdown -h now` via systemd-run. Paired with
@@ -287,6 +312,14 @@ class Elastic__User__Data__Builder(Type_Safe):
     kibana_version  : Safe_Str__Text = KIBANA_VERSION
     nginx_version   : Safe_Str__Text = NGINX_VERSION
     es_java_opts    : Safe_Str__Text = ES_JAVA_OPTS
+
+    @type_safe
+    def render_fast(self, stack_name : Safe_Str__Elastic__Stack__Name ,             # Lean cloud-init for stacks launched from a baked AMI — only schedules the auto-terminate timer; the AMI's restart=unless-stopped containers come up on their own.
+                          max_hours  : int                            = 0
+                     ) -> str:
+        shutdown_section = SHUTDOWN_SECTION_TEMPLATE.format(max_hours=int(max_hours)) if int(max_hours) > 0 else ''
+        return FAST_USER_DATA_TEMPLATE.format(stack_name       = str(stack_name) ,
+                                              shutdown_section = shutdown_section )
 
     @type_safe
     def render(self, stack_name       : Safe_Str__Elastic__Stack__Name ,

@@ -21,6 +21,7 @@ from osbot_utils.type_safe.type_safe_core.decorators.type_safe                  
 from osbot_aws.AWS_Config                                                           import AWS_Config
 
 from sgraph_ai_service_playwright__cli.ec2.collections.List__Instance__Id           import List__Instance__Id
+from sgraph_ai_service_playwright__cli.elastic.collections.List__Schema__Elastic__AMI__Info  import List__Schema__Elastic__AMI__Info
 from sgraph_ai_service_playwright__cli.elastic.collections.List__Schema__Elastic__Health__Check import List__Schema__Elastic__Health__Check
 from sgraph_ai_service_playwright__cli.elastic.collections.List__Schema__Elastic__Info  import List__Schema__Elastic__Info
 from sgraph_ai_service_playwright__cli.elastic.enums.Enum__Elastic__Probe__Status   import Enum__Elastic__Probe__Status
@@ -31,6 +32,7 @@ from sgraph_ai_service_playwright__cli.elastic.enums.Enum__Saved_Object__Type   
 from sgraph_ai_service_playwright__cli.elastic.primitives.Safe_Str__Elastic__Password    import Safe_Str__Elastic__Password
 from sgraph_ai_service_playwright__cli.elastic.primitives.Safe_Str__Elastic__Stack__Name import Safe_Str__Elastic__Stack__Name
 from sgraph_ai_service_playwright__cli.elastic.primitives.Safe_Str__IP__Address     import Safe_Str__IP__Address
+from sgraph_ai_service_playwright__cli.elastic.schemas.Schema__Elastic__AMI__Info        import Schema__Elastic__AMI__Info
 from sgraph_ai_service_playwright__cli.elastic.schemas.Schema__Elastic__Create__Request  import Schema__Elastic__Create__Request
 from sgraph_ai_service_playwright__cli.elastic.schemas.Schema__Elastic__Create__Response import Schema__Elastic__Create__Response
 from sgraph_ai_service_playwright__cli.elastic.schemas.Schema__Elastic__Delete__Response import Schema__Elastic__Delete__Response
@@ -91,7 +93,7 @@ class Elastic__Service(Type_Safe):                                              
         instance_type = str(request.instance_type) or DEFAULT_INSTANCE_TYPE
         ami_id        = str(request.from_ami)      or self.aws_client.resolve_latest_al2023_ami(str(region))
         creator       = self.resolve_creator()
-        password      = Safe_Str__Elastic__Password(secrets.token_urlsafe(24))
+        password      = request.elastic_password if str(request.elastic_password) else Safe_Str__Elastic__Password(secrets.token_urlsafe(24))
 
         sg_id         = self.aws_client.ensure_security_group(region     = str(region)      ,
                                                               stack_name = stack_name        ,
@@ -303,6 +305,95 @@ class Elastic__Service(Type_Safe):                                              
                                                dashboard_title    = db_title            ,
                                                dashboard_objects  = db_objects          ,
                                                dashboard_error    = db_error            )
+
+    @type_safe
+    def create_from_ami(self, request: Schema__Elastic__Create__Request) -> Schema__Elastic__Create__Response:
+        # Fast-launch path: minimal user-data (no install steps), AMI already carries
+        # docker-compose + certs + .env + harden. Password is whatever was baked.
+        if not str(request.from_ami):
+            raise ValueError('create_from_ami requires --from-ami AMI-ID')
+        region        = self.resolve_region(request.region)
+        stack_name    = request.stack_name if str(request.stack_name) else Safe_Str__Elastic__Stack__Name(self.random_stack_name())
+        caller_ip     = request.caller_ip  if str(request.caller_ip)  else self.ip_detector.detect()
+        instance_type = str(request.instance_type) or DEFAULT_INSTANCE_TYPE
+        ami_id        = str(request.from_ami)
+        creator       = self.resolve_creator()
+
+        sg_id         = self.aws_client.ensure_security_group(region     = str(region)      ,
+                                                              stack_name = stack_name        ,
+                                                              caller_ip  = caller_ip         ,
+                                                              creator    = creator           )
+        profile_name  = self.aws_client.ensure_instance_profile(str(region))
+        max_hours     = max(int(request.max_hours), 0)
+        user_data     = self.user_data_builder.render_fast(stack_name = stack_name, max_hours = max_hours)
+        instance_id   = self.aws_client.launch_instance(region                = str(region)    ,
+                                                        stack_name            = stack_name     ,
+                                                        ami_id                = ami_id          ,
+                                                        instance_type         = instance_type   ,
+                                                        security_group_id     = sg_id           ,
+                                                        user_data             = user_data       ,
+                                                        caller_ip             = caller_ip       ,
+                                                        instance_profile_name = profile_name    ,
+                                                        creator               = creator         ,
+                                                        max_hours             = max_hours       )
+        return Schema__Elastic__Create__Response(stack_name        = stack_name                                  ,
+                                                 aws_name_tag      = aws_name_for_stack(stack_name)              ,
+                                                 instance_id       = instance_id                                  ,
+                                                 region            = region                                       ,
+                                                 ami_id            = ami_id                                       ,
+                                                 instance_type     = instance_type                                ,
+                                                 security_group_id = sg_id                                        ,
+                                                 caller_ip         = caller_ip                                    ,
+                                                 public_ip         = ''                                           ,
+                                                 kibana_url        = ''                                           ,
+                                                 elastic_password  = Safe_Str__Elastic__Password('')              ,  # Bake-time password lives in the AMI's /opt/sg-elastic/.env — fetch via `sp el exec`
+                                                 state             = Enum__Elastic__State.PENDING                 )
+
+    @type_safe
+    def list_amis(self, region: Safe_Str__AWS__Region = None) -> List__Schema__Elastic__AMI__Info:
+        resolved = self.resolve_region(region)
+        raw_list = self.aws_client.list_elastic_amis(str(resolved))
+        amis     = List__Schema__Elastic__AMI__Info()
+        for raw in raw_list:
+            amis.append(Schema__Elastic__AMI__Info(ami_id        = raw.get('ami_id', '')        ,
+                                                    name          = raw.get('name', '')          ,
+                                                    description   = raw.get('description', '')   ,
+                                                    creation_date = raw.get('creation_date', '') ,
+                                                    state         = raw.get('state', '')         ,
+                                                    source_stack  = raw.get('source_stack', '')  ,
+                                                    source_id     = raw.get('source_id', '')     ))
+        return amis
+
+    @type_safe
+    def create_ami_from_stack(self, stack_name : Safe_Str__Elastic__Stack__Name ,
+                                     ami_name   : str                            = '',
+                                     no_reboot  : bool                           = True,
+                                     region     : Safe_Str__AWS__Region          = None
+                               ) -> dict:                                            # {'ami_id': str, 'instance_id': str, 'error': str}
+        resolved = self.resolve_region(region)
+        info     = self.get_stack_info(stack_name=stack_name, region=resolved)
+        if not str(info.instance_id):
+            return {'ami_id': '', 'instance_id': '', 'error': f'no such stack: {stack_name}'}
+        # Default AMI name: "Ephemeral Kibana <stack> <unix-ts>" — AWS Marketplace-friendly label and re-running yields a unique name (AWS rejects duplicates)
+        if not ami_name:
+            ami_name = f'Ephemeral Kibana - {str(stack_name)} - {int(time.time())}'
+        ami_id = self.aws_client.create_ami_from_instance(region       = str(resolved)        ,
+                                                           instance_id  = str(info.instance_id),
+                                                           stack_name   = stack_name           ,
+                                                           ami_name     = ami_name             ,
+                                                           description  = f'Ephemeral Kibana - single-node Elasticsearch + Kibana + nginx-TLS, baked from {stack_name}',
+                                                           no_reboot    = no_reboot            )
+        if not ami_id:
+            return {'ami_id': '', 'instance_id': str(info.instance_id), 'error': 'create_image returned no AMI id'}
+        return {'ami_id': ami_id, 'instance_id': str(info.instance_id), 'error': ''}
+
+    @type_safe
+    def delete_ami(self, ami_id : str ,
+                         region : Safe_Str__AWS__Region = None
+                    ) -> dict:                                                       # {'deregistered': bool, 'snapshots_deleted': int}
+        resolved = self.resolve_region(region)
+        ok, snap_count = self.aws_client.deregister_ami(str(resolved), ami_id)
+        return {'deregistered': ok, 'snapshots_deleted': snap_count}
 
     @type_safe
     def harden_kibana(self, stack_name : Safe_Str__Elastic__Stack__Name ,           # Disable Observability / Security / Fleet / ML side-nav groups in the default Kibana space

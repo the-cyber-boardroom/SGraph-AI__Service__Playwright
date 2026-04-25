@@ -247,6 +247,84 @@ class Elastic__AWS__Client(Type_Safe):                                          
         return str(instances[0].get('InstanceId', ''))
 
     @type_safe
+    def list_elastic_amis(self, region: str) -> list:                               # Returns AMIs tagged sg:purpose=elastic — the convention `sp el ami create` writes
+        ec2 = self.ec2_client(region)
+        try:
+            response = ec2.describe_images(
+                Owners  = ['self'],
+                Filters = [{'Name': f'tag:{TAG_PURPOSE_KEY}', 'Values': [TAG_PURPOSE_VALUE]}])
+        except Exception:
+            return []
+        amis = []
+        for img in response.get('Images', []) or []:
+            tag_dict = {t.get('Key'): t.get('Value') for t in (img.get('Tags') or [])}
+            amis.append({
+                'ami_id'        : str(img.get('ImageId'      , '')),
+                'name'          : str(img.get('Name'         , '')),
+                'description'   : str(img.get('Description'  , '')),
+                'creation_date' : str(img.get('CreationDate' , '')),
+                'state'         : str(img.get('State'        , '')),
+                'source_stack'  : str(tag_dict.get(TAG_STACK_NAME_KEY, '')),
+                'source_id'     : str(tag_dict.get('sg:source-instance', '')),
+                'snapshot_ids'  : [bdm.get('Ebs', {}).get('SnapshotId', '')
+                                    for bdm in img.get('BlockDeviceMappings', []) or []
+                                    if bdm.get('Ebs', {}).get('SnapshotId')],
+            })
+        return amis
+
+    @type_safe
+    def create_ami_from_instance(self, region       : str ,
+                                        instance_id  : str ,
+                                        stack_name   : Safe_Str__Elastic__Stack__Name,
+                                        ami_name     : str ,
+                                        description  : str = '',
+                                        no_reboot    : bool = True
+                                  ) -> str:                                         # Returns ami-id; AWS marks it pending — caller polls with describe_images
+        ec2  = self.ec2_client(region)
+        tags = [{'Key': TAG_PURPOSE_KEY        , 'Value': TAG_PURPOSE_VALUE},
+                {'Key': TAG_STACK_NAME_KEY     , 'Value': str(stack_name)  },
+                {'Key': 'sg:source-instance'   , 'Value': instance_id      },
+                {'Key': 'Name'                 , 'Value': ami_name         }]
+        response = ec2.create_image(
+            InstanceId        = instance_id  ,
+            Name              = ami_name     ,
+            Description       = description or f'sp el ami create from {stack_name}',
+            NoReboot          = no_reboot    ,                                        # Safer: don't reboot; ES has restart=unless-stopped, journal-replay fixes any in-flight writes
+            TagSpecifications = [{'ResourceType': 'image'   , 'Tags': tags},
+                                  {'ResourceType': 'snapshot', 'Tags': tags}],
+        )
+        return str(response.get('ImageId', ''))
+
+    @type_safe
+    def deregister_ami(self, region: str, ami_id: str) -> tuple:                    # Returns (deregistered: bool, deleted_snapshot_count: int). Deregisters the AMI then deletes the underlying snapshots — AWS keeps snapshots around when you only deregister.
+        ec2 = self.ec2_client(region)
+        # 1) Capture snapshot ids BEFORE deregister (describe_images stops returning the image after deregister)
+        try:
+            describe = ec2.describe_images(ImageIds=[ami_id])
+        except Exception:
+            return False, 0
+        images = describe.get('Images', [])
+        if not images:
+            return False, 0
+        snapshot_ids = [bdm.get('Ebs', {}).get('SnapshotId', '')
+                         for bdm in images[0].get('BlockDeviceMappings', []) or []
+                         if bdm.get('Ebs', {}).get('SnapshotId')]
+        # 2) Deregister
+        try:
+            ec2.deregister_image(ImageId=ami_id)
+        except Exception:
+            return False, 0
+        # 3) Delete snapshots — best effort, non-fatal
+        deleted = 0
+        for snap_id in snapshot_ids:
+            try:
+                ec2.delete_snapshot(SnapshotId=snap_id)
+                deleted += 1
+            except Exception:
+                pass
+        return True, deleted
+
+    @type_safe
     def list_elastic_instances(self, region: str) -> Dict[str, dict]:               # id → describe_instances details (filtered by sg:purpose=elastic)
         ec2    = self.ec2_client(region)
         pages  = ec2.get_paginator('describe_instances').paginate(

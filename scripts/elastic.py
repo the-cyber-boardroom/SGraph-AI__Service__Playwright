@@ -44,6 +44,35 @@ def humanize_uptime(seconds: int) -> str:                                       
     return f'{seconds}s'
 
 
+def fmt_ms_since(ms_value):                                                          # Render an integer ms value as "  93s  (93784 ms)" or "—" when None
+    if ms_value is None:
+        return '[dim]—[/]'
+    return f'[bold]{ms_value // 1000:>3}s[/]  [dim]({ms_value} ms)[/]'
+
+
+def render_bootstrap_stats(c, t0_ms: int, launch_ms: int, milestones_ms: dict, wait_done_ms: int,
+                           seed_done_ms: int = None, seed_response = None) -> None:
+    """Stats panel printed at the end of `sp el create --wait [--seed]`.
+    Every value is wall-clock ms since the command was invoked.
+    """
+    import time as _time
+    total_ms = (int(_time.monotonic() * 1000) - t0_ms)
+    t = Table(show_header=False, box=None, padding=(0, 2), title='[bold]Bootstrap timeline[/]', title_justify='left')
+    t.add_column(style='dim', justify='right')
+    t.add_column()
+    t.add_row('aws launch returned' , fmt_ms_since(launch_ms))
+    t.add_row('elastic ready (y/g)' , fmt_ms_since(milestones_ms.get('es_ready')))
+    t.add_row('kibana ready (200)'  , fmt_ms_since(milestones_ms.get('kibana_ready')))
+    t.add_row('wait phase finished' , fmt_ms_since(wait_done_ms))
+    if seed_done_ms is not None:
+        t.add_row('seed finished'       , fmt_ms_since(seed_done_ms))
+    t.add_row('[bold]total wall time[/]', fmt_ms_since(total_ms))
+    c.print(t)
+    if seed_response is not None and seed_response.documents_posted > 0:
+        c.print(f'  [dim]bulk-post:[/] {seed_response.duration_ms} ms · {seed_response.docs_per_second} docs/sec · {seed_response.batches} batches')
+    c.print()
+
+
 app = typer.Typer(help='Ephemeral Elasticsearch + Kibana EC2 stacks (single-node, MB-scale).',
                   no_args_is_help=True)
 
@@ -139,16 +168,22 @@ def cmd_create(stack_name   : Optional[str] = typer.Argument (None,           he
                instance_type: Optional[str] = typer.Option   (None, '--instance-type', help='EC2 instance type (default t3.medium).'),
                from_ami     : Optional[str] = typer.Option   (None, '--from-ami', help='AMI id (defaults to latest AL2023 via SSM).'),
                max_hours    : int           = typer.Option   (1,    '--max-hours', help='Auto-terminate after N hours. Default: 1. Pass 0 to disable.'),
+               password     : Optional[str] = typer.Option   (None, '--password', help='Elastic password to bake into the stack. Falls back to $SG_ELASTIC_PASSWORD; if neither is set, a random one is generated. Setting this keeps a consistent password across local stacks and any AMIs you bake.'),
                wait         : bool          = typer.Option   (False, '--wait', help='After launch, poll until Kibana is ready (~3 min).'),
                seed         : bool          = typer.Option   (False, '--seed', help='After --wait, bulk-load 10k synthetic logs + create the data view + import the default dashboard. Implies --wait.')):
     """Launch a new ephemeral Elastic+Kibana EC2 stack. Prints ELASTIC_PASSWORD once. With --wait/--seed, runs the full bootstrap in one go."""
+    import time as _time
+    t0_ms = int(_time.monotonic() * 1000)                                            # Wall clock start — anchors the per-milestone deltas printed at the end
+    pwd_input = password or os.environ.get('SG_ELASTIC_PASSWORD', '')                # --password wins; else fall back to the env var so a single export covers create+seed
     service = build_service()
-    request = Schema__Elastic__Create__Request(stack_name    = stack_name    or '' ,
-                                               region        = region        or '' ,
-                                               instance_type = instance_type or '' ,
-                                               from_ami      = from_ami      or '' ,
-                                               max_hours     = max(int(max_hours), 0))
-    response = service.create(request)
+    request = Schema__Elastic__Create__Request(stack_name      = stack_name    or '' ,
+                                               region          = region        or '' ,
+                                               instance_type   = instance_type or '' ,
+                                               from_ami        = from_ami      or '' ,
+                                               max_hours       = max(int(max_hours), 0),
+                                               elastic_password= Safe_Str__Elastic__Password(pwd_input) if pwd_input else Safe_Str__Elastic__Password(''))
+    response   = service.create(request)
+    launch_ms  = int(_time.monotonic() * 1000) - t0_ms                               # AWS run_instances round-trip
     c = Console(highlight=False)
     c.print()
     c.print(f'  [bold]Stack launched[/]  [dim](state: {response.state})[/]')
@@ -165,7 +200,8 @@ def cmd_create(stack_name   : Optional[str] = typer.Argument (None,           he
     t.add_row('security-grp' , str(response.security_group_id))
     t.add_row('caller-ip'    , f'{str(response.caller_ip)}/32 (ingress on :443)')
     t.add_row('elastic-user' , str(response.elastic_username))
-    t.add_row('elastic-pass' , str(response.elastic_password))
+    pwd_source = 'from --password' if password else ('from $SG_ELASTIC_PASSWORD' if pwd_input else 'auto-generated')
+    t.add_row('elastic-pass' , f'{str(response.elastic_password)}  [dim]({pwd_source})[/]')
     if max_hours > 0:
         t.add_row('auto-terminate', f'{max_hours}h from boot  [dim](pass --max-hours 0 to disable)[/]')
     else:
@@ -189,11 +225,18 @@ def cmd_create(stack_name   : Optional[str] = typer.Argument (None,           he
     stack_str   = str(response.stack_name)
     pwd         = str(response.elastic_password)
     c.print(f'  [bold]Waiting for Kibana[/]  [dim](polling every 10s, up to 900s — fresh boot is ~3 min)[/]')
+    wait_t0_ms     = int(_time.monotonic() * 1000)                                  # When we started polling — used to translate tick.elapsed_ms (since wait start) to wall-clock-since-create
+    milestones_ms  = {'es_ready': None, 'kibana_ready': None}                       # Wall-clock ms since t0_ms
     status = Status('initialising probe...', console=c, spinner='dots')
     status.start()
     try:
         def on_tick(tick):
             secs = tick.elapsed_ms // 1000
+            es_str = str(tick.elastic_probe)
+            kb_str = str(tick.probe)
+            wall_ms = (wait_t0_ms - t0_ms) + tick.elapsed_ms                        # tick.elapsed_ms is from wait_until_ready start; rebase to "since create"
+            if es_str in ('yellow', 'green') and milestones_ms['es_ready']     is None: milestones_ms['es_ready']     = wall_ms
+            if kb_str == 'ready'             and milestones_ms['kibana_ready'] is None: milestones_ms['kibana_ready'] = wall_ms
             status.update(f'[dim][{secs:>3}s  #{tick.attempt:02d}][/]  '
                           f'state=[bold]{tick.info.state}[/]  '
                           f'es=[bold]{tick.elastic_probe}[/]  '
@@ -205,12 +248,14 @@ def cmd_create(stack_name   : Optional[str] = typer.Argument (None,           he
                                         on_progress     = on_tick                                   )
     finally:
         status.stop()
+    wait_done_ms = int(_time.monotonic() * 1000) - t0_ms
     if str(info.state) != 'ready':
         c.print(f'  [red]✗[/]  Stack did not reach ready (state={info.state})  [dim]— `sp el info {stack_str}` for details[/]\n')
         raise typer.Exit(2)
     c.print(f'  [green]✓[/]  Kibana is ready at [bold]{str(info.kibana_url)}[/]\n')
 
     if not seed:
+        render_bootstrap_stats(c, t0_ms, launch_ms, milestones_ms, wait_done_ms)
         c.print('  [bold]Next step[/]:')
         c.print(f'    export SG_ELASTIC_PASSWORD={pwd}')
         c.print(f'    sp elastic seed {stack_str}        [dim]# bulk-load 10k synthetic log docs + create the dashboard[/]\n')
@@ -218,6 +263,7 @@ def cmd_create(stack_name   : Optional[str] = typer.Argument (None,           he
 
     # --seed: also load 10k synthetic docs, create the data view + dashboard
     c.print(f'  [bold]Seeding[/]  [dim](10000 docs, default index sg-synthetic, default dashboard)[/]')
+    seed_t0_ms = int(_time.monotonic() * 1000)
     seed_request = Schema__Elastic__Seed__Request(stack_name       = Safe_Str__Elastic__Stack__Name(stack_str),
                                                    index            = 'sg-synthetic'                            ,
                                                    document_count   = 10_000                                    ,
@@ -228,6 +274,7 @@ def cmd_create(stack_name   : Optional[str] = typer.Argument (None,           he
                                                    time_field_name  = 'timestamp'                               ,
                                                    create_dashboard = True                                      )
     seed_response = service.seed_stack(seed_request)
+    seed_done_ms  = int(_time.monotonic() * 1000) - t0_ms
     c.print(f'  [green]✓[/]  posted [bold]{seed_response.documents_posted}[/] docs to {seed_response.index}  [dim]({seed_response.duration_ms} ms, {seed_response.docs_per_second} docs/sec)[/]')
     if str(seed_response.data_view_id):
         verb = 'created' if seed_response.data_view_created else 'reused'
@@ -235,9 +282,94 @@ def cmd_create(stack_name   : Optional[str] = typer.Argument (None,           he
     if str(seed_response.dashboard_id):
         c.print(f'  [green]✓[/]  dashboard imported  [dim]"{rich_escape(str(seed_response.dashboard_title))}" ({seed_response.dashboard_objects} objects)[/]')
     c.print()
+    render_bootstrap_stats(c, t0_ms, launch_ms, milestones_ms, wait_done_ms,
+                            seed_done_ms=seed_done_ms, seed_response=seed_response)
     c.print('  [bold]Open Kibana[/]:')
     c.print(f'    [bold]{str(info.kibana_url)}app/dashboards[/]  [dim]# user: elastic / password above[/]')
     c.print(f'    export SG_ELASTIC_PASSWORD={pwd}\n')
+
+
+@app.command('create-from-ami')
+@aws_error_handler
+def cmd_create_from_ami(ami_id        : str           = typer.Argument(...,         help='AMI id to launch (use `sp el ami list` to find one).'),
+                         stack_name    : Optional[str] = typer.Argument(None,        help='Stack name (auto-generated if omitted).'),
+                         region        : Optional[str] = typer.Option  (None, '--region'),
+                         instance_type : Optional[str] = typer.Option  (None, '--instance-type'),
+                         max_hours     : int           = typer.Option  (1,    '--max-hours', help='Auto-terminate after N hours. Default: 1. Pass 0 to disable.'),
+                         wait          : bool          = typer.Option  (False, '--wait', help='Poll until Kibana is ready (~30-60s on a baked AMI).')):
+    """Launch an EC2 stack from a pre-baked AMI. Skips the install user-data — AMI already carries docker-compose, certs, .env, and the harden script. Password is baked into the AMI; fetch it via `sp el exec STACK -- 'cat /opt/sg-elastic/.env'`."""
+    import time as _time
+    t0_ms   = int(_time.monotonic() * 1000)
+    service = build_service()
+    request = Schema__Elastic__Create__Request(stack_name    = stack_name    or '' ,
+                                               region        = region        or '' ,
+                                               instance_type = instance_type or '' ,
+                                               from_ami      = ami_id              ,
+                                               max_hours     = max(int(max_hours), 0))
+    response   = service.create_from_ami(request)
+    launch_ms  = int(_time.monotonic() * 1000) - t0_ms
+    c = Console(highlight=False)
+    c.print()
+    c.print(f'  [bold]Fast-launched from AMI[/]  [dim](state: {response.state})[/]')
+    c.print()
+    t = Table(show_header=False, box=None, padding=(0, 2))
+    t.add_column(style='dim', justify='right')
+    t.add_column(style='bold')
+    t.add_row('stack-name'   , str(response.stack_name      ))
+    t.add_row('instance-id'  , str(response.instance_id     ))
+    t.add_row('region'       , str(response.region          ))
+    t.add_row('instance-type', str(response.instance_type   ))
+    t.add_row('from-ami'     , str(response.ami_id          ))
+    t.add_row('security-grp' , str(response.security_group_id))
+    t.add_row('caller-ip'    , f'{str(response.caller_ip)}/32 (ingress on :443)')
+    t.add_row('elastic-user' , 'elastic')
+    t.add_row('elastic-pass' , '[dim]baked into AMI — fetch via `sp el exec`[/]')
+    if max_hours > 0:
+        t.add_row('auto-terminate', f'{max_hours}h from boot  [dim](pass --max-hours 0 to disable)[/]')
+    else:
+        t.add_row('auto-terminate', '[yellow]disabled[/]')
+    c.print(t)
+    c.print()
+    c.print('  [bold]Get the elastic password[/]:')
+    c.print(f'    sp el exec {str(response.stack_name)} -- "grep ELASTIC_PASSWORD /opt/sg-elastic/.env"')
+    c.print()
+
+    if not wait:
+        c.print('  [bold]Next steps[/]:')
+        c.print(f'    sp elastic wait {str(response.stack_name)}        [dim]# typically 30-60s on a baked AMI[/]\n')
+        return
+
+    from rich.status                                                                import Status
+    stack_str   = str(response.stack_name)
+    c.print(f'  [bold]Waiting for Kibana[/]  [dim](polling every 5s, up to 300s — baked AMIs typically come up in 30-60s)[/]')
+    milestones_ms = {'es_ready': None, 'kibana_ready': None}
+    wait_t0_ms    = int(_time.monotonic() * 1000)
+    status = Status('initialising probe...', console=c, spinner='dots')
+    status.start()
+    try:
+        def on_tick(tick):
+            secs    = tick.elapsed_ms // 1000
+            es_str  = str(tick.elastic_probe)
+            kb_str  = str(tick.probe)
+            wall_ms = (wait_t0_ms - t0_ms) + tick.elapsed_ms
+            if es_str in ('yellow', 'green') and milestones_ms['es_ready']     is None: milestones_ms['es_ready']     = wall_ms
+            if kb_str == 'ready'             and milestones_ms['kibana_ready'] is None: milestones_ms['kibana_ready'] = wall_ms
+            status.update(f'[dim][{secs:>3}s  #{tick.attempt:02d}][/]  '
+                          f'state=[bold]{tick.info.state}[/]  '
+                          f'es=[bold]{tick.elastic_probe}[/]  '
+                          f'kibana=[bold]{tick.probe}[/]  — {tick.message}')
+        info = service.wait_until_ready(stack_name      = Safe_Str__Elastic__Stack__Name(stack_str),
+                                        timeout         = 300                                       ,  # AMIs reuse on-disk state — much faster than fresh install
+                                        poll_seconds    = 5                                         ,
+                                        on_progress     = on_tick                                   )
+    finally:
+        status.stop()
+    wait_done_ms = int(_time.monotonic() * 1000) - t0_ms
+    if str(info.state) != 'ready':
+        c.print(f'  [red]✗[/]  Stack did not reach ready (state={info.state})  [dim]— `sp el info {stack_str}` for details[/]\n')
+        raise typer.Exit(2)
+    c.print(f'  [green]✓[/]  Kibana is ready at [bold]{str(info.kibana_url)}[/]\n')
+    render_bootstrap_stats(c, t0_ms, launch_ms, milestones_ms, wait_done_ms)
 
 
 # ── list ───────────────────────────────────────────────────────────────────────
@@ -425,14 +557,44 @@ def cmd_health(stack_name: Optional[str] = typer.Argument(None, help='Stack name
 
 @app.command('delete')
 @aws_error_handler
-def cmd_delete(stack_name : Optional[str] = typer.Argument(None, help='Stack name. Auto-picks when only one stack exists; prompts on multiple.'),
-               region     : Optional[str] = typer.Option (None, '--region')):
-    """Terminate the EC2 instance and best-effort delete its security group."""
-    service    = build_service()
+def cmd_delete(stack_name : Optional[str] = typer.Argument(None, help='Stack name. Auto-picks when only one stack exists; prompts on multiple. Ignored when --all is set.'),
+               region     : Optional[str] = typer.Option (None, '--region'),
+               all_stacks : bool          = typer.Option (False, '--all', help='Terminate every elastic stack in the region.'),
+               yes        : bool          = typer.Option (False, '--yes', '-y', help='Skip the y/N confirmation prompt.')):
+    """Terminate the EC2 instance and best-effort delete its security group. With --all, terminates every elastic stack in the region."""
+    service = build_service()
+    c       = Console(highlight=False)
+
+    if all_stacks:
+        listing    = service.list_stacks(region=region or '')
+        names      = [str(s.stack_name) for s in listing.stacks if str(s.stack_name)]
+        region_str = str(listing.region)
+        if not names:
+            c.print(f'\n  [dim]No elastic stacks in {region_str}.[/]\n')
+            return
+        c.print(f'\n  [bold]About to delete {len(names)} stack(s) in {region_str}:[/]')
+        for n in names:
+            c.print(f'    [red]✗[/] {n}')
+        if not yes:
+            if not typer.confirm('\n  Proceed?', default=False):
+                c.print('  [dim]aborted[/]\n')
+                raise typer.Exit(0)
+        c.print()
+        deleted_count = 0
+        for n in names:
+            response = service.delete_stack(stack_name = Safe_Str__Elastic__Stack__Name(n),
+                                            region     = region or '')
+            if len(response.terminated_instance_ids) > 0:
+                c.print(f'  [green]✓[/] terminated [bold]{n}[/]  [dim](instance {str(response.target)}, sg-deleted: {response.security_group_deleted})[/]')
+                deleted_count += 1
+            else:
+                c.print(f'  [yellow]·[/] skipped [bold]{n}[/]  [dim](no instance found — may already be terminating)[/]')
+        c.print(f'\n  [bold]Done — {deleted_count} stack(s) terminated.[/]\n')
+        return
+
     stack_name = resolve_stack_name(service, stack_name, region)
     response = service.delete_stack(stack_name = Safe_Str__Elastic__Stack__Name(stack_name),
                                     region     = region or '')
-    c = Console(highlight=False)
     if len(response.terminated_instance_ids) == 0:
         c.print(f'\n  [yellow]No such stack:[/] {stack_name}\n')
         return
@@ -666,6 +828,87 @@ def cmd_seed(stack_name      : Optional[str] = typer.Argument(None, help='Stack 
             c.print('     [dim]› This is almost always SG_ELASTIC_PASSWORD not matching the live stack.[/]')
             c.print('     [dim]› Re-export with the password from the most recent `sp elastic create` output.[/]')
     c.print()
+
+
+# ── ami (snapshot management) ─────────────────────────────────────────────────
+#
+# AMIs are created from a running stack via `sp el ami create`. They're tagged
+# sg:purpose=elastic so list/delete only touch our own images. Snapshots
+# behind each AMI are cleaned up on delete (AWS retains them by default).
+
+ami_app = typer.Typer(help='Manage ephemeral elastic AMIs (list / create / delete).', no_args_is_help=True)
+
+
+@ami_app.command('list')
+@aws_error_handler
+def cmd_ami_list(region: Optional[str] = typer.Option(None, '--region')):
+    """List elastic AMIs in a region."""
+    service = build_service()
+    amis    = service.list_amis(region=region or '')
+    c = Console(highlight=False)
+    if len(amis) == 0:
+        c.print(f'\n  [dim]No elastic AMIs in {region or "this region"}.[/]  Run: [bold]sp el ami create[/]\n')
+        return
+    t = Table(show_header=True, header_style='bold', box=None, padding=(0, 2))
+    t.add_column('AMI id'        , style='bold')
+    t.add_column('Name')
+    t.add_column('Source stack'  , style='dim')
+    t.add_column('State')
+    t.add_column('Created'        , style='dim')
+    for ami in amis:
+        t.add_row(str(ami.ami_id),
+                  rich_escape(str(ami.name)),
+                  str(ami.source_stack) or '—',
+                  str(ami.state),
+                  str(ami.creation_date))
+    c.print()
+    c.print(t)
+    c.print(f'\n  [dim]{len(amis)} AMI(s)[/]\n')
+
+
+@ami_app.command('create')
+@aws_error_handler
+def cmd_ami_create(stack_name : Optional[str] = typer.Argument(None, help='Stack name to bake. Auto-picks when only one stack exists; prompts on multiple.'),
+                   ami_name   : Optional[str] = typer.Option  (None, '--name', help='AMI Name tag (defaults to sg-elastic-ami-<stack>-<unix-ts>).'),
+                   reboot     : bool          = typer.Option  (False, '--reboot/--no-reboot', help='Reboot the instance during AMI creation. Default: no-reboot (safer; ES has restart=unless-stopped, journal-replay handles in-flight writes).')):
+    """Bake the running stack's EBS volume into an AMI tagged sg:purpose=elastic. Snapshots inherit the same tags. Returns the AMI id; AWS marks it pending — `sp el ami list` shows when it's available."""
+    service    = build_service()
+    stack_name = resolve_stack_name(service, stack_name, None)
+    result     = service.create_ami_from_stack(stack_name = Safe_Str__Elastic__Stack__Name(stack_name),
+                                                ami_name   = ami_name or ''                            ,
+                                                no_reboot  = not reboot                                )
+    c = Console(highlight=False)
+    c.print()
+    if result['error']:
+        c.print(f'  [red]✗[/]  AMI creation failed: {rich_escape(str(result["error"]))}\n')
+        raise typer.Exit(2)
+    c.print(f'  [green]✓[/]  Started AMI bake from [bold]{stack_name}[/]')
+    c.print(f'     [dim]instance:[/] {result["instance_id"]}')
+    c.print(f'     [dim]ami-id:  [/] [bold]{result["ami_id"]}[/]')
+    c.print(f'     [dim]Track progress: `sp el ami list` (state moves pending → available; usually 5-10 min for a single-volume EBS).[/]\n')
+
+
+@ami_app.command('delete')
+@aws_error_handler
+def cmd_ami_delete(ami_id : str  = typer.Argument(...,           help='AMI id to deregister (and delete its EBS snapshots).'),
+                   region : Optional[str] = typer.Option(None, '--region'),
+                   yes    : bool = typer.Option(False, '--yes', '-y', help='Skip the y/N confirmation.')):
+    """Deregister an AMI and delete the EBS snapshots behind it. AWS keeps snapshots when you only deregister — this command cleans both so you don't pay for orphaned storage."""
+    if not yes:
+        if not typer.confirm(f'  Deregister {ami_id} and delete its snapshots?', default=False):
+            Console(highlight=False).print('  [dim]aborted[/]\n')
+            raise typer.Exit(0)
+    service = build_service()
+    result  = service.delete_ami(ami_id=ami_id, region=region or '')
+    c = Console(highlight=False)
+    c.print()
+    if result['deregistered']:
+        c.print(f'  [green]✓[/]  Deregistered [bold]{ami_id}[/]  [dim]({result["snapshots_deleted"]} snapshot(s) deleted)[/]\n')
+    else:
+        c.print(f'  [yellow]·[/]  No such AMI: {ami_id}\n')
+
+
+app.add_typer(ami_app, name='ami')
 
 
 # ── dashboard / data-view (Kibana saved objects) ───────────────────────────────

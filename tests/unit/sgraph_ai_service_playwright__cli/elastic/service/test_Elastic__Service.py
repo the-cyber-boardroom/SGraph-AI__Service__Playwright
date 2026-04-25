@@ -105,6 +105,20 @@ class test_Elastic__Service(TestCase):
         assert f'ELASTIC_PASSWORD={str(response.elastic_password)}' in captured
         assert 'ck-1' in captured
 
+    def test_create__honours_supplied_password(self):                                # When the request carries an explicit password, the service must use it verbatim — drives consistent passwords across local stacks + AMI bakes
+        service  = build_service()
+        response = service.create(Schema__Elastic__Create__Request(stack_name='pwd-1', region=REGION,
+                                                                    elastic_password='MyStrongPwd_abc-123'))
+        assert str(response.elastic_password) == 'MyStrongPwd_abc-123'
+        # And the bake-time password is what landed in user-data
+        assert 'ELASTIC_PASSWORD=MyStrongPwd_abc-123' in service.aws_client.last_launch_user_data
+
+    def test_create__generates_random_password_when_none_supplied(self):
+        service  = build_service()
+        response = service.create(Schema__Elastic__Create__Request(stack_name='pwd-2', region=REGION))
+        # Random urlsafe token: at least 20 chars and not the empty string
+        assert len(str(response.elastic_password)) >= 20
+
     def test_list_stacks__empty(self):
         service  = build_service()
         response = service.list_stacks(region=REGION)
