@@ -65,7 +65,7 @@ env:
   DEFAULT_STAGE_MAIN : 'prod'
 
 permissions:
-  contents: read
+  contents: write                                                                  # required by the increment-tag job to push the version-bump commit + tag back to dev/main
   id-token: write
 
 jobs:
