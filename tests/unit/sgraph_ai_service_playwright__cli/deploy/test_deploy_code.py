@@ -21,8 +21,8 @@ class test_module_surface(TestCase):
                      'read_version'        , 'main'          ):
             assert hasattr(sp_cli_deploy_code, attr), f'missing: {attr}'
 
-    def test__package_names_are_the_two_hot_swap_trees(self):                       # Locked — the zip MUST contain both trees in the right order (builder copies package-name prefix for each)
-        assert PACKAGE_NAMES == ['sgraph_ai_service_playwright__cli', 'scripts']
+    def test__package_names_are_the_three_hot_swap_trees(self):                     # Locked — the zip MUST contain all three trees so the agentic Lambda has every import path it needs (CLI tree, scripts/, agent_mitmproxy for IMAGE_NAME)
+        assert PACKAGE_NAMES == ['sgraph_ai_service_playwright__cli', 'scripts', 'agent_mitmproxy']
 
     def test__version_file_is_shared_with_main_service(self):                       # Single source of truth — the CLI inherits the main Playwright service version
         assert VERSION_FILE_RELATIVE == 'sgraph_ai_service_playwright/version'

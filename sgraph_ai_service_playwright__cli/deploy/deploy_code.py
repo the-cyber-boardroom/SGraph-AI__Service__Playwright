@@ -30,7 +30,9 @@ from sgraph_ai_service_playwright__cli.deploy.Lambda__SP__CLI                   
 from scripts.deploy_code                                                            import deploy as deploy_code__deploy
 
 
-PACKAGE_NAMES          = ['sgraph_ai_service_playwright__cli', 'scripts']           # Two trees included in the zip (see module header)
+PACKAGE_NAMES          = ['sgraph_ai_service_playwright__cli',                      # The CLI tree itself: routes, services, schemas, deploy helpers
+                          'scripts'                            ,                    # provision_ec2 + observability — imported lazily by Ec2__Service / Observability__Service
+                          'agent_mitmproxy'                    ]                    # scripts/provision_ec2 imports IMAGE_NAME from agent_mitmproxy.docker.Docker__Agent_Mitmproxy__Base
 VERSION_FILE_RELATIVE  = 'sgraph_ai_service_playwright/version'                     # Shared with the main Playwright service — single source of truth bumped by git__increment-tag
 
 
