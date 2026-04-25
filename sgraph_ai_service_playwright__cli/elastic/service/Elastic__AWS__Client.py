@@ -296,6 +296,18 @@ class Elastic__AWS__Client(Type_Safe):                                          
         return str(response.get('ImageId', ''))
 
     @type_safe
+    def describe_ami_state(self, region: str, ami_id: str) -> str:                  # Returns 'pending' / 'available' / 'failed' / 'invalid' / '' (when AWS doesn't know the id)
+        ec2 = self.ec2_client(region)
+        try:
+            response = ec2.describe_images(ImageIds=[ami_id])
+        except Exception:
+            return ''
+        images = response.get('Images', [])
+        if not images:
+            return ''
+        return str(images[0].get('State', ''))
+
+    @type_safe
     def deregister_ami(self, region: str, ami_id: str) -> tuple:                    # Returns (deregistered: bool, deleted_snapshot_count: int). Deregisters the AMI then deletes the underlying snapshots — AWS keeps snapshots around when you only deregister.
         ec2 = self.ec2_client(region)
         # 1) Capture snapshot ids BEFORE deregister (describe_images stops returning the image after deregister)

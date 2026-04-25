@@ -395,6 +395,29 @@ class Elastic__Service(Type_Safe):                                              
         ok, snap_count = self.aws_client.deregister_ami(str(resolved), ami_id)
         return {'deregistered': ok, 'snapshots_deleted': snap_count}
 
+    def wait_until_ami_available(self, ami_id      : str                            ,
+                                       region      : Safe_Str__AWS__Region = None   ,
+                                       timeout     : int                   = 1200   ,  # 20 min — bake commonly takes 5-10, leave headroom
+                                       poll_seconds: int                   = 15     ,
+                                       on_progress : Callable              = None   ,  # Invoked each poll with {state, attempt, elapsed_ms}
+                                       sleep_fn    : Callable              = time.sleep
+                            ) -> str:                                                 # Final state ('available' / 'failed' / 'invalid' / '' / 'timeout')
+        resolved = self.resolve_region(region)
+        start    = time.monotonic()
+        deadline = start + max(timeout, 1)
+        poll_sec = max(poll_seconds, 1)
+        attempt  = 0
+        while time.monotonic() < deadline:
+            attempt   += 1
+            state      = self.aws_client.describe_ami_state(str(resolved), ami_id)
+            elapsed_ms = int((time.monotonic() - start) * 1000)
+            if on_progress is not None:
+                on_progress({'state': state, 'attempt': attempt, 'elapsed_ms': elapsed_ms})
+            if state in ('available', 'failed', 'invalid', 'deregistered'):
+                return state
+            sleep_fn(poll_sec)
+        return 'timeout'
+
     @type_safe
     def harden_kibana(self, stack_name : Safe_Str__Elastic__Stack__Name ,           # Disable Observability / Security / Fleet / ML side-nav groups in the default Kibana space
                             password   : str                            = ''

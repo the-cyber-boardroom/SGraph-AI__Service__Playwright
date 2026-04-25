@@ -866,12 +866,32 @@ def cmd_ami_list(region: Optional[str] = typer.Option(None, '--region')):
     c.print(f'\n  [dim]{len(amis)} AMI(s)[/]\n')
 
 
+def _wait_for_ami(service, ami_id: str, c: Console, timeout: int = 1200, poll_seconds: int = 15) -> str:
+    """Poll until the AMI moves out of `pending`. Shared by `ami create --wait` and `ami wait`."""
+    from rich.status import Status
+    status = Status('initialising probe...', console=c, spinner='dots')
+    status.start()
+    last_state = ''
+    try:
+        def on_tick(t):
+            nonlocal last_state
+            last_state = str(t['state']) or 'unknown'
+            secs = t['elapsed_ms'] // 1000
+            status.update(f'[dim][{secs:>3}s  #{t["attempt"]:02d}][/]  ami=[bold]{rich_escape(ami_id)}[/]  state=[bold]{last_state}[/]')
+        final = service.wait_until_ami_available(ami_id=ami_id, timeout=timeout,
+                                                  poll_seconds=poll_seconds, on_progress=on_tick)
+    finally:
+        status.stop()
+    return final
+
+
 @ami_app.command('create')
 @aws_error_handler
 def cmd_ami_create(stack_name : Optional[str] = typer.Argument(None, help='Stack name to bake. Auto-picks when only one stack exists; prompts on multiple.'),
-                   ami_name   : Optional[str] = typer.Option  (None, '--name', help='AMI Name tag (defaults to sg-elastic-ami-<stack>-<unix-ts>).'),
-                   reboot     : bool          = typer.Option  (False, '--reboot/--no-reboot', help='Reboot the instance during AMI creation. Default: no-reboot (safer; ES has restart=unless-stopped, journal-replay handles in-flight writes).')):
-    """Bake the running stack's EBS volume into an AMI tagged sg:purpose=elastic. Snapshots inherit the same tags. Returns the AMI id; AWS marks it pending — `sp el ami list` shows when it's available."""
+                   ami_name   : Optional[str] = typer.Option  (None, '--name', help='AMI Name tag (defaults to "Ephemeral Kibana - <stack> - <ts>").'),
+                   reboot     : bool          = typer.Option  (False, '--reboot/--no-reboot', help='Reboot the instance during AMI creation. Default: no-reboot (safer; ES has restart=unless-stopped, journal-replay handles in-flight writes).'),
+                   wait       : bool          = typer.Option  (False, '--wait', help='Block until the AMI moves from pending → available (5-10 min on a single EBS volume).')):
+    """Bake the running stack's EBS volume into an AMI tagged sg:purpose=elastic. Snapshots inherit the same tags. Returns the AMI id; AWS marks it pending — pass --wait or run `sp el ami wait AMI-ID` to block until available."""
     service    = build_service()
     stack_name = resolve_stack_name(service, stack_name, None)
     result     = service.create_ami_from_stack(stack_name = Safe_Str__Elastic__Stack__Name(stack_name),
@@ -885,7 +905,42 @@ def cmd_ami_create(stack_name : Optional[str] = typer.Argument(None, help='Stack
     c.print(f'  [green]✓[/]  Started AMI bake from [bold]{stack_name}[/]')
     c.print(f'     [dim]instance:[/] {result["instance_id"]}')
     c.print(f'     [dim]ami-id:  [/] [bold]{result["ami_id"]}[/]')
-    c.print(f'     [dim]Track progress: `sp el ami list` (state moves pending → available; usually 5-10 min for a single-volume EBS).[/]\n')
+    if not wait:
+        c.print(f'     [dim]Track progress: `sp el ami wait {result["ami_id"]}` (or `sp el ami list`).[/]\n')
+        return
+    c.print()
+    c.print(f'  [bold]Waiting for AMI[/]  [dim](polling every 15s, up to 1200s — typical bake is 5-10 min)[/]')
+    final = _wait_for_ami(service, result['ami_id'], c)
+    c.print()
+    if final == 'available':
+        c.print(f'  [green]✓[/]  AMI [bold]{result["ami_id"]}[/] is [bold]available[/] — launch with `sp el create-from-ami {result["ami_id"]} --wait`\n')
+    else:
+        c.print(f'  [red]✗[/]  AMI did not become available (final state: [bold]{final or "unknown"}[/])\n')
+        raise typer.Exit(2)
+
+
+@ami_app.command('wait')
+@aws_error_handler
+def cmd_ami_wait(ami_id       : str           = typer.Argument(...,         help='AMI id to poll until it moves from pending → available.'),
+                 timeout      : int           = typer.Option  (1200, '--timeout', help='Max total wait in seconds. Default 1200 (20 min).'),
+                 poll_seconds : int           = typer.Option  (15,   '--poll-seconds', help='Seconds between polls (default 15).')):
+    """Poll until an AMI is available (or fails). Useful after `sp el ami create` returns immediately while AWS bakes the snapshot async."""
+    service = build_service()
+    c = Console(highlight=False)
+    c.print(f'\n  [bold]Waiting for AMI[/]  [dim](polling every {poll_seconds}s, up to {timeout}s)[/]')
+    final = _wait_for_ami(service, ami_id, c, timeout=timeout, poll_seconds=poll_seconds)
+    c.print()
+    if final == 'available':
+        c.print(f'  [green]✓[/]  AMI [bold]{ami_id}[/] is [bold]available[/]\n')
+    elif final == '':
+        c.print(f'  [red]✗[/]  No such AMI: {ami_id}\n')
+        raise typer.Exit(2)
+    elif final == 'timeout':
+        c.print(f'  [red]✗[/]  Timed out waiting for {ami_id} (still pending after {timeout}s)\n')
+        raise typer.Exit(2)
+    else:
+        c.print(f'  [red]✗[/]  AMI {ami_id} ended in state [bold]{final}[/]\n')
+        raise typer.Exit(2)
 
 
 @ami_app.command('delete')
