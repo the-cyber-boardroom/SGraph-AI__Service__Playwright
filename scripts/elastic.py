@@ -291,7 +291,7 @@ def cmd_create(stack_name   : Optional[str] = typer.Argument (None,           he
 
 @app.command('create-from-ami')
 @aws_error_handler
-def cmd_create_from_ami(ami_id        : str           = typer.Argument(...,         help='AMI id to launch (use `sp el ami list` to find one).'),
+def cmd_create_from_ami(ami_id        : Optional[str] = typer.Argument(None,        help='AMI id to launch. OMIT to auto-pick the latest available AMI; use `sp el ami list` to see all.'),
                          stack_name    : Optional[str] = typer.Argument(None,        help='Stack name (auto-generated if omitted).'),
                          region        : Optional[str] = typer.Option  (None, '--region'),
                          instance_type : Optional[str] = typer.Option  (None, '--instance-type'),
@@ -301,6 +301,21 @@ def cmd_create_from_ami(ami_id        : str           = typer.Argument(...,     
     import time as _time
     t0_ms   = int(_time.monotonic() * 1000)
     service = build_service()
+
+    if not ami_id:                                                                  # Auto-pick the latest available AMI — same one-stack-auto-picks-itself UX as wait/info/seed
+        amis = service.list_amis(region=region or '')
+        available = [a for a in amis if str(a.state) == 'available']
+        if not available:
+            err = Console(highlight=False, stderr=True)
+            if amis:
+                err.print(f'\n  [yellow]No AMIs in [bold]available[/] state.[/]  Run [bold]sp el ami list[/] to see status — pending bakes need [bold]sp el ami wait[/].\n')
+            else:
+                err.print(f'\n  [yellow]No elastic AMIs found.[/]  Run [bold]sp el ami create[/] first.\n')
+            raise typer.Exit(1)
+        latest = sorted(available, key=lambda a: str(a.creation_date), reverse=True)[0]    # ISO-8601 strings sort lexicographically — newer first
+        ami_id = str(latest.ami_id)
+        Console(highlight=False).print(f'\n  [dim]No AMI specified — using latest available: [bold]{ami_id}[/]  [dim]({rich_escape(str(latest.name))})[/]')
+
     request = Schema__Elastic__Create__Request(stack_name    = stack_name    or '' ,
                                                region        = region        or '' ,
                                                instance_type = instance_type or '' ,
