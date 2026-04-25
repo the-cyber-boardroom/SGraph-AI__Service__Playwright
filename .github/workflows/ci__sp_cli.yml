@@ -145,11 +145,17 @@ jobs:
               - 'scripts/__init__.py'
 
   # ════════════════════════════════════════════════════════════════════════════
-  # Job 4: Increment Tag    [push to dev / main, or workflow_dispatch]
+  # Job 4: Increment Tag    [push to dev / main with code changes]
   #   Bumps sgraph_ai_service_playwright/version (the SHARED version file —
   #   single source of truth across the main Playwright service AND the SP
   #   CLI). dev = minor bump, main = major bump. Mirrors the increment-tag
   #   job in ci-pipeline.yml so both pipelines drive the same version stream.
+  #
+  #   Gated on detect-changes.code-deploy-needed so workflow-only / docs-only
+  #   pushes don't burn a version number — every bump implies a real code zip
+  #   getting uploaded to S3 and AGENTIC_APP_VERSION getting flipped on the
+  #   Lambda. Bumping without deploying would leave the Lambda pointing at a
+  #   stale version key.
   #
   #   The bumped commit is pushed back to the branch by the action; downstream
   #   jobs check out github.ref_name to pick up the fresh value before they
@@ -159,10 +165,11 @@ jobs:
     name: Increment Tag (dev=minor, main=major)
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    needs: [run-unit-tests]
+    needs: [run-unit-tests, detect-changes]
     if: |
       github.event_name == 'push' &&
-      (github.ref_name == 'dev' || github.ref_name == 'main')
+      (github.ref_name == 'dev' || github.ref_name == 'main') &&
+      needs.detect-changes.outputs.code-deploy-needed == 'true'
     steps:
       - uses: actions/checkout@v5
         with:
