@@ -17,6 +17,8 @@ from sgraph_ai_service_playwright__cli.elastic.lets.cf.inventory.service.Invento
 class Inventory__HTTP__Client__In_Memory(Inventory__HTTP__Client):
     bulk_calls            : list                                                    # [(base_url, index, doc_count, id_field), ...]
     fixture_response      : tuple                                                   # (created, updated, failed, http_status, error_msg) — empty → defaults to (len(docs), 0, 0, 200, '')
+    delete_pattern_calls  : list                                                    # [(base_url, pattern), ...]
+    fixture_delete_pattern_response : tuple                                          # (indices_dropped, http_status, error_msg) — empty → (0, 200, '')
 
     def bulk_post_with_id(self, base_url : str              ,
                                 username : str              ,
@@ -29,3 +31,13 @@ class Inventory__HTTP__Client__In_Memory(Inventory__HTTP__Client):
         if self.fixture_response:
             return self.fixture_response
         return len(docs), 0, 0, 200, ''                                             # Default: every doc created OK
+
+    def delete_indices_by_pattern(self, base_url : str ,
+                                         username : str ,
+                                         password : str ,
+                                         pattern  : str
+                                    ) -> Tuple[int, int, str]:
+        self.delete_pattern_calls.append((base_url, pattern))
+        if self.fixture_delete_pattern_response:
+            return self.fixture_delete_pattern_response
+        return 0, 200, ''                                                           # Default: no matching indices to delete

@@ -33,6 +33,7 @@ from sgraph_ai_service_playwright__cli.elastic.lets.cf.inventory.enums.Enum__S3_
 from sgraph_ai_service_playwright__cli.elastic.lets.cf.inventory.schemas.Schema__Inventory__Load__Request   import Schema__Inventory__Load__Request
 from sgraph_ai_service_playwright__cli.elastic.lets.cf.inventory.schemas.Schema__Inventory__Load__Response  import Schema__Inventory__Load__Response
 from sgraph_ai_service_playwright__cli.elastic.lets.cf.inventory.schemas.Schema__S3__Object__Record         import Schema__S3__Object__Record
+from sgraph_ai_service_playwright__cli.elastic.lets.cf.inventory.service.CF__Inventory__Dashboard__Builder import CF__Inventory__Dashboard__Builder
 from sgraph_ai_service_playwright__cli.elastic.lets.cf.inventory.service.Inventory__HTTP__Client import Inventory__HTTP__Client
 from sgraph_ai_service_playwright__cli.elastic.lets.cf.inventory.service.Run__Id__Generator      import Run__Id__Generator
 from sgraph_ai_service_playwright__cli.elastic.lets.cf.inventory.service.S3__Inventory__Lister   import S3__Inventory__Lister, normalise_etag, parse_firehose_filename
@@ -179,11 +180,24 @@ class Inventory__Loader(Type_Safe):
                                                       dry_run          = True                )
 
         # ─── ensure Kibana data view (idempotent) ────────────────────────────
-        self.kibana_client.ensure_data_view(base_url        = base_url              ,
-                                             username        = username              ,
-                                             password        = password              ,
-                                             title           = DATA_VIEW__TITLE      ,
-                                             time_field_name = DATA_VIEW__TIME_FIELD )
+        data_view_result = self.kibana_client.ensure_data_view(base_url        = base_url              ,
+                                                                username        = username              ,
+                                                                password        = password              ,
+                                                                title           = DATA_VIEW__TITLE      ,
+                                                                time_field_name = DATA_VIEW__TIME_FIELD )
+
+        # ─── ensure dashboard (idempotent — overwrite=true) ──────────────────
+        # Skip silently if data view ensure failed (no id to bind panels to).
+        # The dashboard import errors propagate to error_message via the
+        # response below if anything else hits them.
+        if str(data_view_result.id) and not str(data_view_result.error):
+            ndjson_bytes = CF__Inventory__Dashboard__Builder().build_ndjson(data_view_id = str(data_view_result.id),
+                                                                              time_field   = DATA_VIEW__TIME_FIELD)
+            self.kibana_client.import_objects(base_url     = base_url     ,
+                                               username     = username     ,
+                                               password     = password     ,
+                                               ndjson_bytes = ndjson_bytes ,
+                                               overwrite    = True         )
 
         # ─── group records by delivery date for daily-rolling indices ────────
         # Each record's delivery_at ("YYYY-MM-DDThh:mm:ssZ") drives the index

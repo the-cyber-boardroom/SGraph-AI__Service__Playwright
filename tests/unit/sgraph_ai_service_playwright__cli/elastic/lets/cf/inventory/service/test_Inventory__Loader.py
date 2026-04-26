@@ -41,7 +41,7 @@ def build_loader(s3_pages: list = None,
                                                fixture_response = http_response)
     kb   = Kibana__Saved_Objects__Client__In_Memory(ensure_calls=[], delete_calls=[],
                                                      dashboard_calls=[], harden_calls=[],
-                                                     delete_object_calls=[])
+                                                     delete_object_calls=[], import_calls=[])
     gen  = Deterministic__Run__Id__Generator()
     return Inventory__Loader(s3_lister=s3, http_client=http, kibana_client=kb, run_id_gen=gen)
 
@@ -81,6 +81,22 @@ class test_Inventory__Loader(TestCase):
         loader.load(request  = Schema__Inventory__Load__Request(prefix='cloudfront-realtime/2026/04/25/'),
                      base_url = 'https://1.2.3.4', username='u', password='p')
         assert loader.kibana_client.ensure_calls == [('https://1.2.3.4', 'sg-cf-inventory-*', 'delivery_at')]
+
+    def test_dashboard_imported_after_data_view(self):                              # Phase 5 — dashboard ndjson auto-imported on every load
+        loader = build_loader()
+        loader.load(request  = Schema__Inventory__Load__Request(prefix='cloudfront-realtime/2026/04/25/'),
+                     base_url = 'https://1.2.3.4', username='u', password='p')
+        assert len(loader.kibana_client.import_calls) == 1
+        base_url, byte_count, overwrite = loader.kibana_client.import_calls[0]
+        assert base_url == 'https://1.2.3.4'
+        assert byte_count > 0                                                        # Real ndjson, not empty
+        assert overwrite is True                                                     # Idempotent re-import
+
+    def test_dashboard_NOT_imported_on_dry_run(self):                               # Dry-run already skips bulk-post + ensure_data_view, so dashboard import is also skipped
+        loader = build_loader()
+        loader.load(request  = Schema__Inventory__Load__Request(prefix='cloudfront-realtime/2026/04/25/', dry_run=True),
+                     base_url = 'https://1.2.3.4', username='u', password='p')
+        assert loader.kibana_client.import_calls == []
 
     def test_multi_day_records_split_across_per_day_indices(self):                  # Records spanning multiple delivery dates produce one bulk-post per date
         from datetime import datetime, timezone

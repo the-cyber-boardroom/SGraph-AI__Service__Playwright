@@ -26,6 +26,8 @@ class Kibana__Saved_Objects__Client__In_Memory(Kibana__Saved_Objects__Client):
     fixture_harden_error      : str  = ''
     delete_object_calls       : list                                                 # [(base_url, [(type, id), ...]), ...]
     fixture_delete_object_count : int = 0                                            # What delete_saved_objects returns
+    import_calls              : list                                                 # [(base_url, ndjson_byte_count, overwrite), ...] — populated by import_objects (used by the LETS-inventory dashboard import)
+    fixture_import_success_count : int = 6                                           # What import_objects' Schema__Kibana__Import__Result.success_count carries (default 6 = 1 dashboard + 5 visualisations)
 
     def ensure_data_view(self, base_url        : str ,
                                 username        : str ,
@@ -61,6 +63,26 @@ class Kibana__Saved_Objects__Client__In_Memory(Kibana__Saved_Objects__Client):
 
     def delete_default_dashboard_objects(self, base_url: str, username: str, password: str) -> int:
         return self.delete_saved_objects(base_url, username, password, [])
+
+    # ─── import_objects override (added for the LETS-inventory dashboard) ─────
+    # The synthetic-data dashboard reaches Kibana through ensure_default_dashboard
+    # which is overridden above.  The CF-inventory dashboard imports its
+    # ndjson directly via import_objects, so we add a fixture-driven override
+    # here.  Records every call so tests can assert on what was imported.
+
+    def import_objects(self, base_url     : str   ,
+                              username     : str   ,
+                              password     : str   ,
+                              ndjson_bytes : bytes ,
+                              overwrite    : bool  = True
+                        ):
+        from sgraph_ai_service_playwright__cli.elastic.schemas.Schema__Kibana__Import__Result import Schema__Kibana__Import__Result
+        self.import_calls.append((base_url, len(ndjson_bytes), bool(overwrite)))
+        return Schema__Kibana__Import__Result(success       = True                            ,
+                                              success_count = int(self.fixture_import_success_count),
+                                              error_count   = 0                               ,
+                                              http_status   = 200                             ,
+                                              first_error   = ''                              )
 
     def ensure_default_dashboard(self, base_url     : str ,
                                         username     : str ,
