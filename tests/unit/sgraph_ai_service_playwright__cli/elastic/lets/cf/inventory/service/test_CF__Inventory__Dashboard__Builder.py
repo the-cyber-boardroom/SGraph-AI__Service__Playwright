@@ -117,3 +117,22 @@ class test_CF__Inventory__Dashboard__Builder(TestCase):
         b = CF__Inventory__Dashboard__Builder()
         assert b.dashboard_id()    == DASHBOARD_ID
         assert b.dashboard_title() == DASHBOARD_TITLE
+
+    def test_string_terms_aggs_use_keyword_subfield(self):                          # Regression: ES auto-mapping puts enum strings under text+keyword. Terms aggs on plain "text" fields fail at query time. Numeric fields are exempt.
+        raw     = CF__Inventory__Dashboard__Builder().build_ndjson(data_view_id='dv-fixture-uuid')
+        objects = parse_ndjson(raw)
+        # Walk every visualization, find each terms agg, and assert string-typed fields use .keyword
+        # Numeric fields (delivery_day, delivery_hour, etc.) are exempt — they don't need .keyword
+        numeric_fields = {'delivery_year', 'delivery_month', 'delivery_day',
+                          'delivery_hour', 'delivery_minute', 'size_bytes',
+                          'firehose_lag_ms'}
+        for vis in objects[:5]:
+            vis_state = json.loads(vis['attributes']['visState'])
+            for agg in vis_state.get('aggs', []):
+                if agg.get('type') != 'terms':
+                    continue
+                field = agg.get('params', {}).get('field', '')
+                if field in numeric_fields:
+                    continue                                                         # Numeric — no .keyword needed
+                assert field.endswith('.keyword'), \
+                    f'Terms agg on string field "{field}" must use .keyword sub-field (vis: {vis["id"]})'

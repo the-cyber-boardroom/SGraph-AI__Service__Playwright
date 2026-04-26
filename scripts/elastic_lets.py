@@ -30,6 +30,7 @@ from sgraph_ai_service_playwright__cli.elastic.lets.cf.inventory.primitives.Safe
 from sgraph_ai_service_playwright__cli.elastic.lets.cf.inventory.schemas.Schema__Inventory__Load__Request import Schema__Inventory__Load__Request
 from sgraph_ai_service_playwright__cli.elastic.lets.cf.inventory.service.Inventory__HTTP__Client import Inventory__HTTP__Client
 from sgraph_ai_service_playwright__cli.elastic.lets.cf.inventory.service.Inventory__Loader      import Inventory__Loader
+from sgraph_ai_service_playwright__cli.elastic.lets.cf.inventory.service.Inventory__Read        import Inventory__Read
 from sgraph_ai_service_playwright__cli.elastic.lets.cf.inventory.service.Inventory__Wiper       import Inventory__Wiper
 from sgraph_ai_service_playwright__cli.elastic.lets.cf.inventory.service.Run__Id__Generator    import Run__Id__Generator
 from sgraph_ai_service_playwright__cli.elastic.lets.cf.inventory.service.S3__Inventory__Lister import S3__Inventory__Lister
@@ -60,6 +61,11 @@ def build_inventory_loader() -> Inventory__Loader:                              
 def build_inventory_wiper() -> Inventory__Wiper:
     return Inventory__Wiper(http_client   = Inventory__HTTP__Client()       ,
                              kibana_client = Kibana__Saved_Objects__Client() )
+
+
+def build_inventory_read() -> Inventory__Read:
+    return Inventory__Read(http_client   = Inventory__HTTP__Client()       ,
+                            kibana_client = Kibana__Saved_Objects__Client() )
 
 
 # ───────────────────────────────────────────────────────────────────────────────
@@ -225,6 +231,117 @@ def cmd_inventory_wipe(stack_name : Optional[str] = typer.Argument(None,        
         if str(response.error_message):
             c.print()
             c.print(f'  [yellow]⚠[/]  {rich_escape(str(response.error_message))}')
+        c.print()
+
+    _run()
+
+
+# ───────────────────────────────────────────────────────────────────────────────
+# `sp el lets cf inventory list` — show distinct pipeline runs in Elastic
+# ───────────────────────────────────────────────────────────────────────────────
+
+@inventory_app.command('list')
+def cmd_inventory_list(stack_name : Optional[str] = typer.Argument(None,                  help='Stack name. Auto-picks when only one stack exists; prompts on multiple.'),
+                       password   : Optional[str] = typer.Option  (None, '--password',    help='Elastic password (else $SG_ELASTIC_PASSWORD).'),
+                       region     : Optional[str] = typer.Option  (None, '--region',      help='AWS region (defaults to current AWS_Config session region).'),
+                       top_n      : int           = typer.Option  (100,  '--top',         help='Show at most N runs (default 100).')):
+    """List distinct pipeline runs currently indexed in sg-cf-inventory-*. One row per pipeline_run_id."""
+    from scripts.elastic                                                             import build_service, resolve_stack_name, aws_error_handler
+
+    @aws_error_handler
+    def _run():
+        c = Console(highlight=False)
+        if not password and not os.environ.get('SG_ELASTIC_PASSWORD'):
+            c.print('\n  [yellow]⚠[/]  SG_ELASTIC_PASSWORD is not set.\n')
+            raise typer.Exit(1)
+
+        service       = build_service()
+        stack_picked  = resolve_stack_name(service, stack_name, region)
+        info          = service.get_stack_info(stack_name = Safe_Str__Elastic__Stack__Name(stack_picked),
+                                                region     = region or '')
+        if not str(info.kibana_url):
+            c.print(f'\n  [red]✗  Stack [bold]{stack_picked}[/] has no Kibana URL yet.[/]\n')
+            raise typer.Exit(1)
+
+        base_url    = str(info.kibana_url).rstrip('/')
+        elastic_pwd = password or os.environ.get('SG_ELASTIC_PASSWORD', '')
+        reader      = build_inventory_read()
+        runs        = reader.list_runs(base_url=base_url, username='elastic', password=elastic_pwd, top_n=top_n)
+
+        c.print()
+        if len(runs) == 0:
+            c.print(f'  [dim]No runs in sg-cf-inventory-* on [bold]{stack_picked}[/].  Run `sp el lets cf inventory load`.[/]\n')
+            return
+
+        c.print(f'  [bold]Pipeline runs on [cyan]{stack_picked}[/cyan][/]')
+        c.print()
+        t = Table(show_header=True, header_style='bold', box=None, padding=(0, 2))
+        t.add_column('Run id'   , style='dim'                   )
+        t.add_column('Objects'  , justify='right'               )
+        t.add_column('Bytes'    , justify='right'               )
+        t.add_column('Delivery range'                           )
+        t.add_column('Loaded at'                                )
+        for run in runs:
+            delivery_range = str(run.earliest_delivery)[:10]                          # YYYY-MM-DD
+            if str(run.latest_delivery)[:10] != delivery_range:
+                delivery_range = f'{delivery_range} → {str(run.latest_delivery)[:10]}'
+            loaded_at = str(run.latest_loaded).replace('T', ' ').rstrip('Z').split('.')[0]
+            t.add_row(str(run.pipeline_run_id),
+                       str(run.object_count   ),
+                       f'{int(run.bytes_total):,}',
+                       delivery_range,
+                       loaded_at)
+        c.print(t)
+        c.print(f'\n  [dim]{len(runs)} run(s)[/]\n')
+
+    _run()
+
+
+# ───────────────────────────────────────────────────────────────────────────────
+# `sp el lets cf inventory health` — check that the dataset's plumbing is intact
+# ───────────────────────────────────────────────────────────────────────────────
+
+@inventory_app.command('health')
+def cmd_inventory_health(stack_name : Optional[str] = typer.Argument(None,                help='Stack name. Auto-picks when only one stack exists; prompts on multiple.'),
+                          password   : Optional[str] = typer.Option  (None, '--password',  help='Elastic password (else $SG_ELASTIC_PASSWORD).'),
+                          region     : Optional[str] = typer.Option  (None, '--region',    help='AWS region (defaults to current AWS_Config session region).')):
+    """Check the inventory dataset's plumbing: indices, data view, dashboard. Mirrors `sp el health` style."""
+    from scripts.elastic                                                             import build_service, resolve_stack_name, aws_error_handler, rich_escape
+
+    @aws_error_handler
+    def _run():
+        c = Console(highlight=False)
+        if not password and not os.environ.get('SG_ELASTIC_PASSWORD'):
+            c.print('\n  [yellow]⚠[/]  SG_ELASTIC_PASSWORD is not set.\n')
+            raise typer.Exit(1)
+
+        service       = build_service()
+        stack_picked  = resolve_stack_name(service, stack_name, region)
+        info          = service.get_stack_info(stack_name = Safe_Str__Elastic__Stack__Name(stack_picked),
+                                                region     = region or '')
+        if not str(info.kibana_url):
+            c.print(f'\n  [red]✗  Stack [bold]{stack_picked}[/] has no Kibana URL yet.[/]\n')
+            raise typer.Exit(1)
+
+        base_url    = str(info.kibana_url).rstrip('/')
+        elastic_pwd = password or os.environ.get('SG_ELASTIC_PASSWORD', '')
+        reader      = build_inventory_read()
+        response    = reader.health(base_url=base_url, username='elastic', password=elastic_pwd,
+                                     stack_name=Safe_Str__Elastic__Stack__Name(stack_picked))
+
+        icon_for = {'ok': '[green]✓[/]', 'warn': '[yellow]⚠[/]', 'fail': '[red]✗[/]', 'skip': '[dim]·[/]'}
+        has_warn    = any(str(chk.status) == 'warn' for chk in response.checks)
+        rollup_icon = '[red]✗[/]' if not response.all_ok else ('[yellow]⚠[/]' if has_warn else '[green]✓[/]')
+        c.print()
+        c.print(f'  {rollup_icon}  Inventory health for [bold]{stack_picked}[/]')
+        c.print()
+        t = Table(show_header=True, header_style='bold', box=None, padding=(0, 2))
+        t.add_column('', width=2)
+        t.add_column('Check')
+        t.add_column('Detail', style='dim')
+        for chk in response.checks:
+            t.add_row(icon_for.get(str(chk.status), '·'), str(chk.name), rich_escape(str(chk.detail)))
+        c.print(t)
         c.print()
 
     _run()

@@ -19,6 +19,7 @@ The reality doc was split into per-concern files this cycle (previously a single
 7. [`07__sp-cli-ec2-fastapi.md`](07__sp-cli-ec2-fastapi.md) — **NEW.** EC2 create/info/delete exposed as HTTP routes via `Fast_API__SP__CLI` (stand-alone) + `Ec2__Service` adapter over `scripts/provision_ec2.py` + Lambda handler.
 8. [`08__sp-cli-lambda-deploy.md`](08__sp-cli-lambda-deploy.md) — **NEW.** Deploys the SP CLI app as its own AWS Lambda: dedicated IAM role (ARN-scoped PassRole), minimal Python 3.12 image (no Chromium), ECR repo, Function URL.
 9. [`09__sp-cli-observability-routes.md`](09__sp-cli-observability-routes.md) — **NEW.** Observability list/get/delete mounted as HTTP routes on the same `Fast_API__SP__CLI` app. Also closes the Type_Safe `ValueError` → HTTP 422 gap via a framework-level exception handler.
+10. [`10__lets-cf-inventory.md`](10__lets-cf-inventory.md) — **NEW (2026-04-26).** First LETS slice: `sp el lets cf inventory {load,wipe,list,health}`. Listing-metadata-only inventory of CloudFront real-time logs in S3, indexed into `sg-cf-inventory-{YYYY-MM-DD}` daily indices keyed on delivery date, with auto-imported 5-panel dashboard. 150 unit tests, no mocks. Side-effect surface: 2 lines added to `scripts/elastic.py` for the Typer mount.
 
 ---
 

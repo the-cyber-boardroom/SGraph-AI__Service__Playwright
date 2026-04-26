@@ -572,6 +572,7 @@ def cmd_health(stack_name: Optional[str] = typer.Argument(None, help='Stack name
         c.print()
         if sg_fail or tcp_fail:
             c.print('  [yellow]Likely fix:[/] your public IP rotated since `sp el create`. Recreate the stack so the SG ingress matches your current IP, or update the SG manually.')
+            c.print('  [yellow]OR:[/] port 443 may be blocked on this network — use [bold]sp el forward[/] to tunnel via SSM (bypasses the SG entirely).')
         if auth_fail:
             c.print('  [yellow]Likely fix:[/] re-export SG_ELASTIC_PASSWORD with the value from the most recent `sp el create` output.')
     c.print()
@@ -716,6 +717,98 @@ def cmd_exec(ctx        : typer.Context                                         
     if not str(result.stdout).strip() and not str(result.stderr).strip():
         c.print('  [dim](no output)[/]')
     c.print(f'  [dim]→ status={result.status}  exit={result.exit_code}  duration={result.duration_ms}ms[/]\n')
+
+
+# ── forward ────────────────────────────────────────────────────────────────────
+#
+# SSM port-forwarding for Kibana / Elastic / nginx. Bypasses the SG entirely
+# (SSM uses the AWS API path, not :443) — useful when corporate networks block
+# 443, when your IP rotated and you don't want to re-create, or when you want
+# to skip the self-signed-cert pain by hitting Kibana on port 5601 directly.
+
+FORWARD_SERVICE_PORTS = {'kibana': 5601,                                            # Inner Kibana — bypasses nginx + self-signed TLS
+                         'elastic': 9200,                                            # Inner Elasticsearch HTTP API
+                         'nginx'  : 443}                                             # Public TLS-terminated endpoint (self-signed cert)
+
+
+def remote_port_for_service(service: str) -> int:                                   # Maps a friendly service name to its remote port; raises on unknown
+    s = (service or '').strip().lower()
+    if s not in FORWARD_SERVICE_PORTS:
+        raise ValueError(f"unknown --service '{service}'; choose one of: {', '.join(sorted(FORWARD_SERVICE_PORTS))}")
+    return FORWARD_SERVICE_PORTS[s]
+
+
+def build_forward_command(instance_id : str ,
+                           remote_port : int ,
+                           local_port  : int ,
+                           region      : str = ''
+                       ) -> list:                                                    # Builds the `aws ssm start-session ...` arg list for AWS-StartPortForwardingSession
+    args = ['aws', 'ssm', 'start-session',
+            '--target'       , str(instance_id)                                    ,
+            '--document-name', 'AWS-StartPortForwardingSession'                    ,
+            '--parameters'   , f'portNumber={int(remote_port)},localPortNumber={int(local_port)}']
+    if region:
+        args += ['--region', str(region)]
+    return args
+
+
+@app.command('forward')
+@aws_error_handler
+def cmd_forward(stack_name : Optional[str] = typer.Argument(None,                  help='Stack name. Auto-picks when only one stack exists; prompts on multiple.'),
+                service    : str           = typer.Option  ('kibana', '--service', help='Which service to forward: kibana (5601) / elastic (9200) / nginx (443).'),
+                local_port : Optional[int] = typer.Option  (None, '--local-port',  help='Local port to bind to (defaults to the remote service\'s port).'),
+                region     : Optional[str] = typer.Option  (None, '--region',      help='AWS region (defaults to current AWS_Config session region).')):
+    """Forward a local port to one of the stack's services via SSM. Bypasses the SG entirely — works when port 443 is blocked or your IP has rotated."""
+    import shutil
+    import subprocess
+    c = Console(highlight=False)
+
+    try:
+        remote_port = remote_port_for_service(service)
+    except ValueError as exc:
+        c.print(f'\n  [red]✗[/]  {rich_escape(str(exc))}\n')
+        raise typer.Exit(1)
+
+    actual_local = int(local_port) if local_port else remote_port
+    service_name = service.strip().lower()
+
+    svc        = build_service()
+    stack_name = resolve_stack_name(svc, stack_name, region)
+    info       = svc.get_stack_info(stack_name = Safe_Str__Elastic__Stack__Name(stack_name),
+                                     region     = region or '')
+    if not str(info.instance_id):
+        c.print(f'\n  [yellow]No such stack:[/] {stack_name}\n')
+        raise typer.Exit(1)
+
+    plugin_path = (shutil.which('session-manager-plugin') or
+                   '/usr/local/sessionmanagerplugin/bin/session-manager-plugin')
+    if not os.path.isfile(plugin_path):
+        c.print('\n  [red]✗  session-manager-plugin not found in PATH.[/]')
+        c.print('  Fix with one of:')
+        c.print('    [bold]sudo ln -s /usr/local/sessionmanagerplugin/bin/session-manager-plugin /usr/local/bin/session-manager-plugin[/]')
+        c.print('    [bold]brew install --cask session-manager-plugin[/]\n')
+        raise typer.Exit(1)
+
+    region_to_use = str(info.region) or (region or '')
+
+    # Friendly URL hint per service — kibana/elastic are plain HTTP on the
+    # inner ports, nginx forwards 443 with the self-signed cert
+    proto = 'https' if service_name == 'nginx' else 'http'
+    cert_note = '  [dim](self-signed cert — browser will warn)[/]' if service_name == 'nginx' else '  [dim](no TLS, no SG needed)[/]'
+
+    c.print(f'\n  🔌  Forwarding [bold]localhost:{actual_local}[/] → [bold]{service_name}[/] ([dim]{remote_port}[/]) on [cyan]{stack_name}[/]')
+    c.print(f'     [dim]instance:[/] {info.instance_id}  [dim]region:[/] {region_to_use or "(default)"}')
+    c.print(f'  [green]→[/]  Open in browser: [bold]{proto}://localhost:{actual_local}/[/]{cert_note}')
+    c.print(f'  [dim]Ctrl-C to disconnect.[/]\n')
+
+    args = build_forward_command(instance_id = str(info.instance_id),
+                                  remote_port = remote_port           ,
+                                  local_port  = actual_local           ,
+                                  region      = region_to_use          )
+    result = subprocess.run(args, check=False, capture_output=False)
+    if result.returncode != 0:
+        c.print(f'\n  [red]✗  Session ended with code {result.returncode}.[/]')
+        c.print('  [dim]If you saw "Standard_Stream not found", run: brew reinstall --cask session-manager-plugin[/]\n')
 
 
 @app.command('harden')
