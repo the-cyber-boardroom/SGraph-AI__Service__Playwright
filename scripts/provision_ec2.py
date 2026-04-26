@@ -48,11 +48,22 @@ from sgraph_ai_service_playwright.docker.Docker__SGraph_AI__Service__Playwright_
 from agent_mitmproxy.docker.Docker__Agent_Mitmproxy__Base                                import IMAGE_NAME as SIDECAR_IMAGE_NAME
 
 from sgraph_ai_service_playwright__cli.ec2.service.Ec2__AWS__Client                      import (Ec2__AWS__Client                                            ,
+                                                                                                  IAM__ASSUME_ROLE_SERVICE                                    ,
+                                                                                                  IAM__ECR_READONLY_POLICY_ARN                                ,
+                                                                                                  IAM__OBSERVABILITY_POLICY_ARNS                              ,
+                                                                                                  IAM__PASSROLE_POLICY_NAME                                   ,
+                                                                                                  IAM__POLICY_ARNS                                            ,
+                                                                                                  IAM__PROMETHEUS_RW_POLICY_ARN                               ,
+                                                                                                  IAM__ROLE_NAME                                              ,
+                                                                                                  IAM__SSM_CORE_POLICY_ARN                                    ,
                                                                                                   aws_account_id                                              ,
                                                                                                   aws_region                                                  ,
+                                                                                                  decode_aws_auth_error        as _decode_aws_auth_error     ,
                                                                                                   default_playwright_image_uri                                ,
                                                                                                   default_sidecar_image_uri                                   ,
                                                                                                   ecr_registry_host                                           ,
+                                                                                                  ensure_caller_passrole                                      ,
+                                                                                                  ensure_instance_profile                                     ,
                                                                                                   get_creator                  as _get_creator               ,
                                                                                                   instance_deploy_name         as _instance_deploy_name      ,
                                                                                                   instance_tag                 as _instance_tag              ,
@@ -78,13 +89,10 @@ EC2__MITMWEB_TUNNEL_PORT    = 18080                                             
 
 WATCHDOG_MAX_REQUEST_MS      = 120_000                                                  # 120s — covers Firefox + long upstream-proxy round-trips
 
-IAM__ROLE_NAME               = 'playwright-ec2'                                         # AWS reserves 'sg-*' prefix — applies to SG names, IAM instance profiles, and resource tags
-IAM__ECR_READONLY_POLICY_ARN = 'arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly'
-IAM__SSM_CORE_POLICY_ARN     = 'arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore'  # SSM session manager — no SSH needed
-IAM__POLICY_ARNS             = (IAM__ECR_READONLY_POLICY_ARN, IAM__SSM_CORE_POLICY_ARN)
-IAM__PROMETHEUS_RW_POLICY_ARN  = 'arn:aws:iam::aws:policy/AmazonPrometheusRemoteWriteAccess'
-IAM__OBSERVABILITY_POLICY_ARNS = (IAM__PROMETHEUS_RW_POLICY_ARN,)                           # OpenSearch write access is domain-specific — added via resource policy (see library/docs/runbooks/aws-observability-setup.md)
-IAM__ASSUME_ROLE_SERVICE       = 'ec2.amazonaws.com'
+# IAM__ROLE_NAME, IAM__ECR_READONLY_POLICY_ARN, IAM__SSM_CORE_POLICY_ARN,
+# IAM__POLICY_ARNS, IAM__PROMETHEUS_RW_POLICY_ARN, IAM__OBSERVABILITY_POLICY_ARNS,
+# IAM__ASSUME_ROLE_SERVICE moved to Ec2__AWS__Client (Phase A step 3c) —
+# imported at the top of this file under the same names.
 
 EC2__PROMETHEUS_PORT      = 9090
 EC2__BROWSER_INTERNAL_PORT = 3000                                                      # linuxserver/chromium KasmVNC — SSM-forward only, never exposed in SG
@@ -758,27 +766,13 @@ def _print_preflight_error(lines: list) -> None:
     sys.exit(1)
 
 
-IAM__PASSROLE_POLICY_NAME = 'sg-playwright-passrole-ec2'
+# IAM__PASSROLE_POLICY_NAME moved to Ec2__AWS__Client (Phase A step 3c) —
+# imported at the top of this file under the same name.
 
 
-def _decode_aws_auth_error(exc: Exception) -> str:
-    """If exc is an UnauthorizedOperation with an encoded message, decode and return it.
-
-    Returns the decoded JSON string, or empty string if not applicable.
-    """
-    import boto3, re
-    msg = str(exc)
-    if 'Encoded authorization failure message:' not in msg:
-        return ''
-    match = re.search(r'Encoded authorization failure message:\s*(\S+)', msg)
-    if not match:
-        return ''
-    encoded = match.group(1)
-    try:
-        decoded = boto3.client('sts').decode_authorization_message(EncodedMessage=encoded)
-        return decoded.get('DecodedMessage', '')
-    except Exception:
-        return ''
+# _decode_aws_auth_error moved to Ec2__AWS__Client.decode_aws_auth_error
+# (Phase A step 3c) — aliased at the top of this file. The Console-formatted
+# print helper below is Tier 2A (CLI rendering) and stays here.
 
 
 def _print_auth_error(exc: Exception) -> None:
@@ -799,78 +793,8 @@ def _print_auth_error(exc: Exception) -> None:
         c.print('  [dim](Run: aws sts decode-authorization-message --encoded-message <blob> to decode manually)[/]')
 
 
-def ensure_caller_passrole(account: str) -> dict:
-    """Attach a minimal iam:PassRole inline policy to the current IAM user.
-
-    Safe by construction:
-    - Resource is pinned to playwright-ec2 role ARN only (not '*')
-    - Condition iam:PassedToService=ec2.amazonaws.com prevents passing the
-      role to any other service (Lambda, ECS, etc.)
-
-    Only works when the caller is an IAM user (not a role/federated identity).
-    Returns {'ok': True/False, 'action': 'created'|'already_exists'|'skipped', 'detail': str}.
-    """
-    import boto3
-
-    role_arn    = f'arn:aws:iam::{account}:role/{IAM__ROLE_NAME}'
-    policy_doc  = json.dumps({
-        'Version'  : '2012-10-17',
-        'Statement': [{
-            'Sid'      : 'PassRoleToEC2Only',
-            'Effect'   : 'Allow',
-            'Action'   : 'iam:PassRole',
-            'Resource' : role_arn,
-            'Condition': {'StringEquals': {'iam:PassedToService': 'ec2.amazonaws.com'}},
-        }],
-    })
-
-    sts      = boto3.client('sts')
-    identity = sts.get_caller_identity()
-    arn      = identity.get('Arn', '')
-
-    if ':user/' not in arn:
-        return {'ok': False, 'action': 'skipped',
-                'detail': f'Caller is not an IAM user ({arn}) — attach the policy manually in the console.'}
-
-    username = arn.split(':user/')[-1]
-    iam      = boto3.client('iam')
-
-    existing = iam.list_user_policies(UserName=username).get('PolicyNames', [])
-    if IAM__PASSROLE_POLICY_NAME in existing:
-        return {'ok': True, 'action': 'already_exists', 'detail': f'Policy {IAM__PASSROLE_POLICY_NAME!r} already attached to {username}.'}
-
-    try:
-        iam.put_user_policy(UserName=username, PolicyName=IAM__PASSROLE_POLICY_NAME, PolicyDocument=policy_doc)
-    except Exception as exc:
-        if 'UnauthorizedOperation' in str(exc) or 'AccessDenied' in str(exc):
-            _print_auth_error(exc)
-        raise
-    return {'ok': True, 'action': 'created',
-            'detail': f'Attached inline policy {IAM__PASSROLE_POLICY_NAME!r} to {username} (PassRole → {role_arn}, EC2 only).'}
-
-
-def ensure_instance_profile() -> str:
-    role = IAM_Role(role_name=IAM__ROLE_NAME)
-    if role.not_exists():
-        try:
-            role.create_for_service__assume_role(IAM__ASSUME_ROLE_SERVICE)
-        except Exception as e:
-            if 'EntityAlreadyExists' not in str(e):
-                raise
-    # Always ensure the instance profile exists and the role is attached —
-    # these calls are idempotent: catch EntityAlreadyExists / LimitExceeded
-    # so a partial previous run doesn't leave the profile missing.
-    try:
-        role.create_instance_profile()
-    except Exception:
-        pass
-    try:
-        role.add_to_instance_profile()
-    except Exception:
-        pass
-    for policy_arn in (*IAM__POLICY_ARNS, *IAM__OBSERVABILITY_POLICY_ARNS):
-        role.iam.role_policy_attach(policy_arn)
-    return IAM__ROLE_NAME
+# ensure_caller_passrole + ensure_instance_profile moved to Ec2__AWS__Client
+# (Phase A step 3c) — imported at the top of this file under the same names.
 
 
 def ensure_security_group(ec2: EC2) -> str:

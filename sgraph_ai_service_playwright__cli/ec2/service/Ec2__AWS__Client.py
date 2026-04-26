@@ -24,6 +24,7 @@
 # (Phase A step 3a — naming + lookup helpers).
 # ═══════════════════════════════════════════════════════════════════════════════
 
+import json
 import os
 import secrets
 import subprocess
@@ -31,6 +32,7 @@ from datetime                                                                   
 from typing                                                                         import Optional
 
 from osbot_aws.AWS_Config                                                           import AWS_Config
+from osbot_aws.aws.iam.IAM_Role                                                     import IAM_Role
 from osbot_utils.type_safe.Type_Safe                                                import Type_Safe
 
 from sgraph_ai_service_playwright.docker.Docker__SGraph_AI__Service__Playwright__Base import IMAGE_NAME as PLAYWRIGHT_IMAGE_NAME
@@ -117,6 +119,93 @@ def default_playwright_image_uri() -> str:                                      
 
 def default_sidecar_image_uri() -> str:
     return f'{ecr_registry_host()}/{SIDECAR_IMAGE_NAME}:latest'
+
+
+# ── IAM (Phase A step 3c) ───────────────────────────────────────────────────────
+# IAM role + instance profile + caller PassRole helpers. Kept as module-level
+# functions matching the existing scripts/provision_ec2 surface so the typer
+# commands and tests can keep importing under the same names. AWS reserves
+# 'sg-*' for SG IDs only — the role/profile name 'playwright-ec2' is unaffected.
+
+IAM__ROLE_NAME                 = 'playwright-ec2'                                   # AWS reserves 'sg-*' prefix for SG IDs only — applies to SG names, IAM instance profiles, and resource tags
+IAM__ECR_READONLY_POLICY_ARN   = 'arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly'
+IAM__SSM_CORE_POLICY_ARN       = 'arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore'   # SSM session manager — no SSH needed
+IAM__POLICY_ARNS               = (IAM__ECR_READONLY_POLICY_ARN, IAM__SSM_CORE_POLICY_ARN)
+IAM__PROMETHEUS_RW_POLICY_ARN  = 'arn:aws:iam::aws:policy/AmazonPrometheusRemoteWriteAccess'
+IAM__OBSERVABILITY_POLICY_ARNS = (IAM__PROMETHEUS_RW_POLICY_ARN,)                   # OpenSearch write access is domain-specific — added via resource policy. Phase C will move/strip this once observability moves to its own section.
+IAM__ASSUME_ROLE_SERVICE       = 'ec2.amazonaws.com'
+IAM__PASSROLE_POLICY_NAME      = 'sg-playwright-passrole-ec2'
+
+
+def decode_aws_auth_error(exc: Exception) -> str:                                   # Decodes the AWS-encoded "authorization failure" blob via sts:DecodeAuthorizationMessage
+    import boto3, re
+    msg = str(exc)
+    if 'Encoded authorization failure message:' not in msg:
+        return ''
+    match = re.search(r'Encoded authorization failure message:\s*(\S+)', msg)
+    if not match:
+        return ''
+    encoded = match.group(1)
+    try:
+        decoded = boto3.client('sts').decode_authorization_message(EncodedMessage=encoded)
+        return decoded.get('DecodedMessage', '')
+    except Exception:
+        return ''
+
+
+def ensure_caller_passrole(account: str) -> dict:                                   # Attach minimal iam:PassRole inline policy to the calling IAM user
+    import boto3                                                                    # Lazy — only the typer command path needs sts/iam clients
+
+    role_arn   = f'arn:aws:iam::{account}:role/{IAM__ROLE_NAME}'
+    policy_doc = json.dumps({                                                       # Resource pinned to the playwright-ec2 role only; condition prevents cross-service abuse
+        'Version'  : '2012-10-17',
+        'Statement': [{'Sid'      : 'PassRoleToEC2Only'                       ,
+                       'Effect'   : 'Allow'                                    ,
+                       'Action'   : 'iam:PassRole'                             ,
+                       'Resource' : role_arn                                   ,
+                       'Condition': {'StringEquals': {'iam:PassedToService': 'ec2.amazonaws.com'}}}],
+    })
+
+    sts      = boto3.client('sts')
+    identity = sts.get_caller_identity()
+    arn      = identity.get('Arn', '')
+
+    if ':user/' not in arn:                                                         # Federated / role principals can't have inline user policies — nothing to do
+        return {'ok': False, 'action': 'skipped',
+                'detail': f'Caller is not an IAM user ({arn}) — attach the policy manually in the console.'}
+
+    username = arn.split(':user/')[-1]
+    iam      = boto3.client('iam')
+
+    existing = iam.list_user_policies(UserName=username).get('PolicyNames', [])
+    if IAM__PASSROLE_POLICY_NAME in existing:
+        return {'ok': True, 'action': 'already_exists',
+                'detail': f'Policy {IAM__PASSROLE_POLICY_NAME!r} already attached to {username}.'}
+
+    iam.put_user_policy(UserName=username, PolicyName=IAM__PASSROLE_POLICY_NAME, PolicyDocument=policy_doc)
+    return {'ok': True, 'action': 'created',
+            'detail': f'Attached inline policy {IAM__PASSROLE_POLICY_NAME!r} to {username} (PassRole → {role_arn}, EC2 only).'}
+
+
+def ensure_instance_profile() -> str:                                               # Idempotent: ensure role + instance profile + SSM/ECR policy attachments exist
+    role = IAM_Role(role_name=IAM__ROLE_NAME)
+    if role.not_exists():
+        try:
+            role.create_for_service__assume_role(IAM__ASSUME_ROLE_SERVICE)
+        except Exception as e:
+            if 'EntityAlreadyExists' not in str(e):
+                raise
+    try:                                                                            # Always ensure the instance profile exists and the role is attached — these
+        role.create_instance_profile()                                              # calls are idempotent: catch EntityAlreadyExists / LimitExceeded so a partial
+    except Exception:                                                               # previous run doesn't leave the profile missing.
+        pass
+    try:
+        role.add_to_instance_profile()
+    except Exception:
+        pass
+    for policy_arn in (*IAM__POLICY_ARNS, *IAM__OBSERVABILITY_POLICY_ARNS):
+        role.iam.role_policy_attach(policy_arn)
+    return IAM__ROLE_NAME
 
 
 class Ec2__AWS__Client(Type_Safe):                                                  # Narrow boto3 boundary for the Playwright EC2 stack

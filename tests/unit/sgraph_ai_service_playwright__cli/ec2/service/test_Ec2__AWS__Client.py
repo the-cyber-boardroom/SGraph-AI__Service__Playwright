@@ -8,6 +8,14 @@ from datetime                                                                   
 from unittest                                                                       import TestCase
 
 from sgraph_ai_service_playwright__cli.ec2.service.Ec2__AWS__Client                  import (Ec2__AWS__Client                            ,
+                                                                                              IAM__ASSUME_ROLE_SERVICE                     ,
+                                                                                              IAM__ECR_READONLY_POLICY_ARN                 ,
+                                                                                              IAM__OBSERVABILITY_POLICY_ARNS               ,
+                                                                                              IAM__PASSROLE_POLICY_NAME                    ,
+                                                                                              IAM__POLICY_ARNS                             ,
+                                                                                              IAM__PROMETHEUS_RW_POLICY_ARN                ,
+                                                                                              IAM__ROLE_NAME                               ,
+                                                                                              IAM__SSM_CORE_POLICY_ARN                     ,
                                                                                               INSTANCE_STATES_LIVE                         ,
                                                                                               PLAYWRIGHT_IMAGE_NAME                        ,
                                                                                               SIDECAR_IMAGE_NAME                           ,
@@ -16,6 +24,7 @@ from sgraph_ai_service_playwright__cli.ec2.service.Ec2__AWS__Client             
                                                                                               TAG__SERVICE_VALUE                           ,
                                                                                               _ADJECTIVES                                  ,
                                                                                               _SCIENTISTS                                  ,
+                                                                                              decode_aws_auth_error                        ,
                                                                                               default_playwright_image_uri                 ,
                                                                                               default_sidecar_image_uri                    ,
                                                                                               ecr_registry_host                            ,
@@ -140,6 +149,41 @@ class test_aws_context_accessors(TestCase):                                     
         assert PLAYWRIGHT_IMAGE_NAME != SIDECAR_IMAGE_NAME
         assert PLAYWRIGHT_IMAGE_NAME                                                # Non-empty
         assert SIDECAR_IMAGE_NAME
+
+
+# ──────────────────────────────── IAM constants + decoder (Phase A step 3c) ───
+
+class test_iam_constants(TestCase):
+
+    def test__role_name_does_not_start_with_sg_prefix(self):                        # AWS reserves 'sg-*' for SG IDs only — applies to IAM names too via convention
+        assert not IAM__ROLE_NAME.startswith('sg-')
+        assert IAM__ROLE_NAME == 'playwright-ec2'
+
+    def test__passrole_policy_name_uniquely_namespaced(self):
+        assert IAM__PASSROLE_POLICY_NAME == 'sg-playwright-passrole-ec2'             # Underscore-prefixed names get rejected by IAM
+
+    def test__assume_role_service_is_ec2(self):                                     # Trust policy must allow EC2 to assume the role
+        assert IAM__ASSUME_ROLE_SERVICE == 'ec2.amazonaws.com'
+
+    def test__policy_arns_tuple_contains_ecr_and_ssm(self):
+        assert IAM__ECR_READONLY_POLICY_ARN.endswith('AmazonEC2ContainerRegistryReadOnly')
+        assert IAM__SSM_CORE_POLICY_ARN    .endswith('AmazonSSMManagedInstanceCore')
+        assert IAM__POLICY_ARNS == (IAM__ECR_READONLY_POLICY_ARN, IAM__SSM_CORE_POLICY_ARN)
+
+    def test__observability_policy_arns_only_contains_prometheus_rw(self):           # OpenSearch write is domain-specific — added via resource policy, not here
+        assert IAM__PROMETHEUS_RW_POLICY_ARN.endswith('AmazonPrometheusRemoteWriteAccess')
+        assert IAM__OBSERVABILITY_POLICY_ARNS == (IAM__PROMETHEUS_RW_POLICY_ARN,)
+
+
+class test_decode_aws_auth_error(TestCase):
+
+    def test__no_encoded_blob_returns_empty_string(self):                           # Generic exceptions don't carry an encoded message — short-circuit
+        assert decode_aws_auth_error(RuntimeError('something else'))   == ''
+        assert decode_aws_auth_error(ValueError('AccessDenied: nope')) == ''
+
+    def test__sts_call_failure_swallowed_to_empty_string(self):                     # Defensive: don't blow up the caller's error path if the decode itself fails
+        exc = RuntimeError('UnauthorizedOperation. Encoded authorization failure message: NOT-A-VALID-BLOB')
+        assert decode_aws_auth_error(exc) == ''                                     # boto3 raises in the test env (no creds); function catches and returns ''
 
 
 class test_instance_tag(TestCase):
