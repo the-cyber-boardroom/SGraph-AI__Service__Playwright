@@ -38,6 +38,13 @@ In step 3f, three typer commands (`cmd_list`, `cmd_info`, `cmd_delete`) reduced 
 - `cmd_list` keeps its inline AMI-source map + launch-time fetch (still needs raw boto3 due to osbot's `LauchTime` typo) but reads instance basics from `Ec2__Service().list_instances()`.
 - New shared helper `_resolve_typer_target(target)` handles the "auto-pick when only one instance" UX. The older `_resolve_target` stays in place for the 12 typer commands that still need raw `details`; those reduce in a future slice.
 
+In step 4, the previously CLI-only `sp delete --all` op gets an HTTP route:
+
+- `DELETE /ec2/playwright/delete-all` — calls `service.delete_all_instances()`. Returns `Schema__Ec2__Delete__Response` with empty `target` / `deploy_name` and a populated `terminated_instance_ids`. Route registered in `Routes__Ec2__Playwright.setup_routes()` alongside the other lifecycle routes.
+- `Ec2__Service__In_Memory` (the test fixture) gained a matching `delete_all_instances()` override.
+
+Other typer commands (`connect`, `shell`, `exec`, `forward`, `wait`, `screenshot`, `smoke`, `bake-ami`, `wait-ami`, `tag-ami`, etc.) are interactive (SSM session, port-forwarding, screenshots) — they do not naturally fit a stateless HTTP request/response and were not added as routes.
+
 Mirrors the `Elastic__AWS__Client` pattern. Hosts the previously-private helpers that lived in `scripts/provision_ec2.py`:
 
 | Surface | Symbol | Form |

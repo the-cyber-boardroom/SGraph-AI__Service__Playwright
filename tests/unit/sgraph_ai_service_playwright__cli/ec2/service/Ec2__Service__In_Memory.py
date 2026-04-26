@@ -49,3 +49,15 @@ class Ec2__Service__In_Memory(Ec2__Service):
         return Schema__Ec2__Delete__Response(target                  = info.instance_id ,
                                              deploy_name             = info.deploy_name  ,
                                              terminated_instance_ids = terminated        )
+
+    def delete_all_instances(self) -> Schema__Ec2__Delete__Response:                 # Bulk delete — dedup the fixture (which maps both deploy-name AND instance-id to the same Schema)
+        seen       = set()
+        terminated = List__Instance__Id()
+        for info in self.fixture_instances.values():
+            key = str(info.instance_id)
+            if key and key not in seen:
+                seen.add(key)
+                terminated.append(info.instance_id)
+        return Schema__Ec2__Delete__Response(target                  = ''           ,
+                                             deploy_name             = ''           ,
+                                             terminated_instance_ids = terminated   )

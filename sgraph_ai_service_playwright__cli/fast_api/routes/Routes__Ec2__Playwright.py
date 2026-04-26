@@ -11,6 +11,7 @@
 #   POST   /ec2/playwright/create              -> Schema__Ec2__Create__Response (deploy_name from body or auto-generated)
 #   POST   /ec2/playwright/create/{name}       -> Schema__Ec2__Create__Response (deploy_name pinned to {name}, overriding body)
 #   DELETE /ec2/playwright/delete/{name}       -> Schema__Ec2__Delete__Response (404 on miss)
+#   DELETE /ec2/playwright/delete-all          -> Schema__Ec2__Delete__Response (terminated_instance_ids may be empty if no instances)
 #
 # `name` can be either the deploy-name (e.g. `grand-wien`) or the instance-id
 # (e.g. `i-03bdcec5e71f85688`) — Ec2__Service.resolve_target accepts both.
@@ -62,9 +63,14 @@ class Routes__Ec2__Playwright(Fast_API__Routes):
         return response.json()
     delete.__route_path__ = '/delete/{name}'
 
+    def delete_all(self) -> dict:                                                   # DELETE /ec2/playwright/delete-all — terminated_instance_ids may be empty
+        return self.service.delete_all_instances().json()
+    delete_all.__route_path__ = '/delete-all'
+
     def setup_routes(self):
         self.add_route_get   (self.list_instances)
         self.add_route_get   (self.info          )
         self.add_route_post  (self.create        )
         self.add_route_post  (self.create_named  )
         self.add_route_delete(self.delete        )
+        self.add_route_delete(self.delete_all    )
