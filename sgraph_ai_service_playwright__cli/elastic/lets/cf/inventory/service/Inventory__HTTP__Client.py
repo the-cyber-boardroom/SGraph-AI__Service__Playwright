@@ -96,3 +96,46 @@ class Inventory__HTTP__Client(Type_Safe):
             else:                                                                   # noop / unexpected — count as updated so totals add up
                 updated += 1
         return created, updated, failed, status, err_msg
+
+    def delete_indices_by_pattern(self, base_url : str ,
+                                         username : str ,
+                                         password : str ,
+                                         pattern  : str
+                                    ) -> Tuple[int, int, str]:                       # (indices_dropped, http_status, error_message)
+        # Two-step: list matching indices first (so we can return a count),
+        # then DELETE the pattern.  ES's DELETE /_elastic/{pattern} succeeds
+        # even when the pattern matches zero indices, but doesn't tell us
+        # the count — and the count is what makes wipe's idempotency
+        # contract observable.
+        if not pattern:
+            return 0, 0, 'no pattern'
+
+        auth_token = base64.b64encode(f'{username}:{password}'.encode()).decode()
+        headers    = {'Authorization': f'Basic {auth_token}'}
+        list_url   = base_url.rstrip('/') + f'/_elastic/_cat/indices/{pattern}?format=json&h=index&expand_wildcards=open'
+
+        try:
+            list_resp = self.request('GET', list_url, headers=headers)
+        except Exception as exc:
+            return 0, 0, f'list error: {str(exc)[:200]}'
+        list_status = int(list_resp.status_code)
+        if list_status == 404:                                                       # _cat/indices returns 404 when the pattern matches nothing in some ES configs
+            return 0, list_status, ''
+        if list_status >= 300:
+            return 0, list_status, f'list HTTP {list_status}: {(list_resp.text or "")[:300]}'
+
+        try:
+            entries = list_resp.json() or []
+        except Exception:
+            entries = []
+        count = len(entries)
+        if count == 0:
+            return 0, list_status, ''                                                # Nothing to delete
+
+        # DELETE pattern — ES handles the wildcard server-side
+        delete_url    = base_url.rstrip('/') + f'/_elastic/{pattern}'
+        delete_resp   = self.request('DELETE', delete_url, headers=headers)
+        delete_status = int(delete_resp.status_code)
+        if delete_status >= 300:
+            return 0, delete_status, f'delete HTTP {delete_status}: {(delete_resp.text or "")[:300]}'
+        return count, delete_status, ''
