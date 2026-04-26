@@ -66,21 +66,40 @@ class test_Inventory__Loader(TestCase):
         assert resp.dry_run          is False
         assert resp.kibana_url       == 'https://1.2.3.4/app/dashboards'
 
-    def test_bulk_post_called_with_etag_id_and_dated_index(self):
-        loader = build_loader()
+    def test_bulk_post_called_with_etag_id_and_delivery_dated_index(self):          # Index name is keyed on the data's delivery date, NOT today/loaded_at
+        loader = build_loader()                                                     # All sample records share delivery_at = 2026-04-25
         loader.load(request  = Schema__Inventory__Load__Request(prefix='cloudfront-realtime/2026/04/25/'),
                      base_url = 'https://1.2.3.4', username='u', password='p')
-        assert len(loader.http_client.bulk_calls) == 1                              # One bulk call total
+        assert len(loader.http_client.bulk_calls) == 1                              # One bulk call (single day)
         base_url, index, count, id_field = loader.http_client.bulk_calls[0]
         assert id_field == 'etag'
         assert count    == 3
-        assert index.startswith('sg-cf-inventory-')                                  # Dated daily index
+        assert index    == 'sg-cf-inventory-2026-04-25'                              # Delivery date, not loaded_at
 
-    def test_data_view_ensured_with_correct_title_and_time_field(self):
+    def test_data_view_uses_wildcard_pattern(self):                                 # Pattern must match "sg-cf-inventory-*" for daily indices to surface
         loader = build_loader()
         loader.load(request  = Schema__Inventory__Load__Request(prefix='cloudfront-realtime/2026/04/25/'),
                      base_url = 'https://1.2.3.4', username='u', password='p')
-        assert loader.kibana_client.ensure_calls == [('https://1.2.3.4', 'sg-cf-inventory', 'delivery_at')]
+        assert loader.kibana_client.ensure_calls == [('https://1.2.3.4', 'sg-cf-inventory-*', 'delivery_at')]
+
+    def test_multi_day_records_split_across_per_day_indices(self):                  # Records spanning multiple delivery dates produce one bulk-post per date
+        from datetime import datetime, timezone
+        pages = [[{'Key'         : f'cloudfront-realtime/2026/04/{day:02d}/sgraph-send-cf-logs-to-s3-2-2026-04-{day:02d}-12-00-00-deadbeef-{i:04x}.gz',
+                   'LastModified': datetime(2026, 4, day, 12, 0, 30, tzinfo=timezone.utc),
+                   'Size'        : 100,
+                   'ETag'        : f'"{(day * 10 + i):032x}"',
+                   'StorageClass': 'STANDARD'                                       }
+                  for day in (24, 25, 26) for i in range(2)]]                         # 6 records: 2 per day for three delivery dates
+        loader = build_loader(s3_pages=pages)
+        loader.load(request  = Schema__Inventory__Load__Request(),
+                     base_url = 'https://x', username='u', password='p')
+
+        indices_called = sorted(call[1] for call in loader.http_client.bulk_calls)
+        assert indices_called == ['sg-cf-inventory-2026-04-24',
+                                   'sg-cf-inventory-2026-04-25',
+                                   'sg-cf-inventory-2026-04-26']
+        counts_per_day = sorted(call[2] for call in loader.http_client.bulk_calls)
+        assert counts_per_day == [2, 2, 2]                                           # Each daily group carried 2 records
 
     def test_dry_run_skips_bulk_post(self):
         loader = build_loader()

@@ -40,9 +40,9 @@ from sgraph_ai_service_playwright__cli.elastic.lets.cf.inventory.service.S3__Inv
 
 DEFAULT_BUCKET             = '745506449035--sgraph-send-cf-logs--eu-west-2'         # The CloudFront-realtime delivery bucket; CLI flag overrides
 DEFAULT_PREFIX_ROOT        = 'cloudfront-realtime'                                  # Path prefix Firehose writes under
-DATA_VIEW__TITLE           = 'sg-cf-inventory'                                      # Kibana data view (and pattern *)
+DATA_VIEW__TITLE           = 'sg-cf-inventory-*'                                    # Wildcard pattern — matches every daily index sg-cf-inventory-{YYYY-MM-DD}
 DATA_VIEW__TIME_FIELD      = 'delivery_at'                                          # Time field for Discover histograms / dashboards
-INDEX__PREFIX              = 'sg-cf-inventory'                                      # ES index prefix; daily indices = "sg-cf-inventory-{YYYY-MM-DD}"
+INDEX__PREFIX              = 'sg-cf-inventory'                                      # ES index prefix; daily indices = "sg-cf-inventory-{YYYY-MM-DD}" keyed on delivery_at
 
 
 def today_utc_iso() -> str:                                                         # "YYYY-MM-DD" UTC; used in default prefix and index suffix
@@ -185,15 +185,41 @@ class Inventory__Loader(Type_Safe):
                                              title           = DATA_VIEW__TITLE      ,
                                              time_field_name = DATA_VIEW__TIME_FIELD )
 
-        # ─── bulk-post (etag-as-_id) ─────────────────────────────────────────
-        index_name                                              = index_name_for_date(today_utc_iso())
-        created, updated, failed, http_status, error_message    = self.http_client.bulk_post_with_id(
-            base_url = base_url                ,
-            username = username                ,
-            password = password                ,
-            index    = index_name              ,
-            docs     = records                 ,
-            id_field = 'etag'                  )
+        # ─── group records by delivery date for daily-rolling indices ────────
+        # Each record's delivery_at ("YYYY-MM-DDThh:mm:ssZ") drives the index
+        # suffix.  Records whose Firehose filename couldn't be parsed (rare
+        # but possible) fall back to today's index — predictable and never
+        # silently drops data.
+        groups : dict = {}                                                          # {date_str: List__Schema__S3__Object__Record}
+        for record in records:
+            delivery_date = str(record.delivery_at)[:10]                            # "YYYY-MM-DD" or "" if unparsed
+            if not delivery_date:
+                delivery_date = today_utc_iso()
+            if delivery_date not in groups:
+                groups[delivery_date] = List__Schema__S3__Object__Record()
+            groups[delivery_date].append(record)
+
+        # ─── bulk-post each group to its dated index (etag-as-_id) ───────────
+        created_total = 0
+        updated_total = 0
+        failed_total  = 0
+        last_status   = 0
+        error_message = ''
+        for delivery_date, group_records in sorted(groups.items()):
+            index_name                                                = index_name_for_date(delivery_date)
+            created, updated, failed, http_status, err               = self.http_client.bulk_post_with_id(
+                base_url = base_url       ,
+                username = username       ,
+                password = password       ,
+                index    = index_name     ,
+                docs     = group_records  ,
+                id_field = 'etag'         )
+            created_total += created
+            updated_total += updated
+            failed_total  += failed
+            last_status    = http_status
+            if err and not error_message:                                            # First error wins for surfacing; rest are usually duplicates
+                error_message = err
 
         finished_at = now_utc_iso_full()
         return Schema__Inventory__Load__Response(run_id           = run_id                          ,
@@ -202,13 +228,13 @@ class Inventory__Loader(Type_Safe):
                                                   prefix_resolved  = prefix                          ,
                                                   pages_listed     = pages_listed                    ,
                                                   objects_scanned  = len(s3_objects)                 ,
-                                                  objects_indexed  = created                         ,
-                                                  objects_updated  = updated                         ,
+                                                  objects_indexed  = created_total                   ,
+                                                  objects_updated  = updated_total                   ,
                                                   bytes_total      = bytes_total                     ,
                                                   started_at       = started_at                      ,
                                                   finished_at      = finished_at                     ,
                                                   duration_ms      = 0                               ,   # Wall-clock duration is computed by the CLI layer
-                                                  last_http_status = http_status                     ,
+                                                  last_http_status = last_status                     ,
                                                   error_message    = error_message                   ,
                                                   kibana_url       = kibana_url_from_base(base_url)  ,
                                                   dry_run          = False                           )
