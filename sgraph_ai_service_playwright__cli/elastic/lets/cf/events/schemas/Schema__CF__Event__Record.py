@@ -78,7 +78,8 @@ class Schema__CF__Event__Record(Type_Safe):
     source_bucket       : Safe_Str__S3__Bucket                                      # Bucket the .gz came from
     source_key          : Safe_Str__S3__Key                                         # Full key of the .gz file
     source_etag         : Safe_Str__S3__ETag                                        # .gz file's ETag — joins back to inventory by inventory's _id
-    line_index          : int                                = 0                    # 0..N within the .gz; combined with source_etag forms _id
+    line_index          : int                                = 0                    # 0..N within the .gz; combined with source_etag forms doc_id
+    doc_id              : Safe_Str__Text                                            # "{source_etag}__{line_index}" — used as Elastic _id for per-event idempotency. Stamped by Events__Loader after parsing.
 
     # ─── pipeline metadata ───────────────────────────────────────────────────
     pipeline_run_id     : Safe_Str__Pipeline__Run__Id
