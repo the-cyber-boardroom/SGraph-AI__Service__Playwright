@@ -37,13 +37,13 @@ def _aws_creds_available() -> bool:
 @pytest.mark.skipif(not _aws_creds_available(), reason='AWS credentials not set')
 def test_build_docker_image():
     build   = Build__Docker__SGraph_AI__Service__Playwright().setup()
-    result  = build.build_docker_image()                                            # Build + tag with ECR URI
+    result  = build.build_docker_image()                                            # Returns Schema__Image__Build__Result (Phase A step 2 refactor)
 
-    assert result                    is not None
-    assert result.get('status'    )  == 'ok'             , f'build failed: {result}'   # Was previously just `is not None`, which let silent @catch failures through
-    assert result.get('image_id'  )                                                    # Docker image object must have an id
+    assert result                  is not None
+    assert str(result.image_id)                                                        # Docker image object must have an id (e.g. 'sha256:...')
+    assert str(result.image_id).startswith('sha256:')
     expected_tag = build.image_uri()                                                   # <account>.dkr.ecr.<region>.amazonaws.com/sgraph_ai_service_playwright:latest
-    assert expected_tag              in result.get('tags', [])                         # Tag must be present in the built image's tag list — confirms the daemon accepted it
+    assert expected_tag            in list(result.image_tags)                          # Tag must be present in the built image's tag list — confirms the daemon accepted it
 
     inspect      = subprocess.run(['docker', 'inspect', '--format={{.Id}}', expected_tag],
                                   capture_output=True, text=True)

@@ -27,6 +27,25 @@ The previously-elastic-only module-level functions in `elastic/service/Elastic__
 
 Tests: 9 unit tests in `tests/unit/sgraph_ai_service_playwright__cli/aws/test_Stack__Naming.py` cover prefix-when-missing / no-double-prefix / partial-match-non-counting / per-section-isolation / sg-suffix universality. Plan reference: `team/comms/plans/v0.1.96__playwright-stack-split__02__api-consolidation.md`.
 
+### `image/` — shared Docker image build pipeline (Phase A step 2, 2026-04-26)
+
+Replaces ~70% of duplicated build logic between `Build__Docker__SGraph_AI__Service__Playwright` (Playwright EC2 image) and `Docker__SP__CLI` (SP CLI Lambda image). Both now compose a Type_Safe `Schema__Image__Build__Request` and hand it to the shared service.
+
+| File | Role |
+|------|------|
+| `image/schemas/Schema__Image__Stage__Item.py` | One file or directory tree to copy into the build context (`source_path`, `target_name`, `is_tree`, `extra_ignore_names`). |
+| `image/collections/List__Schema__Image__Stage__Item.py` | Ordered list of stage items (later overrides earlier). |
+| `image/collections/List__Str.py` | Typed list of strings (used for `image_tags` + `extra_ignore_names`). |
+| `image/schemas/Schema__Image__Build__Request.py` | Inputs: `image_folder` (dockerfile + requirements live here), `image_tag`, `stage_items`, `dockerfile_name='dockerfile'`, `requirements_name='requirements.txt'`, `build_context_prefix`. |
+| `image/schemas/Schema__Image__Build__Result.py` | Outputs: `image_id`, `image_tags`, `duration_ms`. |
+| `image/service/Image__Build__Service.py` | Orchestrator. Two seams: `stage_build_context()` (pure I/O — exhaustively unit-testable) and `build()` (invokes the docker SDK directly to bypass osbot-docker's @catch wrapper). Default ignore set (`__pycache__`, `.pytest_cache`, `.mypy_cache`, `*.pyc`) is augmented per-item via `extra_ignore_names`. |
+
+Both consumers reduce to thin composers:
+- `Build__Docker__SGraph_AI__Service__Playwright.build_docker_image()` returns `Schema__Image__Build__Result`. Composes 3 stage items: `lambda_entry.py` (file), `image_version` (file), `sgraph_ai_service_playwright` (tree).
+- `Docker__SP__CLI.build_and_push()` returns the existing dict shape (kept for now: the deploy callers consume `image_uri`/`image_id`/`push` keys). Composes 4 stage items: `sgraph_ai_service_playwright__cli` (tree, `extra_ignore_names=['images']`), `sgraph_ai_service_playwright`, `agent_mitmproxy`, `scripts` (all trees).
+
+Tests: 15 unit tests in `tests/unit/sgraph_ai_service_playwright__cli/image/` cover schema round-trip, default values, stage-context happy path (file + tree + custom-name + extra-ignores), `build()` happy path with an in-memory fake docker client (no daemon required), tempdir-cleanup-on-failure, and ignore-callable composition. Existing consumer tests rewired: `tests/unit/sgraph_ai_service_playwright__cli/deploy/test_Docker__SP__CLI.py` lost its now-redundant `ignore_build_noise` tests (the behaviour moved to `Image__Build__Service`) and gained `test_build_request__has_all_four_source_trees_with_correct_target_names`. The deploy-via-pytest integration test `tests/docker/test_Build__Docker__SGraph-AI__Service__Playwright.py` updated to assert on `Schema__Image__Build__Result` fields instead of dict keys.
+
 ### `observability/` — Tier-1 pure-logic service (read-only surface)
 
 | File | Role |
