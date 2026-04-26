@@ -17,7 +17,7 @@
 import base64
 import json
 import warnings
-from typing                                                                         import Any, Tuple
+from typing                                                                         import Any, List, Tuple
 
 import requests
 from urllib3.exceptions                                                             import InsecureRequestWarning
@@ -102,11 +102,12 @@ class Inventory__HTTP__Client(Type_Safe):
                                          password : str ,
                                          pattern  : str
                                     ) -> Tuple[int, int, str]:                       # (indices_dropped, http_status, error_message)
-        # Two-step: list matching indices first (so we can return a count),
-        # then DELETE the pattern.  ES's DELETE /_elastic/{pattern} succeeds
-        # even when the pattern matches zero indices, but doesn't tell us
-        # the count — and the count is what makes wipe's idempotency
-        # contract observable.
+        # Two-step: list matching indices first (so we can return a count
+        # AND so we can delete by exact name), then DELETE each one
+        # individually.  Wildcard DELETE is blocked by ES's default
+        # action.destructive_requires_name=true setting — the safety net
+        # that prevents accidentally dropping every index in a cluster.
+        # Iterating by name is the expected idiom in modern ES.
         if not pattern:
             return 0, 0, 'no pattern'
 
@@ -128,14 +129,26 @@ class Inventory__HTTP__Client(Type_Safe):
             entries = list_resp.json() or []
         except Exception:
             entries = []
-        count = len(entries)
-        if count == 0:
+        index_names = [str(e.get('index', '')) for e in entries if e.get('index')]
+        if not index_names:
             return 0, list_status, ''                                                # Nothing to delete
 
-        # DELETE pattern — ES handles the wildcard server-side
-        delete_url    = base_url.rstrip('/') + f'/_elastic/{pattern}'
-        delete_resp   = self.request('DELETE', delete_url, headers=headers)
-        delete_status = int(delete_resp.status_code)
-        if delete_status >= 300:
-            return 0, delete_status, f'delete HTTP {delete_status}: {(delete_resp.text or "")[:300]}'
-        return count, delete_status, ''
+        # DELETE each matched index by name; tolerate per-index 404s
+        # (race: someone else deleted it between our list and our delete).
+        deleted        = 0
+        last_status    = list_status
+        first_error    = ''
+        for index_name in index_names:
+            del_url    = base_url.rstrip('/') + f'/_elastic/{index_name}'
+            del_resp   = self.request('DELETE', del_url, headers=headers)
+            del_status = int(del_resp.status_code)
+            last_status = del_status
+            if del_status == 404:                                                   # Already gone — count nothing, keep going
+                continue
+            if del_status >= 300:
+                if not first_error:
+                    first_error = f'delete {index_name} HTTP {del_status}: {(del_resp.text or "")[:200]}'
+                continue
+            deleted += 1
+
+        return deleted, last_status, first_error

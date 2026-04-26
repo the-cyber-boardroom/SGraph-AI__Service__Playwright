@@ -88,3 +88,113 @@ class test_delete_indices_by_pattern(TestCase):
         assert count == 0
         assert status == 503
         assert 'cluster red' in err
+
+
+# ─── regression tests against the REAL implementation ────────────────────────
+# The In_Memory subclass overrides delete_indices_by_pattern wholesale, so it
+# can't catch the wildcard-DELETE bug Elasticsearch raises with its default
+# `action.destructive_requires_name=true` setting (HTTP 400 "Wildcard
+# expressions or all indices are not allowed").  These tests subclass
+# Inventory__HTTP__Client directly and override the lower-level request()
+# seam so we exercise the real list-then-delete-by-name path.
+
+class Fake__Response:                                                               # Minimal interface mirroring requests.Response — no requests dependency
+    def __init__(self, status_code, json_body=None, text=''):
+        self.status_code = status_code
+        self.text        = text
+        self.json_body   = json_body
+
+    def json(self):
+        if self.json_body is None:
+            raise ValueError('not JSON')
+        return self.json_body
+
+
+class Inventory__HTTP__Client__Recording_Requests(Inventory__HTTP__Client__In_Memory.__bases__[0]):  # i.e. Inventory__HTTP__Client (the real class)
+    request_log    : list                                                            # [(method, url), ...]
+    response_queue : list                                                            # FIFO of Fake__Response
+
+    def request(self, method, url, *, headers=None, data=None):
+        self.request_log.append((method, url))
+        if not self.response_queue:
+            raise RuntimeError(f'no canned response for {method} {url}')
+        return self.response_queue.pop(0)
+
+
+class test_real_delete_indices_by_pattern(TestCase):
+
+    def test_lists_then_deletes_each_index_by_name(self):                           # Regression: must NOT issue DELETE /_elastic/sg-cf-inventory-*
+        client = Inventory__HTTP__Client__Recording_Requests(
+            request_log    = [],
+            response_queue = [
+                Fake__Response(200, json_body=[{'index': 'sg-cf-inventory-2026-04-25'},
+                                                {'index': 'sg-cf-inventory-2026-04-26'}]),  # _cat/indices
+                Fake__Response(200, json_body={'acknowledged': True}),               # DELETE first
+                Fake__Response(200, json_body={'acknowledged': True}),               # DELETE second
+            ])
+        deleted, status, err = client.delete_indices_by_pattern(
+            base_url='https://1.2.3.4', username='u', password='p',
+            pattern='sg-cf-inventory-*')
+        assert deleted == 2
+        assert status  == 200
+        assert err     == ''
+        # 1 list + 2 deletes
+        methods = [m for m, _ in client.request_log]
+        assert methods == ['GET', 'DELETE', 'DELETE']
+        # CRITICAL: DELETE URLs use the EXACT index names, not the wildcard
+        delete_urls = [url for m, url in client.request_log if m == 'DELETE']
+        assert any('sg-cf-inventory-2026-04-25' in url for url in delete_urls)
+        assert any('sg-cf-inventory-2026-04-26' in url for url in delete_urls)
+        assert not any('*' in url for url in delete_urls)
+
+    def test_no_indices_means_no_deletes(self):                                     # Listing returned [], so DELETE must not be called at all
+        client = Inventory__HTTP__Client__Recording_Requests(
+            request_log    = [],
+            response_queue = [Fake__Response(200, json_body=[])])
+        deleted, status, err = client.delete_indices_by_pattern(
+            base_url='https://x', username='u', password='p',
+            pattern='sg-cf-inventory-*')
+        assert deleted == 0
+        assert err     == ''
+        methods = [m for m, _ in client.request_log]
+        assert methods == ['GET']
+
+    def test_per_index_404_tolerated_count_only_real_drops(self):                   # Race: someone deleted one index between our list and our delete
+        client = Inventory__HTTP__Client__Recording_Requests(
+            request_log    = [],
+            response_queue = [
+                Fake__Response(200, json_body=[{'index': 'a'}, {'index': 'b'}]),
+                Fake__Response(404),                                                 # 'a' already gone
+                Fake__Response(200, json_body={'acknowledged': True}),               # 'b' deleted
+            ])
+        deleted, status, err = client.delete_indices_by_pattern(
+            base_url='https://x', username='u', password='p',
+            pattern='sg-cf-inventory-*')
+        assert deleted == 1                                                          # Only 'b' was actually dropped
+        assert err     == ''                                                         # 404 is not an error
+
+    def test_per_index_400_recorded_as_first_error_keeps_going(self):
+        client = Inventory__HTTP__Client__Recording_Requests(
+            request_log    = [],
+            response_queue = [
+                Fake__Response(200, json_body=[{'index': 'a'}, {'index': 'b'}]),
+                Fake__Response(400, text='something broke'),                         # 'a' rejected
+                Fake__Response(200, json_body={'acknowledged': True}),               # 'b' deleted
+            ])
+        deleted, status, err = client.delete_indices_by_pattern(
+            base_url='https://x', username='u', password='p',
+            pattern='sg-cf-inventory-*')
+        assert deleted == 1                                                          # Only 'b' was dropped
+        assert 'delete a HTTP 400' in err                                            # First error captured
+        assert 'something broke'   in err
+
+    def test_list_404_returns_clean_zero(self):                                     # Pattern matches nothing — no error, no work
+        client = Inventory__HTTP__Client__Recording_Requests(
+            request_log    = [],
+            response_queue = [Fake__Response(404, text='no such index')])
+        deleted, status, err = client.delete_indices_by_pattern(
+            base_url='https://x', username='u', password='p',
+            pattern='sg-cf-inventory-*')
+        assert deleted == 0
+        assert status  == 404
+        assert err     == ''
