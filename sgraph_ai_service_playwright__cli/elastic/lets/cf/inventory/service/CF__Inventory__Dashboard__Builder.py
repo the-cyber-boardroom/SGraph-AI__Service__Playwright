@@ -203,7 +203,7 @@ def vis_storage_class_breakdown(data_view_id: str) -> dict:
         'aggs': [
             {'id': '1', 'enabled': True, 'type': 'count', 'schema': 'metric', 'params': {}},
             {'id': '2', 'enabled': True, 'type': 'terms', 'schema': 'segment',
-             'params': {'field': 'storage_class', 'size': 12,                       # 11 known storage classes + UNKNOWN
+             'params': {'field': 'storage_class.keyword', 'size': 12,               # .keyword sub-field — ES auto-mapping puts enum strings under text+keyword and terms aggs need keyword
                         'order': 'desc', 'orderBy': '1', 'otherBucket': False, 'missingBucket': False}},
         ],
     }
