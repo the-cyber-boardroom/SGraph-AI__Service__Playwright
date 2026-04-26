@@ -17,7 +17,7 @@
 import base64
 import json
 import warnings
-from typing                                                                         import Any, Tuple
+from typing                                                                         import Any, List, Tuple
 
 import requests
 from urllib3.exceptions                                                             import InsecureRequestWarning
@@ -102,11 +102,12 @@ class Inventory__HTTP__Client(Type_Safe):
                                          password : str ,
                                          pattern  : str
                                     ) -> Tuple[int, int, str]:                       # (indices_dropped, http_status, error_message)
-        # Two-step: list matching indices first (so we can return a count),
-        # then DELETE the pattern.  ES's DELETE /_elastic/{pattern} succeeds
-        # even when the pattern matches zero indices, but doesn't tell us
-        # the count — and the count is what makes wipe's idempotency
-        # contract observable.
+        # Two-step: list matching indices first (so we can return a count
+        # AND so we can delete by exact name), then DELETE each one
+        # individually.  Wildcard DELETE is blocked by ES's default
+        # action.destructive_requires_name=true setting — the safety net
+        # that prevents accidentally dropping every index in a cluster.
+        # Iterating by name is the expected idiom in modern ES.
         if not pattern:
             return 0, 0, 'no pattern'
 
@@ -128,14 +129,103 @@ class Inventory__HTTP__Client(Type_Safe):
             entries = list_resp.json() or []
         except Exception:
             entries = []
-        count = len(entries)
-        if count == 0:
+        index_names = [str(e.get('index', '')) for e in entries if e.get('index')]
+        if not index_names:
             return 0, list_status, ''                                                # Nothing to delete
 
-        # DELETE pattern — ES handles the wildcard server-side
-        delete_url    = base_url.rstrip('/') + f'/_elastic/{pattern}'
-        delete_resp   = self.request('DELETE', delete_url, headers=headers)
-        delete_status = int(delete_resp.status_code)
-        if delete_status >= 300:
-            return 0, delete_status, f'delete HTTP {delete_status}: {(delete_resp.text or "")[:300]}'
-        return count, delete_status, ''
+        # DELETE each matched index by name; tolerate per-index 404s
+        # (race: someone else deleted it between our list and our delete).
+        deleted        = 0
+        last_status    = list_status
+        first_error    = ''
+        for index_name in index_names:
+            del_url    = base_url.rstrip('/') + f'/_elastic/{index_name}'
+            del_resp   = self.request('DELETE', del_url, headers=headers)
+            del_status = int(del_resp.status_code)
+            last_status = del_status
+            if del_status == 404:                                                   # Already gone — count nothing, keep going
+                continue
+            if del_status >= 300:
+                if not first_error:
+                    first_error = f'delete {index_name} HTTP {del_status}: {(del_resp.text or "")[:200]}'
+                continue
+            deleted += 1
+
+        return deleted, last_status, first_error
+
+    def count_indices_by_pattern(self, base_url : str ,
+                                        username : str ,
+                                        password : str ,
+                                        pattern  : str
+                                  ) -> Tuple[int, int, str]:                         # (index_count, http_status, error_message) — read-only health probe
+        if not pattern:
+            return 0, 0, 'no pattern'
+        auth_token = base64.b64encode(f'{username}:{password}'.encode()).decode()
+        headers    = {'Authorization': f'Basic {auth_token}'}
+        url        = base_url.rstrip('/') + f'/_elastic/_cat/indices/{pattern}?format=json&h=index&expand_wildcards=open'
+        try:
+            resp = self.request('GET', url, headers=headers)
+        except Exception as exc:
+            return 0, 0, f'list error: {str(exc)[:200]}'
+        status = int(resp.status_code)
+        if status == 404:                                                            # No matching indices
+            return 0, status, ''
+        if status >= 300:
+            return 0, status, f'HTTP {status}: {(resp.text or "")[:300]}'
+        try:
+            entries = resp.json() or []
+        except Exception:
+            entries = []
+        return len(entries), status, ''
+
+    def aggregate_run_summaries(self, base_url      : str ,
+                                       username      : str ,
+                                       password      : str ,
+                                       index_pattern : str ,
+                                       top_n         : int = 100
+                                  ) -> Tuple[List[dict], int, str]:                  # (raw_buckets, http_status, error_message)
+        # Single _search over the data-pattern with a terms agg on
+        # pipeline_run_id.keyword and per-bucket sub-aggs for byte sum and
+        # the loaded_at / delivery_at min/max ranges.  Returns the raw
+        # bucket list — Inventory__Read translates each into a
+        # Schema__Inventory__Run__Summary so the HTTP boundary stays
+        # narrow (matches Elastic__HTTP__Client.bulk_post() which also
+        # returns raw counts rather than typed schemas).
+        if not index_pattern:
+            return [], 0, 'no index_pattern'
+        auth_token = base64.b64encode(f'{username}:{password}'.encode()).decode()
+        headers    = {'Content-Type' : 'application/json'         ,
+                      'Authorization': f'Basic {auth_token}'      }
+        body = json.dumps({
+            'size': 0,
+            'aggs': {
+                'by_run': {
+                    'terms': {'field' : 'pipeline_run_id.keyword'  ,                  # ES auto-mapping puts the keyword sub-field here for terms aggs
+                              'size'  : top_n                       ,
+                              'order' : {'latest_loaded': 'desc'}    },                # Most recent run first
+                    'aggs': {
+                        'bytes_total'      : {'sum': {'field': 'size_bytes' }},
+                        'earliest_loaded'  : {'min': {'field': 'loaded_at'  }},
+                        'latest_loaded'    : {'max': {'field': 'loaded_at'  }},
+                        'earliest_delivery': {'min': {'field': 'delivery_at'}},
+                        'latest_delivery'  : {'max': {'field': 'delivery_at'}},
+                    },
+                },
+            },
+        }).encode('utf-8')
+        url = base_url.rstrip('/') + f'/_elastic/{index_pattern}/_search'
+        try:
+            resp = self.request('POST', url, headers=headers, data=body)
+        except Exception as exc:
+            return [], 0, f'search error: {str(exc)[:200]}'
+        status = int(resp.status_code)
+        if status == 404:                                                            # No matching indices — clean empty
+            return [], status, ''
+        if status >= 300:
+            return [], status, f'HTTP {status}: {(resp.text or "")[:300]}'
+        try:
+            payload = resp.json() or {}
+        except Exception:
+            return [], status, 'response was not JSON'
+        buckets = payload.get('aggregations', {}).get('by_run', {}).get('buckets', []) or []
+        return list(buckets), status, ''
