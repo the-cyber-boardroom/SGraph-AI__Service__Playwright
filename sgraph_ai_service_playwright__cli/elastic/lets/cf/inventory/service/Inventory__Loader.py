@@ -144,9 +144,10 @@ class Inventory__Loader(Type_Safe):
         loaded_at  = now_utc_iso_full()
 
         # ─── list S3 ──────────────────────────────────────────────────────────
-        s3_objects, pages_listed = self.s3_lister.paginate(bucket   = bucket             ,
-                                                            prefix   = prefix             ,
-                                                            max_keys = int(request.max_keys))
+        s3_objects, pages_listed = self.s3_lister.paginate(bucket   = bucket                 ,
+                                                            prefix   = prefix                 ,
+                                                            max_keys = int(request.max_keys)  ,
+                                                            region   = str(request.region)    )    # Empty → boto3 falls through to AWS_DEFAULT_REGION; non-empty wins
         bytes_total = sum(int(obj.get('Size', 0)) for obj in s3_objects)
 
         # ─── parse → records (in memory; no disk write) ───────────────────────

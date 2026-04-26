@@ -22,6 +22,7 @@ from rich.table                                                                 
 
 from sgraph_ai_service_playwright__cli.elastic.primitives.Safe_Str__Elastic__Stack__Name import Safe_Str__Elastic__Stack__Name
 from sgraph_ai_service_playwright__cli.elastic.service.Kibana__Saved_Objects__Client     import Kibana__Saved_Objects__Client
+from sgraph_ai_service_playwright__cli.observability.primitives.Safe_Str__AWS__Region    import Safe_Str__AWS__Region
 
 from sgraph_ai_service_playwright__cli.elastic.lets.cf.inventory.primitives.Safe_Str__Pipeline__Run__Id import Safe_Str__Pipeline__Run__Id
 from sgraph_ai_service_playwright__cli.elastic.lets.cf.inventory.primitives.Safe_Str__S3__Bucket   import Safe_Str__S3__Bucket
@@ -102,6 +103,7 @@ def cmd_inventory_load(stack_name : Optional[str] = typer.Argument(None,        
                                                           all        = bool(all_objects)                             ,
                                                           max_keys   = int(max_keys)                                 ,
                                                           run_id     = Safe_Str__Pipeline__Run__Id(run_id or '')     ,
+                                                          region     = Safe_Str__AWS__Region(region or '')           ,    # Empty → boto3 falls through to AWS_DEFAULT_REGION
                                                           dry_run    = bool(dry_run)                                 )
 
         loader        = build_inventory_loader()
