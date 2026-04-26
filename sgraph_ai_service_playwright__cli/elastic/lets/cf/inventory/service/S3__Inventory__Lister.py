@@ -62,8 +62,10 @@ def normalise_etag(raw: str) -> str:                                            
 
 class S3__Inventory__Lister(Type_Safe):
 
-    def s3_client(self, region: str):                                               # Single seam — tests can override; per-call instantiation matches Elastic__AWS__Client.ec2_client
-        return boto3.client('s3', region_name=region)
+    def s3_client(self, region: str):                                               # Single seam — tests can override; per-call instantiation matches Elastic__AWS__Client.ec2_client. Empty region falls through to boto3's standard resolution chain (AWS_DEFAULT_REGION → profile → IMDS) — passing region_name='' would produce a malformed "https://s3..amazonaws.com" endpoint.
+        if region:
+            return boto3.client('s3', region_name=region)
+        return boto3.client('s3')
 
     @type_safe
     def paginate(self, bucket   : str ,
