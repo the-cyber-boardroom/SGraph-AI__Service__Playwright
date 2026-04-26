@@ -49,6 +49,7 @@ from sgraph_ai_service_playwright__cli.elastic.lets.cf.inventory.service.S3__Inv
 from sgraph_ai_service_playwright__cli.elastic.lets.cf.events.collections.List__Schema__CF__Event__Record import List__Schema__CF__Event__Record
 from sgraph_ai_service_playwright__cli.elastic.lets.cf.events.schemas.Schema__Events__Load__Request   import Schema__Events__Load__Request
 from sgraph_ai_service_playwright__cli.elastic.lets.cf.events.schemas.Schema__Events__Load__Response  import Schema__Events__Load__Response
+from sgraph_ai_service_playwright__cli.elastic.lets.cf.events.service.CF__Events__Dashboard__Builder import CF__Events__Dashboard__Builder
 from sgraph_ai_service_playwright__cli.elastic.lets.cf.events.service.CF__Realtime__Log__Parser     import CF__Realtime__Log__Parser, gunzip
 from sgraph_ai_service_playwright__cli.elastic.lets.cf.events.service.Inventory__Manifest__Reader  import Inventory__Manifest__Reader
 from sgraph_ai_service_playwright__cli.elastic.lets.cf.events.service.Inventory__Manifest__Updater import Inventory__Manifest__Updater
@@ -147,11 +148,22 @@ class Events__Loader(Type_Safe):
                                                    dry_run           = True                )
 
         # ─── ensure Kibana data view (idempotent) ────────────────────────────
-        self.kibana_client.ensure_data_view(base_url        = base_url              ,
-                                             username        = username              ,
-                                             password        = password              ,
-                                             title           = DATA_VIEW__TITLE      ,
-                                             time_field_name = DATA_VIEW__TIME_FIELD )
+        data_view_result = self.kibana_client.ensure_data_view(base_url        = base_url              ,
+                                                                username        = username              ,
+                                                                password        = password              ,
+                                                                title           = DATA_VIEW__TITLE      ,
+                                                                time_field_name = DATA_VIEW__TIME_FIELD )
+
+        # ─── ensure dashboard (idempotent — overwrite=true) ──────────────────
+        # Skip silently if data view ensure failed (no id to bind panels to).
+        if str(data_view_result.id) and not str(data_view_result.error):
+            ndjson_bytes = CF__Events__Dashboard__Builder().build_ndjson(data_view_id = str(data_view_result.id),
+                                                                          time_field   = DATA_VIEW__TIME_FIELD)
+            self.kibana_client.import_objects(base_url     = base_url     ,
+                                               username     = username     ,
+                                               password     = password     ,
+                                               ndjson_bytes = ndjson_bytes ,
+                                               overwrite    = True         )
 
         # ─── per-file fetch → parse → bulk-post → manifest update ────────────
         files_processed   = 0

@@ -40,6 +40,7 @@ from sgraph_ai_service_playwright__cli.elastic.lets.cf.events.schemas.Schema__Ev
 from sgraph_ai_service_playwright__cli.elastic.lets.cf.events.service.Bot__Classifier            import Bot__Classifier
 from sgraph_ai_service_playwright__cli.elastic.lets.cf.events.service.CF__Realtime__Log__Parser import CF__Realtime__Log__Parser
 from sgraph_ai_service_playwright__cli.elastic.lets.cf.events.service.Events__Loader              import Events__Loader
+from sgraph_ai_service_playwright__cli.elastic.lets.cf.events.service.Events__Read                 import Events__Read
 from sgraph_ai_service_playwright__cli.elastic.lets.cf.events.service.Events__Wiper                import Events__Wiper
 from sgraph_ai_service_playwright__cli.elastic.lets.cf.events.service.Inventory__Manifest__Reader  import Inventory__Manifest__Reader
 from sgraph_ai_service_playwright__cli.elastic.lets.cf.events.service.Inventory__Manifest__Updater import Inventory__Manifest__Updater
@@ -96,6 +97,11 @@ def build_events_wiper() -> Events__Wiper:
     return Events__Wiper(http_client      = Inventory__HTTP__Client()                                    ,
                           kibana_client    = Kibana__Saved_Objects__Client()                              ,
                           manifest_updater = Inventory__Manifest__Updater(http_client=Inventory__HTTP__Client()))
+
+
+def build_events_read() -> Events__Read:
+    return Events__Read(http_client   = Inventory__HTTP__Client()       ,
+                         kibana_client = Kibana__Saved_Objects__Client() )
 
 
 # ───────────────────────────────────────────────────────────────────────────────
@@ -545,6 +551,119 @@ def cmd_events_wipe(stack_name : Optional[str] = typer.Argument(None,           
         if str(response.error_message):
             c.print()
             c.print(f'  [yellow]⚠[/]  {rich_escape(str(response.error_message))}')
+        c.print()
+
+    _run()
+
+
+# ───────────────────────────────────────────────────────────────────────────────
+# `sp el lets cf events list` — show distinct events runs
+# ───────────────────────────────────────────────────────────────────────────────
+
+@events_app.command('list')
+def cmd_events_list(stack_name : Optional[str] = typer.Argument(None,                  help='Stack name. Auto-picks when only one stack exists; prompts on multiple.'),
+                     password   : Optional[str] = typer.Option  (None, '--password',    help='Elastic password (else $SG_ELASTIC_PASSWORD).'),
+                     region     : Optional[str] = typer.Option  (None, '--region',      help='AWS region (defaults to current AWS_Config session region).'),
+                     top_n      : int           = typer.Option  (100,  '--top',         help='Show at most N runs (default 100).')):
+    """List distinct pipeline runs currently indexed in sg-cf-events-*. One row per pipeline_run_id."""
+    from scripts.elastic                                                             import build_service, resolve_stack_name, aws_error_handler
+
+    @aws_error_handler
+    def _run():
+        c = Console(highlight=False)
+        if not password and not os.environ.get('SG_ELASTIC_PASSWORD'):
+            c.print('\n  [yellow]⚠[/]  SG_ELASTIC_PASSWORD is not set.\n')
+            raise typer.Exit(1)
+
+        service       = build_service()
+        stack_picked  = resolve_stack_name(service, stack_name, region)
+        info          = service.get_stack_info(stack_name = Safe_Str__Elastic__Stack__Name(stack_picked),
+                                                region     = region or '')
+        if not str(info.kibana_url):
+            c.print(f'\n  [red]✗  Stack [bold]{stack_picked}[/] has no Kibana URL yet.[/]\n')
+            raise typer.Exit(1)
+
+        base_url    = str(info.kibana_url).rstrip('/')
+        elastic_pwd = password or os.environ.get('SG_ELASTIC_PASSWORD', '')
+        reader      = build_events_read()
+        runs        = reader.list_runs(base_url=base_url, username='elastic', password=elastic_pwd, top_n=top_n)
+
+        c.print()
+        if len(runs) == 0:
+            c.print(f'  [dim]No runs in sg-cf-events-* on [bold]{stack_picked}[/].  Run `sp el lets cf events load`.[/]\n')
+            return
+
+        c.print(f'  [bold]Events runs on [cyan]{stack_picked}[/cyan][/]')
+        c.print()
+        t = Table(show_header=True, header_style='bold', box=None, padding=(0, 2))
+        t.add_column('Run id'  , style='dim')
+        t.add_column('Events'  , justify='right')
+        t.add_column('Files'   , justify='right')
+        t.add_column('Bytes'   , justify='right')
+        t.add_column('Event range')
+        t.add_column('Loaded at')
+        for run in runs:
+            event_range = str(run.earliest_event)[:10]
+            if str(run.latest_event)[:10] != event_range:
+                event_range = f'{event_range} → {str(run.latest_event)[:10]}'
+            loaded_at = str(run.latest_loaded).replace('T', ' ').rstrip('Z').split('.')[0]
+            t.add_row(str(run.pipeline_run_id),
+                       str(run.event_count    ),
+                       str(run.file_count     ),
+                       f'{int(run.bytes_total):,}',
+                       event_range,
+                       loaded_at)
+        c.print(t)
+        c.print(f'\n  [dim]{len(runs)} run(s)[/]\n')
+
+    _run()
+
+
+# ───────────────────────────────────────────────────────────────────────────────
+# `sp el lets cf events health` — check the events-pipeline plumbing
+# ───────────────────────────────────────────────────────────────────────────────
+
+@events_app.command('health')
+def cmd_events_health(stack_name : Optional[str] = typer.Argument(None,                help='Stack name. Auto-picks when only one stack exists; prompts on multiple.'),
+                       password   : Optional[str] = typer.Option  (None, '--password',  help='Elastic password (else $SG_ELASTIC_PASSWORD).'),
+                       region     : Optional[str] = typer.Option  (None, '--region',    help='AWS region (defaults to current AWS_Config session region).')):
+    """Check the events dataset's plumbing: indices, data view, dashboard + bonus inventory-link coverage row."""
+    from scripts.elastic                                                             import build_service, resolve_stack_name, aws_error_handler, rich_escape
+
+    @aws_error_handler
+    def _run():
+        c = Console(highlight=False)
+        if not password and not os.environ.get('SG_ELASTIC_PASSWORD'):
+            c.print('\n  [yellow]⚠[/]  SG_ELASTIC_PASSWORD is not set.\n')
+            raise typer.Exit(1)
+
+        service       = build_service()
+        stack_picked  = resolve_stack_name(service, stack_name, region)
+        info          = service.get_stack_info(stack_name = Safe_Str__Elastic__Stack__Name(stack_picked),
+                                                region     = region or '')
+        if not str(info.kibana_url):
+            c.print(f'\n  [red]✗  Stack [bold]{stack_picked}[/] has no Kibana URL yet.[/]\n')
+            raise typer.Exit(1)
+
+        base_url    = str(info.kibana_url).rstrip('/')
+        elastic_pwd = password or os.environ.get('SG_ELASTIC_PASSWORD', '')
+        reader      = build_events_read()
+        response    = reader.health(base_url=base_url, username='elastic', password=elastic_pwd,
+                                     stack_name=Safe_Str__Elastic__Stack__Name(stack_picked))
+
+        icon_for = {'ok': '[green]✓[/]', 'warn': '[yellow]⚠[/]', 'fail': '[red]✗[/]', 'skip': '[dim]·[/]'}
+        has_warn    = any(str(chk.status) == 'warn' for chk in response.checks)
+        rollup_icon = '[red]✗[/]' if not response.all_ok else ('[yellow]⚠[/]' if has_warn else '[green]✓[/]')
+        c.print()
+        c.print(f'  {rollup_icon}  Events health for [bold]{stack_picked}[/]')
+        c.print()
+        t = Table(show_header=True, header_style='bold', box=None, padding=(0, 2))
+        t.add_column('', width=2)
+        t.add_column('Check')
+        t.add_column('Detail', style='dim')
+        for chk in response.checks:
+            t.add_row(icon_for.get(str(chk.status), '·'), str(chk.name), rich_escape(str(chk.detail)))
+        c.print(t)
         c.print()
 
     _run()
