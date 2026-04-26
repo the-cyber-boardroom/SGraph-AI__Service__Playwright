@@ -48,7 +48,7 @@ from sgraph_ai_service_playwright__cli.elastic.schemas.Schema__Kibana__Find__Res
 from sgraph_ai_service_playwright__cli.elastic.schemas.Schema__Kibana__Import__Result import Schema__Kibana__Import__Result
 from sgraph_ai_service_playwright__cli.elastic.schemas.Schema__Wait__Tick           import Schema__Wait__Tick
 from sgraph_ai_service_playwright__cli.elastic.service.Caller__IP__Detector         import Caller__IP__Detector
-from sgraph_ai_service_playwright__cli.elastic.service.Elastic__AWS__Client         import Elastic__AWS__Client, aws_name_for_stack
+from sgraph_ai_service_playwright__cli.elastic.service.Elastic__AWS__Client         import Elastic__AWS__Client, ELASTIC_NAMING
 from sgraph_ai_service_playwright__cli.elastic.service.Elastic__HTTP__Client        import Elastic__HTTP__Client
 from sgraph_ai_service_playwright__cli.elastic.service.Elastic__User__Data__Builder import Elastic__User__Data__Builder
 from sgraph_ai_service_playwright__cli.elastic.service.Kibana__Saved_Objects__Client import Kibana__Saved_Objects__Client
@@ -115,7 +115,7 @@ class Elastic__Service(Type_Safe):                                              
                                                         creator               = creator         ,
                                                         max_hours             = max_hours       )
         return Schema__Elastic__Create__Response(stack_name        = stack_name                                  ,
-                                                 aws_name_tag      = aws_name_for_stack(stack_name)              ,  # "elastic-..." marker, no doubles
+                                                 aws_name_tag      = ELASTIC_NAMING.aws_name_for_stack(stack_name)              ,  # "elastic-..." marker, no doubles
                                                  instance_id       = instance_id                                  ,
                                                  region            = region                                       ,
                                                  ami_id            = ami_id                                       ,
@@ -337,7 +337,7 @@ class Elastic__Service(Type_Safe):                                              
                                                         creator               = creator         ,
                                                         max_hours             = max_hours       )
         return Schema__Elastic__Create__Response(stack_name        = stack_name                                  ,
-                                                 aws_name_tag      = aws_name_for_stack(stack_name)              ,
+                                                 aws_name_tag      = ELASTIC_NAMING.aws_name_for_stack(stack_name)              ,
                                                  instance_id       = instance_id                                  ,
                                                  region            = region                                       ,
                                                  ami_id            = ami_id                                       ,

@@ -15,6 +15,18 @@ Sibling of `sgraph_ai_service_playwright/` and `agent_mitmproxy/`. Houses the
 Type_Safe refactor of the `sp` / `ob` CLI. Nothing under
 `sgraph_ai_service_playwright/` was modified. Package version: `v0.0.1`.
 
+### `aws/` — shared AWS infrastructure helpers (Phase A step 1, 2026-04-26)
+
+Single source of truth for naming conventions every sister section needs.
+
+| File | Role |
+|------|------|
+| `aws/Stack__Naming.py` | Type_Safe class binding a `section_prefix` (e.g. `elastic`, `opensearch`, `prometheus`, `vnc`) once and exposing `aws_name_for_stack()` (Name tag with section prefix; never doubled) + `sg_name_for_stack()` (SG GroupName with `-sg` suffix; never starts with reserved `sg-`). |
+
+The previously-elastic-only module-level functions in `elastic/service/Elastic__AWS__Client.py` (`aws_name_for_stack`, `sg_name_for_stack`) were removed. `Elastic__AWS__Client.py` now declares `ELASTIC_NAMING = Stack__Naming(section_prefix='elastic')` at module level; the 5 prior call sites (2 in `Elastic__AWS__Client`, 2 in `Elastic__Service`, 1 in the in-memory test client) use this shared instance. Future `sp os`, `sp prom`, `sp vnc` sections each get their own `*_NAMING` constant pointing at the same `Stack__Naming` class.
+
+Tests: 9 unit tests in `tests/unit/sgraph_ai_service_playwright__cli/aws/test_Stack__Naming.py` cover prefix-when-missing / no-double-prefix / partial-match-non-counting / per-section-isolation / sg-suffix universality. Plan reference: `team/comms/plans/v0.1.96__playwright-stack-split__02__api-consolidation.md`.
+
 ### `observability/` — Tier-1 pure-logic service (read-only surface)
 
 | File | Role |
