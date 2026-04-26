@@ -20,13 +20,9 @@
 #   sg:stack-name     : {stack_name}                 ← logical name lookup
 #   sg:allowed-ip     : {caller_ip}                  ← records what /32 was set
 #
-# Naming helpers: aws_name_for_stack() / sg_name_for_stack()
-#   - AWS reserves the literal "sg-*" prefix for security group IDs, so the SG
-#     GroupName must NOT start with "sg-". We use a "-sg" suffix instead.
-#     See CLAUDE.md "AWS Resource Naming" rule.
-#   - The AWS Name tag always carries an "elastic-" marker, but the helper
-#     skips it when the logical stack_name already starts with that prefix —
-#     avoids cosmetic doubles like "elastic-elastic-quiet-fermi".
+# Naming helpers come from sgraph_ai_service_playwright__cli.aws.Stack__Naming
+# (shared across all sister sections — sp el, sp os, sp prom, sp vnc).
+# ELASTIC_NAMING below binds the section prefix once for this module.
 # ═══════════════════════════════════════════════════════════════════════════════
 
 import json
@@ -39,6 +35,7 @@ import boto3                                                                    
 from osbot_utils.type_safe.Type_Safe                                                import Type_Safe
 from osbot_utils.type_safe.type_safe_core.decorators.type_safe                      import type_safe
 
+from sgraph_ai_service_playwright__cli.aws.Stack__Naming                            import Stack__Naming
 from sgraph_ai_service_playwright__cli.ec2.enums.Enum__Instance__State              import Enum__Instance__State
 from sgraph_ai_service_playwright__cli.elastic.enums.Enum__Elastic__State           import Enum__Elastic__State
 from sgraph_ai_service_playwright__cli.elastic.primitives.Safe_Str__Elastic__Stack__Name import Safe_Str__Elastic__Stack__Name
@@ -70,20 +67,14 @@ EC2_TRUST_POLICY = {                                                            
 }
 
 
+ELASTIC_NAMING = Stack__Naming(section_prefix='elastic')                            # Shared section-aware naming — see Stack__Naming module header
+
+
 def instance_tag(details: dict, key: str) -> str:                                   # Helper mirroring scripts.provision_ec2._instance_tag
     for tag in details.get('Tags', []):
         if tag.get('Key') == key:
             return tag.get('Value', '')
     return ''
-
-
-def aws_name_for_stack(stack_name: str) -> str:                                     # AWS Name tag — always carries an "elastic" marker, never doubled
-    s = str(stack_name)
-    return s if s.startswith('elastic-') else f'elastic-{s}'
-
-
-def sg_name_for_stack(stack_name: str) -> str:                                      # SG GroupName — never starts with "sg-" (AWS reserves that prefix for SG IDs)
-    return f'{str(stack_name)}-sg'
 
 
 def launch_time_and_uptime(launch_time):                                            # Returns (iso_str, uptime_seconds). Boto3 hands us a datetime; tests pass a string or None.
@@ -171,7 +162,7 @@ class Elastic__AWS__Client(Type_Safe):                                          
                                     creator   : str                           = ''
                                ) -> str:
         ec2       = self.ec2_client(region)
-        sg_name   = sg_name_for_stack(stack_name)                                   # "{stack}-sg" — see module header (AWS reserves "sg-*")
+        sg_name   = ELASTIC_NAMING.sg_name_for_stack(stack_name)                    # "{stack}-sg" — see module header (AWS reserves "sg-*")
         cidr      = f'{str(caller_ip)}/32'
 
         existing = ec2.describe_security_groups(
@@ -453,7 +444,7 @@ class Elastic__AWS__Client(Type_Safe):                                          
                          caller_ip : Safe_Str__IP__Address         ,
                          creator   : str
                     ) -> list:
-        return [{'Key': 'Name'            , 'Value': aws_name_for_stack(stack_name)},  # Always carries "elastic-" marker; no doubles when stack_name already has it
+        return [{'Key': 'Name'            , 'Value': ELASTIC_NAMING.aws_name_for_stack(stack_name)},  # Always carries "elastic-" marker; no doubles when stack_name already has it
                 {'Key': TAG_PURPOSE_KEY   , 'Value': TAG_PURPOSE_VALUE            } ,
                 {'Key': TAG_STACK_NAME_KEY, 'Value': str(stack_name)              } ,
                 {'Key': TAG_ALLOWED_IP_KEY, 'Value': str(caller_ip)               } ,

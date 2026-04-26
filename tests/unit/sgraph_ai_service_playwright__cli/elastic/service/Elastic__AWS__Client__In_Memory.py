@@ -15,7 +15,7 @@ from sgraph_ai_service_playwright__cli.elastic.service.Elastic__AWS__Client     
     TAG_STACK_NAME_KEY,
     TAG_ALLOWED_IP_KEY,
     TAG_CREATOR_KEY,
-    aws_name_for_stack                                                              ,
+    ELASTIC_NAMING                                                                  ,
     instance_tag                                                                    ,
 )
 
@@ -84,7 +84,7 @@ class Elastic__AWS__Client__In_Memory(Elastic__AWS__Client):
                    'State'       : {'Name': 'pending'}                               ,
                    'PublicIpAddress': ''                                             ,
                    'SecurityGroups': [{'GroupId': security_group_id}]                ,
-                   'Tags'        : [{'Key': 'Name'              , 'Value': aws_name_for_stack(stack_name)},
+                   'Tags'        : [{'Key': 'Name'              , 'Value': ELASTIC_NAMING.aws_name_for_stack(stack_name)},
                                     {'Key': TAG_PURPOSE_KEY     , 'Value': TAG_PURPOSE_VALUE          } ,
                                     {'Key': TAG_STACK_NAME_KEY  , 'Value': str(stack_name)            } ,
                                     {'Key': TAG_ALLOWED_IP_KEY  , 'Value': str(caller_ip)             } ,
