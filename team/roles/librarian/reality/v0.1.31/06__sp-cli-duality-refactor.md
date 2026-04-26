@@ -27,7 +27,7 @@ The previously-elastic-only module-level functions in `elastic/service/Elastic__
 
 Tests: 9 unit tests in `tests/unit/sgraph_ai_service_playwright__cli/aws/test_Stack__Naming.py` cover prefix-when-missing / no-double-prefix / partial-match-non-counting / per-section-isolation / sg-suffix universality. Plan reference: `team/comms/plans/v0.1.96__playwright-stack-split__02__api-consolidation.md`.
 
-### `ec2/service/Ec2__AWS__Client.py` — central EC2 AWS boundary (Phase A steps 3a–3c, 2026-04-26)
+### `ec2/service/Ec2__AWS__Client.py` — central EC2 AWS boundary (Phase A steps 3a–3d, 2026-04-26)
 
 Mirrors the `Elastic__AWS__Client` pattern. Hosts the previously-private helpers that lived in `scripts/provision_ec2.py`:
 
@@ -38,6 +38,8 @@ Mirrors the `Elastic__AWS__Client` pattern. Hosts the previously-private helpers
 | Type_Safe class | `Ec2__AWS__Client` | Methods: `ec2()` (single seam, tests override); `find_instances()`; `find_instance_ids()`; `resolve_instance_id(target)`; `terminate_instances(nickname)`. Each EC2 call goes through `self.ec2()` so an in-memory test double can replace the boto3 boundary. |
 | AWS context accessors (3b) | `aws_account_id`, `aws_region`, `ecr_registry_host`, `default_playwright_image_uri`, `default_sidecar_image_uri` | Module-level functions over `osbot_aws.AWS_Config`. `PLAYWRIGHT_IMAGE_NAME` + `SIDECAR_IMAGE_NAME` re-exported from the docker base modules. |
 | IAM constants + helpers (3c) | `IAM__ROLE_NAME`, `IAM__ECR_READONLY_POLICY_ARN`, `IAM__SSM_CORE_POLICY_ARN`, `IAM__POLICY_ARNS`, `IAM__PROMETHEUS_RW_POLICY_ARN`, `IAM__OBSERVABILITY_POLICY_ARNS`, `IAM__ASSUME_ROLE_SERVICE`, `IAM__PASSROLE_POLICY_NAME`; functions `decode_aws_auth_error(exc)`, `ensure_caller_passrole(account)`, `ensure_instance_profile()` | Module-level. The Console-formatted `_print_auth_error` stays in `provision_ec2.py` (Tier 2A — CLI rendering); `ensure_caller_passrole` no longer prints on auth failure (just raises) — the typer command is now responsible for auth-error formatting. |
+| SG + AMI constants (3d) | `SG__NAME`, `SG__DESCRIPTION`, `EC2__AMI_OWNER_AMAZON`, `EC2__AMI_NAME_AL2023`, `EC2__PLAYWRIGHT_PORT`, `EC2__SIDECAR_ADMIN_PORT`, `EC2__BROWSER_INTERNAL_PORT`, `SG_INGRESS_PORTS`, `TAG__AMI_STATUS_KEY` | Module-level. **Bug fix:** `SG__DESCRIPTION` lost its em-dash (AWS rejects non-ASCII `GroupDescription` — see Elastic precedent). Phase C will drop `EC2__BROWSER_INTERNAL_PORT` from `SG_INGRESS_PORTS`. |
+| SG + AMI methods (3d) | `Ec2__AWS__Client.ensure_security_group()`, `latest_al2023_ami_id()`, `create_ami(instance_id, name)`, `wait_ami_available(ami_id, timeout=900)`, `tag_ami(ami_id, status)`, `latest_healthy_ami()` | All AWS-touching; go through `self.ec2()` so an in-memory `_Fake_EC2` (with a `_Fake_Boto3_Client`) covers the AMI lifecycle paths. The wrappers in `provision_ec2.py` keep the old `(ec2: EC2)` signatures for callsite stability. |
 
 `scripts/provision_ec2.py` keeps wrapper functions matching the old signatures (`find_instances(ec2: EC2 = None)`, `terminate_instances(ec2: EC2 = None, nickname='')`, etc.) that delegate to a module-level `Ec2__AWS__Client()` instance. The `ec2` parameter is now optional and ignored — callers in `provision_ec2.py` keep working unchanged. These wrappers go away in Phase A step 3f when typer commands become thin wrappers over `Ec2__Service`.
 

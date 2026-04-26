@@ -28,6 +28,7 @@ import json
 import os
 import secrets
 import subprocess
+import time
 from datetime                                                                       import datetime, timezone
 from typing                                                                         import Optional
 
@@ -42,8 +43,22 @@ from agent_mitmproxy.docker.Docker__Agent_Mitmproxy__Base                       
 TAG__SERVICE_KEY      = 'sg:service'                                                # Immutable identifier — find_instances filters on this, not Name (Name is user-editable in console)
 TAG__SERVICE_VALUE    = 'playwright-ec2'
 TAG__DEPLOY_NAME_KEY  = 'sg:deploy-name'                                            # Random two-word name; used by connect/delete/exec for human-friendly targeting
+TAG__AMI_STATUS_KEY   = 'sg:ami-status'                                             # untested | healthy | unhealthy
 
 INSTANCE_STATES_LIVE  = ['pending', 'running', 'stopping', 'stopped']               # Terminated/shutting-down excluded from list operations
+
+# Security group + AMI constants (Phase A step 3d)
+SG__NAME                   = 'playwright-ec2'                                       # AWS reserves 'sg-*' prefix for SG IDs only — not for GroupName
+SG__DESCRIPTION            = 'SG Playwright EC2 stack - ingress :8000 (Playwright API) + :8001 (sidecar admin) + :3000 (streaming browser) - all ports behind API key / KasmVNC password auth'    # ASCII only — AWS rejects multi-byte GroupDescription (em-dash etc.)
+
+EC2__AMI_OWNER_AMAZON      = 'amazon'
+EC2__AMI_NAME_AL2023       = 'al2023-ami-2023.*-x86_64'
+
+EC2__PLAYWRIGHT_PORT       = 8000                                                   # Playwright API — exposed to the world via SG
+EC2__SIDECAR_ADMIN_PORT    = 8001                                                   # Sidecar admin API — exposed via SG, API-key gated
+EC2__BROWSER_INTERNAL_PORT = 3000                                                   # linuxserver/chromium KasmVNC — SSM-forward only, never exposed in SG
+
+SG_INGRESS_PORTS           = (EC2__PLAYWRIGHT_PORT, EC2__SIDECAR_ADMIN_PORT, EC2__BROWSER_INTERNAL_PORT)   # Phase C strip removes BROWSER_INTERNAL_PORT
 
 
 _ADJECTIVES = ['bold','bright','calm','clever','cool','daring','deep','eager',
@@ -239,3 +254,68 @@ class Ec2__AWS__Client(Type_Safe):                                              
         for iid in to_kill:
             ec2.instance_terminate(iid)
         return to_kill
+
+    # ── Security group ──────────────────────────────────────────────────────────
+
+    def ensure_security_group(self) -> str:                                         # Idempotent: ensure the SG exists and the public ingress ports are authorised
+        ec2      = self.ec2()
+        existing = ec2.security_group(security_group_name=SG__NAME)
+        if existing:
+            sg_id = existing.get('GroupId')
+        else:
+            create_result = ec2.security_group_create(security_group_name=SG__NAME, description=SG__DESCRIPTION)
+            sg_id         = create_result.get('data', {}).get('security_group_id')
+        for port in SG_INGRESS_PORTS:
+            try:
+                ec2.security_group_authorize_ingress(security_group_id=sg_id, port=port)
+            except Exception:
+                pass                                                                # rule already exists — idempotent
+        return sg_id
+
+    # ── AMI lifecycle ───────────────────────────────────────────────────────────
+
+    def latest_al2023_ami_id(self) -> str:                                          # Resolve the most recent AL2023 base AMI in the current region
+        ec2    = self.ec2()
+        images = ec2.amis(owner=EC2__AMI_OWNER_AMAZON, name=EC2__AMI_NAME_AL2023, architecture='x86_64')
+        images = sorted(images, key=lambda image: image.get('CreationDate', ''), reverse=True)
+        if not images:
+            raise RuntimeError(f'No AL2023 AMI found matching {EC2__AMI_NAME_AL2023!r} in region {aws_region()!r}')
+        return images[0].get('ImageId')
+
+    def create_ami(self, instance_id: str, name: str) -> str:                       # Create an AMI from a stopped/running instance — initial sg:ami-status='untested'
+        ec2  = self.ec2()
+        resp = ec2.client().create_image(InstanceId       = instance_id,
+                                         Name             = name        ,
+                                         Description      = f'SG Playwright + agent_mitmproxy - {name}',
+                                         NoReboot         = True         ,
+                                         TagSpecifications= [{'ResourceType': 'image',
+                                                              'Tags': [{'Key': 'Name'              , 'Value': name              },
+                                                                       {'Key': TAG__SERVICE_KEY    , 'Value': TAG__SERVICE_VALUE},
+                                                                       {'Key': TAG__AMI_STATUS_KEY , 'Value': 'untested'        }]}])
+        return resp['ImageId']
+
+    def wait_ami_available(self, ami_id: str, timeout: int = 900) -> bool:          # Poll until 'available' (return True) / 'failed' (return False) / timeout (return False)
+        ec2      = self.ec2()
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            images = ec2.client().describe_images(ImageIds=[ami_id]).get('Images', [])
+            state  = images[0]['State'] if images else 'pending'
+            if state == 'available':
+                return True
+            if state == 'failed':
+                return False
+            time.sleep(15)
+        return False
+
+    def tag_ami(self, ami_id: str, status: str) -> None:                            # Set sg:ami-status (untested | healthy | unhealthy) — overwrites the existing value
+        self.ec2().client().create_tags(Resources=[ami_id],
+                                        Tags     =[{'Key': TAG__AMI_STATUS_KEY, 'Value': status}])
+
+    def latest_healthy_ami(self) -> str:                                            # Most-recently-created sg-playwright AMI tagged sg:ami-status=healthy; None if none exist
+        resp   = self.ec2().client().describe_images(
+            Filters = [{'Name': f'tag:{TAG__SERVICE_KEY}'   , 'Values': [TAG__SERVICE_VALUE]},
+                       {'Name': f'tag:{TAG__AMI_STATUS_KEY}', 'Values': ['healthy']         },
+                       {'Name': 'state'                     , 'Values': ['available']       }],
+            Owners  = ['self'])
+        images = sorted(resp.get('Images', []), key=lambda x: x['CreationDate'], reverse=True)
+        return images[0]['ImageId'] if images else None

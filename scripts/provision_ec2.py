@@ -48,6 +48,11 @@ from sgraph_ai_service_playwright.docker.Docker__SGraph_AI__Service__Playwright_
 from agent_mitmproxy.docker.Docker__Agent_Mitmproxy__Base                                import IMAGE_NAME as SIDECAR_IMAGE_NAME
 
 from sgraph_ai_service_playwright__cli.ec2.service.Ec2__AWS__Client                      import (Ec2__AWS__Client                                            ,
+                                                                                                  EC2__AMI_NAME_AL2023                                        ,
+                                                                                                  EC2__AMI_OWNER_AMAZON                                       ,
+                                                                                                  EC2__BROWSER_INTERNAL_PORT                                  ,
+                                                                                                  EC2__PLAYWRIGHT_PORT                                        ,
+                                                                                                  EC2__SIDECAR_ADMIN_PORT                                     ,
                                                                                                   IAM__ASSUME_ROLE_SERVICE                                    ,
                                                                                                   IAM__ECR_READONLY_POLICY_ARN                                ,
                                                                                                   IAM__OBSERVABILITY_POLICY_ARNS                              ,
@@ -56,6 +61,9 @@ from sgraph_ai_service_playwright__cli.ec2.service.Ec2__AWS__Client             
                                                                                                   IAM__PROMETHEUS_RW_POLICY_ARN                               ,
                                                                                                   IAM__ROLE_NAME                                              ,
                                                                                                   IAM__SSM_CORE_POLICY_ARN                                    ,
+                                                                                                  SG__DESCRIPTION                                             ,
+                                                                                                  SG__NAME                                                    ,
+                                                                                                  TAG__AMI_STATUS_KEY                                         ,
                                                                                                   aws_account_id                                              ,
                                                                                                   aws_region                                                  ,
                                                                                                   decode_aws_auth_error        as _decode_aws_auth_error     ,
@@ -72,7 +80,9 @@ from sgraph_ai_service_playwright__cli.ec2.service.Ec2__AWS__Client             
 
 
 EC2__INSTANCE_TYPE           = 'm6i.xlarge'                                             # 4 vCPU / 16 GB RAM — fixed CPU (no burst credits), fits full observability stack
-EC2__AMI_NAME_AL2023         = 'al2023-ami-2023.*-x86_64'
+# EC2__AMI_NAME_AL2023, EC2__AMI_OWNER_AMAZON, EC2__PLAYWRIGHT_PORT,
+# EC2__SIDECAR_ADMIN_PORT, EC2__BROWSER_INTERNAL_PORT moved to Ec2__AWS__Client
+# (Phase A step 3d) — imported at top.
 
 # ── Instance-type presets (shown by sg-ec2 create --interactive) ──────────────
 EC2__INSTANCE_TYPE_PRESETS = [
@@ -82,9 +92,6 @@ EC2__INSTANCE_TYPE_PRESETS = [
     ('t3.large'   , 2, 8  , 0.0832, 'burstable · dev/test only'              ),
     ('t3.xlarge'  , 4, 16 , 0.1664, 'burstable · dev/test only'              ),
 ]
-EC2__AMI_OWNER_AMAZON        = 'amazon'
-EC2__PLAYWRIGHT_PORT         = 8000                                                     # Playwright API — exposed to the world via SG
-EC2__SIDECAR_ADMIN_PORT      = 8001                                                     # Sidecar admin API (host port mapping of container :8000) — exposed via SG, API-key gated
 EC2__MITMWEB_TUNNEL_PORT    = 18080                                                    # mitmweb proxy UI — loopback only; reach via: sgpl forward 18080
 
 WATCHDOG_MAX_REQUEST_MS      = 120_000                                                  # 120s — covers Firefox + long upstream-proxy round-trips
@@ -95,13 +102,12 @@ WATCHDOG_MAX_REQUEST_MS      = 120_000                                          
 # imported at the top of this file under the same names.
 
 EC2__PROMETHEUS_PORT      = 9090
-EC2__BROWSER_INTERNAL_PORT = 3000                                                      # linuxserver/chromium KasmVNC — SSM-forward only, never exposed in SG
 EC2__BROWSER_IMAGE         = 'lscr.io/linuxserver/chromium:latest'                     # public image — pulled explicitly before compose up
 EC2__DOCKGE_PORT           = 5001                                                      # Dockge — SSM-forward only; first login sets admin password
 EC2__DOCKGE_IMAGE          = 'louislam/dockge:1'                                       # public image — pulled explicitly before compose up
 
-SG__NAME                     = 'playwright-ec2'                                         # AWS reserves 'sg-*' prefix for SG IDs
-SG__DESCRIPTION              = 'SG Playwright EC2 stack - ingress :8000 (Playwright API) + :8001 (sidecar admin) + :3000 (streaming browser) — all ports behind API key / KasmVNC password auth'
+# SG__NAME, SG__DESCRIPTION moved to Ec2__AWS__Client (Phase A step 3d) —
+# imported at top.
 
 TAG__NAME                    = 'playwright-ec2'
 TAG__SERVICE_KEY             = 'sg:service'                                             # Immutable identifier — find_instances filters on this, not Name (Name is user-editable in console)
@@ -128,7 +134,7 @@ SMOKE_URLS = ['https://www.google.com'   ,
               'https://send.sgraph.ai'    ,
               'https://news.bbc.co.uk'    ]
 
-TAG__AMI_STATUS_KEY = 'sg:ami-status'    # untested | healthy | unhealthy
+# TAG__AMI_STATUS_KEY moved to Ec2__AWS__Client (Phase A step 3d) — imported at top.
 
 DASHBOARDS_DIR = Path(__file__).parent.parent / 'library' / 'docs' / 'ops' / 'dashboards'
 
@@ -797,29 +803,18 @@ def _print_auth_error(exc: Exception) -> None:
 # (Phase A step 3c) — imported at the top of this file under the same names.
 
 
-def ensure_security_group(ec2: EC2) -> str:
-    existing = ec2.security_group(security_group_name=SG__NAME)
-    if existing:
-        security_group_id = existing.get('GroupId')
-    else:
-        create_result     = ec2.security_group_create(security_group_name=SG__NAME, description=SG__DESCRIPTION)
-        security_group_id = create_result.get('data', {}).get('security_group_id')
-    for port in (EC2__PLAYWRIGHT_PORT       ,   # :8000 — Playwright API
-                 EC2__SIDECAR_ADMIN_PORT    ,   # :8001 — sidecar admin API
-                 EC2__BROWSER_INTERNAL_PORT ):  # :3000 — streaming browser (KasmVNC, password-gated)
-        try:
-            ec2.security_group_authorize_ingress(security_group_id=security_group_id, port=port)
-        except Exception:
-            pass                                # rule already exists — idempotent
-    return security_group_id
+# ensure_security_group + latest_al2023_ami_id moved to Ec2__AWS__Client
+# (Phase A step 3d). The wrappers below preserve the old (ec2: EC2) signatures
+# so the typer commands keep working unchanged; they ignore the param and
+# delegate to the module-level _AWS instance defined in step 3a.
 
 
-def latest_al2023_ami_id(ec2: EC2) -> str:
-    images = ec2.amis(owner=EC2__AMI_OWNER_AMAZON, name=EC2__AMI_NAME_AL2023, architecture='x86_64')
-    images = sorted(images, key=lambda image: image.get('CreationDate', ''), reverse=True)
-    if not images:
-        raise RuntimeError(f'No AL2023 AMI found matching {EC2__AMI_NAME_AL2023!r} in region {aws_region()!r}')
-    return images[0].get('ImageId')
+def ensure_security_group(ec2: EC2 = None) -> str:
+    return _AWS.ensure_security_group()
+
+
+def latest_al2023_ami_id(ec2: EC2 = None) -> str:
+    return _AWS.latest_al2023_ami_id()
 
 
 def render_compose_yaml(playwright_image_uri    : str,
@@ -1003,49 +998,24 @@ def clean_instance_for_ami(instance_id: str) -> None:
         _ssm_run(instance_id, [cmd], timeout=60)
 
 
+# create_ami / wait_ami_available / tag_ami / latest_healthy_ami moved to
+# Ec2__AWS__Client (Phase A step 3d). Wrappers preserve old signatures.
+
+
 def create_ami(ec2: EC2, instance_id: str, name: str) -> str:
-    """Create an AMI from a stopped/running instance. Returns ami_id."""
-    resp = ec2.client().create_image(
-        InstanceId      = instance_id,
-        Name            = name,
-        Description     = f'SG Playwright + agent_mitmproxy - {name}',
-        NoReboot        = True,
-        TagSpecifications = [{'ResourceType': 'image',
-                              'Tags': [{'Key': 'Name',              'Value': name            },
-                                       {'Key': TAG__SERVICE_KEY,    'Value': TAG__SERVICE_VALUE},
-                                       {'Key': TAG__AMI_STATUS_KEY, 'Value': 'untested'      }]}])
-    return resp['ImageId']
+    return _AWS.create_ami(instance_id, name)
 
 
 def wait_ami_available(ec2: EC2, ami_id: str, timeout: int = 900) -> bool:
-    """Poll until AMI state is 'available' or 'failed'. Returns True on success."""
-    deadline = time.time() + timeout
-    while time.time() < deadline:
-        images = ec2.client().describe_images(ImageIds=[ami_id]).get('Images', [])
-        state  = images[0]['State'] if images else 'pending'
-        if state == 'available':
-            return True
-        if state == 'failed':
-            return False
-        time.sleep(15)
-    return False
+    return _AWS.wait_ami_available(ami_id, timeout=timeout)
 
 
 def tag_ami(ec2: EC2, ami_id: str, status: str) -> None:
-    """Set sg:ami-status tag on an AMI (untested | healthy | unhealthy)."""
-    ec2.client().create_tags(Resources=[ami_id],
-                              Tags=[{'Key': TAG__AMI_STATUS_KEY, 'Value': status}])
+    _AWS.tag_ami(ami_id, status)
 
 
-def latest_healthy_ami(ec2: EC2) -> str:
-    """Return the most recently created healthy sg-playwright AMI ID, or None."""
-    resp   = ec2.client().describe_images(
-        Filters = [{'Name': f'tag:{TAG__SERVICE_KEY}',    'Values': [TAG__SERVICE_VALUE]},
-                   {'Name': f'tag:{TAG__AMI_STATUS_KEY}', 'Values': ['healthy']         },
-                   {'Name': 'state',                      'Values': ['available']       }],
-        Owners  = ['self'])
-    images = sorted(resp.get('Images', []), key=lambda x: x['CreationDate'], reverse=True)
-    return images[0]['ImageId'] if images else None
+def latest_healthy_ami(ec2: EC2 = None) -> str:
+    return _AWS.latest_healthy_ami()
 
 
 def provision(stage                  : str          = DEFAULT_STAGE    ,

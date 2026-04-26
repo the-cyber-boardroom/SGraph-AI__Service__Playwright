@@ -32,6 +32,9 @@ from sgraph_ai_service_playwright__cli.ec2.schemas.Schema__Ec2__Instance__Info  
 from sgraph_ai_service_playwright__cli.ec2.schemas.Schema__Ec2__Instance__List         import Schema__Ec2__Instance__List, List__Ec2__Instance__Info
 from sgraph_ai_service_playwright__cli.ec2.schemas.Schema__Ec2__Preflight              import Schema__Ec2__Preflight
 from sgraph_ai_service_playwright__cli.ec2.service.Ec2__AWS__Client                    import (Ec2__AWS__Client            ,
+                                                                                                EC2__BROWSER_INTERNAL_PORT  ,
+                                                                                                EC2__PLAYWRIGHT_PORT        ,
+                                                                                                EC2__SIDECAR_ADMIN_PORT     ,
                                                                                                 aws_account_id              ,
                                                                                                 aws_region                  ,
                                                                                                 default_playwright_image_uri,
@@ -120,10 +123,7 @@ class Ec2__Service(Type_Safe):                                                  
         from scripts.provision_ec2 import (TAG__STAGE_KEY                ,
                                            TAG__CREATOR_KEY              ,
                                            TAG__API_KEY_NAME_KEY         ,
-                                           TAG__API_KEY_VALUE_KEY        ,
-                                           EC2__PLAYWRIGHT_PORT          ,
-                                           EC2__SIDECAR_ADMIN_PORT       ,
-                                           EC2__BROWSER_INTERNAL_PORT    )
+                                           TAG__API_KEY_VALUE_KEY        )
         state_raw = details.get('state', {})
         state_str = state_raw.get('Name', '') if isinstance(state_raw, dict) else str(state_raw)
         ip        = details.get('public_ip', '') or ''

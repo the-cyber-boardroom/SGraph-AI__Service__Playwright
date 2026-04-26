@@ -8,6 +8,11 @@ from datetime                                                                   
 from unittest                                                                       import TestCase
 
 from sgraph_ai_service_playwright__cli.ec2.service.Ec2__AWS__Client                  import (Ec2__AWS__Client                            ,
+                                                                                              EC2__AMI_NAME_AL2023                         ,
+                                                                                              EC2__AMI_OWNER_AMAZON                        ,
+                                                                                              EC2__BROWSER_INTERNAL_PORT                   ,
+                                                                                              EC2__PLAYWRIGHT_PORT                         ,
+                                                                                              EC2__SIDECAR_ADMIN_PORT                      ,
                                                                                               IAM__ASSUME_ROLE_SERVICE                     ,
                                                                                               IAM__ECR_READONLY_POLICY_ARN                 ,
                                                                                               IAM__OBSERVABILITY_POLICY_ARNS               ,
@@ -18,7 +23,11 @@ from sgraph_ai_service_playwright__cli.ec2.service.Ec2__AWS__Client             
                                                                                               IAM__SSM_CORE_POLICY_ARN                     ,
                                                                                               INSTANCE_STATES_LIVE                         ,
                                                                                               PLAYWRIGHT_IMAGE_NAME                        ,
+                                                                                              SG_INGRESS_PORTS                             ,
+                                                                                              SG__DESCRIPTION                              ,
+                                                                                              SG__NAME                                     ,
                                                                                               SIDECAR_IMAGE_NAME                           ,
+                                                                                              TAG__AMI_STATUS_KEY                          ,
                                                                                               TAG__DEPLOY_NAME_KEY                         ,
                                                                                               TAG__SERVICE_KEY                             ,
                                                                                               TAG__SERVICE_VALUE                           ,
@@ -36,17 +45,49 @@ from sgraph_ai_service_playwright__cli.ec2.service.Ec2__AWS__Client             
 from sgraph_ai_service_playwright__cli.ec2.service                                   import Ec2__AWS__Client as aws_client_module
 
 
+class _Fake_Boto3_Client:                                                           # In-memory stand-in for ec2.client() — used by AMI lifecycle methods that drop down to raw boto3
+    def __init__(self):
+        self.calls               = []
+        self.create_image_resp   = {'ImageId': 'ami-fake-001'}
+        self.describe_images_resp = {'Images': []}
+    def create_image(self, **kwargs):
+        self.calls.append(('create_image', kwargs))
+        return self.create_image_resp
+    def describe_images(self, **kwargs):
+        self.calls.append(('describe_images', kwargs))
+        return self.describe_images_resp
+    def create_tags(self, **kwargs):
+        self.calls.append(('create_tags', kwargs))
+
+
 class _Fake_EC2:                                                                    # In-memory stand-in — real class, no mocks. Records every call.
     def __init__(self, instances_details_response=None):
         self.calls                      = []
         self.terminated_instance_ids    = []
         self.instances_details_response = instances_details_response or {}
+        self.security_group_response    = None                                      # None ⇒ "create needed"; dict ⇒ "already exists"
+        self.security_group_create_resp = {'data': {'security_group_id': 'sg-fake'}}
+        self.amis_response              = []
+        self.boto3_client               = _Fake_Boto3_Client()
     def instances_details(self, filters=None):
         self.calls.append(('instances_details', {'filters': filters}))
         return self.instances_details_response
     def instance_terminate(self, instance_id):
         self.calls.append(('instance_terminate', {'instance_id': instance_id}))
         self.terminated_instance_ids.append(instance_id)
+    def security_group(self, security_group_name):
+        self.calls.append(('security_group', {'name': security_group_name}))
+        return self.security_group_response
+    def security_group_create(self, security_group_name, description):
+        self.calls.append(('security_group_create', {'name': security_group_name, 'description': description}))
+        return self.security_group_create_resp
+    def security_group_authorize_ingress(self, security_group_id, port):
+        self.calls.append(('security_group_authorize_ingress', {'sg_id': security_group_id, 'port': port}))
+    def amis(self, owner, name, architecture):
+        self.calls.append(('amis', {'owner': owner, 'name': name, 'architecture': architecture}))
+        return self.amis_response
+    def client(self):
+        return self.boto3_client
 
 
 def _details(deploy_name='', service_value=TAG__SERVICE_VALUE):                     # Helper to build an osbot-aws instances_details() entry
@@ -269,3 +310,119 @@ class test_Ec2__AWS__Client(TestCase):
         result = self.aws.terminate_instances(nickname='not-here')
         assert result == []
         assert self.fake_ec2.terminated_instance_ids == []
+
+    # ── Security group (Phase A step 3d) ─────────────────────────────────────
+
+    def test_ensure_security_group__creates_when_missing(self):
+        self.fake_ec2.security_group_response = None                                # Triggers create path
+        sg_id = self.aws.ensure_security_group()
+        assert sg_id == 'sg-fake'
+        ops   = [c[0] for c in self.fake_ec2.calls]
+        assert ops == ['security_group', 'security_group_create',
+                       'security_group_authorize_ingress', 'security_group_authorize_ingress', 'security_group_authorize_ingress']
+        port_calls = [c[1]['port'] for c in self.fake_ec2.calls if c[0] == 'security_group_authorize_ingress']
+        assert port_calls == list(SG_INGRESS_PORTS)                                 # Authorises every ingress port in the canonical order
+
+    def test_ensure_security_group__reuses_existing(self):
+        self.fake_ec2.security_group_response = {'GroupId': 'sg-existing'}          # Already-exists path
+        sg_id = self.aws.ensure_security_group()
+        assert sg_id == 'sg-existing'
+        ops   = [c[0] for c in self.fake_ec2.calls]
+        assert 'security_group_create' not in ops                                   # Skipped because the SG already exists
+
+    def test_ensure_security_group__ingress_failure_is_swallowed(self):             # 'rule already exists' is the typical case — must not break create
+        original_authorize = self.fake_ec2.security_group_authorize_ingress
+        def boom(security_group_id, port):
+            original_authorize(security_group_id=security_group_id, port=port)
+            raise RuntimeError('InvalidPermission.Duplicate')
+        self.fake_ec2.security_group_authorize_ingress = boom
+        sg_id = self.aws.ensure_security_group()
+        assert sg_id == 'sg-fake'                                                   # Returned successfully despite per-port raises
+
+    # ── AMI lifecycle (Phase A step 3d) ───────────────────────────────────────
+
+    def test_latest_al2023_ami_id__returns_most_recent_by_creation_date(self):
+        self.fake_ec2.amis_response = [
+            {'ImageId': 'ami-old', 'CreationDate': '2024-01-01T00:00:00Z'},
+            {'ImageId': 'ami-new', 'CreationDate': '2026-04-01T00:00:00Z'},
+            {'ImageId': 'ami-mid', 'CreationDate': '2025-06-01T00:00:00Z'},
+        ]
+        assert self.aws.latest_al2023_ami_id() == 'ami-new'
+        amis_call = next(c for c in self.fake_ec2.calls if c[0] == 'amis')
+        assert amis_call[1] == {'owner': EC2__AMI_OWNER_AMAZON, 'name': EC2__AMI_NAME_AL2023, 'architecture': 'x86_64'}
+
+    def test_latest_al2023_ami_id__raises_when_no_ami_found(self):
+        self.fake_ec2.amis_response = []
+        with self.assertRaises(RuntimeError) as ctx:
+            self.aws.latest_al2023_ami_id()
+        assert EC2__AMI_NAME_AL2023 in str(ctx.exception)
+
+    def test_create_ami__tags_with_service_and_untested_status(self):
+        self.fake_ec2.boto3_client.create_image_resp = {'ImageId': 'ami-baked-1'}
+        ami_id = self.aws.create_ami('i-aaa', 'sgpl-baked-2026-04-26')
+        assert ami_id == 'ami-baked-1'
+
+        op, kwargs = self.fake_ec2.boto3_client.calls[0]
+        assert op == 'create_image'
+        assert kwargs['InstanceId'] == 'i-aaa'
+        assert kwargs['Name']       == 'sgpl-baked-2026-04-26'
+        assert kwargs['NoReboot']   is True
+        tags = {t['Key']: t['Value'] for t in kwargs['TagSpecifications'][0]['Tags']}
+        assert tags['Name']                  == 'sgpl-baked-2026-04-26'
+        assert tags[TAG__SERVICE_KEY]        == TAG__SERVICE_VALUE
+        assert tags[TAG__AMI_STATUS_KEY]     == 'untested'
+
+    def test_tag_ami__overwrites_status_tag(self):
+        self.aws.tag_ami('ami-x', 'healthy')
+        op, kwargs = self.fake_ec2.boto3_client.calls[0]
+        assert op == 'create_tags'
+        assert kwargs['Resources']  == ['ami-x']
+        assert kwargs['Tags']       == [{'Key': TAG__AMI_STATUS_KEY, 'Value': 'healthy'}]
+
+    def test_latest_healthy_ami__returns_most_recent_healthy(self):
+        self.fake_ec2.boto3_client.describe_images_resp = {'Images': [
+            {'ImageId': 'ami-h-old', 'CreationDate': '2025-01-01T00:00:00Z'},
+            {'ImageId': 'ami-h-new', 'CreationDate': '2026-04-01T00:00:00Z'},
+        ]}
+        result = self.aws.latest_healthy_ami()
+        assert result == 'ami-h-new'
+
+        op, kwargs = self.fake_ec2.boto3_client.calls[0]
+        assert op == 'describe_images'
+        filters = {f['Name']: f['Values'] for f in kwargs['Filters']}
+        assert filters[f'tag:{TAG__SERVICE_KEY}']    == [TAG__SERVICE_VALUE]
+        assert filters[f'tag:{TAG__AMI_STATUS_KEY}'] == ['healthy']
+        assert filters['state']                     == ['available']
+        assert kwargs['Owners']                     == ['self']
+
+    def test_latest_healthy_ami__returns_none_when_no_match(self):
+        self.fake_ec2.boto3_client.describe_images_resp = {'Images': []}
+        assert self.aws.latest_healthy_ami() is None
+
+
+# ──────────────────────────────── SG / AMI constants ──────────────────────────
+
+class test_sg_and_ami_constants(TestCase):
+
+    def test__sg_name_does_not_start_with_reserved_sg_prefix(self):                 # CLAUDE.md AWS Resource Naming rule #14
+        assert not SG__NAME.startswith('sg-')
+        assert SG__NAME == 'playwright-ec2'
+
+    def test__sg_description_is_ascii_only(self):                                   # AWS rejects non-ASCII GroupDescription (em-dash, etc.)
+        try:
+            SG__DESCRIPTION.encode('ascii')
+        except UnicodeEncodeError as exc:
+            self.fail(f'SG__DESCRIPTION must be ASCII (AWS rejects multi-byte): {exc}')
+
+    def test__sg_ingress_ports_are_canonical(self):
+        assert SG_INGRESS_PORTS == (EC2__PLAYWRIGHT_PORT, EC2__SIDECAR_ADMIN_PORT, EC2__BROWSER_INTERNAL_PORT)
+        assert EC2__PLAYWRIGHT_PORT       == 8000
+        assert EC2__SIDECAR_ADMIN_PORT    == 8001
+        assert EC2__BROWSER_INTERNAL_PORT == 3000
+
+    def test__ami_name_filter_targets_al2023(self):
+        assert EC2__AMI_OWNER_AMAZON == 'amazon'
+        assert EC2__AMI_NAME_AL2023.startswith('al2023-ami-')
+
+    def test__ami_status_tag_key_is_namespaced(self):
+        assert TAG__AMI_STATUS_KEY == 'sg:ami-status'                               # sg: prefix matches the rest of the tag conventions
