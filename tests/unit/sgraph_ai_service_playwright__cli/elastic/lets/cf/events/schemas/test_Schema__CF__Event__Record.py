@@ -31,9 +31,12 @@ class test_Schema__CF__Event__Record(TestCase):
         assert rec.origin_lbl_ms     == -1
         assert rec.line_index        == 0
 
-    def test_full_field_count_in_json(self):                                        # 37 fields = 26 TSV + 4 derived + 4 lineage + 3 pipeline
+    def test_full_field_count_in_json(self):                                        # 38 fields = 26 TSV + 4 derived + 5 lineage (incl. doc_id) + 3 pipeline
         keys = set(Schema__CF__Event__Record().json().keys())
-        assert len(keys) == 37
+        assert len(keys) == 38
+
+    def test_doc_id_default_empty(self):                                            # doc_id is stamped by Events__Loader after parsing — empty in the parser output
+        assert str(Schema__CF__Event__Record().doc_id) == ''
 
     def test_default_schema_version(self):
         assert str(Schema__CF__Event__Record().schema_version) == 'Schema__CF__Event__Record_v1'
