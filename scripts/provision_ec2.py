@@ -47,6 +47,13 @@ from osbot_utils.utils.Env                                                      
 from sgraph_ai_service_playwright.docker.Docker__SGraph_AI__Service__Playwright__Base    import IMAGE_NAME as PLAYWRIGHT_IMAGE_NAME
 from agent_mitmproxy.docker.Docker__Agent_Mitmproxy__Base                                import IMAGE_NAME as SIDECAR_IMAGE_NAME
 
+from sgraph_ai_service_playwright__cli.ec2.service.Ec2__AWS__Client                      import (Ec2__AWS__Client                                            ,
+                                                                                                  get_creator                  as _get_creator               ,
+                                                                                                  instance_deploy_name         as _instance_deploy_name      ,
+                                                                                                  instance_tag                 as _instance_tag              ,
+                                                                                                  random_deploy_name           as _random_deploy_name        ,
+                                                                                                  uptime_str                   as _uptime_str                )
+
 
 EC2__INSTANCE_TYPE           = 'm6i.xlarge'                                             # 4 vCPU / 16 GB RAM — fixed CPU (no burst credits), fits full observability stack
 EC2__AMI_NAME_AL2023         = 'al2023-ami-2023.*-x86_64'
@@ -94,13 +101,10 @@ TAG__API_KEY_VALUE_KEY       = 'sg:api-key-value'                               
 TAG__INSTANCE_TYPE_KEY       = 'sg:instance-type'                                        # Stored so 'list' can show it
 DEFAULT_STAGE                = 'dev'
 
-_ADJECTIVES = ['bold','bright','calm','clever','cool','daring','deep','eager',
-               'fast','fierce','fresh','grand','happy','keen','light','lucky',
-               'mellow','neat','quick','quiet','sharp','sleek','smart','swift','witty']
-_SCIENTISTS = ['bohr','curie','darwin','dirac','einstein','euler','faraday',
-               'fermi','feynman','galileo','gauss','hopper','hubble','lovelace',
-               'maxwell','newton','noether','pascal','planck','turing','tesla',
-               'volta','watt','wien','zeno']
+# _ADJECTIVES + _SCIENTISTS pools moved to Ec2__AWS__Client (Phase A step 3a).
+# Helpers (_random_deploy_name, _get_creator, _uptime_str, _instance_tag,
+# _instance_deploy_name) imported at the top of this file under the original
+# underscored names for callsite stability.
 
 COMPOSE_PROJECT   = 'sg-playwright'
 COMPOSE_FILE_PATH            = '/opt/sg-playwright/docker-compose.yml'
@@ -152,37 +156,8 @@ trap - EXIT
 """
 
 
-def _random_deploy_name() -> str:
-    return f'{secrets.choice(_ADJECTIVES)}-{secrets.choice(_SCIENTISTS)}'
-
-
-def _get_creator() -> str:
-    import subprocess
-    try:
-        return subprocess.check_output(['git', 'config', 'user.email'],
-                                       stderr=subprocess.DEVNULL, text=True).strip()
-    except Exception:
-        import os
-        return os.environ.get('USER', 'unknown')
-
-
-def _uptime_str(launch_time) -> str:
-    if not launch_time:
-        return '?'
-    if not isinstance(launch_time, datetime):
-        return '?'
-    lt = launch_time if launch_time.tzinfo else launch_time.replace(tzinfo=timezone.utc)
-    secs = int((datetime.now(timezone.utc) - lt).total_seconds())
-    if secs < 0:
-        return '?'
-    days, rem  = divmod(secs, 86400)
-    hours, rem = divmod(rem, 3600)
-    mins       = rem // 60
-    if days:
-        return f'{days}d {hours}h'
-    if hours:
-        return f'{hours}h {mins}m'
-    return f'{mins}m'
+# _random_deploy_name / _get_creator / _uptime_str moved to Ec2__AWS__Client
+# (Phase A step 3a) — imported as aliases at the top of this file.
 
 
 COMPOSE_SVC_PLAYWRIGHT = """\
@@ -1066,44 +1041,30 @@ def run_instance(ec2: EC2, ami_id: str, security_group_id: str, instance_profile
             raise
 
 
-def find_instances(ec2: EC2) -> dict:
-    filters   = [{'Name': f'tag:{TAG__SERVICE_KEY}', 'Values': [TAG__SERVICE_VALUE]                    },  # immutable — survives console Name renames
-                 {'Name': 'instance-state-name'    , 'Values': ['pending', 'running', 'stopping', 'stopped']}]
-    return ec2.instances_details(filters=filters)
+# find_instances / find_instance_ids / _resolve_instance_id /
+# terminate_instances logic moved to Ec2__AWS__Client (Phase A step 3a).
+# These wrappers preserve the old signatures (which take an explicit `ec2`
+# parameter) so the typer commands below don't need editing in this slice;
+# the wrappers ignore the parameter because Ec2__AWS__Client creates its
+# own EC2 instance internally — equivalent for our use, since osbot-aws
+# EC2() construction is cheap.
+_AWS = Ec2__AWS__Client()                                                               # Module-level instance shared by the wrappers below
 
 
-def find_instance_ids(ec2: EC2) -> list:
-    return list(find_instances(ec2).keys())
+def find_instances(ec2: EC2 = None) -> dict:
+    return _AWS.find_instances()
 
 
-def _instance_tag(details: dict, key: str) -> str:
-    for tag in details.get('tags', []):
-        if tag.get('Key') == key:
-            return tag.get('Value', '')
-    return ''
-
-
-def _instance_deploy_name(details: dict) -> str:
-    return _instance_tag(details, TAG__DEPLOY_NAME_KEY)
+def find_instance_ids(ec2: EC2 = None) -> list:
+    return _AWS.find_instance_ids()
 
 
 def _resolve_instance_id(ec2: EC2, target: str) -> str:
-    """Accept an instance-id (i-…) or a deploy-name; return the instance-id."""
-    if target.startswith('i-'):
-        return target
-    for iid, details in find_instances(ec2).items():
-        if _instance_deploy_name(details) == target:
-            return iid
-    raise ValueError(f'No instance found with deploy-name {target!r}')
+    return _AWS.resolve_instance_id(target)
 
 
-def terminate_instances(ec2: EC2, nickname: str = '') -> list:
-    instances = find_instances(ec2)
-    to_kill   = [iid for iid, d in instances.items()
-                 if not nickname or _instance_deploy_name(d) == nickname]
-    for iid in to_kill:
-        ec2.instance_terminate(iid)
-    return to_kill
+def terminate_instances(ec2: EC2 = None, nickname: str = '') -> list:
+    return _AWS.terminate_instances(nickname=nickname)
 
 
 def clean_instance_for_ami(instance_id: str) -> None:

@@ -27,6 +27,22 @@ The previously-elastic-only module-level functions in `elastic/service/Elastic__
 
 Tests: 9 unit tests in `tests/unit/sgraph_ai_service_playwright__cli/aws/test_Stack__Naming.py` cover prefix-when-missing / no-double-prefix / partial-match-non-counting / per-section-isolation / sg-suffix universality. Plan reference: `team/comms/plans/v0.1.96__playwright-stack-split__02__api-consolidation.md`.
 
+### `ec2/service/Ec2__AWS__Client.py` — central EC2 AWS boundary (Phase A step 3a, 2026-04-26)
+
+Mirrors the `Elastic__AWS__Client` pattern. Hosts the previously-private helpers that lived in `scripts/provision_ec2.py`:
+
+| Surface | Symbol | Form |
+|---------|--------|------|
+| Module-level pure helpers | `random_deploy_name`, `get_creator`, `uptime_str`, `instance_tag`, `instance_deploy_name` | Functions; no AWS calls. Naming pools `_ADJECTIVES` / `_SCIENTISTS` live alongside. |
+| Module-level constants | `TAG__SERVICE_KEY`, `TAG__SERVICE_VALUE`, `TAG__DEPLOY_NAME_KEY`, `INSTANCE_STATES_LIVE` | Tag/state values used by find / resolve / terminate. |
+| Type_Safe class | `Ec2__AWS__Client` | Methods: `ec2()` (single seam, tests override); `find_instances()`; `find_instance_ids()`; `resolve_instance_id(target)`; `terminate_instances(nickname)`. Each EC2 call goes through `self.ec2()` so an in-memory test double can replace the boto3 boundary. |
+
+`scripts/provision_ec2.py` keeps wrapper functions matching the old signatures (`find_instances(ec2: EC2 = None)`, `terminate_instances(ec2: EC2 = None, nickname='')`, etc.) that delegate to a module-level `Ec2__AWS__Client()` instance. The `ec2` parameter is now optional and ignored — callers in `provision_ec2.py` keep working unchanged. These wrappers go away in Phase A step 3f when typer commands become thin wrappers over `Ec2__Service`.
+
+`Ec2__Service` no longer imports lookup helpers from `scripts.provision_ec2` (only the EC2 port constants + tag-name constants remain as imports). Its `list_instances`, `get_instance_info`, `delete_instance`, and `resolve_target` methods now use a `Ec2__AWS__Client` instance via the `aws_client()` seam.
+
+Tests: 24 unit tests in `tests/unit/sgraph_ai_service_playwright__cli/ec2/service/test_Ec2__AWS__Client.py` cover every helper + every class method. AWS calls go through an in-memory `_Fake_EC2` (real subclass, no mocks).
+
 ### `image/` — shared Docker image build pipeline (Phase A step 2, 2026-04-26)
 
 Replaces ~70% of duplicated build logic between `Build__Docker__SGraph_AI__Service__Playwright` (Playwright EC2 image) and `Docker__SP__CLI` (SP CLI Lambda image). Both now compose a Type_Safe `Schema__Image__Build__Request` and hand it to the shared service.
