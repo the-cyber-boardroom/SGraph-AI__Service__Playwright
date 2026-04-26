@@ -27,7 +27,16 @@ The previously-elastic-only module-level functions in `elastic/service/Elastic__
 
 Tests: 9 unit tests in `tests/unit/sgraph_ai_service_playwright__cli/aws/test_Stack__Naming.py` cover prefix-when-missing / no-double-prefix / partial-match-non-counting / per-section-isolation / sg-suffix universality. Plan reference: `team/comms/plans/v0.1.96__playwright-stack-split__02__api-consolidation.md`.
 
-### `ec2/service/Ec2__AWS__Client.py` — central EC2 AWS boundary (Phase A steps 3a–3d, 2026-04-26)
+### `ec2/service/Ec2__AWS__Client.py` — central EC2 AWS boundary (Phase A steps 3a–3d, 3f, 2026-04-26)
+
+In step 3f, three typer commands (`cmd_list`, `cmd_info`, `cmd_delete`) reduced to thin wrappers over `Ec2__Service`:
+
+- `Schema__Ec2__Instance__Info` gained `instance_type : Safe_Str__Text` (read from the `sg:instance-type` tag with fallback to the AWS-side `instance_type` field).
+- `Ec2__Service` gained `delete_all_instances() -> Schema__Ec2__Delete__Response` to support `sp delete --all` without the typer command iterating directly.
+- `cmd_info` is now ~40 lines (was ~60+); body = call service, render with new `_render_info()` Tier-2A helper.
+- `cmd_delete` is now a thin wrapper that calls either `delete_instance(target)` or `delete_all_instances()`.
+- `cmd_list` keeps its inline AMI-source map + launch-time fetch (still needs raw boto3 due to osbot's `LauchTime` typo) but reads instance basics from `Ec2__Service().list_instances()`.
+- New shared helper `_resolve_typer_target(target)` handles the "auto-pick when only one instance" UX. The older `_resolve_target` stays in place for the 12 typer commands that still need raw `details`; those reduce in a future slice.
 
 Mirrors the `Elastic__AWS__Client` pattern. Hosts the previously-private helpers that lived in `scripts/provision_ec2.py`:
 

@@ -123,7 +123,8 @@ class Ec2__Service(Type_Safe):                                                  
         from scripts.provision_ec2 import (TAG__STAGE_KEY                ,
                                            TAG__CREATOR_KEY              ,
                                            TAG__API_KEY_NAME_KEY         ,
-                                           TAG__API_KEY_VALUE_KEY        )
+                                           TAG__API_KEY_VALUE_KEY        ,
+                                           TAG__INSTANCE_TYPE_KEY        )
         state_raw = details.get('state', {})
         state_str = state_raw.get('Name', '') if isinstance(state_raw, dict) else str(state_raw)
         ip        = details.get('public_ip', '') or ''
@@ -140,6 +141,7 @@ class Ec2__Service(Type_Safe):                                                  
                                            api_key_value        = instance_tag(details, TAG__API_KEY_VALUE_KEY) ,
                                            playwright_image_uri = '(stored in compose file on instance)'        ,
                                            sidecar_image_uri    = '(stored in compose file on instance)'        ,
+                                           instance_type        = instance_tag(details, TAG__INSTANCE_TYPE_KEY) or details.get('instance_type', '') ,
                                            state                = self.parse_state(state_str)                   )
 
     @type_safe
@@ -163,6 +165,22 @@ class Ec2__Service(Type_Safe):                                                  
         terminated.append(instance_id)
         return Schema__Ec2__Delete__Response(target                  = instance_id ,
                                              deploy_name             = deploy_name  ,
+                                             terminated_instance_ids = terminated   )
+
+    @type_safe
+    def delete_all_instances(self) -> Schema__Ec2__Delete__Response:                # Equivalent of `sp delete --all` — terminates every tagged playwright-ec2 instance
+        aws       = self.aws_client()
+        instances = aws.find_instances()
+        if not instances:
+            return Schema__Ec2__Delete__Response()                                  # Empty response — caller maps to 'no instances'
+
+        terminated = List__Instance__Id()
+        ec2        = aws.ec2()
+        for iid in instances.keys():
+            ec2.instance_terminate(iid)
+            terminated.append(iid)
+        return Schema__Ec2__Delete__Response(target                  = ''           ,                          # No single target on bulk delete
+                                             deploy_name             = ''           ,
                                              terminated_instance_ids = terminated   )
 
     def resolve_target(self, target: str, aws: Ec2__AWS__Client = None):            # target = deploy-name or instance-id; returns (id, details) or (None, None) — no prompts, no exits

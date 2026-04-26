@@ -31,4 +31,5 @@ class Schema__Ec2__Instance__Info(Type_Safe):
     api_key_value       : Safe_Str__Id                                              # From the instance tags; same value the create call returned
     playwright_image_uri: Safe_Str__Text                                            # Sentinel "(stored in compose file on instance)" until tags carry the URI
     sidecar_image_uri   : Safe_Str__Text
+    instance_type       : Safe_Str__Text                                            # Recorded at create time from sg:instance-type tag (preserves dot in 'm6i.xlarge')
     state               : Enum__Instance__State = Enum__Instance__State.UNKNOWN

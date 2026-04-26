@@ -1431,22 +1431,26 @@ def create(stage                : str           = typer.Option(DEFAULT_STAGE, he
 @app.command(name='list')
 def cmd_list():
     """List all playwright-ec2 instances with metadata from tags."""
-    c         = Console(highlight=False, width=200)
-    ec2       = EC2()
-    instances = find_instances(ec2)
-    if not instances:
+    from sgraph_ai_service_playwright__cli.ec2.service.Ec2__Service                  import Ec2__Service
+
+    c       = Console(highlight=False, width=200)
+    listing = Ec2__Service().list_instances()
+    if not listing.instances:
         c.print('  [dim]No instances found.[/]')
         return
+
+    ec2          = EC2()                                                             # Display enrichments — kept inline since they're presentation-only and need raw boto3 (osbot_aws has 'LauchTime' typo on launch-time)
     resp         = ec2.client().describe_images(
         Filters  = [{'Name': f'tag:{TAG__SERVICE_KEY}', 'Values': [TAG__SERVICE_VALUE]}],
         Owners   = ['self'])
     project_amis = {img['ImageId']: img.get('Name', '') for img in resp.get('Images', [])}
-    # Fetch launch times in one call (osbot_aws has a typo in 'LauchTime')
-    raw_resp   = ec2.client().describe_instances(InstanceIds=list(instances.keys()))
-    launch_map = {}
+    instance_ids = [str(info.instance_id) for info in listing.instances]
+    raw_resp     = ec2.client().describe_instances(InstanceIds=instance_ids)
+    launch_map   = {}
     for r in raw_resp.get('Reservations', []):
         for inst in r.get('Instances', []):
             launch_map[inst['InstanceId']] = inst.get('LaunchTime')
+
     t = Table(show_header=True, header_style='bold blue', box=None, padding=(0, 2))
     t.add_column('deploy-name',   style='bold')
     t.add_column('instance-id',   style='dim')
@@ -1456,18 +1460,19 @@ def cmd_list():
     t.add_column('instance-type', style='cyan')
     t.add_column('public-ip',     style='green')
     t.add_column('creator',       style='dim')
-    for iid, d in instances.items():
-        state_raw     = d.get('state', '?')
-        state         = state_raw.get('Name', '?') if isinstance(state_raw, dict) else str(state_raw)
-        ip            = d.get('public_ip', '')
-        deploy        = _instance_deploy_name(d)
-        creator       = _instance_tag(d, TAG__CREATOR_KEY)
-        instance_type = _instance_tag(d, TAG__INSTANCE_TYPE_KEY) or d.get('instance_type', '?')
-        image_id      = d.get('image_id', '')
-        launch        = '[magenta]ami[/]' if image_id in project_amis else '[blue]docker[/]'
-        colour        = 'green' if state == 'running' else 'yellow' if state == 'pending' else 'red'
-        uptime        = _uptime_str(launch_map.get(iid)) if state == 'running' else '[dim]—[/]'
-        t.add_row(deploy, iid, f'[{colour}]{state}[/]', uptime, launch, instance_type, ip, creator)
+    for info in listing.instances:
+        state_value = info.state.value if hasattr(info.state, 'value') else str(info.state)
+        colour      = 'green' if state_value == 'running' else 'yellow' if state_value == 'pending' else 'red'
+        uptime      = _uptime_str(launch_map.get(str(info.instance_id))) if state_value == 'running' else '[dim]—[/]'
+        launch      = '[magenta]ami[/]' if str(info.ami_id) in project_amis else '[blue]docker[/]'
+        t.add_row(str(info.deploy_name)         ,
+                  str(info.instance_id)         ,
+                  f'[{colour}]{state_value}[/]' ,
+                  uptime                        ,
+                  launch                        ,
+                  str(info.instance_type) or '?',
+                  str(info.public_ip)           ,
+                  str(info.creator)             )
     c.print(t)
 
 
@@ -1475,57 +1480,61 @@ def cmd_list():
 def cmd_info(target   : Optional[str] = typer.Argument(None,  help='Deploy-name or instance-id (auto if only one).'),
              json_flag: bool           = typer.Option(False, '--json', help='Output raw JSON instead of rich table.')):
     """Show full details for an instance, reading metadata from its tags."""
-    ec2             = EC2()
-    instance_id, d  = _resolve_target(ec2, target)
-    state_raw       = d.get('state', {})
-    state           = state_raw.get('Name', '?') if isinstance(state_raw, dict) else str(state_raw)
-    ip              = d.get('public_ip', '')
-    deploy_name     = _instance_deploy_name(d)
-    r = {
-        'instance_id'         : instance_id,
-        'deploy_name'         : deploy_name,
-        'stage'               : _instance_tag(d, TAG__STAGE_KEY),
-        'creator'             : _instance_tag(d, TAG__CREATOR_KEY),
-        'ami_id'              : d.get('image_id', '—'),
-        'public_ip'           : ip,
-        'playwright_url'      : f'http://{ip}:{EC2__PLAYWRIGHT_PORT}'          if ip else '—',
-        'sidecar_admin_url'   : f'http://{ip}:{EC2__SIDECAR_ADMIN_PORT}'    if ip else '—',
-        'browser_url'         : f'https://{ip}:{EC2__BROWSER_INTERNAL_PORT}' if ip else '—',
-        'api_key_name'        : _instance_tag(d, TAG__API_KEY_NAME_KEY),
-        'api_key_value'       : _instance_tag(d, TAG__API_KEY_VALUE_KEY),
-        'playwright_image_uri': '(stored in compose file on instance)',
-        'sidecar_image_uri'   : '(stored in compose file on instance)',
-        'state'               : state,
-    }
+    from sgraph_ai_service_playwright__cli.ec2.service.Ec2__Service                  import Ec2__Service
+
+    info = Ec2__Service().get_instance_info(_resolve_typer_target(target))           # service handles dict → schema mapping; raise ValueError on miss
+    if info is None:
+        Console(highlight=False, width=200).print('  [red]✗  Instance not found.[/]')
+        raise typer.Exit(1)
+
     if json_flag:
-        print(json.dumps(r, indent=2))
+        print(info.json_str())
         return
-    colour = 'green' if state == 'running' else 'yellow' if state == 'pending' else 'red'
-    c      = Console(highlight=False, width=200)
+    _render_info(info)
+
+
+def _resolve_typer_target(target: Optional[str]) -> str:                             # Helper: handle "auto-pick when only one instance" UX that the typer commands all share
+    if target:
+        return target
+    ec2       = EC2()
+    instances = find_instances(ec2)
+    if len(instances) == 1:
+        return next(iter(instances.keys()))
+    if not instances:
+        Console(highlight=False, width=200).print('  [dim]No instances found.[/]')
+        raise typer.Exit(0)
+    Console(highlight=False, width=200).print('  [red]✗  Multiple instances — specify a deploy-name or instance-id.[/]')
+    raise typer.Exit(1)
+
+
+def _render_info(info) -> None:                                                      # Tier 2A — Rich rendering of Schema__Ec2__Instance__Info
+    state_value = info.state.value if hasattr(info.state, 'value') else str(info.state)
+    colour      = 'green' if state_value == 'running' else 'yellow' if state_value == 'pending' else 'red'
+    c           = Console(highlight=False, width=200)
     c.print()
     c.print(Panel(
-        f'[bold]ℹ️   Instance info[/]  ·  {deploy_name}  [dim]{instance_id}[/]  [{colour}]{state}[/]',
+        f'[bold]ℹ️   Instance info[/]  ·  {info.deploy_name}  [dim]{info.instance_id}[/]  [{colour}]{state_value}[/]',
         border_style=colour, expand=False))
     c.print()
 
     left = Table(box=None, show_header=False, padding=(0, 2), expand=False)
     left.add_column(style='bold',    min_width=14, no_wrap=True)
     left.add_column(style='default')
-    left.add_row('deploy-name', r['deploy_name']  )
-    left.add_row('stage',       r['stage']        )
-    left.add_row('creator',     r['creator']      )
-    left.add_row('ami',         r['ami_id']       )
-    left.add_row('instance-id', r['instance_id']  )
+    left.add_row('deploy-name', str(info.deploy_name))
+    left.add_row('stage',       str(info.stage)      )
+    left.add_row('creator',     str(info.creator)    )
+    left.add_row('ami',         str(info.ami_id) or '—')
+    left.add_row('instance-id', str(info.instance_id))
 
     right = Table(box=None, show_header=False, padding=(0, 2), expand=False)
     right.add_column(style='bold',    min_width=14, no_wrap=True)
     right.add_column(style='default')
-    right.add_row('public-ip',     r['public_ip']                          )
-    right.add_row('playwright',    r['playwright_url']                     )
-    right.add_row('sidecar-admin', r['sidecar_admin_url']                  )
-    right.add_row('browser',       r['browser_url']                        )
-    right.add_row('api-key-name',  r['api_key_name']                       )
-    right.add_row('api-key-value', f'[bold green]{r["api_key_value"]}[/]'  )
+    right.add_row('public-ip',     str(info.public_ip)         or '—')
+    right.add_row('playwright',    str(info.playwright_url)    or '—')
+    right.add_row('sidecar-admin', str(info.sidecar_admin_url) or '—')
+    right.add_row('browser',       str(info.browser_url)       or '—')
+    right.add_row('api-key-name',  str(info.api_key_name))
+    right.add_row('api-key-value', f'[bold green]{info.api_key_value}[/]')
 
     cols = Table(box=None, show_header=False, padding=(0, 3), expand=False)
     cols.add_column()
@@ -1533,8 +1542,8 @@ def cmd_info(target   : Optional[str] = typer.Argument(None,  help='Deploy-name 
     cols.add_row(left, right)
     c.print(cols)
     c.print()
-    c.print(f'  sg-ec2 forward 8000 --target {deploy_name}   ·   '
-            f'sg-ec2 health {deploy_name}   ·   sg-ec2 logs --target {deploy_name}')
+    c.print(f'  sg-ec2 forward 8000 --target {info.deploy_name}   ·   '
+            f'sg-ec2 health {info.deploy_name}   ·   sg-ec2 logs --target {info.deploy_name}')
     c.print()
 
 
@@ -1542,29 +1551,35 @@ def cmd_info(target   : Optional[str] = typer.Argument(None,  help='Deploy-name 
 def cmd_delete(name    : Optional[str] = typer.Argument(None,  help='Deploy-name or instance-id.'),
                all_flag: bool          = typer.Option(False, '--all', help='Delete ALL playwright-ec2 instances.')):
     """Delete one instance by name/id, or all with --all."""
-    ec2 = EC2()
-    c   = Console(highlight=False, width=200)
+    from sgraph_ai_service_playwright__cli.ec2.service.Ec2__Service                  import Ec2__Service
+
+    c       = Console(highlight=False, width=200)
+    service = Ec2__Service()
     if all_flag:
-        instances = find_instances(ec2)
+        instances = service.list_instances().instances
         if not instances:
             c.print('  [dim]No instances found.[/]')
             return
         c.print()
-        for iid, d in instances.items():
-            deploy = _instance_deploy_name(d) or iid
-            c.print(f'  🗑️   [bold]{deploy}[/]  [dim]{iid}[/]')
+        for info in instances:
+            deploy = str(info.deploy_name) or str(info.instance_id)
+            c.print(f'  🗑️   [bold]{deploy}[/]  [dim]{info.instance_id}[/]')
         c.print()
         confirm = c.input(f'  [bold red]Delete all {len(instances)} instance(s)?[/] [dim][y/N][/] › ').strip().lower()
         if confirm not in ('y', 'yes'):
             c.print('  Aborted.')
             return
-        deleted = terminate_instances(ec2)
+        result  = service.delete_all_instances()
+        deleted = [str(iid) for iid in result.terminated_instance_ids]
     else:
-        instance_id, details = _resolve_target(ec2, name)
-        deploy = _instance_deploy_name(details) or instance_id
-        c.print(f'  🗑️   Deleting [bold]{deploy}[/]  [dim]{instance_id}[/]...')
-        ec2.instance_terminate(instance_id)
-        deleted = [instance_id]
+        target = _resolve_typer_target(name)
+        result = service.delete_instance(target)
+        if not str(result.target):
+            c.print('  [red]✗  Instance not found.[/]')
+            raise typer.Exit(1)
+        deploy = str(result.deploy_name) or str(result.target)
+        c.print(f'  🗑️   Deleted [bold]{deploy}[/]  [dim]{result.target}[/]...')
+        deleted = [str(iid) for iid in result.terminated_instance_ids]
     c.print(f'  ✅  Deleted {len(deleted)} instance(s): [dim]{", ".join(deleted) or "none"}[/]')
 
 
