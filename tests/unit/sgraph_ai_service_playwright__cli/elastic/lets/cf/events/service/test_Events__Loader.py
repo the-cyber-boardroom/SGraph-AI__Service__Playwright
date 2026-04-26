@@ -99,6 +99,22 @@ class test_Events__Loader__s3_listing(TestCase):
                      base_url='https://x', username='u', password='p')
         assert loader.kibana_client.ensure_calls == [('https://x', 'sg-cf-events-*', 'timestamp')]
 
+    def test_dashboard_imported_after_data_view(self):                              # Phase 6 — events dashboard auto-imported on every load
+        loader = build_loader(s3_pages=[[s3_object(SAMPLE_KEY, SAMPLE_ETAG)]])
+        loader.load(request=Schema__Events__Load__Request(prefix='cloudfront-realtime/2026/04/25/'),
+                     base_url='https://x', username='u', password='p')
+        assert len(loader.kibana_client.import_calls) == 1
+        base_url, byte_count, overwrite = loader.kibana_client.import_calls[0]
+        assert base_url   == 'https://x'
+        assert byte_count > 0
+        assert overwrite  is True
+
+    def test_dashboard_NOT_imported_on_dry_run(self):
+        loader = build_loader(s3_pages=[[s3_object(SAMPLE_KEY, SAMPLE_ETAG)]])
+        loader.load(request=Schema__Events__Load__Request(prefix='cloudfront-realtime/2026/04/25/', dry_run=True),
+                     base_url='https://x', username='u', password='p')
+        assert loader.kibana_client.import_calls == []
+
     def test_bulk_post_uses_doc_id_field_and_dated_index(self):
         loader = build_loader(s3_pages=[[s3_object(SAMPLE_KEY, SAMPLE_ETAG)]])
         loader.load(request=Schema__Events__Load__Request(prefix='cloudfront-realtime/2026/04/25/'),
