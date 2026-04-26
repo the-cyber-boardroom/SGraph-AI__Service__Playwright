@@ -31,6 +31,17 @@ from sgraph_ai_service_playwright__cli.ec2.schemas.Schema__Ec2__Delete__Response
 from sgraph_ai_service_playwright__cli.ec2.schemas.Schema__Ec2__Instance__Info         import Schema__Ec2__Instance__Info
 from sgraph_ai_service_playwright__cli.ec2.schemas.Schema__Ec2__Instance__List         import Schema__Ec2__Instance__List, List__Ec2__Instance__Info
 from sgraph_ai_service_playwright__cli.ec2.schemas.Schema__Ec2__Preflight              import Schema__Ec2__Preflight
+from sgraph_ai_service_playwright__cli.ec2.service.Ec2__AWS__Client                    import (Ec2__AWS__Client            ,
+                                                                                                EC2__BROWSER_INTERNAL_PORT  ,
+                                                                                                EC2__PLAYWRIGHT_PORT        ,
+                                                                                                EC2__SIDECAR_ADMIN_PORT     ,
+                                                                                                aws_account_id              ,
+                                                                                                aws_region                  ,
+                                                                                                default_playwright_image_uri,
+                                                                                                default_sidecar_image_uri   ,
+                                                                                                ecr_registry_host           ,
+                                                                                                instance_deploy_name        ,
+                                                                                                instance_tag                )
 
 
 DEFAULT_API_KEY_NAME = 'X-API-Key'
@@ -41,11 +52,6 @@ class Ec2__Service(Type_Safe):                                                  
     @type_safe
     def create(self, request: Schema__Ec2__Create__Request) -> Schema__Ec2__Create__Response:
         from scripts.provision_ec2                                                  import (
-            aws_account_id        ,
-            aws_region            ,
-            ecr_registry_host     ,
-            default_playwright_image_uri,
-            default_sidecar_image_uri   ,
             provision             ,
             EC2__INSTANCE_TYPE    )
 
@@ -99,13 +105,9 @@ class Ec2__Service(Type_Safe):                                                  
 
     @type_safe
     def list_instances(self) -> Schema__Ec2__Instance__List:                        # Equivalent of `sp list` — every tagged playwright-ec2 instance in the Lambda's region
-        from scripts.provision_ec2 import find_instances
-
         from osbot_aws.AWS_Config                                  import AWS_Config
-        from osbot_aws.aws.ec2.EC2                                 import EC2
 
-        ec2        = EC2()
-        instances  = find_instances(ec2) or {}
+        instances  = self.aws_client().find_instances()
         result     = List__Ec2__Instance__Info()
         for instance_id in sorted(instances.keys()):
             info = self.build_instance_info(instance_id, instances[instance_id])
@@ -114,57 +116,50 @@ class Ec2__Service(Type_Safe):                                                  
         return Schema__Ec2__Instance__List(region    = AWS_Config().aws_session_region_name() or '',
                                            instances = result                                   )
 
+    def aws_client(self) -> Ec2__AWS__Client:                                       # Single seam — tests override to inject a fake AWS client
+        return Ec2__AWS__Client()
+
     def build_instance_info(self, instance_id: str, details: dict) -> Schema__Ec2__Instance__Info:     # Shared between list_instances and get_instance_info — same dict → schema mapping
-        from scripts.provision_ec2 import (_instance_tag                 ,
-                                           _instance_deploy_name         ,
-                                           TAG__STAGE_KEY                ,
+        from scripts.provision_ec2 import (TAG__STAGE_KEY                ,
                                            TAG__CREATOR_KEY              ,
                                            TAG__API_KEY_NAME_KEY         ,
                                            TAG__API_KEY_VALUE_KEY        ,
-                                           EC2__PLAYWRIGHT_PORT          ,
-                                           EC2__SIDECAR_ADMIN_PORT       ,
-                                           EC2__BROWSER_INTERNAL_PORT    )
+                                           TAG__INSTANCE_TYPE_KEY        )
         state_raw = details.get('state', {})
         state_str = state_raw.get('Name', '') if isinstance(state_raw, dict) else str(state_raw)
         ip        = details.get('public_ip', '') or ''
         return Schema__Ec2__Instance__Info(instance_id          = instance_id                                   ,
-                                           deploy_name          = _instance_deploy_name(details) or ''          ,
-                                           stage                = _instance_tag(details, TAG__STAGE_KEY)        ,
-                                           creator              = _instance_tag(details, TAG__CREATOR_KEY)      ,
+                                           deploy_name          = instance_deploy_name(details) or ''           ,
+                                           stage                = instance_tag(details, TAG__STAGE_KEY)         ,
+                                           creator              = instance_tag(details, TAG__CREATOR_KEY)       ,
                                            ami_id               = details.get('image_id', '')                   ,
                                            public_ip            = ip                                            ,
                                            playwright_url       = f'http://{ip}:{EC2__PLAYWRIGHT_PORT}'         if ip else '',
                                            sidecar_admin_url    = f'http://{ip}:{EC2__SIDECAR_ADMIN_PORT}'      if ip else '',
                                            browser_url          = f'https://{ip}:{EC2__BROWSER_INTERNAL_PORT}'  if ip else '',
-                                           api_key_name         = _instance_tag(details, TAG__API_KEY_NAME_KEY) ,
-                                           api_key_value        = _instance_tag(details, TAG__API_KEY_VALUE_KEY),
+                                           api_key_name         = instance_tag(details, TAG__API_KEY_NAME_KEY)  ,
+                                           api_key_value        = instance_tag(details, TAG__API_KEY_VALUE_KEY) ,
                                            playwright_image_uri = '(stored in compose file on instance)'        ,
                                            sidecar_image_uri    = '(stored in compose file on instance)'        ,
+                                           instance_type        = instance_tag(details, TAG__INSTANCE_TYPE_KEY) or details.get('instance_type', '') ,
                                            state                = self.parse_state(state_str)                   )
 
     @type_safe
     def get_instance_info(self, target: str) -> Schema__Ec2__Instance__Info:
-        from scripts.provision_ec2 import find_instances
-        from osbot_aws.aws.ec2.EC2   import EC2
-
-        ec2             = EC2()
-        instance_id, d  = self.resolve_target(ec2, target, find_instances)
+        instance_id, d  = self.resolve_target(target)
         if instance_id is None:
             return None                                                             # Caller maps to 404
         return self.build_instance_info(instance_id, d)
 
     @type_safe
     def delete_instance(self, target: str) -> Schema__Ec2__Delete__Response:
-        from scripts.provision_ec2 import find_instances, _instance_deploy_name
-        from osbot_aws.aws.ec2.EC2 import EC2
-
-        ec2                  = EC2()
-        instance_id, details = self.resolve_target(ec2, target, find_instances)
+        aws                   = self.aws_client()
+        instance_id, details  = self.resolve_target(target, aws=aws)
         if instance_id is None:
             return Schema__Ec2__Delete__Response()                                  # All fields empty — caller maps to 404
 
-        deploy_name = _instance_deploy_name(details) or ''
-        ec2.instance_terminate(instance_id)
+        deploy_name = instance_deploy_name(details) or ''
+        aws.ec2().instance_terminate(instance_id)
 
         terminated = List__Instance__Id()
         terminated.append(instance_id)
@@ -172,15 +167,31 @@ class Ec2__Service(Type_Safe):                                                  
                                              deploy_name             = deploy_name  ,
                                              terminated_instance_ids = terminated   )
 
-    def resolve_target(self, ec2, target, find_instances_fn):                       # target = deploy-name or instance-id; no prompts, no exits
-        instances = find_instances_fn(ec2)
+    @type_safe
+    def delete_all_instances(self) -> Schema__Ec2__Delete__Response:                # Equivalent of `sp delete --all` — terminates every tagged playwright-ec2 instance
+        aws       = self.aws_client()
+        instances = aws.find_instances()
+        if not instances:
+            return Schema__Ec2__Delete__Response()                                  # Empty response — caller maps to 'no instances'
+
+        terminated = List__Instance__Id()
+        ec2        = aws.ec2()
+        for iid in instances.keys():
+            ec2.instance_terminate(iid)
+            terminated.append(iid)
+        return Schema__Ec2__Delete__Response(target                  = ''           ,                          # No single target on bulk delete
+                                             deploy_name             = ''           ,
+                                             terminated_instance_ids = terminated   )
+
+    def resolve_target(self, target: str, aws: Ec2__AWS__Client = None):            # target = deploy-name or instance-id; returns (id, details) or (None, None) — no prompts, no exits
+        aws       = aws or self.aws_client()
+        instances = aws.find_instances()
         if not instances:
             return None, None
         if target.startswith('i-') and target in instances:
             return target, instances[target]
-        from scripts.provision_ec2 import _instance_deploy_name
         for iid, details in instances.items():
-            if _instance_deploy_name(details) == target:
+            if instance_deploy_name(details) == target:
                 return iid, details
         return None, None
 

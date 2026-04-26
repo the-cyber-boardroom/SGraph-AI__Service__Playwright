@@ -1,7 +1,11 @@
 # ═══════════════════════════════════════════════════════════════════════════════
 # SP CLI — tests for Docker__SP__CLI path resolution + build-context staging
-# No Docker daemon required. Exercises the tempdir-staging helper directly so
-# image-context bugs surface in unit tests instead of only in CI.
+# No Docker daemon required. Exercises stage_build_context (which now
+# delegates to Image__Build__Service) so the SP-CLI-specific composition of
+# stage items (4 source trees + dockerfile + requirements + the
+# extra-ignore for the deploy/images folder) is locked in. Generic ignore
+# behaviour is covered separately in
+# tests/unit/.../image/service/test_Image__Build__Service.py.
 # ═══════════════════════════════════════════════════════════════════════════════
 
 import os
@@ -12,8 +16,7 @@ from unittest                                                                   
 from sgraph_ai_service_playwright__cli.deploy.Docker__SP__CLI                                                              import (Docker__SP__CLI        ,
                                                                                                                                 DOCKERFILE_NAME          ,
                                                                                                                                 IMAGE_FOLDER_NAME        ,
-                                                                                                                                IMAGE_NAME               ,
-                                                                                                                                ignore_build_noise       )
+                                                                                                                                IMAGE_NAME               )
 
 
 class test_Docker__SP__CLI(TestCase):
@@ -43,18 +46,13 @@ class test_Docker__SP__CLI(TestCase):
         assert 'sgraph_ai_service_playwright__cli.fast_api.lambda_handler.handler' in dockerfile
         assert 'public.ecr.aws/lambda/python:3.12'                                  in dockerfile
 
-    def test_ignore_build_noise__filters_caches_and_pycs(self):
-        noisy  = ['__pycache__', 'real_module.py', 'fixture.pyc', '.pytest_cache', '.mypy_cache', 'something.txt']
-        result = ignore_build_noise('/any/path', noisy)
-        assert '__pycache__'    in result
-        assert '.pytest_cache'  in result
-        assert '.mypy_cache'    in result
-        assert 'fixture.pyc'    in result
-        assert 'real_module.py' not in result
-        assert 'something.txt'  not in result
-
-    def test_ignore_build_noise__filters_deploy_images_folder(self):                # images/ under sgraph_ai_service_playwright__cli/deploy/ holds the dockerfile itself; excluded from the staged context
-        assert 'images' in ignore_build_noise('/any/path', ['images', 'service', 'schemas'])
+    def test_build_request__has_all_four_source_trees_with_correct_target_names(self):  # Locks in the SP-CLI image composition
+        request = self.docker.build_request()
+        targets = {str(item.target_name): item for item in request.stage_items}
+        assert set(targets) == {'sgraph_ai_service_playwright__cli', 'sgraph_ai_service_playwright', 'agent_mitmproxy', 'scripts'}
+        for item in request.stage_items:                                            # All four are tree copies
+            assert item.is_tree is True
+        assert 'images' in list(targets['sgraph_ai_service_playwright__cli'].extra_ignore_names)  # Excludes the deploy/images folder
 
     def test_stage_build_context__copies_expected_trees(self):
         staging = tempfile.mkdtemp(prefix='sp_cli_build_test_')
@@ -73,6 +71,6 @@ class test_Docker__SP__CLI(TestCase):
             assert os.path.isfile(os.path.join(staging, 'scripts', 'provision_ec2.py'))
             assert os.path.isfile(os.path.join(staging, 'sgraph_ai_service_playwright', 'version'))             # Baked at /var/task; runtime_version reads it as a fallback when AGENTIC_APP_VERSION is unset
 
-            assert not os.path.isdir(os.path.join(staging, 'sgraph_ai_service_playwright__cli', 'deploy', 'images'))   # images/ folder is filtered out by ignore_build_noise
+            assert not os.path.isdir(os.path.join(staging, 'sgraph_ai_service_playwright__cli', 'deploy', 'images'))   # images/ folder is filtered out via the per-item extra_ignore_names
         finally:
             shutil.rmtree(staging, ignore_errors=True)

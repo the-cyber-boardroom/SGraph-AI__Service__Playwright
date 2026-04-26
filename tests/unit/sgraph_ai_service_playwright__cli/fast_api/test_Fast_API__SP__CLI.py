@@ -147,6 +147,14 @@ class test_Fast_API__SP__CLI(TestCase):
         response = self.client.delete('/ec2/playwright/delete/nosuch-thing', headers=self._headers())
         assert response.status_code == 404
 
+    def test_delete_all(self):                                                       # DELETE /ec2/playwright/delete-all (Phase A step 4)
+        response = self.client.delete('/ec2/playwright/delete-all', headers=self._headers())
+        assert response.status_code            == 200
+        body = response.json()
+        assert body['terminated_instance_ids'] == [INSTANCE_ID]                      # Fixture deduped to a single instance even though deploy-name + instance-id both map to it
+        assert body['target']                  == ''                                  # Bulk delete carries no single target
+        assert body['deploy_name']             == ''
+
     def test_post_create__rejects_invalid_deploy_name(self):                        # Safe_Str__Deploy_Name regex rejects; exception handler converts ValueError -> 422
         response = self.client.post('/ec2/playwright/create', headers=self._headers(),
                                                               json={'deploy_name': 'NOT_VALID!'})

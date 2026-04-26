@@ -47,9 +47,42 @@ from osbot_utils.utils.Env                                                      
 from sgraph_ai_service_playwright.docker.Docker__SGraph_AI__Service__Playwright__Base    import IMAGE_NAME as PLAYWRIGHT_IMAGE_NAME
 from agent_mitmproxy.docker.Docker__Agent_Mitmproxy__Base                                import IMAGE_NAME as SIDECAR_IMAGE_NAME
 
+from sgraph_ai_service_playwright__cli.ec2.service.Ec2__AWS__Client                      import (Ec2__AWS__Client                                            ,
+                                                                                                  EC2__AMI_NAME_AL2023                                        ,
+                                                                                                  EC2__AMI_OWNER_AMAZON                                       ,
+                                                                                                  EC2__BROWSER_INTERNAL_PORT                                  ,
+                                                                                                  EC2__PLAYWRIGHT_PORT                                        ,
+                                                                                                  EC2__SIDECAR_ADMIN_PORT                                     ,
+                                                                                                  IAM__ASSUME_ROLE_SERVICE                                    ,
+                                                                                                  IAM__ECR_READONLY_POLICY_ARN                                ,
+                                                                                                  IAM__OBSERVABILITY_POLICY_ARNS                              ,
+                                                                                                  IAM__PASSROLE_POLICY_NAME                                   ,
+                                                                                                  IAM__POLICY_ARNS                                            ,
+                                                                                                  IAM__PROMETHEUS_RW_POLICY_ARN                               ,
+                                                                                                  IAM__ROLE_NAME                                              ,
+                                                                                                  IAM__SSM_CORE_POLICY_ARN                                    ,
+                                                                                                  SG__DESCRIPTION                                             ,
+                                                                                                  SG__NAME                                                    ,
+                                                                                                  TAG__AMI_STATUS_KEY                                         ,
+                                                                                                  aws_account_id                                              ,
+                                                                                                  aws_region                                                  ,
+                                                                                                  decode_aws_auth_error        as _decode_aws_auth_error     ,
+                                                                                                  default_playwright_image_uri                                ,
+                                                                                                  default_sidecar_image_uri                                   ,
+                                                                                                  ecr_registry_host                                           ,
+                                                                                                  ensure_caller_passrole                                      ,
+                                                                                                  ensure_instance_profile                                     ,
+                                                                                                  get_creator                  as _get_creator               ,
+                                                                                                  instance_deploy_name         as _instance_deploy_name      ,
+                                                                                                  instance_tag                 as _instance_tag              ,
+                                                                                                  random_deploy_name           as _random_deploy_name        ,
+                                                                                                  uptime_str                   as _uptime_str                )
+
 
 EC2__INSTANCE_TYPE           = 'm6i.xlarge'                                             # 4 vCPU / 16 GB RAM — fixed CPU (no burst credits), fits full observability stack
-EC2__AMI_NAME_AL2023         = 'al2023-ami-2023.*-x86_64'
+# EC2__AMI_NAME_AL2023, EC2__AMI_OWNER_AMAZON, EC2__PLAYWRIGHT_PORT,
+# EC2__SIDECAR_ADMIN_PORT, EC2__BROWSER_INTERNAL_PORT moved to Ec2__AWS__Client
+# (Phase A step 3d) — imported at top.
 
 # ── Instance-type presets (shown by sg-ec2 create --interactive) ──────────────
 EC2__INSTANCE_TYPE_PRESETS = [
@@ -59,29 +92,22 @@ EC2__INSTANCE_TYPE_PRESETS = [
     ('t3.large'   , 2, 8  , 0.0832, 'burstable · dev/test only'              ),
     ('t3.xlarge'  , 4, 16 , 0.1664, 'burstable · dev/test only'              ),
 ]
-EC2__AMI_OWNER_AMAZON        = 'amazon'
-EC2__PLAYWRIGHT_PORT         = 8000                                                     # Playwright API — exposed to the world via SG
-EC2__SIDECAR_ADMIN_PORT      = 8001                                                     # Sidecar admin API (host port mapping of container :8000) — exposed via SG, API-key gated
 EC2__MITMWEB_TUNNEL_PORT    = 18080                                                    # mitmweb proxy UI — loopback only; reach via: sgpl forward 18080
 
 WATCHDOG_MAX_REQUEST_MS      = 120_000                                                  # 120s — covers Firefox + long upstream-proxy round-trips
 
-IAM__ROLE_NAME               = 'playwright-ec2'                                         # AWS reserves 'sg-*' prefix — applies to SG names, IAM instance profiles, and resource tags
-IAM__ECR_READONLY_POLICY_ARN = 'arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly'
-IAM__SSM_CORE_POLICY_ARN     = 'arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore'  # SSM session manager — no SSH needed
-IAM__POLICY_ARNS             = (IAM__ECR_READONLY_POLICY_ARN, IAM__SSM_CORE_POLICY_ARN)
-IAM__PROMETHEUS_RW_POLICY_ARN  = 'arn:aws:iam::aws:policy/AmazonPrometheusRemoteWriteAccess'
-IAM__OBSERVABILITY_POLICY_ARNS = (IAM__PROMETHEUS_RW_POLICY_ARN,)                           # OpenSearch write access is domain-specific — added via resource policy (see library/docs/runbooks/aws-observability-setup.md)
-IAM__ASSUME_ROLE_SERVICE       = 'ec2.amazonaws.com'
+# IAM__ROLE_NAME, IAM__ECR_READONLY_POLICY_ARN, IAM__SSM_CORE_POLICY_ARN,
+# IAM__POLICY_ARNS, IAM__PROMETHEUS_RW_POLICY_ARN, IAM__OBSERVABILITY_POLICY_ARNS,
+# IAM__ASSUME_ROLE_SERVICE moved to Ec2__AWS__Client (Phase A step 3c) —
+# imported at the top of this file under the same names.
 
 EC2__PROMETHEUS_PORT      = 9090
-EC2__BROWSER_INTERNAL_PORT = 3000                                                      # linuxserver/chromium KasmVNC — SSM-forward only, never exposed in SG
 EC2__BROWSER_IMAGE         = 'lscr.io/linuxserver/chromium:latest'                     # public image — pulled explicitly before compose up
 EC2__DOCKGE_PORT           = 5001                                                      # Dockge — SSM-forward only; first login sets admin password
 EC2__DOCKGE_IMAGE          = 'louislam/dockge:1'                                       # public image — pulled explicitly before compose up
 
-SG__NAME                     = 'playwright-ec2'                                         # AWS reserves 'sg-*' prefix for SG IDs
-SG__DESCRIPTION              = 'SG Playwright EC2 stack - ingress :8000 (Playwright API) + :8001 (sidecar admin) + :3000 (streaming browser) — all ports behind API key / KasmVNC password auth'
+# SG__NAME, SG__DESCRIPTION moved to Ec2__AWS__Client (Phase A step 3d) —
+# imported at top.
 
 TAG__NAME                    = 'playwright-ec2'
 TAG__SERVICE_KEY             = 'sg:service'                                             # Immutable identifier — find_instances filters on this, not Name (Name is user-editable in console)
@@ -94,13 +120,10 @@ TAG__API_KEY_VALUE_KEY       = 'sg:api-key-value'                               
 TAG__INSTANCE_TYPE_KEY       = 'sg:instance-type'                                        # Stored so 'list' can show it
 DEFAULT_STAGE                = 'dev'
 
-_ADJECTIVES = ['bold','bright','calm','clever','cool','daring','deep','eager',
-               'fast','fierce','fresh','grand','happy','keen','light','lucky',
-               'mellow','neat','quick','quiet','sharp','sleek','smart','swift','witty']
-_SCIENTISTS = ['bohr','curie','darwin','dirac','einstein','euler','faraday',
-               'fermi','feynman','galileo','gauss','hopper','hubble','lovelace',
-               'maxwell','newton','noether','pascal','planck','turing','tesla',
-               'volta','watt','wien','zeno']
+# _ADJECTIVES + _SCIENTISTS pools moved to Ec2__AWS__Client (Phase A step 3a).
+# Helpers (_random_deploy_name, _get_creator, _uptime_str, _instance_tag,
+# _instance_deploy_name) imported at the top of this file under the original
+# underscored names for callsite stability.
 
 COMPOSE_PROJECT   = 'sg-playwright'
 COMPOSE_FILE_PATH            = '/opt/sg-playwright/docker-compose.yml'
@@ -111,7 +134,7 @@ SMOKE_URLS = ['https://www.google.com'   ,
               'https://send.sgraph.ai'    ,
               'https://news.bbc.co.uk'    ]
 
-TAG__AMI_STATUS_KEY = 'sg:ami-status'    # untested | healthy | unhealthy
+# TAG__AMI_STATUS_KEY moved to Ec2__AWS__Client (Phase A step 3d) — imported at top.
 
 DASHBOARDS_DIR = Path(__file__).parent.parent / 'library' / 'docs' / 'ops' / 'dashboards'
 
@@ -152,37 +175,8 @@ trap - EXIT
 """
 
 
-def _random_deploy_name() -> str:
-    return f'{secrets.choice(_ADJECTIVES)}-{secrets.choice(_SCIENTISTS)}'
-
-
-def _get_creator() -> str:
-    import subprocess
-    try:
-        return subprocess.check_output(['git', 'config', 'user.email'],
-                                       stderr=subprocess.DEVNULL, text=True).strip()
-    except Exception:
-        import os
-        return os.environ.get('USER', 'unknown')
-
-
-def _uptime_str(launch_time) -> str:
-    if not launch_time:
-        return '?'
-    if not isinstance(launch_time, datetime):
-        return '?'
-    lt = launch_time if launch_time.tzinfo else launch_time.replace(tzinfo=timezone.utc)
-    secs = int((datetime.now(timezone.utc) - lt).total_seconds())
-    if secs < 0:
-        return '?'
-    days, rem  = divmod(secs, 86400)
-    hours, rem = divmod(rem, 3600)
-    mins       = rem // 60
-    if days:
-        return f'{days}d {hours}h'
-    if hours:
-        return f'{hours}h {mins}m'
-    return f'{mins}m'
+# _random_deploy_name / _get_creator / _uptime_str moved to Ec2__AWS__Client
+# (Phase A step 3a) — imported as aliases at the top of this file.
 
 
 COMPOSE_SVC_PLAYWRIGHT = """\
@@ -627,24 +621,9 @@ trap - EXIT
 """
 
 
-def aws_account_id() -> str:
-    return AWS_Config().aws_session_account_id()
-
-
-def aws_region() -> str:
-    return AWS_Config().aws_session_region_name()
-
-
-def ecr_registry_host() -> str:
-    return f'{aws_account_id()}.dkr.ecr.{aws_region()}.amazonaws.com'
-
-
-def default_playwright_image_uri() -> str:
-    return f'{ecr_registry_host()}/{PLAYWRIGHT_IMAGE_NAME}:latest'
-
-
-def default_sidecar_image_uri() -> str:
-    return f'{ecr_registry_host()}/{SIDECAR_IMAGE_NAME}:latest'
+# aws_account_id / aws_region / ecr_registry_host / default_playwright_image_uri /
+# default_sidecar_image_uri moved to Ec2__AWS__Client (Phase A step 3b) — imported
+# at the top of this file under their original names.
 
 
 def preflight_check(playwright_image_uri: str = None, sidecar_image_uri: str = None,
@@ -793,27 +772,13 @@ def _print_preflight_error(lines: list) -> None:
     sys.exit(1)
 
 
-IAM__PASSROLE_POLICY_NAME = 'sg-playwright-passrole-ec2'
+# IAM__PASSROLE_POLICY_NAME moved to Ec2__AWS__Client (Phase A step 3c) —
+# imported at the top of this file under the same name.
 
 
-def _decode_aws_auth_error(exc: Exception) -> str:
-    """If exc is an UnauthorizedOperation with an encoded message, decode and return it.
-
-    Returns the decoded JSON string, or empty string if not applicable.
-    """
-    import boto3, re
-    msg = str(exc)
-    if 'Encoded authorization failure message:' not in msg:
-        return ''
-    match = re.search(r'Encoded authorization failure message:\s*(\S+)', msg)
-    if not match:
-        return ''
-    encoded = match.group(1)
-    try:
-        decoded = boto3.client('sts').decode_authorization_message(EncodedMessage=encoded)
-        return decoded.get('DecodedMessage', '')
-    except Exception:
-        return ''
+# _decode_aws_auth_error moved to Ec2__AWS__Client.decode_aws_auth_error
+# (Phase A step 3c) — aliased at the top of this file. The Console-formatted
+# print helper below is Tier 2A (CLI rendering) and stays here.
 
 
 def _print_auth_error(exc: Exception) -> None:
@@ -834,103 +799,22 @@ def _print_auth_error(exc: Exception) -> None:
         c.print('  [dim](Run: aws sts decode-authorization-message --encoded-message <blob> to decode manually)[/]')
 
 
-def ensure_caller_passrole(account: str) -> dict:
-    """Attach a minimal iam:PassRole inline policy to the current IAM user.
-
-    Safe by construction:
-    - Resource is pinned to playwright-ec2 role ARN only (not '*')
-    - Condition iam:PassedToService=ec2.amazonaws.com prevents passing the
-      role to any other service (Lambda, ECS, etc.)
-
-    Only works when the caller is an IAM user (not a role/federated identity).
-    Returns {'ok': True/False, 'action': 'created'|'already_exists'|'skipped', 'detail': str}.
-    """
-    import boto3
-
-    role_arn    = f'arn:aws:iam::{account}:role/{IAM__ROLE_NAME}'
-    policy_doc  = json.dumps({
-        'Version'  : '2012-10-17',
-        'Statement': [{
-            'Sid'      : 'PassRoleToEC2Only',
-            'Effect'   : 'Allow',
-            'Action'   : 'iam:PassRole',
-            'Resource' : role_arn,
-            'Condition': {'StringEquals': {'iam:PassedToService': 'ec2.amazonaws.com'}},
-        }],
-    })
-
-    sts      = boto3.client('sts')
-    identity = sts.get_caller_identity()
-    arn      = identity.get('Arn', '')
-
-    if ':user/' not in arn:
-        return {'ok': False, 'action': 'skipped',
-                'detail': f'Caller is not an IAM user ({arn}) — attach the policy manually in the console.'}
-
-    username = arn.split(':user/')[-1]
-    iam      = boto3.client('iam')
-
-    existing = iam.list_user_policies(UserName=username).get('PolicyNames', [])
-    if IAM__PASSROLE_POLICY_NAME in existing:
-        return {'ok': True, 'action': 'already_exists', 'detail': f'Policy {IAM__PASSROLE_POLICY_NAME!r} already attached to {username}.'}
-
-    try:
-        iam.put_user_policy(UserName=username, PolicyName=IAM__PASSROLE_POLICY_NAME, PolicyDocument=policy_doc)
-    except Exception as exc:
-        if 'UnauthorizedOperation' in str(exc) or 'AccessDenied' in str(exc):
-            _print_auth_error(exc)
-        raise
-    return {'ok': True, 'action': 'created',
-            'detail': f'Attached inline policy {IAM__PASSROLE_POLICY_NAME!r} to {username} (PassRole → {role_arn}, EC2 only).'}
+# ensure_caller_passrole + ensure_instance_profile moved to Ec2__AWS__Client
+# (Phase A step 3c) — imported at the top of this file under the same names.
 
 
-def ensure_instance_profile() -> str:
-    role = IAM_Role(role_name=IAM__ROLE_NAME)
-    if role.not_exists():
-        try:
-            role.create_for_service__assume_role(IAM__ASSUME_ROLE_SERVICE)
-        except Exception as e:
-            if 'EntityAlreadyExists' not in str(e):
-                raise
-    # Always ensure the instance profile exists and the role is attached —
-    # these calls are idempotent: catch EntityAlreadyExists / LimitExceeded
-    # so a partial previous run doesn't leave the profile missing.
-    try:
-        role.create_instance_profile()
-    except Exception:
-        pass
-    try:
-        role.add_to_instance_profile()
-    except Exception:
-        pass
-    for policy_arn in (*IAM__POLICY_ARNS, *IAM__OBSERVABILITY_POLICY_ARNS):
-        role.iam.role_policy_attach(policy_arn)
-    return IAM__ROLE_NAME
+# ensure_security_group + latest_al2023_ami_id moved to Ec2__AWS__Client
+# (Phase A step 3d). The wrappers below preserve the old (ec2: EC2) signatures
+# so the typer commands keep working unchanged; they ignore the param and
+# delegate to the module-level _AWS instance defined in step 3a.
 
 
-def ensure_security_group(ec2: EC2) -> str:
-    existing = ec2.security_group(security_group_name=SG__NAME)
-    if existing:
-        security_group_id = existing.get('GroupId')
-    else:
-        create_result     = ec2.security_group_create(security_group_name=SG__NAME, description=SG__DESCRIPTION)
-        security_group_id = create_result.get('data', {}).get('security_group_id')
-    for port in (EC2__PLAYWRIGHT_PORT       ,   # :8000 — Playwright API
-                 EC2__SIDECAR_ADMIN_PORT    ,   # :8001 — sidecar admin API
-                 EC2__BROWSER_INTERNAL_PORT ):  # :3000 — streaming browser (KasmVNC, password-gated)
-        try:
-            ec2.security_group_authorize_ingress(security_group_id=security_group_id, port=port)
-        except Exception:
-            pass                                # rule already exists — idempotent
-    return security_group_id
+def ensure_security_group(ec2: EC2 = None) -> str:
+    return _AWS.ensure_security_group()
 
 
-def latest_al2023_ami_id(ec2: EC2) -> str:
-    images = ec2.amis(owner=EC2__AMI_OWNER_AMAZON, name=EC2__AMI_NAME_AL2023, architecture='x86_64')
-    images = sorted(images, key=lambda image: image.get('CreationDate', ''), reverse=True)
-    if not images:
-        raise RuntimeError(f'No AL2023 AMI found matching {EC2__AMI_NAME_AL2023!r} in region {aws_region()!r}')
-    return images[0].get('ImageId')
+def latest_al2023_ami_id(ec2: EC2 = None) -> str:
+    return _AWS.latest_al2023_ami_id()
 
 
 def render_compose_yaml(playwright_image_uri    : str,
@@ -1066,44 +950,30 @@ def run_instance(ec2: EC2, ami_id: str, security_group_id: str, instance_profile
             raise
 
 
-def find_instances(ec2: EC2) -> dict:
-    filters   = [{'Name': f'tag:{TAG__SERVICE_KEY}', 'Values': [TAG__SERVICE_VALUE]                    },  # immutable — survives console Name renames
-                 {'Name': 'instance-state-name'    , 'Values': ['pending', 'running', 'stopping', 'stopped']}]
-    return ec2.instances_details(filters=filters)
+# find_instances / find_instance_ids / _resolve_instance_id /
+# terminate_instances logic moved to Ec2__AWS__Client (Phase A step 3a).
+# These wrappers preserve the old signatures (which take an explicit `ec2`
+# parameter) so the typer commands below don't need editing in this slice;
+# the wrappers ignore the parameter because Ec2__AWS__Client creates its
+# own EC2 instance internally — equivalent for our use, since osbot-aws
+# EC2() construction is cheap.
+_AWS = Ec2__AWS__Client()                                                               # Module-level instance shared by the wrappers below
 
 
-def find_instance_ids(ec2: EC2) -> list:
-    return list(find_instances(ec2).keys())
+def find_instances(ec2: EC2 = None) -> dict:
+    return _AWS.find_instances()
 
 
-def _instance_tag(details: dict, key: str) -> str:
-    for tag in details.get('tags', []):
-        if tag.get('Key') == key:
-            return tag.get('Value', '')
-    return ''
-
-
-def _instance_deploy_name(details: dict) -> str:
-    return _instance_tag(details, TAG__DEPLOY_NAME_KEY)
+def find_instance_ids(ec2: EC2 = None) -> list:
+    return _AWS.find_instance_ids()
 
 
 def _resolve_instance_id(ec2: EC2, target: str) -> str:
-    """Accept an instance-id (i-…) or a deploy-name; return the instance-id."""
-    if target.startswith('i-'):
-        return target
-    for iid, details in find_instances(ec2).items():
-        if _instance_deploy_name(details) == target:
-            return iid
-    raise ValueError(f'No instance found with deploy-name {target!r}')
+    return _AWS.resolve_instance_id(target)
 
 
-def terminate_instances(ec2: EC2, nickname: str = '') -> list:
-    instances = find_instances(ec2)
-    to_kill   = [iid for iid, d in instances.items()
-                 if not nickname or _instance_deploy_name(d) == nickname]
-    for iid in to_kill:
-        ec2.instance_terminate(iid)
-    return to_kill
+def terminate_instances(ec2: EC2 = None, nickname: str = '') -> list:
+    return _AWS.terminate_instances(nickname=nickname)
 
 
 def clean_instance_for_ami(instance_id: str) -> None:
@@ -1128,49 +998,24 @@ def clean_instance_for_ami(instance_id: str) -> None:
         _ssm_run(instance_id, [cmd], timeout=60)
 
 
+# create_ami / wait_ami_available / tag_ami / latest_healthy_ami moved to
+# Ec2__AWS__Client (Phase A step 3d). Wrappers preserve old signatures.
+
+
 def create_ami(ec2: EC2, instance_id: str, name: str) -> str:
-    """Create an AMI from a stopped/running instance. Returns ami_id."""
-    resp = ec2.client().create_image(
-        InstanceId      = instance_id,
-        Name            = name,
-        Description     = f'SG Playwright + agent_mitmproxy - {name}',
-        NoReboot        = True,
-        TagSpecifications = [{'ResourceType': 'image',
-                              'Tags': [{'Key': 'Name',              'Value': name            },
-                                       {'Key': TAG__SERVICE_KEY,    'Value': TAG__SERVICE_VALUE},
-                                       {'Key': TAG__AMI_STATUS_KEY, 'Value': 'untested'      }]}])
-    return resp['ImageId']
+    return _AWS.create_ami(instance_id, name)
 
 
 def wait_ami_available(ec2: EC2, ami_id: str, timeout: int = 900) -> bool:
-    """Poll until AMI state is 'available' or 'failed'. Returns True on success."""
-    deadline = time.time() + timeout
-    while time.time() < deadline:
-        images = ec2.client().describe_images(ImageIds=[ami_id]).get('Images', [])
-        state  = images[0]['State'] if images else 'pending'
-        if state == 'available':
-            return True
-        if state == 'failed':
-            return False
-        time.sleep(15)
-    return False
+    return _AWS.wait_ami_available(ami_id, timeout=timeout)
 
 
 def tag_ami(ec2: EC2, ami_id: str, status: str) -> None:
-    """Set sg:ami-status tag on an AMI (untested | healthy | unhealthy)."""
-    ec2.client().create_tags(Resources=[ami_id],
-                              Tags=[{'Key': TAG__AMI_STATUS_KEY, 'Value': status}])
+    _AWS.tag_ami(ami_id, status)
 
 
-def latest_healthy_ami(ec2: EC2) -> str:
-    """Return the most recently created healthy sg-playwright AMI ID, or None."""
-    resp   = ec2.client().describe_images(
-        Filters = [{'Name': f'tag:{TAG__SERVICE_KEY}',    'Values': [TAG__SERVICE_VALUE]},
-                   {'Name': f'tag:{TAG__AMI_STATUS_KEY}', 'Values': ['healthy']         },
-                   {'Name': 'state',                      'Values': ['available']       }],
-        Owners  = ['self'])
-    images = sorted(resp.get('Images', []), key=lambda x: x['CreationDate'], reverse=True)
-    return images[0]['ImageId'] if images else None
+def latest_healthy_ami(ec2: EC2 = None) -> str:
+    return _AWS.latest_healthy_ami()
 
 
 def provision(stage                  : str          = DEFAULT_STAGE    ,
@@ -1586,22 +1431,26 @@ def create(stage                : str           = typer.Option(DEFAULT_STAGE, he
 @app.command(name='list')
 def cmd_list():
     """List all playwright-ec2 instances with metadata from tags."""
-    c         = Console(highlight=False, width=200)
-    ec2       = EC2()
-    instances = find_instances(ec2)
-    if not instances:
+    from sgraph_ai_service_playwright__cli.ec2.service.Ec2__Service                  import Ec2__Service
+
+    c       = Console(highlight=False, width=200)
+    listing = Ec2__Service().list_instances()
+    if not listing.instances:
         c.print('  [dim]No instances found.[/]')
         return
+
+    ec2          = EC2()                                                             # Display enrichments — kept inline since they're presentation-only and need raw boto3 (osbot_aws has 'LauchTime' typo on launch-time)
     resp         = ec2.client().describe_images(
         Filters  = [{'Name': f'tag:{TAG__SERVICE_KEY}', 'Values': [TAG__SERVICE_VALUE]}],
         Owners   = ['self'])
     project_amis = {img['ImageId']: img.get('Name', '') for img in resp.get('Images', [])}
-    # Fetch launch times in one call (osbot_aws has a typo in 'LauchTime')
-    raw_resp   = ec2.client().describe_instances(InstanceIds=list(instances.keys()))
-    launch_map = {}
+    instance_ids = [str(info.instance_id) for info in listing.instances]
+    raw_resp     = ec2.client().describe_instances(InstanceIds=instance_ids)
+    launch_map   = {}
     for r in raw_resp.get('Reservations', []):
         for inst in r.get('Instances', []):
             launch_map[inst['InstanceId']] = inst.get('LaunchTime')
+
     t = Table(show_header=True, header_style='bold blue', box=None, padding=(0, 2))
     t.add_column('deploy-name',   style='bold')
     t.add_column('instance-id',   style='dim')
@@ -1611,18 +1460,19 @@ def cmd_list():
     t.add_column('instance-type', style='cyan')
     t.add_column('public-ip',     style='green')
     t.add_column('creator',       style='dim')
-    for iid, d in instances.items():
-        state_raw     = d.get('state', '?')
-        state         = state_raw.get('Name', '?') if isinstance(state_raw, dict) else str(state_raw)
-        ip            = d.get('public_ip', '')
-        deploy        = _instance_deploy_name(d)
-        creator       = _instance_tag(d, TAG__CREATOR_KEY)
-        instance_type = _instance_tag(d, TAG__INSTANCE_TYPE_KEY) or d.get('instance_type', '?')
-        image_id      = d.get('image_id', '')
-        launch        = '[magenta]ami[/]' if image_id in project_amis else '[blue]docker[/]'
-        colour        = 'green' if state == 'running' else 'yellow' if state == 'pending' else 'red'
-        uptime        = _uptime_str(launch_map.get(iid)) if state == 'running' else '[dim]—[/]'
-        t.add_row(deploy, iid, f'[{colour}]{state}[/]', uptime, launch, instance_type, ip, creator)
+    for info in listing.instances:
+        state_value = info.state.value if hasattr(info.state, 'value') else str(info.state)
+        colour      = 'green' if state_value == 'running' else 'yellow' if state_value == 'pending' else 'red'
+        uptime      = _uptime_str(launch_map.get(str(info.instance_id))) if state_value == 'running' else '[dim]—[/]'
+        launch      = '[magenta]ami[/]' if str(info.ami_id) in project_amis else '[blue]docker[/]'
+        t.add_row(str(info.deploy_name)         ,
+                  str(info.instance_id)         ,
+                  f'[{colour}]{state_value}[/]' ,
+                  uptime                        ,
+                  launch                        ,
+                  str(info.instance_type) or '?',
+                  str(info.public_ip)           ,
+                  str(info.creator)             )
     c.print(t)
 
 
@@ -1630,57 +1480,61 @@ def cmd_list():
 def cmd_info(target   : Optional[str] = typer.Argument(None,  help='Deploy-name or instance-id (auto if only one).'),
              json_flag: bool           = typer.Option(False, '--json', help='Output raw JSON instead of rich table.')):
     """Show full details for an instance, reading metadata from its tags."""
-    ec2             = EC2()
-    instance_id, d  = _resolve_target(ec2, target)
-    state_raw       = d.get('state', {})
-    state           = state_raw.get('Name', '?') if isinstance(state_raw, dict) else str(state_raw)
-    ip              = d.get('public_ip', '')
-    deploy_name     = _instance_deploy_name(d)
-    r = {
-        'instance_id'         : instance_id,
-        'deploy_name'         : deploy_name,
-        'stage'               : _instance_tag(d, TAG__STAGE_KEY),
-        'creator'             : _instance_tag(d, TAG__CREATOR_KEY),
-        'ami_id'              : d.get('image_id', '—'),
-        'public_ip'           : ip,
-        'playwright_url'      : f'http://{ip}:{EC2__PLAYWRIGHT_PORT}'          if ip else '—',
-        'sidecar_admin_url'   : f'http://{ip}:{EC2__SIDECAR_ADMIN_PORT}'    if ip else '—',
-        'browser_url'         : f'https://{ip}:{EC2__BROWSER_INTERNAL_PORT}' if ip else '—',
-        'api_key_name'        : _instance_tag(d, TAG__API_KEY_NAME_KEY),
-        'api_key_value'       : _instance_tag(d, TAG__API_KEY_VALUE_KEY),
-        'playwright_image_uri': '(stored in compose file on instance)',
-        'sidecar_image_uri'   : '(stored in compose file on instance)',
-        'state'               : state,
-    }
+    from sgraph_ai_service_playwright__cli.ec2.service.Ec2__Service                  import Ec2__Service
+
+    info = Ec2__Service().get_instance_info(_resolve_typer_target(target))           # service handles dict → schema mapping; raise ValueError on miss
+    if info is None:
+        Console(highlight=False, width=200).print('  [red]✗  Instance not found.[/]')
+        raise typer.Exit(1)
+
     if json_flag:
-        print(json.dumps(r, indent=2))
+        print(info.json_str())
         return
-    colour = 'green' if state == 'running' else 'yellow' if state == 'pending' else 'red'
-    c      = Console(highlight=False, width=200)
+    _render_info(info)
+
+
+def _resolve_typer_target(target: Optional[str]) -> str:                             # Helper: handle "auto-pick when only one instance" UX that the typer commands all share
+    if target:
+        return target
+    ec2       = EC2()
+    instances = find_instances(ec2)
+    if len(instances) == 1:
+        return next(iter(instances.keys()))
+    if not instances:
+        Console(highlight=False, width=200).print('  [dim]No instances found.[/]')
+        raise typer.Exit(0)
+    Console(highlight=False, width=200).print('  [red]✗  Multiple instances — specify a deploy-name or instance-id.[/]')
+    raise typer.Exit(1)
+
+
+def _render_info(info) -> None:                                                      # Tier 2A — Rich rendering of Schema__Ec2__Instance__Info
+    state_value = info.state.value if hasattr(info.state, 'value') else str(info.state)
+    colour      = 'green' if state_value == 'running' else 'yellow' if state_value == 'pending' else 'red'
+    c           = Console(highlight=False, width=200)
     c.print()
     c.print(Panel(
-        f'[bold]ℹ️   Instance info[/]  ·  {deploy_name}  [dim]{instance_id}[/]  [{colour}]{state}[/]',
+        f'[bold]ℹ️   Instance info[/]  ·  {info.deploy_name}  [dim]{info.instance_id}[/]  [{colour}]{state_value}[/]',
         border_style=colour, expand=False))
     c.print()
 
     left = Table(box=None, show_header=False, padding=(0, 2), expand=False)
     left.add_column(style='bold',    min_width=14, no_wrap=True)
     left.add_column(style='default')
-    left.add_row('deploy-name', r['deploy_name']  )
-    left.add_row('stage',       r['stage']        )
-    left.add_row('creator',     r['creator']      )
-    left.add_row('ami',         r['ami_id']       )
-    left.add_row('instance-id', r['instance_id']  )
+    left.add_row('deploy-name', str(info.deploy_name))
+    left.add_row('stage',       str(info.stage)      )
+    left.add_row('creator',     str(info.creator)    )
+    left.add_row('ami',         str(info.ami_id) or '—')
+    left.add_row('instance-id', str(info.instance_id))
 
     right = Table(box=None, show_header=False, padding=(0, 2), expand=False)
     right.add_column(style='bold',    min_width=14, no_wrap=True)
     right.add_column(style='default')
-    right.add_row('public-ip',     r['public_ip']                          )
-    right.add_row('playwright',    r['playwright_url']                     )
-    right.add_row('sidecar-admin', r['sidecar_admin_url']                  )
-    right.add_row('browser',       r['browser_url']                        )
-    right.add_row('api-key-name',  r['api_key_name']                       )
-    right.add_row('api-key-value', f'[bold green]{r["api_key_value"]}[/]'  )
+    right.add_row('public-ip',     str(info.public_ip)         or '—')
+    right.add_row('playwright',    str(info.playwright_url)    or '—')
+    right.add_row('sidecar-admin', str(info.sidecar_admin_url) or '—')
+    right.add_row('browser',       str(info.browser_url)       or '—')
+    right.add_row('api-key-name',  str(info.api_key_name))
+    right.add_row('api-key-value', f'[bold green]{info.api_key_value}[/]')
 
     cols = Table(box=None, show_header=False, padding=(0, 3), expand=False)
     cols.add_column()
@@ -1688,8 +1542,8 @@ def cmd_info(target   : Optional[str] = typer.Argument(None,  help='Deploy-name 
     cols.add_row(left, right)
     c.print(cols)
     c.print()
-    c.print(f'  sg-ec2 forward 8000 --target {deploy_name}   ·   '
-            f'sg-ec2 health {deploy_name}   ·   sg-ec2 logs --target {deploy_name}')
+    c.print(f'  sg-ec2 forward 8000 --target {info.deploy_name}   ·   '
+            f'sg-ec2 health {info.deploy_name}   ·   sg-ec2 logs --target {info.deploy_name}')
     c.print()
 
 
@@ -1697,29 +1551,35 @@ def cmd_info(target   : Optional[str] = typer.Argument(None,  help='Deploy-name 
 def cmd_delete(name    : Optional[str] = typer.Argument(None,  help='Deploy-name or instance-id.'),
                all_flag: bool          = typer.Option(False, '--all', help='Delete ALL playwright-ec2 instances.')):
     """Delete one instance by name/id, or all with --all."""
-    ec2 = EC2()
-    c   = Console(highlight=False, width=200)
+    from sgraph_ai_service_playwright__cli.ec2.service.Ec2__Service                  import Ec2__Service
+
+    c       = Console(highlight=False, width=200)
+    service = Ec2__Service()
     if all_flag:
-        instances = find_instances(ec2)
+        instances = service.list_instances().instances
         if not instances:
             c.print('  [dim]No instances found.[/]')
             return
         c.print()
-        for iid, d in instances.items():
-            deploy = _instance_deploy_name(d) or iid
-            c.print(f'  🗑️   [bold]{deploy}[/]  [dim]{iid}[/]')
+        for info in instances:
+            deploy = str(info.deploy_name) or str(info.instance_id)
+            c.print(f'  🗑️   [bold]{deploy}[/]  [dim]{info.instance_id}[/]')
         c.print()
         confirm = c.input(f'  [bold red]Delete all {len(instances)} instance(s)?[/] [dim][y/N][/] › ').strip().lower()
         if confirm not in ('y', 'yes'):
             c.print('  Aborted.')
             return
-        deleted = terminate_instances(ec2)
+        result  = service.delete_all_instances()
+        deleted = [str(iid) for iid in result.terminated_instance_ids]
     else:
-        instance_id, details = _resolve_target(ec2, name)
-        deploy = _instance_deploy_name(details) or instance_id
-        c.print(f'  🗑️   Deleting [bold]{deploy}[/]  [dim]{instance_id}[/]...')
-        ec2.instance_terminate(instance_id)
-        deleted = [instance_id]
+        target = _resolve_typer_target(name)
+        result = service.delete_instance(target)
+        if not str(result.target):
+            c.print('  [red]✗  Instance not found.[/]')
+            raise typer.Exit(1)
+        deploy = str(result.deploy_name) or str(result.target)
+        c.print(f'  🗑️   Deleted [bold]{deploy}[/]  [dim]{result.target}[/]...')
+        deleted = [str(iid) for iid in result.terminated_instance_ids]
     c.print(f'  ✅  Deleted {len(deleted)} instance(s): [dim]{", ".join(deleted) or "none"}[/]')
 
 

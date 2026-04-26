@@ -5,81 +5,63 @@
 # helpers (dockerfile content, image architecture) used by unit/integration
 # tests.
 #
-# build_docker_image() stages the build context in a tempdir rather than
-# pointing docker at `docker/images/<image>/` (which contains only the
-# dockerfile + a thin requirements.txt). The dockerfile's `COPY . ./` would
-# otherwise ship an empty package into /var/task, which made the container
-# exit with `ModuleNotFoundError: No module named 'sgraph_ai_service_playwright'`
-# on startup. Staging copies:
+# build_docker_image() delegates to the shared Image__Build__Service which
+# stages the build context in a tempdir, calls the docker SDK directly
+# (bypassing osbot-docker's @catch wrapper so BuildError / APIError
+# surface), and returns a Type_Safe Schema__Image__Build__Result.
+#
+# This builder's responsibility is to compose the Schema__Image__Build__Request
+# specific to the Playwright image:
 #   • the dockerfile + requirements.txt from the existing image folder
 #   • lambda_entry.py + image_version from the repo root (v0.1.28 boot shim)
-#   • the whole `sgraph_ai_service_playwright/` package source (minus __pycache__)
+#   • the whole `sgraph_ai_service_playwright/` package source (minus pycache)
 # so `python3 lambda_entry.py` resolves at container start.
 #
-# Two deliberate workarounds vs. calling osbot_docker's `Docker_Image.build()`:
-#   1. The dockerfile is named `dockerfile` (lowercase). Docker daemon's
-#      default is `Dockerfile` (capital D) on case-sensitive filesystems
-#      (Linux / GH Actions runners), so we pass `dockerfile='dockerfile'`
-#      explicitly to the SDK.
-#   2. `Docker_Image.build()` is wrapped in `@catch` which swallows
-#      `BuildError` / `APIError` into `{'status': 'error', ...}`. Our test
-#      only asserted `result is not None`, so real build failures silently
-#      passed the test and the downstream `docker inspect` was the one that
-#      blew up with a confusing "No such object" error. We now call the
-#      docker SDK directly so errors propagate and the `status` key reflects
-#      the real outcome.
+# The dockerfile is named `dockerfile` (lowercase) — Docker daemon defaults
+# to `Dockerfile` (capital D) on case-sensitive filesystems (Linux / GH
+# Actions runners). The shared service defaults to lowercase too.
 # ═══════════════════════════════════════════════════════════════════════════════
 
 import os
-import shutil
-import tempfile
 
 from osbot_utils.utils.Dev                                                              import pprint
-from osbot_utils.utils.Files                                                            import file_contents, path_combine
+from osbot_utils.utils.Files                                                            import file_contents
 
 import sgraph_ai_service_playwright
 
 from sgraph_ai_service_playwright.docker.Docker__SGraph_AI__Service__Playwright__Base   import (CONTAINER_PORT                               ,
                                                                                                  Docker__SGraph_AI__Service__Playwright__Base,
                                                                                                  LOCAL_PORT                                   )
+from sgraph_ai_service_playwright__cli.image.schemas.Schema__Image__Build__Request       import Schema__Image__Build__Request
+from sgraph_ai_service_playwright__cli.image.schemas.Schema__Image__Build__Result        import Schema__Image__Build__Result
+from sgraph_ai_service_playwright__cli.image.schemas.Schema__Image__Stage__Item          import Schema__Image__Stage__Item
+from sgraph_ai_service_playwright__cli.image.service.Image__Build__Service               import Image__Build__Service
 
 
-DOCKERFILE_NAME      = 'dockerfile'                                                     # Explicit — daemon defaults to 'Dockerfile' (case-sensitive on Linux) when not passed
 BOOT_SHIM_FILENAME   = 'lambda_entry.py'                                                # v0.1.28 — copied from repo root into /var/task/; boots before the code zip lands
 IMAGE_VERSION_FILE   = 'image_version'                                                  # v0.1.28 — repo-root file; read by the boot shim to set AGENTIC_IMAGE_VERSION
 
 
-def _ignore_build_noise(directory, names):                                              # Keep the build context lean — pycache + compiled files add MBs
-    return [n for n in names if n in ('__pycache__', '.pytest_cache', '.mypy_cache') or n.endswith('.pyc')]
-
-
 class Build__Docker__SGraph_AI__Service__Playwright(Docker__SGraph_AI__Service__Playwright__Base):
 
-    def build_docker_image(self):
-        src_context   = self.create_image_ecr.path_image()                              # .../docker/images/sgraph_ai_service_playwright/ (dockerfile + requirements.txt)
-        pkg_src       = sgraph_ai_service_playwright.path                               # .../sgraph_ai_service_playwright/ (the actual Python package)
-        repo_root     = os.path.dirname(pkg_src)                                        # v0.1.28 — lambda_entry.py + image_version live next to the package
-        pkg_name      = 'sgraph_ai_service_playwright'
-        image_tag     = self.create_image_ecr.docker_image.image_name_with_tag()        # Full ECR URI + :latest
+    def build_request(self) -> Schema__Image__Build__Request:                           # Compose the Playwright-specific build request — testable in isolation
+        src_context = self.create_image_ecr.path_image()                                # .../docker/images/sgraph_ai_service_playwright/
+        pkg_src     = sgraph_ai_service_playwright.path                                 # .../sgraph_ai_service_playwright/ (the actual Python package)
+        repo_root   = os.path.dirname(pkg_src)                                          # v0.1.28 — lambda_entry.py + image_version live next to the package
+        pkg_name    = 'sgraph_ai_service_playwright'
 
-        build_context = tempfile.mkdtemp(prefix='sgraph_playwright_build_')
-        try:
-            shutil.copy(path_combine(src_context, DOCKERFILE_NAME   ), path_combine(build_context, DOCKERFILE_NAME   ))
-            shutil.copy(path_combine(src_context, 'requirements.txt'), path_combine(build_context, 'requirements.txt'))
-            shutil.copy(path_combine(repo_root   , BOOT_SHIM_FILENAME), path_combine(build_context, BOOT_SHIM_FILENAME))
-            shutil.copy(path_combine(repo_root   , IMAGE_VERSION_FILE), path_combine(build_context, IMAGE_VERSION_FILE))
-            shutil.copytree(pkg_src, path_combine(build_context, pkg_name), ignore=_ignore_build_noise)
+        return Schema__Image__Build__Request(
+            image_folder         = src_context                                          ,
+            image_tag            = self.create_image_ecr.docker_image.image_name_with_tag(),
+            build_context_prefix = 'sgraph_playwright_build_'                           ,
+            stage_items          = [Schema__Image__Stage__Item(source_path=os.path.join(repo_root, BOOT_SHIM_FILENAME), target_name=BOOT_SHIM_FILENAME),
+                                    Schema__Image__Stage__Item(source_path=os.path.join(repo_root, IMAGE_VERSION_FILE), target_name=IMAGE_VERSION_FILE),
+                                    Schema__Image__Stage__Item(source_path=pkg_src, target_name=pkg_name, is_tree=True)])
 
-            client_docker   = self.api_docker().client_docker()                         # Direct docker SDK — bypass @catch so BuildError / APIError surface to the caller
-            image, _logs    = client_docker.images.build(path       = build_context,
-                                                          tag        = image_tag    ,
-                                                          dockerfile = DOCKERFILE_NAME,
-                                                          rm         = True         )
-            result = {'status': 'ok', 'image_id': image.id, 'tags': image.tags}
-            pprint(result)                                                              # CI log visibility — first line tells us the tag landed
-            return result
-        finally:
-            shutil.rmtree(build_context, ignore_errors=True)
+    def build_docker_image(self) -> Schema__Image__Build__Result:                       # Returns Schema__Image__Build__Result; CI test asserts on its fields
+        result = Image__Build__Service().build(self.build_request(), self.api_docker().client_docker())
+        pprint(result.json())                                                           # CI log visibility — first line tells us the tag landed
+        return result
 
     def create_container(self):
         port_bindings = {CONTAINER_PORT: LOCAL_PORT}
