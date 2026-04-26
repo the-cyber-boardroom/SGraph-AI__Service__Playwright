@@ -31,9 +31,14 @@ from sgraph_ai_service_playwright__cli.ec2.schemas.Schema__Ec2__Delete__Response
 from sgraph_ai_service_playwright__cli.ec2.schemas.Schema__Ec2__Instance__Info         import Schema__Ec2__Instance__Info
 from sgraph_ai_service_playwright__cli.ec2.schemas.Schema__Ec2__Instance__List         import Schema__Ec2__Instance__List, List__Ec2__Instance__Info
 from sgraph_ai_service_playwright__cli.ec2.schemas.Schema__Ec2__Preflight              import Schema__Ec2__Preflight
-from sgraph_ai_service_playwright__cli.ec2.service.Ec2__AWS__Client                    import (Ec2__AWS__Client    ,
-                                                                                                instance_deploy_name,
-                                                                                                instance_tag        )
+from sgraph_ai_service_playwright__cli.ec2.service.Ec2__AWS__Client                    import (Ec2__AWS__Client            ,
+                                                                                                aws_account_id              ,
+                                                                                                aws_region                  ,
+                                                                                                default_playwright_image_uri,
+                                                                                                default_sidecar_image_uri   ,
+                                                                                                ecr_registry_host           ,
+                                                                                                instance_deploy_name        ,
+                                                                                                instance_tag                )
 
 
 DEFAULT_API_KEY_NAME = 'X-API-Key'
@@ -44,11 +49,6 @@ class Ec2__Service(Type_Safe):                                                  
     @type_safe
     def create(self, request: Schema__Ec2__Create__Request) -> Schema__Ec2__Create__Response:
         from scripts.provision_ec2                                                  import (
-            aws_account_id        ,
-            aws_region            ,
-            ecr_registry_host     ,
-            default_playwright_image_uri,
-            default_sidecar_image_uri   ,
             provision             ,
             EC2__INSTANCE_TYPE    )
 

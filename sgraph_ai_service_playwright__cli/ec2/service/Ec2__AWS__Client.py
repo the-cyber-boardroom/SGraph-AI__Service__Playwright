@@ -30,7 +30,11 @@ import subprocess
 from datetime                                                                       import datetime, timezone
 from typing                                                                         import Optional
 
+from osbot_aws.AWS_Config                                                           import AWS_Config
 from osbot_utils.type_safe.Type_Safe                                                import Type_Safe
+
+from sgraph_ai_service_playwright.docker.Docker__SGraph_AI__Service__Playwright__Base import IMAGE_NAME as PLAYWRIGHT_IMAGE_NAME
+from agent_mitmproxy.docker.Docker__Agent_Mitmproxy__Base                            import IMAGE_NAME as SIDECAR_IMAGE_NAME
 
 
 TAG__SERVICE_KEY      = 'sg:service'                                                # Immutable identifier — find_instances filters on this, not Name (Name is user-editable in console)
@@ -89,6 +93,30 @@ def instance_tag(details: dict, key: str) -> str:                               
 
 def instance_deploy_name(details: dict) -> str:                                     # Convenience wrapper — the sg:deploy-name tag is the human-facing identifier
     return instance_tag(details, TAG__DEPLOY_NAME_KEY)
+
+
+# ── AWS context accessors (Phase A step 3b) ─────────────────────────────────────
+# Pure-data accessors over osbot_aws.AWS_Config — kept as module-level functions
+# (no EC2 client needed). Each AWS_Config() call uses osbot_aws's auth caching.
+
+def aws_account_id() -> str:
+    return AWS_Config().aws_session_account_id()
+
+
+def aws_region() -> str:
+    return AWS_Config().aws_session_region_name()
+
+
+def ecr_registry_host() -> str:                                                     # <account>.dkr.ecr.<region>.amazonaws.com — the host portion of every ECR URI
+    return f'{aws_account_id()}.dkr.ecr.{aws_region()}.amazonaws.com'
+
+
+def default_playwright_image_uri() -> str:                                          # Resolves to {registry}/{IMAGE_NAME}:latest at call time
+    return f'{ecr_registry_host()}/{PLAYWRIGHT_IMAGE_NAME}:latest'
+
+
+def default_sidecar_image_uri() -> str:
+    return f'{ecr_registry_host()}/{SIDECAR_IMAGE_NAME}:latest'
 
 
 class Ec2__AWS__Client(Type_Safe):                                                  # Narrow boto3 boundary for the Playwright EC2 stack

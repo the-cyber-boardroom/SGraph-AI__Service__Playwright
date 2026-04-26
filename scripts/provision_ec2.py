@@ -48,6 +48,11 @@ from sgraph_ai_service_playwright.docker.Docker__SGraph_AI__Service__Playwright_
 from agent_mitmproxy.docker.Docker__Agent_Mitmproxy__Base                                import IMAGE_NAME as SIDECAR_IMAGE_NAME
 
 from sgraph_ai_service_playwright__cli.ec2.service.Ec2__AWS__Client                      import (Ec2__AWS__Client                                            ,
+                                                                                                  aws_account_id                                              ,
+                                                                                                  aws_region                                                  ,
+                                                                                                  default_playwright_image_uri                                ,
+                                                                                                  default_sidecar_image_uri                                   ,
+                                                                                                  ecr_registry_host                                           ,
                                                                                                   get_creator                  as _get_creator               ,
                                                                                                   instance_deploy_name         as _instance_deploy_name      ,
                                                                                                   instance_tag                 as _instance_tag              ,
@@ -602,24 +607,9 @@ trap - EXIT
 """
 
 
-def aws_account_id() -> str:
-    return AWS_Config().aws_session_account_id()
-
-
-def aws_region() -> str:
-    return AWS_Config().aws_session_region_name()
-
-
-def ecr_registry_host() -> str:
-    return f'{aws_account_id()}.dkr.ecr.{aws_region()}.amazonaws.com'
-
-
-def default_playwright_image_uri() -> str:
-    return f'{ecr_registry_host()}/{PLAYWRIGHT_IMAGE_NAME}:latest'
-
-
-def default_sidecar_image_uri() -> str:
-    return f'{ecr_registry_host()}/{SIDECAR_IMAGE_NAME}:latest'
+# aws_account_id / aws_region / ecr_registry_host / default_playwright_image_uri /
+# default_sidecar_image_uri moved to Ec2__AWS__Client (Phase A step 3b) — imported
+# at the top of this file under their original names.
 
 
 def preflight_check(playwright_image_uri: str = None, sidecar_image_uri: str = None,

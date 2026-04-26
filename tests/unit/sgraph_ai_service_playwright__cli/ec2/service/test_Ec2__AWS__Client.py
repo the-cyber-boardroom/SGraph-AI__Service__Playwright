@@ -9,16 +9,22 @@ from unittest                                                                   
 
 from sgraph_ai_service_playwright__cli.ec2.service.Ec2__AWS__Client                  import (Ec2__AWS__Client                            ,
                                                                                               INSTANCE_STATES_LIVE                         ,
+                                                                                              PLAYWRIGHT_IMAGE_NAME                        ,
+                                                                                              SIDECAR_IMAGE_NAME                           ,
                                                                                               TAG__DEPLOY_NAME_KEY                         ,
                                                                                               TAG__SERVICE_KEY                             ,
                                                                                               TAG__SERVICE_VALUE                           ,
                                                                                               _ADJECTIVES                                  ,
                                                                                               _SCIENTISTS                                  ,
+                                                                                              default_playwright_image_uri                 ,
+                                                                                              default_sidecar_image_uri                    ,
+                                                                                              ecr_registry_host                            ,
                                                                                               get_creator                                  ,
                                                                                               instance_deploy_name                         ,
                                                                                               instance_tag                                 ,
                                                                                               random_deploy_name                           ,
                                                                                               uptime_str                                   )
+from sgraph_ai_service_playwright__cli.ec2.service                                   import Ec2__AWS__Client as aws_client_module
 
 
 class _Fake_EC2:                                                                    # In-memory stand-in — real class, no mocks. Records every call.
@@ -99,6 +105,41 @@ class test_uptime_str(TestCase):
     def test__naive_datetime_treated_as_utc(self):                                  # AWS LaunchTime can come back without tzinfo
         naive_recent = datetime.utcnow() - timedelta(minutes=10)
         assert uptime_str(naive_recent) == '10m'
+
+
+# ──────────────────────────────── AWS context accessors (Phase A step 3b) ─────
+
+class test_aws_context_accessors(TestCase):                                         # AWS_Config provides cached account + region; we patch it via the module-level functions
+
+    def setUp(self):
+        self._orig_account = aws_client_module.aws_account_id
+        self._orig_region  = aws_client_module.aws_region
+
+    def tearDown(self):
+        aws_client_module.aws_account_id = self._orig_account
+        aws_client_module.aws_region     = self._orig_region
+
+    def test_ecr_registry_host__assembled_from_account_and_region(self):
+        aws_client_module.aws_account_id = lambda: '123456789012'
+        aws_client_module.aws_region     = lambda: 'eu-west-2'
+        assert aws_client_module.ecr_registry_host() == '123456789012.dkr.ecr.eu-west-2.amazonaws.com'
+
+    def test_default_playwright_image_uri__uses_playwright_image_name(self):
+        aws_client_module.aws_account_id = lambda: '111122223333'
+        aws_client_module.aws_region     = lambda: 'us-east-1'
+        expected = f'111122223333.dkr.ecr.us-east-1.amazonaws.com/{PLAYWRIGHT_IMAGE_NAME}:latest'
+        assert aws_client_module.default_playwright_image_uri() == expected
+
+    def test_default_sidecar_image_uri__uses_sidecar_image_name(self):
+        aws_client_module.aws_account_id = lambda: '111122223333'
+        aws_client_module.aws_region     = lambda: 'us-east-1'
+        expected = f'111122223333.dkr.ecr.us-east-1.amazonaws.com/{SIDECAR_IMAGE_NAME}:latest'
+        assert aws_client_module.default_sidecar_image_uri() == expected
+
+    def test_image_name_constants_are_distinct(self):                               # Defensive: catches future copy-paste bugs in the import block
+        assert PLAYWRIGHT_IMAGE_NAME != SIDECAR_IMAGE_NAME
+        assert PLAYWRIGHT_IMAGE_NAME                                                # Non-empty
+        assert SIDECAR_IMAGE_NAME
 
 
 class test_instance_tag(TestCase):
