@@ -62,6 +62,22 @@ class test_S3__Inventory__Lister(TestCase):
         assert lister.paginate_calls == [('b', 'p', 42, 'eu-west-2')]
 
 
+class test_S3__Inventory__Lister__s3_client(TestCase):                              # Pins the region-fallback contract — no boto3 calls leak out, just constructs the client
+
+    def test_empty_region_does_not_pass_region_name(self):                          # Regression: passing region_name='' to boto3 produces an "https://s3..amazonaws.com" endpoint. Empty must fall through to env-var resolution.
+        import os
+        os.environ.setdefault('AWS_DEFAULT_REGION', 'eu-west-2')                    # Ensure boto3 has SOMETHING to resolve from
+        from sgraph_ai_service_playwright__cli.elastic.lets.cf.inventory.service.S3__Inventory__Lister import S3__Inventory__Lister
+        client = S3__Inventory__Lister().s3_client('')
+        assert client is not None
+        assert client.meta.region_name == 'eu-west-2'                               # Picked up from AWS_DEFAULT_REGION via boto3's standard chain
+
+    def test_explicit_region_wins(self):                                            # Caller-provided region must override the env var
+        from sgraph_ai_service_playwright__cli.elastic.lets.cf.inventory.service.S3__Inventory__Lister import S3__Inventory__Lister
+        client = S3__Inventory__Lister().s3_client('us-east-1')
+        assert client.meta.region_name == 'us-east-1'
+
+
 class test_normalise_etag(TestCase):
 
     def test_strips_surrounding_quotes(self):                                       # AWS returns ETag with quotes; the Safe_Str__S3__ETag regex doesn't accept them
