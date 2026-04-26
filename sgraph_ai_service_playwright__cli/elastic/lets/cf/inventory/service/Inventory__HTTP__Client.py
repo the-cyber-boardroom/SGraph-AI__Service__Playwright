@@ -152,3 +152,80 @@ class Inventory__HTTP__Client(Type_Safe):
             deleted += 1
 
         return deleted, last_status, first_error
+
+    def count_indices_by_pattern(self, base_url : str ,
+                                        username : str ,
+                                        password : str ,
+                                        pattern  : str
+                                  ) -> Tuple[int, int, str]:                         # (index_count, http_status, error_message) — read-only health probe
+        if not pattern:
+            return 0, 0, 'no pattern'
+        auth_token = base64.b64encode(f'{username}:{password}'.encode()).decode()
+        headers    = {'Authorization': f'Basic {auth_token}'}
+        url        = base_url.rstrip('/') + f'/_elastic/_cat/indices/{pattern}?format=json&h=index&expand_wildcards=open'
+        try:
+            resp = self.request('GET', url, headers=headers)
+        except Exception as exc:
+            return 0, 0, f'list error: {str(exc)[:200]}'
+        status = int(resp.status_code)
+        if status == 404:                                                            # No matching indices
+            return 0, status, ''
+        if status >= 300:
+            return 0, status, f'HTTP {status}: {(resp.text or "")[:300]}'
+        try:
+            entries = resp.json() or []
+        except Exception:
+            entries = []
+        return len(entries), status, ''
+
+    def aggregate_run_summaries(self, base_url      : str ,
+                                       username      : str ,
+                                       password      : str ,
+                                       index_pattern : str ,
+                                       top_n         : int = 100
+                                  ) -> Tuple[List[dict], int, str]:                  # (raw_buckets, http_status, error_message)
+        # Single _search over the data-pattern with a terms agg on
+        # pipeline_run_id.keyword and per-bucket sub-aggs for byte sum and
+        # the loaded_at / delivery_at min/max ranges.  Returns the raw
+        # bucket list — Inventory__Read translates each into a
+        # Schema__Inventory__Run__Summary so the HTTP boundary stays
+        # narrow (matches Elastic__HTTP__Client.bulk_post() which also
+        # returns raw counts rather than typed schemas).
+        if not index_pattern:
+            return [], 0, 'no index_pattern'
+        auth_token = base64.b64encode(f'{username}:{password}'.encode()).decode()
+        headers    = {'Content-Type' : 'application/json'         ,
+                      'Authorization': f'Basic {auth_token}'      }
+        body = json.dumps({
+            'size': 0,
+            'aggs': {
+                'by_run': {
+                    'terms': {'field' : 'pipeline_run_id.keyword'  ,                  # ES auto-mapping puts the keyword sub-field here for terms aggs
+                              'size'  : top_n                       ,
+                              'order' : {'latest_loaded': 'desc'}    },                # Most recent run first
+                    'aggs': {
+                        'bytes_total'      : {'sum': {'field': 'size_bytes' }},
+                        'earliest_loaded'  : {'min': {'field': 'loaded_at'  }},
+                        'latest_loaded'    : {'max': {'field': 'loaded_at'  }},
+                        'earliest_delivery': {'min': {'field': 'delivery_at'}},
+                        'latest_delivery'  : {'max': {'field': 'delivery_at'}},
+                    },
+                },
+            },
+        }).encode('utf-8')
+        url = base_url.rstrip('/') + f'/_elastic/{index_pattern}/_search'
+        try:
+            resp = self.request('POST', url, headers=headers, data=body)
+        except Exception as exc:
+            return [], 0, f'search error: {str(exc)[:200]}'
+        status = int(resp.status_code)
+        if status == 404:                                                            # No matching indices — clean empty
+            return [], status, ''
+        if status >= 300:
+            return [], status, f'HTTP {status}: {(resp.text or "")[:300]}'
+        try:
+            payload = resp.json() or {}
+        except Exception:
+            return [], status, 'response was not JSON'
+        buckets = payload.get('aggregations', {}).get('by_run', {}).get('buckets', []) or []
+        return list(buckets), status, ''

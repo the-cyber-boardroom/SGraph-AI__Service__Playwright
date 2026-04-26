@@ -198,3 +198,107 @@ class test_real_delete_indices_by_pattern(TestCase):
         assert deleted == 0
         assert status  == 404
         assert err     == ''
+
+
+class test_count_indices_by_pattern(TestCase):
+
+    def test_call_args_captured(self):
+        client = Inventory__HTTP__Client__In_Memory(count_pattern_calls=[], fixture_count_response=())
+        client.count_indices_by_pattern(base_url='https://x', username='u', password='p',
+                                         pattern='sg-cf-inventory-*')
+        assert client.count_pattern_calls == [('https://x', 'sg-cf-inventory-*')]
+
+    def test_default_returns_zero(self):
+        client = Inventory__HTTP__Client__In_Memory(count_pattern_calls=[], fixture_count_response=())
+        n, status, err = client.count_indices_by_pattern(base_url='https://x', username='u', password='p',
+                                                           pattern='sg-cf-inventory-*')
+        assert (n, status, err) == (0, 200, '')
+
+    def test_fixture_propagates(self):
+        client = Inventory__HTTP__Client__In_Memory(count_pattern_calls=[],
+                                                     fixture_count_response=(7, 200, ''))
+        n, _, _ = client.count_indices_by_pattern(base_url='https://x', username='u', password='p',
+                                                    pattern='sg-cf-inventory-*')
+        assert n == 7
+
+
+class test_real_count_indices_by_pattern(TestCase):
+
+    def test_real_call_lists_and_counts(self):                                      # Real implementation against canned _cat/indices response
+        client = Inventory__HTTP__Client__Recording_Requests(
+            request_log    = [],
+            response_queue = [Fake__Response(200, json_body=[{'index': 'a'}, {'index': 'b'}, {'index': 'c'}])])
+        n, status, err = client.count_indices_by_pattern(base_url='https://x', username='u', password='p',
+                                                           pattern='sg-cf-inventory-*')
+        assert n      == 3
+        assert status == 200
+        assert err    == ''
+        assert client.request_log[0][0] == 'GET'
+
+    def test_real_call_404_means_zero(self):
+        client = Inventory__HTTP__Client__Recording_Requests(
+            request_log    = [],
+            response_queue = [Fake__Response(404, text='no such index')])
+        n, status, _ = client.count_indices_by_pattern(base_url='https://x', username='u', password='p',
+                                                        pattern='sg-cf-inventory-*')
+        assert n      == 0
+        assert status == 404
+
+
+class test_aggregate_run_summaries(TestCase):
+
+    def test_call_args_captured(self):
+        client = Inventory__HTTP__Client__In_Memory(aggregate_calls=[], fixture_run_buckets=[])
+        client.aggregate_run_summaries(base_url='https://x', username='u', password='p',
+                                         index_pattern='sg-cf-inventory-*', top_n=50)
+        assert client.aggregate_calls == [('https://x', 'sg-cf-inventory-*', 50)]
+
+    def test_default_empty_buckets(self):
+        client = Inventory__HTTP__Client__In_Memory(aggregate_calls=[], fixture_run_buckets=[])
+        buckets, status, err = client.aggregate_run_summaries(base_url='https://x', username='u', password='p',
+                                                               index_pattern='sg-cf-inventory-*')
+        assert buckets == []
+        assert status  == 200
+
+    def test_fixture_buckets_propagate(self):
+        b1 = {'key': 'run-1', 'doc_count': 100}
+        b2 = {'key': 'run-2', 'doc_count': 200}
+        client = Inventory__HTTP__Client__In_Memory(aggregate_calls=[], fixture_run_buckets=[b1, b2])
+        buckets, _, _ = client.aggregate_run_summaries(base_url='https://x', username='u', password='p',
+                                                         index_pattern='sg-cf-inventory-*')
+        assert buckets == [b1, b2]
+
+
+class test_real_aggregate_run_summaries(TestCase):
+
+    def test_real_call_extracts_buckets(self):                                      # Real implementation parses ES aggregations response
+        es_response = {
+            'aggregations': {
+                'by_run': {
+                    'buckets': [
+                        {'key': 'run-1', 'doc_count': 425, 'bytes_total': {'value': 633091}},
+                        {'key': 'run-2', 'doc_count': 300, 'bytes_total': {'value': 480000}},
+                    ],
+                },
+            },
+        }
+        client = Inventory__HTTP__Client__Recording_Requests(
+            request_log    = [],
+            response_queue = [Fake__Response(200, json_body=es_response)])
+        buckets, status, err = client.aggregate_run_summaries(base_url='https://x', username='u', password='p',
+                                                                index_pattern='sg-cf-inventory-*')
+        assert len(buckets) == 2
+        assert buckets[0]['key'] == 'run-1'
+        # POST not GET (it's a _search with a body)
+        assert client.request_log[0][0] == 'POST'
+        assert '_search' in client.request_log[0][1]
+
+    def test_real_call_404_returns_clean_empty(self):
+        client = Inventory__HTTP__Client__Recording_Requests(
+            request_log    = [],
+            response_queue = [Fake__Response(404, text='no such index')])
+        buckets, status, err = client.aggregate_run_summaries(base_url='https://x', username='u', password='p',
+                                                                index_pattern='sg-cf-inventory-*')
+        assert buckets == []
+        assert status  == 404
+        assert err     == ''

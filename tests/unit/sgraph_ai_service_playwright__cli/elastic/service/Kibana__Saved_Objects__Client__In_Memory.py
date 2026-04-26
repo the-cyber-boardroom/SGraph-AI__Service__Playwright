@@ -28,6 +28,8 @@ class Kibana__Saved_Objects__Client__In_Memory(Kibana__Saved_Objects__Client):
     fixture_delete_object_count : int = 0                                            # What delete_saved_objects returns
     import_calls              : list                                                 # [(base_url, ndjson_byte_count, overwrite), ...] — populated by import_objects (used by the LETS-inventory dashboard import)
     fixture_import_success_count : int = 6                                           # What import_objects' Schema__Kibana__Import__Result.success_count carries (default 6 = 1 dashboard + 5 visualisations)
+    find_calls                : list                                                 # [(base_url, object_type, page_size), ...]
+    fixture_find_objects      : dict                                                 # {object_type_str: [{'id': ..., 'type': ..., 'title': ..., 'updated_at': ...}, ...]} — populated by find()
 
     def ensure_data_view(self, base_url        : str ,
                                 username        : str ,
@@ -69,6 +71,26 @@ class Kibana__Saved_Objects__Client__In_Memory(Kibana__Saved_Objects__Client):
     # which is overridden above.  The CF-inventory dashboard imports its
     # ndjson directly via import_objects, so we add a fixture-driven override
     # here.  Records every call so tests can assert on what was imported.
+
+    def find(self, base_url     : str ,
+                   username     : str ,
+                   password     : str ,
+                   object_type        ,                                             # Enum__Saved_Object__Type — string-coerced via str() to lookup in the fixture dict
+                   page_size    : int = 100):
+        from sgraph_ai_service_playwright__cli.elastic.collections.List__Schema__Kibana__Saved_Object import List__Schema__Kibana__Saved_Object
+        from sgraph_ai_service_playwright__cli.elastic.schemas.Schema__Kibana__Find__Response          import Schema__Kibana__Find__Response
+        from sgraph_ai_service_playwright__cli.elastic.schemas.Schema__Kibana__Saved_Object            import Schema__Kibana__Saved_Object
+        self.find_calls.append((base_url, str(object_type), page_size))
+        objects = List__Schema__Kibana__Saved_Object()
+        for raw in self.fixture_find_objects.get(str(object_type), []):
+            objects.append(Schema__Kibana__Saved_Object(id         = str(raw.get('id'        , '')),
+                                                        type       = str(raw.get('type'      , '')),
+                                                        title      = str(raw.get('title'     , '')),
+                                                        updated_at = str(raw.get('updated_at', ''))))
+        return Schema__Kibana__Find__Response(total       = len(objects)             ,
+                                              objects     = objects                  ,
+                                              http_status = 200                      ,
+                                              error       = ''                       )
 
     def import_objects(self, base_url     : str   ,
                               username     : str   ,
