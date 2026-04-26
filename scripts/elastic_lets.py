@@ -35,6 +35,15 @@ from sgraph_ai_service_playwright__cli.elastic.lets.cf.inventory.service.Invento
 from sgraph_ai_service_playwright__cli.elastic.lets.cf.inventory.service.Run__Id__Generator    import Run__Id__Generator
 from sgraph_ai_service_playwright__cli.elastic.lets.cf.inventory.service.S3__Inventory__Lister import S3__Inventory__Lister
 
+# Slice 2 — events:
+from sgraph_ai_service_playwright__cli.elastic.lets.cf.events.schemas.Schema__Events__Load__Request import Schema__Events__Load__Request
+from sgraph_ai_service_playwright__cli.elastic.lets.cf.events.service.Bot__Classifier            import Bot__Classifier
+from sgraph_ai_service_playwright__cli.elastic.lets.cf.events.service.CF__Realtime__Log__Parser import CF__Realtime__Log__Parser
+from sgraph_ai_service_playwright__cli.elastic.lets.cf.events.service.Events__Loader              import Events__Loader
+from sgraph_ai_service_playwright__cli.elastic.lets.cf.events.service.Inventory__Manifest__Reader  import Inventory__Manifest__Reader
+from sgraph_ai_service_playwright__cli.elastic.lets.cf.events.service.Inventory__Manifest__Updater import Inventory__Manifest__Updater
+from sgraph_ai_service_playwright__cli.elastic.lets.cf.events.service.S3__Object__Fetcher          import S3__Object__Fetcher
+
 
 # ───────────────────────────────────────────────────────────────────────────────
 # Typer app composition (registered onto the parent `sp el` app from scripts/elastic.py)
@@ -46,9 +55,12 @@ cf_app        = typer.Typer(help = 'CloudFront real-time logs LETS pipelines.',
                             no_args_is_help = True)
 inventory_app = typer.Typer(help = 'S3 listing-metadata inventory for the CloudFront-realtime bucket. No .gz content reads in slice 1.',
                             no_args_is_help = True)
+events_app    = typer.Typer(help = 'CloudFront real-time log EVENTS — fetches each .gz, parses the TSV into typed records, indexes to sg-cf-events-*.',
+                            no_args_is_help = True)
 
 app.add_typer(cf_app, name='cf')
 cf_app.add_typer(inventory_app, name='inventory')
+cf_app.add_typer(events_app   , name='events')
 
 
 def build_inventory_loader() -> Inventory__Loader:                                  # Single construction site so tests and CLI share the wiring
@@ -66,6 +78,17 @@ def build_inventory_wiper() -> Inventory__Wiper:
 def build_inventory_read() -> Inventory__Read:
     return Inventory__Read(http_client   = Inventory__HTTP__Client()       ,
                             kibana_client = Kibana__Saved_Objects__Client() )
+
+
+def build_events_loader() -> Events__Loader:                                        # Composition root for the events pipeline (slice 2)
+    return Events__Loader(s3_lister        = S3__Inventory__Lister()                                    ,
+                           s3_fetcher       = S3__Object__Fetcher()                                      ,
+                           parser           = CF__Realtime__Log__Parser(bot_classifier=Bot__Classifier()),
+                           http_client      = Inventory__HTTP__Client()                                  ,
+                           kibana_client    = Kibana__Saved_Objects__Client()                            ,
+                           manifest_reader  = Inventory__Manifest__Reader (http_client=Inventory__HTTP__Client()),
+                           manifest_updater = Inventory__Manifest__Updater(http_client=Inventory__HTTP__Client()),
+                           run_id_gen       = Run__Id__Generator()                                        )
 
 
 # ───────────────────────────────────────────────────────────────────────────────
@@ -342,6 +365,107 @@ def cmd_inventory_health(stack_name : Optional[str] = typer.Argument(None,      
         for chk in response.checks:
             t.add_row(icon_for.get(str(chk.status), '·'), str(chk.name), rich_escape(str(chk.detail)))
         c.print(t)
+        c.print()
+
+    _run()
+
+
+# ───────────────────────────────────────────────────────────────────────────────
+# `sp el lets cf events load` — fetch .gz files, parse TSV, index events
+# ───────────────────────────────────────────────────────────────────────────────
+
+@events_app.command('load')
+def cmd_events_load(stack_name      : Optional[str] = typer.Argument(None,                       help='Stack name. Auto-picks when only one stack exists; prompts on multiple.'),
+                    bucket          : Optional[str] = typer.Option  (None, '--bucket',           help='S3 bucket holding the CloudFront-realtime objects (defaults to the SGraph CloudFront-logs bucket).'),
+                    prefix          : Optional[str] = typer.Option  (None, '--prefix',           help='S3 key prefix (e.g. "cloudfront-realtime/2026/04/25/"). Empty + no --all + no --from-inventory defaults to today UTC.'),
+                    all_objects     : bool          = typer.Option  (False, '--all',             help='Full-bucket scan (S3 listing mode). Ignored when --prefix is set.'),
+                    max_files       : int           = typer.Option  (0,    '--max-files',        help='Stop after N FILES (NOT events). 0 = unlimited. With --from-inventory, defaults to 1000 (the manifest-reader top_n cap).'),
+                    from_inventory  : bool          = typer.Option  (False, '--from-inventory',  help='Use the inventory manifest (sg-cf-inventory-* docs where content_processed=false) as the work queue. Pays off slice 1\'s content_processed forward declaration.'),
+                    run_id          : Optional[str] = typer.Option  (None, '--run-id',           help='Pipeline run id. Empty = service auto-generates.'),
+                    password        : Optional[str] = typer.Option  (None, '--password',         help='Elastic password (else $SG_ELASTIC_PASSWORD).'),
+                    region          : Optional[str] = typer.Option  (None, '--region',           help='AWS region (defaults to current AWS_Config session region).'),
+                    dry_run         : bool          = typer.Option  (False, '--dry-run',         help='Build the queue, skip the fetch + parse + bulk-post + manifest update.')):
+    """Load CloudFront events into the ephemeral Kibana stack (sg-cf-events-* index family)."""
+    from scripts.elastic                                                             import build_service, resolve_stack_name, aws_error_handler, rich_escape
+    from sgraph_ai_service_playwright__cli.elastic.lets.cf.inventory.primitives.Safe_Str__Pipeline__Run__Id import Safe_Str__Pipeline__Run__Id
+    from sgraph_ai_service_playwright__cli.elastic.lets.cf.inventory.primitives.Safe_Str__S3__Bucket       import Safe_Str__S3__Bucket
+    from sgraph_ai_service_playwright__cli.elastic.lets.cf.inventory.primitives.Safe_Str__S3__Key__Prefix  import Safe_Str__S3__Key__Prefix
+
+    @aws_error_handler
+    def _run():
+        c = Console(highlight=False)
+
+        if not dry_run and not password and not os.environ.get('SG_ELASTIC_PASSWORD'):
+            c.print('\n  [yellow]⚠[/]  SG_ELASTIC_PASSWORD is not set.')
+            c.print('     [dim]Re-export it from the most recent `sp elastic create` output, e.g.:[/]')
+            c.print('     [bold]export SG_ELASTIC_PASSWORD=<password-from-create>[/]')
+            c.print('     [dim]Or pass it explicitly via --password.[/]\n')
+            raise typer.Exit(1)
+
+        service       = build_service()
+        stack_picked  = resolve_stack_name(service, stack_name, region)
+        info          = service.get_stack_info(stack_name = Safe_Str__Elastic__Stack__Name(stack_picked),
+                                                region     = region or '')
+        if not str(info.kibana_url):
+            c.print(f'\n  [red]✗  Stack [bold]{stack_picked}[/] has no Kibana URL yet.[/]  Run `sp el wait` first.\n')
+            raise typer.Exit(1)
+
+        base_url     = str(info.kibana_url).rstrip('/')
+        elastic_pwd  = password or os.environ.get('SG_ELASTIC_PASSWORD', '')
+        request      = Schema__Events__Load__Request(stack_name     = Safe_Str__Elastic__Stack__Name(stack_picked) ,
+                                                      bucket         = Safe_Str__S3__Bucket(bucket or '')           ,
+                                                      prefix         = Safe_Str__S3__Key__Prefix(prefix or '')      ,
+                                                      all            = bool(all_objects)                             ,
+                                                      max_files      = int(max_files)                                ,
+                                                      from_inventory = bool(from_inventory)                          ,
+                                                      run_id         = Safe_Str__Pipeline__Run__Id(run_id or '')     ,
+                                                      region         = Safe_Str__AWS__Region(region or '')           ,
+                                                      dry_run        = bool(dry_run)                                 )
+
+        loader      = build_events_loader()
+        import time as _time
+        t0          = _time.time()
+        response    = loader.load(request=request, base_url=base_url, username='elastic', password=elastic_pwd)
+        wall_ms     = int((_time.time() - t0) * 1000)
+
+        # ─── render summary ─────────────────────────────────────────────────
+        c.print()
+        title_suffix = '  [yellow](dry-run)[/]' if response.dry_run else ''
+        c.print(f'  [bold]CloudFront events load[/]{title_suffix}')
+        c.print()
+        t = Table(show_header=False, box=None, padding=(0, 2))
+        t.add_column(style='dim', justify='right')
+        t.add_column(style='bold')
+        t.add_row('stack'             , str(response.stack_name      ))
+        t.add_row('run-id'            , str(response.run_id          ))
+        t.add_row('queue-mode'        , str(response.queue_mode      ))
+        t.add_row('bucket'            , str(response.bucket          ))
+        t.add_row('prefix'            , str(response.prefix_resolved ) or '[dim](full bucket)[/]')
+        t.add_row('files-queued'      , str(response.files_queued    ))
+        t.add_row('files-processed'   , str(response.files_processed ))
+        if response.files_skipped > 0:
+            t.add_row('files-skipped' , f'[yellow]{response.files_skipped}[/]')
+        if not response.dry_run:
+            t.add_row('events-indexed', str(response.events_indexed  ))
+            t.add_row('events-updated', str(response.events_updated  ))
+            t.add_row('inventory-flips', str(response.inventory_updated))
+        t.add_row('bytes-total'       , f'{response.bytes_total:,}')
+        t.add_row('wall-time'         , f'{wall_ms} ms')
+        if not response.dry_run:
+            t.add_row('http-status'   , str(response.last_http_status))
+            t.add_row('kibana-url'    , str(response.kibana_url      ))
+        c.print(t)
+
+        if str(response.error_message):                                              # Surface failures the same way slice 1 does
+            c.print()
+            c.print(f'  [yellow]⚠[/]  {rich_escape(str(response.error_message))}')
+            if response.last_http_status == 401 or response.last_http_status == 403:
+                c.print('     [dim]› Likely SG_ELASTIC_PASSWORD does not match the live stack.[/]')
+
+        if not response.dry_run and response.events_indexed + response.events_updated > 0:
+            c.print()
+            c.print(f'  [green]✓[/]  Open Kibana Discover at [bold]{base_url}/app/discover[/]')
+
         c.print()
 
     _run()
