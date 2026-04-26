@@ -44,7 +44,42 @@ from sgraph_ai_service_playwright__cli.elastic.lets.cf.events.service.Events__Re
 from sgraph_ai_service_playwright__cli.elastic.lets.cf.events.service.Events__Wiper                import Events__Wiper
 from sgraph_ai_service_playwright__cli.elastic.lets.cf.events.service.Inventory__Manifest__Reader  import Inventory__Manifest__Reader
 from sgraph_ai_service_playwright__cli.elastic.lets.cf.events.service.Inventory__Manifest__Updater import Inventory__Manifest__Updater
+from sgraph_ai_service_playwright__cli.elastic.lets.cf.events.service.Progress__Reporter            import Progress__Reporter
 from sgraph_ai_service_playwright__cli.elastic.lets.cf.events.service.S3__Object__Fetcher          import S3__Object__Fetcher
+
+
+# ───────────────────────────────────────────────────────────────────────────────
+# Console-rendered progress reporter for `events load`
+# Lives in the CLI module because it depends on Rich Console.
+# ───────────────────────────────────────────────────────────────────────────────
+
+class Console__Progress__Reporter(Progress__Reporter):                              # Type_Safe subclass — just hooks the no-op base methods to Console output
+    console : Console                                                               # Provided by the CLI command
+
+    def on_queue_built(self, files_queued: int, queue_mode: str):
+        if files_queued == 0:
+            self.console.print(f'\n  [yellow]Queue is empty[/]  [dim](mode: {queue_mode})[/]\n')
+            return
+        self.console.print(f'\n  [bold]Processing {files_queued} files[/]  [dim](mode: {queue_mode})[/]')
+
+    def on_skip_filter_done(self, before: int, after: int):
+        skipped = before - after
+        if skipped > 0:
+            self.console.print(f'  [dim]--skip-processed:[/] [green]{skipped}[/] already-processed file(s) skipped, [bold]{after}[/] to fetch')
+
+    def on_file_done(self, idx: int, total: int, key: str, events_count: int, duration_ms: int):
+        # Truncate to last path segment for readability (the .gz filename)
+        short_key = key.rsplit('/', 1)[-1] if len(key) > 60 else key
+        self.console.print(f'  [dim][{idx:>3}/{total}][/]  {short_key:<70} [bold]{events_count:>4}[/] events  [dim]{duration_ms:>5} ms[/]')
+
+    def on_file_error(self, idx: int, total: int, key: str, error_msg: str):
+        short_key = key.rsplit('/', 1)[-1] if len(key) > 60 else key
+        # Inline-escape bracket chars to avoid breaking Rich markup (rich_escape is lazily-imported inside each cmd to dodge a circular import; can't use it from this module-level class)
+        safe_msg = (error_msg or '').replace('[', r'\[').replace(']', r'\]')[:200]
+        self.console.print(f'  [red][{idx:>3}/{total}][/]  {short_key:<70} [red]error:[/] {safe_msg}')
+
+    def on_load_complete(self):
+        self.console.print()
 
 
 # ───────────────────────────────────────────────────────────────────────────────
@@ -82,15 +117,18 @@ def build_inventory_read() -> Inventory__Read:
                             kibana_client = Kibana__Saved_Objects__Client() )
 
 
-def build_events_loader() -> Events__Loader:                                        # Composition root for the events pipeline (slice 2)
-    return Events__Loader(s3_lister        = S3__Inventory__Lister()                                    ,
-                           s3_fetcher       = S3__Object__Fetcher()                                      ,
-                           parser           = CF__Realtime__Log__Parser(bot_classifier=Bot__Classifier()),
-                           http_client      = Inventory__HTTP__Client()                                  ,
-                           kibana_client    = Kibana__Saved_Objects__Client()                            ,
-                           manifest_reader  = Inventory__Manifest__Reader (http_client=Inventory__HTTP__Client()),
-                           manifest_updater = Inventory__Manifest__Updater(http_client=Inventory__HTTP__Client()),
-                           run_id_gen       = Run__Id__Generator()                                        )
+def build_events_loader(progress_reporter: Optional[Progress__Reporter] = None) -> Events__Loader:  # Composition root for the events pipeline.  Reporter optional — defaults to no-op base.
+    kwargs = dict(s3_lister        = S3__Inventory__Lister()                                    ,
+                   s3_fetcher       = S3__Object__Fetcher()                                      ,
+                   parser           = CF__Realtime__Log__Parser(bot_classifier=Bot__Classifier()),
+                   http_client      = Inventory__HTTP__Client()                                  ,
+                   kibana_client    = Kibana__Saved_Objects__Client()                            ,
+                   manifest_reader  = Inventory__Manifest__Reader (http_client=Inventory__HTTP__Client()),
+                   manifest_updater = Inventory__Manifest__Updater(http_client=Inventory__HTTP__Client()),
+                   run_id_gen       = Run__Id__Generator()                                        )
+    if progress_reporter is not None:
+        kwargs['progress_reporter'] = progress_reporter
+    return Events__Loader(**kwargs)
 
 
 def build_events_wiper() -> Events__Wiper:
@@ -394,6 +432,7 @@ def cmd_events_load(stack_name      : Optional[str] = typer.Argument(None,      
                     all_objects     : bool          = typer.Option  (False, '--all',             help='Full-bucket scan (S3 listing mode). Ignored when --prefix is set.'),
                     max_files       : int           = typer.Option  (0,    '--max-files',        help='Stop after N FILES (NOT events). 0 = unlimited. With --from-inventory, defaults to 1000 (the manifest-reader top_n cap).'),
                     from_inventory  : bool          = typer.Option  (False, '--from-inventory',  help='Use the inventory manifest (sg-cf-inventory-* docs where content_processed=false) as the work queue. Pays off slice 1\'s content_processed forward declaration.'),
+                    skip_processed  : bool          = typer.Option  (False, '--skip-processed',  help='Query sg-cf-events-* for distinct source_etag values FIRST, filter the queue to fetch only files whose events are NOT already indexed. Avoids re-fetching .gz files for re-runs. Cheap (one ES aggregation).'),
                     run_id          : Optional[str] = typer.Option  (None, '--run-id',           help='Pipeline run id. Empty = service auto-generates.'),
                     password        : Optional[str] = typer.Option  (None, '--password',         help='Elastic password (else $SG_ELASTIC_PASSWORD).'),
                     region          : Optional[str] = typer.Option  (None, '--region',           help='AWS region (defaults to current AWS_Config session region).'),
@@ -431,11 +470,16 @@ def cmd_events_load(stack_name      : Optional[str] = typer.Argument(None,      
                                                       all            = bool(all_objects)                             ,
                                                       max_files      = int(max_files)                                ,
                                                       from_inventory = bool(from_inventory)                          ,
+                                                      skip_processed = bool(skip_processed)                          ,
                                                       run_id         = Safe_Str__Pipeline__Run__Id(run_id or '')     ,
                                                       region         = Safe_Str__AWS__Region(region or '')           ,
                                                       dry_run        = bool(dry_run)                                 )
 
-        loader      = build_events_loader()
+        # Build the loader with a Console-rendered progress reporter so the
+        # per-file loop isn't silent.  Reporter is a no-op for dry_run
+        # (build_queue runs but the per-file loop doesn't).
+        reporter    = Console__Progress__Reporter(console=c)
+        loader      = build_events_loader(progress_reporter=reporter)
         import time as _time
         t0          = _time.time()
         response    = loader.load(request=request, base_url=base_url, username='elastic', password=elastic_pwd)
