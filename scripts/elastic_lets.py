@@ -40,6 +40,7 @@ from sgraph_ai_service_playwright__cli.elastic.lets.cf.events.schemas.Schema__Ev
 from sgraph_ai_service_playwright__cli.elastic.lets.cf.events.service.Bot__Classifier            import Bot__Classifier
 from sgraph_ai_service_playwright__cli.elastic.lets.cf.events.service.CF__Realtime__Log__Parser import CF__Realtime__Log__Parser
 from sgraph_ai_service_playwright__cli.elastic.lets.cf.events.service.Events__Loader              import Events__Loader
+from sgraph_ai_service_playwright__cli.elastic.lets.cf.events.service.Events__Wiper                import Events__Wiper
 from sgraph_ai_service_playwright__cli.elastic.lets.cf.events.service.Inventory__Manifest__Reader  import Inventory__Manifest__Reader
 from sgraph_ai_service_playwright__cli.elastic.lets.cf.events.service.Inventory__Manifest__Updater import Inventory__Manifest__Updater
 from sgraph_ai_service_playwright__cli.elastic.lets.cf.events.service.S3__Object__Fetcher          import S3__Object__Fetcher
@@ -89,6 +90,12 @@ def build_events_loader() -> Events__Loader:                                    
                            manifest_reader  = Inventory__Manifest__Reader (http_client=Inventory__HTTP__Client()),
                            manifest_updater = Inventory__Manifest__Updater(http_client=Inventory__HTTP__Client()),
                            run_id_gen       = Run__Id__Generator()                                        )
+
+
+def build_events_wiper() -> Events__Wiper:
+    return Events__Wiper(http_client      = Inventory__HTTP__Client()                                    ,
+                          kibana_client    = Kibana__Saved_Objects__Client()                              ,
+                          manifest_updater = Inventory__Manifest__Updater(http_client=Inventory__HTTP__Client()))
 
 
 # ───────────────────────────────────────────────────────────────────────────────
@@ -466,6 +473,78 @@ def cmd_events_load(stack_name      : Optional[str] = typer.Argument(None,      
             c.print()
             c.print(f'  [green]✓[/]  Open Kibana Discover at [bold]{base_url}/app/discover[/]')
 
+        c.print()
+
+    _run()
+
+
+# ───────────────────────────────────────────────────────────────────────────────
+# `sp el lets cf events wipe` — matched pair to events load
+# ───────────────────────────────────────────────────────────────────────────────
+
+@events_app.command('wipe')
+def cmd_events_wipe(stack_name : Optional[str] = typer.Argument(None,                  help='Stack name. Auto-picks when only one stack exists; prompts on multiple.'),
+                     password   : Optional[str] = typer.Option  (None, '--password',    help='Elastic password (else $SG_ELASTIC_PASSWORD).'),
+                     region     : Optional[str] = typer.Option  (None, '--region',      help='AWS region (defaults to current AWS_Config session region).'),
+                     yes        : bool          = typer.Option  (False, '--yes', '-y',  help='Skip the y/N confirmation prompt.')):
+    """Drop every sg-cf-events-* index, the data view, the dashboard, AND reset the inventory manifest's content_processed flags. Idempotent: a second wipe returns all-zeros."""
+    from scripts.elastic                                                             import build_service, resolve_stack_name, aws_error_handler, rich_escape
+
+    @aws_error_handler
+    def _run():
+        c = Console(highlight=False)
+
+        if not password and not os.environ.get('SG_ELASTIC_PASSWORD'):
+            c.print('\n  [yellow]⚠[/]  SG_ELASTIC_PASSWORD is not set.\n')
+            raise typer.Exit(1)
+
+        service       = build_service()
+        stack_picked  = resolve_stack_name(service, stack_name, region)
+        info          = service.get_stack_info(stack_name = Safe_Str__Elastic__Stack__Name(stack_picked),
+                                                region     = region or '')
+        if not str(info.kibana_url):
+            c.print(f'\n  [red]✗  Stack [bold]{stack_picked}[/] has no Kibana URL yet.[/]\n')
+            raise typer.Exit(1)
+
+        if not yes:
+            c.print(f'\n  [yellow]About to wipe all CloudFront-events data on [bold]{stack_picked}[/]:[/]')
+            c.print('    [dim]·[/] every [bold]sg-cf-events-*[/] index')
+            c.print('    [dim]·[/] the [bold]sg-cf-events-*[/] data view')
+            c.print('    [dim]·[/] the [bold]CloudFront Logs - Events Overview[/] dashboard + visualisations')
+            c.print('    [dim]·[/] reset every inventory doc\'s [bold]content_processed=true[/] back to false')
+            if not typer.confirm('\n  Proceed?', default=False):
+                c.print('  [dim]aborted[/]\n')
+                raise typer.Exit(0)
+
+        base_url    = str(info.kibana_url).rstrip('/')
+        elastic_pwd = password or os.environ.get('SG_ELASTIC_PASSWORD', '')
+        wiper       = build_events_wiper()
+        response    = wiper.wipe(base_url   = base_url                                            ,
+                                  username   = 'elastic'                                           ,
+                                  password   = elastic_pwd                                         ,
+                                  stack_name = Safe_Str__Elastic__Stack__Name(stack_picked)        )
+
+        c.print()
+        total_dropped = (response.indices_dropped + response.data_views_dropped
+                          + response.saved_objects_dropped + response.inventory_reset_count)
+        if total_dropped == 0:
+            c.print(f'  [green]✓[/]  Already clean — nothing to wipe on [bold]{stack_picked}[/]')
+        else:
+            c.print(f'  [green]✓[/]  Wiped CloudFront events on [bold]{stack_picked}[/]')
+        c.print()
+        t = Table(show_header=False, box=None, padding=(0, 2))
+        t.add_column(style='dim', justify='right')
+        t.add_column(style='bold')
+        t.add_row('indices-dropped'      , str(response.indices_dropped      ))
+        t.add_row('data-views-dropped'   , str(response.data_views_dropped   ))
+        t.add_row('saved-objects-dropped', str(response.saved_objects_dropped))
+        t.add_row('inventory-resets'     , str(response.inventory_reset_count))
+        t.add_row('duration'             , f'{response.duration_ms} ms')
+        c.print(t)
+
+        if str(response.error_message):
+            c.print()
+            c.print(f'  [yellow]⚠[/]  {rich_escape(str(response.error_message))}')
         c.print()
 
     _run()
