@@ -54,3 +54,37 @@ class test_Inventory__HTTP__Client(TestCase):
                                            index='i', docs=List__Schema__S3__Object__Record())
         assert result == (0, 0, 0, 200, '')                                         # In_Memory returns its default with len(docs)=0
         assert client.bulk_calls == [('https://x', 'i', 0, 'etag')]
+
+
+class test_delete_indices_by_pattern(TestCase):
+
+    def test_call_args_captured(self):                                              # (base_url, pattern) tuple shape
+        client = Inventory__HTTP__Client__In_Memory(delete_pattern_calls=[],
+                                                     fixture_delete_pattern_response=())
+        client.delete_indices_by_pattern(base_url='https://1.2.3.4', username='u', password='p',
+                                          pattern='sg-cf-inventory-*')
+        assert client.delete_pattern_calls == [('https://1.2.3.4', 'sg-cf-inventory-*')]
+
+    def test_default_returns_zero_no_error(self):                                   # Fixture-mode default: nothing to delete, HTTP 200
+        client = Inventory__HTTP__Client__In_Memory(delete_pattern_calls=[],
+                                                     fixture_delete_pattern_response=())
+        count, status, err = client.delete_indices_by_pattern(
+            base_url='https://x', username='u', password='p', pattern='sg-cf-inventory-*')
+        assert (count, status, err) == (0, 200, '')
+
+    def test_fixture_override_propagates(self):                                     # Tests that simulate "3 indices dropped" inject their own tuple
+        client = Inventory__HTTP__Client__In_Memory(delete_pattern_calls=[],
+                                                     fixture_delete_pattern_response=(3, 200, ''))
+        count, status, err = client.delete_indices_by_pattern(
+            base_url='https://x', username='u', password='p', pattern='sg-cf-inventory-*')
+        assert count == 3
+        assert status == 200
+
+    def test_fixture_error_propagates(self):
+        client = Inventory__HTTP__Client__In_Memory(delete_pattern_calls=[],
+                                                     fixture_delete_pattern_response=(0, 503, 'cluster red'))
+        count, status, err = client.delete_indices_by_pattern(
+            base_url='https://x', username='u', password='p', pattern='sg-cf-inventory-*')
+        assert count == 0
+        assert status == 503
+        assert 'cluster red' in err
