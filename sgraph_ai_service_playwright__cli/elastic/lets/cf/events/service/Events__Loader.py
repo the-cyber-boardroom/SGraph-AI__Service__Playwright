@@ -124,10 +124,10 @@ class Events__Loader(Type_Safe):
                                         started_at=started_at, base_url=base_url,
                                         error_message=queue_error)
 
-        # ─── apply --skip-processed filter (queries events index for known etags) ──
+        # ─── apply --skip-processed filter (consults the inventory manifest — single source of truth) ──
         if request.skip_processed and len(work_items) > 0:
             before_count    = len(work_items)
-            processed_etags = self.list_processed_etags(base_url=base_url, username=username, password=password)
+            processed_etags = self.manifest_reader.list_processed_etags(base_url=base_url, username=username, password=password)
             work_items      = [w for w in work_items if str(w.get('etag', '')) not in processed_etags]
             self.progress_reporter.on_skip_filter_done(before=before_count, after=len(work_items))
 
@@ -318,42 +318,6 @@ class Events__Loader(Type_Safe):
                                                error_message     = first_error         ,
                                                kibana_url        = kibana_url_from_base(base_url),
                                                dry_run           = False               )
-
-    def list_processed_etags(self, base_url : str ,
-                                    username : str ,
-                                    password : str
-                              ) -> set:                                              # Returns a set of source_etag values currently present in sg-cf-events-*. One ES call.
-        # Used by --skip-processed to filter the queue before fetching anything.
-        # Cheap: terms agg with size 10000 (covers >100 days of typical sg-send
-        # cadence at ~375 files/day).  When the events index is larger than
-        # this, the filter degrades gracefully — we'd just re-fetch a few
-        # files unnecessarily, which is correct just not optimal.
-        import base64, json
-        auth_token = base64.b64encode(f'{username}:{password}'.encode()).decode()
-        headers    = {'Content-Type' : 'application/json'  ,
-                      'Authorization': f'Basic {auth_token}'}
-        body = json.dumps({
-            'size'    : 0,
-            'aggs'    : {'distinct_etags': {'terms': {'field': 'source_etag.keyword', 'size': 10000}}},
-        }).encode('utf-8')
-        url = base_url.rstrip('/') + '/_elastic/sg-cf-events-*/_search'
-
-        result : set = set()
-        try:
-            response = self.http_client.request('POST', url, headers=headers, data=body)
-        except Exception:
-            return result                                                            # No connectivity → empty set means "nothing skipped" (safe — we just fetch normally)
-        if int(response.status_code) >= 300:                                        # Index doesn't exist yet, or auth failed — empty set, fetch normally
-            return result
-        try:
-            payload = response.json() or {}
-        except Exception:
-            return result
-        for bucket in payload.get('aggregations', {}).get('distinct_etags', {}).get('buckets', []) or []:
-            etag = str(bucket.get('key', ''))
-            if etag:
-                result.add(etag)
-        return result
 
     def build_queue(self, request, bucket, base_url, username, password):           # Returns (work_items, queue_mode, prefix_resolved, error_message)
         if request.from_inventory:

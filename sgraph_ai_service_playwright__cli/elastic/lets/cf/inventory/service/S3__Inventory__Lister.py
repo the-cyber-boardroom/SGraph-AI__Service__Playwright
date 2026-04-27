@@ -63,7 +63,7 @@ def normalise_etag(raw: str) -> str:                                            
 
 
 class S3__Inventory__Lister(Type_Safe):
-    counter : 'Call__Counter'                                                       # Auto-instantiates a fresh counter per instance; SG_Send orchestrator injects a shared one to track totals across collaborators
+    counter : Call__Counter                                                         # Auto-instantiates a fresh counter per instance; SG_Send orchestrator injects a shared one to track totals across collaborators. Note: must NOT be a string-quoted forward ref — Type_Safe only auto-instantiates real type annotations.
 
     def s3_client(self, region: str):                                               # Single seam — tests can override; per-call instantiation matches Elastic__AWS__Client.ec2_client. Empty region falls through to boto3's standard resolution chain (AWS_DEFAULT_REGION → profile → IMDS) — passing region_name='' would produce a malformed "https://s3..amazonaws.com" endpoint.
         if region:

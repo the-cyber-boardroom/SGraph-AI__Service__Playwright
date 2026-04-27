@@ -73,3 +73,41 @@ class Inventory__Manifest__Reader(Type_Safe):
                          'size_bytes'  : int(source.get('size_bytes'  , 0) or 0),
                          'delivery_at' : str(source.get('delivery_at' , ''))})
         return docs, status, ''
+
+    @type_safe
+    def list_processed_etags(self, base_url : str ,
+                                    username : str ,
+                                    password : str ,
+                                    size_cap : int = 10000
+                              ) -> set:                                              # Returns the set of inventory etags whose content_processed=true. One ES call. Single source of truth for "we touched this file" — covers 0-event files (which never appear in sg-cf-events-* but DO get manifest.content_processed=true via Events__Loader).
+        # Used by Events__Loader's --skip-processed.  Cheap: terms agg with
+        # size_cap=10000 (covers >25 days at sg-send's typical cadence
+        # ~375 files/day).  Beyond that the filter degrades gracefully — we'd
+        # re-fetch a few files unnecessarily, which is correct just not optimal.
+        auth_token = base64.b64encode(f'{username}:{password}'.encode()).decode()
+        headers    = {'Content-Type' : 'application/json'  ,
+                      'Authorization': f'Basic {auth_token}'}
+        body = json.dumps({
+            'size'    : 0                                                            ,
+            'query'   : {'term': {'content_processed': True}}                        ,
+            'aggs'    : {'distinct_etags': {'terms': {'field': 'etag.keyword',
+                                                       'size' : int(size_cap)        }}},
+        }).encode('utf-8')
+        url = base_url.rstrip('/') + f'/_elastic/{INVENTORY_INDEX_PATTERN}/_search'
+
+        result : set = set()
+        try:
+            response = self.http_client.request('POST', url, headers=headers, data=body)
+        except Exception:
+            return result                                                            # No connectivity → empty set means "nothing skipped" (safe — we just fetch normally)
+        if int(response.status_code) >= 300:                                        # Index doesn't exist yet, or auth failed — empty set, fetch normally
+            return result
+        try:
+            payload = response.json() or {}
+        except Exception:
+            return result
+        for bucket in payload.get('aggregations', {}).get('distinct_etags', {}).get('buckets', []) or []:
+            etag = str(bucket.get('key', ''))
+            if etag:
+                result.add(etag)
+        return result

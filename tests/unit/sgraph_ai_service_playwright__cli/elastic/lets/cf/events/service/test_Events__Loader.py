@@ -211,13 +211,8 @@ class test_Events__Loader__errors(TestCase):
 
 class test_Events__Loader__doc_id(TestCase):
 
-    def test_skip_processed_filters_queue_against_known_etags(self):                # When --skip-processed is set, files whose etag is already in events index get filtered out before fetching
+    def test_skip_processed_filters_queue_against_manifest_processed_etags(self):   # When --skip-processed is set, files whose etag is in the inventory manifest's processed set get filtered out before fetching. Source of truth = manifest, not events index — covers 0-event files.
         from sgraph_ai_service_playwright__cli.elastic.lets.cf.events.service.Events__Loader import Events__Loader
-
-        # Subclass the real loader to stub list_processed_etags with a fixture
-        class Events__Loader__Stub(Events__Loader):
-            def list_processed_etags(self, base_url, username, password):
-                return {'aa', 'cc'}                                                  # 'aa' and 'cc' already processed; queue items with these etags get filtered out
 
         # Build a 3-file queue: aa (already processed), bb (new), cc (already processed)
         page = [{'Key'         : f'cloudfront-realtime/2026/04/25/sgraph-send-cf-logs-to-s3-2-2026-04-25-12-00-{i:02d}-deadbeef-0000.gz',
@@ -226,7 +221,6 @@ class test_Events__Loader__doc_id(TestCase):
                   'ETag'        : f'"{e}"',
                   'StorageClass': 'STANDARD'                                          }
                  for i, e in enumerate(['aa', 'bb', 'cc'])]
-        # Build the subclass loader manually using the same helpers as build_loader()
         s3_lister = S3__Inventory__Lister__In_Memory(fixture_pages=[page], paginate_calls=[])
         s3_fetcher = S3__Object__Fetcher__In_Memory(fixture_objects={SAMPLE_KEY: SAMPLE_GZ}, get_calls=[])
         parser  = CF__Realtime__Log__Parser(bot_classifier=Bot__Classifier())
@@ -239,18 +233,23 @@ class test_Events__Loader__doc_id(TestCase):
                                                               dashboard_calls=[], harden_calls=[],
                                                               delete_object_calls=[], import_calls=[],
                                                               find_calls=[], fixture_find_objects={})
-        reader  = Inventory__Manifest__Reader__In_Memory(fixture_unprocessed_docs=[], list_calls=[], fixture_response=())
+        # The fixture set models "manifest says these etags are already processed":
+        reader  = Inventory__Manifest__Reader__In_Memory(fixture_unprocessed_docs=[], list_calls=[], fixture_response=(),
+                                                          fixture_processed_etags={'aa', 'cc'}, processed_etag_calls=[])
         updater = Inventory__Manifest__Updater__In_Memory(mark_calls=[], reset_calls=[])
         gen     = Deterministic__Run__Id__Generator()
-        loader  = Events__Loader__Stub(s3_lister=s3_lister, s3_fetcher=s3_fetcher, parser=parser,
-                                         http_client=http, kibana_client=kb,
-                                         manifest_reader=reader, manifest_updater=updater, run_id_gen=gen)
+        loader  = Events__Loader(s3_lister=s3_lister, s3_fetcher=s3_fetcher, parser=parser,
+                                   http_client=http, kibana_client=kb,
+                                   manifest_reader=reader, manifest_updater=updater, run_id_gen=gen)
 
         resp = loader.load(request=Schema__Events__Load__Request(prefix='cloudfront-realtime/2026/04/25/', skip_processed=True),
                             base_url='https://x', username='u', password='p')
 
         # Only 'bb' makes it through the filter (aa and cc are in the fixture set of "already processed"):
         assert resp.files_queued == 1                                                # 3 files in S3 queue → 2 filtered out → 1 remaining
+        # The loader called the manifest reader (NOT the events index) to obtain the processed set:
+        assert len(reader.processed_etag_calls) == 1
+        assert reader.processed_etag_calls[0][0] == 'https://x'
         # files_processed depends on whether the fetcher has bytes for 'bb's key — out of scope for this test, which is just the FILTER behaviour
 
     def test_doc_id_format_etag_underscore_line(self):                              # Verify the synthetic _id is "{etag}__{line_index}"
