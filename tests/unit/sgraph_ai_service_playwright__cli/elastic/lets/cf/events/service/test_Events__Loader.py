@@ -26,6 +26,7 @@ from tests.unit.sgraph_ai_service_playwright__cli.elastic.lets.cf.events.service
 from tests.unit.sgraph_ai_service_playwright__cli.elastic.lets.cf.inventory.service.Inventory__HTTP__Client__In_Memory   import Inventory__HTTP__Client__In_Memory
 from tests.unit.sgraph_ai_service_playwright__cli.elastic.lets.cf.inventory.service.S3__Inventory__Lister__In_Memory     import S3__Inventory__Lister__In_Memory
 from tests.unit.sgraph_ai_service_playwright__cli.elastic.lets.cf.inventory.service.test_Run__Id__Generator              import Deterministic__Run__Id__Generator
+from tests.unit.sgraph_ai_service_playwright__cli.elastic.lets.runs.service.Pipeline__Runs__Tracker__In_Memory            import Pipeline__Runs__Tracker__In_Memory
 from tests.unit.sgraph_ai_service_playwright__cli.elastic.service.Kibana__Saved_Objects__Client__In_Memory                import Kibana__Saved_Objects__Client__In_Memory
 
 
@@ -72,9 +73,11 @@ def build_loader(s3_pages         : list = None,
                                                        fixture_response         = ())
     updater = Inventory__Manifest__Updater__In_Memory(mark_calls=[], reset_calls=[])
     gen     = Deterministic__Run__Id__Generator()
+    tracker = Pipeline__Runs__Tracker__In_Memory(record_calls=[], fixture_response=())
     return Events__Loader(s3_lister=s3_lister, s3_fetcher=s3_fetcher, parser=parser,
                            http_client=http, kibana_client=kb,
-                           manifest_reader=reader, manifest_updater=updater, run_id_gen=gen)
+                           manifest_reader=reader, manifest_updater=updater, run_id_gen=gen,
+                           runs_tracker=tracker)
 
 
 # ─── happy path: S3-listing queue ────────────────────────────────────────────
@@ -238,9 +241,11 @@ class test_Events__Loader__doc_id(TestCase):
                                                           fixture_processed_etags={'aa', 'cc'}, processed_etag_calls=[])
         updater = Inventory__Manifest__Updater__In_Memory(mark_calls=[], reset_calls=[])
         gen     = Deterministic__Run__Id__Generator()
+        tracker = Pipeline__Runs__Tracker__In_Memory(record_calls=[], fixture_response=())
         loader  = Events__Loader(s3_lister=s3_lister, s3_fetcher=s3_fetcher, parser=parser,
                                    http_client=http, kibana_client=kb,
-                                   manifest_reader=reader, manifest_updater=updater, run_id_gen=gen)
+                                   manifest_reader=reader, manifest_updater=updater, run_id_gen=gen,
+                                   runs_tracker=tracker)
 
         resp = loader.load(request=Schema__Events__Load__Request(prefix='cloudfront-realtime/2026/04/25/', skip_processed=True),
                             base_url='https://x', username='u', password='p')
@@ -270,3 +275,34 @@ class test_Events__Loader__doc_id(TestCase):
             r.doc_id      = f'{SAMPLE_ETAG}__{r.line_index}'
         assert str(records[0].doc_id) == f'{SAMPLE_ETAG}__0'
         assert str(records[1].doc_id) == f'{SAMPLE_ETAG}__1'
+
+
+# ─── Phase B: journal write fired after every load() ─────────────────────────
+
+class test_Events__Loader__journal(TestCase):
+
+    def test_load_records_journal_with_aggregate_counts(self):
+        loader = build_loader(s3_pages=[[s3_object(SAMPLE_KEY, SAMPLE_ETAG)]])
+        loader.load(request=Schema__Events__Load__Request(prefix='cloudfront-realtime/2026/04/25/'),
+                     base_url='https://x', username='u', password='p')
+        assert len(loader.runs_tracker.record_calls) == 1
+        base_url, snapshot = loader.runs_tracker.record_calls[0]
+        assert base_url               == 'https://x'
+        assert snapshot['verb']       == 'events-load'
+        assert snapshot['source']     == 'cf-realtime'
+        assert snapshot['queue_mode'] == 's3-listing'
+        assert snapshot['files_queued']    == 1
+        assert snapshot['files_processed'] == 1
+        assert snapshot['events_indexed']  == 2
+        # The In_Memory subclasses override the public methods wholesale and
+        # don't increment counters (they bypass the .counter.s3() / .counter.elastic()
+        # seams). So assert the fields exist with their default values; real
+        # counter behaviour is pinned by tests/unit/.../lets/test_Call__Counter.py.
+        assert snapshot['s3_calls']      == 0
+        assert snapshot['elastic_calls'] == 0
+
+    def test_dry_run_skips_journal_write(self):                                      # Preserves "zero side effects on Elastic" contract
+        loader = build_loader(s3_pages=[[s3_object(SAMPLE_KEY, SAMPLE_ETAG)]])
+        loader.load(request=Schema__Events__Load__Request(prefix='cloudfront-realtime/2026/04/25/', dry_run=True),
+                     base_url='https://x', username='u', password='p')
+        assert loader.runs_tracker.record_calls == []

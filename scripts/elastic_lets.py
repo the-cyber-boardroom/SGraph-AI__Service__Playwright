@@ -52,6 +52,9 @@ from sgraph_ai_service_playwright__cli.elastic.lets.cf.sg_send.service.SG_Send__
 from sgraph_ai_service_playwright__cli.elastic.lets.cf.sg_send.service.SG_Send__File__Viewer      import SG_Send__File__Viewer
 from sgraph_ai_service_playwright__cli.elastic.lets.cf.sg_send.service.SG_Send__Inventory__Query  import SG_Send__Inventory__Query
 
+# Phase B journal — recorded by every loader run:
+from sgraph_ai_service_playwright__cli.elastic.lets.runs.service.Pipeline__Runs__Tracker          import Pipeline__Runs__Tracker
+
 
 # ───────────────────────────────────────────────────────────────────────────────
 # Console-rendered progress reporter for `events load`
@@ -112,10 +115,12 @@ cf_app.add_typer(sg_send_app  , name='sg-send')
 
 
 def build_inventory_loader() -> Inventory__Loader:                                  # Single construction site so tests and CLI share the wiring
-    return Inventory__Loader(s3_lister     = S3__Inventory__Lister()        ,
-                              http_client   = Inventory__HTTP__Client()       ,
-                              kibana_client = Kibana__Saved_Objects__Client() ,
-                              run_id_gen    = Run__Id__Generator()            )
+    http_client = Inventory__HTTP__Client()
+    return Inventory__Loader(s3_lister     = S3__Inventory__Lister()                       ,
+                              http_client   = http_client                                    ,
+                              kibana_client = Kibana__Saved_Objects__Client()                ,
+                              run_id_gen    = Run__Id__Generator()                           ,
+                              runs_tracker  = Pipeline__Runs__Tracker(http_client=http_client))   # Reuse the same client so the journal write counts as one elastic_call on the same counter
 
 
 def build_inventory_wiper() -> Inventory__Wiper:
@@ -129,14 +134,16 @@ def build_inventory_read() -> Inventory__Read:
 
 
 def build_events_loader(progress_reporter: Optional[Progress__Reporter] = None) -> Events__Loader:  # Composition root for the events pipeline.  Reporter optional — defaults to no-op base.
+    http_client = Inventory__HTTP__Client()                                          # Single client reused by the loader and the runs tracker — journal write reuses the same counter
     kwargs = dict(s3_lister        = S3__Inventory__Lister()                                    ,
                    s3_fetcher       = S3__Object__Fetcher()                                      ,
                    parser           = CF__Realtime__Log__Parser(bot_classifier=Bot__Classifier()),
-                   http_client      = Inventory__HTTP__Client()                                  ,
+                   http_client      = http_client                                                ,
                    kibana_client    = Kibana__Saved_Objects__Client()                            ,
                    manifest_reader  = Inventory__Manifest__Reader (http_client=Inventory__HTTP__Client()),
                    manifest_updater = Inventory__Manifest__Updater(http_client=Inventory__HTTP__Client()),
-                   run_id_gen       = Run__Id__Generator()                                        )
+                   run_id_gen       = Run__Id__Generator()                                        ,
+                   runs_tracker     = Pipeline__Runs__Tracker(http_client=http_client)            )
     if progress_reporter is not None:
         kwargs['progress_reporter'] = progress_reporter
     return Events__Loader(**kwargs)

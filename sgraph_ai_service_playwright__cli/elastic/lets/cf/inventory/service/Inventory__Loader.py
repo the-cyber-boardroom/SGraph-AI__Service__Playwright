@@ -37,6 +37,9 @@ from sgraph_ai_service_playwright__cli.elastic.lets.cf.inventory.service.CF__Inv
 from sgraph_ai_service_playwright__cli.elastic.lets.cf.inventory.service.Inventory__HTTP__Client import Inventory__HTTP__Client
 from sgraph_ai_service_playwright__cli.elastic.lets.cf.inventory.service.Run__Id__Generator      import Run__Id__Generator
 from sgraph_ai_service_playwright__cli.elastic.lets.cf.inventory.service.S3__Inventory__Lister   import S3__Inventory__Lister, normalise_etag, parse_firehose_filename
+from sgraph_ai_service_playwright__cli.elastic.lets.runs.enums.Enum__Pipeline__Verb              import Enum__Pipeline__Verb
+from sgraph_ai_service_playwright__cli.elastic.lets.runs.schemas.Schema__Pipeline__Run            import Schema__Pipeline__Run
+from sgraph_ai_service_playwright__cli.elastic.lets.runs.service.Pipeline__Runs__Tracker          import Pipeline__Runs__Tracker
 
 
 DEFAULT_BUCKET             = '745506449035--sgraph-send-cf-logs--eu-west-2'         # The CloudFront-realtime delivery bucket; CLI flag overrides
@@ -123,6 +126,7 @@ class Inventory__Loader(Type_Safe):
     http_client   : Inventory__HTTP__Client
     kibana_client : Kibana__Saved_Objects__Client
     run_id_gen    : Run__Id__Generator
+    runs_tracker  : Pipeline__Runs__Tracker                                          # Phase B journal — records one doc per load() call into sg-pipeline-runs-*
 
     @type_safe
     def load(self, request  : Schema__Inventory__Load__Request,
@@ -161,6 +165,7 @@ class Inventory__Loader(Type_Safe):
                                           loaded_at = loaded_at                       ))
 
         # ─── early return on dry-run ─────────────────────────────────────────
+        # Skip the journal write on dry-run — preserves "zero side effects on Elastic" contract.
         if request.dry_run:
             finished_at = now_utc_iso_full()
             return Schema__Inventory__Load__Response(run_id           = run_id              ,
@@ -236,6 +241,28 @@ class Inventory__Loader(Type_Safe):
                 error_message = err
 
         finished_at = now_utc_iso_full()
+
+        # ─── Phase B: journal this run before returning (single source of truth for "what happened") ──
+        journal_record = Schema__Pipeline__Run(run_id           = run_id                                   ,
+                                                source           = Enum__LETS__Source__Slug.CF_REALTIME      ,
+                                                verb             = Enum__Pipeline__Verb.INVENTORY_LOAD       ,
+                                                stack_name       = request.stack_name                        ,
+                                                bucket           = request.bucket                            ,
+                                                prefix           = request.prefix                            ,
+                                                queue_mode       = 's3-listing'                              ,
+                                                dry_run          = False                                     ,
+                                                pages_listed     = pages_listed                              ,
+                                                objects_indexed  = created_total                             ,
+                                                objects_updated  = updated_total                             ,
+                                                bytes_total      = bytes_total                               ,
+                                                s3_calls         = int(self.s3_lister.counter.s3_calls)      ,
+                                                elastic_calls    = int(self.http_client.counter.elastic_calls),
+                                                started_at       = started_at                                ,
+                                                finished_at      = finished_at                               ,
+                                                last_http_status = last_status                               ,
+                                                error_message    = error_message                             )
+        self.runs_tracker.record_run(base_url=base_url, username=username, password=password, record=journal_record)
+
         return Schema__Inventory__Load__Response(run_id           = run_id                          ,
                                                   stack_name       = request.stack_name              ,
                                                   bucket           = bucket                          ,
