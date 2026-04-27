@@ -47,10 +47,12 @@ from sgraph_ai_service_playwright__cli.elastic.lets.cf.events.service.Inventory_
 from sgraph_ai_service_playwright__cli.elastic.lets.cf.events.service.Progress__Reporter            import Progress__Reporter
 from sgraph_ai_service_playwright__cli.elastic.lets.cf.events.service.S3__Object__Fetcher          import S3__Object__Fetcher
 
-# sg-send convenience verbs (Phase A.5 — diagnostic commands so far):
-from sgraph_ai_service_playwright__cli.elastic.lets.cf.sg_send.service.SG_Send__Date__Parser      import parse_sg_send_date, render_date_label
+# sg-send convenience verbs:
+from sgraph_ai_service_playwright__cli.elastic.lets.cf.sg_send.service.SG_Send__Date__Parser      import parse_sg_send_date, render_date_label, s3_prefix_for_date
 from sgraph_ai_service_playwright__cli.elastic.lets.cf.sg_send.service.SG_Send__File__Viewer      import SG_Send__File__Viewer
 from sgraph_ai_service_playwright__cli.elastic.lets.cf.sg_send.service.SG_Send__Inventory__Query  import SG_Send__Inventory__Query
+from sgraph_ai_service_playwright__cli.elastic.lets.cf.sg_send.service.SG_Send__Orchestrator      import SG_Send__Orchestrator
+from sgraph_ai_service_playwright__cli.elastic.lets.cf.sg_send.schemas.Schema__SG_Send__Sync__Request import Schema__SG_Send__Sync__Request
 
 
 # ───────────────────────────────────────────────────────────────────────────────
@@ -160,6 +162,32 @@ def build_sg_send_inventory_query() -> SG_Send__Inventory__Query:
 def build_sg_send_file_viewer() -> SG_Send__File__Viewer:
     return SG_Send__File__Viewer(s3_fetcher = S3__Object__Fetcher()                                       ,
                                   parser     = CF__Realtime__Log__Parser(bot_classifier=Bot__Classifier()) )
+
+
+def build_sg_send_orchestrator(progress_reporter: Optional[Progress__Reporter] = None) -> SG_Send__Orchestrator:
+    # One shared Call__Counter injected into every collaborator so tallies span both pipeline phases.
+    from sgraph_ai_service_playwright__cli.elastic.lets.Call__Counter import Call__Counter
+    shared_counter  = Call__Counter()
+    inv_http        = Inventory__HTTP__Client(counter=shared_counter)
+    inv_lister      = S3__Inventory__Lister  (counter=shared_counter)
+    inv_loader      = Inventory__Loader(s3_lister     = inv_lister                      ,
+                                         http_client   = inv_http                        ,
+                                         kibana_client = Kibana__Saved_Objects__Client() ,
+                                         run_id_gen    = Run__Id__Generator()            )
+    ev_kwargs = dict(s3_lister        = S3__Inventory__Lister  (counter=shared_counter)                                        ,
+                      s3_fetcher       = S3__Object__Fetcher    (counter=shared_counter)                                        ,
+                      parser           = CF__Realtime__Log__Parser(bot_classifier=Bot__Classifier())                            ,
+                      http_client      = Inventory__HTTP__Client (counter=shared_counter)                                       ,
+                      kibana_client    = Kibana__Saved_Objects__Client()                                                        ,
+                      manifest_reader  = Inventory__Manifest__Reader (http_client=Inventory__HTTP__Client(counter=shared_counter)),
+                      manifest_updater = Inventory__Manifest__Updater(http_client=Inventory__HTTP__Client(counter=shared_counter)),
+                      run_id_gen       = Run__Id__Generator()                                                                   )
+    if progress_reporter is not None:
+        ev_kwargs['progress_reporter'] = progress_reporter
+    ev_loader = Events__Loader(**ev_kwargs)
+    return SG_Send__Orchestrator(counter          = shared_counter ,
+                                  inventory_loader = inv_loader     ,
+                                  events_loader    = ev_loader      )
 
 
 # ───────────────────────────────────────────────────────────────────────────────
@@ -734,13 +762,144 @@ def cmd_events_health(stack_name : Optional[str] = typer.Argument(None,         
 
 
 # ───────────────────────────────────────────────────────────────────────────────
+# `sp el lets cf sg-send sync [DATE]` — daily refresh (inventory + events)
+# ───────────────────────────────────────────────────────────────────────────────
+# Runs inventory load → events load (from_inventory=True) for one calendar
+# date, sharing one Call__Counter across all collaborators so the summary
+# reports unified S3/Elastic call counts.
+
+SG_SEND__DEFAULT_BUCKET = '745506449035--sgraph-send-cf-logs--eu-west-2'
+
+
+@sg_send_app.command('sync')
+def cmd_sg_send_sync(date_spec  : Optional[str] = typer.Argument(None,                      help='Date spec: MM/DD or YYYY-MM-DD. Defaults to today UTC.'),
+                     stack_name : Optional[str] = typer.Option  (None, '--stack',           help='Stack name. Auto-picks when only one stack exists; prompts on multiple.'),
+                     max_files  : int           = typer.Option  (0,   '--max-files',        help='Cap on events load. 0 = unlimited.'),
+                     password   : Optional[str] = typer.Option  (None, '--password',        help='Elastic password (else $SG_ELASTIC_PASSWORD).'),
+                     region     : Optional[str] = typer.Option  (None, '--region',          help='AWS region (defaults to current AWS_Config session region).'),
+                     dry_run    : bool          = typer.Option  (False, '--dry-run',        help='List + parse only; skip bulk-post and manifest updates.')):
+    """Daily refresh: inventory load → events load (from-inventory) for one date. Single shared Call__Counter."""
+    from scripts.elastic                                                             import build_service, resolve_stack_name, aws_error_handler, rich_escape
+    from datetime                                                                    import datetime, timezone
+    from sgraph_ai_service_playwright__cli.elastic.lets.cf.inventory.primitives.Safe_Str__S3__Bucket import Safe_Str__S3__Bucket
+    from osbot_utils.type_safe.primitives.domains.common.safe_str.Safe_Str__Text     import Safe_Str__Text
+
+    @aws_error_handler
+    def _run():
+        c = Console(highlight=False)
+
+        if not dry_run and not password and not os.environ.get('SG_ELASTIC_PASSWORD'):
+            c.print('\n  [yellow]⚠[/]  SG_ELASTIC_PASSWORD is not set.')
+            c.print('     [dim]Re-export it from the most recent `sp elastic create` output, e.g.:[/]')
+            c.print('     [bold]export SG_ELASTIC_PASSWORD=<password-from-create>[/]')
+            c.print('     [dim]Or pass it explicitly via --password.[/]\n')
+            raise typer.Exit(1)
+
+        # ─── resolve sync date ───────────────────────────────────────────────
+        if date_spec:
+            try:
+                year, month, day, _ = parse_sg_send_date(date_spec)
+            except ValueError as exc:
+                c.print(f'\n  [red]✗[/]  {rich_escape(str(exc))}\n')
+                raise typer.Exit(1)
+            sync_date_iso = f'{year:04d}-{month:02d}-{day:02d}'
+        else:
+            sync_date_iso = datetime.now(timezone.utc).strftime('%Y-%m-%d')
+
+        service       = build_service()
+        stack_picked  = resolve_stack_name(service, stack_name, region)
+        info          = service.get_stack_info(stack_name = Safe_Str__Elastic__Stack__Name(stack_picked),
+                                                region     = region or '')
+        if not str(info.kibana_url):
+            c.print(f'\n  [red]✗  Stack [bold]{stack_picked}[/] has no Kibana URL yet.[/]  Run `sp el wait` first.\n')
+            raise typer.Exit(1)
+
+        base_url    = str(info.kibana_url).rstrip('/')
+        elastic_pwd = password or os.environ.get('SG_ELASTIC_PASSWORD', '')
+
+        request = Schema__SG_Send__Sync__Request(sync_date  = Safe_Str__Text(sync_date_iso)                       ,
+                                                  max_files  = int(max_files)                                      ,
+                                                  dry_run    = bool(dry_run)                                       ,
+                                                  bucket     = Safe_Str__S3__Bucket(SG_SEND__DEFAULT_BUCKET)       ,
+                                                  region     = Safe_Str__AWS__Region(region or '')                 ,
+                                                  stack_name = Safe_Str__Elastic__Stack__Name(stack_picked)        )
+
+        reporter  = Console__Progress__Reporter(console=c)
+        orch      = build_sg_send_orchestrator(progress_reporter=reporter)
+
+        c.print()
+        title_suffix = '  [yellow](dry-run)[/]' if dry_run else ''
+        c.print(f'  [bold]SGraph-Send sync[/]{title_suffix}  [cyan]{sync_date_iso}[/]')
+        c.print(f'  [dim]stack:[/] {stack_picked}   [dim]max-files:[/] {max_files or "unlimited"}')
+        c.print()
+
+        response  = orch.sync(request  = request    ,
+                               base_url = base_url   ,
+                               username = 'elastic'  ,
+                               password = elastic_pwd)
+
+        # ─── render inventory summary ────────────────────────────────────────
+        ir = response.inventory_response
+        c.print(f'  [bold]inventory[/]  phase')
+        t = Table(show_header=False, box=None, padding=(0, 2))
+        t.add_column(style='dim', justify='right')
+        t.add_column(style='bold')
+        t.add_row('prefix'          , str(ir.prefix_resolved) or '[dim](full bucket)[/]')
+        t.add_row('pages-listed'    , str(ir.pages_listed    ))
+        t.add_row('objects-scanned' , str(ir.objects_scanned ))
+        if not dry_run:
+            t.add_row('objects-indexed', str(ir.objects_indexed))
+            t.add_row('objects-updated', str(ir.objects_updated))
+        t.add_row('bytes-total'     , f'{ir.bytes_total:,}')
+        if not dry_run:
+            t.add_row('http-status' , str(ir.last_http_status))
+        c.print(t)
+        if str(ir.error_message):
+            c.print(f'  [red]✗[/]  inventory error: {rich_escape(str(ir.error_message))}')
+
+        c.print()
+
+        # ─── render events summary ───────────────────────────────────────────
+        er = response.events_response
+        c.print(f'  [bold]events[/]  phase  [dim](from-inventory)[/]')
+        t2 = Table(show_header=False, box=None, padding=(0, 2))
+        t2.add_column(style='dim', justify='right')
+        t2.add_column(style='bold')
+        t2.add_row('files-queued'   , str(er.files_queued   ))
+        t2.add_row('files-processed', str(er.files_processed))
+        t2.add_row('files-skipped'  , str(er.files_skipped  ))
+        if not dry_run:
+            t2.add_row('events-indexed', str(er.events_indexed ))
+        t2.add_row('bytes-total'    , f'{er.bytes_total:,}')
+        if not dry_run:
+            t2.add_row('http-status', str(er.last_http_status))
+        c.print(t2)
+        if str(er.error_message):
+            c.print(f'  [red]✗[/]  events error: {rich_escape(str(er.error_message))}')
+
+        c.print()
+
+        # ─── render totals ───────────────────────────────────────────────────
+        t3 = Table(show_header=False, box=None, padding=(0, 2))
+        t3.add_column(style='dim', justify='right')
+        t3.add_column(style='bold')
+        t3.add_row('s3-calls-total'      , str(response.s3_calls_total     ))
+        t3.add_row('elastic-calls-total' , str(response.elastic_calls_total ))
+        t3.add_row('wall-time'           , f'{response.wall_ms} ms'          )
+        if not dry_run:
+            t3.add_row('kibana-url'      , str(ir.kibana_url                ))
+        c.print(t3)
+        c.print()
+
+    _run()
+
+
+# ───────────────────────────────────────────────────────────────────────────────
 # `sp el lets cf sg-send files <date>` — list inventory rows for a day or hour
 # ───────────────────────────────────────────────────────────────────────────────
 # Reads sg-cf-inventory-* (no S3 calls).  One ES query.  Renders a compact
 # table: time, key (filename only), size, processed flag, etag prefix.
 # Useful for spotting "lots of files but no events" before fetching anything.
-
-SG_SEND__DEFAULT_BUCKET = '745506449035--sgraph-send-cf-logs--eu-west-2'
 
 
 @sg_send_app.command('files')
