@@ -56,6 +56,9 @@ from sgraph_ai_service_playwright__cli.elastic.lets.cf.events.service.Inventory_
 from sgraph_ai_service_playwright__cli.elastic.lets.cf.events.service.Progress__Reporter            import Progress__Reporter
 from sgraph_ai_service_playwright__cli.elastic.lets.cf.events.service.S3__Object__Fetcher          import S3__Object__Fetcher
 from sgraph_ai_service_playwright__cli.elastic.lets.Step__Timings                                  import Step__Timings
+from sgraph_ai_service_playwright__cli.elastic.lets.runs.enums.Enum__Pipeline__Verb                import Enum__Pipeline__Verb
+from sgraph_ai_service_playwright__cli.elastic.lets.runs.schemas.Schema__Pipeline__Run              import Schema__Pipeline__Run
+from sgraph_ai_service_playwright__cli.elastic.lets.runs.service.Pipeline__Runs__Tracker            import Pipeline__Runs__Tracker
 
 
 DEFAULT_BUCKET             = '745506449035--sgraph-send-cf-logs--eu-west-2'
@@ -96,6 +99,7 @@ class Events__Loader(Type_Safe):
     manifest_updater  : Inventory__Manifest__Updater
     run_id_gen        : Run__Id__Generator
     progress_reporter : Progress__Reporter                                          # Default no-op base class — Type_Safe auto-instantiates.  CLI passes a Rich subclass.
+    runs_tracker      : Pipeline__Runs__Tracker                                     # Phase B journal — records one doc per load() call into sg-pipeline-runs-*
 
     @type_safe
     def load(self, request  : Schema__Events__Load__Request,
@@ -299,6 +303,36 @@ class Events__Loader(Type_Safe):
 
         self.progress_reporter.on_load_complete()
         finished_at = now_utc_iso_full()
+
+        # ─── Phase B: journal this run before returning (single source of truth for "what happened") ──
+        # Sum counters across the loader's collaborators — each currently has its own (Phase A wiring).
+        s3_total      = int(self.s3_lister.counter.s3_calls) + int(self.s3_fetcher.counter.s3_calls)
+        elastic_total = (int(self.http_client.counter.elastic_calls)
+                          + int(self.manifest_reader.http_client.counter.elastic_calls)
+                          + int(self.manifest_updater.http_client.counter.elastic_calls))
+        journal_record = Schema__Pipeline__Run(run_id            = run_id                                   ,
+                                                source            = Enum__LETS__Source__Slug.CF_REALTIME      ,
+                                                verb              = Enum__Pipeline__Verb.EVENTS_LOAD          ,
+                                                stack_name        = request.stack_name                        ,
+                                                bucket            = request.bucket                            ,
+                                                prefix            = request.prefix                            ,
+                                                queue_mode        = queue_mode                                ,
+                                                dry_run           = False                                     ,
+                                                files_queued      = files_queued                              ,
+                                                files_processed   = files_processed                           ,
+                                                files_skipped     = files_skipped                             ,
+                                                events_indexed    = events_indexed                            ,
+                                                events_updated    = events_updated                            ,
+                                                inventory_updated = inventory_updated                         ,
+                                                bytes_total       = bytes_total                               ,
+                                                s3_calls          = s3_total                                  ,
+                                                elastic_calls     = elastic_total                             ,
+                                                started_at        = started_at                                ,
+                                                finished_at       = finished_at                               ,
+                                                last_http_status  = last_status                               ,
+                                                error_message     = first_error                               )
+        self.runs_tracker.record_run(base_url=base_url, username=username, password=password, record=journal_record)
+
         return Schema__Events__Load__Response(run_id            = run_id              ,
                                                stack_name        = request.stack_name  ,
                                                bucket            = bucket              ,

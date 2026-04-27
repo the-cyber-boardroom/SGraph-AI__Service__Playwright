@@ -20,6 +20,7 @@ from sgraph_ai_service_playwright__cli.elastic.lets.cf.inventory.service.Invento
 from tests.unit.sgraph_ai_service_playwright__cli.elastic.lets.cf.inventory.service.Inventory__HTTP__Client__In_Memory import Inventory__HTTP__Client__In_Memory
 from tests.unit.sgraph_ai_service_playwright__cli.elastic.lets.cf.inventory.service.S3__Inventory__Lister__In_Memory  import S3__Inventory__Lister__In_Memory
 from tests.unit.sgraph_ai_service_playwright__cli.elastic.lets.cf.inventory.service.test_Run__Id__Generator           import Deterministic__Run__Id__Generator
+from tests.unit.sgraph_ai_service_playwright__cli.elastic.lets.runs.service.Pipeline__Runs__Tracker__In_Memory         import Pipeline__Runs__Tracker__In_Memory
 from tests.unit.sgraph_ai_service_playwright__cli.elastic.service.Kibana__Saved_Objects__Client__In_Memory             import Kibana__Saved_Objects__Client__In_Memory
 
 
@@ -42,8 +43,9 @@ def build_loader(s3_pages: list = None,
     kb   = Kibana__Saved_Objects__Client__In_Memory(ensure_calls=[], delete_calls=[],
                                                      dashboard_calls=[], harden_calls=[],
                                                      delete_object_calls=[], import_calls=[])
-    gen  = Deterministic__Run__Id__Generator()
-    return Inventory__Loader(s3_lister=s3, http_client=http, kibana_client=kb, run_id_gen=gen)
+    gen     = Deterministic__Run__Id__Generator()
+    tracker = Pipeline__Runs__Tracker__In_Memory(record_calls=[], fixture_response=())
+    return Inventory__Loader(s3_lister=s3, http_client=http, kibana_client=kb, run_id_gen=gen, runs_tracker=tracker)
 
 
 class test_Inventory__Loader(TestCase):
@@ -173,3 +175,30 @@ class test_Inventory__Loader(TestCase):
         resp   = loader.load(request  = Schema__Inventory__Load__Request(run_id='my-test-run-id'),
                               base_url = 'https://x', username='u', password='p')
         assert resp.run_id == 'my-test-run-id'
+
+
+# ─── Phase B: journal write fired after every load() ─────────────────────────
+
+class test_Inventory__Loader__journal(TestCase):
+
+    def test_load_records_journal_with_aggregate_counts(self):
+        loader = build_loader()
+        loader.load(request=Schema__Inventory__Load__Request(prefix='cloudfront-realtime/2026/04/25/'),
+                     base_url='https://x', username='u', password='p')
+        assert len(loader.runs_tracker.record_calls) == 1
+        base_url, snapshot = loader.runs_tracker.record_calls[0]
+        assert base_url                  == 'https://x'
+        assert snapshot['verb']          == 'inventory-load'
+        assert snapshot['source']        == 'cf-realtime'
+        assert snapshot['queue_mode']    == 's3-listing'
+        assert snapshot['pages_listed']  == 1
+        assert snapshot['objects_indexed'] == 3                                       # sample_pages() has 3 objects
+        assert snapshot['dry_run']       is False
+        assert 's3_calls'      in snapshot
+        assert 'elastic_calls' in snapshot
+
+    def test_dry_run_skips_journal_write(self):                                     # Preserves "zero side effects on Elastic" contract
+        loader = build_loader()
+        loader.load(request=Schema__Inventory__Load__Request(prefix='cloudfront-realtime/2026/04/25/', dry_run=True),
+                     base_url='https://x', username='u', password='p')
+        assert loader.runs_tracker.record_calls == []
