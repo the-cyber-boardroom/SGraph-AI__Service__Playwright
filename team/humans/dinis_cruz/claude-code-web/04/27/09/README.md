@@ -25,9 +25,11 @@ documents) that the Dev role can pick up and implement.
 | [`02__what-exists-today.md`](02__what-exists-today.md) | Exact CLI surface, module tree, key classes |
 | [`03__source-files-to-read.md`](03__source-files-to-read.md) | Annotated reading list — what to open first |
 | [`04__next-phase-planning-prompt.md`](04__next-phase-planning-prompt.md) | The actual task for the planning session |
+| [`05__ephemeral-kibana-setup-and-debug.md`](05__ephemeral-kibana-setup-and-debug.md) | The prerequisite stack: how to launch, inspect, and debug the Ephemeral Kibana |
 
 Read in order.  By the end of doc 3 you will have a clear mental model of
-the existing system.  Doc 4 frames the planning question.
+the existing system.  Doc 4 frames the planning question.  Doc 5 is the
+operator reference for the underlying stack that all LETS commands target.
 
 ---
 
