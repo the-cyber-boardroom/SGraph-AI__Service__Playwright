@@ -47,6 +47,11 @@ from sgraph_ai_service_playwright__cli.elastic.lets.cf.events.service.Inventory_
 from sgraph_ai_service_playwright__cli.elastic.lets.cf.events.service.Progress__Reporter            import Progress__Reporter
 from sgraph_ai_service_playwright__cli.elastic.lets.cf.events.service.S3__Object__Fetcher          import S3__Object__Fetcher
 
+# sg-send convenience verbs (Phase A.5 — diagnostic commands so far):
+from sgraph_ai_service_playwright__cli.elastic.lets.cf.sg_send.service.SG_Send__Date__Parser      import parse_sg_send_date, render_date_label
+from sgraph_ai_service_playwright__cli.elastic.lets.cf.sg_send.service.SG_Send__File__Viewer      import SG_Send__File__Viewer
+from sgraph_ai_service_playwright__cli.elastic.lets.cf.sg_send.service.SG_Send__Inventory__Query  import SG_Send__Inventory__Query
+
 
 # ───────────────────────────────────────────────────────────────────────────────
 # Console-rendered progress reporter for `events load`
@@ -97,10 +102,13 @@ inventory_app = typer.Typer(help = 'S3 listing-metadata inventory for the CloudF
                             no_args_is_help = True)
 events_app    = typer.Typer(help = 'CloudFront real-time log EVENTS — fetches each .gz, parses the TSV into typed records, indexes to sg-cf-events-*.',
                             no_args_is_help = True)
+sg_send_app   = typer.Typer(help = 'SGraph-Send convenience verbs over the CloudFront LETS pipelines (date-driven, hardcoded sgraph-send specifics).',
+                            no_args_is_help = True)
 
 app.add_typer(cf_app, name='cf')
 cf_app.add_typer(inventory_app, name='inventory')
 cf_app.add_typer(events_app   , name='events')
+cf_app.add_typer(sg_send_app  , name='sg-send')
 
 
 def build_inventory_loader() -> Inventory__Loader:                                  # Single construction site so tests and CLI share the wiring
@@ -143,6 +151,15 @@ def build_events_wiper() -> Events__Wiper:
 def build_events_read() -> Events__Read:
     return Events__Read(http_client   = Inventory__HTTP__Client()       ,
                          kibana_client = Kibana__Saved_Objects__Client() )
+
+
+def build_sg_send_inventory_query() -> SG_Send__Inventory__Query:
+    return SG_Send__Inventory__Query(http_client = Inventory__HTTP__Client())
+
+
+def build_sg_send_file_viewer() -> SG_Send__File__Viewer:
+    return SG_Send__File__Viewer(s3_fetcher = S3__Object__Fetcher()                                       ,
+                                  parser     = CF__Realtime__Log__Parser(bot_classifier=Bot__Classifier()) )
 
 
 # ───────────────────────────────────────────────────────────────────────────────
@@ -712,5 +729,187 @@ def cmd_events_health(stack_name : Optional[str] = typer.Argument(None,         
             t.add_row(icon_for.get(str(chk.status), '·'), str(chk.name), rich_escape(str(chk.detail)))
         c.print(t)
         c.print()
+
+    _run()
+
+
+# ───────────────────────────────────────────────────────────────────────────────
+# `sp el lets cf sg-send files <date>` — list inventory rows for a day or hour
+# ───────────────────────────────────────────────────────────────────────────────
+# Reads sg-cf-inventory-* (no S3 calls).  One ES query.  Renders a compact
+# table: time, key (filename only), size, processed flag, etag prefix.
+# Useful for spotting "lots of files but no events" before fetching anything.
+
+SG_SEND__DEFAULT_BUCKET = '745506449035--sgraph-send-cf-logs--eu-west-2'
+
+
+@sg_send_app.command('files')
+def cmd_sg_send_files(date_spec  : str            = typer.Argument(...,                       help='Date spec: MM/DD, MM/DD/HH, YYYY/MM/DD, or YYYY/MM/DD/HH. Year defaults to 2026.'),
+                      stack_name : Optional[str]  = typer.Option  (None, '--stack',           help='Stack name. Auto-picks when only one stack exists; prompts on multiple.'),
+                      password   : Optional[str]  = typer.Option  (None, '--password',        help='Elastic password (else $SG_ELASTIC_PASSWORD).'),
+                      region     : Optional[str]  = typer.Option  (None, '--region',          help='AWS region (defaults to current AWS_Config session region).'),
+                      page_size  : int            = typer.Option  (1000, '--page-size',       help='Max rows to return from Elastic (default 1000).')):
+    """List inventory rows for a date or hour. Reads sg-cf-inventory-* only — no S3 calls."""
+    from scripts.elastic                                                             import build_service, resolve_stack_name, aws_error_handler, rich_escape
+
+    @aws_error_handler
+    def _run():
+        c = Console(highlight=False)
+
+        try:
+            year, month, day, hour = parse_sg_send_date(date_spec)
+        except ValueError as exc:
+            c.print(f'\n  [red]✗[/]  {rich_escape(str(exc))}\n')
+            raise typer.Exit(1)
+
+        if not password and not os.environ.get('SG_ELASTIC_PASSWORD'):
+            c.print('\n  [yellow]⚠[/]  SG_ELASTIC_PASSWORD is not set.\n')
+            raise typer.Exit(1)
+
+        service       = build_service()
+        stack_picked  = resolve_stack_name(service, stack_name, region)
+        info          = service.get_stack_info(stack_name = Safe_Str__Elastic__Stack__Name(stack_picked),
+                                                region     = region or '')
+        if not str(info.kibana_url):
+            c.print(f'\n  [red]✗  Stack [bold]{stack_picked}[/] has no Kibana URL yet.[/]\n')
+            raise typer.Exit(1)
+
+        base_url    = str(info.kibana_url).rstrip('/')
+        elastic_pwd = password or os.environ.get('SG_ELASTIC_PASSWORD', '')
+        query       = build_sg_send_inventory_query()
+        import time as _time
+        t0          = _time.time()
+        rows, status, err = query.list_files_for_date(base_url=base_url, username='elastic', password=elastic_pwd,
+                                                        year=year, month=month, day=day, hour=hour,
+                                                        page_size=page_size)
+        wall_ms     = int((_time.time() - t0) * 1000)
+
+        c.print()
+        c.print(f'  [bold]CloudFront inventory files[/] · [cyan]{render_date_label(year, month, day, hour)}[/]')
+        c.print(f'  [dim]stack:[/] {stack_picked}   [dim]http:[/] {status}   [dim]wall:[/] {wall_ms} ms   [dim]rows:[/] {len(rows)}')
+        c.print()
+
+        if err:
+            c.print(f'  [yellow]⚠[/]  {rich_escape(err)}\n')
+            return
+
+        if len(rows) == 0:
+            c.print(f'  [dim]No inventory rows for {render_date_label(year, month, day, hour)}.  Run `sp el lets cf inventory load --prefix cloudfront-realtime/{year:04d}/{month:02d}/{day:02d}/`[/]\n')
+            return
+
+        # ─── render rows ────────────────────────────────────────────────────
+        t = Table(show_header=True, header_style='bold', box=None, padding=(0, 2))
+        t.add_column('Time',    style='dim'   )
+        t.add_column('Key',                    )
+        t.add_column('Size',    justify='right')
+        t.add_column('Done',    justify='center')
+        t.add_column('Etag',    style='dim'   )
+        total_bytes  = 0
+        processed_n  = 0
+        for row in rows:
+            full_key   = str(row.get('key', ''))
+            short_key  = full_key.rsplit('/', 1)[-1] or full_key
+            delivery   = str(row.get('delivery_at', ''))
+            time_part  = delivery[11:19] if len(delivery) >= 19 else delivery        # "HH:MM:SS" extracted from ISO timestamp
+            size       = int(row.get('size_bytes', 0))
+            processed  = bool(row.get('content_processed', False))
+            etag       = str(row.get('etag', ''))[:8]
+            total_bytes += size
+            if processed:
+                processed_n += 1
+            t.add_row(time_part,
+                       short_key,
+                       f'{size:,}',
+                       '[green]✓[/]' if processed else '[dim]–[/]',
+                       etag)
+        c.print(t)
+        c.print()
+        c.print(f'  [dim]totals:[/] [bold]{len(rows)}[/] file(s), [bold]{total_bytes:,}[/] bytes, [bold]{processed_n}[/]/{len(rows)} processed')
+        c.print()
+
+    _run()
+
+
+# ───────────────────────────────────────────────────────────────────────────────
+# `sp el lets cf sg-send view <key>` — fetch a single .gz, show raw or table
+# ───────────────────────────────────────────────────────────────────────────────
+# One S3 GetObject + gunzip.  Default: print the raw TSV (so you can pipe it
+# to `head` / `wc -l`).  --table: render parsed events in a Rich table for
+# eyeballing.  Useful for confirming a 0-event file really is empty/garbage.
+
+@sg_send_app.command('view')
+def cmd_sg_send_view(key        : str            = typer.Argument(...,                       help='Full S3 key (e.g. cloudfront-realtime/2026/04/25/14/EXXXX.2026-04-25-14.abcd1234.gz). Use `sg-send files <date>` to list keys.'),
+                     bucket     : Optional[str]  = typer.Option  (None, '--bucket',          help='S3 bucket (defaults to the SGraph CloudFront-logs bucket).'),
+                     region     : Optional[str]  = typer.Option  (None, '--region',          help='AWS region (defaults to current AWS_Config session region).'),
+                     table      : bool           = typer.Option  (False, '--table',          help='Parse the TSV and render a Rich table of events instead of dumping the raw text.'),
+                     limit      : int            = typer.Option  (50,   '--limit',           help='With --table, render at most N events (default 50). 0 = unlimited.')):
+    """Fetch a single CloudFront .gz and dump it. Default: raw TSV. --table: parsed events."""
+    from scripts.elastic                                                             import aws_error_handler, rich_escape
+
+    @aws_error_handler
+    def _run():
+        c = Console(highlight=False)
+
+        bucket_resolved = bucket or SG_SEND__DEFAULT_BUCKET
+        viewer          = build_sg_send_file_viewer()
+        import time as _time
+        t0              = _time.time()
+
+        if table:
+            try:
+                records, skipped = viewer.parsed(bucket=bucket_resolved, key=key, region=region or '')
+            except Exception as exc:
+                c.print(f'\n  [red]✗[/]  fetch/parse error: {rich_escape(str(exc)[:300])}\n')
+                raise typer.Exit(1)
+            wall_ms = int((_time.time() - t0) * 1000)
+
+            c.print()
+            c.print(f'  [bold]{key}[/]')
+            c.print(f'  [dim]bucket:[/] {bucket_resolved}   [dim]events:[/] {len(records)}   [dim]skipped lines:[/] {skipped}   [dim]wall:[/] {wall_ms} ms')
+            c.print()
+
+            if len(records) == 0:
+                c.print('  [dim](no parseable events in this file)[/]\n')
+                return
+
+            shown = records if limit == 0 else records[:limit]
+            tbl = Table(show_header=True, header_style='bold', box=None, padding=(0, 1))
+            tbl.add_column('Time',    style='dim')
+            tbl.add_column('Status',  justify='right')
+            tbl.add_column('Method',                  )
+            tbl.add_column('Host',                    )
+            tbl.add_column('URI',                     )
+            tbl.add_column('Country', justify='center')
+            tbl.add_column('Bot',                     )
+            tbl.add_column('UA',      style='dim'    )
+            for r in shown:
+                ts        = str(r.timestamp)
+                time_part = ts[11:19] if len(ts) >= 19 else ts
+                ua_short  = str(r.cs_user_agent)[:60]
+                tbl.add_row(time_part,
+                             str(int(r.sc_status)),
+                             str(r.cs_method.value if hasattr(r.cs_method, 'value') else r.cs_method),
+                             str(r.cs_host)[:30],
+                             str(r.cs_uri_stem)[:40],
+                             str(r.c_country) or '-',
+                             str(r.bot_category.value if hasattr(r.bot_category, 'value') else r.bot_category),
+                             ua_short)
+            c.print(tbl)
+            if limit > 0 and len(records) > limit:
+                c.print(f'\n  [dim]…showing {limit} of {len(records)} events.  Pass --limit 0 for all.[/]')
+            c.print()
+        else:
+            try:
+                tsv_text = viewer.raw_text(bucket=bucket_resolved, key=key, region=region or '')
+            except Exception as exc:
+                c.print(f'\n  [red]✗[/]  fetch error: {rich_escape(str(exc)[:300])}\n')
+                raise typer.Exit(1)
+            wall_ms = int((_time.time() - t0) * 1000)
+
+            c.print()
+            c.print(f'  [bold]{key}[/]  [dim]({len(tsv_text):,} bytes, {wall_ms} ms)[/]')
+            c.print()
+            # Use plain print, not rich, so the TSV pipes cleanly to head/wc/grep
+            print(tsv_text, end='' if tsv_text.endswith('\n') else '\n')
 
     _run()
