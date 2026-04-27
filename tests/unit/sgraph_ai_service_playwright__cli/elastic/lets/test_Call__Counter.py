@@ -71,3 +71,34 @@ class test_shared_counter_across_collaborators(TestCase):
 
         assert shared.elastic_calls == 3                                            # The injected counter is the same object — increments via http.counter show up on shared
         assert http.counter is shared
+
+
+# ─── regression: every Phase-A counter site must auto-instantiate ────────────
+# A string-quoted forward-reference annotation (`counter : 'Call__Counter'`)
+# silently disables Type_Safe auto-instantiation, leaving counter=None and
+# crashing at first use with `AttributeError: 'NoneType' object has no
+# attribute 's3'`. These tests construct each class with no args and assert
+# the counter is a real Call__Counter instance, so the bug can't recur.
+
+class test_counter_auto_instantiation(TestCase):
+
+    def test_inventory_http_client_counter_is_real(self):
+        from sgraph_ai_service_playwright__cli.elastic.lets.cf.inventory.service.Inventory__HTTP__Client import Inventory__HTTP__Client
+        client = Inventory__HTTP__Client()
+        assert isinstance(client.counter, Call__Counter)
+        client.counter.elastic()                                                     # Would raise AttributeError if counter were None
+        assert client.counter.elastic_calls == 1
+
+    def test_s3_inventory_lister_counter_is_real(self):
+        from sgraph_ai_service_playwright__cli.elastic.lets.cf.inventory.service.S3__Inventory__Lister import S3__Inventory__Lister
+        lister = S3__Inventory__Lister()
+        assert isinstance(lister.counter, Call__Counter)
+        lister.counter.s3()
+        assert lister.counter.s3_calls == 1
+
+    def test_s3_object_fetcher_counter_is_real(self):
+        from sgraph_ai_service_playwright__cli.elastic.lets.cf.events.service.S3__Object__Fetcher import S3__Object__Fetcher
+        fetcher = S3__Object__Fetcher()
+        assert isinstance(fetcher.counter, Call__Counter)
+        fetcher.counter.s3()
+        assert fetcher.counter.s3_calls == 1
