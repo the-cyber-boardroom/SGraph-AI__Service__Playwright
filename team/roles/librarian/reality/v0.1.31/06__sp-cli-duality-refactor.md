@@ -82,7 +82,7 @@ Both consumers reduce to thin composers:
 
 Tests: 15 unit tests in `tests/unit/sgraph_ai_service_playwright__cli/image/` cover schema round-trip, default values, stage-context happy path (file + tree + custom-name + extra-ignores), `build()` happy path with an in-memory fake docker client (no daemon required), tempdir-cleanup-on-failure, and ignore-callable composition. Existing consumer tests rewired: `tests/unit/sgraph_ai_service_playwright__cli/deploy/test_Docker__SP__CLI.py` lost its now-redundant `ignore_build_noise` tests (the behaviour moved to `Image__Build__Service`) and gained `test_build_request__has_all_four_source_trees_with_correct_target_names`. The deploy-via-pytest integration test `tests/docker/test_Build__Docker__SGraph-AI__Service__Playwright.py` updated to assert on `Schema__Image__Build__Result` fields instead of dict keys.
 
-### `opensearch/` — `sp os` sister section foundation (Phase B steps 5a–5b, 2026-04-26)
+### `opensearch/` — `sp os` sister section foundation (Phase B steps 5a–5c, 2026-04-26)
 
 First two slices of the new OpenSearch sister section. Folder name is `opensearch/` (not `os/`) — `os` shadows the Python stdlib `os` module and breaks `import os` inside the package. The typer command alias stays `sp os` / `sp opensearch`.
 
@@ -99,9 +99,13 @@ First two slices of the new OpenSearch sister section. Folder name is `opensearc
 | `opensearch/schemas/Schema__OS__Stack__Delete__Response.py` | Empty fields ⇒ route returns 404. |
 | `opensearch/schemas/Schema__OS__Health.py` | Cluster + Dashboards health snapshot; `-1` sentinels mark unreachable probes. |
 | `opensearch/collections/List__Schema__OS__Stack__Info.py` | Type_Safe__List for the listing response. |
-| `opensearch/service/OpenSearch__AWS__Client.py` | Skeleton — declares `OS_NAMING = Stack__Naming(section_prefix='opensearch')` and the tag constants. AWS-touching methods land in step 5c. |
+| `opensearch/service/OpenSearch__AWS__Client.py` | Composition shell — declares tag constants + `OS_NAMING`, exposes `sg` / `ami` / `instance` / `tags` slots wired by `setup()`. **Per-concern helpers below live in their own files** (one class per file per CLAUDE.md rule #21) so each can be reviewed and edited in isolation. |
+| `opensearch/service/OpenSearch__SG__Helper.py` | `ensure_security_group(region, stack_name, caller_ip)` — idempotent SG create + ingress on Dashboards port 443; `delete_security_group(region, sg_id)`. ASCII-only Description (AWS rejects multi-byte). |
+| `opensearch/service/OpenSearch__AMI__Helper.py` | `latest_al2023_ami_id(region)` (raises if none); `latest_healthy_ami_id(region)` filtered by `sg:purpose=opensearch` + `sg:ami-status=healthy` (returns empty string if none). |
+| `opensearch/service/OpenSearch__Instance__Helper.py` | `list_stacks(region)` returns `{instance_id: details}` filtered by `sg:purpose=opensearch` + live states; `find_by_stack_name(region, stack_name)`; `terminate_instance(region, instance_id)`. |
+| `opensearch/service/OpenSearch__Tags__Builder.py` | Pure mapper — builds the canonical 6-tag list (Name, sg:purpose, sg:section, sg:stack-name, sg:allowed-ip, sg:creator). Creator falls back to 'unknown' when empty. |
 
-42 unit tests across primitives / enums / schemas / collections / OS_NAMING / tag constants — every schema gets a defaults test + a round-trip via `.json()`. Parity-with-elastic checks lock the regex shape and the lifecycle vocabulary so future drift is caught.
+64 unit tests across primitives / enums / schemas / collections / each helper / composition. AWS-touching helpers exercised through real `_Fake_Boto_EC2` subclasses (no mocks); each helper has its own focused test file kept under ~80 lines.
 
 ### `observability/` — Tier-1 pure-logic service (read-only surface)
 
