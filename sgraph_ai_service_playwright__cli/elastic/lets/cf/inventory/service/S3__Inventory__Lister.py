@@ -27,6 +27,8 @@ import boto3                                                                    
 from osbot_utils.type_safe.Type_Safe                                                import Type_Safe
 from osbot_utils.type_safe.type_safe_core.decorators.type_safe                      import type_safe
 
+from sgraph_ai_service_playwright__cli.elastic.lets.Call__Counter                   import Call__Counter
+
 
 # Firehose embeds a timestamp into every object name.  Pattern (within the key
 # basename):  ...-YYYY-MM-DD-HH-MM-SS-<uuid>.<ext>
@@ -61,6 +63,7 @@ def normalise_etag(raw: str) -> str:                                            
 
 
 class S3__Inventory__Lister(Type_Safe):
+    counter : 'Call__Counter'                                                       # Auto-instantiates a fresh counter per instance; SG_Send orchestrator injects a shared one to track totals across collaborators
 
     def s3_client(self, region: str):                                               # Single seam — tests can override; per-call instantiation matches Elastic__AWS__Client.ec2_client. Empty region falls through to boto3's standard resolution chain (AWS_DEFAULT_REGION → profile → IMDS) — passing region_name='' would produce a malformed "https://s3..amazonaws.com" endpoint.
         if region:
@@ -85,6 +88,7 @@ class S3__Inventory__Lister(Type_Safe):
         pages_listed        = 0
         for page in paginator.paginate(**kwargs):
             pages_listed += 1
+            self.counter.s3()                                                        # One ListObjectsV2 call per page
             for obj in page.get('Contents', []) or []:                              # ListObjectsV2 omits "Contents" entirely on an empty page
                 objects.append(obj)
                 if max_keys and len(objects) >= max_keys:                           # Stop mid-page when we've satisfied the cap

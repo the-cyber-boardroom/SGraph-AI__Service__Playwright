@@ -25,18 +25,22 @@ from urllib3.exceptions                                                         
 from osbot_utils.type_safe.Type_Safe                                                import Type_Safe
 from osbot_utils.type_safe.type_safe_core.collections.Type_Safe__List               import Type_Safe__List
 
+from sgraph_ai_service_playwright__cli.elastic.lets.Call__Counter                   import Call__Counter
+
 
 DEFAULT_TIMEOUT = 30
 
 
 class Inventory__HTTP__Client(Type_Safe):
-    timeout : int  = DEFAULT_TIMEOUT
-    verify  : bool = False                                                          # Self-signed nginx cert — mirrors Elastic__HTTP__Client
+    timeout : int          = DEFAULT_TIMEOUT
+    verify  : bool         = False                                                  # Self-signed nginx cert — mirrors Elastic__HTTP__Client
+    counter : Call__Counter                                                         # Auto-instantiates per instance; SG_Send orchestrator injects a shared one to track total Elastic HTTP calls across collaborators
 
     def request(self, method: str, url: str, *,                                     # Single seam for test overrides
                       headers: dict = None,
                       data   : bytes = None
                 ) -> requests.Response:
+        self.counter.elastic()                                                       # One Elastic HTTP call (every request — search, _bulk, _update_by_query, _cat/indices, DELETE, _count, ...)
         with warnings.catch_warnings():
             warnings.simplefilter('ignore', InsecureRequestWarning)
             return requests.request(method = method            ,
