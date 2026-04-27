@@ -82,6 +82,18 @@ Both consumers reduce to thin composers:
 
 Tests: 15 unit tests in `tests/unit/sgraph_ai_service_playwright__cli/image/` cover schema round-trip, default values, stage-context happy path (file + tree + custom-name + extra-ignores), `build()` happy path with an in-memory fake docker client (no daemon required), tempdir-cleanup-on-failure, and ignore-callable composition. Existing consumer tests rewired: `tests/unit/sgraph_ai_service_playwright__cli/deploy/test_Docker__SP__CLI.py` lost its now-redundant `ignore_build_noise` tests (the behaviour moved to `Image__Build__Service`) and gained `test_build_request__has_all_four_source_trees_with_correct_target_names`. The deploy-via-pytest integration test `tests/docker/test_Build__Docker__SGraph-AI__Service__Playwright.py` updated to assert on `Schema__Image__Build__Result` fields instead of dict keys.
 
+### `opensearch/` — `sp os` sister section foundation (Phase B step 5a, 2026-04-26)
+
+First slice of the new OpenSearch sister section. Folder name is `opensearch/` (not `os/`) — `os` shadows the Python stdlib `os` module and breaks `import os` inside the package. The typer command alias stays `sp os` / `sp opensearch`.
+
+| File | Role |
+|------|------|
+| `opensearch/primitives/Safe_Str__OS__Stack__Name.py` | Logical name for an ephemeral OS+Dashboards stack. Same regex as `Safe_Str__Elastic__Stack__Name`. |
+| `opensearch/enums/Enum__OS__Stack__State.py` | Lifecycle state vocabulary (PENDING/RUNNING/READY/TERMINATING/TERMINATED/UNKNOWN). Mirrors `Enum__Elastic__State`. |
+| `opensearch/service/OpenSearch__AWS__Client.py` | Skeleton — declares `OS_NAMING = Stack__Naming(section_prefix='opensearch')` and the tag constants (`sg:purpose=opensearch`, `sg:section=os`). AWS-touching methods land in step 5c. |
+
+23 new unit tests cover the primitive (regex, lower-casing, trimming, length bounds, empty allowed), the enum (member set, lowercase values, `__str__`, shape parity with elastic), and the AWS-client skeleton (`OS_NAMING` is a `Stack__Naming` instance, prefix is correct, tags are `sg:`-namespaced).
+
 ### `observability/` — Tier-1 pure-logic service (read-only surface)
 
 | File | Role |
