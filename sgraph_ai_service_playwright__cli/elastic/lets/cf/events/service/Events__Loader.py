@@ -55,6 +55,7 @@ from sgraph_ai_service_playwright__cli.elastic.lets.cf.events.service.Inventory_
 from sgraph_ai_service_playwright__cli.elastic.lets.cf.events.service.Inventory__Manifest__Updater import Inventory__Manifest__Updater
 from sgraph_ai_service_playwright__cli.elastic.lets.cf.events.service.Progress__Reporter            import Progress__Reporter
 from sgraph_ai_service_playwright__cli.elastic.lets.cf.events.service.S3__Object__Fetcher          import S3__Object__Fetcher
+from sgraph_ai_service_playwright__cli.elastic.lets.Step__Timings                                  import Step__Timings
 
 
 DEFAULT_BUCKET             = '745506449035--sgraph-send-cf-logs--eu-west-2'
@@ -195,10 +196,15 @@ class Events__Loader(Type_Safe):
                                                        key='(empty key)', error_msg='no key on queue item')
                 continue
 
-            file_t0 = _time.time()
+            file_t0   = _time.time()
+            timings   = Step__Timings()
             try:
+                t_get = _time.time()
                 gz_bytes = self.s3_fetcher.get_object_bytes(bucket=item_bucket, key=item_key, region=str(request.region))
+                timings.s3_get_ms = int((_time.time() - t_get) * 1000)
+                t_gz  = _time.time()
                 tsv_text = gunzip(gz_bytes)
+                timings.gunzip_ms = int((_time.time() - t_gz) * 1000)
             except Exception as exc:
                 files_skipped += 1
                 if not first_error:
@@ -208,13 +214,17 @@ class Events__Loader(Type_Safe):
                                                        key=item_key, error_msg=str(exc)[:200])
                 continue
 
+            t_parse = _time.time()
             records, _ = self.parser.parse(tsv_text)
+            timings.parse_ms = int((_time.time() - t_parse) * 1000)
             if len(records) == 0:                                                    # Empty file — count as processed (nothing went wrong) but contribute zero events
                 files_processed += 1
                 # Still mark inventory as content_processed=true: we DID look at it
+                t_mark = _time.time()
                 up_count, up_status, up_err = self.manifest_updater.mark_processed(
                     base_url=base_url, username=username, password=password,
                     etag=item_etag, run_id=run_id)
+                timings.manifest_update_ms = int((_time.time() - t_mark) * 1000)
                 if up_status:
                     last_status = up_status
                 inventory_updated += up_count
@@ -222,7 +232,8 @@ class Events__Loader(Type_Safe):
                     first_error = up_err
                 file_ms = int((_time.time() - file_t0) * 1000)
                 self.progress_reporter.on_file_done(idx=queue_idx, total=files_queued,
-                                                      key=item_key, events_count=0, duration_ms=file_ms)
+                                                      key=item_key, events_count=0, duration_ms=file_ms,
+                                                      timings=timings)
                 continue
 
             # Stamp source-lineage + pipeline metadata + per-line doc_id on each record
@@ -243,6 +254,7 @@ class Events__Loader(Type_Safe):
                 buckets_by_date[day].append(record)
 
             file_failed = False
+            t_post      = _time.time()
             for day, group_records in sorted(buckets_by_date.items()):
                 index_name = index_name_for_date(day)
                 created, updated, failed, http_status, err = self.http_client.bulk_post_with_id(
@@ -259,8 +271,8 @@ class Events__Loader(Type_Safe):
                     first_error = err
                 if failed > 0 and not file_failed:                                   # Any per-day batch failed → file partially-failed
                     file_failed = True
+            timings.bulk_post_ms = int((_time.time() - t_post) * 1000)
 
-            file_ms = int((_time.time() - file_t0) * 1000)
             if file_failed:
                 files_skipped += 1
                 self.progress_reporter.on_file_error(idx=queue_idx, total=files_queued,
@@ -268,18 +280,22 @@ class Events__Loader(Type_Safe):
                 continue
 
             # File processed cleanly — update the manifest
+            t_mark = _time.time()
             up_count, up_status, up_err = self.manifest_updater.mark_processed(
                 base_url=base_url, username=username, password=password,
                 etag=item_etag, run_id=run_id)
+            timings.manifest_update_ms = int((_time.time() - t_mark) * 1000)
             if up_status:
                 last_status = up_status
             inventory_updated += up_count
             if up_err and not first_error:
                 first_error = up_err
             files_processed += 1
+            file_ms = int((_time.time() - file_t0) * 1000)
             self.progress_reporter.on_file_done(idx=queue_idx, total=files_queued,
                                                   key=item_key, events_count=len(records),
-                                                  duration_ms=file_ms)
+                                                  duration_ms=file_ms,
+                                                  timings=timings)
 
         self.progress_reporter.on_load_complete()
         finished_at = now_utc_iso_full()

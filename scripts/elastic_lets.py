@@ -67,10 +67,13 @@ class Console__Progress__Reporter(Progress__Reporter):                          
         if skipped > 0:
             self.console.print(f'  [dim]--skip-processed:[/] [green]{skipped}[/] already-processed file(s) skipped, [bold]{after}[/] to fetch')
 
-    def on_file_done(self, idx: int, total: int, key: str, events_count: int, duration_ms: int):
+    def on_file_done(self, idx: int, total: int, key: str, events_count: int, duration_ms: int, timings=None):
         # Truncate to last path segment for readability (the .gz filename)
         short_key = key.rsplit('/', 1)[-1] if len(key) > 60 else key
-        self.console.print(f'  [dim][{idx:>3}/{total}][/]  {short_key:<70} [bold]{events_count:>4}[/] events  [dim]{duration_ms:>5} ms[/]')
+        breakdown = ''
+        if timings is not None and timings.total() > 0:
+            breakdown = f'  [dim]({timings.render_compact()})[/]'
+        self.console.print(f'  [dim][{idx:>3}/{total}][/]  {short_key:<70} [bold]{events_count:>4}[/] events  [dim]{duration_ms:>5} ms[/]{breakdown}')
 
     def on_file_error(self, idx: int, total: int, key: str, error_msg: str):
         short_key = key.rsplit('/', 1)[-1] if len(key) > 60 else key

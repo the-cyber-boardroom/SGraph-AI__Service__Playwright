@@ -16,8 +16,11 @@ import boto3                                                                    
 from osbot_utils.type_safe.Type_Safe                                                import Type_Safe
 from osbot_utils.type_safe.type_safe_core.decorators.type_safe                      import type_safe
 
+from sgraph_ai_service_playwright__cli.elastic.lets.Call__Counter                   import Call__Counter
+
 
 class S3__Object__Fetcher(Type_Safe):
+    counter : Call__Counter                                                         # Auto-instantiates per instance; SG_Send orchestrator injects a shared one
 
     def s3_client(self, region: str):                                               # Single seam — tests override.  Empty region falls through to boto3 default chain.
         if region:
@@ -31,6 +34,7 @@ class S3__Object__Fetcher(Type_Safe):
                           ) -> bytes:
         client   = self.s3_client(region)
         response = client.get_object(Bucket=bucket, Key=key)
+        self.counter.s3()                                                            # One GetObject call
         body     = response.get('Body')
         if body is None:
             return b''
