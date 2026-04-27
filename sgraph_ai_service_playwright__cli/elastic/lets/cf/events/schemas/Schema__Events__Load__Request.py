@@ -23,7 +23,7 @@ class Schema__Events__Load__Request(Type_Safe):
     all              : bool                          = False                        # Full-bucket scan (S3 listing mode); ignored when from_inventory
     max_files        : int                           = 0                            # 0 = unlimited; otherwise stop after N FILES (NOT events)
     from_inventory   : bool                          = False                        # When set, work queue comes from sg-cf-inventory-* docs where content_processed=false
-    skip_processed   : bool                          = False                        # When set, query sg-cf-events-* for distinct source_etag values FIRST and filter them out of the queue. Avoids re-fetching .gz files whose events are already indexed. Cheap (one ES aggregation) vs. the cost of unnecessary GetObjects.
+    skip_processed   : bool                          = False                        # When set, query the inventory manifest (sg-cf-inventory-*) for etags with content_processed=true FIRST and filter them out of the queue. Single source of truth for "we touched this file" — covers 0-event files (which never appear in sg-cf-events-* but DO get manifest.content_processed=true). Cheap (one ES aggregation).
     run_id           : Safe_Str__Pipeline__Run__Id                                  # Empty → service auto-generates
     stack_name       : Safe_Str__Elastic__Stack__Name                               # Empty → auto-pick
     region           : Safe_Str__AWS__Region                                        # Empty → AWS default chain
