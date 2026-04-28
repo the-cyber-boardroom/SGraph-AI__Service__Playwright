@@ -123,6 +123,36 @@ Full lifecycle management for ephemeral single-node OpenSearch EC2 stacks.
 
 ---
 
+## `linux/` — Ephemeral Bare Linux EC2 Stacks
+
+Ephemeral AL2023 EC2 stacks; SSM access only (no SSH). CLI: `sp linux`. Tag: `sg:purpose=linux`. Reuses `playwright-ec2` IAM instance profile.
+
+| Layer | Key classes |
+|-------|-------------|
+| service | `Linux__Service`, `Linux__AWS__Client`, `Linux__SG__Helper`, `Linux__AMI__Helper`, `Linux__Instance__Helper`, `Linux__Launch__Helper`, `Linux__User_Data__Builder`, `Linux__Health__Checker` |
+| schemas | `Schema__Linux__Create__Request/Response`, `Schema__Linux__Info`, `Schema__Linux__List`, `Schema__Linux__Delete__Response`, `Schema__Linux__Health__Response` |
+| enums | `Enum__Linux__Stack__State` |
+| primitives | `Safe_Str__Linux__Stack__Name`, `Safe_Str__IP__Address` |
+
+HTTP routes: `POST /linux/stack`, `GET /linux/stacks`, `GET /linux/stack/{name}`, `DELETE /linux/stack/{name}`, `GET /linux/stack/{name}/health`.
+
+---
+
+## `docker/` — Ephemeral Docker-on-AL2023 EC2 Stacks
+
+AL2023 EC2 stacks with Docker CE pre-installed; SSM access only. CLI: `sp docker`. Tag: `sg:purpose=docker`. Reuses `playwright-ec2` IAM instance profile. Health poll timeout 600 s (Docker CE install ~3 min).
+
+| Layer | Key classes |
+|-------|-------------|
+| service | `Docker__Service`, `Docker__AWS__Client`, `Docker__SG__Helper`, `Docker__AMI__Helper`, `Docker__Instance__Helper`, `Docker__Launch__Helper`, `Docker__User_Data__Builder`, `Docker__Health__Checker` |
+| schemas | `Schema__Docker__Create__Request/Response`, `Schema__Docker__Info`, `Schema__Docker__List`, `Schema__Docker__Delete__Response`, `Schema__Docker__Health__Response` |
+| enums | `Enum__Docker__Stack__State` |
+| primitives | `Safe_Str__Docker__Stack__Name`, `Safe_Str__IP__Address` |
+
+HTTP routes: `POST /docker/stack`, `GET /docker/stacks`, `GET /docker/stack/{name}`, `DELETE /docker/stack/{name}`, `GET /docker/stack/{name}/health`.
+
+---
+
 ## `prometheus/` — Prometheus Stack Foundation
 
 Phase B step 6a — skeleton only; no full stack management yet.
