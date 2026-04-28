@@ -31,6 +31,7 @@ from tests.unit.sgraph_ai_service_playwright__cli.elastic.lets.cf.events.service
 from tests.unit.sgraph_ai_service_playwright__cli.elastic.lets.cf.inventory.service.Inventory__HTTP__Client__In_Memory   import Inventory__HTTP__Client__In_Memory
 from tests.unit.sgraph_ai_service_playwright__cli.elastic.lets.cf.inventory.service.S3__Inventory__Lister__In_Memory     import S3__Inventory__Lister__In_Memory
 from tests.unit.sgraph_ai_service_playwright__cli.elastic.lets.cf.inventory.service.test_Run__Id__Generator              import Deterministic__Run__Id__Generator
+from tests.unit.sgraph_ai_service_playwright__cli.elastic.lets.runs.service.Pipeline__Runs__Tracker__In_Memory           import Pipeline__Runs__Tracker__In_Memory
 from tests.unit.sgraph_ai_service_playwright__cli.elastic.service.Kibana__Saved_Objects__Client__In_Memory                import Kibana__Saved_Objects__Client__In_Memory
 
 
@@ -65,8 +66,10 @@ def build_orchestrator(shared_counter: Call__Counter) -> SG_Send__Orchestrator:
     inv_kb      = Kibana__Saved_Objects__Client__In_Memory(ensure_calls=[], delete_calls=[],
                                                              dashboard_calls=[], harden_calls=[],
                                                              delete_object_calls=[], import_calls=[])
+    inv_tracker = Pipeline__Runs__Tracker__In_Memory(record_calls=[], fixture_response=())
     inv_loader  = Inventory__Loader(s3_lister=inv_lister, http_client=inv_http,
-                                     kibana_client=inv_kb, run_id_gen=Deterministic__Run__Id__Generator())
+                                     kibana_client=inv_kb, run_id_gen=Deterministic__Run__Id__Generator(),
+                                     runs_tracker=inv_tracker)
 
     ev_http     = Inventory__HTTP__Client__In_Memory(counter               = shared_counter ,
                                                       bulk_calls            = []            ,
@@ -91,11 +94,13 @@ def build_orchestrator(shared_counter: Call__Counter) -> SG_Send__Orchestrator:
     ev_lister   = S3__Inventory__Lister__In_Memory(counter       = shared_counter ,
                                                     fixture_pages = []            ,
                                                     paginate_calls= []            )
+    ev_tracker    = Pipeline__Runs__Tracker__In_Memory(record_calls=[], fixture_response=())
     events_loader = Events__Loader(s3_lister=ev_lister, s3_fetcher=ev_fetcher,
                                     parser=CF__Realtime__Log__Parser(bot_classifier=Bot__Classifier()),
                                     http_client=ev_http, kibana_client=ev_kb,
                                     manifest_reader=ev_reader, manifest_updater=ev_updater,
-                                    run_id_gen=Deterministic__Run__Id__Generator())
+                                    run_id_gen=Deterministic__Run__Id__Generator(),
+                                    runs_tracker=ev_tracker)
 
     return SG_Send__Orchestrator(counter          = shared_counter ,
                                   inventory_loader = inv_loader     ,
