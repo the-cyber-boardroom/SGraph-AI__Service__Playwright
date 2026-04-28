@@ -139,19 +139,168 @@ class test_health(TestCase):
         assert h.dashboards_ok          is False
 
 
-class test_setup_chain(TestCase):                                                   # OpenSearch__Service().setup() should wire all 5 helpers
+class test_setup_chain(TestCase):                                                   # OpenSearch__Service().setup() should wire all 7 helpers
 
     def test__setup_returns_self_and_wires_helpers(self):
         from sgraph_ai_service_playwright__cli.opensearch.service.Caller__IP__Detector            import Caller__IP__Detector
         from sgraph_ai_service_playwright__cli.opensearch.service.OpenSearch__AWS__Client         import OpenSearch__AWS__Client
+        from sgraph_ai_service_playwright__cli.opensearch.service.OpenSearch__Compose__Template   import OpenSearch__Compose__Template
         from sgraph_ai_service_playwright__cli.opensearch.service.OpenSearch__HTTP__Probe         import OpenSearch__HTTP__Probe
         from sgraph_ai_service_playwright__cli.opensearch.service.OpenSearch__Stack__Mapper       import OpenSearch__Stack__Mapper
+        from sgraph_ai_service_playwright__cli.opensearch.service.OpenSearch__User_Data__Builder  import OpenSearch__User_Data__Builder
         from sgraph_ai_service_playwright__cli.opensearch.service.Random__Stack__Name__Generator  import Random__Stack__Name__Generator
 
         s = OpenSearch__Service()
         assert s.setup() is s
-        assert isinstance(s.aws_client , OpenSearch__AWS__Client       )
-        assert isinstance(s.probe      , OpenSearch__HTTP__Probe       )
-        assert isinstance(s.mapper     , OpenSearch__Stack__Mapper     )
-        assert isinstance(s.ip_detector, Caller__IP__Detector          )
-        assert isinstance(s.name_gen   , Random__Stack__Name__Generator)
+        assert isinstance(s.aws_client       , OpenSearch__AWS__Client       )
+        assert isinstance(s.probe            , OpenSearch__HTTP__Probe       )
+        assert isinstance(s.mapper           , OpenSearch__Stack__Mapper     )
+        assert isinstance(s.ip_detector      , Caller__IP__Detector          )
+        assert isinstance(s.name_gen         , Random__Stack__Name__Generator)
+        assert isinstance(s.compose_template , OpenSearch__Compose__Template )
+        assert isinstance(s.user_data_builder, OpenSearch__User_Data__Builder)
+
+
+# ──────────────────────────────── create_stack (Phase B step 5f.4b) ───────────
+
+class _Fake_SG__Helper:
+    def __init__(self): self.calls = []; self.sg_id = 'sg-fake-os-1234567'
+    def ensure_security_group(self, region, stack_name, caller_ip):
+        self.calls.append((region, str(stack_name), str(caller_ip)))
+        return self.sg_id
+
+
+class _Fake_AMI__Helper:
+    def __init__(self, ami='ami-0685f8dd865c8e389'): self.ami = ami; self.calls = []
+    def latest_al2023_ami_id(self, region):
+        self.calls.append(region)
+        return self.ami
+
+
+class _Fake_Tags__Builder:
+    def __init__(self): self.calls = []
+    def build(self, stack_name, caller_ip, creator=''):
+        self.calls.append((str(stack_name), str(caller_ip), str(creator)))
+        return [{'Key': 'Name'        , 'Value': f'opensearch-{stack_name}'},
+                {'Key': 'sg:purpose'  , 'Value': 'opensearch'              },
+                {'Key': 'sg:stack-name', 'Value': stack_name               }]
+
+
+class _Fake_Launch__Helper:
+    def __init__(self, instance_id='i-0123456789abcdef0'):
+        self.instance_id = instance_id
+        self.calls       = []
+    def run_instance(self, region, ami_id, security_group_id, user_data, tags, instance_type='t3.large', instance_profile_name=None):
+        self.calls.append({'region': region, 'ami_id': ami_id, 'sg_id': security_group_id,
+                           'user_data': user_data, 'tags': tags, 'instance_type': instance_type})
+        return self.instance_id
+
+
+class _Fake_AWS_Client__Full:                                                       # Composes the per-concern fakes for create_stack
+    def __init__(self):
+        self.sg       = _Fake_SG__Helper()
+        self.ami      = _Fake_AMI__Helper()
+        self.tags     = _Fake_Tags__Builder()
+        self.launch   = _Fake_Launch__Helper()
+        self.instance = _Fake_Instance__Helper()                                    # For list/get/delete cohabitation
+
+
+class _Fake_Compose__Template:
+    def __init__(self): self.calls = []
+    def render(self, admin_password, heap_size='2g', os_image=None, dashboards_image=None):
+        self.calls.append({'admin_password': admin_password, 'heap_size': heap_size})
+        return f'services:\n  opensearch:\n    env: PASSWORD={admin_password}\n'
+
+
+class _Fake_User_Data__Builder:
+    def __init__(self): self.calls = []
+    def render(self, stack_name, region, compose_yaml):
+        self.calls.append({'stack_name': stack_name, 'region': region, 'compose_yaml_len': len(compose_yaml)})
+        return f'#!/usr/bin/env bash\necho stack={stack_name} region={region}\n# compose-len={len(compose_yaml)}\n'
+
+
+class _Fake_IP_Detector_static:
+    def __init__(self, ip='1.2.3.4'): self.ip = ip
+    def detect(self): return self.ip
+
+
+class _Fake_Name_Gen_static:
+    def __init__(self, name='quiet-fermi'): self.name = name
+    def generate(self): return self.name
+
+
+def _service_for_create() -> OpenSearch__Service:
+    s = OpenSearch__Service()
+    s.aws_client        = _Fake_AWS_Client__Full()
+    s.ip_detector       = _Fake_IP_Detector_static()
+    s.name_gen          = _Fake_Name_Gen_static()
+    s.compose_template  = _Fake_Compose__Template()
+    s.user_data_builder = _Fake_User_Data__Builder()
+    return s
+
+
+class test_create_stack(TestCase):
+
+    def test__empty_request_resolves_all_defaults(self):
+        from sgraph_ai_service_playwright__cli.opensearch.schemas.Schema__OS__Stack__Create__Request import Schema__OS__Stack__Create__Request
+        s     = _service_for_create()
+        resp  = s.create_stack(Schema__OS__Stack__Create__Request())
+
+        assert str(resp.stack_name)        == 'os-quiet-fermi'                       # 'os-' + name_gen output
+        assert str(resp.aws_name_tag)      == 'opensearch-os-quiet-fermi'            # OS_NAMING prepends 'opensearch-'
+        assert str(resp.instance_id)       == 'i-0123456789abcdef0'
+        assert str(resp.region)            == 'eu-west-2'                             # DEFAULT_REGION
+        assert str(resp.ami_id)            == 'ami-0685f8dd865c8e389'                 # latest_al2023
+        assert str(resp.caller_ip)         == '1.2.3.4'                               # ip_detector
+        assert str(resp.security_group_id) == 'sg-fake-os-1234567'
+        assert str(resp.admin_password)                                                # Generated, non-empty (~32 chars)
+        assert resp.state                  is __import__('sgraph_ai_service_playwright__cli.opensearch.enums.Enum__OS__Stack__State',
+                                                          fromlist=['Enum__OS__Stack__State']).Enum__OS__Stack__State.PENDING
+
+    def test__request_overrides_take_priority(self):
+        from sgraph_ai_service_playwright__cli.opensearch.schemas.Schema__OS__Stack__Create__Request import Schema__OS__Stack__Create__Request
+        s    = _service_for_create()
+        req  = Schema__OS__Stack__Create__Request(stack_name='os-prod'                    ,
+                                                   region='us-east-1'                      ,
+                                                   instance_type='m6i.large'               ,
+                                                   from_ami='ami-1111222233334444a'         ,
+                                                   caller_ip='9.9.9.9'                     ,
+                                                   admin_password='YYYYZZZZ-1234567890abc')
+        resp = s.create_stack(req, creator='tester@example.com')
+
+        assert str(resp.stack_name)        == 'os-prod'                              # No 'os-' prefixing — name was provided
+        assert str(resp.aws_name_tag)      == 'opensearch-os-prod'
+        assert str(resp.region)            == 'us-east-1'
+        assert str(resp.instance_type)     == 'm6i.large'
+        assert str(resp.ami_id)            == 'ami-1111222233334444a'                 # ami helper NOT called
+        assert s.aws_client.ami.calls      == []                                      # Defensive
+        assert str(resp.caller_ip)         == '9.9.9.9'                               # ip_detector NOT called
+        assert str(resp.admin_password)    == 'YYYYZZZZ-1234567890abc'                # Generator NOT called
+
+    def test__compose_password_flows_into_user_data_via_compose(self):                # Secret only flows once; user-data does NOT see admin_password directly
+        from sgraph_ai_service_playwright__cli.opensearch.schemas.Schema__OS__Stack__Create__Request import Schema__OS__Stack__Create__Request
+        s    = _service_for_create()
+        req  = Schema__OS__Stack__Create__Request(admin_password='SECRETPWD-1234567890')
+        s.create_stack(req)
+
+        assert s.compose_template.calls[0]['admin_password'] == 'SECRETPWD-1234567890'
+        ud_call = s.user_data_builder.calls[0]
+        assert 'admin_password' not in ud_call                                        # Builder signature does not take it
+        assert ud_call['compose_yaml_len'] > 0                                        # Compose was rendered + handed in
+
+    def test__sg_ingress_uses_resolved_caller_ip(self):                               # Defensive — auth boundary
+        from sgraph_ai_service_playwright__cli.opensearch.schemas.Schema__OS__Stack__Create__Request import Schema__OS__Stack__Create__Request
+        s = _service_for_create()
+        s.create_stack(Schema__OS__Stack__Create__Request())                          # Empty req → ip_detector kicks in
+        sg_call = s.aws_client.sg.calls[0]
+        assert sg_call[2] == '1.2.3.4'                                                # caller_ip resolved before SG ingress
+
+    def test__launch_call_carries_correct_user_data_and_tags(self):
+        from sgraph_ai_service_playwright__cli.opensearch.schemas.Schema__OS__Stack__Create__Request import Schema__OS__Stack__Create__Request
+        s = _service_for_create()
+        s.create_stack(Schema__OS__Stack__Create__Request())
+        launch_call = s.aws_client.launch.calls[0]
+        assert launch_call['ami_id']    == 'ami-0685f8dd865c8e389'
+        assert launch_call['sg_id']     == 'sg-fake-os-1234567'
+        assert 'compose-len='           in launch_call['user_data']                   # Confirms user-data was rendered (fake includes a marker)
+        assert any(t['Key'] == 'Name' for t in launch_call['tags'])
