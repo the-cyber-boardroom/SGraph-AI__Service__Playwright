@@ -12,13 +12,14 @@ from sgraph_ai_service_playwright__cli.ec2.primitives.Safe_Str__AMI__Id         
 from sgraph_ai_service_playwright__cli.observability.primitives.Safe_Str__AWS__Region   import Safe_Str__AWS__Region
 from sgraph_ai_service_playwright__cli.linux.primitives.Safe_Str__IP__Address       import Safe_Str__IP__Address
 from sgraph_ai_service_playwright__cli.linux.primitives.Safe_Str__Linux__Stack__Name import Safe_Str__Linux__Stack__Name
+from sgraph_ai_service_playwright__cli.linux.collections.List__Port                 import List__Port
 
 
 class Schema__Linux__Create__Request(Type_Safe):
-    stack_name    : Safe_Str__Linux__Stack__Name                                    # Empty → service generates "linux-{adj}-{sci}"
+    stack_name    : Safe_Str__Linux__Stack__Name                                    # Empty → service generates "{adj}-{sci}"
     region        : Safe_Str__AWS__Region                                           # Empty → resolved from AWS_Config session
-    instance_type : Safe_Str__Text           = 't3.medium'                          # 2 vCPU / 4 GB; lighter than OS/Elastic default
+    instance_type : Safe_Str__Text           = 't3.medium'                          # 2 vCPU / 4 GB
     from_ami      : Safe_Str__AMI__Id                                               # Empty → latest AL2023
     caller_ip     : Safe_Str__IP__Address                                           # Empty → service auto-detects from checkip.amazonaws.com
-    max_hours     : int                      = 4                                    # Auto-terminate after N hours; 0 = no timer
-    extra_ports   : list                     = []                                   # TCP ports to open from caller /32 (e.g. [8080, 3000])
+    max_hours     : int                      = 1                                    # Auto-terminate after N hours; 0 = no timer
+    extra_ports   : List__Port                                                      # TCP ports to open from caller /32 (e.g. [8080, 3000])

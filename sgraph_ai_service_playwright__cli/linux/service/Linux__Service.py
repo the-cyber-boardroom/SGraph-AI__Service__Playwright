@@ -65,7 +65,7 @@ class Linux__Service(Type_Safe):
         sg_id      = self.aws_client.sg.ensure_security_group(region, stack_name, caller_ip,
                                                                extra_ports=request.extra_ports)
         tags       = self.aws_client.tags.build(stack_name, caller_ip, creator)
-        user_data  = self.user_data_builder.render(stack_name, region)
+        user_data  = self.user_data_builder.render(stack_name, region, max_hours=request.max_hours)
         iid        = self.aws_client.launch.run_instance(region, ami_id, sg_id, user_data, tags,
                                                          instance_type         = itype        ,
                                                          instance_profile_name = PROFILE_NAME )
