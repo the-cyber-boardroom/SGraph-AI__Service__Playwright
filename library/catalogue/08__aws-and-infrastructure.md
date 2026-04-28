@@ -16,6 +16,8 @@
 | EC2 | tagged `sg:purpose=playwright` | Playwright + agent_mitmproxy stack |
 | EC2 | tagged `sg:purpose=opensearch` | Ephemeral OpenSearch + Dashboards |
 | EC2 | tagged `sg:purpose=elasticsearch` | Ephemeral Elastic + Kibana |
+| EC2 | tagged `sg:purpose=linux` | Ephemeral bare AL2023 Linux stack (`sp linux`) |
+| EC2 | tagged `sg:purpose=docker` | Ephemeral AL2023 + Docker CE stack (`sp docker`) |
 | S3 | SGraph CloudFront logs bucket | Source for LETS pipeline |
 | S3 | code zip bucket | `deploy_code.py` S3 zip upload |
 | Elastic/Kibana | ephemeral EC2 | `sp el create` |

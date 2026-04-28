@@ -31,6 +31,7 @@ The canonical location moved from `team/explorer/librarian/reality/` to `team/ro
 
 | Kind | Path | Authority |
 |------|------|-----------|
+| **Project catalogue** | [`library/catalogue/README.md`](../library/catalogue/README.md) | **Start here for orientation.** Fractal index of all packages, services, tests, schemas, and AWS resources. Read before any new task. |
 | What exists today | `team/roles/librarian/reality/v{version}__what-exists-today.md` | **Canonical.** If not here, it does not exist. |
 | Contracts / specs | `library/docs/specs/` | Aspiration until reality-doc confirms |
 | Research | `library/docs/research/` | Context, not spec |
@@ -198,8 +199,9 @@ Vault key is shared out-of-band — do NOT commit it.
 
 1. `git fetch origin dev && git merge origin/dev`
 2. Read `sgraph_ai_service_playwright/version`.
-3. Read the current reality doc under `team/roles/librarian/reality/`.
-4. Read the role definition under `team/roles/{role}/ROLE.md` that matches your task.
-5. Read the relevant debriefs under `team/claude/debriefs/`.
-6. Check open briefs / plans under `team/comms/`.
-7. Only then start writing code.
+3. **Read [`library/catalogue/README.md`](../library/catalogue/README.md)** — fractal index of all packages, services, tests, and AWS resources. This is the fastest orientation.
+4. Read the current reality doc under `team/roles/librarian/reality/`.
+5. Read the role definition under `team/roles/{role}/ROLE.md` that matches your task.
+6. Read the relevant debriefs under `team/claude/debriefs/`.
+7. Check open briefs / plans under `team/comms/`.
+8. Only then start writing code.

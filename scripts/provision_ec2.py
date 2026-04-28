@@ -1148,6 +1148,14 @@ from scripts.opensearch import app as _opensearch_app  # noqa: E402
 app.add_typer(_opensearch_app, name='opensearch'        )                            # ephemeral OpenSearch+Dashboards EC2 stacks
 app.add_typer(_opensearch_app, name='os',         hidden=True)                       # short alias
 
+from scripts.linux import app as _linux_app  # noqa: E402
+app.add_typer(_linux_app, name='linux'        )                                      # ephemeral bare Linux EC2 stacks
+app.add_typer(_linux_app, name='lx',  hidden=True)                                  # short alias
+
+from scripts.docker import app as _docker_app  # noqa: E402
+app.add_typer(_docker_app, name='docker'        )                                    # ephemeral Docker-on-AL2023 EC2 stacks
+app.add_typer(_docker_app, name='dk',   hidden=True)                                 # short alias
+
 
 def _health_check_once(base_url: str, api_key_name: str, api_key_value: str) -> dict:
     headers = {api_key_name: api_key_value} if api_key_value else {}

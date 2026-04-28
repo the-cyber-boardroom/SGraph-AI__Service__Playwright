@@ -34,8 +34,11 @@ def create(name          : Optional[str]       = typer.Argument(None, help='Stac
            from_ami      : Optional[str]       = typer.Option(None          , '--ami'           , help='AMI ID; latest AL2023 used if omitted.'),
            caller_ip     : Optional[str]       = typer.Option(None          , '--caller-ip'     , help='Source IP for SG rule; auto-detected if omitted.'),
            max_hours     : int                 = typer.Option(4             , '--max-hours'     , help='Auto-terminate after N hours; 0 = no timer.'),
-           extra_ports   : Optional[List[int]] = typer.Option(None          , '--port'          , help='Extra TCP ports to open from caller /32 (repeatable).')):
+           extra_ports   : Optional[List[int]] = typer.Option(None          , '--port'          , help='Extra TCP ports to open from caller /32 (repeatable).'),
+           wait          : bool                = typer.Option(False         , '--wait'          , help='Block until instance is running and SSM-reachable.')):
     """Provision a bare Linux EC2 stack with SSM access."""
+    c       = Console(highlight=False, width=200)
+    svc     = _service()
     request = Schema__Linux__Create__Request(
         stack_name    = name          or ''   ,
         region        = region                ,
@@ -44,8 +47,15 @@ def create(name          : Optional[str]       = typer.Argument(None, help='Stac
         caller_ip     = caller_ip     or ''   ,
         max_hours     = max_hours             ,
         extra_ports   = list(extra_ports or []))
-    resp = _service().create_stack(request)
-    render_create(resp, Console(highlight=False, width=200))
+    resp = svc.create_stack(request)
+    render_create(resp, c)
+    if wait:
+        stack_name = str(resp.stack_info.stack_name)
+        c.print(f'  [dim]Waiting for {stack_name!r} to become SSM-reachable…[/]')
+        h = svc.health(region, stack_name, timeout_sec=300, poll_sec=10)
+        render_health(h, c)
+        if not h.healthy:
+            raise typer.Exit(1)
 
 
 @app.command(name='list')

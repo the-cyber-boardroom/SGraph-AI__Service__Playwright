@@ -17,6 +17,8 @@ All runnable entry points live in `scripts/`. The CLI is a Typer app hierarchy.
 | `scripts/observability_backup.py` | Backup tooling for observability stacks |
 | `scripts/observability_opensearch.py` | OpenSearch-specific observability operations |
 | `scripts/observability_utils.py` | Shared utilities for observability scripts |
+| `scripts/linux.py` | `sp linux` — Bare Linux AL2023 EC2 stack lifecycle |
+| `scripts/docker.py` | `sp docker` — Docker-on-AL2023 EC2 stack lifecycle |
 | `scripts/opensearch.py` | `sp os` — OpenSearch EC2 stack lifecycle |
 | `scripts/provision_ec2.py` | Direct EC2 provisioner for Playwright + sidecar stack (2847 lines; wraps into `Ec2__AWS__Client` helpers) |
 | `scripts/provision_lambdas.py` | Provisions `sg-playwright-baseline-<stage>` + `sg-playwright-<stage>` Lambdas |
@@ -68,6 +70,32 @@ sp os (= sp opensearch)
     info [stack-name]            # Stack details
     delete [stack-name]          # Terminate stack
     health [stack-name]          # Cluster health probe
+```
+
+---
+
+## `sp linux` Typer Tree
+
+```
+sp linux
+    create [stack-name]          # Launch bare AL2023 EC2 stack (SSM access, no SSH)
+    list                         # List Linux stacks in region
+    info [stack-name]            # Stack details
+    delete [stack-name]          # Terminate stack
+    wait [stack-name]            # Poll until SSM-reachable (default timeout 300 s)
+```
+
+---
+
+## `sp docker` Typer Tree
+
+```
+sp docker
+    create [stack-name]          # Launch AL2023 EC2 stack with Docker CE installed
+    list                         # List Docker stacks in region
+    info [stack-name]            # Stack details
+    delete [stack-name]          # Terminate stack
+    wait [stack-name]            # Poll until Docker daemon ready (default timeout 600 s)
 ```
 
 ---
