@@ -10,6 +10,7 @@ from sgraph_ai_service_playwright__cli.ec2.primitives.Safe_Str__AMI__Id         
 from sgraph_ai_service_playwright__cli.observability.primitives.Safe_Str__AWS__Region   import Safe_Str__AWS__Region
 from sgraph_ai_service_playwright__cli.docker.primitives.Safe_Str__IP__Address      import Safe_Str__IP__Address
 from sgraph_ai_service_playwright__cli.docker.primitives.Safe_Str__Docker__Stack__Name import Safe_Str__Docker__Stack__Name
+from sgraph_ai_service_playwright__cli.docker.collections.List__Port                import List__Port
 
 
 class Schema__Docker__Create__Request(Type_Safe):
@@ -18,5 +19,5 @@ class Schema__Docker__Create__Request(Type_Safe):
     instance_type : Safe_Str__Text           = 't3.medium'
     from_ami      : Safe_Str__AMI__Id
     caller_ip     : Safe_Str__IP__Address
-    max_hours     : int                      = 4
-    extra_ports   : list                     = []
+    max_hours     : int                      = 1                                    # Auto-terminate after N hours; 0 = no timer
+    extra_ports   : List__Port                                                      # TCP ports to open from caller /32

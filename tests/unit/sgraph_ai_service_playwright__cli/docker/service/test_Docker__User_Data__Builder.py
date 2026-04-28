@@ -37,8 +37,21 @@ class test_Docker__User_Data__Builder(TestCase):
         assert 'eu-west-2'  in result
 
     def test_placeholders_locked(self):
-        assert PLACEHOLDERS == ('stack_name', 'region', 'log_file')
+        assert PLACEHOLDERS == ('stack_name', 'region', 'log_file', 'shutdown_line')
 
     def test_template_has_all_placeholders(self):
         for p in PLACEHOLDERS:
             assert f'{{{p}}}' in USER_DATA_TEMPLATE
+
+    def test_render__shutdown_timer_included_when_max_hours_set(self):
+        result = self.builder.render('fast-fermi', 'eu-west-2', max_hours=1)
+        assert 'shutdown -h +60' in result
+
+    def test_render__no_shutdown_when_max_hours_zero(self):
+        result = self.builder.render('fast-fermi', 'eu-west-2', max_hours=0)
+        assert 'shutdown -h' not in result
+        assert 'no auto-terminate' in result
+
+    def test_schema__default_max_hours_is_one(self):
+        from sgraph_ai_service_playwright__cli.docker.schemas.Schema__Docker__Create__Request import Schema__Docker__Create__Request
+        assert Schema__Docker__Create__Request().max_hours == 1
