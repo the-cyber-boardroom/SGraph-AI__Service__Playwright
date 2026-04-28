@@ -116,9 +116,9 @@ First two slices of the new OpenSearch sister section. Folder name is `opensearc
 
 131 unit tests across primitives / enums / schemas / collections / AWS helpers / HTTP base + probe / compose template / user-data builder / launch helper / mapper / service (read paths + create_stack) / composition. Every AWS- and HTTP-touching class is exercised through real `_Fake_*` subclasses (no mocks); each helper has its own focused test file kept under ~150 lines.
 
-### `prometheus/` — `sp prom` sister section foundation (Phase B step 6a, 2026-04-26)
+### `prometheus/` — `sp prom` sister section (Phase B steps 6a–6b, 2026-04-26 → 2026-04-28)
 
-First slice of the new Prometheus sister section. Folder `prometheus/`; typer aliases `sp prom` + `sp prometheus` (same naming convention as `sp os` / `sp opensearch`). Per plan doc 5: no Grafana (P1 — runs from cloud/hosted); ephemeral with no EBS and 24 h retention (P2); one-shot baked scrape targets (P3); moving `latest` image tags (P4).
+First two slices of the new Prometheus sister section. Folder `prometheus/`; typer aliases `sp prom` + `sp prometheus` (same naming convention as `sp os` / `sp opensearch`). Per plan doc 5: no Grafana (P1 — runs from cloud/hosted); ephemeral with no EBS and 24 h retention (P2); one-shot baked scrape targets (P3); moving `latest` image tags (P4).
 
 | File | Role |
 |------|------|
@@ -126,8 +126,18 @@ First slice of the new Prometheus sister section. Folder `prometheus/`; typer al
 | `prometheus/primitives/Safe_Str__IP__Address.py` | Local IPv4 primitive. Sister sections stay self-contained. |
 | `prometheus/enums/Enum__Prom__Stack__State.py` | Lifecycle vocabulary (PENDING/RUNNING/READY/TERMINATING/TERMINATED/UNKNOWN); shape parity with elastic + opensearch locked by test. |
 | `prometheus/service/Prometheus__AWS__Client.py` | Skeleton — declares `PROM_NAMING = Stack__Naming(section_prefix='prometheus')` + 6 tag constants (`sg:purpose=prometheus`, `sg:section=prom`). Helper slots wired in step 6c. |
+| `prometheus/schemas/Schema__Prom__Scrape__Target.py` | One scrape job baked into prometheus.yml at create time (P3). `job_name : Safe_Str__Id` + `targets : List__Str` (host:port) + `scheme : Safe_Str__Id = 'http'` + `metrics_path : Safe_Str__Url__Path = '/metrics'`. Slash-preserving primitive chosen after `Safe_Str__Text` test caught the strip. |
+| `prometheus/schemas/Schema__Prom__Stack__Create__Request.py` | Inputs for `sp prom create [NAME]`. All fields optional. Includes `scrape_targets : List__Schema__Prom__Scrape__Target` for the baked target list. **No** `admin_password` field (P1: no built-in auth). |
+| `prometheus/schemas/Schema__Prom__Stack__Create__Response.py` | Returned once on create. **No** `admin_password` / `admin_username` / `dashboards_url` (P1). Carries `prometheus_url` (http://&lt;ip&gt;:9090/) + `targets_count` + `state`. |
+| `prometheus/schemas/Schema__Prom__Stack__Info.py` | Public view of one stack — defensive test asserts no `password` field anywhere. |
+| `prometheus/schemas/Schema__Prom__Stack__List.py` | Response wrapper for `list_stacks` — `region` + `stacks`. |
+| `prometheus/schemas/Schema__Prom__Stack__Delete__Response.py` | Empty fields ⇒ caller maps to HTTP 404. Reuses `List__Instance__Id` from `cli/ec2/`. |
+| `prometheus/schemas/Schema__Prom__Health.py` | Health snapshot — `prometheus_ok` (200 on `/-/healthy`), `targets_total` / `targets_up` (-1 sentinels = unreachable; 0 is a valid 'no targets configured'). |
+| `prometheus/collections/List__Schema__Prom__Stack__Info.py` | Type_Safe__List for the listing response. |
+| `prometheus/collections/List__Schema__Prom__Scrape__Target.py` | Type_Safe__List for the scrape-job list. |
+| `prometheus/collections/List__Str.py` | Local typed list of plain strings (host:port targets). Section-local copy — sister sections stay self-contained. |
 
-19 new unit tests — primitives + enum + PROM_NAMING + tag constants + skeleton instantiation.
+42 unit tests — primitives + enum + PROM_NAMING + tag constants + AWS-client skeleton (foundation) + 6 schemas + 2 collections (round-trip via `.json()`, defensive no-password checks on Request/Response/Info).
 
 ### `observability/` — Tier-1 pure-logic service (read-only surface)
 
