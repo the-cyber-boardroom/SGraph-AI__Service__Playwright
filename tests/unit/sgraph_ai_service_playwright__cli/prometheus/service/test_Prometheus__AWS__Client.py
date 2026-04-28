@@ -18,6 +18,7 @@ from sgraph_ai_service_playwright__cli.prometheus.service.Prometheus__AWS__Clien
                                                                                               TAG_SECTION_VALUE      ,
                                                                                               TAG_STACK_NAME_KEY     )
 from sgraph_ai_service_playwright__cli.prometheus.service.Prometheus__Instance__Helper import Prometheus__Instance__Helper
+from sgraph_ai_service_playwright__cli.prometheus.service.Prometheus__Launch__Helper import Prometheus__Launch__Helper
 from sgraph_ai_service_playwright__cli.prometheus.service.Prometheus__SG__Helper    import Prometheus__SG__Helper
 from sgraph_ai_service_playwright__cli.prometheus.service.Prometheus__Tags__Builder import Prometheus__Tags__Builder
 
@@ -64,13 +65,15 @@ class test_Prometheus__AWS__Client(TestCase):
         assert client.ami      is None
         assert client.instance is None
         assert client.tags     is None
+        assert client.launch   is None
 
-    def test__setup_wires_all_four_helpers(self):
+    def test__setup_wires_all_five_helpers(self):
         client = Prometheus__AWS__Client().setup()
         assert isinstance(client.sg      , Prometheus__SG__Helper      )
         assert isinstance(client.ami     , Prometheus__AMI__Helper     )
         assert isinstance(client.instance, Prometheus__Instance__Helper)
         assert isinstance(client.tags    , Prometheus__Tags__Builder   )
+        assert isinstance(client.launch  , Prometheus__Launch__Helper  )
 
     def test__setup_returns_self_for_chaining(self):                                # Allows `Prometheus__AWS__Client().setup()` one-liner
         client   = Prometheus__AWS__Client()

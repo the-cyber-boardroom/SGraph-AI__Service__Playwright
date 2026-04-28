@@ -12,7 +12,7 @@
 #   sg:creator      : git email or $USER
 #   sg:section      : prom
 #
-# Launch__Helper lands in step 6f.4a; setup() will wire it then.
+# Launch__Helper joined the setup() chain in step 6f.4a.
 # ═══════════════════════════════════════════════════════════════════════════════
 
 from osbot_utils.type_safe.Type_Safe                                                import Type_Safe
@@ -37,14 +37,17 @@ class Prometheus__AWS__Client(Type_Safe):                                       
     ami      : object = None                                                        # Prometheus__AMI__Helper      (lazy via setup())
     instance : object = None                                                        # Prometheus__Instance__Helper (lazy via setup())
     tags     : object = None                                                        # Prometheus__Tags__Builder    (lazy via setup())
+    launch   : object = None                                                        # Prometheus__Launch__Helper   (lazy via setup())
 
     def setup(self) -> 'Prometheus__AWS__Client':                                   # Lazy import — avoids circular module-load when callers import the client first
         from sgraph_ai_service_playwright__cli.prometheus.service.Prometheus__SG__Helper       import Prometheus__SG__Helper
         from sgraph_ai_service_playwright__cli.prometheus.service.Prometheus__AMI__Helper      import Prometheus__AMI__Helper
         from sgraph_ai_service_playwright__cli.prometheus.service.Prometheus__Instance__Helper import Prometheus__Instance__Helper
+        from sgraph_ai_service_playwright__cli.prometheus.service.Prometheus__Launch__Helper   import Prometheus__Launch__Helper
         from sgraph_ai_service_playwright__cli.prometheus.service.Prometheus__Tags__Builder    import Prometheus__Tags__Builder
         self.sg       = Prometheus__SG__Helper      ()
         self.ami      = Prometheus__AMI__Helper     ()
         self.instance = Prometheus__Instance__Helper()
         self.tags     = Prometheus__Tags__Builder   ()
+        self.launch   = Prometheus__Launch__Helper  ()
         return self

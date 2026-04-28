@@ -156,14 +156,190 @@ class test_setup_chain(TestCase):
     def test__setup_returns_self_and_wires_helpers(self):
         from sgraph_ai_service_playwright__cli.prometheus.service.Caller__IP__Detector            import Caller__IP__Detector
         from sgraph_ai_service_playwright__cli.prometheus.service.Prometheus__AWS__Client         import Prometheus__AWS__Client
+        from sgraph_ai_service_playwright__cli.prometheus.service.Prometheus__Compose__Template   import Prometheus__Compose__Template
+        from sgraph_ai_service_playwright__cli.prometheus.service.Prometheus__Config__Generator   import Prometheus__Config__Generator
         from sgraph_ai_service_playwright__cli.prometheus.service.Prometheus__HTTP__Probe         import Prometheus__HTTP__Probe
         from sgraph_ai_service_playwright__cli.prometheus.service.Prometheus__Stack__Mapper       import Prometheus__Stack__Mapper
+        from sgraph_ai_service_playwright__cli.prometheus.service.Prometheus__User_Data__Builder  import Prometheus__User_Data__Builder
         from sgraph_ai_service_playwright__cli.prometheus.service.Random__Stack__Name__Generator  import Random__Stack__Name__Generator
 
         s = Prometheus__Service()
         assert s.setup() is s
-        assert isinstance(s.aws_client , Prometheus__AWS__Client       )
-        assert isinstance(s.probe      , Prometheus__HTTP__Probe       )
-        assert isinstance(s.mapper     , Prometheus__Stack__Mapper     )
-        assert isinstance(s.ip_detector, Caller__IP__Detector          )
-        assert isinstance(s.name_gen   , Random__Stack__Name__Generator)
+        assert isinstance(s.aws_client       , Prometheus__AWS__Client       )
+        assert isinstance(s.probe            , Prometheus__HTTP__Probe       )
+        assert isinstance(s.mapper           , Prometheus__Stack__Mapper     )
+        assert isinstance(s.ip_detector      , Caller__IP__Detector          )
+        assert isinstance(s.name_gen         , Random__Stack__Name__Generator)
+        assert isinstance(s.compose_template , Prometheus__Compose__Template )
+        assert isinstance(s.config_generator , Prometheus__Config__Generator )
+        assert isinstance(s.user_data_builder, Prometheus__User_Data__Builder)
+
+
+# ──────────────────────────────── create_stack (Phase B step 6f.4b) ────────────
+
+class _Fake_SG__Helper:
+    def __init__(self): self.calls = []; self.sg_id = 'sg-fake-prom-1234567'
+    def ensure_security_group(self, region, stack_name, caller_ip):
+        self.calls.append((region, str(stack_name), str(caller_ip)))
+        return self.sg_id
+
+
+class _Fake_AMI__Helper:
+    def __init__(self, ami='ami-0685f8dd865c8e389'): self.ami = ami; self.calls = []
+    def latest_al2023_ami_id(self, region):
+        self.calls.append(region)
+        return self.ami
+
+
+class _Fake_Tags__Builder:
+    def __init__(self): self.calls = []
+    def build(self, stack_name, caller_ip, creator=''):
+        self.calls.append((str(stack_name), str(caller_ip), str(creator)))
+        return [{'Key': 'Name'        , 'Value': f'prometheus-{stack_name}'},
+                {'Key': 'sg:purpose'  , 'Value': 'prometheus'              },
+                {'Key': 'sg:stack-name', 'Value': stack_name               }]
+
+
+class _Fake_Launch__Helper:
+    def __init__(self, instance_id='i-0123456789abcdef0'):
+        self.instance_id = instance_id
+        self.calls       = []
+    def run_instance(self, region, ami_id, security_group_id, user_data, tags, instance_type='t3.medium', instance_profile_name=None):
+        self.calls.append({'region': region, 'ami_id': ami_id, 'sg_id': security_group_id,
+                           'user_data': user_data, 'tags': tags, 'instance_type': instance_type})
+        return self.instance_id
+
+
+class _Fake_AWS_Client__Full:
+    def __init__(self):
+        self.sg       = _Fake_SG__Helper()
+        self.ami      = _Fake_AMI__Helper()
+        self.tags     = _Fake_Tags__Builder()
+        self.launch   = _Fake_Launch__Helper()
+        self.instance = _Fake_Instance__Helper()
+
+
+class _Fake_Compose__Template:
+    def __init__(self): self.calls = []
+    def render(self, retention='24h', prom_image=None, cadvisor_image=None, node_exporter_image=None):
+        self.calls.append({'retention': retention})
+        return 'services:\n  prometheus:\n    image: prom/prometheus:latest\n'
+
+
+class _Fake_Config__Generator:
+    def __init__(self): self.calls = []
+    def render(self, targets=None):
+        self.calls.append({'target_count': len(targets or [])})
+        return 'global:\n  scrape_interval: 15s\nscrape_configs: []\n'
+
+
+class _Fake_User_Data__Builder:
+    def __init__(self): self.calls = []
+    def render(self, stack_name, region, compose_yaml, prom_config_yaml):
+        self.calls.append({'stack_name': stack_name, 'region': region,
+                           'compose_yaml_len': len(compose_yaml),
+                           'prom_config_yaml_len': len(prom_config_yaml)})
+        return f'#!/usr/bin/env bash\necho stack={stack_name} region={region}\n# compose-len={len(compose_yaml)} cfg-len={len(prom_config_yaml)}\n'
+
+
+class _Fake_IP_Detector_static:
+    def __init__(self, ip='1.2.3.4'): self.ip = ip
+    def detect(self): return self.ip
+
+
+class _Fake_Name_Gen_static:
+    def __init__(self, name='quiet-fermi'): self.name = name
+    def generate(self): return self.name
+
+
+def _service_for_create() -> Prometheus__Service:
+    s = Prometheus__Service()
+    s.aws_client        = _Fake_AWS_Client__Full()
+    s.ip_detector       = _Fake_IP_Detector_static()
+    s.name_gen          = _Fake_Name_Gen_static()
+    s.compose_template  = _Fake_Compose__Template()
+    s.config_generator  = _Fake_Config__Generator()
+    s.user_data_builder = _Fake_User_Data__Builder()
+    return s
+
+
+class test_create_stack(TestCase):
+
+    def test__empty_request_resolves_all_defaults(self):
+        from sgraph_ai_service_playwright__cli.prometheus.schemas.Schema__Prom__Stack__Create__Request import Schema__Prom__Stack__Create__Request
+        s    = _service_for_create()
+        resp = s.create_stack(Schema__Prom__Stack__Create__Request())
+
+        assert str(resp.stack_name)        == 'prom-quiet-fermi'                     # 'prom-' + name_gen output
+        assert str(resp.aws_name_tag)      == 'prometheus-prom-quiet-fermi'          # PROM_NAMING prepends 'prometheus-'
+        assert str(resp.instance_id)       == 'i-0123456789abcdef0'
+        assert str(resp.region)            == 'eu-west-2'                             # DEFAULT_REGION
+        assert str(resp.ami_id)            == 'ami-0685f8dd865c8e389'                 # latest_al2023
+        assert str(resp.caller_ip)         == '1.2.3.4'                               # ip_detector
+        assert str(resp.security_group_id) == 'sg-fake-prom-1234567'
+        assert str(resp.instance_type)     == 't3.medium'                             # DEFAULT_INSTANCE_TYPE
+        assert resp.targets_count          == 0                                       # No baked targets
+        assert resp.state                  == Enum__Prom__Stack__State.PENDING
+
+    def test__request_overrides_take_priority(self):
+        from sgraph_ai_service_playwright__cli.prometheus.schemas.Schema__Prom__Stack__Create__Request import Schema__Prom__Stack__Create__Request
+        s    = _service_for_create()
+        req  = Schema__Prom__Stack__Create__Request(stack_name='prom-prod'                 ,
+                                                     region='us-east-1'                     ,
+                                                     instance_type='t3.large'               ,
+                                                     from_ami='ami-1111222233334444a'        ,
+                                                     caller_ip='9.9.9.9'                    )
+        resp = s.create_stack(req, creator='tester@example.com')
+
+        assert str(resp.stack_name)        == 'prom-prod'                            # No 'prom-' prefixing — name was provided
+        assert str(resp.aws_name_tag)      == 'prometheus-prom-prod'
+        assert str(resp.region)            == 'us-east-1'
+        assert str(resp.instance_type)     == 't3.large'
+        assert str(resp.ami_id)            == 'ami-1111222233334444a'                # ami helper NOT called
+        assert s.aws_client.ami.calls      == []
+        assert str(resp.caller_ip)         == '9.9.9.9'                               # ip_detector NOT called
+
+    def test__scrape_targets_flow_into_config_generator(self):
+        from sgraph_ai_service_playwright__cli.prometheus.collections.List__Schema__Prom__Scrape__Target import List__Schema__Prom__Scrape__Target
+        from sgraph_ai_service_playwright__cli.prometheus.collections.List__Str             import List__Str
+        from sgraph_ai_service_playwright__cli.prometheus.schemas.Schema__Prom__Scrape__Target import Schema__Prom__Scrape__Target
+        from sgraph_ai_service_playwright__cli.prometheus.schemas.Schema__Prom__Stack__Create__Request import Schema__Prom__Stack__Create__Request
+
+        hosts = List__Str(); hosts.append('1.2.3.4:8000')
+        targets = List__Schema__Prom__Scrape__Target()
+        targets.append(Schema__Prom__Scrape__Target(job_name='playwright', targets=hosts))
+        targets.append(Schema__Prom__Scrape__Target(job_name='other'     , targets=hosts))
+
+        s    = _service_for_create()
+        req  = Schema__Prom__Stack__Create__Request(scrape_targets=targets)
+        resp = s.create_stack(req)
+
+        assert s.config_generator.calls[0]['target_count'] == 2
+        assert resp.targets_count                          == 2
+
+    def test__sg_ingress_uses_resolved_caller_ip(self):
+        from sgraph_ai_service_playwright__cli.prometheus.schemas.Schema__Prom__Stack__Create__Request import Schema__Prom__Stack__Create__Request
+        s = _service_for_create()
+        s.create_stack(Schema__Prom__Stack__Create__Request())
+        sg_call = s.aws_client.sg.calls[0]
+        assert sg_call[2] == '1.2.3.4'                                                # caller_ip resolved before SG ingress
+
+    def test__launch_call_carries_correct_user_data_and_tags(self):
+        from sgraph_ai_service_playwright__cli.prometheus.schemas.Schema__Prom__Stack__Create__Request import Schema__Prom__Stack__Create__Request
+        s = _service_for_create()
+        s.create_stack(Schema__Prom__Stack__Create__Request())
+        launch_call = s.aws_client.launch.calls[0]
+        assert launch_call['ami_id']          == 'ami-0685f8dd865c8e389'
+        assert launch_call['sg_id']           == 'sg-fake-prom-1234567'
+        assert launch_call['instance_type']   == 't3.medium'
+        assert 'compose-len='                 in launch_call['user_data']             # Confirms user-data was rendered (fake includes a marker)
+        assert 'cfg-len='                     in launch_call['user_data']             # Confirms prom_config was passed in
+        assert any(t['Key'] == 'Name' for t in launch_call['tags'])
+
+    def test__user_data_takes_both_compose_and_prom_config(self):                    # Builder signature includes prom_config_yaml
+        from sgraph_ai_service_playwright__cli.prometheus.schemas.Schema__Prom__Stack__Create__Request import Schema__Prom__Stack__Create__Request
+        s = _service_for_create()
+        s.create_stack(Schema__Prom__Stack__Create__Request())
+        ud_call = s.user_data_builder.calls[0]
+        assert ud_call['compose_yaml_len']      > 0
+        assert ud_call['prom_config_yaml_len']  > 0
