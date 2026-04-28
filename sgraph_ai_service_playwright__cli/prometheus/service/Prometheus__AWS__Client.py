@@ -1,7 +1,7 @@
 # ═══════════════════════════════════════════════════════════════════════════════
 # SP CLI — Prometheus__AWS__Client
-# Composition shell for the per-concern AWS helpers (SG / Instance / Tags /
-# Launch). Mirrors the OpenSearch__AWS__Client + Elastic__AWS__Client +
+# Composition shell for the per-concern AWS helpers (SG / AMI / Instance /
+# Tags). Mirrors the OpenSearch__AWS__Client + Elastic__AWS__Client +
 # Ec2__AWS__Client patterns. Owns the tag-key constants and the PROM_NAMING
 # binding so the section's AWS surface is in one shared header.
 #
@@ -12,8 +12,7 @@
 #   sg:creator      : git email or $USER
 #   sg:section      : prom
 #
-# AWS-touching helpers (SG / Instance / Tags / Launch) land in subsequent
-# slices (Phase B step 6c+). This file establishes the namespace.
+# Launch__Helper lands in step 6f.4a; setup() will wire it then.
 # ═══════════════════════════════════════════════════════════════════════════════
 
 from osbot_utils.type_safe.Type_Safe                                                import Type_Safe
@@ -34,4 +33,18 @@ PROM_NAMING = Stack__Naming(section_prefix='prometheus')                        
 
 
 class Prometheus__AWS__Client(Type_Safe):                                           # Composes the per-concern helpers — kept small on purpose
-    pass                                                                            # Helper slots wired in step 6c
+    sg       : object = None                                                        # Prometheus__SG__Helper       (lazy via setup())
+    ami      : object = None                                                        # Prometheus__AMI__Helper      (lazy via setup())
+    instance : object = None                                                        # Prometheus__Instance__Helper (lazy via setup())
+    tags     : object = None                                                        # Prometheus__Tags__Builder    (lazy via setup())
+
+    def setup(self) -> 'Prometheus__AWS__Client':                                   # Lazy import — avoids circular module-load when callers import the client first
+        from sgraph_ai_service_playwright__cli.prometheus.service.Prometheus__SG__Helper       import Prometheus__SG__Helper
+        from sgraph_ai_service_playwright__cli.prometheus.service.Prometheus__AMI__Helper      import Prometheus__AMI__Helper
+        from sgraph_ai_service_playwright__cli.prometheus.service.Prometheus__Instance__Helper import Prometheus__Instance__Helper
+        from sgraph_ai_service_playwright__cli.prometheus.service.Prometheus__Tags__Builder    import Prometheus__Tags__Builder
+        self.sg       = Prometheus__SG__Helper      ()
+        self.ami      = Prometheus__AMI__Helper     ()
+        self.instance = Prometheus__Instance__Helper()
+        self.tags     = Prometheus__Tags__Builder   ()
+        return self

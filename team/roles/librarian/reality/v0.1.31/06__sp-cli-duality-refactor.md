@@ -116,16 +116,20 @@ First two slices of the new OpenSearch sister section. Folder name is `opensearc
 
 131 unit tests across primitives / enums / schemas / collections / AWS helpers / HTTP base + probe / compose template / user-data builder / launch helper / mapper / service (read paths + create_stack) / composition. Every AWS- and HTTP-touching class is exercised through real `_Fake_*` subclasses (no mocks); each helper has its own focused test file kept under ~150 lines.
 
-### `prometheus/` — `sp prom` sister section (Phase B steps 6a–6b, 2026-04-26 → 2026-04-28)
+### `prometheus/` — `sp prom` sister section (Phase B steps 6a–6c, 2026-04-26 → 2026-04-28)
 
-First two slices of the new Prometheus sister section. Folder `prometheus/`; typer aliases `sp prom` + `sp prometheus` (same naming convention as `sp os` / `sp opensearch`). Per plan doc 5: no Grafana (P1 — runs from cloud/hosted); ephemeral with no EBS and 24 h retention (P2); one-shot baked scrape targets (P3); moving `latest` image tags (P4).
+First three slices of the new Prometheus sister section. Folder `prometheus/`; typer aliases `sp prom` + `sp prometheus` (same naming convention as `sp os` / `sp opensearch`). Per plan doc 5: no Grafana (P1 — runs from cloud/hosted); ephemeral with no EBS and 24 h retention (P2); one-shot baked scrape targets (P3); moving `latest` image tags (P4).
 
 | File | Role |
 |------|------|
 | `prometheus/primitives/Safe_Str__Prom__Stack__Name.py` | Stack name; same regex as elastic + opensearch (parity locked by test). |
 | `prometheus/primitives/Safe_Str__IP__Address.py` | Local IPv4 primitive. Sister sections stay self-contained. |
 | `prometheus/enums/Enum__Prom__Stack__State.py` | Lifecycle vocabulary (PENDING/RUNNING/READY/TERMINATING/TERMINATED/UNKNOWN); shape parity with elastic + opensearch locked by test. |
-| `prometheus/service/Prometheus__AWS__Client.py` | Skeleton — declares `PROM_NAMING = Stack__Naming(section_prefix='prometheus')` + 6 tag constants (`sg:purpose=prometheus`, `sg:section=prom`). Helper slots wired in step 6c. |
+| `prometheus/service/Prometheus__AWS__Client.py` | Composition shell — declares `PROM_NAMING = Stack__Naming(section_prefix='prometheus')` + 6 tag constants (`sg:purpose=prometheus`, `sg:section=prom`). `setup()` wires `sg`/`ami`/`instance`/`tags` slots; Launch helper joins in step 6f.4a. |
+| `prometheus/service/Prometheus__SG__Helper.py` | `ensure_security_group(region, stack_name, caller_ip)` — idempotent SG create + ingress on **port 9090** (Prometheus' own UI; no nginx because P1 says no UI in this stack); ASCII-only Description; duplicate-ingress swallowed. `delete_security_group(region, sg_id) -> bool`. |
+| `prometheus/service/Prometheus__AMI__Helper.py` | `latest_al2023_ami_id(region)` (raises if none); `latest_healthy_ami_id(region)` filtered by `sg:purpose=prometheus` + `sg:ami-status=healthy` (returns empty string if none). |
+| `prometheus/service/Prometheus__Instance__Helper.py` | `list_stacks(region)` returns `{instance_id: details}` filtered by `sg:purpose=prometheus` + live states; `find_by_stack_name(region, stack_name)`; `terminate_instance(region, instance_id) -> bool`. |
+| `prometheus/service/Prometheus__Tags__Builder.py` | Pure mapper — builds the canonical 6-tag list (Name, sg:purpose, sg:section, sg:stack-name, sg:allowed-ip, sg:creator). Name uses `PROM_NAMING.aws_name_for_stack` (prefix never doubles). Empty creator → `'unknown'`. |
 | `prometheus/schemas/Schema__Prom__Scrape__Target.py` | One scrape job baked into prometheus.yml at create time (P3). `job_name : Safe_Str__Id` + `targets : List__Str` (host:port) + `scheme : Safe_Str__Id = 'http'` + `metrics_path : Safe_Str__Url__Path = '/metrics'`. Slash-preserving primitive chosen after `Safe_Str__Text` test caught the strip. |
 | `prometheus/schemas/Schema__Prom__Stack__Create__Request.py` | Inputs for `sp prom create [NAME]`. All fields optional. Includes `scrape_targets : List__Schema__Prom__Scrape__Target` for the baked target list. **No** `admin_password` field (P1: no built-in auth). |
 | `prometheus/schemas/Schema__Prom__Stack__Create__Response.py` | Returned once on create. **No** `admin_password` / `admin_username` / `dashboards_url` (P1). Carries `prometheus_url` (http://&lt;ip&gt;:9090/) + `targets_count` + `state`. |
@@ -137,7 +141,7 @@ First two slices of the new Prometheus sister section. Folder `prometheus/`; typ
 | `prometheus/collections/List__Schema__Prom__Scrape__Target.py` | Type_Safe__List for the scrape-job list. |
 | `prometheus/collections/List__Str.py` | Local typed list of plain strings (host:port targets). Section-local copy — sister sections stay self-contained. |
 
-42 unit tests — primitives + enum + PROM_NAMING + tag constants + AWS-client skeleton (foundation) + 6 schemas + 2 collections (round-trip via `.json()`, defensive no-password checks on Request/Response/Info).
+65 unit tests — primitives + enum + PROM_NAMING + tag constants + AWS-client setup() wiring + 4 per-concern AWS helpers (each in its own ~80-line test file using real `_Fake_Boto_EC2` subclasses, no mocks) + 6 schemas + 2 collections (round-trip via `.json()`, defensive no-password checks on Request/Response/Info).
 
 ### `observability/` — Tier-1 pure-logic service (read-only surface)
 
