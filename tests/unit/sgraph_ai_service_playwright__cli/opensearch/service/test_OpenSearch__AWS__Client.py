@@ -51,8 +51,30 @@ class test_tag_constants(TestCase):
             assert key.startswith('sg:'), f'{key} must use the sg: namespace'
 
 
-class test_OpenSearch__AWS__Client__skeleton(TestCase):
+class test_OpenSearch__AWS__Client__composition(TestCase):                          # Phase B step 5c — composes the per-concern helpers
 
-    def test__instantiates_cleanly(self):                                           # Class is currently empty; methods land in Phase B step 5c
+    def test__instantiates_with_helpers_unset(self):
         client = OpenSearch__AWS__Client()
-        assert client is not None
+        assert client.sg       is None
+        assert client.ami      is None
+        assert client.instance is None
+        assert client.tags     is None
+        assert client.launch   is None
+
+    def test__setup_wires_all_five_helpers(self):
+        from sgraph_ai_service_playwright__cli.opensearch.service.OpenSearch__SG__Helper       import OpenSearch__SG__Helper
+        from sgraph_ai_service_playwright__cli.opensearch.service.OpenSearch__AMI__Helper      import OpenSearch__AMI__Helper
+        from sgraph_ai_service_playwright__cli.opensearch.service.OpenSearch__Instance__Helper import OpenSearch__Instance__Helper
+        from sgraph_ai_service_playwright__cli.opensearch.service.OpenSearch__Launch__Helper   import OpenSearch__Launch__Helper
+        from sgraph_ai_service_playwright__cli.opensearch.service.OpenSearch__Tags__Builder    import OpenSearch__Tags__Builder
+
+        client = OpenSearch__AWS__Client().setup()
+        assert isinstance(client.sg      , OpenSearch__SG__Helper      )
+        assert isinstance(client.ami     , OpenSearch__AMI__Helper     )
+        assert isinstance(client.instance, OpenSearch__Instance__Helper)
+        assert isinstance(client.tags    , OpenSearch__Tags__Builder   )
+        assert isinstance(client.launch  , OpenSearch__Launch__Helper  )
+
+    def test__setup_returns_self_for_chaining(self):                                # Mirrors Docker__SP__CLI().setup() / Elastic patterns
+        client = OpenSearch__AWS__Client()
+        assert client.setup() is client
