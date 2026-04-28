@@ -1148,6 +1148,10 @@ from scripts.opensearch import app as _opensearch_app  # noqa: E402
 app.add_typer(_opensearch_app, name='opensearch'        )                            # ephemeral OpenSearch+Dashboards EC2 stacks
 app.add_typer(_opensearch_app, name='os',         hidden=True)                       # short alias
 
+from scripts.prometheus import app as _prometheus_app  # noqa: E402
+app.add_typer(_prometheus_app, name='prometheus'        )                            # ephemeral Prometheus+cAdvisor+node-exporter EC2 stacks
+app.add_typer(_prometheus_app, name='prom',       hidden=True)                       # short alias
+
 from scripts.linux import app as _linux_app  # noqa: E402
 app.add_typer(_linux_app, name='linux'        )                                      # ephemeral bare Linux EC2 stacks
 app.add_typer(_linux_app, name='lx',  hidden=True)                                  # short alias
