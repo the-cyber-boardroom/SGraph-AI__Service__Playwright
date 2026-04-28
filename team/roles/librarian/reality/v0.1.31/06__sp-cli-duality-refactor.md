@@ -116,6 +116,19 @@ First two slices of the new OpenSearch sister section. Folder name is `opensearc
 
 131 unit tests across primitives / enums / schemas / collections / AWS helpers / HTTP base + probe / compose template / user-data builder / launch helper / mapper / service (read paths + create_stack) / composition. Every AWS- and HTTP-touching class is exercised through real `_Fake_*` subclasses (no mocks); each helper has its own focused test file kept under ~150 lines.
 
+### `prometheus/` — `sp prom` sister section foundation (Phase B step 6a, 2026-04-26)
+
+First slice of the new Prometheus sister section. Folder `prometheus/`; typer aliases `sp prom` + `sp prometheus` (same naming convention as `sp os` / `sp opensearch`). Per plan doc 5: no Grafana (P1 — runs from cloud/hosted); ephemeral with no EBS and 24 h retention (P2); one-shot baked scrape targets (P3); moving `latest` image tags (P4).
+
+| File | Role |
+|------|------|
+| `prometheus/primitives/Safe_Str__Prom__Stack__Name.py` | Stack name; same regex as elastic + opensearch (parity locked by test). |
+| `prometheus/primitives/Safe_Str__IP__Address.py` | Local IPv4 primitive. Sister sections stay self-contained. |
+| `prometheus/enums/Enum__Prom__Stack__State.py` | Lifecycle vocabulary (PENDING/RUNNING/READY/TERMINATING/TERMINATED/UNKNOWN); shape parity with elastic + opensearch locked by test. |
+| `prometheus/service/Prometheus__AWS__Client.py` | Skeleton — declares `PROM_NAMING = Stack__Naming(section_prefix='prometheus')` + 6 tag constants (`sg:purpose=prometheus`, `sg:section=prom`). Helper slots wired in step 6c. |
+
+19 new unit tests — primitives + enum + PROM_NAMING + tag constants + skeleton instantiation.
+
 ### `observability/` — Tier-1 pure-logic service (read-only surface)
 
 | File | Role |
