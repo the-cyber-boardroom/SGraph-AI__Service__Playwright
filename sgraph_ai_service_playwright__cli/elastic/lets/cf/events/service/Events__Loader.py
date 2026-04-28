@@ -53,6 +53,11 @@ from sgraph_ai_service_playwright__cli.elastic.lets.cf.events.service.CF__Events
 from sgraph_ai_service_playwright__cli.elastic.lets.cf.events.service.CF__Realtime__Log__Parser     import CF__Realtime__Log__Parser, gunzip
 from sgraph_ai_service_playwright__cli.elastic.lets.cf.events.service.Inventory__Manifest__Reader  import Inventory__Manifest__Reader
 from sgraph_ai_service_playwright__cli.elastic.lets.cf.events.service.Inventory__Manifest__Updater import Inventory__Manifest__Updater
+from sgraph_ai_service_playwright__cli.elastic.lets.cf.consolidate.service.Lets__Config__Reader    import Lets__Config__Reader
+from sgraph_ai_service_playwright__cli.elastic.lets.cf.consolidate.service.NDJSON__Reader          import NDJSON__Reader
+from sgraph_ai_service_playwright__cli.elastic.lets.cf.consolidate.service.Consolidate__Loader     import (
+    s3_key_for_config, s3_key_for_manifest, s3_key_for_events,
+    consolidated_index_for_date, DEFAULT_BUCKET as CONSOLIDATION_DEFAULT_BUCKET)
 from sgraph_ai_service_playwright__cli.elastic.lets.cf.events.service.Progress__Reporter            import Progress__Reporter
 from sgraph_ai_service_playwright__cli.elastic.lets.cf.events.service.S3__Object__Fetcher          import S3__Object__Fetcher
 from sgraph_ai_service_playwright__cli.elastic.lets.Step__Timings                                  import Step__Timings
@@ -100,6 +105,8 @@ class Events__Loader(Type_Safe):
     run_id_gen        : Run__Id__Generator
     progress_reporter : Progress__Reporter                                          # Default no-op base class — Type_Safe auto-instantiates.  CLI passes a Rich subclass.
     runs_tracker      : Pipeline__Runs__Tracker                                     # Phase B journal — records one doc per load() call into sg-pipeline-runs-*
+    ndjson_reader     : NDJSON__Reader                                              # Decision #8: --from-consolidated reads pre-built events.ndjson.gz
+    config_reader     : Lets__Config__Reader                                        # Decision #8: validates compat-region before reading artefacts
 
     @type_safe
     def load(self, request  : Schema__Events__Load__Request,
@@ -108,6 +115,12 @@ class Events__Loader(Type_Safe):
                    password : str
               ) -> Schema__Events__Load__Response:
         started_at = now_utc_iso_full()
+
+        # ─── decision #8: --from-consolidated fast path ───────────────────────
+        if request.from_consolidated:
+            return self._load_from_consolidated(request=request, base_url=base_url,
+                                                 username=username, password=password,
+                                                 started_at=started_at)
 
         # ─── resolve inputs ──────────────────────────────────────────────────
         run_id    = str(request.run_id) or self.run_id_gen.generate(source = str(Enum__LETS__Source__Slug.CF_REALTIME),
@@ -352,6 +365,150 @@ class Events__Loader(Type_Safe):
                                                error_message     = first_error         ,
                                                kibana_url        = kibana_url_from_base(base_url),
                                                dry_run           = False               )
+
+    def _load_from_consolidated(self, request, base_url, username, password, started_at):
+        import json as _json
+        run_id        = str(request.run_id) or self.run_id_gen.generate(source='cf-realtime', verb='events-load-consolidated')
+        date_iso      = str(request.date_iso)
+        bucket        = str(request.bucket) or CONSOLIDATION_DEFAULT_BUCKET
+        compat_region = str(request.compat_region)
+        loaded_at     = now_utc_iso_full()
+        first_error   = ''
+        last_status   = 0
+
+        if not date_iso:
+            return self.error_response(run_id=run_id, request=request, bucket=bucket,
+                                        prefix_resolved='', queue_mode='from-consolidated',
+                                        started_at=started_at, base_url=base_url,
+                                        error_message='date_iso is required for --from-consolidated')
+
+        # ─── validate compat ──────────────────────────────────────────────────
+        config_key = s3_key_for_config(compat_region)
+        try:
+            config_bytes = self.s3_fetcher.get_object_bytes(bucket=bucket, key=config_key,
+                                                             region=str(request.region))
+            config, cfg_err = self.config_reader.from_bytes(config_bytes)
+            if cfg_err:
+                return self.error_response(run_id=run_id, request=request, bucket=bucket,
+                                            prefix_resolved='', queue_mode='from-consolidated',
+                                            started_at=started_at, base_url=base_url,
+                                            error_message=f'lets-config.json error: {cfg_err}')
+        except Exception as exc:
+            return self.error_response(run_id=run_id, request=request, bucket=bucket,
+                                        prefix_resolved='', queue_mode='from-consolidated',
+                                        started_at=started_at, base_url=base_url,
+                                        error_message=f'lets-config.json missing for compat_region {compat_region!r}: {exc}')
+
+        # ─── read manifest.json ───────────────────────────────────────────────
+        manifest_key = s3_key_for_manifest(compat_region, date_iso)
+        try:
+            manifest_bytes = self.s3_fetcher.get_object_bytes(bucket=bucket, key=manifest_key,
+                                                               region=str(request.region))
+            manifest_dict  = _json.loads(manifest_bytes.decode('utf-8'))
+        except Exception as exc:
+            return self.error_response(run_id=run_id, request=request, bucket=bucket,
+                                        prefix_resolved='', queue_mode='from-consolidated',
+                                        started_at=started_at, base_url=base_url,
+                                        error_message=f'no consolidation manifest for date {date_iso!r}: {exc}')
+
+        consolidation_run_id = str(manifest_dict.get('run_id', ''))
+        events_key           = str(manifest_dict.get('s3_output_key', ''))
+
+        # ─── read events.ndjson.gz ────────────────────────────────────────────
+        try:
+            ndjson_bytes = self.s3_fetcher.get_object_bytes(bucket=bucket, key=events_key,
+                                                             region=str(request.region))
+        except Exception as exc:
+            return self.error_response(run_id=run_id, request=request, bucket=bucket,
+                                        prefix_resolved='', queue_mode='from-consolidated',
+                                        started_at=started_at, base_url=base_url,
+                                        error_message=f'events.ndjson.gz missing: {exc}')
+
+        records = self.ndjson_reader.bytes_to_records(ndjson_bytes)
+        for rec in records:
+            rec.pipeline_run_id = run_id
+            rec.loaded_at       = loaded_at
+
+        # ─── bulk-post ONE call (E-1: refresh=False, E-2: routing=date) ───────
+        index_name = index_name_for_date(date_iso)
+        created = updated = 0
+        if records:
+            created, updated, _, http_status, es_err = self.http_client.bulk_post_with_id(
+                base_url = base_url                   ,
+                username = username                   ,
+                password = password                   ,
+                index    = index_name                 ,
+                docs     = records                    ,
+                id_field = 'doc_id'                   ,
+                refresh  = False                      ,  # E-1
+                routing  = date_iso                   )  # E-2
+            last_status = http_status
+            if es_err and not first_error:
+                first_error = es_err
+
+        # ─── flip content_processed for all source inventory docs (E-6) ───────
+        inventory_updated = 0
+        if consolidation_run_id:
+            PAINLESS_MARK_PROCESSED = ('ctx._source.content_processed = true; '
+                                        'ctx._source.content_extract_run_id = params.run_id;')
+            inv_updated, inv_status, inv_err = self.http_client.update_by_query_terms(
+                base_url      = base_url                          ,
+                username      = username                          ,
+                password      = password                          ,
+                index_pattern = 'sg-cf-inventory-*'              ,
+                field         = 'consolidation_run_id'            ,
+                values        = [consolidation_run_id]            ,
+                script_source = PAINLESS_MARK_PROCESSED           ,
+                script_params = {'run_id': run_id})
+            inventory_updated = inv_updated
+            last_status       = inv_status
+            if inv_err and not first_error:
+                first_error = inv_err
+
+        # ─── journal ──────────────────────────────────────────────────────────
+        finished_at   = now_utc_iso_full()
+        s3_total      = int(self.s3_fetcher.counter.s3_calls)
+        elastic_total = int(self.http_client.counter.elastic_calls)
+        journal = Schema__Pipeline__Run(
+            run_id            = run_id                             ,
+            source            = Enum__LETS__Source__Slug.CF_REALTIME,
+            verb              = Enum__Pipeline__Verb.EVENTS_LOAD   ,
+            stack_name        = request.stack_name                 ,
+            bucket            = request.bucket                     ,
+            queue_mode        = 'from-consolidated'                ,
+            files_queued      = 1                                  ,
+            files_processed   = 1 if records else 0               ,
+            events_indexed    = created                            ,
+            events_updated    = updated                            ,
+            inventory_updated = inventory_updated                  ,
+            s3_calls          = s3_total                           ,
+            elastic_calls     = elastic_total                      ,
+            started_at        = started_at                         ,
+            finished_at       = finished_at                        ,
+            last_http_status  = last_status                        ,
+            error_message     = first_error                        )
+        self.runs_tracker.record_run(base_url=base_url, username=username, password=password, record=journal)
+
+        return Schema__Events__Load__Response(
+            run_id            = run_id                           ,
+            stack_name        = request.stack_name               ,
+            bucket            = bucket                           ,
+            prefix_resolved   = ''                              ,
+            queue_mode        = 'from-consolidated'              ,
+            files_queued      = 1                               ,
+            files_processed   = 1 if records else 0             ,
+            files_skipped     = 0                               ,
+            events_indexed    = created                          ,
+            events_updated    = updated                          ,
+            bytes_total       = len(ndjson_bytes)               ,
+            inventory_updated = inventory_updated                ,
+            started_at        = started_at                       ,
+            finished_at       = finished_at                      ,
+            duration_ms       = 0                               ,
+            last_http_status  = last_status                      ,
+            error_message     = first_error                      ,
+            kibana_url        = kibana_url_from_base(base_url)   ,
+            dry_run           = False                            )
 
     def build_queue(self, request, bucket, base_url, username, password):           # Returns (work_items, queue_mode, prefix_resolved, error_message)
         if request.from_inventory:

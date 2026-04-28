@@ -47,3 +47,7 @@ class Schema__S3__Object__Record(Type_Safe):
     # ─── slice 2 hook (content-pass forward declaration) ──────────────────────
     content_processed       : bool                   = False                        # Slice 2 flips this to True when the .gz body has been parsed
     content_extract_run_id  : Safe_Str__Pipeline__Run__Id                           # Empty in slice 1; slice 2 stamps the extract run id
+
+    # ─── slice 3 hook (consolidation forward declaration) ─────────────────────
+    consolidation_run_id    : Safe_Str__Pipeline__Run__Id                           # Empty in slices 1/2; slice 3 stamps when consolidated
+    consolidated_at         : Safe_Str__Text                                        # ISO-8601 UTC; empty until consolidated

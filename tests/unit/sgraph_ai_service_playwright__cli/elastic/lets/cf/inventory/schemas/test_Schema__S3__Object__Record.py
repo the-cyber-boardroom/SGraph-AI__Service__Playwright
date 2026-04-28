@@ -39,13 +39,14 @@ class test_Schema__S3__Object__Record(TestCase):
         assert rec.delivery_year  == 2026
         assert rec.storage_class  == Enum__S3__Storage_Class.STANDARD
 
-    def test_json_roundtrip_keys(self):                                             # All 19 fields appear in .json() output
+    def test_json_roundtrip_keys(self):                                             # All 21 fields appear in .json() output
         keys = set(Schema__S3__Object__Record().json().keys())
         expected = {'bucket', 'key', 'last_modified', 'size_bytes', 'etag', 'storage_class',
                     'source', 'delivery_year', 'delivery_month', 'delivery_day',
                     'delivery_hour', 'delivery_minute', 'delivery_at', 'firehose_lag_ms',
                     'pipeline_run_id', 'loaded_at', 'schema_version',
-                    'content_processed', 'content_extract_run_id'}
+                    'content_processed', 'content_extract_run_id',
+                    'consolidation_run_id', 'consolidated_at'}
         assert keys == expected
 
     def test_default_schema_version(self):                                          # The schema_version field carries its own version tag
@@ -53,3 +54,8 @@ class test_Schema__S3__Object__Record(TestCase):
 
     def test_content_processed_defaults_false(self):                                # Slice 2 flips this; slice 1 always emits False
         assert Schema__S3__Object__Record().content_processed is False
+
+    def test_consolidation_hook_defaults_empty(self):                               # Slice 3 stamps these; slices 1/2 always emit empty
+        rec = Schema__S3__Object__Record()
+        assert str(rec.consolidation_run_id) == ''
+        assert str(rec.consolidated_at)      == ''

@@ -10,12 +10,13 @@ from enum import Enum
 
 
 class Enum__Pipeline__Verb(str, Enum):
-    INVENTORY_LOAD = 'inventory-load'                                                 # `sp el lets cf inventory load`
-    EVENTS_LOAD    = 'events-load'                                                    # `sp el lets cf events load`
-    INVENTORY_WIPE = 'inventory-wipe'                                                 # `sp el lets cf inventory wipe`
-    EVENTS_WIPE    = 'events-wipe'                                                    # `sp el lets cf events wipe`
-    SG_SEND_LOAD   = 'sg-send-load'                                                   # `sp el lets cf sg-send load` (Phase C)
-    UNKNOWN        = 'unknown'                                                        # Defensive default
+    INVENTORY_LOAD   = 'inventory-load'                                               # `sp el lets cf inventory load`
+    EVENTS_LOAD      = 'events-load'                                                  # `sp el lets cf events load`
+    CONSOLIDATE_LOAD = 'consolidate-load'                                             # `sp el lets cf consolidate load`
+    INVENTORY_WIPE   = 'inventory-wipe'                                               # `sp el lets cf inventory wipe`
+    EVENTS_WIPE      = 'events-wipe'                                                  # `sp el lets cf events wipe`
+    SG_SEND_LOAD     = 'sg-send-load'                                                 # `sp el lets cf sg-send load` (Phase C)
+    UNKNOWN          = 'unknown'                                                      # Defensive default
 
     def __str__(self):
         return self.value

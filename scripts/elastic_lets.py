@@ -47,6 +47,16 @@ from sgraph_ai_service_playwright__cli.elastic.lets.cf.events.service.Inventory_
 from sgraph_ai_service_playwright__cli.elastic.lets.cf.events.service.Progress__Reporter            import Progress__Reporter
 from sgraph_ai_service_playwright__cli.elastic.lets.cf.events.service.S3__Object__Fetcher          import S3__Object__Fetcher
 
+# Slice 3 — consolidation:
+from sgraph_ai_service_playwright__cli.elastic.lets.cf.consolidate.schemas.Schema__Consolidate__Load__Request  import Schema__Consolidate__Load__Request
+from sgraph_ai_service_playwright__cli.elastic.lets.cf.consolidate.service.Consolidate__Loader                 import Consolidate__Loader
+from sgraph_ai_service_playwright__cli.elastic.lets.cf.consolidate.service.Lets__Config__Reader                import Lets__Config__Reader
+from sgraph_ai_service_playwright__cli.elastic.lets.cf.consolidate.service.Lets__Config__Writer                import Lets__Config__Writer
+from sgraph_ai_service_playwright__cli.elastic.lets.cf.consolidate.service.Manifest__Builder                   import Manifest__Builder
+from sgraph_ai_service_playwright__cli.elastic.lets.cf.consolidate.service.NDJSON__Reader                      import NDJSON__Reader
+from sgraph_ai_service_playwright__cli.elastic.lets.cf.consolidate.service.NDJSON__Writer                      import NDJSON__Writer
+from sgraph_ai_service_playwright__cli.elastic.lets.cf.consolidate.service.S3__Object__Writer                  import S3__Object__Writer
+
 # sg-send convenience verbs:
 from sgraph_ai_service_playwright__cli.elastic.lets.cf.sg_send.service.SG_Send__Date__Parser      import parse_sg_send_date, render_date_label, s3_prefix_for_date
 from sgraph_ai_service_playwright__cli.elastic.lets.cf.sg_send.service.SG_Send__File__Viewer      import SG_Send__File__Viewer
@@ -107,13 +117,16 @@ inventory_app = typer.Typer(help = 'S3 listing-metadata inventory for the CloudF
                             no_args_is_help = True)
 events_app    = typer.Typer(help = 'CloudFront real-time log EVENTS — fetches each .gz, parses the TSV into typed records, indexes to sg-cf-events-*.',
                             no_args_is_help = True)
-sg_send_app   = typer.Typer(help = 'SGraph-Send convenience verbs over the CloudFront LETS pipelines (date-driven, hardcoded sgraph-send specifics).',
-                            no_args_is_help = True)
+sg_send_app      = typer.Typer(help = 'SGraph-Send convenience verbs over the CloudFront LETS pipelines (date-driven, hardcoded sgraph-send specifics).',
+                               no_args_is_help = True)
+consolidate_app  = typer.Typer(help = 'Consolidation C-stage: many .gz → one events.ndjson.gz per day (decision #5). Enables 14–28× speedup on events load.',
+                               no_args_is_help = True)
 
 app.add_typer(cf_app, name='cf')
-cf_app.add_typer(inventory_app, name='inventory')
-cf_app.add_typer(events_app   , name='events')
-cf_app.add_typer(sg_send_app  , name='sg-send')
+cf_app.add_typer(inventory_app  , name='inventory')
+cf_app.add_typer(events_app     , name='events')
+cf_app.add_typer(sg_send_app    , name='sg-send')
+cf_app.add_typer(consolidate_app, name='consolidate')
 
 
 def build_inventory_loader() -> Inventory__Loader:                                  # Single construction site so tests and CLI share the wiring
@@ -146,9 +159,27 @@ def build_events_loader(progress_reporter: Optional[Progress__Reporter] = None) 
                    manifest_updater = Inventory__Manifest__Updater(http_client=Inventory__HTTP__Client()),
                    run_id_gen       = Run__Id__Generator()                                        ,
                    runs_tracker     = Pipeline__Runs__Tracker(http_client=http_client)            )
+    kwargs['ndjson_reader'] = NDJSON__Reader()
+    kwargs['config_reader'] = Lets__Config__Reader()
     if progress_reporter is not None:
         kwargs['progress_reporter'] = progress_reporter
     return Events__Loader(**kwargs)
+
+
+def build_consolidate_loader() -> Consolidate__Loader:                              # Composition root for the C-stage consolidation pipeline
+    http_client = Inventory__HTTP__Client()
+    return Consolidate__Loader(
+        s3_fetcher       = S3__Object__Fetcher()                                    ,
+        s3_writer        = S3__Object__Writer()                                     ,
+        s3_lister        = S3__Inventory__Lister()                                  ,
+        parser           = CF__Realtime__Log__Parser(bot_classifier=Bot__Classifier()),
+        http_client      = http_client                                               ,
+        ndjson_writer    = NDJSON__Writer()                                          ,
+        manifest_builder = Manifest__Builder()                                      ,
+        config_reader    = Lets__Config__Reader()                                   ,
+        config_writer    = Lets__Config__Writer()                                   ,
+        run_id_gen       = Run__Id__Generator()                                     ,
+        runs_tracker     = Pipeline__Runs__Tracker(http_client=http_client)         )
 
 
 def build_events_wiper() -> Events__Wiper:
@@ -1077,5 +1108,103 @@ def cmd_sg_send_view(key        : str            = typer.Argument(...,          
             c.print()
             # Use plain print, not rich, so the TSV pipes cleanly to head/wc/grep
             print(tsv_text, end='' if tsv_text.endswith('\n') else '\n')
+
+    _run()
+
+
+# ───────────────────────────────────────────────────────────────────────────────
+# `sp el lets cf consolidate load` — C-stage: many .gz → one events.ndjson.gz
+# ───────────────────────────────────────────────────────────────────────────────
+
+@consolidate_app.command('load')
+def cmd_consolidate_load(
+        stack_name    : Optional[str] = typer.Argument(None,                          help='Stack name. Auto-picks when only one stack exists; prompts on multiple.'),
+        date_iso      : Optional[str] = typer.Option  (None, '--date',                help='"YYYY-MM-DD" date to consolidate. Defaults to today UTC.'),
+        bucket        : Optional[str] = typer.Option  (None, '--bucket',              help='S3 bucket holding the CloudFront-realtime objects (and consolidation output).'),
+        compat_region : Optional[str] = typer.Option  (None, '--compat-region',       help='Compat-region subfolder under lets/ (default: raw-cf-to-consolidated).'),
+        max_files     : int           = typer.Option  (0,    '--max-files',           help='Stop after N source files. 0 = all files for the date.'),
+        run_id        : Optional[str] = typer.Option  (None, '--run-id',              help='Pipeline run id. Empty = service auto-generates.'),
+        password      : Optional[str] = typer.Option  (None, '--password',            help='Elastic password (else $SG_ELASTIC_PASSWORD).'),
+        region        : Optional[str] = typer.Option  (None, '--region',              help='AWS region (defaults to current AWS_Config session region).'),
+        dry_run       : bool          = typer.Option  (False, '--dry-run',            help='Build the queue and return, skip all S3 writes and ES updates.')):
+    """Consolidate CloudFront .gz files for a date into a single events.ndjson.gz (C-stage)."""
+    from scripts.elastic                                                             import build_service, resolve_stack_name, aws_error_handler, rich_escape
+    from sgraph_ai_service_playwright__cli.elastic.lets.cf.inventory.primitives.Safe_Str__Pipeline__Run__Id import Safe_Str__Pipeline__Run__Id
+    from sgraph_ai_service_playwright__cli.elastic.lets.cf.inventory.primitives.Safe_Str__S3__Bucket       import Safe_Str__S3__Bucket
+
+    @aws_error_handler
+    def _run():
+        c = Console(highlight=False)
+
+        if not dry_run and not password and not os.environ.get('SG_ELASTIC_PASSWORD'):
+            c.print('\n  [yellow]⚠[/]  SG_ELASTIC_PASSWORD is not set.\n')
+            raise typer.Exit(1)
+
+        service      = build_service()
+        stack_picked = resolve_stack_name(service, stack_name, region)
+        info         = service.get_stack_info(stack_name=Safe_Str__Elastic__Stack__Name(stack_picked),
+                                               region    =region or '')
+        if not str(info.kibana_url):
+            c.print(f'\n  [red]✗  Stack [bold]{stack_picked}[/] has no Kibana URL yet.[/]  Run `sp el wait` first.\n')
+            raise typer.Exit(1)
+
+        base_url    = str(info.kibana_url).rstrip('/')
+        elastic_pwd = password or os.environ.get('SG_ELASTIC_PASSWORD', '')
+        from sgraph_ai_service_playwright__cli.elastic.lets.cf.consolidate.schemas.Schema__Consolidate__Load__Request import DEFAULT_COMPAT_REGION
+        from osbot_utils.type_safe.primitives.domains.common.safe_str.Safe_Str__Text import Safe_Str__Text
+        request = Schema__Consolidate__Load__Request(
+            stack_name    = Safe_Str__Elastic__Stack__Name(stack_picked)                  ,
+            bucket        = Safe_Str__S3__Bucket(bucket or '')                            ,
+            date_iso      = Safe_Str__Text(date_iso or '')                                ,
+            compat_region = Safe_Str__Text(compat_region or DEFAULT_COMPAT_REGION)        ,
+            from_inventory = True                                                          ,
+            max_files     = int(max_files)                                                 ,
+            run_id        = Safe_Str__Pipeline__Run__Id(run_id or '')                      ,
+            region        = Safe_Str__AWS__Region(region or '')                            ,
+            dry_run       = bool(dry_run)                                                  )
+
+        loader  = build_consolidate_loader()
+        import time as _time
+        t0      = _time.time()
+        resp    = loader.load(request=request, base_url=base_url, username='elastic', password=elastic_pwd)
+        wall_ms = int((_time.time() - t0) * 1000)
+
+        c.print()
+        title_suffix = '  [yellow](dry-run)[/]' if resp.dry_run else ''
+        c.print(f'  [bold]CloudFront consolidate load[/]{title_suffix}')
+        c.print()
+        t = Table(show_header=False, box=None, padding=(0, 2))
+        t.add_column(style='dim', justify='right')
+        t.add_column(style='bold')
+        t.add_row('stack'          , str(resp.stack_name        ))
+        t.add_row('run-id'         , str(resp.run_id            ))
+        t.add_row('date'           , str(resp.date_iso          ))
+        t.add_row('compat-region'  , str(resp.compat_region     ))
+        t.add_row('queue-mode'     , str(resp.queue_mode        ))
+        t.add_row('bucket'         , str(resp.bucket            ))
+        t.add_row('files-queued'   , str(resp.files_queued      ))
+        t.add_row('files-processed', str(resp.files_processed   ))
+        if resp.files_skipped > 0:
+            t.add_row('files-skipped', f'[yellow]{resp.files_skipped}[/]')
+        if not resp.dry_run:
+            t.add_row('events-consolidated', str(resp.events_consolidated))
+            t.add_row('bytes-written'       , f'{resp.bytes_written:,}')
+            t.add_row('inventory-flips'     , str(resp.inventory_updated))
+            t.add_row('s3-output-key'       , str(resp.s3_output_key))
+        t.add_row('bytes-total' , f'{resp.bytes_total:,}')
+        t.add_row('wall-time'   , f'{wall_ms} ms')
+        if not resp.dry_run:
+            t.add_row('http-status', str(resp.last_http_status))
+        c.print(t)
+
+        if str(resp.error_message):
+            c.print()
+            c.print(f'  [yellow]⚠[/]  {rich_escape(str(resp.error_message))}')
+
+        if not resp.dry_run and resp.events_consolidated > 0:
+            c.print()
+            c.print(f'  [green]✓[/]  Consolidated artefact: [bold]s3://{resp.bucket}/{resp.s3_output_key}[/]')
+
+        c.print()
 
     _run()

@@ -7,11 +7,19 @@
 #   2. Our bulk-post needs etag-as-_id support; the existing bulk_post is
 #      typed to List__Schema__Log__Document and doesn't pass an _id.
 # Methods:
-#   1. bulk_post_with_id(base_url, username, password, index, docs, id_field)
-#      Bulk-posts any Type_Safe collection, using the named field of each doc
-#      as the Elastic _id so re-loads dedupe at index time.
-# verify=False mirrors Elastic__HTTP__Client (self-signed nginx cert).
-# Tests subclass and override the public method (no mocks).
+#   1. bulk_post_with_id(...)  — bulk-index with optional ES optimisations (E-1/2/5/7)
+#   2. update_by_query_terms() — batch _update_by_query using a terms filter (E-6)
+#   3. ensure_index_template() — pre-create index template to avoid auto-map footgun (E-4)
+#
+# ES write-path optimisations (all backwards-compatible; defaults preserve
+# existing behaviour so every current call site is unaffected):
+#   E-1  refresh=False on bulk-post → saves 40-60 ms per call in batch mode
+#   E-2  routing={YYYY-MM-DD} pins day's docs to one shard
+#   E-3  requests.Session() reused across calls via session property
+#   E-4  ensure_index_template() called at health-check time
+#   E-5  max_bytes auto-splits body into chunks (0 = no split)
+#   E-6  update_by_query_terms() collapses N per-doc flips into 1 terms query
+#   E-7  explicit timeout + wait_for_active_shards on bulk calls
 # ═══════════════════════════════════════════════════════════════════════════════
 
 import base64
@@ -28,13 +36,22 @@ from osbot_utils.type_safe.type_safe_core.collections.Type_Safe__List           
 from sgraph_ai_service_playwright__cli.elastic.lets.Call__Counter                   import Call__Counter
 
 
-DEFAULT_TIMEOUT = 30
+DEFAULT_TIMEOUT           = 30
+DEFAULT_MAX_BULK_BYTES    = 10 * 1024 * 1024                                        # 10 MB — ES recommends 5-15 MB per bulk request (E-5 default)
 
 
 class Inventory__HTTP__Client(Type_Safe):
     timeout : int          = DEFAULT_TIMEOUT
     verify  : bool         = False                                                  # Self-signed nginx cert — mirrors Elastic__HTTP__Client
     counter : Call__Counter                                                         # Auto-instantiates per instance; SG_Send orchestrator injects a shared one to track total Elastic HTTP calls across collaborators
+    _session: object       = None                                                   # E-3: requests.Session() reused across calls; None until first use
+
+    def _get_session(self) -> requests.Session:                                     # E-3: lazy-initialise a shared session so TLS is reused across calls within a run
+        if self._session is None:
+            session        = requests.Session()
+            session.verify = self.verify
+            self._session  = session
+        return self._session
 
     def request(self, method: str, url: str, *,                                     # Single seam for test overrides
                       headers: dict = None,
@@ -43,62 +60,102 @@ class Inventory__HTTP__Client(Type_Safe):
         self.counter.elastic()                                                       # One Elastic HTTP call (every request — search, _bulk, _update_by_query, _cat/indices, DELETE, _count, ...)
         with warnings.catch_warnings():
             warnings.simplefilter('ignore', InsecureRequestWarning)
-            return requests.request(method = method            ,
-                                    url    = url               ,
-                                    headers= headers or {}     ,
-                                    data   = data              ,
-                                    timeout= self.timeout      ,
-                                    verify = self.verify       )
+            session = self._get_session()                                            # E-3: reuse connection pool
+            return session.request(method  = method            ,
+                                   url     = url               ,
+                                   headers = headers or {}     ,
+                                   data    = data              ,
+                                   timeout = self.timeout      ,
+                                   verify  = self.verify       )                    # Explicit override — session.verify alone isn't always honoured
 
-    def bulk_post_with_id(self, base_url : str              ,
-                                username : str              ,
-                                password : str              ,
-                                index    : str              ,
-                                docs     : Type_Safe__List   ,                       # Any Type_Safe collection (List__Schema__S3__Object__Record etc.)
-                                id_field : str              = 'etag'                # Field on each doc whose value becomes _id; etag default for the inventory case
-                          ) -> Tuple[int, int, int, int, str]:                       # (created, updated, failed, http_status, error_message)
+    def bulk_post_with_id(self, base_url              : str              ,
+                                username              : str              ,
+                                password              : str              ,
+                                index                 : str              ,
+                                docs                  : Type_Safe__List   ,           # Any Type_Safe collection
+                                id_field              : str  = 'etag'    ,           # Field whose value becomes ES _id
+                                # ── E-1 / E-2 / E-5 / E-7 (all default to existing behaviour) ──
+                                refresh               : bool = True       ,           # E-1: False skips auto-refresh; call _refresh explicitly after batch
+                                routing               : str  = ''         ,           # E-2: pin to one shard (pass YYYY-MM-DD for daily indices)
+                                max_bytes             : int  = 0          ,           # E-5: 0 = no split; >0 = auto-split at this threshold (bytes)
+                                wait_for_active_shards: str  = 'null'     ,           # E-7: 'null' = ES default; '1' = primary only
+                          ) -> Tuple[int, int, int, int, str]:                        # (created, updated, failed, http_status, error_message)
         if len(docs) == 0:
             return 0, 0, 0, 0, ''
 
         auth_token = base64.b64encode(f'{username}:{password}'.encode()).decode()
-        url        = base_url.rstrip('/') + '/_elastic/_bulk'
         headers    = {'Content-Type' : 'application/x-ndjson'  ,
                       'Authorization': f'Basic {auth_token}'   }
 
-        body_lines = []
+        # ── build NDJSON pairs ───────────────────────────────────────────────
+        all_pairs: list = []
         for doc in docs:
             doc_dict = doc.json()
-            doc_id   = str(doc_dict.get(id_field, '') or '')                        # Empty id_field → ES generates an id; lose dedup but keep robustness
+            doc_id   = str(doc_dict.get(id_field, '') or '')
             action   = {'index': {'_index': index, '_id': doc_id}} if doc_id else {'index': {'_index': index}}
-            body_lines.append(json.dumps(action))
-            body_lines.append(json.dumps(doc_dict))
-        body = ('\n'.join(body_lines) + '\n').encode('utf-8')
+            all_pairs.append((action, doc_dict))
 
-        response = self.request('POST', url, headers=headers, data=body)
-        status   = int(response.status_code)
-        if status >= 300:                                                           # Whole batch rejected
-            return 0, 0, len(docs), status, f'HTTP {status}: {(response.text or "")[:500]}'
+        # ── E-5: auto-split into chunks if max_bytes is set ──────────────────
+        effective_max = max_bytes if max_bytes > 0 else 0
+        chunks: list  = [[]]                                                        # list of lists of (action, doc_dict) pairs
+        current_size  = 0
+        for action, doc_dict in all_pairs:
+            pair_bytes = len(json.dumps(action).encode()) + len(json.dumps(doc_dict).encode()) + 2  # +2 for \n
+            if effective_max > 0 and current_size + pair_bytes > effective_max and chunks[-1]:
+                chunks.append([])
+                current_size = 0
+            chunks[-1].append((action, doc_dict))
+            current_size += pair_bytes
 
-        payload = response.json() or {}
+        # ── E-1/E-2/E-7: build query string params ───────────────────────────
+        qs_parts = []
+        if not refresh:
+            qs_parts.append('refresh=false')                                        # E-1: skip auto-refresh; caller triggers once at end
+        if routing:
+            qs_parts.append(f'routing={routing}')                                   # E-2: pin to shard
+        if wait_for_active_shards != 'null':
+            qs_parts.append(f'wait_for_active_shards={wait_for_active_shards}')    # E-7
+        qs_parts.append(f'timeout={self.timeout}s')                                 # E-7
+        qs       = '?' + '&'.join(qs_parts) if qs_parts else ''
+        bulk_url = base_url.rstrip('/') + '/_elastic/_bulk' + qs
+
+        # ── post each chunk, accumulate results ──────────────────────────────
         created = 0
         updated = 0
         failed  = 0
         err_msg = ''
-        for item in payload.get('items', []):
-            action = next(iter(item.values()), {})                                  # Extract the action dict whatever the verb (index/create/update)
-            item_status = int(action.get('status', 0))
-            result      = str(action.get('result', '') or '')
-            if item_status >= 300:
-                failed += 1
+        status  = 0
+        for chunk in chunks:
+            lines = []
+            for action, doc_dict in chunk:
+                lines.append(json.dumps(action))
+                lines.append(json.dumps(doc_dict))
+            body = ('\n'.join(lines) + '\n').encode('utf-8')
+
+            response = self.request('POST', bulk_url, headers=headers, data=body)
+            status   = int(response.status_code)
+            if status >= 300:                                                       # Whole chunk rejected
+                failed  += len(chunk)
                 if not err_msg:
-                    reason = action.get('error', {}).get('reason', '')
-                    err_msg = f'per-item HTTP {item_status}: {reason}'[:500]
-            elif result == 'created':
-                created += 1
-            elif result == 'updated':
-                updated += 1
-            else:                                                                   # noop / unexpected — count as updated so totals add up
-                updated += 1
+                    err_msg = f'HTTP {status}: {(response.text or "")[:500]}'
+                continue
+
+            payload = response.json() or {}
+            for item in payload.get('items', []):
+                action      = next(iter(item.values()), {})                         # Extract the action dict whatever the verb (index/create/update)
+                item_status = int(action.get('status', 0))
+                result      = str(action.get('result', '') or '')
+                if item_status >= 300:
+                    failed += 1
+                    if not err_msg:
+                        reason  = action.get('error', {}).get('reason', '')
+                        err_msg = f'per-item HTTP {item_status}: {reason}'[:500]
+                elif result == 'created':
+                    created += 1
+                elif result == 'updated':
+                    updated += 1
+                else:                                                               # noop / unexpected — count as updated so totals add up
+                    updated += 1
         return created, updated, failed, status, err_msg
 
     def delete_indices_by_pattern(self, base_url : str ,
@@ -233,3 +290,94 @@ class Inventory__HTTP__Client(Type_Safe):
             return [], status, 'response was not JSON'
         buckets = payload.get('aggregations', {}).get('by_run', {}).get('buckets', []) or []
         return list(buckets), status, ''
+
+    # ── E-6: batch _update_by_query using a terms filter ──────────────────────
+
+    def update_by_query_terms(self, base_url      : str  ,
+                                     username      : str  ,
+                                     password      : str  ,
+                                     index_pattern : str  ,
+                                     field         : str  ,
+                                     values        : list ,                          # List of string values for the terms filter
+                                     script_source : str  ,
+                                     script_params : dict = None
+                               ) -> Tuple[int, int, str]:                           # (docs_updated, http_status, error_message)
+        # Issues a single _update_by_query with a terms filter instead of N
+        # individual calls.  Used by Consolidate__Loader to flip
+        # consolidation_run_id on all source inventory docs in one request.
+        if not values:
+            return 0, 0, ''
+        auth_token = base64.b64encode(f'{username}:{password}'.encode()).decode()
+        headers    = {'Content-Type' : 'application/json'  ,
+                      'Authorization': f'Basic {auth_token}'}
+        body = json.dumps({
+            'query' : {'terms': {field: values}},
+            'script': {'lang'  : 'painless'               ,
+                       'source': script_source             ,
+                       'params': script_params or {}       },
+        }).encode('utf-8')
+        url = base_url.rstrip('/') + f'/_elastic/{index_pattern}/_update_by_query?refresh=true&conflicts=proceed'
+        try:
+            response = self.request('POST', url, headers=headers, data=body)
+        except Exception as exc:
+            return 0, 0, f'update error: {str(exc)[:200]}'
+        status = int(response.status_code)
+        if status == 404:
+            return 0, status, ''
+        if status >= 300:
+            return 0, status, f'HTTP {status}: {(response.text or "")[:300]}'
+        try:
+            payload = response.json() or {}
+        except Exception:
+            return 0, status, 'response was not JSON'
+        return int(payload.get('updated', 0) or 0), status, ''
+
+    # ── E-1: explicit post-batch refresh ─────────────────────────────────────
+
+    def trigger_refresh(self, base_url      : str ,
+                               username      : str ,
+                               password      : str ,
+                               index_pattern : str
+                         ) -> Tuple[int, str]:                                      # (http_status, error_message)
+        # Call once after a batch of refresh=False bulk-posts to make docs searchable.
+        auth_token = base64.b64encode(f'{username}:{password}'.encode()).decode()
+        headers    = {'Authorization': f'Basic {auth_token}'}
+        url        = base_url.rstrip('/') + f'/_elastic/{index_pattern}/_refresh'
+        try:
+            resp = self.request('POST', url, headers=headers)
+        except Exception as exc:
+            return 0, f'refresh error: {str(exc)[:200]}'
+        status = int(resp.status_code)
+        if status >= 300:
+            return status, f'HTTP {status}: {(resp.text or "")[:300]}'
+        return status, ''
+
+    # ── E-4: pre-create index template to avoid auto-mapping footgun ──────────
+
+    def ensure_index_template(self, base_url      : str  ,
+                                      username      : str  ,
+                                      password      : str  ,
+                                      template_name : str  ,
+                                      index_pattern : str  ,
+                                      mappings      : dict
+                               ) -> Tuple[int, str]:                                # (http_status, error_message)
+        # PUT _index_template/{name} — idempotent.  Called at health-check time
+        # so the mapping exists before the first bulk-post.  Prevents the
+        # auto-detect footgun where the first doc's field types drive all
+        # subsequent docs' mapping (e.g. a keyword that looks like a date).
+        auth_token = base64.b64encode(f'{username}:{password}'.encode()).decode()
+        headers    = {'Content-Type' : 'application/json'  ,
+                      'Authorization': f'Basic {auth_token}'}
+        body = json.dumps({
+            'index_patterns': [index_pattern],
+            'template'      : {'mappings': mappings},
+        }).encode('utf-8')
+        url = base_url.rstrip('/') + f'/_elastic/_index_template/{template_name}'
+        try:
+            resp = self.request('PUT', url, headers=headers, data=body)
+        except Exception as exc:
+            return 0, f'template error: {str(exc)[:200]}'
+        status = int(resp.status_code)
+        if status >= 300:
+            return status, f'HTTP {status}: {(resp.text or "")[:300]}'
+        return status, ''
