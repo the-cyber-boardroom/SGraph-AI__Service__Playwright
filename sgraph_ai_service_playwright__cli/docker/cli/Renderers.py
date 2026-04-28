@@ -15,7 +15,7 @@ from sgraph_ai_service_playwright__cli.docker.schemas.Schema__Docker__Info      
 from sgraph_ai_service_playwright__cli.docker.schemas.Schema__Docker__List          import Schema__Docker__List
 
 
-def _state_colour(state: Enum__Docker__Stack__State) -> str:
+def _state_colour(state: Enum__Docker__Stack__State) -> str:                        # map state → Rich colour tag
     return {Enum__Docker__Stack__State.RUNNING    : 'green' ,
             Enum__Docker__Stack__State.PENDING    : 'yellow',
             Enum__Docker__Stack__State.STOPPING   : 'yellow',
@@ -23,6 +23,10 @@ def _state_colour(state: Enum__Docker__Stack__State) -> str:
             Enum__Docker__Stack__State.TERMINATING: 'red'   ,
             Enum__Docker__Stack__State.TERMINATED : 'red'   ,
             Enum__Docker__Stack__State.UNKNOWN    : 'white' }.get(state, 'white')
+
+
+def _secs(ms: int) -> str:                                                          # 2598ms → "2.6s", 300ms → "0.3s"
+    return f'{ms / 1000:.1f}s'
 
 
 def render_list(listing: Schema__Docker__List, c: Console) -> None:
@@ -76,10 +80,10 @@ def render_create(resp: Schema__Docker__Create__Response, c: Console) -> None:
     c.print(f'  ami          : {info.ami_id}')
     c.print(f'  instance     : {info.instance_type}')
     c.print(f'  allowed-ip   : {info.allowed_ip}')
-    c.print(f'  elapsed      : {resp.elapsed_ms}ms')
+    c.print(f'  submitted in : {_secs(resp.elapsed_ms)}')                           # Time for EC2 API call to accept the launch request
     c.print()
-    c.print(f'  [dim]Connect via:  aws ssm start-session --target {info.instance_id} --region {info.region}[/]')
-    c.print(f'  [dim]Wait ready:   sp docker wait {info.stack_name} --region {info.region}[/]')
+    c.print(f'  [dim]Connect:    sp docker connect {info.stack_name} --region {info.region}[/]')
+    c.print(f'  [dim]Wait ready: sp docker wait {info.stack_name} --region {info.region}[/]')
     c.print()
 
 
@@ -96,7 +100,7 @@ def render_health(h: Schema__Docker__Health__Response, c: Console) -> None:
     t.add_row('ssm-reachable' , 'yes' if h.ssm_reachable else 'no')
     t.add_row('docker-ok'     , 'yes' if h.docker_ok else 'no')
     t.add_row('docker-version', str(h.docker_version) or '—')
-    t.add_row('elapsed'       , f'{h.elapsed_ms}ms')
+    t.add_row('waited'        , _secs(h.elapsed_ms))
     t.add_row('message'       , str(h.message) or '—')
     c.print(t)
     c.print()

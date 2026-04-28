@@ -72,6 +72,38 @@ def _ports(raw: Optional[List[int]]) -> List__Port:                             
     return result
 
 
+def resolve_stack_name(service: Linux__Service, provided: Optional[str], region: str) -> str:
+    """Auto-select when one stack exists, prompt when many, error when none."""
+    if provided:
+        return provided
+    listing      = service.list_stacks(region)
+    names        = [str(s.stack_name) for s in listing.stacks if str(s.stack_name)]
+    region_label = str(listing.region) or 'the current region'
+
+    if len(names) == 0:
+        Console(highlight=False, stderr=True).print(
+            f'\n  [yellow]No linux stacks in {region_label}.[/]  Run: [bold]sp linux create[/]\n')
+        raise typer.Exit(1)
+
+    if len(names) == 1:
+        Console(highlight=False).print(f'\n  [dim]One stack found — using [bold]{names[0]}[/][/]')
+        return names[0]
+
+    c = Console(highlight=False)
+    c.print(f'\n  [bold]Multiple stacks in {region_label}:[/]')
+    for idx, name in enumerate(names, start=1):
+        c.print(f'    {idx}. {name}')
+    raw = typer.prompt('\n  Pick a stack number', type=int)
+    try:
+        choice = int(raw)
+    except (TypeError, ValueError):
+        choice = -1
+    if choice < 1 or choice > len(names):
+        Console(highlight=False, stderr=True).print(f'\n  [red]Invalid selection: {raw}[/]\n')
+        raise typer.Exit(1)
+    return names[choice - 1]
+
+
 @app.command()
 @_err_handler
 def create(name          : Optional[str]       = typer.Argument(None, help='Stack name; auto-generated as {adjective}-{scientist} if omitted.'),
@@ -114,11 +146,13 @@ def list_stacks(region: str = typer.Option(DEFAULT_REGION, '--region', '-r')):
 
 @app.command()
 @_err_handler
-def info(name  : str = typer.Argument(..., help='Stack name.'),
-         region: str = typer.Option(DEFAULT_REGION, '--region', '-r')):
+def info(name  : Optional[str] = typer.Argument(None, help='Stack name; auto-selected when only one exists.'),
+         region: str           = typer.Option(DEFAULT_REGION, '--region', '-r')):
     """Show details for a single Linux stack."""
-    c    = Console(highlight=False, width=200)
-    data = _service().get_stack_info(region, name)
+    c       = Console(highlight=False, width=200)
+    svc     = _service()
+    name    = resolve_stack_name(svc, name, region)
+    data    = svc.get_stack_info(region, name)
     if data is None:
         c.print(f'  [red]✗  No Linux stack matched {name!r}[/]')
         raise typer.Exit(1)
@@ -127,27 +161,31 @@ def info(name  : str = typer.Argument(..., help='Stack name.'),
 
 @app.command()
 @_err_handler
-def delete(name  : str = typer.Argument(..., help='Stack name.'),
-           region: str = typer.Option(DEFAULT_REGION, '--region', '-r')):
+def delete(name  : Optional[str] = typer.Argument(None, help='Stack name; auto-selected when only one exists.'),
+           region: str           = typer.Option(DEFAULT_REGION, '--region', '-r')):
     """Terminate a Linux stack."""
     c    = Console(highlight=False, width=200)
-    resp = _service().delete_stack(region, name)
+    svc  = _service()
+    name = resolve_stack_name(svc, name, region)
+    resp = svc.delete_stack(region, name)
     if not resp.deleted:
         c.print(f'  [red]✗  {resp.message}[/]')
         raise typer.Exit(1)
-    c.print(f'  ✅  {resp.message}  [dim]({resp.elapsed_ms}ms)[/]')
+    c.print(f'  ✅  {resp.message}  [dim]({resp.elapsed_ms / 1000:.1f}s)[/]')
 
 
 @app.command()
 @_err_handler
-def wait(name       : str = typer.Argument(..., help='Stack name.'),
-         region     : str = typer.Option(DEFAULT_REGION, '--region', '-r'),
-         timeout_sec: int = typer.Option(300            , '--timeout', help='Max seconds to wait for SSM readiness.'),
-         poll_sec   : int = typer.Option(10             , '--poll'   , help='Seconds between polls.')):
+def wait(name       : Optional[str] = typer.Argument(None, help='Stack name; auto-selected when only one exists.'),
+         region     : str           = typer.Option(DEFAULT_REGION, '--region', '-r'),
+         timeout_sec: int           = typer.Option(300            , '--timeout', help='Max seconds to wait for SSM readiness.'),
+         poll_sec   : int           = typer.Option(10             , '--poll'   , help='Seconds between polls.')):
     """Wait until the stack is running and SSM-reachable."""
-    c = Console(highlight=False, width=200)
+    c    = Console(highlight=False, width=200)
+    svc  = _service()
+    name = resolve_stack_name(svc, name, region)
     c.print(f'  [dim]Waiting for {name!r} to become SSM-reachable (timeout={timeout_sec}s)…[/]')
-    h = _service().health(region, name, timeout_sec=timeout_sec, poll_sec=poll_sec)
+    h = svc.health(region, name, timeout_sec=timeout_sec, poll_sec=poll_sec)
     render_health(h, c)
     if not h.healthy:
         raise typer.Exit(1)
@@ -155,22 +193,28 @@ def wait(name       : str = typer.Argument(..., help='Stack name.'),
 
 @app.command()
 @_err_handler
-def health(name  : str = typer.Argument(..., help='Stack name.'),
-           region: str = typer.Option(DEFAULT_REGION, '--region', '-r')):
+def health(name  : Optional[str] = typer.Argument(None, help='Stack name; auto-selected when only one exists.'),
+           region: str           = typer.Option(DEFAULT_REGION, '--region', '-r')):
     """Quick SSM reachability probe (no waiting)."""
-    h = _service().health(region, name, timeout_sec=0, poll_sec=1)
+    svc  = _service()
+    name = resolve_stack_name(svc, name, region)
+    h    = svc.health(region, name, timeout_sec=0, poll_sec=1)
     render_health(h, Console(highlight=False, width=200))
 
 
 @app.command()
 @_err_handler
-def connect(name  : str = typer.Argument(..., help='Stack name.'),
-            region: str = typer.Option(DEFAULT_REGION, '--region', '-r')):
-    """Print the aws ssm start-session command for this stack."""
+def connect(name  : Optional[str] = typer.Argument(None, help='Stack name; auto-selected when only one exists.'),
+            region: str           = typer.Option(DEFAULT_REGION, '--region', '-r')):
+    """Open an SSM shell session on the stack (replaces current process with aws ssm start-session)."""
+    import os
     c    = Console(highlight=False, width=200)
-    data = _service().get_stack_info(region, name)
+    svc  = _service()
+    name = resolve_stack_name(svc, name, region)
+    data = svc.get_stack_info(region, name)
     if data is None:
         c.print(f'  [red]✗  No Linux stack matched {name!r}[/]')
         raise typer.Exit(1)
     iid = str(data.instance_id)
-    c.print(f'\n  [bold]aws ssm start-session --target {iid} --region {region}[/]\n')
+    c.print(f'  [dim]Connecting to {name} ({iid}) in {region}…[/]\n')
+    os.execvp('aws', ['aws', 'ssm', 'start-session', '--target', iid, '--region', region])

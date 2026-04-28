@@ -26,6 +26,10 @@ def _state_colour(state: Enum__Linux__Stack__State) -> str:
             Enum__Linux__Stack__State.UNKNOWN    : 'white' }.get(state, 'white')
 
 
+def _secs(ms: int) -> str:                                                          # 2598ms → "2.6s", 300ms → "0.3s"
+    return f'{ms / 1000:.1f}s'
+
+
 def render_list(listing: Schema__Linux__List, c: Console) -> None:
     if not listing.stacks:
         c.print('  [dim]No Linux stacks found.[/]')
@@ -55,13 +59,13 @@ def render_info(info: Schema__Linux__Info, c: Console) -> None:
     t = Table(box=None, show_header=False, padding=(0, 2))
     t.add_column(style='bold', min_width=14, no_wrap=True)
     t.add_column(style='default')
-    t.add_row('region'      , str(info.region)          or '—')
-    t.add_row('ami'         , str(info.ami_id)          or '—')
-    t.add_row('instance'    , str(info.instance_type)   or '—')
-    t.add_row('public-ip'   , str(info.public_ip)       or '—')
-    t.add_row('allowed-ip'  , str(info.allowed_ip)      or '—')
+    t.add_row('region'      , str(info.region)            or '—')
+    t.add_row('ami'         , str(info.ami_id)            or '—')
+    t.add_row('instance'    , str(info.instance_type)     or '—')
+    t.add_row('public-ip'   , str(info.public_ip)         or '—')
+    t.add_row('allowed-ip'  , str(info.allowed_ip)        or '—')
     t.add_row('sg-id'       , str(info.security_group_id) or '—')
-    t.add_row('uptime'      , f'{info.uptime_seconds}s' if info.uptime_seconds else '—')
+    t.add_row('uptime'      , f'{info.uptime_seconds}s'   if info.uptime_seconds else '—')
     c.print(t)
     c.print()
 
@@ -76,10 +80,10 @@ def render_create(resp: Schema__Linux__Create__Response, c: Console) -> None:
     c.print(f'  ami          : {info.ami_id}')
     c.print(f'  instance     : {info.instance_type}')
     c.print(f'  allowed-ip   : {info.allowed_ip}')
-    c.print(f'  elapsed      : {resp.elapsed_ms}ms')
+    c.print(f'  submitted in : {_secs(resp.elapsed_ms)}')                           # Time for EC2 API call to accept the launch request
     c.print()
-    c.print(f'  [dim]Connect via:  aws ssm start-session --target {info.instance_id} --region {info.region}[/]')
-    c.print(f'  [dim]Wait ready:   sp linux wait {info.stack_name} --region {info.region}[/]')
+    c.print(f'  [dim]Connect:    sp linux connect {info.stack_name} --region {info.region}[/]')
+    c.print(f'  [dim]Wait ready: sp linux wait {info.stack_name} --region {info.region}[/]')
     c.print()
 
 
@@ -94,7 +98,7 @@ def render_health(h: Schema__Linux__Health__Response, c: Console) -> None:
     t.add_column(style='default')
     t.add_row('state'        , h.state.value)
     t.add_row('ssm-reachable', 'yes' if h.ssm_reachable else 'no')
-    t.add_row('elapsed'      , f'{h.elapsed_ms}ms')
+    t.add_row('waited'       , _secs(h.elapsed_ms))
     t.add_row('message'      , str(h.message) or '—')
     c.print(t)
     c.print()
