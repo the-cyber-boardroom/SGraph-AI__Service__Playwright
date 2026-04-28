@@ -82,7 +82,7 @@ Both consumers reduce to thin composers:
 
 Tests: 15 unit tests in `tests/unit/sgraph_ai_service_playwright__cli/image/` cover schema round-trip, default values, stage-context happy path (file + tree + custom-name + extra-ignores), `build()` happy path with an in-memory fake docker client (no daemon required), tempdir-cleanup-on-failure, and ignore-callable composition. Existing consumer tests rewired: `tests/unit/sgraph_ai_service_playwright__cli/deploy/test_Docker__SP__CLI.py` lost its now-redundant `ignore_build_noise` tests (the behaviour moved to `Image__Build__Service`) and gained `test_build_request__has_all_four_source_trees_with_correct_target_names`. The deploy-via-pytest integration test `tests/docker/test_Build__Docker__SGraph-AI__Service__Playwright.py` updated to assert on `Schema__Image__Build__Result` fields instead of dict keys.
 
-### `opensearch/` — `sp os` sister section foundation (Phase B steps 5a–5c, 2026-04-26)
+### `opensearch/` — `sp os` sister section foundation (Phase B steps 5a–5d, 2026-04-26)
 
 First two slices of the new OpenSearch sister section. Folder name is `opensearch/` (not `os/`) — `os` shadows the Python stdlib `os` module and breaks `import os` inside the package. The typer command alias stays `sp os` / `sp opensearch`.
 
@@ -104,8 +104,10 @@ First two slices of the new OpenSearch sister section. Folder name is `opensearc
 | `opensearch/service/OpenSearch__AMI__Helper.py` | `latest_al2023_ami_id(region)` (raises if none); `latest_healthy_ami_id(region)` filtered by `sg:purpose=opensearch` + `sg:ami-status=healthy` (returns empty string if none). |
 | `opensearch/service/OpenSearch__Instance__Helper.py` | `list_stacks(region)` returns `{instance_id: details}` filtered by `sg:purpose=opensearch` + live states; `find_by_stack_name(region, stack_name)`; `terminate_instance(region, instance_id)`. |
 | `opensearch/service/OpenSearch__Tags__Builder.py` | Pure mapper — builds the canonical 6-tag list (Name, sg:purpose, sg:section, sg:stack-name, sg:allowed-ip, sg:creator). Creator falls back to 'unknown' when empty. |
+| `opensearch/service/OpenSearch__HTTP__Base.py` | Request seam wrapping `requests` with `verify=False` (self-signed cert at boot), Basic auth, scoped urllib3 InsecureRequestWarning suppression. Tests substitute `requests.request` via a recorder. |
+| `opensearch/service/OpenSearch__HTTP__Probe.py` | Read-only probes — `cluster_health(base_url, ...)` (returns `{}` on unreachable / non-200 / non-JSON; caller maps to `-1` sentinels in `Schema__OS__Health`); `dashboards_ready(base_url, ...)` (True on 2xx). Composes `OpenSearch__HTTP__Base`. |
 
-64 unit tests across primitives / enums / schemas / collections / each helper / composition. AWS-touching helpers exercised through real `_Fake_Boto_EC2` subclasses (no mocks); each helper has its own focused test file kept under ~80 lines.
+78 unit tests across primitives / enums / schemas / collections / AWS helpers / HTTP base + probe / composition. Every AWS- and HTTP-touching class is exercised through a real `_Fake_*` subclass (no mocks); each helper has its own focused test file kept under ~110 lines.
 
 ### `observability/` — Tier-1 pure-logic service (read-only surface)
 
