@@ -228,7 +228,7 @@ class _Fake_AWS_Client__Full:
 
 class _Fake_Compose__Template:
     def __init__(self): self.calls = []
-    def render(self, chromium_image=None, nginx_image=None, mitmproxy_image=None):
+    def render(self, chromium_image=None, mitmproxy_image=None):
         self.calls.append('render')
         return 'services:\n  chromium:\n    image: lscr.io/linuxserver/chromium:latest\n'
 

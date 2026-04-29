@@ -1,26 +1,33 @@
 # ═══════════════════════════════════════════════════════════════════════════════
 # SP CLI — Vnc__Compose__Template
-# Renders the docker-compose.yml that boots chromium + nginx + mitmproxy on
+# Renders the docker-compose.yml that boots chromium + caddy + mitmproxy on
 # the EC2 host. Pure templating; no secrets in the YAML itself —
-# MITM_PROXYAUTH is read from /opt/sg-vnc/mitm/proxyauth (file written by
-# user-data so the compose template stays static + reviewable).
+# operator credentials live in /opt/sg-vnc/caddy/users.json (bcrypt) and
+# the JWT signing secret in /opt/sg-vnc/caddy/jwt-secret.
 #
-# Per plan doc 6:
+# Per plan doc 6 + v0.1.118 caddy slice:
 #   N1 — section is sp vnc.
 #   N2 — chromium-only at runtime (linuxserver/chromium image).
 #   N3 — profile + state wiped at termination (no host volumes for state).
 #   P4 — moving 'latest' tags; tests pin known versions.
+#
+# Caddy replaces nginx. It builds locally from a small Dockerfile rendered
+# by Vnc__User_Data__Builder (caddy:2-builder + caddy-security plugin via
+# xcaddy) so we never depend on a third-party registry image.
 # ═══════════════════════════════════════════════════════════════════════════════
 
 from osbot_utils.type_safe.Type_Safe                                                import Type_Safe
 
 
 CHROMIUM_IMAGE  = 'lscr.io/linuxserver/chromium:latest'                             # Tests pin a known version
-NGINX_IMAGE     = 'nginx:latest'
-MITMPROXY_IMAGE = 'mitmproxy/mitmproxy:10.4.2'                                      # Pinned: mitmproxy 11+ added CSRF/host-rebind protection on the mitmweb UI which 403s every cross-origin request (including reverse-proxy via nginx). 10.4.2 is the last 10.x release and exposes the documented /flows REST API without that block.
+MITMPROXY_IMAGE = 'mitmproxy/mitmproxy:10.4.2'                                      # Pinned: mitmproxy 11+ added CSRF/host-rebind protection on the mitmweb UI which 403s every cross-origin request (including reverse-proxy via Caddy). 10.4.2 is the last 10.x release and exposes the documented /flows REST API without that block.
 
 
-# docker-compose.yml template — 3 services on the sg-net bridge
+# docker-compose.yml template — 3 services on the sg-net bridge.
+# - caddy: built locally from /opt/sg-vnc/caddy/Dockerfile (caddy + caddy-security plugin)
+# - chromium: noVNC + chromium browser
+# - mitmproxy: --proxyauth dropped — :8080 (proxy) is docker-network-only;
+#   :8081 (mitmweb UI) is now gated by Caddy at /mitmweb/.
 COMPOSE_TEMPLATE = """\
 services:
   chromium:
@@ -38,15 +45,19 @@ services:
       - sg-net
     restart: unless-stopped
 
-  nginx:
-    image: {nginx_image}
-    container_name: sg-nginx
+  caddy:
+    build:
+      context: /opt/sg-vnc/caddy                                                  # Dockerfile rendered by Vnc__User_Data__Builder
+    image: sg-vnc/caddy:local                                                      # Tag the locally-built image so docker compose can find it on restart
+    container_name: sg-caddy
     ports:
       - "443:443"
-    volumes:                                                                     # `:z` relabels the host path with a shared SELinux label so the container can read it. AL2023 has SELinux enforcing — without :z the bind mount is denied even at chmod 0644.
-      - /opt/sg-vnc/nginx/conf.d:/etc/nginx/conf.d:ro,z
-      - /opt/sg-vnc/nginx/htpasswd:/etc/nginx/htpasswd:ro,z
-      - /opt/sg-vnc/nginx/tls:/etc/nginx/tls:ro,z
+    volumes:                                                                       # `,z` SELinux relabel — required on AL2023 even with selinux=permissive (defensive)
+      - /opt/sg-vnc/caddy/Caddyfile:/etc/caddy/Caddyfile:ro,z
+      - /opt/sg-vnc/caddy/users.json:/etc/caddy/users.json:ro,z
+      - /opt/sg-vnc/caddy/jwt-secret:/etc/caddy/jwt-secret:ro,z
+      - /opt/sg-vnc/caddy/data:/data:z                                            # Caddy persists its internal CA + acme state here
+      - /opt/sg-vnc/caddy/config:/config:z
     networks:
       - sg-net
     restart: unless-stopped
@@ -63,11 +74,9 @@ services:
       - --web-port=8081
       - --listen-host=0.0.0.0
       - --listen-port=8080
-      - --set=proxyauth=@/opt/sg-vnc/mitm/proxyauth
       - --scripts=/opt/sg-vnc/interceptors/runtime/active.py
     volumes:
       - /opt/sg-vnc/interceptors:/opt/sg-vnc/interceptors:ro,z
-      - /opt/sg-vnc/mitm:/opt/sg-vnc/mitm:ro,z
     networks:
       - sg-net
     restart: unless-stopped
@@ -78,14 +87,12 @@ networks:
 """
 
 
-PLACEHOLDERS = ('chromium_image', 'nginx_image', 'mitmproxy_image')                 # Locked by test
+PLACEHOLDERS = ('chromium_image', 'mitmproxy_image')                                # Locked by test
 
 
 class Vnc__Compose__Template(Type_Safe):
 
     def render(self, chromium_image : str = CHROMIUM_IMAGE ,
-                     nginx_image    : str = NGINX_IMAGE    ,
                      mitmproxy_image: str = MITMPROXY_IMAGE) -> str:
         return COMPOSE_TEMPLATE.format(chromium_image  = str(chromium_image)  ,
-                                       nginx_image     = str(nginx_image)     ,
                                        mitmproxy_image = str(mitmproxy_image) )
