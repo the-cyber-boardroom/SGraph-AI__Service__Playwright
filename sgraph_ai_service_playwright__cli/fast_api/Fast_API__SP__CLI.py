@@ -1,7 +1,7 @@
 # ═══════════════════════════════════════════════════════════════════════════════
 # SP CLI — Fast_API__SP__CLI
 # Stand-alone FastAPI app exposing the SP CLI management surface (EC2, Linux,
-# Docker, Elastic, and observability) as HTTP routes.
+# Docker, Elastic, VNC, and observability) as HTTP routes.
 # Extends osbot_fast_api.Fast_API — runs under uvicorn or behind Mangum (Lambda).
 # Auth: X-API-Key middleware active when FAST_API__AUTH__API_KEY__VALUE is set.
 # /ui/* paths are exempt from API-key enforcement (browser navigation).
@@ -27,6 +27,9 @@ from sgraph_ai_service_playwright__cli.fast_api.runtime_version                 
 from sgraph_ai_service_playwright__cli.linux.service.Linux__Service                   import Linux__Service
 from sgraph_ai_service_playwright__cli.linux.fast_api.routes.Routes__Linux__Stack     import Routes__Linux__Stack
 from sgraph_ai_service_playwright__cli.observability.service.Observability__Service   import Observability__Service
+from sgraph_ai_service_playwright__cli.vnc.fast_api.routes.Routes__Vnc__Stack         import Routes__Vnc__Stack
+from sgraph_ai_service_playwright__cli.vnc.fast_api.routes.Routes__Vnc__Flows         import Routes__Vnc__Flows
+from sgraph_ai_service_playwright__cli.vnc.service.Vnc__Service                       import Vnc__Service
 
 
 # ─── UI-bypass middleware ────────────────────────────────────────────────────
@@ -48,6 +51,7 @@ class Fast_API__SP__CLI(Serverless__Fast_API):
     elastic_service       : Elastic__Service                                        # Shared across all Routes__Elastic__Stack requests; Type_Safe auto-initialises
     linux_service         : Linux__Service                                          # Shared across all Routes__Linux__Stack requests; Type_Safe auto-initialises
     observability_service : Observability__Service                                  # Shared across all Routes__Observability requests
+    vnc_service           : Vnc__Service                                            # Shared across Routes__Vnc__Stack + Routes__Vnc__Flows
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -56,11 +60,13 @@ class Fast_API__SP__CLI(Serverless__Fast_API):
     def setup(self):
         self.linux_service .setup()                                                 # lazy aws_client init — must be called before routes handle requests
         self.docker_service.setup()                                                 # same lazy pattern
+        self.vnc_service   .setup()                                                 # wires aws_client + 7 sub-helpers
         result = super().setup()
         register_type_safe_handlers(self.app())                                     # Maps osbot-fast-api's Type_Safe converter ValueError → 422 (instead of FastAPI's default 500)
         self.catalog_service.linux_service   = self.linux_service                  # share initialised instances — catalog_service's own copies are never setup()
         self.catalog_service.docker_service  = self.docker_service
         self.catalog_service.elastic_service = self.elastic_service
+        self.catalog_service.vnc_service     = self.vnc_service
         self.setup_ui()
         return result
 
@@ -71,6 +77,8 @@ class Fast_API__SP__CLI(Serverless__Fast_API):
         self.add_routes(Routes__Elastic__Stack  , service=self.elastic_service      )
         self.add_routes(Routes__Linux__Stack    , service=self.linux_service        )
         self.add_routes(Routes__Observability   , service=self.observability_service)
+        self.add_routes(Routes__Vnc__Stack      , service=self.vnc_service          )
+        self.add_routes(Routes__Vnc__Flows      , service=self.vnc_service          )
 
     def setup_ui(self):
         path_static        = "/ui"
