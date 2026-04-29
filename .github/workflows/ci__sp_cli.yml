@@ -46,6 +46,7 @@ on:
       - main
     paths:
       - 'sgraph_ai_service_playwright__cli/**'
+      - 'sgraph_ai_service_playwright__api_site/**'
       - 'scripts/provision_ec2.py'
       - 'scripts/observability.py'
       - 'tests/unit/sgraph_ai_service_playwright__cli/**'
@@ -53,6 +54,7 @@ on:
   pull_request:
     paths:
       - 'sgraph_ai_service_playwright__cli/**'
+      - 'sgraph_ai_service_playwright__api_site/**'
       - 'scripts/provision_ec2.py'
       - 'scripts/observability.py'
       - 'tests/unit/sgraph_ai_service_playwright__cli/**'
@@ -140,6 +142,7 @@ jobs:
           filters: |
             code:
               - 'sgraph_ai_service_playwright__cli/**'
+              - 'sgraph_ai_service_playwright__api_site/**'
               - 'scripts/provision_ec2.py'
               - 'scripts/observability.py'
               - 'scripts/__init__.py'

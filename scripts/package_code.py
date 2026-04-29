@@ -31,7 +31,7 @@ from sgraph_ai_service_playwright.consts.version                                
 
 
 PACKAGE_NAME       = 'sgraph_ai_service_playwright'                                 # Must match the folder name at repo root
-SOURCE_FILE_REGEX  = r'.*\.py$'                                                     # Only Python sources; no __pycache__ or compiled files
+SOURCE_FILE_REGEX  = r'.*\.(py|html|js|css)$'                                       # Python sources + static UI assets (html/js/css for api_site); no __pycache__ or compiled files
 BUCKET_NAME_FORMAT = '{account_id}--sgraph-ai--{region_name}'                       # Matches the boot-shim's expectation in lambda_entry.py
 KEY_FORMAT         = 'apps/{app_name}/{stage}/{version}.zip'                        # Matches the boot-shim's expectation in lambda_entry.py
 DEFAULT_APP_NAME   = 'sg-playwright'
