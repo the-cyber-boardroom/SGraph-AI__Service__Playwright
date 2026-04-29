@@ -3,31 +3,23 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>SG Playwright — Admin</title>
-  <link rel="stylesheet" href="../shared/tokens.css">
+  <title>SG Playwright — Admin Dashboard</title>
+  <link rel="stylesheet" href="https://dev.tools.sgraph.ai/components/tokens/v1/v1.0/v1.0.0/sg-tokens.css">
   <link rel="stylesheet" href="admin.css">
 </head>
 <body>
-  <sg-api-client></sg-api-client>
-  <sg-auth-panel></sg-auth-panel>
-  <sg-header title="Admin Dashboard"></sg-header>
-  <sg-toast-host></sg-toast-host>
-  <main>
-    <section id="type-cards-section">
-      <h2>Stack Types</h2>
-      <sg-stack-grid id="type-grid" mode="type-cards"></sg-stack-grid>
-    </section>
-    <section id="active-stacks-section">
-      <h2>Active Stacks</h2>
-      <sg-stack-grid id="active-grid" mode="admin-table"></sg-stack-grid>
-    </section>
+
+  <sp-cli-top-bar page-title="Admin Dashboard" region="eu-west-2">
+    <!-- vault-picker slot: filled by sp-cli-vault-picker in PR-2 -->
+  </sp-cli-top-bar>
+
+  <main id="main-content">
+    <!-- PR-2: vault connect prompt -->
+    <!-- PR-3: sg-layout shell with Stacks / Catalog / Activity Log + Vault Activity panes -->
   </main>
-  <script type="module" src="../shared/components/sg-api-client.js"></script>
-  <script type="module" src="../shared/components/sg-auth-panel.js"></script>
-  <script type="module" src="../shared/components/sg-header.js"></script>
-  <script type="module" src="../shared/components/sg-toast-host.js"></script>
-  <script type="module" src="../shared/components/sg-stack-card.js"></script>
-  <script type="module" src="../shared/components/sg-stack-grid.js"></script>
-  <script type="module" src="admin.js"></script>
+
+  <script type="module" src="../components/sp-cli/sp-cli-top-bar/v0/v0.1/v0.1.0/sp-cli-top-bar.js"></script>
+  <!-- admin.js controller wired in PR-2 once vault layer is in place -->
+
 </body>
 </html>

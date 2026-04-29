@@ -1,31 +1,18 @@
-/* ── user.css — User Provisioning page layout ───────────────────────────── */
+/* ── user.css — Provisioning Console page styles ─────────────────────────── */
+/* PR-1: reset + sg-tokens wiring. Full sg-layout shell arrives in PR-3.      */
 
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
 body {
-  font-family: var(--font-family-ui, system-ui, sans-serif);
-  background: var(--color-bg, #0f1117);
-  color: var(--color-text, #e0e0e8);
-  min-height: 100vh;
+    background:     var(--sg-bg);
+    color:          var(--sg-text);
+    font-family:    var(--sg-font-body, system-ui, sans-serif);
+    min-height:     100vh;
+    display:        flex;
+    flex-direction: column;
 }
 
-main {
-  max-width: 900px;
-  margin: 0 auto;
-  padding: var(--spacing-lg, 24px);
-}
-
-section {
-  background: var(--color-surface, #181b24);
-  border: 1px solid var(--color-border, #2a2d3a);
-  border-radius: var(--border-radius, 8px);
-  padding: var(--spacing-lg, 24px);
-  margin-bottom: var(--spacing-xl, 32px);
-}
-
-h2 {
-  font-size: var(--font-size-lg, 1.125rem);
-  color: var(--color-text-muted, #8888aa);
-  margin-bottom: var(--spacing-md, 16px);
-  font-weight: 500;
+#main-content {
+    flex: 1;
+    padding: var(--sg-sp-6) var(--sg-sp-4);
 }
