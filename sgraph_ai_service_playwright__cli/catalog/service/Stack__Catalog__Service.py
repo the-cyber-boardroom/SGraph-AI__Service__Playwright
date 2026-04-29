@@ -1,4 +1,4 @@
-# ═════════════���═══════════════════���═══════════════════════════��═════════════════
+# ═══════════════════════════════════════════════════════════════════════════════
 # SP CLI — Stack__Catalog__Service
 # Composes per-section services. Owns the static catalog and the cross-section
 # stack list.
