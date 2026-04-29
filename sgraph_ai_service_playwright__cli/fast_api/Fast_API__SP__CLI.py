@@ -40,6 +40,8 @@ class Fast_API__SP__CLI(Fast_API):
         self.config.version        = resolve_version()                              # Surface the deployed SP CLI version on /docs + /openapi.json instead of osbot-fast-api's package version
 
     def setup(self):
+        self.linux_service .setup()                                                 # lazy aws_client init — must be called before routes handle requests
+        self.docker_service.setup()                                                 # same lazy pattern
         result = super().setup()
         register_type_safe_handlers(self.app())                                     # Maps osbot-fast-api's Type_Safe converter ValueError → 422 (instead of FastAPI's default 500)
         return result
