@@ -82,7 +82,7 @@ class test_Vnc__User_Data__Builder(TestCase):
     def test_render__writes_htpasswd_and_proxyauth_files(self):
         out = self._out()
         assert f'htpasswd -bcB {NGINX_HTPASSWD} operator' in out
-        assert f'> {MITM_PROXYAUTH}'                     in out
+        assert f'htpasswd -bcB {MITM_PROXYAUTH} operator' in out                    # mitmproxy --set proxyauth=@FILE expects htpasswd format (bcrypt); plaintext is rejected
         assert 'chmod 644'                                in out                    # 0644 — bind-mounted into containers running as non-root (mitmproxy + nginx); 0600 caused both to crash on read
 
     def test_render__compose_up_runs_in_compose_dir(self):
