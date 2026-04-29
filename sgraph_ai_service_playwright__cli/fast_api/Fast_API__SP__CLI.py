@@ -4,16 +4,21 @@
 # Docker, Elastic, and observability) as HTTP routes.
 # Extends osbot_fast_api.Fast_API — runs under uvicorn or behind Mangum (Lambda).
 # Auth: X-API-Key middleware active when FAST_API__AUTH__API_KEY__VALUE is set.
+# /ui/* paths are exempt from API-key enforcement (browser navigation).
 # ═══════════════════════════════════════════════════════════════════════════════
 
 import os
 
-from fastapi                                                                        import Response
+from fastapi                                                                        import Request
 from fastapi.responses                                                              import RedirectResponse
 from fastapi.staticfiles                                                            import StaticFiles
 from mangum                                                                         import Mangum
+from starlette.responses                                                            import Response as StarletteResponse
 
 from osbot_fast_api.api.Fast_API                                                    import Fast_API
+from osbot_fast_api.api.middlewares.Middleware__Check_API_Key                       import Middleware__Check_API_Key
+from osbot_fast_api.api.schemas.consts.consts__Fast_API                             import (ENV_VAR__FAST_API__AUTH__API_KEY__NAME,
+                                                                                             ENV_VAR__FAST_API__AUTH__API_KEY__VALUE)
 
 from sgraph_ai_service_playwright__cli.catalog.fast_api.routes.Routes__Stack__Catalog import Routes__Stack__Catalog
 from sgraph_ai_service_playwright__cli.catalog.service.Stack__Catalog__Service      import Stack__Catalog__Service
@@ -29,6 +34,18 @@ from sgraph_ai_service_playwright__cli.fast_api.runtime_version                 
 from sgraph_ai_service_playwright__cli.linux.service.Linux__Service                 import Linux__Service
 from sgraph_ai_service_playwright__cli.linux.fast_api.routes.Routes__Linux__Stack   import Routes__Linux__Stack
 from sgraph_ai_service_playwright__cli.observability.service.Observability__Service import Observability__Service
+
+
+# ─── UI-bypass middleware ────────────────────────────────────────────────────
+# Lets / and /ui/* through without API-key enforcement so browsers can load
+# static pages.  All other paths use the normal key check.
+
+class _Middleware__UI_Bypass(Middleware__Check_API_Key):
+    async def dispatch(self, request: Request, call_next) -> StarletteResponse:
+        path = request.url.path
+        if path == '/' or path.startswith('/ui'):
+            return await call_next(request)
+        return await super().dispatch(request, call_next)
 
 
 class Fast_API__SP__CLI(Fast_API):
@@ -54,6 +71,21 @@ class Fast_API__SP__CLI(Fast_API):
     def handler(self):                                                              # Lambda handler — wraps the FastAPI app with Mangum. Same shape as Serverless__Fast_API.handler() so Agentic_Boot_Shim can call it without knowing this isn't a Serverless__Fast_API subclass.
         return Mangum(self.app(), lifespan='off')
 
+    def setup_add_root_route(self):                                                 # redirect / → /ui/ (overrides base-class redirect to /docs)
+        def redirect_to_ui():
+            return RedirectResponse(url='/ui/')
+        self.app_router().get('/')(redirect_to_ui)
+
+    def setup_middleware__api_key_check(self,                                      # use UI-bypass subclass so /ui/* loads without API key
+            env_var__api_key_name  : str = ENV_VAR__FAST_API__AUTH__API_KEY__NAME ,
+            env_var__api_key_value : str = ENV_VAR__FAST_API__AUTH__API_KEY__VALUE):
+        if self.config.enable_api_key:
+            self.app().add_middleware(_Middleware__UI_Bypass                   ,
+                                      env_var__api_key__name  = env_var__api_key_name  ,
+                                      env_var__api_key__value = env_var__api_key_value ,
+                                      allow_cors              = self.config.enable_cors)
+        return self
+
     def setup_routes(self):
         self.add_routes(Routes__Stack__Catalog  , service=self.catalog_service      )
         self.add_routes(Routes__Docker__Stack   , service=self.docker_service       )
@@ -73,7 +105,3 @@ class Fast_API__SP__CLI(Fast_API):
         ui_path = os.path.abspath(ui_path)
         if os.path.isdir(ui_path):
             self.app().mount('/ui', StaticFiles(directory=ui_path, html=True), name='ui')
-        self.app().add_api_route('/', self._root_redirect, methods=['GET'], include_in_schema=False)
-
-    def _root_redirect(self) -> Response:                                          # redirect bare root to the UI landing page
-        return RedirectResponse(url='/ui/')
