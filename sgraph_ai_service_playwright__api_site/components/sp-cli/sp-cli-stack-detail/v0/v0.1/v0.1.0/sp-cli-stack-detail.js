@@ -1,3 +1,4 @@
+// @deprecated Use <sp-cli-{type_id}-detail> per-plugin components instead.
 /**
  * sp-cli-stack-detail — Stack detail pane for the sg-layout right column.
  *
