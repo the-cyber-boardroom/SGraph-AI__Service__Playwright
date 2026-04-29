@@ -10,16 +10,29 @@
 <body>
 
   <sp-cli-top-bar page-title="Provisioning Console" region="eu-west-2">
-    <!-- vault-picker slot: filled by sp-cli-vault-picker in PR-2 -->
+    <sp-cli-vault-picker slot="vault-picker"></sp-cli-vault-picker>
   </sp-cli-top-bar>
 
-  <main id="main-content">
-    <!-- PR-2: vault connect prompt -->
-    <!-- PR-3: sg-layout shell with user pane + vault activity (collapsed by default) -->
+  <!-- vault gate: shown until vault connects -->
+  <div id="vault-gate" class="vault-gate">
+    <div class="vault-gate-card">
+      <div class="vault-gate-title">Connect a vault to use this console</div>
+      <div class="vault-gate-hint">Click <strong>Connect vault</strong> in the top bar →</div>
+    </div>
+  </div>
+
+  <!-- main content: hidden until vault connects -->
+  <main id="main-content" hidden>
+    <!-- PR-3: sg-layout with user pane + vault activity (collapsed) -->
+    <div class="temp-vault-activity">
+      <sp-cli-vault-activity></sp-cli-vault-activity>
+    </div>
   </main>
 
   <script type="module" src="../components/sp-cli/sp-cli-top-bar/v0/v0.1/v0.1.0/sp-cli-top-bar.js"></script>
-  <!-- user.js controller wired in PR-2 once vault layer is in place -->
+  <script type="module" src="../components/sp-cli/sp-cli-vault-picker/v0/v0.1/v0.1.0/sp-cli-vault-picker.js"></script>
+  <script type="module" src="../components/sp-cli/sp-cli-vault-activity/v0/v0.1/v0.1.0/sp-cli-vault-activity.js"></script>
+  <script type="module" src="user.js"></script>
 
 </body>
 </html>
