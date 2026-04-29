@@ -198,3 +198,11 @@ class test_Fast_API__SP__CLI(TestCase):
         paths = {str(r.path) for r in app.routes if hasattr(r, 'path')}
         assert '/catalog/types'  in paths
         assert '/catalog/stacks' in paths
+
+    def test_elastic_routes_are_mounted(self):
+        app   = Fast_API__SP__CLI().setup().app()
+        paths = {str(route.path) for route in app.routes}
+        assert '/elastic/stacks'              in paths
+        assert '/elastic/stack/{name}'        in paths
+        assert '/elastic/stack'               in paths
+        assert '/elastic/stack/{name}/health' in paths
