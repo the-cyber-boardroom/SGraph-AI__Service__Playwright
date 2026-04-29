@@ -1,9 +1,10 @@
 /**
- * sp-cli-stack-detail — Slide-in detail panel for a selected stack.
+ * sp-cli-stack-detail — Stack detail pane for the sg-layout right column.
  *
- * Call open(stack) with a Schema__Stack__Summary object.
- * Fetches full detail from GET /{type}/stack/{name} asynchronously.
- * Provides a Delete button with inline confirmation.
+ * Lives inside sg-layout as a tab. Listens to sp-cli:stack-selected and
+ * sp-cli:stack-deleted on document. Fetches full detail from
+ * GET /{type}/stack/{name} asynchronously. Provides a Delete button with
+ * inline confirmation.
  *
  * Events emitted (on document):
  *   sp-cli:stack-deleted — { stack } — delete accepted by API
@@ -43,7 +44,8 @@ class SpCliStackDetail extends SgComponent {
     get sharedCssPaths() { return ['https://dev.tools.sgraph.ai/components/tokens/v1/v1.0/v1.0.0/sg-tokens.css'] }
 
     onReady() {
-        this._panel       = this.$('.panel')
+        this._emptyState  = this.$('.pane-empty')
+        this._detail      = this.$('.pane-detail')
         this._typeBadge   = this.$('.type-badge')
         this._nameEl      = this.$('.stack-name')
         this._stateBadge  = this.$('.state-badge')
@@ -52,17 +54,16 @@ class SpCliStackDetail extends SgComponent {
         this._btnDelete   = this.$('.btn-delete')
         this._loadingEl   = this.$('.loading-overlay')
 
-        this.$('.btn-close')?.addEventListener('click',         () => this.close())
         this.$('.btn-delete')?.addEventListener('click',        () => this._showConfirm())
         this.$('.btn-cancel-delete')?.addEventListener('click', () => this._hideConfirm())
         this.$('.btn-confirm-delete')?.addEventListener('click',() => this._delete())
 
-        document.addEventListener('keydown', (e) => {
-            if (e.key === 'Escape') this.close()
-        })
+        document.addEventListener('sp-cli:stack-selected', (e) => this.open(e.detail?.stack))
+        document.addEventListener('sp-cli:stack-deleted',  ()  => this._showEmpty())
     }
 
     open(stack) {
+        if (!stack) return
         this._stack = stack
         this._hideConfirm()
         this._setLoading(false)
@@ -84,14 +85,16 @@ class SpCliStackDetail extends SgComponent {
         const isTerminated = (stack.state || '').toLowerCase() === 'terminated'
         this._btnDelete.hidden = isTerminated
 
-        this._panel.hidden = false
+        this._emptyState.hidden = true
+        this._detail.hidden     = false
 
         this._fetchDetail(stack)
     }
 
-    close() {
-        this._panel.hidden = true
-        this._stack = null
+    _showEmpty() {
+        this._stack             = null
+        this._emptyState.hidden = false
+        this._detail.hidden     = true
     }
 
     async _fetchDetail(stack) {
@@ -101,12 +104,8 @@ class SpCliStackDetail extends SgComponent {
             this._setField('instance_type', info.instance_type || '—')
             this._setField('launch_time',   _fmtLaunchTime(info.launch_time))
             this._setField('allowed_ip',    info.allowed_ip || '—')
-            if (info.public_ip) {
-                this._setField('public_ip', info.public_ip)
-            }
-            if (info.uptime_seconds) {
-                this._uptimeEl.textContent = _fmtUptime(info.uptime_seconds)
-            }
+            if (info.public_ip)       this._setField('public_ip', info.public_ip)
+            if (info.uptime_seconds)  this._uptimeEl.textContent = _fmtUptime(info.uptime_seconds)
         } catch (_) {
             this._setField('instance_type', '—')
             this._setField('launch_time',   '—')
@@ -124,7 +123,6 @@ class SpCliStackDetail extends SgComponent {
                 detail:  { stack: this._stack },
                 bubbles: true, composed: true,
             }))
-            this.close()
         } catch (err) {
             this._setLoading(false)
             this._showConfirm()

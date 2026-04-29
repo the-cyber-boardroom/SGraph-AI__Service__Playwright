@@ -5,7 +5,6 @@ import { startVaultBus } from '../shared/vault-bus.js'
 
 const LAYOUT_KEY  = 'sp-cli:user:layout'
 const MODAL_TAG   = 'sp-cli-launch-modal'
-const DETAIL_TAG  = 'sp-cli-stack-detail'
 
 const USER_LAYOUT = {
     type: 'row', sizes: [1.0, 0.0],
@@ -20,6 +19,7 @@ const USER_LAYOUT = {
 }
 
 document.addEventListener('DOMContentLoaded', async () => {
+    let _region = ''
     startVaultBus()
 
     document.addEventListener('vault:connected', async (e) => {
@@ -34,7 +34,8 @@ document.addEventListener('DOMContentLoaded', async () => {
         _setGate(false)
     })
 
-    document.addEventListener('sg-auth-saved', () => _loadData())
+    document.addEventListener('sg-auth-saved',         () => _loadData())
+    document.addEventListener('sp-cli:region-changed', (e) => { _region = e.detail?.region || ''; _loadData() })
 
     document.addEventListener('sp-cli:user-launch', (e) => _openModal(e.detail?.entry))
 
@@ -43,11 +44,6 @@ document.addEventListener('DOMContentLoaded', async () => {
         const stackName = response?.stack_info?.stack_name || response?.stack_name || '?'
         console.log('[user] launched', entry.display_name, stackName)
         setTimeout(() => _loadData(), 3000)
-    })
-
-    document.addEventListener('sp-cli:stack-selected', (e) => {
-        const detail = document.querySelector(DETAIL_TAG)
-        detail?.open(e.detail?.stack)
     })
 
     document.addEventListener('sp-cli:stack-deleted', () => _loadData())
@@ -75,9 +71,10 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     async function _loadData() {
         try {
+            const regionParam = _region ? `?region=${encodeURIComponent(_region)}` : ''
             const [catalogResp, stacksResp] = await Promise.all([
                 apiClient.get('/catalog/types'),
-                apiClient.get('/catalog/stacks'),
+                apiClient.get(`/catalog/stacks${regionParam}`),
             ])
             _populatePanes(catalogResp?.entries || [], stacksResp?.stacks || [])
         } catch (err) {
