@@ -58,6 +58,9 @@ class Fast_API__SP__CLI(Serverless__Fast_API):
         self.docker_service.setup()                                                 # same lazy pattern
         result = super().setup()
         register_type_safe_handlers(self.app())                                     # Maps osbot-fast-api's Type_Safe converter ValueError → 422 (instead of FastAPI's default 500)
+        self.catalog_service.linux_service   = self.linux_service                  # share initialised instances — catalog_service's own copies are never setup()
+        self.catalog_service.docker_service  = self.docker_service
+        self.catalog_service.elastic_service = self.elastic_service
         self.setup_ui()
         return result
 
