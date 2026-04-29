@@ -1,4 +1,5 @@
 :host {
+[hidden] { display: none !important; }
     display: block;
     border-bottom: 1px solid var(--sg-border);
     background: var(--sg-bg-secondary);

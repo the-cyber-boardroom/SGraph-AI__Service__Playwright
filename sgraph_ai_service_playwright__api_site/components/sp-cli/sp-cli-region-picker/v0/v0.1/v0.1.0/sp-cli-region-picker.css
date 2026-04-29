@@ -1,4 +1,5 @@
 :host { display: block; position: relative; }
+[hidden] { display: none !important; }
 
 .region-btn {
     display: flex;
