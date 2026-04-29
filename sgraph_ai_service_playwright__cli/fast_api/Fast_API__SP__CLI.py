@@ -1,14 +1,9 @@
 # ═══════════════════════════════════════════════════════════════════════════════
 # SP CLI — Fast_API__SP__CLI
 # Stand-alone FastAPI app exposing the SP CLI management surface (EC2, Linux,
-# Docker, and observability) as HTTP routes.
-#
-# Extends osbot_fast_api.Fast_API (not Serverless__Fast_API) — the app is
-# expected to run under uvicorn inside a container or on a local machine.
-# A Lambda adapter can wrap this later without changing the app itself.
-#
-# Auth: inherits the X-API-Key middleware from osbot_fast_api when
-# FAST_API__AUTH__API_KEY__VALUE is set. Unset = open for local development.
+# Docker, Elastic, and observability) as HTTP routes.
+# Extends osbot_fast_api.Fast_API — runs under uvicorn or behind Mangum (Lambda).
+# Auth: X-API-Key middleware active when FAST_API__AUTH__API_KEY__VALUE is set.
 # ═══════════════════════════════════════════════════════════════════════════════
 
 from mangum                                                                         import Mangum
@@ -20,6 +15,8 @@ from sgraph_ai_service_playwright__cli.catalog.service.Stack__Catalog__Service  
 from sgraph_ai_service_playwright__cli.docker.service.Docker__Service               import Docker__Service
 from sgraph_ai_service_playwright__cli.docker.fast_api.routes.Routes__Docker__Stack import Routes__Docker__Stack
 from sgraph_ai_service_playwright__cli.ec2.service.Ec2__Service                     import Ec2__Service
+from sgraph_ai_service_playwright__cli.elastic.fast_api.routes.Routes__Elastic__Stack import Routes__Elastic__Stack
+from sgraph_ai_service_playwright__cli.elastic.service.Elastic__Service             import Elastic__Service
 from sgraph_ai_service_playwright__cli.fast_api.exception_handlers                  import register_type_safe_handlers
 from sgraph_ai_service_playwright__cli.fast_api.routes.Routes__Ec2__Playwright      import Routes__Ec2__Playwright
 from sgraph_ai_service_playwright__cli.fast_api.routes.Routes__Observability        import Routes__Observability
@@ -33,6 +30,7 @@ class Fast_API__SP__CLI(Fast_API):
     catalog_service       : Stack__Catalog__Service                                 # Shared across all Routes__Stack__Catalog requests; Type_Safe auto-initialises
     docker_service        : Docker__Service                                         # Shared across all Routes__Docker__Stack requests; Type_Safe auto-initialises
     ec2_service           : Ec2__Service                                            # Shared across all Routes__Ec2 requests; Type_Safe auto-initialises
+    elastic_service       : Elastic__Service                                        # Shared across all Routes__Elastic__Stack requests; Type_Safe auto-initialises
     linux_service         : Linux__Service                                          # Shared across all Routes__Linux__Stack requests; Type_Safe auto-initialises
     observability_service : Observability__Service                                  # Shared across all Routes__Observability requests
 
@@ -53,5 +51,6 @@ class Fast_API__SP__CLI(Fast_API):
         self.add_routes(Routes__Stack__Catalog  , service=self.catalog_service      )
         self.add_routes(Routes__Docker__Stack   , service=self.docker_service       )
         self.add_routes(Routes__Ec2__Playwright , service=self.ec2_service          )
+        self.add_routes(Routes__Elastic__Stack  , service=self.elastic_service      )
         self.add_routes(Routes__Linux__Stack    , service=self.linux_service        )
         self.add_routes(Routes__Observability   , service=self.observability_service)
