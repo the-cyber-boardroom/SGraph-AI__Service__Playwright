@@ -22,7 +22,7 @@ body {
     min-height: 0;
 }
 
-#main-layout {
+#root-layout {
     flex: 1;
     min-height: 0;
 }
