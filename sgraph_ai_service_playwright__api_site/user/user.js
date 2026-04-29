@@ -34,8 +34,7 @@ async function refreshMyStacks() {
 async function init() {
     try {
         const catalog = await loadCatalog();
-        const types   = Array.isArray(catalog) ? catalog : (catalog.types || []);
-        TYPE_GRID().catalog = types;
+        TYPE_GRID().catalog = catalog.entries || [];
     } catch (err) {
         toast(`Failed to load catalog: ${err.message}`, 'error');
     }

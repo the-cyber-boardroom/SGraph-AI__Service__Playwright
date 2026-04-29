@@ -32,8 +32,7 @@ async function refreshActiveStacks() {
 async function init() {
     try {
         const catalog = await loadCatalog();
-        const types   = Array.isArray(catalog) ? catalog : (catalog.types || []);
-        TYPE_GRID().catalog = types;
+        TYPE_GRID().catalog = catalog.entries || [];
     } catch (err) {
         toast(`Failed to load catalog: ${err.message}`, 'error');
     }
@@ -60,8 +59,7 @@ document.addEventListener('DOMContentLoaded', () => {
     document.addEventListener('sg-auth-saved', async () => {
         try {
             const catalog = await loadCatalog();
-            const types   = Array.isArray(catalog) ? catalog : (catalog.types || []);
-            TYPE_GRID().catalog = types;
+            TYPE_GRID().catalog = catalog.entries || [];
         } catch (err) {
             toast(`Failed to reload catalog: ${err.message}`, 'error');
         }
