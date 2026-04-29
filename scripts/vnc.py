@@ -139,7 +139,9 @@ def create(name             : Optional[str] = typer.Argument(None, help='Stack n
            instance_type    : str           = typer.Option(DEFAULT_INSTANCE_TYPE, '--instance-type', '-t', help='EC2 instance type.'),
            password         : Optional[str] = typer.Option(None, '--password'           , '-p',
                                                              help='Operator password for nginx Basic auth + mitmproxy proxy auth. '
-                                                                  'URL-safe base64, 16-64 chars. Auto-generated if omitted (returned once on create).'),
+                                                                  '4-128 printable-ASCII chars (no single quote). Auto-generated if omitted (returned once on create).'),
+           open_ingress     : bool          = typer.Option(False, '--open'              ,
+                                                             help='Open SG ingress on 443 to 0.0.0.0/0. Default: caller IP /32 only. The viewer is behind nginx Basic auth (bcrypt), so --open is reasonable for debug.'),
            interceptor      : Optional[str] = typer.Option(None, '--interceptor'         , help='Name of a baked example interceptor (see `sp vnc interceptors`).'),
            interceptor_script: Optional[str] = typer.Option(None, '--interceptor-script' , help='Path to a local Python file; embedded inline at create time.'),
            wait             : bool           = typer.Option(False, '--wait'              , help='Block until nginx + mitmweb are reachable (timeout 600s).')):
@@ -151,6 +153,7 @@ def create(name             : Optional[str] = typer.Argument(None, help='Stack n
                                                     region            = region              ,
                                                     instance_type     = instance_type       ,
                                                     operator_password = password       or '',
+                                                    public_ingress    = open_ingress        ,
                                                     interceptor       = choice              )
     resp = svc.create_stack(request)
     render_create(resp, c)

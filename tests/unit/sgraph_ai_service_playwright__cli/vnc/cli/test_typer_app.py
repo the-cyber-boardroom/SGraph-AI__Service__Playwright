@@ -36,6 +36,7 @@ class test_typer_app(TestCase):
         assert '--interceptor-script' in out
         assert '--password'           in out                                          # Operator can pin the nginx + mitm proxyauth password
         assert '--wait'               in out                                          # Block until reachable
+        assert '--open'               in out                                          # Public SG ingress (basic-auth gated)
 
     def test__root_supports_debug_flag(self):                                         # mirrors sp linux / sp docker_stack pattern
         result = self.runner.invoke(self.app, ['--help'])

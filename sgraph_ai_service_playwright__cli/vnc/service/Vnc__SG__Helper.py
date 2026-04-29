@@ -25,10 +25,16 @@ class Vnc__SG__Helper(Type_Safe):
     def ec2_client(self, region: str):                                              # Single seam — tests override
         return boto3.client('ec2', region_name=region)
 
-    def ensure_security_group(self, region: str, stack_name: Safe_Str__Vnc__Stack__Name, caller_ip: Safe_Str__IP__Address) -> str:
+    def ensure_security_group(self, region: str, stack_name: Safe_Str__Vnc__Stack__Name,
+                                     caller_ip: Safe_Str__IP__Address, public: bool = False) -> str:
         ec2     = self.ec2_client(region)
         sg_name = VNC_NAMING.sg_name_for_stack(stack_name)                          # "{stack}-sg" — never starts with reserved 'sg-'
-        cidr    = f'{str(caller_ip)}/32'
+        if public:                                                                  # `sp vnc create --open` — viewer is bcrypt-protected via nginx Basic auth so wider ingress is acceptable
+            cidr      = '0.0.0.0/0'
+            cidr_desc = 'sp-vnc public ingress (basic-auth gated)'
+        else:
+            cidr      = f'{str(caller_ip)}/32'
+            cidr_desc = 'sp-vnc caller /32'
 
         existing = ec2.describe_security_groups(
             Filters=[{'Name': 'group-name', 'Values': [sg_name]}]).get('SecurityGroups', [])
@@ -49,7 +55,7 @@ class Vnc__SG__Helper(Type_Safe):
                 IpPermissions=[{'IpProtocol': 'tcp'                                                                          ,
                                 'FromPort'  : VIEWER_PORT_EXTERNAL                                                            ,
                                 'ToPort'    : VIEWER_PORT_EXTERNAL                                                            ,
-                                'IpRanges'  : [{'CidrIp': cidr, 'Description': 'sp-vnc caller /32'}]}])
+                                'IpRanges'  : [{'CidrIp': cidr, 'Description': cidr_desc}]}])
         except Exception as exc:
             if 'InvalidPermission.Duplicate' not in str(exc):
                 raise

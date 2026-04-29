@@ -91,7 +91,8 @@ class Vnc__Service(Type_Safe):
         source, label = self.interceptor_resolver.resolve(request.interceptor)              # N5: (source_to_bake, label)
         interceptor_kind_str = str(request.interceptor.kind)                                # 'none' / 'name' / 'inline'
 
-        sg_id        = self.aws_client.sg.ensure_security_group(region, stack_name, caller_ip)
+        sg_id        = self.aws_client.sg.ensure_security_group(region, stack_name, caller_ip,
+                                                                  public=bool(request.public_ingress))      # --open / public_ingress=True opens 443 to 0.0.0.0/0
         tags         = self.aws_client.tags.build(stack_name, caller_ip, creator, request.interceptor)
         compose_yaml = self.compose_template.render()
         user_data    = self.user_data_builder.render(stack_name         = stack_name        ,
