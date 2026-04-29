@@ -37,6 +37,7 @@ from sgraph_ai_service_playwright__cli.vnc.schemas.Schema__Vnc__Stack__List     
 DEFAULT_REGION        = 'eu-west-2'
 DEFAULT_INSTANCE_TYPE = 't3.large'                                                  # 2 vCPU / 8 GB — chromium needs RAM headroom for VNC + tabs (mirrors Vnc__Launch__Helper)
 PASSWORD_BYTES        = 24                                                          # secrets.token_urlsafe(24) ⇒ 32-char URL-safe base64
+PROFILE_NAME          = 'playwright-ec2'                                            # Reuses the existing IAM instance profile (has AmazonSSMManagedInstanceCore — required for `sp vnc connect`)
 
 
 def _flow_summary_from_mitmweb(flow: dict) -> Schema__Vnc__Mitm__Flow__Summary:     # Pure mapper — mitmweb /api/flows shape → schema
@@ -99,7 +100,9 @@ class Vnc__Service(Type_Safe):
                                                        interceptor_source = source            ,
                                                        operator_password  = password          ,
                                                        interceptor_kind   = interceptor_kind_str)
-        instance_id  = self.aws_client.launch.run_instance(region, ami_id, sg_id, user_data, tags, instance_type=inst_type)
+        instance_id  = self.aws_client.launch.run_instance(region, ami_id, sg_id, user_data, tags,
+                                                              instance_type         = inst_type   ,
+                                                              instance_profile_name = PROFILE_NAME)        # Without this, SSM agent has no creds to register — `sp vnc connect` fails with TargetNotConnected.
 
         return Schema__Vnc__Stack__Create__Response(
             stack_name        = stack_name                                              ,
