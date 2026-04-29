@@ -5,6 +5,7 @@ import { startVaultBus } from '../shared/vault-bus.js'
 
 const LAYOUT_KEY    = 'sp-cli:admin:layout'
 const MODAL_TAG     = 'sp-cli-launch-modal'
+const DETAIL_TAG    = 'sp-cli-stack-detail'
 
 const ADMIN_LAYOUT = {
     type: 'row', sizes: [0.72, 0.28],
@@ -51,6 +52,16 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     document.addEventListener('sp-cli:launch-error', (e) => {
         _activity(`✗ Launch failed (${e.detail?.entry?.display_name}): ${e.detail?.error}`)
+    })
+
+    document.addEventListener('sp-cli:stack-selected', (e) => {
+        const detail = document.querySelector(DETAIL_TAG)
+        detail?.open(e.detail?.stack)
+    })
+
+    document.addEventListener('sp-cli:stack-deleted', (e) => {
+        _activity(`🗑 Deleted ${e.detail?.stack?.type_id} stack: ${e.detail?.stack?.stack_name}`)
+        _loadData()
     })
 
     function _setGate(connected) {

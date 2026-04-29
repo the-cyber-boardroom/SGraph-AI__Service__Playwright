@@ -3,7 +3,7 @@
  *
  * Embeds <sg-vault-connect> from Tools inside the dropdown panel.
  * Listens for vault:connected / vault:disconnected on document.
- * Shows a read-only amber banner when connected without an access token.
+ * Provides a "Token settings" link in the connected view to re-enter credentials.
  *
  * Auto-connect: if sg-vault-connect has saved credentials (sg-vault:last-key),
  * the Connect button is clicked automatically on first open.
@@ -20,8 +20,6 @@
 import { SgComponent } from 'https://dev.tools.sgraph.ai/components/base/v1/v1.0/v1.0.0/sg-component.js'
 import 'https://dev.tools.sgraph.ai/components/vault/sg-vault-connect/v0/v0.1/v0.1.3/sg-vault-connect.js'
 
-const LS_ACCESS      = 'sp-cli:vault:last-access-token'    // written by vault-bus after vault:connected
-const SG_VAULT_TOKEN = 'sg-vault:last-token'               // written by sg-vault-connect when user saves token
 
 class SpCliVaultPicker extends SgComponent {
 
@@ -37,7 +35,6 @@ class SpCliVaultPicker extends SgComponent {
         this._connView   = this.$('.connected-view')
         this._connectView= this.$('.connect-view')
         this._labelEl    = this.$('.vault-label')
-        this._roWarn     = this.$('.readonly-warn')
         this._insecWarn  = this.$('.insecure-warn')
 
         if (!window.isSecureContext) {
@@ -49,8 +46,7 @@ class SpCliVaultPicker extends SgComponent {
 
         this.$('.btn-disconnect')?.addEventListener('click', () => this._disconnect())
 
-        this.$('#add-token-btn')?.addEventListener('click', () => {
-            this._roWarn.hidden      = true
+        this.$('.btn-token-settings')?.addEventListener('click', () => {
             this._connView.hidden    = true
             this._connectView.hidden = false
         })
@@ -78,18 +74,12 @@ class SpCliVaultPicker extends SgComponent {
     _close() { this._panel.hidden = true }
 
     _onConnected(detail) {
-        const vaultId  = detail.vaultId || ''
-        // session.accessToken is not surfaced in the sg-vault-connect event detail;
-        // check vault-bus localStorage then sg-vault-connect's own token key as fallbacks
-        const writable = !!(detail.session?.accessToken
-                         || localStorage.getItem(LS_ACCESS)
-                         || localStorage.getItem(SG_VAULT_TOKEN))
-        const label    = vaultId.length > 14 ? vaultId.slice(-14) : vaultId
+        const vaultId = detail.vaultId || ''
+        const label   = vaultId.length > 14 ? vaultId.slice(-14) : vaultId
 
         this._labelEl.textContent = `🗝 ${label}`
         this._connView.hidden    = false
         this._connectView.hidden = true
-        this._roWarn.hidden      = writable
 
         this.$('.connected-vault-id').textContent = vaultId
 
@@ -97,10 +87,9 @@ class SpCliVaultPicker extends SgComponent {
     }
 
     _onDisconnected() {
-        this._labelEl.textContent    = 'Connect vault'
-        this._connView.hidden        = true
-        this._connectView.hidden     = false
-        this._roWarn.hidden          = true
+        this._labelEl.textContent = 'Connect vault'
+        this._connView.hidden     = true
+        this._connectView.hidden  = false
         this.emit('sp-cli:vault-disconnected')
     }
 

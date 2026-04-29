@@ -19,11 +19,16 @@ class SpCliCatalogPane extends SgComponent {
     get sharedCssPaths() { return ['https://dev.tools.sgraph.ai/components/tokens/v1/v1.0/v1.0.0/sg-tokens.css'] }
 
     onReady() {
-        this._grid      = this.$('.type-grid')
+        this._grid        = this.$('.type-grid')
         this._placeholder = this.$('.coming-soon')
+        if (this._pendingTypes) {
+            this.setTypes(this._pendingTypes)
+            this._pendingTypes = null
+        }
     }
 
     setTypes(entries = []) {
+        if (!this._grid) { this._pendingTypes = entries; return }
         if (!entries.length) return
         this._placeholder.hidden = true
         this._grid.hidden        = false

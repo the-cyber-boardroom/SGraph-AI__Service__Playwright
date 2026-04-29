@@ -6,11 +6,6 @@
 
   <div class="panel" hidden>
 
-    <div class="readonly-warn" hidden>
-      ⚠ Read-only — no access token.
-      <button class="link-btn" id="add-token-btn">Add token →</button>
-    </div>
-
     <div class="insecure-warn" hidden>
       🔒 Vault requires a secure context.<br>
       Open this page via <strong>https://</strong> or <strong>http://localhost</strong>.
@@ -22,6 +17,8 @@
         <div class="info-label">Connected vault</div>
         <div class="connected-vault-id mono"></div>
       </div>
+      <hr class="divider">
+      <button class="btn-token-settings link-btn">⚙ Token settings</button>
       <hr class="divider">
       <button class="btn-disconnect danger-btn">Disconnect</button>
     </div>
