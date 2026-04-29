@@ -210,6 +210,48 @@ First two slices of the new OpenSearch sister section. Folder name is `opensearc
 Tests updated: `test_render_compose_yaml` assertions tightened (restart-count `== 2`; new defensive `test__no_browser_or_observability_services` locks the strip); entire `test_render_observability_configs` class (8 tests) removed; `test__sg_ingress_ports_are_canonical` shrunk to 2 ports.
 
 **Plan reference:** `team/comms/plans/v0.1.96__playwright-stack-split__03__strip-playwright-ec2.md` (S1/S2/S3 signed off).
+
+---
+
+### Phase D — Command cleanup (2026-04-29) — **complete**
+
+Per plan doc 7 (C1 hard cut, no transition window). Four sub-slices:
+
+**D.1 — Drop `forward-*` typer commands** (their targets moved out in Phase C):
+- `sp forward-prometheus` → use `sp prom forward <name>` (when that lands)
+- `sp forward-browser` → use `sp vnc connect <name>`
+- `sp forward-dockge` → deleted entirely (Dockge dropped)
+
+**D.2 — Move `sp metrics` → `sp prom metrics <url>`** — URL-based fetch of any `/metrics` endpoint (replaces the old SSM-tunneled one-off).
+
+**D.3 — Regroup `sp vault-*` under `sp vault` subgroup**:
+- `sp vault-{clone,list,run,commit,push,pull,status}` → `sp vault {clone,list,run,commit,push,pull,status}`
+- `sp v` short alias (hidden)
+
+**D.4 — Regroup `sp *-ami` under `sp ami` subgroup** (verbs match `sp el ami`):
+- `sp bake-ami`   → `sp ami create`
+- `sp wait-ami`   → `sp ami wait`
+- `sp tag-ami`    → `sp ami tag`
+- `sp list-amis`  → `sp ami list`
+- `sp create-from-ami` **stays top-level** (different action)
+
+**Orphaned constants removed:** `EC2__BROWSER_INTERNAL_PORT` (in `Ec2__AWS__Client`); `EC2__PROMETHEUS_PORT` / `EC2__BROWSER_IMAGE` / `EC2__DOCKGE_PORT` / `EC2__DOCKGE_IMAGE` (in `provision_ec2.py`). `sp open` URL hints, `sp diagnose` port grep, and the `provision()` return dict's `browser_url` field all dropped.
+
+---
+
+## v0.1.96 — playwright stack-split — **done**
+
+Phases **A → D** all shipped:
+
+| Phase | Status | Output |
+|---|---|---|
+| **A** — shared foundations | ✅ done | `Stack__Naming`, `Image__Build__Service`, `Ec2__AWS__Client` (full surface) |
+| **B5** — `sp os` | ✅ done | OpenSearch + Dashboards sister section |
+| **B6** — `sp prom` | ✅ done | Prometheus + cAdvisor + node-exporter sister section |
+| **B7** — `sp vnc` | ✅ done | chromium + nginx + mitmproxy browser-viewer sister section |
+| **C** — strip Playwright EC2 | ✅ done | 9 containers → 2 |
+| **D** — command cleanup | ✅ done | flat `vault-*` / `*-ami` regrouped; `forward-*` + `metrics` dropped/moved |
+
 | `vnc/schemas/Schema__Vnc__Interceptor__Choice.py` | The N5 selector itself — `kind` + `name` (when kind=NAME) + `inline_source` (when kind=INLINE). Defaults to NONE so mitmproxy starts without an interceptor unless explicitly chosen. |
 | `vnc/schemas/Schema__Vnc__Stack__Create__Request.py` | Inputs for `sp vnc create [NAME]`. All fields optional; carries `operator_password : Safe_Str__Vnc__Password` (one secret, used twice — nginx + mitm) and `interceptor : Schema__Vnc__Interceptor__Choice`. |
 | `vnc/schemas/Schema__Vnc__Stack__Create__Response.py` | Returned once. Carries `viewer_url` (https://&lt;ip&gt;/), `mitmweb_url` (https://&lt;ip&gt;/mitmweb/), `operator_password` (returned once), `interceptor_kind` + `interceptor_name`. |
