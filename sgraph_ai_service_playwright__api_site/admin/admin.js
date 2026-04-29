@@ -136,25 +136,28 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 
     function _openVncViewer(stack, password = '') {
-        if (!_layoutEl || !_rightStackId) return
+        if (!_layoutEl) return
 
         if (_vncTabIds[stack.stack_name]) {
             _layoutEl.focusPanel(_vncTabIds[stack.stack_name])
             return
         }
 
-        const pwd = password || sessionStorage.getItem(`vnc:pwd:${stack.stack_name}`) || ''
-        const el  = document.createElement('sp-cli-vnc-viewer')
+        // Re-fetch the right-column stack ID fresh — layout may have changed
+        const targetStackId = _findStackWithTag(_layoutEl.getLayout(), 'sp-cli-stack-detail')
+        if (!targetStackId) return
 
-        const tabId = _layoutEl.addTabToStack(_rightStackId, {
-            el,
+        const pwd   = password || sessionStorage.getItem(`vnc:pwd:${stack.stack_name}`) || ''
+        const tabId = _layoutEl.addTabToStack(targetStackId, {
+            tag:    'sp-cli-vnc-viewer',
             title:  `VNC: ${stack.stack_name}`,
             locked: false,
         }, true)
 
         if (tabId) {
             _vncTabIds[stack.stack_name] = tabId
-            el.open(stack, pwd)
+            const el = _layoutEl.getPanelElement(tabId)
+            if (el?.open) el.open(stack, pwd)
         }
     }
 
