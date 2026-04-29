@@ -1,0 +1,1 @@
+from sgraph_ai_service_playwright__cli.vnc.plugin.Plugin__Manifest__Vnc import Plugin__Manifest__Vnc

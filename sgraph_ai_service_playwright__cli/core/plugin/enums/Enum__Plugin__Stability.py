@@ -1,15 +1,11 @@
 # ═══════════════════════════════════════════════════════════════════════════════
-# SP CLI — Enum__Stack__Type
+# SP CLI — Enum__Plugin__Stability
 # ═══════════════════════════════════════════════════════════════════════════════
 
 from enum import Enum
 
 
-class Enum__Stack__Type(Enum):
-    LINUX      = 'linux'
-    DOCKER     = 'docker'
-    ELASTIC    = 'elastic'
-    OPENSEARCH = 'opensearch'
-    PROMETHEUS = 'prometheus'
-    VNC        = 'vnc'
-    NEKO       = 'neko'
+class Enum__Plugin__Stability(str, Enum):
+    STABLE       = 'stable'
+    EXPERIMENTAL = 'experimental'
+    DEPRECATED   = 'deprecated'
