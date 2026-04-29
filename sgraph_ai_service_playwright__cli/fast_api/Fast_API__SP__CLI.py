@@ -70,7 +70,7 @@ class Fast_API__SP__CLI(Serverless__Fast_API):
         self.add_routes(Routes__Observability   , service=self.observability_service)
 
     def setup_ui(self):
-        path_static        = "/ui-test"
+        path_static        = "/ui"
         path_name          = 'ui'
         path_static_folder = sgraph_ai_service_playwright__api_site.path
         self.app().mount(path = path_static                                         ,
