@@ -32,6 +32,12 @@ class SpCliVaultPicker extends SgComponent {
         this._connectView= this.$('.connect-view')
         this._labelEl    = this.$('.vault-label')
         this._roWarn     = this.$('.readonly-warn')
+        this._insecWarn  = this.$('.insecure-warn')
+
+        if (!window.isSecureContext) {
+            this._connectView.hidden = true
+            this._insecWarn.hidden   = false
+        }
 
         this._btn.addEventListener('click', () => this._toggle())
 

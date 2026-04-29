@@ -43,6 +43,17 @@
     gap: var(--sg-sp-2);
 }
 
+.insecure-warn {
+    background: rgba(255,80,80,.1);
+    border: 1px solid var(--sg-danger, #ff5050);
+    border-radius: var(--sg-radius);
+    padding: var(--sg-sp-2) var(--sg-sp-3);
+    font-size: var(--sg-fs-small);
+    color: var(--sg-danger, #ff5050);
+    margin-bottom: var(--sg-sp-2);
+    line-height: 1.5;
+}
+
 .vault-info { margin-bottom: var(--sg-sp-3); }
 .info-label { font-size: var(--sg-fs-small); color: var(--sg-text-muted); margin-bottom: 2px; }
 .connected-vault-id { font-family: var(--sg-font-mono); font-size: var(--sg-fs-small); color: var(--sg-text); word-break: break-all; }
