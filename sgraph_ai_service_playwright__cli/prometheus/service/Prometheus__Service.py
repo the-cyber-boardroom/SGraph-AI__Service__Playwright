@@ -31,6 +31,7 @@ from sgraph_ai_service_playwright__cli.prometheus.service.Prometheus__AWS__Clien
 
 DEFAULT_REGION        = 'eu-west-2'
 DEFAULT_INSTANCE_TYPE = 't3.medium'                                                 # Mirrors Prometheus__Launch__Helper.DEFAULT_INSTANCE_TYPE
+PROFILE_NAME          = 'playwright-ec2'                                            # Reuses the existing IAM instance profile (has AmazonSSMManagedInstanceCore — required for `sp prom connect` once it lands)
 
 
 def _count_targets(targets_body: dict) -> tuple:                                    # (total, up) derived from data.activeTargets
@@ -82,7 +83,9 @@ class Prometheus__Service(Type_Safe):
         compose_yaml = self.compose_template.render()
         config_yaml  = self.config_generator.render(request.scrape_targets)
         user_data    = self.user_data_builder.render(stack_name, region, compose_yaml, config_yaml)
-        instance_id  = self.aws_client.launch.run_instance(region, ami_id, sg_id, user_data, tags, instance_type=inst_type)
+        instance_id  = self.aws_client.launch.run_instance(region, ami_id, sg_id, user_data, tags,
+                                                              instance_type         = inst_type   ,
+                                                              instance_profile_name = PROFILE_NAME)        # Required for SSM agent registration (TargetNotConnected without it).
 
         return Schema__Prom__Stack__Create__Response(
             stack_name        = stack_name                                              ,

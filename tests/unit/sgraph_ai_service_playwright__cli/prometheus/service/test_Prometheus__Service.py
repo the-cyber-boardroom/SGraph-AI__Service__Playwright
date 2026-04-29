@@ -206,7 +206,8 @@ class _Fake_Launch__Helper:
         self.calls       = []
     def run_instance(self, region, ami_id, security_group_id, user_data, tags, instance_type='t3.medium', instance_profile_name=None):
         self.calls.append({'region': region, 'ami_id': ami_id, 'sg_id': security_group_id,
-                           'user_data': user_data, 'tags': tags, 'instance_type': instance_type})
+                           'user_data': user_data, 'tags': tags, 'instance_type': instance_type,
+                           'instance_profile_name': instance_profile_name})
         return self.instance_id
 
 
@@ -329,11 +330,12 @@ class test_create_stack(TestCase):
         s = _service_for_create()
         s.create_stack(Schema__Prom__Stack__Create__Request())
         launch_call = s.aws_client.launch.calls[0]
-        assert launch_call['ami_id']          == 'ami-0685f8dd865c8e389'
-        assert launch_call['sg_id']           == 'sg-fake-prom-1234567'
-        assert launch_call['instance_type']   == 't3.medium'
-        assert 'compose-len='                 in launch_call['user_data']             # Confirms user-data was rendered (fake includes a marker)
-        assert 'cfg-len='                     in launch_call['user_data']             # Confirms prom_config was passed in
+        assert launch_call['ami_id']                == 'ami-0685f8dd865c8e389'
+        assert launch_call['sg_id']                 == 'sg-fake-prom-1234567'
+        assert launch_call['instance_type']         == 't3.medium'
+        assert launch_call['instance_profile_name'] == 'playwright-ec2'                # Required for SSM agent registration
+        assert 'compose-len='                       in launch_call['user_data']         # Confirms user-data was rendered (fake includes a marker)
+        assert 'cfg-len='                           in launch_call['user_data']         # Confirms prom_config was passed in
         assert any(t['Key'] == 'Name' for t in launch_call['tags'])
 
     def test__user_data_takes_both_compose_and_prom_config(self):                    # Builder signature includes prom_config_yaml
