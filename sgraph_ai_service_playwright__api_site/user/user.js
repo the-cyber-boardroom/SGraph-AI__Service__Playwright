@@ -4,6 +4,7 @@ import { apiClient    } from '../shared/api-client.js'
 import { startVaultBus } from '../shared/vault-bus.js'
 
 const LAYOUT_KEY  = 'sp-cli:user:layout'
+const MODAL_TAG   = 'sp-cli-launch-modal'
 
 const USER_LAYOUT = {
     type: 'row', sizes: [1.0, 0.0],
@@ -33,6 +34,15 @@ document.addEventListener('DOMContentLoaded', async () => {
     })
 
     document.addEventListener('sg-auth-saved', () => _loadData())
+
+    document.addEventListener('sp-cli:user-launch', (e) => _openModal(e.detail?.entry))
+
+    document.addEventListener('sp-cli:launch-success', (e) => {
+        const { entry, response } = e.detail
+        const stackName = response?.stack_info?.stack_name || response?.stack_name || '?'
+        console.log('[user] launched', entry.display_name, stackName)
+        setTimeout(() => _loadData(), 3000)
+    })
 
     function _setGate(connected) {
         document.getElementById('vault-gate').hidden  = connected
@@ -76,6 +86,12 @@ document.addEventListener('DOMContentLoaded', async () => {
             userPane.setTypes(types)
             userPane.setStacks(stacks)
         }
+    }
+
+    function _openModal(entry) {
+        if (!entry) return
+        const modal = document.querySelector(MODAL_TAG)
+        modal?.open(entry)
     }
 
     function _loadLayout() {

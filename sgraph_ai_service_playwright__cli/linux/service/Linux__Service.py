@@ -84,6 +84,7 @@ class Linux__Service(Type_Safe):
                                                 elapsed_ms  = int((time.monotonic()-t0)*1000)                 )
 
     def list_stacks(self, region: str) -> Schema__Linux__List:
+        region = region or DEFAULT_REGION
         raw    = self.aws_client.instance.list_stacks(region)
         stacks = List__Schema__Linux__Info()
         for details in raw.values():

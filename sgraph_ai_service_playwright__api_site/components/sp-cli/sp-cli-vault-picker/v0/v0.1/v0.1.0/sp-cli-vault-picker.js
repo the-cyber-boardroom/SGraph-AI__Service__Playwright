@@ -20,7 +20,8 @@
 import { SgComponent } from 'https://dev.tools.sgraph.ai/components/base/v1/v1.0/v1.0.0/sg-component.js'
 import 'https://dev.tools.sgraph.ai/components/vault/sg-vault-connect/v0/v0.1/v0.1.3/sg-vault-connect.js'
 
-const LS_ACCESS = 'sp-cli:vault:last-access-token'         // written by vault-bus after vault:connected
+const LS_ACCESS      = 'sp-cli:vault:last-access-token'    // written by vault-bus after vault:connected
+const SG_VAULT_TOKEN = 'sg-vault:last-token'               // written by sg-vault-connect when user saves token
 
 class SpCliVaultPicker extends SgComponent {
 
@@ -59,7 +60,7 @@ class SpCliVaultPicker extends SgComponent {
         })
 
         document.addEventListener('vault:connected',    (e) => {
-            // defer so vault-bus runs first and persists accessToken to localStorage
+                // defer so vault-bus runs first and persists accessToken to localStorage
             setTimeout(() => this._onConnected(e.detail), 0)
         })
         document.addEventListener('vault:disconnected', ()  => this._onDisconnected())
@@ -78,9 +79,11 @@ class SpCliVaultPicker extends SgComponent {
 
     _onConnected(detail) {
         const vaultId  = detail.vaultId || ''
-        // session.accessToken may not be set depending on sg-vault-connect version;
-        // fall back to vault-bus's localStorage entry which is written on the same event
-        const writable = !!(detail.session?.accessToken || localStorage.getItem(LS_ACCESS))
+        // session.accessToken is not surfaced in the sg-vault-connect event detail;
+        // check vault-bus localStorage then sg-vault-connect's own token key as fallbacks
+        const writable = !!(detail.session?.accessToken
+                         || localStorage.getItem(LS_ACCESS)
+                         || localStorage.getItem(SG_VAULT_TOKEN))
         const label    = vaultId.length > 14 ? vaultId.slice(-14) : vaultId
 
         this._labelEl.textContent = `🗝 ${label}`
