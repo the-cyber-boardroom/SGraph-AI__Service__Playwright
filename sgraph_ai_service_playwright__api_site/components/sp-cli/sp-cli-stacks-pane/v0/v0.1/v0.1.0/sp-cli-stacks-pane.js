@@ -39,7 +39,8 @@ class SpCliStacksPane extends SgComponent {
         this._counter    = this.$('.stack-count')
 
         this.$('.btn-refresh')?.addEventListener('click', () => {
-            this.emit('sp-cli:stacks-refresh')
+            this.emit('sp-cli:stacks.refresh')
+            this.emit('sp-cli:stacks-refresh')  // compat
         })
 
         if (this._pendingStacks !== undefined) {
@@ -75,7 +76,10 @@ class SpCliStacksPane extends SgComponent {
                 <span class="stack-ip">${s.public_ip || '—'}</span>
                 <span class="stack-uptime">${_fmtUptime(s.uptime_seconds)}</span>
             `
-            row.addEventListener('click', () => this.emit('sp-cli:stack-selected', { stack: s }))
+            row.addEventListener('click', () => {
+                this.emit('sp-cli:stack.selected',  { stack: s })
+                this.emit('sp-cli:stack-selected',  { stack: s })  // compat
+            })
             this._list.appendChild(row)
         }
     }

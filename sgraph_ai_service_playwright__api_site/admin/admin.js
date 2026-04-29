@@ -118,6 +118,14 @@ document.addEventListener('DOMContentLoaded', async () => {
         _activity(`✗ Launch failed (${e.detail?.entry?.display_name}): ${e.detail?.error}`)
     })
 
+    document.addEventListener('sp-cli:launch.cancelled', (e) => {
+        const typeId = e.detail?.entry?.type_id
+        if (typeId && _launchTabIds[typeId]) {
+            _layoutEl?.removePanel(_launchTabIds[typeId])
+            delete _launchTabIds[typeId]
+        }
+    })
+
     // ── Helpers ───────────────────────────────────────────────────────────── //
 
     function _setGate(connected) {
