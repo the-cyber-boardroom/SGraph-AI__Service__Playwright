@@ -58,8 +58,30 @@ class test_tag_constants(TestCase):
             assert key.startswith('sg:'), f'{key} must use the sg: namespace'
 
 
-class test_Vnc__AWS__Client__skeleton(TestCase):
+class test_Vnc__AWS__Client(TestCase):
 
-    def test__instantiates_cleanly(self):                                           # Methods land in Phase B step 7c
+    def test__instantiates_cleanly(self):
         client = Vnc__AWS__Client()
         assert client is not None
+        assert client.sg       is None
+        assert client.ami      is None
+        assert client.instance is None
+        assert client.tags     is None
+        assert client.launch   is None
+
+    def test__setup_wires_all_five_helpers(self):
+        from sgraph_ai_service_playwright__cli.vnc.service.Vnc__AMI__Helper      import Vnc__AMI__Helper
+        from sgraph_ai_service_playwright__cli.vnc.service.Vnc__Instance__Helper import Vnc__Instance__Helper
+        from sgraph_ai_service_playwright__cli.vnc.service.Vnc__Launch__Helper   import Vnc__Launch__Helper
+        from sgraph_ai_service_playwright__cli.vnc.service.Vnc__SG__Helper       import Vnc__SG__Helper
+        from sgraph_ai_service_playwright__cli.vnc.service.Vnc__Tags__Builder    import Vnc__Tags__Builder
+        client = Vnc__AWS__Client().setup()
+        assert isinstance(client.sg      , Vnc__SG__Helper      )
+        assert isinstance(client.ami     , Vnc__AMI__Helper     )
+        assert isinstance(client.instance, Vnc__Instance__Helper)
+        assert isinstance(client.tags    , Vnc__Tags__Builder   )
+        assert isinstance(client.launch  , Vnc__Launch__Helper  )
+
+    def test__setup_returns_self(self):
+        client = Vnc__AWS__Client()
+        assert client.setup() is client

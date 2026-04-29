@@ -37,4 +37,21 @@ VNC_NAMING = Stack__Naming(section_prefix='vnc')                                
 
 
 class Vnc__AWS__Client(Type_Safe):                                                  # Composes the per-concern helpers — kept small on purpose
-    pass                                                                            # Helper slots wired in step 7c
+    sg       : object = None                                                        # Vnc__SG__Helper       (lazy via setup())
+    ami      : object = None                                                        # Vnc__AMI__Helper      (lazy via setup())
+    instance : object = None                                                        # Vnc__Instance__Helper (lazy via setup())
+    tags     : object = None                                                        # Vnc__Tags__Builder    (lazy via setup())
+    launch   : object = None                                                        # Vnc__Launch__Helper   (lazy via setup())
+
+    def setup(self) -> 'Vnc__AWS__Client':                                          # Lazy import — avoids circular module-load when callers import the client first
+        from sgraph_ai_service_playwright__cli.vnc.service.Vnc__SG__Helper       import Vnc__SG__Helper
+        from sgraph_ai_service_playwright__cli.vnc.service.Vnc__AMI__Helper      import Vnc__AMI__Helper
+        from sgraph_ai_service_playwright__cli.vnc.service.Vnc__Instance__Helper import Vnc__Instance__Helper
+        from sgraph_ai_service_playwright__cli.vnc.service.Vnc__Launch__Helper   import Vnc__Launch__Helper
+        from sgraph_ai_service_playwright__cli.vnc.service.Vnc__Tags__Builder    import Vnc__Tags__Builder
+        self.sg       = Vnc__SG__Helper      ()
+        self.ami      = Vnc__AMI__Helper     ()
+        self.instance = Vnc__Instance__Helper()
+        self.tags     = Vnc__Tags__Builder   ()
+        self.launch   = Vnc__Launch__Helper  ()
+        return self
