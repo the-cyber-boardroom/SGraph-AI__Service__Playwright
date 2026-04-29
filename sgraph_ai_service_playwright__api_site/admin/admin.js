@@ -3,14 +3,14 @@
 import { apiClient    } from '../shared/api-client.js'
 import { startVaultBus } from '../shared/vault-bus.js'
 
-const LAYOUT_KEY    = 'sp-cli:admin:layout:v2'           // bumped — resets saved layouts from older shape
-const MODAL_TAG     = 'sp-cli-launch-modal'
+const LAYOUT_KEY = 'sp-cli:admin:layout:v3'                        // v3 — resets saved layouts from older shapes
+const MODAL_TAG  = 'sp-cli-launch-modal'
 
 const ADMIN_LAYOUT = {
     type: 'row', sizes: [0.42, 0.36, 0.22],
     children: [
         { type: 'stack', tabs: [
-            { tag: 'sp-cli-catalog-pane',  title: 'Catalog', locked: false },
+            { tag: 'sp-cli-catalog-pane',  title: 'Catalog',      locked: false },
         ]},
         { type: 'column', sizes: [0.55, 0.45], children: [
             { type: 'stack', tabs: [
@@ -28,7 +28,11 @@ const ADMIN_LAYOUT = {
 }
 
 document.addEventListener('DOMContentLoaded', async () => {
-    let _region = ''
+    let _region      = ''
+    let _layoutEl    = null
+    let _rightStackId = null
+    const _vncTabIds = {}                                           // stack_name → sg-layout panelId
+
     startVaultBus()
 
     document.addEventListener('vault:connected', async (e) => {
@@ -54,6 +58,9 @@ document.addEventListener('DOMContentLoaded', async () => {
         const { entry, response } = e.detail
         const stackName = response?.stack_info?.stack_name || response?.stack_name || '?'
         _activity(`✓ Launched ${entry.display_name}: ${stackName}`)
+        if (entry.type_id === 'vnc' && response?.operator_password) {
+            sessionStorage.setItem(`vnc:pwd:${stackName}`, response.operator_password)
+        }
         setTimeout(() => _loadData(), 3000)
     })
 
@@ -62,8 +69,18 @@ document.addEventListener('DOMContentLoaded', async () => {
     })
 
     document.addEventListener('sp-cli:stack-deleted', (e) => {
-        _activity(`🗑 Deleted ${e.detail?.stack?.type_id} stack: ${e.detail?.stack?.stack_name}`)
+        const stack = e.detail?.stack
+        _activity(`🗑 Deleted ${stack?.type_id} stack: ${stack?.stack_name}`)
+        if (stack?.type_id === 'vnc' && _vncTabIds[stack.stack_name]) {
+            _layoutEl?.removePanel(_vncTabIds[stack.stack_name])
+            delete _vncTabIds[stack.stack_name]
+        }
         _loadData()
+    })
+
+    document.addEventListener('sp-cli:vnc-open-viewer', (e) => {
+        const stack = e.detail?.stack
+        if (stack) _openVncViewer(stack)
     })
 
     function _setGate(connected) {
@@ -72,17 +89,19 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 
     async function _initLayout() {
-        const layoutEl = document.getElementById('main-layout')
-        if (!layoutEl || layoutEl._layoutReady) return
-        layoutEl._layoutReady = true
+        _layoutEl = document.getElementById('main-layout')
+        if (!_layoutEl || _layoutEl._layoutReady) return
+        _layoutEl._layoutReady = true
 
         const { SGL_EVENTS } = await import('https://dev.tools.sgraph.ai/core/sg-layout/v0.1.0/sg-layout-events.js')
         await import('https://dev.tools.sgraph.ai/core/sg-layout/v0.1.0/sg-layout.js')
 
         const saved = _loadLayout()
-        layoutEl.setLayout(saved || ADMIN_LAYOUT)
+        _layoutEl.setLayout(saved || ADMIN_LAYOUT)
 
-        layoutEl._events.on(SGL_EVENTS.LAYOUT_CHANGED, ({ tree }) => {
+        _rightStackId = _findStackWithTag(_layoutEl.getLayout(), 'sp-cli-stack-detail')
+
+        _layoutEl._events.on(SGL_EVENTS.LAYOUT_CHANGED, ({ tree }) => {
             try { localStorage.setItem(LAYOUT_KEY, JSON.stringify(tree)) } catch (_) {}
         })
     }
@@ -116,6 +135,29 @@ document.addEventListener('DOMContentLoaded', async () => {
         modal?.open(entry)
     }
 
+    function _openVncViewer(stack, password = '') {
+        if (!_layoutEl || !_rightStackId) return
+
+        if (_vncTabIds[stack.stack_name]) {
+            _layoutEl.focusPanel(_vncTabIds[stack.stack_name])
+            return
+        }
+
+        const pwd = password || sessionStorage.getItem(`vnc:pwd:${stack.stack_name}`) || ''
+        const el  = document.createElement('sp-cli-vnc-viewer')
+
+        const tabId = _layoutEl.addTabToStack(_rightStackId, {
+            el,
+            title:  `VNC: ${stack.stack_name}`,
+            locked: false,
+        }, true)
+
+        if (tabId) {
+            _vncTabIds[stack.stack_name] = tabId
+            el.open(stack, pwd)
+        }
+    }
+
     function _activity(message) {
         document.dispatchEvent(new CustomEvent('sp-cli:activity-entry', {
             detail:  { message },
@@ -128,5 +170,15 @@ document.addEventListener('DOMContentLoaded', async () => {
             const raw = localStorage.getItem(LAYOUT_KEY)
             return raw ? JSON.parse(raw) : null
         } catch (_) { return null }
+    }
+
+    function _findStackWithTag(tree, tag) {
+        if (!tree) return null
+        if (tree.type === 'stack' && tree.tabs?.some(t => t.tag === tag)) return tree.id
+        for (const child of tree.children || []) {
+            const found = _findStackWithTag(child, tag)
+            if (found) return found
+        }
+        return null
     }
 })

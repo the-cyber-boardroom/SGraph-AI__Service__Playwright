@@ -1,0 +1,59 @@
+<!-- empty: no VNC stack selected -->
+<div class="pane-empty">
+  <div class="empty-icon">🖥</div>
+  <div class="empty-title">No VNC stack selected</div>
+  <div class="empty-hint">Select a running VNC stack in the Stacks pane to open the viewer.</div>
+</div>
+
+<!-- not-running: VNC stack exists but isn't running yet -->
+<div class="pane-not-running" hidden>
+  <div class="nr-icon">⏳</div>
+  <div class="nr-title">Stack not ready</div>
+  <div class="nr-desc">State: <span class="nr-state"></span></div>
+  <div class="nr-hint">The VNC stack is not running yet. Select it again once it's in RUNNING state.</div>
+</div>
+
+<!-- cert: self-signed certificate must be trusted once -->
+<div class="pane-cert" hidden>
+  <div class="cert-icon">🔒</div>
+  <div class="cert-title">Trust the self-signed certificate</div>
+  <div class="cert-desc">Your browser must trust the stack's certificate before the viewer can load inside the page.</div>
+  <button class="btn-cert-open">↗ Open viewer in new tab (trust cert)</button>
+  <div class="cert-step2">
+    <div class="cert-step-hint">After accepting the certificate warning in that tab, return here and continue.</div>
+    <button class="btn-cert-done">I've trusted the certificate — continue</button>
+  </div>
+</div>
+
+<!-- auth: password not yet known for this stack -->
+<div class="pane-auth" hidden>
+  <div class="auth-icon">🔑</div>
+  <div class="auth-title">Enter operator password</div>
+  <div class="auth-desc">Enter the password shown when this stack was created (printed once by <code>sp vnc create</code>).</div>
+  <div class="auth-field">
+    <input type="password" class="pwd-input" placeholder="Operator password" autocomplete="off">
+    <button class="btn-unlock">Unlock</button>
+  </div>
+  <div class="auth-error" hidden></div>
+</div>
+
+<!-- ready: iframe mounted -->
+<div class="pane-ready" hidden>
+  <div class="viewer-toolbar">
+    <span class="toolbar-stack-name"></span>
+    <div class="toolbar-actions">
+      <button class="btn-toggle" title="Switch between viewer and mitmweb">⇄ Mitmweb</button>
+      <button class="btn-refresh" title="Refresh viewer">⟳</button>
+      <button class="btn-new-tab" title="Open in new tab (for full-screen or multiple sessions)">↗ New tab</button>
+      <button class="btn-copy" title="Copy URL">⎘</button>
+    </div>
+  </div>
+  <iframe class="viewer-frame"
+          title="VNC viewer"
+          allow="clipboard-read; clipboard-write"
+          sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-clipboard-read allow-clipboard-write"></iframe>
+  <div class="blank-hint" hidden>
+    <span>Viewer is blank? The certificate may not be trusted yet.</span>
+    <button class="btn-cert-retry">Open in new tab</button>
+  </div>
+</div>

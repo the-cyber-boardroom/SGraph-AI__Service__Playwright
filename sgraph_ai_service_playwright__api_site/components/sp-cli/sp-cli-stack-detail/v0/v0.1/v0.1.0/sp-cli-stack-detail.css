@@ -78,6 +78,24 @@
 .detail-val { font-size: var(--sg-fs-small); color: var(--sg-text); word-break: break-all; }
 .detail-val.mono { font-family: var(--sg-font-mono); }
 
+.vnc-actions {
+    padding: var(--sg-sp-2) var(--sg-sp-3);
+    border-top: 1px solid var(--sg-border);
+}
+.btn-open-viewer {
+    width: 100%;
+    padding: 8px var(--sg-sp-3);
+    background: var(--sg-accent);
+    border: none;
+    border-radius: var(--sg-radius);
+    color: #fff;
+    font-size: var(--sg-fs-small);
+    font-weight: 600;
+    cursor: pointer;
+    transition: opacity var(--sg-transition-fast);
+}
+.btn-open-viewer:hover { opacity: .85; }
+
 .actions {
     padding: var(--sg-sp-2) var(--sg-sp-3);
     border-top: 1px solid var(--sg-border);

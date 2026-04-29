@@ -50,13 +50,21 @@ class SpCliStackDetail extends SgComponent {
         this._nameEl      = this.$('.stack-name')
         this._stateBadge  = this.$('.state-badge')
         this._uptimeEl    = this.$('.uptime')
-        this._confirmRow  = this.$('.confirm-row')
-        this._btnDelete   = this.$('.btn-delete')
-        this._loadingEl   = this.$('.loading-overlay')
+        this._confirmRow    = this.$('.confirm-row')
+        this._btnDelete     = this.$('.btn-delete')
+        this._loadingEl     = this.$('.loading-overlay')
+        this._vncActions    = this.$('.vnc-actions')
+        this._btnOpenViewer = this.$('.btn-open-viewer')
 
         this.$('.btn-delete')?.addEventListener('click',        () => this._showConfirm())
         this.$('.btn-cancel-delete')?.addEventListener('click', () => this._hideConfirm())
         this.$('.btn-confirm-delete')?.addEventListener('click',() => this._delete())
+        this._btnOpenViewer?.addEventListener('click', () => {
+            if (!this._stack) return
+            document.dispatchEvent(new CustomEvent('sp-cli:vnc-open-viewer', {
+                detail: { stack: this._stack }, bubbles: true, composed: true,
+            }))
+        })
 
         document.addEventListener('sp-cli:stack-selected', (e) => this.open(e.detail?.stack))
         document.addEventListener('sp-cli:stack-deleted',  ()  => this._showEmpty())
@@ -83,7 +91,9 @@ class SpCliStackDetail extends SgComponent {
         this._setField('allowed_ip',    '…')
 
         const isTerminated = (stack.state || '').toLowerCase() === 'terminated'
-        this._btnDelete.hidden = isTerminated
+        const isVncRunning = stack.type_id === 'vnc' && (stack.state || '').toLowerCase() === 'running'
+        this._btnDelete.hidden  = isTerminated
+        if (this._vncActions) this._vncActions.hidden = !isVncRunning
 
         this._emptyState.hidden = true
         this._detail.hidden     = false
