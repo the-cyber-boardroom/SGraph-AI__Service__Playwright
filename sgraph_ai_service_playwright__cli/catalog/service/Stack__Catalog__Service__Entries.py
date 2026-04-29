@@ -55,6 +55,6 @@ class Stack__Catalog__Service__Entries(Type_Safe):
     def entry__vnc(self) -> Schema__Stack__Type__Catalog__Entry:
         return Schema__Stack__Type__Catalog__Entry(
             type_id=Enum__Stack__Type.VNC, display_name='VNC bastion (browser-in-browser)',
-            description='Coming soon.',
-            available=False, default_instance_type=T3_MEDIUM, expected_boot_seconds=90,
+            description='Full desktop browser-in-browser with mitmweb traffic inspection.',
+            available=True, default_instance_type='t3.large', expected_boot_seconds=120,
             **_paths(Enum__Stack__Type.VNC))

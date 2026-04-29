@@ -10,7 +10,7 @@ from sgraph_ai_service_playwright__cli.catalog.enums.Enum__Stack__Type          
 from sgraph_ai_service_playwright__cli.catalog.fast_api.routes.Routes__Stack__Catalog import Routes__Stack__Catalog
 from sgraph_ai_service_playwright__cli.catalog.service.Stack__Catalog__Service      import Stack__Catalog__Service
 from tests.unit.sgraph_ai_service_playwright__cli.catalog.service.test_Stack__Catalog__Service import (
-    _Fake_Linux__Service, _Fake_Docker__Service, _Fake_Elastic__Service)
+    _Fake_Linux__Service, _Fake_Docker__Service, _Fake_Elastic__Service, _Fake_Vnc__Service)
 
 
 def _client():
@@ -18,6 +18,7 @@ def _client():
     svc.linux_service   = _Fake_Linux__Service()
     svc.docker_service  = _Fake_Docker__Service()
     svc.elastic_service = _Fake_Elastic__Service()
+    svc.vnc_service     = _Fake_Vnc__Service()
     app = Fast_API()
     app.setup()
     app.add_routes(Routes__Stack__Catalog, service=svc)
@@ -35,7 +36,7 @@ class test_Routes__Stack__Catalog(TestCase):
         entries = {e['type_id']: e['available'] for e in _client().get('/catalog/types').json()['entries']}
         assert entries['linux']  is True
         assert entries['docker'] is True
-        assert entries['vnc']    is False
+        assert entries['vnc']    is True
 
     def test_stacks__unfiltered(self):
         resp = _client().get('/catalog/stacks')
