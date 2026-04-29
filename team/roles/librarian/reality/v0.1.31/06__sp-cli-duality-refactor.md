@@ -156,9 +156,9 @@ First two slices of the new OpenSearch sister section. Folder name is `opensearc
 
 170 unit tests across primitives + enums + schemas + collections + AWS helpers + HTTP base + probe + Caller__IP__Detector + Random__Stack__Name__Generator + Stack__Mapper + Compose template + Config generator + User_Data builder + Launch helper + Service (read paths + create_stack + setup() chain) + FastAPI routes (5 endpoints via TestClient) + Renderers (Rich Console-capture) + typer-app smoke (CliRunner). Every AWS- and HTTP-touching class is exercised through real `_Fake_*` subclasses (no mocks); each helper has its own focused test file kept under ~150 lines.
 
-### `vnc/` — `sp vnc` sister section (Phase B steps 7a–7b, 2026-04-29)
+### `vnc/` — `sp vnc` sister section (Phase B steps 7a–7c, 2026-04-29)
 
-First two slices of the new chromium + nginx + mitmproxy sister section. Folder `vnc/`; typer alias `sp vnc` (single name only — N1: renamed from working title `sp nvm`). Per plan doc 6: chromium-only at runtime today (N2); profile + state wiped at termination (N3); no automatic flow export (N4); interceptor model is **default-off + ship examples + provision-time choice via env vars** (N5).
+First three slices of the new chromium + nginx + mitmproxy sister section. Folder `vnc/`; typer alias `sp vnc` (single name only — N1: renamed from working title `sp nvm`). Per plan doc 6: chromium-only at runtime today (N2); profile + state wiped at termination (N3); no automatic flow export (N4); interceptor model is **default-off + ship examples + provision-time choice via env vars** (N5).
 
 | File | Role |
 |------|------|
@@ -168,7 +168,11 @@ First two slices of the new chromium + nginx + mitmproxy sister section. Folder 
 | `vnc/primitives/Safe_Str__Vnc__Interceptor__Source.py` | Raw Python source for an inline interceptor (per N5). Permissive regex (tabs + newlines + printable ASCII); `max_length=32 KB`; `trim_whitespace=False` so indentation survives. |
 | `vnc/enums/Enum__Vnc__Stack__State.py` | Lifecycle vocabulary (PENDING/RUNNING/READY/TERMINATING/TERMINATED/UNKNOWN); shape parity with elastic + os + prom locked by test. |
 | `vnc/enums/Enum__Vnc__Interceptor__Kind.py` | N5 interceptor selector — `NONE` (default), `NAME`, `INLINE`. |
-| `vnc/service/Vnc__AWS__Client.py` | Skeleton — declares `VNC_NAMING = Stack__Naming(section_prefix='vnc')` + 7 tag constants (`sg:purpose=vnc`, `sg:section=vnc`, plus `sg:interceptor` per N5). Helper slots wired in step 7c. |
+| `vnc/service/Vnc__AWS__Client.py` | Composition shell — declares `VNC_NAMING = Stack__Naming(section_prefix='vnc')` + 7 tag constants (`sg:purpose=vnc`, `sg:section=vnc`, plus `sg:interceptor` per N5). `setup()` wires `sg`/`ami`/`instance`/`tags` slots. Launch helper joins in step 7f. |
+| `vnc/service/Vnc__SG__Helper.py` | `ensure_security_group(region, stack_name, caller_ip)` — idempotent SG create + ingress on **port 443** (nginx TLS — chromium-VNC + proxied mitmweb); ASCII-only Description; duplicate-ingress swallowed. KasmVNC port 3000 stays SSM-only (not in SG); mitmproxy 8080 is loopback-only on the docker network. `delete_security_group(region, sg_id) -> bool`. |
+| `vnc/service/Vnc__AMI__Helper.py` | `latest_al2023_ami_id(region)` (raises if none); `latest_healthy_ami_id(region)` filtered by `sg:purpose=vnc` + `sg:ami-status=healthy` (returns empty string if none). |
+| `vnc/service/Vnc__Instance__Helper.py` | `list_stacks(region)` filtered by `sg:purpose=vnc` + live states; `find_by_stack_name(region, stack_name)`; `terminate_instance(region, instance_id) -> bool`. |
+| `vnc/service/Vnc__Tags__Builder.py` | Pure mapper — builds the canonical 7-tag list (Name, sg:purpose, sg:section, sg:stack-name, sg:allowed-ip, sg:creator, **sg:interceptor**). Name uses `VNC_NAMING.aws_name_for_stack` (prefix never doubles). The interceptor-tag value follows N5: `'none'` (default-off), `'name:{example}'` (baked example), `'inline'` (operator-supplied source — the source itself never goes in a tag). |
 | `vnc/schemas/Schema__Vnc__Interceptor__Choice.py` | The N5 selector itself — `kind` + `name` (when kind=NAME) + `inline_source` (when kind=INLINE). Defaults to NONE so mitmproxy starts without an interceptor unless explicitly chosen. |
 | `vnc/schemas/Schema__Vnc__Stack__Create__Request.py` | Inputs for `sp vnc create [NAME]`. All fields optional; carries `operator_password : Safe_Str__Vnc__Password` (one secret, used twice — nginx + mitm) and `interceptor : Schema__Vnc__Interceptor__Choice`. |
 | `vnc/schemas/Schema__Vnc__Stack__Create__Response.py` | Returned once. Carries `viewer_url` (https://&lt;ip&gt;/), `mitmweb_url` (https://&lt;ip&gt;/mitmweb/), `operator_password` (returned once), `interceptor_kind` + `interceptor_name`. |
@@ -180,7 +184,7 @@ First two slices of the new chromium + nginx + mitmproxy sister section. Folder 
 | `vnc/collections/List__Schema__Vnc__Stack__Info.py` | Type_Safe__List for the listing response. |
 | `vnc/collections/List__Schema__Vnc__Mitm__Flow__Summary.py` | Type_Safe__List for the flows endpoint. |
 
-48 unit tests — primitives + enums + AWS-client skeleton + 7 schemas + 2 collections (round-trip via `.json()`, defensive no-password check on Info, N5 three-shape round-trip on Interceptor__Choice).
+74 unit tests — primitives + enums + AWS-client setup() wiring + 4 per-concern AWS helpers (each in its own ~80-line test file using real `_Fake_Boto_EC2` subclasses, no mocks) + 7 schemas + 2 collections.
 
 ### `observability/` — Tier-1 pure-logic service (read-only surface)
 
