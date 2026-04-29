@@ -518,6 +518,6 @@ jobs:
   call-bake-ami:
     name: "Trigger AMI Bake (Playwright image updated)"
     needs: [build-and-push-image]
-    if: needs.build-and-push-image.result == 'success'
+    if: false                                                                       # Temporarily disabled — re-enable by restoring: needs.build-and-push-image.result == 'success'
     uses: ./.github/workflows/bake-ami.yml
     secrets: inherit

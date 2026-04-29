@@ -1,5 +1,5 @@
 # ═══════════════════════════════════════════════════════════════════════════════
-# SG Playwright — docker.py
+# SG Playwright — docker_stack.py
 # CLI entry-point: sp docker
 # Manage ephemeral Docker-on-AL2023 EC2 stacks (Docker CE, SSM access).
 #

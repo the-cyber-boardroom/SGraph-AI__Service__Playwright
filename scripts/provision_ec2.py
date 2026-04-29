@@ -1148,11 +1148,18 @@ from scripts.opensearch import app as _opensearch_app  # noqa: E402
 app.add_typer(_opensearch_app, name='opensearch'        )                            # ephemeral OpenSearch+Dashboards EC2 stacks
 app.add_typer(_opensearch_app, name='os',         hidden=True)                       # short alias
 
+from scripts.prometheus import app as _prometheus_app  # noqa: E402
+app.add_typer(_prometheus_app, name='prometheus'        )                            # ephemeral Prometheus+cAdvisor+node-exporter EC2 stacks
+app.add_typer(_prometheus_app, name='prom',       hidden=True)                       # short alias
+
+from scripts.vnc import app as _vnc_app  # noqa: E402
+app.add_typer(_vnc_app, name='vnc'        )                                          # ephemeral chromium+nginx+mitmproxy EC2 stacks (browser-viewer)
+
 from scripts.linux import app as _linux_app  # noqa: E402
 app.add_typer(_linux_app, name='linux'        )                                      # ephemeral bare Linux EC2 stacks
 app.add_typer(_linux_app, name='lx',  hidden=True)                                  # short alias
 
-from scripts.docker import app as _docker_app  # noqa: E402
+from scripts.docker_stack import app as _docker_app  # noqa: E402
 app.add_typer(_docker_app, name='docker'        )                                    # ephemeral Docker-on-AL2023 EC2 stacks
 app.add_typer(_docker_app, name='dk',   hidden=True)                                 # short alias
 

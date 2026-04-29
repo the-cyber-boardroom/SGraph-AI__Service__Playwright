@@ -37,7 +37,9 @@
 
 import os
 
-os.environ.setdefault('AWS_DEFAULT_REGION', os.environ.get('AWS_REGION', ''))       # Bridge: see module header. ASCII-only on this line - if init fails, awslambdaric POSTs the source line back as latin-1 and U+2014 em-dashes crash the bootstrap.
+_aws_region = os.environ.get('AWS_REGION')                                           # Bridge: see module header. ASCII-only on this line.
+if _aws_region:
+    os.environ.setdefault('AWS_DEFAULT_REGION', _aws_region)                         # Only bridge when Lambda gives us a real region; never set to empty string.
 
 
 SP_CLI_FAST_API_CLASS_PATH = 'sgraph_ai_service_playwright__cli.fast_api.Fast_API__SP__CLI.Fast_API__SP__CLI'
