@@ -50,7 +50,6 @@ from agent_mitmproxy.docker.Docker__Agent_Mitmproxy__Base                       
 from sgraph_ai_service_playwright__cli.ec2.service.Ec2__AWS__Client                      import (Ec2__AWS__Client                                            ,
                                                                                                   EC2__AMI_NAME_AL2023                                        ,
                                                                                                   EC2__AMI_OWNER_AMAZON                                       ,
-                                                                                                  EC2__BROWSER_INTERNAL_PORT                                  ,
                                                                                                   EC2__PLAYWRIGHT_PORT                                        ,
                                                                                                   EC2__SIDECAR_ADMIN_PORT                                     ,
                                                                                                   IAM__ASSUME_ROLE_SERVICE                                    ,
@@ -101,10 +100,10 @@ WATCHDOG_MAX_REQUEST_MS      = 120_000                                          
 # IAM__ASSUME_ROLE_SERVICE moved to Ec2__AWS__Client (Phase A step 3c) —
 # imported at the top of this file under the same names.
 
-EC2__PROMETHEUS_PORT      = 9090
-EC2__BROWSER_IMAGE         = 'lscr.io/linuxserver/chromium:latest'                     # public image — pulled explicitly before compose up
-EC2__DOCKGE_PORT           = 5001                                                      # Dockge — SSM-forward only; first login sets admin password
-EC2__DOCKGE_IMAGE          = 'louislam/dockge:1'                                       # public image — pulled explicitly before compose up
+# EC2__PROMETHEUS_PORT, EC2__BROWSER_IMAGE, EC2__DOCKGE_PORT, EC2__DOCKGE_IMAGE
+# removed in Phase D (v0.1.96 stack-split) — their last consumers
+# (sp forward-prometheus / sp forward-browser / sp forward-dockge / sp open
+# URL hints) were deleted in the same commit.
 
 # SG__NAME, SG__DESCRIPTION moved to Ec2__AWS__Client (Phase A step 3d) —
 # imported at top.
@@ -418,10 +417,7 @@ def _print_preflight_summary(account, region, registry,
         (f':{EC2__PLAYWRIGHT_PORT}',    'playwright API         (public, API-key gated)'),
         (f':{EC2__SIDECAR_ADMIN_PORT}', 'sidecar admin API      (public, API-key gated)'),
         (':8080',                        'mitmproxy proxy        (Docker-network-only)'  ),
-    ]
-    if upstream_url:
-        port_rows.insert(2, (f':{EC2__BROWSER_INTERNAL_PORT}',
-                             'streaming browser      (public, KasmVNC password = API key)'))
+    ]                                                                                       # Phase C strip: browser-VNC port row dropped (browser moved to sp vnc).
     c.print(_kv_table(*port_rows))
     c.print()
 
@@ -721,17 +717,14 @@ def provision(stage                  : str          = DEFAULT_STAGE    ,
     public_ip     = details.get('public_ip')
     playwright_url = f'http://{public_ip}:{EC2__PLAYWRIGHT_PORT}'         if public_ip else None
     sidecar_url    = f'http://{public_ip}:{EC2__SIDECAR_ADMIN_PORT}'     if public_ip else None
-    browser_url    = (f'https://{public_ip}:{EC2__BROWSER_INTERNAL_PORT}'
-                      if public_ip and upstream_url else None)
 
-    return {'action'              : 'create'               ,
+    return {'action'              : 'create'               ,                            # Phase C strip: browser_url field dropped (browser moved to sp vnc).
             'instance_id'        : instance_id             ,
             'deploy_name'        : resolved_deploy_name    ,
             'creator'            : creator                 ,
             'public_ip'          : public_ip               ,
             'playwright_url'     : playwright_url          ,
             'sidecar_admin_url'  : sidecar_url             ,
-            'browser_url'        : browser_url             ,
             'playwright_image_uri': playwright_image_uri   ,
             'sidecar_image_uri'  : sidecar_image_uri       ,
             'ami_id'             : ami_id                  ,
@@ -1751,8 +1744,8 @@ _DIAGNOSE_CHECKS = [
      f'ls -la {COMPOSE_FILE_PATH} 2>/dev/null && echo "--- content ---" && cat {COMPOSE_FILE_PATH} 2>/dev/null || echo "(compose file missing)"'),
     ('Compose service status',
      f'docker compose -f {COMPOSE_FILE_PATH} ps 2>&1 || echo "(compose status failed)"'),
-    ('Listening ports',
-     'ss -tlnp 2>/dev/null | grep -E "8000|8001|5001|9090|3000|5601" || echo "(none of the expected ports are listening)"'),
+    ('Listening ports',                                                                # Phase C strip: only 8000 + 8001 expected on the host now (browser/dockge/prometheus/fluent-bit/kibana moved to sister sections).
+     'ss -tlnp 2>/dev/null | grep -E "8000|8001" || echo "(none of the expected ports are listening)"'),
     ('Disk',
      'df -h / /var/lib/docker 2>/dev/null | tail -n +1'),
     ('Memory',
@@ -2383,9 +2376,8 @@ def cmd_smoke(target          : Optional[str]  = typer.Argument(None, help='Depl
 
     c.print()
     c.print(f'  Mitmproxy UI  →  sg-ec2 forward {EC2__MITMWEB_TUNNEL_PORT}   then  http://localhost:{EC2__MITMWEB_TUNNEL_PORT}/')
-    c.print(f'  Browser       →  sg-ec2 forward-browser        then  http://localhost:{EC2__BROWSER_INTERNAL_PORT}/')
-    c.print(f'  Dockge        →  sg-ec2 forward-dockge         then  http://localhost:{EC2__DOCKGE_PORT}/')
-    c.print(f'  Prometheus    →  sg-ec2 forward-prometheus      then  http://localhost:{EC2__PROMETHEUS_PORT}/')
+    # Phase C strip: browser-VNC / Dockge / Prometheus moved to sister sections.
+    # Reach them via `sp vnc connect <name>` / `sp prom forward <name>`.
     c.print()
 
     if failed:
@@ -2414,108 +2406,12 @@ def cmd_health(ip           : Optional[str] = typer.Argument(None, help='Public 
     _render_health(_health_check_once(base_url, key_name, key_value), base_url)
 
 
-@app.command(name='forward-prometheus')
-def cmd_forward_prometheus(target: Optional[str] = typer.Argument(None, help='Deploy-name or instance-id; auto-selects if only one instance.')):
-    """Forward Prometheus (port 9090) to localhost via SSM."""
-    import subprocess
-    ec2                  = EC2()
-    instance_id, details = _resolve_target(ec2, target)
-    deploy_name          = _instance_deploy_name(details) or instance_id
-    c = Console(highlight=False, width=200)
-    c.print()
-    c.print(Panel(
-        f'[bold]🔥  Prometheus Forward[/]\n\n'
-        f'  instance   [bold]{deploy_name}[/]  [dim]{instance_id}[/]\n'
-        f'  tunnel     [bold]localhost:{EC2__PROMETHEUS_PORT}[/]\n\n'
-        f'  [green]Access:[/]  [bold]http://localhost:{EC2__PROMETHEUS_PORT}/[/]\n'
-        f'  [dim]Press Ctrl-C to close the tunnel.[/]',
-        border_style='bright_blue', expand=False))
-    c.print()
-    subprocess.run(['aws', 'ssm', 'start-session',
-                    '--target'       , instance_id,
-                    '--document-name', 'AWS-StartPortForwardingSession',
-                    '--parameters'   , json.dumps({'portNumber'     : [str(EC2__PROMETHEUS_PORT)],
-                                                   'localPortNumber': [str(EC2__PROMETHEUS_PORT)]})],
-                   check=False)
-
-
-@app.command(name='forward-browser')
-def cmd_forward_browser(target: Optional[str] = typer.Argument(None, help='Deploy-name or instance-id; auto-selects if only one instance.')):
-    """Forward the streaming browser (linuxserver/chromium) to localhost via SSM.
-
-    Opens a real Chrome session pre-configured to route through mitmproxy —
-    the manual equivalent of what the playwright containers do automatically.
-    All traffic is visible in real time at sg-ec2 forward 8001 → /web/flows.
-    """
-    import subprocess
-    ec2                  = EC2()
-    instance_id, details = _resolve_target(ec2, target)
-    deploy_name          = _instance_deploy_name(details) or instance_id
-    c = Console(highlight=False, width=200)
-    c.print()
-    c.print(Panel(
-        f'[bold]🌐  Browser Forward[/]\n\n'
-        f'  instance   [bold]{deploy_name}[/]  [dim]{instance_id}[/]\n'
-        f'  tunnel     [bold]localhost:{EC2__BROWSER_INTERNAL_PORT}[/]\n\n'
-        f'  [green]Access:[/]  [bold]http://localhost:{EC2__BROWSER_INTERNAL_PORT}/[/]\n'
-        f'  [dim]All traffic routes through mitmproxy — flows visible via sg-ec2 forward {EC2__SIDECAR_ADMIN_PORT}[/]\n'
-        f'  [dim]Press Ctrl-C to close the tunnel.[/]',
-        border_style='bright_blue', expand=False))
-    c.print()
-    subprocess.run(['aws', 'ssm', 'start-session',
-                    '--target'       , instance_id,
-                    '--document-name', 'AWS-StartPortForwardingSession',
-                    '--parameters'   , json.dumps({'portNumber'     : [str(EC2__BROWSER_INTERNAL_PORT)],
-                                                   'localPortNumber': [str(EC2__BROWSER_INTERNAL_PORT)]})],
-                   check=False)
-
-
-@app.command(name='forward-dockge')
-def cmd_forward_dockge(target: Optional[str] = typer.Argument(None, help='Deploy-name or instance-id; auto-selects if only one instance.')):
-    """Forward Dockge (port 5001) to localhost via SSM — Docker Compose management UI."""
-    import subprocess
-    ec2                  = EC2()
-    instance_id, details = _resolve_target(ec2, target)
-    deploy_name          = _instance_deploy_name(details) or instance_id
-    c = Console(highlight=False, width=200)
-    c.print()
-    c.print(Panel(
-        f'[bold]🐳  Dockge Forward[/]\n\n'
-        f'  instance   [bold]{deploy_name}[/]  [dim]{instance_id}[/]\n'
-        f'  tunnel     [bold]localhost:{EC2__DOCKGE_PORT}[/]\n\n'
-        f'  [green]Access:[/]  [bold]http://localhost:{EC2__DOCKGE_PORT}/[/]\n'
-        f'  [dim]First visit sets the admin password.[/]\n'
-        f'  [dim]Press Ctrl-C to close the tunnel.[/]',
-        border_style='bright_blue', expand=False))
-    c.print()
-    subprocess.run(['aws', 'ssm', 'start-session',
-                    '--target'       , instance_id,
-                    '--document-name', 'AWS-StartPortForwardingSession',
-                    '--parameters'   , json.dumps({'portNumber'     : [str(EC2__DOCKGE_PORT)],
-                                                   'localPortNumber': [str(EC2__DOCKGE_PORT)]})],
-                   check=False)
-
-
-@app.command(name='metrics')
-def cmd_metrics(service : str           = typer.Argument('playwright', help='Service to query: playwright or mitmproxy.'),
-                target  : Optional[str] = typer.Option(None, '--target', '-t', help='Deploy-name or instance-id (auto if only one).') ):
-    """Fetch Prometheus metrics text from a service on the EC2 host via SSM."""
-    ec2             = EC2()
-    instance_id, d  = _resolve_target(ec2, target)
-    deploy_name     = _instance_deploy_name(d)
-    api_key_name    = _instance_tag(d, TAG__API_KEY_NAME_KEY)  or 'X-API-Key'
-    api_key_value   = _instance_tag(d, TAG__API_KEY_VALUE_KEY) or ''
-    port_map        = {'playwright': EC2__PLAYWRIGHT_PORT, 'mitmproxy': EC2__SIDECAR_ADMIN_PORT}
-    port            = port_map.get(service, EC2__PLAYWRIGHT_PORT)
-    cmd             = f"curl -s http://localhost:{port}/metrics -H '{api_key_name}: {api_key_value}'"
-    c = Console(highlight=False, width=200)
-    c.print(f'\n  📈  metrics [{service}] from [bold]{deploy_name}[/]  [dim]{instance_id}[/]')
-    stdout, stderr = _ssm_run(instance_id, [cmd], timeout=30)
-    if stdout.strip():
-        c.print(stdout.rstrip())
-    if stderr.strip():
-        c.print(f'[yellow]{stderr.rstrip()}[/]')
-    c.print()
+# Phase D (v0.1.96 stack-split) — top-level forward-* + metrics commands
+# deleted. Their targets moved out of the Playwright EC2 in Phase C:
+#   forward-prometheus → use `sp prom forward <name>` once that lands
+#   forward-browser    → use `sp vnc connect <name>` (browser-VNC moved to sp vnc)
+#   forward-dockge     → deleted (Dockge dropped entirely)
+#   metrics            → use `sp prom metrics <url>` (URL-based, see scripts/prometheus.py)
 
 
 @app.command(name='ensure-passrole')

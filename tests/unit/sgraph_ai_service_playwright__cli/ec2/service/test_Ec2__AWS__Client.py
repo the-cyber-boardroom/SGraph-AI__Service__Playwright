@@ -10,7 +10,6 @@ from unittest                                                                   
 from sgraph_ai_service_playwright__cli.ec2.service.Ec2__AWS__Client                  import (Ec2__AWS__Client                            ,
                                                                                               EC2__AMI_NAME_AL2023                         ,
                                                                                               EC2__AMI_OWNER_AMAZON                        ,
-                                                                                              EC2__BROWSER_INTERNAL_PORT                   ,
                                                                                               EC2__PLAYWRIGHT_PORT                         ,
                                                                                               EC2__SIDECAR_ADMIN_PORT                      ,
                                                                                               IAM__ASSUME_ROLE_SERVICE                     ,
@@ -414,11 +413,10 @@ class test_sg_and_ami_constants(TestCase):
         except UnicodeEncodeError as exc:
             self.fail(f'SG__DESCRIPTION must be ASCII (AWS rejects multi-byte): {exc}')
 
-    def test__sg_ingress_ports_are_canonical(self):                                 # Phase C strip: 2 ports now (browser-VNC moved to sp vnc)
+    def test__sg_ingress_ports_are_canonical(self):                                 # Phase D: 2 ports; EC2__BROWSER_INTERNAL_PORT constant removed (last consumer deleted)
         assert SG_INGRESS_PORTS == (EC2__PLAYWRIGHT_PORT, EC2__SIDECAR_ADMIN_PORT)
         assert EC2__PLAYWRIGHT_PORT       == 8000
         assert EC2__SIDECAR_ADMIN_PORT    == 8001
-        assert EC2__BROWSER_INTERNAL_PORT == 3000                                   # Constant retained for `sp open` / `sp forward-browser` (deleted in Phase D)
 
     def test__ami_name_filter_targets_al2023(self):
         assert EC2__AMI_OWNER_AMAZON == 'amazon'

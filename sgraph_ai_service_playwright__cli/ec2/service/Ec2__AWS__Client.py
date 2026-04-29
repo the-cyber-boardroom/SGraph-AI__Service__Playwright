@@ -56,9 +56,10 @@ EC2__AMI_NAME_AL2023       = 'al2023-ami-2023.*-x86_64'
 
 EC2__PLAYWRIGHT_PORT       = 8000                                                   # Playwright API — exposed to the world via SG
 EC2__SIDECAR_ADMIN_PORT    = 8001                                                   # Sidecar admin API — exposed via SG, API-key gated
-EC2__BROWSER_INTERNAL_PORT = 3000                                                   # KasmVNC port (legacy — linuxserver/chromium moved to sp vnc in Phase C). Constant kept until sp open / forward-browser commands are dropped in Phase D.
+# EC2__BROWSER_INTERNAL_PORT (3000) removed in Phase D — last consumer
+# (sp forward-browser) deleted in the same commit. KasmVNC now lives in sp vnc.
 
-SG_INGRESS_PORTS           = (EC2__PLAYWRIGHT_PORT, EC2__SIDECAR_ADMIN_PORT)        # Phase C strip: dropped EC2__BROWSER_INTERNAL_PORT (browser-VNC moved to sp vnc).
+SG_INGRESS_PORTS           = (EC2__PLAYWRIGHT_PORT, EC2__SIDECAR_ADMIN_PORT)        # Phase C strip: 2 ports (browser-VNC moved to sp vnc).
 
 
 _ADJECTIVES = ['bold','bright','calm','clever','cool','daring','deep','eager',
