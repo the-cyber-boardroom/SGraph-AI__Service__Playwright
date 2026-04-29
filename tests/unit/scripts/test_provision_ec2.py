@@ -232,11 +232,10 @@ class test_render_compose_yaml(TestCase):
         assert 'SG_PLAYWRIGHT__IGNORE_HTTPS_ERRORS:' in yaml
         assert "'true'"                              in yaml
 
-    def test__api_key_in_both_services(self):
-        yaml = self._render(api_key_name='X-API-Key', api_key_value='test-secret',
-                            upstream_url='http://corp:3128')                                 # upstream_url required — browser service is conditional
+    def test__api_key_in_both_services(self):                                          # Phase C strip: 2 services (playwright + sidecar); browser-VNC moved to sp vnc
+        yaml = self._render(api_key_name='X-API-Key', api_key_value='test-secret')
         assert yaml.count("'X-API-Key'")    == 2                                           # playwright + sidecar FAST_API key name
-        assert yaml.count("'test-secret'")  == 3                                           # playwright FAST_API + sidecar FAST_API + browser PASSWD (KasmVNC)
+        assert yaml.count("'test-secret'")  == 2                                           # playwright FAST_API + sidecar FAST_API
 
     def test__mitmweb_has_no_separate_password(self):
         yaml = self._render(api_key_value='test-secret')
@@ -258,9 +257,19 @@ class test_render_compose_yaml(TestCase):
         assert 'depends_on'      in yaml
         assert 'agent-mitmproxy' in yaml
 
-    def test__restart_always(self):
+    def test__restart_always(self):                                                  # Phase C strip: exactly 2 (playwright + sidecar)
         yaml = self._render()
-        assert yaml.count('restart: always') >= 2                                          # playwright + sidecar + observability services
+        assert yaml.count('restart: always') == 2                                          # playwright + sidecar — no observability bundle anymore
+
+    def test__no_browser_or_observability_services(self):                            # Phase C strip — defensive
+        yaml = self._render(upstream_url='http://corp:3128')                               # Even when upstream is set, no browser anymore
+        assert 'browser:'      not in yaml                                                  # browser-VNC moved to sp vnc
+        assert 'browser-proxy:' not in yaml
+        assert 'cadvisor:'     not in yaml                                                  # metrics stack moved to sp prom
+        assert 'prometheus:'   not in yaml
+        assert 'fluent-bit:'   not in yaml                                                  # log shipper deferred to sp os
+        assert 'dockge:'       not in yaml                                                  # deleted entirely
+        assert 'prometheus_data' not in yaml                                                # volume gone too
 
 
 class test_render_user_data(TestCase):
@@ -316,69 +325,6 @@ class test_render_user_data(TestCase):
         assert SIDECAR_URI    in ud
         assert 'sg-net'       in ud
 
-
-class test_render_observability_configs(TestCase):
-
-    def _render_obs(self, **kwargs):
-        orig_region   = provision_ec2.aws_region
-        orig_registry = provision_ec2.ecr_registry_host
-        try:
-            provision_ec2.aws_region        = lambda: 'eu-west-2'
-            provision_ec2.ecr_registry_host = lambda: FAKE_REGISTRY
-            from scripts.provision_ec2 import render_observability_configs_section
-            return render_observability_configs_section(region='eu-west-2', stage='dev', **kwargs)
-        finally:
-            provision_ec2.aws_region        = orig_region
-            provision_ec2.ecr_registry_host = orig_registry
-
-    def test__writes_prometheus_yml(self):
-        obs = self._render_obs()
-        assert 'prometheus.yml'  in obs
-        assert 'scrape_interval' in obs
-
-    def test__writes_parsers_custom_conf(self):
-        obs = self._render_obs()
-        assert 'parsers_custom.conf' in obs
-        assert 'uvicorn_access'      in obs
-        assert 'http_method'         in obs
-        assert 'http_path'           in obs
-        assert 'http_status'         in obs
-
-    def test__writes_container_name_lua(self):
-        obs = self._render_obs()
-        assert 'container_name.lua'    in obs
-        assert 'container-names.txt'   in obs
-        assert 'add_container_name'    in obs
-        assert 'load_map'              in obs
-
-    def test__writes_fluent_bit_conf(self):
-        obs = self._render_obs()
-        assert 'fluent-bit.conf'          in obs
-        assert 'Parsers_File'             in obs
-        assert 'parsers_custom.conf'      in obs
-        assert 'container_path'           in obs
-        assert 'uvicorn_access'           in obs
-        assert 'lua'                      in obs
-        assert 'add_container_name'       in obs
-
-    def test__health_check_drop_filter_present(self):
-        obs = self._render_obs()
-        assert 'Exclude http_path' in obs
-        assert '/health/'          in obs
-
-    def test__blank_line_drop_filter_present(self):
-        obs = self._render_obs()
-        assert r'Regex  log  \S' in obs
-
-    def test__opensearch_output_when_endpoint_given(self):
-        obs = self._render_obs(opensearch_endpoint='https://my-os.eu-west-2.es.amazonaws.com')
-        assert 'my-os.eu-west-2.es.amazonaws.com' in obs
-        assert 'AWS_Auth          On'              in obs
-        assert 'sg-playwright-logs'                in obs
-
-    def test__stdout_output_when_no_endpoint(self):
-        obs = self._render_obs()
-        assert 'Name   stdout' in obs
 
 
 class test_provision_terminate(TestCase):

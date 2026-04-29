@@ -187,6 +187,29 @@ First two slices of the new OpenSearch sister section. Folder name is `opensearc
 | `vnc/fast_api/routes/Routes__Vnc__Flows.py` | One additional route — `GET /vnc/stack/{name}/flows` returns `{"flows": [...summaries]}`. Per N4 there is no auto-export; this is just a peek for human debug. 404 when the stack doesn't exist; otherwise envelope with the (possibly empty) list of `Schema__Vnc__Mitm__Flow__Summary`. |
 | `vnc/cli/Renderers.py` | Tier-2A Rich renderers — `render_list` / `render_info` / `render_create` / `render_health` / `render_flows` / `render_interceptors`. Pure functions; no service / AWS / HTTP calls. State→colour mapping mirrors the OS / Prom Renderers. |
 | `scripts/vnc.py` | Typer entry point — `sp vnc`. **7 commands** (`create` / `list` / `info` / `delete` / `health` / `flows` / `interceptors`). `create` accepts `--interceptor <name>` (load baked example) or `--interceptor-script <path>` (read local Python file → INLINE source); raises `BadParameter` if both provided. `interceptors` lists baked example names by calling `Vnc__Interceptor__Resolver.list_examples()` (no service/AWS calls). Mounted on the main `sp` app via `add_typer` in `scripts/provision_ec2.py`. |
+
+---
+
+### Phase C — Strip the Playwright EC2 (2026-04-29)
+
+**The Playwright EC2 now hosts only 2 containers:** `playwright` + `agent-mitmproxy`. The previous 9-container compose (browser + browser-proxy + cadvisor + node-exporter + prometheus + fluent-bit + dockge plus the 2 retained) has been split out — each moved container now lives in its own sister section (`sp vnc`, `sp prom`, `sp os` deferred), and Dockge was deleted entirely (operator UI, no sister section needed).
+
+| Surface | Before | After |
+|---|---|---|
+| Containers on the Playwright EC2 | 9 (`playwright` + `agent-mitmproxy` + 7 observability/UI) | **2** (`playwright` + `agent-mitmproxy`) |
+| `scripts/provision_ec2.py` LoC | ~2,950 | ~2,690 |
+| `Ec2__AWS__Client.SG_INGRESS_PORTS` | `(8000, 8001, 3000)` | `(8000, 8001)` |
+| Named volumes on the host | `prometheus_data` | none |
+| `render_compose_yaml(...)` signature | 11 params | 9 params (dropped `amp_remote_write_url`, `opensearch_endpoint`) |
+| `render_user_data(...)` signature | 9 params | 6 params (dropped `amp_remote_write_url`, `opensearch_endpoint`, `upstream_url`) |
+
+**Constants retained for now** (deleted in Phase D when their last consumer goes): `EC2__BROWSER_INTERNAL_PORT`, `EC2__BROWSER_IMAGE`, `EC2__DOCKGE_PORT`, `EC2__DOCKGE_IMAGE`, `EC2__PROMETHEUS_PORT` — referenced by the orphaned `sp forward-prometheus` / `sp forward-browser` / `sp forward-dockge` typer commands and `sp open` URL hints.
+
+`SG__DESCRIPTION` updated to reflect the 2-port shape (browser-VNC mention removed). `IAM__PROMETHEUS_RW_POLICY_ARN` and the rest of `IAM__OBSERVABILITY_POLICY_ARNS` stay in `Ec2__AWS__Client` (no harm; the IAM policies just aren't useful anymore — they grant remote-write to AMP that no longer runs on this host).
+
+Tests updated: `test_render_compose_yaml` assertions tightened (restart-count `== 2`; new defensive `test__no_browser_or_observability_services` locks the strip); entire `test_render_observability_configs` class (8 tests) removed; `test__sg_ingress_ports_are_canonical` shrunk to 2 ports.
+
+**Plan reference:** `team/comms/plans/v0.1.96__playwright-stack-split__03__strip-playwright-ec2.md` (S1/S2/S3 signed off).
 | `vnc/schemas/Schema__Vnc__Interceptor__Choice.py` | The N5 selector itself — `kind` + `name` (when kind=NAME) + `inline_source` (when kind=INLINE). Defaults to NONE so mitmproxy starts without an interceptor unless explicitly chosen. |
 | `vnc/schemas/Schema__Vnc__Stack__Create__Request.py` | Inputs for `sp vnc create [NAME]`. All fields optional; carries `operator_password : Safe_Str__Vnc__Password` (one secret, used twice — nginx + mitm) and `interceptor : Schema__Vnc__Interceptor__Choice`. |
 | `vnc/schemas/Schema__Vnc__Stack__Create__Response.py` | Returned once. Carries `viewer_url` (https://&lt;ip&gt;/), `mitmweb_url` (https://&lt;ip&gt;/mitmweb/), `operator_password` (returned once), `interceptor_kind` + `interceptor_name`. |

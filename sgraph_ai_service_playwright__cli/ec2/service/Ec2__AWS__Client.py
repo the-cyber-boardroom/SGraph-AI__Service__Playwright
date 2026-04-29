@@ -49,16 +49,16 @@ INSTANCE_STATES_LIVE  = ['pending', 'running', 'stopping', 'stopped']           
 
 # Security group + AMI constants (Phase A step 3d)
 SG__NAME                   = 'playwright-ec2'                                       # AWS reserves 'sg-*' prefix for SG IDs only — not for GroupName
-SG__DESCRIPTION            = 'SG Playwright EC2 stack - ingress :8000 (Playwright API) + :8001 (sidecar admin) + :3000 (streaming browser) - all ports behind API key / KasmVNC password auth'    # ASCII only — AWS rejects multi-byte GroupDescription (em-dash etc.)
+SG__DESCRIPTION            = 'SG Playwright EC2 stack - ingress :8000 (Playwright API) + :8001 (sidecar admin) - both ports API-key gated'    # ASCII only — AWS rejects multi-byte GroupDescription. Phase C strip dropped :3000 (browser-VNC moved to sp vnc).
 
 EC2__AMI_OWNER_AMAZON      = 'amazon'
 EC2__AMI_NAME_AL2023       = 'al2023-ami-2023.*-x86_64'
 
 EC2__PLAYWRIGHT_PORT       = 8000                                                   # Playwright API — exposed to the world via SG
 EC2__SIDECAR_ADMIN_PORT    = 8001                                                   # Sidecar admin API — exposed via SG, API-key gated
-EC2__BROWSER_INTERNAL_PORT = 3000                                                   # linuxserver/chromium KasmVNC — SSM-forward only, never exposed in SG
+EC2__BROWSER_INTERNAL_PORT = 3000                                                   # KasmVNC port (legacy — linuxserver/chromium moved to sp vnc in Phase C). Constant kept until sp open / forward-browser commands are dropped in Phase D.
 
-SG_INGRESS_PORTS           = (EC2__PLAYWRIGHT_PORT, EC2__SIDECAR_ADMIN_PORT, EC2__BROWSER_INTERNAL_PORT)   # Phase C strip removes BROWSER_INTERNAL_PORT
+SG_INGRESS_PORTS           = (EC2__PLAYWRIGHT_PORT, EC2__SIDECAR_ADMIN_PORT)        # Phase C strip: dropped EC2__BROWSER_INTERNAL_PORT (browser-VNC moved to sp vnc).
 
 
 _ADJECTIVES = ['bold','bright','calm','clever','cool','daring','deep','eager',

@@ -319,7 +319,7 @@ class test_Ec2__AWS__Client(TestCase):
         assert sg_id == 'sg-fake'
         ops   = [c[0] for c in self.fake_ec2.calls]
         assert ops == ['security_group', 'security_group_create',
-                       'security_group_authorize_ingress', 'security_group_authorize_ingress', 'security_group_authorize_ingress']
+                       'security_group_authorize_ingress', 'security_group_authorize_ingress']    # Phase C strip: 2 ingress ports now (8000 + 8001), down from 3
         port_calls = [c[1]['port'] for c in self.fake_ec2.calls if c[0] == 'security_group_authorize_ingress']
         assert port_calls == list(SG_INGRESS_PORTS)                                 # Authorises every ingress port in the canonical order
 
@@ -414,11 +414,11 @@ class test_sg_and_ami_constants(TestCase):
         except UnicodeEncodeError as exc:
             self.fail(f'SG__DESCRIPTION must be ASCII (AWS rejects multi-byte): {exc}')
 
-    def test__sg_ingress_ports_are_canonical(self):
-        assert SG_INGRESS_PORTS == (EC2__PLAYWRIGHT_PORT, EC2__SIDECAR_ADMIN_PORT, EC2__BROWSER_INTERNAL_PORT)
+    def test__sg_ingress_ports_are_canonical(self):                                 # Phase C strip: 2 ports now (browser-VNC moved to sp vnc)
+        assert SG_INGRESS_PORTS == (EC2__PLAYWRIGHT_PORT, EC2__SIDECAR_ADMIN_PORT)
         assert EC2__PLAYWRIGHT_PORT       == 8000
         assert EC2__SIDECAR_ADMIN_PORT    == 8001
-        assert EC2__BROWSER_INTERNAL_PORT == 3000
+        assert EC2__BROWSER_INTERNAL_PORT == 3000                                   # Constant retained for `sp open` / `sp forward-browser` (deleted in Phase D)
 
     def test__ami_name_filter_targets_al2023(self):
         assert EC2__AMI_OWNER_AMAZON == 'amazon'
