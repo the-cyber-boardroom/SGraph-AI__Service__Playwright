@@ -156,19 +156,31 @@ First two slices of the new OpenSearch sister section. Folder name is `opensearc
 
 170 unit tests across primitives + enums + schemas + collections + AWS helpers + HTTP base + probe + Caller__IP__Detector + Random__Stack__Name__Generator + Stack__Mapper + Compose template + Config generator + User_Data builder + Launch helper + Service (read paths + create_stack + setup() chain) + FastAPI routes (5 endpoints via TestClient) + Renderers (Rich Console-capture) + typer-app smoke (CliRunner). Every AWS- and HTTP-touching class is exercised through real `_Fake_*` subclasses (no mocks); each helper has its own focused test file kept under ~150 lines.
 
-### `vnc/` — `sp vnc` sister section foundation (Phase B step 7a, 2026-04-29)
+### `vnc/` — `sp vnc` sister section (Phase B steps 7a–7b, 2026-04-29)
 
-First slice of the new chromium + nginx + mitmproxy sister section. Folder `vnc/`; typer alias `sp vnc` (single name only — N1: renamed from working title `sp nvm`). Per plan doc 6: chromium-only at runtime today (N2); profile + state wiped at termination (N3); no automatic flow export (N4); interceptor model is **default-off + ship examples + provision-time choice via env vars** (N5).
+First two slices of the new chromium + nginx + mitmproxy sister section. Folder `vnc/`; typer alias `sp vnc` (single name only — N1: renamed from working title `sp nvm`). Per plan doc 6: chromium-only at runtime today (N2); profile + state wiped at termination (N3); no automatic flow export (N4); interceptor model is **default-off + ship examples + provision-time choice via env vars** (N5).
 
 | File | Role |
 |------|------|
 | `vnc/primitives/Safe_Str__Vnc__Stack__Name.py` | Stack name; same regex as elastic + opensearch + prometheus (parity locked by test). |
 | `vnc/primitives/Safe_Str__IP__Address.py` | Local IPv4 primitive. Sister sections stay self-contained. |
 | `vnc/primitives/Safe_Str__Vnc__Password.py` | Operator password (URL-safe base64, 16-64 chars). Used both for nginx Basic auth (operator-facing UI) and `MITM_PROXYAUTH` on the mitmproxy container — service generates one and uses it twice. |
+| `vnc/primitives/Safe_Str__Vnc__Interceptor__Source.py` | Raw Python source for an inline interceptor (per N5). Permissive regex (tabs + newlines + printable ASCII); `max_length=32 KB`; `trim_whitespace=False` so indentation survives. |
 | `vnc/enums/Enum__Vnc__Stack__State.py` | Lifecycle vocabulary (PENDING/RUNNING/READY/TERMINATING/TERMINATED/UNKNOWN); shape parity with elastic + os + prom locked by test. |
+| `vnc/enums/Enum__Vnc__Interceptor__Kind.py` | N5 interceptor selector — `NONE` (default), `NAME`, `INLINE`. |
 | `vnc/service/Vnc__AWS__Client.py` | Skeleton — declares `VNC_NAMING = Stack__Naming(section_prefix='vnc')` + 7 tag constants (`sg:purpose=vnc`, `sg:section=vnc`, plus `sg:interceptor` per N5). Helper slots wired in step 7c. |
+| `vnc/schemas/Schema__Vnc__Interceptor__Choice.py` | The N5 selector itself — `kind` + `name` (when kind=NAME) + `inline_source` (when kind=INLINE). Defaults to NONE so mitmproxy starts without an interceptor unless explicitly chosen. |
+| `vnc/schemas/Schema__Vnc__Stack__Create__Request.py` | Inputs for `sp vnc create [NAME]`. All fields optional; carries `operator_password : Safe_Str__Vnc__Password` (one secret, used twice — nginx + mitm) and `interceptor : Schema__Vnc__Interceptor__Choice`. |
+| `vnc/schemas/Schema__Vnc__Stack__Create__Response.py` | Returned once. Carries `viewer_url` (https://&lt;ip&gt;/), `mitmweb_url` (https://&lt;ip&gt;/mitmweb/), `operator_password` (returned once), `interceptor_kind` + `interceptor_name`. |
+| `vnc/schemas/Schema__Vnc__Stack__Info.py` | Public view — defensive test asserts no `password` field anywhere. |
+| `vnc/schemas/Schema__Vnc__Stack__List.py` | Response wrapper — `region` + `stacks`. |
+| `vnc/schemas/Schema__Vnc__Stack__Delete__Response.py` | Empty fields ⇒ caller maps to HTTP 404. |
+| `vnc/schemas/Schema__Vnc__Health.py` | Health snapshot — `nginx_ok` (200 on `/`) + `mitmweb_ok` (`/api/flows` reachable) + `flow_count` (`-1` sentinel = unreachable; 0 valid). |
+| `vnc/schemas/Schema__Vnc__Mitm__Flow__Summary.py` | One-line summary of a mitmweb flow (per N4 no auto-export — flows die with the EC2; this is just a human-debug peek). |
+| `vnc/collections/List__Schema__Vnc__Stack__Info.py` | Type_Safe__List for the listing response. |
+| `vnc/collections/List__Schema__Vnc__Mitm__Flow__Summary.py` | Type_Safe__List for the flows endpoint. |
 
-24 new unit tests — primitives + enum + VNC_NAMING + tag constants + interceptor-tag namespace + skeleton instantiation.
+48 unit tests — primitives + enums + AWS-client skeleton + 7 schemas + 2 collections (round-trip via `.json()`, defensive no-password check on Info, N5 three-shape round-trip on Interceptor__Choice).
 
 ### `observability/` — Tier-1 pure-logic service (read-only surface)
 
