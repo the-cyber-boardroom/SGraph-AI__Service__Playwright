@@ -67,10 +67,12 @@ class test_Vnc__AWS__Client(TestCase):
         assert client.ami      is None
         assert client.instance is None
         assert client.tags     is None
+        assert client.launch   is None
 
-    def test__setup_wires_all_four_helpers(self):
+    def test__setup_wires_all_five_helpers(self):
         from sgraph_ai_service_playwright__cli.vnc.service.Vnc__AMI__Helper      import Vnc__AMI__Helper
         from sgraph_ai_service_playwright__cli.vnc.service.Vnc__Instance__Helper import Vnc__Instance__Helper
+        from sgraph_ai_service_playwright__cli.vnc.service.Vnc__Launch__Helper   import Vnc__Launch__Helper
         from sgraph_ai_service_playwright__cli.vnc.service.Vnc__SG__Helper       import Vnc__SG__Helper
         from sgraph_ai_service_playwright__cli.vnc.service.Vnc__Tags__Builder    import Vnc__Tags__Builder
         client = Vnc__AWS__Client().setup()
@@ -78,6 +80,7 @@ class test_Vnc__AWS__Client(TestCase):
         assert isinstance(client.ami     , Vnc__AMI__Helper     )
         assert isinstance(client.instance, Vnc__Instance__Helper)
         assert isinstance(client.tags    , Vnc__Tags__Builder   )
+        assert isinstance(client.launch  , Vnc__Launch__Helper  )
 
     def test__setup_returns_self(self):
         client = Vnc__AWS__Client()

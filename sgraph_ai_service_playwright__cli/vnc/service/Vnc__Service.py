@@ -4,15 +4,16 @@
 # and exposes the operations consumed by both the typer CLI (Tier 2A) and the
 # FastAPI routes (Tier 2B).
 #
-# Read paths (this slice — 7e):
+# Operations:
 #   - list_stacks(region)
 #   - get_stack_info(region, stack_name)
 #   - delete_stack(region, stack_name)
 #   - health(region, stack_name)
 #   - flows(region, stack_name)                                                  ← peek mitmweb flows (per N4, no auto-export)
-#
-# create_stack lands in step 7f.
+#   - create_stack(request, creator='')                                          (wired in step 7f)
 # ═══════════════════════════════════════════════════════════════════════════════
+
+import secrets
 
 from typing                                                                         import Optional
 
@@ -21,16 +22,21 @@ from osbot_utils.type_safe.Type_Safe                                            
 from sgraph_ai_service_playwright__cli.ec2.collections.List__Instance__Id           import List__Instance__Id
 from sgraph_ai_service_playwright__cli.vnc.collections.List__Schema__Vnc__Mitm__Flow__Summary import List__Schema__Vnc__Mitm__Flow__Summary
 from sgraph_ai_service_playwright__cli.vnc.collections.List__Schema__Vnc__Stack__Info import List__Schema__Vnc__Stack__Info
+from sgraph_ai_service_playwright__cli.vnc.enums.Enum__Vnc__Interceptor__Kind       import Enum__Vnc__Interceptor__Kind
 from sgraph_ai_service_playwright__cli.vnc.enums.Enum__Vnc__Stack__State            import Enum__Vnc__Stack__State
 from sgraph_ai_service_playwright__cli.vnc.schemas.Schema__Vnc__Health              import Schema__Vnc__Health
 from sgraph_ai_service_playwright__cli.vnc.schemas.Schema__Vnc__Mitm__Flow__Summary import Schema__Vnc__Mitm__Flow__Summary
+from sgraph_ai_service_playwright__cli.vnc.schemas.Schema__Vnc__Stack__Create__Request  import Schema__Vnc__Stack__Create__Request
+from sgraph_ai_service_playwright__cli.vnc.schemas.Schema__Vnc__Stack__Create__Response import Schema__Vnc__Stack__Create__Response
+from sgraph_ai_service_playwright__cli.vnc.service.Vnc__AWS__Client                 import VNC_NAMING
 from sgraph_ai_service_playwright__cli.vnc.schemas.Schema__Vnc__Stack__Delete__Response import Schema__Vnc__Stack__Delete__Response
 from sgraph_ai_service_playwright__cli.vnc.schemas.Schema__Vnc__Stack__Info         import Schema__Vnc__Stack__Info
 from sgraph_ai_service_playwright__cli.vnc.schemas.Schema__Vnc__Stack__List         import Schema__Vnc__Stack__List
 
 
 DEFAULT_REGION        = 'eu-west-2'
-DEFAULT_INSTANCE_TYPE = 't3.medium'                                                 # 2 vCPU / 4 GB — fits chromium + nginx + mitmproxy comfortably
+DEFAULT_INSTANCE_TYPE = 't3.large'                                                  # 2 vCPU / 8 GB — chromium needs RAM headroom for VNC + tabs (mirrors Vnc__Launch__Helper)
+PASSWORD_BYTES        = 24                                                          # secrets.token_urlsafe(24) ⇒ 32-char URL-safe base64
 
 
 def _flow_summary_from_mitmweb(flow: dict) -> Schema__Vnc__Mitm__Flow__Summary:     # Pure mapper — mitmweb /api/flows shape → schema
@@ -44,25 +50,70 @@ def _flow_summary_from_mitmweb(flow: dict) -> Schema__Vnc__Mitm__Flow__Summary: 
 
 
 class Vnc__Service(Type_Safe):
-    aws_client  : object = None                                                     # Vnc__AWS__Client              (lazy via setup())
-    probe       : object = None                                                     # Vnc__HTTP__Probe              (lazy via setup())
-    mapper      : object = None                                                     # Vnc__Stack__Mapper            (lazy via setup())
-    ip_detector : object = None                                                     # Caller__IP__Detector          (lazy via setup())
-    name_gen    : object = None                                                     # Random__Stack__Name__Generator (lazy via setup())
+    aws_client           : object = None                                            # Vnc__AWS__Client              (lazy via setup())
+    probe                : object = None                                            # Vnc__HTTP__Probe              (lazy via setup())
+    mapper               : object = None                                            # Vnc__Stack__Mapper            (lazy via setup())
+    ip_detector          : object = None                                            # Caller__IP__Detector          (lazy via setup())
+    name_gen             : object = None                                            # Random__Stack__Name__Generator (lazy via setup())
+    compose_template     : object = None                                            # Vnc__Compose__Template        (lazy via setup())
+    user_data_builder    : object = None                                            # Vnc__User_Data__Builder       (lazy via setup())
+    interceptor_resolver : object = None                                            # Vnc__Interceptor__Resolver    (lazy via setup())
 
     def setup(self) -> 'Vnc__Service':                                              # Lazy imports avoid circular module-load
         from sgraph_ai_service_playwright__cli.vnc.service.Caller__IP__Detector            import Caller__IP__Detector
         from sgraph_ai_service_playwright__cli.vnc.service.Random__Stack__Name__Generator  import Random__Stack__Name__Generator
         from sgraph_ai_service_playwright__cli.vnc.service.Vnc__AWS__Client                import Vnc__AWS__Client
+        from sgraph_ai_service_playwright__cli.vnc.service.Vnc__Compose__Template          import Vnc__Compose__Template
         from sgraph_ai_service_playwright__cli.vnc.service.Vnc__HTTP__Base                 import Vnc__HTTP__Base
         from sgraph_ai_service_playwright__cli.vnc.service.Vnc__HTTP__Probe                import Vnc__HTTP__Probe
+        from sgraph_ai_service_playwright__cli.vnc.service.Vnc__Interceptor__Resolver      import Vnc__Interceptor__Resolver
         from sgraph_ai_service_playwright__cli.vnc.service.Vnc__Stack__Mapper              import Vnc__Stack__Mapper
-        self.aws_client  = Vnc__AWS__Client()       .setup()
-        self.probe       = Vnc__HTTP__Probe(http=Vnc__HTTP__Base())
-        self.mapper      = Vnc__Stack__Mapper()
-        self.ip_detector = Caller__IP__Detector()
-        self.name_gen    = Random__Stack__Name__Generator()
+        from sgraph_ai_service_playwright__cli.vnc.service.Vnc__User_Data__Builder         import Vnc__User_Data__Builder
+        self.aws_client           = Vnc__AWS__Client()       .setup()
+        self.probe                = Vnc__HTTP__Probe(http=Vnc__HTTP__Base())
+        self.mapper               = Vnc__Stack__Mapper()
+        self.ip_detector          = Caller__IP__Detector()
+        self.name_gen             = Random__Stack__Name__Generator()
+        self.compose_template     = Vnc__Compose__Template()
+        self.user_data_builder    = Vnc__User_Data__Builder()
+        self.interceptor_resolver = Vnc__Interceptor__Resolver()
         return self
+
+    def create_stack(self, request: Schema__Vnc__Stack__Create__Request, creator: str = '') -> Schema__Vnc__Stack__Create__Response:
+        stack_name  = str(request.stack_name)         or f'vnc-{self.name_gen.generate()}'  # Empty → 'vnc-{adjective}-{scientist}'
+        region      = str(request.region)             or DEFAULT_REGION
+        caller_ip   = str(request.caller_ip)          or str(self.ip_detector.detect())
+        password    = str(request.operator_password)  or secrets.token_urlsafe(PASSWORD_BYTES)
+        ami_id      = str(request.from_ami)           or self.aws_client.ami.latest_al2023_ami_id(region)
+        inst_type   = str(request.instance_type)      or DEFAULT_INSTANCE_TYPE
+
+        source, label = self.interceptor_resolver.resolve(request.interceptor)              # N5: (source_to_bake, label)
+        interceptor_kind_str = str(request.interceptor.kind)                                # 'none' / 'name' / 'inline'
+
+        sg_id        = self.aws_client.sg.ensure_security_group(region, stack_name, caller_ip)
+        tags         = self.aws_client.tags.build(stack_name, caller_ip, creator, request.interceptor)
+        compose_yaml = self.compose_template.render()
+        user_data    = self.user_data_builder.render(stack_name         = stack_name        ,
+                                                       region             = region            ,
+                                                       compose_yaml       = compose_yaml      ,
+                                                       interceptor_source = source            ,
+                                                       operator_password  = password          ,
+                                                       interceptor_kind   = interceptor_kind_str)
+        instance_id  = self.aws_client.launch.run_instance(region, ami_id, sg_id, user_data, tags, instance_type=inst_type)
+
+        return Schema__Vnc__Stack__Create__Response(
+            stack_name        = stack_name                                              ,
+            aws_name_tag      = VNC_NAMING.aws_name_for_stack(stack_name)               ,
+            instance_id       = instance_id                                              ,
+            region            = region                                                   ,
+            ami_id            = ami_id                                                   ,
+            instance_type     = inst_type                                                ,
+            security_group_id = sg_id                                                    ,
+            caller_ip         = caller_ip                                                ,
+            operator_password = password                                                 ,
+            interceptor_kind  = request.interceptor.kind                                 ,
+            interceptor_name  = label                                                    ,
+            state             = Enum__Vnc__Stack__State.PENDING                          )
 
     def list_stacks(self, region: str) -> Schema__Vnc__Stack__List:
         raw    = self.aws_client.instance.list_stacks(region)
