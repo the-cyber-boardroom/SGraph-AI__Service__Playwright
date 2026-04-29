@@ -793,6 +793,10 @@ from scripts.docker_stack import app as _docker_app  # noqa: E402
 app.add_typer(_docker_app, name='docker'        )                                    # ephemeral Docker-on-AL2023 EC2 stacks
 app.add_typer(_docker_app, name='dk',   hidden=True)                                 # short alias
 
+# v0.1.97 (2/3) — sp catalog: cross-section enumeration
+from scripts.catalog import app as _catalog_app  # noqa: E402
+app.add_typer(_catalog_app, name='catalog')
+
 
 def _health_check_once(base_url: str, api_key_name: str, api_key_value: str) -> dict:
     headers = {api_key_name: api_key_value} if api_key_value else {}
