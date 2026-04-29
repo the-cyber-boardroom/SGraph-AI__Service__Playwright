@@ -15,6 +15,11 @@ from sgraph_ai_service_playwright__cli.linux.enums.Enum__Linux__Stack__State    
 from sgraph_ai_service_playwright__cli.linux.schemas.Schema__Linux__Info            import Schema__Linux__Info
 from sgraph_ai_service_playwright__cli.linux.schemas.Schema__Linux__List            import Schema__Linux__List
 from sgraph_ai_service_playwright__cli.linux.service.Linux__Service                 import Linux__Service
+from sgraph_ai_service_playwright__cli.opensearch.collections.List__Schema__OS__Stack__Info import List__Schema__OS__Stack__Info
+from sgraph_ai_service_playwright__cli.opensearch.enums.Enum__OS__Stack__State      import Enum__OS__Stack__State
+from sgraph_ai_service_playwright__cli.opensearch.schemas.Schema__OS__Stack__Info   import Schema__OS__Stack__Info
+from sgraph_ai_service_playwright__cli.opensearch.schemas.Schema__OS__Stack__List   import Schema__OS__Stack__List
+from sgraph_ai_service_playwright__cli.opensearch.service.OpenSearch__Service       import OpenSearch__Service
 from sgraph_ai_service_playwright__cli.vnc.collections.List__Schema__Vnc__Stack__Info import List__Schema__Vnc__Stack__Info
 from sgraph_ai_service_playwright__cli.vnc.enums.Enum__Vnc__Stack__State            import Enum__Vnc__Stack__State
 from sgraph_ai_service_playwright__cli.vnc.schemas.Schema__Vnc__Stack__Info         import Schema__Vnc__Stack__Info
@@ -40,6 +45,13 @@ class _Fake_Elastic__Service(Elastic__Service):
     def list_stacks(self, region=None):                                             # elastic returns empty in this fixture
         stacks = List__Schema__Elastic__Info()
         return Schema__Elastic__List(stacks=stacks)
+
+
+class _Fake_OpenSearch__Service(OpenSearch__Service):
+    def list_stacks(self, region=None):
+        stacks = List__Schema__OS__Stack__Info()
+        stacks.append(Schema__OS__Stack__Info(stack_name='os-test', state=Enum__OS__Stack__State.RUNNING))
+        return Schema__OS__Stack__List(stacks=stacks)
 
 
 class _Fake_Vnc__Service(Vnc__Service):
