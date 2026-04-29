@@ -123,11 +123,10 @@ class SpCliVncViewer extends SgComponent {
     async _prewarm(url, password) {
         try {
             await fetch(url, {
-                mode: 'no-cors',
                 credentials: 'include',
                 headers: { Authorization: 'Basic ' + btoa(`operator:${password}`) },
             })
-        } catch (_) {}                                              // cert-error or CORS — auth still cached by browser
+        } catch (_) {}                                              // cert-error expected — triggers browser auth cache
     }
 
     _toggleMode() {
