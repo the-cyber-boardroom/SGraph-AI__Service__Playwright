@@ -19,5 +19,6 @@ COPY sgraph_ai_service_playwright__cli/ ./sgraph_ai_service_playwright__cli/
 COPY sgraph_ai_service_playwright/      ./sgraph_ai_service_playwright/
 COPY agent_mitmproxy/                   ./agent_mitmproxy/
 COPY scripts/                           ./scripts/
+COPY sgraph_ai_service_playwright__api_site/ ./sgraph_ai_service_playwright__api_site/
 
 CMD ["sgraph_ai_service_playwright__cli.fast_api.lambda_handler.handler"]
