@@ -32,7 +32,6 @@ from sgraph_ai_service_playwright__cli.ec2.schemas.Schema__Ec2__Instance__Info  
 from sgraph_ai_service_playwright__cli.ec2.schemas.Schema__Ec2__Instance__List         import Schema__Ec2__Instance__List, List__Ec2__Instance__Info
 from sgraph_ai_service_playwright__cli.ec2.schemas.Schema__Ec2__Preflight              import Schema__Ec2__Preflight
 from sgraph_ai_service_playwright__cli.ec2.service.Ec2__AWS__Client                    import (Ec2__AWS__Client            ,
-                                                                                                EC2__BROWSER_INTERNAL_PORT  ,
                                                                                                 EC2__PLAYWRIGHT_PORT        ,
                                                                                                 EC2__SIDECAR_ADMIN_PORT     ,
                                                                                                 aws_account_id              ,
@@ -136,7 +135,7 @@ class Ec2__Service(Type_Safe):                                                  
                                            public_ip            = ip                                            ,
                                            playwright_url       = f'http://{ip}:{EC2__PLAYWRIGHT_PORT}'         if ip else '',
                                            sidecar_admin_url    = f'http://{ip}:{EC2__SIDECAR_ADMIN_PORT}'      if ip else '',
-                                           browser_url          = f'https://{ip}:{EC2__BROWSER_INTERNAL_PORT}'  if ip else '',
+                                           browser_url          = ''                                            ,                              # Phase C strip: browser-VNC moved to sp vnc; field kept empty for schema compatibility
                                            api_key_name         = instance_tag(details, TAG__API_KEY_NAME_KEY)  ,
                                            api_key_value        = instance_tag(details, TAG__API_KEY_VALUE_KEY) ,
                                            playwright_image_uri = '(stored in compose file on instance)'        ,

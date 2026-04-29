@@ -80,3 +80,27 @@ def health(name    : str = typer.Argument(..., help='Stack name.'),
     """Probe Prometheus + scrape-target health on the live stack."""
     h = _service().health(region, name, username, password)
     render_health(h, Console(highlight=False, width=200))
+
+
+@app.command()
+def metrics(url     : str           = typer.Argument(..., help='Full URL of a /metrics endpoint to scrape (e.g. http://1.2.3.4:8000/metrics).'),
+            api_key : Optional[str] = typer.Option(None, '--key', '-k', help='Optional API key sent as the X-API-Key header.'),
+            timeout : int           = typer.Option(30, '--timeout', help='Request timeout in seconds.')):
+    """Fetch Prometheus exposition text from any /metrics URL.
+
+    Replaces the old top-level `sp metrics` (per plan doc 7 C2). URL-based,
+    no SSM — works for any service that exposes /metrics, not just the
+    Playwright EC2 host.
+    """
+    import requests                                                                 # Defer import — keeps the typer-app smoke test fast
+    headers = {'X-API-Key': api_key} if api_key else {}
+    c       = Console(highlight=False, width=200)
+    try:
+        resp = requests.get(url, headers=headers, timeout=timeout)
+    except Exception as exc:
+        c.print(f'  [red]✗  request failed:[/] {exc}')
+        raise typer.Exit(1)
+    if resp.status_code != 200:
+        c.print(f'  [red]✗  HTTP {resp.status_code}[/]: {resp.text[:200]}')
+        raise typer.Exit(1)
+    c.print(resp.text.rstrip())
