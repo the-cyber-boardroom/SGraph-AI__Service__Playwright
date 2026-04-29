@@ -5,8 +5,8 @@ import { apiClient } from './api-client.js';
 
 let cache = null;
 
-export async function loadCatalog() {
-    if (cache !== null) {
+export async function loadCatalog(forceRefresh = false) {
+    if (cache !== null && !forceRefresh) {
         return cache;
     }
     cache = await apiClient.get('/catalog/types');

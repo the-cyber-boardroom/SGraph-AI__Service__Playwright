@@ -43,7 +43,9 @@ async function init() {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
-    init();
+    if (apiClient.apiUrl) {
+        init();                                                                     // URL already saved — load immediately
+    }
 
     document.addEventListener('sg-stop-stack', async (e) => {
         const stack = e.detail;
@@ -58,7 +60,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     document.addEventListener('sg-auth-saved', async () => {
         try {
-            const catalog = await loadCatalog();
+            const catalog = await loadCatalog(true);                               // force-refresh cache after URL change
             TYPE_GRID().catalog = catalog.entries || [];
         } catch (err) {
             toast(`Failed to reload catalog: ${err.message}`, 'error');
