@@ -17,7 +17,7 @@ from osbot_utils.type_safe.Type_Safe                                            
 
 CHROMIUM_IMAGE  = 'lscr.io/linuxserver/chromium:latest'                             # Tests pin a known version
 NGINX_IMAGE     = 'nginx:latest'
-MITMPROXY_IMAGE = 'mitmproxy/mitmproxy:latest'
+MITMPROXY_IMAGE = 'mitmproxy/mitmproxy:10.4.2'                                      # Pinned: mitmproxy 11+ added CSRF/host-rebind protection on the mitmweb UI which 403s every cross-origin request (including reverse-proxy via nginx). 10.4.2 is the last 10.x release and exposes the documented /flows REST API without that block.
 
 
 # docker-compose.yml template — 3 services on the sg-net bridge
@@ -43,10 +43,10 @@ services:
     container_name: sg-nginx
     ports:
       - "443:443"
-    volumes:
-      - /opt/sg-vnc/nginx/conf.d:/etc/nginx/conf.d:ro
-      - /opt/sg-vnc/nginx/htpasswd:/etc/nginx/htpasswd:ro
-      - /opt/sg-vnc/nginx/tls:/etc/nginx/tls:ro
+    volumes:                                                                     # `:z` relabels the host path with a shared SELinux label so the container can read it. AL2023 has SELinux enforcing — without :z the bind mount is denied even at chmod 0644.
+      - /opt/sg-vnc/nginx/conf.d:/etc/nginx/conf.d:ro,z
+      - /opt/sg-vnc/nginx/htpasswd:/etc/nginx/htpasswd:ro,z
+      - /opt/sg-vnc/nginx/tls:/etc/nginx/tls:ro,z
     networks:
       - sg-net
     restart: unless-stopped
@@ -66,8 +66,8 @@ services:
       - --set=proxyauth=@/opt/sg-vnc/mitm/proxyauth
       - --scripts=/opt/sg-vnc/interceptors/runtime/active.py
     volumes:
-      - /opt/sg-vnc/interceptors:/opt/sg-vnc/interceptors:ro
-      - /opt/sg-vnc/mitm:/opt/sg-vnc/mitm:ro
+      - /opt/sg-vnc/interceptors:/opt/sg-vnc/interceptors:ro,z
+      - /opt/sg-vnc/mitm:/opt/sg-vnc/mitm:ro,z
     networks:
       - sg-net
     restart: unless-stopped

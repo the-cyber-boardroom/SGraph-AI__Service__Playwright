@@ -99,9 +99,9 @@ openssl req -x509 -nodes -newkey rsa:2048 -days 365 \\
     -keyout {nginx_tls_dir}/key.pem -out {nginx_tls_dir}/cert.pem \\
     -subj '/CN=sg-vnc/O=sg-vnc/OU=ephemeral'
 
-echo "[sg-vnc] writing mitmproxy proxyauth file..."
-echo "operator:${{SG_VNC_OPERATOR_PASSWORD}}" > {mitm_proxyauth}
-chmod 600 {mitm_proxyauth} {nginx_htpasswd}
+echo "[sg-vnc] writing mitmproxy proxyauth htpasswd file..."
+htpasswd -bcB {mitm_proxyauth} operator "${{SG_VNC_OPERATOR_PASSWORD}}"              # mitmproxy's --set proxyauth=@FILE uses passlib HtpasswdFile and rejects plaintext; needs proper bcrypt entry, same shape as the nginx htpasswd above
+chmod 644 {mitm_proxyauth} {nginx_htpasswd}                                          # 0644 — both files are bind-mounted into containers that run as non-root (mitmproxy + nginx). At 0600 the container user can't open them; mitmweb crash-loops with "Could not open htpasswd file". The host SG already limits exposure; the htpasswd is bcrypt-hashed.
 
 echo "[sg-vnc] writing interceptor (kind={interceptor_kind}) to {interceptor_file}..."
 cat > {interceptor_file} <<'SG_VNC_INTERCEPTOR_EOF'

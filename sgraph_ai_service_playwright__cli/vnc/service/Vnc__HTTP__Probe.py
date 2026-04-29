@@ -5,8 +5,8 @@
 #
 # Three probes:
 #   - nginx_ready(base_url)       — GET /          → bool  (nginx terminator)
-#   - mitmweb_ready(base_url)     — GET /api/flows → bool  (mitmweb reachable)
-#   - flows_listing(base_url)     — GET /api/flows → list  (mitmweb flows JSON)
+#   - mitmweb_ready(base_url)     — GET /flows     → bool  (mitmweb reachable)
+#   - flows_listing(base_url)     — GET /flows     → list  (mitmweb flows JSON)
 #
 # All probes return False / [] / {} on any failure; caller maps to
 # Schema__Vnc__Health '-1' sentinel for flow_count when listing fails.
@@ -21,7 +21,7 @@ from osbot_utils.type_safe.Type_Safe                                            
 from sgraph_ai_service_playwright__cli.vnc.service.Vnc__HTTP__Base                  import Vnc__HTTP__Base
 
 
-MITMWEB_FLOWS_PATH = '/api/flows'                                                   # mitmweb flow listing endpoint (GET)
+MITMWEB_FLOWS_PATH = '/flows'                                                       # mitmweb flow listing endpoint (GET) — the path is /flows, NOT /api/flows; mitmweb has no /api/ prefix
 
 
 class Vnc__HTTP__Probe(Type_Safe):
@@ -35,7 +35,7 @@ class Vnc__HTTP__Probe(Type_Safe):
             return False
         return 200 <= resp.status_code < 300
 
-    def mitmweb_ready(self, base_url: str, username: str = '', password: str = '') -> bool:  # True iff mitmweb /api/flows returns 200
+    def mitmweb_ready(self, base_url: str, username: str = '', password: str = '') -> bool:  # True iff mitmweb /flows returns 200
         url = f'{base_url.rstrip("/")}{MITMWEB_FLOWS_PATH}'
         try:
             resp = self.http.request('GET', url, username=username, password=password)
