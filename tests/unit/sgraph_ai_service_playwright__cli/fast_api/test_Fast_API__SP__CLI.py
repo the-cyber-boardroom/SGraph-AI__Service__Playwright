@@ -206,3 +206,17 @@ class test_Fast_API__SP__CLI(TestCase):
         assert '/elastic/stack/{name}'        in paths
         assert '/elastic/stack'               in paths
         assert '/elastic/stack/{name}/health' in paths
+
+    def test_vnc_routes_are_mounted(self):                                            # Verify all VNC paths are registered (Stack + Flows)
+        app   = Fast_API__SP__CLI().setup().app()
+        paths = {str(route.path) for route in app.routes}
+        assert '/vnc/stacks'              in paths
+        assert '/vnc/stack'               in paths
+        assert '/vnc/stack/{name}'        in paths
+        assert '/vnc/stack/{name}/health' in paths
+        assert '/vnc/stack/{name}/flows'  in paths
+
+    def test_vnc_service_is_wired(self):                                              # setup() must call vnc_service.setup() or first request AttributeErrors
+        from sgraph_ai_service_playwright__cli.vnc.service.Vnc__SG__Helper import Vnc__SG__Helper
+        api = Fast_API__SP__CLI().setup()
+        assert isinstance(api.vnc_service.aws_client.sg, Vnc__SG__Helper)

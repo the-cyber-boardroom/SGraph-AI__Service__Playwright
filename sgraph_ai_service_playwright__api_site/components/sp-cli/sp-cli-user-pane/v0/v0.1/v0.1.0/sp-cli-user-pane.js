@@ -41,9 +41,13 @@ class SpCliUserPane extends SgComponent {
         this._stackStrip       = this.$('.stack-strip')
         this._emptyStateTypes  = this.$('.empty-state-types')
         this._emptyStateStacks = this.$('.empty-state-stacks')
+
+        if (this._pendingTypes   !== undefined) { this.setTypes(this._pendingTypes);   this._pendingTypes   = undefined }
+        if (this._pendingStacks  !== undefined) { this.setStacks(this._pendingStacks); this._pendingStacks  = undefined }
     }
 
     setTypes(entries = []) {
+        if (!this._typeGrid) { this._pendingTypes = entries; return }
         const available = entries.filter(e => e.available)
         const hasTypes  = available.length > 0
         this._typeGrid.hidden        = !hasTypes
@@ -68,6 +72,7 @@ class SpCliUserPane extends SgComponent {
     }
 
     setStacks(stacks = []) {
+        if (!this._stackStrip) { this._pendingStacks = stacks; return }
         const hasStacks = stacks.length > 0
         this._stackStrip.hidden       = !hasStacks
         this._emptyStateStacks.hidden = hasStacks

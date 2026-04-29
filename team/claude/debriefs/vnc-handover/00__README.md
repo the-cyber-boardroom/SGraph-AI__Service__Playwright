@@ -1,7 +1,8 @@
 # `sp vnc` — Handover dev-pack
 
 **Date stamped:** 2026-04-29.
-**Status of `sp vnc`:** functionally complete in pure logic + typer (Tier-2A); FastAPI routes built and tested (Tier-2B) but **not yet wired to `Fast_API__SP__CLI`**.
+**Updated:** 2026-04-29 — wiring complete (see below).
+**Status of `sp vnc`:** ✅ **SHIPPED** — all tiers wired. Routes live on the deployed FastAPI service. VNC stacks appear in `GET /catalog/stacks`.
 
 This pack hands off the `sp vnc` sister section to a fresh agent session. Read in numerical order:
 
@@ -10,9 +11,9 @@ This pack hands off the `sp vnc` sister section to a fresh agent session. Read i
 | 00 | this file | Entry point + reading order |
 | 01 | [`01__cli-tier-2a.md`](./01__cli-tier-2a.md) | Typer commands — `sp vnc {create, list, info, delete, health, flows, interceptors}` |
 | 02 | [`02__code-tier-1.md`](./02__code-tier-1.md) | `cli/vnc/` folder structure — services, schemas, primitives, enums |
-| 03 | [`03__api-tier-2b.md`](./03__api-tier-2b.md) | FastAPI routes — `Routes__Vnc__Stack` + `Routes__Vnc__Flows`. **Not yet wired to Fast_API__SP__CLI.** |
-| 04 | [`04__missing-wiring.md`](./04__missing-wiring.md) | The gap — exactly what to add to `Fast_API__SP__CLI` to mount the VNC routes (VNC-only scope) |
-| 05 | [`05__catalog-integration.md`](./05__catalog-integration.md) | `Enum__Stack__Type.VNC` exists; `Stack__Catalog__Service` does NOT compose `Vnc__Service` yet |
+| 03 | [`03__api-tier-2b.md`](./03__api-tier-2b.md) | FastAPI routes — `Routes__Vnc__Stack` + `Routes__Vnc__Flows`. ✅ Wired to `Fast_API__SP__CLI`. |
+| 04 | [`04__missing-wiring.md`](./04__missing-wiring.md) | ✅ DONE — `Fast_API__SP__CLI` now mounts VNC routes; `vnc_service.setup()` called; catalog shares instance |
+| 05 | [`05__catalog-integration.md`](./05__catalog-integration.md) | ✅ DONE — `Stack__Catalog__Service` now composes `Vnc__Service`; `list_all_stacks` enumerates VNC stacks |
 | 06 | [`06__broader-fast-api-context.md`](./06__broader-fast-api-context.md) | Appendix — same wiring gap exists for `sp os` / `sp prom`. Out of scope for the next session, but captured so it isn't lost. |
 
 ## Top-line summary
@@ -23,9 +24,16 @@ This pack hands off the `sp vnc` sister section to a fresh agent session. Read i
 - Same operations exist as `Vnc__Service.{create_stack, list_stacks, get_stack_info, delete_stack, health, flows}`
 - 189 unit tests, all green; real `_Fake_*` subclasses, no mocks
 
-**What's NOT wired:**
-- `POST /vnc/stack` etc. — route classes built and tested via FastAPI TestClient, but `Fast_API__SP__CLI.setup_routes()` doesn't mount them
-- `Stack__Catalog__Service.list_all_stacks()` doesn't enumerate VNC stacks (catalog enum lists VNC, but the service composition skips it)
+**What was NOT wired (now fixed 2026-04-29):**
+- ~~`POST /vnc/stack` etc. — route classes built and tested via FastAPI TestClient, but `Fast_API__SP__CLI.setup_routes()` doesn't mount them~~
+- ~~`Stack__Catalog__Service.list_all_stacks()` doesn't enumerate VNC stacks~~
+
+**Current state — fully wired:**
+- `Routes__Vnc__Stack` + `Routes__Vnc__Flows` mounted in `Fast_API__SP__CLI.setup_routes()`
+- `vnc_service.setup()` called in `Fast_API__SP__CLI.setup()` before route handling
+- `catalog_service.vnc_service` shares the initialised instance (avoids double-init)
+- `Stack__Catalog__Service` has `vnc_service: Vnc__Service` field + VNC branch in `list_all_stacks`
+- Two new tests in `test_Fast_API__SP__CLI.py`: `test_vnc_routes_are_mounted` + `test_vnc_service_is_wired`
 
 **Implementation pattern (read first if unfamiliar):**
 - Each sister section follows: `primitives/` → `enums/` → `schemas/` → `collections/` → `service/` (Tier-1) → `fast_api/routes/` (Tier-2B) → `cli/Renderers.py` + `scripts/<section>.py` (Tier-2A)

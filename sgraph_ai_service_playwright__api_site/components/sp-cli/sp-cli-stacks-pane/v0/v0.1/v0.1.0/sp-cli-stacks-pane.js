@@ -42,10 +42,16 @@ class SpCliStacksPane extends SgComponent {
             this.emit('sp-cli:stacks-refresh')
         })
 
-        this._render([])
+        if (this._pendingStacks !== undefined) {
+            this._render(this._pendingStacks)
+            this._pendingStacks = undefined
+        } else {
+            this._render([])
+        }
     }
 
     setStacks(stacks = []) {
+        if (!this._list) { this._pendingStacks = stacks; return }
         this._render(stacks)
     }
 

@@ -14,12 +14,14 @@ from sgraph_ai_service_playwright__cli.catalog.service.Stack__Catalog__Service__
 from sgraph_ai_service_playwright__cli.docker.service.Docker__Service                               import Docker__Service
 from sgraph_ai_service_playwright__cli.elastic.service.Elastic__Service                             import Elastic__Service
 from sgraph_ai_service_playwright__cli.linux.service.Linux__Service                                 import Linux__Service
+from sgraph_ai_service_playwright__cli.vnc.service.Vnc__Service                                     import Vnc__Service
 
 
 class Stack__Catalog__Service(Stack__Catalog__Service__Entries):
     linux_service   : Linux__Service
     docker_service  : Docker__Service
     elastic_service : Elastic__Service
+    vnc_service     : Vnc__Service
 
     def get_catalog(self) -> Schema__Stack__Type__Catalog:
         entries = List__Schema__Stack__Type__Catalog__Entry()
@@ -51,6 +53,14 @@ class Stack__Catalog__Service(Stack__Catalog__Service__Entries):
             for info in self.elastic_service.list_stacks().stacks:
                 summaries.append(Schema__Stack__Summary(
                     type_id=ELASTIC, stack_name=str(info.stack_name),
+                    state=info.state.value, public_ip=str(info.public_ip),
+                    region=str(info.region), instance_id=str(info.instance_id),
+                    uptime_seconds=info.uptime_seconds))
+        VNC = Enum__Stack__Type.VNC
+        if type_filter in (None, VNC):
+            for info in self.vnc_service.list_stacks('').stacks:
+                summaries.append(Schema__Stack__Summary(
+                    type_id=VNC, stack_name=str(info.stack_name),
                     state=info.state.value, public_ip=str(info.public_ip),
                     region=str(info.region), instance_id=str(info.instance_id),
                     uptime_seconds=info.uptime_seconds))
