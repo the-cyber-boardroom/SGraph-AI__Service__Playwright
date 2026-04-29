@@ -14,16 +14,14 @@ from sgraph_ai_service_playwright__cli.catalog.service.Stack__Catalog__Service__
 from sgraph_ai_service_playwright__cli.docker.service.Docker__Service                               import Docker__Service
 from sgraph_ai_service_playwright__cli.elastic.service.Elastic__Service                             import Elastic__Service
 from sgraph_ai_service_playwright__cli.linux.service.Linux__Service                                 import Linux__Service
-from sgraph_ai_service_playwright__cli.opensearch.service.OpenSearch__Service                       import OpenSearch__Service
 from sgraph_ai_service_playwright__cli.vnc.service.Vnc__Service                                     import Vnc__Service
 
 
 class Stack__Catalog__Service(Stack__Catalog__Service__Entries):
-    linux_service      : Linux__Service
-    docker_service     : Docker__Service
-    elastic_service    : Elastic__Service
-    opensearch_service : OpenSearch__Service
-    vnc_service        : Vnc__Service
+    linux_service   : Linux__Service
+    docker_service  : Docker__Service
+    elastic_service : Elastic__Service
+    vnc_service     : Vnc__Service
 
     def get_catalog(self) -> Schema__Stack__Type__Catalog:
         entries = List__Schema__Stack__Type__Catalog__Entry()
@@ -34,10 +32,9 @@ class Stack__Catalog__Service(Stack__Catalog__Service__Entries):
 
     def list_all_stacks(self, type_filter: Enum__Stack__Type = None) -> Schema__Stack__Summary__List:
         summaries = List__Schema__Stack__Summary()
-        LINUX      = Enum__Stack__Type.LINUX
-        DOCKER     = Enum__Stack__Type.DOCKER
-        ELASTIC    = Enum__Stack__Type.ELASTIC
-        OPENSEARCH = Enum__Stack__Type.OPENSEARCH
+        LINUX   = Enum__Stack__Type.LINUX
+        DOCKER  = Enum__Stack__Type.DOCKER
+        ELASTIC = Enum__Stack__Type.ELASTIC
         if type_filter in (None, LINUX):
             for info in self.linux_service.list_stacks('').stacks:
                 summaries.append(Schema__Stack__Summary(
@@ -56,13 +53,6 @@ class Stack__Catalog__Service(Stack__Catalog__Service__Entries):
             for info in self.elastic_service.list_stacks().stacks:
                 summaries.append(Schema__Stack__Summary(
                     type_id=ELASTIC, stack_name=str(info.stack_name),
-                    state=info.state.value, public_ip=str(info.public_ip),
-                    region=str(info.region), instance_id=str(info.instance_id),
-                    uptime_seconds=info.uptime_seconds))
-        if type_filter in (None, OPENSEARCH):
-            for info in self.opensearch_service.list_stacks('').stacks:
-                summaries.append(Schema__Stack__Summary(
-                    type_id=OPENSEARCH, stack_name=str(info.stack_name),
                     state=info.state.value, public_ip=str(info.public_ip),
                     region=str(info.region), instance_id=str(info.instance_id),
                     uptime_seconds=info.uptime_seconds))

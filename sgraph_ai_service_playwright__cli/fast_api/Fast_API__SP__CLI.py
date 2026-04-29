@@ -27,8 +27,6 @@ from sgraph_ai_service_playwright__cli.fast_api.runtime_version                 
 from sgraph_ai_service_playwright__cli.linux.service.Linux__Service                   import Linux__Service
 from sgraph_ai_service_playwright__cli.linux.fast_api.routes.Routes__Linux__Stack     import Routes__Linux__Stack
 from sgraph_ai_service_playwright__cli.observability.service.Observability__Service   import Observability__Service
-from sgraph_ai_service_playwright__cli.opensearch.fast_api.routes.Routes__OpenSearch__Stack import Routes__OpenSearch__Stack
-from sgraph_ai_service_playwright__cli.opensearch.service.OpenSearch__Service              import OpenSearch__Service
 from sgraph_ai_service_playwright__cli.vnc.fast_api.routes.Routes__Vnc__Stack              import Routes__Vnc__Stack
 from sgraph_ai_service_playwright__cli.vnc.fast_api.routes.Routes__Vnc__Flows              import Routes__Vnc__Flows
 from sgraph_ai_service_playwright__cli.vnc.service.Vnc__Service                            import Vnc__Service
@@ -52,26 +50,23 @@ class Fast_API__SP__CLI(Serverless__Fast_API):
     ec2_service           : Ec2__Service                                            # Shared across all Routes__Ec2 requests; Type_Safe auto-initialises
     elastic_service       : Elastic__Service                                        # Shared across all Routes__Elastic__Stack requests; Type_Safe auto-initialises
     linux_service         : Linux__Service                                          # Shared across all Routes__Linux__Stack requests; Type_Safe auto-initialises
-    observability_service  : Observability__Service                                 # Shared across all Routes__Observability requests
-    opensearch_service     : OpenSearch__Service                                    # Shared across Routes__OpenSearch__Stack
-    vnc_service            : Vnc__Service                                           # Shared across Routes__Vnc__Stack + Routes__Vnc__Flows
+    observability_service : Observability__Service                                  # Shared across all Routes__Observability requests
+    vnc_service           : Vnc__Service                                            # Shared across Routes__Vnc__Stack + Routes__Vnc__Flows
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.config.version        = resolve_version()                              # Surface the deployed SP CLI version on /docs + /openapi.json instead of osbot-fast-api's package version
 
     def setup(self):
-        self.linux_service     .setup()                                             # lazy aws_client init — must be called before routes handle requests
-        self.docker_service    .setup()                                             # same lazy pattern
-        self.opensearch_service.setup()                                             # wires aws_client + sub-helpers
-        self.vnc_service       .setup()                                             # wires aws_client + 7 sub-helpers
+        self.linux_service .setup()                                                 # lazy aws_client init — must be called before routes handle requests
+        self.docker_service.setup()                                                 # same lazy pattern
+        self.vnc_service   .setup()                                                 # wires aws_client + 7 sub-helpers
         result = super().setup()
         register_type_safe_handlers(self.app())                                     # Maps osbot-fast-api's Type_Safe converter ValueError → 422 (instead of FastAPI's default 500)
-        self.catalog_service.linux_service      = self.linux_service               # share initialised instances — catalog_service's own copies are never setup()
-        self.catalog_service.docker_service     = self.docker_service
-        self.catalog_service.elastic_service    = self.elastic_service
-        self.catalog_service.opensearch_service = self.opensearch_service
-        self.catalog_service.vnc_service        = self.vnc_service
+        self.catalog_service.linux_service   = self.linux_service                  # share initialised instances — catalog_service's own copies are never setup()
+        self.catalog_service.docker_service  = self.docker_service
+        self.catalog_service.elastic_service = self.elastic_service
+        self.catalog_service.vnc_service     = self.vnc_service
         self.setup_ui()
         return result
 
@@ -81,10 +76,9 @@ class Fast_API__SP__CLI(Serverless__Fast_API):
         self.add_routes(Routes__Ec2__Playwright , service=self.ec2_service          )
         self.add_routes(Routes__Elastic__Stack  , service=self.elastic_service      )
         self.add_routes(Routes__Linux__Stack    , service=self.linux_service        )
-        self.add_routes(Routes__Observability    , service=self.observability_service )
-        self.add_routes(Routes__OpenSearch__Stack, service=self.opensearch_service   )
-        self.add_routes(Routes__Vnc__Stack       , service=self.vnc_service          )
-        self.add_routes(Routes__Vnc__Flows       , service=self.vnc_service          )
+        self.add_routes(Routes__Observability   , service=self.observability_service)
+        self.add_routes(Routes__Vnc__Stack      , service=self.vnc_service          )
+        self.add_routes(Routes__Vnc__Flows      , service=self.vnc_service          )
 
     def setup_ui(self):
         path_static        = "/ui"

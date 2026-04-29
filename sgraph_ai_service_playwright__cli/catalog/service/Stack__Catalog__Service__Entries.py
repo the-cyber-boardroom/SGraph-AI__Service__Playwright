@@ -48,8 +48,8 @@ class Stack__Catalog__Service__Entries(Type_Safe):
     def entry__opensearch(self) -> Schema__Stack__Type__Catalog__Entry:
         return Schema__Stack__Type__Catalog__Entry(
             type_id=Enum__Stack__Type.OPENSEARCH, display_name='OpenSearch + Dashboards',
-            description='OpenSearch + OpenSearch Dashboards on EC2 (Kibana-compatible).',
-            available=True, default_instance_type='t3.large', expected_boot_seconds=180,
+            description='Coming soon.',
+            available=False, default_instance_type=T3_MEDIUM, expected_boot_seconds=120,
             **_paths(Enum__Stack__Type.OPENSEARCH))
 
     def entry__vnc(self) -> Schema__Stack__Type__Catalog__Entry:
