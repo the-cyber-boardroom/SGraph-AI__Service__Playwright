@@ -156,9 +156,9 @@ First two slices of the new OpenSearch sister section. Folder name is `opensearc
 
 170 unit tests across primitives + enums + schemas + collections + AWS helpers + HTTP base + probe + Caller__IP__Detector + Random__Stack__Name__Generator + Stack__Mapper + Compose template + Config generator + User_Data builder + Launch helper + Service (read paths + create_stack + setup() chain) + FastAPI routes (5 endpoints via TestClient) + Renderers (Rich Console-capture) + typer-app smoke (CliRunner). Every AWS- and HTTP-touching class is exercised through real `_Fake_*` subclasses (no mocks); each helper has its own focused test file kept under ~150 lines.
 
-### `vnc/` — `sp vnc` sister section (Phase B steps 7a–7c, 2026-04-29)
+### `vnc/` — `sp vnc` sister section (Phase B steps 7a–7d, 2026-04-29)
 
-First three slices of the new chromium + nginx + mitmproxy sister section. Folder `vnc/`; typer alias `sp vnc` (single name only — N1: renamed from working title `sp nvm`). Per plan doc 6: chromium-only at runtime today (N2); profile + state wiped at termination (N3); no automatic flow export (N4); interceptor model is **default-off + ship examples + provision-time choice via env vars** (N5).
+First four slices of the new chromium + nginx + mitmproxy sister section. Folder `vnc/`; typer alias `sp vnc` (single name only — N1: renamed from working title `sp nvm`). Per plan doc 6: chromium-only at runtime today (N2); profile + state wiped at termination (N3); no automatic flow export (N4); interceptor model is **default-off + ship examples + provision-time choice via env vars** (N5).
 
 | File | Role |
 |------|------|
@@ -173,6 +173,8 @@ First three slices of the new chromium + nginx + mitmproxy sister section. Folde
 | `vnc/service/Vnc__AMI__Helper.py` | `latest_al2023_ami_id(region)` (raises if none); `latest_healthy_ami_id(region)` filtered by `sg:purpose=vnc` + `sg:ami-status=healthy` (returns empty string if none). |
 | `vnc/service/Vnc__Instance__Helper.py` | `list_stacks(region)` filtered by `sg:purpose=vnc` + live states; `find_by_stack_name(region, stack_name)`; `terminate_instance(region, instance_id) -> bool`. |
 | `vnc/service/Vnc__Tags__Builder.py` | Pure mapper — builds the canonical 7-tag list (Name, sg:purpose, sg:section, sg:stack-name, sg:allowed-ip, sg:creator, **sg:interceptor**). Name uses `VNC_NAMING.aws_name_for_stack` (prefix never doubles). The interceptor-tag value follows N5: `'none'` (default-off), `'name:{example}'` (baked example), `'inline'` (operator-supplied source — the source itself never goes in a tag). |
+| `vnc/service/Vnc__HTTP__Base.py` | Request seam wrapping `requests` with `verify=False` default + scoped urllib3 InsecureRequestWarning suppression + Basic auth seam (operator credentials front both nginx UI and mitmweb). |
+| `vnc/service/Vnc__HTTP__Probe.py` | Three read-only probes: `nginx_ready` (True on 2xx of `/`), `mitmweb_ready` (True on 200 of `/api/flows`), `flows_listing` (parsed JSON list from `/api/flows`; `[]` on any failure). Composes `Vnc__HTTP__Base`. |
 | `vnc/schemas/Schema__Vnc__Interceptor__Choice.py` | The N5 selector itself — `kind` + `name` (when kind=NAME) + `inline_source` (when kind=INLINE). Defaults to NONE so mitmproxy starts without an interceptor unless explicitly chosen. |
 | `vnc/schemas/Schema__Vnc__Stack__Create__Request.py` | Inputs for `sp vnc create [NAME]`. All fields optional; carries `operator_password : Safe_Str__Vnc__Password` (one secret, used twice — nginx + mitm) and `interceptor : Schema__Vnc__Interceptor__Choice`. |
 | `vnc/schemas/Schema__Vnc__Stack__Create__Response.py` | Returned once. Carries `viewer_url` (https://&lt;ip&gt;/), `mitmweb_url` (https://&lt;ip&gt;/mitmweb/), `operator_password` (returned once), `interceptor_kind` + `interceptor_name`. |
@@ -184,7 +186,7 @@ First three slices of the new chromium + nginx + mitmproxy sister section. Folde
 | `vnc/collections/List__Schema__Vnc__Stack__Info.py` | Type_Safe__List for the listing response. |
 | `vnc/collections/List__Schema__Vnc__Mitm__Flow__Summary.py` | Type_Safe__List for the flows endpoint. |
 
-74 unit tests — primitives + enums + AWS-client setup() wiring + 4 per-concern AWS helpers (each in its own ~80-line test file using real `_Fake_Boto_EC2` subclasses, no mocks) + 7 schemas + 2 collections.
+89 unit tests — primitives + enums + AWS-client setup() wiring + 4 per-concern AWS helpers + 7 schemas + 2 collections + HTTP base + probe (15 tests covering 3 probes via real `_Fake_HTTP` + `_Fake_Response` subclasses).
 
 ### `observability/` — Tier-1 pure-logic service (read-only surface)
 
