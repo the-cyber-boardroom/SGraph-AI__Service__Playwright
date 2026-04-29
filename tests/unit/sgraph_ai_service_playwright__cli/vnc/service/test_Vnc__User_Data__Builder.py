@@ -2,19 +2,22 @@
 # SP CLI — tests for Vnc__User_Data__Builder
 # Locks the placeholder contract + the install-step structure. Both compose
 # YAML and the resolved interceptor source are taken as input.
+# Caddy replaced nginx in the v0.1.118 caddy slice.
 # ═══════════════════════════════════════════════════════════════════════════════
 
 import re
 
 from unittest                                                                       import TestCase
 
-from sgraph_ai_service_playwright__cli.vnc.service.Vnc__User_Data__Builder          import (COMPOSE_DIR             ,
+from sgraph_ai_service_playwright__cli.vnc.service.Vnc__User_Data__Builder          import (CADDY_DIR                ,
+                                                                                              CADDY_DOCKERFILE         ,
+                                                                                              CADDY_FILE               ,
+                                                                                              CADDY_JWT_SECRET         ,
+                                                                                              CADDY_USERS_JSON         ,
+                                                                                              COMPOSE_DIR              ,
                                                                                               COMPOSE_FILE             ,
                                                                                               INTERCEPTOR_FILE         ,
                                                                                               LOG_FILE                 ,
-                                                                                              MITM_PROXYAUTH           ,
-                                                                                              NGINX_HTPASSWD           ,
-                                                                                              NGINX_TLS_DIR            ,
                                                                                               PLACEHOLDERS             ,
                                                                                               USER_DATA_TEMPLATE       ,
                                                                                               Vnc__User_Data__Builder  )
@@ -66,24 +69,44 @@ class test_Vnc__User_Data__Builder(TestCase):
         leftover = re.findall(r'\{([a-z_]+)\}', self._out())
         assert leftover == []
 
-    # ── install / TLS / auth steps ────────────────────────────────────────────
+    # ── install / Caddy artefact steps ────────────────────────────────────────
 
     def test_render__installs_docker_via_dnf(self):
         out = self._out()
         assert 'dnf install -y docker' in out
-        assert 'httpd-tools'           in out                                       # for htpasswd
-        assert 'openssl'               in out                                       # for self-signed cert
+        assert 'httpd-tools'           in out                                       # for htpasswd (used to compute the bcrypt hash for users.json)
 
-    def test_render__generates_self_signed_tls_cert(self):
+    def test_render__no_self_signed_openssl_step(self):                              # Caddy `tls internal` provisions its own cert; openssl no longer needed
         out = self._out()
-        assert 'openssl req -x509' in out
-        assert NGINX_TLS_DIR        in out
+        assert 'openssl req -x509' not in out
 
-    def test_render__writes_htpasswd_and_proxyauth_files(self):
+    def test_render__writes_caddy_dockerfile_and_caddyfile(self):
         out = self._out()
-        assert f'htpasswd -bcB {NGINX_HTPASSWD} operator' in out
-        assert f'htpasswd -bcB {MITM_PROXYAUTH} operator' in out                    # mitmproxy --set proxyauth=@FILE expects htpasswd format (bcrypt); plaintext is rejected
-        assert 'chmod 644'                                in out                    # 0644 — bind-mounted into containers running as non-root (mitmproxy + nginx); 0600 caused both to crash on read
+        assert f'cat > {CADDY_DOCKERFILE}' in out
+        assert "<<'SG_VNC_CADDY_DOCKERFILE_EOF'" in out
+        assert f'cat > {CADDY_FILE}'             in out
+        assert "<<'SG_VNC_CADDYFILE_EOF'"        in out
+
+    def test_render__writes_users_json_with_bcrypt_hash_from_htpasswd(self):
+        out = self._out()
+        assert 'htpasswd -bnBC 10 operator' in out                                  # `-n` = print to stdout (no file write); `-B` = bcrypt; `-C 10` = cost 10
+        assert 'BCRYPT_HASH=$(htpasswd'      in out
+        assert f'cat > {CADDY_USERS_JSON}'   in out
+
+    def test_render__generates_jwt_signing_secret(self):
+        out = self._out()
+        assert '/dev/urandom'                in out
+        assert f'> {CADDY_JWT_SECRET}'       in out
+
+    def test_render__chmod_644_on_users_and_jwt(self):                              # Bind-mounted into the non-root caddy container; same constraint as the previous nginx setup
+        out = self._out()
+        assert f'chmod 644 {CADDY_USERS_JSON} {CADDY_JWT_SECRET}' in out
+
+    def test_render__builds_caddy_image_before_compose_up(self):                    # First boot needs `docker compose build caddy` since image is local-only
+        out = self._out()
+        build_idx = out.index('docker compose build caddy')
+        up_idx    = out.index('docker compose up -d')
+        assert build_idx < up_idx
 
     def test_render__compose_up_runs_in_compose_dir(self):
         out = self._out()
@@ -94,13 +117,16 @@ class test_Vnc__User_Data__Builder(TestCase):
 
     def test_render__operator_password_appears_only_in_env_var_assignment(self):
         out = self._out(password='SUPERSECRET-1234567890ab')
-        # The literal value should appear once (as the SG_VNC_OPERATOR_PASSWORD assignment line)
-        assert out.count('SUPERSECRET-1234567890ab') == 1
+        assert out.count('SUPERSECRET-1234567890ab') == 1                            # The literal value should appear once (as the SG_VNC_OPERATOR_PASSWORD assignment line)
         assert "SG_VNC_OPERATOR_PASSWORD='SUPERSECRET-1234567890ab'" in out
 
     def test_render__compose_yaml_does_not_contain_password(self):                  # Defensive — secret never leaks to compose
         out = self._out(password='LEAKDETECT-1234567890ab')
         assert 'LEAKDETECT-1234567890ab' not in SAMPLE_COMPOSE_YAML
+
+    def test_render__users_json_uses_shell_substitution_for_hash(self):             # The literal hash is computed by htpasswd at boot; the template emits ${BCRYPT_HASH} which the heredoc expands at runtime
+        out = self._out()
+        assert '${BCRYPT_HASH}' in out
 
     # ── contract ──────────────────────────────────────────────────────────────
 
@@ -112,4 +138,8 @@ class test_Vnc__User_Data__Builder(TestCase):
         assert COMPOSE_DIR        == '/opt/sg-vnc'
         assert COMPOSE_FILE       == '/opt/sg-vnc/docker-compose.yml'
         assert INTERCEPTOR_FILE   == '/opt/sg-vnc/interceptors/runtime/active.py'
+        assert CADDY_DIR          == '/opt/sg-vnc/caddy'
+        assert CADDY_FILE         == '/opt/sg-vnc/caddy/Caddyfile'
+        assert CADDY_USERS_JSON   == '/opt/sg-vnc/caddy/users.json'
+        assert CADDY_JWT_SECRET   == '/opt/sg-vnc/caddy/jwt-secret'
         assert LOG_FILE           == '/var/log/sg-vnc-boot.log'
