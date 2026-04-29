@@ -14,7 +14,7 @@ class test_Schema__Stack__Type__Catalog__Entry(TestCase):
     def test_defaults(self):
         entry = Schema__Stack__Type__Catalog__Entry()
         assert entry.available             is False
-        assert entry.default_max_hours     == 4
+        assert entry.default_max_hours     == 1
         assert entry.expected_boot_seconds == 60
 
     def test_json_round_trip(self):
