@@ -1,6 +1,6 @@
 import { SgComponent } from 'https://dev.tools.sgraph.ai/components/base/v1/v1.0/v1.0.0/sg-component.js'
 
-const STATIC = { type_id: 'elastic', display_name: 'Elastic + Kibana', icon: '🔍', stability: 'stable', boot: '~90s', soon: false, create_endpoint_path: '/elastic/stacks' }
+const STATIC = { type_id: 'elastic', display_name: 'Elastic + Kibana', icon: '🔍', stability: 'stable', boot: '~90s', soon: false, create_endpoint_path: '/elastic/stack' }
 
 class SpCliElasticCard extends SgComponent {
     static jsUrl = import.meta.url

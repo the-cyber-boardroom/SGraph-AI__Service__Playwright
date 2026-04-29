@@ -1,6 +1,6 @@
 import { SgComponent } from 'https://dev.tools.sgraph.ai/components/base/v1/v1.0/v1.0.0/sg-component.js'
 
-const STATIC = { type_id: 'neko', display_name: 'Neko (WebRTC)', icon: '🌐', stability: 'experimental', boot: '—', soon: true, create_endpoint_path: '/neko/stacks' }
+const STATIC = { type_id: 'neko', display_name: 'Neko (WebRTC)', icon: '🌐', stability: 'experimental', boot: '—', soon: true, create_endpoint_path: '/neko/stack' }
 
 class SpCliNekoCard extends SgComponent {
     static jsUrl = import.meta.url
