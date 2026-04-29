@@ -4,6 +4,7 @@ import { apiClient    } from '../shared/api-client.js'
 import { startVaultBus } from '../shared/vault-bus.js'
 
 const LAYOUT_KEY    = 'sp-cli:admin:layout'
+const MODAL_TAG     = 'sp-cli-launch-modal'
 
 const ADMIN_LAYOUT = {
     type: 'row', sizes: [0.72, 0.28],
@@ -37,6 +38,20 @@ document.addEventListener('DOMContentLoaded', async () => {
     document.addEventListener('sp-cli:stacks-refresh', () => _loadData())
 
     document.addEventListener('sg-auth-saved', () => _loadData())
+
+    document.addEventListener('sp-cli:catalog-launch', (e) => _openModal(e.detail?.entry))
+    document.addEventListener('sp-cli:user-launch',    (e) => _openModal(e.detail?.entry))
+
+    document.addEventListener('sp-cli:launch-success', (e) => {
+        const { entry, response } = e.detail
+        const stackName = response?.stack_info?.stack_name || response?.stack_name || '?'
+        _activity(`✓ Launched ${entry.display_name}: ${stackName}`)
+        setTimeout(() => _loadData(), 3000)
+    })
+
+    document.addEventListener('sp-cli:launch-error', (e) => {
+        _activity(`✗ Launch failed (${e.detail?.entry?.display_name}): ${e.detail?.error}`)
+    })
 
     function _setGate(connected) {
         document.getElementById('vault-gate').hidden  = connected
@@ -75,10 +90,23 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 
     function _populatePanes(types, stacks) {
-        const stacksPane   = document.querySelector('sp-cli-stacks-pane')
-        const catalogPane  = document.querySelector('sp-cli-catalog-pane')
+        const stacksPane  = document.querySelector('sp-cli-stacks-pane')
+        const catalogPane = document.querySelector('sp-cli-catalog-pane')
         if (stacksPane)  stacksPane.setStacks(stacks)
         if (catalogPane) catalogPane.setTypes(types)
+    }
+
+    function _openModal(entry) {
+        if (!entry) return
+        const modal = document.querySelector(MODAL_TAG)
+        modal?.open(entry)
+    }
+
+    function _activity(message) {
+        document.dispatchEvent(new CustomEvent('sp-cli:activity-entry', {
+            detail:  { message },
+            bubbles: true, composed: true,
+        }))
     }
 
     function _loadLayout() {
