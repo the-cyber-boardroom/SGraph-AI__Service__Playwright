@@ -20,8 +20,15 @@ from sgraph_ai_service_playwright__cli.core.event_bus.schemas.Schema__Plugin__Ev
                                                                                 import Schema__Plugin__Event
 
 
-# ── canonical plugin list (populated in PR-2 as manifests land) ─────────────
-PLUGIN_FOLDERS: list = []
+# ── canonical plugin list — add a line here when a new plugin folder lands ──
+PLUGIN_FOLDERS: list = [
+    'linux',
+    'docker',
+    'elastic',
+    'vnc',
+    'prometheus',
+    'opensearch',
+]
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -41,7 +48,7 @@ class Plugin__Registry(Type_Safe):
                 continue
             try:
                 module       = import_module(f'sgraph_ai_service_playwright__cli.{plugin_name}.plugin')
-                manifest_cls = self.find_manifest_class(module)
+                manifest_cls = self.find_manifest_class(module)                # finds Plugin__Manifest__* re-exported by plugin/__init__.py
                 manifest     = manifest_cls()
                 if not manifest.enabled:
                     event_bus.emit('core:plugin.skipped', Schema__Plugin__Event(
@@ -63,8 +70,11 @@ class Plugin__Registry(Type_Safe):
 
     def setup_all(self) -> 'Plugin__Registry':
         for name, manifest in self.manifests.items():
-            manifest.setup()
-            self.service_instances[name] = manifest.service_class()()          # instantiate; service.setup() called inside manifest.setup()
+            manifest.setup()                                                    # manifest-level hook (e.g. download configs); usually no-op
+            svc = manifest.service_class()()
+            if hasattr(svc, 'setup'):                                           # services with lazy AWS-client init declare setup()
+                svc.setup()
+            self.service_instances[name] = svc
         return self
 
     def all_routes_classes(self) -> list:
@@ -86,7 +96,7 @@ class Plugin__Registry(Type_Safe):
         return val in ('false', '0', 'no', 'off')
 
     @staticmethod
-    def find_manifest_class(module) -> type:                                    # finds the Plugin__Manifest__* subclass exported by plugin/__init__.py
+    def find_manifest_class(module) -> type:                                    # finds the Plugin__Manifest__* class re-exported by plugin/__init__.py
         for attr_name in dir(module):
             attr = getattr(module, attr_name)
             if (isinstance(attr, type)

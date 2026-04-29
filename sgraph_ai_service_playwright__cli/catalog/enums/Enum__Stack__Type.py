@@ -10,4 +10,6 @@ class Enum__Stack__Type(Enum):
     DOCKER     = 'docker'
     ELASTIC    = 'elastic'
     OPENSEARCH = 'opensearch'
+    PROMETHEUS = 'prometheus'
     VNC        = 'vnc'
+    NEKO       = 'neko'
