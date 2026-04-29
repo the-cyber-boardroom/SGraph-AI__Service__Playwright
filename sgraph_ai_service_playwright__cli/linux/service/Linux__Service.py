@@ -11,6 +11,9 @@ from typing                                                                     
 
 from osbot_utils.type_safe.Type_Safe                                                import Type_Safe
 
+from sgraph_ai_service_playwright__cli.catalog.enums.Enum__Stack__Type             import Enum__Stack__Type
+from sgraph_ai_service_playwright__cli.core.event_bus.Event__Bus                   import event_bus
+from sgraph_ai_service_playwright__cli.core.event_bus.schemas.Schema__Stack__Event import Schema__Stack__Event
 from sgraph_ai_service_playwright__cli.linux.collections.List__Schema__Linux__Info  import List__Schema__Linux__Info
 from sgraph_ai_service_playwright__cli.linux.enums.Enum__Linux__Stack__State        import Enum__Linux__Stack__State
 from sgraph_ai_service_playwright__cli.linux.schemas.Schema__Linux__Create__Request import Schema__Linux__Create__Request
@@ -79,6 +82,11 @@ class Linux__Service(Type_Safe):
             security_group_id = sg_id                                    ,
             allowed_ip        = caller_ip                                ,
             state             = Enum__Linux__Stack__State.PENDING        )
+        event_bus.emit('linux:stack.created', Schema__Stack__Event(
+            type_id     = Enum__Stack__Type.LINUX,
+            stack_name  = stack_name             ,
+            region      = region                 ,
+            instance_id = str(iid)               ))
         return Schema__Linux__Create__Response(stack_info  = info                                             ,
                                                 message     = f'Instance {iid} launching'                     ,
                                                 elapsed_ms  = int((time.monotonic()-t0)*1000)                 )
@@ -104,6 +112,12 @@ class Linux__Service(Type_Safe):
                                                     elapsed_ms = int((time.monotonic()-t0)*1000)    )
         iid = details.get('InstanceId', '')
         ok  = self.aws_client.instance.terminate_instance(region, iid)
+        if ok:
+            event_bus.emit('linux:stack.deleted', Schema__Stack__Event(
+                type_id     = Enum__Stack__Type.LINUX,
+                stack_name  = stack_name             ,
+                region      = region                 ,
+                instance_id = iid                    ))
         return Schema__Linux__Delete__Response(stack_name = stack_name                                        ,
                                                 deleted    = ok                                               ,
                                                 message    = f'terminated {iid}' if ok else 'terminate failed',
