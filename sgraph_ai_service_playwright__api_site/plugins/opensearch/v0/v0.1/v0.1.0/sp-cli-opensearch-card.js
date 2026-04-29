@@ -1,6 +1,6 @@
 import { SgComponent } from 'https://dev.tools.sgraph.ai/components/base/v1/v1.0/v1.0.0/sg-component.js'
 
-const STATIC = { type_id: 'opensearch', display_name: 'OpenSearch + Dashboards', icon: '🌐', stability: 'experimental', boot: '—', soon: false, create_endpoint_path: '/opensearch/stacks' }
+const STATIC = { type_id: 'opensearch', display_name: 'OpenSearch + Dashboards', icon: '🌐', stability: 'experimental', boot: '—', soon: false, create_endpoint_path: '/opensearch/stack' }
 
 class SpCliOpensearchCard extends SgComponent {
     static jsUrl = import.meta.url

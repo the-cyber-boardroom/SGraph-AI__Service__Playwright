@@ -1,6 +1,6 @@
 import { SgComponent } from 'https://dev.tools.sgraph.ai/components/base/v1/v1.0/v1.0.0/sg-component.js'
 
-const STATIC = { type_id: 'vnc', display_name: 'VNC bastion', icon: '🖥', stability: 'stable', boot: '~90s', soon: false, create_endpoint_path: '/vnc/stacks' }
+const STATIC = { type_id: 'vnc', display_name: 'VNC bastion', icon: '🖥', stability: 'stable', boot: '~90s', soon: false, create_endpoint_path: '/vnc/stack' }
 
 class SpCliVncCard extends SgComponent {
     static jsUrl = import.meta.url

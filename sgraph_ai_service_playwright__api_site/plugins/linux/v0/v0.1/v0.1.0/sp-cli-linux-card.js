@@ -1,6 +1,6 @@
 import { SgComponent } from 'https://dev.tools.sgraph.ai/components/base/v1/v1.0/v1.0.0/sg-component.js'
 
-const STATIC = { type_id: 'linux', display_name: 'Bare Linux', icon: '🐧', stability: 'stable', boot: '~60s', soon: false, create_endpoint_path: '/linux/stacks' }
+const STATIC = { type_id: 'linux', display_name: 'Bare Linux', icon: '🐧', stability: 'stable', boot: '~60s', soon: false, create_endpoint_path: '/linux/stack' }
 
 class SpCliLinuxCard extends SgComponent {
     static jsUrl = import.meta.url

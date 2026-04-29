@@ -1,6 +1,6 @@
 import { SgComponent } from 'https://dev.tools.sgraph.ai/components/base/v1/v1.0/v1.0.0/sg-component.js'
 
-const STATIC = { type_id: 'prometheus', display_name: 'Prometheus + Grafana', icon: '📊', stability: 'experimental', boot: '~90s', soon: false, create_endpoint_path: '/prometheus/stacks' }
+const STATIC = { type_id: 'prometheus', display_name: 'Prometheus + Grafana', icon: '📊', stability: 'experimental', boot: '~90s', soon: false, create_endpoint_path: '/prometheus/stack' }
 
 class SpCliPrometheusCard extends SgComponent {
     static jsUrl = import.meta.url

@@ -1,8 +1,24 @@
 import { SgComponent } from 'https://dev.tools.sgraph.ai/components/base/v1/v1.0/v1.0.0/sg-component.js'
 
-const REGIONS = ['eu-west-2', 'us-east-1', 'ap-southeast-1', 'eu-west-1', 'us-west-2']
+const REGIONS        = ['eu-west-2', 'us-east-1', 'ap-southeast-1', 'eu-west-1', 'us-west-2']
 const INSTANCE_TYPES = ['t3.micro', 't3.small', 't3.medium', 't3.large', 't3.xlarge']
-const MAX_HOURS = [1, 2, 4, 8, 12, 24]
+const MAX_HOURS      = [1, 2, 4, 8, 12, 24]
+
+const WORDS = [
+    'alpha','bravo','charlie','delta','echo','foxtrot','golf','hotel',
+    'india','juliet','kilo','lima','mike','nova','oscar','papa',
+    'quebec','romeo','sierra','tango','uniform','victor','whiskey','xray',
+    'yankee','zulu','amber','birch','cedar','drift','ember','frost',
+    'grove','haven','iris','jade','kite','lunar','maple','north',
+    'orbit','pine','quartz','river','solar','terra','ultra','vega',
+    'wave','xenon','yield','zenith',
+]
+
+function _randomName(typeId) {
+    const word = WORDS[Math.floor(Math.random() * WORDS.length)]
+    const num  = String(Math.floor(Math.random() * 9000) + 1000)
+    return `${typeId}-${word}-${num}`
+}
 
 class SpCliLaunchForm extends SgComponent {
 
@@ -37,7 +53,7 @@ class SpCliLaunchForm extends SgComponent {
         if (this._regionSel)   this._regionSel.value   = region
         if (this._instanceSel) this._instanceSel.value = instType
         if (this._hoursSel)    this._hoursSel.value     = String(hours)
-        if (this._nameInput)   this._nameInput.value    = ''
+        if (this._nameInput)   this._nameInput.value    = entry?.type_id ? _randomName(entry.type_id) : ''
     }
 
     getValues() {
