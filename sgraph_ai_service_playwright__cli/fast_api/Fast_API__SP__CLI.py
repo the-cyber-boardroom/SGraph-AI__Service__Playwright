@@ -64,8 +64,13 @@ class Fast_API__SP__CLI(Fast_API):
         self._mount_ui()
 
     def _mount_ui(self):                                                            # serve api_site/ at /ui — same origin eliminates CORS
-        here     = os.path.dirname(__file__)
-        ui_path  = os.path.abspath(os.path.join(here, '..', '..', 'sgraph_ai_service_playwright__api_site'))
+        task_root = os.environ.get('LAMBDA_TASK_ROOT')                              # Lambda always sets this; avoids __file__ resolution issues in compiled environments
+        if task_root:
+            ui_path = os.path.join(task_root, 'sgraph_ai_service_playwright__api_site')
+        else:
+            here    = os.path.dirname(os.path.abspath(__file__))
+            ui_path = os.path.join(here, '..', '..', 'sgraph_ai_service_playwright__api_site')
+        ui_path = os.path.abspath(ui_path)
         if os.path.isdir(ui_path):
             self.app().mount('/ui', StaticFiles(directory=ui_path, html=True), name='ui')
         self.app().add_api_route('/', self._root_redirect, methods=['GET'], include_in_schema=False)
