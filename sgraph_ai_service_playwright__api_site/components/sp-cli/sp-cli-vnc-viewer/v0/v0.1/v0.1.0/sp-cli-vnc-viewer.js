@@ -1,4 +1,7 @@
 /**
+ * @deprecated Use <sg-remote-browser provider="vnc"> from _shared/ instead.
+ *             Kept for one release. Will be removed in PR-7.
+ *
  * sp-cli-vnc-viewer — Embeds a running VNC stack's noVNC viewer (or mitmweb) in an iframe.
  *
  * Usage: create via document.createElement('sp-cli-vnc-viewer'), add to sg-layout via

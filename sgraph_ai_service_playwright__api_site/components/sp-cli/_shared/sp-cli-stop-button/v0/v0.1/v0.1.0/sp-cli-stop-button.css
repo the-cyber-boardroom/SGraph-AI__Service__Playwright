@@ -1,0 +1,31 @@
+:host { display: block; }
+[hidden] { display: none !important; }
+
+.stop-row, .confirm-row {
+    display: flex;
+    align-items: center;
+    gap: var(--sg-sp-2);
+}
+
+.confirm-label { font-size: var(--sg-fs-small); color: var(--sg-text); }
+
+button {
+    padding: 6px var(--sg-sp-3);
+    border-radius: var(--sg-radius);
+    font-size: var(--sg-fs-small);
+    font-weight: 600;
+    cursor: pointer;
+    border: 1px solid var(--sg-border);
+    background: var(--sg-bg-secondary);
+    color: var(--sg-text);
+    transition: background var(--sg-transition-fast);
+}
+button:hover { background: var(--sg-bg-hover, #2a2d34); }
+button:disabled { opacity: .45; cursor: not-allowed; }
+
+.btn-danger {
+    background: transparent;
+    border-color: var(--sg-danger, #ff5050);
+    color: var(--sg-danger, #ff5050);
+}
+.btn-danger:hover { background: rgba(255,80,80,.1); }

@@ -1,0 +1,81 @@
+<!-- empty: no target selected -->
+<div class="pane-empty">
+  <div class="pane-icon">🖥</div>
+  <div class="pane-title">No target selected</div>
+  <div class="pane-hint">Open a stack and call open() to embed the remote browser.</div>
+</div>
+
+<!-- not-running: stack exists but isn't running -->
+<div class="pane-not-running" hidden>
+  <div class="pane-icon">⏳</div>
+  <div class="pane-title">Stack not ready</div>
+  <div class="pane-desc">State: <span class="nr-state"></span></div>
+  <div class="pane-hint">Wait for the stack to reach RUNNING state, then try again.</div>
+</div>
+
+<!-- cert: self-signed cert must be trusted once -->
+<div class="pane-cert" hidden>
+  <div class="pane-icon">🔒</div>
+  <div class="pane-title">Trust the self-signed certificate</div>
+  <div class="pane-desc">Your browser must trust the stack's certificate before the remote browser can load.</div>
+  <button class="btn-cert-open">↗ Open in new tab (trust cert)</button>
+  <div class="cert-step2">
+    <div class="pane-hint">After accepting the certificate warning, return here and continue.</div>
+    <button class="btn-cert-done">I've trusted the certificate — continue</button>
+  </div>
+</div>
+
+<!-- auth: password not yet known -->
+<div class="pane-auth" hidden>
+  <div class="pane-icon">🔑</div>
+  <div class="pane-title">Enter operator password</div>
+  <div class="pane-desc">Enter the password shown when this stack was created.</div>
+  <div class="auth-field">
+    <input type="password" class="pwd-input" placeholder="Operator password" autocomplete="off">
+    <button class="btn-unlock">Unlock</button>
+  </div>
+  <div class="auth-error" hidden></div>
+</div>
+
+<!-- ready: VNC iframe mounted -->
+<div class="pane-ready" hidden>
+  <div class="viewer-toolbar">
+    <span class="toolbar-stack-name"></span>
+    <div class="toolbar-actions">
+      <button class="btn-toggle" title="Switch viewer / mitmweb">⇄ Mitmweb</button>
+      <button class="btn-refresh-vnc" title="Refresh">⟳</button>
+      <button class="btn-new-tab-vnc" title="Open in new tab">↗ New tab</button>
+      <button class="btn-copy-vnc" title="Copy URL">⎘</button>
+    </div>
+  </div>
+  <iframe class="vnc-frame" title="Remote browser (VNC)" allow="clipboard-read; clipboard-write"></iframe>
+  <div class="blank-hint" hidden>
+    <span>Viewer blank? The certificate may not be trusted.</span>
+    <button class="btn-cert-retry">Open in new tab</button>
+  </div>
+</div>
+
+<!-- iframe: direct embed (for provider=iframe or auto initial attempt) -->
+<div class="pane-iframe" hidden>
+  <div class="viewer-toolbar">
+    <span class="toolbar-url"></span>
+    <div class="toolbar-actions">
+      <button class="btn-switch-vnc" title="Switch to remote browser mode">⇄ Remote browser</button>
+      <button class="btn-refresh-direct" title="Refresh">⟳</button>
+      <button class="btn-new-tab-direct" title="Open in new tab">↗ New tab</button>
+      <button class="btn-copy-direct" title="Copy URL">⎘</button>
+    </div>
+  </div>
+  <iframe class="direct-frame" title="Embedded content" allow="clipboard-read; clipboard-write"></iframe>
+  <div class="blank-hint-direct" hidden>
+    <span>Content not loading? It may block iframe embedding.</span>
+    <button class="btn-switch-vnc">Switch to remote browser</button>
+  </div>
+</div>
+
+<!-- neko: stub -->
+<div class="pane-neko" hidden>
+  <div class="pane-icon">🌐</div>
+  <div class="pane-title">Neko provider not yet supported</div>
+  <div class="pane-hint">See the Neko evaluation brief for timeline. Using VNC as the remote browser in the meantime.</div>
+</div>

@@ -1,0 +1,28 @@
+:host { display: block; }
+[hidden] { display: none !important; }
+
+.hdr {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--sg-sp-3);
+    padding: var(--sg-sp-3) var(--sg-sp-4);
+    border-bottom: 1px solid var(--sg-border);
+    background: var(--sg-bg-secondary);
+}
+
+.hdr-icon-wrap {
+    width: 48px; height: 48px;
+    border-radius: var(--sg-radius);
+    background: var(--sg-bg);
+    border: 1px solid var(--sg-border);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 1.5rem;
+    flex-shrink: 0;
+}
+
+.hdr-body   { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; padding-top: 2px; }
+.hdr-row1   { display: flex; align-items: center; gap: var(--sg-sp-2); flex-wrap: wrap; }
+.hdr-name   { font-size: var(--sg-fs-base); font-weight: 600; color: var(--sg-text); font-family: var(--sg-font-mono); }
+.hdr-uptime { font-size: .72rem; color: var(--sg-text-muted); font-family: var(--sg-font-mono); margin-left: auto; }
+.hdr-row2   { font-size: var(--sg-fs-small); color: var(--sg-text-muted); }
+.hdr-row3   { font-size: .7rem; color: var(--sg-text-muted); }

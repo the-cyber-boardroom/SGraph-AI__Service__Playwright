@@ -1,0 +1,20 @@
+:host { display: inline-flex; }
+
+.chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: .72rem;
+    font-weight: 600;
+    font-family: var(--sg-font-mono);
+    white-space: nowrap;
+}
+
+.chip-dot   { font-size: .65rem; line-height: 1; }
+.chip-label { line-height: 1; }
+
+.state-running  { color: #50c878; }
+.state-booting  { color: #f0a500; }
+.state-failed   { color: var(--sg-danger, #ff5050); }
+.state-stopped  { color: var(--sg-text-muted); }
+.state-unknown  { color: var(--sg-text-muted); }
