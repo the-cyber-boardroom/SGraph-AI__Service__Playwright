@@ -45,7 +45,9 @@ async function init() {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
-    init();
+    if (apiClient.apiUrl) {
+        init();                                                                     // URL already saved — load immediately
+    }
 
     document.addEventListener('sg-start-stack', (e) => {
         const modal = CREATE_MODAL();
@@ -65,6 +67,12 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     document.addEventListener('sg-auth-saved', async () => {
+        try {
+            const catalog = await loadCatalog(true);                               // force-refresh cache after URL change
+            TYPE_GRID().catalog = catalog.entries || [];
+        } catch (err) {
+            toast(`Failed to load catalog: ${err.message}`, 'error');
+        }
         await refreshMyStacks();
     });
 });
