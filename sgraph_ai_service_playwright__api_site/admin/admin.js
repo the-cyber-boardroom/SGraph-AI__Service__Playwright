@@ -126,6 +126,27 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
     })
 
+    // ── Stack stop / delete ───────────────────────────────────────────────── //
+
+    document.addEventListener('sp-cli:stack.stop-requested', async (e) => {
+        const stack = e.detail?.stack
+        if (!stack) return
+        try {
+            await apiClient.delete(`/${stack.type_id}/stack/${stack.stack_name}`)
+            _activity(`🗑 Deleted ${stack.type_id} stack: ${stack.stack_name}`)
+            document.dispatchEvent(new CustomEvent('sp-cli:stack.deleted', {
+                detail:  { stack },
+                bubbles: true, composed: true,
+            }))
+        } catch (err) {
+            _activity(`✗ Delete failed (${stack.stack_name}): ${err.message}`)
+            document.dispatchEvent(new CustomEvent('sp-cli:stack.stop-failed', {
+                detail:  { stack, error: err.message },
+                bubbles: true, composed: true,
+            }))
+        }
+    })
+
     // ── Helpers ───────────────────────────────────────────────────────────── //
 
     function _setGate(connected) {
