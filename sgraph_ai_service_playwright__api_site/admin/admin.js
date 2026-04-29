@@ -1,27 +1,33 @@
 // ── admin.js — Admin Dashboard page controller ──────────────────────────── //
 
-import { apiClient    } from '../shared/api-client.js'
-import { startVaultBus } from '../shared/vault-bus.js'
-import { startSettingsBus } from '../shared/settings-bus.js'
+import { apiClient       } from '../shared/api-client.js'
+import { startVaultBus   } from '../shared/vault-bus.js'
+import { startSettingsBus, getUIPanelVisible } from '../shared/settings-bus.js'
 
 const ROOT_LAYOUT_KEY = 'sp-cli:admin:root-layout:v1'
 
-const ROOT_LAYOUT = {
-    type: 'row', sizes: [0.07, 0.78, 0.15],
-    children: [
-        { type: 'stack', tabs: [
-            { tag: 'sp-cli-left-nav', title: 'Nav', locked: true },
-        ]},
-        { type: 'stack', tabs: [
-            { tag: 'sp-cli-compute-view', title: 'Compute', locked: true },
-        ]},
-        { type: 'column', sizes: [0.30, 0.20, 0.20, 0.30], children: [
-            { type: 'stack', tabs: [{ tag: 'sp-cli-events-log',      title: 'Events Log',      locked: true }] },
-            { type: 'stack', tabs: [{ tag: 'sp-cli-vault-status',    title: 'Vault Status',    locked: true }] },
-            { type: 'stack', tabs: [{ tag: 'sp-cli-active-sessions', title: 'Active Sessions', locked: true }] },
-            { type: 'stack', tabs: [{ tag: 'sp-cli-cost-tracker',    title: 'Cost Tracker',    locked: true }] },
-        ]},
-    ],
+const RIGHT_PANELS = [
+    { key: 'events_log',      tag: 'sp-cli-events-log',      title: 'Events Log'      },
+    { key: 'vault_status',    tag: 'sp-cli-vault-status',     title: 'Vault Status'    },
+    { key: 'active_sessions', tag: 'sp-cli-active-sessions',  title: 'Active Sessions' },
+    { key: 'cost_tracker',    tag: 'sp-cli-cost-tracker',     title: 'Cost Tracker'    },
+]
+
+function _buildRootLayout() {
+    const visible = RIGHT_PANELS.filter(p => getUIPanelVisible(p.key))
+    const n       = visible.length || 1
+    const sizes   = visible.map(() => 1 / n)
+    const children = visible.map(p => ({
+        type: 'stack', tabs: [{ tag: p.tag, title: p.title, locked: true }],
+    }))
+    return {
+        type: 'row', sizes: [0.07, 0.78, 0.15],
+        children: [
+            { type: 'stack', tabs: [{ tag: 'sp-cli-left-nav',      title: 'Nav',     locked: true }] },
+            { type: 'stack', tabs: [{ tag: 'sp-cli-compute-view',   title: 'Compute', locked: true }] },
+            { type: 'column', sizes, children },
+        ],
+    }
 }
 
 const VIEW_TITLES = { compute: 'Compute', storage: 'Storage', settings: 'Settings', diagnostics: 'Diagnostics' }
@@ -33,9 +39,10 @@ document.addEventListener('DOMContentLoaded', async () => {
     let _currentView      = 'compute'
     let _currentViewTabId = null
     let _region           = ''
-    let _detailTabIds     = {}                                      // stack_name → panelId
-    let _detailTypeIds    = {}                                      // stack_name → type_id (for plugin toggle cleanup)
-    let _launchTabIds     = {}                                      // type_id   → panelId
+    let _detailTabIds     = {}      // stack_name → panelId
+    let _detailTypeIds    = {}      // stack_name → type_id
+    let _launchTabIds     = {}      // type_id    → panelId
+    let _rightPanelTabIds = {}      // panel key  → panelId
 
     startVaultBus()
     startSettingsBus()
@@ -44,10 +51,16 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     document.addEventListener('vault:connected', async () => {
         _setGate(true)
-        await _initLayout()
         await _loadData()
+        // layout init deferred to sp-cli:settings.loaded to avoid race with vault read
     })
     document.addEventListener('vault:disconnected', () => _setGate(false))
+
+    // ── Settings loaded → trigger layout init (once) ──────────────────────── //
+
+    document.addEventListener('sp-cli:settings.loaded', async () => {
+        if (!_layoutReady) await _initLayout()
+    })
 
     // ── Navigation ────────────────────────────────────────────────────────── //
 
@@ -79,6 +92,24 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (_launchTabIds[name]) {
             _layoutEl?.removePanel(_launchTabIds[name])
             delete _launchTabIds[name]
+        }
+    })
+
+    // ── UI panel visibility toggle ────────────────────────────────────────── //
+
+    document.addEventListener('sp-cli:ui-panel.toggled', (e) => {
+        const { panel, visible } = e.detail || {}
+        if (!panel || !_layoutEl) return
+        if (!visible) {
+            if (_rightPanelTabIds[panel]) {
+                _layoutEl.removePanel(_rightPanelTabIds[panel])
+                delete _rightPanelTabIds[panel]
+            }
+        } else if (!_rightPanelTabIds[panel]) {
+            document.dispatchEvent(new CustomEvent('sg-toast', {
+                detail:  { message: 'Click "Reset Layout" in Settings to show this panel.', tone: 'info' },
+                bubbles: true, composed: true,
+            }))
         }
     })
 
@@ -162,11 +193,12 @@ document.addEventListener('DOMContentLoaded', async () => {
         await import('https://dev.tools.sgraph.ai/core/sg-layout/v0.1.0/sg-layout.js')
 
         _layoutEl = document.getElementById('root-layout')
-        _layoutEl.setLayout(_loadLayout() || ROOT_LAYOUT)
+        _layoutEl.setLayout(_loadLayout() || _buildRootLayout())
 
-        const tree      = _layoutEl.getLayout()
-        _mainStackId    = _findMainStackId(tree)
+        const tree        = _layoutEl.getLayout()
+        _mainStackId      = _findMainStackId(tree)
         _currentViewTabId = _findCurrentViewTabId(tree, _mainStackId)
+        _rightPanelTabIds = _findRightPanelTabIds(tree)
 
         _layoutEl._events.on(SGL_EVENTS.LAYOUT_CHANGED, ({ tree }) => {
             try { localStorage.setItem(ROOT_LAYOUT_KEY, JSON.stringify(tree)) } catch (_) {}
@@ -298,6 +330,20 @@ document.addEventListener('DOMContentLoaded', async () => {
             }
         }
         return null
+    }
+
+    function _findRightPanelTabIds(tree) {
+        const result  = {}
+        const tagToKey = {}
+        RIGHT_PANELS.forEach(p => { tagToKey[p.tag] = p.key })
+        const rightCol = tree?.children?.[2]
+        for (const stack of rightCol?.children || []) {
+            const tab = stack.tabs?.[0]
+            if (tab?.tag && tab?.id && tagToKey[tab.tag]) {
+                result[tagToKey[tab.tag]] = tab.id
+            }
+        }
+        return result
     }
 
     function _findStackWithTag(tree, tag) {
