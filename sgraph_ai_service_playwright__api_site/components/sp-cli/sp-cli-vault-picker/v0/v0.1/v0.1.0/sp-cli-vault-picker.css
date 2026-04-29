@@ -1,0 +1,67 @@
+:host { display: block; position: relative; }
+
+.vault-btn {
+    display: flex;
+    align-items: center;
+    gap: var(--sg-sp-1);
+    padding: var(--sg-sp-1) var(--sg-sp-2);
+    background: transparent;
+    border: 1px solid var(--sg-border);
+    border-radius: var(--sg-radius);
+    color: var(--sg-text);
+    font-size: var(--sg-fs-small);
+    cursor: pointer;
+    white-space: nowrap;
+    transition: border-color var(--sg-transition-fast);
+}
+.vault-btn:hover { border-color: var(--sg-accent); }
+.caret { color: var(--sg-text-muted); font-size: 0.7rem; }
+
+.panel {
+    position: absolute;
+    right: 0;
+    top: calc(100% + 6px);
+    width: 300px;
+    background: var(--sg-bg-secondary);
+    border: 1px solid var(--sg-border);
+    border-radius: var(--sg-radius);
+    box-shadow: 0 8px 24px rgba(0,0,0,.35);
+    z-index: 100;
+    padding: var(--sg-sp-3);
+}
+
+.readonly-warn {
+    background: rgba(244,185,66,.12);
+    border: 1px solid #F4B942;
+    border-radius: var(--sg-radius);
+    padding: var(--sg-sp-2);
+    font-size: var(--sg-fs-small);
+    color: #F4B942;
+    margin-bottom: var(--sg-sp-3);
+    display: flex;
+    align-items: center;
+    gap: var(--sg-sp-2);
+}
+
+.vault-info { margin-bottom: var(--sg-sp-3); }
+.info-label { font-size: var(--sg-fs-small); color: var(--sg-text-muted); margin-bottom: 2px; }
+.connected-vault-id { font-family: var(--sg-font-mono); font-size: var(--sg-fs-small); color: var(--sg-text); word-break: break-all; }
+
+.divider { border: none; border-top: 1px solid var(--sg-border); margin: var(--sg-sp-2) 0; }
+
+.connect-title { font-size: var(--sg-fs-small); font-weight: 600; color: var(--sg-text-muted); margin-bottom: var(--sg-sp-2); text-transform: uppercase; letter-spacing: .04em; }
+
+.danger-btn {
+    width: 100%;
+    padding: var(--sg-sp-1) var(--sg-sp-2);
+    background: transparent;
+    border: 1px solid var(--sg-danger);
+    border-radius: var(--sg-radius);
+    color: var(--sg-danger);
+    font-size: var(--sg-fs-small);
+    cursor: pointer;
+}
+.danger-btn:hover { background: rgba(255,80,80,.08); }
+
+.link-btn { background: none; border: none; color: inherit; text-decoration: underline; cursor: pointer; font-size: inherit; padding: 0; }
+.mono { font-family: var(--sg-font-mono); }

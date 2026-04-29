@@ -1,0 +1,31 @@
+<div class="wrapper">
+  <button class="vault-btn">
+    <span class="vault-label">Connect vault</span>
+    <span class="caret">▾</span>
+  </button>
+
+  <div class="panel" hidden>
+
+    <div class="readonly-warn" hidden>
+      ⚠ Read-only — no access token.
+      <button class="link-btn" id="add-token-btn">Add token →</button>
+    </div>
+
+    <!-- shown when vault is connected -->
+    <div class="connected-view" hidden>
+      <div class="vault-info">
+        <div class="info-label">Connected vault</div>
+        <div class="connected-vault-id mono"></div>
+      </div>
+      <hr class="divider">
+      <button class="btn-disconnect danger-btn">Disconnect</button>
+    </div>
+
+    <!-- shown when vault is not connected -->
+    <div class="connect-view">
+      <div class="connect-title">Connect to a vault</div>
+      <sg-vault-connect></sg-vault-connect>
+    </div>
+
+  </div>
+</div>
