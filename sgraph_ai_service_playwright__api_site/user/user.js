@@ -5,6 +5,7 @@ import { startVaultBus } from '../shared/vault-bus.js'
 
 const LAYOUT_KEY  = 'sp-cli:user:layout'
 const MODAL_TAG   = 'sp-cli-launch-modal'
+const DETAIL_TAG  = 'sp-cli-stack-detail'
 
 const USER_LAYOUT = {
     type: 'row', sizes: [1.0, 0.0],
@@ -43,6 +44,13 @@ document.addEventListener('DOMContentLoaded', async () => {
         console.log('[user] launched', entry.display_name, stackName)
         setTimeout(() => _loadData(), 3000)
     })
+
+    document.addEventListener('sp-cli:stack-selected', (e) => {
+        const detail = document.querySelector(DETAIL_TAG)
+        detail?.open(e.detail?.stack)
+    })
+
+    document.addEventListener('sp-cli:stack-deleted', () => _loadData())
 
     function _setGate(connected) {
         document.getElementById('vault-gate').hidden  = connected

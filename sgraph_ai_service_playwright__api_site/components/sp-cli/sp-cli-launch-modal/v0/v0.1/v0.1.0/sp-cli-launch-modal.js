@@ -60,7 +60,7 @@ class SpCliLaunchModal extends SgComponent {
 
         this._form.reset()
         if (itype) itype.value = entry.default_instance_type || 't3.medium'
-        if (maxH)  maxH.value  = String(entry.default_max_hours || 4)
+        if (maxH)  maxH.value  = String(entry.default_max_hours || 1)
 
         this._hideError()
         this._setLoading(false)
