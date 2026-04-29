@@ -156,6 +156,20 @@ First two slices of the new OpenSearch sister section. Folder name is `opensearc
 
 170 unit tests across primitives + enums + schemas + collections + AWS helpers + HTTP base + probe + Caller__IP__Detector + Random__Stack__Name__Generator + Stack__Mapper + Compose template + Config generator + User_Data builder + Launch helper + Service (read paths + create_stack + setup() chain) + FastAPI routes (5 endpoints via TestClient) + Renderers (Rich Console-capture) + typer-app smoke (CliRunner). Every AWS- and HTTP-touching class is exercised through real `_Fake_*` subclasses (no mocks); each helper has its own focused test file kept under ~150 lines.
 
+### `vnc/` — `sp vnc` sister section foundation (Phase B step 7a, 2026-04-29)
+
+First slice of the new chromium + nginx + mitmproxy sister section. Folder `vnc/`; typer alias `sp vnc` (single name only — N1: renamed from working title `sp nvm`). Per plan doc 6: chromium-only at runtime today (N2); profile + state wiped at termination (N3); no automatic flow export (N4); interceptor model is **default-off + ship examples + provision-time choice via env vars** (N5).
+
+| File | Role |
+|------|------|
+| `vnc/primitives/Safe_Str__Vnc__Stack__Name.py` | Stack name; same regex as elastic + opensearch + prometheus (parity locked by test). |
+| `vnc/primitives/Safe_Str__IP__Address.py` | Local IPv4 primitive. Sister sections stay self-contained. |
+| `vnc/primitives/Safe_Str__Vnc__Password.py` | Operator password (URL-safe base64, 16-64 chars). Used both for nginx Basic auth (operator-facing UI) and `MITM_PROXYAUTH` on the mitmproxy container — service generates one and uses it twice. |
+| `vnc/enums/Enum__Vnc__Stack__State.py` | Lifecycle vocabulary (PENDING/RUNNING/READY/TERMINATING/TERMINATED/UNKNOWN); shape parity with elastic + os + prom locked by test. |
+| `vnc/service/Vnc__AWS__Client.py` | Skeleton — declares `VNC_NAMING = Stack__Naming(section_prefix='vnc')` + 7 tag constants (`sg:purpose=vnc`, `sg:section=vnc`, plus `sg:interceptor` per N5). Helper slots wired in step 7c. |
+
+24 new unit tests — primitives + enum + VNC_NAMING + tag constants + interceptor-tag namespace + skeleton instantiation.
+
 ### `observability/` — Tier-1 pure-logic service (read-only surface)
 
 | File | Role |
