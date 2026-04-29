@@ -8,6 +8,8 @@
 
 import os
 
+from fastapi                                                                        import Response
+from fastapi.responses                                                              import RedirectResponse
 from fastapi.staticfiles                                                            import StaticFiles
 from mangum                                                                         import Mangum
 
@@ -66,3 +68,7 @@ class Fast_API__SP__CLI(Fast_API):
         ui_path  = os.path.abspath(os.path.join(here, '..', '..', 'sgraph_ai_service_playwright__api_site'))
         if os.path.isdir(ui_path):
             self.app().mount('/ui', StaticFiles(directory=ui_path, html=True), name='ui')
+        self.app().add_api_route('/', self._root_redirect, methods=['GET'], include_in_schema=False)
+
+    def _root_redirect(self) -> Response:                                          # redirect bare root to the UI landing page
+        return RedirectResponse(url='/ui/')
