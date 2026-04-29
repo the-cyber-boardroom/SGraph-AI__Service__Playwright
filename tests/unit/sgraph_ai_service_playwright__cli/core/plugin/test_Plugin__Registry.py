@@ -46,6 +46,8 @@ class _Fake_Manifest__Disabled(Plugin__Manifest__Base):
 
 
 # ── helper: inject a fake module into sys.modules for a plugin name ──────────
+# The registry imports `{plugin}.plugin` and calls find_manifest_class(module)
+# which does dir(module). We inject the manifest class directly onto the module.
 
 def _inject_plugin_module(plugin_name: str, manifest_cls: type) -> str:
     module_path = f'sgraph_ai_service_playwright__cli.{plugin_name}.plugin'
@@ -176,7 +178,7 @@ class test_Plugin__Registry(TestCase):
 
     # ── find_manifest_class ───────────────────────────────────────────────────
 
-    def test__find_manifest_class__finds_subclass(self):
+    def test__find_manifest_class__finds_subclass_on_module(self):
         mod = ModuleType('test_mod')
         setattr(mod, '_Fake_Manifest__Enabled', _Fake_Manifest__Enabled)
         cls = Plugin__Registry.find_manifest_class(mod)
