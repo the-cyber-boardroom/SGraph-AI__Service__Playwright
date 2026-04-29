@@ -1,5 +1,6 @@
 // ── admin.js — Admin Dashboard page controller ──────────────────────────── //
 
+import { apiClient    } from '../shared/api-client.js'
 import { startVaultBus } from '../shared/vault-bus.js'
 
 const LAYOUT_KEY    = 'sp-cli:admin:layout'
@@ -25,6 +26,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         console.log('[admin] vault connected', e.detail?.vaultId)
         _setGate(true)
         await _initLayout()
+        await _loadData()
     })
 
     document.addEventListener('vault:disconnected', () => {
@@ -32,11 +34,13 @@ document.addEventListener('DOMContentLoaded', async () => {
         _setGate(false)
     })
 
+    document.addEventListener('sp-cli:stacks-refresh', () => _loadData())
+
+    document.addEventListener('sg-auth-saved', () => _loadData())
+
     function _setGate(connected) {
-        const gate = document.getElementById('vault-gate')
-        const main = document.getElementById('main-content')
-        if (gate) gate.hidden = connected
-        if (main) main.hidden = !connected
+        document.getElementById('vault-gate').hidden  = connected
+        document.getElementById('main-content').hidden = !connected
     }
 
     async function _initLayout() {
@@ -53,6 +57,28 @@ document.addEventListener('DOMContentLoaded', async () => {
         layoutEl._events.on(SGL_EVENTS.LAYOUT_CHANGED, ({ tree }) => {
             try { localStorage.setItem(LAYOUT_KEY, JSON.stringify(tree)) } catch (_) {}
         })
+    }
+
+    async function _loadData() {
+        try {
+            const [catalogResp, stacksResp] = await Promise.all([
+                apiClient.get('/catalog/types'),
+                apiClient.get('/catalog/stacks'),
+            ])
+            _populatePanes(catalogResp?.entries || [], stacksResp?.stacks || [])
+        } catch (err) {
+            console.warn('[admin] data load failed:', err.message)
+            if (err.message?.includes('Unauthenticated') || err.message?.includes('401')) {
+                document.dispatchEvent(new CustomEvent('sg-show-auth', { bubbles: true }))
+            }
+        }
+    }
+
+    function _populatePanes(types, stacks) {
+        const stacksPane   = document.querySelector('sp-cli-stacks-pane')
+        const catalogPane  = document.querySelector('sp-cli-catalog-pane')
+        if (stacksPane)  stacksPane.setStacks(stacks)
+        if (catalogPane) catalogPane.setTypes(types)
     }
 
     function _loadLayout() {

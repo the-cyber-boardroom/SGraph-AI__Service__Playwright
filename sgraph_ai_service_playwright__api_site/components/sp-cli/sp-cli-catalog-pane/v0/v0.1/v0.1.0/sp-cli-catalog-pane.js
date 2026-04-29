@@ -1,7 +1,10 @@
 /**
  * sp-cli-catalog-pane — Stack type catalog for the admin dashboard.
  *
- * PR-3: coming-soon placeholder. PR-5 wires real type cards.
+ * Call setTypes(entries) with the entries array from GET /catalog/types.
+ *
+ * Events emitted:
+ *   sp-cli:catalog-launch — { entry } — user clicked Launch on an available type
  *
  * @module sp-cli-catalog-pane
  * @version 0.1.0
@@ -15,7 +18,36 @@ class SpCliCatalogPane extends SgComponent {
     get resourceName()   { return 'sp-cli-catalog-pane' }
     get sharedCssPaths() { return ['https://dev.tools.sgraph.ai/components/tokens/v1/v1.0/v1.0.0/sg-tokens.css'] }
 
-    onReady() {}
+    onReady() {
+        this._grid      = this.$('.type-grid')
+        this._placeholder = this.$('.coming-soon')
+    }
+
+    setTypes(entries = []) {
+        if (!entries.length) return
+        this._placeholder.hidden = true
+        this._grid.hidden        = false
+        this._grid.innerHTML     = ''
+
+        for (const e of entries) {
+            const card = document.createElement('div')
+            card.className = 'type-card' + (e.available ? '' : ' unavailable')
+            card.innerHTML = `
+                <div class="card-header">
+                    <span class="card-name">${e.display_name}</span>
+                    <span class="card-badge ${e.available ? 'badge-ok' : 'badge-soon'}">${e.available ? 'Available' : 'Soon'}</span>
+                </div>
+                <div class="card-desc">${e.description}</div>
+                ${e.available ? '<button class="card-launch">Launch</button>' : ''}
+            `
+            if (e.available) {
+                card.querySelector('.card-launch').addEventListener('click', () => {
+                    this.emit('sp-cli:catalog-launch', { entry: e })
+                })
+            }
+            this._grid.appendChild(card)
+        }
+    }
 }
 
 customElements.define('sp-cli-catalog-pane', SpCliCatalogPane)

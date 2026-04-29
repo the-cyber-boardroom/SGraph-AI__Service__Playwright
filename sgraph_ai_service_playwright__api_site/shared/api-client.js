@@ -7,7 +7,7 @@ const STORAGE_KEY_KEY = 'sg_api_key';
 
 class ApiClient {
     constructor() {
-        this.apiUrl = localStorage.getItem(STORAGE_KEY_URL) || '';
+        this.apiUrl = localStorage.getItem(STORAGE_KEY_URL) || window.location.origin;
         this.apiKey = localStorage.getItem(STORAGE_KEY_KEY) || '';
     }
 
