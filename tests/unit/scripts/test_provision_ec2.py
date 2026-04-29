@@ -348,15 +348,31 @@ def _plain(text: str) -> str:
 
 class test_cli_surface(TestCase):
 
-    def test__app_has_expected_commands(self):
+    def test__app_has_expected_commands(self):                                       # Phase D: vault-* under sp vault, *-ami under sp ami; flat aliases dropped
         from typer.testing import CliRunner
         result = CliRunner().invoke(provision_ec2.app, ['--help'])
         assert result.exit_code == 0
         out = _plain(result.output)
         for cmd in ('create', 'list', 'delete', 'connect', 'exec', 'exec-c', 'logs', 'forward', 'wait',
-                    'health', 'open', 'screenshot', 'smoke', 'clean', 'bake-ami', 'wait-ami', 'tag-ami',
-                    'env', 'vault-clone', 'vault-list', 'vault-run', 'vault-commit', 'vault-push', 'vault-pull', 'vault-status', 'shell', 'list-amis', 'create-from-ami', 'run'):
+                    'health', 'open', 'screenshot', 'smoke', 'clean',
+                    'env', 'vault', 'ami', 'shell', 'create-from-ami', 'run'):
             assert cmd in out, f'command {cmd!r} missing from --help'
+
+    def test__vault_subgroup_lists_seven_commands(self):                             # Phase D D.3
+        from typer.testing import CliRunner
+        result = CliRunner().invoke(provision_ec2.app, ['vault', '--help'])
+        assert result.exit_code == 0
+        out = _plain(result.output)
+        for cmd in ('clone', 'list', 'run', 'commit', 'push', 'pull', 'status'):
+            assert cmd in out, f'sp vault {cmd!r} missing from --help'
+
+    def test__ami_subgroup_lists_four_commands(self):                                # Phase D D.4 — verbs match sp el ami
+        from typer.testing import CliRunner
+        result = CliRunner().invoke(provision_ec2.app, ['ami', '--help'])
+        assert result.exit_code == 0
+        out = _plain(result.output)
+        for cmd in ('create', 'wait', 'tag', 'list'):
+            assert cmd in out, f'sp ami {cmd!r} missing from --help'
 
     def test__create_help_shows_expected_options(self):
         from typer.testing import CliRunner

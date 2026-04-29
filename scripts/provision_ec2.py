@@ -741,6 +741,20 @@ app = typer.Typer(name           = 'provision_ec2'                              
                    no_args_is_help = True                                              ,
                    add_completion  = False                                             )
 
+# ─── sp vault subgroup (Phase D D.3 — flat sp vault-* commands regrouped) ────
+vault_app = typer.Typer(no_args_is_help=True,
+                          help='Vault clone/run/commit/push/pull/status/list — operate on the vault checkout inside the EC2 host.')
+app.add_typer(vault_app, name='vault'        )
+app.add_typer(vault_app, name='v',     hidden=True)                                  # short alias
+
+# ─── sp ami subgroup (Phase D D.4 — flat sp bake-ami/wait-ami/tag-ami/list-amis regrouped) ────
+# Verbs match the sp el ami pattern: create / wait / tag / list. The
+# `sp create-from-ami` command stays top-level (different action — launches
+# an instance from a baked AMI rather than operating on the AMI itself).
+ami_app = typer.Typer(no_args_is_help=True,
+                        help='AMI lifecycle for the Playwright EC2 — bake / wait / tag / list. Mirrors `sp el ami`.')
+app.add_typer(ami_app, name='ami')
+
 from scripts.observability import app as _observability_app, _check_os_dashboards, _os_endpoint, _list_stacks  # noqa: E402
 app.add_typer(_observability_app, name='observability', hidden=True)
 app.add_typer(_observability_app, name='ob',            hidden=True)
@@ -1306,7 +1320,7 @@ def cmd_env(target: Optional[str] = typer.Argument(None, help='Deploy-name or in
     sys.stderr.write('\n')
 
 
-@app.command(name='vault-clone')
+@vault_app.command(name='clone')
 def cmd_vault_clone(target   : Optional[str] = typer.Argument(None, help='Deploy-name or instance-id; auto-selects if only one instance.'),
                     key      : str           = typer.Argument(...,  help='Vault key (id:secret format from sgit).'),
                     container: Optional[str] = typer.Option('playwright', '--container', '-c',
@@ -1406,7 +1420,7 @@ def _vault_shell(instance_id: str, shell: str, container: Optional[str] = None) 
     return result.returncode
 
 
-@app.command(name='vault-list')
+@vault_app.command(name='list')
 def cmd_vault_list(target   : Optional[str] = typer.Argument(None, help='Deploy-name or instance-id (auto if only one).'),
                    path     : str           = typer.Option('.',          '--path',      '-p', help='Sub-path within --work-dir to list.'),
                    container: Optional[str] = typer.Option('playwright', '--container', '-c', help='Run inside this Compose service (pass "" to run on EC2 host).'),
@@ -1419,7 +1433,7 @@ def cmd_vault_list(target   : Optional[str] = typer.Argument(None, help='Deploy-
                container=container or None)
 
 
-@app.command(name='vault-run')
+@vault_app.command(name='run')
 def cmd_vault_run(script   : str           = typer.Argument(...,  help='Script path relative to --work-dir (e.g. scenarios/00__pre-flight/scripts/01__health.sh).'),
                   target   : Optional[str] = typer.Option(None,          '--target',    '-t', help='Deploy-name or instance-id (auto if only one).'),
                   container: Optional[str] = typer.Option('playwright',  '--container', '-c', help='Run inside this Compose service (pass "" to run on EC2 host).'),
@@ -1453,7 +1467,7 @@ def cmd_vault_run(script   : str           = typer.Argument(...,  help='Script p
         _vault_ssm(instance_id, full_shell, timeout=timeout + 10, container=container or None)
 
 
-@app.command(name='vault-commit')
+@vault_app.command(name='commit')
 def cmd_vault_commit(target   : Optional[str] = typer.Argument(None, help='Deploy-name or instance-id (auto if only one).'),
                      message  : str           = typer.Option('investigation outputs', '--message', '-m', help='Commit message.'),
                      container: Optional[str] = typer.Option('playwright', '--container', '-c', help='Run inside this Compose service (pass "" for EC2 host).'),
@@ -1466,7 +1480,7 @@ def cmd_vault_commit(target   : Optional[str] = typer.Argument(None, help='Deplo
                container=container or None)
 
 
-@app.command(name='vault-push')
+@vault_app.command(name='push')
 def cmd_vault_push(target      : Optional[str] = typer.Argument(None, help='Deploy-name or instance-id (auto if only one).'),
                    access_token: Optional[str] = typer.Option(None, '--access-token', envvar='SGIT_WRITE_TOKEN',
                                                                help='Write token; also read from $SGIT_WRITE_TOKEN.'),
@@ -1484,7 +1498,7 @@ def cmd_vault_push(target      : Optional[str] = typer.Argument(None, help='Depl
                container=container or None)
 
 
-@app.command(name='vault-pull')
+@vault_app.command(name='pull')
 def cmd_vault_pull(target   : Optional[str] = typer.Argument(None, help='Deploy-name or instance-id (auto if only one).'),
                    container: Optional[str] = typer.Option('playwright', '--container', '-c', help='Run inside this Compose service (pass "" for EC2 host).'),
                    work_dir : str           = typer.Option('/root/sg-investigation', '--work-dir', help='Vault root.')):
@@ -1494,7 +1508,7 @@ def cmd_vault_pull(target   : Optional[str] = typer.Argument(None, help='Deploy-
     _vault_ssm(instance_id, f'cd {shlex.quote(work_dir)} && sgit pull 2>&1', container=container or None)
 
 
-@app.command(name='vault-status')
+@vault_app.command(name='status')
 def cmd_vault_status(target   : Optional[str] = typer.Argument(None, help='Deploy-name or instance-id (auto if only one).'),
                      container: Optional[str] = typer.Option('playwright', '--container', '-c', help='Run inside this Compose service (pass "" for EC2 host).'),
                      work_dir : str           = typer.Option('/root/sg-investigation', '--work-dir', help='Vault root.')):
@@ -1947,7 +1961,7 @@ def cmd_clean(target: Optional[str] = typer.Argument(None, help='Deploy-name or 
     c.print()
 
 
-@app.command(name='bake-ami')
+@ami_app.command(name='create')
 def cmd_bake_ami(target  : Optional[str] = typer.Argument(None, help='Deploy-name or instance-id; auto-selects if only one instance.'),
                  ami_name : Optional[str] = typer.Option(None, '--name', help='AMI name (default: sg-playwright-{timestamp}).')):
     """Create an AMI from a running instance. Prints the AMI ID to stdout for scripting."""
@@ -1966,7 +1980,7 @@ def cmd_bake_ami(target  : Optional[str] = typer.Argument(None, help='Deploy-nam
     print(ami_id)                                                           # machine-readable to stdout
 
 
-@app.command(name='wait-ami')
+@ami_app.command(name='wait')
 def cmd_wait_ami(ami_id  : str = typer.Argument(..., help='AMI ID to wait for.'),
                  timeout : int = typer.Option(900, help='Max seconds to wait.')):
     """Wait for an AMI to become available."""
@@ -1980,7 +1994,7 @@ def cmd_wait_ami(ami_id  : str = typer.Argument(..., help='AMI ID to wait for.')
         raise typer.Exit(1)
 
 
-@app.command(name='tag-ami')
+@ami_app.command(name='tag')
 def cmd_tag_ami(ami_id : str = typer.Argument(..., help='AMI ID to tag.'),
                 status : str = typer.Option('healthy', '--status', help='Status tag value: healthy | unhealthy | untested.')):
     """Tag an AMI with sg:ami-status (healthy, unhealthy, or untested)."""
@@ -1991,7 +2005,7 @@ def cmd_tag_ami(ami_id : str = typer.Argument(..., help='AMI ID to tag.'),
     Console(highlight=False).print(f'\n  [{colour}]●[/]  {ami_id}  sg:ami-status = {status}\n')
 
 
-@app.command(name='list-amis')
+@ami_app.command(name='list')
 def cmd_list_amis():
     """List all sg-playwright AMIs in the current region with their status, age, and running instances."""
     c         = Console(highlight=False, width=200)
