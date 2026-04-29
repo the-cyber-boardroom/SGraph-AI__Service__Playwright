@@ -11,4 +11,5 @@ typer
 
 osbot-aws
 osbot-fast-api
+osbot-fast-api-serverless
 osbot-utils
