@@ -3,25 +3,32 @@
 import { apiClient    } from '../shared/api-client.js'
 import { startVaultBus } from '../shared/vault-bus.js'
 
-const LAYOUT_KEY    = 'sp-cli:admin:layout'
+const LAYOUT_KEY    = 'sp-cli:admin:layout:v2'           // bumped — resets saved layouts from older shape
 const MODAL_TAG     = 'sp-cli-launch-modal'
-const DETAIL_TAG    = 'sp-cli-stack-detail'
 
 const ADMIN_LAYOUT = {
-    type: 'row', sizes: [0.72, 0.28],
+    type: 'row', sizes: [0.42, 0.36, 0.22],
     children: [
         { type: 'stack', tabs: [
-            { tag: 'sp-cli-stacks-pane',   title: 'Stacks',       locked: true  },
-            { tag: 'sp-cli-catalog-pane',  title: 'Catalog',      locked: false },
-            { tag: 'sp-cli-activity-pane', title: 'Activity Log', locked: false },
+            { tag: 'sp-cli-catalog-pane',  title: 'Catalog', locked: false },
+        ]},
+        { type: 'column', sizes: [0.55, 0.45], children: [
+            { type: 'stack', tabs: [
+                { tag: 'sp-cli-stacks-pane',   title: 'Stacks',       locked: true  },
+            ]},
+            { type: 'stack', tabs: [
+                { tag: 'sp-cli-activity-pane', title: 'Activity Log', locked: false },
+            ]},
         ]},
         { type: 'stack', tabs: [
-            { tag: 'sp-cli-vault-activity', title: 'Vault Activity', locked: true },
+            { tag: 'sp-cli-vault-activity', title: 'Vault Activity', locked: true  },
+            { tag: 'sp-cli-stack-detail',   title: 'Stack Detail',   locked: false },
         ]},
     ],
 }
 
 document.addEventListener('DOMContentLoaded', async () => {
+    let _region = ''
     startVaultBus()
 
     document.addEventListener('vault:connected', async (e) => {
@@ -36,12 +43,12 @@ document.addEventListener('DOMContentLoaded', async () => {
         _setGate(false)
     })
 
-    document.addEventListener('sp-cli:stacks-refresh', () => _loadData())
+    document.addEventListener('sp-cli:stacks-refresh',   () => _loadData())
+    document.addEventListener('sg-auth-saved',           () => _loadData())
+    document.addEventListener('sp-cli:region-changed',   (e) => { _region = e.detail?.region || ''; _loadData() })
 
-    document.addEventListener('sg-auth-saved', () => _loadData())
-
-    document.addEventListener('sp-cli:catalog-launch', (e) => _openModal(e.detail?.entry))
-    document.addEventListener('sp-cli:user-launch',    (e) => _openModal(e.detail?.entry))
+    document.addEventListener('sp-cli:catalog-launch',   (e) => _openModal(e.detail?.entry))
+    document.addEventListener('sp-cli:user-launch',      (e) => _openModal(e.detail?.entry))
 
     document.addEventListener('sp-cli:launch-success', (e) => {
         const { entry, response } = e.detail
@@ -52,11 +59,6 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     document.addEventListener('sp-cli:launch-error', (e) => {
         _activity(`✗ Launch failed (${e.detail?.entry?.display_name}): ${e.detail?.error}`)
-    })
-
-    document.addEventListener('sp-cli:stack-selected', (e) => {
-        const detail = document.querySelector(DETAIL_TAG)
-        detail?.open(e.detail?.stack)
     })
 
     document.addEventListener('sp-cli:stack-deleted', (e) => {
@@ -87,9 +89,10 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     async function _loadData() {
         try {
+            const regionParam = _region ? `?region=${encodeURIComponent(_region)}` : ''
             const [catalogResp, stacksResp] = await Promise.all([
                 apiClient.get('/catalog/types'),
-                apiClient.get('/catalog/stacks'),
+                apiClient.get(`/catalog/stacks${regionParam}`),
             ])
             _populatePanes(catalogResp?.entries || [], stacksResp?.stacks || [])
         } catch (err) {

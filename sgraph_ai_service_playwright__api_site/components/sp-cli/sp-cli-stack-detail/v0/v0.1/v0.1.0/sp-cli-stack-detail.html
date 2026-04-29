@@ -1,15 +1,19 @@
-<div class="panel" hidden>
-  <div class="panel-header">
+<div class="pane-empty">
+  <div class="empty-icon">📋</div>
+  <div class="empty-msg">Select a stack to view details</div>
+</div>
+
+<div class="pane-detail" hidden>
+
+  <div class="pane-header">
     <div class="header-left">
       <span class="type-badge"></span>
       <span class="stack-name"></span>
     </div>
-    <button class="btn-close" aria-label="Close">✕</button>
-  </div>
-
-  <div class="state-row">
-    <span class="state-badge"></span>
-    <span class="uptime"></span>
+    <div class="header-right">
+      <span class="state-badge"></span>
+      <span class="uptime"></span>
+    </div>
   </div>
 
   <div class="detail-grid">
@@ -52,4 +56,5 @@
     <span class="loading-spinner">⟳</span>
     <span class="loading-msg">Working…</span>
   </div>
+
 </div>

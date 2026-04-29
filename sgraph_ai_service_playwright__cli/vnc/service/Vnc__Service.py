@@ -120,6 +120,7 @@ class Vnc__Service(Type_Safe):
             state             = Enum__Vnc__Stack__State.PENDING                          )
 
     def list_stacks(self, region: str) -> Schema__Vnc__Stack__List:
+        region = region or DEFAULT_REGION
         raw    = self.aws_client.instance.list_stacks(region)
         stacks = List__Schema__Vnc__Stack__Info()
         for details in raw.values():
