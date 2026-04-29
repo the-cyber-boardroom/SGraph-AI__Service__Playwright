@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SG Playwright — Provision a Stack</title>
+  <link rel="stylesheet" href="../shared/tokens.css">
+  <link rel="stylesheet" href="user.css">
+</head>
+<body>
+  <sg-api-client></sg-api-client>
+  <sg-auth-panel></sg-auth-panel>
+  <sg-header title="Provision a Stack"></sg-header>
+  <sg-toast-host></sg-toast-host>
+  <sg-create-modal id="create-modal"></sg-create-modal>
+  <main>
+    <section id="available-types">
+      <h2>Available Stack Types</h2>
+      <sg-stack-grid id="type-grid" mode="user-cards"></sg-stack-grid>
+    </section>
+    <section id="my-stacks">
+      <h2>My Active Stacks</h2>
+      <sg-stack-grid id="active-grid" mode="user-active"></sg-stack-grid>
+    </section>
+  </main>
+  <script type="module" src="../shared/components/sg-api-client.js"></script>
+  <script type="module" src="../shared/components/sg-auth-panel.js"></script>
+  <script type="module" src="../shared/components/sg-header.js"></script>
+  <script type="module" src="../shared/components/sg-toast-host.js"></script>
+  <script type="module" src="../shared/components/sg-stack-card.js"></script>
+  <script type="module" src="../shared/components/sg-stack-grid.js"></script>
+  <script type="module" src="../shared/components/sg-create-modal.js"></script>
+  <script type="module" src="user.js"></script>
+</body>
+</html>
