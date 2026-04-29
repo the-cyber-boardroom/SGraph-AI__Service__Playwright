@@ -137,6 +137,9 @@ def _wait_for_ready(service: Vnc__Service, region: str, name: str, username: str
 def create(name             : Optional[str] = typer.Argument(None, help='Stack name; auto-generated as vnc-{adjective}-{scientist} if omitted.'),
            region           : str           = typer.Option(DEFAULT_REGION       , '--region', '-r', help='AWS region.'),
            instance_type    : str           = typer.Option(DEFAULT_INSTANCE_TYPE, '--instance-type', '-t', help='EC2 instance type.'),
+           password         : Optional[str] = typer.Option(None, '--password'           , '-p',
+                                                             help='Operator password for nginx Basic auth + mitmproxy proxy auth. '
+                                                                  'URL-safe base64, 16-64 chars. Auto-generated if omitted (returned once on create).'),
            interceptor      : Optional[str] = typer.Option(None, '--interceptor'         , help='Name of a baked example interceptor (see `sp vnc interceptors`).'),
            interceptor_script: Optional[str] = typer.Option(None, '--interceptor-script' , help='Path to a local Python file; embedded inline at create time.'),
            wait             : bool           = typer.Option(False, '--wait'              , help='Block until nginx + mitmweb are reachable (timeout 600s).')):
@@ -144,10 +147,11 @@ def create(name             : Optional[str] = typer.Argument(None, help='Stack n
     c       = Console(highlight=False, width=200)
     svc     = _service()
     choice  = _interceptor_choice(interceptor, interceptor_script)
-    request = Schema__Vnc__Stack__Create__Request(stack_name    = name           or '',
-                                                    region        = region              ,
-                                                    instance_type = instance_type       ,
-                                                    interceptor   = choice              )
+    request = Schema__Vnc__Stack__Create__Request(stack_name        = name           or '',
+                                                    region            = region              ,
+                                                    instance_type     = instance_type       ,
+                                                    operator_password = password       or '',
+                                                    interceptor       = choice              )
     resp = svc.create_stack(request)
     render_create(resp, c)
     if wait:
@@ -177,6 +181,7 @@ def info(name  : Optional[str] = typer.Argument(None, help='Stack name; auto-sel
     c       = Console(highlight=False, width=200)
     svc     = _service()
     name    = resolve_stack_name(svc, name, region)
+    c.print(f'  [dim]Fetching {name!r} from {region}…[/]')                          # Progress hint — boto3 describe_instances is silent and can take 1-3s
     data    = svc.get_stack_info(region, name)
     if data is None:
         c.print(f'  [red]✗  No VNC stack matched {name!r}[/]')
@@ -207,10 +212,12 @@ def health(name    : Optional[str] = typer.Argument(None, help='Stack name; auto
            username: str           = typer.Option('operator', '--user'    , '-u'),
            password: str           = typer.Option('',         '--password', '-p', help='Operator password (returned once on create).')):
     """Probe nginx + mitmweb reachability on the live stack (no waiting)."""
+    c    = Console(highlight=False, width=200)
     svc  = _service()
     name = resolve_stack_name(svc, name, region)
+    c.print(f'  [dim]Probing {name!r}…[/]')                                          # Progress hint — boto3 + 2 HTTP probes can take 5-10s
     h    = svc.health(region, name, username, password)
-    render_health(h, Console(highlight=False, width=200))
+    render_health(h, c)
 
 
 @app.command()
@@ -240,10 +247,31 @@ def flows(name    : Optional[str] = typer.Argument(None, help='Stack name; auto-
           username: str           = typer.Option('operator', '--user'    , '-u'),
           password: str           = typer.Option('',         '--password', '-p')):
     """List recent mitmweb flows on the live stack (no auto-export per N4)."""
+    c       = Console(highlight=False, width=200)
     svc     = _service()
     name    = resolve_stack_name(svc, name, region)
+    c.print(f'  [dim]Fetching mitmweb flows from {name!r}…[/]')
     listing = svc.flows(region, name, username, password)
-    render_flows(listing, Console(highlight=False, width=200))
+    render_flows(listing, c)
+
+
+@app.command()
+@_err_handler
+def connect(name  : Optional[str] = typer.Argument(None, help='Stack name; auto-selected when only one exists.'),
+            region: str           = typer.Option(DEFAULT_REGION, '--region', '-r')):
+    """Open an SSM shell session on the stack (replaces current process with aws ssm start-session)."""
+    import os
+    c    = Console(highlight=False, width=200)
+    svc  = _service()
+    name = resolve_stack_name(svc, name, region)
+    c.print(f'  [dim]Resolving {name!r}…[/]')
+    data = svc.get_stack_info(region, name)
+    if data is None:
+        c.print(f'  [red]✗  No VNC stack matched {name!r}[/]')
+        raise typer.Exit(1)
+    iid = str(data.instance_id)
+    c.print(f'  [dim]Connecting to {name} ({iid}) in {region}…[/]\n')
+    os.execvp('aws', ['aws', 'ssm', 'start-session', '--target', iid, '--region', region])
 
 
 @app.command()

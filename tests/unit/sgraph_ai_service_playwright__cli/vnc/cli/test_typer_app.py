@@ -25,15 +25,16 @@ class test_typer_app(TestCase):
         result   = self.runner.invoke(self.app, ['--help'])
         assert result.exit_code == 0
         out      = _plain(result.stdout)
-        for cmd in ('create', 'list', 'info', 'delete', 'health', 'wait', 'flows', 'interceptors'):
+        for cmd in ('create', 'list', 'info', 'delete', 'connect', 'health', 'wait', 'flows', 'interceptors'):
             assert cmd in out, f'{cmd!r} missing from sp vnc --help'
 
-    def test__create_command_help_includes_interceptor_and_wait_flags(self):         # N5 + --wait
+    def test__create_command_help_includes_interceptor_password_and_wait_flags(self):  # N5 + --password + --wait
         result = self.runner.invoke(self.app, ['create', '--help'])
         assert result.exit_code == 0
         out    = _plain(result.stdout)
         assert '--interceptor'        in out
         assert '--interceptor-script' in out
+        assert '--password'           in out                                          # Operator can pin the nginx + mitm proxyauth password
         assert '--wait'               in out                                          # Block until reachable
 
     def test__root_supports_debug_flag(self):                                         # mirrors sp linux / sp docker_stack pattern
@@ -61,6 +62,13 @@ class test_typer_app(TestCase):
         assert result.exit_code == 0
         out    = _plain(result.stdout)
         assert '[NAME]' in out                                                        # Brackets = optional argument
+
+    def test__connect_command_help(self):                                             # SSM shell — mirrors sp linux connect
+        result = self.runner.invoke(self.app, ['connect', '--help'])
+        assert result.exit_code == 0
+        out    = _plain(result.stdout)
+        assert '[NAME]' in out                                                        # Optional name (auto-pick when one stack)
+        assert 'SSM'    in out                                                        # Help mentions SSM
 
     def test__interceptors_command_lists_baked_examples(self):                      # No service call needed
         result = self.runner.invoke(self.app, ['interceptors'])
