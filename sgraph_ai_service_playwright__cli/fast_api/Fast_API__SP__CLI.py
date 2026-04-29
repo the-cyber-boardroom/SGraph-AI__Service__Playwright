@@ -6,6 +6,9 @@
 # Auth: X-API-Key middleware active when FAST_API__AUTH__API_KEY__VALUE is set.
 # ═══════════════════════════════════════════════════════════════════════════════
 
+import os
+
+from fastapi.staticfiles                                                            import StaticFiles
 from mangum                                                                         import Mangum
 
 from osbot_fast_api.api.Fast_API                                                    import Fast_API
@@ -56,3 +59,10 @@ class Fast_API__SP__CLI(Fast_API):
         self.add_routes(Routes__Elastic__Stack  , service=self.elastic_service      )
         self.add_routes(Routes__Linux__Stack    , service=self.linux_service        )
         self.add_routes(Routes__Observability   , service=self.observability_service)
+        self._mount_ui()
+
+    def _mount_ui(self):                                                            # serve api_site/ at /ui — same origin eliminates CORS
+        here     = os.path.dirname(__file__)
+        ui_path  = os.path.abspath(os.path.join(here, '..', '..', 'sgraph_ai_service_playwright__api_site'))
+        if os.path.isdir(ui_path):
+            self.app().mount('/ui', StaticFiles(directory=ui_path, html=True), name='ui')
