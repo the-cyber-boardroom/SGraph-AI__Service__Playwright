@@ -1,0 +1,41 @@
+/* ── Design tokens — shared across admin and user UIs ───────────────────── */
+/* All values derived from the existing style.css palette.                   */
+
+:root {
+  /* Colours */
+  --color-bg           : #0f1117;
+  --color-surface      : #181b24;
+  --color-surface-alt  : #22253a;
+  --color-border       : #2a2d3a;
+  --color-text         : #e0e0e8;
+  --color-text-muted   : #8888aa;
+  --color-accent       : #5b7cf6;
+  --color-success      : #1e6642;
+  --color-success-text : #a0f0c0;
+  --color-warning      : #7a6200;
+  --color-warning-text : #f0e08a;
+  --color-danger       : #6a1a1a;
+  --color-danger-text  : #f0a0a0;
+
+  /* Spacing */
+  --spacing-xs  : 4px;
+  --spacing-sm  : 8px;
+  --spacing-md  : 16px;
+  --spacing-lg  : 24px;
+  --spacing-xl  : 32px;
+
+  /* Shape */
+  --border-radius      : 8px;
+  --border-radius-sm   : 6px;
+  --border-radius-pill : 99px;
+
+  /* Typography */
+  --font-family-ui     : system-ui, -apple-system, sans-serif;
+  --font-family-mono   : 'Menlo', 'Consolas', monospace;
+  --font-size-sm       : 0.875rem;
+  --font-size-base     : 1rem;
+  --font-size-lg       : 1.125rem;
+
+  /* Motion */
+  --transition-fast    : 150ms ease;
+}
