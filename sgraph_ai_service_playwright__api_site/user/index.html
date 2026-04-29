@@ -9,8 +9,9 @@
 </head>
 <body>
 
-  <sp-cli-top-bar page-title="Provisioning Console" region="eu-west-2">
-    <sp-cli-vault-picker slot="vault-picker"></sp-cli-vault-picker>
+  <sp-cli-top-bar page-title="Provisioning Console">
+    <sp-cli-region-picker slot="region-picker" value="eu-west-2"></sp-cli-region-picker>
+    <sp-cli-vault-picker  slot="vault-picker"></sp-cli-vault-picker>
   </sp-cli-top-bar>
 
   <!-- vault gate: shown until vault connects -->
@@ -23,14 +24,13 @@
 
   <!-- main content: hidden until vault connects -->
   <main id="main-content" hidden>
-    <!-- PR-3: sg-layout with user pane + vault activity (collapsed) -->
-    <div class="temp-vault-activity">
-      <sp-cli-vault-activity></sp-cli-vault-activity>
-    </div>
+    <sg-layout id="main-layout"></sg-layout>
   </main>
 
   <script type="module" src="../components/sp-cli/sp-cli-top-bar/v0/v0.1/v0.1.0/sp-cli-top-bar.js"></script>
+  <script type="module" src="../components/sp-cli/sp-cli-region-picker/v0/v0.1/v0.1.0/sp-cli-region-picker.js"></script>
   <script type="module" src="../components/sp-cli/sp-cli-vault-picker/v0/v0.1/v0.1.0/sp-cli-vault-picker.js"></script>
+  <script type="module" src="../components/sp-cli/sp-cli-user-pane/v0/v0.1/v0.1.0/sp-cli-user-pane.js"></script>
   <script type="module" src="../components/sp-cli/sp-cli-vault-activity/v0/v0.1/v0.1.0/sp-cli-vault-activity.js"></script>
   <script type="module" src="user.js"></script>
 

@@ -1,17 +1,30 @@
 // ── admin.js — Admin Dashboard page controller ──────────────────────────── //
-// PR-2: vault-bus bootstrap + vault gate. Stack data wired in PR-4.         //
 
-import { apiClient   } from '../shared/api-client.js'
 import { startVaultBus } from '../shared/vault-bus.js'
 
-document.addEventListener('DOMContentLoaded', () => {
+const LAYOUT_KEY    = 'sp-cli:admin:layout'
+
+const ADMIN_LAYOUT = {
+    type: 'row', sizes: [0.72, 0.28],
+    children: [
+        { type: 'stack', tabs: [
+            { tag: 'sp-cli-stacks-pane',   title: 'Stacks',       locked: true  },
+            { tag: 'sp-cli-catalog-pane',  title: 'Catalog',      locked: false },
+            { tag: 'sp-cli-activity-pane', title: 'Activity Log', locked: false },
+        ]},
+        { type: 'stack', tabs: [
+            { tag: 'sp-cli-vault-activity', title: 'Vault Activity', locked: true },
+        ]},
+    ],
+}
+
+document.addEventListener('DOMContentLoaded', async () => {
     startVaultBus()
 
     document.addEventListener('vault:connected', async (e) => {
         console.log('[admin] vault connected', e.detail?.vaultId)
         _setGate(true)
-        // PR-3: populate sg-layout
-        // PR-4: load catalog + active stacks
+        await _initLayout()
     })
 
     document.addEventListener('vault:disconnected', () => {
@@ -24,5 +37,28 @@ document.addEventListener('DOMContentLoaded', () => {
         const main = document.getElementById('main-content')
         if (gate) gate.hidden = connected
         if (main) main.hidden = !connected
+    }
+
+    async function _initLayout() {
+        const layoutEl = document.getElementById('main-layout')
+        if (!layoutEl || layoutEl._layoutReady) return
+        layoutEl._layoutReady = true
+
+        const { SGL_EVENTS } = await import('https://dev.tools.sgraph.ai/core/sg-layout/v0.1.0/sg-layout-events.js')
+        await import('https://dev.tools.sgraph.ai/core/sg-layout/v0.1.0/sg-layout.js')
+
+        const saved = _loadLayout()
+        layoutEl.setLayout(saved || ADMIN_LAYOUT)
+
+        layoutEl._events.on(SGL_EVENTS.LAYOUT_CHANGED, ({ tree }) => {
+            try { localStorage.setItem(LAYOUT_KEY, JSON.stringify(tree)) } catch (_) {}
+        })
+    }
+
+    function _loadLayout() {
+        try {
+            const raw = localStorage.getItem(LAYOUT_KEY)
+            return raw ? JSON.parse(raw) : null
+        } catch (_) { return null }
     }
 })
