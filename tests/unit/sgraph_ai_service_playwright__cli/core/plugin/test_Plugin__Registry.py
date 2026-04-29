@@ -224,6 +224,16 @@ class test_Plugin__Registry(TestCase):
         assert entries[0]   == {'type_id': 'fake'}
         _remove_plugin_module('fakeplugin')
 
+    # ── route_service_pairs ───────────────────────────────────────────────────
+
+    def test__route_service_pairs__empty_when_no_routes(self):
+        _inject_plugin_module('fakeplugin', _Fake_Manifest__Enabled)
+        registry = Plugin__Registry()
+        registry.plugin_folders = ['fakeplugin']
+        registry.discover().setup_all()
+        assert registry.route_service_pairs() == []                             # _Fake_Manifest__Enabled.routes_classes() returns []
+        _remove_plugin_module('fakeplugin')
+
     # ── service_for ───────────────────────────────────────────────────────────
 
     def test__service_for__returns_correct_instance(self):
