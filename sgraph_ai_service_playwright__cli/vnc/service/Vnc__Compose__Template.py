@@ -43,10 +43,10 @@ services:
     container_name: sg-nginx
     ports:
       - "443:443"
-    volumes:
-      - /opt/sg-vnc/nginx/conf.d:/etc/nginx/conf.d:ro
-      - /opt/sg-vnc/nginx/htpasswd:/etc/nginx/htpasswd:ro
-      - /opt/sg-vnc/nginx/tls:/etc/nginx/tls:ro
+    volumes:                                                                     # `:z` relabels the host path with a shared SELinux label so the container can read it. AL2023 has SELinux enforcing — without :z the bind mount is denied even at chmod 0644.
+      - /opt/sg-vnc/nginx/conf.d:/etc/nginx/conf.d:ro,z
+      - /opt/sg-vnc/nginx/htpasswd:/etc/nginx/htpasswd:ro,z
+      - /opt/sg-vnc/nginx/tls:/etc/nginx/tls:ro,z
     networks:
       - sg-net
     restart: unless-stopped
@@ -66,8 +66,8 @@ services:
       - --set=proxyauth=@/opt/sg-vnc/mitm/proxyauth
       - --scripts=/opt/sg-vnc/interceptors/runtime/active.py
     volumes:
-      - /opt/sg-vnc/interceptors:/opt/sg-vnc/interceptors:ro
-      - /opt/sg-vnc/mitm:/opt/sg-vnc/mitm:ro
+      - /opt/sg-vnc/interceptors:/opt/sg-vnc/interceptors:ro,z
+      - /opt/sg-vnc/mitm:/opt/sg-vnc/mitm:ro,z
     networks:
       - sg-net
     restart: unless-stopped
