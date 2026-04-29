@@ -86,6 +86,14 @@ class Plugin__Registry(Type_Safe):
     def all_catalog_entries(self) -> list:
         return [m.catalog_entry() for m in self.manifests.values()]
 
+    def route_service_pairs(self) -> list:                                          # [(routes_cls, service_instance), ...] for every enabled plugin
+        result = []
+        for name, manifest in self.manifests.items():
+            svc = self.service_instances.get(name)
+            for routes_cls in manifest.routes_classes():
+                result.append((routes_cls, svc))
+        return result
+
     def service_for(self, plugin_name: str):
         return self.service_instances[plugin_name]
 
