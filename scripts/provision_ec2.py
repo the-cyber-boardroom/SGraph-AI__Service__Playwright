@@ -349,7 +349,7 @@ def preflight_check(playwright_image_uri: str = None, sidecar_image_uri: str = N
     # ── iam:PassRole check ────────────────────────────────────────────────────
     passrole = ensure_caller_passrole(account)
     if not passrole['ok'] or passrole['action'] == 'skipped':
-        warnings.append(f"iam:PassRole not verified ({passrole['detail']}) — run 'sp pw ensure-passrole' if 'sp pw create' fails with UnauthorizedOperation.")
+        warnings.append(f"iam:PassRole not verified ({passrole['detail']}) — run 'sp doctor passrole' if 'sp pw create' fails with UnauthorizedOperation.")
     elif passrole['action'] == 'created':
         warnings.append(f"iam:PassRole policy was missing — attached automatically ({passrole['detail']}).")
 
@@ -796,6 +796,10 @@ app.add_typer(_docker_app, name='dk',   hidden=True)                            
 # v0.1.97 (2/3) — sp catalog: cross-section enumeration
 from scripts.catalog import app as _catalog_app  # noqa: E402
 app.add_typer(_catalog_app, name='catalog')
+
+# v0.1.97 (3/3) — sp doctor: global preflight (replaces sp ensure-passrole)
+from scripts.doctor import app as _doctor_app  # noqa: E402
+app.add_typer(_doctor_app, name='doctor')
 
 
 def _health_check_once(base_url: str, api_key_name: str, api_key_value: str) -> dict:
@@ -2443,42 +2447,9 @@ def cmd_health(ip           : Optional[str] = typer.Argument(None, help='Public 
 #   metrics            → use `sp prom metrics <url>` (URL-based, see scripts/prometheus.py)
 
 
-@pw_app.command(name='ensure-passrole')
-def cmd_ensure_passrole():
-    """Attach a minimal iam:PassRole inline policy to the current IAM user.
-
-    Required for sp create to succeed when calling RunInstances with an IAM
-    instance profile. The policy is scoped to the playwright-ec2 role only,
-    with a condition restricting PassRole to ec2.amazonaws.com — it cannot
-    be used to pass the role to Lambda, ECS, or any other service.
-
-    Policy attached: sg-playwright-passrole-ec2 (inline, on the IAM user)
-    """
-    c       = Console(highlight=False)
-    account = aws_account_id()
-    c.print()
-    result  = ensure_caller_passrole(account)
-    if result['ok']:
-        action = result['action']
-        if action == 'already_exists':
-            c.print(f"  [green]✓[/]  {result['detail']}")
-        else:
-            c.print(f"  [green]✓  Policy created.[/]  {result['detail']}")
-            c.print()
-            c.print('  [dim]Policy document:[/]')
-            role_arn = f'arn:aws:iam::{account}:role/{IAM__ROLE_NAME}'
-            c.print(f'  [dim]  Action:    iam:PassRole[/]')
-            c.print(f'  [dim]  Resource:  {role_arn}[/]')
-            c.print(f'  [dim]  Condition: iam:PassedToService = ec2.amazonaws.com[/]')
-    else:
-        c.print(f"  [yellow]⚠  Skipped.[/]  {result['detail']}")
-        c.print()
-        c.print('  Attach this inline policy manually to your IAM user in the AWS console:')
-        role_arn = f'arn:aws:iam::{account}:role/{IAM__ROLE_NAME}'
-        c.print(f'    Action:    iam:PassRole')
-        c.print(f'    Resource:  {role_arn}')
-        c.print(f'    Condition: iam:PassedToService = ec2.amazonaws.com')
-    c.print()
+# `sp pw ensure-passrole` was dropped in v0.1.97 (3/3) — folded into
+# `sp doctor passrole`. The implementation lives in scripts/doctor.py and
+# uses `ensure_caller_passrole(...)` from Ec2__AWS__Client (same as before).
 
 
 if __name__ == '__main__':

@@ -369,6 +369,17 @@ class test_cli_surface(TestCase):
                     'open', 'screenshot', 'smoke', 'health', 'run',
                     'vault', 'ami'):
             assert cmd in out, f'sp pw {cmd!r} missing from --help'
+        # Phase D & v0.1.97 hard-cuts:
+        assert 'ensure-passrole' not in out                                          # Folded into sp doctor passrole
+
+    def test__top_level_includes_catalog_and_doctor(self):                            # v0.1.97 — global ops at top
+        from typer.testing import CliRunner
+        result = CliRunner().invoke(provision_ec2.app, ['--help'])
+        assert result.exit_code == 0
+        out = _plain(result.output)
+        assert 'catalog' in out
+        assert 'doctor'  in out
+        assert 'ensure-passrole' not in out                                          # Folded into sp doctor passrole
 
     def test__pw_vault_subgroup_lists_seven_commands(self):                          # v0.1.97 — sp pw vault (moved from top-level sp vault)
         from typer.testing import CliRunner
