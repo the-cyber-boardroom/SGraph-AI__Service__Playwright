@@ -75,7 +75,9 @@ class Docker__SP__CLI(Type_Safe):
                                     Schema__Image__Stage__Item(source_path=str(repo_root / 'agent_mitmproxy')                  ,    # scripts.provision_ec2 imports IMAGE_NAME from agent_mitmproxy.docker.Docker__Agent_Mitmproxy__Base
                                                               target_name='agent_mitmproxy'                  , is_tree=True),
                                     Schema__Image__Stage__Item(source_path=str(repo_root / 'scripts')                          ,
-                                                              target_name='scripts'                          , is_tree=True)])
+                                                              target_name='scripts'                          , is_tree=True),
+                                    Schema__Image__Stage__Item(source_path=str(repo_root / 'sgraph_ai_service_playwright__api_site'),  # Static UI assets served at /ui by Fast_API__SP__CLI._mount_ui()
+                                                              target_name='sgraph_ai_service_playwright__api_site', is_tree=True)])
 
     def build_and_push(self) -> dict:                                               # Build via shared service, then push via ECR helper. Returns ECR URI + docker image id + push string.
         ecr = self.create_image_ecr
