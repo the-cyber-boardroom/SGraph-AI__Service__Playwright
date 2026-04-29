@@ -1,14 +1,10 @@
 # ═══════════════════════════════════════════════════════════════════════════════
 # SP CLI — Plugin__Manifest__Neko
-# Neko is a WebRTC-based self-hosted browser (n.eko). Shipped as a stub with
-# enabled=False pending the structured experiment (v0.23.x__neko-evaluation).
+# Neko is a WebRTC-based self-hosted browser (n.eko). Plugin is enabled=True
+# for the structured experiment (v0.22.19 brief, doc 04). Results determine
+# whether Neko replaces VNC as the default remote browser.
 #
-# env-override policy:
-#   PLUGIN__NEKO__ENABLED=false  → registry skips (standard disable)
-#   There is NO env-override to *enable* a manifest-disabled plugin. Setting
-#   PLUGIN__NEKO__ENABLED=true does NOT mount Neko routes; it only prevents the
-#   env-override-disabled path — the manifest.enabled=False check still applies.
-#   To enable Neko for real, change enabled=True in this file (requires deploy).
+# To disable without redeploying: set PLUGIN__NEKO__ENABLED=false env var.
 # ═══════════════════════════════════════════════════════════════════════════════
 
 from sgraph_ai_service_playwright__cli.catalog.enums.Enum__Stack__Type              import Enum__Stack__Type
@@ -25,7 +21,7 @@ class Plugin__Manifest__Neko(Plugin__Manifest__Base):
     name         : Safe_Str__Plugin__Name  = Safe_Str__Plugin__Name('neko')
     display_name : str                     = 'Neko (WebRTC browser, experimental)'
     description  : str                     = 'n.eko self-hosted browser via WebRTC. Under evaluation — see neko/docs/README.md.'
-    enabled      : bool                    = False                              # gated on experiment results; do NOT change without running evaluation
+    enabled      : bool                    = True                               # enabled for structured experiment — see neko/docs/README.md
     stability    : Enum__Plugin__Stability = Enum__Plugin__Stability.EXPERIMENTAL
 
     def service_class(self):
@@ -39,7 +35,7 @@ class Plugin__Manifest__Neko(Plugin__Manifest__Base):
             type_id               = Enum__Stack__Type.NEKO,
             display_name          = self.display_name,
             description           = self.description,
-            available             = False,                                      # SOON tile in UI until experiment completes
+            available             = True,                                       # experiment active — routes live
             default_instance_type = 't3.large',
             expected_boot_seconds = 120,
             create_endpoint_path  = '/neko/stack',
