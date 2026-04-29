@@ -183,8 +183,8 @@ class test_setup_chain(TestCase):
 
 class _Fake_SG__Helper:
     def __init__(self): self.calls = []; self.sg_id = 'sg-fake-vnc-1234567'
-    def ensure_security_group(self, region, stack_name, caller_ip):
-        self.calls.append((region, str(stack_name), str(caller_ip)))
+    def ensure_security_group(self, region, stack_name, caller_ip, public=False):
+        self.calls.append((region, str(stack_name), str(caller_ip), bool(public)))
         return self.sg_id
 
 
@@ -326,6 +326,14 @@ class test_create_stack(TestCase):
         s.create_stack(Schema__Vnc__Stack__Create__Request())
         sg_call = s.aws_client.sg.calls[0]
         assert sg_call[2] == '1.2.3.4'
+        assert sg_call[3] is False                                                   # Default → caller /32 only
+
+    def test__public_ingress_flows_to_sg_helper(self):                                # --open / public_ingress=True opens 443 to 0.0.0.0/0
+        from sgraph_ai_service_playwright__cli.vnc.schemas.Schema__Vnc__Stack__Create__Request import Schema__Vnc__Stack__Create__Request
+        s = _service_for_create()
+        s.create_stack(Schema__Vnc__Stack__Create__Request(public_ingress=True))
+        sg_call = s.aws_client.sg.calls[0]
+        assert sg_call[3] is True
 
     def test__request_overrides_take_priority(self):
         from sgraph_ai_service_playwright__cli.vnc.schemas.Schema__Vnc__Stack__Create__Request import Schema__Vnc__Stack__Create__Request

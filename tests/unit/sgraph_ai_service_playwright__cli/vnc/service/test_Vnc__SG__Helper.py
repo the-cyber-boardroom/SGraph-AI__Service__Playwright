@@ -58,6 +58,13 @@ class test_Vnc__SG__Helper(TestCase):
         assert perm['ToPort']   == VIEWER_PORT_EXTERNAL
         assert perm['IpRanges'][0]['CidrIp'] == '1.2.3.4/32'
 
+    def test_ensure_security_group__public_opens_to_zero_zero(self):                 # --open / public=True → 0.0.0.0/0 instead of caller /32
+        sg_id = self.sg.ensure_security_group('eu-west-2', 'vnc-public', '1.2.3.4', public=True)
+        assert sg_id == 'sg-fake-new'
+        ingress_kw = self.fake.calls[2][1]
+        perm = ingress_kw['IpPermissions'][0]
+        assert perm['IpRanges'][0]['CidrIp'] == '0.0.0.0/0'
+
     def test_ensure_security_group__reuses_existing(self):
         self.fake.existing = [{'GroupId': 'sg-existing-vnc'}]
         sg_id = self.sg.ensure_security_group('eu-west-2', 'vnc-prod', '1.2.3.4')
