@@ -28,6 +28,7 @@ PLUGIN_FOLDERS: list = [
     'vnc',
     'prometheus',
     'opensearch',
+    'neko',
 ]
 
 
