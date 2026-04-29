@@ -30,12 +30,13 @@ class SpCliVaultPicker extends SgComponent {
     }
 
     onReady() {
-        this._btn        = this.$('.vault-btn')
-        this._panel      = this.$('.panel')
-        this._connView   = this.$('.connected-view')
-        this._connectView= this.$('.connect-view')
-        this._labelEl    = this.$('.vault-label')
-        this._insecWarn  = this.$('.insecure-warn')
+        this._btn         = this.$('.vault-btn')
+        this._panel       = this.$('.panel')
+        this._connView    = this.$('.connected-view')
+        this._connectView = this.$('.connect-view')
+        this._labelEl     = this.$('.vault-label')
+        this._insecWarn   = this.$('.insecure-warn')
+        this._isConnected = false
 
         if (!window.isSecureContext) {
             this._connectView.hidden = true
@@ -65,6 +66,7 @@ class SpCliVaultPicker extends SgComponent {
     }
 
     _toggle() {
+        if (this._isConnected) return                                   // panel not needed when connected
         const hidden = this._panel.hidden
         this._panel.hidden = !hidden
         if (!hidden) return
@@ -77,16 +79,18 @@ class SpCliVaultPicker extends SgComponent {
         const vaultId = detail.vaultId || ''
         const label   = vaultId.length > 14 ? vaultId.slice(-14) : vaultId
 
+        this._isConnected = true
         this._labelEl.textContent = `🗝 ${label}`
         this._connView.hidden    = false
         this._connectView.hidden = true
-
         this.$('.connected-vault-id').textContent = vaultId
+        this._close()                                                   // dismiss panel — no longer needed
 
         this.emit('sp-cli:vault-connected', detail)
     }
 
     _onDisconnected() {
+        this._isConnected = false
         this._labelEl.textContent = 'Connect vault'
         this._connView.hidden     = true
         this._connectView.hidden  = false

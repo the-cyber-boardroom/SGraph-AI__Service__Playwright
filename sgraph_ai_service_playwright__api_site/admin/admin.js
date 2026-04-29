@@ -2,6 +2,7 @@
 
 import { apiClient    } from '../shared/api-client.js'
 import { startVaultBus } from '../shared/vault-bus.js'
+import { startSettingsBus } from '../shared/settings-bus.js'
 
 const ROOT_LAYOUT_KEY = 'sp-cli:admin:root-layout:v1'
 
@@ -33,9 +34,11 @@ document.addEventListener('DOMContentLoaded', async () => {
     let _currentViewTabId = null
     let _region           = ''
     let _detailTabIds     = {}                                      // stack_name → panelId
+    let _detailTypeIds    = {}                                      // stack_name → type_id (for plugin toggle cleanup)
     let _launchTabIds     = {}                                      // type_id   → panelId
 
     startVaultBus()
+    startSettingsBus()
 
     // ── Vault gate ────────────────────────────────────────────────────────── //
 
@@ -59,6 +62,25 @@ document.addEventListener('DOMContentLoaded', async () => {
     document.addEventListener('sp-cli:stacks.refresh',  () => _loadData())
     document.addEventListener('sp-cli:stacks-refresh',  () => _loadData())                       // compat
     document.addEventListener('sp-cli:region-changed',  (e) => { _region = e.detail?.region || ''; _loadData() })
+
+    // ── Plugin / settings events ─────────────────────────────────────────── //
+
+    document.addEventListener('sp-cli:plugin.toggled', (e) => {
+        const { name, enabled } = e.detail || {}
+        if (enabled) return
+        for (const [stackName, tabId] of Object.entries(_detailTabIds)) {
+            if (_detailTypeIds[stackName] === name) {
+                _layoutEl?.removePanel(tabId)
+                delete _detailTabIds[stackName]
+                delete _detailTypeIds[stackName]
+                _activity(`Closed ${name} detail (plugin disabled)`)
+            }
+        }
+        if (_launchTabIds[name]) {
+            _layoutEl?.removePanel(_launchTabIds[name])
+            delete _launchTabIds[name]
+        }
+    })
 
     // ── Auth ──────────────────────────────────────────────────────────────── //
 
@@ -146,7 +168,8 @@ document.addEventListener('DOMContentLoaded', async () => {
             locked: false,
         }, true)
         if (tabId) {
-            _detailTabIds[stack.stack_name] = tabId
+            _detailTabIds[stack.stack_name]  = tabId
+            _detailTypeIds[stack.stack_name] = stack.type_id
             _layoutEl.getPanelElement(tabId)?.open?.(stack)
         }
     }
@@ -174,6 +197,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (_detailTabIds[stack.stack_name]) {
             _layoutEl?.removePanel(_detailTabIds[stack.stack_name])
             delete _detailTabIds[stack.stack_name]
+            delete _detailTypeIds[stack.stack_name]
         }
         _loadData()
     }

@@ -1,5 +1,47 @@
-<div class="view-stub">
-  <div class="stub-icon">⚙</div>
-  <div class="stub-title">Settings</div>
-  <div class="stub-hint">Plugin toggles and preferences coming in PR-3.</div>
+<div class="settings-body">
+
+  <!-- read-only banner (shown when vault has no write access) -->
+  <div class="ro-banner" hidden>
+    ⚠ Read-only mode — settings won't persist across page reloads.
+  </div>
+
+  <!-- Compute Plugins -->
+  <section class="settings-section">
+    <div class="section-title">Compute Plugins</div>
+    <div class="section-hint">Toggling a plugin shows or hides its launcher card immediately.</div>
+    <div class="plugin-list"></div>
+  </section>
+
+  <div class="settings-divider"></div>
+
+  <!-- UI Panels -->
+  <section class="settings-section">
+    <div class="section-title">UI Panels</div>
+    <div class="panel-list"></div>
+  </section>
+
+  <div class="settings-divider"></div>
+
+  <!-- Defaults -->
+  <section class="settings-section">
+    <div class="section-title">Defaults</div>
+    <div class="defaults-grid">
+      <label class="def-label">Default region</label>
+      <select class="def-region def-select"></select>
+      <label class="def-label">Default auto-stop</label>
+      <select class="def-hours def-select"></select>
+      <label class="def-label">Default instance size</label>
+      <select class="def-instance def-select"></select>
+    </div>
+  </section>
+
+  <div class="settings-divider"></div>
+
+  <!-- Layout -->
+  <section class="settings-section">
+    <div class="section-title">Layout</div>
+    <div class="section-hint">Resets the panel sizes and positions to the factory default.</div>
+    <button class="btn-reset-layout">Reset layout to default</button>
+  </section>
+
 </div>

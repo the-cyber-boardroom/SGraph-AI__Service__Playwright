@@ -171,9 +171,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 25
     needs: [run-unit-tests, check-aws-credentials, detect-changes]
-    if: |
-      needs.check-aws-credentials.outputs.has-credentials == 'true' &&
-      (needs.detect-changes.outputs.image-rebuild-needed == 'true' || inputs.force_image_rebuild)
+    if: needs.check-aws-credentials.outputs.has-credentials == 'true'  # always rebuild — dynamic source reload is not yet reliable
     steps:
       - uses: actions/checkout@v5
 
