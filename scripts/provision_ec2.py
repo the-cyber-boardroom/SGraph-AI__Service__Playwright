@@ -1156,7 +1156,7 @@ from scripts.linux import app as _linux_app  # noqa: E402
 app.add_typer(_linux_app, name='linux'        )                                      # ephemeral bare Linux EC2 stacks
 app.add_typer(_linux_app, name='lx',  hidden=True)                                  # short alias
 
-from scripts.docker import app as _docker_app  # noqa: E402
+from scripts.docker_stack import app as _docker_app  # noqa: E402
 app.add_typer(_docker_app, name='docker'        )                                    # ephemeral Docker-on-AL2023 EC2 stacks
 app.add_typer(_docker_app, name='dk',   hidden=True)                                 # short alias
 
