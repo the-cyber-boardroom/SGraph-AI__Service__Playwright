@@ -65,7 +65,7 @@ class test_mitmweb_ready(TestCase):
     def test__200_is_ready(self):
         http, probe = _probe(_Fake_Response(status_code=200, json_body=[]))
         assert probe.mitmweb_ready('https://1.2.3.4') is True
-        assert http.calls[0]['url'] == 'https://1.2.3.4/api/flows'
+        assert http.calls[0]['url'] == 'https://1.2.3.4/flows'
 
     def test__non_200_is_not_ready(self):
         for code in (302, 403, 502):
@@ -85,7 +85,7 @@ class test_flows_listing(TestCase):
         http, probe = _probe(_Fake_Response(status_code=200, json_body=body))
         out = probe.flows_listing('https://1.2.3.4')
         assert out == body
-        assert http.calls[0]['url'] == 'https://1.2.3.4/api/flows'
+        assert http.calls[0]['url'] == 'https://1.2.3.4/flows'
 
     def test__non_200_returns_empty_list(self):
         _, probe = _probe(_Fake_Response(status_code=503))
