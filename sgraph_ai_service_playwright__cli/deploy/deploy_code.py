@@ -33,7 +33,8 @@ from scripts.deploy_code                                                        
 PACKAGE_NAMES          = ['sgraph_ai_service_playwright__cli',                      # The CLI tree itself: routes, services, schemas, deploy helpers
                           'sgraph_ai_service_playwright'       ,                    # Shared code: Agentic_Boot_Shim, Agentic_Code_Loader, env-var consts, AND the version file. Without this in the zip, those modules only ever come from the baked image — defeating the hot-swap promise.
                           'scripts'                            ,                    # provision_ec2 + observability — imported lazily by Ec2__Service / Observability__Service
-                          'agent_mitmproxy'                    ]                    # scripts/provision_ec2 imports IMAGE_NAME from agent_mitmproxy.docker.Docker__Agent_Mitmproxy__Base
+                          'agent_mitmproxy'                    ,                    # scripts/provision_ec2 imports IMAGE_NAME from agent_mitmproxy.docker.Docker__Agent_Mitmproxy__Base
+                          'sgraph_ai_service_playwright__api_site']                 # Static UI files (HTML/JS/CSS) served at /ui by Fast_API__SP__CLI._mount_ui()
 VERSION_FILE_RELATIVE  = 'sgraph_ai_service_playwright/version'                     # Shared with the main Playwright service — single source of truth bumped by git__increment-tag
 
 
