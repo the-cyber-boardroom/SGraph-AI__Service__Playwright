@@ -15,6 +15,8 @@ from mangum                                                                     
 
 from osbot_fast_api.api.Fast_API                                                    import Fast_API
 
+from sgraph_ai_service_playwright__cli.catalog.fast_api.routes.Routes__Stack__Catalog import Routes__Stack__Catalog
+from sgraph_ai_service_playwright__cli.catalog.service.Stack__Catalog__Service      import Stack__Catalog__Service
 from sgraph_ai_service_playwright__cli.docker.service.Docker__Service               import Docker__Service
 from sgraph_ai_service_playwright__cli.docker.fast_api.routes.Routes__Docker__Stack import Routes__Docker__Stack
 from sgraph_ai_service_playwright__cli.ec2.service.Ec2__Service                     import Ec2__Service
@@ -28,6 +30,7 @@ from sgraph_ai_service_playwright__cli.observability.service.Observability__Serv
 
 
 class Fast_API__SP__CLI(Fast_API):
+    catalog_service       : Stack__Catalog__Service                                 # Shared across all Routes__Stack__Catalog requests; Type_Safe auto-initialises
     docker_service        : Docker__Service                                         # Shared across all Routes__Docker__Stack requests; Type_Safe auto-initialises
     ec2_service           : Ec2__Service                                            # Shared across all Routes__Ec2 requests; Type_Safe auto-initialises
     linux_service         : Linux__Service                                          # Shared across all Routes__Linux__Stack requests; Type_Safe auto-initialises
@@ -47,6 +50,7 @@ class Fast_API__SP__CLI(Fast_API):
         return Mangum(self.app(), lifespan='off')
 
     def setup_routes(self):
+        self.add_routes(Routes__Stack__Catalog  , service=self.catalog_service      )
         self.add_routes(Routes__Docker__Stack   , service=self.docker_service       )
         self.add_routes(Routes__Ec2__Playwright , service=self.ec2_service          )
         self.add_routes(Routes__Linux__Stack    , service=self.linux_service        )
