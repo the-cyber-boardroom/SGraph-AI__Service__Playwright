@@ -349,7 +349,7 @@ def preflight_check(playwright_image_uri: str = None, sidecar_image_uri: str = N
     # ── iam:PassRole check ────────────────────────────────────────────────────
     passrole = ensure_caller_passrole(account)
     if not passrole['ok'] or passrole['action'] == 'skipped':
-        warnings.append(f"iam:PassRole not verified ({passrole['detail']}) — run 'sp ensure-passrole' if sp create fails with UnauthorizedOperation.")
+        warnings.append(f"iam:PassRole not verified ({passrole['detail']}) — run 'sp pw ensure-passrole' if 'sp pw create' fails with UnauthorizedOperation.")
     elif passrole['action'] == 'created':
         warnings.append(f"iam:PassRole policy was missing — attached automatically ({passrole['detail']}).")
 
@@ -736,24 +736,35 @@ def provision(stage                  : str          = DEFAULT_STAGE    ,
 
 # ── Typer CLI ─────────────────────────────────────────────────────────────────
 
-app = typer.Typer(name           = 'provision_ec2'                                     ,
-                   help           = 'Manage the Playwright + agent_mitmproxy EC2 stack.',
+app = typer.Typer(name            = 'sp'                                              ,
+                   help            = 'SG Playwright CLI — manage ephemeral EC2 stacks across all sister sections.',
                    no_args_is_help = True                                              ,
                    add_completion  = False                                             )
 
-# ─── sp vault subgroup (Phase D D.3 — flat sp vault-* commands regrouped) ────
-vault_app = typer.Typer(no_args_is_help=True,
-                          help='Vault clone/run/commit/push/pull/status/list — operate on the vault checkout inside the EC2 host.')
-app.add_typer(vault_app, name='vault'        )
-app.add_typer(vault_app, name='v',     hidden=True)                                  # short alias
+# ─── sp pw subgroup (v0.1.97 — Playwright stack joins the sister-section convention) ────
+# All Playwright-EC2 lifecycle commands (create / list / info / delete / connect / shell /
+# env / run / exec / exec-c / logs / diagnose / forward / wait / clean / open / screenshot /
+# smoke / health / create-from-ami) live under `sp playwright` (long) / `sp pw` (short alias).
+# Top level reserves itself for cross-cutting ops (`sp catalog`, `sp doctor`).
+pw_app = typer.Typer(no_args_is_help=True,
+                       help='Playwright + agent-mitmproxy stack (the headless API).')
+app.add_typer(pw_app, name='playwright')
+app.add_typer(pw_app, name='pw',  hidden=True)                                       # short alias
 
-# ─── sp ami subgroup (Phase D D.4 — flat sp bake-ami/wait-ami/tag-ami/list-amis regrouped) ────
+# ─── sp pw vault subgroup (v0.1.97 — moved from top-level sp vault) ────
+vault_app = typer.Typer(no_args_is_help=True,
+                          help='Vault clone/run/commit/push/pull/status/list — operate on the vault checkout inside the Playwright EC2 host.')
+pw_app.add_typer(vault_app, name='vault'        )
+pw_app.add_typer(vault_app, name='v',     hidden=True)                               # short alias
+
+# ─── sp pw ami subgroup (v0.1.97 — moved from top-level sp ami) ────
 # Verbs match the sp el ami pattern: create / wait / tag / list. The
-# `sp create-from-ami` command stays top-level (different action — launches
-# an instance from a baked AMI rather than operating on the AMI itself).
+# `sp pw create-from-ami` command stays at the section's top level (different
+# action — launches an instance from a baked AMI rather than operating on the
+# AMI itself).
 ami_app = typer.Typer(no_args_is_help=True,
                         help='AMI lifecycle for the Playwright EC2 — bake / wait / tag / list. Mirrors `sp el ami`.')
-app.add_typer(ami_app, name='ami')
+pw_app.add_typer(ami_app, name='ami')
 
 from scripts.observability import app as _observability_app, _check_os_dashboards, _os_endpoint, _list_stacks  # noqa: E402
 app.add_typer(_observability_app, name='observability', hidden=True)
@@ -993,7 +1004,7 @@ def _ask_smoke_workflow(c: Console) -> bool:
     return raw in ('', 'y', 'yes')
 
 
-@app.command()
+@pw_app.command()
 def create(stage                : str           = typer.Option(DEFAULT_STAGE, help='Stage tag.')                                                              ,
            name                 : Optional[str] = typer.Option(None, '--name',             help='Deploy name (default: random two-word).')                   ,
            playwright_image_uri : Optional[str] = typer.Option(None, '--playwright-image-uri', help='Override Playwright ECR image URI.')                    ,
@@ -1066,7 +1077,7 @@ def create(stage                : str           = typer.Option(DEFAULT_STAGE, he
             raise typer.Exit(code=1)
 
 
-@app.command(name='list')
+@pw_app.command(name='list')
 def cmd_list():
     """List all playwright-ec2 instances with metadata from tags."""
     from sgraph_ai_service_playwright__cli.ec2.service.Ec2__Service                  import Ec2__Service
@@ -1114,7 +1125,7 @@ def cmd_list():
     c.print(t)
 
 
-@app.command(name='info')
+@pw_app.command(name='info')
 def cmd_info(target   : Optional[str] = typer.Argument(None,  help='Deploy-name or instance-id (auto if only one).'),
              json_flag: bool           = typer.Option(False, '--json', help='Output raw JSON instead of rich table.')):
     """Show full details for an instance, reading metadata from its tags."""
@@ -1185,7 +1196,7 @@ def _render_info(info) -> None:                                                 
     c.print()
 
 
-@app.command(name='delete')
+@pw_app.command(name='delete')
 def cmd_delete(name    : Optional[str] = typer.Argument(None,  help='Deploy-name or instance-id.'),
                all_flag: bool          = typer.Option(False, '--all', help='Delete ALL playwright-ec2 instances.')):
     """Delete one instance by name/id, or all with --all."""
@@ -1221,7 +1232,7 @@ def cmd_delete(name    : Optional[str] = typer.Argument(None,  help='Deploy-name
     c.print(f'  ✅  Deleted {len(deleted)} instance(s): [dim]{", ".join(deleted) or "none"}[/]')
 
 
-@app.command(name='connect')
+@pw_app.command(name='connect')
 def cmd_connect(target: Optional[str] = typer.Argument(None, help='Deploy-name or instance-id; auto-selects if only one instance.')):
     """Open an interactive SSM shell session (no SSH/key-pair needed)."""
     import shutil, subprocess
@@ -1267,7 +1278,7 @@ def cmd_connect(target: Optional[str] = typer.Argument(None, help='Deploy-name o
         c.print()
 
 
-@app.command(name='shell')
+@pw_app.command(name='shell')
 def cmd_shell(target   : Optional[str] = typer.Argument(None, help='Deploy-name or instance-id (auto if only one).'),
               container: str           = typer.Option(DOCKER__PLAYWRIGHT_CONTAINER, '--container', '-c',
                                                       help='Container to shell into (default: playwright).')):
@@ -1295,7 +1306,7 @@ def _env_export_prefix(instance_id: str, details: dict) -> str:
             f'SG_PLAYWRIGHT_URL=\'http://{ip}:{EC2__PLAYWRIGHT_PORT}\' && ')
 
 
-@app.command(name='env')
+@pw_app.command(name='env')
 def cmd_env(target: Optional[str] = typer.Argument(None, help='Deploy-name or instance-id; auto-selects if only one instance.')):
     """Print export statements for all instance env vars (eval-able in bash/zsh).
 
@@ -1531,7 +1542,7 @@ done
     _vault_ssm(instance_id, shell, container=container or None)
 
 
-@app.command(name='run')
+@pw_app.command(name='run')
 def cmd_run(vault_key          : str           = typer.Argument(...,  help='Vault key (id:secret from sgit).'),
             scenario           : Optional[str] = typer.Argument(None, help='Scenario folder in vault (e.g. scenarios/00__pre-flight).'),
             access_token       : Optional[str] = typer.Option(None,  '--access-token', envvar='SGIT_WRITE_TOKEN',
@@ -1635,7 +1646,7 @@ echo "=== done ==="
         c.print('  [yellow](no output — check SSM agent status with: sgpl exec "sudo systemctl status amazon-ssm-agent")[/]')
 
 
-@app.command(name='exec', context_settings={'allow_extra_args': True, 'ignore_unknown_options': True})
+@pw_app.command(name='exec', context_settings={'allow_extra_args': True, 'ignore_unknown_options': True})
 def cmd_exec(ctx        : typer.Context,
              first      : str           = typer.Argument(...,  help='Deploy-name/instance-id, or start of shell command when only one instance exists.'),
              cmd        : Optional[str] = typer.Option(None, '--cmd',         help='Shell command (alternative to positional).'),
@@ -1699,7 +1710,7 @@ def cmd_exec(ctx        : typer.Context,
         c.print('  [dim](no output)[/]')
 
 
-@app.command(name='exec-c')
+@pw_app.command(name='exec-c')
 def cmd_exec_c(shell_cmd: str           = typer.Argument(...,  help='Shell command to run inside the playwright container.'),
                target   : Optional[str] = typer.Option(None, '--target', '-t', help='Deploy-name or instance-id (auto if only one).'),
                container: str           = typer.Option(DOCKER__PLAYWRIGHT_CONTAINER, '--container', '-c',
@@ -1719,7 +1730,7 @@ def cmd_exec_c(shell_cmd: str           = typer.Argument(...,  help='Shell comma
         c.print('  [dim](no output)[/]')
 
 
-@app.command(name='logs')
+@pw_app.command(name='logs')
 def cmd_logs(service : Optional[str] = typer.Option(None, '--service', '-s', help='Filter to one service (playwright or agent-mitmproxy).'),
              tail    : int           = typer.Option(100, '--tail', help='Number of log lines to fetch.'),
              target  : Optional[str] = typer.Option(None, '--target', '-t', help='Deploy-name or instance-id (auto if only one).') ):
@@ -1769,7 +1780,7 @@ _DIAGNOSE_CHECKS = [
 ]
 
 
-@app.command(name='diagnose')
+@pw_app.command(name='diagnose')
 def cmd_diagnose(
     target : Optional[str] = typer.Argument(None, help='Deploy-name or instance-id; auto-selects if only one instance.'),
     quick  : bool          = typer.Option(False, '--quick', '-q', help='Skip setup log and cloud-init; just show containers + ports.'),
@@ -1830,7 +1841,7 @@ def cmd_diagnose(
     c.print()
 
 
-@app.command(name='forward')
+@pw_app.command(name='forward')
 def cmd_forward(port   : str           = typer.Argument('8000', help='Port mapping — local:remote or just remote (uses same local port). e.g. 8000 or 9000:8000.'),
                 target : Optional[str] = typer.Option(None, '--target', '-t', help='Deploy-name or instance-id (auto if only one).') ):
     """Forward a local port to the EC2 instance via SSM — no security group rule required."""
@@ -1858,7 +1869,7 @@ def cmd_forward(port   : str           = typer.Argument('8000', help='Port mappi
                    check=False)
 
 
-@app.command(name='wait')
+@pw_app.command(name='wait')
 def _cmd_wait(ip           : Optional[str] = typer.Argument(None, help='Public IP, deploy-name, or instance-id; auto-selects if only one instance.'),
               port          : int           = typer.Option(EC2__PLAYWRIGHT_PORT, help='Service port.')            ,
               api_key_name  : Optional[str] = typer.Option(None, envvar='FAST_API__AUTH__API_KEY__NAME' )        ,
@@ -1947,7 +1958,7 @@ def _cmd_wait(ip           : Optional[str] = typer.Argument(None, help='Public I
     raise typer.Exit(1)
 
 
-@app.command(name='clean')
+@pw_app.command(name='clean')
 def cmd_clean(target: Optional[str] = typer.Argument(None, help='Deploy-name or instance-id; auto-selects if only one instance.')):
     """Remove logs, credentials, and sensitive files from an instance before AMI bake."""
     ec2             = EC2()
@@ -2045,7 +2056,7 @@ def cmd_list_amis():
     c.print(t)
 
 
-@app.command(name='create-from-ami')
+@pw_app.command(name='create-from-ami')
 def cmd_create_from_ami(
         ami_id         : Optional[str] = typer.Argument(None,                  help='AMI ID to launch from. Omit to pick interactively.'),
         name           : Optional[str] = typer.Option(None,  '--name',         help='Deploy name (default: random two-word).'),
@@ -2098,7 +2109,7 @@ def cmd_create_from_ami(
             raise typer.Exit(code=1)
 
 
-@app.command(name='open')
+@pw_app.command(name='open')
 def cmd_open(target: Optional[str] = typer.Argument(None, help='Deploy-name or instance-id; auto-selects if only one instance.')):
     """Open the launcher UI in a browser, pre-filled with the instance connection details."""
     import json
@@ -2138,7 +2149,7 @@ def cmd_open(target: Optional[str] = typer.Argument(None, help='Deploy-name or i
     webbrowser.open(f'file://{tmp_path}')
 
 
-@app.command(name='screenshot')
+@pw_app.command(name='screenshot')
 def cmd_screenshot(
         url         : str            = typer.Argument(...,                    help='URL to screenshot.'),
         target      : Optional[str]  = typer.Option(None, '--target', '-t',  help='Deploy-name or instance-id; auto-selects if only one instance.'),
@@ -2219,7 +2230,7 @@ def cmd_screenshot(
         c.print()
 
 
-@app.command(name='smoke')
+@pw_app.command(name='smoke')
 def cmd_smoke(target          : Optional[str]  = typer.Argument(None, help='Deploy-name or instance-id; auto-selects if only one instance.'),
               url             : List[str]       = typer.Option([], '--url', '-u', help='URL to test (repeatable). Default: standard smoke set.'),
               port            : int             = typer.Option(EC2__PLAYWRIGHT_PORT, help='Service port.'),
@@ -2398,7 +2409,7 @@ def cmd_smoke(target          : Optional[str]  = typer.Argument(None, help='Depl
         raise typer.Exit(code=1)
 
 
-@app.command(name='health')
+@pw_app.command(name='health')
 def cmd_health(ip           : Optional[str] = typer.Argument(None, help='Public IP, deploy-name, or instance-id; auto-selects if only one instance.'),
                port          : int           = typer.Option(EC2__PLAYWRIGHT_PORT, help='Service port.')           ,
                api_key_name  : Optional[str] = typer.Option(None, envvar='FAST_API__AUTH__API_KEY__NAME' )       ,
@@ -2428,7 +2439,7 @@ def cmd_health(ip           : Optional[str] = typer.Argument(None, help='Public 
 #   metrics            → use `sp prom metrics <url>` (URL-based, see scripts/prometheus.py)
 
 
-@app.command(name='ensure-passrole')
+@pw_app.command(name='ensure-passrole')
 def cmd_ensure_passrole():
     """Attach a minimal iam:PassRole inline policy to the current IAM user.
 

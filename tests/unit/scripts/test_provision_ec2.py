@@ -348,37 +348,49 @@ def _plain(text: str) -> str:
 
 class test_cli_surface(TestCase):
 
-    def test__app_has_expected_commands(self):                                       # Phase D: vault-* under sp vault, *-ami under sp ami; flat aliases dropped
+    def test__top_level_lists_only_subgroups(self):                                  # v0.1.97 — Playwright commands moved under sp pw; top reserved for cross-cutting only
         from typer.testing import CliRunner
         result = CliRunner().invoke(provision_ec2.app, ['--help'])
         assert result.exit_code == 0
         out = _plain(result.output)
-        for cmd in ('create', 'list', 'delete', 'connect', 'exec', 'exec-c', 'logs', 'forward', 'wait',
-                    'health', 'open', 'screenshot', 'smoke', 'clean',
-                    'env', 'vault', 'ami', 'shell', 'create-from-ami', 'run'):
-            assert cmd in out, f'command {cmd!r} missing from --help'
+        for sub in ('playwright', 'elastic', 'opensearch', 'prometheus', 'vnc', 'linux', 'docker'):
+            assert sub in out, f'subgroup {sub!r} missing from --help'
+        # Playwright lifecycle commands no longer at top — must go through sp pw
+        assert ' env  ' not in out                                                    # `sp env` was top-level pre-v0.1.97
+        assert ' clean ' not in out
 
-    def test__vault_subgroup_lists_seven_commands(self):                             # Phase D D.3
+    def test__pw_subgroup_lists_lifecycle_commands(self):                            # v0.1.97 — sp pw <cmd> covers the Playwright-EC2-specific ops
         from typer.testing import CliRunner
-        result = CliRunner().invoke(provision_ec2.app, ['vault', '--help'])
+        result = CliRunner().invoke(provision_ec2.app, ['pw', '--help'])
+        assert result.exit_code == 0
+        out = _plain(result.output)
+        for cmd in ('create', 'list', 'info', 'delete', 'connect', 'shell', 'env', 'exec', 'exec-c',
+                    'logs', 'diagnose', 'forward', 'wait', 'clean', 'create-from-ami',
+                    'open', 'screenshot', 'smoke', 'health', 'run',
+                    'vault', 'ami'):
+            assert cmd in out, f'sp pw {cmd!r} missing from --help'
+
+    def test__pw_vault_subgroup_lists_seven_commands(self):                          # v0.1.97 — sp pw vault (moved from top-level sp vault)
+        from typer.testing import CliRunner
+        result = CliRunner().invoke(provision_ec2.app, ['pw', 'vault', '--help'])
         assert result.exit_code == 0
         out = _plain(result.output)
         for cmd in ('clone', 'list', 'run', 'commit', 'push', 'pull', 'status'):
-            assert cmd in out, f'sp vault {cmd!r} missing from --help'
+            assert cmd in out, f'sp pw vault {cmd!r} missing from --help'
 
-    def test__ami_subgroup_lists_four_commands(self):                                # Phase D D.4 — verbs match sp el ami
+    def test__pw_ami_subgroup_lists_four_commands(self):                             # v0.1.97 — sp pw ami (moved from top-level sp ami)
         from typer.testing import CliRunner
-        result = CliRunner().invoke(provision_ec2.app, ['ami', '--help'])
+        result = CliRunner().invoke(provision_ec2.app, ['pw', 'ami', '--help'])
         assert result.exit_code == 0
         out = _plain(result.output)
         for cmd in ('create', 'wait', 'tag', 'list'):
-            assert cmd in out, f'sp ami {cmd!r} missing from --help'
+            assert cmd in out, f'sp pw ami {cmd!r} missing from --help'
 
-    def test__create_help_shows_expected_options(self):
+    def test__pw_create_help_shows_expected_options(self):                           # v0.1.97 — sp create → sp pw create
         from typer.testing import CliRunner
-        result = CliRunner().invoke(provision_ec2.app, ['create', '--help'])
+        result = CliRunner().invoke(provision_ec2.app, ['pw', 'create', '--help'])
         assert result.exit_code == 0
         out = _plain(result.output)
         for opt in ('--stage', '--name', '--playwright-image-uri', '--sidecar-image-uri',
                     '--instance-type', '--interactive', '--smoke', '--wait', '--timeout'):
-            assert opt in out, f'option {opt!r} missing from create --help'
+            assert opt in out, f'option {opt!r} missing from sp pw create --help'
