@@ -1,13 +1,34 @@
 /**
  * sp-cli-user-pane — Main pane for the user provisioning page.
  *
- * PR-3: empty states for both sections. PR-5 wires type cards and stack strip.
+ * Call setTypes(entries) with entries from GET /catalog/types.
+ * Call setStacks(stacks) with stacks from GET /catalog/stacks.
+ *
+ * Events emitted:
+ *   sp-cli:user-launch       — { entry } — Launch clicked on a type card
+ *   sp-cli:stack-selected    — { stack } — user clicked a stack row
  *
  * @module sp-cli-user-pane
  * @version 0.1.0
  */
 
 import { SgComponent } from 'https://dev.tools.sgraph.ai/components/base/v1/v1.0/v1.0.0/sg-component.js'
+
+function _fmtUptime(seconds) {
+    if (!seconds || seconds < 0) return '—'
+    const h = Math.floor(seconds / 3600)
+    const m = Math.floor((seconds % 3600) / 60)
+    if (h > 0) return `${h}h ${m}m`
+    if (m > 0) return `${m}m`
+    return `${seconds}s`
+}
+
+function _stateClass(state) {
+    const s = (state || '').toLowerCase()
+    if (s === 'running')                       return 'state-running'
+    if (s === 'stopped' || s === 'terminated') return 'state-stopped'
+    return 'state-pending'
+}
 
 class SpCliUserPane extends SgComponent {
 
@@ -16,31 +37,56 @@ class SpCliUserPane extends SgComponent {
     get sharedCssPaths() { return ['https://dev.tools.sgraph.ai/components/tokens/v1/v1.0/v1.0.0/sg-tokens.css'] }
 
     onReady() {
-        this._typeGrid          = this.$('.type-grid')
-        this._stackStrip        = this.$('.stack-strip')
-        this._emptyStateTypes   = this.$('.empty-state-types')
-        this._emptyStateStacks  = this.$('.empty-state-stacks')
-
-        this._renderTypes([])
-        this._renderStacks([])
+        this._typeGrid         = this.$('.type-grid')
+        this._stackStrip       = this.$('.stack-strip')
+        this._emptyStateTypes  = this.$('.empty-state-types')
+        this._emptyStateStacks = this.$('.empty-state-stacks')
     }
 
-    setTypes(types = []) {
-        this._renderTypes(types)
+    setTypes(entries = []) {
+        const available = entries.filter(e => e.available)
+        const hasTypes  = available.length > 0
+        this._typeGrid.hidden        = !hasTypes
+        this._emptyStateTypes.hidden = hasTypes
+
+        if (!hasTypes) { this._typeGrid.innerHTML = ''; return }
+
+        this._typeGrid.innerHTML = ''
+        for (const e of available) {
+            const card = document.createElement('div')
+            card.className = 'type-card'
+            card.innerHTML = `
+                <div class="card-name">${e.display_name}</div>
+                <div class="card-desc">${e.description}</div>
+                <button class="card-launch">Launch</button>
+            `
+            card.querySelector('.card-launch').addEventListener('click', () => {
+                this.emit('sp-cli:user-launch', { entry: e })
+            })
+            this._typeGrid.appendChild(card)
+        }
     }
 
     setStacks(stacks = []) {
-        this._renderStacks(stacks)
-    }
+        const hasStacks = stacks.length > 0
+        this._stackStrip.hidden       = !hasStacks
+        this._emptyStateStacks.hidden = hasStacks
 
-    _renderTypes(types) {
-        this._typeGrid.hidden         = types.length === 0
-        this._emptyStateTypes.hidden  = types.length > 0
-    }
+        if (!hasStacks) { this._stackStrip.innerHTML = ''; return }
 
-    _renderStacks(stacks) {
-        this._stackStrip.hidden       = stacks.length === 0
-        this._emptyStateStacks.hidden = stacks.length > 0
+        this._stackStrip.innerHTML = ''
+        for (const s of stacks) {
+            const row = document.createElement('div')
+            row.className = 'stack-row'
+            row.innerHTML = `
+                <span class="type-badge type-${s.type_id}">${s.type_id}</span>
+                <span class="stack-name">${s.stack_name}</span>
+                <span class="state-badge ${_stateClass(s.state)}">${s.state}</span>
+                <span class="stack-uptime">${_fmtUptime(s.uptime_seconds)}</span>
+            `
+            row.addEventListener('click', () => this.emit('sp-cli:stack-selected', { stack: s }))
+            this._stackStrip.appendChild(row)
+        }
     }
 }
 

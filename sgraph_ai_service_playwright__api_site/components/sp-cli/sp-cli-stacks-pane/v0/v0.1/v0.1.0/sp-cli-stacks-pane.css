@@ -5,15 +5,17 @@
 .pane-header {
     display: flex;
     align-items: center;
-    justify-content: space-between;
+    gap: var(--sg-sp-2);
     padding: var(--sg-sp-2) var(--sg-sp-3);
     border-bottom: 1px solid var(--sg-border);
     flex-shrink: 0;
 }
 
 .pane-title { font-size: var(--sg-fs-small); font-weight: 600; color: var(--sg-text-muted); text-transform: uppercase; letter-spacing: .04em; }
+.stack-count { font-size: var(--sg-fs-small); color: var(--sg-text-muted); }
 
 .btn-refresh {
+    margin-left: auto;
     background: transparent;
     border: none;
     color: var(--sg-text-muted);
@@ -25,7 +27,51 @@
 }
 .btn-refresh:hover { color: var(--sg-accent); background: var(--sg-accent-subtle); }
 
-.stack-list { flex: 1; overflow-y: auto; padding: var(--sg-sp-2); }
+.stack-list { flex: 1; overflow-y: auto; padding: var(--sg-sp-1); }
+
+.stack-row {
+    display: flex;
+    align-items: center;
+    gap: var(--sg-sp-2);
+    padding: var(--sg-sp-2) var(--sg-sp-2);
+    border-radius: var(--sg-radius);
+    cursor: pointer;
+    transition: background var(--sg-transition-fast);
+    font-size: var(--sg-fs-small);
+}
+.stack-row:hover { background: var(--sg-accent-subtle); }
+
+.type-badge {
+    font-size: 0.65rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: .04em;
+    padding: 1px 6px;
+    border-radius: 3px;
+    flex-shrink: 0;
+}
+.type-linux    { background: rgba(91,124,246,.2);  color: #7b9bf8; }
+.type-docker   { background: rgba(0,150,220,.2);   color: #4db8f0; }
+.type-elastic  { background: rgba(244,185,66,.2);  color: #f4b942; }
+.type-opensearch { background: rgba(100,200,150,.2); color: #5dc894; }
+.type-vnc      { background: rgba(190,90,200,.2);  color: #cc7edd; }
+
+.stack-name { flex: 1; font-family: var(--sg-font-mono); color: var(--sg-text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.state-badge {
+    font-size: 0.65rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    padding: 1px 6px;
+    border-radius: 3px;
+    flex-shrink: 0;
+}
+.state-running { background: rgba(80,200,120,.2); color: #50c878; }
+.state-stopped { background: rgba(255,80,80,.2);  color: #ff5050; }
+.state-pending { background: rgba(244,185,66,.2); color: #f4b942; }
+
+.stack-ip     { font-family: var(--sg-font-mono); color: var(--sg-text-muted); flex-shrink: 0; }
+.stack-uptime { color: var(--sg-text-muted); flex-shrink: 0; }
 
 .empty-state {
     flex: 1;

@@ -1,16 +1,31 @@
 /**
  * sp-cli-stacks-pane — Active stacks list for the admin dashboard.
  *
- * PR-3: empty state. PR-4 wires real stack data from the API.
- *
  * Events emitted:
- *   sp-cli:stacks-refresh — user clicked the refresh button
+ *   sp-cli:stacks-refresh    — user clicked the refresh button
+ *   sp-cli:stack-selected    — { stack } — user clicked a stack row
  *
  * @module sp-cli-stacks-pane
  * @version 0.1.0
  */
 
 import { SgComponent } from 'https://dev.tools.sgraph.ai/components/base/v1/v1.0/v1.0.0/sg-component.js'
+
+function _fmtUptime(seconds) {
+    if (!seconds || seconds < 0) return '—'
+    const h = Math.floor(seconds / 3600)
+    const m = Math.floor((seconds % 3600) / 60)
+    if (h > 0) return `${h}h ${m}m`
+    if (m > 0) return `${m}m`
+    return `${seconds}s`
+}
+
+function _stateClass(state) {
+    const s = (state || '').toLowerCase()
+    if (s === 'running')                        return 'state-running'
+    if (s === 'stopped' || s === 'terminated')  return 'state-stopped'
+    return 'state-pending'
+}
 
 class SpCliStacksPane extends SgComponent {
 
@@ -21,6 +36,7 @@ class SpCliStacksPane extends SgComponent {
     onReady() {
         this._list       = this.$('.stack-list')
         this._emptyState = this.$('.empty-state')
+        this._counter    = this.$('.stack-count')
 
         this.$('.btn-refresh')?.addEventListener('click', () => {
             this.emit('sp-cli:stacks-refresh')
@@ -35,8 +51,27 @@ class SpCliStacksPane extends SgComponent {
 
     _render(stacks) {
         const hasStacks = stacks.length > 0
-        this._list.hidden       = !hasStacks
         this._emptyState.hidden = hasStacks
+        this._list.hidden       = !hasStacks
+
+        if (this._counter) this._counter.textContent = hasStacks ? `(${stacks.length})` : ''
+
+        if (!hasStacks) { this._list.innerHTML = ''; return }
+
+        this._list.innerHTML = ''
+        for (const s of stacks) {
+            const row = document.createElement('div')
+            row.className = 'stack-row'
+            row.innerHTML = `
+                <span class="type-badge type-${s.type_id}">${s.type_id}</span>
+                <span class="stack-name">${s.stack_name}</span>
+                <span class="state-badge ${_stateClass(s.state)}">${s.state}</span>
+                <span class="stack-ip">${s.public_ip || '—'}</span>
+                <span class="stack-uptime">${_fmtUptime(s.uptime_seconds)}</span>
+            `
+            row.addEventListener('click', () => this.emit('sp-cli:stack-selected', { stack: s }))
+            this._list.appendChild(row)
+        }
     }
 }
 
