@@ -192,3 +192,9 @@ class test_Fast_API__SP__CLI(TestCase):
     def test_docker_list_stacks__is_reachable(self):                                # GET /docker/stacks — unauthenticated → 401
         response = self.client.get('/docker/stacks')
         assert response.status_code == 401
+
+    def test_catalog_routes_are_mounted(self):
+        app   = self.fast_api.app()
+        paths = {str(r.path) for r in app.routes if hasattr(r, 'path')}
+        assert '/catalog/types'  in paths
+        assert '/catalog/stacks' in paths
