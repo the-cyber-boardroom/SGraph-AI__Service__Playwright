@@ -83,7 +83,7 @@ class test_Vnc__User_Data__Builder(TestCase):
         out = self._out()
         assert f'htpasswd -bcB {NGINX_HTPASSWD} operator' in out
         assert f'> {MITM_PROXYAUTH}'                     in out
-        assert 'chmod 600'                                in out                    # both restricted
+        assert 'chmod 644'                                in out                    # 0644 — bind-mounted into containers running as non-root (mitmproxy + nginx); 0600 caused both to crash on read
 
     def test_render__compose_up_runs_in_compose_dir(self):
         out = self._out()
