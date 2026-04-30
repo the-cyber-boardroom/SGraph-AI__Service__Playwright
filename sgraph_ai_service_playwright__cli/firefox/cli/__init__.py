@@ -40,6 +40,7 @@ from sgraph_ai_service_playwright__cli.firefox.cli.Renderers                    
 from sgraph_ai_service_playwright__cli.firefox.enums.Enum__Firefox__Interceptor__Kind       import Enum__Firefox__Interceptor__Kind
 from sgraph_ai_service_playwright__cli.firefox.schemas.Schema__Firefox__Interceptor__Choice import Schema__Firefox__Interceptor__Choice
 from sgraph_ai_service_playwright__cli.firefox.schemas.Schema__Firefox__Stack__Create__Request import Schema__Firefox__Stack__Create__Request
+from sgraph_ai_service_playwright__cli.firefox.Firefox__Env__Parser                 import extract_password_from_env
 from sgraph_ai_service_playwright__cli.firefox.service.Firefox__Interceptor__Resolver import list_examples
 from sgraph_ai_service_playwright__cli.firefox.service.Firefox__Service             import DEFAULT_INSTANCE_TYPE, DEFAULT_REGION, Firefox__Service
 
@@ -115,6 +116,7 @@ def _read_env_file(path: Optional[str]) -> str:
         content = fh.read()
     _check_script_source(path, content)
     return content
+
 
 
 def _interceptor_choice(name: Optional[str], script_path: Optional[str]) -> Schema__Firefox__Interceptor__Choice:
@@ -268,16 +270,18 @@ def create(name              : Optional[str] = typer.Argument(None, help='Stack 
     c            = Console(highlight=False, width=200)
     choice       = _interceptor_choice(interceptor, interceptor_script)
     allowed_cidr = cidr or ('0.0.0.0/0' if open_sg else '')
+    env_content  = _read_env_file(env_file)
+    env_pwd, env_content = extract_password_from_env(env_content)
     request      = Schema__Firefox__Stack__Create__Request(
-        stack_name    = name          or '',
-        region        = region             ,
-        instance_type = instance_type      ,
-        from_ami      = from_ami      or '',
-        caller_ip     = caller_ip     or '',
-        password      = password      or '',
-        interceptor   = choice             ,
-        env_source    = _read_env_file(env_file),
-        allowed_cidr  = allowed_cidr       )
+        stack_name    = name               or '',
+        region        = region                 ,
+        instance_type = instance_type          ,
+        from_ami      = from_ami          or '',
+        caller_ip     = caller_ip         or '',
+        password      = password or env_pwd or '',
+        interceptor   = choice                 ,
+        env_source    = env_content            ,
+        allowed_cidr  = allowed_cidr           )
     svc  = _service()
     resp = svc.create_stack(request)
     render_create(resp, c)
@@ -413,6 +417,8 @@ def create_from_ami(ami_id            : Optional[str] = typer.Argument(None, hel
     svc          = _service()
     choice       = _interceptor_choice(interceptor, interceptor_script)
     allowed_cidr = cidr or ('0.0.0.0/0' if open_sg else '')
+    env_content  = _read_env_file(env_file)
+    env_pwd, env_content = extract_password_from_env(env_content)
 
     if not ami_id:
         amis = svc.list_amis(region)
@@ -424,15 +430,15 @@ def create_from_ami(ami_id            : Optional[str] = typer.Argument(None, hel
         c.print(f'  [dim]Using latest AMI: [bold]{ami_id}[/][/]')
 
     request = Schema__Firefox__Stack__Create__Request(
-        stack_name    = name          or '',
-        region        = region             ,
-        instance_type = instance_type      ,
-        from_ami      = ami_id             ,
-        caller_ip     = caller_ip     or '',
-        password      = password      or '',
-        interceptor   = choice             ,
-        env_source    = _read_env_file(env_file),
-        allowed_cidr  = allowed_cidr       )
+        stack_name    = name               or '',
+        region        = region                 ,
+        instance_type = instance_type          ,
+        from_ami      = ami_id                 ,
+        caller_ip     = caller_ip         or '',
+        password      = password or env_pwd or '',
+        interceptor   = choice                 ,
+        env_source    = env_content            ,
+        allowed_cidr  = allowed_cidr           )
     resp = svc.create_from_ami(request)
     render_create(resp, c)
     if wait:

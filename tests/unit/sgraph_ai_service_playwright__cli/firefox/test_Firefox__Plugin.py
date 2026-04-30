@@ -308,6 +308,40 @@ class test_Firefox__Interceptor__Resolver(TestCase):
         assert '/run/sg-firefox/env'             in ud
 
 
+class test_Firefox__Env__Password__Extract(TestCase):
+
+    def _extract(self, content):
+        from sgraph_ai_service_playwright__cli.firefox.Firefox__Env__Parser import extract_password_from_env
+        return extract_password_from_env(content)
+
+    def test__no_password_key__returns_empty_and_unchanged(self):
+        pwd, content = self._extract('API_KEY=abc\nFOO=bar\n')
+        assert pwd     == ''
+        assert content == 'API_KEY=abc\nFOO=bar\n'
+
+    def test__bare_value__extracted_and_line_stripped(self):
+        pwd, content = self._extract('API_KEY=abc\nSP_FIREFOX_PASSWORD=s3cr3t\nFOO=bar\n')
+        assert pwd     == 's3cr3t'
+        assert 'SP_FIREFOX_PASSWORD' not in content
+        assert 'API_KEY=abc'         in content
+        assert 'FOO=bar'             in content
+
+    def test__double_quoted_value__quotes_stripped(self):
+        pwd, content = self._extract('SP_FIREFOX_PASSWORD="my password"\n')
+        assert pwd     == 'my password'
+        assert content == ''
+
+    def test__single_quoted_value__quotes_stripped(self):
+        pwd, content = self._extract("SP_FIREFOX_PASSWORD='pw!#@'\n")
+        assert pwd     == 'pw!#@'
+        assert content == ''
+
+    def test__empty_env__returns_empty(self):
+        pwd, content = self._extract('')
+        assert pwd     == ''
+        assert content == ''
+
+
 class test_Firefox__Set__Interceptor(TestCase):
 
     def test__set_interceptor__success__returns_ok(self):
