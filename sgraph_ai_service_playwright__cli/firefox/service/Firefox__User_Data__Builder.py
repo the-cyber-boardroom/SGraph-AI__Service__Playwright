@@ -39,6 +39,7 @@ services:
     volumes:
       - {app_data_dir}:/config:rw
     environment:
+      SECURE_CONNECTION:           "1"
       WEB_AUTHENTICATION:          "1"
       WEB_AUTHENTICATION_USERNAME: "user"
       WEB_AUTHENTICATION_PASSWORD: "{password}"
