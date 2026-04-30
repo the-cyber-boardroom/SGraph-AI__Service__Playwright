@@ -12,7 +12,7 @@ from osbot_utils.type_safe.primitives.core.enums.Enum__Safe_Str__Regex_Mode     
 
 
 class Safe_Str__Firefox__Interceptor__Source(Safe_Str):
-    regex             = re.compile(r'^[\x09\x0a\x20-\x7e]*$')                       # Tabs + newlines + printable ASCII
+    regex             = re.compile(r'^[^\x00-\x08\x0b-\x1f\x7f]*$')                # Allow tab+newline+Unicode; reject null/control chars that break heredocs
     regex_mode        = Enum__Safe_Str__Regex_Mode.MATCH
     strict_validation = True
     max_length        = 32_768
