@@ -5,6 +5,7 @@
 
 from osbot_utils.type_safe.Type_Safe                                                import Type_Safe
 from osbot_utils.type_safe.primitives.domains.common.safe_str.Safe_Str__Text        import Safe_Str__Text
+from osbot_utils.type_safe.primitives.domains.web.safe_str.Safe_Str__Url            import Safe_Str__Url
 
 from sgraph_ai_service_playwright__cli.ec2.primitives.Safe_Str__AMI__Id             import Safe_Str__AMI__Id
 from sgraph_ai_service_playwright__cli.ec2.primitives.Safe_Str__Instance__Id        import Safe_Str__Instance__Id
@@ -22,9 +23,8 @@ class Schema__Firefox__Stack__Create__Response(Type_Safe):
     instance_type     : Safe_Str__Text
     security_group_id : Safe_Str__Text
     caller_ip         : Safe_Str__Text
-    password          : Safe_Str__Text                                              # web UI password — returned once, stash it
-    proxy_host        : Safe_Str__Text
-    proxy_port        : int = 0
-    proxy_user        : Safe_Str__Text
+    password          : Safe_Str__Text                                               # web UI password — returned once, stash it
+    interceptor_label : Safe_Str__Text                                               # 'none' / example name / 'inline'
+    mitmweb_url       : Safe_Str__Url                                                # http://<public-ip>:8081/ — available once running
     state             : Enum__Firefox__Stack__State = Enum__Firefox__Stack__State.PENDING
     elapsed_ms        : int = 0

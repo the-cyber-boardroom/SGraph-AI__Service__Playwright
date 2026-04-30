@@ -25,7 +25,8 @@ class Schema__Firefox__Stack__Info(Type_Safe):
     security_group_id : Safe_Str__Text
     allowed_ip        : Safe_Str__IP__Address
     public_ip         : Safe_Str__Text
-    viewer_url        : Safe_Str__Url                                               # http://<ip>:5800/ — Firefox noVNC web UI
+    viewer_url        : Safe_Str__Url                                                # https://<ip>:5800/ — Firefox noVNC web UI
+    mitmweb_url       : Safe_Str__Url                                                # http://<ip>:8081/ — mitmproxy flows UI
     state             : Enum__Firefox__Stack__State = Enum__Firefox__Stack__State.UNKNOWN
     launch_time       : Safe_Str__Text
     uptime_seconds    : int                         = 0
