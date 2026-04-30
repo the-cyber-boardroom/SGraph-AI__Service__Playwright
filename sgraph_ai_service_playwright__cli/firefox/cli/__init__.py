@@ -79,6 +79,30 @@ def _err_handler(fn):
     return wrapped
 
 
+def _check_script_ascii(script_path: str, source: str) -> None:
+    """Emit a clear diagnostic and exit if source contains non-ASCII characters."""
+    bad = []
+    for lineno, line in enumerate(source.splitlines(), start=1):
+        for col, ch in enumerate(line, start=1):
+            if not (ch == '\t' or '\x20' <= ch <= '\x7e'):
+                bad.append((lineno, col, ch, repr(ch)))
+    if not bad:
+        return
+    c = Console(highlight=False, stderr=True)
+    c.print()
+    c.print(f'  [red]✗  {script_path} contains non-ASCII characters[/]')
+    c.print(f'  [dim]The interceptor source is embedded in a bash heredoc — ASCII only.[/]')
+    c.print()
+    for lineno, col, ch, r in bad[:10]:                                             # cap at 10 so the output stays readable
+        c.print(f'    line {lineno:>4}, col {col:>3}: {r}')
+    if len(bad) > 10:
+        c.print(f'    … and {len(bad) - 10} more')
+    c.print()
+    c.print('  [dim]Fix: replace smart quotes, em dashes, and box-drawing chars with ASCII equivalents.[/]')
+    c.print()
+    raise typer.Exit(2)
+
+
 def _interceptor_choice(name: Optional[str], script_path: Optional[str]) -> Schema__Firefox__Interceptor__Choice:
     if name and script_path:
         raise typer.BadParameter('Pass at most one of --interceptor / --interceptor-script.')
@@ -87,6 +111,7 @@ def _interceptor_choice(name: Optional[str], script_path: Optional[str]) -> Sche
     if script_path:
         with open(script_path, 'r', encoding='utf-8') as fh:
             source = fh.read()
+        _check_script_ascii(script_path, source)
         return Schema__Firefox__Interceptor__Choice(kind=Enum__Firefox__Interceptor__Kind.INLINE, inline_source=source)
     return Schema__Firefox__Interceptor__Choice()                                   # NONE
 
