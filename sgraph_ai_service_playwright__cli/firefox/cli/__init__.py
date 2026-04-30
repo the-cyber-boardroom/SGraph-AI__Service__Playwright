@@ -113,8 +113,10 @@ def create(name          : Optional[str] = typer.Argument(None, help='Stack name
            from_ami      : Optional[str] = typer.Option(None                 , '--ami'          ,       help='AMI ID; latest AL2023 used if omitted.'),
            caller_ip     : Optional[str] = typer.Option(None                 , '--caller-ip'    ,       help='Source IP for SG rule; auto-detected if omitted.'),
            password      : Optional[str] = typer.Option(None                 , '--password'     , help='Web UI password. Auto-generated if omitted.'),
-           proxy         : Optional[str] = typer.Option(None                 , '--proxy'        , help='Upstream proxy as host:port (e.g. mitmproxy.dev.akeia.ai:8080). Firefox prompts for credentials once and saves them.'),
-           wait          : bool          = typer.Option(False                , '--wait'         , help='Block until instance is running.')):
+           proxy         : Optional[str] = typer.Option(None , '--proxy'     , help='Upstream proxy as host:port (e.g. mitmproxy.dev.akeia.ai:8080).'),
+           proxy_user    : Optional[str] = typer.Option(None , '--proxy-user', help='Proxy username. When set a local auth relay is started — no Firefox prompt.'),
+           proxy_pass    : Optional[str] = typer.Option(None , '--proxy-pass', help='Proxy password.'),
+           wait          : bool          = typer.Option(False, '--wait'       , help='Block until instance is running.')):
     """Provision a Firefox (noVNC browser) EC2 stack."""
     c          = Console(highlight=False, width=200)
     proxy_host = ''
@@ -134,7 +136,9 @@ def create(name          : Optional[str] = typer.Argument(None, help='Stack name
         caller_ip     = caller_ip     or '',
         password      = password      or '',
         proxy_host    = proxy_host         ,
-        proxy_port    = proxy_port         )
+        proxy_port    = proxy_port         ,
+        proxy_user    = proxy_user    or '',
+        proxy_pass    = proxy_pass    or '')
     svc  = _service()
     resp = svc.create_stack(request)
     render_create(resp, c)

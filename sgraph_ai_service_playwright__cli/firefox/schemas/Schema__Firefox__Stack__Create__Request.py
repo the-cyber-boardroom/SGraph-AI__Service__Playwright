@@ -21,3 +21,5 @@ class Schema__Firefox__Stack__Create__Request(Type_Safe):
     password      : Safe_Str__Text                                                  # web UI password; auto-generated when empty
     proxy_host    : Safe_Str__Text                                                  # upstream proxy hostname; empty = no proxy
     proxy_port    : int             = 0                                             # upstream proxy port (e.g. 8080)
+    proxy_user    : Safe_Str__Text                                                  # proxy username; triggers auth relay when set
+    proxy_pass    : Safe_Str__Text                                                  # proxy password

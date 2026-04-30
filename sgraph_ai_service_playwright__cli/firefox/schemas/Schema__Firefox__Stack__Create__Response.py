@@ -25,5 +25,6 @@ class Schema__Firefox__Stack__Create__Response(Type_Safe):
     password          : Safe_Str__Text                                              # web UI password — returned once, stash it
     proxy_host        : Safe_Str__Text
     proxy_port        : int = 0
+    proxy_user        : Safe_Str__Text
     state             : Enum__Firefox__Stack__State = Enum__Firefox__Stack__State.PENDING
     elapsed_ms        : int = 0

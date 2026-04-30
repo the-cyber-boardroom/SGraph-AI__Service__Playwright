@@ -77,8 +77,11 @@ def render_create(resp: Schema__Firefox__Stack__Create__Response, c: Console) ->
     c.print(f'  viewer-url   : https://<public-ip>:5800/  [dim](available once booted; accept self-signed cert)[/]')
     c.print(f'  username     : user')
     c.print(f'  password     : [bold green]{resp.password}[/]   [yellow](returned once — stash it now)[/]')
-    if str(resp.proxy_host):
-        c.print(f'  proxy        : {resp.proxy_host}:{resp.proxy_port}  [dim](Firefox will prompt for proxy credentials on first request)[/]')
+    if str(resp.proxy_host) and str(resp.proxy_user):
+        c.print(f'  proxy        : {resp.proxy_host}:{resp.proxy_port}  [dim](auth relay active — no Firefox prompt)[/]')
+        c.print(f'  proxy-user   : {resp.proxy_user}')
+    elif str(resp.proxy_host):
+        c.print(f'  proxy        : {resp.proxy_host}:{resp.proxy_port}  [dim](Firefox will prompt for proxy credentials once)[/]')
     c.print(f'  submitted in : {_secs(resp.elapsed_ms)}')
     c.print()
     c.print(f'  [dim]Tip: run [bold]sp firefox info {resp.stack_name}[/] to get the public IP once running.[/]')

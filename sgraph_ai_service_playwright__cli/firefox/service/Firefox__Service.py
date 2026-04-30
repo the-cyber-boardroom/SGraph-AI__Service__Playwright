@@ -73,7 +73,9 @@ class Firefox__Service(Type_Safe):
                                                    region     = region                      ,
                                                    password   = password                    ,
                                                    proxy_host = str(request.proxy_host) or '',
-                                                   proxy_port = request.proxy_port or 0     )
+                                                   proxy_port = request.proxy_port or 0     ,
+                                                   proxy_user = str(request.proxy_user) or '',
+                                                   proxy_pass = str(request.proxy_pass) or '')
         iid       = self.aws_client.launch.run_instance(region, ami_id, sg_id, user_data, tags,
                                                         instance_type         = itype       ,
                                                         instance_profile_name = PROFILE_NAME)
@@ -94,6 +96,7 @@ class Firefox__Service(Type_Safe):
             password          = password                                         ,
             proxy_host        = str(request.proxy_host) or ''                   ,
             proxy_port        = request.proxy_port or 0                          ,
+            proxy_user        = str(request.proxy_user) or ''                   ,
             state             = Enum__Firefox__Stack__State.PENDING              ,
             elapsed_ms        = int((time.monotonic() - t0) * 1000)             )
 
