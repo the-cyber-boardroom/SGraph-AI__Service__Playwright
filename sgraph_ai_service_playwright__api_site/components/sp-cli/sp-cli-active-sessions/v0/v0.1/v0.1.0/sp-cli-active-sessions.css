@@ -1,0 +1,19 @@
+:host { display: flex; flex-direction: column; height: 100%; overflow: hidden; }
+[hidden] { display: none !important; }
+
+.sessions { display: flex; flex-direction: column; gap: var(--sg-sp-2); padding: var(--sg-sp-2) var(--sg-sp-3); }
+
+.session-row {
+    display: flex;
+    align-items: center;
+    gap: var(--sg-sp-2);
+    font-size: var(--sg-fs-small);
+}
+.session-dot {
+    width: 7px; height: 7px; border-radius: 50%;
+    background: #50c878;
+    flex-shrink: 0;
+}
+.session-label  { flex: 1; color: var(--sg-text); }
+.session-uptime { color: var(--sg-text-muted); font-family: var(--sg-font-mono); font-size: .67rem; }
+.session-hint   { font-size: .65rem; color: var(--sg-text-muted); line-height: 1.4; }

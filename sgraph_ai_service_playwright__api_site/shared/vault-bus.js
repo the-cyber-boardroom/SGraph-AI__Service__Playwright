@@ -15,6 +15,7 @@ const LS_READ_KEY = 'sp-cli:vault:last-read-key'
 const LS_ENDPOINT = 'sp-cli:vault:last-endpoint'
 const LS_ACCESS   = 'sp-cli:vault:last-access-token'
 const LS_RECENTS  = 'sp-cli:vault:recents'
+const SS_FILE_PFX = 'vb:fc:'                                        // sessionStorage prefix for file cache
 
 let _vault   = null
 let _session = null
@@ -24,7 +25,9 @@ export function startVaultBus() {
         const { vault, session, vaultId, apiBaseUrl, keys } = e.detail
         _vault   = { ...vault, accessToken: session?.accessToken || null }
         _session = session
-        _persistConnection({ vaultId, apiBaseUrl, keys, accessToken: _vault.accessToken })
+        if (!e.detail.restored) {
+            _persistConnection({ vaultId, apiBaseUrl, keys, accessToken: _vault.accessToken })
+        }
     })
 
     document.addEventListener('vault:disconnected', () => {
@@ -33,6 +36,11 @@ export function startVaultBus() {
         localStorage.removeItem(LS_READ_KEY)
         localStorage.removeItem(LS_ACCESS)
     })
+
+    // Fire vault:connected immediately from cached credentials so the UI is
+    // unblocked instantly. sg-vault-connect still verifies in the background
+    // and will overwrite _vault with the freshly-verified object when done.
+    _tryFastRestore()
 }
 
 export function getRestorablePrefill() {
@@ -57,9 +65,21 @@ export async function vaultReadJson(path) {
     try {
         const fileId = await deriveFileIdForPath(_vault, path)
         _trace('read-derived-id', { traceId, path, fileId })
+
+        // Session-level cache: fileId is deterministic (path+vault+key), so the
+        // response is safe to cache for the lifetime of this browser session.
+        const cacheKey = SS_FILE_PFX + fileId
+        const cached   = sessionStorage.getItem(cacheKey)
+        if (cached) {
+            const data = JSON.parse(cached)
+            _trace('read-completed', { traceId, path, fileId, bytes: cached.length, durationMs: 0, cached: true })
+            return data
+        }
+
         const data  = await readFileAsJson(_vault, fileId)
         const ms    = Math.round(performance.now() - start)
         _trace('read-completed', { traceId, path, fileId, bytes: JSON.stringify(data).length, durationMs: ms })
+        try { sessionStorage.setItem(cacheKey, JSON.stringify(data)) } catch (_) {}
         return data
     } catch (err) {
         const ms = Math.round(performance.now() - start)
@@ -81,6 +101,10 @@ export async function vaultWriteJson(path, data, options = {}) {
     const json    = JSON.stringify(data, null, 2)
     _trace('write-started', { traceId, path, bytes: json.length, vaultId: _vault.vaultId })
     try {
+        // Derive fileId before writing so we can invalidate the session cache.
+        const fileId = await deriveFileIdForPath(_vault, path).catch(() => null)
+        if (fileId) sessionStorage.removeItem(SS_FILE_PFX + fileId)
+
         const result = await writeVaultFile(
             _vault, path, json,
             { contentType: 'application/json', message: options.message || `Update ${path}` }
@@ -115,6 +139,46 @@ function _isNotFound(err) {
 function _bytesToBase64Url(bytes) {
     const b64 = btoa(String.fromCharCode(...bytes))
     return b64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '')
+}
+
+function _base64UrlToBytes(b64url) {
+    try {
+        const b64 = b64url.replace(/-/g, '+').replace(/_/g, '/')
+        const raw = atob(b64)
+        return Uint8Array.from(raw, c => c.charCodeAt(0))
+    } catch (_) { return null }
+}
+
+// Fire vault:connected from localStorage credentials so the UI shows immediately.
+// The real sg-vault-connect will complete its network verification shortly after
+// and fire a second vault:connected (with restored=false) that updates _vault.
+function _tryFastRestore() {
+    const vaultId   = localStorage.getItem(LS_VAULT_ID)
+    const apiBase   = localStorage.getItem(LS_ENDPOINT) || 'https://send.sgraph.ai'
+    const readKey   = localStorage.getItem(LS_READ_KEY)
+    const accessTok = localStorage.getItem(LS_ACCESS) || null
+    if (!vaultId || !readKey) return
+
+    const readKeyBytes = _base64UrlToBytes(readKey)
+    if (!readKeyBytes) return
+
+    const vault = { vaultId, apiBaseUrl: apiBase, keys: { readKeyBytes } }
+
+    // Defer one tick so the page controller's vault:connected listener is
+    // registered before this fires (startVaultBus() is called synchronously
+    // before the listener is added in DOMContentLoaded).
+    setTimeout(() => {
+        document.dispatchEvent(new CustomEvent('vault:connected', {
+            detail:  {
+                vault, session: { accessToken: accessTok },
+                vaultId, apiBaseUrl: apiBase,
+                keys: { readKeyBytes },
+                restored: true,
+            },
+            bubbles:  true,
+            composed: true,
+        }))
+    }, 0)
 }
 
 function _persistConnection({ vaultId, apiBaseUrl, keys, accessToken }) {

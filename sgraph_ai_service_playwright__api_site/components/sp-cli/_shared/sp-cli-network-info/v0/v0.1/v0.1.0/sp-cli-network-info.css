@@ -1,0 +1,12 @@
+:host { display: block; }
+
+.net-section { display: flex; flex-direction: column; gap: var(--sg-sp-1); }
+.net-label   { font-size: .72rem; font-weight: 600; color: var(--sg-text-muted); text-transform: uppercase; letter-spacing: .04em; }
+
+.net-row {
+    display: flex;
+    gap: var(--sg-sp-3);
+    font-size: var(--sg-fs-small);
+}
+.net-key { color: var(--sg-text-muted); min-width: 110px; flex-shrink: 0; }
+.net-val { color: var(--sg-text); font-family: var(--sg-font-mono); font-size: .78rem; }

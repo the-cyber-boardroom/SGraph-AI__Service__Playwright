@@ -1,0 +1,60 @@
+:host { display: flex; flex-direction: column; height: 100%; overflow: hidden; }
+[hidden] { display: none !important; }
+
+.detail-body {
+    flex: 1;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: var(--sg-sp-3);
+    padding: var(--sg-sp-3);
+}
+
+.section-title {
+    font-size: var(--sg-fs-small);
+    font-weight: 600;
+    color: var(--sg-text-muted);
+    text-transform: uppercase;
+    letter-spacing: .05em;
+    padding-bottom: var(--sg-sp-1);
+    border-bottom: 1px solid var(--sg-border);
+}
+
+.url-list { display: flex; flex-direction: column; gap: var(--sg-sp-1); }
+
+.url-row {
+    display: flex;
+    align-items: baseline;
+    gap: var(--sg-sp-2);
+    font-size: var(--sg-fs-small);
+}
+
+.url-label {
+    color: var(--sg-text-muted);
+    min-width: 100px;
+    flex-shrink: 0;
+}
+
+.url-link {
+    color: var(--sg-accent);
+    word-break: break-all;
+}
+
+.stub-msg {
+    color: var(--sg-text-muted);
+    font-size: var(--sg-fs-small);
+    padding: var(--sg-sp-4);
+    text-align: center;
+}
+
+.browser-section {
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
+}
+
+.browser-section sg-remote-browser {
+    display: block;
+    width: 100%;
+    height: 100%;
+}

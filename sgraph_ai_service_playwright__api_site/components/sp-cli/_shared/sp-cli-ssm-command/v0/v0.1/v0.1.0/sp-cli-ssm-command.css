@@ -1,0 +1,40 @@
+:host { display: block; }
+[hidden] { display: none !important; }
+
+.ssm-section { display: flex; flex-direction: column; gap: var(--sg-sp-1); }
+.ssm-label   { font-size: .72rem; font-weight: 600; color: var(--sg-text-muted); text-transform: uppercase; letter-spacing: .04em; }
+
+.ssm-field {
+    display: flex;
+    gap: var(--sg-sp-2);
+    align-items: center;
+}
+
+.ssm-cmd {
+    flex: 1;
+    background: var(--sg-bg);
+    border: 1px solid var(--sg-border);
+    border-radius: var(--sg-radius);
+    color: var(--sg-text);
+    font-family: var(--sg-font-mono);
+    font-size: .78rem;
+    padding: 7px var(--sg-sp-3);
+    cursor: default;
+}
+.ssm-cmd:focus { outline: none; }
+
+.btn-copy {
+    padding: 7px var(--sg-sp-3);
+    border-radius: var(--sg-radius);
+    font-size: var(--sg-fs-small);
+    font-weight: 600;
+    cursor: pointer;
+    border: 1px solid var(--sg-border);
+    background: var(--sg-bg-secondary);
+    color: var(--sg-text);
+    white-space: nowrap;
+    transition: background var(--sg-transition-fast);
+}
+.btn-copy:hover { background: var(--sg-bg-hover, #2a2d34); }
+
+.copy-feedback { font-size: .72rem; color: #50c878; }
