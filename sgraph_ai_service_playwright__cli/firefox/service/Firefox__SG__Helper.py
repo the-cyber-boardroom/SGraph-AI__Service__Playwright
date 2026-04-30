@@ -1,9 +1,9 @@
 # ═══════════════════════════════════════════════════════════════════════════════
 # SP CLI — Firefox__SG__Helper
-# Per-stack security group for Firefox (jlesage/firefox noVNC web UI + mitmweb).
-# Two ingress rules:
-#   5800 TCP — jlesage/firefox noVNC web UI (HTTPS)
-#   8081 TCP — mitmweb flows UI (HTTP, no auth; gated by SG)
+# Per-stack security group for Firefox (jlesage/firefox noVNC web UI).
+# One ingress rule:
+#   443 TCP — jlesage/firefox noVNC web UI (HTTPS, forwarded to container:5800)
+# mitmweb (8081) is intentionally NOT exposed — internal only.
 # CIDR is caller-supplied: pass a /32 to lock to one IP, 0.0.0.0/0 for open,
 # or a VPC CIDR when sitting behind an ALB.
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -17,7 +17,6 @@ from sgraph_ai_service_playwright__cli.firefox.service.Firefox__AWS__Client     
 
 
 VIEWER_PORT  = 443                                                                  # HTTPS (443:5800 port-forward in docker-compose)
-MITMWEB_PORT = 8081                                                                 # mitmproxy flows UI
 
 
 class Firefox__SG__Helper(Type_Safe):
@@ -43,13 +42,11 @@ class Firefox__SG__Helper(Type_Safe):
                                      'Tags': [{'Key': TAG_PURPOSE_KEY, 'Value': TAG_PURPOSE_VALUE}]}])
             sg_id = created.get('GroupId', '')
 
-        for port, description in [(VIEWER_PORT , 'firefox noVNC web UI'),
-                                   (MITMWEB_PORT, 'mitmweb flows UI'   )]:
-            try:
-                ec2.authorize_security_group_ingress(GroupId=sg_id, IpPermissions=[
-                    {'IpProtocol': 'tcp', 'FromPort': port, 'ToPort': port,
-                     'IpRanges': [{'CidrIp': cidr, 'Description': description}]}])
-            except Exception as exc:
-                if 'InvalidPermission.Duplicate' not in str(exc):
-                    raise
+        try:
+            ec2.authorize_security_group_ingress(GroupId=sg_id, IpPermissions=[
+                {'IpProtocol': 'tcp', 'FromPort': VIEWER_PORT, 'ToPort': VIEWER_PORT,
+                 'IpRanges': [{'CidrIp': cidr, 'Description': 'firefox noVNC web UI'}]}])
+        except Exception as exc:
+            if 'InvalidPermission.Duplicate' not in str(exc):
+                raise
         return sg_id
