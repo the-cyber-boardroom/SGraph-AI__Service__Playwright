@@ -27,6 +27,9 @@ from sgraph_ai_service_playwright__cli.firefox.schemas.Schema__Firefox__Health__
 from sgraph_ai_service_playwright__cli.firefox.schemas.Schema__Firefox__Stack__Create__Request  import Schema__Firefox__Stack__Create__Request
 from sgraph_ai_service_playwright__cli.firefox.schemas.Schema__Firefox__Stack__Create__Response import Schema__Firefox__Stack__Create__Response
 from sgraph_ai_service_playwright__cli.firefox.collections.List__Schema__Firefox__AMI__Info        import List__Schema__Firefox__AMI__Info
+from sgraph_ai_service_playwright__cli.firefox.schemas.Schema__Firefox__Launch_Template__Create__Request  import Schema__Firefox__Launch_Template__Create__Request
+from sgraph_ai_service_playwright__cli.firefox.schemas.Schema__Firefox__Launch_Template__Create__Response import Schema__Firefox__Launch_Template__Create__Response
+from sgraph_ai_service_playwright__cli.firefox.schemas.Schema__Firefox__Launch_Template__Info             import Schema__Firefox__Launch_Template__Info
 from sgraph_ai_service_playwright__cli.firefox.schemas.Schema__Firefox__AMI__Create__Response      import Schema__Firefox__AMI__Create__Response
 from sgraph_ai_service_playwright__cli.firefox.schemas.Schema__Firefox__AMI__Info                  import Schema__Firefox__AMI__Info
 from sgraph_ai_service_playwright__cli.firefox.schemas.Schema__Firefox__Set__Interceptor__Response import Schema__Firefox__Set__Interceptor__Response
@@ -304,6 +307,65 @@ class Firefox__Service(Type_Safe):
     def setup_iam(self, region: str) -> dict:                                        # Idempotent; returns status dict; safe to call on every create
         self.aws_client.iam.ensure(region)
         return self.aws_client.iam.status(region)
+
+    def create_launch_template(self, request: Schema__Firefox__Launch_Template__Create__Request) -> Schema__Firefox__Launch_Template__Create__Response:
+        t0         = time.monotonic()
+        lt_name    = str(request.name)          or f'firefox-{self.name_gen.generate()}'
+        region     = str(request.region)        or DEFAULT_REGION
+        ami_id     = str(request.ami_id)
+        itype      = str(request.instance_type) or DEFAULT_INSTANCE_TYPE
+        sg_id      = str(request.sg_id)
+        password   = str(request.password)      or secrets.token_urlsafe(PASSWORD_BYTES)
+        env_source = str(request.env_source)
+
+        if not ami_id:
+            raise ValueError('--ami is required for launch-template create')
+        if not sg_id:
+            raise ValueError('--sg-id is required (pass a pre-existing security group)')
+
+        interceptor_source, interceptor_label = self.interceptor_resolver.resolve(request.interceptor)
+        interceptor_kind = str(request.interceptor.kind) if request.interceptor else 'none'
+        profile          = self.aws_client.iam.ensure(region)
+        instance_tags    = self.aws_client.tags.build(lt_name, '', '')
+
+        render    = self.user_data_builder.render_fast if request.fast_boot else self.user_data_builder.render
+        user_data = render(stack_name         = lt_name           ,
+                           region             = region            ,
+                           password           = password          ,
+                           interceptor_source = interceptor_source,
+                           interceptor_kind   = interceptor_kind  ,
+                           env_source         = env_source        )
+
+        result = self.aws_client.lt.create_or_update(region, lt_name, ami_id, itype,
+                                                      sg_id, user_data, profile, instance_tags)
+        return Schema__Firefox__Launch_Template__Create__Response(
+            lt_name           = lt_name                        ,
+            lt_id             = result['lt_id']                ,
+            lt_version        = result['lt_version']           ,
+            region            = region                         ,
+            ami_id            = ami_id                         ,
+            instance_type     = itype                          ,
+            sg_id             = sg_id                          ,
+            interceptor_label = interceptor_label or 'none'    ,
+            password          = password                       ,
+            elapsed_ms        = int((time.monotonic() - t0) * 1000))
+
+    def list_launch_templates(self, region: str = '') -> list:                      # list[Schema__Firefox__Launch_Template__Info]
+        region = region or DEFAULT_REGION
+        raw    = self.aws_client.lt.list_templates(region)
+        result = []
+        for item in raw:
+            result.append(Schema__Firefox__Launch_Template__Info(
+                lt_name      = item.get('LaunchTemplateName', ''),
+                lt_id        = item.get('LaunchTemplateId'  , ''),
+                lt_version   = item.get('LatestVersionNumber', 0),
+                region       = region                            ,
+                created_time = str(item.get('CreateTime', ''))  ))
+        return result
+
+    def delete_launch_template(self, region: str, lt_name: str) -> dict:            # {'deleted': bool, 'lt_name': str}
+        ok = self.aws_client.lt.delete_template(region, lt_name)
+        return {'deleted': ok, 'lt_name': lt_name}
 
     def delete_stack(self, region: str, stack_name: str) -> Schema__Firefox__Stack__Delete__Response:
         t0      = time.monotonic()

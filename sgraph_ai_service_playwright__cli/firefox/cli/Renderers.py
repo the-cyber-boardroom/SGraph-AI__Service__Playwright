@@ -15,6 +15,8 @@ from sgraph_ai_service_playwright__cli.firefox.schemas.Schema__Firefox__Stack__I
 from sgraph_ai_service_playwright__cli.firefox.collections.List__Schema__Firefox__AMI__Info        import List__Schema__Firefox__AMI__Info
 from sgraph_ai_service_playwright__cli.firefox.schemas.Schema__Firefox__AMI__Create__Response      import Schema__Firefox__AMI__Create__Response
 from sgraph_ai_service_playwright__cli.firefox.schemas.Schema__Firefox__Set__Interceptor__Response import Schema__Firefox__Set__Interceptor__Response
+from sgraph_ai_service_playwright__cli.firefox.schemas.Schema__Firefox__Launch_Template__Create__Response import Schema__Firefox__Launch_Template__Create__Response
+from sgraph_ai_service_playwright__cli.firefox.schemas.Schema__Firefox__Launch_Template__Info             import Schema__Firefox__Launch_Template__Info
 from sgraph_ai_service_playwright__cli.firefox.schemas.Schema__Firefox__Stack__List import Schema__Firefox__Stack__List
 
 
@@ -200,6 +202,50 @@ def render_setup(info: dict, c: Console) -> None:
     if not ok:
         c.print('  [yellow]Run: [bold]sp firefox setup[/] to create the missing resources.[/]')
         c.print()
+
+
+def render_launch_template_create(resp: Schema__Firefox__Launch_Template__Create__Response, c: Console) -> None:
+    c.print()
+    c.print(Panel(f'[bold green]📋  Launch Template created[/]  ·  [bold]{resp.lt_name}[/]  '
+                  f'[dim]v{resp.lt_version}[/]', border_style='green', expand=False))
+    c.print()
+    t = Table(box=None, show_header=False, padding=(0, 2))
+    t.add_column(style='bold', min_width=16, no_wrap=True)
+    t.add_column(style='default')
+    t.add_row('lt-id'       , str(resp.lt_id)            )
+    t.add_row('version'     , str(resp.lt_version)       )
+    t.add_row('region'      , str(resp.region)           )
+    t.add_row('ami'         , str(resp.ami_id)           )
+    t.add_row('instance-type', str(resp.instance_type)   )
+    t.add_row('sg-id'       , str(resp.sg_id)            )
+    t.add_row('interceptor' , str(resp.interceptor_label))
+    t.add_row('password'    , f'[bold green]{resp.password}[/]  [yellow](all ASG instances share this — stash it now)[/]')
+    t.add_row('created in'  , _secs(resp.elapsed_ms)     )
+    c.print(t)
+    c.print()
+    c.print(f'  [dim]Tip: reference this template in your ASG:[/]')
+    c.print(f'    [bold]--launch-template LaunchTemplateName={resp.lt_name},Version=$Latest[/]')
+    c.print()
+
+
+def render_launch_template_list(templates: list, region: str, c: Console) -> None:
+    if not templates:
+        c.print(f'  [dim]No Firefox launch templates in {region}.[/]')
+        c.print(f'  Run: [bold]sp firefox launch-template create --ami <ami-id> --sg-id <sg-id>[/]')
+        return
+    t = Table(show_header=True, header_style='bold blue', box=None, padding=(0, 2))
+    t.add_column('name'   , style='bold')
+    t.add_column('lt-id'  , style='dim')
+    t.add_column('version', style='cyan')
+    t.add_column('created', style='dim')
+    for info in templates:
+        t.add_row(str(info.lt_name)               ,
+                  str(info.lt_id)                 ,
+                  f'v{info.lt_version}'            ,
+                  str(info.created_time)[:19] or '—')
+    c.print()
+    c.print(t)
+    c.print(f'\n  [dim]{len(templates)} template(s)[/]\n')
 
 
 def render_interceptors(examples: list, c: Console) -> None:

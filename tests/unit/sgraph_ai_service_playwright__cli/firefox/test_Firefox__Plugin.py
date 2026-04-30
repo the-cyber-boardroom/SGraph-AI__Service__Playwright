@@ -51,12 +51,28 @@ class _Fake_IAM:
     def ensure(self, region): return 'playwright-ec2'
     def status (self, region): return {'profile_name': 'playwright-ec2', 'role': True, 'profile': True, 'role_linked': True}
 
+class _Fake_LT:
+    def __init__(self):
+        self.created = []
+        self.deleted = []
+    def create_or_update(self, region, lt_name, ami_id, instance_type, sg_id,
+                          user_data, profile_name, instance_tags):
+        self.created.append({'lt_name': lt_name, 'ami_id': ami_id, 'sg_id': sg_id})
+        return {'lt_id': 'lt-0123456789abcdef0', 'lt_version': 1}
+    def list_templates(self, region):
+        return [{'LaunchTemplateName': 'firefox-test-lt', 'LaunchTemplateId': 'lt-0123456789abcdef0',
+                 'LatestVersionNumber': 2, 'CreateTime': '2026-04-30T10:00:00+00:00'}]
+    def delete_template(self, region, lt_name):
+        self.deleted.append(lt_name)
+        return True
+
 class _Fake_AWS_Client:
     def __init__(self, terminate_ok=True, push_ok=True):
         self.sg       = _Fake_SG()
         self.ami      = _Fake_AMI()
         self.tags     = _Fake_Tags()
         self.launch   = _Fake_Launch()
+        self.lt       = _Fake_LT()
         self.instance = _Fake_Instance(terminate_ok=terminate_ok)
         self.ssm      = _Fake_SSM(push_ok=push_ok)
         self.iam      = _Fake_IAM()
@@ -426,3 +442,63 @@ class test_Firefox__Health(TestCase):
         resp = svc.health('eu-west-2', 'firefox-test', timeout_sec=0, poll_sec=0)
         assert 'firefox=ok'  in str(resp.message)
         assert 'mitmweb=no'  in str(resp.message)
+
+
+class test_Firefox__Launch_Template(TestCase):
+
+    def test__create_launch_template__returns_response_with_lt_id(self):
+        from sgraph_ai_service_playwright__cli.firefox.schemas.Schema__Firefox__Launch_Template__Create__Request import Schema__Firefox__Launch_Template__Create__Request
+        svc     = _service()
+        request = Schema__Firefox__Launch_Template__Create__Request(
+            name    = 'lt-dc-firefox',
+            region  = 'eu-west-2'   ,
+            ami_id  = 'ami-0a1b2c3d4e5f60000',
+            sg_id   = 'sg-0987654321abcdef0' )
+        resp = svc.create_launch_template(request)
+        assert str(resp.lt_name)  == 'lt-dc-firefox'
+        assert str(resp.lt_id)    == 'lt-0123456789abcdef0'
+        assert resp.lt_version    == 1
+        assert str(resp.region)   == 'eu-west-2'
+        assert str(resp.ami_id)   == 'ami-0a1b2c3d4e5f60000'
+        assert str(resp.sg_id)    == 'sg-0987654321abcdef0'
+        assert resp.elapsed_ms    >= 0
+
+    def test__create_launch_template__auto_generates_password(self):
+        from sgraph_ai_service_playwright__cli.firefox.schemas.Schema__Firefox__Launch_Template__Create__Request import Schema__Firefox__Launch_Template__Create__Request
+        svc     = _service()
+        request = Schema__Firefox__Launch_Template__Create__Request(
+            name   = 'lt-dc-firefox'         ,
+            ami_id = 'ami-0a1b2c3d4e5f60000' ,
+            sg_id  = 'sg-0987654321abcdef0'  )
+        resp = svc.create_launch_template(request)
+        assert len(str(resp.password)) > 0
+
+    def test__create_launch_template__missing_ami_raises(self):
+        from sgraph_ai_service_playwright__cli.firefox.schemas.Schema__Firefox__Launch_Template__Create__Request import Schema__Firefox__Launch_Template__Create__Request
+        svc     = _service()
+        request = Schema__Firefox__Launch_Template__Create__Request(sg_id='sg-0987654321abcdef0')
+        with self.assertRaises(ValueError) as ctx:
+            svc.create_launch_template(request)
+        assert '--ami' in str(ctx.exception)
+
+    def test__create_launch_template__missing_sg_raises(self):
+        from sgraph_ai_service_playwright__cli.firefox.schemas.Schema__Firefox__Launch_Template__Create__Request import Schema__Firefox__Launch_Template__Create__Request
+        svc     = _service()
+        request = Schema__Firefox__Launch_Template__Create__Request(ami_id='ami-0a1b2c3d4e5f60000')
+        with self.assertRaises(ValueError) as ctx:
+            svc.create_launch_template(request)
+        assert '--sg-id' in str(ctx.exception)
+
+    def test__list_launch_templates__returns_info_list(self):
+        svc       = _service()
+        templates = svc.list_launch_templates('eu-west-2')
+        assert len(templates)             == 1
+        assert str(templates[0].lt_name) == 'firefox-test-lt'
+        assert str(templates[0].lt_id)   == 'lt-0123456789abcdef0'
+        assert templates[0].lt_version   == 2
+
+    def test__delete_launch_template__returns_deleted_true(self):
+        svc    = _service()
+        result = svc.delete_launch_template('eu-west-2', 'lt-dc-firefox')
+        assert result['deleted']  is True
+        assert result['lt_name']  == 'lt-dc-firefox'
