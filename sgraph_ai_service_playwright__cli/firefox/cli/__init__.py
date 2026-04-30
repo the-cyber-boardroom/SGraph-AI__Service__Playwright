@@ -133,6 +133,9 @@ def create(name          : Optional[str] = typer.Argument(None, help='Stack name
         render_health(h, c)
         if not h.healthy:
             raise typer.Exit(1)
+        data = svc.get_stack_info(region, stack_name)
+        if data:
+            render_info(data, c)
 
 
 @app.command(name='list')
