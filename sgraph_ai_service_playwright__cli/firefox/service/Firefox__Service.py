@@ -79,9 +79,10 @@ class Firefox__Service(Type_Safe):
 
         interceptor_source, interceptor_label = self.interceptor_resolver.resolve(request.interceptor)
         interceptor_kind = str(request.interceptor.kind) if request.interceptor else 'none'
+        cidr      = str(request.allowed_cidr) or f'{caller_ip}/32'
 
         profile   = self.aws_client.iam.ensure(region)
-        sg_id     = self.aws_client.sg.ensure_security_group(region, stack_name, caller_ip)
+        sg_id     = self.aws_client.sg.ensure_security_group(region, stack_name, cidr)
         tags      = self.aws_client.tags.build(stack_name, caller_ip, creator)
         env_source = str(request.env_source)
         user_data = self.user_data_builder.render(stack_name         = stack_name        ,
@@ -242,9 +243,10 @@ class Firefox__Service(Type_Safe):
         interceptor_source, interceptor_label = self.interceptor_resolver.resolve(request.interceptor)
         interceptor_kind = str(request.interceptor.kind) if request.interceptor else 'none'
         env_source       = str(request.env_source)
+        cidr             = str(request.allowed_cidr) or f'{caller_ip}/32'
 
         profile   = self.aws_client.iam.ensure(region)
-        sg_id     = self.aws_client.sg.ensure_security_group(region, stack_name, caller_ip)
+        sg_id     = self.aws_client.sg.ensure_security_group(region, stack_name, cidr)
         tags      = self.aws_client.tags.build(stack_name, caller_ip, creator)
         user_data = self.user_data_builder.render_fast(
             stack_name         = stack_name        ,

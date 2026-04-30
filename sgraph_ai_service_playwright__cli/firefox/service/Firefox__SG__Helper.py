@@ -1,9 +1,11 @@
 # ═══════════════════════════════════════════════════════════════════════════════
 # SP CLI — Firefox__SG__Helper
 # Per-stack security group for Firefox (jlesage/firefox noVNC web UI + mitmweb).
-# Two ingress rules from caller IP only:
+# Two ingress rules:
 #   5800 TCP — jlesage/firefox noVNC web UI (HTTPS)
 #   8081 TCP — mitmweb flows UI (HTTP, no auth; gated by SG)
+# CIDR is caller-supplied: pass a /32 to lock to one IP, 0.0.0.0/0 for open,
+# or a VPC CIDR when sitting behind an ALB.
 # ═══════════════════════════════════════════════════════════════════════════════
 
 import boto3                                                                        # EXCEPTION — narrow boto3 boundary
@@ -11,7 +13,6 @@ import boto3                                                                    
 from osbot_utils.type_safe.Type_Safe                                                import Type_Safe
 
 from sgraph_ai_service_playwright__cli.firefox.primitives.Safe_Str__Firefox__Stack__Name import Safe_Str__Firefox__Stack__Name
-from sgraph_ai_service_playwright__cli.firefox.primitives.Safe_Str__IP__Address     import Safe_Str__IP__Address
 from sgraph_ai_service_playwright__cli.firefox.service.Firefox__AWS__Client         import TAG_PURPOSE_KEY, TAG_PURPOSE_VALUE, FIREFOX_NAMING
 
 
@@ -25,10 +26,9 @@ class Firefox__SG__Helper(Type_Safe):
         return boto3.client('ec2', region_name=region)
 
     def ensure_security_group(self, region: str, stack_name: Safe_Str__Firefox__Stack__Name,
-                                     caller_ip: Safe_Str__IP__Address) -> str:
+                                     cidr: str) -> str:                             # cidr e.g. '1.2.3.4/32', '10.0.0.0/8', '0.0.0.0/0'
         ec2     = self.ec2_client(region)
         sg_name = FIREFOX_NAMING.sg_name_for_stack(stack_name)
-        cidr    = f'{str(caller_ip)}/32'
 
         existing = ec2.describe_security_groups(
             Filters=[{'Name': 'group-name', 'Values': [sg_name]}]).get('SecurityGroups', [])

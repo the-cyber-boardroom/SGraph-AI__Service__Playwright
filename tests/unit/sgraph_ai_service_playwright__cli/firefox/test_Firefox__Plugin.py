@@ -20,7 +20,7 @@ FAKE_INSTANCE_ID = 'i-0123456789abcdef0'
 # ── fake AWS collaborators ────────────────────────────────────────────────────
 
 class _Fake_SG:
-    def ensure_security_group(self, region, stack_name, caller_ip): return 'sg-fake'
+    def ensure_security_group(self, region, stack_name, cidr): return 'sg-fake'
 
 class _Fake_AMI:
     def latest_al2023_ami_id(self, region): return 'ami-0a1b2c3d4e5f60000'
