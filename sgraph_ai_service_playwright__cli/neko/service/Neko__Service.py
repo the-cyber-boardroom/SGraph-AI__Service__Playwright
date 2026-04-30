@@ -23,11 +23,12 @@ from sgraph_ai_service_playwright__cli.core.event_bus.Event__Bus                
 from sgraph_ai_service_playwright__cli.core.event_bus.schemas.Schema__Stack__Event  import Schema__Stack__Event
 from sgraph_ai_service_playwright__cli.neko.collections.List__Schema__Neko__Stack__Info import List__Schema__Neko__Stack__Info
 from sgraph_ai_service_playwright__cli.neko.enums.Enum__Neko__Stack__State          import Enum__Neko__Stack__State
+from sgraph_ai_service_playwright__cli.neko.schemas.Schema__Neko__Health__Response        import Schema__Neko__Health__Response
 from sgraph_ai_service_playwright__cli.neko.schemas.Schema__Neko__Stack__Create__Request  import Schema__Neko__Stack__Create__Request
 from sgraph_ai_service_playwright__cli.neko.schemas.Schema__Neko__Stack__Create__Response import Schema__Neko__Stack__Create__Response
 from sgraph_ai_service_playwright__cli.neko.schemas.Schema__Neko__Stack__Delete__Response import Schema__Neko__Stack__Delete__Response
-from sgraph_ai_service_playwright__cli.neko.schemas.Schema__Neko__Stack__Info       import Schema__Neko__Stack__Info
-from sgraph_ai_service_playwright__cli.neko.schemas.Schema__Neko__Stack__List       import Schema__Neko__Stack__List
+from sgraph_ai_service_playwright__cli.neko.schemas.Schema__Neko__Stack__Info             import Schema__Neko__Stack__Info
+from sgraph_ai_service_playwright__cli.neko.schemas.Schema__Neko__Stack__List             import Schema__Neko__Stack__List
 from sgraph_ai_service_playwright__cli.neko.service.Neko__AWS__Client               import NEKO_NAMING
 
 
@@ -106,6 +107,40 @@ class Neko__Service(Type_Safe):
     def get_stack_info(self, region: str, stack_name: str) -> Optional[Schema__Neko__Stack__Info]:
         details = self.aws_client.instance.find_by_stack_name(region, stack_name)
         return self.mapper.to_info(details, region) if details else None
+
+    def health(self, region: str, stack_name: str,
+               timeout_sec: int = 300, poll_sec: int = 10) -> Schema__Neko__Health__Response:
+        t0      = time.monotonic()
+        deadline = t0 + timeout_sec
+        while True:
+            info = self.get_stack_info(region, stack_name)
+            if info is None:
+                return Schema__Neko__Health__Response(
+                    stack_name = stack_name                              ,
+                    state      = Enum__Neko__Stack__State.UNKNOWN        ,
+                    message    = 'stack not found'                       ,
+                    elapsed_ms = int((time.monotonic() - t0) * 1000)    )
+            state = info.state
+            if state in (Enum__Neko__Stack__State.RUNNING, Enum__Neko__Stack__State.READY):
+                return Schema__Neko__Health__Response(
+                    stack_name = stack_name                              ,
+                    state      = state                                   ,
+                    healthy    = True                                    ,
+                    message    = 'instance running'                      ,
+                    elapsed_ms = int((time.monotonic() - t0) * 1000)    )
+            if state in (Enum__Neko__Stack__State.TERMINATED, Enum__Neko__Stack__State.TERMINATING):
+                return Schema__Neko__Health__Response(
+                    stack_name = stack_name                              ,
+                    state      = state                                   ,
+                    message    = 'instance terminated'                   ,
+                    elapsed_ms = int((time.monotonic() - t0) * 1000)    )
+            if time.monotonic() >= deadline:
+                return Schema__Neko__Health__Response(
+                    stack_name = stack_name                              ,
+                    state      = state                                   ,
+                    message    = f'timed out after {timeout_sec}s'       ,
+                    elapsed_ms = int((time.monotonic() - t0) * 1000)    )
+            time.sleep(poll_sec)
 
     def delete_stack(self, region: str, stack_name: str) -> Schema__Neko__Stack__Delete__Response:
         t0      = time.monotonic()
