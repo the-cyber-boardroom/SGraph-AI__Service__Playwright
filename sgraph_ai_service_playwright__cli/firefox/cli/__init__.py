@@ -268,6 +268,7 @@ def create(name              : Optional[str] = typer.Argument(None, help='Stack 
            env_file          : Optional[str] = typer.Option(None                 , '--env-file'         ,       help='Path to a .env file; vars injected into mitmproxy at boot (tmpfs, never baked into AMI).'),
            open_sg           : bool          = typer.Option(False                , '--open'             ,       help='Allow access from any IP (0.0.0.0/0). Use when behind an ALB or load balancer.'),
            cidr              : Optional[str] = typer.Option(None                 , '--cidr'             ,       help='Custom CIDR for SG ingress (e.g. 10.0.0.0/8). Overrides --caller-ip and --open.'),
+           max_hours         : int           = typer.Option(1                    , '--max-hours'        ,       help='Auto-terminate after N hours (0 = disabled).'),
            wait              : bool          = typer.Option(False                , '--wait'             ,       help='Block until instance is running.')):
     """Provision a Firefox (noVNC browser) + mitmproxy EC2 stack."""
     c            = Console(highlight=False, width=200)
@@ -284,7 +285,8 @@ def create(name              : Optional[str] = typer.Argument(None, help='Stack 
         password      = password or env_pwd or '',
         interceptor   = choice                 ,
         env_source    = env_content            ,
-        allowed_cidr  = allowed_cidr           )
+        allowed_cidr  = allowed_cidr           ,
+        max_hours     = max_hours              )
     svc  = _service()
     resp = svc.create_stack(request)
     render_create(resp, c)
@@ -414,6 +416,7 @@ def create_from_ami(ami_id            : Optional[str] = typer.Argument(None, hel
                     env_file          : Optional[str] = typer.Option(None                 , '--env-file'         , help='Path to a .env file; vars injected into mitmproxy at boot (tmpfs, never baked into AMI).'),
                     open_sg           : bool          = typer.Option(False                , '--open'             , help='Allow access from any IP (0.0.0.0/0). Use when behind an ALB or load balancer.'),
                     cidr              : Optional[str] = typer.Option(None                 , '--cidr'             , help='Custom CIDR for SG ingress (e.g. 10.0.0.0/8).'),
+                    max_hours         : int           = typer.Option(1                    , '--max-hours'        , help='Auto-terminate after N hours (0 = disabled).'),
                     wait              : bool          = typer.Option(False                , '--wait'             )):
     """Launch a new Firefox stack from an existing AMI (fast boot — skips full install)."""
     c            = Console(highlight=False, width=200)
@@ -441,7 +444,8 @@ def create_from_ami(ami_id            : Optional[str] = typer.Argument(None, hel
         password      = password or env_pwd or '',
         interceptor   = choice                 ,
         env_source    = env_content            ,
-        allowed_cidr  = allowed_cidr           )
+        allowed_cidr  = allowed_cidr           ,
+        max_hours     = max_hours              )
     resp = svc.create_from_ami(request)
     render_create(resp, c)
     if wait:
