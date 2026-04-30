@@ -5,6 +5,7 @@
 
 from osbot_utils.type_safe.Type_Safe                                                import Type_Safe
 from osbot_utils.type_safe.primitives.domains.common.safe_str.Safe_Str__Text        import Safe_Str__Text
+from osbot_utils.type_safe.primitives.domains.web.safe_str.Safe_Str__Url            import Safe_Str__Url
 
 from sgraph_ai_service_playwright__cli.ec2.primitives.Safe_Str__AMI__Id             import Safe_Str__AMI__Id
 from sgraph_ai_service_playwright__cli.ec2.primitives.Safe_Str__Instance__Id        import Safe_Str__Instance__Id
@@ -24,7 +25,7 @@ class Schema__Neko__Stack__Info(Type_Safe):
     security_group_id : Safe_Str__Text
     allowed_ip        : Safe_Str__IP__Address
     public_ip         : Safe_Str__Text
-    viewer_url        : Safe_Str__Text                                              # https://<ip>/ — Neko web UI (Caddy TLS terminator)
+    viewer_url        : Safe_Str__Url                                               # https://<ip>/ — Neko web UI (Caddy TLS terminator)
     state             : Enum__Neko__Stack__State = Enum__Neko__Stack__State.UNKNOWN
     launch_time       : Safe_Str__Text
     uptime_seconds    : int                      = 0
