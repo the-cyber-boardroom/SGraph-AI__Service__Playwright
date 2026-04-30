@@ -26,6 +26,9 @@ from sgraph_ai_service_playwright__cli.firefox.enums.Enum__Firefox__Stack__State
 from sgraph_ai_service_playwright__cli.firefox.schemas.Schema__Firefox__Health__Response      import Schema__Firefox__Health__Response
 from sgraph_ai_service_playwright__cli.firefox.schemas.Schema__Firefox__Stack__Create__Request  import Schema__Firefox__Stack__Create__Request
 from sgraph_ai_service_playwright__cli.firefox.schemas.Schema__Firefox__Stack__Create__Response import Schema__Firefox__Stack__Create__Response
+from sgraph_ai_service_playwright__cli.firefox.collections.List__Schema__Firefox__AMI__Info        import List__Schema__Firefox__AMI__Info
+from sgraph_ai_service_playwright__cli.firefox.schemas.Schema__Firefox__AMI__Create__Response      import Schema__Firefox__AMI__Create__Response
+from sgraph_ai_service_playwright__cli.firefox.schemas.Schema__Firefox__AMI__Info                  import Schema__Firefox__AMI__Info
 from sgraph_ai_service_playwright__cli.firefox.schemas.Schema__Firefox__Set__Interceptor__Response import Schema__Firefox__Set__Interceptor__Response
 from sgraph_ai_service_playwright__cli.firefox.schemas.Schema__Firefox__Stack__Delete__Response import Schema__Firefox__Stack__Delete__Response
 from sgraph_ai_service_playwright__cli.firefox.schemas.Schema__Firefox__Stack__Info import Schema__Firefox__Stack__Info
@@ -149,6 +152,105 @@ class Firefox__Service(Type_Safe):
                     message    = f'timed out after {timeout_sec}s'   ,
                     elapsed_ms = int((time.monotonic() - t0) * 1000) )
             time.sleep(poll_sec)
+
+    def create_ami(self, region: str, stack_name: str,
+                   ami_name: str = '', no_reboot: bool = True) -> Schema__Firefox__AMI__Create__Response:
+        import time as _time
+        t0      = _time.monotonic()
+        details = self.aws_client.instance.find_by_stack_name(region, stack_name)
+        if not details:
+            raise ValueError(f'no Firefox stack found: {stack_name!r}')
+        iid      = details.get('InstanceId', '')
+        name     = ami_name or f'firefox-{stack_name}-{int(_time.time())}'
+        ami_id   = self.aws_client.ami.create_image(region, iid, stack_name, name, no_reboot)
+        return Schema__Firefox__AMI__Create__Response(
+            ami_id      = ami_id                                        ,
+            ami_name    = name                                          ,
+            stack_name  = stack_name                                    ,
+            instance_id = iid                                           ,
+            region      = region                                        ,
+            state       = 'pending'                                     ,
+            elapsed_ms  = int((_time.monotonic() - t0) * 1000)         )
+
+    def wait_for_ami(self, region: str, ami_id: str,
+                     timeout_sec: int = 1200, poll_sec: int = 15,
+                     on_progress=None) -> str:                                      # Returns final state string
+        import time as _time
+        t0       = _time.monotonic()
+        deadline = t0 + timeout_sec
+        attempt  = 0
+        while _time.monotonic() < deadline:
+            state   = self.aws_client.ami.describe_ami_state(region, ami_id)
+            attempt += 1
+            if on_progress:
+                on_progress({'state': state, 'attempt': attempt,
+                             'elapsed_ms': int((_time.monotonic() - t0) * 1000)})
+            if state and state != 'pending':
+                return state
+            _time.sleep(poll_sec)
+        return self.aws_client.ami.describe_ami_state(region, ami_id) or 'unknown'
+
+    def list_amis(self, region: str = '') -> List__Schema__Firefox__AMI__Info:
+        region = region or DEFAULT_REGION
+        raw    = self.aws_client.ami.list_firefox_amis(region)
+        result = List__Schema__Firefox__AMI__Info()
+        for item in raw:
+            result.append(Schema__Firefox__AMI__Info(
+                ami_id        = item.get('ami_id'       , ''),
+                name          = item.get('name'         , ''),
+                creation_date = item.get('creation_date', ''),
+                state         = item.get('state'        , ''),
+                source_stack  = item.get('source_stack' , ''),
+                source_id     = item.get('source_id'    , '')))
+        return result
+
+    def delete_ami(self, region: str, ami_id: str) -> dict:                        # {'deleted': bool, 'snapshots': int}
+        ok, snaps = self.aws_client.ami.deregister_ami(region, ami_id)
+        return {'deleted': ok, 'snapshots': snaps}
+
+    def create_from_ami(self, request: Schema__Firefox__Stack__Create__Request,
+                        creator: str = '') -> Schema__Firefox__Stack__Create__Response:
+        t0         = time.monotonic()
+        stack_name = str(request.stack_name)    or f'firefox-{self.name_gen.generate()}'
+        region     = str(request.region)        or DEFAULT_REGION
+        caller_ip  = str(request.caller_ip)     or str(self.ip_detector.detect())
+        ami_id     = str(request.from_ami)
+        itype      = str(request.instance_type) or DEFAULT_INSTANCE_TYPE
+        password   = str(request.password)      or secrets.token_urlsafe(PASSWORD_BYTES)
+
+        interceptor_source, interceptor_label = self.interceptor_resolver.resolve(request.interceptor)
+        interceptor_kind = str(request.interceptor.kind) if request.interceptor else 'none'
+
+        sg_id     = self.aws_client.sg.ensure_security_group(region, stack_name, caller_ip)
+        tags      = self.aws_client.tags.build(stack_name, caller_ip, creator)
+        user_data = self.user_data_builder.render_fast(
+            stack_name         = stack_name        ,
+            region             = region            ,
+            password           = password          ,
+            interceptor_source = interceptor_source,
+            interceptor_kind   = interceptor_kind  )
+        iid       = self.aws_client.launch.run_instance(region, ami_id, sg_id, user_data, tags,
+                                                        instance_type         = itype       ,
+                                                        instance_profile_name = PROFILE_NAME)
+        event_bus.emit('firefox:stack.created', Schema__Stack__Event(
+            type_id     = Enum__Stack__Type.FIREFOX,
+            stack_name  = stack_name               ,
+            region      = region                   ,
+            instance_id = str(iid)                 ))
+        return Schema__Firefox__Stack__Create__Response(
+            stack_name        = stack_name                                       ,
+            aws_name_tag      = FIREFOX_NAMING.aws_name_for_stack(stack_name)   ,
+            instance_id       = iid                                              ,
+            region            = region                                           ,
+            ami_id            = ami_id                                           ,
+            instance_type     = itype                                            ,
+            security_group_id = sg_id                                            ,
+            caller_ip         = caller_ip                                        ,
+            password          = password                                         ,
+            interceptor_label = interceptor_label or 'none'                      ,
+            mitmweb_url       = ''                                               ,
+            state             = Enum__Firefox__Stack__State.PENDING              ,
+            elapsed_ms        = int((time.monotonic() - t0) * 1000)             )
 
     def set_interceptor(self, region: str, stack_name: str,
                         choice: 'Schema__Firefox__Interceptor__Choice' = None) -> Schema__Firefox__Set__Interceptor__Response:

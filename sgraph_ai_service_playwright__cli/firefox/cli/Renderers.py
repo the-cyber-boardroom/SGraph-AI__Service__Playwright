@@ -12,6 +12,8 @@ from sgraph_ai_service_playwright__cli.firefox.enums.Enum__Firefox__Stack__State
 from sgraph_ai_service_playwright__cli.firefox.schemas.Schema__Firefox__Health__Response      import Schema__Firefox__Health__Response
 from sgraph_ai_service_playwright__cli.firefox.schemas.Schema__Firefox__Stack__Create__Response import Schema__Firefox__Stack__Create__Response
 from sgraph_ai_service_playwright__cli.firefox.schemas.Schema__Firefox__Stack__Info import Schema__Firefox__Stack__Info
+from sgraph_ai_service_playwright__cli.firefox.collections.List__Schema__Firefox__AMI__Info        import List__Schema__Firefox__AMI__Info
+from sgraph_ai_service_playwright__cli.firefox.schemas.Schema__Firefox__AMI__Create__Response      import Schema__Firefox__AMI__Create__Response
 from sgraph_ai_service_playwright__cli.firefox.schemas.Schema__Firefox__Set__Interceptor__Response import Schema__Firefox__Set__Interceptor__Response
 from sgraph_ai_service_playwright__cli.firefox.schemas.Schema__Firefox__Stack__List import Schema__Firefox__Stack__List
 
@@ -100,6 +102,49 @@ def render_health(h: Schema__Firefox__Health__Response, c: Console) -> None:
     t.add_row('waited' , _secs(h.elapsed_ms))
     t.add_row('message', str(h.message) or '—')
     c.print(t)
+    c.print()
+
+
+def render_ami_list(amis: List__Schema__Firefox__AMI__Info, c: Console) -> None:
+    if not amis:
+        c.print('  [dim]No Firefox AMIs found.[/]  Run: [bold]sp firefox ami create[/]')
+        return
+    t = Table(show_header=True, header_style='bold blue', box=None, padding=(0, 2))
+    t.add_column('ami-id'       , style='bold')
+    t.add_column('name'         , style='default')
+    t.add_column('source-stack' , style='dim')
+    t.add_column('state')
+    t.add_column('created'      , style='dim')
+    for ami in amis:
+        state_colour = 'green' if str(ami.state) == 'available' else 'yellow'
+        t.add_row(str(ami.ami_id)       ,
+                  str(ami.name)         ,
+                  str(ami.source_stack) or '—',
+                  f'[{state_colour}]{ami.state}[/]',
+                  str(ami.creation_date)[:19] or '—')
+    c.print()
+    c.print(t)
+    c.print(f'\n  [dim]{len(amis)} AMI(s)[/]\n')
+
+
+def render_ami_create(resp: Schema__Firefox__AMI__Create__Response, c: Console) -> None:
+    c.print()
+    c.print(Panel(f'[bold green]📸  AMI bake submitted[/]  ·  [bold]{resp.ami_id}[/]  [dim]{resp.ami_name}[/]',
+                  border_style='green', expand=False))
+    c.print()
+    t = Table(box=None, show_header=False, padding=(0, 2))
+    t.add_column(style='bold', min_width=14, no_wrap=True)
+    t.add_column(style='default')
+    t.add_row('ami-id'      , str(resp.ami_id)     )
+    t.add_row('name'        , str(resp.ami_name)   )
+    t.add_row('source'      , str(resp.stack_name) )
+    t.add_row('instance'    , str(resp.instance_id))
+    t.add_row('region'      , str(resp.region)     )
+    t.add_row('state'       , '[yellow]pending[/] — baking takes 5-10 min')
+    t.add_row('submitted in', _secs(resp.elapsed_ms))
+    c.print(t)
+    c.print()
+    c.print(f'  [dim]Tip: run [bold]sp firefox ami wait {resp.ami_id}[/] to poll until available.[/]')
     c.print()
 
 
