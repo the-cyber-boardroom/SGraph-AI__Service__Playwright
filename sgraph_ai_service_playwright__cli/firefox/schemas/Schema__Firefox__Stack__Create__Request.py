@@ -23,4 +23,4 @@ class Schema__Firefox__Stack__Create__Request(Type_Safe):
     password      : Safe_Str__Text                                                   # web UI password; auto-generated when empty
     interceptor   : Schema__Firefox__Interceptor__Choice                             # mitmproxy interceptor; default: NONE (no-op)
     env_source    : Safe_Str__Firefox__Interceptor__Source                           # raw .env content; allows #/newlines/URLs; written to tmpfs, never baked into AMI
-    allowed_cidr  : Safe_Str__Text                                                   # SG ingress CIDR; empty → caller_ip/32; '0.0.0.0/0' → open
+    allowed_cidr  : Safe_Str__Firefox__Interceptor__Source                           # SG ingress CIDR; empty → caller_ip/32; '0.0.0.0/0' → open
