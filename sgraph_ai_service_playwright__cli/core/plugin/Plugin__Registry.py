@@ -29,6 +29,7 @@ PLUGIN_FOLDERS: list = [
     'prometheus',
     'opensearch',
     'neko',
+    'firefox',
 ]
 
 
