@@ -47,6 +47,10 @@ class _Fake_SSM:
         self.last_source = source
         return self.push_ok, ('script updated' if self.push_ok else 'send_command failed: no SSM agent')
 
+class _Fake_IAM:
+    def ensure(self, region): return 'playwright-ec2'
+    def status (self, region): return {'profile_name': 'playwright-ec2', 'role': True, 'profile': True, 'role_linked': True}
+
 class _Fake_AWS_Client:
     def __init__(self, terminate_ok=True, push_ok=True):
         self.sg       = _Fake_SG()
@@ -55,6 +59,7 @@ class _Fake_AWS_Client:
         self.launch   = _Fake_Launch()
         self.instance = _Fake_Instance(terminate_ok=terminate_ok)
         self.ssm      = _Fake_SSM(push_ok=push_ok)
+        self.iam      = _Fake_IAM()
 
 class _Fake_Probe:
     def __init__(self, firefox_ok=True, mitmweb_ok=True):

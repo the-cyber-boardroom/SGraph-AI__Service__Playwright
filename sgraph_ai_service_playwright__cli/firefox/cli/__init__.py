@@ -446,4 +446,19 @@ def interceptors():
     render_interceptors(list_examples(), Console(highlight=False, width=200))
 
 
+@app.command()
+@_err_handler
+def setup(region: str = typer.Option(DEFAULT_REGION, '--region', '-r', help='AWS region.')):
+    """Create the playwright-ec2 IAM role + instance profile (idempotent; run once per AWS account).
+
+    Also called automatically on every `create` and `create-from-ami`, so this command is
+    only needed for an explicit pre-flight check or to verify existing account setup.
+    """
+    c    = Console(highlight=False, width=200)
+    c.print(f'\n  [dim]Ensuring playwright-ec2 IAM role + instance profile in {region}…[/]')
+    info = _service().setup_iam(region)
+    from sgraph_ai_service_playwright__cli.firefox.cli.Renderers import render_setup
+    render_setup(info, c)
+
+
 app.add_typer(ami_app, name='ami')
