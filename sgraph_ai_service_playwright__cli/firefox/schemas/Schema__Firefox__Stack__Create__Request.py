@@ -20,7 +20,7 @@ class Schema__Firefox__Stack__Create__Request(Type_Safe):
     caller_ip     : Safe_Str__IP__Address                                            # auto-detected; always tagged on instance
     from_ami      : Safe_Str__AMI__Id                                                # latest AL2023 when empty
     instance_type : Safe_Str__Text                                                   # defaults to t3.medium
-    password      : Safe_Str__Text                                                   # web UI password; auto-generated when empty
+    password      : Safe_Str__Firefox__Interceptor__Source                           # web UI password; auto-generated when empty; allows all printable chars
     interceptor   : Schema__Firefox__Interceptor__Choice                             # mitmproxy interceptor; default: NONE (no-op)
     env_source    : Safe_Str__Firefox__Interceptor__Source                           # raw .env content; allows #/newlines/URLs; written to tmpfs, never baked into AMI
     allowed_cidr  : Safe_Str__Firefox__Interceptor__Source                           # SG ingress CIDR; empty → caller_ip/32; '0.0.0.0/0' → open

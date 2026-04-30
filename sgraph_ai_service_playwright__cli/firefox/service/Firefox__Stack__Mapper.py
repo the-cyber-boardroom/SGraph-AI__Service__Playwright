@@ -61,7 +61,7 @@ class Firefox__Stack__Mapper(Type_Safe):
                                  if details.get('SecurityGroups') else '')                                  ,
             allowed_ip        = _tag(details, TAG_ALLOWED_IP_KEY)                                          ,
             public_ip         = ip                                                                          ,
-            viewer_url        = f'https://{ip}:5800/'  if ip else ''                                       ,
+            viewer_url        = f'https://{ip}/'        if ip else ''                                       ,
             mitmweb_url       = f'http://{ip}:8081/'   if ip else ''                                       ,
             state             = _state_to_enum(details)                                                    ,
             launch_time       = str(details.get('LaunchTime', ''))                                         ,

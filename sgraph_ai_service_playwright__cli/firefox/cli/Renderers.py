@@ -93,7 +93,7 @@ def render_create(resp: Schema__Firefox__Stack__Create__Response, c: Console) ->
     c.print(f'  instance-id  : [dim]{resp.instance_id}[/]')
     c.print(f'  region       : {resp.region}')
     c.print(f'  ami          : {resp.ami_id}')
-    c.print(f'  viewer-url   : https://<public-ip>:5800/  [dim](available once booted; accept self-signed cert)[/]')
+    c.print(f'  viewer-url   : https://<public-ip>/  [dim](available once booted; accept self-signed cert)[/]')
     c.print(f'  username     : user')
     c.print(f'  password     : [bold green]{resp.password}[/]   [yellow](returned once — stash it now)[/]')
     c.print(f'  mitmweb      : http://<public-ip>:8081/   [dim](mitmproxy flows UI — available once booted)[/]')

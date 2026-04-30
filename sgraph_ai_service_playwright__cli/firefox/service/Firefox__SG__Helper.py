@@ -16,7 +16,7 @@ from sgraph_ai_service_playwright__cli.firefox.primitives.Safe_Str__Firefox__Sta
 from sgraph_ai_service_playwright__cli.firefox.service.Firefox__AWS__Client         import TAG_PURPOSE_KEY, TAG_PURPOSE_VALUE, FIREFOX_NAMING
 
 
-VIEWER_PORT  = 5800                                                                 # jlesage/firefox noVNC web UI
+VIEWER_PORT  = 443                                                                  # HTTPS (443:5800 port-forward in docker-compose)
 MITMWEB_PORT = 8081                                                                 # mitmproxy flows UI
 
 

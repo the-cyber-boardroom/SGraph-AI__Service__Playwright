@@ -29,9 +29,10 @@ LOG_FILE         = '/var/log/sg-firefox-boot.log'
 ENV_FILE         = '/run/sg-firefox/env'                                            # tmpfs (RAM-only); not baked into AMI
 FIREFOX_IMAGE    = 'jlesage/firefox'
 MITM_IMAGE       = 'mitmproxy/mitmproxy'
-VIEWER_PORT      = 5800
-MITMWEB_PORT     = 8081
-MITM_PROXY_PORT  = 8080                                                             # internal docker network port
+VIEWER_PORT           = 443                                                         # host port (standard HTTPS)
+VIEWER_CONTAINER_PORT = 5800                                                        # jlesage/firefox internal port
+MITMWEB_PORT          = 8081
+MITM_PROXY_PORT       = 8080                                                        # internal docker network port
 
 
 COMPOSE_TEMPLATE = """\
@@ -40,7 +41,7 @@ services:
     image: {firefox_image}
     restart: unless-stopped
     ports:
-      - "{viewer_port}:{viewer_port}"
+      - "{viewer_port}:{viewer_container_port}"
     volumes:
       - {app_data_dir}:/config:rw
     environment:
@@ -216,15 +217,16 @@ class Firefox__User_Data__Builder(Type_Safe):
                      env_source        : str = ''    ) -> str:
 
         compose_yaml = COMPOSE_TEMPLATE.format(
-            firefox_image    = FIREFOX_IMAGE   ,
-            mitm_image       = MITM_IMAGE      ,
-            viewer_port      = VIEWER_PORT     ,
-            mitmweb_port     = MITMWEB_PORT    ,
-            mitm_proxy_port  = MITM_PROXY_PORT ,
-            app_data_dir     = APP_DATA_DIR    ,
-            firefox_dir      = FIREFOX_DIR     ,
-            mitm_data_dir    = MITM_DATA_DIR   ,
-            password         = password        )
+            firefox_image         = FIREFOX_IMAGE        ,
+            mitm_image            = MITM_IMAGE           ,
+            viewer_port           = VIEWER_PORT          ,
+            viewer_container_port = VIEWER_CONTAINER_PORT,
+            mitmweb_port          = MITMWEB_PORT         ,
+            mitm_proxy_port       = MITM_PROXY_PORT      ,
+            app_data_dir          = APP_DATA_DIR         ,
+            firefox_dir           = FIREFOX_DIR          ,
+            mitm_data_dir         = MITM_DATA_DIR        ,
+            password              = password             )
 
         user_js = USER_JS_TEMPLATE.format(mitm_proxy_port=MITM_PROXY_PORT)
 
@@ -253,15 +255,16 @@ class Firefox__User_Data__Builder(Type_Safe):
                           interceptor_kind  : str = 'none',
                           env_source        : str = ''    ) -> str:
         compose_yaml = COMPOSE_TEMPLATE.format(
-            firefox_image    = FIREFOX_IMAGE   ,
-            mitm_image       = MITM_IMAGE      ,
-            viewer_port      = VIEWER_PORT     ,
-            mitmweb_port     = MITMWEB_PORT    ,
-            mitm_proxy_port  = MITM_PROXY_PORT ,
-            app_data_dir     = APP_DATA_DIR    ,
-            firefox_dir      = FIREFOX_DIR     ,
-            mitm_data_dir    = MITM_DATA_DIR   ,
-            password         = password        )
+            firefox_image         = FIREFOX_IMAGE        ,
+            mitm_image            = MITM_IMAGE           ,
+            viewer_port           = VIEWER_PORT          ,
+            viewer_container_port = VIEWER_CONTAINER_PORT,
+            mitmweb_port          = MITMWEB_PORT         ,
+            mitm_proxy_port       = MITM_PROXY_PORT      ,
+            app_data_dir          = APP_DATA_DIR         ,
+            firefox_dir           = FIREFOX_DIR          ,
+            mitm_data_dir         = MITM_DATA_DIR        ,
+            password              = password             )
         return FAST_USER_DATA_TEMPLATE.format(
             stack_name         = stack_name         ,
             log_file           = LOG_FILE           ,
