@@ -18,15 +18,15 @@ class SpCliStopButton extends SgComponent {
         this._stopBtn  ?.addEventListener('click', () => this._askConfirm())
         this._cnfBtn   ?.addEventListener('click', () => this._doStop())
         this._cancelBtn?.addEventListener('click', () => this._resetConfirm())
+        if (this._pendingStack) { this.setStack(this._pendingStack); this._pendingStack = null }
     }
 
     setStack(stack) {
+        if (!this._stopBtn) { this._pendingStack = stack; return }
         this._stack = stack
         this._resetConfirm()
-        if (this._stopBtn) {
-            const stopped = ['stopped', 'terminated', 'failed'].includes((stack?.state || '').toLowerCase())
-            this._stopBtn.disabled = stopped
-        }
+        const stopped = ['stopped', 'terminated', 'failed'].includes((stack?.state || '').toLowerCase())
+        this._stopBtn.disabled = stopped
     }
 
     _askConfirm() {

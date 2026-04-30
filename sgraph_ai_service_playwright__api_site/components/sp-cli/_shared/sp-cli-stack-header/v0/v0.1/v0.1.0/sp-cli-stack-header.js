@@ -21,9 +21,11 @@ class SpCliStackHeader extends SgComponent {
         this._stopEl    = this.$('.hdr-autostop')
         this._interval  = null
         this._stack     = null
+        if (this._pendingStack) { this.setStack(this._pendingStack); this._pendingStack = null }
     }
 
     setStack(stack) {
+        if (!this._iconEl) { this._pendingStack = stack; return }
         this._stack = stack
         this._render()
         clearInterval(this._interval)

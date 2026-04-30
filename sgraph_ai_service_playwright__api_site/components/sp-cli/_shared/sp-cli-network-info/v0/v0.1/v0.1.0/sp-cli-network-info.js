@@ -10,12 +10,14 @@ class SpCliNetworkInfo extends SgComponent {
         this._ipEl    = this.$('.net-ip')
         this._allowEl = this.$('.net-allow')
         this._sgEl    = this.$('.net-sg')
+        if (this._pendingStack) { this.setStack(this._pendingStack); this._pendingStack = null }
     }
 
     setStack(stack) {
-        if (this._ipEl)    this._ipEl.textContent    = stack?.public_ip      || '—'
-        if (this._allowEl) this._allowEl.textContent = stack?.allowed_ip     || '—'
-        if (this._sgEl)    this._sgEl.textContent    = stack?.security_group || stack?.sg_id || '—'
+        if (!this._ipEl) { this._pendingStack = stack; return }
+        this._ipEl.textContent    = stack?.public_ip      || '—'
+        this._allowEl.textContent = stack?.allowed_ip     || '—'
+        this._sgEl.textContent    = stack?.security_group || stack?.sg_id || '—'
     }
 }
 

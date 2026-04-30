@@ -11,15 +11,17 @@ class SpCliSsmCommand extends SgComponent {
         this._copyBtn  = this.$('.btn-copy')
         this._feedback = this.$('.copy-feedback')
         this._copyBtn?.addEventListener('click', () => this._copy())
+        if (this._pendingStack) { this.setStack(this._pendingStack); this._pendingStack = null }
     }
 
     setStack(stack) {
+        if (!this._cmdInput) { this._pendingStack = stack; return }
         const id     = stack?.instance_id || stack?.ec2_instance_id || '—'
         const region = stack?.region || 'eu-west-2'
         const cmd    = id !== '—'
             ? `aws ssm start-session --target ${id} --region ${region}`
             : '(instance ID not yet available)'
-        if (this._cmdInput) this._cmdInput.value = cmd
+        this._cmdInput.value = cmd
     }
 
     async _copy() {
