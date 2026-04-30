@@ -22,6 +22,19 @@ def _secs(ms: int) -> str:
     return f'{ms / 1000:.1f}s'
 
 
+def _fmt_uptime(seconds: int) -> str:
+    if seconds <= 0:
+        return '—'
+    d, rem = divmod(seconds, 86400)
+    h, rem = divmod(rem, 3600)
+    m      = rem // 60
+    if d > 0:
+        return f'{d}d {h}h'
+    if h > 0:
+        return f'{h}h {m}m'
+    return f'{m}m'
+
+
 def _state_colour(state: Enum__Firefox__Stack__State) -> str:
     return {Enum__Firefox__Stack__State.READY      : 'green' ,
             Enum__Firefox__Stack__State.RUNNING    : 'green' ,
@@ -39,12 +52,14 @@ def render_list(listing: Schema__Firefox__Stack__List, c: Console) -> None:
     t.add_column('stack-name' , style='bold')
     t.add_column('instance-id', style='dim')
     t.add_column('state')
+    t.add_column('uptime'     , style='cyan')
     t.add_column('public-ip'  , style='green')
     t.add_column('region'     , style='cyan')
     for info in listing.stacks:
         t.add_row(str(info.stack_name)                                            ,
                   str(info.instance_id)                                           ,
                   f'[{_state_colour(info.state)}]{info.state.value}[/]'           ,
+                  _fmt_uptime(info.uptime_seconds)                                ,
                   str(info.public_ip) or '—'                                      ,
                   str(info.region)                                                )
     c.print(t)

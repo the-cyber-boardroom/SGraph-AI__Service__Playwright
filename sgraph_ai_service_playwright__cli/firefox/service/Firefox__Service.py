@@ -83,11 +83,13 @@ class Firefox__Service(Type_Safe):
 
         sg_id     = self.aws_client.sg.ensure_security_group(region, stack_name, caller_ip)
         tags      = self.aws_client.tags.build(stack_name, caller_ip, creator)
+        env_source = str(request.env_source)
         user_data = self.user_data_builder.render(stack_name         = stack_name        ,
                                                    region             = region            ,
                                                    password           = password          ,
                                                    interceptor_source = interceptor_source,
-                                                   interceptor_kind   = interceptor_kind  )
+                                                   interceptor_kind   = interceptor_kind  ,
+                                                   env_source         = env_source        )
         iid       = self.aws_client.launch.run_instance(region, ami_id, sg_id, user_data, tags,
                                                         instance_type         = itype       ,
                                                         instance_profile_name = PROFILE_NAME)
@@ -239,6 +241,7 @@ class Firefox__Service(Type_Safe):
 
         interceptor_source, interceptor_label = self.interceptor_resolver.resolve(request.interceptor)
         interceptor_kind = str(request.interceptor.kind) if request.interceptor else 'none'
+        env_source       = str(request.env_source)
 
         sg_id     = self.aws_client.sg.ensure_security_group(region, stack_name, caller_ip)
         tags      = self.aws_client.tags.build(stack_name, caller_ip, creator)
@@ -247,7 +250,8 @@ class Firefox__Service(Type_Safe):
             region             = region            ,
             password           = password          ,
             interceptor_source = interceptor_source,
-            interceptor_kind   = interceptor_kind  )
+            interceptor_kind   = interceptor_kind  ,
+            env_source         = env_source        )
         iid       = self.aws_client.launch.run_instance(region, ami_id, sg_id, user_data, tags,
                                                         instance_type         = itype       ,
                                                         instance_profile_name = PROFILE_NAME)

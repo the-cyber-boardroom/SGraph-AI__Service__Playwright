@@ -64,7 +64,8 @@ class _Fake_Probe:
     def mitmweb_ready(self, public_ip: str) -> bool: return self.mitmweb_ok
 
 class _Fake_UDB:
-    def render(self, *args, **kwargs): return ''
+    def render     (self, *args, **kwargs): return ''
+    def render_fast(self, *args, **kwargs): return ''
 
 class _Fake_Name_Gen:
     def generate(self): return 'bold-turing'
@@ -278,6 +279,28 @@ class test_Firefox__Interceptor__Resolver(TestCase):
         assert 'certutil'                        in ud
         assert 'nss-tools'                       in ud
         assert '"network.proxy.http"'            in ud
+        assert '"app.update.auto"'               in ud
+        assert '"extensions.update.enabled"'     in ud
+        assert '/run/sg-firefox/env'             in ud
+
+    def test__user_data__env_source_written_to_tmpfs(self):
+        from sgraph_ai_service_playwright__cli.firefox.service.Firefox__User_Data__Builder import Firefox__User_Data__Builder
+        b  = Firefox__User_Data__Builder()
+        ud = b.render(stack_name='firefox-test', region='eu-west-2', password='pw',
+                      interceptor_source='# no-op\n', interceptor_kind='none',
+                      env_source='API_KEY=secret\nTARGET=https://example.com\n')
+        assert 'API_KEY=secret'                  in ud
+        assert 'TARGET=https://example.com'      in ud
+        assert '/run/sg-firefox/env'             in ud
+
+    def test__user_data_fast__env_source_written_to_tmpfs(self):
+        from sgraph_ai_service_playwright__cli.firefox.service.Firefox__User_Data__Builder import Firefox__User_Data__Builder
+        b  = Firefox__User_Data__Builder()
+        ud = b.render_fast(stack_name='firefox-test', region='eu-west-2', password='pw',
+                           interceptor_source='# no-op\n', interceptor_kind='none',
+                           env_source='FOO=bar\n')
+        assert 'FOO=bar'                         in ud
+        assert '/run/sg-firefox/env'             in ud
 
 
 class test_Firefox__Set__Interceptor(TestCase):

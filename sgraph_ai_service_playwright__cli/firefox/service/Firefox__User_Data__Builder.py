@@ -26,6 +26,7 @@ APP_DATA_DIR     = '/docker/appdata/firefox'
 PROFILE_DIR      = '/docker/appdata/firefox/profile'
 USER_JS_FILE     = '/docker/appdata/firefox/profile/user.js'
 LOG_FILE         = '/var/log/sg-firefox-boot.log'
+ENV_FILE         = '/run/sg-firefox/env'                                            # tmpfs (RAM-only); not baked into AMI
 FIREFOX_IMAGE    = 'jlesage/firefox'
 MITM_IMAGE       = 'mitmproxy/mitmproxy'
 VIEWER_PORT      = 5800
@@ -62,6 +63,8 @@ services:
     volumes:
       - {mitm_data_dir}:/home/mitmproxy/.mitmproxy
       - {firefox_dir}/interceptors:/interceptors:ro
+    env_file:
+      - /run/sg-firefox/env
     command: >
       mitmweb
       --web-host 0.0.0.0
@@ -79,6 +82,10 @@ user_pref("network.proxy.http_port",     {mitm_proxy_port});
 user_pref("network.proxy.ssl",           "mitmproxy");
 user_pref("network.proxy.ssl_port",      {mitm_proxy_port});
 user_pref("network.proxy.no_proxies_on", "localhost,127.0.0.1");
+// disable update checks — avoids 10-30s startup delay on every launch
+user_pref("app.update.auto",             false);
+user_pref("app.update.enabled",          false);
+user_pref("extensions.update.enabled",   false);
 """
 
 USER_DATA_TEMPLATE = """\
@@ -148,6 +155,12 @@ cat > {user_js_file} <<'FIREFOX_USERJS_EOF'
 {user_js}
 FIREFOX_USERJS_EOF
 
+echo "[sg-firefox] writing env vars to tmpfs (/run/sg-firefox/env)..."
+mkdir -p /run/sg-firefox
+cat > {env_file} <<'SG_FIREFOX_ENV_EOF'
+{env_source}
+SG_FIREFOX_ENV_EOF
+
 echo "[sg-firefox] starting Firefox..."
 docker compose up -d firefox
 
@@ -170,10 +183,20 @@ cat > {compose_file} <<'FIREFOX_COMPOSE_EOF'
 {compose_yaml}
 FIREFOX_COMPOSE_EOF
 
-echo "[sg-firefox] writing interceptor (kind={interceptor_kind})..."
-cat > {interceptor_file} <<'SG_FIREFOX_INTERCEPTOR_EOF'
+if [ "{interceptor_kind}" != "none" ]; then
+    echo "[sg-firefox] writing interceptor (kind={interceptor_kind})..."
+    cat > {interceptor_file} <<'SG_FIREFOX_INTERCEPTOR_EOF'
 {interceptor_source}
 SG_FIREFOX_INTERCEPTOR_EOF
+else
+    echo "[sg-firefox] interceptor_kind=none — keeping AMI baked interceptor in place"
+fi
+
+echo "[sg-firefox] writing env vars to tmpfs (/run/sg-firefox/env)..."
+mkdir -p /run/sg-firefox
+cat > {env_file} <<'SG_FIREFOX_ENV_EOF'
+{env_source}
+SG_FIREFOX_ENV_EOF
 
 echo "[sg-firefox] starting stack (mitmproxy CA already trusted from AMI)..."
 cd {firefox_dir}
@@ -189,7 +212,8 @@ class Firefox__User_Data__Builder(Type_Safe):
                      region            : str,
                      password          : str,
                      interceptor_source: str,
-                     interceptor_kind  : str = 'none') -> str:
+                     interceptor_kind  : str = 'none',
+                     env_source        : str = ''    ) -> str:
 
         compose_yaml = COMPOSE_TEMPLATE.format(
             firefox_image    = FIREFOX_IMAGE   ,
@@ -218,13 +242,16 @@ class Firefox__User_Data__Builder(Type_Safe):
             interceptor_source = interceptor_source ,
             interceptor_kind   = interceptor_kind   ,
             user_js_file       = USER_JS_FILE       ,
-            user_js            = user_js            )
+            user_js            = user_js            ,
+            env_file           = ENV_FILE           ,
+            env_source         = env_source         )
 
     def render_fast(self, stack_name        : str,
                           region            : str,
                           password          : str,
                           interceptor_source: str,
-                          interceptor_kind  : str = 'none') -> str:
+                          interceptor_kind  : str = 'none',
+                          env_source        : str = ''    ) -> str:
         compose_yaml = COMPOSE_TEMPLATE.format(
             firefox_image    = FIREFOX_IMAGE   ,
             mitm_image       = MITM_IMAGE      ,
@@ -243,4 +270,6 @@ class Firefox__User_Data__Builder(Type_Safe):
             compose_yaml       = compose_yaml       ,
             interceptor_file   = INTERCEPTOR_FILE   ,
             interceptor_source = interceptor_source ,
-            interceptor_kind   = interceptor_kind   )
+            interceptor_kind   = interceptor_kind   ,
+            env_file           = ENV_FILE           ,
+            env_source         = env_source         )
