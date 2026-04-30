@@ -184,6 +184,26 @@ def render_set_interceptor(resp: Schema__Firefox__Set__Interceptor__Response, c:
         c.print()
 
 
+def render_setup(info: dict, c: Console) -> None:
+    ok  = info.get('role') and info.get('profile') and info.get('role_linked')
+    col = 'green' if ok else 'yellow'
+    c.print()
+    c.print(Panel(f'[bold]IAM setup  ·  {info.get("profile_name", "")}[/]  [{col}]{"ready" if ok else "incomplete"}[/]',
+                  border_style=col, expand=False))
+    c.print()
+    t = Table(box=None, show_header=False, padding=(0, 2))
+    t.add_column(style='bold', min_width=14, no_wrap=True)
+    t.add_column(style='default')
+    t.add_row('role'       , '[green]yes[/]' if info.get('role'       ) else '[red]missing[/]')
+    t.add_row('profile'    , '[green]yes[/]' if info.get('profile'    ) else '[red]missing[/]')
+    t.add_row('role-linked', '[green]yes[/]' if info.get('role_linked') else '[red]missing[/]')
+    c.print(t)
+    c.print()
+    if not ok:
+        c.print('  [yellow]Run: [bold]sp firefox setup[/] to create the missing resources.[/]')
+        c.print()
+
+
 def render_interceptors(examples: list, c: Console) -> None:
     c.print()
     c.print(Panel('[bold]🔌  Firefox interceptor examples[/]  '

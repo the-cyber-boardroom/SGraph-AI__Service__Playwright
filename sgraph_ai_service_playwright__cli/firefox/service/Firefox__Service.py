@@ -39,7 +39,6 @@ from sgraph_ai_service_playwright__cli.firefox.service.Firefox__Interceptor__Res
 
 DEFAULT_REGION        = 'eu-west-2'
 DEFAULT_INSTANCE_TYPE = 't3.medium'
-PROFILE_NAME          = 'playwright-ec2'                                            # IAM instance profile with AmazonSSMManagedInstanceCore
 PASSWORD_BYTES        = 16                                                          # secrets.token_urlsafe(16) → ~22 URL-safe chars
 
 
@@ -81,6 +80,7 @@ class Firefox__Service(Type_Safe):
         interceptor_source, interceptor_label = self.interceptor_resolver.resolve(request.interceptor)
         interceptor_kind = str(request.interceptor.kind) if request.interceptor else 'none'
 
+        profile   = self.aws_client.iam.ensure(region)
         sg_id     = self.aws_client.sg.ensure_security_group(region, stack_name, caller_ip)
         tags      = self.aws_client.tags.build(stack_name, caller_ip, creator)
         env_source = str(request.env_source)
@@ -91,8 +91,8 @@ class Firefox__Service(Type_Safe):
                                                    interceptor_kind   = interceptor_kind  ,
                                                    env_source         = env_source        )
         iid       = self.aws_client.launch.run_instance(region, ami_id, sg_id, user_data, tags,
-                                                        instance_type         = itype       ,
-                                                        instance_profile_name = PROFILE_NAME)
+                                                        instance_type         = itype   ,
+                                                        instance_profile_name = profile )
         event_bus.emit('firefox:stack.created', Schema__Stack__Event(
             type_id     = Enum__Stack__Type.FIREFOX,
             stack_name  = stack_name               ,
@@ -243,6 +243,7 @@ class Firefox__Service(Type_Safe):
         interceptor_kind = str(request.interceptor.kind) if request.interceptor else 'none'
         env_source       = str(request.env_source)
 
+        profile   = self.aws_client.iam.ensure(region)
         sg_id     = self.aws_client.sg.ensure_security_group(region, stack_name, caller_ip)
         tags      = self.aws_client.tags.build(stack_name, caller_ip, creator)
         user_data = self.user_data_builder.render_fast(
@@ -253,8 +254,8 @@ class Firefox__Service(Type_Safe):
             interceptor_kind   = interceptor_kind  ,
             env_source         = env_source        )
         iid       = self.aws_client.launch.run_instance(region, ami_id, sg_id, user_data, tags,
-                                                        instance_type         = itype       ,
-                                                        instance_profile_name = PROFILE_NAME)
+                                                        instance_type         = itype   ,
+                                                        instance_profile_name = profile )
         event_bus.emit('firefox:stack.created', Schema__Stack__Event(
             type_id     = Enum__Stack__Type.FIREFOX,
             stack_name  = stack_name               ,
@@ -297,6 +298,10 @@ class Firefox__Service(Type_Safe):
             success           = ok                                 ,
             message           = message                            ,
             elapsed_ms        = int((time.monotonic() - t0) * 1000))
+
+    def setup_iam(self, region: str) -> dict:                                        # Idempotent; returns status dict; safe to call on every create
+        self.aws_client.iam.ensure(region)
+        return self.aws_client.iam.status(region)
 
     def delete_stack(self, region: str, stack_name: str) -> Schema__Firefox__Stack__Delete__Response:
         t0      = time.monotonic()
