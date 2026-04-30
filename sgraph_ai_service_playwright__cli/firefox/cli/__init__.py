@@ -261,11 +261,14 @@ def create(name              : Optional[str] = typer.Argument(None, help='Stack 
            interceptor       : Optional[str] = typer.Option(None                 , '--interceptor'      ,       help='Name of a baked mitmproxy interceptor (see `sp firefox interceptors`).'),
            interceptor_script: Optional[str] = typer.Option(None                 , '--interceptor-script',      help='Path to a local Python file; embedded inline at create time.'),
            env_file          : Optional[str] = typer.Option(None                 , '--env-file'         ,       help='Path to a .env file; vars injected into mitmproxy at boot (tmpfs, never baked into AMI).'),
+           open_sg           : bool          = typer.Option(False                , '--open'             ,       help='Allow access from any IP (0.0.0.0/0). Use when behind an ALB or load balancer.'),
+           cidr              : Optional[str] = typer.Option(None                 , '--cidr'             ,       help='Custom CIDR for SG ingress (e.g. 10.0.0.0/8). Overrides --caller-ip and --open.'),
            wait              : bool          = typer.Option(False                , '--wait'             ,       help='Block until instance is running.')):
     """Provision a Firefox (noVNC browser) + mitmproxy EC2 stack."""
-    c       = Console(highlight=False, width=200)
-    choice  = _interceptor_choice(interceptor, interceptor_script)
-    request = Schema__Firefox__Stack__Create__Request(
+    c            = Console(highlight=False, width=200)
+    choice       = _interceptor_choice(interceptor, interceptor_script)
+    allowed_cidr = cidr or ('0.0.0.0/0' if open_sg else '')
+    request      = Schema__Firefox__Stack__Create__Request(
         stack_name    = name          or '',
         region        = region             ,
         instance_type = instance_type      ,
@@ -273,7 +276,8 @@ def create(name              : Optional[str] = typer.Argument(None, help='Stack 
         caller_ip     = caller_ip     or '',
         password      = password      or '',
         interceptor   = choice             ,
-        env_source    = _read_env_file(env_file))
+        env_source    = _read_env_file(env_file),
+        allowed_cidr  = allowed_cidr       )
     svc  = _service()
     resp = svc.create_stack(request)
     render_create(resp, c)
@@ -401,11 +405,14 @@ def create_from_ami(ami_id            : Optional[str] = typer.Argument(None, hel
                     interceptor       : Optional[str] = typer.Option(None                 , '--interceptor'      ),
                     interceptor_script: Optional[str] = typer.Option(None                 , '--interceptor-script'),
                     env_file          : Optional[str] = typer.Option(None                 , '--env-file'         , help='Path to a .env file; vars injected into mitmproxy at boot (tmpfs, never baked into AMI).'),
+                    open_sg           : bool          = typer.Option(False                , '--open'             , help='Allow access from any IP (0.0.0.0/0). Use when behind an ALB or load balancer.'),
+                    cidr              : Optional[str] = typer.Option(None                 , '--cidr'             , help='Custom CIDR for SG ingress (e.g. 10.0.0.0/8).'),
                     wait              : bool          = typer.Option(False                , '--wait'             )):
     """Launch a new Firefox stack from an existing AMI (fast boot — skips full install)."""
-    c      = Console(highlight=False, width=200)
-    svc    = _service()
-    choice = _interceptor_choice(interceptor, interceptor_script)
+    c            = Console(highlight=False, width=200)
+    svc          = _service()
+    choice       = _interceptor_choice(interceptor, interceptor_script)
+    allowed_cidr = cidr or ('0.0.0.0/0' if open_sg else '')
 
     if not ami_id:
         amis = svc.list_amis(region)
@@ -424,7 +431,8 @@ def create_from_ami(ami_id            : Optional[str] = typer.Argument(None, hel
         caller_ip     = caller_ip     or '',
         password      = password      or '',
         interceptor   = choice             ,
-        env_source    = _read_env_file(env_file))
+        env_source    = _read_env_file(env_file),
+        allowed_cidr  = allowed_cidr       )
     resp = svc.create_from_ami(request)
     render_create(resp, c)
     if wait:
