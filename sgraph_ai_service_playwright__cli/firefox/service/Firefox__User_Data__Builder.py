@@ -79,6 +79,10 @@ user_pref("network.proxy.http_port",     {mitm_proxy_port});
 user_pref("network.proxy.ssl",           "mitmproxy");
 user_pref("network.proxy.ssl_port",      {mitm_proxy_port});
 user_pref("network.proxy.no_proxies_on", "localhost,127.0.0.1");
+// disable update checks — avoids 10-30s startup delay on every launch
+user_pref("app.update.auto",             false);
+user_pref("app.update.enabled",          false);
+user_pref("extensions.update.enabled",   false);
 """
 
 USER_DATA_TEMPLATE = """\

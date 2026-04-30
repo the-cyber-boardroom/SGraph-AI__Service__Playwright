@@ -278,6 +278,8 @@ class test_Firefox__Interceptor__Resolver(TestCase):
         assert 'certutil'                        in ud
         assert 'nss-tools'                       in ud
         assert '"network.proxy.http"'            in ud
+        assert '"app.update.auto"'               in ud
+        assert '"extensions.update.enabled"'     in ud
 
 
 class test_Firefox__Set__Interceptor(TestCase):
