@@ -24,6 +24,8 @@ from osbot_utils.type_safe.Type_Safe                                            
 FIREFOX_DIR    = '/opt/sg-firefox'
 COMPOSE_FILE   = '/opt/sg-firefox/docker-compose.yml'
 APP_DATA_DIR   = '/docker/appdata/firefox'
+PROFILE_DIR    = '/docker/appdata/firefox/profile'
+USER_JS_FILE   = '/docker/appdata/firefox/profile/user.js'
 LOG_FILE       = '/var/log/sg-firefox-boot.log'
 FIREFOX_IMAGE  = 'jlesage/firefox'
 VIEWER_PORT    = 5800
@@ -70,13 +72,13 @@ curl -fsSL "https://github.com/docker/compose/releases/latest/download/docker-co
 chmod +x /usr/local/lib/docker/cli-plugins/docker-compose
 
 echo "[sg-firefox] preparing layout..."
-mkdir -p {firefox_dir} {app_data_dir}
+mkdir -p {firefox_dir} {app_data_dir} {profile_dir}
 
 echo "[sg-firefox] writing docker-compose.yml..."
 cat > {compose_file} <<'FIREFOX_COMPOSE_EOF'
 {compose_yaml}
 FIREFOX_COMPOSE_EOF
-
+{proxy_user_js_block}
 echo "[sg-firefox] pulling image..."
 cd {firefox_dir}
 docker compose pull
@@ -87,23 +89,49 @@ docker compose up -d
 echo "[sg-firefox] boot complete at $(date -u +%FT%TZ)"
 """
 
+PROXY_USER_JS_BLOCK = """\
+echo "[sg-firefox] writing proxy user.js (host={proxy_host} port={proxy_port})..."
+cat > {user_js_file} <<'FIREFOX_USERJS_EOF'
+// proxy pre-configured by sp firefox create --proxy
+user_pref("network.proxy.type",              1);
+user_pref("network.proxy.http",              "{proxy_host}");
+user_pref("network.proxy.http_port",         {proxy_port});
+user_pref("network.proxy.ssl",               "{proxy_host}");
+user_pref("network.proxy.ssl_port",          {proxy_port});
+user_pref("network.proxy.no_proxies_on",     "localhost,127.0.0.1");
+user_pref("signon.rememberSignons",          true);
+FIREFOX_USERJS_EOF
+"""
+
 
 class Firefox__User_Data__Builder(Type_Safe):
 
     def render(self, stack_name : str,
                      region     : str,
-                     password   : str) -> str:
+                     password   : str,
+                     proxy_host : str = '',
+                     proxy_port : int = 0 ) -> str:
         compose_yaml = COMPOSE_TEMPLATE.format(
             firefox_image = FIREFOX_IMAGE ,
             viewer_port   = VIEWER_PORT   ,
             app_data_dir  = APP_DATA_DIR  ,
             password      = password      )
 
+        if proxy_host and proxy_port:
+            proxy_block = PROXY_USER_JS_BLOCK.format(
+                proxy_host   = proxy_host  ,
+                proxy_port   = proxy_port  ,
+                user_js_file = USER_JS_FILE)
+        else:
+            proxy_block = ''
+
         return USER_DATA_TEMPLATE.format(
-            stack_name   = stack_name  ,
-            region       = region      ,
-            log_file     = LOG_FILE    ,
-            firefox_dir  = FIREFOX_DIR ,
-            app_data_dir = APP_DATA_DIR,
-            compose_file = COMPOSE_FILE,
-            compose_yaml = compose_yaml)
+            stack_name        = stack_name  ,
+            region            = region      ,
+            log_file          = LOG_FILE    ,
+            firefox_dir       = FIREFOX_DIR ,
+            app_data_dir      = APP_DATA_DIR,
+            profile_dir       = PROFILE_DIR ,
+            compose_file      = COMPOSE_FILE,
+            compose_yaml      = compose_yaml,
+            proxy_user_js_block = proxy_block)

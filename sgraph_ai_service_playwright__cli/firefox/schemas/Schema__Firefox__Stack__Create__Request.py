@@ -19,3 +19,5 @@ class Schema__Firefox__Stack__Create__Request(Type_Safe):
     from_ami      : Safe_Str__AMI__Id                                               # latest AL2023 when empty
     instance_type : Safe_Str__Text                                                  # defaults to t3.medium
     password      : Safe_Str__Text                                                  # web UI password; auto-generated when empty
+    proxy_host    : Safe_Str__Text                                                  # upstream proxy hostname; empty = no proxy
+    proxy_port    : int             = 0                                             # upstream proxy port (e.g. 8080)
