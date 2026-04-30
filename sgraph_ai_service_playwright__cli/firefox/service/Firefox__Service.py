@@ -44,12 +44,13 @@ PASSWORD_BYTES        = 16                                                      
 
 
 class Firefox__Service(Type_Safe):
-    aws_client        : object = None                                               # Firefox__AWS__Client    (lazy via setup())
-    mapper            : object = None                                               # Firefox__Stack__Mapper  (lazy via setup())
-    ip_detector       : object = None                                               # Caller__IP__Detector    (lazy via setup())
-    name_gen          : object = None                                               # Random__Stack__Name__Generator (lazy via setup())
-    user_data_builder : object = None                                               # Firefox__User_Data__Builder (lazy via setup())
-    interceptor_resolver: object = None                                             # Firefox__Interceptor__Resolver (lazy via setup())
+    aws_client           : object = None                                            # Firefox__AWS__Client    (lazy via setup())
+    mapper               : object = None                                            # Firefox__Stack__Mapper  (lazy via setup())
+    ip_detector          : object = None                                            # Caller__IP__Detector    (lazy via setup())
+    name_gen             : object = None                                            # Random__Stack__Name__Generator (lazy via setup())
+    user_data_builder    : object = None                                            # Firefox__User_Data__Builder (lazy via setup())
+    interceptor_resolver : object = None                                            # Firefox__Interceptor__Resolver (lazy via setup())
+    probe                : object = None                                            # Firefox__HTTP__Probe (lazy via setup(); tests inject fake)
 
     def setup(self) -> 'Firefox__Service':
         from sgraph_ai_service_playwright__cli.firefox.service.Caller__IP__Detector         import Caller__IP__Detector
@@ -57,12 +58,15 @@ class Firefox__Service(Type_Safe):
         from sgraph_ai_service_playwright__cli.firefox.service.Firefox__Stack__Mapper       import Firefox__Stack__Mapper
         from sgraph_ai_service_playwright__cli.firefox.service.Firefox__User_Data__Builder  import Firefox__User_Data__Builder
         from sgraph_ai_service_playwright__cli.firefox.service.Random__Stack__Name__Generator import Random__Stack__Name__Generator
-        self.aws_client          = Firefox__AWS__Client()  .setup()
-        self.mapper              = Firefox__Stack__Mapper()
-        self.ip_detector         = Caller__IP__Detector()
-        self.name_gen            = Random__Stack__Name__Generator()
-        self.user_data_builder   = Firefox__User_Data__Builder()
-        self.interceptor_resolver= Firefox__Interceptor__Resolver()
+        from sgraph_ai_service_playwright__cli.firefox.service.Firefox__HTTP__Probe import Firefox__HTTP__Probe
+        from sgraph_ai_service_playwright__cli.firefox.service.Firefox__HTTP__Base  import Firefox__HTTP__Base
+        self.aws_client           = Firefox__AWS__Client()  .setup()
+        self.mapper               = Firefox__Stack__Mapper()
+        self.ip_detector          = Caller__IP__Detector()
+        self.name_gen             = Random__Stack__Name__Generator()
+        self.user_data_builder    = Firefox__User_Data__Builder()
+        self.interceptor_resolver = Firefox__Interceptor__Resolver()
+        self.probe                = Firefox__HTTP__Probe(http=Firefox__HTTP__Base())
         return self
 
     def create_stack(self, request: Schema__Firefox__Stack__Create__Request, creator: str = '') -> Schema__Firefox__Stack__Create__Response:
@@ -121,6 +125,9 @@ class Firefox__Service(Type_Safe):
 
     def health(self, region: str, stack_name: str,
                timeout_sec: int = 300, poll_sec: int = 10) -> Schema__Firefox__Health__Response:
+        from sgraph_ai_service_playwright__cli.firefox.service.Firefox__HTTP__Probe import Firefox__HTTP__Probe
+        from sgraph_ai_service_playwright__cli.firefox.service.Firefox__HTTP__Base  import Firefox__HTTP__Base
+        probe    = self.probe or Firefox__HTTP__Probe(http=Firefox__HTTP__Base())
         t0       = time.monotonic()
         deadline = t0 + timeout_sec
         while True:
@@ -132,24 +139,36 @@ class Firefox__Service(Type_Safe):
                     message    = 'stack not found'                    ,
                     elapsed_ms = int((time.monotonic() - t0) * 1000) )
             state = info.state
-            if state in (Enum__Firefox__Stack__State.RUNNING, Enum__Firefox__Stack__State.READY):
-                return Schema__Firefox__Health__Response(
-                    stack_name = stack_name                           ,
-                    state      = state                                ,
-                    healthy    = True                                 ,
-                    message    = 'instance running'                   ,
-                    elapsed_ms = int((time.monotonic() - t0) * 1000) )
             if state in (Enum__Firefox__Stack__State.TERMINATED, Enum__Firefox__Stack__State.TERMINATING):
                 return Schema__Firefox__Health__Response(
                     stack_name = stack_name                           ,
                     state      = state                                ,
                     message    = 'instance terminated'                ,
                     elapsed_ms = int((time.monotonic() - t0) * 1000) )
+            public_ip  = str(info.public_ip)
+            firefox_ok = mitmweb_ok = False
+            if state in (Enum__Firefox__Stack__State.RUNNING, Enum__Firefox__Stack__State.READY) and public_ip:
+                firefox_ok = probe.firefox_ready(public_ip)
+                mitmweb_ok = probe.mitmweb_ready(public_ip)
+            if firefox_ok and mitmweb_ok:
+                return Schema__Firefox__Health__Response(
+                    stack_name = stack_name                                ,
+                    state      = Enum__Firefox__Stack__State.READY         ,
+                    healthy    = True                                      ,
+                    firefox_ok = True                                      ,
+                    mitmweb_ok = True                                      ,
+                    message    = 'firefox + mitmweb reachable'             ,
+                    elapsed_ms = int((time.monotonic() - t0) * 1000)      )
             if time.monotonic() >= deadline:
+                msg = (f'instance {state.value}'
+                       + ('' if not public_ip else
+                          f' — firefox={"ok" if firefox_ok else "no"}  mitmweb={"ok" if mitmweb_ok else "no"}'))
                 return Schema__Firefox__Health__Response(
                     stack_name = stack_name                           ,
                     state      = state                                ,
-                    message    = f'timed out after {timeout_sec}s'   ,
+                    firefox_ok = firefox_ok                          ,
+                    mitmweb_ok = mitmweb_ok                          ,
+                    message    = f'timed out after {timeout_sec}s: {msg}',
                     elapsed_ms = int((time.monotonic() - t0) * 1000) )
             time.sleep(poll_sec)
 
