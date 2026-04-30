@@ -1,19 +1,17 @@
-"""
-mitmproxy interceptor — replace text in HTML responses.
-Push to a running stack with:
-  sp firefox set-interceptor --interceptor-script scripts/interceptors/html_replace.py
-"""
+# mitmproxy interceptor -- replace text in HTML responses.
+# Push to a running stack with:
+#   sp firefox set-interceptor --interceptor-script scripts/interceptors/html_replace.py
+
 from mitmproxy import http
 
-# ── edit these ────────────────────────────────────────────────────────────────
+# -- edit these ---------------------------------------------------------------
 
 REPLACEMENTS = [
-    ("Hello",   "G'day"),           # word swap
-    ("Google",  "Boogle"),          # brand rename
-    ("https://", "https://"),       # (no-op placeholder — add real ones below)
+    ("Hello",  "G'day" ),   # word swap
+    ("Google", "Boogle"),   # brand rename
 ]
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 
 
 def response(flow: http.HTTPFlow) -> None:
