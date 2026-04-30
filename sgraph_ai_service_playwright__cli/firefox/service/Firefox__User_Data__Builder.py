@@ -155,6 +155,34 @@ echo "[sg-firefox] boot complete at $(date -u +%FT%TZ)"
 """
 
 
+FAST_USER_DATA_TEMPLATE = """\
+#!/usr/bin/env bash
+set -euo pipefail
+exec > >(tee -a {log_file}) 2>&1
+echo "[sg-firefox] fast-boot from AMI starting at $(date -u +%FT%TZ)"
+
+STACK_NAME='{stack_name}'
+
+systemctl enable --now docker
+
+echo "[sg-firefox] writing updated docker-compose.yml..."
+cat > {compose_file} <<'FIREFOX_COMPOSE_EOF'
+{compose_yaml}
+FIREFOX_COMPOSE_EOF
+
+echo "[sg-firefox] writing interceptor (kind={interceptor_kind})..."
+cat > {interceptor_file} <<'SG_FIREFOX_INTERCEPTOR_EOF'
+{interceptor_source}
+SG_FIREFOX_INTERCEPTOR_EOF
+
+echo "[sg-firefox] starting stack (mitmproxy CA already trusted from AMI)..."
+cd {firefox_dir}
+docker compose up -d
+
+echo "[sg-firefox] fast-boot complete at $(date -u +%FT%TZ)"
+"""
+
+
 class Firefox__User_Data__Builder(Type_Safe):
 
     def render(self, stack_name        : str,
@@ -191,3 +219,28 @@ class Firefox__User_Data__Builder(Type_Safe):
             interceptor_kind   = interceptor_kind   ,
             user_js_file       = USER_JS_FILE       ,
             user_js            = user_js            )
+
+    def render_fast(self, stack_name        : str,
+                          region            : str,
+                          password          : str,
+                          interceptor_source: str,
+                          interceptor_kind  : str = 'none') -> str:
+        compose_yaml = COMPOSE_TEMPLATE.format(
+            firefox_image    = FIREFOX_IMAGE   ,
+            mitm_image       = MITM_IMAGE      ,
+            viewer_port      = VIEWER_PORT     ,
+            mitmweb_port     = MITMWEB_PORT    ,
+            mitm_proxy_port  = MITM_PROXY_PORT ,
+            app_data_dir     = APP_DATA_DIR    ,
+            firefox_dir      = FIREFOX_DIR     ,
+            mitm_data_dir    = MITM_DATA_DIR   ,
+            password         = password        )
+        return FAST_USER_DATA_TEMPLATE.format(
+            stack_name         = stack_name         ,
+            log_file           = LOG_FILE           ,
+            firefox_dir        = FIREFOX_DIR        ,
+            compose_file       = COMPOSE_FILE       ,
+            compose_yaml       = compose_yaml       ,
+            interceptor_file   = INTERCEPTOR_FILE   ,
+            interceptor_source = interceptor_source ,
+            interceptor_kind   = interceptor_kind   )

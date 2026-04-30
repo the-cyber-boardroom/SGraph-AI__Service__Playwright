@@ -15,6 +15,11 @@
 #   sp firefox connect [name]     — open an SSM shell on the instance
 #   sp firefox set-interceptor    — push a new interceptor to a live stack (hot-reload)
 #   sp firefox interceptors       — list baked mitmproxy interceptor examples
+#   sp firefox create-from-ami    — fast-boot a new stack from an existing AMI
+#   sp firefox ami create [name]  — bake an AMI from a running stack
+#   sp firefox ami list           — list available Firefox AMIs
+#   sp firefox ami wait AMI_ID    — wait until a bake is complete
+#   sp firefox ami delete AMI_ID  — deregister AMI + snapshots
 # ═══════════════════════════════════════════════════════════════════════════════
 
 import functools
@@ -24,7 +29,9 @@ from typing                                                                     
 import typer
 from rich.console                                                                   import Console
 
-from sgraph_ai_service_playwright__cli.firefox.cli.Renderers                        import (render_create           ,
+from sgraph_ai_service_playwright__cli.firefox.cli.Renderers                        import (render_ami_create       ,
+                                                                                             render_ami_list         ,
+                                                                                             render_create           ,
                                                                                              render_health           ,
                                                                                              render_info             ,
                                                                                              render_interceptors     ,
@@ -144,6 +151,92 @@ def _resolve_stack_name(service: Firefox__Service, provided: Optional[str], regi
         Console(highlight=False, stderr=True).print(f'\n  [red]Invalid selection: {raw}[/]\n')
         raise typer.Exit(1)
     return names[choice - 1]
+
+
+# ── ami sub-app ───────────────────────────────────────────────────────────────
+
+ami_app = typer.Typer(help='Manage Firefox AMIs (bake / list / wait / delete).', no_args_is_help=True)
+
+
+@ami_app.command('create')
+@_err_handler
+def ami_create(name      : Optional[str] = typer.Argument(None, help='Stack to bake from; auto-selected when only one exists.'),
+               region    : str           = typer.Option(DEFAULT_REGION, '--region', '-r'),
+               ami_name  : Optional[str] = typer.Option(None , '--name', help='AMI name; auto-generated if omitted.'),
+               wait      : bool          = typer.Option(False, '--wait', help='Block until AMI is available (~5-10 min).')):
+    """Bake an AMI from a running Firefox stack."""
+    c    = Console(highlight=False, width=200)
+    svc  = _service()
+    name = _resolve_stack_name(svc, name, region)
+    c.print(f'  [dim]Submitting AMI bake for {name!r}…[/]')
+    resp = svc.create_ami(region, name, ami_name or '')
+    render_ami_create(resp, c)
+    if wait:
+        ami_id = str(resp.ami_id)
+        c.print(f'  [dim]Waiting for {ami_id} to become available…[/]')
+        from rich.status import Status
+        status = Status('', console=c, spinner='dots')
+        status.start()
+        def _tick(t):
+            status.update(f'  [dim][{t["elapsed_ms"]//1000:>3}s  #{t["attempt"]:02d}]  state=[bold]{t["state"]}[/][/]')
+        try:
+            final = svc.wait_for_ami(region, ami_id, on_progress=_tick)
+        finally:
+            status.stop()
+        colour = 'green' if final == 'available' else 'red'
+        c.print(f'  [{colour}]{ami_id}  →  {final}[/]')
+        c.print()
+        if final != 'available':
+            raise typer.Exit(1)
+
+
+@ami_app.command('list')
+@_err_handler
+def ami_list(region: str = typer.Option(DEFAULT_REGION, '--region', '-r')):
+    """List Firefox AMIs in the region."""
+    render_ami_list(_service().list_amis(region), Console(highlight=False, width=200))
+
+
+@ami_app.command('wait')
+@_err_handler
+def ami_wait(ami_id     : str = typer.Argument(..., help='AMI ID to wait for.'),
+             region     : str = typer.Option(DEFAULT_REGION, '--region', '-r'),
+             timeout_sec: int = typer.Option(1200, '--timeout'),
+             poll_sec   : int = typer.Option(15  , '--poll'  )):
+    """Wait until a Firefox AMI bake is complete."""
+    c   = Console(highlight=False, width=200)
+    svc = _service()
+    c.print(f'  [dim]Waiting for {ami_id}…[/]')
+    from rich.status import Status
+    status = Status('', console=c, spinner='dots')
+    status.start()
+    def _tick(t):
+        status.update(f'  [dim][{t["elapsed_ms"]//1000:>3}s  #{t["attempt"]:02d}]  state=[bold]{t["state"]}[/][/]')
+    try:
+        final = svc.wait_for_ami(region, ami_id, timeout_sec=timeout_sec, poll_sec=poll_sec, on_progress=_tick)
+    finally:
+        status.stop()
+    colour = 'green' if final == 'available' else 'red'
+    c.print(f'  [{colour}]{ami_id}  →  {final}[/]\n')
+    if final != 'available':
+        raise typer.Exit(1)
+
+
+@ami_app.command('delete')
+@_err_handler
+def ami_delete(ami_id : str  = typer.Argument(..., help='AMI ID to delete.'),
+               region : str  = typer.Option(DEFAULT_REGION, '--region', '-r'),
+               yes    : bool = typer.Option(False, '--yes', '-y', help='Skip confirmation.')):
+    """Deregister a Firefox AMI and delete its snapshots."""
+    c = Console(highlight=False, width=200)
+    if not yes:
+        typer.confirm(f'  Deregister {ami_id} and delete snapshots?', abort=True)
+    result = _service().delete_ami(region, ami_id)
+    if result.get('deleted'):
+        c.print(f'  ✅  {ami_id} deregistered  [dim]({result.get("snapshots", 0)} snapshot(s) deleted)[/]')
+    else:
+        c.print(f'  [red]✗  deregister failed for {ami_id}[/]')
+        raise typer.Exit(1)
 
 
 # ── commands ──────────────────────────────────────────────────────────────────
@@ -286,8 +379,58 @@ def set_interceptor(name              : Optional[str] = typer.Argument(None, hel
         raise typer.Exit(1)
 
 
+@app.command(name='create-from-ami')
+@_err_handler
+def create_from_ami(ami_id            : Optional[str] = typer.Argument(None, help='AMI ID; latest Firefox AMI used if omitted.'),
+                    name              : Optional[str] = typer.Option(None                 , '--name'             , help='Stack name; auto-generated if omitted.'),
+                    region            : str           = typer.Option(DEFAULT_REGION       , '--region'   , '-r'  ),
+                    instance_type     : str           = typer.Option(DEFAULT_INSTANCE_TYPE, '--instance-type', '-t'),
+                    caller_ip         : Optional[str] = typer.Option(None                 , '--caller-ip'        ),
+                    password          : Optional[str] = typer.Option(None                 , '--password'         , help='Web UI password. Auto-generated if omitted.'),
+                    interceptor       : Optional[str] = typer.Option(None                 , '--interceptor'      ),
+                    interceptor_script: Optional[str] = typer.Option(None                 , '--interceptor-script'),
+                    wait              : bool          = typer.Option(False                , '--wait'             )):
+    """Launch a new Firefox stack from an existing AMI (fast boot — skips full install)."""
+    c      = Console(highlight=False, width=200)
+    svc    = _service()
+    choice = _interceptor_choice(interceptor, interceptor_script)
+
+    if not ami_id:
+        amis = svc.list_amis(region)
+        avail = [a for a in amis if str(a.state) == 'available']
+        if not avail:
+            c.print(f'  [red]✗  No available Firefox AMIs in {region}.[/]  Run: [bold]sp firefox ami create[/]')
+            raise typer.Exit(1)
+        ami_id = str(sorted(avail, key=lambda a: str(a.creation_date), reverse=True)[0].ami_id)
+        c.print(f'  [dim]Using latest AMI: [bold]{ami_id}[/][/]')
+
+    request = Schema__Firefox__Stack__Create__Request(
+        stack_name    = name          or '',
+        region        = region             ,
+        instance_type = instance_type      ,
+        from_ami      = ami_id             ,
+        caller_ip     = caller_ip     or '',
+        password      = password      or '',
+        interceptor   = choice             )
+    resp = svc.create_from_ami(request)
+    render_create(resp, c)
+    if wait:
+        stack_name = str(resp.stack_name)
+        c.print(f'  [dim]Waiting for {stack_name!r} to become running…[/]')
+        h = svc.health(region, stack_name, timeout_sec=300, poll_sec=10)
+        render_health(h, c)
+        if not h.healthy:
+            raise typer.Exit(1)
+        data = svc.get_stack_info(region, stack_name)
+        if data:
+            render_info(data, c)
+
+
 @app.command()
 @_err_handler
 def interceptors():
     """List baked mitmproxy interceptor examples (pass name to --interceptor on create)."""
     render_interceptors(list_examples(), Console(highlight=False, width=200))
+
+
+app.add_typer(ami_app, name='ami')
