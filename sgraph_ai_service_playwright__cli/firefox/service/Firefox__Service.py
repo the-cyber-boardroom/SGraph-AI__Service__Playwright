@@ -83,6 +83,7 @@ class Firefox__Service(Type_Safe):
         interceptor_source, interceptor_label = self.interceptor_resolver.resolve(request.interceptor)
         interceptor_kind = str(request.interceptor.kind) if request.interceptor else 'none'
         cidr      = str(request.allowed_cidr) or f'{caller_ip}/32'
+        max_hours = int(request.max_hours)
 
         profile   = self.aws_client.iam.ensure(region)
         sg_id     = self.aws_client.sg.ensure_security_group(region, stack_name, cidr)
@@ -93,10 +94,12 @@ class Firefox__Service(Type_Safe):
                                                    password           = password          ,
                                                    interceptor_source = interceptor_source,
                                                    interceptor_kind   = interceptor_kind  ,
-                                                   env_source         = env_source        )
+                                                   env_source         = env_source        ,
+                                                   max_hours          = max_hours         )
         iid       = self.aws_client.launch.run_instance(region, ami_id, sg_id, user_data, tags,
-                                                        instance_type         = itype   ,
-                                                        instance_profile_name = profile )
+                                                        instance_type         = itype    ,
+                                                        instance_profile_name = profile  ,
+                                                        max_hours             = max_hours )
         event_bus.emit('firefox:stack.created', Schema__Stack__Event(
             type_id     = Enum__Stack__Type.FIREFOX,
             stack_name  = stack_name               ,
@@ -247,6 +250,7 @@ class Firefox__Service(Type_Safe):
         interceptor_kind = str(request.interceptor.kind) if request.interceptor else 'none'
         env_source       = str(request.env_source)
         cidr             = str(request.allowed_cidr) or f'{caller_ip}/32'
+        max_hours        = int(request.max_hours)
 
         profile   = self.aws_client.iam.ensure(region)
         sg_id     = self.aws_client.sg.ensure_security_group(region, stack_name, cidr)
@@ -257,10 +261,12 @@ class Firefox__Service(Type_Safe):
             password           = password          ,
             interceptor_source = interceptor_source,
             interceptor_kind   = interceptor_kind  ,
-            env_source         = env_source        )
+            env_source         = env_source        ,
+            max_hours          = max_hours         )
         iid       = self.aws_client.launch.run_instance(region, ami_id, sg_id, user_data, tags,
-                                                        instance_type         = itype   ,
-                                                        instance_profile_name = profile )
+                                                        instance_type         = itype    ,
+                                                        instance_profile_name = profile  ,
+                                                        max_hours             = max_hours )
         event_bus.emit('firefox:stack.created', Schema__Stack__Event(
             type_id     = Enum__Stack__Type.FIREFOX,
             stack_name  = stack_name               ,
