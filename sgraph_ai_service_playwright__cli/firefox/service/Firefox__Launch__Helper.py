@@ -4,6 +4,7 @@
 # ═══════════════════════════════════════════════════════════════════════════════
 
 import base64
+import gzip
 
 from typing                                                                         import List, Optional
 
@@ -32,7 +33,7 @@ class Firefox__Launch__Helper(Type_Safe):
                       MinCount         = 1                                                                 ,
                       MaxCount         = 1                                                                 ,
                       SecurityGroupIds = [security_group_id]                                               ,
-                      UserData         = base64.b64encode(user_data.encode('utf-8')).decode('ascii')       ,
+                      UserData         = base64.b64encode(gzip.compress(user_data.encode('utf-8'))).decode('ascii'),  # gzip: cloud-init decompresses transparently; avoids 25600-byte encoded limit
                       TagSpecifications= [{'ResourceType': 'instance', 'Tags': tags}]                      )
         if instance_profile_name:
             kwargs['IamInstanceProfile'] = {'Name': instance_profile_name}

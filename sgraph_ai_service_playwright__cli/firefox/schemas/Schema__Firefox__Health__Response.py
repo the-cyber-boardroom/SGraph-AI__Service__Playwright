@@ -14,5 +14,7 @@ class Schema__Firefox__Health__Response(Type_Safe):
     stack_name  : Safe_Str__Firefox__Stack__Name
     state       : Enum__Firefox__Stack__State = Enum__Firefox__Stack__State.UNKNOWN
     healthy     : bool = False
+    firefox_ok  : bool = False                                                      # True iff port 5800 (noVNC UI) is responding
+    mitmweb_ok  : bool = False                                                      # True iff port 8081 (mitmweb) is responding
     message     : Safe_Str__Text
     elapsed_ms  : int  = 0

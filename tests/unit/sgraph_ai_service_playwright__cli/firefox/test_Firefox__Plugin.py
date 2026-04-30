@@ -35,7 +35,7 @@ class _Fake_Launch:
 class _Fake_Instance:
     def __init__(self, terminate_ok=True):
         self.terminate_ok = terminate_ok
-    def find_by_stack_name(self, region, stack_name): return {'InstanceId': FAKE_INSTANCE_ID, 'Tags': [], 'State': {'Name': 'running'}}
+    def find_by_stack_name(self, region, stack_name): return {'InstanceId': FAKE_INSTANCE_ID, 'Tags': [], 'State': {'Name': 'running'}, 'PublicIpAddress': '1.2.3.4'}
     def terminate_instance(self, region, iid):        return self.terminate_ok
     def list_stacks(self, region):                    return {}
 
@@ -56,6 +56,13 @@ class _Fake_AWS_Client:
         self.instance = _Fake_Instance(terminate_ok=terminate_ok)
         self.ssm      = _Fake_SSM(push_ok=push_ok)
 
+class _Fake_Probe:
+    def __init__(self, firefox_ok=True, mitmweb_ok=True):
+        self.firefox_ok = firefox_ok
+        self.mitmweb_ok = mitmweb_ok
+    def firefox_ready(self, public_ip: str) -> bool: return self.firefox_ok
+    def mitmweb_ready(self, public_ip: str) -> bool: return self.mitmweb_ok
+
 class _Fake_UDB:
     def render(self, *args, **kwargs): return ''
 
@@ -66,7 +73,7 @@ class _Fake_IP_Detector:
     def detect(self): return '1.2.3.4'
 
 
-def _service(terminate_ok=True, push_ok=True) -> Firefox__Service:
+def _service(terminate_ok=True, push_ok=True, probe=None) -> Firefox__Service:
     from sgraph_ai_service_playwright__cli.firefox.service.Firefox__Stack__Mapper       import Firefox__Stack__Mapper
     from sgraph_ai_service_playwright__cli.firefox.service.Firefox__Interceptor__Resolver import Firefox__Interceptor__Resolver
     svc                      = Firefox__Service()
@@ -76,6 +83,7 @@ def _service(terminate_ok=True, push_ok=True) -> Firefox__Service:
     svc.ip_detector          = _Fake_IP_Detector()
     svc.mapper               = Firefox__Stack__Mapper()
     svc.interceptor_resolver = Firefox__Interceptor__Resolver()
+    svc.probe                = probe or _Fake_Probe()
     return svc
 
 
@@ -312,3 +320,47 @@ class test_Firefox__Set__Interceptor(TestCase):
         choice = Schema__Firefox__Interceptor__Choice(kind=Enum__Firefox__Interceptor__Kind.NAME, name='flow_recorder')
         svc.set_interceptor('eu-west-2', 'firefox-test', choice)
         assert svc.aws_client.ssm.last_source == EXAMPLES['flow_recorder']
+
+
+class test_Firefox__Health(TestCase):
+
+    def test__health__both_probes_ok__returns_healthy(self):
+        svc  = _service(probe=_Fake_Probe(firefox_ok=True, mitmweb_ok=True))
+        resp = svc.health('eu-west-2', 'firefox-test', timeout_sec=1, poll_sec=0)
+        assert resp.healthy    is True
+        assert resp.firefox_ok is True
+        assert resp.mitmweb_ok is True
+        assert str(resp.message) == 'firefox + mitmweb reachable'
+
+    def test__health__firefox_down__times_out_not_healthy(self):
+        svc  = _service(probe=_Fake_Probe(firefox_ok=False, mitmweb_ok=True))
+        resp = svc.health('eu-west-2', 'firefox-test', timeout_sec=0, poll_sec=0)
+        assert resp.healthy    is False
+        assert resp.firefox_ok is False
+        assert 'timed out'     in str(resp.message)
+
+    def test__health__mitmweb_down__times_out_not_healthy(self):
+        svc  = _service(probe=_Fake_Probe(firefox_ok=True, mitmweb_ok=False))
+        resp = svc.health('eu-west-2', 'firefox-test', timeout_sec=0, poll_sec=0)
+        assert resp.healthy    is False
+        assert resp.mitmweb_ok is False
+        assert 'timed out'     in str(resp.message)
+
+    def test__health__stack_not_found__returns_unknown(self):
+        from sgraph_ai_service_playwright__cli.firefox.enums.Enum__Firefox__Stack__State import Enum__Firefox__Stack__State
+        svc                     = _service()
+        svc.aws_client.instance = type('_', (), {
+            'find_by_stack_name': lambda *a, **k: None,
+            'terminate_instance': lambda *a, **k: False,
+            'list_stacks'       : lambda *a, **k: {},
+        })()
+        resp = svc.health('eu-west-2', 'no-such-stack', timeout_sec=1, poll_sec=0)
+        assert resp.healthy is False
+        assert resp.state   == Enum__Firefox__Stack__State.UNKNOWN
+        assert 'not found'  in str(resp.message)
+
+    def test__health__timeout_message_includes_probe_results(self):
+        svc  = _service(probe=_Fake_Probe(firefox_ok=True, mitmweb_ok=False))
+        resp = svc.health('eu-west-2', 'firefox-test', timeout_sec=0, poll_sec=0)
+        assert 'firefox=ok'  in str(resp.message)
+        assert 'mitmweb=no'  in str(resp.message)
