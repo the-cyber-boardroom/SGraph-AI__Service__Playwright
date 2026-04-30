@@ -58,13 +58,15 @@ class _Fake_IP_Detector:
 
 
 def _service(terminate_ok=True) -> Firefox__Service:
-    from sgraph_ai_service_playwright__cli.firefox.service.Firefox__Stack__Mapper import Firefox__Stack__Mapper
-    svc                  = Firefox__Service()
-    svc.aws_client       = _Fake_AWS_Client(terminate_ok=terminate_ok)
-    svc.user_data_builder= _Fake_UDB()
-    svc.name_gen         = _Fake_Name_Gen()
-    svc.ip_detector      = _Fake_IP_Detector()
-    svc.mapper           = Firefox__Stack__Mapper()
+    from sgraph_ai_service_playwright__cli.firefox.service.Firefox__Stack__Mapper       import Firefox__Stack__Mapper
+    from sgraph_ai_service_playwright__cli.firefox.service.Firefox__Interceptor__Resolver import Firefox__Interceptor__Resolver
+    svc                      = Firefox__Service()
+    svc.aws_client           = _Fake_AWS_Client(terminate_ok=terminate_ok)
+    svc.user_data_builder    = _Fake_UDB()
+    svc.name_gen             = _Fake_Name_Gen()
+    svc.ip_detector          = _Fake_IP_Detector()
+    svc.mapper               = Firefox__Stack__Mapper()
+    svc.interceptor_resolver = Firefox__Interceptor__Resolver()
     return svc
 
 
@@ -176,9 +178,86 @@ class test_Firefox__Service(TestCase):
             stack_name='firefox-test', region='eu-west-2', caller_ip='1.2.3.4', from_ami='ami-0a1b2c3d4e5f60000'))
         assert str(result.password) != ''
 
-    def test__viewer_url__uses_http_port_5800(self):
+    def test__viewer_url__uses_https_port_5800(self):
         from sgraph_ai_service_playwright__cli.firefox.service.Firefox__Stack__Mapper import Firefox__Stack__Mapper
         mapper = Firefox__Stack__Mapper()
         info   = mapper.to_info({'InstanceId': FAKE_INSTANCE_ID, 'Tags': [], 'State': {'Name': 'running'},
                                   'PublicIpAddress': '1.2.3.4'}, 'eu-west-2')
         assert str(info.viewer_url) == 'https://1.2.3.4:5800/'
+
+    def test__mitmweb_url__uses_http_port_8081(self):
+        from sgraph_ai_service_playwright__cli.firefox.service.Firefox__Stack__Mapper import Firefox__Stack__Mapper
+        mapper = Firefox__Stack__Mapper()
+        info   = mapper.to_info({'InstanceId': FAKE_INSTANCE_ID, 'Tags': [], 'State': {'Name': 'running'},
+                                  'PublicIpAddress': '1.2.3.4'}, 'eu-west-2')
+        assert str(info.mitmweb_url) == 'http://1.2.3.4:8081/'
+
+    def test__mitmweb_url__empty_when_no_ip(self):
+        from sgraph_ai_service_playwright__cli.firefox.service.Firefox__Stack__Mapper import Firefox__Stack__Mapper
+        mapper = Firefox__Stack__Mapper()
+        info   = mapper.to_info({'InstanceId': FAKE_INSTANCE_ID, 'Tags': [], 'State': {'Name': 'pending'}}, 'eu-west-2')
+        assert str(info.mitmweb_url) == ''
+
+
+class test_Firefox__Interceptor__Resolver(TestCase):
+
+    def test__resolve__none__returns_noop(self):
+        from sgraph_ai_service_playwright__cli.firefox.service.Firefox__Interceptor__Resolver import Firefox__Interceptor__Resolver, NO_OP_SOURCE
+        r = Firefox__Interceptor__Resolver()
+        src, label = r.resolve()
+        assert src   == NO_OP_SOURCE
+        assert label == ''
+
+    def test__resolve__name__returns_example_source(self):
+        from sgraph_ai_service_playwright__cli.firefox.service.Firefox__Interceptor__Resolver import Firefox__Interceptor__Resolver, EXAMPLES
+        from sgraph_ai_service_playwright__cli.firefox.schemas.Schema__Firefox__Interceptor__Choice import Schema__Firefox__Interceptor__Choice
+        from sgraph_ai_service_playwright__cli.firefox.enums.Enum__Firefox__Interceptor__Kind import Enum__Firefox__Interceptor__Kind
+        r      = Firefox__Interceptor__Resolver()
+        choice = Schema__Firefox__Interceptor__Choice(kind=Enum__Firefox__Interceptor__Kind.NAME, name='header_logger')
+        src, label = r.resolve(choice)
+        assert label == 'header_logger'
+        assert src   == EXAMPLES['header_logger']
+
+    def test__resolve__inline__returns_verbatim_source(self):
+        from sgraph_ai_service_playwright__cli.firefox.service.Firefox__Interceptor__Resolver import Firefox__Interceptor__Resolver
+        from sgraph_ai_service_playwright__cli.firefox.schemas.Schema__Firefox__Interceptor__Choice import Schema__Firefox__Interceptor__Choice
+        from sgraph_ai_service_playwright__cli.firefox.enums.Enum__Firefox__Interceptor__Kind import Enum__Firefox__Interceptor__Kind
+        r      = Firefox__Interceptor__Resolver()
+        choice = Schema__Firefox__Interceptor__Choice(kind=Enum__Firefox__Interceptor__Kind.INLINE, inline_source='print("x")')
+        src, label = r.resolve(choice)
+        assert src   == 'print("x")'
+        assert label == 'inline'
+
+    def test__resolve__unknown_name__raises_value_error(self):
+        from sgraph_ai_service_playwright__cli.firefox.service.Firefox__Interceptor__Resolver import Firefox__Interceptor__Resolver
+        from sgraph_ai_service_playwright__cli.firefox.schemas.Schema__Firefox__Interceptor__Choice import Schema__Firefox__Interceptor__Choice
+        from sgraph_ai_service_playwright__cli.firefox.enums.Enum__Firefox__Interceptor__Kind import Enum__Firefox__Interceptor__Kind
+        r      = Firefox__Interceptor__Resolver()
+        choice = Schema__Firefox__Interceptor__Choice(kind=Enum__Firefox__Interceptor__Kind.NAME, name='nonexistent')
+        try:
+            r.resolve(choice)
+            assert False, 'expected ValueError'
+        except ValueError as exc:
+            assert 'nonexistent' in str(exc)
+
+    def test__list_examples__returns_all_eight(self):
+        from sgraph_ai_service_playwright__cli.firefox.service.Firefox__Interceptor__Resolver import list_examples
+        examples = list_examples()
+        assert len(examples) == 8
+        assert 'header_logger'   in examples
+        assert 'block_trackers'  in examples
+        assert 'request_timer'   in examples
+        assert 'cookie_logger'   in examples
+        assert 'add_cors'        in examples
+
+    def test__user_data__contains_mitmproxy_and_ca_install(self):
+        from sgraph_ai_service_playwright__cli.firefox.service.Firefox__User_Data__Builder import Firefox__User_Data__Builder
+        b  = Firefox__User_Data__Builder()
+        ud = b.render(stack_name='firefox-test', region='eu-west-2', password='pw',
+                      interceptor_source='# no-op\n', interceptor_kind='none')
+        assert 'mitmproxy'                       in ud
+        assert 'mitmweb'                         in ud
+        assert 'mitmproxy-ca-cert.pem'           in ud
+        assert 'update-ca-trust'                 in ud
+        assert 'security.enterprise_roots'       in ud
+        assert '"network.proxy.http"'            in ud

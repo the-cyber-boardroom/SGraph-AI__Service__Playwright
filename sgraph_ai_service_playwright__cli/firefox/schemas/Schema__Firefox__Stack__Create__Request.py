@@ -9,17 +9,15 @@ from osbot_utils.type_safe.primitives.domains.common.safe_str.Safe_Str__Text    
 from sgraph_ai_service_playwright__cli.ec2.primitives.Safe_Str__AMI__Id             import Safe_Str__AMI__Id
 from sgraph_ai_service_playwright__cli.firefox.primitives.Safe_Str__Firefox__Stack__Name import Safe_Str__Firefox__Stack__Name
 from sgraph_ai_service_playwright__cli.firefox.primitives.Safe_Str__IP__Address     import Safe_Str__IP__Address
+from sgraph_ai_service_playwright__cli.firefox.schemas.Schema__Firefox__Interceptor__Choice import Schema__Firefox__Interceptor__Choice
 from sgraph_ai_service_playwright__cli.observability.primitives.Safe_Str__AWS__Region import Safe_Str__AWS__Region
 
 
 class Schema__Firefox__Stack__Create__Request(Type_Safe):
-    stack_name    : Safe_Str__Firefox__Stack__Name                                  # auto-generated when empty
+    stack_name    : Safe_Str__Firefox__Stack__Name                                   # auto-generated when empty
     region        : Safe_Str__AWS__Region
-    caller_ip     : Safe_Str__IP__Address                                           # auto-detected when empty
-    from_ami      : Safe_Str__AMI__Id                                               # latest AL2023 when empty
-    instance_type : Safe_Str__Text                                                  # defaults to t3.medium
-    password      : Safe_Str__Text                                                  # web UI password; auto-generated when empty
-    proxy_host    : Safe_Str__Text                                                  # upstream proxy hostname; empty = no proxy
-    proxy_port    : int             = 0                                             # upstream proxy port (e.g. 8080)
-    proxy_user    : Safe_Str__Text                                                  # proxy username; triggers auth relay when set
-    proxy_pass    : Safe_Str__Text                                                  # proxy password
+    caller_ip     : Safe_Str__IP__Address                                            # auto-detected when empty
+    from_ami      : Safe_Str__AMI__Id                                                # latest AL2023 when empty
+    instance_type : Safe_Str__Text                                                   # defaults to t3.medium
+    password      : Safe_Str__Text                                                   # web UI password; auto-generated when empty
+    interceptor   : Schema__Firefox__Interceptor__Choice                             # mitmproxy interceptor; default: NONE (no-op)

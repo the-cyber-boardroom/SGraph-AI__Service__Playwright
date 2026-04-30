@@ -1,17 +1,19 @@
 # ═══════════════════════════════════════════════════════════════════════════════
 # SP CLI — sp firefox
-# Typer CLI for managing ephemeral Firefox (jlesage/firefox noVNC) EC2 stacks.
+# Typer CLI for managing ephemeral Firefox (jlesage/firefox noVNC) EC2 stacks
+# with mitmproxy for traffic inspection.
 # All logic lives in Firefox__Service — this file only constructs the service,
 # calls one method, and renders via Renderers. Tier-2A pattern.
 #
 # Commands:
-#   sp firefox create [name]  — provision a Firefox stack
-#   sp firefox list           — list all Firefox stacks in region
-#   sp firefox info [name]    — show stack details (get public IP here)
-#   sp firefox wait [name]    — block until instance is running
-#   sp firefox health [name]  — instant EC2 state probe
-#   sp firefox delete [name]  — terminate a stack
-#   sp firefox connect [name] — open an SSM shell on the instance
+#   sp firefox create [name]      — provision a Firefox + mitmproxy stack
+#   sp firefox list               — list all Firefox stacks in region
+#   sp firefox info [name]        — show stack details (viewer + mitmweb URLs)
+#   sp firefox wait [name]        — block until instance is running
+#   sp firefox health [name]      — instant EC2 state probe
+#   sp firefox delete [name]      — terminate a stack
+#   sp firefox connect [name]     — open an SSM shell on the instance
+#   sp firefox interceptors       — list baked mitmproxy interceptor examples
 # ═══════════════════════════════════════════════════════════════════════════════
 
 import functools
@@ -21,18 +23,22 @@ from typing                                                                     
 import typer
 from rich.console                                                                   import Console
 
-from sgraph_ai_service_playwright__cli.firefox.cli.Renderers                        import (render_create ,
-                                                                                             render_health ,
-                                                                                             render_info   ,
-                                                                                             render_list   )
+from sgraph_ai_service_playwright__cli.firefox.cli.Renderers                        import (render_create       ,
+                                                                                             render_health       ,
+                                                                                             render_info         ,
+                                                                                             render_interceptors ,
+                                                                                             render_list         )
+from sgraph_ai_service_playwright__cli.firefox.enums.Enum__Firefox__Interceptor__Kind       import Enum__Firefox__Interceptor__Kind
+from sgraph_ai_service_playwright__cli.firefox.schemas.Schema__Firefox__Interceptor__Choice import Schema__Firefox__Interceptor__Choice
 from sgraph_ai_service_playwright__cli.firefox.schemas.Schema__Firefox__Stack__Create__Request import Schema__Firefox__Stack__Create__Request
+from sgraph_ai_service_playwright__cli.firefox.service.Firefox__Interceptor__Resolver import list_examples
 from sgraph_ai_service_playwright__cli.firefox.service.Firefox__Service             import DEFAULT_INSTANCE_TYPE, DEFAULT_REGION, Firefox__Service
 
 
 DEBUG_TRACE = False
 
 app = typer.Typer(no_args_is_help=True,
-                  help='Manage ephemeral Firefox (noVNC browser) EC2 stacks.')
+                  help='Manage ephemeral Firefox (noVNC browser) EC2 stacks with mitmproxy traffic inspection.')
 
 
 @app.callback()
@@ -71,6 +77,18 @@ def _err_handler(fn):
     return wrapped
 
 
+def _interceptor_choice(name: Optional[str], script_path: Optional[str]) -> Schema__Firefox__Interceptor__Choice:
+    if name and script_path:
+        raise typer.BadParameter('Pass at most one of --interceptor / --interceptor-script.')
+    if name:
+        return Schema__Firefox__Interceptor__Choice(kind=Enum__Firefox__Interceptor__Kind.NAME, name=name)
+    if script_path:
+        with open(script_path, 'r', encoding='utf-8') as fh:
+            source = fh.read()
+        return Schema__Firefox__Interceptor__Choice(kind=Enum__Firefox__Interceptor__Kind.INLINE, inline_source=source)
+    return Schema__Firefox__Interceptor__Choice()                                   # NONE
+
+
 def _resolve_stack_name(service: Firefox__Service, provided: Optional[str], region: str) -> str:
     """Auto-select when one stack exists, prompt when many, error when none."""
     if provided:
@@ -107,27 +125,18 @@ def _resolve_stack_name(service: Firefox__Service, provided: Optional[str], regi
 
 @app.command()
 @_err_handler
-def create(name          : Optional[str] = typer.Argument(None, help='Stack name; auto-generated as firefox-{adjective}-{scientist} if omitted.'),
-           region        : str           = typer.Option(DEFAULT_REGION       , '--region'       , '-r', help='AWS region.'),
-           instance_type : str           = typer.Option(DEFAULT_INSTANCE_TYPE, '--instance-type', '-t', help='EC2 instance type.'),
-           from_ami      : Optional[str] = typer.Option(None                 , '--ami'          ,       help='AMI ID; latest AL2023 used if omitted.'),
-           caller_ip     : Optional[str] = typer.Option(None                 , '--caller-ip'    ,       help='Source IP for SG rule; auto-detected if omitted.'),
-           password      : Optional[str] = typer.Option(None                 , '--password'     , help='Web UI password. Auto-generated if omitted.'),
-           proxy         : Optional[str] = typer.Option(None , '--proxy'     , help='Upstream proxy as host:port (e.g. mitmproxy.dev.akeia.ai:8080).'),
-           proxy_user    : Optional[str] = typer.Option(None , '--proxy-user', help='Proxy username. When set a local auth relay is started — no Firefox prompt.'),
-           proxy_pass    : Optional[str] = typer.Option(None , '--proxy-pass', help='Proxy password.'),
-           wait          : bool          = typer.Option(False, '--wait'       , help='Block until instance is running.')):
-    """Provision a Firefox (noVNC browser) EC2 stack."""
-    c          = Console(highlight=False, width=200)
-    proxy_host = ''
-    proxy_port = 0
-    if proxy:
-        parts = proxy.rsplit(':', 1)
-        if len(parts) == 2:
-            proxy_host = parts[0].removeprefix('http://').removeprefix('https://')
-            proxy_port = int(parts[1])
-        else:
-            proxy_host = proxy
+def create(name              : Optional[str] = typer.Argument(None, help='Stack name; auto-generated as firefox-{adjective}-{scientist} if omitted.'),
+           region            : str           = typer.Option(DEFAULT_REGION       , '--region'           , '-r', help='AWS region.'),
+           instance_type     : str           = typer.Option(DEFAULT_INSTANCE_TYPE, '--instance-type'    , '-t', help='EC2 instance type.'),
+           from_ami          : Optional[str] = typer.Option(None                 , '--ami'              ,       help='AMI ID; latest AL2023 used if omitted.'),
+           caller_ip         : Optional[str] = typer.Option(None                 , '--caller-ip'        ,       help='Source IP for SG rule; auto-detected if omitted.'),
+           password          : Optional[str] = typer.Option(None                 , '--password'         ,       help='Web UI password. Auto-generated if omitted.'),
+           interceptor       : Optional[str] = typer.Option(None                 , '--interceptor'      ,       help='Name of a baked mitmproxy interceptor (see `sp firefox interceptors`).'),
+           interceptor_script: Optional[str] = typer.Option(None                 , '--interceptor-script',      help='Path to a local Python file; embedded inline at create time.'),
+           wait              : bool          = typer.Option(False                , '--wait'             ,       help='Block until instance is running.')):
+    """Provision a Firefox (noVNC browser) + mitmproxy EC2 stack."""
+    c       = Console(highlight=False, width=200)
+    choice  = _interceptor_choice(interceptor, interceptor_script)
     request = Schema__Firefox__Stack__Create__Request(
         stack_name    = name          or '',
         region        = region             ,
@@ -135,10 +144,7 @@ def create(name          : Optional[str] = typer.Argument(None, help='Stack name
         from_ami      = from_ami      or '',
         caller_ip     = caller_ip     or '',
         password      = password      or '',
-        proxy_host    = proxy_host         ,
-        proxy_port    = proxy_port         ,
-        proxy_user    = proxy_user    or '',
-        proxy_pass    = proxy_pass    or '')
+        interceptor   = choice             )
     svc  = _service()
     resp = svc.create_stack(request)
     render_create(resp, c)
@@ -165,7 +171,7 @@ def list_stacks(region: str = typer.Option(DEFAULT_REGION, '--region', '-r', hel
 @_err_handler
 def info(name  : Optional[str] = typer.Argument(None, help='Stack name; auto-selected when only one exists.'),
          region: str           = typer.Option(DEFAULT_REGION, '--region', '-r', help='AWS region.')):
-    """Show details for a single Firefox stack (includes public IP and viewer URL once running)."""
+    """Show details for a single Firefox stack (includes viewer and mitmweb URLs once running)."""
     c    = Console(highlight=False, width=200)
     svc  = _service()
     name = _resolve_stack_name(svc, name, region)
@@ -235,3 +241,10 @@ def connect(name  : Optional[str] = typer.Argument(None, help='Stack name; auto-
     iid = str(data.instance_id)
     c.print(f'  [dim]Connecting to {name} ({iid}) in {region}…[/]\n')
     os.execvp('aws', ['aws', 'ssm', 'start-session', '--target', iid, '--region', region])
+
+
+@app.command()
+@_err_handler
+def interceptors():
+    """List baked mitmproxy interceptor examples (pass name to --interceptor on create)."""
+    render_interceptors(list_examples(), Console(highlight=False, width=200))

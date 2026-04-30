@@ -30,6 +30,7 @@ from sgraph_ai_service_playwright__cli.firefox.schemas.Schema__Firefox__Stack__D
 from sgraph_ai_service_playwright__cli.firefox.schemas.Schema__Firefox__Stack__Info import Schema__Firefox__Stack__Info
 from sgraph_ai_service_playwright__cli.firefox.schemas.Schema__Firefox__Stack__List import Schema__Firefox__Stack__List
 from sgraph_ai_service_playwright__cli.firefox.service.Firefox__AWS__Client         import FIREFOX_NAMING
+from sgraph_ai_service_playwright__cli.firefox.service.Firefox__Interceptor__Resolver import Firefox__Interceptor__Resolver
 
 
 DEFAULT_REGION        = 'eu-west-2'
@@ -44,6 +45,7 @@ class Firefox__Service(Type_Safe):
     ip_detector       : object = None                                               # Caller__IP__Detector    (lazy via setup())
     name_gen          : object = None                                               # Random__Stack__Name__Generator (lazy via setup())
     user_data_builder : object = None                                               # Firefox__User_Data__Builder (lazy via setup())
+    interceptor_resolver: object = None                                             # Firefox__Interceptor__Resolver (lazy via setup())
 
     def setup(self) -> 'Firefox__Service':
         from sgraph_ai_service_playwright__cli.firefox.service.Caller__IP__Detector         import Caller__IP__Detector
@@ -51,11 +53,12 @@ class Firefox__Service(Type_Safe):
         from sgraph_ai_service_playwright__cli.firefox.service.Firefox__Stack__Mapper       import Firefox__Stack__Mapper
         from sgraph_ai_service_playwright__cli.firefox.service.Firefox__User_Data__Builder  import Firefox__User_Data__Builder
         from sgraph_ai_service_playwright__cli.firefox.service.Random__Stack__Name__Generator import Random__Stack__Name__Generator
-        self.aws_client        = Firefox__AWS__Client()  .setup()
-        self.mapper            = Firefox__Stack__Mapper()
-        self.ip_detector       = Caller__IP__Detector()
-        self.name_gen          = Random__Stack__Name__Generator()
-        self.user_data_builder = Firefox__User_Data__Builder()
+        self.aws_client          = Firefox__AWS__Client()  .setup()
+        self.mapper              = Firefox__Stack__Mapper()
+        self.ip_detector         = Caller__IP__Detector()
+        self.name_gen            = Random__Stack__Name__Generator()
+        self.user_data_builder   = Firefox__User_Data__Builder()
+        self.interceptor_resolver= Firefox__Interceptor__Resolver()
         return self
 
     def create_stack(self, request: Schema__Firefox__Stack__Create__Request, creator: str = '') -> Schema__Firefox__Stack__Create__Response:
@@ -67,15 +70,16 @@ class Firefox__Service(Type_Safe):
         itype      = str(request.instance_type) or DEFAULT_INSTANCE_TYPE
         password   = str(request.password)      or secrets.token_urlsafe(PASSWORD_BYTES)
 
+        interceptor_source, interceptor_label = self.interceptor_resolver.resolve(request.interceptor)
+        interceptor_kind = str(request.interceptor.kind) if request.interceptor else 'none'
+
         sg_id     = self.aws_client.sg.ensure_security_group(region, stack_name, caller_ip)
         tags      = self.aws_client.tags.build(stack_name, caller_ip, creator)
-        user_data = self.user_data_builder.render(stack_name = stack_name                    ,
-                                                   region     = region                      ,
-                                                   password   = password                    ,
-                                                   proxy_host = str(request.proxy_host) or '',
-                                                   proxy_port = request.proxy_port or 0     ,
-                                                   proxy_user = str(request.proxy_user) or '',
-                                                   proxy_pass = str(request.proxy_pass) or '')
+        user_data = self.user_data_builder.render(stack_name         = stack_name        ,
+                                                   region             = region            ,
+                                                   password           = password          ,
+                                                   interceptor_source = interceptor_source,
+                                                   interceptor_kind   = interceptor_kind  )
         iid       = self.aws_client.launch.run_instance(region, ami_id, sg_id, user_data, tags,
                                                         instance_type         = itype       ,
                                                         instance_profile_name = PROFILE_NAME)
@@ -94,9 +98,8 @@ class Firefox__Service(Type_Safe):
             security_group_id = sg_id                                            ,
             caller_ip         = caller_ip                                        ,
             password          = password                                         ,
-            proxy_host        = str(request.proxy_host) or ''                   ,
-            proxy_port        = request.proxy_port or 0                          ,
-            proxy_user        = str(request.proxy_user) or ''                   ,
+            interceptor_label = interceptor_label or 'none'                      ,
+            mitmweb_url       = ''                                               ,   # unknown until instance boots
             state             = Enum__Firefox__Stack__State.PENDING              ,
             elapsed_ms        = int((time.monotonic() - t0) * 1000)             )
 
