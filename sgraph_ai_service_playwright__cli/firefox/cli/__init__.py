@@ -29,17 +29,20 @@ from typing                                                                     
 import typer
 from rich.console                                                                   import Console
 
-from sgraph_ai_service_playwright__cli.firefox.cli.Renderers                        import (render_ami_create       ,
-                                                                                             render_ami_list         ,
-                                                                                             render_create           ,
-                                                                                             render_health           ,
-                                                                                             render_info             ,
-                                                                                             render_interceptors     ,
-                                                                                             render_list             ,
-                                                                                             render_set_interceptor  )
-from sgraph_ai_service_playwright__cli.firefox.enums.Enum__Firefox__Interceptor__Kind       import Enum__Firefox__Interceptor__Kind
-from sgraph_ai_service_playwright__cli.firefox.schemas.Schema__Firefox__Interceptor__Choice import Schema__Firefox__Interceptor__Choice
-from sgraph_ai_service_playwright__cli.firefox.schemas.Schema__Firefox__Stack__Create__Request import Schema__Firefox__Stack__Create__Request
+from sgraph_ai_service_playwright__cli.firefox.cli.Renderers                        import (render_ami_create              ,
+                                                                                             render_ami_list                 ,
+                                                                                             render_create                   ,
+                                                                                             render_health                   ,
+                                                                                             render_info                     ,
+                                                                                             render_interceptors             ,
+                                                                                             render_launch_template_create   ,
+                                                                                             render_launch_template_list     ,
+                                                                                             render_list                     ,
+                                                                                             render_set_interceptor          )
+from sgraph_ai_service_playwright__cli.firefox.enums.Enum__Firefox__Interceptor__Kind              import Enum__Firefox__Interceptor__Kind
+from sgraph_ai_service_playwright__cli.firefox.schemas.Schema__Firefox__Interceptor__Choice        import Schema__Firefox__Interceptor__Choice
+from sgraph_ai_service_playwright__cli.firefox.schemas.Schema__Firefox__Launch_Template__Create__Request import Schema__Firefox__Launch_Template__Create__Request
+from sgraph_ai_service_playwright__cli.firefox.schemas.Schema__Firefox__Stack__Create__Request     import Schema__Firefox__Stack__Create__Request
 from sgraph_ai_service_playwright__cli.firefox.Firefox__Env__Parser                 import extract_password_from_env
 from sgraph_ai_service_playwright__cli.firefox.service.Firefox__Interceptor__Resolver import list_examples
 from sgraph_ai_service_playwright__cli.firefox.service.Firefox__Service             import DEFAULT_INSTANCE_TYPE, DEFAULT_REGION, Firefox__Service
@@ -475,4 +478,67 @@ def setup(region: str = typer.Option(DEFAULT_REGION, '--region', '-r', help='AWS
     render_setup(info, c)
 
 
+# ── launch-template sub-app ───────────────────────────────────────────────────
+
+lt_app = typer.Typer(help='Manage Firefox EC2 Launch Templates (for Auto Scaling Groups).',
+                     no_args_is_help=True)
+
+
+@lt_app.command('create')
+@_err_handler
+def lt_create(name              : Optional[str] = typer.Option(None                 , '--name'             , help='Launch Template name; auto-generated if omitted.'),
+              region            : str           = typer.Option(DEFAULT_REGION       , '--region'   , '-r'  ),
+              ami_id            : Optional[str] = typer.Option(None                 , '--ami'              , help='AMI ID (required — use a Firefox AMI from sp firefox ami create).'),
+              instance_type     : str           = typer.Option(DEFAULT_INSTANCE_TYPE, '--instance-type', '-t'),
+              sg_id             : Optional[str] = typer.Option(None                 , '--sg-id'            , help='Pre-existing security group ID (required).'),
+              interceptor       : Optional[str] = typer.Option(None                 , '--interceptor'      ),
+              interceptor_script: Optional[str] = typer.Option(None                 , '--interceptor-script', help='Path to a local Python interceptor file.'),
+              env_file          : Optional[str] = typer.Option(None                 , '--env-file'         , help='Path to .env file; vars written to tmpfs at boot, never baked into AMI.'),
+              full_install      : bool          = typer.Option(False                , '--full-install'      , help='Use full AL2023 install (default: fast-boot from AMI).')):
+    """Create (or version-bump) a Firefox Launch Template for use with an Auto Scaling Group."""
+    c           = Console(highlight=False, width=200)
+    choice      = _interceptor_choice(interceptor, interceptor_script)
+    env_content = _read_env_file(env_file)
+    env_pwd, env_content = extract_password_from_env(env_content)
+    request     = Schema__Firefox__Launch_Template__Create__Request(
+        name          = name     or ''                 ,
+        region        = region                         ,
+        ami_id        = ami_id   or ''                 ,
+        instance_type = instance_type                  ,
+        sg_id         = sg_id    or ''                 ,
+        interceptor   = choice                         ,
+        env_source    = env_content                    ,
+        password      = env_pwd  or ''                 ,
+        fast_boot     = not full_install               )
+    resp = _service().create_launch_template(request)
+    render_launch_template_create(resp, c)
+
+
+@lt_app.command('list')
+@_err_handler
+def lt_list(region: str = typer.Option(DEFAULT_REGION, '--region', '-r')):
+    """List Firefox Launch Templates in the region."""
+    c         = Console(highlight=False, width=200)
+    templates = _service().list_launch_templates(region)
+    render_launch_template_list(templates, region, c)
+
+
+@lt_app.command('delete')
+@_err_handler
+def lt_delete(name  : str  = typer.Argument(..., help='Launch Template name to delete.'),
+              region: str  = typer.Option(DEFAULT_REGION, '--region', '-r'),
+              yes   : bool = typer.Option(False, '--yes', '-y', help='Skip confirmation.')):
+    """Delete a Firefox Launch Template (all versions)."""
+    c = Console(highlight=False, width=200)
+    if not yes:
+        typer.confirm(f'  Delete launch template {name!r} (all versions)?', abort=True)
+    result = _service().delete_launch_template(region, name)
+    if result.get('deleted'):
+        c.print(f'  ✅  Launch template {name!r} deleted')
+    else:
+        c.print(f'  [red]✗  Failed to delete {name!r}[/]')
+        raise typer.Exit(1)
+
+
 app.add_typer(ami_app, name='ami')
+app.add_typer(lt_app , name='launch-template')
