@@ -9,6 +9,7 @@ from osbot_utils.type_safe.primitives.domains.common.safe_str.Safe_Str__Text    
 from sgraph_ai_service_playwright__cli.ec2.primitives.Safe_Str__AMI__Id             import Safe_Str__AMI__Id
 from sgraph_ai_service_playwright__cli.firefox.primitives.Safe_Str__Firefox__Stack__Name import Safe_Str__Firefox__Stack__Name
 from sgraph_ai_service_playwright__cli.firefox.primitives.Safe_Str__IP__Address     import Safe_Str__IP__Address
+from sgraph_ai_service_playwright__cli.firefox.primitives.Safe_Str__Firefox__Interceptor__Source import Safe_Str__Firefox__Interceptor__Source
 from sgraph_ai_service_playwright__cli.firefox.schemas.Schema__Firefox__Interceptor__Choice import Schema__Firefox__Interceptor__Choice
 from sgraph_ai_service_playwright__cli.observability.primitives.Safe_Str__AWS__Region import Safe_Str__AWS__Region
 
@@ -21,5 +22,5 @@ class Schema__Firefox__Stack__Create__Request(Type_Safe):
     instance_type : Safe_Str__Text                                                   # defaults to t3.medium
     password      : Safe_Str__Text                                                   # web UI password; auto-generated when empty
     interceptor   : Schema__Firefox__Interceptor__Choice                             # mitmproxy interceptor; default: NONE (no-op)
-    env_source    : Safe_Str__Text                                                   # raw .env file content; written to tmpfs at boot, never baked into AMI
+    env_source    : Safe_Str__Firefox__Interceptor__Source                           # raw .env content; allows #/newlines/URLs; written to tmpfs, never baked into AMI
     allowed_cidr  : Safe_Str__Text                                                   # SG ingress CIDR; empty → caller_ip/32; '0.0.0.0/0' → open
