@@ -108,6 +108,15 @@ def _check_script_source(script_path: str, source: str) -> None:
     raise typer.Exit(2)
 
 
+def _read_env_file(path: Optional[str]) -> str:
+    if not path:
+        return ''
+    with open(path, 'r', encoding='utf-8') as fh:
+        content = fh.read()
+    _check_script_source(path, content)
+    return content
+
+
 def _interceptor_choice(name: Optional[str], script_path: Optional[str]) -> Schema__Firefox__Interceptor__Choice:
     if name and script_path:
         raise typer.BadParameter('Pass at most one of --interceptor / --interceptor-script.')
@@ -251,6 +260,7 @@ def create(name              : Optional[str] = typer.Argument(None, help='Stack 
            password          : Optional[str] = typer.Option(None                 , '--password'         ,       help='Web UI password. Auto-generated if omitted.'),
            interceptor       : Optional[str] = typer.Option(None                 , '--interceptor'      ,       help='Name of a baked mitmproxy interceptor (see `sp firefox interceptors`).'),
            interceptor_script: Optional[str] = typer.Option(None                 , '--interceptor-script',      help='Path to a local Python file; embedded inline at create time.'),
+           env_file          : Optional[str] = typer.Option(None                 , '--env-file'         ,       help='Path to a .env file; vars injected into mitmproxy at boot (tmpfs, never baked into AMI).'),
            wait              : bool          = typer.Option(False                , '--wait'             ,       help='Block until instance is running.')):
     """Provision a Firefox (noVNC browser) + mitmproxy EC2 stack."""
     c       = Console(highlight=False, width=200)
@@ -262,7 +272,8 @@ def create(name              : Optional[str] = typer.Argument(None, help='Stack 
         from_ami      = from_ami      or '',
         caller_ip     = caller_ip     or '',
         password      = password      or '',
-        interceptor   = choice             )
+        interceptor   = choice             ,
+        env_source    = _read_env_file(env_file))
     svc  = _service()
     resp = svc.create_stack(request)
     render_create(resp, c)
@@ -389,6 +400,7 @@ def create_from_ami(ami_id            : Optional[str] = typer.Argument(None, hel
                     password          : Optional[str] = typer.Option(None                 , '--password'         , help='Web UI password. Auto-generated if omitted.'),
                     interceptor       : Optional[str] = typer.Option(None                 , '--interceptor'      ),
                     interceptor_script: Optional[str] = typer.Option(None                 , '--interceptor-script'),
+                    env_file          : Optional[str] = typer.Option(None                 , '--env-file'         , help='Path to a .env file; vars injected into mitmproxy at boot (tmpfs, never baked into AMI).'),
                     wait              : bool          = typer.Option(False                , '--wait'             )):
     """Launch a new Firefox stack from an existing AMI (fast boot — skips full install)."""
     c      = Console(highlight=False, width=200)
@@ -411,7 +423,8 @@ def create_from_ami(ami_id            : Optional[str] = typer.Argument(None, hel
         from_ami      = ami_id             ,
         caller_ip     = caller_ip     or '',
         password      = password      or '',
-        interceptor   = choice             )
+        interceptor   = choice             ,
+        env_source    = _read_env_file(env_file))
     resp = svc.create_from_ami(request)
     render_create(resp, c)
     if wait:

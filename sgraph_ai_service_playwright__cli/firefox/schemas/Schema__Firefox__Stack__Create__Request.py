@@ -21,3 +21,4 @@ class Schema__Firefox__Stack__Create__Request(Type_Safe):
     instance_type : Safe_Str__Text                                                   # defaults to t3.medium
     password      : Safe_Str__Text                                                   # web UI password; auto-generated when empty
     interceptor   : Schema__Firefox__Interceptor__Choice                             # mitmproxy interceptor; default: NONE (no-op)
+    env_source    : Safe_Str__Text                                                   # raw .env file content; written to tmpfs at boot, never baked into AMI

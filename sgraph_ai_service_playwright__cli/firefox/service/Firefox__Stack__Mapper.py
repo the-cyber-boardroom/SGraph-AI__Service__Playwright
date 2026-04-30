@@ -4,6 +4,8 @@
 # No AWS calls, no network.
 # ═══════════════════════════════════════════════════════════════════════════════
 
+import datetime
+
 from osbot_utils.type_safe.Type_Safe                                                import Type_Safe
 
 from sgraph_ai_service_playwright__cli.firefox.enums.Enum__Firefox__Stack__State    import Enum__Firefox__Stack__State
@@ -16,6 +18,21 @@ def _tag(details: dict, key: str) -> str:
         if tag.get('Key') == key:
             return tag.get('Value', '')
     return ''
+
+
+def _uptime_seconds(details: dict) -> int:
+    lt = details.get('LaunchTime')
+    if not lt:
+        return 0
+    if isinstance(lt, str):
+        try:
+            lt = datetime.datetime.fromisoformat(lt)
+        except Exception:
+            return 0
+    now = datetime.datetime.now(tz=datetime.timezone.utc)
+    if lt.tzinfo is None:
+        lt = lt.replace(tzinfo=datetime.timezone.utc)
+    return max(0, int((now - lt).total_seconds()))
 
 
 def _state_to_enum(details: dict) -> Enum__Firefox__Stack__State:
@@ -47,4 +64,5 @@ class Firefox__Stack__Mapper(Type_Safe):
             viewer_url        = f'https://{ip}:5800/'  if ip else ''                                       ,
             mitmweb_url       = f'http://{ip}:8081/'   if ip else ''                                       ,
             state             = _state_to_enum(details)                                                    ,
-            launch_time       = str(details.get('LaunchTime', ''))                                         )
+            launch_time       = str(details.get('LaunchTime', ''))                                         ,
+            uptime_seconds    = _uptime_seconds(details)                                                  )
