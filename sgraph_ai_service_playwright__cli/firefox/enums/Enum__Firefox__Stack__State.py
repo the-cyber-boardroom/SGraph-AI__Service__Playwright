@@ -1,16 +1,17 @@
 # ═══════════════════════════════════════════════════════════════════════════════
-# SP CLI — Enum__Stack__Type
+# SP CLI — Enum__Firefox__Stack__State
 # ═══════════════════════════════════════════════════════════════════════════════
 
 from enum import Enum
 
 
-class Enum__Stack__Type(Enum):
-    LINUX      = 'linux'
-    DOCKER     = 'docker'
-    ELASTIC    = 'elastic'
-    OPENSEARCH = 'opensearch'
-    PROMETHEUS = 'prometheus'
-    VNC        = 'vnc'
-    NEKO       = 'neko'
-    FIREFOX    = 'firefox'
+class Enum__Firefox__Stack__State(Enum):
+    PENDING     = 'pending'
+    RUNNING     = 'running'
+    READY       = 'ready'
+    TERMINATING = 'terminating'
+    TERMINATED  = 'terminated'
+    UNKNOWN     = 'unknown'
+
+    def __str__(self):
+        return self.value

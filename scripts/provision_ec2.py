@@ -789,6 +789,10 @@ from sgraph_ai_service_playwright__cli.neko.cli import app as _neko_app  # noqa:
 app.add_typer(_neko_app, name='neko'      )                                          # ephemeral Neko WebRTC browser EC2 stacks (experiment)
 app.add_typer(_neko_app, name='nk', hidden=True)                                     # short alias
 
+from sgraph_ai_service_playwright__cli.firefox.cli import app as _firefox_app  # noqa: E402
+app.add_typer(_firefox_app, name='firefox'        )                                  # ephemeral Firefox noVNC browser EC2 stacks (experiment)
+app.add_typer(_firefox_app, name='ff', hidden=True)                                  # short alias
+
 from scripts.linux import app as _linux_app  # noqa: E402
 app.add_typer(_linux_app, name='linux'        )                                      # ephemeral bare Linux EC2 stacks
 app.add_typer(_linux_app, name='lx',  hidden=True)                                  # short alias
