@@ -79,8 +79,6 @@ user_pref("network.proxy.http_port",     {mitm_proxy_port});
 user_pref("network.proxy.ssl",           "mitmproxy");
 user_pref("network.proxy.ssl_port",      {mitm_proxy_port});
 user_pref("network.proxy.no_proxies_on", "localhost,127.0.0.1");
-// trust OS certificate store so mitmproxy CA (installed at boot) is accepted
-user_pref("security.enterprise_roots.enabled", true);
 """
 
 USER_DATA_TEMPLATE = """\
@@ -92,8 +90,8 @@ echo "[sg-firefox] boot starting at $(date -u +%FT%TZ)"
 STACK_NAME='{stack_name}'
 REGION='{region}'
 
-echo "[sg-firefox] installing Docker on AL2023..."
-dnf install -y docker
+echo "[sg-firefox] installing Docker + certutil (nss-tools) on AL2023..."
+dnf install -y docker nss-tools
 systemctl enable --now docker
 
 echo "[sg-firefox] installing docker compose plugin..."
@@ -131,13 +129,18 @@ for i in $(seq 1 30); do
     sleep 2
 done
 
-echo "[sg-firefox] installing mitmproxy CA cert into OS trust store..."
+echo "[sg-firefox] installing mitmproxy CA cert into Firefox NSS database..."
 if [ -f {mitm_data_dir}/mitmproxy-ca-cert.pem ]; then
-    cp {mitm_data_dir}/mitmproxy-ca-cert.pem /etc/pki/ca-trust/source/anchors/mitmproxy-ca.pem
-    update-ca-trust
-    echo "[sg-firefox] CA cert installed."
+    # Firefox has its own cert store (NSS) separate from the OS trust store.
+    # certutil writes directly to the profile's cert9.db so Firefox trusts the
+    # mitmproxy CA without any manual step or cert warning.
+    certutil -N --empty-password -d sql:{profile_dir} 2>/dev/null || true
+    certutil -A -n "mitmproxy CA" -t "TCu,," \
+        -i {mitm_data_dir}/mitmproxy-ca-cert.pem \
+        -d sql:{profile_dir}
+    echo "[sg-firefox] mitmproxy CA trusted in Firefox NSS database."
 else
-    echo "[sg-firefox] WARNING: CA cert not found; HTTPS interception will show cert errors."
+    echo "[sg-firefox] WARNING: CA cert not found after 60s; HTTPS will show cert errors."
 fi
 
 echo "[sg-firefox] writing Firefox proxy user.js..."
