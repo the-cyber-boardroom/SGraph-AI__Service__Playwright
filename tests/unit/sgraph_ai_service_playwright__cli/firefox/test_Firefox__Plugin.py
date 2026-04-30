@@ -258,6 +258,6 @@ class test_Firefox__Interceptor__Resolver(TestCase):
         assert 'mitmproxy'                       in ud
         assert 'mitmweb'                         in ud
         assert 'mitmproxy-ca-cert.pem'           in ud
-        assert 'update-ca-trust'                 in ud
-        assert 'security.enterprise_roots'       in ud
+        assert 'certutil'                        in ud
+        assert 'nss-tools'                       in ud
         assert '"network.proxy.http"'            in ud
