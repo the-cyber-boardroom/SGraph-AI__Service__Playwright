@@ -8,10 +8,15 @@ from rich.console                                                               
 from rich.panel                                                                     import Panel
 from rich.table                                                                     import Table
 
-from sgraph_ai_service_playwright__cli.neko.enums.Enum__Neko__Stack__State          import Enum__Neko__Stack__State
+from sgraph_ai_service_playwright__cli.neko.enums.Enum__Neko__Stack__State               import Enum__Neko__Stack__State
+from sgraph_ai_service_playwright__cli.neko.schemas.Schema__Neko__Health__Response        import Schema__Neko__Health__Response
 from sgraph_ai_service_playwright__cli.neko.schemas.Schema__Neko__Stack__Create__Response import Schema__Neko__Stack__Create__Response
-from sgraph_ai_service_playwright__cli.neko.schemas.Schema__Neko__Stack__Info       import Schema__Neko__Stack__Info
-from sgraph_ai_service_playwright__cli.neko.schemas.Schema__Neko__Stack__List       import Schema__Neko__Stack__List
+from sgraph_ai_service_playwright__cli.neko.schemas.Schema__Neko__Stack__Info             import Schema__Neko__Stack__Info
+from sgraph_ai_service_playwright__cli.neko.schemas.Schema__Neko__Stack__List             import Schema__Neko__Stack__List
+
+
+def _secs(ms: int) -> str:
+    return f'{ms / 1000:.1f}s'
 
 
 def _state_colour(state: Enum__Neko__Stack__State) -> str:
@@ -58,6 +63,22 @@ def render_info(info: Schema__Neko__Stack__Info, c: Console) -> None:
     t.add_row('viewer'    , str(info.viewer_url)  or '—')
     t.add_row('allowed-ip', str(info.allowed_ip)  or '—')
     t.add_row('launched'  , str(info.launch_time) or '—')
+    c.print(t)
+    c.print()
+
+
+def render_health(h: Schema__Neko__Health__Response, c: Console) -> None:
+    colour = 'green' if h.healthy else _state_colour(h.state)
+    c.print()
+    c.print(Panel(f'[bold]🩺  Health  ·  {h.stack_name}[/]  [{colour}]{"healthy" if h.healthy else h.state.value}[/]',
+                  border_style=colour, expand=False))
+    c.print()
+    t = Table(box=None, show_header=False, padding=(0, 2))
+    t.add_column(style='bold', min_width=14, no_wrap=True)
+    t.add_column(style='default')
+    t.add_row('state'  , h.state.value)
+    t.add_row('waited' , _secs(h.elapsed_ms))
+    t.add_row('message', str(h.message) or '—')
     c.print(t)
     c.print()
 

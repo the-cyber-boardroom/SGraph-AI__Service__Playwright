@@ -20,9 +20,11 @@
 # so Neko announces the correct public IP in its ICE candidates. Without this,
 # WebRTC connects but media never flows from behind NAT.
 #
-# Caddy uses a self-signed cert (tls internal). Operators will see a browser
-# warning on first visit — click "proceed anyway." This is intentional for the
-# experiment; TLS can be upgraded to ACME in a later slice.
+# Caddy uses a self-signed cert generated at boot via openssl with PUBLIC_IP in
+# the SAN. Operators will see a browser warning on first visit — click "proceed
+# anyway." This is intentional for the experiment; TLS can be upgraded to ACME
+# in a later slice. (tls internal is NOT used — Caddy's auto_https causes
+# conflicts with explicit tls directives when the global block disables HTTPS.)
 # ═══════════════════════════════════════════════════════════════════════════════
 
 from osbot_utils.type_safe.Type_Safe                                                import Type_Safe
@@ -39,15 +41,13 @@ WEBRTC_PORT_TO   = 52100
 
 
 CADDYFILE = """\
-{
-  auto_https off
-}
-
-:443 {
-  tls internal
+:443 {{
+  tls {caddy_certs_dir}/neko.crt {caddy_certs_dir}/neko.key
   reverse_proxy neko:8080
-}
+}}
 """
+
+CERTS_DIR = '/opt/sg-neko/caddy/certs'
 
 
 COMPOSE_TEMPLATE = """\
@@ -76,6 +76,7 @@ services:
       - "443:443"
     volumes:
       - {caddy_dir}/Caddyfile:/etc/caddy/Caddyfile:ro
+      - {caddy_dir}/certs:/etc/caddy/certs:ro
       - {caddy_dir}/data:/data
       - {caddy_dir}/config:/config
     depends_on:
@@ -99,8 +100,8 @@ PUBLIC_IP=$(curl -sf -H "X-aws-ec2-metadata-token: $TOKEN" \\
     http://169.254.169.254/latest/meta-data/public-ipv4)
 echo "[sg-neko] public IP: $PUBLIC_IP"
 
-echo "[sg-neko] installing Docker on AL2023..."
-dnf install -y docker
+echo "[sg-neko] installing Docker and openssl on AL2023..."
+dnf install -y docker openssl
 systemctl enable --now docker
 
 echo "[sg-neko] installing docker compose plugin..."
@@ -110,10 +111,19 @@ curl -fsSL "https://github.com/docker/compose/releases/latest/download/docker-co
 chmod +x /usr/local/lib/docker/cli-plugins/docker-compose
 
 echo "[sg-neko] preparing layout..."
-mkdir -p {caddy_dir}/data {caddy_dir}/config
+mkdir -p {caddy_dir}/data {caddy_dir}/config {certs_dir}
+
+echo "[sg-neko] generating self-signed TLS cert for $PUBLIC_IP..."
+openssl req -x509 -newkey rsa:4096 \\
+    -keyout {certs_dir}/neko.key \\
+    -out    {certs_dir}/neko.crt \\
+    -days 3650 -nodes \\
+    -subj "/CN=$PUBLIC_IP" \\
+    -addext "subjectAltName=IP:$PUBLIC_IP"
+chmod 644 {certs_dir}/neko.crt {certs_dir}/neko.key
 
 echo "[sg-neko] writing Caddyfile..."
-cat > {caddy_file} <<'NEKO_CADDY_EOF'
+cat > {caddy_file} <<NEKO_CADDY_EOF
 {caddyfile}
 NEKO_CADDY_EOF
 
@@ -139,6 +149,8 @@ class Neko__User_Data__Builder(Type_Safe):
                      region          : str,
                      admin_password  : str,
                      member_password : str) -> str:
+        caddyfile = CADDYFILE.format(caddy_certs_dir='/etc/caddy/certs')
+
         compose_yaml = COMPOSE_TEMPLATE.format(
             neko_image      = NEKO_IMAGE         ,
             member_password = member_password    ,
@@ -154,6 +166,7 @@ class Neko__User_Data__Builder(Type_Safe):
             neko_dir     = NEKO_DIR    ,
             caddy_dir    = CADDY_DIR   ,
             caddy_file   = CADDY_FILE  ,
-            caddyfile    = CADDYFILE   ,
+            certs_dir    = CERTS_DIR   ,
+            caddyfile    = caddyfile   ,
             compose_file = COMPOSE_FILE,
             compose_yaml = compose_yaml)

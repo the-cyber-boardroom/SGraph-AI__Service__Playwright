@@ -8,6 +8,8 @@
 #   sp neko create [name]   — provision a Neko stack
 #   sp neko list            — list all Neko stacks in region
 #   sp neko info [name]     — show stack details (get public IP here)
+#   sp neko wait [name]     — block until instance is running
+#   sp neko health [name]   — instant EC2 state probe
 #   sp neko delete [name]   — terminate a stack
 #   sp neko connect [name]  — open an SSM shell on the instance
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -19,9 +21,10 @@ from typing                                                                     
 import typer
 from rich.console                                                                   import Console
 
-from sgraph_ai_service_playwright__cli.neko.cli.Renderers                           import (render_create,
-                                                                                             render_info  ,
-                                                                                             render_list  )
+from sgraph_ai_service_playwright__cli.neko.cli.Renderers                           import (render_create ,
+                                                                                             render_health ,
+                                                                                             render_info   ,
+                                                                                             render_list   )
 from sgraph_ai_service_playwright__cli.neko.schemas.Schema__Neko__Stack__Create__Request import Schema__Neko__Stack__Create__Request
 from sgraph_ai_service_playwright__cli.neko.service.Neko__Service                   import DEFAULT_INSTANCE_TYPE, DEFAULT_REGION, Neko__Service
 
@@ -105,20 +108,33 @@ def _resolve_stack_name(service: Neko__Service, provided: Optional[str], region:
 @app.command()
 @_err_handler
 def create(name           : Optional[str] = typer.Argument(None, help='Stack name; auto-generated as neko-{adjective}-{scientist} if omitted.'),
-           region         : str           = typer.Option(DEFAULT_REGION       , '--region'       , '-r', help='AWS region.'),
-           instance_type  : str           = typer.Option(DEFAULT_INSTANCE_TYPE, '--instance-type', '-t', help='EC2 instance type.'),
-           admin_password : Optional[str] = typer.Option(None, '--admin-password' , help='Neko admin password (full keyboard/mouse control). Auto-generated if omitted.'),
-           member_password: Optional[str] = typer.Option(None, '--member-password', help='Neko member password (view-only). Auto-generated if omitted.')):
+           region         : str           = typer.Option(DEFAULT_REGION       , '--region'        , '-r', help='AWS region.'),
+           instance_type  : str           = typer.Option(DEFAULT_INSTANCE_TYPE, '--instance-type' , '-t', help='EC2 instance type.'),
+           from_ami       : Optional[str] = typer.Option(None                 , '--ami'           ,       help='AMI ID; latest AL2023 used if omitted.'),
+           caller_ip      : Optional[str] = typer.Option(None                 , '--caller-ip'     ,       help='Source IP for SG rule; auto-detected if omitted.'),
+           admin_password : Optional[str] = typer.Option(None                 , '--admin-password',       help='Neko admin password. Auto-generated if omitted.'),
+           member_password: Optional[str] = typer.Option(None                 , '--member-password',      help='Neko member password. Auto-generated if omitted.'),
+           wait           : bool          = typer.Option(False                , '--wait'          ,       help='Block until instance is running.')):
     """Provision a Neko (WebRTC browser) EC2 stack."""
     c       = Console(highlight=False, width=200)
     request = Schema__Neko__Stack__Create__Request(
-        stack_name      = name            or '',
+        stack_name      = name             or '',
         region          = region               ,
         instance_type   = instance_type        ,
+        from_ami        = from_ami        or '',
+        caller_ip       = caller_ip       or '',
         admin_password  = admin_password  or '',
         member_password = member_password or '')
-    resp = _service().create_stack(request)
+    svc  = _service()
+    resp = svc.create_stack(request)
     render_create(resp, c)
+    if wait:
+        stack_name = str(resp.stack_name)
+        c.print(f'  [dim]Waiting for {stack_name!r} to become running…[/]')
+        h = svc.health(region, stack_name, timeout_sec=300, poll_sec=10)
+        render_health(h, c)
+        if not h.healthy:
+            raise typer.Exit(1)
 
 
 @app.command(name='list')
@@ -136,12 +152,39 @@ def info(name  : Optional[str] = typer.Argument(None, help='Stack name; auto-sel
     c    = Console(highlight=False, width=200)
     svc  = _service()
     name = _resolve_stack_name(svc, name, region)
-    c.print(f'  [dim]Fetching {name!r} from {region}…[/]')
     data = svc.get_stack_info(region, name)
     if data is None:
         c.print(f'  [red]✗  No Neko stack matched {name!r}[/]')
         raise typer.Exit(1)
     render_info(data, c)
+
+
+@app.command()
+@_err_handler
+def wait(name       : Optional[str] = typer.Argument(None, help='Stack name; auto-selected when only one exists.'),
+         region     : str           = typer.Option(DEFAULT_REGION, '--region', '-r'),
+         timeout_sec: int           = typer.Option(300            , '--timeout', help='Max seconds to wait.'),
+         poll_sec   : int           = typer.Option(10             , '--poll'   , help='Seconds between polls.')):
+    """Wait until the Neko instance is running."""
+    c    = Console(highlight=False, width=200)
+    svc  = _service()
+    name = _resolve_stack_name(svc, name, region)
+    c.print(f'  [dim]Waiting for {name!r} to become running (timeout={timeout_sec}s)…[/]')
+    h = svc.health(region, name, timeout_sec=timeout_sec, poll_sec=poll_sec)
+    render_health(h, c)
+    if not h.healthy:
+        raise typer.Exit(1)
+
+
+@app.command()
+@_err_handler
+def health(name  : Optional[str] = typer.Argument(None, help='Stack name; auto-selected when only one exists.'),
+           region: str           = typer.Option(DEFAULT_REGION, '--region', '-r')):
+    """Quick EC2 state probe (no waiting)."""
+    svc  = _service()
+    name = _resolve_stack_name(svc, name, region)
+    h    = svc.health(region, name, timeout_sec=0, poll_sec=1)
+    render_health(h, Console(highlight=False, width=200))
 
 
 @app.command()
@@ -154,9 +197,9 @@ def delete(name  : Optional[str] = typer.Argument(None, help='Stack name; auto-s
     name = _resolve_stack_name(svc, name, region)
     resp = svc.delete_stack(region, name)
     if not resp.deleted:
-        c.print(f'  [red]✗  No Neko stack matched {name!r} or terminate failed[/]')
+        c.print(f'  [red]✗  {resp.message}[/]')
         raise typer.Exit(1)
-    c.print(f'  ✅  Terminated [dim]{resp.target}[/] ({name})')
+    c.print(f'  ✅  {resp.message}  [dim]({resp.elapsed_ms / 1000:.1f}s)[/]')
 
 
 @app.command()
@@ -168,7 +211,6 @@ def connect(name  : Optional[str] = typer.Argument(None, help='Stack name; auto-
     c    = Console(highlight=False, width=200)
     svc  = _service()
     name = _resolve_stack_name(svc, name, region)
-    c.print(f'  [dim]Resolving {name!r}…[/]')
     data = svc.get_stack_info(region, name)
     if data is None:
         c.print(f'  [red]✗  No Neko stack matched {name!r}[/]')
