@@ -33,6 +33,7 @@ class Firefox__AWS__Client(Type_Safe):
     instance : object = None                                                        # Firefox__Instance__Helper
     tags     : object = None                                                        # Firefox__Tags__Builder
     launch   : object = None                                                        # Firefox__Launch__Helper
+    ssm      : object = None                                                        # Firefox__SSM__Helper
 
     def setup(self) -> 'Firefox__AWS__Client':
         from sgraph_ai_service_playwright__cli.firefox.service.Firefox__SG__Helper       import Firefox__SG__Helper
@@ -40,9 +41,11 @@ class Firefox__AWS__Client(Type_Safe):
         from sgraph_ai_service_playwright__cli.firefox.service.Firefox__Instance__Helper import Firefox__Instance__Helper
         from sgraph_ai_service_playwright__cli.firefox.service.Firefox__Launch__Helper   import Firefox__Launch__Helper
         from sgraph_ai_service_playwright__cli.firefox.service.Firefox__Tags__Builder    import Firefox__Tags__Builder
+        from sgraph_ai_service_playwright__cli.firefox.service.Firefox__SSM__Helper      import Firefox__SSM__Helper
         self.sg       = Firefox__SG__Helper      ()
         self.ami      = Firefox__AMI__Helper     ()
         self.instance = Firefox__Instance__Helper()
         self.tags     = Firefox__Tags__Builder   ()
         self.launch   = Firefox__Launch__Helper  ()
+        self.ssm      = Firefox__SSM__Helper     ()
         return self

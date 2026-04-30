@@ -26,6 +26,7 @@ from sgraph_ai_service_playwright__cli.firefox.enums.Enum__Firefox__Stack__State
 from sgraph_ai_service_playwright__cli.firefox.schemas.Schema__Firefox__Health__Response      import Schema__Firefox__Health__Response
 from sgraph_ai_service_playwright__cli.firefox.schemas.Schema__Firefox__Stack__Create__Request  import Schema__Firefox__Stack__Create__Request
 from sgraph_ai_service_playwright__cli.firefox.schemas.Schema__Firefox__Stack__Create__Response import Schema__Firefox__Stack__Create__Response
+from sgraph_ai_service_playwright__cli.firefox.schemas.Schema__Firefox__Set__Interceptor__Response import Schema__Firefox__Set__Interceptor__Response
 from sgraph_ai_service_playwright__cli.firefox.schemas.Schema__Firefox__Stack__Delete__Response import Schema__Firefox__Stack__Delete__Response
 from sgraph_ai_service_playwright__cli.firefox.schemas.Schema__Firefox__Stack__Info import Schema__Firefox__Stack__Info
 from sgraph_ai_service_playwright__cli.firefox.schemas.Schema__Firefox__Stack__List import Schema__Firefox__Stack__List
@@ -148,6 +149,29 @@ class Firefox__Service(Type_Safe):
                     message    = f'timed out after {timeout_sec}s'   ,
                     elapsed_ms = int((time.monotonic() - t0) * 1000) )
             time.sleep(poll_sec)
+
+    def set_interceptor(self, region: str, stack_name: str,
+                        choice: 'Schema__Firefox__Interceptor__Choice' = None) -> Schema__Firefox__Set__Interceptor__Response:
+        from sgraph_ai_service_playwright__cli.firefox.schemas.Schema__Firefox__Interceptor__Choice import Schema__Firefox__Interceptor__Choice
+        t0      = time.monotonic()
+        choice  = choice or Schema__Firefox__Interceptor__Choice()
+        source, label = self.interceptor_resolver.resolve(choice)
+        details = self.aws_client.instance.find_by_stack_name(region, stack_name)
+        if not details:
+            return Schema__Firefox__Set__Interceptor__Response(
+                stack_name        = stack_name                          ,
+                interceptor_label = label or 'none'                    ,
+                message           = 'stack not found'                  ,
+                elapsed_ms        = int((time.monotonic() - t0) * 1000))
+        iid             = details.get('InstanceId', '')
+        ok, message     = self.aws_client.ssm.push_interceptor(region, iid, source)
+        return Schema__Firefox__Set__Interceptor__Response(
+            stack_name        = stack_name                          ,
+            instance_id       = iid                                ,
+            interceptor_label = label or 'none'                    ,
+            success           = ok                                 ,
+            message           = message                            ,
+            elapsed_ms        = int((time.monotonic() - t0) * 1000))
 
     def delete_stack(self, region: str, stack_name: str) -> Schema__Firefox__Stack__Delete__Response:
         t0      = time.monotonic()

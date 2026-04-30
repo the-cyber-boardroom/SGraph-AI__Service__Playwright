@@ -39,13 +39,22 @@ class _Fake_Instance:
     def terminate_instance(self, region, iid):        return self.terminate_ok
     def list_stacks(self, region):                    return {}
 
+class _Fake_SSM:
+    def __init__(self, push_ok=True):
+        self.push_ok    = push_ok
+        self.last_source = None
+    def push_interceptor(self, region, instance_id, source):
+        self.last_source = source
+        return self.push_ok, ('script updated' if self.push_ok else 'send_command failed: no SSM agent')
+
 class _Fake_AWS_Client:
-    def __init__(self, terminate_ok=True):
+    def __init__(self, terminate_ok=True, push_ok=True):
         self.sg       = _Fake_SG()
         self.ami      = _Fake_AMI()
         self.tags     = _Fake_Tags()
         self.launch   = _Fake_Launch()
         self.instance = _Fake_Instance(terminate_ok=terminate_ok)
+        self.ssm      = _Fake_SSM(push_ok=push_ok)
 
 class _Fake_UDB:
     def render(self, *args, **kwargs): return ''
@@ -57,11 +66,11 @@ class _Fake_IP_Detector:
     def detect(self): return '1.2.3.4'
 
 
-def _service(terminate_ok=True) -> Firefox__Service:
+def _service(terminate_ok=True, push_ok=True) -> Firefox__Service:
     from sgraph_ai_service_playwright__cli.firefox.service.Firefox__Stack__Mapper       import Firefox__Stack__Mapper
     from sgraph_ai_service_playwright__cli.firefox.service.Firefox__Interceptor__Resolver import Firefox__Interceptor__Resolver
     svc                      = Firefox__Service()
-    svc.aws_client           = _Fake_AWS_Client(terminate_ok=terminate_ok)
+    svc.aws_client           = _Fake_AWS_Client(terminate_ok=terminate_ok, push_ok=push_ok)
     svc.user_data_builder    = _Fake_UDB()
     svc.name_gen             = _Fake_Name_Gen()
     svc.ip_detector          = _Fake_IP_Detector()
@@ -261,3 +270,45 @@ class test_Firefox__Interceptor__Resolver(TestCase):
         assert 'certutil'                        in ud
         assert 'nss-tools'                       in ud
         assert '"network.proxy.http"'            in ud
+
+
+class test_Firefox__Set__Interceptor(TestCase):
+
+    def test__set_interceptor__success__returns_ok(self):
+        from sgraph_ai_service_playwright__cli.firefox.schemas.Schema__Firefox__Interceptor__Choice import Schema__Firefox__Interceptor__Choice
+        from sgraph_ai_service_playwright__cli.firefox.enums.Enum__Firefox__Interceptor__Kind import Enum__Firefox__Interceptor__Kind
+        svc    = _service(push_ok=True)
+        choice = Schema__Firefox__Interceptor__Choice(kind=Enum__Firefox__Interceptor__Kind.NAME, name='header_logger')
+        resp   = svc.set_interceptor('eu-west-2', 'firefox-test', choice)
+        assert resp.success           is True
+        assert str(resp.message)      == 'script updated'
+        assert str(resp.interceptor_label) == 'header_logger'
+        assert str(resp.instance_id)  == FAKE_INSTANCE_ID
+
+    def test__set_interceptor__failure__returns_not_ok(self):
+        from sgraph_ai_service_playwright__cli.firefox.schemas.Schema__Firefox__Interceptor__Choice import Schema__Firefox__Interceptor__Choice
+        svc  = _service(push_ok=False)
+        resp = svc.set_interceptor('eu-west-2', 'firefox-test', Schema__Firefox__Interceptor__Choice())
+        assert resp.success is False
+        assert 'failed'     in str(resp.message)
+
+    def test__set_interceptor__stack_not_found__returns_not_ok(self):
+        from sgraph_ai_service_playwright__cli.firefox.schemas.Schema__Firefox__Interceptor__Choice import Schema__Firefox__Interceptor__Choice
+        svc                              = _service()
+        svc.aws_client.instance          = type('_', (), {
+            'find_by_stack_name': lambda *a, **k: None,
+            'terminate_instance': lambda *a, **k: False,
+            'list_stacks'       : lambda *a, **k: {},
+        })()
+        resp = svc.set_interceptor('eu-west-2', 'no-such-stack', Schema__Firefox__Interceptor__Choice())
+        assert resp.success is False
+        assert 'not found'  in str(resp.message)
+
+    def test__set_interceptor__pushes_resolved_source(self):
+        from sgraph_ai_service_playwright__cli.firefox.schemas.Schema__Firefox__Interceptor__Choice import Schema__Firefox__Interceptor__Choice
+        from sgraph_ai_service_playwright__cli.firefox.enums.Enum__Firefox__Interceptor__Kind import Enum__Firefox__Interceptor__Kind
+        from sgraph_ai_service_playwright__cli.firefox.service.Firefox__Interceptor__Resolver import EXAMPLES
+        svc    = _service(push_ok=True)
+        choice = Schema__Firefox__Interceptor__Choice(kind=Enum__Firefox__Interceptor__Kind.NAME, name='flow_recorder')
+        svc.set_interceptor('eu-west-2', 'firefox-test', choice)
+        assert svc.aws_client.ssm.last_source == EXAMPLES['flow_recorder']
