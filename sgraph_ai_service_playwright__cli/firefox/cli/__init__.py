@@ -13,6 +13,7 @@
 #   sp firefox health [name]      — instant EC2 state probe
 #   sp firefox delete [name]      — terminate a stack
 #   sp firefox connect [name]     — open an SSM shell on the instance
+#   sp firefox set-interceptor    — push a new interceptor to a live stack (hot-reload)
 #   sp firefox interceptors       — list baked mitmproxy interceptor examples
 # ═══════════════════════════════════════════════════════════════════════════════
 
@@ -23,11 +24,12 @@ from typing                                                                     
 import typer
 from rich.console                                                                   import Console
 
-from sgraph_ai_service_playwright__cli.firefox.cli.Renderers                        import (render_create       ,
-                                                                                             render_health       ,
-                                                                                             render_info         ,
-                                                                                             render_interceptors ,
-                                                                                             render_list         )
+from sgraph_ai_service_playwright__cli.firefox.cli.Renderers                        import (render_create           ,
+                                                                                             render_health           ,
+                                                                                             render_info             ,
+                                                                                             render_interceptors     ,
+                                                                                             render_list             ,
+                                                                                             render_set_interceptor  )
 from sgraph_ai_service_playwright__cli.firefox.enums.Enum__Firefox__Interceptor__Kind       import Enum__Firefox__Interceptor__Kind
 from sgraph_ai_service_playwright__cli.firefox.schemas.Schema__Firefox__Interceptor__Choice import Schema__Firefox__Interceptor__Choice
 from sgraph_ai_service_playwright__cli.firefox.schemas.Schema__Firefox__Stack__Create__Request import Schema__Firefox__Stack__Create__Request
@@ -241,6 +243,24 @@ def connect(name  : Optional[str] = typer.Argument(None, help='Stack name; auto-
     iid = str(data.instance_id)
     c.print(f'  [dim]Connecting to {name} ({iid}) in {region}…[/]\n')
     os.execvp('aws', ['aws', 'ssm', 'start-session', '--target', iid, '--region', region])
+
+
+@app.command(name='set-interceptor')
+@_err_handler
+def set_interceptor(name              : Optional[str] = typer.Argument(None, help='Stack name; auto-selected when only one exists.'),
+                    region            : str           = typer.Option(DEFAULT_REGION, '--region', '-r', help='AWS region.'),
+                    interceptor       : Optional[str] = typer.Option(None, '--interceptor'      , help='Name of a baked example (see `sp firefox interceptors`).'),
+                    interceptor_script: Optional[str] = typer.Option(None, '--interceptor-script', help='Path to a local Python file; pushed live via SSM.')):
+    """Push a new mitmproxy interceptor script to a running stack (hot-reload, no restart)."""
+    c      = Console(highlight=False, width=200)
+    svc    = _service()
+    name   = _resolve_stack_name(svc, name, region)
+    choice = _interceptor_choice(interceptor, interceptor_script)
+    c.print(f'  [dim]Pushing interceptor to {name!r} via SSM…[/]')
+    resp   = svc.set_interceptor(region, name, choice)
+    render_set_interceptor(resp, c)
+    if not resp.success:
+        raise typer.Exit(1)
 
 
 @app.command()

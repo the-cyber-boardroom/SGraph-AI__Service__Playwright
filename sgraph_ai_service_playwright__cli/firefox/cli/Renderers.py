@@ -12,6 +12,7 @@ from sgraph_ai_service_playwright__cli.firefox.enums.Enum__Firefox__Stack__State
 from sgraph_ai_service_playwright__cli.firefox.schemas.Schema__Firefox__Health__Response      import Schema__Firefox__Health__Response
 from sgraph_ai_service_playwright__cli.firefox.schemas.Schema__Firefox__Stack__Create__Response import Schema__Firefox__Stack__Create__Response
 from sgraph_ai_service_playwright__cli.firefox.schemas.Schema__Firefox__Stack__Info import Schema__Firefox__Stack__Info
+from sgraph_ai_service_playwright__cli.firefox.schemas.Schema__Firefox__Set__Interceptor__Response import Schema__Firefox__Set__Interceptor__Response
 from sgraph_ai_service_playwright__cli.firefox.schemas.Schema__Firefox__Stack__List import Schema__Firefox__Stack__List
 
 
@@ -100,6 +101,25 @@ def render_health(h: Schema__Firefox__Health__Response, c: Console) -> None:
     t.add_row('message', str(h.message) or '—')
     c.print(t)
     c.print()
+
+
+def render_set_interceptor(resp: Schema__Firefox__Set__Interceptor__Response, c: Console) -> None:
+    if resp.success:
+        c.print()
+        c.print(Panel(f'[bold green]🔌  Interceptor updated[/]  ·  {resp.stack_name}  '
+                      f'[dim]{resp.instance_id}[/]  [green]{resp.interceptor_label}[/]',
+                      border_style='green', expand=False))
+        c.print()
+        c.print(f'  [dim]{resp.message}  ({_secs(resp.elapsed_ms)})[/]')
+        c.print(f'  [dim]mitmproxy reloads the script automatically — no restart needed.[/]')
+        c.print()
+    else:
+        c.print()
+        c.print(Panel(f'[bold red]✗  Interceptor update failed[/]  ·  {resp.stack_name}',
+                      border_style='red', expand=False))
+        c.print()
+        c.print(f'  [red]{resp.message}[/]  [dim]({_secs(resp.elapsed_ms)})[/]')
+        c.print()
 
 
 def render_interceptors(examples: list, c: Console) -> None:
