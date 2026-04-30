@@ -115,6 +115,12 @@ cat > {interceptor_file} <<'SG_FIREFOX_INTERCEPTOR_EOF'
 {interceptor_source}
 SG_FIREFOX_INTERCEPTOR_EOF
 
+echo "[sg-firefox] writing env vars to tmpfs ({env_file}) before docker compose..."
+mkdir -p /run/sg-firefox
+cat > {env_file} <<'SG_FIREFOX_ENV_EOF'
+{env_source}
+SG_FIREFOX_ENV_EOF
+
 echo "[sg-firefox] writing docker-compose.yml..."
 cat > {compose_file} <<'FIREFOX_COMPOSE_EOF'
 {compose_yaml}
@@ -154,12 +160,6 @@ echo "[sg-firefox] writing Firefox proxy user.js..."
 cat > {user_js_file} <<'FIREFOX_USERJS_EOF'
 {user_js}
 FIREFOX_USERJS_EOF
-
-echo "[sg-firefox] writing env vars to tmpfs (/run/sg-firefox/env)..."
-mkdir -p /run/sg-firefox
-cat > {env_file} <<'SG_FIREFOX_ENV_EOF'
-{env_source}
-SG_FIREFOX_ENV_EOF
 
 echo "[sg-firefox] starting Firefox..."
 docker compose up -d firefox
