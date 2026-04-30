@@ -181,4 +181,4 @@ class test_Firefox__Service(TestCase):
         mapper = Firefox__Stack__Mapper()
         info   = mapper.to_info({'InstanceId': FAKE_INSTANCE_ID, 'Tags': [], 'State': {'Name': 'running'},
                                   'PublicIpAddress': '1.2.3.4'}, 'eu-west-2')
-        assert str(info.viewer_url) == 'http://1.2.3.4:5800/'
+        assert str(info.viewer_url) == 'https://1.2.3.4:5800/'
