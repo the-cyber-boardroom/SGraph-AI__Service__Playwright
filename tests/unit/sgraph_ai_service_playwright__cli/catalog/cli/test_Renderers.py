@@ -32,14 +32,14 @@ class test_render_types(TestCase):
 
     def test__non_empty(self):
         entries = List__Schema__Stack__Type__Catalog__Entry()
-        entries.append(Schema__Stack__Type__Catalog__Entry(type_id=Enum__Stack__Type.LINUX,
-                                                              display_name='Bare Linux',
-                                                              description='AL2023 + SSM',
+        entries.append(Schema__Stack__Type__Catalog__Entry(type_id=Enum__Stack__Type.PODMAN,
+                                                              display_name='Podman host',
+                                                              description='Daemonless containers',
                                                               available=True))
         out = _capture(render_types, Schema__Stack__Type__Catalog(entries=entries))
-        assert 'linux'      in out
-        assert 'Bare Linux' in out
-        assert 'yes'        in out                                                  # available column
+        assert 'podman'      in out
+        assert 'Podman host' in out
+        assert 'yes'         in out                                                  # available column
 
 
 class test_render_stacks(TestCase):

@@ -13,12 +13,12 @@ from sgraph_ai_service_playwright__cli.elastic.collections.List__Schema__Elastic
 from sgraph_ai_service_playwright__cli.elastic.plugin.Plugin__Manifest__Elastic       import Plugin__Manifest__Elastic
 from sgraph_ai_service_playwright__cli.elastic.schemas.Schema__Elastic__List          import Schema__Elastic__List
 from sgraph_ai_service_playwright__cli.elastic.service.Elastic__Service               import Elastic__Service
-from sgraph_ai_service_playwright__cli.linux.collections.List__Schema__Linux__Info    import List__Schema__Linux__Info
-from sgraph_ai_service_playwright__cli.linux.enums.Enum__Linux__Stack__State          import Enum__Linux__Stack__State
-from sgraph_ai_service_playwright__cli.linux.plugin.Plugin__Manifest__Linux           import Plugin__Manifest__Linux
-from sgraph_ai_service_playwright__cli.linux.schemas.Schema__Linux__Info              import Schema__Linux__Info
-from sgraph_ai_service_playwright__cli.linux.schemas.Schema__Linux__List              import Schema__Linux__List
-from sgraph_ai_service_playwright__cli.linux.service.Linux__Service                   import Linux__Service
+from sgraph_ai_service_playwright__cli.podman.collections.List__Schema__Podman__Info  import List__Schema__Podman__Info
+from sgraph_ai_service_playwright__cli.podman.enums.Enum__Podman__Stack__State        import Enum__Podman__Stack__State
+from sgraph_ai_service_playwright__cli.podman.plugin.Plugin__Manifest__Podman         import Plugin__Manifest__Podman
+from sgraph_ai_service_playwright__cli.podman.schemas.Schema__Podman__Info            import Schema__Podman__Info
+from sgraph_ai_service_playwright__cli.podman.schemas.Schema__Podman__List            import Schema__Podman__List
+from sgraph_ai_service_playwright__cli.podman.service.Podman__Service                 import Podman__Service
 from sgraph_ai_service_playwright__cli.vnc.collections.List__Schema__Vnc__Stack__Info  import List__Schema__Vnc__Stack__Info
 from sgraph_ai_service_playwright__cli.vnc.enums.Enum__Vnc__Stack__State              import Enum__Vnc__Stack__State
 from sgraph_ai_service_playwright__cli.vnc.plugin.Plugin__Manifest__Vnc               import Plugin__Manifest__Vnc
@@ -27,11 +27,11 @@ from sgraph_ai_service_playwright__cli.vnc.schemas.Schema__Vnc__Stack__List     
 from sgraph_ai_service_playwright__cli.vnc.service.Vnc__Service                       import Vnc__Service
 
 
-class _Fake_Linux__Service(Linux__Service):
+class _Fake_Podman__Service(Podman__Service):
     def list_stacks(self, region=None):
-        stacks = List__Schema__Linux__Info()
-        stacks.append(Schema__Linux__Info(stack_name='linux-test', state=Enum__Linux__Stack__State.RUNNING))
-        return Schema__Linux__List(stacks=stacks)
+        stacks = List__Schema__Podman__Info()
+        stacks.append(Schema__Podman__Info(stack_name='podman-test', state=Enum__Podman__Stack__State.RUNNING))
+        return Schema__Podman__List(stacks=stacks)
 
 
 class _Fake_Docker__Service(Docker__Service):
@@ -56,11 +56,11 @@ class _Fake_Vnc__Service(Vnc__Service):
 
 def _fake_registry() -> Plugin__Registry:
     registry = Plugin__Registry()
-    registry.manifests['linux']   = Plugin__Manifest__Linux()
+    registry.manifests['podman']  = Plugin__Manifest__Podman()
     registry.manifests['docker']  = Plugin__Manifest__Docker()
     registry.manifests['elastic'] = Plugin__Manifest__Elastic()
     registry.manifests['vnc']     = Plugin__Manifest__Vnc()
-    registry.service_instances['linux']   = _Fake_Linux__Service()
+    registry.service_instances['podman']  = _Fake_Podman__Service()
     registry.service_instances['docker']  = _Fake_Docker__Service()
     registry.service_instances['elastic'] = _Fake_Elastic__Service()
     registry.service_instances['vnc']     = _Fake_Vnc__Service()

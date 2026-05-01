@@ -19,12 +19,12 @@ class test_Schema__Stack__Type__Catalog__Entry(TestCase):
 
     def test_json_round_trip(self):
         entry = Schema__Stack__Type__Catalog__Entry(
-            type_id=Enum__Stack__Type.LINUX, display_name='Bare Linux',
-            available=True, expected_boot_seconds=60)
+            type_id=Enum__Stack__Type.PODMAN, display_name='Podman host',
+            available=True, expected_boot_seconds=120)
         data = entry.json()
-        assert data['type_id']               == 'linux'
+        assert data['type_id']               == 'podman'
         assert data['available']             is True
-        assert data['expected_boot_seconds'] == 60
+        assert data['expected_boot_seconds'] == 120
 
 
 class test_Schema__Stack__Summary(TestCase):

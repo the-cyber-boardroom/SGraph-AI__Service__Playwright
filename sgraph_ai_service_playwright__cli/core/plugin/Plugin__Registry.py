@@ -22,8 +22,8 @@ from sgraph_ai_service_playwright__cli.core.event_bus.schemas.Schema__Plugin__Ev
 
 # ── canonical plugin list — add a line here when a new plugin folder lands ──
 PLUGIN_FOLDERS: list = [
-    'linux',
     'docker',
+    'podman',
     'elastic',
     'vnc',
     'prometheus',

@@ -24,19 +24,19 @@ def _paths(type_id: Enum__Stack__Type) -> dict:                                 
 
 class Stack__Catalog__Service__Entries(Type_Safe):
 
-    def entry__linux(self) -> Schema__Stack__Type__Catalog__Entry:
-        return Schema__Stack__Type__Catalog__Entry(
-            type_id=Enum__Stack__Type.LINUX, display_name='Bare Linux',
-            description='Plain EC2 instance, SSM access only.',
-            available=True, default_instance_type=T3_MEDIUM, expected_boot_seconds=60,
-            **_paths(Enum__Stack__Type.LINUX))
-
     def entry__docker(self) -> Schema__Stack__Type__Catalog__Entry:
         return Schema__Stack__Type__Catalog__Entry(
             type_id=Enum__Stack__Type.DOCKER, display_name='Docker host',
             description='EC2 with Docker + Compose pre-installed.',
             available=True, default_instance_type=T3_MEDIUM, expected_boot_seconds=600,
             **_paths(Enum__Stack__Type.DOCKER))
+
+    def entry__podman(self) -> Schema__Stack__Type__Catalog__Entry:
+        return Schema__Stack__Type__Catalog__Entry(
+            type_id=Enum__Stack__Type.PODMAN, display_name='Podman host',
+            description='EC2 with Podman pre-installed (daemonless, rootless-capable).',
+            available=True, default_instance_type=T3_MEDIUM, expected_boot_seconds=120,
+            **_paths(Enum__Stack__Type.PODMAN))
 
     def entry__elastic(self) -> Schema__Stack__Type__Catalog__Entry:
         return Schema__Stack__Type__Catalog__Entry(

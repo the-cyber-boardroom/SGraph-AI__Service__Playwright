@@ -1,16 +1,10 @@
 # ═══════════════════════════════════════════════════════════════════════════════
-# SP CLI — Enum__Stack__Type
+# SP CLI — List__Port (podman)
+# Ordered list of TCP port numbers for extra SG ingress rules. Pure type def.
 # ═══════════════════════════════════════════════════════════════════════════════
 
-from enum import Enum
+from osbot_utils.type_safe.type_safe_core.collections.Type_Safe__List               import Type_Safe__List
 
 
-class Enum__Stack__Type(Enum):
-    DOCKER     = 'docker'
-    PODMAN     = 'podman'
-    ELASTIC    = 'elastic'
-    OPENSEARCH = 'opensearch'
-    PROMETHEUS = 'prometheus'
-    VNC        = 'vnc'
-    NEKO       = 'neko'
-    FIREFOX    = 'firefox'
+class List__Port(Type_Safe__List):
+    expected_type = int

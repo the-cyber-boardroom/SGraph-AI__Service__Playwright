@@ -23,8 +23,8 @@ class test_Stack__Catalog__Service__catalog(TestCase):
 
     def test_get_catalog__available_flags(self):
         entries = {e.type_id: e.available for e in _svc().get_catalog().entries}
-        assert entries[Enum__Stack__Type.LINUX]      is True
         assert entries[Enum__Stack__Type.DOCKER]     is True
+        assert entries[Enum__Stack__Type.PODMAN]     is True
         assert entries[Enum__Stack__Type.ELASTIC]    is True
         assert entries[Enum__Stack__Type.OPENSEARCH] is False
         assert entries[Enum__Stack__Type.VNC]        is True
@@ -32,7 +32,7 @@ class test_Stack__Catalog__Service__catalog(TestCase):
     def test_list_all_stacks__returns_enabled_plugin_stacks(self):
         result = _svc().list_all_stacks()
         types  = {s.type_id for s in result.stacks}
-        assert Enum__Stack__Type.LINUX  in types
+        assert Enum__Stack__Type.PODMAN in types
         assert Enum__Stack__Type.DOCKER in types
         assert Enum__Stack__Type.VNC    in types
-        assert len(result.stacks) == 3                                              # 1 linux + 1 docker + 1 vnc; elastic fake returns empty
+        assert len(result.stacks) == 3                                              # 1 podman + 1 docker + 1 vnc; elastic fake returns empty

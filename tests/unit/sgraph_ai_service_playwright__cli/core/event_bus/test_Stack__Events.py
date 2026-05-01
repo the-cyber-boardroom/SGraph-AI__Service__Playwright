@@ -49,48 +49,48 @@ class _Fake_IP_Detector:
     def detect(self): return '1.2.3.4'
 
 
-# ── Linux ─────────────────────────────────────────────────────────────────────
+# ── Podman ────────────────────────────────────────────────────────────────────
 
-class test_Linux__Service__events(TestCase):
+class test_Podman__Service__events(TestCase):
 
     def setUp(self):
         event_bus.reset()
 
     def _service(self, terminate_ok=True):
-        from sgraph_ai_service_playwright__cli.linux.service.Linux__Service         import Linux__Service
-        from sgraph_ai_service_playwright__cli.linux.service.Linux__Stack__Mapper   import Linux__Stack__Mapper
-        svc                  = Linux__Service()
+        from sgraph_ai_service_playwright__cli.podman.service.Podman__Service       import Podman__Service
+        from sgraph_ai_service_playwright__cli.podman.service.Podman__Stack__Mapper import Podman__Stack__Mapper
+        svc                  = Podman__Service()
         svc.aws_client       = _Fake_AWS_Client(terminate_ok=terminate_ok)
         svc.user_data_builder= _Fake_UDB()
         svc.name_gen         = _Fake_Name_Gen()
         svc.ip_detector      = _Fake_IP_Detector()
-        svc.mapper           = Linux__Stack__Mapper()
+        svc.mapper           = Podman__Stack__Mapper()
         return svc
 
     def test__create_stack__emits_created_event(self):
-        from sgraph_ai_service_playwright__cli.linux.schemas.Schema__Linux__Create__Request import Schema__Linux__Create__Request
+        from sgraph_ai_service_playwright__cli.podman.schemas.Schema__Podman__Create__Request import Schema__Podman__Create__Request
         created = []
-        event_bus.on('linux:stack.created', lambda e: created.append(e))
-        self._service().create_stack(Schema__Linux__Create__Request(
-            stack_name='linux-test', region='eu-west-2', caller_ip='1.2.3.4', from_ami='ami-0a1b2c3d4e5f60000'))
+        event_bus.on('podman:stack.created', lambda e: created.append(e))
+        self._service().create_stack(Schema__Podman__Create__Request(
+            stack_name='podman-test', region='eu-west-2', caller_ip='1.2.3.4', from_ami='ami-0a1b2c3d4e5f60000'))
         assert len(created) == 1
-        assert created[0].type_id    == Enum__Stack__Type.LINUX
-        assert str(created[0].stack_name) == 'linux-test'
+        assert created[0].type_id         == Enum__Stack__Type.PODMAN
+        assert str(created[0].stack_name) == 'podman-test'
         assert str(created[0].region)     == 'eu-west-2'
         assert str(created[0].instance_id)== FAKE_INSTANCE_ID
 
     def test__delete_stack__emits_deleted_event_on_success(self):
         deleted = []
-        event_bus.on('linux:stack.deleted', lambda e: deleted.append(e))
-        self._service(terminate_ok=True).delete_stack('eu-west-2', 'linux-test')
+        event_bus.on('podman:stack.deleted', lambda e: deleted.append(e))
+        self._service(terminate_ok=True).delete_stack('eu-west-2', 'podman-test')
         assert len(deleted) == 1
-        assert deleted[0].type_id == Enum__Stack__Type.LINUX
-        assert str(deleted[0].stack_name) == 'linux-test'
+        assert deleted[0].type_id         == Enum__Stack__Type.PODMAN
+        assert str(deleted[0].stack_name) == 'podman-test'
 
     def test__delete_stack__no_event_when_terminate_fails(self):
         deleted = []
-        event_bus.on('linux:stack.deleted', lambda e: deleted.append(e))
-        self._service(terminate_ok=False).delete_stack('eu-west-2', 'linux-test')
+        event_bus.on('podman:stack.deleted', lambda e: deleted.append(e))
+        self._service(terminate_ok=False).delete_stack('eu-west-2', 'podman-test')
         assert deleted == []
 
 

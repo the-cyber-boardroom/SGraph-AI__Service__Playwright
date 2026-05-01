@@ -17,7 +17,7 @@ class Stack__Catalog__Service(Stack__Catalog__Service__Entries):
 
     def get_catalog(self) -> Schema__Stack__Type__Catalog:
         entries = List__Schema__Stack__Type__Catalog__Entry()
-        for method in (self.entry__linux, self.entry__docker, self.entry__elastic,
+        for method in (self.entry__docker, self.entry__podman, self.entry__elastic,
                        self.entry__opensearch, self.entry__vnc):
             entries.append(method())
         return Schema__Stack__Type__Catalog(entries=entries)
