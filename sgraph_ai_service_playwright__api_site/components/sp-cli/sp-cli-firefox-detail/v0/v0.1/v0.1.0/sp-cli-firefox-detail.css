@@ -20,3 +20,19 @@
     gap: var(--sg-sp-3);
     padding: var(--sg-sp-3);
 }
+
+.detail-top {
+    display: flex;
+    align-items: stretch;
+}
+
+.detail-header { flex: 1; min-width: 0; }
+
+.detail-stop {
+    display: flex;
+    align-items: center;
+    padding: 0 var(--sg-sp-3);
+    background: var(--sg-bg-secondary);
+    border-bottom: 1px solid var(--sg-border);
+    flex-shrink: 0;
+}
