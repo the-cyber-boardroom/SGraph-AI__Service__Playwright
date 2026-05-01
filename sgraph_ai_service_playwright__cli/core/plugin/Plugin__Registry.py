@@ -24,6 +24,7 @@ from sgraph_ai_service_playwright__cli.core.event_bus.schemas.Schema__Plugin__Ev
 PLUGIN_FOLDERS: list = [
     'linux',
     'docker',
+    'podman',
     'elastic',
     'vnc',
     'prometheus',

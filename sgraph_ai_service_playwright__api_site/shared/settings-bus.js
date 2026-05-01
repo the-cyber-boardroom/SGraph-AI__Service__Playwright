@@ -17,6 +17,7 @@ const DEFAULTS = {
         opensearch: { enabled: false },
         neko:       { enabled: true  },
         firefox:    { enabled: true  },
+        podman:     { enabled: true  },
     },
     ui_panels: {
         events_log:      { visible: true },

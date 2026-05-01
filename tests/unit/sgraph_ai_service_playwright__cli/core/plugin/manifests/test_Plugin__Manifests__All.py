@@ -55,8 +55,8 @@ class test_Plugin__Manifests__All(TestCase):
         _make_registry().discover()
         assert set(loaded) == {'linux', 'docker', 'elastic', 'vnc', 'neko', 'firefox'}
 
-    def test__plugin_folders__contains_all_8_types(self):
-        assert set(PLUGIN_FOLDERS) == {'linux', 'docker', 'elastic', 'vnc', 'prometheus', 'opensearch', 'neko', 'firefox'}
+    def test__plugin_folders__contains_all_9_types(self):
+        assert set(PLUGIN_FOLDERS) == {'linux', 'docker', 'podman', 'elastic', 'vnc', 'prometheus', 'opensearch', 'neko', 'firefox'}
 
     # ── individual manifest properties ───────────────────────────────────────
 

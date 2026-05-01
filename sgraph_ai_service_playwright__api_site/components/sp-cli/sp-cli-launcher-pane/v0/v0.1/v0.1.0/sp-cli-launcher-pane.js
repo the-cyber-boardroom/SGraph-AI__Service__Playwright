@@ -1,7 +1,7 @@
 import { SgComponent        } from 'https://dev.tools.sgraph.ai/components/base/v1/v1.0/v1.0.0/sg-component.js'
 import { getAllPluginToggles } from '../../../../../../shared/settings-bus.js'
 
-const PLUGIN_ORDER = ['linux', 'docker', 'elastic', 'vnc', 'prometheus', 'opensearch', 'neko', 'firefox']
+const PLUGIN_ORDER = ['linux', 'docker', 'podman', 'elastic', 'vnc', 'prometheus', 'opensearch', 'neko', 'firefox']
 
 class SpCliLauncherPane extends SgComponent {
     static jsUrl = import.meta.url
