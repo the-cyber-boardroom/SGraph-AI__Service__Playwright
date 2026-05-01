@@ -14,16 +14,7 @@
     <sp-cli-vault-picker  slot="vault-picker"></sp-cli-vault-picker>
   </sp-cli-top-bar>
 
-  <!-- vault gate: shown until vault connects -->
-  <div id="vault-gate" class="vault-gate">
-    <div class="vault-gate-card">
-      <div class="vault-gate-title">Connect a vault to use this console</div>
-      <div class="vault-gate-hint">Click <strong>Connect vault</strong> in the top bar →</div>
-    </div>
-  </div>
-
-  <!-- main content: hidden until vault connects -->
-  <main id="main-content" hidden>
+  <main id="main-content">
     <sg-layout id="root-layout"></sg-layout>
   </main>
 

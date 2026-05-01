@@ -47,16 +47,20 @@ document.addEventListener('DOMContentLoaded', async () => {
     startVaultBus()
     startSettingsBus()
 
-    // ── Vault gate ────────────────────────────────────────────────────────── //
+    // ── Boot immediately — vault is optional ──────────────────────────────── //
 
-    document.addEventListener('vault:connected', async () => {
-        _setGate(true)
-        await _loadData()
-        // layout init deferred to sp-cli:settings.loaded to avoid race with vault read
-    })
-    document.addEventListener('vault:disconnected', () => _setGate(false))
+    // Init layout with default settings, then load data.
+    // Vault is additive: if it connects, settings-bus reads preferences and
+    // _loadData() refreshes the stack list. Layout only re-inits if vault
+    // fast-restores before this line runs (handled by settings.loaded below).
+    await _initLayout()
+    _loadData()
 
-    // ── Settings loaded → trigger layout init (once) ──────────────────────── //
+    // ── Vault events (preferences + API key sync, not a gate) ────────────── //
+
+    document.addEventListener('vault:connected', () => _loadData())
+
+    // ── Settings loaded → re-init layout only if vault beat the boot path ── //
 
     document.addEventListener('sp-cli:settings.loaded', async () => {
         if (!_layoutReady) await _initLayout()
@@ -179,11 +183,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     })
 
     // ── Helpers ───────────────────────────────────────────────────────────── //
-
-    function _setGate(connected) {
-        document.getElementById('vault-gate').hidden  = connected
-        document.getElementById('main-content').hidden = !connected
-    }
 
     async function _initLayout() {
         if (_layoutReady) return
