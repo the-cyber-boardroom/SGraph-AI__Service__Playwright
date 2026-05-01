@@ -15,7 +15,8 @@ const DEFAULTS = {
         vnc:        { enabled: true  },
         prometheus: { enabled: false },
         opensearch: { enabled: false },
-        neko:       { enabled: false },
+        neko:       { enabled: true  },
+        firefox:    { enabled: true  },
     },
     ui_panels: {
         events_log:      { visible: true },

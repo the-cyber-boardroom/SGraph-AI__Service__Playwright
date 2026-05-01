@@ -1,3 +1,4 @@
+// @deprecated Use <sp-cli-launch-panel> from sp-cli-launch-panel/ instead.
 /**
  * sp-cli-launch-modal — Stack launch wizard modal.
  *

@@ -1,8 +1,8 @@
 # ═══════════════════════════════════════════════════════════════════════════════
-# tests — plugin manifests for all existing types
-# Verifies: registry discovers the 4 enabled manifests; catalog entries from
+# tests — plugin manifests for all 8 types
+# Verifies: registry discovers the 6 enabled manifests; catalog entries from
 # manifests are identical to the existing hard-coded entries; prometheus and
-# opensearch are skipped; no cross-plugin imports from plugin folders.
+# opensearch are skipped (disabled); neko and firefox are experimental+enabled.
 # ═══════════════════════════════════════════════════════════════════════════════
 
 from unittest import TestCase
@@ -16,6 +16,8 @@ from sgraph_ai_service_playwright__cli.core.plugin.enums.Enum__Plugin__Stability
 
 from sgraph_ai_service_playwright__cli.docker.plugin.Plugin__Manifest__Docker        import Plugin__Manifest__Docker
 from sgraph_ai_service_playwright__cli.elastic.plugin.Plugin__Manifest__Elastic      import Plugin__Manifest__Elastic
+from sgraph_ai_service_playwright__cli.firefox.plugin.Plugin__Manifest__Firefox      import Plugin__Manifest__Firefox
+from sgraph_ai_service_playwright__cli.neko.plugin.Plugin__Manifest__Neko            import Plugin__Manifest__Neko
 from sgraph_ai_service_playwright__cli.opensearch.plugin.Plugin__Manifest__OpenSearch import Plugin__Manifest__OpenSearch
 from sgraph_ai_service_playwright__cli.podman.plugin.Plugin__Manifest__Podman        import Plugin__Manifest__Podman
 from sgraph_ai_service_playwright__cli.prometheus.plugin.Plugin__Manifest__Prometheus import Plugin__Manifest__Prometheus
@@ -35,10 +37,10 @@ class test_Plugin__Manifests__All(TestCase):
 
     # ── registry discovery ───────────────────────────────────────────────────
 
-    def test__discover__loads_core_enabled_plugins(self):
+    def test__discover__loads_exactly_6_enabled_plugins(self):
         registry = _make_registry()
         registry.discover()
-        assert {'podman', 'docker', 'elastic', 'vnc'}.issubset(set(registry.manifests.keys()))
+        assert set(registry.manifests.keys()) == {'podman', 'docker', 'elastic', 'vnc', 'neko', 'firefox'}
 
     def test__discover__prometheus_and_opensearch_skipped(self):
         skipped_names = []
@@ -47,14 +49,14 @@ class test_Plugin__Manifests__All(TestCase):
         assert 'prometheus'  in skipped_names
         assert 'opensearch'  in skipped_names
 
-    def test__discover__core_loaded_events_fired(self):
+    def test__discover__6_loaded_events_fired(self):
         loaded = []
         event_bus.on('core:plugin.loaded', lambda p: loaded.append(str(p.name)))
         _make_registry().discover()
-        assert {'podman', 'docker', 'elastic', 'vnc'}.issubset(set(loaded))
+        assert set(loaded) == {'podman', 'docker', 'elastic', 'vnc', 'neko', 'firefox'}
 
-    def test__plugin_folders__contains_all_enabled_types(self):
-        assert {'podman', 'docker', 'elastic', 'vnc', 'prometheus', 'opensearch'}.issubset(set(PLUGIN_FOLDERS))
+    def test__plugin_folders__contains_all_8_types(self):
+        assert set(PLUGIN_FOLDERS) == {'podman', 'docker', 'elastic', 'vnc', 'prometheus', 'opensearch', 'neko', 'firefox'}
 
     # ── individual manifest properties ───────────────────────────────────────
 
@@ -93,6 +95,18 @@ class test_Plugin__Manifests__All(TestCase):
         m = Plugin__Manifest__OpenSearch()
         assert str(m.name)  == 'opensearch'
         assert m.enabled    is False
+        assert m.stability  == Enum__Plugin__Stability.EXPERIMENTAL
+
+    def test__manifest_neko__enabled_experimental(self):
+        m = Plugin__Manifest__Neko()
+        assert str(m.name)  == 'neko'
+        assert m.enabled    is True
+        assert m.stability  == Enum__Plugin__Stability.EXPERIMENTAL
+
+    def test__manifest_firefox__enabled_experimental(self):
+        m = Plugin__Manifest__Firefox()
+        assert str(m.name)  == 'firefox'
+        assert m.enabled    is True
         assert m.stability  == Enum__Plugin__Stability.EXPERIMENTAL
 
     # ── routes_classes ────────────────────────────────────────────────────────

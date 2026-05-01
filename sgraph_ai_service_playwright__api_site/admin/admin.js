@@ -1,30 +1,36 @@
 // ── admin.js — Admin Dashboard page controller ──────────────────────────── //
 
-import { apiClient    } from '../shared/api-client.js'
-import { startVaultBus } from '../shared/vault-bus.js'
-import { startSettingsBus } from '../shared/settings-bus.js'
+import { apiClient       } from '../shared/api-client.js'
+import { startVaultBus   } from '../shared/vault-bus.js'
+import { startSettingsBus, getUIPanelVisible } from '../shared/settings-bus.js'
 
 const ROOT_LAYOUT_KEY = 'sp-cli:admin:root-layout:v1'
 
-const ROOT_LAYOUT = {
-    type: 'row', sizes: [0.07, 0.78, 0.15],
-    children: [
-        { type: 'stack', tabs: [
-            { tag: 'sp-cli-left-nav', title: 'Nav', locked: true },
-        ]},
-        { type: 'stack', tabs: [
-            { tag: 'sp-cli-compute-view', title: 'Compute', locked: true },
-        ]},
-        { type: 'column', sizes: [0.30, 0.20, 0.20, 0.30], children: [
-            { type: 'stack', tabs: [{ tag: 'sp-cli-events-log',      title: 'Events Log',      locked: true }] },
-            { type: 'stack', tabs: [{ tag: 'sp-cli-vault-status',    title: 'Vault Status',    locked: true }] },
-            { type: 'stack', tabs: [{ tag: 'sp-cli-active-sessions', title: 'Active Sessions', locked: true }] },
-            { type: 'stack', tabs: [{ tag: 'sp-cli-cost-tracker',    title: 'Cost Tracker',    locked: true }] },
-        ]},
-    ],
+const RIGHT_PANELS = [
+    { key: 'events_log',      tag: 'sp-cli-events-log',      title: 'Events Log'      },
+    { key: 'vault_status',    tag: 'sp-cli-vault-status',     title: 'Vault Status'    },
+    { key: 'active_sessions', tag: 'sp-cli-active-sessions',  title: 'Active Sessions' },
+    { key: 'cost_tracker',    tag: 'sp-cli-cost-tracker',     title: 'Cost Tracker'    },
+]
+
+function _buildRootLayout() {
+    const visible = RIGHT_PANELS.filter(p => getUIPanelVisible(p.key))
+    const n       = visible.length || 1
+    const sizes   = visible.map(() => 1 / n)
+    const children = visible.map(p => ({
+        type: 'stack', tabs: [{ tag: p.tag, title: p.title, locked: true }],
+    }))
+    return {
+        type: 'row', sizes: [0.07, 0.78, 0.15],
+        children: [
+            { type: 'stack', tabs: [{ tag: 'sp-cli-left-nav',      title: 'Nav',     locked: true }] },
+            { type: 'stack', tabs: [{ tag: 'sp-cli-compute-view',   title: 'Compute', locked: true }] },
+            { type: 'column', sizes, children },
+        ],
+    }
 }
 
-const VIEW_TITLES = { compute: 'Compute', storage: 'Storage', settings: 'Settings', diagnostics: 'Diagnostics' }
+const VIEW_TITLES = { compute: 'Compute', storage: 'Storage', settings: 'Settings', diagnostics: 'Diagnostics', api: 'API Docs' }
 
 document.addEventListener('DOMContentLoaded', async () => {
     let _layoutEl         = null
@@ -33,21 +39,32 @@ document.addEventListener('DOMContentLoaded', async () => {
     let _currentView      = 'compute'
     let _currentViewTabId = null
     let _region           = ''
-    let _detailTabIds     = {}                                      // stack_name → panelId
-    let _detailTypeIds    = {}                                      // stack_name → type_id (for plugin toggle cleanup)
-    let _launchTabIds     = {}                                      // type_id   → panelId
+    let _detailTabIds     = {}      // stack_name → panelId
+    let _detailTypeIds    = {}      // stack_name → type_id
+    let _launchTabIds     = {}      // type_id    → panelId
+    let _rightPanelTabIds = {}      // panel key  → panelId
 
     startVaultBus()
     startSettingsBus()
 
-    // ── Vault gate ────────────────────────────────────────────────────────── //
+    // ── Boot immediately — vault is optional ──────────────────────────────── //
 
-    document.addEventListener('vault:connected', async () => {
-        _setGate(true)
-        await _initLayout()
-        await _loadData()
+    // Init layout with default settings, then load data.
+    // Vault is additive: if it connects, settings-bus reads preferences and
+    // _loadData() refreshes the stack list. Layout only re-inits if vault
+    // fast-restores before this line runs (handled by settings.loaded below).
+    await _initLayout()
+    _loadData()
+
+    // ── Vault events (preferences + API key sync, not a gate) ────────────── //
+
+    document.addEventListener('vault:connected', () => _loadData())
+
+    // ── Settings loaded → re-init layout only if vault beat the boot path ── //
+
+    document.addEventListener('sp-cli:settings.loaded', async () => {
+        if (!_layoutReady) await _initLayout()
     })
-    document.addEventListener('vault:disconnected', () => _setGate(false))
 
     // ── Navigation ────────────────────────────────────────────────────────── //
 
@@ -82,13 +99,31 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
     })
 
+    // ── UI panel visibility toggle ────────────────────────────────────────── //
+
+    document.addEventListener('sp-cli:ui-panel.toggled', (e) => {
+        const { panel, visible } = e.detail || {}
+        if (!panel || !_layoutEl) return
+        if (!visible) {
+            if (_rightPanelTabIds[panel]) {
+                _layoutEl.removePanel(_rightPanelTabIds[panel])
+                delete _rightPanelTabIds[panel]
+            }
+        } else if (!_rightPanelTabIds[panel]) {
+            document.dispatchEvent(new CustomEvent('sg-toast', {
+                detail:  { message: 'Click "Reset Layout" in Settings to show this panel.', tone: 'info' },
+                bubbles: true, composed: true,
+            }))
+        }
+    })
+
     // ── Auth ──────────────────────────────────────────────────────────────── //
 
     document.addEventListener('sg-auth-saved', () => _loadData())
 
     // ── Launch flow (wired here; sp-cli-launch-panel added in PR-4) ───────── //
 
-    const LAUNCH_TYPES = ['linux', 'docker', 'elastic', 'vnc', 'prometheus', 'opensearch', 'neko']
+    const LAUNCH_TYPES = ['linux', 'docker', 'elastic', 'vnc', 'prometheus', 'opensearch', 'neko', 'firefox']
     LAUNCH_TYPES.forEach(t =>
         document.addEventListener(`sp-cli:plugin:${t}.launch-requested`, (e) => _openLaunchTab(e.detail?.entry))
     )
@@ -103,13 +138,13 @@ document.addEventListener('DOMContentLoaded', async () => {
             _layoutEl?.removePanel(_launchTabIds[entry.type_id])
             delete _launchTabIds[entry.type_id]
         }
-        setTimeout(() => _loadData(), 3_000)
+        setTimeout(() => _loadData(), 1_000)
     })
     document.addEventListener('sp-cli:launch-success', (e) => {                                // compat
         const { entry, response } = e.detail || {}
         const stackName = response?.stack_info?.stack_name || response?.stack_name || '?'
         _activity(`✓ Launched ${entry?.display_name}: ${stackName}`)
-        setTimeout(() => _loadData(), 3_000)
+        setTimeout(() => _loadData(), 1_000)
     })
     document.addEventListener('sp-cli:launch.error', (e) => {
         _activity(`✗ Launch failed (${e.detail?.entry?.display_name}): ${e.detail?.error}`)
@@ -149,11 +184,6 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     // ── Helpers ───────────────────────────────────────────────────────────── //
 
-    function _setGate(connected) {
-        document.getElementById('vault-gate').hidden  = connected
-        document.getElementById('main-content').hidden = !connected
-    }
-
     async function _initLayout() {
         if (_layoutReady) return
         _layoutReady = true
@@ -162,11 +192,12 @@ document.addEventListener('DOMContentLoaded', async () => {
         await import('https://dev.tools.sgraph.ai/core/sg-layout/v0.1.0/sg-layout.js')
 
         _layoutEl = document.getElementById('root-layout')
-        _layoutEl.setLayout(_loadLayout() || ROOT_LAYOUT)
+        _layoutEl.setLayout(_loadLayout() || _buildRootLayout())
 
-        const tree      = _layoutEl.getLayout()
-        _mainStackId    = _findMainStackId(tree)
+        const tree        = _layoutEl.getLayout()
+        _mainStackId      = _findMainStackId(tree)
         _currentViewTabId = _findCurrentViewTabId(tree, _mainStackId)
+        _rightPanelTabIds = _findRightPanelTabIds(tree)
 
         _layoutEl._events.on(SGL_EVENTS.LAYOUT_CHANGED, ({ tree }) => {
             try { localStorage.setItem(ROOT_LAYOUT_KEY, JSON.stringify(tree)) } catch (_) {}
@@ -273,7 +304,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     function _findMainStackId(tree) {
         const viewTags = [
             'sp-cli-compute-view', 'sp-cli-storage-view',
-            'sp-cli-settings-view', 'sp-cli-diagnostics-view',
+            'sp-cli-settings-view', 'sp-cli-diagnostics-view', 'sp-cli-api-view',
         ]
         for (const tag of viewTags) {
             const id = _findStackWithTag(tree, tag)
@@ -288,7 +319,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (!stack) return null
         const viewTags = [
             'sp-cli-compute-view', 'sp-cli-storage-view',
-            'sp-cli-settings-view', 'sp-cli-diagnostics-view',
+            'sp-cli-settings-view', 'sp-cli-diagnostics-view', 'sp-cli-api-view',
         ]
         for (const tag of viewTags) {
             const tab = stack.tabs?.find(t => t.tag === tag)
@@ -298,6 +329,20 @@ document.addEventListener('DOMContentLoaded', async () => {
             }
         }
         return null
+    }
+
+    function _findRightPanelTabIds(tree) {
+        const result  = {}
+        const tagToKey = {}
+        RIGHT_PANELS.forEach(p => { tagToKey[p.tag] = p.key })
+        const rightCol = tree?.children?.[2]
+        for (const stack of rightCol?.children || []) {
+            const tab = stack.tabs?.[0]
+            if (tab?.tag && tab?.id && tagToKey[tab.tag]) {
+                result[tagToKey[tab.tag]] = tab.id
+            }
+        }
+        return result
     }
 
     function _findStackWithTag(tree, tag) {

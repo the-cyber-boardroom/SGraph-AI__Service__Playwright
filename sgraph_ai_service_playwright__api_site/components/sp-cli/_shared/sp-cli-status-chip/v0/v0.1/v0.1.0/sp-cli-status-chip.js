@@ -32,12 +32,10 @@ class SpCliStatusChip extends SgComponent {
     setState(state) {
         const key  = (state || '').toLowerCase()
         const info = STATE_MAP[key] || { cls: 'state-unknown', dot: '●', label: state || '—' }
-        this._dotEl  ?.textContent = info.dot
-        this._labelEl?.textContent = info.label
+        if (this._dotEl)   this._dotEl.textContent   = info.dot
+        if (this._labelEl) this._labelEl.textContent = info.label
         const el = this.shadowRoot?.querySelector('.chip')
-        if (el) {
-            el.className = `chip ${info.cls}`
-        }
+        if (el) el.className = `chip ${info.cls}`
     }
 }
 
