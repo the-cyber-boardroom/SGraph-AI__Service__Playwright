@@ -19,6 +19,9 @@ from typing                                                                     
 
 from osbot_utils.type_safe.Type_Safe                                                import Type_Safe
 
+from sgraph_ai_service_playwright__cli.catalog.enums.Enum__Stack__Type              import Enum__Stack__Type
+from sgraph_ai_service_playwright__cli.core.event_bus.Event__Bus                    import event_bus
+from sgraph_ai_service_playwright__cli.core.event_bus.schemas.Schema__Stack__Event  import Schema__Stack__Event
 from sgraph_ai_service_playwright__cli.ec2.collections.List__Instance__Id           import List__Instance__Id
 from sgraph_ai_service_playwright__cli.vnc.collections.List__Schema__Vnc__Mitm__Flow__Summary import List__Schema__Vnc__Mitm__Flow__Summary
 from sgraph_ai_service_playwright__cli.vnc.collections.List__Schema__Vnc__Stack__Info import List__Schema__Vnc__Stack__Info
@@ -104,7 +107,11 @@ class Vnc__Service(Type_Safe):
         instance_id  = self.aws_client.launch.run_instance(region, ami_id, sg_id, user_data, tags,
                                                               instance_type         = inst_type   ,
                                                               instance_profile_name = PROFILE_NAME)        # Without this, SSM agent has no creds to register — `sp vnc connect` fails with TargetNotConnected.
-
+        event_bus.emit('vnc:stack.created', Schema__Stack__Event(
+            type_id     = Enum__Stack__Type.VNC,
+            stack_name  = stack_name           ,
+            region      = region               ,
+            instance_id = str(instance_id)     ))
         return Schema__Vnc__Stack__Create__Response(
             stack_name        = stack_name                                              ,
             aws_name_tag      = VNC_NAMING.aws_name_for_stack(stack_name)               ,
@@ -140,6 +147,11 @@ class Vnc__Service(Type_Safe):
         terminated  = List__Instance__Id()
         if ok and instance_id:
             terminated.append(instance_id)
+            event_bus.emit('vnc:stack.deleted', Schema__Stack__Event(
+                type_id     = Enum__Stack__Type.VNC,
+                stack_name  = stack_name           ,
+                region      = region               ,
+                instance_id = instance_id          ))
         return Schema__Vnc__Stack__Delete__Response(target=instance_id, stack_name=stack_name, terminated_instance_ids=terminated)
 
     def health(self, region: str, stack_name: str, username: str = '', password: str = '') -> Schema__Vnc__Health:

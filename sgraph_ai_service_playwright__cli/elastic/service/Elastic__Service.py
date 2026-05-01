@@ -53,6 +53,9 @@ from sgraph_ai_service_playwright__cli.elastic.service.Elastic__HTTP__Client    
 from sgraph_ai_service_playwright__cli.elastic.service.Elastic__User__Data__Builder import Elastic__User__Data__Builder
 from sgraph_ai_service_playwright__cli.elastic.service.Kibana__Saved_Objects__Client import Kibana__Saved_Objects__Client
 from sgraph_ai_service_playwright__cli.elastic.service.Synthetic__Data__Generator   import Synthetic__Data__Generator
+from sgraph_ai_service_playwright__cli.catalog.enums.Enum__Stack__Type              import Enum__Stack__Type
+from sgraph_ai_service_playwright__cli.core.event_bus.Event__Bus                   import event_bus
+from sgraph_ai_service_playwright__cli.core.event_bus.schemas.Schema__Stack__Event import Schema__Stack__Event
 from sgraph_ai_service_playwright__cli.observability.primitives.Safe_Str__AWS__Region    import Safe_Str__AWS__Region
 
 
@@ -114,6 +117,11 @@ class Elastic__Service(Type_Safe):                                              
                                                         instance_profile_name = profile_name    ,
                                                         creator               = creator         ,
                                                         max_hours             = max_hours       )
+        event_bus.emit('elastic:stack.created', Schema__Stack__Event(
+            type_id     = Enum__Stack__Type.ELASTIC,
+            stack_name  = str(stack_name)          ,
+            region      = str(region)              ,
+            instance_id = str(instance_id)         ))
         return Schema__Elastic__Create__Response(stack_name        = stack_name                                  ,
                                                  aws_name_tag      = ELASTIC_NAMING.aws_name_for_stack(stack_name)              ,  # "elastic-..." marker, no doubles
                                                  instance_id       = instance_id                                  ,
@@ -215,6 +223,12 @@ class Elastic__Service(Type_Safe):                                              
         ids = List__Instance__Id()
         if terminated and instance_id:
             ids.append(instance_id)
+        if terminated:
+            event_bus.emit('elastic:stack.deleted', Schema__Stack__Event(
+                type_id     = Enum__Stack__Type.ELASTIC,
+                stack_name  = str(stack_name)          ,
+                region      = str(resolved)            ,
+                instance_id = instance_id              ))
         return Schema__Elastic__Delete__Response(stack_name              = stack_name  ,
                                                  target                  = instance_id ,
                                                  terminated_instance_ids = ids          ,

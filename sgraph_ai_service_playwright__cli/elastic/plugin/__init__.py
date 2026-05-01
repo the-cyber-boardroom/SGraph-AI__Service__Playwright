@@ -1,0 +1,1 @@
+from sgraph_ai_service_playwright__cli.elastic.plugin.Plugin__Manifest__Elastic import Plugin__Manifest__Elastic
