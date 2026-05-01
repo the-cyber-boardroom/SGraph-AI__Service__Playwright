@@ -17,7 +17,7 @@ from unittest                                                                   
 import pytest
 import requests
 
-from sgraph_ai_service_playwright.docker.Lambda__Docker__SGraph_AI__Service__Playwright import Lambda__Docker__SGraph_AI__Service__Playwright
+from sgraph_ai_service_playwright.docker.Lambda__Docker__SGraph_AI__Service__Playwright import Lambda__Docker__SGraph_AI__Service__Playwright, VARIANT__BASELINE
 
 
 def _aws_creds_available() -> bool:
@@ -72,9 +72,20 @@ class test_Smoke__Playwright__Service__dev(TestCase):
 
     BROWSER_TIMEOUT_S = 60                                                              # Browser cold-start + nav can take ~2-4s; 60s gives room for Lambda cold start
 
-    def test_5__browser_navigate_renders_page(self):                                    # Validates the full chain: boot shim → Playwright → real site; health checks can't catch broken code-loader paths
+    def test_5__browser_navigate_renders_page(self):                                    # Validates the baked image: baseline Lambda → Playwright → real site.
+        # Uses the BASELINE Lambda (not agentic) because the agentic Lambda's
+        # S3 zip contains only sgraph_ai_service_playwright source files —
+        # playwright is installed only in the Docker base image, which the
+        # baseline variant boots from directly. Tests 1-4 already cover the
+        # agentic boot-shim path via health endpoints.
+        baseline     = Lambda__Docker__SGraph_AI__Service__Playwright(variant=VARIANT__BASELINE)
+        baseline.setup()
+        baseline_url = baseline.function_url()
+        if not baseline_url:
+            pytest.skip('Baseline Lambda function URL not available')
+
         payload  = {'url': 'https://example.com'}
-        response = requests.post(f'{self.function_url}browser/get-content',
+        response = requests.post(f'{baseline_url}browser/get-content',
                                   json    = payload            ,
                                   headers = self.auth_headers  ,
                                   timeout = self.BROWSER_TIMEOUT_S)
