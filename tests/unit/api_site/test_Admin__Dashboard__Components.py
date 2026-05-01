@@ -48,12 +48,12 @@ class Test_Admin_Entry_Point:
 
     def test_index_html_has_all_plugin_card_tags(self):
         content = (API_SITE / 'admin' / 'index.html').read_text()
-        for name in ['linux', 'docker', 'elastic', 'vnc', 'prometheus', 'opensearch', 'neko']:
+        for name in ['linux', 'docker', 'elastic', 'vnc', 'prometheus', 'opensearch', 'neko', 'firefox']:
             assert f'sp-cli-{name}-card.js' in content, f'Missing script tag for {name} card'
 
     def test_index_html_has_all_detail_tags(self):
         content = (API_SITE / 'admin' / 'index.html').read_text()
-        for name in ['linux', 'docker', 'elastic', 'vnc', 'prometheus', 'opensearch', 'neko']:
+        for name in ['linux', 'docker', 'elastic', 'vnc', 'prometheus', 'opensearch', 'neko', 'firefox']:
             assert f'sp-cli-{name}-detail.js' in content, f'Missing script tag for {name} detail'
 
 # ── shared utilities ──────────────────────────────────────────────────────── #
@@ -78,7 +78,7 @@ class Test_Shared_Utilities:
 
 # ── plugin cards ──────────────────────────────────────────────────────────── #
 
-PLUGIN_NAMES = ['linux', 'docker', 'elastic', 'vnc', 'prometheus', 'opensearch', 'neko']
+PLUGIN_NAMES = ['linux', 'docker', 'elastic', 'vnc', 'prometheus', 'opensearch', 'neko', 'firefox']
 
 class Test_Plugin_Cards:
     @pytest.mark.parametrize('name', PLUGIN_NAMES)
@@ -153,6 +153,16 @@ class Test_Detail_Components:
     def test_vnc_detail_imports_remote_browser(self):
         js = detail('vnc')[0].read_text()
         assert 'sg-remote-browser.js' in js
+
+    def test_firefox_detail_has_remote_browser(self):
+        html = detail('firefox')[1].read_text()
+        assert 'sg-remote-browser' in html
+        js   = detail('firefox')[0].read_text()
+        assert 'sg-remote-browser' in js
+
+    def test_firefox_detail_uses_port_5800(self):
+        js = detail('firefox')[0].read_text()
+        assert ':5800' in js
 
 # ── compute view ─────────────────────────────────────────────────────────── #
 
