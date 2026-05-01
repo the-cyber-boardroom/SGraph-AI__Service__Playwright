@@ -30,7 +30,7 @@ function _buildRootLayout() {
     }
 }
 
-const VIEW_TITLES = { compute: 'Compute', storage: 'Storage', settings: 'Settings', diagnostics: 'Diagnostics' }
+const VIEW_TITLES = { compute: 'Compute', storage: 'Storage', settings: 'Settings', diagnostics: 'Diagnostics', api: 'API Docs' }
 
 document.addEventListener('DOMContentLoaded', async () => {
     let _layoutEl         = null
@@ -138,13 +138,13 @@ document.addEventListener('DOMContentLoaded', async () => {
             _layoutEl?.removePanel(_launchTabIds[entry.type_id])
             delete _launchTabIds[entry.type_id]
         }
-        setTimeout(() => _loadData(), 3_000)
+        setTimeout(() => _loadData(), 1_000)
     })
     document.addEventListener('sp-cli:launch-success', (e) => {                                // compat
         const { entry, response } = e.detail || {}
         const stackName = response?.stack_info?.stack_name || response?.stack_name || '?'
         _activity(`✓ Launched ${entry?.display_name}: ${stackName}`)
-        setTimeout(() => _loadData(), 3_000)
+        setTimeout(() => _loadData(), 1_000)
     })
     document.addEventListener('sp-cli:launch.error', (e) => {
         _activity(`✗ Launch failed (${e.detail?.entry?.display_name}): ${e.detail?.error}`)
@@ -304,7 +304,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     function _findMainStackId(tree) {
         const viewTags = [
             'sp-cli-compute-view', 'sp-cli-storage-view',
-            'sp-cli-settings-view', 'sp-cli-diagnostics-view',
+            'sp-cli-settings-view', 'sp-cli-diagnostics-view', 'sp-cli-api-view',
         ]
         for (const tag of viewTags) {
             const id = _findStackWithTag(tree, tag)
@@ -319,7 +319,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (!stack) return null
         const viewTags = [
             'sp-cli-compute-view', 'sp-cli-storage-view',
-            'sp-cli-settings-view', 'sp-cli-diagnostics-view',
+            'sp-cli-settings-view', 'sp-cli-diagnostics-view', 'sp-cli-api-view',
         ]
         for (const tag of viewTags) {
             const tab = stack.tabs?.find(t => t.tag === tag)

@@ -43,9 +43,16 @@ class SpCliLaunchForm extends SgComponent {
             if (this._advBody) this._advBody.hidden = open
             if (this._advToggle) this._advToggle.textContent = open ? '▶ Advanced' : '▼ Advanced'
         })
+
+        if (this._pendingPopulate) {
+            const { entry, defaults } = this._pendingPopulate
+            this._pendingPopulate = null
+            this.populate(entry, defaults)
+        }
     }
 
     populate(entry, defaults = {}) {
+        if (!this._nameInput) { this._pendingPopulate = { entry, defaults }; return }
         const region   = defaults.region        || entry?.default_region        || REGIONS[0]
         const instType = defaults.instance_type || entry?.default_instance_type || 't3.medium'
         const hours    = defaults.max_hours     || entry?.default_max_hours     || 4

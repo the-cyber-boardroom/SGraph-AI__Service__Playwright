@@ -56,6 +56,10 @@ class Test_Admin_Entry_Point:
         for name in ['linux', 'docker', 'elastic', 'vnc', 'prometheus', 'opensearch', 'neko', 'firefox']:
             assert f'sp-cli-{name}-detail.js' in content, f'Missing script tag for {name} detail'
 
+    def test_index_html_has_api_view_tag(self):
+        content = (API_SITE / 'admin' / 'index.html').read_text()
+        assert 'sp-cli-api-view.js' in content
+
 # ── shared utilities ──────────────────────────────────────────────────────── #
 
 class Test_Shared_Utilities:
@@ -184,3 +188,17 @@ class Test_Settings_View:
     def test_imports_settings_bus(self):
         js = component('sp-cli-settings-view')[0].read_text()
         assert 'settings-bus.js' in js
+
+# ── api view ──────────────────────────────────────────────────────────────── #
+
+class Test_Api_View:
+    def test_trio_exists(self):
+        assert_trio(component('sp-cli-api-view'))
+
+    def test_html_has_iframe(self):
+        html = component('sp-cli-api-view')[1].read_text()
+        assert 'iframe' in html
+
+    def test_js_opens_docs(self):
+        js = component('sp-cli-api-view')[0].read_text()
+        assert '/docs' in js
