@@ -29,7 +29,7 @@ function _buildRootLayout() {
     }
 }
 
-const VIEW_TITLES = { compute: 'Compute', nodes: 'Active Nodes', settings: 'Settings', diagnostics: 'Diagnostics', api: 'API Docs' }
+const VIEW_TITLES = { compute: 'Compute', nodes: 'Active Nodes', stacks: 'Stacks', settings: 'Settings', diagnostics: 'Diagnostics', api: 'API Docs' }
 
 document.addEventListener('DOMContentLoaded', async () => {
     let _layoutEl         = null
@@ -62,12 +62,15 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     // ── Stack interactions ────────────────────────────────────────────────── //
 
-    document.addEventListener('sp-cli:stack.selected',  (e) => _openDetailTab(e.detail?.stack))
-    document.addEventListener('sp-cli:stack-selected',  (e) => _openDetailTab(e.detail?.stack)) // compat
-    document.addEventListener('sp-cli:stack.deleted',   (e) => _onStackDeleted(e.detail?.stack))
-    document.addEventListener('sp-cli:stack-deleted',   (e) => _onStackDeleted(e.detail?.stack)) // compat
-    document.addEventListener('sp-cli:stacks.refresh',  () => _loadData())
-    document.addEventListener('sp-cli:stacks-refresh',  () => _loadData())                       // compat
+    document.addEventListener('sp-cli:node.selected',   (e) => _openDetailTab(e.detail?.stack))
+    document.addEventListener('sp-cli:node.deleted',    (e) => _onStackDeleted(e.detail?.stack))
+    document.addEventListener('sp-cli:nodes.refresh',   () => _loadData())
+    document.addEventListener('sp-cli:stack.selected',  (e) => _openDetailTab(e.detail?.stack))  // DEPRECATED
+    document.addEventListener('sp-cli:stack-selected',  (e) => _openDetailTab(e.detail?.stack))  // DEPRECATED
+    document.addEventListener('sp-cli:stack.deleted',   (e) => _onStackDeleted(e.detail?.stack)) // DEPRECATED
+    document.addEventListener('sp-cli:stack-deleted',   (e) => _onStackDeleted(e.detail?.stack)) // DEPRECATED
+    document.addEventListener('sp-cli:stacks.refresh',  () => _loadData())                       // DEPRECATED
+    document.addEventListener('sp-cli:stacks-refresh',  () => _loadData())                       // DEPRECATED
     document.addEventListener('sp-cli:region-changed',  (e) => { _region = e.detail?.region || ''; _loadData() })
 
     // ── Plugin / settings events ─────────────────────────────────────────── //
@@ -294,7 +297,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     // Find the stack ID that holds the current main view
     function _findMainStackId(tree) {
         const viewTags = [
-            'sp-cli-compute-view', 'sp-cli-nodes-view', 'sp-cli-storage-view',
+            'sp-cli-compute-view', 'sp-cli-nodes-view', 'sp-cli-stacks-view', 'sp-cli-storage-view',
             'sp-cli-settings-view', 'sp-cli-diagnostics-view', 'sp-cli-api-view',
         ]
         for (const tag of viewTags) {
@@ -309,7 +312,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         const stack = _findNodeById(tree, mainStackId)
         if (!stack) return null
         const viewTags = [
-            'sp-cli-compute-view', 'sp-cli-nodes-view', 'sp-cli-storage-view',
+            'sp-cli-compute-view', 'sp-cli-nodes-view', 'sp-cli-stacks-view', 'sp-cli-storage-view',
             'sp-cli-settings-view', 'sp-cli-diagnostics-view', 'sp-cli-api-view',
         ]
         for (const tag of viewTags) {

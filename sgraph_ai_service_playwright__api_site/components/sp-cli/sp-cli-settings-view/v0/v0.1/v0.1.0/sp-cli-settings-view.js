@@ -1,21 +1,10 @@
 import { SgComponent } from 'https://dev.tools.sgraph.ai/components/base/v1/v1.0/v1.0.0/sg-component.js'
 import {
-    getAllPluginToggles, getUIPanelVisible, getDefault,
-    setPluginEnabled, setUIPanelVisible, setDefault, isLoaded,
+    getUIPanelVisible, getDefault,
+    setUIPanelVisible, setDefault, isLoaded,
 } from '../../../../../../shared/settings-bus.js'
 
 const ROOT_LAYOUT_KEY = 'sp-cli:admin:root-layout:v1'
-
-const PLUGINS = [
-    { name: 'docker',     icon: '🐳', label: 'Docker host',             stability: 'stable',       boot: '~10min' },
-    { name: 'podman',     icon: '🦭', label: 'Podman host',             stability: 'stable',       boot: '~10min' },
-    { name: 'elastic',    icon: '🔍', label: 'Elastic + Kibana',        stability: 'stable',       boot: '~90s'   },
-    { name: 'vnc',        icon: '🖥',  label: 'VNC bastion',             stability: 'stable',       boot: '~90s'   },
-    { name: 'prometheus', icon: '📊', label: 'Prometheus + Grafana',    stability: 'experimental', boot: '—'      },
-    { name: 'opensearch', icon: '🌐', label: 'OpenSearch + Dashboards', stability: 'experimental', boot: '—'      },
-    { name: 'neko',       icon: '🌐', label: 'Neko (WebRTC browser)',   stability: 'experimental', boot: '—'      },
-    { name: 'firefox',    icon: '🦊', label: 'Firefox',                 stability: 'experimental', boot: '~90s'   },
-]
 
 const UI_PANELS = [
     { name: 'events_log',      label: 'Events Log'      },
@@ -35,7 +24,6 @@ class SpCliSettingsView extends SgComponent {
     get sharedCssPaths() { return ['https://dev.tools.sgraph.ai/components/tokens/v1/v1.0/v1.0.0/sg-tokens.css'] }
 
     onReady() {
-        this._pluginList  = this.$('.plugin-list')
         this._panelList   = this.$('.panel-list')
         this._regionSel   = this.$('.def-region')
         this._hoursSel    = this.$('.def-hours')
@@ -58,31 +46,8 @@ class SpCliSettingsView extends SgComponent {
     }
 
     _render() {
-        this._renderPlugins()
         this._renderPanels()
         this._renderDefaults()
-    }
-
-    _renderPlugins() {
-        if (!this._pluginList) return
-        const toggles = getAllPluginToggles()
-        this._pluginList.innerHTML = ''
-        for (const p of PLUGINS) {
-            const enabled = toggles[p.name]?.enabled ?? false
-            const row     = document.createElement('label')
-            row.className = 'toggle-row'
-            row.innerHTML = `
-                <input type="checkbox" class="toggle-cb" data-plugin="${_esc(p.name)}"${enabled ? ' checked' : ''}>
-                <span class="toggle-icon">${p.icon}</span>
-                <span class="toggle-label">${_esc(p.label)}</span>
-                ${p.stability === 'experimental' ? '<span class="badge-exp">experimental</span>' : ''}
-                <span class="toggle-boot">${_esc(p.boot)}</span>
-            `
-            row.querySelector('.toggle-cb')?.addEventListener('change', async (e) => {
-                await setPluginEnabled(p.name, e.target.checked)
-            })
-            this._pluginList.appendChild(row)
-        }
     }
 
     _renderPanels() {

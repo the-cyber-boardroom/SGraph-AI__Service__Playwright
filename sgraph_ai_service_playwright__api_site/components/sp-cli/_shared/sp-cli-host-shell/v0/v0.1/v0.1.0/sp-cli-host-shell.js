@@ -1,5 +1,5 @@
 import { SgComponent  } from 'https://dev.tools.sgraph.ai/components/base/v1/v1.0/v1.0.0/sg-component.js'
-import { currentVault } from '../../../../../shared/vault-bus.js'
+import { currentVault } from '../../../../../../../shared/vault-bus.js'
 
 const QUICK_COMMANDS = [
     { label: 'List containers',          cmd: 'docker ps'                   },

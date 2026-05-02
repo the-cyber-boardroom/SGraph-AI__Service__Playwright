@@ -1,47 +1,51 @@
 :host {
-[hidden] { display: none !important; }
     display: block;
-    border-bottom: 1px solid var(--sg-border);
-    background: var(--sg-bg-secondary);
+    border-bottom: 1px solid var(--border-1);
+    background: var(--bg-elev);
+    flex-shrink: 0;
 }
+[hidden] { display: none !important; }
 
 .top-bar {
-    display: flex;
+    display:     flex;
     align-items: center;
-    gap: var(--sg-sp-4);
-    padding: var(--sg-sp-2) var(--sg-sp-4);
-    height: 56px;
+    gap:         16px;
+    padding:     0 16px;
+    height:      44px;
 }
 
 .brand {
     text-decoration: none;
-    display: flex;
-    align-items: center;
-    flex-shrink: 0;
+    display:         flex;
+    align-items:     center;
+    flex-shrink:     0;
 }
 
 .brand-mark {
-    font-family: var(--sg-font-display);
-    font-weight: var(--sg-fw-bold);
-    color: var(--sg-text-heading);
-    letter-spacing: 0.04em;
-    cursor: pointer;
+    font-family:    var(--font-sans);
+    font-size:      15px;
+    font-weight:    700;
+    letter-spacing: 0.02em;
+    color:          var(--accent);
+    cursor:         pointer;
 }
 
 .page-title {
-    flex: 1;
-    margin: 0;
-    font-size: 1rem;
-    font-weight: var(--sg-fw-medium);
-    color: var(--sg-text);
+    flex:        1;
+    margin:      0;
+    font-size:   13px;
+    font-weight: 500;
+    color:       var(--text-3);
 }
 
 .region-picker {
-    color: var(--sg-text-muted);
-    font-size: var(--sg-fs-small);
-    padding: var(--sg-sp-1) var(--sg-sp-2);
-    border: 1px solid var(--sg-border);
-    border-radius: var(--sg-radius);
-    cursor: default;
-    flex-shrink: 0;
+    color:         var(--text-3);
+    font-size:     11px;
+    font-family:   var(--font-sans);
+    padding:       3px 8px;
+    border:        1px solid var(--border-1);
+    border-radius: var(--r-2);
+    cursor:        default;
+    flex-shrink:   0;
+    background:    var(--bg-panel);
 }
