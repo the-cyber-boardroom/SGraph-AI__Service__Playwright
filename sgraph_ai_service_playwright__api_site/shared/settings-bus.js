@@ -1,10 +1,9 @@
-// ── settings-bus.js — Feature-toggle state + vault persistence ─────────────── //
-// Module-level singleton. Owns in-memory settings state and syncs to vault.    //
+// ── settings-bus.js — Feature-toggle state + localStorage persistence ──────── //
+// Module-level singleton. Owns in-memory settings state and persists locally.  //
+// Vault integration paused pending refactor — see debrief 05/02 for details.  //
 // Call startSettingsBus() once from the page controller.                        //
 
-import { vaultReadJson, vaultWriteJson, isWritable } from './vault-bus.js'
-
-const VAULT_PATH = 'sp-cli/preferences.json'
+const LS_KEY = 'sp-cli:settings:v2'
 
 const DEFAULTS = {
     schema_version: 2,
@@ -35,14 +34,13 @@ let _state  = _deepClone(DEFAULTS)
 let _loaded = false
 
 export function startSettingsBus() {
-    document.addEventListener('vault:connected',    _onVaultConnected)
-    document.addEventListener('vault:disconnected', _onVaultDisconnected)
+    _load()
 }
 
-async function _onVaultConnected() {
+function _load() {
     try {
-        const data = await vaultReadJson(VAULT_PATH)
-        _state  = data ? _migrate(data) : _deepClone(DEFAULTS)
+        const raw = localStorage.getItem(LS_KEY)
+        _state  = raw ? _migrate(JSON.parse(raw)) : _deepClone(DEFAULTS)
         _loaded = true
     } catch (err) {
         console.warn('[settings-bus] load failed, using defaults:', err.message)
@@ -50,11 +48,6 @@ async function _onVaultConnected() {
         _loaded = true
     }
     _dispatch('sp-cli:settings.loaded', { settings: _deepClone(_state) })
-}
-
-function _onVaultDisconnected() {
-    _state  = _deepClone(DEFAULTS)
-    _loaded = false
 }
 
 // ── Readers ───────────────────────────────────────────────────────────────── //
@@ -72,31 +65,27 @@ export async function setPluginEnabled(name, enabled) {
     if (!_state.plugins[name]) _state.plugins[name] = {}
     _state.plugins[name].enabled = !!enabled
     _dispatch('sp-cli:plugin.toggled', { name, enabled: !!enabled })
-    await _persist(['plugins'])
+    _persist()
 }
 
 export async function setUIPanelVisible(panel, visible) {
     if (!_state.ui_panels[panel]) _state.ui_panels[panel] = {}
     _state.ui_panels[panel].visible = !!visible
     _dispatch('sp-cli:ui-panel.toggled', { panel, visible: !!visible })
-    await _persist(['ui_panels'])
+    _persist()
 }
 
 export async function setDefault(key, value) {
     _state.defaults[key] = value
-    await _persist(['defaults'])
+    _persist()
 }
 
 // ── Internal ──────────────────────────────────────────────────────────────── //
 
-async function _persist(keys) {
-    if (!isWritable()) {
-        _dispatch('sg-toast', { message: 'Setting changed in this session only (vault is read-only).', tone: 'warning' })
-        return
-    }
+function _persist() {
     try {
-        await vaultWriteJson(VAULT_PATH, _state, { message: `Update preferences (${keys.join(', ')})` })
-        _dispatch('sp-cli:settings.saved', { keys })
+        localStorage.setItem(LS_KEY, JSON.stringify(_state))
+        _dispatch('sp-cli:settings.saved', {})
     } catch (err) {
         console.error('[settings-bus] persist failed:', err)
         _dispatch('sg-toast', { message: `Failed to save settings: ${err.message}`, tone: 'error' })
