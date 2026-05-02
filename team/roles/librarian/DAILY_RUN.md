@@ -135,13 +135,7 @@ Work these when no urgent brief processing is needed. Pick **one per session**. 
 **Why:** Once domains are migrated, the central proposed file no longer makes sense. Each domain owns its own backlog.
 **Depends on:** B-001 through B-009 (complete the migrations first).
 
-### B-011 · Update ROLE.md to reflect the new scaffolding
-
-**Status:** QUEUED (do early — affects everyone reading the role)
-**What:** Update `team/roles/librarian/ROLE.md` to reference DAILY_RUN.md, the new `index.md` entry point, the changelog, and the activity-log. Strip the lines that point at version-stamped monoliths.
-**Why:** ROLE.md is every Librarian session's first read; it must point at the new files.
-
-### B-012 · Health scan — broken relative links across `team/` and `library/`
+### B-011 · Health scan — broken relative links across `team/` and `library/`
 
 **Status:** QUEUED
 **What:** Walk every `.md` file under `team/` and `library/`, extract relative links, verify each resolves. Report broken links in a health-scan review under `team/roles/librarian/reviews/MM/DD/`.
@@ -156,6 +150,7 @@ Work these when no urgent brief processing is needed. Pick **one per session**. 
 | 2026-05-02 | Pilot domain migration: `host-control/` | First domain migrated to the new format; serves as template for B-001 ... B-009. |
 | 2026-05-02 | Reality document scaffolding (index.md, changelog.md, README rewrite) | 10-domain fractal tree designed; migration shim in place referencing v0.1.31 slices. |
 | 2026-05-02 | DAILY_RUN.md + activity-log.md introduced | Daily routine + backlog established; session continuity record started. |
+| 2026-05-02 | ROLE.md updated to reflect the domain tree | Primary Responsibilities, Workflow 1, Quality Gates, Tools, Starting a Session — all rewritten around DAILY_RUN, the domain tree, and the changelog. |
 
 ---
 
