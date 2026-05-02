@@ -1,15 +1,101 @@
 :host { display: flex; flex-direction: column; height: 100%; overflow: hidden; }
 [hidden] { display: none !important; }
 
-.view-body {
-    display: flex;
+.diag-view {
+    display:        flex;
     flex-direction: column;
-    gap: var(--sg-sp-3);
-    padding: var(--sg-sp-5);
-    max-width: 480px;
+    height:         100%;
+    background:     var(--bg-panel);
+    overflow:       hidden;
 }
-.view-title { font-size: 1rem; font-weight: 600; color: var(--sg-text-heading); }
-.view-hint  { font-size: var(--sg-fs-small); color: var(--sg-text-muted); line-height: 1.55; }
-.info-row { display: grid; grid-template-columns: 80px 1fr; gap: var(--sg-sp-2); }
-.info-key { font-size: var(--sg-fs-small); color: var(--sg-text-muted); }
-.info-val { font-size: var(--sg-fs-small); color: var(--sg-text); font-family: var(--sg-font-mono); }
+
+/* ── Tab bar ─────────────────────────────────────────── */
+.diag-tabs {
+    display:        flex;
+    gap:            0;
+    padding:        0 12px;
+    border-bottom:  1px solid var(--border-1);
+    flex-shrink:    0;
+    background:     var(--bg-panel);
+}
+
+.diag-tab {
+    padding:        10px 14px;
+    font-size:      12px;
+    font-weight:    500;
+    color:          var(--text-3);
+    background:     none;
+    border:         none;
+    border-bottom:  2px solid transparent;
+    cursor:         pointer;
+    transition:     color 120ms;
+    margin-bottom:  -1px;
+    font-family:    var(--font-sans, system-ui, sans-serif);
+}
+.diag-tab:hover  { color: var(--text-2); }
+.diag-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+/* ── Panels ──────────────────────────────────────────── */
+.diag-panel {
+    flex:           1;
+    overflow:       hidden;
+    display:        flex;
+    flex-direction: column;
+    min-height:     0;
+}
+
+sp-cli-events-log {
+    flex:       1;
+    display:    block;
+    min-height: 0;
+    overflow:   hidden;
+}
+
+/* ── Health tab ──────────────────────────────────────── */
+.health-body {
+    padding:        20px 16px;
+    display:        flex;
+    flex-direction: column;
+    gap:            12px;
+    color:          var(--text-2);
+    font-size:      13px;
+    font-family:    var(--font-sans, system-ui, sans-serif);
+}
+
+.health-title {
+    font-size:   14px;
+    font-weight: 600;
+    color:       var(--text-1);
+    margin-bottom: 4px;
+}
+
+.health-row {
+    display:     flex;
+    align-items: baseline;
+    gap:         12px;
+}
+
+.health-key {
+    color:          var(--text-3);
+    font-size:      11px;
+    min-width:      80px;
+    flex-shrink:    0;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+.health-val {
+    color:       var(--text-1);
+    font-size:   12px;
+    font-family: var(--font-mono, monospace);
+    word-break:  break-all;
+}
+
+.health-hint {
+    font-size:   11px;
+    color:       var(--text-3);
+    line-height: 1.5;
+    margin-top:  8px;
+    padding-top: 12px;
+    border-top:  1px solid var(--border-1);
+}

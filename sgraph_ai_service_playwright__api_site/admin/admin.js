@@ -6,7 +6,6 @@ import { startSettingsBus, getUIPanelVisible } from '../shared/settings-bus.js'
 const ROOT_LAYOUT_KEY = 'sp-cli:admin:root-layout:v1'
 
 const RIGHT_PANELS = [
-    { key: 'events_log',      tag: 'sp-cli-events-log',      title: 'Events Log'      },
     { key: 'vault_status',    tag: 'sp-cli-vault-status',     title: 'Vault Status'    },
     { key: 'active_sessions', tag: 'sp-cli-active-sessions',  title: 'Active Sessions' },
     { key: 'cost_tracker',    tag: 'sp-cli-cost-tracker',     title: 'Cost Tracker'    },
