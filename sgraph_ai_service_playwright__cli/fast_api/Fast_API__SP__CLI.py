@@ -11,7 +11,7 @@ import sgraph_ai_service_playwright__api_site
 from fastapi                                                                          import Request
 from fastapi.staticfiles                                                              import StaticFiles
 from osbot_fast_api_serverless.fast_api.Serverless__Fast_API                          import Serverless__Fast_API
-from starlette.responses                                                              import Response as StarletteResponse
+from starlette.responses                                                              import Response as StarletteResponse, RedirectResponse
 from osbot_fast_api.api.middlewares.Middleware__Check_API_Key                         import Middleware__Check_API_Key
 from sgraph_ai_service_playwright__cli.catalog.fast_api.routes.Routes__Stack__Catalog import Routes__Stack__Catalog
 from sgraph_ai_service_playwright__cli.catalog.service.Stack__Catalog__Service        import Stack__Catalog__Service
@@ -63,9 +63,19 @@ class Fast_API__SP__CLI(Serverless__Fast_API):
             self.add_routes(routes_cls, service=svc)
 
     def setup_ui(self):
-        path_static        = "/ui"
-        path_name          = 'ui'
-        path_static_folder = sgraph_ai_service_playwright__api_site.path
-        self.app().mount(path = path_static                                         ,
-                         app  = StaticFiles(directory=path_static_folder, html=True),
-                         name = path_name                                           )
+        app = self.app()
+
+        @app.get('/')
+        async def _root():        return RedirectResponse('/ui/index.html')
+
+        @app.get('/ui/admin')
+        @app.get('/ui/admin/')
+        async def _admin():       return RedirectResponse('/ui/admin/index.html')
+
+        @app.get('/ui/user')
+        @app.get('/ui/user/')
+        async def _user():        return RedirectResponse('/ui/user/index.html')
+
+        app.mount(path = '/ui'                                                       ,
+                  app  = StaticFiles(directory=sgraph_ai_service_playwright__api_site.path, html=True),
+                  name = 'ui'                                                        )
