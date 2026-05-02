@@ -28,3 +28,18 @@
 }
 .adv-toggle:hover { color: var(--sg-text); }
 .adv-hint { font-size: var(--sg-fs-small); color: var(--sg-text-muted); }
+
+.adv-body { display: flex; flex-direction: column; gap: var(--sg-sp-3); padding-top: var(--sg-sp-2); }
+
+.ip-info { display: flex; flex-direction: column; gap: 6px; }
+.ip-row  { display: flex; align-items: center; gap: 8px; }
+.ip-label { font-size: var(--sg-fs-small); font-weight: 600; color: var(--sg-text); }
+.ip-value { font-size: var(--sg-fs-small); color: var(--sg-accent); font-family: monospace; }
+.ip-note  {
+    font-size: var(--sg-fs-small); color: var(--sg-text-muted);
+    background: var(--sg-bg-alt, var(--sg-bg)); border: 1px solid var(--sg-border);
+    border-radius: var(--sg-radius); padding: 8px var(--sg-sp-3); line-height: 1.5;
+}
+
+.open-row  { display: flex; align-items: flex-start; gap: 8px; cursor: pointer; }
+.open-label { font-size: var(--sg-fs-small); color: var(--sg-text); line-height: 1.4; }

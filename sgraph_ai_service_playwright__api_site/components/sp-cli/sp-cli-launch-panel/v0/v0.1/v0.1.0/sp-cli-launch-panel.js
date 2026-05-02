@@ -46,11 +46,12 @@ class SpCliLaunchPanel extends SgComponent {
         if (!values.stack_name) { this._showError('Stack name is required.'); return }
 
         const body = {
-            stack_name:    values.stack_name,
-            instance_type: values.instance_type || 't3.medium',
-            max_hours:     values.max_hours      || 4,
-            region:        values.region         || '',
-            caller_ip:     '',
+            stack_name:     values.stack_name,
+            instance_type:  values.instance_type  || 't3.medium',
+            max_hours:      values.max_hours       || 4,
+            region:         values.region          || '',
+            caller_ip:      '',
+            public_ingress: values.public_ingress  ?? false,
         }
 
         this._setLoading(true)

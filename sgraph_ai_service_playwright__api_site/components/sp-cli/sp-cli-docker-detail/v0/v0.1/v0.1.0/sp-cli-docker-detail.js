@@ -4,6 +4,8 @@ import '../../../../_shared/sp-cli-stack-header/v0/v0.1/v0.1.0/sp-cli-stack-head
 import '../../../../_shared/sp-cli-ssm-command/v0/v0.1/v0.1.0/sp-cli-ssm-command.js'
 import '../../../../_shared/sp-cli-network-info/v0/v0.1/v0.1.0/sp-cli-network-info.js'
 import '../../../../_shared/sp-cli-stop-button/v0/v0.1/v0.1.0/sp-cli-stop-button.js'
+import '../../../../_shared/sp-cli-host-shell/v0/v0.1/v0.1.0/sp-cli-host-shell.js'
+import '../../../../_shared/sp-cli-host-api-panel/v0/v0.1/v0.1.0/sp-cli-host-api-panel.js'
 
 class SpCliDockerDetail extends SgComponent {
     static jsUrl = import.meta.url
@@ -11,10 +13,15 @@ class SpCliDockerDetail extends SgComponent {
     get sharedCssPaths() { return ['https://dev.tools.sgraph.ai/components/tokens/v1/v1.0/v1.0.0/sg-tokens.css'] }
 
     onReady() {
-        this._header = this.$('.detail-header')
-        this._ssm    = this.$('.detail-ssm')
-        this._net    = this.$('.detail-net')
-        this._stop   = this.$('.detail-stop')
+        this._header  = this.$('.detail-header')
+        this._ssm     = this.$('.detail-ssm')
+        this._net     = this.$('.detail-net')
+        this._stop    = this.$('.detail-stop')
+        this._shell   = this.$('.host-shell')
+        this._hostApi = this.$('.host-api-panel')
+        this._tabs    = Array.from(this.shadowRoot.querySelectorAll('.tab-btn'))
+        this._panels  = Array.from(this.shadowRoot.querySelectorAll('.tab-panel'))
+        this._tabs.forEach(btn => btn.addEventListener('click', () => this._activateTab(btn.dataset.tab)))
         if (this._pendingStack) { this.open(this._pendingStack); this._pendingStack = null }
     }
 
@@ -25,6 +32,8 @@ class SpCliDockerDetail extends SgComponent {
         this._ssm.setStack?.(stack)
         this._net.setStack?.(stack)
         this._stop.setStack?.(stack)
+        this._shell  ?.open?.(stack)
+        this._hostApi?.open?.(stack)
         this._fetchDetail(stack)
     }
 
@@ -37,6 +46,11 @@ class SpCliDockerDetail extends SgComponent {
             this._ssm.setStack?.(merged)
             this._net.setStack?.(merged)
         } catch (_) {}
+    }
+
+    _activateTab(name) {
+        this._tabs  .forEach(b => b.classList.toggle('active', b.dataset.tab   === name))
+        this._panels.forEach(p => p.classList.toggle('active', p.dataset.panel === name))
     }
 }
 

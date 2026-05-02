@@ -202,3 +202,78 @@ class Test_Api_View:
     def test_js_opens_docs(self):
         js = component('sp-cli-api-view')[0].read_text()
         assert '/docs' in js
+
+
+# ── host control plane widgets ────────────────────────────────────────────── #
+
+SHARED_HOST_WIDGETS = ['sp-cli-host-shell', 'sp-cli-host-api-panel']
+DETAIL_HOST_TABS    = ['docker', 'firefox', 'elastic', 'neko', 'vnc']
+
+
+class Test_Host_Control_Widgets:
+
+    @pytest.mark.parametrize('name', SHARED_HOST_WIDGETS)
+    def test_widget_trio_exists(self, name):
+        assert_trio(shared_widget(name))
+
+    def test_host_shell_has_quick_commands(self):
+        js = shared_widget('sp-cli-host-shell')[0].read_text()
+        assert 'QUICK_COMMANDS' in js
+        assert 'docker ps'      in js
+
+    def test_host_shell_calls_execute_endpoint(self):
+        js = shared_widget('sp-cli-host-shell')[0].read_text()
+        assert '/host/shell/execute' in js
+
+    def test_host_shell_shows_unavailable_when_no_url(self):
+        html = shared_widget('sp-cli-host-shell')[1].read_text()
+        assert 'unavailable' in html.lower()
+
+    def test_host_api_panel_loads_docs(self):
+        js = shared_widget('sp-cli-host-api-panel')[0].read_text()
+        assert '/docs' in js
+
+    def test_host_api_panel_handles_empty_url(self):
+        js = shared_widget('sp-cli-host-api-panel')[0].read_text()
+        assert 'unavailable' in js.lower()
+
+    def test_index_html_has_host_shell_tag(self):
+        content = (API_SITE / 'admin' / 'index.html').read_text()
+        assert 'sp-cli-host-shell.js' in content
+
+    def test_index_html_has_host_api_panel_tag(self):
+        content = (API_SITE / 'admin' / 'index.html').read_text()
+        assert 'sp-cli-host-api-panel.js' in content
+
+
+class Test_Detail_Host_Tabs:
+
+    @pytest.mark.parametrize('name', DETAIL_HOST_TABS)
+    def test_detail_has_terminal_tab_button(self, name):
+        html = detail(name)[1].read_text()
+        assert 'Terminal' in html or 'shell' in html.lower()
+
+    @pytest.mark.parametrize('name', DETAIL_HOST_TABS)
+    def test_detail_has_host_api_tab_button(self, name):
+        html = detail(name)[1].read_text()
+        assert 'Host API' in html or 'hostapi' in html.lower()
+
+    @pytest.mark.parametrize('name', DETAIL_HOST_TABS)
+    def test_detail_embeds_host_shell_widget(self, name):
+        html = detail(name)[1].read_text()
+        assert 'sp-cli-host-shell' in html
+
+    @pytest.mark.parametrize('name', DETAIL_HOST_TABS)
+    def test_detail_embeds_host_api_panel(self, name):
+        html = detail(name)[1].read_text()
+        assert 'sp-cli-host-api-panel' in html
+
+    @pytest.mark.parametrize('name', DETAIL_HOST_TABS)
+    def test_detail_imports_host_shell_js(self, name):
+        js = detail(name)[0].read_text()
+        assert 'sp-cli-host-shell' in js
+
+    @pytest.mark.parametrize('name', DETAIL_HOST_TABS)
+    def test_detail_imports_host_api_panel_js(self, name):
+        js = detail(name)[0].read_text()
+        assert 'sp-cli-host-api-panel' in js
