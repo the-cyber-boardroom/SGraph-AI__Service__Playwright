@@ -2,8 +2,8 @@ import { SgComponent } from 'https://dev.tools.sgraph.ai/components/base/v1/v1.0
 import '../../../../sp-cli-status-chip/v0/v0.1/v0.1.0/sp-cli-status-chip.js'
 
 const TYPE_ICONS = {
-    linux: '🐧', docker: '🐳', elastic: '🔍', vnc: '🖥',
-    prometheus: '📊', opensearch: '🌐', neko: '🌐', playwright: '🎯',
+    docker: '🐳', podman: '🦭', elastic: '🔍', vnc: '🖥',
+    prometheus: '📊', opensearch: '🌐', neko: '🌐', firefox: '🦊', playwright: '🎯',
 }
 
 class SpCliStackHeader extends SgComponent {
