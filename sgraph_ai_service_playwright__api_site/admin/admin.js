@@ -1,29 +1,16 @@
 // ── admin.js — Admin Dashboard page controller ──────────────────────────── //
 
 import { apiClient       } from '../shared/api-client.js'
-import { startSettingsBus, getUIPanelVisible } from '../shared/settings-bus.js'
+import { startSettingsBus } from '../shared/settings-bus.js'
 
-const ROOT_LAYOUT_KEY = 'sp-cli:admin:root-layout:v1'
-
-const RIGHT_PANELS = [
-    { key: 'vault_status',    tag: 'sp-cli-vault-status',     title: 'Vault Status'    },
-    { key: 'active_sessions', tag: 'sp-cli-active-sessions',  title: 'Active Sessions' },
-    { key: 'cost_tracker',    tag: 'sp-cli-cost-tracker',     title: 'Cost Tracker'    },
-]
+const ROOT_LAYOUT_KEY = 'sp-cli:admin:root-layout:v2'
 
 function _buildRootLayout() {
-    const visible = RIGHT_PANELS.filter(p => getUIPanelVisible(p.key))
-    const n       = visible.length || 1
-    const sizes   = visible.map(() => 1 / n)
-    const children = visible.map(p => ({
-        type: 'stack', tabs: [{ tag: p.tag, title: p.title, locked: true }],
-    }))
     return {
-        type: 'row', sizes: [0.07, 0.78, 0.15],
+        type: 'row', sizes: [0.07, 0.93],
         children: [
-            { type: 'stack', tabs: [{ tag: 'sp-cli-left-nav',      title: 'Nav',     locked: true }] },
-            { type: 'stack', tabs: [{ tag: 'sp-cli-compute-view',   title: 'Compute', locked: true }] },
-            { type: 'column', sizes, children },
+            { type: 'stack', tabs: [{ tag: 'sp-cli-left-nav',     title: 'Nav',     locked: true }] },
+            { type: 'stack', tabs: [{ tag: 'sp-cli-compute-view', title: 'Compute', locked: true }] },
         ],
     }
 }
@@ -40,7 +27,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     let _detailTabIds     = {}      // stack_name → panelId
     let _detailTypeIds    = {}      // stack_name → type_id
     let _launchTabIds     = {}      // type_id    → panelId
-    let _rightPanelTabIds = {}      // panel key  → panelId
 
     startSettingsBus()
 
@@ -57,7 +43,11 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     // ── Navigation ────────────────────────────────────────────────────────── //
 
-    document.addEventListener('sp-cli:nav.selected', (e) => _switchView(e.detail?.view))
+    document.addEventListener('sp-cli:nav.selected', (e) => {
+        const view = e.detail?.view
+        if (view === 'diagnostics') _toggleDiagnostics()
+        else _switchView(view)
+    })
 
     // ── Stack interactions ────────────────────────────────────────────────── //
 
@@ -91,29 +81,11 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
     })
 
-    // ── UI panel visibility toggle ────────────────────────────────────────── //
-
-    document.addEventListener('sp-cli:ui-panel.toggled', (e) => {
-        const { panel, visible } = e.detail || {}
-        if (!panel || !_layoutEl) return
-        if (!visible) {
-            if (_rightPanelTabIds[panel]) {
-                _layoutEl.removePanel(_rightPanelTabIds[panel])
-                delete _rightPanelTabIds[panel]
-            }
-        } else if (!_rightPanelTabIds[panel]) {
-            document.dispatchEvent(new CustomEvent('sg-toast', {
-                detail:  { message: 'Click "Reset Layout" in Settings to show this panel.', tone: 'info' },
-                bubbles: true, composed: true,
-            }))
-        }
-    })
-
     // ── Auth ──────────────────────────────────────────────────────────────── //
 
     document.addEventListener('sg-auth-saved', () => _loadData())
 
-    // ── Launch flow (wired here; sp-cli-launch-panel added in PR-4) ───────── //
+    // ── Launch flow ───────────────────────────────────────────────────────── //
 
     const LAUNCH_TYPES = ['docker', 'podman', 'elastic', 'vnc', 'prometheus', 'opensearch', 'neko', 'firefox']
     LAUNCH_TYPES.forEach(t =>
@@ -189,7 +161,6 @@ document.addEventListener('DOMContentLoaded', async () => {
         const tree        = _layoutEl.getLayout()
         _mainStackId      = _findMainStackId(tree)
         _currentViewTabId = _findCurrentViewTabId(tree, _mainStackId)
-        _rightPanelTabIds = _findRightPanelTabIds(tree)
 
         _layoutEl._events.on(SGL_EVENTS.LAYOUT_CHANGED, ({ tree }) => {
             try { localStorage.setItem(ROOT_LAYOUT_KEY, JSON.stringify(tree)) } catch (_) {}
@@ -205,6 +176,11 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (_currentViewTabId) _layoutEl.removePanel(_currentViewTabId)
         _currentViewTabId = newTabId
         _currentView      = view
+    }
+
+    function _toggleDiagnostics() {
+        const col = document.getElementById('diag-col')
+        if (col) col.hidden = !col.hidden
     }
 
     function _openDetailTab(stack) {
@@ -274,7 +250,10 @@ document.addEventListener('DOMContentLoaded', async () => {
         document.querySelector('sp-cli-compute-view')?.setData?.({ types, stacks })
         document.querySelector('sp-cli-nodes-view')?.setStacks?.(stacks)
         document.querySelector('sp-cli-stacks-pane')?.setStacks?.(stacks)
-        document.querySelector('sp-cli-cost-tracker')?.setStacks?.(stacks)
+        // cost-tracker may be inside shadow DOM (diagnostics view); use event so it receives data
+        document.dispatchEvent(new CustomEvent('sp-cli:stacks.updated', {
+            detail: { stacks }, bubbles: true, composed: true,
+        }))
     }
 
     function _activity(message) {
@@ -293,7 +272,6 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     function _capitalize(s) { return s ? s[0].toUpperCase() + s.slice(1) : '' }
 
-    // Find the stack ID that holds the current main view
     function _findMainStackId(tree) {
         const viewTags = [
             'sp-cli-compute-view', 'sp-cli-nodes-view', 'sp-cli-stacks-view', 'sp-cli-storage-view',
@@ -306,7 +284,6 @@ document.addEventListener('DOMContentLoaded', async () => {
         return null
     }
 
-    // Find the tab ID for the currently active view inside a given stack
     function _findCurrentViewTabId(tree, mainStackId) {
         const stack = _findNodeById(tree, mainStackId)
         if (!stack) return null
@@ -322,20 +299,6 @@ document.addEventListener('DOMContentLoaded', async () => {
             }
         }
         return null
-    }
-
-    function _findRightPanelTabIds(tree) {
-        const result  = {}
-        const tagToKey = {}
-        RIGHT_PANELS.forEach(p => { tagToKey[p.tag] = p.key })
-        const rightCol = tree?.children?.[2]
-        for (const stack of rightCol?.children || []) {
-            const tab = stack.tabs?.[0]
-            if (tab?.tag && tab?.id && tagToKey[tab.tag]) {
-                result[tagToKey[tab.tag]] = tab.id
-            }
-        }
-        return result
     }
 
     function _findStackWithTag(tree, tag) {

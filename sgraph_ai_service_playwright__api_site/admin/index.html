@@ -17,6 +17,7 @@
 
   <main id="main-content">
     <sg-layout id="root-layout"></sg-layout>
+    <sp-cli-diagnostics-view id="diag-col" hidden></sp-cli-diagnostics-view>
   </main>
 
   <sg-auth-panel></sg-auth-panel>
@@ -67,7 +68,8 @@
   <script type="module" src="../components/sp-cli/sp-cli-diagnostics-view/v0/v0.1/v0.1.0/sp-cli-diagnostics-view.js"></script>
   <script type="module" src="../components/sp-cli/sp-cli-api-view/v0/v0.1/v0.1.0/sp-cli-api-view.js"></script>
 
-  <!-- right info column -->
+  <!-- diagnostics panel components (used inside sp-cli-diagnostics-view nested layout) -->
+  <script type="module" src="../components/sp-cli/sp-cli-events-log/v0/v0.1/v0.1.0/sp-cli-events-log.js"></script>
   <script type="module" src="../components/sp-cli/sp-cli-vault-status/v0/v0.1/v0.1.0/sp-cli-vault-status.js"></script>
   <script type="module" src="../components/sp-cli/sp-cli-active-sessions/v0/v0.1/v0.1.0/sp-cli-active-sessions.js"></script>
   <script type="module" src="../components/sp-cli/sp-cli-cost-tracker/v0/v0.1/v0.1.0/sp-cli-cost-tracker.js"></script>
