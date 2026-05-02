@@ -94,8 +94,35 @@
 |------|------|---------|
 | `ollama` | `sg_compute_specs/ollama/` | `manifest.py` — spec_id=`ollama`, stability=EXPERIMENTAL, capabilities=[LLM_INFERENCE] |
 | `open_design` | `sg_compute_specs/open_design/` | `manifest.py` — spec_id=`open_design`, stability=EXPERIMENTAL, capabilities=[DESIGN_TOOL, VAULT_WRITES] |
+| `docker` | `sg_compute_specs/docker/` | `manifest.py` — spec_id=`docker`, stability=STABLE, capabilities=[CONTAINER_RUNTIME, REMOTE_SHELL, METRICS] |
 
-**`Spec__Loader.load_all()` returns both specs; `Spec__Resolver` validates the empty `extends` graphs.**
+**`Spec__Loader.load_all()` returns all 3 specs; `Spec__Resolver` validates the empty `extends` graphs.**
+
+### sg_compute_specs/docker/ structure — EXISTS (B3.0)
+
+| Sub-path | Contents |
+|----------|----------|
+| `enums/Enum__Docker__Stack__State.py` | PENDING/RUNNING/STOPPING/STOPPED/TERMINATING/TERMINATED/UNKNOWN |
+| `primitives/Safe_Str__Docker__Stack__Name.py` | regex `^[a-z][a-z0-9\-]{1,62}$` |
+| `primitives/Safe_Str__IP__Address.py` | dotted-quad IPv4 |
+| `collections/List__Port.py`, `List__Schema__Docker__Info.py` | typed collections |
+| `schemas/Schema__Docker__Info.py` | full node view incl. docker_version |
+| `schemas/Schema__Docker__Create__Request.py` | stack_name, region, instance_type, from_ami, caller_ip, max_hours, extra_ports |
+| `schemas/Schema__Docker__Create__Response.py`, `Delete`, `Health`, `List` | response schemas |
+| `service/Docker__AWS__Client.py` | tag constants + `DOCKER_NAMING = Stack__Naming(section_prefix='docker')` |
+| `service/Docker__SG__Helper.py` | per-node SG; extra_ports; never `sg-*` prefix |
+| `service/Docker__AMI__Helper.py` | AL2023 SSM param lookup |
+| `service/Docker__Instance__Helper.py` | list/find/terminate + SSM docker version probe |
+| `service/Docker__Launch__Helper.py` | `run_instances` wrapper |
+| `service/Docker__Tags__Builder.py` | 6-tag set; `Name` carries `docker-` prefix, never doubled |
+| `service/Docker__Stack__Mapper.py` | boto3 dict → Schema__Docker__Info |
+| `service/Docker__User_Data__Builder.py` | AL2023 cloud-init; Docker CE + Compose plugin |
+| `service/Docker__Health__Checker.py` | polls EC2+SSM+docker version; two-stage |
+| `service/Docker__Service.py` | create/list/get/delete/health orchestrator |
+| `service/Caller__IP__Detector.py` | checkip.amazonaws.com |
+| `service/Random__Stack__Name__Generator.py` | adjective-scientist pairs |
+| `api/routes/Routes__Docker__Stack.py` | endpoints at `/api/specs/docker/stack*` |
+| `tests/` | 31 unit tests (manifest, user_data_builder, tags_builder, stack_mapper) |
 
 ---
 
@@ -106,7 +133,7 @@
 - `sg_compute/host_plane/` (phase 6 — moves from `sgraph_ai_service_playwright__host/`)
 - Per-spec `Spec__Service__Base` common lifecycle base class
 - `Node__Identity` — node-id generation/parsing helper
-- Remaining legacy specs migrated to `sg_compute_specs/` (phases 3.0–3.8)
+- Remaining legacy specs migrated to `sg_compute_specs/` (phases 3.1–3.8): linux, podman, vnc, neko, prometheus, opensearch, elastic, firefox
 
 ---
 
@@ -114,5 +141,6 @@
 
 | Date | Change |
 |------|--------|
+| 2026-05-02 | Phase B3.0: docker spec migrated to `sg_compute_specs/docker/`; 31 new tests; `Spec__Loader` now returns 3 specs |
 | 2026-05-02 | Phase B2: foundations — primitives, enums, core schemas, Platform/EC2__Platform, Spec__Loader/Resolver/Registry, Node__Manager, manifest.py for ollama+open_design, helpers moved to platforms/ec2/ |
 | 2026-05-02 | Phase B1: `ephemeral_ec2/` renamed to `sg_compute/`; pilot specs moved to `sg_compute_specs/`; domain placeholder created |
