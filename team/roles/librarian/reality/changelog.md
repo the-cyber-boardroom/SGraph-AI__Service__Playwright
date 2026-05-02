@@ -8,6 +8,8 @@ This is a pointer log, not a content log. For full delta detail, see the master 
 
 ## 2026-05-02
 
+- `sg-compute/index.md` — NEW: SG/Compute domain placeholder; seeded by phase-1 (B1) rename commit. `ephemeral_ec2/` → `sg_compute/`; `sg_compute_specs/` introduced with pilot specs (ollama, open_design). Full domain content lands in phase-2 (B2).
+- `index.md` — UPDATED: added `sg-compute/` domain row; domain count 10 → 11.
 - `index.md` — NEW: master domain index created (reality document refactor begins; 10-domain tree introduced).
 - `README.md` — UPDATED: explains the new fractal model and the migration shim.
 - `host-control/index.md` — NEW: pilot domain migration; `sgraph_ai_service_playwright__host` package (container runtime abstraction, shell executor, three Routes__Host__* classes, EC2 boot wiring). Sourced from commit `11c2a08`.

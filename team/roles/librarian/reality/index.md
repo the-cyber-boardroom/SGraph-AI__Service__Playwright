@@ -36,6 +36,7 @@ When code lands, the author updates the relevant domain's `index.md` in the same
 | **Infra** | [`infra/`](infra/index.md) | Docker images, CI/CD, ECR, Lambda deploy, EC2 provisioning, observability stack | TBD — migrate from `v0.1.31/03__docker-and-ci.md`, `v0.1.31/08__sp-cli-lambda-deploy.md` |
 | **QA** | [`qa/`](qa/index.md) | Tests (unit, integration, deploy-via-pytest), smoke tests, test inventory | TBD — migrate from `v0.1.31/04__tests.md` |
 | **Security** | [`security/`](security/index.md) | JS expression allowlist, vault-key hygiene, security-group naming, AppSec rules | TBD — extract cross-cutting items from CLAUDE.md and `v0.1.31/01__playwright-service.md` |
+| **SG/Compute** | [`sg-compute/`](sg-compute/index.md) | `sg_compute` SDK + `sg_compute_specs` catalogue — ephemeral EC2 nodes, spec contract, helpers layer | PLACEHOLDER — seeded in phase-1 (B1); full content lands in phase-2 (B2) |
 
 Each domain directory contains:
 
@@ -50,7 +51,7 @@ Each domain directory contains:
 | Metric | Value |
 |--------|-------|
 | Code version | v0.1.140 |
-| Domains in master map | 10 |
+| Domains in master map | 11 |
 | Domains migrated to new format | 1 (`host-control/` — pilot) |
 | Domains still on v0.1.31 split | 9 |
 | Old version-stamped monoliths archived | 4 (`v0.1.13`, `v0.1.24`, `v0.1.29`, plus `v0.1.31/` directory) |
