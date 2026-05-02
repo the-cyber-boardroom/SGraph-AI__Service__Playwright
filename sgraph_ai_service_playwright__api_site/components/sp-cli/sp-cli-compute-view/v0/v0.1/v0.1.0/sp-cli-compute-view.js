@@ -1,5 +1,5 @@
 import { SgComponent } from 'https://dev.tools.sgraph.ai/components/base/v1/v1.0/v1.0.0/sg-component.js'
-import { getDefault, getAllPluginToggles } from '../../../../../../shared/settings-bus.js'
+import { getDefault } from '../../../../../../shared/settings-bus.js'
 
 // ── Spec catalogue (static until backend phase B4 ships /api/specs) ─────────
 const CATALOG = [
@@ -59,7 +59,7 @@ class SpCliComputeView extends SgComponent {
 
         document.addEventListener('sp-cli:settings.loaded', () => this._applyDefaults())
         this._applyDefaults()
-        this._renderGroups()
+        this._renderGroups()   // catalog is static — render once
     }
 
     // Called by admin.js — no-op in new design (stacks live in nodes-view)
@@ -77,12 +77,11 @@ class SpCliComputeView extends SgComponent {
 
     _renderGroups() {
         if (!this._specGroups) return
-        const toggles = getAllPluginToggles()
-        const groups  = [...new Set(CATALOG.map(s => s.group))]
+        const groups = [...new Set(CATALOG.map(s => s.group))]
         this._specGroups.innerHTML = ''
 
         for (const group of groups) {
-            const specs = CATALOG.filter(s => s.group === group && (toggles[s.type_id]?.enabled !== false))
+            const specs = CATALOG.filter(s => s.group === group)
             if (!specs.length) continue
 
             const section = document.createElement('div')
