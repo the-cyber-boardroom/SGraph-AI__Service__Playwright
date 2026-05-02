@@ -288,12 +288,13 @@ docker ps --format '{{{{.ID}}}} {{{{.Names}}}}' \
   > /opt/sg-playwright/config/container-names.txt || true
 
 # ── host control plane ────────────────────────────────────────────────────────
-pip install sgraph-ai-service-playwright-host --quiet || true
-
 HOST_API_KEY=$(python3 -c "import secrets; print(secrets.token_hex(32))")
 mkdir -p /opt/host-api
 echo "$HOST_API_KEY" > /opt/host-api/api-key.txt
 chmod 600 /opt/host-api/api-key.txt
+
+aws ecr get-login-password --region {region} | \
+  docker login --username AWS --password-stdin {registry}
 
 docker run -d \
   --name sp-host-control \
@@ -302,7 +303,7 @@ docker run -d \
   -v /var/run/docker.sock:/var/run/docker.sock \
   -e FAST_API__AUTH__API_KEY__VALUE="$HOST_API_KEY" \
   -p 9000:8000 \
-  sgraph/host-control:latest || true
+  {registry}/sgraph_ai_service_playwright_host:latest || true
 
 # Push API key to vault so the SP CLI management plane can retrieve it
 aws ssm send-command \
