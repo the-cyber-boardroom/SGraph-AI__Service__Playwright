@@ -174,10 +174,32 @@ class Test_Compute_View:
     def test_trio_exists(self):
         assert_trio(component('sp-cli-compute-view'))
 
-    def test_html_embeds_launcher_and_stacks(self):
+    def test_html_has_template_browser(self):
         html = component('sp-cli-compute-view')[1].read_text()
-        assert 'sp-cli-launcher-pane' in html
-        assert 'sp-cli-stacks-pane'   in html
+        assert 'spec-groups' in html or 'browser-col' in html
+
+    def test_html_has_configure_pane(self):
+        html = component('sp-cli-compute-view')[1].read_text()
+        assert 'configure-col' in html
+
+    def test_html_has_launch_button(self):
+        html = component('sp-cli-compute-view')[1].read_text()
+        assert 'Launch node' in html
+
+    def test_js_has_grouped_catalog(self):
+        js = component('sp-cli-compute-view')[0].read_text()
+        assert 'CATALOG'          in js
+        assert 'CONTAINERS'       in js
+        assert 'OBSERVABILITY'    in js
+        assert 'REMOTE BROWSERS'  in js
+
+    def test_js_has_cost_table(self):
+        js = component('sp-cli-compute-view')[0].read_text()
+        assert 'COST_TABLE' in js
+
+    def test_js_imports_settings_bus(self):
+        js = component('sp-cli-compute-view')[0].read_text()
+        assert 'settings-bus.js' in js
 
 # ── settings view ─────────────────────────────────────────────────────────── #
 
