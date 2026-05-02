@@ -1,0 +1,4 @@
+sgraph-ai-service-playwright-host
+uvicorn[standard]
+fastapi
+psutil

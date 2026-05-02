@@ -138,10 +138,12 @@ class Ec2__Service(Type_Safe):                                                  
                                            browser_url          = ''                                            ,                              # Phase C strip: browser-VNC moved to sp vnc; field kept empty for schema compatibility
                                            api_key_name         = instance_tag(details, TAG__API_KEY_NAME_KEY)  ,
                                            api_key_value        = instance_tag(details, TAG__API_KEY_VALUE_KEY) ,
-                                           playwright_image_uri = '(stored in compose file on instance)'        ,
-                                           sidecar_image_uri    = '(stored in compose file on instance)'        ,
-                                           instance_type        = instance_tag(details, TAG__INSTANCE_TYPE_KEY) or details.get('instance_type', '') ,
-                                           state                = self.parse_state(state_str)                   )
+                                           playwright_image_uri     = '(stored in compose file on instance)'        ,
+                                           sidecar_image_uri        = '(stored in compose file on instance)'        ,
+                                           instance_type            = instance_tag(details, TAG__INSTANCE_TYPE_KEY) or details.get('instance_type', '') ,
+                                           state                    = self.parse_state(state_str)                   ,
+                                           host_api_url             = f'http://{ip}:9000'                           if ip else '',
+                                           host_api_key_vault_path  = f'/ec2/{instance_deploy_name(details) or ""}/host-api-key' if instance_deploy_name(details) else '')
 
     @type_safe
     def get_instance_info(self, target: str) -> Schema__Ec2__Instance__Info:

@@ -287,6 +287,30 @@ docker ps --format '{{{{.ID}}}} {{{{.Names}}}}' \
   | sed 's/ sg-playwright-/ /; s/-[0-9]*$//' \
   > /opt/sg-playwright/config/container-names.txt || true
 
+# ── host control plane ────────────────────────────────────────────────────────
+pip install sgraph-ai-service-playwright-host --quiet || true
+
+HOST_API_KEY=$(python3 -c "import secrets; print(secrets.token_hex(32))")
+mkdir -p /opt/host-api
+echo "$HOST_API_KEY" > /opt/host-api/api-key.txt
+chmod 600 /opt/host-api/api-key.txt
+
+docker run -d \
+  --name sp-host-control \
+  --restart=unless-stopped \
+  --privileged \
+  -v /var/run/docker.sock:/var/run/docker.sock \
+  -e FAST_API__AUTH__API_KEY__VALUE="$HOST_API_KEY" \
+  -p 9000:8000 \
+  sgraph/host-control:latest || true
+
+# Push API key to vault so the SP CLI management plane can retrieve it
+aws ssm send-command \
+  --instance-ids "$(curl -s http://169.254.169.254/latest/meta-data/instance-id)" \
+  --document-name "AWS-RunShellScript" \
+  --parameters 'commands=["sgit vault set /ec2/{deploy_name}/host-api-key '"'"'${{HOST_API_KEY}}'"'"'"]' \
+  --region {region} || true
+
 {shutdown_section}
 echo "=== SG Playwright setup complete at $(date) ==="
 echo "OK $(date --iso-8601=seconds)" > "$BOOT_STATUS_FILE"
@@ -516,7 +540,8 @@ def render_user_data(playwright_image_uri  : str,
                       compose_content       : str,
                       api_key_value         : str          = '',                          # Kept for callsite compatibility; previously fed the browser-proxy htpasswd (Phase C — removed)
                       max_hours             : int          = 1,
-                      stage                 : str          = DEFAULT_STAGE) -> str:
+                      stage                 : str          = DEFAULT_STAGE,
+                      deploy_name           : str          = '') -> str:
     _ = (api_key_value, stage)                                                              # Reserved for future use (cloud-init logging, audit tags) — silenced for the linter
     if max_hours:
         shutdown_section = (f'\n# Auto-terminate after {max_hours}h\n'
@@ -529,7 +554,8 @@ def render_user_data(playwright_image_uri  : str,
                                      playwright_image_uri          = playwright_image_uri   ,
                                      sidecar_image_uri             = sidecar_image_uri      ,
                                      compose_content               = compose_content        ,
-                                     shutdown_section              = shutdown_section       )
+                                     shutdown_section              = shutdown_section       ,
+                                     deploy_name                   = deploy_name            )
 
 
 def run_instance(ec2: EC2, ami_id: str, security_group_id: str, instance_profile_name: str,
@@ -689,12 +715,13 @@ def provision(stage                  : str          = DEFAULT_STAGE    ,
     if from_ami:
         user_data = AMI_USER_DATA_TEMPLATE.format(compose_content = compose_content)
     else:
-        user_data = render_user_data(playwright_image_uri  = playwright_image_uri ,
+        user_data = render_user_data(playwright_image_uri  = playwright_image_uri  ,
                                      sidecar_image_uri     = sidecar_image_uri    ,
                                      compose_content       = compose_content      ,
                                      api_key_value         = api_key_value        ,
                                      max_hours             = max_hours            ,
-                                     stage                 = stage                )
+                                     stage                 = stage                ,
+                                     deploy_name           = resolved_deploy_name )
 
     instance_profile_name = ensure_instance_profile()
     security_group_id     = ensure_security_group(ec2)
