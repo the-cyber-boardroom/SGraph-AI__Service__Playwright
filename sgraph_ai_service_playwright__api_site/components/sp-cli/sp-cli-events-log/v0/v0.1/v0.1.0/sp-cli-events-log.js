@@ -78,7 +78,7 @@ class SpCliEventsLog extends SgComponent {
 
         const icon  = ICONS[eventName] || '⚙️'
         const label = detail?.path || detail?.message || detail?.view || detail?.vaultId
-                   || (detail?.name ? `plugin: ${detail.name}` : null)
+                   || (detail?.name ? `spec: ${detail.name}` : null)
                    || eventName.split(':').pop()
         const sub   = [
             detail?.fileId  ? detail.fileId.slice(0, 20) + '…' : null,
