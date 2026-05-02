@@ -1,7 +1,7 @@
 import { SgComponent } from 'https://dev.tools.sgraph.ai/components/base/v1/v1.0/v1.0.0/sg-component.js'
-import '../../../../../_shared/sp-cli-host-shell/v0/v0.1/v0.1.0/sp-cli-host-shell.js'
-import '../../../../../_shared/sp-cli-host-api-panel/v0/v0.1/v0.1.0/sp-cli-host-api-panel.js'
-import '../../../../../_shared/sp-cli-stop-button/v0/v0.1/v0.1.0/sp-cli-stop-button.js'
+import '../../../../_shared/sp-cli-host-shell/v0/v0.1/v0.1.0/sp-cli-host-shell.js'
+import '../../../../_shared/sp-cli-host-api-panel/v0/v0.1/v0.1.0/sp-cli-host-api-panel.js'
+import '../../../../_shared/sp-cli-stop-button/v0/v0.1/v0.1.0/sp-cli-stop-button.js'
 
 const TYPE_ICONS = {
     docker: '🐳', podman: '🦭', elastic: '🔍', vnc: '🖥',
@@ -41,8 +41,14 @@ class SpCliNodesView extends SgComponent {
         this.$('.btn-close-detail')?.addEventListener('click', () => this._closeDetail())
         this._tabs.forEach(t => t.addEventListener('click', () => this._activateTab(t.dataset.tab)))
 
-        if (this._pendingStacks) { this.setStacks(this._pendingStacks); this._pendingStacks = null }
-        else this.setStacks([])
+        if (this._pendingStacks) {
+            this.setStacks(this._pendingStacks)
+            this._pendingStacks = null
+        } else {
+            this.setStacks([])
+            // Request fresh data — this view may mount after the initial load
+            document.dispatchEvent(new CustomEvent('sp-cli:stacks.refresh', { bubbles: true, composed: true }))
+        }
     }
 
     setStacks(stacks = []) {
