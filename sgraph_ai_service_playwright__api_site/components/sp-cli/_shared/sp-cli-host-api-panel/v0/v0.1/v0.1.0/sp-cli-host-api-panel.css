@@ -1,0 +1,25 @@
+:host { display: block; height: 100%; overflow: hidden; background: #fff; }
+[hidden] { display: none !important; }
+.hidden { display: none !important; }
+
+.panel-wrap {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+}
+
+.unavailable {
+    padding: var(--sg-sp-4);
+    color: var(--sg-text-muted);
+    font-size: var(--sg-fs-small);
+    text-align: center;
+}
+
+.api-frame {
+    flex: 1;
+    width: 100%;
+    border: none;
+    background: #fff;
+    color-scheme: light;
+    min-height: 0;
+}
