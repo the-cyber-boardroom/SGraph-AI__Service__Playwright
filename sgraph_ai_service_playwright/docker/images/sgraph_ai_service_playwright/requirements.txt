@@ -2,9 +2,7 @@ fastapi
 uvicorn
 requests
 httpx
-# playwright intentionally omitted — the base image mcr.microsoft.com/playwright/python:v1.58.0-noble
-# already ships playwright + matching Chromium binaries. Re-installing via pip would upgrade the
-# Python library past the pre-installed Chromium revision, causing BrowserType.launch to fail.
+playwright==1.58.0  # pin to match the base image — mcr.microsoft.com/playwright/python:v1.58.0-noble; already satisfied → no-op; prevents transitive-dep upgrades that orphan the Chromium binary
 osbot-utils
 osbot-aws
 osbot-docker
