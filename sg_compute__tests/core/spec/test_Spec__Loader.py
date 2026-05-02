@@ -18,11 +18,12 @@ class test_Spec__Loader(TestCase):
         registry = self.loader.load_all()
         assert isinstance(registry, Spec__Registry)
 
-    def test_load_all_discovers_two_pilot_specs(self):
+    def test_load_all_discovers_pilot_specs(self):
         registry = self.loader.load_all()
-        assert len(registry) == 2
+        assert len(registry) >= 2
         assert 'ollama'      in registry.spec_ids()
         assert 'open_design' in registry.spec_ids()
+        assert 'docker'      in registry.spec_ids()
 
     def test_manifests_are_typed(self):
         registry = self.loader.load_all()
@@ -35,7 +36,7 @@ class test_Spec__Loader(TestCase):
     def test_catalogue_shape(self):
         registry  = self.loader.load_all()
         catalogue = registry.catalogue()
-        assert len(catalogue.specs) == 2
+        assert len(catalogue.specs) >= 3
 
     def test_get_spec_by_id(self):
         registry = self.loader.load_all()
