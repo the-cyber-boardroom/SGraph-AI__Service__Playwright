@@ -277,3 +277,67 @@ class Test_Detail_Host_Tabs:
     def test_detail_imports_host_api_panel_js(self, name):
         js = detail(name)[0].read_text()
         assert 'sp-cli-host-api-panel' in js
+
+
+# ── nodes-view ────────────────────────────────────────────────────────────── #
+
+class Test_Nodes_View:
+
+    def test_trio_exists(self):
+        assert_trio(component('sp-cli-nodes-view'))
+
+    def test_has_master_list(self):
+        html = component('sp-cli-nodes-view')[1].read_text()
+        assert 'node-rows' in html or 'nodes-list' in html
+
+    def test_has_empty_state(self):
+        html = component('sp-cli-nodes-view')[1].read_text()
+        assert 'No active nodes' in html
+
+    def test_has_terminal_tab(self):
+        html = component('sp-cli-nodes-view')[1].read_text()
+        assert 'Terminal' in html
+
+    def test_has_host_api_tab(self):
+        html = component('sp-cli-nodes-view')[1].read_text()
+        assert 'Host API' in html or 'hostapi' in html
+
+    def test_embeds_host_shell(self):
+        html = component('sp-cli-nodes-view')[1].read_text()
+        assert 'sp-cli-host-shell' in html
+
+    def test_embeds_host_api_panel(self):
+        html = component('sp-cli-nodes-view')[1].read_text()
+        assert 'sp-cli-host-api-panel' in html
+
+    def test_imports_host_shell(self):
+        js = component('sp-cli-nodes-view')[0].read_text()
+        assert 'sp-cli-host-shell' in js
+
+    def test_registers_custom_element(self):
+        js = component('sp-cli-nodes-view')[0].read_text()
+        assert "customElements.define('sp-cli-nodes-view'" in js
+
+    def test_index_html_loads_nodes_view(self):
+        content = (API_SITE / 'admin' / 'index.html').read_text()
+        assert 'sp-cli-nodes-view.js' in content
+
+    def test_admin_js_has_nodes_view_title(self):
+        content = (API_SITE / 'admin' / 'admin.js').read_text()
+        assert 'nodes' in content and 'Active Nodes' in content
+
+    def test_ec2_tokens_css_exists(self):
+        assert (API_SITE / 'shared' / 'ec2-tokens.css').exists()
+
+    def test_ec2_tokens_has_accent(self):
+        css = (API_SITE / 'shared' / 'ec2-tokens.css').read_text()
+        assert '#4ECDC4' in css or '4ECDC4' in css
+
+    def test_ec2_tokens_maps_sg_tokens(self):
+        css = (API_SITE / 'shared' / 'ec2-tokens.css').read_text()
+        assert '--sg-accent' in css
+        assert '--sg-bg' in css
+
+    def test_index_html_loads_ec2_tokens(self):
+        content = (API_SITE / 'admin' / 'index.html').read_text()
+        assert 'ec2-tokens.css' in content
