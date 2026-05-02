@@ -373,6 +373,83 @@ class Firefox__Service(Type_Safe):
         ok = self.aws_client.lt.delete_template(region, lt_name)
         return {'deleted': ok, 'lt_name': lt_name}
 
+    # ── 3.1 Credentials ─────────────────────────────────────────────────────
+
+    def get_credentials(self, region: str, stack_name: str) -> 'Schema__Firefox__Credentials__Info':
+        from sgraph_ai_service_playwright__cli.firefox.schemas.Schema__Firefox__Credentials__Info import Schema__Firefox__Credentials__Info
+        return Schema__Firefox__Credentials__Info()                                  # stub: real impl reads htpasswd via SSM
+
+    def update_credentials(self, region: str, stack_name: str,
+                           request: 'Schema__Firefox__Credentials__Update') -> None:
+        pass                                                                         # stub: real impl pushes htpasswd via SSM
+
+    # ── 3.2 MITM proxy ──────────────────────────────────────────────────────
+
+    def get_mitm_status(self, region: str, stack_name: str) -> 'Schema__Firefox__Mitm__Status':
+        from sgraph_ai_service_playwright__cli.firefox.schemas.Schema__Firefox__Mitm__Status import Schema__Firefox__Mitm__Status
+        return Schema__Firefox__Mitm__Status()                                       # stub: real impl probes container
+
+    def get_mitm_url(self, region: str, stack_name: str) -> str:
+        info = self.get_stack_info(region, stack_name)
+        return str(info.mitmweb_url) if info else ''
+
+    # ── 3.3 Security toggles ────────────────────────────────────────────────
+
+    def get_security(self, region: str, stack_name: str) -> 'Schema__Firefox__Security':
+        from sgraph_ai_service_playwright__cli.firefox.schemas.Schema__Firefox__Security import Schema__Firefox__Security
+        return Schema__Firefox__Security()                                           # stub: real impl reads container env
+
+    def update_security(self, region: str, stack_name: str,
+                        request: 'Schema__Firefox__Security') -> None:
+        pass                                                                         # stub: real impl applies via SSM
+
+    # ── 3.4 Profile ─────────────────────────────────────────────────────────
+
+    def get_profile(self, region: str, stack_name: str) -> 'Schema__Firefox__Profile':
+        from sgraph_ai_service_playwright__cli.firefox.schemas.Schema__Firefox__Profile import Schema__Firefox__Profile
+        return Schema__Firefox__Profile()                                            # stub: real impl reads container state
+
+    def update_start_url(self, region: str, stack_name: str, url: str) -> None:
+        pass                                                                         # stub: real impl pushes prefs.js via SSM
+
+    def load_profile(self, region: str, stack_name: str, handle: str) -> None:
+        pass                                                                         # stub: real impl fetches vault tar.gz + pushes via SSM
+
+    # ── 3.5 Detailed health ──────────────────────────────────────────────────
+
+    def get_detailed_health(self, region: str, stack_name: str) -> 'Schema__Firefox__Health':
+        from datetime                                                                            import datetime, timezone
+        from sgraph_ai_service_playwright__cli.firefox.enums.Enum__Health__State                import Enum__Health__State
+        from sgraph_ai_service_playwright__cli.firefox.schemas.Schema__Firefox__Health          import Schema__Firefox__Health
+        from sgraph_ai_service_playwright__cli.vault.primitives.Safe_Str__ISO_Datetime          import Safe_Str__ISO_Datetime
+        info       = self.get_stack_info(region, stack_name)
+        checked_at = datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
+        if info is None:
+            return Schema__Firefox__Health(checked_at=Safe_Str__ISO_Datetime(checked_at))
+        from sgraph_ai_service_playwright__cli.firefox.service.Firefox__HTTP__Probe import Firefox__HTTP__Probe
+        from sgraph_ai_service_playwright__cli.firefox.service.Firefox__HTTP__Base  import Firefox__HTTP__Base
+        probe      = self.probe or Firefox__HTTP__Probe(http=Firefox__HTTP__Base())
+        public_ip  = str(info.public_ip)
+        firefox_ok = probe.firefox_ready(public_ip) if public_ip else False
+        mitmweb_ok = probe.mitmweb_ready(public_ip) if public_ip else False
+        g          = Enum__Health__State.GREEN
+        r          = Enum__Health__State.RED
+        container  = g if public_ip else r
+        firefox    = g if firefox_ok  else r
+        mitm       = g if mitmweb_ok  else r
+        network    = g if public_ip   else r
+        login_page = g if firefox_ok  else r
+        states     = [container, firefox, mitm, network, login_page]
+        overall    = g if all(s == g for s in states) else r
+        return Schema__Firefox__Health(
+            container_running = container                          ,
+            firefox_process   = firefox                           ,
+            mitm_proxy        = mitm                              ,
+            network           = network                           ,
+            login_page        = login_page                        ,
+            overall           = overall                           ,
+            checked_at        = Safe_Str__ISO_Datetime(checked_at))
+
     def delete_stack(self, region: str, stack_name: str) -> Schema__Firefox__Stack__Delete__Response:
         t0      = time.monotonic()
         details = self.aws_client.instance.find_by_stack_name(region, stack_name)
