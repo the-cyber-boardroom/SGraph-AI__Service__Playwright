@@ -4,7 +4,7 @@
 
 from unittest import TestCase
 
-from sg_compute.helpers.user_data.Section__Node import Section__Node
+from sg_compute.platforms.ec2.user_data.Section__Node import Section__Node
 
 
 class test_Section__Node(TestCase):

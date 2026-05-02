@@ -7,8 +7,8 @@
 
 from osbot_utils.type_safe.Type_Safe import Type_Safe
 
-from sg_compute.helpers.user_data.Section__Base     import Section__Base
-from sg_compute.helpers.user_data.Section__Shutdown import Section__Shutdown
+from sg_compute.platforms.ec2.user_data.Section__Base     import Section__Base
+from sg_compute.platforms.ec2.user_data.Section__Shutdown import Section__Shutdown
 
 NVIDIA_DRIVERS = """
 # ── NVIDIA drivers ────────────────────────────────────────────────────────────

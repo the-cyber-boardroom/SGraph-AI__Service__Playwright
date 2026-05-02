@@ -4,7 +4,7 @@
 
 from unittest import TestCase
 
-from sg_compute.helpers.aws.EC2__Tags__Builder import EC2__Tags__Builder, TAG_PURPOSE_VALUE
+from sg_compute.platforms.ec2.helpers.EC2__Tags__Builder import EC2__Tags__Builder, TAG_PURPOSE_VALUE
 
 
 class test_EC2__Tags__Builder(TestCase):

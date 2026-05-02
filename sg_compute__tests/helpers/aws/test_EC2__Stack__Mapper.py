@@ -5,7 +5,7 @@
 import datetime
 from unittest import TestCase
 
-from sg_compute.helpers.aws.EC2__Stack__Mapper import EC2__Stack__Mapper, tag_value, state_str
+from sg_compute.platforms.ec2.helpers.EC2__Stack__Mapper import EC2__Stack__Mapper, tag_value, state_str
 
 FIXTURE = {
     'InstanceId'       : 'i-0123456789abcdef0',

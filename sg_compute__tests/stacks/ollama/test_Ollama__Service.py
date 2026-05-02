@@ -13,7 +13,7 @@ from sg_compute_specs.ollama.schemas.Schema__Ollama__List             import Sch
 from sg_compute_specs.ollama.service.Ollama__Service                  import Ollama__Service
 from sg_compute_specs.ollama.service.Ollama__Stack__Mapper            import Ollama__Stack__Mapper
 from sg_compute_specs.ollama.service.Ollama__User_Data__Builder       import Ollama__User_Data__Builder
-from sg_compute.helpers.networking.Stack__Name__Generator              import Stack__Name__Generator
+from sg_compute.platforms.ec2.networking.Stack__Name__Generator              import Stack__Name__Generator
 
 FAKE_INSTANCE = {
     'InstanceId'       : 'i-0ollama5678',

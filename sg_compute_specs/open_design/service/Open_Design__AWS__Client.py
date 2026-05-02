@@ -5,12 +5,12 @@
 
 from osbot_utils.type_safe.Type_Safe import Type_Safe
 
-from sg_compute.helpers.aws.EC2__AMI__Helper      import EC2__AMI__Helper
-from sg_compute.helpers.aws.EC2__Instance__Helper import EC2__Instance__Helper
-from sg_compute.helpers.aws.EC2__Launch__Helper   import EC2__Launch__Helper
-from sg_compute.helpers.aws.EC2__SG__Helper       import EC2__SG__Helper
-from sg_compute.helpers.aws.EC2__Tags__Builder    import EC2__Tags__Builder
-from sg_compute.helpers.aws.Stack__Naming         import Stack__Naming
+from sg_compute.platforms.ec2.helpers.EC2__AMI__Helper      import EC2__AMI__Helper
+from sg_compute.platforms.ec2.helpers.EC2__Instance__Helper import EC2__Instance__Helper
+from sg_compute.platforms.ec2.helpers.EC2__Launch__Helper   import EC2__Launch__Helper
+from sg_compute.platforms.ec2.helpers.EC2__SG__Helper       import EC2__SG__Helper
+from sg_compute.platforms.ec2.helpers.EC2__Tags__Builder    import EC2__Tags__Builder
+from sg_compute.platforms.ec2.helpers.Stack__Naming         import Stack__Naming
 
 STACK_TYPE   = 'open-design'
 OD_NAMING    = Stack__Naming(section_prefix='od')

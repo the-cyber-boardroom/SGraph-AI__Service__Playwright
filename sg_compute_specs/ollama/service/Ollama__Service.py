@@ -36,8 +36,8 @@ class Ollama__Service(Type_Safe):
         from sg_compute_specs.ollama.service.Ollama__AWS__Client        import Ollama__AWS__Client
         from sg_compute_specs.ollama.service.Ollama__User_Data__Builder import Ollama__User_Data__Builder
         from sg_compute_specs.ollama.service.Ollama__Stack__Mapper      import Ollama__Stack__Mapper
-        from sg_compute.helpers.networking.Caller__IP__Detector          import Caller__IP__Detector
-        from sg_compute.helpers.networking.Stack__Name__Generator        import Stack__Name__Generator
+        from sg_compute.platforms.ec2.networking.Caller__IP__Detector          import Caller__IP__Detector
+        from sg_compute.platforms.ec2.networking.Stack__Name__Generator        import Stack__Name__Generator
         self.aws_client        = Ollama__AWS__Client       ().setup()
         self.user_data_builder = Ollama__User_Data__Builder()
         self.mapper            = Ollama__Stack__Mapper     ()
