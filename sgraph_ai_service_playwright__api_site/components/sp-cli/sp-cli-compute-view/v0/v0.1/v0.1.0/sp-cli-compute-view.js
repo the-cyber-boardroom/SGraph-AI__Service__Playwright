@@ -19,6 +19,17 @@ const REGIONS        = ['eu-west-2', 'us-east-1', 'ap-southeast-1', 'eu-west-1',
 const INSTANCE_TYPES = ['t3.micro', 't3.small', 't3.medium', 't3.large', 't3.xlarge']
 const MAX_HOURS      = [1, 2, 4, 8, 12, 24]
 
+const NAME_WORDS = [
+    'nova', 'echo', 'lark', 'ford', 'pike', 'wren', 'dusk', 'reef', 'sage', 'fern',
+    'kite', 'vale', 'bolt', 'cove', 'dune', 'flux', 'glen', 'haze', 'isle', 'jade',
+]
+
+function _genName(typeId) {
+    const word = NAME_WORDS[Math.floor(Math.random() * NAME_WORDS.length)]
+    const num  = String(Math.floor(Math.random() * 9000) + 1000)
+    return `${typeId}-${word}-${num}`
+}
+
 // Rough on-demand spot rates (USD/hr) for cost hint — intentionally approximate
 const COST_TABLE = {
     't3.micro': 0.011, 't3.small': 0.023, 't3.medium': 0.047,
@@ -136,7 +147,7 @@ class SpCliComputeView extends SgComponent {
         if (this._cfgBoot) this._cfgBoot.textContent = spec.boot
         if (this._barBoot) this._barBoot.textContent = spec.boot
         this._clearError()
-        if (this._nameInput) this._nameInput.value = ''
+        if (this._nameInput) this._nameInput.value = _genName(spec.type_id)
         this._updateCostBar()
         this._cfgCol.hidden = false
         this.shadowRoot.querySelector('.compute-view')?.classList.add('spec-selected')
@@ -164,7 +175,7 @@ class SpCliComputeView extends SgComponent {
         this._setLoading(true)
         this._clearError()
         const body = {
-            stack_name:    this._nameInput?.value.trim()  || null,
+            stack_name:    this._nameInput?.value.trim()  || _genName(this._currentSpec.type_id),
             region:        this._regionSel?.value         || REGIONS[0],
             instance_type: this._instanceSel?.value       || 't3.medium',
             max_hours:     parseInt(this._hoursSel?.value || '4', 10),
