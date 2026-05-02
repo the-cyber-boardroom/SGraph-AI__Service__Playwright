@@ -6,8 +6,8 @@ from enum import Enum
 
 
 class Enum__Stack__Type(Enum):
-    LINUX      = 'linux'
     DOCKER     = 'docker'
+    PODMAN     = 'podman'
     ELASTIC    = 'elastic'
     OPENSEARCH = 'opensearch'
     PROMETHEUS = 'prometheus'

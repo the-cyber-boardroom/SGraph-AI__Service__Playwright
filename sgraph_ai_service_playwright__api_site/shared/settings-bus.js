@@ -9,15 +9,14 @@ const VAULT_PATH = 'sp-cli/preferences.json'
 const DEFAULTS = {
     schema_version: 2,
     plugins: {
-        linux:      { enabled: true  },
         docker:     { enabled: true  },
+        podman:     { enabled: true  },
         elastic:    { enabled: true  },
         vnc:        { enabled: true  },
         prometheus: { enabled: false },
         opensearch: { enabled: false },
         neko:       { enabled: true  },
         firefox:    { enabled: true  },
-        podman:     { enabled: true  },
     },
     ui_panels: {
         events_log:      { visible: true },

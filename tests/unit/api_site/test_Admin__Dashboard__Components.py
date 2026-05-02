@@ -48,12 +48,12 @@ class Test_Admin_Entry_Point:
 
     def test_index_html_has_all_plugin_card_tags(self):
         content = (API_SITE / 'admin' / 'index.html').read_text()
-        for name in ['linux', 'docker', 'podman', 'elastic', 'vnc', 'prometheus', 'opensearch', 'neko', 'firefox']:
+        for name in ['docker', 'podman', 'elastic', 'vnc', 'prometheus', 'opensearch', 'neko', 'firefox']:
             assert f'sp-cli-{name}-card.js' in content, f'Missing script tag for {name} card'
 
     def test_index_html_has_all_detail_tags(self):
         content = (API_SITE / 'admin' / 'index.html').read_text()
-        for name in ['linux', 'docker', 'podman', 'elastic', 'vnc', 'prometheus', 'opensearch', 'neko', 'firefox']:
+        for name in ['docker', 'podman', 'elastic', 'vnc', 'prometheus', 'opensearch', 'neko', 'firefox']:
             assert f'sp-cli-{name}-detail.js' in content, f'Missing script tag for {name} detail'
 
     def test_index_html_has_api_view_tag(self):
@@ -82,7 +82,7 @@ class Test_Shared_Utilities:
 
 # ── plugin cards ──────────────────────────────────────────────────────────── #
 
-PLUGIN_NAMES = ['linux', 'docker', 'podman', 'elastic', 'vnc', 'prometheus', 'opensearch', 'neko', 'firefox']
+PLUGIN_NAMES = ['docker', 'podman', 'elastic', 'vnc', 'prometheus', 'opensearch', 'neko', 'firefox']
 
 class Test_Plugin_Cards:
     @pytest.mark.parametrize('name', PLUGIN_NAMES)

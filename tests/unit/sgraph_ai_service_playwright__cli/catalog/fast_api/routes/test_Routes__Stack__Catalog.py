@@ -30,8 +30,8 @@ class test_Routes__Stack__Catalog(TestCase):
 
     def test_types__available_flags(self):
         entries = {e['type_id']: e['available'] for e in _client().get('/catalog/types').json()['entries']}
-        assert entries['linux']      is True
         assert entries['docker']     is True
+        assert entries['podman']     is True
         assert entries['opensearch'] is False
         assert entries['vnc']        is True
 
@@ -43,6 +43,6 @@ class test_Routes__Stack__Catalog(TestCase):
     def test_stacks__contains_enabled_plugin_stacks(self):
         resp   = _client().get('/catalog/stacks')
         types  = {s['type_id'] for s in resp.json()['stacks']}
-        assert 'linux'  in types
+        assert 'podman' in types
         assert 'docker' in types
         assert 'vnc'    in types

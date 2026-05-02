@@ -17,9 +17,9 @@ from sgraph_ai_service_playwright__cli.core.plugin.enums.Enum__Plugin__Stability
 from sgraph_ai_service_playwright__cli.docker.plugin.Plugin__Manifest__Docker        import Plugin__Manifest__Docker
 from sgraph_ai_service_playwright__cli.elastic.plugin.Plugin__Manifest__Elastic      import Plugin__Manifest__Elastic
 from sgraph_ai_service_playwright__cli.firefox.plugin.Plugin__Manifest__Firefox      import Plugin__Manifest__Firefox
-from sgraph_ai_service_playwright__cli.linux.plugin.Plugin__Manifest__Linux          import Plugin__Manifest__Linux
 from sgraph_ai_service_playwright__cli.neko.plugin.Plugin__Manifest__Neko            import Plugin__Manifest__Neko
 from sgraph_ai_service_playwright__cli.opensearch.plugin.Plugin__Manifest__OpenSearch import Plugin__Manifest__OpenSearch
+from sgraph_ai_service_playwright__cli.podman.plugin.Plugin__Manifest__Podman        import Plugin__Manifest__Podman
 from sgraph_ai_service_playwright__cli.prometheus.plugin.Plugin__Manifest__Prometheus import Plugin__Manifest__Prometheus
 from sgraph_ai_service_playwright__cli.vnc.plugin.Plugin__Manifest__Vnc              import Plugin__Manifest__Vnc
 
@@ -40,7 +40,7 @@ class test_Plugin__Manifests__All(TestCase):
     def test__discover__loads_exactly_6_enabled_plugins(self):
         registry = _make_registry()
         registry.discover()
-        assert set(registry.manifests.keys()) == {'linux', 'docker', 'elastic', 'vnc', 'neko', 'firefox'}
+        assert set(registry.manifests.keys()) == {'podman', 'docker', 'elastic', 'vnc', 'neko', 'firefox'}
 
     def test__discover__prometheus_and_opensearch_skipped(self):
         skipped_names = []
@@ -53,16 +53,16 @@ class test_Plugin__Manifests__All(TestCase):
         loaded = []
         event_bus.on('core:plugin.loaded', lambda p: loaded.append(str(p.name)))
         _make_registry().discover()
-        assert set(loaded) == {'linux', 'docker', 'elastic', 'vnc', 'neko', 'firefox'}
+        assert set(loaded) == {'podman', 'docker', 'elastic', 'vnc', 'neko', 'firefox'}
 
-    def test__plugin_folders__contains_all_9_types(self):
-        assert set(PLUGIN_FOLDERS) == {'linux', 'docker', 'podman', 'elastic', 'vnc', 'prometheus', 'opensearch', 'neko', 'firefox'}
+    def test__plugin_folders__contains_all_8_types(self):
+        assert set(PLUGIN_FOLDERS) == {'podman', 'docker', 'elastic', 'vnc', 'prometheus', 'opensearch', 'neko', 'firefox'}
 
     # ── individual manifest properties ───────────────────────────────────────
 
-    def test__manifest_linux__properties(self):
-        m = Plugin__Manifest__Linux()
-        assert str(m.name)  == 'linux'
+    def test__manifest_podman__properties(self):
+        m = Plugin__Manifest__Podman()
+        assert str(m.name)  == 'podman'
         assert m.enabled    is True
         assert m.stability  == Enum__Plugin__Stability.STABLE
         assert m.requires_aws is True
@@ -111,9 +111,9 @@ class test_Plugin__Manifests__All(TestCase):
 
     # ── routes_classes ────────────────────────────────────────────────────────
 
-    def test__manifest_linux__one_routes_class(self):
-        from sgraph_ai_service_playwright__cli.linux.fast_api.routes.Routes__Linux__Stack import Routes__Linux__Stack
-        assert Plugin__Manifest__Linux().routes_classes() == [Routes__Linux__Stack]
+    def test__manifest_podman__one_routes_class(self):
+        from sgraph_ai_service_playwright__cli.podman.fast_api.routes.Routes__Podman__Stack import Routes__Podman__Stack
+        assert Plugin__Manifest__Podman().routes_classes() == [Routes__Podman__Stack]
 
     def test__manifest_vnc__two_routes_classes(self):
         from sgraph_ai_service_playwright__cli.vnc.fast_api.routes.Routes__Vnc__Stack import Routes__Vnc__Stack
@@ -125,13 +125,13 @@ class test_Plugin__Manifests__All(TestCase):
     def test__catalog_entries__match_existing_hardcoded(self):
         entries_obj = Stack__Catalog__Service__Entries()
         expected    = {
-            'linux':   entries_obj.entry__linux(),
+            'podman':  entries_obj.entry__podman(),
             'docker':  entries_obj.entry__docker(),
             'elastic': entries_obj.entry__elastic(),
             'vnc':     entries_obj.entry__vnc(),
         }
         manifests = {
-            'linux':   Plugin__Manifest__Linux(),
+            'podman':  Plugin__Manifest__Podman(),
             'docker':  Plugin__Manifest__Docker(),
             'elastic': Plugin__Manifest__Elastic(),
             'vnc':     Plugin__Manifest__Vnc(),
@@ -144,7 +144,7 @@ class test_Plugin__Manifests__All(TestCase):
                     f'{name}.{field}: expected {getattr(old,field)!r}, got {getattr(new,field)!r}'
 
     def test__catalog_entry__type_ids_are_correct_enum_members(self):
-        assert Plugin__Manifest__Linux()      .catalog_entry().type_id == Enum__Stack__Type.LINUX
+        assert Plugin__Manifest__Podman()     .catalog_entry().type_id == Enum__Stack__Type.PODMAN
         assert Plugin__Manifest__Docker()     .catalog_entry().type_id == Enum__Stack__Type.DOCKER
         assert Plugin__Manifest__Elastic()    .catalog_entry().type_id == Enum__Stack__Type.ELASTIC
         assert Plugin__Manifest__Vnc()        .catalog_entry().type_id == Enum__Stack__Type.VNC
@@ -153,7 +153,7 @@ class test_Plugin__Manifests__All(TestCase):
 
     def test__catalog_entry__endpoint_paths_follow_convention(self):
         for manifest_cls, prefix in [
-            (Plugin__Manifest__Linux,      'linux'),
+            (Plugin__Manifest__Podman,     'podman'),
             (Plugin__Manifest__Docker,     'docker'),
             (Plugin__Manifest__Elastic,    'elastic'),
             (Plugin__Manifest__Vnc,        'vnc'),
@@ -168,7 +168,7 @@ class test_Plugin__Manifests__All(TestCase):
 
     def test__event_topics__each_enabled_manifest_declares_created_and_deleted(self):
         for manifest_cls, prefix in [
-            (Plugin__Manifest__Linux,   'linux'),
+            (Plugin__Manifest__Podman,  'podman'),
             (Plugin__Manifest__Docker,  'docker'),
             (Plugin__Manifest__Elastic, 'elastic'),
             (Plugin__Manifest__Vnc,     'vnc'),
@@ -180,12 +180,12 @@ class test_Plugin__Manifests__All(TestCase):
     # ── service_class ─────────────────────────────────────────────────────────
 
     def test__service_class__each_manifest_returns_correct_type(self):
-        from sgraph_ai_service_playwright__cli.linux.service.Linux__Service       import Linux__Service
-        from sgraph_ai_service_playwright__cli.docker.service.Docker__Service     import Docker__Service
-        from sgraph_ai_service_playwright__cli.elastic.service.Elastic__Service   import Elastic__Service
-        from sgraph_ai_service_playwright__cli.vnc.service.Vnc__Service           import Vnc__Service
+        from sgraph_ai_service_playwright__cli.podman.service.Podman__Service      import Podman__Service
+        from sgraph_ai_service_playwright__cli.docker.service.Docker__Service      import Docker__Service
+        from sgraph_ai_service_playwright__cli.elastic.service.Elastic__Service    import Elastic__Service
+        from sgraph_ai_service_playwright__cli.vnc.service.Vnc__Service            import Vnc__Service
 
-        assert Plugin__Manifest__Linux()  .service_class() is Linux__Service
+        assert Plugin__Manifest__Podman() .service_class() is Podman__Service
         assert Plugin__Manifest__Docker() .service_class() is Docker__Service
         assert Plugin__Manifest__Elastic().service_class() is Elastic__Service
         assert Plugin__Manifest__Vnc()    .service_class() is Vnc__Service

@@ -123,7 +123,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     // ── Launch flow (wired here; sp-cli-launch-panel added in PR-4) ───────── //
 
-    const LAUNCH_TYPES = ['linux', 'docker', 'podman', 'elastic', 'vnc', 'prometheus', 'opensearch', 'neko', 'firefox']
+    const LAUNCH_TYPES = ['docker', 'podman', 'elastic', 'vnc', 'prometheus', 'opensearch', 'neko', 'firefox']
     LAUNCH_TYPES.forEach(t =>
         document.addEventListener(`sp-cli:plugin:${t}.launch-requested`, (e) => _openLaunchTab(e.detail?.entry))
     )
