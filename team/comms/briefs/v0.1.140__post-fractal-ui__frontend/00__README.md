@@ -1,64 +1,50 @@
-# v0.1.140 — Post-Fractal UI: Host Control Plane + Terminal
+# v0.1.140 — Post-Fractal-UI: Frontend Cleanup & Extensions
 
 **Status:** PROPOSED
-**Owner:** frontend team (this Claude session) + backend/CLI team (separate session)
-**Audience:** dev, architect
-**Source brief:** `team/humans/dinis_cruz/briefs/05/02/` (human memo, 02 May 2026)
+**Owner:** Dev (UI) + UI Architect (review)
+**Audience:** the frontend team
+**Paired with:** [`team/comms/briefs/v0.1.140__post-fractal-ui__backend/`](../v0.1.140__post-fractal-ui__backend/) — items 01, 02, 03 here block on the matching backend contracts there.
+**Source:** UI Architect orientation review at `team/humans/dinis_cruz/claude-code-web/05/01/15/ui-architect__pass-1__code-and-implementation.md` and `…__pass-2__scope-and-new-briefs.md`.
 
 ---
 
-## Goal
+## Why this brief exists
 
-Every running EC2 stack in the Admin Dashboard gets a **control plane** — a
-FastAPI service running on the instance itself that exposes container
-management, host metrics, and a shell. The Admin Dashboard surfaces this
-through two new tabs on every detail panel: a **Terminal** tab (command
-execution, progressing to an interactive xterm.js shell) and a **Host API**
-tab (Swagger iframe for the instance's own `/docs` page).
+The fractal-UI rebuild is ~70-75% landed at v0.1.140. The remaining work splits into:
 
-This is the first step toward treating each EC2 instance as a self-describing
-service rather than an opaque box.
+- **Three contract-blocked items.** The dashboard cannot finish until the backend publishes the matching contracts. These are sequenced behind the four backend topics (manifest, launch payload, firefox endpoints, vault writes).
+- **Two unblocked items.** A cleanup pass (linux→podman residue, deprecated components, sg-remote-browser embedding, card-label consistency, plugin-folder structure) that the frontend team can do now without backend coordination, plus a governance decision on out-of-brief additions (firefox plugin, API nav item).
+
+Each topic is a separate file with a consistent shape: Goal / Today / Required output / Acceptance / Open questions / Paired-with.
 
 ---
 
-## Background
+## Items in this brief
 
-The human brief (`v0.22.19__dev-brief__container-runtime-abstraction.md`)
-identified the "Host FastAPI Control Plane" section as the next build target.
-This brief operationalises that section for both teams.
-
----
-
-## Files in this brief
-
-| File | Audience | Content |
-|------|----------|---------|
-| `01__architecture-reference.md` | Both teams | Shared contract: API surface, schemas, security model, key flow, parallel build strategy |
-| `02__backend-brief.md`          | CLI/backend team | 6 tasks: runtime abstraction → shell executor → FastAPI routes → schema additions → EC2 boot wiring → Docker image |
-| `03__frontend-brief.md`         | Frontend team (this session) | 6 tasks: sp-cli-host-shell → sp-cli-host-terminal → detail tab wiring → sp-cli-host-api-panel → index.html → tests |
-
-Read `01__architecture-reference.md` first — it defines the coupling point
-(`host_api_url` + `host_api_key_vault_path` on the stack object) that lets
-both teams build in parallel.
+| # | Topic | File | Backend counterpart | Blocked? |
+|---|-------|------|----------------------|---------|
+| 1 | Plugin manifest loader (delete the 5-place duplication) | `01__plugin-manifest-loader.md` | `backend/01__plugin-manifest-endpoint.md` | YES |
+| 2 | Launch flow — three creation modes | `02__launch-flow-three-modes.md` | `backend/02__stack-creation-payload-modes.md` | YES |
+| 3 | Firefox configuration column (5 sub-panels) | `03__firefox-configuration-column.md` | `backend/03__firefox-config-endpoints.md` + `04__vault-write-contract.md` | YES |
+| 4 | Cleanup pass | `04__cleanup-pass.md` | — | NO — start now |
+| 5 | Governance — out-of-brief additions, event vocabulary | `05__governance-decisions.md` | — | NO — decision-only |
 
 ---
 
-## Coupling point (only dependency between teams)
+## Constraints
 
-`Schema__Ec2__Instance__Info` gains two new fields (backend adds them):
-
-```
-host_api_url            : str   # "http://3.8.x.x:9000" — empty until boot complete
-host_api_key_vault_path : str   # "/ec2/grand-wien/host-api-key"
-```
-
-Frontend mocks `http://localhost:9000` until backend is live.
+- No build toolchain. Native ES modules. Every component is `.js` + `.html` + `.css` siblings under `{name}/v0/v0.1/v0.1.0/`.
+- Every component extends the imported `sg-component` base from the Tools URL referenced in existing components.
+- Custom-element naming: `sp-cli-{kebab}` for SP-CLI; `sg-{kebab}` for promoted-to-Tools generics.
+- Events dispatched on `document` with `{ bubbles: true, composed: true }`. No reaching into shadow DOM from the page controller.
+- Preferences live in the user vault under `sp-cli/preferences.json` via `settings-bus.js` (`schema_version: 2`).
+- Briefs folder is human-only — agents do not write there. Implementation notes go to `team/humans/dinis_cruz/claude-code-web/MM/DD/HH/`.
 
 ---
 
-## Out of scope (this slice)
+## Lifecycle
 
-- Kubernetes / minikube runtime adapter (future)
-- Sidecar attach/detach API (`POST /containers/{name}/sidecars`)
-- Prometheus `/metrics` scraping integration into the dashboard cost tracker
-- AMI bake flow (covered in `v0.22.19__dev-brief__ephemeral-infra-next-phase.md`)
+1. Each topic file lands as a UI Architect review under `team/roles/ui-architect/reviews/MM/DD/` (folder to be created — see UI Architect ROLE.md proposal in pass-2 of the orientation review).
+2. Frontend Dev implements; merges land on `dev` after green tests.
+3. Items 1-3 unblock as the matching backend brief lands. Items 4-5 can land in parallel from day one.
+4. Each merged item is added to the UI fragment of the reality doc (`team/roles/librarian/reality/v{version}/...`) and this brief is moved to `team/comms/briefs/archive/` with the closing-commit hash appended.

@@ -1,47 +1,47 @@
 # ═══════════════════════════════════════════════════════════════════════════════
-# SG Playwright — linux.py
-# CLI entry-point: sp linux
-# Manage ephemeral bare Linux EC2 stacks (AL2023 + SSM access, no SSH).
+# SG Playwright — podman.py
+# CLI entry-point: sp podman (also registered as sp linux for backwards compat)
+# Manage ephemeral Podman EC2 stacks (AL2023 + Podman, SSM access, no SSH).
 #
-# Tier-2A thin Typer wrapper — all logic lives in Linux__Service; this module
+# Tier-2A thin Typer wrapper — all logic lives in Podman__Service; this module
 # only constructs the service, calls one method, and renders via Renderers.
 # ═══════════════════════════════════════════════════════════════════════════════
 
 import functools
 import traceback
-from typing                                                                         import List, Optional
+from typing                                                                          import List, Optional
 
 import typer
-from rich.console                                                                   import Console
+from rich.console                                                                    import Console
 
 from sgraph_ai_service_playwright__cli.podman.cli.Renderers                          import (render_create,
-                                                                                               render_health,
-                                                                                               render_info  ,
-                                                                                               render_list  )
+                                                                                              render_health,
+                                                                                              render_info  ,
+                                                                                              render_list  )
 from sgraph_ai_service_playwright__cli.podman.collections.List__Port                 import List__Port
-from sgraph_ai_service_playwright__cli.podman.schemas.Schema__Podman__Create__Request import Schema__Podman__Create__Request as Schema__Linux__Create__Request
-from sgraph_ai_service_playwright__cli.podman.service.Podman__Service                import DEFAULT_REGION, Podman__Service as Linux__Service
+from sgraph_ai_service_playwright__cli.podman.schemas.Schema__Podman__Create__Request import Schema__Podman__Create__Request
+from sgraph_ai_service_playwright__cli.podman.service.Podman__Service                import DEFAULT_REGION, Podman__Service
 
 
 DEBUG_TRACE = False
 
 
-app = typer.Typer(no_args_is_help=True, help='Manage ephemeral Linux EC2 stacks (AL2023, SSM access).')
+app = typer.Typer(no_args_is_help=True, help='Manage ephemeral Podman EC2 stacks (AL2023, SSM access).')
 
 
 @app.callback()
-def _linux_root(debug: bool = typer.Option(False, '--debug',
-                                            help='Show full Python traceback on errors.')):
-    """Manage ephemeral Linux EC2 stacks. Pass --debug before a sub-command for full tracebacks."""
+def _podman_root(debug: bool = typer.Option(False, '--debug',
+                                             help='Show full Python traceback on errors.')):
+    """Manage ephemeral Podman EC2 stacks. Pass --debug before a sub-command for full tracebacks."""
     global DEBUG_TRACE
     DEBUG_TRACE = debug
 
 
-def _service() -> Linux__Service:                                                   # Single seam — tests override to inject an in-memory fake
-    return Linux__Service().setup()
+def _service() -> Podman__Service:                                                   # Single seam — tests override to inject an in-memory fake
+    return Podman__Service().setup()
 
 
-def _err_handler(fn):                                                               # Mirrors elastic.py aws_error_handler — friendly errors, full trace with --debug
+def _err_handler(fn):                                                                # Friendly errors, full trace with --debug
     @functools.wraps(fn)
     def wrapped(*args, **kwargs):
         try:
@@ -55,7 +55,7 @@ def _err_handler(fn):                                                           
             console.print()
             console.print(f'  [red]✗[/]  [bold]{type(exc).__name__}[/]: {exc}')
             if not DEBUG_TRACE:
-                console.print('     [dim]› Re-run with [bold]sp linux --debug ...[/] to see the full traceback.[/]')
+                console.print('     [dim]› Re-run with [bold]sp podman --debug ...[/] to see the full traceback.[/]')
             if DEBUG_TRACE:
                 console.print()
                 console.print('[dim]── traceback ────────────────────────────────────[/]')
@@ -65,14 +65,14 @@ def _err_handler(fn):                                                           
     return wrapped
 
 
-def _ports(raw: Optional[List[int]]) -> List__Port:                                 # Typer passes plain list[int]; wrap in Type_Safe collection
+def _ports(raw: Optional[List[int]]) -> List__Port:                                  # Typer passes plain list[int]; wrap in Type_Safe collection
     result = List__Port()
     for p in (raw or []):
         result.append(p)
     return result
 
 
-def resolve_stack_name(service: Linux__Service, provided: Optional[str], region: str) -> str:
+def resolve_stack_name(service: Podman__Service, provided: Optional[str], region: str) -> str:
     """Auto-select when one stack exists, prompt when many, error when none."""
     if provided:
         return provided
@@ -82,7 +82,7 @@ def resolve_stack_name(service: Linux__Service, provided: Optional[str], region:
 
     if len(names) == 0:
         Console(highlight=False, stderr=True).print(
-            f'\n  [yellow]No linux stacks in {region_label}.[/]  Run: [bold]sp linux create[/]\n')
+            f'\n  [yellow]No Podman stacks in {region_label}.[/]  Run: [bold]sp podman create[/]\n')
         raise typer.Exit(1)
 
     if len(names) == 1:
@@ -114,10 +114,10 @@ def create(name          : Optional[str]       = typer.Argument(None, help='Stac
            max_hours     : int                 = typer.Option(1             , '--max-hours'     , help='Auto-terminate after N hours; 0 = no timer.'),
            extra_ports   : Optional[List[int]] = typer.Option(None          , '--port'          , help='Extra TCP ports to open from caller /32 (repeatable).'),
            wait          : bool                = typer.Option(False         , '--wait'          , help='Block until instance is running and SSM-reachable.')):
-    """Provision a bare Linux EC2 stack with SSM access."""
+    """Provision a bare Podman EC2 stack with SSM access."""
     c       = Console(highlight=False, width=200)
     svc     = _service()
-    request = Schema__Linux__Create__Request(
+    request = Schema__Podman__Create__Request(
         stack_name    = name          or ''      ,
         region        = region                   ,
         instance_type = instance_type            ,
@@ -139,7 +139,7 @@ def create(name          : Optional[str]       = typer.Argument(None, help='Stac
 @app.command(name='list')
 @_err_handler
 def list_stacks(region: str = typer.Option(DEFAULT_REGION, '--region', '-r')):
-    """List all Linux stacks in the region."""
+    """List all Podman stacks in the region."""
     listing = _service().list_stacks(region)
     render_list(listing, Console(highlight=False, width=200))
 
@@ -148,13 +148,13 @@ def list_stacks(region: str = typer.Option(DEFAULT_REGION, '--region', '-r')):
 @_err_handler
 def info(name  : Optional[str] = typer.Argument(None, help='Stack name; auto-selected when only one exists.'),
          region: str           = typer.Option(DEFAULT_REGION, '--region', '-r')):
-    """Show details for a single Linux stack."""
+    """Show details for a single Podman stack."""
     c       = Console(highlight=False, width=200)
     svc     = _service()
     name    = resolve_stack_name(svc, name, region)
     data    = svc.get_stack_info(region, name)
     if data is None:
-        c.print(f'  [red]✗  No Linux stack matched {name!r}[/]')
+        c.print(f'  [red]✗  No Podman stack matched {name!r}[/]')
         raise typer.Exit(1)
     render_info(data, c)
 
@@ -163,7 +163,7 @@ def info(name  : Optional[str] = typer.Argument(None, help='Stack name; auto-sel
 @_err_handler
 def delete(name  : Optional[str] = typer.Argument(None, help='Stack name; auto-selected when only one exists.'),
            region: str           = typer.Option(DEFAULT_REGION, '--region', '-r')):
-    """Terminate a Linux stack."""
+    """Terminate a Podman stack."""
     c    = Console(highlight=False, width=200)
     svc  = _service()
     name = resolve_stack_name(svc, name, region)
@@ -213,7 +213,7 @@ def connect(name  : Optional[str] = typer.Argument(None, help='Stack name; auto-
     name = resolve_stack_name(svc, name, region)
     data = svc.get_stack_info(region, name)
     if data is None:
-        c.print(f'  [red]✗  No Linux stack matched {name!r}[/]')
+        c.print(f'  [red]✗  No Podman stack matched {name!r}[/]')
         raise typer.Exit(1)
     iid = str(data.instance_id)
     c.print(f'  [dim]Connecting to {name} ({iid}) in {region}…[/]\n')
