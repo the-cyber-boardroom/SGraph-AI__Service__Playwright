@@ -18,6 +18,7 @@ from sgraph_ai_service_playwright__cli.core.plugin.enums.Enum__Plugin__Nav_Group
 from sgraph_ai_service_playwright__cli.core.plugin.enums.Enum__Plugin__Stability        import Enum__Plugin__Stability
 from sgraph_ai_service_playwright__cli.core.plugin.primitives.Safe_Str__Icon            import Safe_Str__Icon
 from sgraph_ai_service_playwright__cli.core.plugin.primitives.Safe_Str__Plugin__Name    import Safe_Str__Plugin__Name
+from sgraph_ai_service_playwright__cli.vault.collections.List__Vault__Handle            import List__Vault__Handle
 
 
 class Plugin__Manifest__Base(Type_Safe):
@@ -32,6 +33,7 @@ class Plugin__Manifest__Base(Type_Safe):
     soon                 : bool                    = False                      # True → UI shows "coming soon" badge
     nav_group            : Enum__Plugin__Nav_Group = Enum__Plugin__Nav_Group.COMPUTE
     capabilities         : List__Plugin__Capability
+    write_handles        : List__Vault__Handle                                  # vault handle slugs this plugin may write
 
     # ── factory methods (must override) ─────────────────────────────────────
 

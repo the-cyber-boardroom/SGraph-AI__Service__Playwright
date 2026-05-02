@@ -17,6 +17,7 @@ from sgraph_ai_service_playwright__cli.core.plugin.enums.Enum__Plugin__Stability
 from sgraph_ai_service_playwright__cli.core.plugin.primitives.Safe_Str__Plugin__Name import Safe_Str__Plugin__Name
 from sgraph_ai_service_playwright__cli.firefox.fast_api.routes.Routes__Firefox__Stack import Routes__Firefox__Stack
 from sgraph_ai_service_playwright__cli.firefox.service.Firefox__Service             import Firefox__Service
+from sgraph_ai_service_playwright__cli.vault.primitives.Safe_Str__Vault__Handle      import Safe_Str__Vault__Handle
 
 
 class Plugin__Manifest__Firefox(Plugin__Manifest__Base):
@@ -35,6 +36,9 @@ class Plugin__Manifest__Firefox(Plugin__Manifest__Base):
         self.capabilities.append(Enum__Plugin__Capability.MITM_PROXY)
         self.capabilities.append(Enum__Plugin__Capability.IFRAME_EMBED)
         self.capabilities.append(Enum__Plugin__Capability.AMI_BAKE)
+        self.write_handles.append(Safe_Str__Vault__Handle('credentials'))
+        self.write_handles.append(Safe_Str__Vault__Handle('mitm-script'))
+        self.write_handles.append(Safe_Str__Vault__Handle('profile'))
 
     def service_class(self):
         return Firefox__Service
