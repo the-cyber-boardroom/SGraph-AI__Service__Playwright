@@ -169,14 +169,6 @@ class test_Fast_API__SP__CLI(TestCase):
         response = self.client.get(f'/ec2/playwright/info/{DEPLOY_NAME}')
         assert response.status_code == 401
 
-    def test_linux_routes_are_mounted(self):                                        # Verify all five linux/* paths are registered
-        app    = self.fast_api.app()
-        paths  = {str(r.path) for r in app.routes if hasattr(r, 'path')}           # str() normalises Safe_Str__Fast_API__Route__Prefix
-        assert '/linux/stacks'              in paths
-        assert '/linux/stack'               in paths
-        assert '/linux/stack/{name}'        in paths
-        assert '/linux/stack/{name}/health' in paths
-
     def test_docker_routes_are_mounted(self):                                       # Verify all five docker/* paths are registered
         app    = self.fast_api.app()
         paths  = {str(r.path) for r in app.routes if hasattr(r, 'path')}           # str() normalises Safe_Str__Fast_API__Route__Prefix
@@ -184,10 +176,6 @@ class test_Fast_API__SP__CLI(TestCase):
         assert '/docker/stack'               in paths
         assert '/docker/stack/{name}'        in paths
         assert '/docker/stack/{name}/health' in paths
-
-    def test_linux_list_stacks__is_reachable(self):                                 # GET /linux/stacks — unauthenticated → 401 (confirms route is live)
-        response = self.client.get('/linux/stacks')
-        assert response.status_code == 401                                          # No header → middleware rejects before service is called
 
     def test_docker_list_stacks__is_reachable(self):                                # GET /docker/stacks — unauthenticated → 401
         response = self.client.get('/docker/stacks')
