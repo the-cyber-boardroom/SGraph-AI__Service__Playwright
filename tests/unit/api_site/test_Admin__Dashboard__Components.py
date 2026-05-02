@@ -237,25 +237,25 @@ class Test_Diagnostics_View:
     def test_trio_exists(self):
         assert_trio(component('sp-cli-diagnostics-view'))
 
-    def test_html_has_events_log_tab(self):
-        html = component('sp-cli-diagnostics-view')[1].read_text()
-        assert 'Events Log' in html
-
-    def test_html_has_health_tab(self):
-        html = component('sp-cli-diagnostics-view')[1].read_text()
-        assert 'Health' in html
-
-    def test_html_embeds_events_log_component(self):
-        html = component('sp-cli-diagnostics-view')[1].read_text()
-        assert 'sp-cli-events-log' in html
-
-    def test_js_imports_events_log(self):
+    def test_js_layout_has_events_log_tab(self):
         js = component('sp-cli-diagnostics-view')[0].read_text()
-        assert 'sp-cli-events-log.js' in js
+        assert 'Events Log' in js                      # declared in DIAG_LAYOUT, not HTML
 
-    def test_js_has_tab_switch(self):
+    def test_js_layout_has_events_log_component(self):
         js = component('sp-cli-diagnostics-view')[0].read_text()
-        assert '_switchTab' in js
+        assert 'sp-cli-events-log' in js               # tag name in DIAG_LAYOUT children
+
+    def test_js_imports_sg_layout(self):
+        js = component('sp-cli-diagnostics-view')[0].read_text()
+        assert 'sg-layout.js' in js                    # layout engine drives tab rendering
+
+    def test_js_calls_set_layout(self):
+        js = component('sp-cli-diagnostics-view')[0].read_text()
+        assert 'setLayout' in js                       # layout applied in onReady()
+
+    def test_html_mounts_sg_layout(self):
+        html = component('sp-cli-diagnostics-view')[1].read_text()
+        assert 'sg-layout' in html                     # layout host element in template
 
     def test_left_nav_has_no_diag_item(self):
         html = (API_SITE / 'components/sp-cli/sp-cli-left-nav/v0/v0.1/v0.1.0/sp-cli-left-nav.html').read_text()
