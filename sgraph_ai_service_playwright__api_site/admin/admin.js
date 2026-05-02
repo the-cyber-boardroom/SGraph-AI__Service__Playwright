@@ -1,7 +1,6 @@
 // ── admin.js — Admin Dashboard page controller ──────────────────────────── //
 
 import { apiClient       } from '../shared/api-client.js'
-import { startVaultBus   } from '../shared/vault-bus.js'
 import { startSettingsBus, getUIPanelVisible } from '../shared/settings-bus.js'
 
 const ROOT_LAYOUT_KEY = 'sp-cli:admin:root-layout:v1'
@@ -44,23 +43,14 @@ document.addEventListener('DOMContentLoaded', async () => {
     let _launchTabIds     = {}      // type_id    → panelId
     let _rightPanelTabIds = {}      // panel key  → panelId
 
-    startVaultBus()
     startSettingsBus()
 
-    // ── Boot immediately — vault is optional ──────────────────────────────── //
+    // ── Boot immediately ──────────────────────────────────────────────────── //
 
-    // Init layout with default settings, then load data.
-    // Vault is additive: if it connects, settings-bus reads preferences and
-    // _loadData() refreshes the stack list. Layout only re-inits if vault
-    // fast-restores before this line runs (handled by settings.loaded below).
     await _initLayout()
     _loadData()
 
-    // ── Vault events (preferences + API key sync, not a gate) ────────────── //
-
-    document.addEventListener('vault:connected', () => _loadData())
-
-    // ── Settings loaded → re-init layout only if vault beat the boot path ── //
+    // ── Settings loaded → re-init layout if settings fired before boot ────── //
 
     document.addEventListener('sp-cli:settings.loaded', async () => {
         if (!_layoutReady) await _initLayout()

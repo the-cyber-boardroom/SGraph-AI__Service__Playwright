@@ -3,7 +3,6 @@ import {
     getAllPluginToggles, getUIPanelVisible, getDefault,
     setPluginEnabled, setUIPanelVisible, setDefault, isLoaded,
 } from '../../../../../../shared/settings-bus.js'
-import { isWritable } from '../../../../../../shared/vault-bus.js'
 
 const ROOT_LAYOUT_KEY = 'sp-cli:admin:root-layout:v1'
 
@@ -41,7 +40,6 @@ class SpCliSettingsView extends SgComponent {
         this._regionSel   = this.$('.def-region')
         this._hoursSel    = this.$('.def-hours')
         this._instSel     = this.$('.def-instance')
-        this._roBanner    = this.$('.ro-banner')
         this._resetBtn    = this.$('.btn-reset-layout')
 
         this._populateSelect(this._regionSel, REGIONS,        r => r)
@@ -55,7 +53,6 @@ class SpCliSettingsView extends SgComponent {
         this._resetBtn?.addEventListener('click', () => this._resetLayout())
 
         document.addEventListener('sp-cli:settings.loaded',  () => this._render())
-        document.addEventListener('vault:disconnected',       () => { if (this._roBanner) this._roBanner.hidden = true })
 
         if (isLoaded()) this._render()
     }
@@ -64,7 +61,6 @@ class SpCliSettingsView extends SgComponent {
         this._renderPlugins()
         this._renderPanels()
         this._renderDefaults()
-        this._updateRoBanner()
     }
 
     _renderPlugins() {
@@ -112,10 +108,6 @@ class SpCliSettingsView extends SgComponent {
         if (this._regionSel) this._regionSel.value = getDefault('region')        || 'eu-west-2'
         if (this._hoursSel)  this._hoursSel.value  = String(getDefault('max_hours') ?? 4)
         if (this._instSel)   this._instSel.value   = getDefault('instance_type') || 't3.medium'
-    }
-
-    _updateRoBanner() {
-        if (this._roBanner) this._roBanner.hidden = isWritable()
     }
 
     _resetLayout() {
