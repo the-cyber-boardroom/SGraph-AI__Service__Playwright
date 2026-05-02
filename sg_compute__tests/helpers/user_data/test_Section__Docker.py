@@ -4,7 +4,7 @@
 
 from unittest import TestCase
 
-from sg_compute.helpers.user_data.Section__Docker import Section__Docker
+from sg_compute.platforms.ec2.user_data.Section__Docker import Section__Docker
 
 
 class test_Section__Docker(TestCase):

@@ -5,11 +5,11 @@
 
 from osbot_utils.type_safe.Type_Safe import Type_Safe
 
-from sg_compute.helpers.aws.EC2__Stack__Mapper             import (tag_value      ,
+from sg_compute.platforms.ec2.helpers.EC2__Stack__Mapper             import (tag_value      ,
                                                                        state_str     ,
                                                                        uptime_seconds,
                                                                        first_sg_id   )
-from sg_compute.helpers.aws.EC2__Tags__Builder             import TAG_STACK_NAME
+from sg_compute.platforms.ec2.helpers.EC2__Tags__Builder             import TAG_STACK_NAME
 from sg_compute_specs.ollama.schemas.Schema__Ollama__Info import Schema__Ollama__Info
 
 TAG_MODEL  = 'StackModel'

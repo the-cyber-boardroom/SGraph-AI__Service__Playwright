@@ -9,8 +9,8 @@ import time
 
 from osbot_utils.type_safe.Type_Safe                             import Type_Safe
 
-from sg_compute.helpers.aws.EC2__Tags__Builder                import TAG_STACK_NAME, TAG_STACK_TYPE, TAG_CALLER_IP
-from sg_compute.helpers.schemas.Schema__Stack__Info           import Schema__Stack__Info
+from sg_compute.platforms.ec2.helpers.EC2__Tags__Builder                import TAG_STACK_NAME, TAG_STACK_TYPE, TAG_CALLER_IP
+from sg_compute.core.node.schemas.Schema__Stack__Info           import Schema__Stack__Info
 
 
 def tag_value(details: dict, key: str) -> str:

@@ -13,7 +13,7 @@ from sg_compute_specs.open_design.schemas.Schema__Open_Design__List             
 from sg_compute_specs.open_design.service.Open_Design__Service                  import Open_Design__Service
 from sg_compute_specs.open_design.service.Open_Design__Stack__Mapper            import Open_Design__Stack__Mapper
 from sg_compute_specs.open_design.service.Open_Design__User_Data__Builder       import Open_Design__User_Data__Builder
-from sg_compute.helpers.networking.Stack__Name__Generator                        import Stack__Name__Generator
+from sg_compute.platforms.ec2.networking.Stack__Name__Generator                        import Stack__Name__Generator
 
 FAKE_INSTANCE = {
     'InstanceId'       : 'i-0feeddeadbeef',

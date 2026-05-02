@@ -201,6 +201,26 @@ class Test_Compute_View:
         js = component('sp-cli-compute-view')[0].read_text()
         assert 'settings-bus.js' in js
 
+    def test_html_has_cost_bar(self):
+        html = component('sp-cli-compute-view')[1].read_text()
+        assert 'cfg-cost-bar' in html
+
+    def test_html_has_two_column_fields(self):
+        html = component('sp-cli-compute-view')[1].read_text()
+        assert 'cfg-field-row' in html
+
+    def test_html_has_cfg_desc(self):
+        html = component('sp-cli-compute-view')[1].read_text()
+        assert 'cfg-desc' in html
+
+    def test_js_catalog_has_descriptions(self):
+        js = component('sp-cli-compute-view')[0].read_text()
+        assert 'description:' in js
+
+    def test_js_fires_node_launched(self):
+        js = component('sp-cli-compute-view')[0].read_text()
+        assert 'sp-cli:node.launched' in js
+
 # ── settings view ─────────────────────────────────────────────────────────── #
 
 class Test_Settings_View:
@@ -210,6 +230,48 @@ class Test_Settings_View:
     def test_imports_settings_bus(self):
         js = component('sp-cli-settings-view')[0].read_text()
         assert 'settings-bus.js' in js
+
+# ── diagnostics view ──────────────────────────────────────────────────────── #
+
+class Test_Diagnostics_View:
+    def test_trio_exists(self):
+        assert_trio(component('sp-cli-diagnostics-view'))
+
+    def test_html_has_events_log_tab(self):
+        html = component('sp-cli-diagnostics-view')[1].read_text()
+        assert 'Events Log' in html
+
+    def test_html_has_health_tab(self):
+        html = component('sp-cli-diagnostics-view')[1].read_text()
+        assert 'Health' in html
+
+    def test_html_embeds_events_log_component(self):
+        html = component('sp-cli-diagnostics-view')[1].read_text()
+        assert 'sp-cli-events-log' in html
+
+    def test_js_imports_events_log(self):
+        js = component('sp-cli-diagnostics-view')[0].read_text()
+        assert 'sp-cli-events-log.js' in js
+
+    def test_js_has_tab_switch(self):
+        js = component('sp-cli-diagnostics-view')[0].read_text()
+        assert '_switchTab' in js
+
+    def test_left_nav_has_no_diag_item(self):
+        html = (API_SITE / 'components/sp-cli/sp-cli-left-nav/v0/v0.1/v0.1.0/sp-cli-left-nav.html').read_text()
+        assert 'data-view="diagnostics"' not in html
+
+    def test_top_bar_has_diagnostics_button(self):
+        html = (API_SITE / 'components/sp-cli/sp-cli-top-bar/v0/v0.1/v0.1.0/sp-cli-top-bar.html').read_text()
+        assert 'Diagnostics' in html
+
+    def test_top_bar_js_dispatches_nav_event(self):
+        js = (API_SITE / 'components/sp-cli/sp-cli-top-bar/v0/v0.1/v0.1.0/sp-cli-top-bar.js').read_text()
+        assert 'diagnostics' in js and 'sp-cli:nav.selected' in js
+
+    def test_admin_js_events_log_removed_from_right_panels(self):
+        content = (API_SITE / 'admin' / 'admin.js').read_text()
+        assert "key: 'events_log'" not in content
 
 # ── api view ──────────────────────────────────────────────────────────────── #
 

@@ -37,8 +37,10 @@ class SpCliTopBar extends SgComponent {
             this.emit('sp-cli:brand-clicked')
         )
 
-        this.$('.diag-btn')?.addEventListener('click', () =>
-            this.emit('sp-cli:nav.selected', { view: 'diagnostics' })
+        this.$('.btn-diagnostics')?.addEventListener('click', () =>
+            document.dispatchEvent(new CustomEvent('sp-cli:nav.selected', {
+                detail: { view: 'diagnostics' }, bubbles: true, composed: true,
+            }))
         )
     }
 

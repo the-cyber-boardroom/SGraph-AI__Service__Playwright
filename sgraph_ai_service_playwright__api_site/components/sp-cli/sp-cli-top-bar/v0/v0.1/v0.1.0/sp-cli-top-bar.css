@@ -38,28 +38,32 @@
     color:       var(--text-3);
 }
 
-.diag-btn {
-    display:       inline-flex;
+.btn-diagnostics {
+    display:       flex;
     align-items:   center;
     gap:           6px;
     padding:       4px 10px;
-    background:    transparent;
+    font-size:     12px;
+    font-weight:   500;
+    color:         var(--text-3);
+    background:    var(--bg-panel);
     border:        1px solid var(--border-1);
     border-radius: var(--r-2);
-    color:         var(--text-2);
-    font-size:     12px;
-    font-family:   inherit;
     cursor:        pointer;
     flex-shrink:   0;
-    transition:    border-color .12s, color .12s;
+    transition:    color 120ms, border-color 120ms;
+    font-family:   var(--font-sans, system-ui, sans-serif);
 }
-.diag-btn:hover { border-color: var(--accent); color: var(--accent); }
+.btn-diagnostics:hover {
+    color:         var(--text-2);
+    border-color:  var(--border-2);
+}
 
 .diag-dot {
     width:         7px;
     height:        7px;
     border-radius: 50%;
-    background:    #4ade80;  /* green — API reachable indicator */
+    background:    var(--good, #4ade80);
     flex-shrink:   0;
 }
 

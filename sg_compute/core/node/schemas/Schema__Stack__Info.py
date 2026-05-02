@@ -1,6 +1,7 @@
 # ═══════════════════════════════════════════════════════════════════════════════
-# Ephemeral EC2 — Schema__Stack__Info
-# Generic EC2 instance state shared by all stack mappers.
+# SG/Compute — Schema__Stack__Info
+# Legacy EC2 instance state shared by all spec mappers.
+# Kept for backwards compatibility; new code should use Schema__Node__Info.
 # ═══════════════════════════════════════════════════════════════════════════════
 
 from osbot_utils.type_safe.Type_Safe import Type_Safe

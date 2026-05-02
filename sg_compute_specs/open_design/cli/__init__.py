@@ -209,9 +209,9 @@ def health(
 
 def _wait_healthy(svc: Open_Design__Service, instance_id: str, stack_name: str,
                   region: str, timeout_sec: int, c: Console) -> None:
-    from sg_compute.helpers.health.Health__Poller      import Health__Poller
-    from sg_compute.helpers.health.Health__HTTP__Probe import Health__HTTP__Probe
-    from sg_compute.helpers.aws.EC2__Instance__Helper  import EC2__Instance__Helper
+    from sg_compute.platforms.ec2.health.Health__Poller      import Health__Poller
+    from sg_compute.platforms.ec2.health.Health__HTTP__Probe import Health__HTTP__Probe
+    from sg_compute.platforms.ec2.helpers.EC2__Instance__Helper  import EC2__Instance__Helper
     c.print(f'  [dim]Waiting for [bold]{stack_name}[/] to become healthy (timeout {timeout_sec}s)…[/]')
     instance_helper = EC2__Instance__Helper()
     # Phase 1 — wait for EC2 running state

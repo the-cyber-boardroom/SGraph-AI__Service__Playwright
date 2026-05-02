@@ -5,14 +5,14 @@ const _EC2_CSS = new URL('../../../../../../shared/ec2-tokens.css', import.meta.
 
 // ── Spec catalogue (static until backend phase B4 ships /api/specs) ─────────
 const CATALOG = [
-    { group: 'CONTAINERS',      type_id: 'docker',     display_name: 'Docker host',             icon: '🐳', stability: 'stable',       boot: '~10min', soon: false, create_endpoint_path: '/docker/stack',     description: 'Fresh EC2 with Docker and docker-compose pre-installed.'                          },
-    { group: 'CONTAINERS',      type_id: 'podman',     display_name: 'Podman host',             icon: '🦭', stability: 'stable',       boot: '~10min', soon: false, create_endpoint_path: '/podman/stack',     description: 'EC2 with rootless Podman for daemonless container workflows.'                     },
-    { group: 'OBSERVABILITY',   type_id: 'elastic',    display_name: 'Elastic + Kibana',        icon: '🔍', stability: 'stable',       boot: '~90s',   soon: false, create_endpoint_path: '/elastic/stack',    description: 'Elasticsearch + Kibana node. Indices persist on attached gp3 storage.'            },
-    { group: 'OBSERVABILITY',   type_id: 'prometheus', display_name: 'Prometheus + Grafana',    icon: '📊', stability: 'experimental', boot: '~90s',   soon: false, create_endpoint_path: '/prometheus/stack', description: 'Prometheus scraper + Grafana dashboards for metrics collection and visualisation.' },
-    { group: 'OBSERVABILITY',   type_id: 'opensearch', display_name: 'OpenSearch + Dashboards', icon: '🌐', stability: 'experimental', boot: '—',      soon: false, create_endpoint_path: '/opensearch/stack', description: 'OpenSearch cluster with Dashboards UI for log analytics.'                        },
-    { group: 'REMOTE BROWSERS', type_id: 'firefox',    display_name: 'Firefox + MITM',          icon: '🦊', stability: 'experimental', boot: '~90s',   soon: false, create_endpoint_path: '/firefox/stack',    description: 'Firefox with MITM proxy for full network inspection of browser traffic.' },
-    { group: 'REMOTE BROWSERS', type_id: 'vnc',        display_name: 'VNC bastion',             icon: '🖥',  stability: 'stable',       boot: '~90s',   soon: false, create_endpoint_path: '/vnc/stack',        description: 'Full Linux desktop over VNC for remote browser and GUI sessions.'       },
-    { group: 'REMOTE BROWSERS', type_id: 'neko',       display_name: 'Neko (WebRTC)',           icon: '🌐', stability: 'experimental', boot: '—',      soon: true,  create_endpoint_path: '/neko/stack',       description: 'Collaborative browser-in-browser via WebRTC with multi-user support.'   },
+    { group: 'CONTAINERS',      type_id: 'docker',     display_name: 'Docker host',             icon: '🐳', stability: 'stable',       boot: '~10min', soon: false, create_endpoint_path: '/docker/stack',     description: 'Docker Engine host on a fresh EC2 instance.'                           },
+    { group: 'CONTAINERS',      type_id: 'podman',     display_name: 'Podman host',             icon: '🦭', stability: 'stable',       boot: '~10min', soon: false, create_endpoint_path: '/podman/stack',     description: 'Rootless Podman host on a fresh EC2 instance.'                         },
+    { group: 'OBSERVABILITY',   type_id: 'elastic',    display_name: 'Elastic + Kibana',        icon: '🔍', stability: 'stable',       boot: '~90s',   soon: false, create_endpoint_path: '/elastic/stack',    description: 'Elasticsearch + Kibana node. Indices persist on attached gp3 storage.' },
+    { group: 'OBSERVABILITY',   type_id: 'prometheus', display_name: 'Prometheus + Grafana',    icon: '📊', stability: 'experimental', boot: '~90s',   soon: false, create_endpoint_path: '/prometheus/stack', description: 'Prometheus scraper + Grafana dashboard node.'                          },
+    { group: 'OBSERVABILITY',   type_id: 'opensearch', display_name: 'OpenSearch + Dashboards', icon: '🌐', stability: 'experimental', boot: '—',      soon: false, create_endpoint_path: '/opensearch/stack', description: 'OpenSearch cluster with Dashboards UI.'                                },
+    { group: 'REMOTE BROWSERS', type_id: 'firefox',    display_name: 'Firefox + MITM',          icon: '🦊', stability: 'experimental', boot: '~90s',   soon: false, create_endpoint_path: '/firefox/stack',    description: 'Firefox with MITM proxy for traffic inspection via browser.'           },
+    { group: 'REMOTE BROWSERS', type_id: 'vnc',        display_name: 'VNC bastion',             icon: '🖥',  stability: 'stable',       boot: '~90s',   soon: false, create_endpoint_path: '/vnc/stack',        description: 'VNC-accessible desktop bastion with noVNC web client.'                 },
+    { group: 'REMOTE BROWSERS', type_id: 'neko',       display_name: 'Neko (WebRTC)',           icon: '🌐', stability: 'experimental', boot: '—',      soon: true,  create_endpoint_path: '/neko/stack',       description: 'Browser-in-browser via WebRTC.'                                        },
 ]
 
 const REGIONS        = ['eu-west-2', 'us-east-1', 'ap-southeast-1', 'eu-west-1', 'us-west-2']
@@ -39,10 +39,6 @@ class SpCliComputeView extends SgComponent {
         this._cfgDesc     = this.$('.cfg-desc')
         this._cfgStab     = this.$('.cfg-stability')
         this._cfgBoot     = this.$('.cfg-boot-val')
-        this._barBoot     = this.$('.cfg-bar-boot')
-        this._barHourly   = this.$('.cfg-bar-hourly')
-        this._barMax      = this.$('.cfg-bar-max')
-        this._barNet      = this.$('.cfg-bar-net')
         this._regionSel   = this.$('.field-region')
         this._instanceSel = this.$('.field-instance')
         this._hoursSel    = this.$('.field-hours')
@@ -52,11 +48,16 @@ class SpCliComputeView extends SgComponent {
         this._btnLabel    = this.$('.btn-label')
         this._btnSpinner  = this.$('.btn-spinner')
         this._errorMsg    = this.$('.error-msg')
+        this._barBoot     = this.$('.cfg-bar-boot')
+        this._barHourly   = this.$('.cfg-bar-hourly')
+        this._barMax      = this.$('.cfg-bar-max')
+        this._barNet      = this.$('.cfg-bar-net')
 
         this._populateSelect(this._regionSel,   REGIONS,        r => r)
         this._populateSelect(this._instanceSel, INSTANCE_TYPES, t => t)
         this._populateSelect(this._hoursSel,    MAX_HOURS,      h => `${h} hour${h > 1 ? 's' : ''}`)
 
+        this._regionSel?.addEventListener('change',   () => this._updateCostBar())
         this._instanceSel?.addEventListener('change', () => this._updateCostBar())
         this._hoursSel?.addEventListener('change',    () => this._updateCostBar())
         this._openCheck?.addEventListener('change',   () => this._updateCostBar())
@@ -133,7 +134,7 @@ class SpCliComputeView extends SgComponent {
             this._cfgStab.textContent = spec.stability
         }
         if (this._cfgBoot) this._cfgBoot.textContent = spec.boot
-        if (this._barBoot) this._barBoot.textContent  = spec.boot
+        if (this._barBoot) this._barBoot.textContent = spec.boot
         this._clearError()
         if (this._nameInput) this._nameInput.value = ''
         this._updateCostBar()
@@ -172,7 +173,11 @@ class SpCliComputeView extends SgComponent {
         try {
             const { apiClient } = await import('../../../../../../shared/api-client.js')
             const resp = await apiClient.post(this._currentSpec.create_endpoint_path, body)
-            document.dispatchEvent(new CustomEvent('sp-cli:launch.success', {
+            document.dispatchEvent(new CustomEvent('sp-cli:node.launched', {
+                detail:  { entry: this._currentSpec, response: resp },
+                bubbles: true, composed: true,
+            }))
+            document.dispatchEvent(new CustomEvent('sp-cli:launch.success', {   // DEPRECATED
                 detail:  { entry: this._currentSpec, response: resp },
                 bubbles: true, composed: true,
             }))

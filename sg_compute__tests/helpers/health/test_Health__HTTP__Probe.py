@@ -4,7 +4,7 @@
 
 from unittest import TestCase
 
-from sg_compute.helpers.health.Health__HTTP__Probe import Health__HTTP__Probe
+from sg_compute.platforms.ec2.health.Health__HTTP__Probe import Health__HTTP__Probe
 
 
 class test_Health__HTTP__Probe(TestCase):

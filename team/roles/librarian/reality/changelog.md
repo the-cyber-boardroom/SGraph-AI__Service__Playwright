@@ -8,6 +8,7 @@ This is a pointer log, not a content log. For full delta detail, see the master 
 
 ## 2026-05-02
 
+- `sg-compute/index.md` — UPDATED: phase-2 (B2) foundations; primitives, enums, core schemas, Platform/EC2__Platform, Spec__Loader/Resolver, Node__Manager, manifest.py for pilot specs; helpers moved to platforms/ec2/. 152 tests passing.
 - `sg-compute/index.md` — NEW: SG/Compute domain placeholder; seeded by phase-1 (B1) rename commit. `ephemeral_ec2/` → `sg_compute/`; `sg_compute_specs/` introduced with pilot specs (ollama, open_design). Full domain content lands in phase-2 (B2).
 - `index.md` — UPDATED: added `sg-compute/` domain row; domain count 10 → 11.
 - `index.md` — NEW: master domain index created (reality document refactor begins; 10-domain tree introduced).

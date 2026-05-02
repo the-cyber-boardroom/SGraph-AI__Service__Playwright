@@ -11,8 +11,8 @@ import boto3                                                                    
 
 from osbot_utils.type_safe.Type_Safe                                                import Type_Safe
 
-from sg_compute.helpers.aws.EC2__Tags__Builder                                   import TAG_PURPOSE_KEY, TAG_PURPOSE_VALUE
-from sg_compute.helpers.aws.Stack__Naming                                        import Stack__Naming
+from sg_compute.platforms.ec2.helpers.EC2__Tags__Builder                                   import TAG_PURPOSE_KEY, TAG_PURPOSE_VALUE
+from sg_compute.platforms.ec2.helpers.Stack__Naming                                        import Stack__Naming
 
 
 class EC2__SG__Helper(Type_Safe):
