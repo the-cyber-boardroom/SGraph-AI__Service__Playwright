@@ -68,7 +68,7 @@ jobs:
           cache-dependency-path: 'requirements.txt'
 
       - name: Install dependencies
-        run: pip install -r requirements.txt
+        run: pip install -r requirements.txt pytest pytest-timeout
 
       - name: Run host package unit tests
         timeout-minutes: 5
