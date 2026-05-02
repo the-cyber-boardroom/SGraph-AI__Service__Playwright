@@ -2,40 +2,41 @@
 [hidden] { display: none !important; }
 
 .left-nav {
-    display: flex;
+    display:        flex;
     flex-direction: column;
-    align-items: stretch;
-    padding: var(--sg-sp-2) 0;
-    height: 100%;
-    background: var(--sg-bg-secondary);
-    border-right: 1px solid var(--sg-border);
-    gap: 2px;
+    align-items:    stretch;
+    padding:        6px 0;
+    height:         100%;
+    background:     var(--bg-panel);
+    border-right:   1px solid var(--border-1);
+    gap:            2px;
 }
 
 .nav-item {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
+    display:         flex;
+    flex-direction:  column;
+    align-items:     center;
     justify-content: center;
-    gap: 3px;
-    padding: var(--sg-sp-2) 0;
-    background: transparent;
-    border: none;
-    border-left: 3px solid transparent;
-    cursor: pointer;
-    color: var(--sg-text-muted);
-    transition: background var(--sg-transition-fast), color var(--sg-transition-fast);
-    width: 100%;
+    gap:             3px;
+    padding:         10px 0;
+    background:      transparent;
+    border:          none;
+    border-left:     2px solid transparent;
+    cursor:          pointer;
+    color:           var(--text-3);
+    transition:      background 120ms ease, color 120ms ease, border-color 120ms ease;
+    width:           100%;
+    font-family:     inherit;
 }
 .nav-item:hover {
-    background: rgba(255,255,255,.05);
-    color: var(--sg-text);
+    background: var(--bg-hover);
+    color:      var(--text-2);
 }
 .nav-item.selected {
-    border-left-color: var(--sg-accent);
-    background: rgba(0,200,180,.10);
-    color: var(--sg-text);
+    border-left-color: var(--accent);
+    background:        var(--accent-soft);
+    color:             var(--text-1);
 }
 
-.nav-icon  { font-size: 1.15rem; line-height: 1; }
-.nav-label { font-size: .58rem; font-weight: 600; text-transform: uppercase; letter-spacing: .05em; }
+.nav-icon  { font-size: 1.1rem; line-height: 1; }
+.nav-label { font-size: 9px; font-weight: 600; text-transform: uppercase; letter-spacing: .07em; margin-top: 1px; }

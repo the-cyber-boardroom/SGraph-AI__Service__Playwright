@@ -29,7 +29,7 @@ function _buildRootLayout() {
     }
 }
 
-const VIEW_TITLES = { compute: 'Compute', storage: 'Storage', settings: 'Settings', diagnostics: 'Diagnostics', api: 'API Docs' }
+const VIEW_TITLES = { compute: 'Compute', nodes: 'Active Nodes', settings: 'Settings', diagnostics: 'Diagnostics', api: 'API Docs' }
 
 document.addEventListener('DOMContentLoaded', async () => {
     let _layoutEl         = null
@@ -270,6 +270,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     function _populatePanes(types, stacks) {
         document.querySelector('sp-cli-compute-view')?.setData?.({ types, stacks })
+        document.querySelector('sp-cli-nodes-view')?.setStacks?.(stacks)
         document.querySelector('sp-cli-stacks-pane')?.setStacks?.(stacks)
         document.querySelector('sp-cli-cost-tracker')?.setStacks?.(stacks)
     }
@@ -293,7 +294,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     // Find the stack ID that holds the current main view
     function _findMainStackId(tree) {
         const viewTags = [
-            'sp-cli-compute-view', 'sp-cli-storage-view',
+            'sp-cli-compute-view', 'sp-cli-nodes-view', 'sp-cli-storage-view',
             'sp-cli-settings-view', 'sp-cli-diagnostics-view', 'sp-cli-api-view',
         ]
         for (const tag of viewTags) {
@@ -308,7 +309,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         const stack = _findNodeById(tree, mainStackId)
         if (!stack) return null
         const viewTags = [
-            'sp-cli-compute-view', 'sp-cli-storage-view',
+            'sp-cli-compute-view', 'sp-cli-nodes-view', 'sp-cli-storage-view',
             'sp-cli-settings-view', 'sp-cli-diagnostics-view', 'sp-cli-api-view',
         ]
         for (const tag of viewTags) {

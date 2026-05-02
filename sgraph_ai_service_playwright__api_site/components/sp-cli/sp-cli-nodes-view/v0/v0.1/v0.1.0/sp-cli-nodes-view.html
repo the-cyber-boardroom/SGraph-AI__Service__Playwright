@@ -1,0 +1,62 @@
+<div class="nodes-view">
+
+  <!-- ── Master list ──────────────────────────────────── -->
+  <div class="nodes-list">
+    <div class="list-head">
+      <span class="list-title tlabel">Active Nodes</span>
+      <span class="node-count"></span>
+      <button class="btn-refresh sgl-iconbtn" title="Refresh">↺</button>
+    </div>
+    <div class="list-body">
+      <div class="node-rows"></div>
+      <div class="empty-state">
+        <div class="empty-icon">⬡</div>
+        <div class="empty-msg">No active nodes</div>
+        <div class="empty-hint">Launch a node from the Compute tab.</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Detail panel ─────────────────────────────────── -->
+  <div class="node-detail" hidden>
+    <div class="detail-head sgl-panel-head">
+      <div class="sgl-panel-title">
+        <span class="detail-icon">⬡</span>
+        <span class="detail-name">—</span>
+      </div>
+      <div class="sgl-panel-tabs">
+        <button class="sgl-tab active" data-tab="overview">Overview</button>
+        <button class="sgl-tab" data-tab="terminal">Terminal</button>
+        <button class="sgl-tab" data-tab="hostapi">Host API</button>
+      </div>
+      <div class="sgl-panel-actions">
+        <button class="btn-close-detail sgl-iconbtn" title="Close detail">✕</button>
+      </div>
+    </div>
+
+    <div class="detail-body">
+
+      <!-- Overview -->
+      <div class="tab-panel active" data-panel="overview">
+        <div class="overview-grid">
+          <dl class="ec2-kv info-kv"></dl>
+          <div class="stop-wrap">
+            <sp-cli-stop-button class="stop-btn"></sp-cli-stop-button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Terminal -->
+      <div class="tab-panel" data-panel="terminal">
+        <sp-cli-host-shell class="host-shell"></sp-cli-host-shell>
+      </div>
+
+      <!-- Host API -->
+      <div class="tab-panel" data-panel="hostapi">
+        <sp-cli-host-api-panel class="host-api-panel"></sp-cli-host-api-panel>
+      </div>
+
+    </div>
+  </div>
+
+</div>

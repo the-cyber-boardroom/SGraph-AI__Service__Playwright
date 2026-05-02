@@ -1,0 +1,114 @@
+:host { display: flex; flex-direction: column; height: 100%; overflow: hidden; }
+[hidden] { display: none !important; }
+
+/* ── Two-column layout: list | detail ─────────── */
+.nodes-view {
+    display:  flex;
+    height:   100%;
+    overflow: hidden;
+    background: var(--bg-panel);
+}
+
+/* ── Master list ──────────────────────────────── */
+.nodes-list {
+    width:         280px;
+    min-width:     220px;
+    flex-shrink:   0;
+    display:       flex;
+    flex-direction:column;
+    border-right:  1px solid var(--border-1);
+    background:    var(--bg-panel);
+}
+
+.list-head {
+    display:       flex;
+    align-items:   center;
+    gap:           6px;
+    padding:       0 10px;
+    height:        32px;
+    background:    var(--bg-elev);
+    border-bottom: 1px solid var(--border-1);
+    flex-shrink:   0;
+}
+.list-title  { flex: 1; }
+.node-count  { font-size: 11px; color: var(--text-3); }
+
+.list-body {
+    flex:    1;
+    overflow:auto;
+    padding: 4px 0;
+}
+
+/* ── Node row ─────────────────────────────────── */
+.node-row {
+    display:     flex;
+    align-items: center;
+    gap:         8px;
+    padding:     7px 12px;
+    cursor:      pointer;
+    font-size:   12px;
+    border-left: 2px solid transparent;
+    transition:  background 100ms;
+}
+.node-row:hover    { background: var(--bg-hover); }
+.node-row.selected { background: var(--accent-soft); border-left-color: var(--accent); }
+
+.row-icon   { font-size: 14px; flex-shrink: 0; }
+.row-name   { flex: 1; color: var(--text-1); font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.row-ip     { font-size: 10px; color: var(--text-3); font-family: var(--font-mono); }
+.row-uptime { font-size: 10px; color: var(--text-3); white-space: nowrap; }
+
+/* ── Empty state ──────────────────────────────── */
+.empty-state {
+    display:         flex;
+    flex-direction:  column;
+    align-items:     center;
+    justify-content: center;
+    gap:             8px;
+    height:          100%;
+    color:           var(--text-3);
+    padding:         24px;
+    text-align:      center;
+}
+.empty-icon { font-size: 2rem; opacity: .4; }
+.empty-msg  { font-size: 13px; font-weight: 600; color: var(--text-2); }
+.empty-hint { font-size: 11px; }
+
+/* ── Detail panel ─────────────────────────────── */
+.node-detail {
+    flex:            1;
+    display:         flex;
+    flex-direction:  column;
+    min-width:       0;
+    background:      var(--bg-panel);
+}
+
+.detail-head { flex-shrink: 0; }
+
+.detail-body {
+    flex:    1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+}
+
+/* ── Tab panels ───────────────────────────────── */
+.tab-panel         { display: none; flex: 1; min-height: 0; flex-direction: column; overflow: hidden; }
+.tab-panel.active  { display: flex; }
+
+.overview-grid {
+    flex: 1;
+    padding: var(--pad-pane);
+    display: flex;
+    flex-direction: column;
+    gap: var(--gap-3);
+    overflow: auto;
+}
+
+.info-kv { font-size: 12px; }
+.stop-wrap { margin-top: auto; padding-top: 16px; }
+
+sp-cli-host-shell,
+sp-cli-host-api-panel { display: block; height: 100%; }
+
+.mono { font-family: var(--font-mono); }

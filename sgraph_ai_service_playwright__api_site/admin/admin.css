@@ -5,9 +5,11 @@
 
 html, body {
     height: 100%;
-    background:     var(--sg-bg);
-    color:          var(--sg-text);
-    font-family:    var(--sg-font-body, system-ui, sans-serif);
+    background:  var(--bg-app);
+    color:       var(--text-1);
+    font-family: var(--font-sans, system-ui, sans-serif);
+    font-size:   13px;
+    -webkit-font-smoothing: antialiased;
 }
 
 body {
