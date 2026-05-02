@@ -1,0 +1,52 @@
+# ═══════════════════════════════════════════════════════════════════════════════
+# SG/Compute Specs — VNC: Routes__Vnc__Stack
+# ═══════════════════════════════════════════════════════════════════════════════
+
+from fastapi                                                                        import HTTPException
+
+from osbot_fast_api.api.routes.Fast_API__Routes                                     import Fast_API__Routes
+
+from sg_compute_specs.vnc.schemas.Schema__Vnc__Stack__Create__Request               import Schema__Vnc__Stack__Create__Request
+from sg_compute_specs.vnc.service.Vnc__Service                                      import DEFAULT_REGION, Vnc__Service
+
+
+TAG__ROUTES_VNC = 'vnc'
+
+
+class Routes__Vnc__Stack(Fast_API__Routes):
+    tag     : str         = TAG__ROUTES_VNC
+    service : Vnc__Service
+
+    def list_stacks(self, region: str = '') -> dict:                                # GET /api/specs/vnc/stacks
+        return self.service.list_stacks(region or DEFAULT_REGION).json()
+    list_stacks.__route_path__ = '/stacks'
+
+    def info(self, name: str, region: str = '') -> dict:                            # GET /api/specs/vnc/stack/{name}
+        result = self.service.get_stack_info(region or DEFAULT_REGION, name)
+        if result is None:
+            raise HTTPException(status_code=404, detail=f'no vnc stack matched {name!r}')
+        return result.json()
+    info.__route_path__ = '/stack/{name}'
+
+    def create(self, body: dict) -> dict:                                           # POST /api/specs/vnc/stack
+        request = Schema__Vnc__Stack__Create__Request.from_json(body)               # body: dict avoids pydantic schema-generation for nested Schema__Vnc__Interceptor__Choice
+        return self.service.create_stack(request).json()
+    create.__route_path__ = '/stack'
+
+    def delete(self, name: str, region: str = '') -> dict:                          # DELETE /api/specs/vnc/stack/{name}
+        response = self.service.delete_stack(region or DEFAULT_REGION, name)
+        if not response.terminated_instance_ids:
+            raise HTTPException(status_code=404, detail=f'no vnc stack matched {name!r}')
+        return response.json()
+    delete.__route_path__ = '/stack/{name}'
+
+    def health(self, name: str, region: str = '', username: str = '', password: str = '') -> dict:  # GET /api/specs/vnc/stack/{name}/health
+        return self.service.health(region or DEFAULT_REGION, name, username, password).json()
+    health.__route_path__ = '/stack/{name}/health'
+
+    def setup_routes(self):
+        self.add_route_get   (self.list_stacks)
+        self.add_route_get   (self.info       )
+        self.add_route_post  (self.create     )
+        self.add_route_delete(self.delete     )
+        self.add_route_get   (self.health     )
