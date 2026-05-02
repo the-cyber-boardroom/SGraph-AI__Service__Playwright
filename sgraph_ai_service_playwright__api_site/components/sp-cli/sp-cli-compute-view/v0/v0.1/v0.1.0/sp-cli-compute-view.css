@@ -18,6 +18,11 @@
     border-right:   1px solid var(--border-1);
 }
 
+/* hide browser col once a spec is chosen */
+.compute-view.spec-selected .browser-col {
+    display: none;
+}
+
 .browser-head { flex-shrink: 0; }
 
 .browser-body {
@@ -83,8 +88,7 @@
 
 /* ── Configure pane ─────────────────────────────────── */
 .configure-col {
-    width:          300px;
-    min-width:      260px;
+    width:          100%;
     flex-shrink:    0;
     display:        flex;
     flex-direction: column;
@@ -99,18 +103,45 @@
     display:    flex;
     flex-direction: column;
     gap:        var(--gap-3);
+    max-width:  600px;
+    width:      100%;
 }
 
+/* ── Description ─────────────────────────────────────── */
+.cfg-desc {
+    font-size:      12px;
+    color:          var(--text-3);
+    line-height:    1.55;
+    padding-bottom: var(--gap-2);
+    border-bottom:  1px solid var(--border-1);
+}
+
+/* ── Summary row ─────────────────────────────────────── */
 .cfg-summary {
     display:     flex;
     align-items: center;
     gap:         8px;
-    padding-bottom: var(--gap-2);
-    border-bottom: 1px solid var(--border-1);
 }
 .cfg-boot-val { font-size: 11px; color: var(--text-2); margin-left: auto; }
 
+/* ── Fields ──────────────────────────────────────────── */
 .cfg-fields { display: flex; flex-direction: column; gap: var(--gap-3); }
+
+/* uppercase labels inside the configure pane */
+.cfg-lbl {
+    font-size:      10px !important;
+    text-transform: uppercase !important;
+    letter-spacing: 0.1em;
+    color:          var(--text-3) !important;
+    font-weight:    600 !important;
+}
+
+/* two-column field row */
+.cfg-fields-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: var(--gap-2);
+}
 
 /* ── Open access row ─────────────────────────────────── */
 .adv-wrap  { display: flex; flex-direction: column; gap: 4px; }
@@ -118,22 +149,55 @@
 .open-row input { accent-color: var(--accent); width: 14px; height: 14px; }
 .ip-note   { font-size: 10px; color: var(--text-3); line-height: 1.4; }
 
+/* ── Cost summary bar ────────────────────────────────── */
+.cfg-cost-bar {
+    display:              grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap:                  1px;
+    background:           var(--border-1);
+    border:               1px solid var(--border-1);
+    border-radius:        var(--r-3);
+    overflow:             hidden;
+}
+
+.cost-item {
+    background:     var(--bg-panel-2);
+    padding:        8px 10px;
+    display:        flex;
+    flex-direction: column;
+    gap:            5px;
+}
+
+.cost-lbl {
+    font-size:      9px;
+    font-weight:    700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color:          var(--text-3);
+    white-space:    nowrap;
+}
+
+.cost-val {
+    font-size:   13px;
+    font-weight: 600;
+    color:       var(--text-1);
+}
+
 /* ── Footer ──────────────────────────────────────────── */
 .cfg-footer {
-    margin-top: auto;
-    padding-top: var(--gap-3);
-    display:     flex;
+    padding-top:    var(--gap-2);
+    display:        flex;
     flex-direction: column;
-    gap:         8px;
+    gap:            8px;
 }
 
 .error-msg {
-    font-size:  12px;
-    color:      var(--bad);
-    background: var(--bad-soft);
-    border:     1px solid rgba(248,113,113,0.25);
+    font-size:     12px;
+    color:         var(--bad);
+    background:    var(--bad-soft);
+    border:        1px solid rgba(248,113,113,0.25);
     border-radius: var(--r-2);
-    padding:    6px 10px;
+    padding:       6px 10px;
 }
 
-.btn-launch { width: 100%; justify-content: center; padding: 8px 12px; font-size: 13px; }
+.btn-launch { width: 100%; justify-content: center; padding: 10px 12px; font-size: 13px; }

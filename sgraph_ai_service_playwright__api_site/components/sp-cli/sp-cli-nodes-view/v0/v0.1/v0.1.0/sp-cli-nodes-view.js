@@ -3,6 +3,8 @@ import '../../../../_shared/sp-cli-host-shell/v0/v0.1/v0.1.0/sp-cli-host-shell.j
 import '../../../../_shared/sp-cli-host-api-panel/v0/v0.1/v0.1.0/sp-cli-host-api-panel.js'
 import '../../../../_shared/sp-cli-stop-button/v0/v0.1/v0.1.0/sp-cli-stop-button.js'
 
+const _EC2_CSS = new URL('../../../../../../shared/ec2-tokens.css', import.meta.url).href
+
 const TYPE_ICONS = {
     docker: '🐳', podman: '🦭', elastic: '🔍', vnc: '🖥',
     prometheus: '📊', opensearch: '🌐', neko: '🌐', firefox: '🦊',
@@ -18,7 +20,7 @@ class SpCliNodesView extends SgComponent {
 
     static jsUrl = import.meta.url
     get resourceName()   { return 'sp-cli-nodes-view' }
-    get sharedCssPaths() { return ['https://dev.tools.sgraph.ai/components/tokens/v1/v1.0/v1.0.0/sg-tokens.css'] }
+    get sharedCssPaths() { return ['https://dev.tools.sgraph.ai/components/tokens/v1/v1.0/v1.0.0/sg-tokens.css', _EC2_CSS] }
 
     onReady() {
         this._rows     = this.$('.node-rows')
@@ -84,6 +86,7 @@ class SpCliNodesView extends SgComponent {
     _openDetail(stack) {
         this._currentStack = stack
         this._detail.hidden = false
+        this.shadowRoot.querySelector('.nodes-view')?.classList.add('detail-open')
 
         if (this._detIcon) this._detIcon.textContent = TYPE_ICONS[stack.type_id] || '⬡'
         if (this._detName) this._detName.textContent = stack.stack_name
@@ -111,6 +114,7 @@ class SpCliNodesView extends SgComponent {
     _closeDetail() {
         this._detail.hidden = true
         this._currentStack = null
+        this.shadowRoot.querySelector('.nodes-view')?.classList.remove('detail-open')
         Array.from(this.shadowRoot.querySelectorAll('.node-row')).forEach(r => r.classList.remove('selected'))
     }
 

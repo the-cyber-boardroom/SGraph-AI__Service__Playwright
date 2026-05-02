@@ -38,6 +38,31 @@
     color:       var(--text-3);
 }
 
+.diag-btn {
+    display:       inline-flex;
+    align-items:   center;
+    gap:           6px;
+    padding:       4px 10px;
+    background:    transparent;
+    border:        1px solid var(--border-1);
+    border-radius: var(--r-2);
+    color:         var(--text-2);
+    font-size:     12px;
+    font-family:   inherit;
+    cursor:        pointer;
+    flex-shrink:   0;
+    transition:    border-color .12s, color .12s;
+}
+.diag-btn:hover { border-color: var(--accent); color: var(--accent); }
+
+.diag-dot {
+    width:         7px;
+    height:        7px;
+    border-radius: 50%;
+    background:    #4ade80;  /* green — API reachable indicator */
+    flex-shrink:   0;
+}
+
 .region-picker {
     color:         var(--text-3);
     font-size:     11px;

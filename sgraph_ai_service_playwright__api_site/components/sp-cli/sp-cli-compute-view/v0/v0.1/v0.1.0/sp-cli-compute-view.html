@@ -1,6 +1,6 @@
 <div class="compute-view">
 
-  <!-- ── Template browser (left) ──────────────────────── -->
+  <!-- ── Template browser (left, hidden once a spec is selected) ── -->
   <div class="browser-col">
     <div class="browser-head sgl-panel-head">
       <div class="sgl-panel-title">Launch a node</div>
@@ -18,13 +18,16 @@
         <span class="cfg-name"></span>
       </div>
       <div class="sgl-panel-actions">
-        <button class="btn-close-cfg sgl-iconbtn" title="Close">✕</button>
+        <button class="btn-close-cfg sgl-iconbtn" title="Back to catalog">✕</button>
       </div>
     </div>
 
     <div class="cfg-body">
 
-      <!-- spec summary -->
+      <!-- description -->
+      <div class="cfg-desc"></div>
+
+      <!-- spec summary row -->
       <div class="cfg-summary">
         <span class="cfg-stability ec2-pill"></span>
         <span class="cfg-boot-label tlabel">Boot time</span>
@@ -35,29 +38,27 @@
       <div class="cfg-fields">
 
         <div class="ec2-field">
-          <label class="ec2-field-label">Region</label>
-          <select class="field-region ec2-select"></select>
-        </div>
-
-        <div class="ec2-field">
-          <label class="ec2-field-label">
-            Instance type
-            <span class="ec2-field-help cfg-cost"></span>
-          </label>
-          <select class="field-instance ec2-select"></select>
-        </div>
-
-        <div class="ec2-field">
-          <label class="ec2-field-label">Auto-stop after</label>
-          <select class="field-hours ec2-select"></select>
-        </div>
-
-        <div class="ec2-field">
-          <label class="ec2-field-label node-name-label">
+          <label class="ec2-field-label cfg-lbl">
             Node name
             <span class="ec2-field-help">auto-generated if blank</span>
           </label>
           <input type="text" class="field-name ec2-input" placeholder="e.g. docker-nova-4217">
+        </div>
+
+        <div class="cfg-fields-row">
+          <div class="ec2-field">
+            <label class="ec2-field-label cfg-lbl">Region</label>
+            <select class="field-region ec2-select"></select>
+          </div>
+          <div class="ec2-field">
+            <label class="ec2-field-label cfg-lbl">Instance type</label>
+            <select class="field-instance ec2-select"></select>
+          </div>
+        </div>
+
+        <div class="ec2-field">
+          <label class="ec2-field-label cfg-lbl">Auto-stop after</label>
+          <select class="field-hours ec2-select"></select>
         </div>
 
         <div class="adv-wrap">
@@ -70,7 +71,27 @@
 
       </div>
 
-      <!-- launch button -->
+      <!-- cost summary bar -->
+      <div class="cfg-cost-bar">
+        <div class="cost-item">
+          <span class="cost-lbl">Time to ready</span>
+          <span class="cost-val cfg-bar-boot">—</span>
+        </div>
+        <div class="cost-item">
+          <span class="cost-lbl">Hourly</span>
+          <span class="cost-val cfg-bar-hourly">—</span>
+        </div>
+        <div class="cost-item">
+          <span class="cost-lbl">Auto-stop max</span>
+          <span class="cost-val cfg-bar-max">—</span>
+        </div>
+        <div class="cost-item">
+          <span class="cost-lbl">Network</span>
+          <span class="cost-val cfg-bar-net">Your IP only</span>
+        </div>
+      </div>
+
+      <!-- launch -->
       <div class="cfg-footer">
         <div class="error-msg" hidden></div>
         <button class="btn-launch ec2-btn primary">
