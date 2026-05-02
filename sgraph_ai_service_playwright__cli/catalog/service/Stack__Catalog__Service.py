@@ -10,10 +10,18 @@ from sgraph_ai_service_playwright__cli.catalog.schemas.Schema__Stack__Summary__L
 from sgraph_ai_service_playwright__cli.catalog.schemas.Schema__Stack__Type__Catalog                 import Schema__Stack__Type__Catalog
 from sgraph_ai_service_playwright__cli.catalog.service.Stack__Catalog__Service__Entries             import Stack__Catalog__Service__Entries
 from sgraph_ai_service_playwright__cli.core.plugin.Plugin__Registry                                 import Plugin__Registry
+from sgraph_ai_service_playwright__cli.core.plugin.schemas.Schema__Plugin__Manifest                 import Schema__Plugin__Manifest
+from sgraph_ai_service_playwright__cli.core.plugin.collections.List__Schema__Plugin__Manifest__Entry import List__Schema__Plugin__Manifest__Entry
 
 
 class Stack__Catalog__Service(Stack__Catalog__Service__Entries):
     plugin_registry : Plugin__Registry
+
+    def get_manifest(self) -> Schema__Plugin__Manifest:
+        entries = List__Schema__Plugin__Manifest__Entry()
+        for name, manifest in self.plugin_registry.manifests.items():
+            entries.append(manifest.manifest_entry())
+        return Schema__Plugin__Manifest(plugins=entries)
 
     def get_catalog(self) -> Schema__Stack__Type__Catalog:
         entries = List__Schema__Stack__Type__Catalog__Entry()

@@ -8,6 +8,8 @@ from sgraph_ai_service_playwright__cli.catalog.enums.Enum__Stack__Type          
 from sgraph_ai_service_playwright__cli.catalog.schemas.Schema__Stack__Type__Catalog__Entry \
                                                                                     import Schema__Stack__Type__Catalog__Entry
 from sgraph_ai_service_playwright__cli.core.plugin.Plugin__Manifest__Base           import Plugin__Manifest__Base
+from sgraph_ai_service_playwright__cli.core.plugin.enums.Enum__Plugin__Capability   import Enum__Plugin__Capability
+from sgraph_ai_service_playwright__cli.core.plugin.enums.Enum__Plugin__Nav_Group    import Enum__Plugin__Nav_Group
 from sgraph_ai_service_playwright__cli.core.plugin.enums.Enum__Plugin__Stability    import Enum__Plugin__Stability
 from sgraph_ai_service_playwright__cli.core.plugin.primitives.Safe_Str__Plugin__Name import Safe_Str__Plugin__Name
 from sgraph_ai_service_playwright__cli.opensearch.fast_api.routes.Routes__OpenSearch__Stack \
@@ -16,11 +18,19 @@ from sgraph_ai_service_playwright__cli.opensearch.service.OpenSearch__Service   
 
 
 class Plugin__Manifest__OpenSearch(Plugin__Manifest__Base):
-    name         : Safe_Str__Plugin__Name  = Safe_Str__Plugin__Name('opensearch')
-    display_name : str                     = 'OpenSearch + Dashboards'
-    description  : str                     = 'Coming soon.'
-    enabled      : bool                    = False
-    stability    : Enum__Plugin__Stability = Enum__Plugin__Stability.EXPERIMENTAL
+    name                 : Safe_Str__Plugin__Name  = Safe_Str__Plugin__Name('opensearch')
+    display_name         : str                     = 'OpenSearch + Dashboards'
+    description          : str                     = 'Coming soon.'
+    icon                 : str                     = '🔎'
+    enabled              : bool                    = False
+    stability            : Enum__Plugin__Stability = Enum__Plugin__Stability.EXPERIMENTAL
+    boot_seconds_typical : int                     = 120
+    nav_group            : Enum__Plugin__Nav_Group = Enum__Plugin__Nav_Group.OBSERVABILITY
+    soon                 : bool                    = True
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.capabilities.append(Enum__Plugin__Capability.METRICS)
 
     def service_class(self):
         return OpenSearch__Service

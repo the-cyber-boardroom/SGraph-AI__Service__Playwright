@@ -32,6 +32,10 @@ class EC2__SG__Helper(Type_Safe):
                                      extra_cidrs  : dict      = None) -> str:
         ec2     = self.ec2_client(region)
         sg_name = self.naming.sg_name_for_stack(stack_name)
+
+        if not caller_ip:
+            raise ValueError(f'caller_ip is required to build SG rules for stack {stack_name!r}; '
+                             f'auto-detection failed — pass --caller-ip explicitly')
         cidr    = f'{caller_ip}/32'
 
         existing = ec2.describe_security_groups(

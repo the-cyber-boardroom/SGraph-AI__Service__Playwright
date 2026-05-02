@@ -46,3 +46,40 @@ class test_Routes__Stack__Catalog(TestCase):
         assert 'podman' in types
         assert 'docker' in types
         assert 'vnc'    in types
+
+    def test_manifest__returns_200(self):
+        resp = _client().get('/catalog/manifest')
+        assert resp.status_code == 200
+        data = resp.json()
+        assert 'schema_version' in data
+        assert 'plugins'        in data
+        assert data['schema_version'] == 1
+
+    def test_manifest__plugin_count(self):
+        resp    = _client().get('/catalog/manifest')
+        plugins = resp.json()['plugins']
+        assert len(plugins) == 4                                                 # fake registry has 4 plugins
+
+    def test_manifest__entry_shape(self):
+        resp    = _client().get('/catalog/manifest')
+        by_id   = {p['type_id']: p for p in resp.json()['plugins']}
+        docker  = by_id['docker']
+        assert docker['display_name']         == 'Docker host'
+        assert docker['icon']                 == '🐳'
+        assert docker['boot_seconds_typical'] == 600
+        assert docker['nav_group']            == 'compute'
+        assert docker['soon']                 is False
+        assert 'remote-shell' in docker['capabilities']
+        assert 'metrics'      in docker['capabilities']
+
+    def test_manifest__vnc_capabilities(self):
+        resp  = _client().get('/catalog/manifest')
+        by_id = {p['type_id']: p for p in resp.json()['plugins']}
+        vnc   = by_id['vnc']
+        assert 'mitm-proxy'   in vnc['capabilities']
+        assert 'iframe-embed' in vnc['capabilities']
+
+    def test_manifest__elastic_nav_group(self):
+        resp  = _client().get('/catalog/manifest')
+        by_id = {p['type_id']: p for p in resp.json()['plugins']}
+        assert by_id['elastic']['nav_group'] == 'observability'

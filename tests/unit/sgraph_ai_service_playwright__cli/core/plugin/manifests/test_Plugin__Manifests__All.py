@@ -189,3 +189,79 @@ class test_Plugin__Manifests__All(TestCase):
         assert Plugin__Manifest__Docker() .service_class() is Docker__Service
         assert Plugin__Manifest__Elastic().service_class() is Elastic__Service
         assert Plugin__Manifest__Vnc()    .service_class() is Vnc__Service
+
+    # ── icon / boot_seconds_typical / nav_group / capabilities / soon ────────
+
+    def test__manifest__icons_are_set(self):
+        pairs = [
+            (Plugin__Manifest__Docker(),     '🐳'),
+            (Plugin__Manifest__Podman(),     '🦭'),
+            (Plugin__Manifest__Elastic(),    '🔍'),
+            (Plugin__Manifest__OpenSearch(), '🔎'),
+            (Plugin__Manifest__Prometheus(), '📊'),
+            (Plugin__Manifest__Vnc(),        '🖥️'),
+            (Plugin__Manifest__Firefox(),    '🦊'),
+            (Plugin__Manifest__Neko(),       '🦊'),
+        ]
+        for m, expected_icon in pairs:
+            assert str(m.icon) == expected_icon, f'{m.name}: expected {expected_icon!r}, got {str(m.icon)!r}'
+
+    def test__manifest__boot_seconds_typical(self):
+        assert Plugin__Manifest__Docker()     .boot_seconds_typical == 600
+        assert Plugin__Manifest__Podman()     .boot_seconds_typical == 120
+        assert Plugin__Manifest__Elastic()    .boot_seconds_typical == 90
+        assert Plugin__Manifest__OpenSearch() .boot_seconds_typical == 120
+        assert Plugin__Manifest__Prometheus() .boot_seconds_typical == 90
+        assert Plugin__Manifest__Vnc()        .boot_seconds_typical == 120
+        assert Plugin__Manifest__Firefox()    .boot_seconds_typical == 90
+
+    def test__manifest__nav_groups(self):
+        from sgraph_ai_service_playwright__cli.core.plugin.enums.Enum__Plugin__Nav_Group import Enum__Plugin__Nav_Group
+        assert Plugin__Manifest__Docker()     .nav_group == Enum__Plugin__Nav_Group.COMPUTE
+        assert Plugin__Manifest__Podman()     .nav_group == Enum__Plugin__Nav_Group.COMPUTE
+        assert Plugin__Manifest__Vnc()        .nav_group == Enum__Plugin__Nav_Group.COMPUTE
+        assert Plugin__Manifest__Firefox()    .nav_group == Enum__Plugin__Nav_Group.COMPUTE
+        assert Plugin__Manifest__Elastic()    .nav_group == Enum__Plugin__Nav_Group.OBSERVABILITY
+        assert Plugin__Manifest__OpenSearch() .nav_group == Enum__Plugin__Nav_Group.OBSERVABILITY
+        assert Plugin__Manifest__Prometheus() .nav_group == Enum__Plugin__Nav_Group.OBSERVABILITY
+
+    def test__manifest__soon_flag(self):
+        assert Plugin__Manifest__OpenSearch().soon is True
+        assert Plugin__Manifest__Docker()    .soon is False
+        assert Plugin__Manifest__Firefox()   .soon is False
+
+    def test__manifest__capabilities_compute_plugins(self):
+        from sgraph_ai_service_playwright__cli.core.plugin.enums.Enum__Plugin__Capability import Enum__Plugin__Capability
+        docker = Plugin__Manifest__Docker()
+        assert Enum__Plugin__Capability.REMOTE_SHELL in list(docker.capabilities)
+        assert Enum__Plugin__Capability.METRICS      in list(docker.capabilities)
+        podman = Plugin__Manifest__Podman()
+        assert Enum__Plugin__Capability.REMOTE_SHELL in list(podman.capabilities)
+
+    def test__manifest__capabilities_observability_plugins(self):
+        from sgraph_ai_service_playwright__cli.core.plugin.enums.Enum__Plugin__Capability import Enum__Plugin__Capability
+        elastic    = Plugin__Manifest__Elastic()
+        prometheus = Plugin__Manifest__Prometheus()
+        assert Enum__Plugin__Capability.METRICS in list(elastic.capabilities)
+        assert Enum__Plugin__Capability.METRICS in list(prometheus.capabilities)
+
+    def test__manifest__capabilities_vnc_and_firefox(self):
+        from sgraph_ai_service_playwright__cli.core.plugin.enums.Enum__Plugin__Capability import Enum__Plugin__Capability
+        vnc     = Plugin__Manifest__Vnc()
+        firefox = Plugin__Manifest__Firefox()
+        assert Enum__Plugin__Capability.MITM_PROXY   in list(vnc.capabilities)
+        assert Enum__Plugin__Capability.IFRAME_EMBED  in list(vnc.capabilities)
+        assert Enum__Plugin__Capability.VAULT_WRITES  in list(firefox.capabilities)
+        assert Enum__Plugin__Capability.AMI_BAKE      in list(firefox.capabilities)
+        assert Enum__Plugin__Capability.MITM_PROXY    in list(firefox.capabilities)
+        assert Enum__Plugin__Capability.IFRAME_EMBED  in list(firefox.capabilities)
+
+    def test__manifest_entry__shape(self):
+        from sgraph_ai_service_playwright__cli.core.plugin.schemas.Schema__Plugin__Manifest__Entry import Schema__Plugin__Manifest__Entry
+        from sgraph_ai_service_playwright__cli.core.plugin.enums.Enum__Plugin__Nav_Group           import Enum__Plugin__Nav_Group
+        entry = Plugin__Manifest__Docker().manifest_entry()
+        assert isinstance(entry, Schema__Plugin__Manifest__Entry)
+        assert str(entry.icon)                 == '🐳'
+        assert entry.boot_seconds_typical      == 600
+        assert entry.nav_group                 == Enum__Plugin__Nav_Group.COMPUTE
+        assert str(entry.create_endpoint_path) == '/docker/stack'

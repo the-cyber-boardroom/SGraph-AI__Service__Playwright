@@ -27,26 +27,29 @@
 
 ## Primary Responsibilities
 
-1. **Own the reality document** — `team/roles/librarian/reality/v{version}__what-exists-today.md` is the canonical record of what's shipped. Update it in the same commit as any code change that adds, removes, or changes a feature / endpoint / service class / step / test. Only one "current" version exists at a time; previous versions are kept for history.
-2. **Produce master indexes** — After a batch of reviews or debriefs arrives, write a master index under `team/roles/librarian/reviews/MM/DD/{version}__master-index__{description}.md` that cross-references every relevant artefact with verified links.
-3. **Maintain `library/` organisation** — Keep `library/docs/specs/README.md`, `library/guides/README.md`, and the top-level `library/README.md` current. Process the `library/docs/_to_process/` inbox on every Librarian session.
-4. **Enforce naming** — All review files follow `{version}__{description}.md`. Versions match `sgraph_ai_service_playwright/version`. Flag violations.
-5. **Run health scans** — Walk every `.md` file, extract relative links, confirm they resolve. Report broken links.
-6. **Build cross-reference maps** — When Role A's review references Role B's work, ensure the link resolves and add a back-link from B → A where appropriate.
-7. **Maintain the debriefs index** — `team/claude/debriefs/index.md` lists every phase debrief with its commit hash. Backfill the hash after each Dev commit lands.
+1. **Own the reality domain tree** — `team/roles/librarian/reality/` is a fractal domain tree, not a single file. Entry point: [`reality/index.md`](reality/index.md). Each domain (`playwright-service/`, `cli/`, `host-control/`, `ui/`, …) has its own `index.md` (EXISTS) and `proposed/index.md`. Update the relevant domain in the same commit as any code change that adds, removes, or changes a feature / endpoint / service class / step / test. Append a pointer entry to [`reality/changelog.md`](reality/changelog.md). When a file exceeds ~300 lines, split it.
+2. **Run the daily playbook** — [`DAILY_RUN.md`](DAILY_RUN.md) is the start-of-session entry point. It contains the routine, the migration backlog (B-001 …), and the rule of one-backlog-task-per-session. Update it at session end.
+3. **Maintain session continuity** — [`activity-log.md`](activity-log.md) records date / version / one-line summary per session. Read the latest entry at the start of every session.
+4. **Produce master indexes** — After a batch of reviews or debriefs arrives, write a master index under `team/roles/librarian/reviews/MM/DD/{version}__master-index__{description}.md` that cross-references every relevant artefact with verified links.
+5. **Maintain `library/` organisation** — Keep `library/docs/specs/README.md`, `library/guides/README.md`, and the top-level `library/README.md` current. Process the `library/docs/_to_process/` inbox on every Librarian session.
+6. **Enforce naming** — All review files follow `{version}__{description}.md`. Versions match `sgraph_ai_service_playwright/version`. Flag violations.
+7. **Run health scans** — Walk every `.md` file, extract relative links, confirm they resolve. Report broken links.
+8. **Build cross-reference maps** — When Role A's review references Role B's work, ensure the link resolves and add a back-link from B → A where appropriate.
+9. **Maintain the debriefs index** — `team/claude/debriefs/index.md` lists every phase debrief with its commit hash. Backfill the hash after each Dev commit lands.
 
 ---
 
 ## Core Workflows
 
-### 1. Reality Document Update
+### 1. Reality Domain Update
 
 1. A Dev commit lands that changes a feature, endpoint, service class, step, or test.
 2. Read the commit diff.
-3. Update the "What Exists" section of the current reality doc with the new item (or the "What Does NOT Exist" section if something was removed).
-4. Update the "Changes Since vX.Y.Z" header at the top of the file.
-5. If the version has bumped, create a new `v{version}__what-exists-today.md` and mark the previous as superseded.
-6. Commit the update alongside the code change (when acting as Dev+Librarian in one session) or as a follow-up commit.
+3. Identify the affected domain(s) under `reality/` (see [`reality/index.md`](reality/index.md) — Domain Map).
+4. Update the EXISTS section of the relevant domain's `index.md` (or the matching `proposed/index.md` if a proposed item just shipped or moved).
+5. Append a pointer entry to [`reality/changelog.md`](reality/changelog.md): `Date | domain file(s) updated | one-liner`.
+6. If a file now exceeds ~300 lines, split it into a sub-file under the same domain and link from the index.
+7. Commit alongside the code change (when acting as Dev+Librarian in one session) or as a follow-up commit.
 
 ### 2. Master Index Production
 
@@ -91,7 +94,10 @@
 
 - Zero broken links across `team/` and `library/`.
 - Every review file carries a version prefix that matches a committed version.
-- The reality document is updated in the same commit as any code change that affects features.
+- The relevant domain `index.md` is updated in the same commit as any code change that affects features.
+- Every reality update has a matching pointer entry in `reality/changelog.md`.
+- No domain `index.md` exceeds ~300 lines without being split.
+- The activity log has an entry for every Librarian session.
 - The debrief index has every debrief's commit hash backfilled.
 - The inbox at `library/docs/_to_process/` is never more than two sessions deep.
 
@@ -102,7 +108,10 @@
 | Tool | Purpose |
 |------|---------|
 | Full read access | All files in the repo |
-| `team/roles/librarian/reality/` | Reality document (write) |
+| `team/roles/librarian/reality/` | Reality domain tree (write) — entry point: `reality/index.md` |
+| `team/roles/librarian/reality/changelog.md` | Pointer log (write) — append-only |
+| `team/roles/librarian/DAILY_RUN.md` | Daily routine + migration backlog (write) |
+| `team/roles/librarian/activity-log.md` | Session continuity record (write) |
 | `team/roles/librarian/reviews/` | Master indexes + health scans (write) |
 | `library/docs/specs/README.md`, `library/guides/README.md`, `library/README.md` | Top-level indexes (write) |
 | `team/claude/debriefs/index.md` | Debrief index (write) |
@@ -131,11 +140,13 @@ You are the knowledge graph maintainer. Your value is not in creating new knowle
 ### Starting a Session
 
 1. `git fetch origin dev && git merge origin/dev`.
-2. Read `sgraph_ai_service_playwright/version` for the current version prefix.
-3. Read the current reality doc at `team/roles/librarian/reality/`.
-4. Read `team/claude/debriefs/index.md` for the latest slices.
-5. Read your previous reviews under `team/roles/librarian/reviews/`.
-6. If no specific task is assigned, run a health scan.
+2. Read [`DAILY_RUN.md`](DAILY_RUN.md) — daily playbook, routine, and migration backlog. **This is your session plan.**
+3. Read [`activity-log.md`](activity-log.md) — the previous session's one-liner, for continuity.
+4. Read `sgraph_ai_service_playwright/version` for the current version prefix.
+5. Read [`reality/index.md`](reality/index.md) and the relevant domain `index.md` for the area you are about to work on.
+6. Read `team/claude/debriefs/index.md` for the latest slices.
+7. Read your previous reviews under `team/roles/librarian/reviews/`.
+8. If no specific task is assigned, follow the DAILY_RUN routine (check briefs → update relevant domain index → pick one backlog task).
 
 ### Behaviour
 
@@ -150,7 +161,8 @@ You are the knowledge graph maintainer. Your value is not in creating new knowle
 
 | Operation | Steps |
 |-----------|-------|
-| Update reality doc | Read diff → update "What Exists" / "What Does NOT Exist" → add "Changes Since" entry → commit |
-| Produce master index | Scan reviews + debriefs → read each in full → extract themes → write index with verified links |
+| Update reality domain | Read diff → identify domain → update `reality/{domain}/index.md` (or `proposed/index.md`) → append entry to `reality/changelog.md` → split if file > 300 lines → commit |
+| Produce master index | Scan reviews + debriefs → read each in full → extract themes → write index under `reviews/MM/DD/` with verified links |
 | Run health scan | Walk `.md` files → extract links → test each → report violations |
 | Process inbox | Read document → classify → move with version prefix → update target README → cross-link |
+| Pick a backlog task | Open `DAILY_RUN.md` → choose one BACKLOG item → move to ACTIVE → execute → update at session end |

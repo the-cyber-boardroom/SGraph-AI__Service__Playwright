@@ -1,6 +1,6 @@
 # ═══════════════════════════════════════════════════════════════════════════════
 # SP CLI — Routes__Stack__Catalog
-# Two read-only endpoints: type catalog + cross-section stack list.
+# Three read-only endpoints: type catalog, plugin manifest, cross-section stack list.
 # ═══════════════════════════════════════════════════════════════════════════════
 
 from osbot_fast_api.api.routes.Fast_API__Routes                                     import Fast_API__Routes
@@ -16,10 +16,15 @@ class Routes__Stack__Catalog(Fast_API__Routes):
         return self.service.get_catalog().json()
     types.__route_path__ = '/types'
 
+    def manifest(self) -> dict:
+        return self.service.get_manifest().json()
+    manifest.__route_path__ = '/manifest'
+
     def stacks(self) -> dict:
         return self.service.list_all_stacks().json()
     stacks.__route_path__ = '/stacks'
 
     def setup_routes(self):
-        self.add_route_get(self.types )
-        self.add_route_get(self.stacks)
+        self.add_route_get(self.types   )
+        self.add_route_get(self.manifest)
+        self.add_route_get(self.stacks  )
