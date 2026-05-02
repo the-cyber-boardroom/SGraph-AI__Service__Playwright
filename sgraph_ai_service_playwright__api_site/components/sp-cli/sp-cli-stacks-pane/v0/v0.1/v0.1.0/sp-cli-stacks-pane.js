@@ -39,8 +39,9 @@ class SpCliStacksPane extends SgComponent {
         this._counter    = this.$('.stack-count')
 
         this.$('.btn-refresh')?.addEventListener('click', () => {
-            this.emit('sp-cli:stacks.refresh')
-            this.emit('sp-cli:stacks-refresh')  // compat
+            this.emit('sp-cli:nodes.refresh')
+            this.emit('sp-cli:stacks.refresh')   // DEPRECATED — remove in F9
+            this.emit('sp-cli:stacks-refresh')   // DEPRECATED — remove in F9
         })
 
         if (this._pendingStacks !== undefined) {
@@ -77,8 +78,9 @@ class SpCliStacksPane extends SgComponent {
                 <span class="stack-uptime">${_fmtUptime(s.uptime_seconds)}</span>
             `
             row.addEventListener('click', () => {
-                this.emit('sp-cli:stack.selected',  { stack: s })
-                this.emit('sp-cli:stack-selected',  { stack: s })  // compat
+                this.emit('sp-cli:node.selected',   { stack: s })
+                this.emit('sp-cli:stack.selected',  { stack: s })  // DEPRECATED — remove in F9
+                this.emit('sp-cli:stack-selected',  { stack: s })  // DEPRECATED — remove in F9
             })
             this._list.appendChild(row)
         }

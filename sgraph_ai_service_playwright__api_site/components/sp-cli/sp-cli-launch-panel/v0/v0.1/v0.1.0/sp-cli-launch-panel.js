@@ -60,10 +60,9 @@ class SpCliLaunchPanel extends SgComponent {
         try {
             const response = await apiClient.post(this._entry.create_endpoint_path, body)
             this._setLoading(false)
-            document.dispatchEvent(new CustomEvent('sp-cli:launch.success', {
-                detail:  { entry: this._entry, response },
-                bubbles: true, composed: true,
-            }))
+            const detail = { entry: this._entry, response }
+            document.dispatchEvent(new CustomEvent('sp-cli:node.launched',   { detail, bubbles: true, composed: true }))
+            document.dispatchEvent(new CustomEvent('sp-cli:launch.success',  { detail, bubbles: true, composed: true }))  // DEPRECATED
         } catch (err) {
             this._setLoading(false)
             this._showError(err.message || 'Launch failed')

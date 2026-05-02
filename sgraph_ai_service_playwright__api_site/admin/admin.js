@@ -62,12 +62,15 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     // ── Stack interactions ────────────────────────────────────────────────── //
 
-    document.addEventListener('sp-cli:stack.selected',  (e) => _openDetailTab(e.detail?.stack))
-    document.addEventListener('sp-cli:stack-selected',  (e) => _openDetailTab(e.detail?.stack)) // compat
-    document.addEventListener('sp-cli:stack.deleted',   (e) => _onStackDeleted(e.detail?.stack))
-    document.addEventListener('sp-cli:stack-deleted',   (e) => _onStackDeleted(e.detail?.stack)) // compat
-    document.addEventListener('sp-cli:stacks.refresh',  () => _loadData())
-    document.addEventListener('sp-cli:stacks-refresh',  () => _loadData())                       // compat
+    document.addEventListener('sp-cli:node.selected',   (e) => _openDetailTab(e.detail?.stack))
+    document.addEventListener('sp-cli:node.deleted',    (e) => _onStackDeleted(e.detail?.stack))
+    document.addEventListener('sp-cli:nodes.refresh',   () => _loadData())
+    document.addEventListener('sp-cli:stack.selected',  (e) => _openDetailTab(e.detail?.stack))  // DEPRECATED
+    document.addEventListener('sp-cli:stack-selected',  (e) => _openDetailTab(e.detail?.stack))  // DEPRECATED
+    document.addEventListener('sp-cli:stack.deleted',   (e) => _onStackDeleted(e.detail?.stack)) // DEPRECATED
+    document.addEventListener('sp-cli:stack-deleted',   (e) => _onStackDeleted(e.detail?.stack)) // DEPRECATED
+    document.addEventListener('sp-cli:stacks.refresh',  () => _loadData())                       // DEPRECATED
+    document.addEventListener('sp-cli:stacks-refresh',  () => _loadData())                       // DEPRECATED
     document.addEventListener('sp-cli:region-changed',  (e) => { _region = e.detail?.region || ''; _loadData() })
 
     // ── Plugin / settings events ─────────────────────────────────────────── //
