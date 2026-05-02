@@ -31,7 +31,7 @@ def _secs(ms: int) -> str:                                                      
 
 def render_list(listing: Schema__Podman__List, c: Console) -> None:
     if not listing.stacks:
-        c.print('  [dim]No Podman stacks found.[/]')
+        c.print('  [dim]No Podman/Linux stacks found.[/]')
         return
     t = Table(show_header=True, header_style='bold blue', box=None, padding=(0, 2))
     t.add_column('stack-name'  , style='bold')
