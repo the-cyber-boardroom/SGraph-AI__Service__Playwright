@@ -43,7 +43,11 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     // ── Navigation ────────────────────────────────────────────────────────── //
 
-    document.addEventListener('sp-cli:nav.selected', (e) => _switchView(e.detail?.view))
+    document.addEventListener('sp-cli:nav.selected', (e) => {
+        const view = e.detail?.view
+        if (view === 'diagnostics') _toggleDiagnostics()
+        else _switchView(view)
+    })
 
     // ── Stack interactions ────────────────────────────────────────────────── //
 
@@ -172,6 +176,11 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (_currentViewTabId) _layoutEl.removePanel(_currentViewTabId)
         _currentViewTabId = newTabId
         _currentView      = view
+    }
+
+    function _toggleDiagnostics() {
+        const col = document.getElementById('diag-col')
+        if (col) col.hidden = !col.hidden
     }
 
     function _openDetailTab(stack) {
