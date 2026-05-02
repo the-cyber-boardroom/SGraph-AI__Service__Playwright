@@ -26,22 +26,19 @@ app = typer.Typer(no_args_is_help=True,
 
 
 def _service() -> Stack__Catalog__Service:                                          # Single seam — tests override to inject an in-memory fake
-    s = Stack__Catalog__Service()
-    s.linux_service  .setup()
-    s.docker_service .setup()
-    return s
+    return Stack__Catalog__Service()
 
 
 @app.command()
 def types():
-    """List all registered stack types (linux / docker / elastic / opensearch / vnc / …)."""
+    """List all registered stack types (podman / docker / elastic / opensearch / vnc / …)."""
     catalog = _service().get_catalog()
     render_types(catalog, Console(highlight=False, width=200))
 
 
 @app.command()
 def stacks(type_filter: Optional[str] = typer.Option(None, '--type', '-t',
-                                                       help='Filter to one stack type id (linux / docker / elastic / opensearch / vnc).')):
+                                                       help='Filter to one stack type id (podman / docker / elastic / opensearch / vnc).')):
     """List live stacks across every section. Pass --type to filter by stack type."""
     enum_filter = None
     if type_filter:
