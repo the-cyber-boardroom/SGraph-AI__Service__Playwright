@@ -793,15 +793,24 @@ from sgraph_ai_service_playwright__cli.firefox.cli import app as _firefox_app  #
 app.add_typer(_firefox_app, name='firefox'        )                                  # ephemeral Firefox noVNC browser EC2 stacks (experiment)
 app.add_typer(_firefox_app, name='ff', hidden=True)                                  # short alias
 
-from scripts.linux import app as _linux_app  # noqa: E402
-app.add_typer(_linux_app, name='linux'        )                                      # ephemeral bare Linux EC2 stacks
-app.add_typer(_linux_app, name='lx',  hidden=True)                                  # short alias
+from scripts.podman import app as _podman_app  # noqa: E402
+app.add_typer(_podman_app, name='podman'        )                                    # ephemeral Podman EC2 stacks
+app.add_typer(_podman_app, name='linux'         )                                    # backwards-compat alias
+app.add_typer(_podman_app, name='lx',  hidden=True)                                  # short alias
 
 from scripts.docker_stack import app as _docker_app  # noqa: E402
 app.add_typer(_docker_app, name='docker'        )                                    # ephemeral Docker-on-AL2023 EC2 stacks
 app.add_typer(_docker_app, name='dk',   hidden=True)                                 # short alias
 
 # v0.1.97 (2/3) — sp catalog: cross-section enumeration
+from ephemeral_ec2.stacks.open_design.cli import app as _open_design_app  # noqa: E402
+app.add_typer(_open_design_app, name='open-design'      )                              # ephemeral Open Design EC2 stacks
+app.add_typer(_open_design_app, name='od',   hidden=True)                              # short alias
+
+from ephemeral_ec2.stacks.ollama.cli import app as _ollama_app  # noqa: E402
+app.add_typer(_ollama_app, name='ollama'        )                                      # ephemeral Ollama GPU EC2 stacks
+app.add_typer(_ollama_app, name='ol', hidden=True)                                     # short alias
+
 from scripts.catalog import app as _catalog_app  # noqa: E402
 app.add_typer(_catalog_app, name='catalog')
 
