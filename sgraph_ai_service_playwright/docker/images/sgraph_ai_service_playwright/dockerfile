@@ -26,8 +26,8 @@ ENV PORT=8000
 
 WORKDIR /var/task
 COPY    requirements.txt ./
-RUN     python -m pip install -r requirements.txt
-RUN     python -c "import playwright; print('playwright', playwright.__version__, 'ok')"
+RUN     python -m pip install -r requirements.txt --break-system-packages
+RUN     python -c 'import playwright; print("playwright", playwright.__version__, "ok")'
 COPY    . ./
 
 CMD     exec python3 lambda_entry.py
