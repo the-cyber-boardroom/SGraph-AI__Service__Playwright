@@ -51,8 +51,8 @@
     border-radius: 3px;
     flex-shrink: 0;
 }
-.type-linux    { background: rgba(91,124,246,.2);  color: #7b9bf8; }
 .type-docker   { background: rgba(0,150,220,.2);   color: #4db8f0; }
+.type-podman   { background: rgba(91,124,246,.2);  color: #7b9bf8; }
 .type-elastic  { background: rgba(244,185,66,.2);  color: #f4b942; }
 .type-opensearch { background: rgba(100,200,150,.2); color: #5dc894; }
 .type-vnc      { background: rgba(190,90,200,.2);  color: #cc7edd; }

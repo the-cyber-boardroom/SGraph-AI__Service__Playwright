@@ -2,7 +2,6 @@
 [hidden] { display: none !important; }
 
 .detail-body {
-    flex: 1;
     overflow-y: auto;
     display: flex;
     flex-direction: column;

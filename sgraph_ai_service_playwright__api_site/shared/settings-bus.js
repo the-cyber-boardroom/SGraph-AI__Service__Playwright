@@ -114,7 +114,7 @@ function _migrate(data) {
             defaults: {
                 region:        data.default_region                    || DEFAULTS.defaults.region,
                 max_hours:     data.default_max_hours                  || DEFAULTS.defaults.max_hours,
-                instance_type: data.default_instance_types?.linux      || DEFAULTS.defaults.instance_type,
+                instance_type: data.default_instance_types?.podman     || DEFAULTS.defaults.instance_type,
             },
         }
     }

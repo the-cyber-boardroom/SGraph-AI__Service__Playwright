@@ -8,13 +8,14 @@ import { isWritable } from '../../../../../../shared/vault-bus.js'
 const ROOT_LAYOUT_KEY = 'sp-cli:admin:root-layout:v1'
 
 const PLUGINS = [
-    { name: 'linux',      icon: '🐧', label: 'Bare Linux',              stability: 'stable',       boot: '~60s'   },
     { name: 'docker',     icon: '🐳', label: 'Docker host',             stability: 'stable',       boot: '~10min' },
+    { name: 'podman',     icon: '🦭', label: 'Podman host',             stability: 'stable',       boot: '~10min' },
     { name: 'elastic',    icon: '🔍', label: 'Elastic + Kibana',        stability: 'stable',       boot: '~90s'   },
     { name: 'vnc',        icon: '🖥',  label: 'VNC bastion',             stability: 'stable',       boot: '~90s'   },
     { name: 'prometheus', icon: '📊', label: 'Prometheus + Grafana',    stability: 'experimental', boot: '—'      },
     { name: 'opensearch', icon: '🌐', label: 'OpenSearch + Dashboards', stability: 'experimental', boot: '—'      },
     { name: 'neko',       icon: '🌐', label: 'Neko (WebRTC browser)',   stability: 'experimental', boot: '—'      },
+    { name: 'firefox',    icon: '🦊', label: 'Firefox',                 stability: 'experimental', boot: '~90s'   },
 ]
 
 const UI_PANELS = [

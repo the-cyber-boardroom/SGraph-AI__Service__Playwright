@@ -4,6 +4,7 @@ import '../../../../_shared/sp-cli-stack-header/v0/v0.1/v0.1.0/sp-cli-stack-head
 import '../../../../_shared/sp-cli-ssm-command/v0/v0.1/v0.1.0/sp-cli-ssm-command.js'
 import '../../../../_shared/sp-cli-network-info/v0/v0.1/v0.1.0/sp-cli-network-info.js'
 import '../../../../_shared/sp-cli-stop-button/v0/v0.1/v0.1.0/sp-cli-stop-button.js'
+import '../../../../_shared/sg-remote-browser/v0/v0.1/v0.1.0/sg-remote-browser.js'
 
 class SpCliElasticDetail extends SgComponent {
     static jsUrl = import.meta.url
@@ -15,9 +16,11 @@ class SpCliElasticDetail extends SgComponent {
         this._ssm         = this.$('.detail-ssm')
         this._net         = this.$('.detail-net')
         this._stop        = this.$('.detail-stop')
-        this._serviceUrls = this.$('.service-urls')
-        this._kibanaUrl   = this.$('.kibana-url')
-        this._esUrl       = this.$('.es-url')
+        this._browserSection = this.$('.browser-section')
+        this._browser        = this.$('.remote-browser')
+        this._serviceUrls    = this.$('.service-urls')
+        this._kibanaUrl      = this.$('.kibana-url')
+        this._esUrl          = this.$('.es-url')
         if (this._pendingStack) { this.open(this._pendingStack); this._pendingStack = null }
     }
 
@@ -43,6 +46,8 @@ class SpCliElasticDetail extends SgComponent {
             const ip = merged.public_ip
             if (ip && (merged.state || '').toLowerCase() === 'running') {
                 this._setServiceUrls(ip)
+                if (this._browser) this._browser.setAttribute('src', `https://${ip}:5601`)
+                if (this._browserSection) this._browserSection.hidden = false
             }
         } catch (_) {}
     }
