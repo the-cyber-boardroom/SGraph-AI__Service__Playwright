@@ -14,13 +14,13 @@ from typing                                                                     
 import typer
 from rich.console                                                                   import Console
 
-from sgraph_ai_service_playwright__cli.linux.cli.Renderers                          import (render_create,
-                                                                                              render_health,
-                                                                                              render_info  ,
-                                                                                              render_list  )
-from sgraph_ai_service_playwright__cli.linux.collections.List__Port                 import List__Port
-from sgraph_ai_service_playwright__cli.linux.schemas.Schema__Linux__Create__Request import Schema__Linux__Create__Request
-from sgraph_ai_service_playwright__cli.linux.service.Linux__Service                 import DEFAULT_REGION, Linux__Service
+from sgraph_ai_service_playwright__cli.podman.cli.Renderers                          import (render_create,
+                                                                                               render_health,
+                                                                                               render_info  ,
+                                                                                               render_list  )
+from sgraph_ai_service_playwright__cli.podman.collections.List__Port                 import List__Port
+from sgraph_ai_service_playwright__cli.podman.schemas.Schema__Podman__Create__Request import Schema__Podman__Create__Request as Schema__Linux__Create__Request
+from sgraph_ai_service_playwright__cli.podman.service.Podman__Service                import DEFAULT_REGION, Podman__Service as Linux__Service
 
 
 DEBUG_TRACE = False
