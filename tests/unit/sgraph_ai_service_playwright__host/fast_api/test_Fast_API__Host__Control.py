@@ -22,9 +22,11 @@ HEADERS = {'X-API-Key': API_KEY}
 
 @pytest.fixture(scope='module')
 def client():
+    os.environ['FAST_API__AUTH__API_KEY__NAME']  = 'X-API-Key'
     os.environ['FAST_API__AUTH__API_KEY__VALUE'] = API_KEY
     app = Fast_API__Host__Control().setup()
     yield app.client()
+    os.environ.pop('FAST_API__AUTH__API_KEY__NAME',  None)
     os.environ.pop('FAST_API__AUTH__API_KEY__VALUE', None)
 
 
