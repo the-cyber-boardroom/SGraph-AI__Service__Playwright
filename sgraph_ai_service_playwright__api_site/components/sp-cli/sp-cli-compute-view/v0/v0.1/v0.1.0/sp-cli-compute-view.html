@@ -1,2 +1,85 @@
-<sp-cli-launcher-pane class="launcher-pane"></sp-cli-launcher-pane>
-<sp-cli-stacks-pane  class="stacks-pane"></sp-cli-stacks-pane>
+<div class="compute-view">
+
+  <!-- ── Template browser (left) ──────────────────────── -->
+  <div class="browser-col">
+    <div class="browser-head sgl-panel-head">
+      <div class="sgl-panel-title">Launch a node</div>
+    </div>
+    <div class="browser-body">
+      <div class="spec-groups"></div>
+    </div>
+  </div>
+
+  <!-- ── Configure pane (right, hidden until card selected) ── -->
+  <div class="configure-col" hidden>
+    <div class="cfg-head sgl-panel-head">
+      <div class="sgl-panel-title">
+        <span class="cfg-icon"></span>
+        <span class="cfg-name"></span>
+      </div>
+      <div class="sgl-panel-actions">
+        <button class="btn-close-cfg sgl-iconbtn" title="Close">✕</button>
+      </div>
+    </div>
+
+    <div class="cfg-body">
+
+      <!-- spec summary -->
+      <div class="cfg-summary">
+        <span class="cfg-stability ec2-pill"></span>
+        <span class="cfg-boot-label tlabel">Boot time</span>
+        <span class="cfg-boot-val"></span>
+      </div>
+
+      <!-- form fields -->
+      <div class="cfg-fields">
+
+        <div class="ec2-field">
+          <label class="ec2-field-label">Region</label>
+          <select class="field-region ec2-select"></select>
+        </div>
+
+        <div class="ec2-field">
+          <label class="ec2-field-label">
+            Instance type
+            <span class="ec2-field-help cfg-cost"></span>
+          </label>
+          <select class="field-instance ec2-select"></select>
+        </div>
+
+        <div class="ec2-field">
+          <label class="ec2-field-label">Auto-stop after</label>
+          <select class="field-hours ec2-select"></select>
+        </div>
+
+        <div class="ec2-field">
+          <label class="ec2-field-label node-name-label">
+            Node name
+            <span class="ec2-field-help">auto-generated if blank</span>
+          </label>
+          <input type="text" class="field-name ec2-input" placeholder="e.g. docker-nova-4217">
+        </div>
+
+        <div class="adv-wrap">
+          <label class="open-row">
+            <input type="checkbox" class="field-open">
+            <span class="open-label">Open access (0.0.0.0/0)</span>
+          </label>
+          <div class="ip-note">Required when launching via Lambda API (uses Lambda's IP, not yours).</div>
+        </div>
+
+      </div>
+
+      <!-- launch button -->
+      <div class="cfg-footer">
+        <div class="error-msg" hidden></div>
+        <button class="btn-launch ec2-btn primary">
+          <span class="btn-label">Launch node →</span>
+          <span class="btn-spinner" hidden>…</span>
+        </button>
+      </div>
+
+    </div>
+  </div>
+
+</div>

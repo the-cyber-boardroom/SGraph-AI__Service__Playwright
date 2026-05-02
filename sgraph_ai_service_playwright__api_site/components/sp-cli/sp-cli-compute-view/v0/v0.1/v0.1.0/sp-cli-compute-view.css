@@ -1,11 +1,139 @@
 :host { display: flex; flex-direction: column; height: 100%; overflow: hidden; }
+[hidden] { display: none !important; }
 
-.launcher-pane {
-    flex-shrink: 0;
+/* ── Two-column layout: browser | configure ────────── */
+.compute-view {
+    display:    flex;
+    height:     100%;
+    background: var(--bg-panel);
+    overflow:   hidden;
 }
 
-.stacks-pane {
-    flex: 1;
-    min-height: 0;
-    overflow: hidden;
+/* ── Template browser ───────────────────────────────── */
+.browser-col {
+    flex:           1;
+    min-width:      0;
+    display:        flex;
+    flex-direction: column;
+    border-right:   1px solid var(--border-1);
 }
+
+.browser-head { flex-shrink: 0; }
+
+.browser-body {
+    flex:       1;
+    overflow-y: auto;
+    padding:    var(--pad-pane);
+    display:    flex;
+    flex-direction: column;
+    gap:        var(--gap-4);
+}
+
+/* ── Spec groups ─────────────────────────────────────── */
+.spec-groups { display: flex; flex-direction: column; gap: var(--gap-4); }
+
+.spec-section { display: flex; flex-direction: column; gap: var(--gap-2); }
+
+.spec-group-label {
+    padding-bottom: 4px;
+    border-bottom:  1px solid var(--border-1);
+}
+
+.spec-card-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--gap-2);
+}
+
+/* ── Spec card ───────────────────────────────────────── */
+.spec-card {
+    display:       flex;
+    align-items:   center;
+    gap:           10px;
+    padding:       10px 14px;
+    background:    var(--bg-panel-2);
+    border:        1px solid var(--border-1);
+    border-radius: var(--r-3);
+    cursor:        pointer;
+    width:         220px;
+    transition:    background 120ms, border-color 120ms;
+}
+.spec-card:hover {
+    background:   var(--bg-hover);
+    border-color: var(--border-2);
+}
+.spec-card.selected {
+    border-color: var(--accent);
+    background:   var(--accent-soft);
+}
+.spec-card--soon {
+    cursor:  default;
+    opacity: 0.55;
+}
+.spec-card--soon:hover {
+    background:   var(--bg-panel-2);
+    border-color: var(--border-1);
+}
+
+.sc-icon { font-size: 1.6rem; line-height: 1; flex-shrink: 0; }
+.sc-body { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+.sc-name { font-size: 13px; font-weight: 600; color: var(--text-1); white-space: nowrap; }
+.sc-meta { display: flex; align-items: center; gap: 5px; flex-wrap: wrap; }
+.sc-boot { font-size: 11px; color: var(--text-3); margin-left: auto; white-space: nowrap; }
+
+/* ── Configure pane ─────────────────────────────────── */
+.configure-col {
+    width:          300px;
+    min-width:      260px;
+    flex-shrink:    0;
+    display:        flex;
+    flex-direction: column;
+    background:     var(--bg-panel);
+}
+.cfg-head { flex-shrink: 0; }
+
+.cfg-body {
+    flex:       1;
+    overflow-y: auto;
+    padding:    var(--pad-pane);
+    display:    flex;
+    flex-direction: column;
+    gap:        var(--gap-3);
+}
+
+.cfg-summary {
+    display:     flex;
+    align-items: center;
+    gap:         8px;
+    padding-bottom: var(--gap-2);
+    border-bottom: 1px solid var(--border-1);
+}
+.cfg-boot-val { font-size: 11px; color: var(--text-2); margin-left: auto; }
+
+.cfg-fields { display: flex; flex-direction: column; gap: var(--gap-3); }
+
+/* ── Open access row ─────────────────────────────────── */
+.adv-wrap  { display: flex; flex-direction: column; gap: 4px; }
+.open-row  { display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 12px; color: var(--text-2); }
+.open-row input { accent-color: var(--accent); width: 14px; height: 14px; }
+.ip-note   { font-size: 10px; color: var(--text-3); line-height: 1.4; }
+
+/* ── Footer ──────────────────────────────────────────── */
+.cfg-footer {
+    margin-top: auto;
+    padding-top: var(--gap-3);
+    display:     flex;
+    flex-direction: column;
+    gap:         8px;
+}
+
+.error-msg {
+    font-size:  12px;
+    color:      var(--bad);
+    background: var(--bad-soft);
+    border:     1px solid rgba(248,113,113,0.25);
+    border-radius: var(--r-2);
+    padding:    6px 10px;
+}
+
+.btn-launch { width: 100%; justify-content: center; padding: 8px 12px; font-size: 13px; }
