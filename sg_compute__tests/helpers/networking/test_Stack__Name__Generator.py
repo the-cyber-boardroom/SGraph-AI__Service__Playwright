@@ -4,7 +4,7 @@
 
 from unittest import TestCase
 
-from sg_compute.helpers.networking.Stack__Name__Generator import Stack__Name__Generator
+from sg_compute.platforms.ec2.networking.Stack__Name__Generator import Stack__Name__Generator
 
 
 class test_Stack__Name__Generator(TestCase):

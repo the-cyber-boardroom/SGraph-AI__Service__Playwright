@@ -4,7 +4,7 @@
 
 from unittest import TestCase
 
-from sg_compute.helpers.user_data.Section__Nginx import Section__Nginx
+from sg_compute.platforms.ec2.user_data.Section__Nginx import Section__Nginx
 
 
 class test_Section__Nginx(TestCase):

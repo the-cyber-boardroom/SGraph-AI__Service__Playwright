@@ -1,62 +1,112 @@
 # Reality — SG/Compute Domain
 
-**Status:** PLACEHOLDER — seeded in phase-1 (B1 rename). Full content lands in phase-2 (B2 foundations).
-**Last updated:** 2026-05-02 | **Phase:** B1 (rename)
+**Status:** ACTIVE — seeded in phase-1 (B1), foundations added in phase-2 (B2).
+**Last updated:** 2026-05-02 | **Phase:** B2 (foundations)
 
 ---
 
-## What exists today (as of phase-1 / B1)
+## What exists today (as of phase-2 / B2)
 
 ### Packages
 
 | Package | Location | Description |
 |---------|----------|-------------|
-| `sg_compute` | `sg_compute/` | SDK — shared helpers for EC2 provisioning, health polling, user-data assembly |
-| `sg_compute_specs` | `sg_compute_specs/` | Spec catalogue — pilot specs only (ollama, open_design) |
-| `sg_compute__tests` | `sg_compute__tests/` | Test suite mirroring `sg_compute/` layout |
+| `sg_compute` | `sg_compute/` | SDK — primitives, enums, core schemas, Platform interface, EC2 platform, Spec__Loader/Resolver/Registry, Node__Manager |
+| `sg_compute_specs` | `sg_compute_specs/` | Spec catalogue — pilot specs (ollama, open_design), both with typed `manifest.py` |
+| `sg_compute__tests` | `sg_compute__tests/` | Test suite — 152 tests, mirrors `sg_compute/` and `sg_compute_specs/` layout |
 
-### sg_compute/helpers/ — EXISTS
+---
+
+### sg_compute/primitives/ — EXISTS
+
+| Class | Path |
+|-------|------|
+| `Safe_Str__Spec__Id` | `primitives/Safe_Str__Spec__Id.py` |
+| `Safe_Str__Node__Id` | `primitives/Safe_Str__Node__Id.py` |
+| `Safe_Str__Pod__Name` | `primitives/Safe_Str__Pod__Name.py` |
+| `Safe_Str__Stack__Id` | `primitives/Safe_Str__Stack__Id.py` |
+| `Safe_Str__Platform__Name` | `primitives/Safe_Str__Platform__Name.py` |
+
+### sg_compute/primitives/enums/ — EXISTS
+
+| Class | Values |
+|-------|--------|
+| `Enum__Spec__Stability` | `STABLE / EXPERIMENTAL / DEPRECATED` |
+| `Enum__Spec__Capability` | 12 capabilities (vault-writes, ami-bake, sidecar-attach, remote-shell, metrics, mitm-proxy, iframe-embed, webrtc, container-runtime, browser-automation, llm-inference, design-tool) |
+| `Enum__Spec__Nav_Group` | `BROWSERS / DATA / OBSERVABILITY / STORAGE / AI / DEV / OTHER` |
+| `Enum__Node__State` | `BOOTING / READY / TERMINATING / TERMINATED / FAILED` |
+| `Enum__Pod__State` | `PENDING / RUNNING / STOPPED / FAILED` |
+| `Enum__Stack__Creation_Mode` | `FRESH / BAKE_AMI / FROM_AMI` |
+
+### sg_compute/core/spec/ — EXISTS
 
 | Class | Path | Description |
 |-------|------|-------------|
-| `EC2__Launch__Helper` | `helpers/aws/EC2__Launch__Helper.py` | RunInstances wrapper |
-| `EC2__SG__Helper` | `helpers/aws/EC2__SG__Helper.py` | CreateSecurityGroup / AuthorizeIngress |
-| `EC2__Tags__Builder` | `helpers/aws/EC2__Tags__Builder.py` | Standard EC2 tag list construction |
-| `EC2__AMI__Helper` | `helpers/aws/EC2__AMI__Helper.py` | SSM latest AL2023 AMI lookup |
-| `EC2__Instance__Helper` | `helpers/aws/EC2__Instance__Helper.py` | DescribeInstances, find-by-tag, terminate |
-| `EC2__Stack__Mapper` | `helpers/aws/EC2__Stack__Mapper.py` | boto3 dict → Schema__Stack__Info |
-| `Stack__Naming` | `helpers/aws/Stack__Naming.py` | Stack name helpers |
-| `Section__Base` | `helpers/user_data/Section__Base.py` | Hostname, locale, common packages |
-| `Section__Docker` | `helpers/user_data/Section__Docker.py` | Docker CE install |
-| `Section__Node` | `helpers/user_data/Section__Node.py` | Node.js 24 + pnpm |
-| `Section__Nginx` | `helpers/user_data/Section__Nginx.py` | nginx reverse-proxy (SSE-safe) |
-| `Section__Env__File` | `helpers/user_data/Section__Env__File.py` | Write env file to tmpfs |
-| `Section__Shutdown` | `helpers/user_data/Section__Shutdown.py` | systemd-run auto-terminate timer |
-| `Health__Poller` | `helpers/health/Health__Poller.py` | Polls EC2 state + app port |
-| `Health__HTTP__Probe` | `helpers/health/Health__HTTP__Probe.py` | HTTP GET with retry |
-| `Caller__IP__Detector` | `helpers/networking/Caller__IP__Detector.py` | Public IP from ifconfig.me |
-| `Stack__Name__Generator` | `helpers/networking/Stack__Name__Generator.py` | Adjective-noun random names |
-| `Schema__Stack__Info` | `helpers/schemas/Schema__Stack__Info.py` | Base node info schema |
+| `Schema__Spec__Manifest__Entry` | `core/spec/schemas/Schema__Spec__Manifest__Entry.py` | Typed spec catalogue entry; every spec's `manifest.py` exports `MANIFEST: Schema__Spec__Manifest__Entry` |
+| `Schema__Spec__Catalogue` | `core/spec/schemas/Schema__Spec__Catalogue.py` | Full catalogue (list of manifest entries) |
+| `Spec__Registry` | `core/spec/Spec__Registry.py` | In-memory registry keyed by spec_id |
+| `Spec__Resolver` | `core/spec/Spec__Resolver.py` | DAG validation + topological sort for composition |
+| `Spec__Loader` | `core/spec/Spec__Loader.py` | Discovers specs from `sg_compute_specs/*/manifest.py` and PEP 621 entry points |
 
-### sg_compute_specs/ — EXISTS (pilot specs)
+### sg_compute/core/node/ — EXISTS
 
-| Spec | Location | Description |
-|------|----------|-------------|
-| `ollama` | `sg_compute_specs/ollama/` | Ollama LLM runtime on GPU EC2 |
-| `open_design` | `sg_compute_specs/open_design/` | Open Design Node.js platform |
+| Class | Path |
+|-------|------|
+| `Schema__Node__Info` | `core/node/schemas/Schema__Node__Info.py` |
+| `Schema__Node__List` | `core/node/schemas/Schema__Node__List.py` |
+| `Schema__Node__Create__Request__Base` | `core/node/schemas/Schema__Node__Create__Request__Base.py` |
+| `Schema__Node__Create__Response` | `core/node/schemas/Schema__Node__Create__Response.py` |
+| `Schema__Node__Delete__Response` | `core/node/schemas/Schema__Node__Delete__Response.py` |
+| `Schema__Stack__Info` (legacy) | `core/node/schemas/Schema__Stack__Info.py` | Kept for spec mapper backwards compat |
+| `Node__Manager` | `core/node/Node__Manager.py` | Delegates to Platform; accepts a Fake__Platform in tests |
+
+### sg_compute/core/pod/ and core/stack/ — EXISTS (placeholders)
+
+`Schema__Pod__Info`, `Schema__Pod__List`, `Schema__Stack__Info` (multi-node), `Schema__Stack__List` — shape defined, no manager yet.
+
+### sg_compute/platforms/ — EXISTS
+
+| Class / File | Path | Description |
+|--------------|------|-------------|
+| `Platform` | `platforms/Platform.py` | Abstract base; defines `create_node`, `list_nodes`, `get_node`, `delete_node` |
+| `EC2__Platform` | `platforms/ec2/EC2__Platform.py` | Wraps EC2 helpers; implements `list_nodes`, `get_node`, `delete_node`; `create_node` delegates to spec services |
+| `EC2__Launch__Helper` | `platforms/ec2/helpers/EC2__Launch__Helper.py` | (moved from `sg_compute/helpers/aws/`) |
+| `EC2__SG__Helper` | `platforms/ec2/helpers/EC2__SG__Helper.py` | |
+| `EC2__Tags__Builder` | `platforms/ec2/helpers/EC2__Tags__Builder.py` | |
+| `EC2__AMI__Helper` | `platforms/ec2/helpers/EC2__AMI__Helper.py` | |
+| `EC2__Instance__Helper` | `platforms/ec2/helpers/EC2__Instance__Helper.py` | |
+| `EC2__Stack__Mapper` | `platforms/ec2/helpers/EC2__Stack__Mapper.py` | |
+| `Stack__Naming` | `platforms/ec2/helpers/Stack__Naming.py` | |
+| `Section__Base` | `platforms/ec2/user_data/Section__Base.py` | (moved from `sg_compute/helpers/user_data/`) |
+| `Section__Docker` | `platforms/ec2/user_data/Section__Docker.py` | |
+| `Section__Node` | `platforms/ec2/user_data/Section__Node.py` | |
+| `Section__Nginx` | `platforms/ec2/user_data/Section__Nginx.py` | |
+| `Section__Env__File` | `platforms/ec2/user_data/Section__Env__File.py` | |
+| `Section__Shutdown` | `platforms/ec2/user_data/Section__Shutdown.py` | |
+| `Health__Poller` | `platforms/ec2/health/Health__Poller.py` | |
+| `Health__HTTP__Probe` | `platforms/ec2/health/Health__HTTP__Probe.py` | |
+| `Caller__IP__Detector` | `platforms/ec2/networking/Caller__IP__Detector.py` | |
+| `Stack__Name__Generator` | `platforms/ec2/networking/Stack__Name__Generator.py` | |
+
+### sg_compute_specs/ pilot specs — EXISTS
+
+| Spec | Path | Manifest |
+|------|------|---------|
+| `ollama` | `sg_compute_specs/ollama/` | `manifest.py` — spec_id=`ollama`, stability=EXPERIMENTAL, capabilities=[LLM_INFERENCE] |
+| `open_design` | `sg_compute_specs/open_design/` | `manifest.py` — spec_id=`open_design`, stability=EXPERIMENTAL, capabilities=[DESIGN_TOOL, VAULT_WRITES] |
+
+**`Spec__Loader.load_all()` returns both specs; `Spec__Resolver` validates the empty `extends` graphs.**
 
 ---
 
 ## PROPOSED — does not exist yet
 
-Everything in [`team/comms/briefs/v0.1.140__sg-compute__migration/`](../../../comms/briefs/v0.1.140__sg-compute__migration/00__README.md) phase 2+:
-
-- `sg_compute/primitives/` — Safe_Str__* and Enum__* types
-- `sg_compute/core/` — Node__Manager, Pod__Manager, Spec__Loader, Spec__Resolver
-- `sg_compute/platforms/ec2/` — Platform interface + EC2 implementation
-- Spec manifests (`manifest.py` with `MANIFEST: Schema__Spec__Manifest__Entry`)
-- `Fast_API__Compute` control plane
-- `sg-compute` CLI command
+- `Fast_API__Compute` control plane (phase 4)
+- `sg-compute` CLI command (phase 5)
+- `sg_compute/host_plane/` (phase 6 — moves from `sgraph_ai_service_playwright__host/`)
+- Per-spec `Spec__Service__Base` common lifecycle base class
+- `Node__Identity` — node-id generation/parsing helper
+- Remaining legacy specs migrated to `sg_compute_specs/` (phases 3.0–3.8)
 
 ---
 
@@ -64,4 +114,5 @@ Everything in [`team/comms/briefs/v0.1.140__sg-compute__migration/`](../../../co
 
 | Date | Change |
 |------|--------|
+| 2026-05-02 | Phase B2: foundations — primitives, enums, core schemas, Platform/EC2__Platform, Spec__Loader/Resolver/Registry, Node__Manager, manifest.py for ollama+open_design, helpers moved to platforms/ec2/ |
 | 2026-05-02 | Phase B1: `ephemeral_ec2/` renamed to `sg_compute/`; pilot specs moved to `sg_compute_specs/`; domain placeholder created |
