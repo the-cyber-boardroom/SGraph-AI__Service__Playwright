@@ -47,6 +47,11 @@ class Open_Design__Service(Type_Safe):
         stack_name = request.stack_name     or self.name_gen.generate()
         region     = request.region         or DEFAULT_REGION
         caller_ip  = request.caller_ip      or self.ip_detector.detect()
+        if not caller_ip:
+            raise ValueError(
+                'Could not detect your public IP automatically.\n'
+                '  Pass it explicitly: sp od create --caller-ip <your-ip>\n'
+                '  Find it with:       curl https://checkip.amazonaws.com')
         ami_id     = request.from_ami       or self.aws_client.ami.latest_al2023_ami(region)
         itype      = request.instance_type  or DEFAULT_INSTANCE_TYPE
 
