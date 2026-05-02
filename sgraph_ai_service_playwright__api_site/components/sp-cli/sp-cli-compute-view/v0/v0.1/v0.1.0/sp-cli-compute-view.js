@@ -76,7 +76,7 @@ class SpCliComputeView extends SgComponent {
     _applyDefaults() {
         const region   = getDefault('region')        || 'eu-west-2'
         const instance = getDefault('instance_type') || 't3.medium'
-        const hours    = getDefault('max_hours')     || 4
+        const hours    = getDefault('max_hours')     || 1
         if (this._regionSel)   this._regionSel.value   = region
         if (this._instanceSel) this._instanceSel.value = instance
         if (this._hoursSel)    this._hoursSel.value     = String(hours)
