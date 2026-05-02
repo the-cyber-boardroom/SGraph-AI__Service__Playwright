@@ -1,5 +1,15 @@
 import { SgComponent } from 'https://dev.tools.sgraph.ai/components/base/v1/v1.0/v1.0.0/sg-component.js'
-import '../../sp-cli-events-log/v0/v0.1/v0.1.0/sp-cli-events-log.js'
+
+const DIAG_LAYOUT = {
+    type: 'column',
+    sizes: [0.30, 0.23, 0.24, 0.23],
+    children: [
+        { type: 'stack', tabs: [{ tag: 'sp-cli-events-log',      title: 'Events Log',      locked: true }] },
+        { type: 'stack', tabs: [{ tag: 'sp-cli-vault-status',    title: 'Vault Status',    locked: true }] },
+        { type: 'stack', tabs: [{ tag: 'sp-cli-active-sessions', title: 'Active Sessions', locked: true }] },
+        { type: 'stack', tabs: [{ tag: 'sp-cli-cost-tracker',    title: 'Cost Tracker',    locked: true }] },
+    ],
+}
 
 class SpCliDiagnosticsView extends SgComponent {
 
@@ -7,22 +17,10 @@ class SpCliDiagnosticsView extends SgComponent {
     get resourceName()   { return 'sp-cli-diagnostics-view' }
     get sharedCssPaths() { return ['https://dev.tools.sgraph.ai/components/tokens/v1/v1.0/v1.0.0/sg-tokens.css'] }
 
-    onReady() {
-        const apiUrlEl = this.$('.api-url')
-        if (apiUrlEl) apiUrlEl.textContent = localStorage.getItem('sg_api_url') || window.location.origin
-
-        this.shadowRoot.querySelectorAll('.diag-tab').forEach(btn =>
-            btn.addEventListener('click', () => this._switchTab(btn.dataset.tab))
-        )
-    }
-
-    _switchTab(name) {
-        this.shadowRoot.querySelectorAll('.diag-tab').forEach(t =>
-            t.classList.toggle('active', t.dataset.tab === name)
-        )
-        this.shadowRoot.querySelectorAll('.diag-panel').forEach(p =>
-            p.hidden = p.dataset.panel !== name
-        )
+    async onReady() {
+        await import('https://dev.tools.sgraph.ai/core/sg-layout/v0.1.0/sg-layout.js')
+        const layout = this.$('#diag-layout')
+        layout?.setLayout(DIAG_LAYOUT)
     }
 }
 
