@@ -4,10 +4,11 @@
 # pure delegation to Firefox__Service.
 #
 # Endpoints:
-#   POST   /firefox/stack           → Schema__Firefox__Stack__Create__Response
-#   GET    /firefox/stacks          → Schema__Firefox__Stack__List
-#   GET    /firefox/stack/{name}    → Schema__Firefox__Stack__Info   (404 on miss)
-#   DELETE /firefox/stack/{name}    → Schema__Firefox__Stack__Delete__Response
+#   POST   /firefox/stack                → Schema__Firefox__Stack__Create__Response
+#   GET    /firefox/stacks               → Schema__Firefox__Stack__List
+#   GET    /firefox/stack/{name}         → Schema__Firefox__Stack__Info   (404 on miss)
+#   DELETE /firefox/stack/{name}         → Schema__Firefox__Stack__Delete__Response
+#   GET    /firefox/stack/{name}/health  → Schema__Firefox__Health__Response
 # ═══════════════════════════════════════════════════════════════════════════════
 
 from fastapi                                                                        import HTTPException
@@ -47,3 +48,14 @@ class Routes__Firefox__Stack(Fast_API__Routes):
             raise HTTPException(status_code=404, detail=f'no firefox stack matched {name!r}')
         return response.json()
     delete.__route_path__ = '/stack/{name}'
+
+    def health(self, name: str, region: str = '') -> dict:                          # GET /firefox/stack/{name}/health
+        return self.service.health(region or DEFAULT_REGION, name, timeout_sec=0).json()
+    health.__route_path__ = '/stack/{name}/health'
+
+    def setup_routes(self):
+        self.add_route_get   (self.list_stacks)
+        self.add_route_get   (self.info       )
+        self.add_route_post  (self.create     )
+        self.add_route_delete(self.delete     )
+        self.add_route_get   (self.health     )
