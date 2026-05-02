@@ -15,7 +15,7 @@ const PLUGINS = [
     { name: 'prometheus', icon: '📊', label: 'Prometheus + Grafana',    stability: 'experimental', boot: '—'      },
     { name: 'opensearch', icon: '🌐', label: 'OpenSearch + Dashboards', stability: 'experimental', boot: '—'      },
     { name: 'neko',       icon: '🌐', label: 'Neko (WebRTC browser)',   stability: 'experimental', boot: '—'      },
-    { name: 'firefox',    icon: '🦊', label: 'Firefox (noVNC)',         stability: 'experimental', boot: '—'      },
+    { name: 'firefox',    icon: '🦊', label: 'Firefox',                 stability: 'experimental', boot: '~90s'   },
 ]
 
 const UI_PANELS = [
