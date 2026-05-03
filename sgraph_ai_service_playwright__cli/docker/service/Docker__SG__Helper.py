@@ -2,6 +2,7 @@
 # SP CLI — Docker__SG__Helper
 # Per-stack security group helper for sp docker. Mirrors Linux__SG__Helper.
 # No inbound rule needed for SSM. extra_ports for Docker-exposed services.
+# PORT 9000 is always opened for the host control plane.
 # ═══════════════════════════════════════════════════════════════════════════════
 
 from typing                                                                         import List
@@ -15,6 +16,9 @@ from sgraph_ai_service_playwright__cli.docker.primitives.Safe_Str__Docker__Stack
 from sgraph_ai_service_playwright__cli.docker.service.Docker__AWS__Client           import DOCKER_NAMING, TAG_PURPOSE_KEY, TAG_PURPOSE_VALUE
 
 
+HOST_CONTROL_PORT = 9000                                                            # Host control plane always exposed on this port
+
+
 class Docker__SG__Helper(Type_Safe):
 
     def ec2_client(self, region: str):
@@ -23,10 +27,11 @@ class Docker__SG__Helper(Type_Safe):
     def ensure_security_group(self, region       : str                          ,
                                      stack_name   : Safe_Str__Docker__Stack__Name,
                                      caller_ip    : Safe_Str__IP__Address        ,
-                                     extra_ports  : List[int] = None             ) -> str:
+                                     extra_ports  : List[int] = None             ,
+                                     open_to_all  : bool      = False            ) -> str:
         ec2     = self.ec2_client(region)
         sg_name = DOCKER_NAMING.sg_name_for_stack(stack_name)
-        cidr    = f'{str(caller_ip)}/32'
+        cidr    = '0.0.0.0/0' if open_to_all else f'{str(caller_ip)}/32'
 
         existing = ec2.describe_security_groups(
             Filters=[{'Name': 'group-name', 'Values': [sg_name]}]).get('SecurityGroups', [])
@@ -41,7 +46,8 @@ class Docker__SG__Helper(Type_Safe):
                                       'Tags': [{'Key': TAG_PURPOSE_KEY, 'Value': TAG_PURPOSE_VALUE}]}])
             sg_id = created.get('GroupId', '')
 
-        for port in (extra_ports or []):
+        ports_to_open = list(extra_ports or []) + [HOST_CONTROL_PORT]               # Always open host control port
+        for port in ports_to_open:
             try:
                 ec2.authorize_security_group_ingress(
                     GroupId       = sg_id,
