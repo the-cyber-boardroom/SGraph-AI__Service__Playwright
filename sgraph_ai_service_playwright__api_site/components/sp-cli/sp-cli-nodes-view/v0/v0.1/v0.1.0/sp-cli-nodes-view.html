@@ -26,6 +26,7 @@
       </div>
       <div class="sgl-panel-tabs">
         <button class="sgl-tab active" data-tab="overview">Overview</button>
+        <button class="sgl-tab" data-tab="containers">Containers</button>
         <button class="sgl-tab" data-tab="terminal">Terminal</button>
         <button class="sgl-tab" data-tab="hostapi">Host API</button>
       </div>
@@ -43,6 +44,22 @@
           <div class="stop-wrap">
             <sp-cli-stop-button class="stop-btn"></sp-cli-stop-button>
           </div>
+        </div>
+      </div>
+
+      <!-- Containers -->
+      <div class="tab-panel" data-panel="containers">
+        <div class="ct-head">
+          <div class="ct-host-stats"></div>
+          <div class="ct-actions">
+            <span class="ct-status"></span>
+            <button class="btn-refresh-ct sgl-iconbtn" title="Refresh containers">↺</button>
+          </div>
+        </div>
+        <div class="ct-body">
+          <div class="ct-list"></div>
+          <div class="ct-empty">No containers running</div>
+          <div class="ct-error" hidden></div>
         </div>
       </div>
 

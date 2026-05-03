@@ -3,7 +3,16 @@
 import { apiClient       } from '../shared/api-client.js'
 import { startSettingsBus } from '../shared/settings-bus.js'
 
-const ROOT_LAYOUT_KEY = 'sp-cli:admin:root-layout:v2'
+const ROOT_LAYOUT_KEY   = 'sp-cli:admin:root-layout:v2'
+const HOST_API_KEYS_KEY = 'sp-cli:host-api-keys'
+
+function _loadHostApiKeys() {
+    try { return JSON.parse(localStorage.getItem(HOST_API_KEYS_KEY) || '{}') } catch { return {} }
+}
+
+function _saveHostApiKeys(map) {
+    try { localStorage.setItem(HOST_API_KEYS_KEY, JSON.stringify(map)) } catch {}
+}
 
 function _buildRootLayout() {
     return {
@@ -27,6 +36,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     let _detailTabIds     = {}      // stack_name → panelId
     let _detailTypeIds    = {}      // stack_name → type_id
     let _launchTabIds     = {}      // type_id    → panelId
+    let _hostApiKeys      = _loadHostApiKeys()  // stack_name → api_key_value
 
     startSettingsBus()
 
@@ -93,6 +103,16 @@ document.addEventListener('DOMContentLoaded', async () => {
     )
     document.addEventListener('sp-cli:catalog-launch', (e) => _openLaunchTab(e.detail?.entry)) // compat
     document.addEventListener('sp-cli:user-launch',    (e) => _openLaunchTab(e.detail?.entry)) // compat
+
+    document.addEventListener('sp-cli:node.launched', (e) => {
+        const { response } = e.detail || {}
+        const stackName = response?.stack_info?.stack_name || response?.stack_name
+        const apiKey    = response?.api_key_value
+        if (stackName && apiKey) {
+            _hostApiKeys[stackName] = apiKey
+            _saveHostApiKeys(_hostApiKeys)
+        }
+    })
 
     document.addEventListener('sp-cli:launch.success', (e) => {
         const { entry, response } = e.detail || {}
@@ -247,8 +267,13 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 
     function _populatePanes(types, stacks) {
+        // Augment each stack with its stored host API key (captured on launch)
+        const augmented = stacks.map(s => ({
+            ...s,
+            host_api_key: _hostApiKeys[s.stack_name] || s.host_api_key || '',
+        }))
         document.querySelector('sp-cli-compute-view')?.setData?.({ types, stacks })
-        document.querySelector('sp-cli-nodes-view')?.setStacks?.(stacks)
+        document.querySelector('sp-cli-nodes-view')?.setStacks?.(augmented)
         document.querySelector('sp-cli-stacks-pane')?.setStacks?.(stacks)
         // cost-tracker may be inside shadow DOM (diagnostics view); use event so it receives data
         document.dispatchEvent(new CustomEvent('sp-cli:stacks.updated', {
