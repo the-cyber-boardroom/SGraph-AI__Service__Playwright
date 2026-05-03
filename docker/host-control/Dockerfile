@@ -6,6 +6,10 @@ WORKDIR /app
 COPY docker/host-control/requirements.txt ./requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
 
+# Docker CLI client — talks to the host daemon via the mounted socket
+# (daemon not needed; socket is bind-mounted at runtime via -v /var/run/docker.sock)
+RUN apk add --no-cache docker-cli
+
 # Copy the host package source (not yet on PyPI — installed from repo)
 COPY sgraph_ai_service_playwright__host/ ./sgraph_ai_service_playwright__host/
 
