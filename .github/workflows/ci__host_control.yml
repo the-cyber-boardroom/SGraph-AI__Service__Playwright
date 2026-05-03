@@ -175,5 +175,6 @@ jobs:
           aws ecr describe-images \
             --repository-name "$IMAGE_NAME" \
             --region "${{ secrets.AWS_DEFAULT_REGION }}" \
-            --query 'imageDetails[?contains(imageTags, `latest`)].[imagePushedAt, imageSizeInBytes]' \
+            --image-ids imageTag=latest \
+            --query 'imageDetails[0].[imagePushedAt, imageSizeInBytes]' \
             --output table
