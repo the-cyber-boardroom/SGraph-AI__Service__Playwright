@@ -3,7 +3,7 @@
 # cloud-init for a bare AL2023 instance with Docker CE installed. Installs
 # Docker Engine + Compose plugin so `docker run` and `docker compose` work
 # out of the box. SSM agent is already present on AL2023.
-# Also starts the host control plane sidecar (port 9000) from ECR.
+# Also starts the host control plane sidecar (port 19009) from ECR.
 # ═══════════════════════════════════════════════════════════════════════════════
 
 from osbot_utils.type_safe.Type_Safe                                                import Type_Safe
@@ -41,7 +41,7 @@ docker compose version
 systemctl enable --now amazon-ssm-agent || true
 
 # ── host control plane ────────────────────────────────────────────────────────
-echo "[sg-docker] starting host control plane (port 9000)..."
+echo "[sg-docker] starting host control plane (port 19009)..."
 
 aws ecr get-login-password --region "$REGION" | \\
   docker login --username AWS --password-stdin "$REGISTRY"
@@ -53,7 +53,7 @@ docker run -d \\
   -v /var/run/docker.sock:/var/run/docker.sock \\
   -e FAST_API__AUTH__API_KEY__NAME="{api_key_name}" \\
   -e FAST_API__AUTH__API_KEY__VALUE="{api_key_value}" \\
-  -p 9000:8000 \\
+  -p 19009:8000 \\
   "$REGISTRY"/{host_control_image}:latest || true
 
 echo "[sg-docker] host control plane started"

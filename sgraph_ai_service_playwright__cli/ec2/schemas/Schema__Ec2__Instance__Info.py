@@ -33,5 +33,5 @@ class Schema__Ec2__Instance__Info(Type_Safe):
     sidecar_image_uri   : Safe_Str__Text
     instance_type            : Safe_Str__Text                                       # Recorded at create time from sg:instance-type tag (preserves dot in 'm6i.xlarge')
     state                    : Enum__Instance__State = Enum__Instance__State.UNKNOWN
-    host_api_url             : Safe_Str__Text                                       # "http://{public_ip}:9000" — empty until boot complete
+    host_api_url             : Safe_Str__Text                                       # "http://{public_ip}:19009" — empty until boot complete
     host_api_key_vault_path  : Safe_Str__Text                                       # "/ec2/{deploy_name}/host-api-key" — empty until provisioned

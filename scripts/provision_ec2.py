@@ -302,7 +302,7 @@ docker run -d \
   --privileged \
   -v /var/run/docker.sock:/var/run/docker.sock \
   -e FAST_API__AUTH__API_KEY__VALUE="$HOST_API_KEY" \
-  -p 9000:8000 \
+  -p 19009:8000 \
   {registry}/sgraph_ai_service_playwright_host:latest || true
 
 rm -f /root/.docker/config.json                                 # ECR token no longer needed — container is running

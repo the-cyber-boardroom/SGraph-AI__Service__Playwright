@@ -64,7 +64,7 @@ def render_info(info: Schema__Docker__Info, c: Console) -> None:
     t.add_row('public-ip'     , str(info.public_ip)        or '—')
     t.add_row('allowed-ip'    , str(info.allowed_ip)       or '—')
     t.add_row('sg-id'         , str(info.security_group_id) or '—')
-    docs_url = f'http://{str(info.public_ip)}:9000/docs' if str(info.public_ip) else ''
+    docs_url = f'http://{str(info.public_ip)}:19009/docs' if str(info.public_ip) else ''
     t.add_row('docker-version', str(info.docker_version)   or '—')
     t.add_row('uptime'        , f'{info.uptime_seconds}s'  if info.uptime_seconds else '—')
     t.add_row('host-control'  , docs_url or '—')
@@ -84,7 +84,7 @@ def render_create(resp: Schema__Docker__Create__Response, c: Console) -> None:
     c.print(f'  allowed-ip   : {"0.0.0.0/0  [bold yellow](open)[/]" if resp.open_to_all else info.allowed_ip}')
     c.print(f'  submitted in : {_secs(resp.elapsed_ms)}')                           # Time for EC2 API call to accept the launch request
     c.print()
-    c.print(f'  [bold]host control plane (port 9000)[/]')
+    c.print(f'  [bold]host control plane (port 19009)[/]')
     c.print(f'  api-key-name : {resp.api_key_name}')
     c.print(f'  api-key-value: [bold yellow]{resp.api_key_value}[/]')
     c.print()
@@ -112,7 +112,7 @@ def render_health(h: Schema__Docker__Health__Response, c: Console) -> None:
     t.add_row('waited'        , _secs(h.elapsed_ms))
     t.add_row('message'       , str(h.message) or '—')
     if str(h.public_ip):
-        docs_url = f'http://{str(h.public_ip)}:9000/docs'
+        docs_url = f'http://{str(h.public_ip)}:19009/docs'
         t.add_row('host-control'  , docs_url)
         t.add_row('host-ctrl-ok'  , 'yes' if h.host_control_ok else 'no')
     c.print(t)

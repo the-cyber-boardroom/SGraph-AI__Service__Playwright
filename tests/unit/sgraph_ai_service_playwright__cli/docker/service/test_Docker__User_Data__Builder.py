@@ -40,7 +40,7 @@ class test_Docker__User_Data__Builder(TestCase):
     def test_render__embeds_host_control_image(self):
         result = self.builder.render('fast-fermi', 'eu-west-2', registry='123.dkr.ecr.eu-west-2.amazonaws.com')
         assert HOST_CONTROL_IMAGE in result
-        assert '9000:8000' in result
+        assert '19009:8000' in result
 
     def test_render__embeds_registry(self):
         result = self.builder.render('fast-fermi', 'eu-west-2', registry='123.dkr.ecr.eu-west-2.amazonaws.com')
