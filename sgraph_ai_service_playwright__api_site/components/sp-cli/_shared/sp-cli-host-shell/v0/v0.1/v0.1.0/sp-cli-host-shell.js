@@ -40,13 +40,16 @@ class SpCliHostShell extends SgComponent {
 
     open(stack) {
         if (!this._unavailable) { this._pendingStack = stack; return }
-        this._hostUrl    = stack.host_api_url || (stack.public_ip ? `http://${stack.public_ip}:9000` : '')
-        this._hostApiKey = ''
-        const vaultPath  = stack.host_api_key_vault_path || `/ec2/${stack.stack_name}/host-api-key`
+        this._hostUrl    = stack.host_api_url || (stack.public_ip ? `http://${stack.public_ip}:19009` : '')
+        this._hostApiKey = stack.host_api_key || ''
 
         if (this._hostUrl) {
-            const vault = currentVault()
-            if (vault && vaultPath) vault.read(vaultPath).then(k => { this._hostApiKey = k || '' })
+            // fall back to vault lookup only when we don't already have the key
+            if (!this._hostApiKey) {
+                const vaultPath = stack.host_api_key_vault_path || `/ec2/${stack.stack_name}/host-api-key`
+                const vault = currentVault()
+                if (vault && vaultPath) vault.read(vaultPath).then(k => { this._hostApiKey = k || '' })
+            }
             this._unavailable.classList.add('hidden')
             this._panel.classList.remove('hidden')
         } else {

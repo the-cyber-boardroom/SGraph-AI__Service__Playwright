@@ -116,3 +116,91 @@ sp-cli-host-shell,
 sp-cli-host-api-panel { display: block; height: 100%; }
 
 .mono { font-family: var(--font-mono); }
+
+/* ── Containers tab ───────────────────────────────── */
+.ct-head {
+    display:        flex;
+    align-items:    center;
+    justify-content: space-between;
+    padding:        6px 12px;
+    border-bottom:  1px solid var(--border-1);
+    flex-shrink:    0;
+    gap:            8px;
+    background:     var(--bg-elev);
+    flex-wrap:      wrap;
+}
+
+.ct-host-stats {
+    display:    flex;
+    gap:        16px;
+    flex:       1;
+    flex-wrap:  wrap;
+}
+
+.ct-stat {
+    display:   flex;
+    gap:       5px;
+    font-size: 11px;
+    color:     var(--text-2);
+}
+
+.ct-stat-lbl {
+    font-size:      9px;
+    font-weight:    600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color:          var(--text-3);
+    align-self:     center;
+}
+
+.ct-actions {
+    display:     flex;
+    align-items: center;
+    gap:         8px;
+    flex-shrink: 0;
+}
+
+.ct-status {
+    font-size: 11px;
+    color:     var(--text-3);
+}
+
+.ct-body {
+    flex:       1;
+    overflow-y: auto;
+    min-height: 0;
+}
+
+.ct-row {
+    display:       flex;
+    align-items:   center;
+    gap:           10px;
+    padding:       8px 12px;
+    border-bottom: 1px solid var(--border-1);
+    font-size:     12px;
+}
+.ct-row:last-child { border-bottom: none; }
+
+.ct-name  { font-weight: 500; color: var(--text-1); min-width: 130px; flex-shrink: 0; }
+.ct-image { flex: 1; color: var(--text-3); font-family: var(--font-mono); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ct-state { font-size: 11px; color: var(--text-3); white-space: nowrap; flex-shrink: 0; }
+.ct-pill  { flex-shrink: 0; }
+
+.ct-empty {
+    padding:    24px;
+    text-align: center;
+    color:      var(--text-3);
+    font-size:  12px;
+}
+
+.ct-error {
+    padding:       10px 12px;
+    font-size:     11px;
+    color:         var(--bad);
+    background:    var(--bad-soft);
+    margin:        8px 12px;
+    border-radius: var(--r-2);
+    border:        1px solid rgba(248,113,113,.25);
+}
+
+.key-trunc { letter-spacing: 0.05em; }

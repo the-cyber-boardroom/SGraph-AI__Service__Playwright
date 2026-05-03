@@ -14,7 +14,7 @@ class SpCliHostApiPanel extends SgComponent {
 
     open(stack) {
         if (!this._frame) { this._pendingStack = stack; return }
-        const url = stack.host_api_url || (stack.public_ip ? `http://${stack.public_ip}:9000` : '')
+        const url = stack.host_api_url || (stack.public_ip ? `http://${stack.public_ip}:19009` : '')
         if (!url) {
             this._unavailable?.classList.remove('hidden')
             this._frame.classList.add('hidden')
