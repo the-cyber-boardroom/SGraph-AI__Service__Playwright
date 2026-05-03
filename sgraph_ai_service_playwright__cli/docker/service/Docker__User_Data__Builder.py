@@ -57,6 +57,7 @@ docker run -d \\
   "$REGISTRY"/{host_control_image}:latest || true
 
 echo "[sg-docker] host control plane started"
+rm -f /root/.docker/config.json                                 # remove ECR token — container is running, credentials no longer needed on disk
 
 {shutdown_line}
 
