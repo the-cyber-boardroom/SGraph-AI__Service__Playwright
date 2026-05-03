@@ -82,6 +82,10 @@ def render_create(resp: Schema__Docker__Create__Response, c: Console) -> None:
     c.print(f'  allowed-ip   : {info.allowed_ip}')
     c.print(f'  submitted in : {_secs(resp.elapsed_ms)}')                           # Time for EC2 API call to accept the launch request
     c.print()
+    c.print(f'  [bold]host control plane (port 9000)[/]')
+    c.print(f'  api-key-name : {resp.api_key_name}')
+    c.print(f'  api-key-value: [bold yellow]{resp.api_key_value}[/]')
+    c.print()
     c.print(f'  [dim]Connect:    sp docker connect {info.stack_name} --region {info.region}[/]')
     c.print(f'  [dim]Wait ready: sp docker wait {info.stack_name} --region {info.region}[/]')
     c.print()
