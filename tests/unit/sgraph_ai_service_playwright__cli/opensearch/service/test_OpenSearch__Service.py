@@ -190,7 +190,7 @@ class _Fake_Launch__Helper:
     def __init__(self, instance_id='i-0123456789abcdef0'):
         self.instance_id = instance_id
         self.calls       = []
-    def run_instance(self, region, ami_id, security_group_id, user_data, tags, instance_type='t3.large', instance_profile_name=None):
+    def run_instance(self, region, ami_id, security_group_id, user_data, tags, instance_type='t3.large', instance_profile_name=None, use_spot=True):
         self.calls.append({'region': region, 'ami_id': ami_id, 'sg_id': security_group_id,
                            'user_data': user_data, 'tags': tags, 'instance_type': instance_type,
                            'instance_profile_name': instance_profile_name})

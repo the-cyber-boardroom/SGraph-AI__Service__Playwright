@@ -113,6 +113,7 @@ def create(name          : Optional[str]       = typer.Argument(None, help='Stac
            caller_ip     : Optional[str]       = typer.Option(None          , '--caller-ip'     , help='Source IP for SG rule; auto-detected if omitted.'),
            max_hours     : int                 = typer.Option(1             , '--max-hours'     , help='Auto-terminate after N hours; 0 = no timer.'),
            extra_ports   : Optional[List[int]] = typer.Option(None          , '--port'          , help='Extra TCP ports to open from caller /32 (repeatable).'),
+           no_spot       : bool                = typer.Option(False         , '--no-spot'       , help='Use on-demand instance instead of spot.'),
            wait          : bool                = typer.Option(False         , '--wait'          , help='Block until instance is running and SSM-reachable.')):
     """Provision a bare Podman EC2 stack with SSM access."""
     c       = Console(highlight=False, width=200)
@@ -123,6 +124,7 @@ def create(name          : Optional[str]       = typer.Argument(None, help='Stac
         instance_type = instance_type            ,
         from_ami      = from_ami      or ''      ,
         caller_ip     = caller_ip     or ''      ,
+        use_spot      = not no_spot              ,
         max_hours     = max_hours                ,
         extra_ports   = _ports(extra_ports)      )
     resp = svc.create_stack(request)

@@ -114,6 +114,7 @@ def create(name           : Optional[str] = typer.Argument(None, help='Stack nam
            caller_ip      : Optional[str] = typer.Option(None                 , '--caller-ip'     ,       help='Source IP for SG rule; auto-detected if omitted.'),
            admin_password : Optional[str] = typer.Option(None                 , '--admin-password',       help='Neko admin password. Auto-generated if omitted.'),
            member_password: Optional[str] = typer.Option(None                 , '--member-password',      help='Neko member password. Auto-generated if omitted.'),
+           no_spot        : bool          = typer.Option(False                , '--no-spot'       ,       help='Use on-demand instance instead of spot.'),
            wait           : bool          = typer.Option(False                , '--wait'          ,       help='Block until instance is running.')):
     """Provision a Neko (WebRTC browser) EC2 stack."""
     c       = Console(highlight=False, width=200)
@@ -124,7 +125,8 @@ def create(name           : Optional[str] = typer.Argument(None, help='Stack nam
         from_ami        = from_ami        or '',
         caller_ip       = caller_ip       or '',
         admin_password  = admin_password  or '',
-        member_password = member_password or '')
+        member_password = member_password or '',
+        use_spot        = not no_spot          )
     svc  = _service()
     resp = svc.create_stack(request)
     render_create(resp, c)

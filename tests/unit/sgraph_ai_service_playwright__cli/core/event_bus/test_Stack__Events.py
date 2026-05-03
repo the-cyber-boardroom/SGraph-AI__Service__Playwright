@@ -22,7 +22,7 @@ class _Fake_Tags:
 FAKE_INSTANCE_ID = 'i-0123456789abcdef0'                                            # 17 hex chars — satisfies Safe_Str__Instance__Id regex
 
 class _Fake_Launch:
-    def run_instance(self, region, ami_id, sg_id, user_data, tags, instance_type='', instance_profile_name=''):
+    def run_instance(self, region, ami_id, sg_id, user_data, tags, instance_type='', instance_profile_name='', max_hours=0, use_spot=True):
         return FAKE_INSTANCE_ID
 
 class _Fake_Instance:

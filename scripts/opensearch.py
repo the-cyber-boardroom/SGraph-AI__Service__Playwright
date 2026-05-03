@@ -32,12 +32,14 @@ def _service() -> OpenSearch__Service:                                          
 def create(name           : Optional[str] = typer.Argument(None, help='Stack name; auto-generated as os-{adjective}-{scientist} if omitted.'),
            region         : str           = typer.Option(DEFAULT_REGION, '--region', '-r', help='AWS region.'),
            instance_type  : str           = typer.Option('t3.large'    , '--instance-type', '-t', help='EC2 instance type.'),
-           admin_password : Optional[str] = typer.Option(None, '--password', '-p', help='Admin password; generated if omitted (returned once).')):
+           admin_password : Optional[str] = typer.Option(None, '--password', '-p', help='Admin password; generated if omitted (returned once).'),
+           no_spot        : bool          = typer.Option(False          , '--no-spot'      , help='Use on-demand instance instead of spot.')):
     """Provision an OpenSearch + Dashboards EC2 stack."""
     request = Schema__OS__Stack__Create__Request(stack_name     = name           or '',
                                                   region         = region              ,
                                                   instance_type  = instance_type       ,
-                                                  admin_password = admin_password or '')
+                                                  admin_password = admin_password or '',
+                                                  use_spot       = not no_spot         )
     resp = _service().create_stack(request)
     render_create(resp, Console(highlight=False, width=200))
 

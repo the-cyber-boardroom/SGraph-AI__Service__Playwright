@@ -95,3 +95,11 @@ class test_Prometheus__Launch__Helper(TestCase):
         self.fake.raise_on_run = RuntimeError('AccessDenied: not authorized')
         with self.assertRaises(RuntimeError):
             self._run()
+
+    def test_run_instance__spot_market_options_sent_by_default(self):
+        self._run()
+        assert self.fake.calls[0]['InstanceMarketOptions'] == {'MarketType': 'spot'}
+
+    def test_run_instance__no_spot_omits_market_options(self):
+        self._run(use_spot=False)
+        assert 'InstanceMarketOptions' not in self.fake.calls[0]
