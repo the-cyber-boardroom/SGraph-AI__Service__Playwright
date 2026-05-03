@@ -305,6 +305,8 @@ docker run -d \
   -p 9000:8000 \
   {registry}/sgraph_ai_service_playwright_host:latest || true
 
+rm -f /root/.docker/config.json                                 # ECR token no longer needed — container is running
+
 # Push API key to vault so the SP CLI management plane can retrieve it
 aws ssm send-command \
   --instance-ids "$(curl -s http://169.254.169.254/latest/meta-data/instance-id)" \
