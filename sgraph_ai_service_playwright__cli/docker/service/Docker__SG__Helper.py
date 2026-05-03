@@ -2,7 +2,7 @@
 # SP CLI — Docker__SG__Helper
 # Per-stack security group helper for sp docker. Mirrors Linux__SG__Helper.
 # No inbound rule needed for SSM. extra_ports for Docker-exposed services.
-# PORT 9000 is always opened for the host control plane.
+# PORT 19009 is always opened for the host control plane.
 # ═══════════════════════════════════════════════════════════════════════════════
 
 from typing                                                                         import List
@@ -16,7 +16,7 @@ from sgraph_ai_service_playwright__cli.docker.primitives.Safe_Str__Docker__Stack
 from sgraph_ai_service_playwright__cli.docker.service.Docker__AWS__Client           import DOCKER_NAMING, TAG_PURPOSE_KEY, TAG_PURPOSE_VALUE
 
 
-HOST_CONTROL_PORT = 9000                                                            # Host control plane always exposed on this port
+HOST_CONTROL_PORT = 19009                                                            # Host control plane always exposed on this port
 
 
 class Docker__SG__Helper(Type_Safe):

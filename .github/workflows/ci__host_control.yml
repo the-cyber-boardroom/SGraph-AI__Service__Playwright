@@ -13,7 +13,7 @@
 #
 # Image name: sgraph_ai_service_playwright_host
 # ECR URI: {account}.dkr.ecr.{region}.amazonaws.com/sgraph_ai_service_playwright_host:latest
-# Runtime port: 9000 (host) → 8000 (container)
+# Runtime port: 19009 (host) → 8000 (container)
 # ═══════════════════════════════════════════════════════════════════════════════
 
 name: CI Pipeline - Host Control Plane
