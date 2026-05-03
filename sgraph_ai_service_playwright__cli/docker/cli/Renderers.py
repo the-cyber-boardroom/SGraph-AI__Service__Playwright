@@ -64,8 +64,10 @@ def render_info(info: Schema__Docker__Info, c: Console) -> None:
     t.add_row('public-ip'     , str(info.public_ip)        or '—')
     t.add_row('allowed-ip'    , str(info.allowed_ip)       or '—')
     t.add_row('sg-id'         , str(info.security_group_id) or '—')
+    docs_url = f'http://{str(info.public_ip)}:9000/docs' if str(info.public_ip) else ''
     t.add_row('docker-version', str(info.docker_version)   or '—')
     t.add_row('uptime'        , f'{info.uptime_seconds}s'  if info.uptime_seconds else '—')
+    t.add_row('host-control'  , docs_url or '—')
     c.print(t)
     c.print()
 
@@ -106,5 +108,9 @@ def render_health(h: Schema__Docker__Health__Response, c: Console) -> None:
     t.add_row('docker-version', str(h.docker_version) or '—')
     t.add_row('waited'        , _secs(h.elapsed_ms))
     t.add_row('message'       , str(h.message) or '—')
+    if str(h.public_ip):
+        docs_url = f'http://{str(h.public_ip)}:9000/docs'
+        t.add_row('host-control'  , docs_url)
+        t.add_row('host-ctrl-ok'  , 'yes' if h.host_control_ok else 'no')
     c.print(t)
     c.print()

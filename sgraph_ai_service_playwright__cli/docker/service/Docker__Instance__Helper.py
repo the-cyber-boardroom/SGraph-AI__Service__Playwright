@@ -75,6 +75,22 @@ class Docker__Instance__Helper(Type_Safe):
         except Exception:
             return ''
 
+    def get_host_control_status(self, region: str, instance_id: str) -> str:          # Returns container status or 'not_started' on failure
+        try:
+            resp       = self.ssm_client(region).send_command(
+                InstanceIds    = [instance_id]                                                                ,
+                DocumentName   = 'AWS-RunShellScript'                                                        ,
+                Parameters     = {'commands': ["docker inspect sp-host-control --format '{{.State.Status}}' 2>/dev/null || echo 'not_started'"]},
+                TimeoutSeconds = 30                                                                           )
+            command_id = resp.get('Command', {}).get('CommandId', '')
+            time.sleep(3)                                                           # Brief wait for command to complete
+            inv = self.ssm_client(region).get_command_invocation(
+                CommandId  = command_id  ,
+                InstanceId = instance_id )
+            return inv.get('StandardOutputContent', '').strip()
+        except Exception:
+            return 'not_started'
+
     def run_command(self, region: str, instance_id: str, command: str) -> dict:
         return self.ssm_client(region).send_command(
             InstanceIds    = [instance_id]           ,

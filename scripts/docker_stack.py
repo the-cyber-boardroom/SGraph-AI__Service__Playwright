@@ -115,7 +115,8 @@ def create(name          : Optional[str]       = typer.Argument(None, help='Stac
            api_key_value : Optional[str]       = typer.Option(None,              '--api-key-value',      help='Host control plane API key; auto-generated if omitted.'),
            max_hours     : int                 = typer.Option(1,                 '--max-hours',          help='Auto-terminate after N hours; 0 = no timer.'),
            extra_ports   : Optional[List[int]] = typer.Option(None,              '--port',               help='Extra TCP ports to open (repeatable).'),
-           wait          : bool                = typer.Option(False,             '--wait',               help='Block until Docker is installed and running (timeout 600s).')):
+           wait          : bool                = typer.Option(False,             '--wait',               help='Block until Docker is installed and running (timeout 600s).'),
+           open_browser  : bool                = typer.Option(False,             '--open',               help='Open host control plane docs in browser after ready.')):
     """Provision an AL2023 EC2 stack with Docker CE installed."""
     c       = Console(highlight=False, width=200)
     svc     = _service()
@@ -132,12 +133,17 @@ def create(name          : Optional[str]       = typer.Argument(None, help='Stac
     resp = svc.create_stack(request)
     render_create(resp, c)
     if wait:
+        import webbrowser
         stack_name = str(resp.stack_info.stack_name)
         c.print(f'  [dim]Waiting for {stack_name!r} to become Docker-ready (timeout=600s)…[/]')
         h = svc.health(region, stack_name, timeout_sec=600, poll_sec=15)
         render_health(h, c)
         if not h.healthy:
             raise typer.Exit(1)
+        if open_browser and str(h.public_ip):
+            url = f'http://{str(h.public_ip)}:9000/docs'
+            c.print(f'  [dim]Opening {url}[/]')
+            webbrowser.open(url)
 
 
 @app.command(name='list')
@@ -180,11 +186,13 @@ def delete(name  : Optional[str] = typer.Argument(None, help='Stack name; auto-s
 
 @app.command()
 @_err_handler
-def wait(name       : Optional[str] = typer.Argument(None, help='Stack name; auto-selected when only one exists.'),
-         region     : str           = typer.Option(DEFAULT_REGION, '--region', '-r'),
-         timeout_sec: int           = typer.Option(600            , '--timeout', help='Max seconds to wait for Docker readiness.'),
-         poll_sec   : int           = typer.Option(15             , '--poll'   , help='Seconds between polls.')):
+def wait(name         : Optional[str] = typer.Argument(None, help='Stack name; auto-selected when only one exists.'),
+         region       : str           = typer.Option(DEFAULT_REGION, '--region', '-r'),
+         timeout_sec  : int           = typer.Option(600            , '--timeout', help='Max seconds to wait for Docker readiness.'),
+         poll_sec     : int           = typer.Option(15             , '--poll'   , help='Seconds between polls.'),
+         open_browser : bool          = typer.Option(False          , '--open'   , help='Open host control plane docs in browser after ready.')):
     """Wait until Docker is installed and running on the stack."""
+    import webbrowser
     c    = Console(highlight=False, width=200)
     svc  = _service()
     name = resolve_stack_name(svc, name, region)
@@ -193,6 +201,10 @@ def wait(name       : Optional[str] = typer.Argument(None, help='Stack name; aut
     render_health(h, c)
     if not h.healthy:
         raise typer.Exit(1)
+    if open_browser and str(h.public_ip):
+        url = f'http://{str(h.public_ip)}:9000/docs'
+        c.print(f'  [dim]Opening {url}[/]')
+        webbrowser.open(url)
 
 
 @app.command()
