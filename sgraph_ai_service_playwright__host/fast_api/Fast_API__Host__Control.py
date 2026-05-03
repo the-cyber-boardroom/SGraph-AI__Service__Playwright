@@ -7,7 +7,7 @@
 
 from osbot_fast_api_serverless.fast_api.Serverless__Fast_API                                   import Serverless__Fast_API
 
-from sgraph_ai_service_playwright__cli.fast_api.exception_handlers                             import register_type_safe_handlers
+from sgraph_ai_service_playwright__host.fast_api.exception_handlers                            import register_type_safe_handlers
 from sgraph_ai_service_playwright__host.fast_api.routes.Routes__Host__Containers               import Routes__Host__Containers
 from sgraph_ai_service_playwright__host.fast_api.routes.Routes__Host__Shell                    import Routes__Host__Shell
 from sgraph_ai_service_playwright__host.fast_api.routes.Routes__Host__Status                   import Routes__Host__Status
