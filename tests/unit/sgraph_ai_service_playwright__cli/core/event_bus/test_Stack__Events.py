@@ -13,7 +13,7 @@ from sgraph_ai_service_playwright__cli.core.event_bus.Event__Bus                
 # ── shared fake collaborators ─────────────────────────────────────────────────
 
 class _Fake_SG:
-    def ensure_security_group(self, region, stack_name, caller_ip, extra_ports=None, public=False):
+    def ensure_security_group(self, region, stack_name, caller_ip, extra_ports=None, public=False, open_to_all=False):
         return 'sg-fake'
 
 class _Fake_Tags:
