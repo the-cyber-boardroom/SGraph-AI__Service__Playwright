@@ -81,7 +81,7 @@ def render_create(resp: Schema__Docker__Create__Response, c: Console) -> None:
     c.print(f'  region       : {info.region}')
     c.print(f'  ami          : {info.ami_id}')
     c.print(f'  instance     : {info.instance_type}')
-    c.print(f'  allowed-ip   : {info.allowed_ip}')
+    c.print(f'  allowed-ip   : {"0.0.0.0/0  [bold yellow](open)[/]" if resp.open_to_all else info.allowed_ip}')
     c.print(f'  submitted in : {_secs(resp.elapsed_ms)}')                           # Time for EC2 API call to accept the launch request
     c.print()
     c.print(f'  [bold]host control plane (port 9000)[/]')

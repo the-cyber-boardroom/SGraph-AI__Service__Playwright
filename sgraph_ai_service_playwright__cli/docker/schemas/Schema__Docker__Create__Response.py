@@ -14,4 +14,5 @@ class Schema__Docker__Create__Response(Type_Safe):
     message       : Safe_Str__Text
     api_key_name  : Safe_Str__Text
     api_key_value : Safe_Str__Text
-    elapsed_ms    : int = 0
+    open_to_all   : bool = False
+    elapsed_ms    : int  = 0

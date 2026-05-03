@@ -66,7 +66,8 @@ class Docker__Service(Type_Safe):
         itype      = str(request.instance_type) or DEFAULT_INSTANCE_TYPE
 
         sg_id     = self.aws_client.sg.ensure_security_group(region, stack_name, caller_ip,
-                                                              extra_ports=request.extra_ports)
+                                                              extra_ports = request.extra_ports,
+                                                              open_to_all = request.open_to_all)
         tags      = self.aws_client.tags.build(stack_name, caller_ip, creator)
         registry      = ecr_registry_host()
         api_key_name  = str(request.api_key_name)  or 'X-API-Key'
@@ -98,6 +99,7 @@ class Docker__Service(Type_Safe):
                                                  message       = f'Instance {iid} launching' ,
                                                  api_key_name  = api_key_name                ,
                                                  api_key_value = api_key_value               ,
+                                                 open_to_all   = request.open_to_all         ,
                                                  elapsed_ms    = int((time.monotonic()-t0)*1000))
 
     def list_stacks(self, region: str) -> Schema__Docker__List:

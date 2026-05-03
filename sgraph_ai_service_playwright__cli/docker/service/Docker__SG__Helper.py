@@ -27,10 +27,11 @@ class Docker__SG__Helper(Type_Safe):
     def ensure_security_group(self, region       : str                          ,
                                      stack_name   : Safe_Str__Docker__Stack__Name,
                                      caller_ip    : Safe_Str__IP__Address        ,
-                                     extra_ports  : List[int] = None             ) -> str:
+                                     extra_ports  : List[int] = None             ,
+                                     open_to_all  : bool      = False            ) -> str:
         ec2     = self.ec2_client(region)
         sg_name = DOCKER_NAMING.sg_name_for_stack(stack_name)
-        cidr    = f'{str(caller_ip)}/32'
+        cidr    = '0.0.0.0/0' if open_to_all else f'{str(caller_ip)}/32'
 
         existing = ec2.describe_security_groups(
             Filters=[{'Name': 'group-name', 'Values': [sg_name]}]).get('SecurityGroups', [])
