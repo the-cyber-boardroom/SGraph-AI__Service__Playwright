@@ -1,18 +1,20 @@
 import { SgComponent } from 'https://dev.tools.sgraph.ai/components/base/v1/v1.0/v1.0.0/sg-component.js'
 
+const _EC2_CSS = new URL('../../../../../../../shared/ec2-tokens.css', import.meta.url).href
+
 class SpCliStopButton extends SgComponent {
 
     static jsUrl = import.meta.url
     get resourceName()   { return 'sp-cli-stop-button' }
-    get sharedCssPaths() { return ['https://dev.tools.sgraph.ai/components/tokens/v1/v1.0/v1.0.0/sg-tokens.css'] }
+    get sharedCssPaths() { return ['https://dev.tools.sgraph.ai/components/tokens/v1/v1.0/v1.0.0/sg-tokens.css', _EC2_CSS] }
 
     onReady() {
-        this._stack    = null
-        this._stopRow  = this.$('.stop-row')
-        this._cnfRow   = this.$('.confirm-row')
-        this._cnfLabel = this.$('.confirm-label')
-        this._stopBtn  = this.$('.btn-stop')
-        this._cnfBtn   = this.$('.btn-confirm')
+        this._stack     = null
+        this._idleWrap  = this.$('.stop-idle')
+        this._cnfWrap   = this.$('.confirm-wrap')
+        this._cnfName   = this.$('.confirm-name')
+        this._stopBtn   = this.$('.btn-stop')
+        this._cnfBtn    = this.$('.btn-confirm')
         this._cancelBtn = this.$('.btn-cancel')
 
         this._stopBtn  ?.addEventListener('click', () => this._askConfirm())
@@ -30,14 +32,14 @@ class SpCliStopButton extends SgComponent {
     }
 
     _askConfirm() {
-        if (this._stopRow) this._stopRow.hidden = true
-        if (this._cnfRow)  this._cnfRow.hidden  = false
-        if (this._cnfLabel) this._cnfLabel.textContent = `Stop ${this._stack?.stack_name}?`
+        if (this._idleWrap) this._idleWrap.hidden = true
+        if (this._cnfWrap)  this._cnfWrap.hidden  = false
+        if (this._cnfName)  this._cnfName.textContent = this._stack?.stack_name || 'this node'
     }
 
     _resetConfirm() {
-        if (this._stopRow) this._stopRow.hidden = false
-        if (this._cnfRow)  this._cnfRow.hidden  = true
+        if (this._idleWrap) this._idleWrap.hidden = false
+        if (this._cnfWrap)  this._cnfWrap.hidden  = true
     }
 
     _doStop() {

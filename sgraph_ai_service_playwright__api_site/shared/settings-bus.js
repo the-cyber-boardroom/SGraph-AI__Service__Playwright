@@ -25,7 +25,7 @@ const DEFAULTS = {
     },
     defaults: {
         region:        'eu-west-2',
-        max_hours:     4,
+        max_hours:     1,
         instance_type: 't3.medium',
     },
 }

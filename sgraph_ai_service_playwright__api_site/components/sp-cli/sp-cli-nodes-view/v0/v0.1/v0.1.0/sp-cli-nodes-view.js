@@ -42,6 +42,9 @@ class SpCliNodesView extends SgComponent {
         this._ctError       = this.$('.ct-error')
         this._ctStatus      = this.$('.ct-status')
         this._ctHostStats   = this.$('.ct-host-stats')
+        this._nodesView     = this.$('.nodes-view')
+        this._nodesList     = this.$('.nodes-list')
+        this._resizeHandle  = this.$('.resize-handle')
 
         this._tabs   = Array.from(this.shadowRoot.querySelectorAll('.sgl-tab'))
         this._panels = Array.from(this.shadowRoot.querySelectorAll('.tab-panel'))
@@ -51,7 +54,9 @@ class SpCliNodesView extends SgComponent {
         )
         this.$('.btn-close-detail')?.addEventListener('click', () => this._closeDetail())
         this.$('.btn-refresh-ct')?.addEventListener('click', () => this._fetchContainers())
+        this.$('.btn-collapse')?.addEventListener('click', () => this._toggleCollapse())
         this._tabs.forEach(t => t.addEventListener('click', () => this._activateTab(t.dataset.tab)))
+        this._initResize()
 
         if (this._pendingStacks) {
             this.setStacks(this._pendingStacks)
@@ -92,6 +97,33 @@ class SpCliNodesView extends SgComponent {
         }
     }
 
+    _toggleCollapse() {
+        this._nodesView?.classList.toggle('list-collapsed')
+    }
+
+    _initResize() {
+        if (!this._resizeHandle) return
+        let startX = 0, startW = 0
+        const onMove = (e) => {
+            const dx = (e.clientX || e.touches?.[0]?.clientX || 0) - startX
+            const w  = Math.max(140, Math.min(600, startW + dx))
+            this._nodesView?.style.setProperty('--list-w', `${w}px`)
+        }
+        const onUp = () => {
+            this._resizeHandle?.classList.remove('dragging')
+            document.removeEventListener('mousemove', onMove)
+            document.removeEventListener('mouseup', onUp)
+        }
+        this._resizeHandle.addEventListener('mousedown', (e) => {
+            e.preventDefault()
+            startX = e.clientX
+            startW = this._nodesList?.offsetWidth ?? 280
+            this._resizeHandle.classList.add('dragging')
+            document.addEventListener('mousemove', onMove)
+            document.addEventListener('mouseup', onUp)
+        })
+    }
+
     _openDetail(stack) {
         this._currentStack = stack
         this._detail.hidden = false
@@ -112,6 +144,11 @@ class SpCliNodesView extends SgComponent {
             <dt>Node ID</dt>   <dd class="mono">${_esc(stack.stack_name)}</dd>
             <dt>Uptime</dt>    <dd>${_fmtUptime(stack.uptime_seconds)}</dd>
         `
+
+        if (!this._nodesView?.classList.contains('detail-open')) {
+            const w = this._nodesList?.offsetWidth ?? 280
+            this._nodesView?.style.setProperty('--list-w', `${w}px`)
+        }
 
         this._stopBtn?.setStack?.(stack)
         this._shell?.open?.(stack)
