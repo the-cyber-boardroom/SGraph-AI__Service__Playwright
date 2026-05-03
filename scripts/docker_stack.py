@@ -18,7 +18,8 @@ from sgraph_ai_service_playwright__cli.docker.cli.Renderers                     
                                                                                               render_info  ,
                                                                                               render_list  )
 from sgraph_ai_service_playwright__cli.docker.collections.List__Port                import List__Port
-from sgraph_ai_service_playwright__cli.docker.schemas.Schema__Docker__Create__Request import Schema__Docker__Create__Request
+from sgraph_ai_service_playwright__cli.docker.schemas.Schema__Docker__Create__Request import (Schema__Docker__Create__Request,
+                                                                                              DEFAULT_API_KEY_NAME            )
 from sgraph_ai_service_playwright__cli.docker.service.Docker__Service               import DEFAULT_REGION, Docker__Service
 
 
@@ -106,24 +107,28 @@ def resolve_stack_name(service: Docker__Service, provided: Optional[str], region
 @app.command()
 @_err_handler
 def create(name          : Optional[str]       = typer.Argument(None, help='Stack name; auto-generated if omitted.'),
-           region        : str                 = typer.Option(DEFAULT_REGION, '--region', '-r', help='AWS region.'),
-           instance_type : str                 = typer.Option('t3.medium'   , '--instance-type', '-t', help='EC2 instance type.'),
-           from_ami      : Optional[str]       = typer.Option(None          , '--ami'           , help='AMI ID; latest AL2023 used if omitted.'),
-           caller_ip     : Optional[str]       = typer.Option(None          , '--caller-ip'     , help='Source IP; auto-detected if omitted.'),
-           max_hours     : int                 = typer.Option(1             , '--max-hours'     , help='Auto-terminate after N hours; 0 = no timer.'),
-           extra_ports   : Optional[List[int]] = typer.Option(None          , '--port'          , help='Extra TCP ports to open (repeatable).'),
-           wait          : bool                = typer.Option(False         , '--wait'          , help='Block until Docker is installed and running (timeout 600s).')):
+           region        : str                 = typer.Option(DEFAULT_REGION,    '--region',       '-r', help='AWS region.'),
+           instance_type : str                 = typer.Option('t3.medium',       '--instance-type', '-t', help='EC2 instance type.'),
+           from_ami      : Optional[str]       = typer.Option(None,              '--ami',                help='AMI ID; latest AL2023 used if omitted.'),
+           caller_ip     : Optional[str]       = typer.Option(None,              '--caller-ip',          help='Source IP; auto-detected if omitted.'),
+           api_key_name  : str                 = typer.Option(DEFAULT_API_KEY_NAME, '--api-key-name',    help='Header name for host control plane auth.'),
+           api_key_value : Optional[str]       = typer.Option(None,              '--api-key-value',      help='Host control plane API key; auto-generated if omitted.'),
+           max_hours     : int                 = typer.Option(1,                 '--max-hours',          help='Auto-terminate after N hours; 0 = no timer.'),
+           extra_ports   : Optional[List[int]] = typer.Option(None,              '--port',               help='Extra TCP ports to open (repeatable).'),
+           wait          : bool                = typer.Option(False,             '--wait',               help='Block until Docker is installed and running (timeout 600s).')):
     """Provision an AL2023 EC2 stack with Docker CE installed."""
     c       = Console(highlight=False, width=200)
     svc     = _service()
     request = Schema__Docker__Create__Request(
-        stack_name    = name          or ''      ,
-        region        = region                   ,
-        instance_type = instance_type            ,
-        from_ami      = from_ami      or ''      ,
-        caller_ip     = caller_ip     or ''      ,
-        max_hours     = max_hours                ,
-        extra_ports   = _ports(extra_ports)      )
+        stack_name    = name          or ''           ,
+        region        = region                        ,
+        instance_type = instance_type                 ,
+        from_ami      = from_ami      or ''           ,
+        caller_ip     = caller_ip     or ''           ,
+        api_key_name  = api_key_name                  ,
+        api_key_value = api_key_value or ''           ,
+        max_hours     = max_hours                     ,
+        extra_ports   = _ports(extra_ports)           )
     resp = svc.create_stack(request)
     render_create(resp, c)
     if wait:

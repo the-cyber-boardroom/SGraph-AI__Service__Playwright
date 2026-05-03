@@ -5,9 +5,10 @@
 
 from unittest                                                                       import TestCase
 
-from sgraph_ai_service_playwright__cli.docker.service.Docker__User_Data__Builder    import (Docker__User_Data__Builder,
-                                                                                               PLACEHOLDERS            ,
-                                                                                               USER_DATA_TEMPLATE       )
+from sgraph_ai_service_playwright__cli.docker.service.Docker__User_Data__Builder    import (Docker__User_Data__Builder ,
+                                                                                               HOST_CONTROL_IMAGE        ,
+                                                                                               PLACEHOLDERS              ,
+                                                                                               USER_DATA_TEMPLATE        )
 
 
 class test_Docker__User_Data__Builder(TestCase):
@@ -36,8 +37,24 @@ class test_Docker__User_Data__Builder(TestCase):
         assert 'fast-fermi' in result
         assert 'eu-west-2'  in result
 
+    def test_render__embeds_host_control_image(self):
+        result = self.builder.render('fast-fermi', 'eu-west-2', registry='123.dkr.ecr.eu-west-2.amazonaws.com')
+        assert HOST_CONTROL_IMAGE in result
+        assert '9000:8000' in result
+
+    def test_render__embeds_registry(self):
+        result = self.builder.render('fast-fermi', 'eu-west-2', registry='123.dkr.ecr.eu-west-2.amazonaws.com')
+        assert '123.dkr.ecr.eu-west-2.amazonaws.com' in result
+
+    def test_render__embeds_api_key(self):
+        result = self.builder.render('fast-fermi', 'eu-west-2', api_key_name='X-API-Key', api_key_value='abc123')
+        assert 'abc123'    in result
+        assert 'X-API-Key' in result
+
     def test_placeholders_locked(self):
-        assert PLACEHOLDERS == ('stack_name', 'region', 'log_file', 'shutdown_line')
+        assert PLACEHOLDERS == ('stack_name', 'region', 'registry', 'host_control_image',
+                                'api_key_name', 'api_key_value',
+                                'log_file', 'shutdown_line')
 
     def test_template_has_all_placeholders(self):
         for p in PLACEHOLDERS:

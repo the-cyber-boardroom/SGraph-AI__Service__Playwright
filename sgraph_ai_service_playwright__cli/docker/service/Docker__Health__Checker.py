@@ -21,7 +21,7 @@ class Docker__Health__Checker(Type_Safe):
         deadline = time.monotonic() + timeout_sec
         t0       = time.monotonic()
 
-        while time.monotonic() < deadline:
+        while True:
             details = self.instance.find_by_stack_name(region, stack_name)
             if details is None:
                 return Schema__Docker__Health__Response(stack_name = stack_name          ,
@@ -50,6 +50,8 @@ class Docker__Health__Checker(Type_Safe):
                         message        = 'docker ready' if docker_ok else 'docker not ready yet',
                         elapsed_ms     = int((time.monotonic()-t0)*1000)                   )
 
+            if time.monotonic() >= deadline:
+                break
             time.sleep(poll_sec)
 
         return Schema__Docker__Health__Response(

@@ -14,11 +14,16 @@ from sgraph_ai_service_playwright__cli.docker.primitives.Safe_Str__IP__Address  
 from sgraph_ai_service_playwright__cli.docker.primitives.Safe_Str__Docker__Stack__Name import Safe_Str__Docker__Stack__Name
 
 
+DEFAULT_API_KEY_NAME = 'X-API-Key'
+
+
 class Schema__Docker__Create__Request(Type_Safe):
     stack_name    : Safe_Str__Docker__Stack__Name
     region        : Safe_Str__AWS__Region
     instance_type : Safe_Str__Text           = 't3.medium'
     from_ami      : Safe_Str__AMI__Id
     caller_ip     : Safe_Str__IP__Address
+    api_key_name  : Safe_Str__Text           = DEFAULT_API_KEY_NAME                # Header name for host control plane auth
+    api_key_value : Safe_Str__Text                                                  # Generated randomly if empty
     max_hours     : int                      = 1                                    # Auto-terminate after N hours; 0 = no timer
     extra_ports   : List[int]                                                       # TCP ports to open from caller /32
