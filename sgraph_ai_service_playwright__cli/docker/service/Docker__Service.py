@@ -101,6 +101,7 @@ class Docker__Service(Type_Safe):
                                                  api_key_name  = api_key_name                ,
                                                  api_key_value = api_key_value               ,
                                                  open_to_all   = request.open_to_all         ,
+                                                 use_spot      = request.use_spot            ,
                                                  elapsed_ms    = int((time.monotonic()-t0)*1000))
 
     def list_stacks(self, region: str) -> Schema__Docker__List:

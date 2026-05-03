@@ -65,5 +65,6 @@ class Docker__Stack__Mapper(Type_Safe):
             allowed_ip        = _tag(details, TAG_ALLOWED_IP_KEY)                                    ,
             public_ip         = details.get('PublicIpAddress', '') or ''                             ,
             state             = _state_to_enum(_state_str(details))                                  ,
+            spot              = details.get('InstanceLifecycle', '') == 'spot'                        ,
             launch_time       = str(details.get('LaunchTime', ''))                                   ,
             uptime_seconds    = _uptime_seconds(details)                                             )
