@@ -76,7 +76,8 @@ class Neko__Service(Type_Safe):
                                                     member_password= member_password)
         iid       = self.aws_client.launch.run_instance(region, ami_id, sg_id, user_data, tags,
                                                         instance_type         = itype       ,
-                                                        instance_profile_name = PROFILE_NAME)
+                                                        instance_profile_name = PROFILE_NAME,
+                                                        use_spot              = request.use_spot)
         event_bus.emit('neko:stack.created', Schema__Stack__Event(
             type_id     = Enum__Stack__Type.NEKO,
             stack_name  = stack_name            ,

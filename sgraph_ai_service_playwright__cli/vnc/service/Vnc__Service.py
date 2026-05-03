@@ -106,7 +106,8 @@ class Vnc__Service(Type_Safe):
                                                        interceptor_kind   = interceptor_kind_str)
         instance_id  = self.aws_client.launch.run_instance(region, ami_id, sg_id, user_data, tags,
                                                               instance_type         = inst_type   ,
-                                                              instance_profile_name = PROFILE_NAME)        # Without this, SSM agent has no creds to register — `sp vnc connect` fails with TargetNotConnected.
+                                                              instance_profile_name = PROFILE_NAME        ,
+                                                              use_spot              = request.use_spot)    # Without this, SSM agent has no creds to register — `sp vnc connect` fails with TargetNotConnected.
         event_bus.emit('vnc:stack.created', Schema__Stack__Event(
             type_id     = Enum__Stack__Type.VNC,
             stack_name  = stack_name           ,

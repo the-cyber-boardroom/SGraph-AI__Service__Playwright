@@ -26,5 +26,6 @@ class Schema__Docker__Create__Request(Type_Safe):
     api_key_name  : Safe_Str__Text           = DEFAULT_API_KEY_NAME                # Header name for host control plane auth
     api_key_value : Safe_Str__Text                                                  # Generated randomly if empty
     open_to_all   : bool                     = False                               # Open SG to 0.0.0.0/0 instead of caller /32
+    use_spot      : bool                     = True                                 # Spot instance by default; pass use_spot=False for on-demand
     max_hours     : int                      = 1                                    # Auto-terminate after N hours; 0 = no timer
     extra_ports   : List[int]                                                       # TCP ports to open from caller /32

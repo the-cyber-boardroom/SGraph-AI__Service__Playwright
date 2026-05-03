@@ -29,4 +29,5 @@ class Schema__Vnc__Stack__Create__Request(Type_Safe):
     max_hours         : int                        = 1                              # Auto-terminate after N hours; 0 disables
     operator_password : Safe_Str__Vnc__Password    = ''                             # Empty → service generates one (used for nginx Basic auth + MITM_PROXYAUTH)
     public_ingress    : bool                       = False                          # When True, SG ingress on 443 opens to 0.0.0.0/0 instead of caller_ip/32. Reasonable for the debug viewer since it's behind nginx Basic auth + bcrypt.
+    use_spot          : bool                       = True                           # Spot instance by default; pass use_spot=False for on-demand
     interceptor       : Schema__Vnc__Interceptor__Choice                            # Defaults to kind=NONE per N5

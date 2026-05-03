@@ -31,7 +31,7 @@ class _Fake_Tags:
 class _Fake_Launch:
     def run_instance(self, region, ami_id, sg_id, user_data, tags,
                      instance_type='', instance_profile_name='',
-                     max_hours=0): return FAKE_INSTANCE_ID
+                     max_hours=0, use_spot=True): return FAKE_INSTANCE_ID
 
 class _Fake_Instance:
     def __init__(self, terminate_ok=True):
