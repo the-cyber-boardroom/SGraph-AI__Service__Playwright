@@ -13,6 +13,7 @@
  */
 
 import { SgComponent } from 'https://dev.tools.sgraph.ai/components/base/v1/v1.0/v1.0.0/sg-component.js'
+import { stateClass } from '../../../../../../shared/node-state.js'
 
 function _fmtUptime(seconds) {
     if (!seconds || seconds < 0) return '—'
@@ -24,10 +25,7 @@ function _fmtUptime(seconds) {
 }
 
 function _stateClass(state) {
-    const s = (state || '').toLowerCase()
-    if (s === 'running')                       return 'state-running'
-    if (s === 'stopped' || s === 'terminated') return 'state-stopped'
-    return 'state-pending'
+    return stateClass(state)
 }
 
 class SpCliUserPane extends SgComponent {

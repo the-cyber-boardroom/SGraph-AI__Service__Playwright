@@ -1,19 +1,23 @@
 import { SgComponent } from 'https://dev.tools.sgraph.ai/components/base/v1/v1.0/v1.0.0/sg-component.js'
 
 const STATE_MAP = {
-    running:                { cls: 'state-running',  dot: '●', label: 'Ready'   },
-    booting:                { cls: 'state-booting',  dot: '◐', label: 'Booting' },
-    pending:                { cls: 'state-booting',  dot: '◐', label: 'Pending' },
-    starting:               { cls: 'state-booting',  dot: '◐', label: 'Starting'},
-    initializing:           { cls: 'state-booting',  dot: '◐', label: 'Init'    },
+    // Canonical values (Enum__Node__State)
+    ready:                  { cls: 'state-ready',    dot: '●', label: 'Ready'       },
+    booting:                { cls: 'state-booting',  dot: '◐', label: 'Booting'     },
+    terminating:            { cls: 'state-booting',  dot: '◐', label: 'Terminating' },
+    terminated:             { cls: 'state-stopped',  dot: '○', label: 'Terminated'  },
+    failed:                 { cls: 'state-failed',   dot: '●', label: 'Failed'      },
+    // Legacy / transition values
+    running:                { cls: 'state-ready',    dot: '●', label: 'Ready'       },
+    pending:                { cls: 'state-booting',  dot: '◐', label: 'Pending'     },
+    starting:               { cls: 'state-booting',  dot: '◐', label: 'Starting'    },
+    initializing:           { cls: 'state-booting',  dot: '◐', label: 'Init'        },
     provisioning:           { cls: 'state-booting',  dot: '◐', label: 'Provisioning'},
-    creating:               { cls: 'state-booting',  dot: '◐', label: 'Creating'},
-    failed:                 { cls: 'state-failed',   dot: '●', label: 'Failed'  },
-    error:                  { cls: 'state-failed',   dot: '●', label: 'Error'   },
-    terminated_with_errors: { cls: 'state-failed',   dot: '●', label: 'Failed'  },
-    stopped:                { cls: 'state-stopped',  dot: '○', label: 'Stopped' },
-    terminated:             { cls: 'state-stopped',  dot: '○', label: 'Stopped' },
-    stopping:               { cls: 'state-stopped',  dot: '○', label: 'Stopping'},
+    creating:               { cls: 'state-booting',  dot: '◐', label: 'Creating'    },
+    error:                  { cls: 'state-failed',   dot: '●', label: 'Error'       },
+    terminated_with_errors: { cls: 'state-failed',   dot: '●', label: 'Failed'      },
+    stopped:                { cls: 'state-stopped',  dot: '○', label: 'Stopped'     },
+    stopping:               { cls: 'state-stopped',  dot: '○', label: 'Stopping'    },
 }
 
 class SpCliStatusChip extends SgComponent {
