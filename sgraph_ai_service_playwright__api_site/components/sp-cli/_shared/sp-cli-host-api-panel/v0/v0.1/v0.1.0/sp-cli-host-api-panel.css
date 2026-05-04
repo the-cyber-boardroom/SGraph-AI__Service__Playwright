@@ -31,14 +31,11 @@
     text-align: center;
 }
 
-.swagger-mount {
-    flex:       1;
-    overflow-y: auto;
-    background: #fff;
+.api-frame {
+    flex:         1;
+    width:        100%;
+    border:       none;
+    background:   #fff;
     color-scheme: light;
+    min-height:   0;
 }
-
-/* ── Swagger UI overrides inside shadow DOM ───── */
-.swagger-mount .swagger-ui .topbar      { display: none !important; }
-.swagger-mount .swagger-ui .info        { margin: 16px 0 8px; }
-.swagger-mount .swagger-ui .scheme-container { padding: 8px 20px; }
