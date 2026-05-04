@@ -2,12 +2,13 @@ import { SgComponent } from 'https://dev.tools.sgraph.ai/components/base/v1/v1.0
 
 const DIAG_LAYOUT = {
     type: 'column',
-    sizes: [0.30, 0.23, 0.24, 0.23],
+    sizes: [0.25, 0.19, 0.19, 0.19, 0.18],
     children: [
-        { type: 'stack', tabs: [{ tag: 'sp-cli-events-log',      title: 'Events Log',      locked: true }] },
-        { type: 'stack', tabs: [{ tag: 'sp-cli-vault-status',    title: 'Vault Status',    locked: true }] },
-        { type: 'stack', tabs: [{ tag: 'sp-cli-active-sessions', title: 'Active Sessions', locked: true }] },
-        { type: 'stack', tabs: [{ tag: 'sp-cli-cost-tracker',    title: 'Cost Tracker',    locked: true }] },
+        { type: 'stack', tabs: [{ tag: 'sp-cli-events-log',       title: 'Events Log',      locked: true }] },
+        { type: 'stack', tabs: [{ tag: 'sp-cli-vault-status',     title: 'Vault Status',    locked: true }] },
+        { type: 'stack', tabs: [{ tag: 'sp-cli-active-sessions',  title: 'Active Sessions', locked: true }] },
+        { type: 'stack', tabs: [{ tag: 'sp-cli-cost-tracker',     title: 'Cost Tracker',    locked: true }] },
+        { type: 'stack', tabs: [{ tag: 'sp-cli-storage-viewer',   title: 'Storage',         locked: true }] },
     ],
 }
 
