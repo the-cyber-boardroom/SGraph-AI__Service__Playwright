@@ -30,7 +30,7 @@
       </div>
       <div class="sgl-panel-tabs">
         <button class="sgl-tab active" data-tab="overview">Overview</button>
-        <button class="sgl-tab" data-tab="containers">Containers</button>
+        <button class="sgl-tab" data-tab="containers">Pods</button>
         <button class="sgl-tab" data-tab="terminal">Terminal</button>
         <button class="sgl-tab" data-tab="hostapi">Host API</button>
       </div>
@@ -51,19 +51,27 @@
         </div>
       </div>
 
-      <!-- Containers -->
+      <!-- Pods -->
       <div class="tab-panel" data-panel="containers">
         <div class="ct-head">
           <div class="ct-host-stats"></div>
           <div class="ct-actions">
             <span class="ct-status"></span>
-            <button class="btn-refresh-ct sgl-iconbtn" title="Refresh containers">↺</button>
+            <button class="btn-refresh-ct sgl-iconbtn" title="Refresh pods">↺</button>
           </div>
         </div>
         <div class="ct-body">
           <div class="ct-list"></div>
-          <div class="ct-empty">No containers running</div>
+          <div class="ct-empty">No pods running</div>
           <div class="ct-error" hidden></div>
+        </div>
+        <!-- per-pod log drawer -->
+        <div class="pod-log-drawer" hidden>
+          <div class="pod-log-head">
+            <span class="pod-log-name"></span>
+            <button class="btn-close-log sgl-iconbtn" title="Close logs">✕</button>
+          </div>
+          <pre class="pod-log-content"></pre>
         </div>
       </div>
 

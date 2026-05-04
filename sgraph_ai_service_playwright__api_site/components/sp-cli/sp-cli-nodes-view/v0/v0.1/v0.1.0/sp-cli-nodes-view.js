@@ -42,6 +42,11 @@ class SpCliNodesView extends SgComponent {
         this._ctError       = this.$('.ct-error')
         this._ctStatus      = this.$('.ct-status')
         this._ctHostStats   = this.$('.ct-host-stats')
+        this._podLogDrawer  = this.$('.pod-log-drawer')
+        this._podLogName    = this.$('.pod-log-name')
+        this._podLogContent = this.$('.pod-log-content')
+
+        this.$('.btn-close-log')?.addEventListener('click', () => this._closeLogDrawer())
         this._nodesView     = this.$('.nodes-view')
         this._nodesList     = this.$('.nodes-list')
         this._resizeHandle  = this.$('.resize-handle')
@@ -230,13 +235,14 @@ class SpCliNodesView extends SgComponent {
             if (this._ctStatus) this._ctStatus.textContent = 'No host URL'
             return
         }
+        this._closeLogDrawer()
         if (this._ctStatus) this._ctStatus.textContent = 'Loading…'
         if (this._ctError)  this._ctError.hidden = true
         try {
             const headers = key ? { 'X-API-Key': key } : {}
             const [ctResp, stResp] = await Promise.all([
-                fetch(`${base}/containers/list`,  { headers }),
-                fetch(`${base}/host/status`,      { headers }),
+                fetch(`${base}/pods/list`,   { headers }),
+                fetch(`${base}/host/status`, { headers }),
             ])
             if (!ctResp.ok) throw new Error(`HTTP ${ctResp.status}`)
             const ct = await ctResp.json()
@@ -250,9 +256,9 @@ class SpCliNodesView extends SgComponent {
     }
 
     _renderContainers(ct, st) {
-        const containers = ct.containers || []
-        const count = ct.count ?? containers.length
-        if (this._ctStatus) this._ctStatus.textContent = `${count} container${count !== 1 ? 's' : ''}`
+        const pods  = ct.pods || []
+        const count = ct.count ?? pods.length
+        if (this._ctStatus) this._ctStatus.textContent = `${count} pod${count !== 1 ? 's' : ''}`
 
         if (this._ctHostStats && st) {
             this._ctHostStats.innerHTML = `
@@ -263,7 +269,7 @@ class SpCliNodesView extends SgComponent {
             `
         }
 
-        if (!containers.length) {
+        if (!pods.length) {
             if (this._ctList)  this._ctList.innerHTML = ''
             if (this._ctEmpty) this._ctEmpty.hidden = false
             return
@@ -271,18 +277,71 @@ class SpCliNodesView extends SgComponent {
         if (this._ctEmpty) this._ctEmpty.hidden = true
         if (this._ctList)  this._ctList.innerHTML = ''
 
-        for (const c of containers) {
+        // fetch stats for all pods in parallel (non-blocking)
+        const s    = this._currentStack
+        const base = s?.host_api_url || (s?.public_ip ? `http://${s.public_ip}:19009` : '')
+        const key  = s?.host_api_key || ''
+        const hdrs = key ? { 'X-API-Key': key } : {}
+
+        for (const c of pods) {
             const stateClass = c.status === 'running' ? 'good' : c.status === 'exited' ? 'bad' : 'warn'
             const row = document.createElement('div')
             row.className = 'ct-row'
+            row.dataset.pod = c.name
             row.innerHTML = `
                 <span class="ct-name">${_esc(c.name)}</span>
                 <span class="ec2-pill dot ${stateClass} ct-pill">${_esc(c.status)}</span>
                 <span class="ct-image">${_esc(c.image)}</span>
-                <span class="ct-state">${_esc(c.state)}</span>
+                <span class="ct-stats ct-state"></span>
+                <button class="ct-log-btn" title="View logs">📋</button>
             `
+            const statsEl = row.querySelector('.ct-stats')
+            row.querySelector('.ct-log-btn')?.addEventListener('click', (e) => {
+                e.stopPropagation()
+                this._fetchPodLogs(c.name)
+            })
             this._ctList?.appendChild(row)
+
+            if (base) {
+                fetch(`${base}/pods/${encodeURIComponent(c.name)}/stats`, { headers: hdrs })
+                    .then(r => r.ok ? r.json() : null)
+                    .then(st => {
+                        if (st && statsEl) {
+                            statsEl.textContent = `CPU ${st.cpu_percent.toFixed(1)}%  MEM ${st.mem_usage_mb.toFixed(0)}MB`
+                        }
+                    })
+                    .catch(() => {})
+            }
         }
+    }
+
+    async _fetchPodLogs(name) {
+        const s    = this._currentStack
+        const base = s?.host_api_url || (s?.public_ip ? `http://${s.public_ip}:19009` : '')
+        const key  = s?.host_api_key || ''
+        if (!base || !this._podLogDrawer) return
+
+        if (this._podLogName)    this._podLogName.textContent = name
+        if (this._podLogContent) this._podLogContent.textContent = 'Loading…'
+        this._podLogDrawer.hidden = false
+
+        try {
+            const resp = await fetch(`${base}/pods/${encodeURIComponent(name)}/logs?tail=200`, {
+                headers: key ? { 'X-API-Key': key } : {},
+            })
+            const data = await resp.json()
+            if (this._podLogContent) {
+                this._podLogContent.textContent = resp.ok
+                    ? (data.content || '(no output)')
+                    : `Error ${resp.status}: ${data.detail || ''}`
+            }
+        } catch (err) {
+            if (this._podLogContent) this._podLogContent.textContent = `Unreachable: ${err.message}`
+        }
+    }
+
+    _closeLogDrawer() {
+        if (this._podLogDrawer) this._podLogDrawer.hidden = true
     }
 }
 

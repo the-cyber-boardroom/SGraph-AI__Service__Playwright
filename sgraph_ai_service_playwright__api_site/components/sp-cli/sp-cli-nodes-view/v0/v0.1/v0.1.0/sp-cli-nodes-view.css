@@ -227,10 +227,13 @@ sp-cli-host-api-panel { display: block; height: 100%; }
 }
 
 .ct-body {
-    flex:       1;
-    overflow-y: auto;
-    min-height: 0;
+    flex:           1;
+    display:        flex;
+    flex-direction: column;
+    min-height:     0;
+    overflow:       hidden;
 }
+.ct-list  { overflow-y: auto; flex: 1; }
 
 .ct-row {
     display:       flex;
@@ -242,10 +245,55 @@ sp-cli-host-api-panel { display: block; height: 100%; }
 }
 .ct-row:last-child { border-bottom: none; }
 
-.ct-name  { font-weight: 500; color: var(--text-1); min-width: 130px; flex-shrink: 0; }
-.ct-image { flex: 1; color: var(--text-3); font-family: var(--font-mono); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.ct-state { font-size: 11px; color: var(--text-3); white-space: nowrap; flex-shrink: 0; }
-.ct-pill  { flex-shrink: 0; }
+.ct-name   { font-weight: 500; color: var(--text-1); min-width: 130px; flex-shrink: 0; }
+.ct-image  { flex: 1; color: var(--text-3); font-family: var(--font-mono); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ct-stats  { font-size: 10px; color: var(--text-3); white-space: nowrap; flex-shrink: 0; font-family: var(--font-mono); }
+.ct-pill   { flex-shrink: 0; }
+
+.ct-log-btn {
+    background:    none;
+    border:        none;
+    cursor:        pointer;
+    padding:       1px 4px;
+    border-radius: var(--r-1);
+    font-size:     13px;
+    color:         var(--text-3);
+    flex-shrink:   0;
+    transition:    color 100ms, background 100ms;
+}
+.ct-log-btn:hover { color: var(--text-1); background: var(--bg-hover); }
+
+/* ── Pod log drawer ───────────────────────────── */
+.pod-log-drawer {
+    border-top:     1px solid var(--border-1);
+    display:        flex;
+    flex-direction: column;
+    max-height:     40%;
+    background:     var(--bg-app);
+}
+.pod-log-head {
+    display:       flex;
+    align-items:   center;
+    padding:       0 10px;
+    height:        28px;
+    background:    var(--bg-elev);
+    border-bottom: 1px solid var(--border-1);
+    flex-shrink:   0;
+    gap:           8px;
+}
+.pod-log-name { flex: 1; font-size: 11px; font-weight: 600; color: var(--text-2); font-family: var(--font-mono); }
+.pod-log-content {
+    flex:         1;
+    overflow-y:   auto;
+    margin:       0;
+    padding:      8px 12px;
+    font-family:  var(--font-mono);
+    font-size:    10px;
+    color:        var(--text-2);
+    white-space:  pre-wrap;
+    word-break:   break-all;
+    line-height:  1.5;
+}
 
 .ct-empty {
     padding:    24px;
