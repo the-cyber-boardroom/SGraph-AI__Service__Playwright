@@ -1,13 +1,19 @@
 # ═══════════════════════════════════════════════════════════════════════════════
-# Host Control Plane — Schema__Pod__Logs__Response
-# Returned by GET /pods/{name}/logs.
+# Host Control Plane — Schema__Pod__Stats
+# Returned by GET /pods/{name}/stats. Single point-in-time resource snapshot.
 # ═══════════════════════════════════════════════════════════════════════════════
 
 from osbot_utils.type_safe.Type_Safe import Type_Safe
 
 
-class Schema__Pod__Logs__Response(Type_Safe):
-    container : str
-    lines     : int  = 0      # actual number of lines returned
-    content   : str           # stdout + stderr joined; drop into <pre> directly
-    truncated : bool = False   # True when output was capped at the requested tail limit
+class Schema__Pod__Stats(Type_Safe):
+    container      : str
+    cpu_percent    : float = 0.0
+    mem_usage_mb   : float = 0.0
+    mem_limit_mb   : float = 0.0
+    mem_percent    : float = 0.0
+    net_rx_mb      : float = 0.0
+    net_tx_mb      : float = 0.0
+    block_read_mb  : float = 0.0
+    block_write_mb : float = 0.0
+    pids           : int   = 0

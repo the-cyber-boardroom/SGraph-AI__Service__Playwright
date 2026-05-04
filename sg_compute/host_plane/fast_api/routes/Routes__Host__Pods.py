@@ -3,12 +3,13 @@
 # CRUD surface for pods on this EC2 host. Zero logic — pure delegation
 # to the Pod__Runtime returned by get_pod_runtime().
 #
-# GET    /pods/list            → Schema__Pod__List
-# POST   /pods                 → Schema__Pod__Start__Response
-# GET    /pods/{name}          → Schema__Pod__Info   (404 on miss)
-# GET    /pods/{name}/logs     → Schema__Pod__Logs__Response
-# POST   /pods/{name}/stop     → Schema__Pod__Stop__Response
-# DELETE /pods/{name}          → Schema__Pod__Stop__Response
+# GET    /pods/list              → Schema__Pod__List
+# POST   /pods                   → Schema__Pod__Start__Response
+# GET    /pods/{name}            → Schema__Pod__Info   (404 on miss)
+# GET    /pods/{name}/logs       → Schema__Pod__Logs__Response  (404 on miss)
+# GET    /pods/{name}/stats      → Schema__Pod__Stats           (404 on miss)
+# POST   /pods/{name}/stop       → Schema__Pod__Stop__Response
+# DELETE /pods/{name}            → Schema__Pod__Stop__Response
 # ═══════════════════════════════════════════════════════════════════════════════
 
 from fastapi                                                                    import HTTPException
@@ -39,9 +40,20 @@ class Routes__Host__Pods(Fast_API__Routes):
         return result.json()
     get_pod.__route_path__ = '/{name}'
 
-    def get_logs(self, name: str, tail: int = 100) -> dict:                # GET /pods/{name}/logs
-        return get_pod_runtime().logs(name, tail).json()
+    def get_logs(self, name: str, tail: int = 100,                         # GET /pods/{name}/logs
+                 timestamps: bool = False) -> dict:
+        result = get_pod_runtime().logs(name, tail=tail, timestamps=timestamps)
+        if result is None:
+            raise HTTPException(status_code=404, detail=f'pod {name!r} not found')
+        return result.json()
     get_logs.__route_path__ = '/{name}/logs'
+
+    def get_stats(self, name: str) -> dict:                                # GET /pods/{name}/stats
+        result = get_pod_runtime().stats(name)
+        if result is None:
+            raise HTTPException(status_code=404, detail=f'pod {name!r} not found')
+        return result.json()
+    get_stats.__route_path__ = '/{name}/stats'
 
     def stop_pod(self, name: str) -> dict:                                 # POST /pods/{name}/stop
         return get_pod_runtime().stop(name).json()
@@ -56,5 +68,6 @@ class Routes__Host__Pods(Fast_API__Routes):
         self.add_route_post  (self.start_pod  )
         self.add_route_get   (self.get_pod    )
         self.add_route_get   (self.get_logs   )
+        self.add_route_get   (self.get_stats  )
         self.add_route_post  (self.stop_pod   )
         self.add_route_delete(self.remove_pod )

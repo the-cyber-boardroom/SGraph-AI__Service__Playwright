@@ -59,6 +59,23 @@ def test_host_runtime__200(client):
     assert 'runtime' in body
     assert 'version' in body
 
+# ── Boot log ──────────────────────────────────────────────────────────────────
+
+def test_host_boot_log__200(client):
+    r = client.get('/host/logs/boot', headers=HEADERS)
+    assert r.status_code == 200
+    body = r.json()
+    assert 'source'    in body
+    assert 'lines'     in body
+    assert 'content'   in body
+    assert 'truncated' in body
+
+def test_host_boot_log__lines_param(client):
+    r = client.get('/host/logs/boot?lines=50', headers=HEADERS)
+    assert r.status_code == 200
+    body = r.json()
+    assert body['lines'] <= 50
+
 # ── Pods ──────────────────────────────────────────────────────────────────────
 
 def test_list_pods__empty_ok(client):
@@ -70,6 +87,14 @@ def test_list_pods__empty_ok(client):
 
 def test_get_pod__not_found__404(client):
     r = client.get('/pods/nonexistent-pod', headers=HEADERS)
+    assert r.status_code == 404
+
+def test_get_pod_logs__not_found__404(client):
+    r = client.get('/pods/nonexistent-pod/logs', headers=HEADERS)
+    assert r.status_code == 404
+
+def test_get_pod_stats__not_found__404(client):
+    r = client.get('/pods/nonexistent-pod/stats', headers=HEADERS)
     assert r.status_code == 404
 
 # ── Shell ─────────────────────────────────────────────────────────────────────
