@@ -15,21 +15,6 @@ const QUICK_COMMANDS = [
     { label: 'Memory info',              cmd: 'cat /proc/meminfo'           },
 ]
 
-const XTERM_JS  = 'https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.js'
-const XTERM_CSS = 'https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.css'
-const FIT_JS    = 'https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.js'
-
-function _loadScript(src) {
-    return new Promise((resolve, reject) => {
-        if (document.querySelector(`script[src="${src}"]`)) { resolve(); return }
-        const s = document.createElement('script')
-        s.src = src
-        s.onload  = resolve
-        s.onerror = reject
-        document.head.appendChild(s)
-    })
-}
-
 class SpCliHostShell extends SgComponent {
 
     static jsUrl = import.meta.url
@@ -37,24 +22,18 @@ class SpCliHostShell extends SgComponent {
     get sharedCssPaths() { return ['https://dev.tools.sgraph.ai/components/tokens/v1/v1.0/v1.0.0/sg-tokens.css', _EC2_CSS] }
 
     onReady() {
-        this._unavailable   = this.$('.shell-unavailable')
-        this._panel         = this.$('.shell-panel')
-        this._select        = this.$('.cmd-select')
-        this._output        = this.$('.shell-output')
-        this._status        = this.$('.shell-status')
-        this._xtermMount    = this.$('.xterm-mount')
-        this._xtermStatus   = this.$('.xterm-status')
-        this._quickBody     = this.$('.quick-body')
-        this._quickToggle   = this.$('.btn-quick-toggle')
+        this._unavailable  = this.$('.shell-unavailable')
+        this._panel        = this.$('.shell-panel')
+        this._iframe       = this.$('.shell-iframe')
+        this._select       = this.$('.cmd-select')
+        this._output       = this.$('.shell-output')
+        this._status       = this.$('.shell-status')
+        this._quickBody    = this.$('.quick-body')
+        this._quickToggle  = this.$('.btn-quick-toggle')
 
-        this._terminal      = null
-        this._fitAddon      = null
-        this._ws            = null
-        this._wsErrored     = false
-
+        this.$('.btn-auth')        ?.addEventListener('click', () => this._openAuth())
         this.$('.btn-run')         ?.addEventListener('click', () => this._run())
         this.$('.btn-clear')       ?.addEventListener('click', () => { if (this._output) this._output.innerHTML = '' })
-        this.$('.btn-reconnect')   ?.addEventListener('click', () => this._connectTerminal())
         this._quickToggle          ?.addEventListener('click', () => this._toggleQuick())
 
         for (const { label, cmd } of QUICK_COMMANDS) {
@@ -79,100 +58,18 @@ class SpCliHostShell extends SgComponent {
             }
             this._unavailable.classList.add('hidden')
             this._panel.classList.remove('hidden')
-            this._connectTerminal()
+            // Point iframe at the sidecar-served shell page (same-origin → cookie auth works for WS)
+            if (this._iframe) this._iframe.src = `${this._hostUrl}/host/shell/page`
         } else {
             this._unavailable.classList.remove('hidden')
             this._panel.classList.add('hidden')
-            this._disconnectWs()
+            if (this._iframe) this._iframe.src = 'about:blank'
         }
     }
 
-    disconnectedCallback() {
-        super.disconnectedCallback?.()
-        this._disconnectWs()
-        this._terminal?.dispose()
-        this._terminal = null
-    }
-
-    _disconnectWs() {
-        if (this._ws) {
-            this._ws.onopen = this._ws.onmessage = this._ws.onerror = this._ws.onclose = null
-            try { this._ws.close() } catch (_) {}
-            this._ws = null
-        }
-    }
-
-    async _connectTerminal() {
-        if (!this._xtermMount || !this._hostUrl) return
-
-        try {
-            await Promise.all([_loadScript(XTERM_JS), _loadScript(FIT_JS)])
-        } catch (err) {
-            if (this._xtermStatus) this._xtermStatus.textContent = 'Failed to load xterm'
-            return
-        }
-
-        if (!window.FitAddon) {
-            if (this._xtermStatus) this._xtermStatus.textContent = 'xterm not available'
-            return
-        }
-
-        if (!this.shadowRoot.querySelector('link[data-xterm-css]')) {
-            const link = document.createElement('link')
-            link.rel = 'stylesheet'
-            link.href = XTERM_CSS
-            link.dataset.xtermCss = '1'
-            this.shadowRoot.insertBefore(link, this.shadowRoot.firstChild)
-        }
-
-        if (this._terminal) {
-            this._disconnectWs()
-            this._terminal.dispose()
-            this._terminal = null
-        }
-
-        const term = new window.Terminal({ cursorBlink: true, fontSize: 12, theme: { background: '#0d0d1a' } })
-        const fit  = new window.FitAddon.FitAddon()
-        term.loadAddon(fit)
-        term.open(this._xtermMount)
-        fit.fit()
-        this._terminal = term
-        this._fitAddon = fit
-
-        if (this._xtermStatus) this._xtermStatus.textContent = 'Connecting…'
-        this._wsErrored = false
-
-        const hostForWs = this._hostUrl.replace(/^https?:\/\//, '')
-        const wsUrl = `ws://${hostForWs}/host/shell/stream?api_key=${encodeURIComponent(this._hostApiKey)}`
-        const ws = new WebSocket(wsUrl)
-        ws.binaryType = 'arraybuffer'
-        this._ws = ws
-
-        ws.onopen = () => {
-            if (this._xtermStatus) this._xtermStatus.textContent = 'Connected'
-            term.write('\r\n\x1b[32m● Connected\x1b[0m\r\n')
-        }
-
-        ws.onmessage = (e) => {
-            term.write(new Uint8Array(e.data))
-        }
-
-        ws.onerror = () => {
-            this._wsErrored = true
-        }
-
-        ws.onclose = (e) => {
-            if (this._xtermStatus) this._xtermStatus.textContent = 'Disconnected'
-            term.write('\r\n\x1b[33mSession ended\x1b[0m')
-            if (e.code === 1006) {
-                term.write('\r\n\x1b[33m⚠ WS auth not yet supported — use Quick Commands below\x1b[0m')
-                this._expandQuick()
-            }
-        }
-
-        term.onData(data => {
-            if (ws.readyState === WebSocket.OPEN) ws.send(data)
-        })
+    _openAuth() {
+        if (!this._hostUrl) return
+        window.open(`${this._hostUrl}/auth/set-cookie-form`, '_blank', 'width=520,height=560,noopener')
     }
 
     _toggleQuick() {
@@ -181,13 +78,9 @@ class SpCliHostShell extends SgComponent {
             this._quickBody?.classList.add('hidden')
             if (this._quickToggle) this._quickToggle.textContent = '▶ Quick Commands'
         } else {
-            this._expandQuick()
+            this._quickBody?.classList.remove('hidden')
+            if (this._quickToggle) this._quickToggle.textContent = '▼ Quick Commands'
         }
-    }
-
-    _expandQuick() {
-        this._quickBody?.classList.remove('hidden')
-        if (this._quickToggle) this._quickToggle.textContent = '▼ Quick Commands'
     }
 
     async _run() {

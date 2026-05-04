@@ -9,8 +9,11 @@
 # setup_middleware__cors() is suppressed (no-op) to avoid a duplicate middleware
 # and to swap in allow_methods=["*"], allow_headers=["*"], allow_credentials=False.
 #
-# /docs-auth exclusion: setup_middleware__api_key_check() is overridden to use a
-# local subclass that excludes /docs-auth from auth (serves static HTML only).
+# Auth-excluded paths (bypass api-key middleware):
+#   /docs-auth            — Swagger UI with pre-injected key (static HTML)
+#   /host/shell/page      — xterm.js terminal page (uses cookie for WS auth)
+#   /auth/set-cookie-form — HTML form to set the auth cookie
+#   /auth/set-auth-cookie — POST endpoint that writes the cookie
 # ═══════════════════════════════════════════════════════════════════════════════
 
 from osbot_fast_api_serverless.fast_api.Serverless__Fast_API                   import Serverless__Fast_API
@@ -18,6 +21,7 @@ from osbot_fast_api.api.schemas.consts.consts__Fast_API                        i
                                                                                         ENV_VAR__FAST_API__AUTH__API_KEY__VALUE)
 
 from sg_compute.host_plane.fast_api.exception_handlers                         import register_type_safe_handlers
+from sg_compute.host_plane.fast_api.routes.Routes__Host__Auth                  import Routes__Host__Auth
 from sg_compute.host_plane.fast_api.routes.Routes__Host__Containers            import Routes__Host__Containers
 from sg_compute.host_plane.fast_api.routes.Routes__Host__Docs                  import Routes__Host__Docs
 from sg_compute.host_plane.fast_api.routes.Routes__Host__EC2                   import Routes__Host__EC2
@@ -25,6 +29,8 @@ from sg_compute.host_plane.fast_api.routes.Routes__Host__Logs                  i
 from sg_compute.host_plane.fast_api.routes.Routes__Host__Pods                  import Routes__Host__Pods
 from sg_compute.host_plane.fast_api.routes.Routes__Host__Shell                 import Routes__Host__Shell
 from sg_compute.host_plane.fast_api.routes.Routes__Host__Status                import Routes__Host__Status
+
+_AUTH_FREE_PATHS = {'/docs-auth', '/host/shell/page', '/auth/set-cookie-form', '/auth/set-auth-cookie'}
 
 
 class Fast_API__Host__Control(Serverless__Fast_API):
@@ -42,9 +48,9 @@ class Fast_API__Host__Control(Serverless__Fast_API):
                                         env_var__api_key_value = ENV_VAR__FAST_API__AUTH__API_KEY__VALUE):
         from osbot_fast_api.api.middlewares.Middleware__Check_API_Key import Middleware__Check_API_Key
 
-        class _Middleware(Middleware__Check_API_Key):                          # Excludes /docs-auth from auth (serves static HTML only)
+        class _Middleware(Middleware__Check_API_Key):                          # Excludes cookie-form + shell-page + docs-auth from auth
             async def dispatch(self, request, call_next):
-                if request.url.path == '/docs-auth':
+                if request.url.path in _AUTH_FREE_PATHS:
                     return await call_next(request)
                 return await super().dispatch(request, call_next)
 
@@ -64,6 +70,7 @@ class Fast_API__Host__Control(Serverless__Fast_API):
                                   allow_credentials = False  )
 
     def setup_routes(self):
+        self.add_routes(Routes__Host__Auth      )
         self.add_routes(Routes__Host__Containers)
         self.add_routes(Routes__Host__Docs      )
         self.add_routes(Routes__Host__EC2       )
