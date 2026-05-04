@@ -30,6 +30,7 @@
       </div>
       <div class="sgl-panel-tabs">
         <button class="sgl-tab active" data-tab="overview">Overview</button>
+        <button class="sgl-tab" data-tab="bootlog">Boot Log</button>
         <button class="sgl-tab" data-tab="containers">Pods</button>
         <button class="sgl-tab" data-tab="terminal">Terminal</button>
         <button class="sgl-tab" data-tab="hostapi">Host API</button>
@@ -73,6 +74,16 @@
           </div>
           <pre class="pod-log-content"></pre>
         </div>
+      </div>
+
+      <!-- Boot Log -->
+      <div class="tab-panel" data-panel="bootlog">
+        <div class="bl-head">
+          <span class="bl-source"></span>
+          <span class="bl-status"></span>
+          <button class="btn-refresh-boot sgl-iconbtn" title="Refresh">↺</button>
+        </div>
+        <pre class="bl-content"></pre>
       </div>
 
       <!-- Terminal -->

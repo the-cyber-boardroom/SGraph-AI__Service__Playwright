@@ -45,8 +45,12 @@ class SpCliNodesView extends SgComponent {
         this._podLogDrawer  = this.$('.pod-log-drawer')
         this._podLogName    = this.$('.pod-log-name')
         this._podLogContent = this.$('.pod-log-content')
+        this._blContent     = this.$('.bl-content')
+        this._blStatus      = this.$('.bl-status')
+        this._blSource      = this.$('.bl-source')
 
         this.$('.btn-close-log')?.addEventListener('click', () => this._closeLogDrawer())
+        this.$('.btn-refresh-boot')?.addEventListener('click', () => this._fetchBootLog())
         this._nodesView     = this.$('.nodes-view')
         this._nodesList     = this.$('.nodes-list')
         this._resizeHandle  = this.$('.resize-handle')
@@ -224,6 +228,35 @@ class SpCliNodesView extends SgComponent {
         this._tabs.forEach(t   => t.classList.toggle('active', t.dataset.tab === name))
         this._panels.forEach(p => p.classList.toggle('active', p.dataset.panel === name))
         if (name === 'containers') this._fetchContainers()
+        if (name === 'bootlog')    this._fetchBootLog()
+    }
+
+    async _fetchBootLog() {
+        const s    = this._currentStack
+        const base = s?.host_api_url || (s?.public_ip ? `http://${s.public_ip}:19009` : '')
+        const key  = s?.host_api_key || ''
+        if (!base || !this._blContent) return
+
+        if (this._blStatus)  this._blStatus.textContent  = 'Loading…'
+        if (this._blSource)  this._blSource.textContent  = ''
+        if (this._blContent) this._blContent.textContent = ''
+
+        try {
+            const resp = await fetch(`${base}/host/logs/boot?lines=300`, {
+                headers: key ? { 'X-API-Key': key } : {},
+            })
+            if (!resp.ok) throw new Error(`HTTP ${resp.status}`)
+            const data = await resp.json()
+            if (this._blSource)  this._blSource.textContent  = data.source || ''
+            if (this._blStatus)  this._blStatus.textContent  = data.truncated ? `${data.lines} lines (truncated)` : `${data.lines} lines`
+            if (this._blContent) {
+                this._blContent.textContent = data.content || '(empty)'
+                this._blContent.scrollTop   = this._blContent.scrollHeight
+            }
+        } catch (err) {
+            if (this._blStatus)  this._blStatus.textContent  = 'Unreachable — node may still be booting'
+            if (this._blContent) this._blContent.textContent = err.message
+        }
     }
 
     async _fetchContainers() {
