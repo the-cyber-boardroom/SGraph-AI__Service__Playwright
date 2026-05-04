@@ -6,6 +6,16 @@ This is a pointer log, not a content log. For full delta detail, see the master 
 
 ---
 
+## 2026-05-04 (BV2.4)
+
+- `sg_compute/control_plane/routes/Routes__Compute__Nodes.py` — REFACTORED: constructor injection, typed schema returns, no business logic
+- `sg_compute/control_plane/Fast_API__Compute.py` — UPDATED: platform field, `Exception__AWS__No_Credentials` handler registered
+- `sg_compute/platforms/exceptions/` — NEW: `Exception__AWS__No_Credentials`
+- `sg_compute/core/node/schemas/Schema__Node__List.py` — UPDATED: `total` and `region` fields added
+- `sg_compute__tests/control_plane/test_Routes__Compute__Nodes.py` — REWRITTEN: zero mocks. Commit: TBD.
+
+---
+
 ## 2026-05-02 (B3.0)
 
 - `sg-compute/index.md` — UPDATED: B3.0 docker spec added; `sg_compute_specs/docker/` fully documented; Spec__Loader now returns 3 specs; 183 tests passing.

@@ -1,15 +1,9 @@
 # ═══════════════════════════════════════════════════════════════════════════════
-# SG/Compute — Schema__Node__List
+# SG/Compute — Exception__AWS__No_Credentials
+# Raised by any Platform method when AWS credentials are absent or invalid.
+# Not EC2-specific — credentials problems apply to any AWS-backed platform.
 # ═══════════════════════════════════════════════════════════════════════════════
 
-from typing                                                                   import List
 
-from osbot_utils.type_safe.Type_Safe                                          import Type_Safe
-
-from sg_compute.core.node.schemas.Schema__Node__Info                         import Schema__Node__Info
-
-
-class Schema__Node__List(Type_Safe):
-    nodes  : List[Schema__Node__Info]
-    total  : int = 0
-    region : str = ''
+class Exception__AWS__No_Credentials(Exception):
+    pass

@@ -1,26 +1,69 @@
 # ═══════════════════════════════════════════════════════════════════════════════
 # sg_compute tests — Routes__Compute__Nodes
-# Tests use in-memory FastAPI stack; EC2 calls do not fire.
+# In-memory composition via fake Platform; zero mocks.
 # ═══════════════════════════════════════════════════════════════════════════════
 
 from unittest                                                                 import TestCase
-from unittest.mock                                                            import patch, MagicMock
 
 from fastapi.testclient                                                       import TestClient
 from osbot_fast_api.api.Fast_API                                              import Fast_API
 
+from sg_compute.control_plane.Fast_API__Compute                              import Fast_API__Compute
 from sg_compute.control_plane.routes.Routes__Compute__Nodes                  import Routes__Compute__Nodes
+from sg_compute.core.node.schemas.Schema__Node__Delete__Response             import Schema__Node__Delete__Response
 from sg_compute.core.node.schemas.Schema__Node__Info                         import Schema__Node__Info
 from sg_compute.core.node.schemas.Schema__Node__List                         import Schema__Node__List
-from sg_compute.core.node.schemas.Schema__Node__Delete__Response             import Schema__Node__Delete__Response
+from sg_compute.platforms.Platform                                            import Platform
+from sg_compute.platforms.exceptions.Exception__AWS__No_Credentials          import Exception__AWS__No_Credentials
 from sg_compute.primitives.enums.Enum__Node__State                           import Enum__Node__State
 
 
-def _make_client(platform_mock):
+# ── fake platform helpers ────────────────────────────────────────────────────
+
+class Fake__Platform__Empty(Platform):
+    def list_nodes(self, region='eu-west-2'):
+        return Schema__Node__List(nodes=[], total=0, region=region)
+
+    def get_node(self, node_id, region='eu-west-2'):
+        return None
+
+    def delete_node(self, node_id, region='eu-west-2'):
+        return Schema__Node__Delete__Response(node_id=node_id, deleted=False, message='node not found')
+
+
+class Fake__Platform__With_Node(Platform):
+    def __init__(self, node, **kwargs):
+        super().__init__(**kwargs)
+        self._node = node
+
+    def list_nodes(self, region='eu-west-2'):
+        return Schema__Node__List(nodes=[self._node], total=1, region=region)
+
+    def get_node(self, node_id, region='eu-west-2'):
+        return self._node if self._node.node_id == node_id else None
+
+    def delete_node(self, node_id, region='eu-west-2'):
+        return Schema__Node__Delete__Response(node_id=node_id, deleted=True, message='terminated')
+
+
+class Fake__Platform__No_Creds(Platform):
+    def list_nodes(self, region='eu-west-2'):
+        raise Exception__AWS__No_Credentials('no creds configured')
+
+
+def _client(platform):
     fast_api = Fast_API()
-    fast_api.add_routes(Routes__Compute__Nodes, prefix='/api/nodes')
+    fast_api.add_routes(Routes__Compute__Nodes, prefix='/api/nodes', platform=platform)
     return TestClient(fast_api.app())
 
+
+def _client_with_handler(platform):
+    api = Fast_API__Compute(platform=platform)
+    api.setup()
+    return TestClient(api.app(), raise_server_exceptions=False)
+
+
+# ── tests ────────────────────────────────────────────────────────────────────
 
 class test_Routes__Compute__Nodes(TestCase):
 
@@ -33,81 +76,47 @@ class test_Routes__Compute__Nodes(TestCase):
                                        instance_type = 't3.medium'    )
 
     def test_list_nodes__empty(self):
-        empty_listing = Schema__Node__List(nodes=[])
-        with patch('sg_compute.control_plane.routes.Routes__Compute__Nodes._platform') as mock_plat:
-            mock_plat.return_value.list_nodes.return_value = empty_listing
-            fast_api = Fast_API()
-            fast_api.add_routes(Routes__Compute__Nodes, prefix='/api/nodes')
-            client = TestClient(fast_api.app())
-            r = client.get('/api/nodes')
+        client = _client(Fake__Platform__Empty())
+        r      = client.get('/api/nodes')
         assert r.status_code == 200
         data = r.json()
         assert data['nodes'] == []
         assert data['total'] == 0
 
     def test_list_nodes__returns_nodes(self):
-        listing = Schema__Node__List(nodes=[self.node])
-        with patch('sg_compute.control_plane.routes.Routes__Compute__Nodes._platform') as mock_plat:
-            mock_plat.return_value.list_nodes.return_value = listing
-            fast_api = Fast_API()
-            fast_api.add_routes(Routes__Compute__Nodes, prefix='/api/nodes')
-            client = TestClient(fast_api.app())
-            r = client.get('/api/nodes')
+        client = _client(Fake__Platform__With_Node(self.node))
+        r      = client.get('/api/nodes')
         assert r.status_code == 200
         data = r.json()
-        assert data['total'] == 1
+        assert data['total']     == 1
         assert len(data['nodes']) == 1
 
     def test_get_node__not_found(self):
-        with patch('sg_compute.control_plane.routes.Routes__Compute__Nodes._platform') as mock_plat:
-            mock_plat.return_value.get_node.return_value = None
-            fast_api = Fast_API()
-            fast_api.add_routes(Routes__Compute__Nodes, prefix='/api/nodes')
-            client = TestClient(fast_api.app())
-            r = client.get('/api/nodes/missing-node')
+        client = _client(Fake__Platform__Empty())
+        r      = client.get('/api/nodes/missing-node')
         assert r.status_code == 404
 
     def test_get_node__found(self):
-        with patch('sg_compute.control_plane.routes.Routes__Compute__Nodes._platform') as mock_plat:
-            mock_plat.return_value.get_node.return_value = self.node
-            fast_api = Fast_API()
-            fast_api.add_routes(Routes__Compute__Nodes, prefix='/api/nodes')
-            client = TestClient(fast_api.app())
-            r = client.get('/api/nodes/test-node')
+        client = _client(Fake__Platform__With_Node(self.node))
+        r      = client.get('/api/nodes/test-node')
         assert r.status_code == 200
+        assert r.json()['node_id'] == 'test-node'
 
     def test_delete_node__not_found(self):
-        resp = Schema__Node__Delete__Response(node_id='x', deleted=False, message='node not found')
-        with patch('sg_compute.control_plane.routes.Routes__Compute__Nodes._platform') as mock_plat:
-            mock_plat.return_value.delete_node.return_value = resp
-            fast_api = Fast_API()
-            fast_api.add_routes(Routes__Compute__Nodes, prefix='/api/nodes')
-            client = TestClient(fast_api.app())
-            r = client.delete('/api/nodes/x')
+        client = _client(Fake__Platform__Empty())
+        r      = client.delete('/api/nodes/x')
         assert r.status_code == 404
 
     def test_delete_node__success(self):
-        resp = Schema__Node__Delete__Response(node_id='test-node', deleted=True, message='terminated')
-        with patch('sg_compute.control_plane.routes.Routes__Compute__Nodes._platform') as mock_plat:
-            mock_plat.return_value.delete_node.return_value = resp
-            fast_api = Fast_API()
-            fast_api.add_routes(Routes__Compute__Nodes, prefix='/api/nodes')
-            client = TestClient(fast_api.app())
-            r = client.delete('/api/nodes/test-node')
+        client = _client(Fake__Platform__With_Node(self.node))
+        r      = client.delete('/api/nodes/test-node')
         assert r.status_code == 200
         data = r.json()
         assert data['deleted']  is True
         assert data['node_id'] == 'test-node'
 
     def test_list_nodes__credential_error_returns_503(self):
-        class FakeNoCredentials(Exception):
-            pass
-        FakeNoCredentials.__name__ = 'NoCredentialsError'
-
-        with patch('sg_compute.control_plane.routes.Routes__Compute__Nodes._platform') as mock_plat:
-            mock_plat.return_value.list_nodes.side_effect = FakeNoCredentials('no creds')
-            fast_api = Fast_API()
-            fast_api.add_routes(Routes__Compute__Nodes, prefix='/api/nodes')
-            client = TestClient(fast_api.app(), raise_server_exceptions=False)
-            r = client.get('/api/nodes')
+        client = _client_with_handler(Fake__Platform__No_Creds())
+        r      = client.get('/api/nodes')
         assert r.status_code == 503
+        assert 'AWS credentials' in r.json()['detail']
