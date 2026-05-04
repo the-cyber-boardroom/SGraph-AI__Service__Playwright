@@ -158,3 +158,34 @@ def test_docs_auth__not_in_openapi_schema(client):
     assert r.status_code == 200
     paths = r.json().get('paths', {})
     assert '/docs-auth' not in paths
+
+# ── Containers ────────────────────────────────────────────────────────────────
+
+def test_list_containers__200(client):
+    r = client.get('/containers/list', headers=HEADERS)
+    assert r.status_code == 200
+    body = r.json()
+    assert 'pods'  in body
+    assert 'count' in body
+
+def test_container_logs__not_found__404(client):
+    r = client.get('/containers/nonexistent-container/logs', headers=HEADERS)
+    assert r.status_code == 404
+    assert r.json()['detail'] == 'container not found'
+
+def test_container_logs__lines_param(client):
+    r = client.get('/containers/nonexistent-container/logs?lines=50', headers=HEADERS)
+    assert r.status_code == 404                                              # 404 before docker is queried in CI
+
+def test_container_stats__not_found__404(client):
+    r = client.get('/containers/nonexistent-container/stats', headers=HEADERS)
+    assert r.status_code == 404
+    assert r.json()['detail'] == 'container not found'
+
+def test_container_logs__requires_auth(client):
+    r = client.get('/containers/nonexistent-container/logs')
+    assert r.status_code == 401
+
+def test_container_stats__requires_auth(client):
+    r = client.get('/containers/nonexistent-container/stats')
+    assert r.status_code == 401

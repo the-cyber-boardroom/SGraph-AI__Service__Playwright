@@ -47,6 +47,17 @@ def render_spec_entry(entry: Schema__Spec__Manifest__Entry, c: Console) -> None:
         c.print(f'  create    : [dim]{entry.create_endpoint_path}[/]')
 
 
+def render_node_info(node, c: Console) -> None:
+    c.print(f'[bold]{node.node_id}[/]  [dim]({node.spec_id})[/]')
+    c.print(f'  state        : {node.state.value}')
+    c.print(f'  instance-id  : [cyan]{node.instance_id}[/]')
+    c.print(f'  instance-type: {node.instance_type}')
+    c.print(f'  public-ip    : [green]{node.public_ip or "—"}[/]')
+    c.print(f'  private-ip   : {node.private_ip or "—"}')
+    c.print(f'  region       : {node.region}')
+    c.print(f'  uptime       : {node.uptime_seconds}s')
+
+
 def render_node_list(listing: Schema__Node__List, c: Console) -> None:
     if not listing.nodes:
         c.print('  [dim]No nodes found.[/]')
