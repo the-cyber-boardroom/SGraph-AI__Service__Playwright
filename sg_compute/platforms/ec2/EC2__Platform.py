@@ -1,8 +1,8 @@
 # ═══════════════════════════════════════════════════════════════════════════════
 # SG/Compute — EC2__Platform
 # Implements the Platform interface using the EC2 helpers.
-# Wraps the existing helpers; spec services that want low-level control still
-# call the helpers directly.
+# list_nodes / get_node / delete_node use the spec-service tag convention
+# (sg:stack-name, sg:purpose) so they find nodes from any spec.
 # ═══════════════════════════════════════════════════════════════════════════════
 
 from osbot_utils.type_safe.Type_Safe                                          import Type_Safe
@@ -22,8 +22,15 @@ class EC2__Platform(Platform):
     def setup(self) -> 'EC2__Platform':
         return self
 
+    @staticmethod
+    def _tag(raw: dict, key: str) -> str:
+        for t in raw.get('Tags', []):
+            if t.get('Key') == key:
+                return t.get('Value', '')
+        return ''
+
     def _raw_to_node_info(self, raw: dict, region: str, spec_id: str = '') -> Schema__Node__Info:
-        from sg_compute.platforms.ec2.helpers.EC2__Stack__Mapper import tag_value, state_str, uptime_seconds
+        from sg_compute.platforms.ec2.helpers.EC2__Stack__Mapper import state_str, uptime_seconds
         state_map = {
             'running'      : Enum__Node__State.READY      ,
             'pending'      : Enum__Node__State.BOOTING    ,
@@ -32,49 +39,47 @@ class EC2__Platform(Platform):
             'stopping'     : Enum__Node__State.TERMINATING,
             'stopped'      : Enum__Node__State.TERMINATED ,
         }
-        raw_state = state_str(raw)
+        node_id = self._tag(raw, 'sg:stack-name') or self._tag(raw, 'StackName')
+        spec_id = spec_id or self._tag(raw, 'sg:purpose') or self._tag(raw, 'StackType')
         return Schema__Node__Info(
-            node_id       = tag_value(raw, 'StackName')                      ,
-            spec_id       = spec_id or tag_value(raw, 'StackType')           ,
-            region        = region                                            ,
-            state         = state_map.get(raw_state, Enum__Node__State.FAILED),
-            public_ip     = raw.get('PublicIpAddress',  '')                  ,
-            private_ip    = raw.get('PrivateIpAddress', '')                  ,
-            instance_id   = raw.get('InstanceId',       '')                  ,
-            instance_type = raw.get('InstanceType',     '')                  ,
-            ami_id        = raw.get('ImageId',          '')                  ,
-            uptime_seconds= uptime_seconds(raw)                              ,
+            node_id       = node_id                                                      ,
+            spec_id       = spec_id                                                      ,
+            region        = region                                                       ,
+            state         = state_map.get(state_str(raw), Enum__Node__State.FAILED)     ,
+            public_ip     = raw.get('PublicIpAddress',  '')                              ,
+            private_ip    = raw.get('PrivateIpAddress', '')                              ,
+            instance_id   = raw.get('InstanceId',       '')                              ,
+            instance_type = raw.get('InstanceType',     '')                              ,
+            ami_id        = raw.get('ImageId',          '')                              ,
+            uptime_seconds= uptime_seconds(raw)                                          ,
         )
 
-    def list_nodes(self, region: str = '') -> Schema__Node__List:
+    def list_nodes(self, region: str = 'eu-west-2') -> Schema__Node__List:
         from sg_compute.platforms.ec2.helpers.EC2__Instance__Helper import EC2__Instance__Helper
-        from sg_compute.platforms.ec2.helpers.EC2__Tags__Builder    import TAG_PURPOSE_VALUE
-        helper = EC2__Instance__Helper()
-        raw_nodes = helper.list_by_stack_type(region, TAG_PURPOSE_VALUE)
-        nodes = [self._raw_to_node_info(raw, region) for raw in raw_nodes.values()]
+        region    = region or 'eu-west-2'
+        raw_nodes = EC2__Instance__Helper().list_all_managed(region)
+        nodes     = [self._raw_to_node_info(raw, region) for raw in raw_nodes.values()]
         return Schema__Node__List(nodes=nodes)
 
-    def get_node(self, node_id: str, region: str = '') -> 'Schema__Node__Info | None':
+    def get_node(self, node_id: str, region: str = 'eu-west-2') -> 'Schema__Node__Info | None':
         from sg_compute.platforms.ec2.helpers.EC2__Instance__Helper import EC2__Instance__Helper
-        helper = EC2__Instance__Helper()
-        raw = helper.find_by_stack_name(region, node_id)
-        if raw is None:
-            return None
-        return self._raw_to_node_info(raw, region)
+        region = region or 'eu-west-2'
+        raw    = EC2__Instance__Helper().find_by_sg_stack_name(region, node_id)
+        return self._raw_to_node_info(raw, region) if raw else None
 
-    def delete_node(self, node_id: str, region: str = '') -> Schema__Node__Delete__Response:
+    def delete_node(self, node_id: str, region: str = 'eu-west-2') -> Schema__Node__Delete__Response:
         from sg_compute.platforms.ec2.helpers.EC2__Instance__Helper import EC2__Instance__Helper
-        helper = EC2__Instance__Helper()
-        raw = helper.find_by_stack_name(region, node_id)
+        region  = region or 'eu-west-2'
+        helper  = EC2__Instance__Helper()
+        raw     = helper.find_by_sg_stack_name(region, node_id)
         if raw is None:
             return Schema__Node__Delete__Response(node_id=node_id, deleted=False, message='node not found')
-        instance_id = raw.get('InstanceId', '')
-        deleted = helper.terminate(region, instance_id)
-        return Schema__Node__Delete__Response(node_id=node_id, deleted=deleted, message='terminated' if deleted else 'terminate failed')
+        deleted = helper.terminate(region, raw.get('InstanceId', ''))
+        return Schema__Node__Delete__Response(node_id  = node_id                                  ,
+                                              deleted  = deleted                                   ,
+                                              message  = 'terminated' if deleted else 'failed'    )
 
     def create_node(self,
                     request : Schema__Node__Create__Request__Base,
                     spec    : Schema__Spec__Manifest__Entry) -> Schema__Node__Info:
-        # Spec-specific services call their own AWS clients for now.
-        # This generic path is a placeholder — spec services own orchestration.
-        raise NotImplementedError('create_node: call the spec-specific service for now')
+        raise NotImplementedError('create_node: call the spec-specific service directly')
