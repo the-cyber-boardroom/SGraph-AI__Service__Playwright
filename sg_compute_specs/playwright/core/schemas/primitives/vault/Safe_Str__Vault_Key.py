@@ -1,0 +1,21 @@
+# ═══════════════════════════════════════════════════════════════════════════════
+# Playwright Service — Safe_Str__Vault_Key primitive
+#
+# Vault keys come in two formats:
+#   Friendly:  "drum-hunt-6610"                         (lowercase + digits + hyphens)
+#   Opaque:    "j4pyy0lhny8jx7osqn4lclhq:mzrp0li8"      (lowercase + digits + colons)
+# Both must be accepted.
+# ═══════════════════════════════════════════════════════════════════════════════
+
+import re
+
+from osbot_utils.type_safe.primitives.core.Safe_Str                          import Safe_Str
+from osbot_utils.type_safe.primitives.core.enums.Enum__Safe_Str__Regex_Mode  import Enum__Safe_Str__Regex_Mode
+
+
+class Safe_Str__Vault_Key(Safe_Str):                                                # Vault identifier — friendly or opaque
+    max_length      = 128                                                           # Accommodate opaque keys with colon
+    regex           = re.compile(r'[^a-z0-9\-:]')                                   # Lowercase + digits + hyphens + colons
+    regex_mode      = Enum__Safe_Str__Regex_Mode.REPLACE
+    allow_empty     = True                                                          # Default-constructible for Type_Safe fields
+    trim_whitespace = True
