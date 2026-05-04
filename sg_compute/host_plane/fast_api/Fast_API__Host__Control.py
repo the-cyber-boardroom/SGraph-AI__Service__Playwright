@@ -7,7 +7,7 @@
 # CORS: CORSMiddleware is added as the outermost layer (after super().setup_middlewares)
 # so it intercepts OPTIONS preflights before the API-key middleware sees them.
 # setup_middleware__cors() is suppressed (no-op) to avoid a duplicate middleware
-# and to swap in allow_methods=["*"], allow_headers=["*"], allow_credentials=False.
+# and to swap in allow_origin_regex=r".*", allow_methods=["*"], allow_headers=["*"], allow_credentials=True.
 #
 # Auth-excluded paths (bypass api-key middleware):
 #   /docs-auth            — Swagger UI with pre-injected key (static HTML)
@@ -51,7 +51,13 @@ class Fast_API__Host__Control(Serverless__Fast_API):
             async def dispatch(self, request, call_next):
                 if request.url.path in _AUTH_FREE_PATHS:
                     return await call_next(request)
-                return await super().dispatch(request, call_next)
+                origin   = request.headers.get('origin', '')
+                response = await super().dispatch(request, call_next)
+                if origin:                                                     # Belt-and-suspenders: guarantee CORS headers survive auth short-circuit
+                    response.headers['access-control-allow-origin']      = origin
+                    response.headers['access-control-allow-credentials'] = 'true'
+                    response.headers['vary']                              = 'Origin'
+                return response
 
         if self.config.enable_api_key:
             self.app().add_middleware(_Middleware                                                   ,
@@ -63,10 +69,10 @@ class Fast_API__Host__Control(Serverless__Fast_API):
         super().setup_middlewares()                                             # adds: detect_disconnect, (cors=noop), _Middleware, request_id
         from starlette.middleware.cors import CORSMiddleware
         self.app().add_middleware(CORSMiddleware,                               # Outermost: handles OPTIONS preflights before api_key_check
-                                  allow_origins     = ["*"]  ,
-                                  allow_methods     = ["*"]  ,
-                                  allow_headers     = ["*"]  ,
-                                  allow_credentials = False  )
+                                  allow_origin_regex   = r".*"  ,             # reflect any origin — ["*"] + credentials=True is silently broken
+                                  allow_methods        = ["*"]  ,
+                                  allow_headers        = ["*"]  ,
+                                  allow_credentials    = True   )
 
     def setup_routes(self):
         self.add_routes(Routes__Host__Auth      )
