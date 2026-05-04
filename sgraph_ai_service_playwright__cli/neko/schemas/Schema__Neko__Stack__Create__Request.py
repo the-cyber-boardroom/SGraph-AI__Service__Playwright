@@ -20,3 +20,4 @@ class Schema__Neko__Stack__Create__Request(Type_Safe):
     instance_type    : Safe_Str__Text                                               # defaults to t3.large
     admin_password   : Safe_Str__Text                                               # Neko admin password; auto-generated when empty
     member_password  : Safe_Str__Text                                               # Neko member password; auto-generated when empty
+    use_spot         : bool = True                                                  # Spot instance by default; pass use_spot=False for on-demand

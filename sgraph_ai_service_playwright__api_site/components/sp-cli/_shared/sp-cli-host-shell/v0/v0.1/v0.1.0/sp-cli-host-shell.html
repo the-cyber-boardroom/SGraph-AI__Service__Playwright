@@ -2,11 +2,22 @@
   <p class="unavailable-msg">Host API not yet available for this stack.</p>
 </div>
 <div class="shell-panel hidden">
-  <div class="shell-toolbar">
-    <select class="cmd-select"></select>
-    <button class="btn-run">Run</button>
-    <button class="btn-clear">Clear</button>
-    <span class="shell-status"></span>
+  <!-- toolbar -->
+  <div class="shell-bar">
+    <span class="shell-bar-label">Terminal</span>
+    <button class="btn-auth" title="Open authentication form in a new window">🔑 Authenticate</button>
+    <button class="btn-quick-toggle">▶ Quick Commands</button>
   </div>
-  <div class="shell-output"></div>
+  <!-- iframe — /host/shell/page is same-origin with the sidecar so the cookie auth cookie works for WS -->
+  <iframe class="shell-iframe" src="about:blank" allow="clipboard-write"></iframe>
+  <!-- quick commands (collapsible, uses X-API-Key header — no cookie needed) -->
+  <div class="quick-body hidden">
+    <div class="shell-toolbar">
+      <select class="cmd-select"></select>
+      <button class="btn-run">Run</button>
+      <button class="btn-clear">Clear</button>
+      <span class="shell-status"></span>
+    </div>
+    <div class="shell-output"></div>
+  </div>
 </div>

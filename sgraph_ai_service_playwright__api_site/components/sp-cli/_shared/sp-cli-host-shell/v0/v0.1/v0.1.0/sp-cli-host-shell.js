@@ -1,5 +1,7 @@
 import { SgComponent  } from 'https://dev.tools.sgraph.ai/components/base/v1/v1.0/v1.0.0/sg-component.js'
-import { currentVault } from '../../../../../shared/vault-bus.js'
+import { currentVault } from '../../../../../../../shared/vault-bus.js'
+
+const _EC2_CSS = new URL('../../../../../../../shared/ec2-tokens.css', import.meta.url).href
 
 const QUICK_COMMANDS = [
     { label: 'List containers',          cmd: 'docker ps'                   },
@@ -17,17 +19,22 @@ class SpCliHostShell extends SgComponent {
 
     static jsUrl = import.meta.url
     get resourceName()   { return 'sp-cli-host-shell' }
-    get sharedCssPaths() { return ['https://dev.tools.sgraph.ai/components/tokens/v1/v1.0/v1.0.0/sg-tokens.css'] }
+    get sharedCssPaths() { return ['https://dev.tools.sgraph.ai/components/tokens/v1/v1.0/v1.0.0/sg-tokens.css', _EC2_CSS] }
 
     onReady() {
-        this._unavailable = this.$('.shell-unavailable')
-        this._panel       = this.$('.shell-panel')
-        this._select      = this.$('.cmd-select')
-        this._output      = this.$('.shell-output')
-        this._status      = this.$('.shell-status')
+        this._unavailable  = this.$('.shell-unavailable')
+        this._panel        = this.$('.shell-panel')
+        this._iframe       = this.$('.shell-iframe')
+        this._select       = this.$('.cmd-select')
+        this._output       = this.$('.shell-output')
+        this._status       = this.$('.shell-status')
+        this._quickBody    = this.$('.quick-body')
+        this._quickToggle  = this.$('.btn-quick-toggle')
 
-        this.$('.btn-run')  ?.addEventListener('click', () => this._run())
-        this.$('.btn-clear')?.addEventListener('click', () => { if (this._output) this._output.innerHTML = '' })
+        this.$('.btn-auth')        ?.addEventListener('click', () => this._openAuth())
+        this.$('.btn-run')         ?.addEventListener('click', () => this._run())
+        this.$('.btn-clear')       ?.addEventListener('click', () => { if (this._output) this._output.innerHTML = '' })
+        this._quickToggle          ?.addEventListener('click', () => this._toggleQuick())
 
         for (const { label, cmd } of QUICK_COMMANDS) {
             const opt = document.createElement('option')
@@ -40,18 +47,39 @@ class SpCliHostShell extends SgComponent {
 
     open(stack) {
         if (!this._unavailable) { this._pendingStack = stack; return }
-        this._hostUrl    = stack.host_api_url || (stack.public_ip ? `http://${stack.public_ip}:9000` : '')
-        this._hostApiKey = ''
-        const vaultPath  = stack.host_api_key_vault_path || `/ec2/${stack.stack_name}/host-api-key`
+        this._hostUrl    = stack.host_api_url || (stack.public_ip ? `http://${stack.public_ip}:19009` : '')
+        this._hostApiKey = stack.host_api_key || ''
 
         if (this._hostUrl) {
-            const vault = currentVault()
-            if (vault && vaultPath) vault.read(vaultPath).then(k => { this._hostApiKey = k || '' })
+            if (!this._hostApiKey) {
+                const vaultPath = stack.host_api_key_vault_path || `/ec2/${stack.stack_name}/host-api-key`
+                const vault = currentVault()
+                if (vault && vaultPath) vault.read(vaultPath).then(k => { this._hostApiKey = k || '' })
+            }
             this._unavailable.classList.add('hidden')
             this._panel.classList.remove('hidden')
+            // Point iframe at the sidecar-served shell page (same-origin → cookie auth works for WS)
+            if (this._iframe) this._iframe.src = `${this._hostUrl}/host/shell/page`
         } else {
             this._unavailable.classList.remove('hidden')
             this._panel.classList.add('hidden')
+            if (this._iframe) this._iframe.src = 'about:blank'
+        }
+    }
+
+    _openAuth() {
+        if (!this._hostUrl || !this._iframe) return
+        this._iframe.src = `${this._hostUrl}/auth/set-cookie-form`  // load inline; form auto-returns to /host/shell/page on success
+    }
+
+    _toggleQuick() {
+        const expanded = !this._quickBody?.classList.contains('hidden')
+        if (expanded) {
+            this._quickBody?.classList.add('hidden')
+            if (this._quickToggle) this._quickToggle.textContent = '▶ Quick Commands'
+        } else {
+            this._quickBody?.classList.remove('hidden')
+            if (this._quickToggle) this._quickToggle.textContent = '▼ Quick Commands'
         }
     }
 

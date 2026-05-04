@@ -29,6 +29,10 @@ def _secs(ms: int) -> str:                                                      
     return f'{ms / 1000:.1f}s'
 
 
+def _spot_label(spot: bool) -> str:
+    return '[cyan]spot[/]' if spot else '[dim]on-demand[/]'
+
+
 def render_list(listing: Schema__Docker__List, c: Console) -> None:
     if not listing.stacks:
         c.print('  [dim]No Docker stacks found.[/]')
@@ -37,12 +41,14 @@ def render_list(listing: Schema__Docker__List, c: Console) -> None:
     t.add_column('stack-name'  , style='bold')
     t.add_column('instance-id' , style='dim')
     t.add_column('state')
+    t.add_column('pricing')
     t.add_column('public-ip'   , style='green')
     t.add_column('region'      , style='cyan')
     for info in listing.stacks:
         t.add_row(str(info.stack_name)                                          ,
                   str(info.instance_id)                                         ,
                   f'[{_state_colour(info.state)}]{info.state.value}[/]'        ,
+                  _spot_label(info.spot)                                        ,
                   str(info.public_ip) or '—'                                    ,
                   str(info.region)                                               )
     c.print(t)
@@ -61,11 +67,14 @@ def render_info(info: Schema__Docker__Info, c: Console) -> None:
     t.add_row('region'        , str(info.region)           or '—')
     t.add_row('ami'           , str(info.ami_id)           or '—')
     t.add_row('instance'      , str(info.instance_type)    or '—')
+    t.add_row('pricing'       , _spot_label(info.spot)                        )
     t.add_row('public-ip'     , str(info.public_ip)        or '—')
     t.add_row('allowed-ip'    , str(info.allowed_ip)       or '—')
     t.add_row('sg-id'         , str(info.security_group_id) or '—')
+    docs_url = f'http://{str(info.public_ip)}:19009/docs' if str(info.public_ip) else ''
     t.add_row('docker-version', str(info.docker_version)   or '—')
     t.add_row('uptime'        , f'{info.uptime_seconds}s'  if info.uptime_seconds else '—')
+    t.add_row('host-control'  , docs_url or '—')
     c.print(t)
     c.print()
 
@@ -79,8 +88,16 @@ def render_create(resp: Schema__Docker__Create__Response, c: Console) -> None:
     c.print(f'  region       : {info.region}')
     c.print(f'  ami          : {info.ami_id}')
     c.print(f'  instance     : {info.instance_type}')
-    c.print(f'  allowed-ip   : {info.allowed_ip}')
+    c.print(f'  pricing      : {"[cyan]spot[/]" if resp.use_spot else "[dim]on-demand[/]"}')
+    c.print(f'  allowed-ip   : {"0.0.0.0/0  [bold yellow](open)[/]" if resp.open_to_all else info.allowed_ip}')
     c.print(f'  submitted in : {_secs(resp.elapsed_ms)}')                           # Time for EC2 API call to accept the launch request
+    c.print()
+    c.print(f'  [bold]host control plane (port 19009)[/]')
+    c.print(f'  api-key-name : {resp.api_key_name}')
+    c.print(f'  api-key-value: [bold yellow]{resp.api_key_value}[/]')
+    c.print()
+    c.print(f'  [dim]Browser cookie (paste in DevTools console to authenticate):[/]')
+    c.print(f'  [dim]document.cookie = "{resp.api_key_name}={resp.api_key_value}; path=/; SameSite=Lax";[/]')
     c.print()
     c.print(f'  [dim]Connect:    sp docker connect {info.stack_name} --region {info.region}[/]')
     c.print(f'  [dim]Wait ready: sp docker wait {info.stack_name} --region {info.region}[/]')
@@ -102,5 +119,9 @@ def render_health(h: Schema__Docker__Health__Response, c: Console) -> None:
     t.add_row('docker-version', str(h.docker_version) or '—')
     t.add_row('waited'        , _secs(h.elapsed_ms))
     t.add_row('message'       , str(h.message) or '—')
+    if str(h.public_ip):
+        docs_url = f'http://{str(h.public_ip)}:19009/docs'
+        t.add_row('host-control'  , docs_url)
+        t.add_row('host-ctrl-ok'  , 'yes' if h.host_control_ok else 'no')
     c.print(t)
     c.print()

@@ -1,4 +1,5 @@
-sgraph-ai-service-playwright-host
 uvicorn[standard]
 fastapi
 psutil
+osbot-fast-api-serverless
+osbot-utils

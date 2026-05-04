@@ -1,6 +1,6 @@
 [tool.poetry]
 name        = "sgraph-ai-service-playwright"
-version     = "v0.1.146"
+version     = "v0.1.169"
 description = "Browser automation FastAPI service for the SG/Send ecosystem. Runs identically on laptop, CI, Claude Web, Fargate, and Lambda."
 authors     = ["Dinis Cruz <dinis@the-cyber-boardroom.com>"]
 license     = "Apache-2.0"
@@ -35,6 +35,7 @@ sg-ec2     = "scripts.provision_ec2:app"
 sp         = "scripts.provision_ec2:app"
 sgpl       = "scripts.provision_ec2:app"
 sp-cli     = "scripts.run_sp_cli:main"                                                  # Run the SP CLI FastAPI app locally under uvicorn (Lambda-equivalent surface; see scripts/run_sp_cli.py)
+sg-compute = "scripts.sg_compute_cli:app"                                               # sg-compute CLI (spec / node / pod / stack verbs)
 
 [tool.poetry.group.dev.dependencies]
 pytest         = "*"

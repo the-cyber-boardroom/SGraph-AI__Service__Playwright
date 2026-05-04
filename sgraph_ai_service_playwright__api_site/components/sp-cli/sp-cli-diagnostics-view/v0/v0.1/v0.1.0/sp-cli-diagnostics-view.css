@@ -1,15 +1,8 @@
 :host { display: flex; flex-direction: column; height: 100%; overflow: hidden; }
 [hidden] { display: none !important; }
 
-.view-body {
-    display: flex;
-    flex-direction: column;
-    gap: var(--sg-sp-3);
-    padding: var(--sg-sp-5);
-    max-width: 480px;
+sg-layout {
+    flex:       1;
+    min-height: 0;
+    display:    block;
 }
-.view-title { font-size: 1rem; font-weight: 600; color: var(--sg-text-heading); }
-.view-hint  { font-size: var(--sg-fs-small); color: var(--sg-text-muted); line-height: 1.55; }
-.info-row { display: grid; grid-template-columns: 80px 1fr; gap: var(--sg-sp-2); }
-.info-key { font-size: var(--sg-fs-small); color: var(--sg-text-muted); }
-.info-val { font-size: var(--sg-fs-small); color: var(--sg-text); font-family: var(--sg-font-mono); }

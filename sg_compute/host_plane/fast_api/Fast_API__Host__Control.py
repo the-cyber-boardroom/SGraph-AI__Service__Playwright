@@ -1,0 +1,87 @@
+# ═══════════════════════════════════════════════════════════════════════════════
+# Host Control Plane — Fast_API__Host__Control
+# FastAPI service running on every EC2 instance as the privileged control plane.
+# Port 9000 on the host (mapped from container port 8000).
+# API-key auth is always ON: key is generated at EC2 boot and pushed to vault.
+#
+# CORS: CORSMiddleware is added as the outermost layer (after super().setup_middlewares)
+# so it intercepts OPTIONS preflights before the API-key middleware sees them.
+# setup_middleware__cors() is suppressed (no-op) to avoid a duplicate middleware
+# and to swap in allow_origin_regex=r".*", allow_methods=["*"], allow_headers=["*"], allow_credentials=True.
+#
+# Auth-excluded paths (bypass api-key middleware):
+#   /docs-auth            — Swagger UI with pre-injected key (static HTML)
+#   /host/shell/page      — xterm.js terminal page (uses cookie for WS auth)
+#   /auth/set-cookie-form — HTML form to set the auth cookie
+#   /auth/set-auth-cookie — POST endpoint that writes the cookie
+# ═══════════════════════════════════════════════════════════════════════════════
+
+from osbot_fast_api_serverless.fast_api.Serverless__Fast_API                   import Serverless__Fast_API
+from osbot_fast_api.api.schemas.consts.consts__Fast_API                        import (ENV_VAR__FAST_API__AUTH__API_KEY__NAME ,
+                                                                                        ENV_VAR__FAST_API__AUTH__API_KEY__VALUE)
+
+from sg_compute.host_plane.fast_api.exception_handlers                         import register_type_safe_handlers
+from sg_compute.host_plane.fast_api.routes.Routes__Host__Auth                  import Routes__Host__Auth
+from sg_compute.host_plane.fast_api.routes.Routes__Host__Containers            import Routes__Host__Containers
+from sg_compute.host_plane.fast_api.routes.Routes__Host__Docs                  import Routes__Host__Docs
+from sg_compute.host_plane.fast_api.routes.Routes__Host__Logs                  import Routes__Host__Logs
+from sg_compute.host_plane.fast_api.routes.Routes__Host__Pods                  import Routes__Host__Pods
+from sg_compute.host_plane.fast_api.routes.Routes__Host__Shell                 import Routes__Host__Shell
+from sg_compute.host_plane.fast_api.routes.Routes__Host__Status                import Routes__Host__Status
+
+_AUTH_FREE_PATHS = {'/docs-auth', '/host/shell/page', '/auth/set-cookie-form', '/auth/set-auth-cookie'}
+
+
+class Fast_API__Host__Control(Serverless__Fast_API):
+
+    def setup(self):
+        result = super().setup()
+        register_type_safe_handlers(self.app())
+        from pathlib import Path
+        version_file = Path(__file__).parent.parent.parent.parent / 'version'
+        self.app().version = version_file.read_text().strip() if version_file.exists() else '0.1.0'
+        return result
+
+    def setup_middleware__cors(self):                                           # Suppressed — CORSMiddleware added as outermost in setup_middlewares()
+        pass
+
+    def setup_middleware__api_key_check(self,
+                                        env_var__api_key_name  = ENV_VAR__FAST_API__AUTH__API_KEY__NAME ,
+                                        env_var__api_key_value = ENV_VAR__FAST_API__AUTH__API_KEY__VALUE):
+        from osbot_fast_api.api.middlewares.Middleware__Check_API_Key import Middleware__Check_API_Key
+
+        class _Middleware(Middleware__Check_API_Key):                          # Excludes cookie-form + shell-page + docs-auth from auth
+            async def dispatch(self, request, call_next):
+                if request.url.path in _AUTH_FREE_PATHS:
+                    return await call_next(request)
+                origin   = request.headers.get('origin', '')
+                response = await super().dispatch(request, call_next)
+                if origin:                                                     # Belt-and-suspenders: guarantee CORS headers survive auth short-circuit
+                    response.headers['access-control-allow-origin']      = origin
+                    response.headers['access-control-allow-credentials'] = 'true'
+                    response.headers['vary']                              = 'Origin'
+                return response
+
+        if self.config.enable_api_key:
+            self.app().add_middleware(_Middleware                                                   ,
+                                      env_var__api_key__name  = env_var__api_key_name              ,
+                                      env_var__api_key__value = env_var__api_key_value             ,
+                                      allow_cors              = False                              ) # CORSMiddleware (outermost) handles OPTIONS; no need for the shortcut here
+
+    def setup_middlewares(self):
+        super().setup_middlewares()                                             # adds: detect_disconnect, (cors=noop), _Middleware, request_id
+        from starlette.middleware.cors import CORSMiddleware
+        self.app().add_middleware(CORSMiddleware,                               # Outermost: handles OPTIONS preflights before api_key_check
+                                  allow_origin_regex   = r".*"  ,             # reflect any origin — ["*"] + credentials=True is silently broken
+                                  allow_methods        = ["*"]  ,
+                                  allow_headers        = ["*"]  ,
+                                  allow_credentials    = True   )
+
+    def setup_routes(self):
+        self.add_routes(Routes__Host__Auth      )
+        self.add_routes(Routes__Host__Containers)
+        self.add_routes(Routes__Host__Docs      )
+        self.add_routes(Routes__Host__Logs      )
+        self.add_routes(Routes__Host__Pods      )
+        self.add_routes(Routes__Host__Shell     )
+        self.add_routes(Routes__Host__Status    )

@@ -201,6 +201,26 @@ class Test_Compute_View:
         js = component('sp-cli-compute-view')[0].read_text()
         assert 'settings-bus.js' in js
 
+    def test_html_has_cost_bar(self):
+        html = component('sp-cli-compute-view')[1].read_text()
+        assert 'cfg-cost-bar' in html
+
+    def test_html_has_two_column_fields(self):
+        html = component('sp-cli-compute-view')[1].read_text()
+        assert 'cfg-field-row' in html
+
+    def test_html_has_cfg_desc(self):
+        html = component('sp-cli-compute-view')[1].read_text()
+        assert 'cfg-desc' in html
+
+    def test_js_catalog_has_descriptions(self):
+        js = component('sp-cli-compute-view')[0].read_text()
+        assert 'description:' in js
+
+    def test_js_fires_node_launched(self):
+        js = component('sp-cli-compute-view')[0].read_text()
+        assert 'sp-cli:node.launched' in js
+
 # ── settings view ─────────────────────────────────────────────────────────── #
 
 class Test_Settings_View:
@@ -210,6 +230,48 @@ class Test_Settings_View:
     def test_imports_settings_bus(self):
         js = component('sp-cli-settings-view')[0].read_text()
         assert 'settings-bus.js' in js
+
+# ── diagnostics view ──────────────────────────────────────────────────────── #
+
+class Test_Diagnostics_View:
+    def test_trio_exists(self):
+        assert_trio(component('sp-cli-diagnostics-view'))
+
+    def test_js_layout_has_events_log_tab(self):
+        js = component('sp-cli-diagnostics-view')[0].read_text()
+        assert 'Events Log' in js                      # declared in DIAG_LAYOUT, not HTML
+
+    def test_js_layout_has_events_log_component(self):
+        js = component('sp-cli-diagnostics-view')[0].read_text()
+        assert 'sp-cli-events-log' in js               # tag name in DIAG_LAYOUT children
+
+    def test_js_imports_sg_layout(self):
+        js = component('sp-cli-diagnostics-view')[0].read_text()
+        assert 'sg-layout.js' in js                    # layout engine drives tab rendering
+
+    def test_js_calls_set_layout(self):
+        js = component('sp-cli-diagnostics-view')[0].read_text()
+        assert 'setLayout' in js                       # layout applied in onReady()
+
+    def test_html_mounts_sg_layout(self):
+        html = component('sp-cli-diagnostics-view')[1].read_text()
+        assert 'sg-layout' in html                     # layout host element in template
+
+    def test_left_nav_has_no_diag_item(self):
+        html = (API_SITE / 'components/sp-cli/sp-cli-left-nav/v0/v0.1/v0.1.0/sp-cli-left-nav.html').read_text()
+        assert 'data-view="diagnostics"' not in html
+
+    def test_top_bar_has_diagnostics_button(self):
+        html = (API_SITE / 'components/sp-cli/sp-cli-top-bar/v0/v0.1/v0.1.0/sp-cli-top-bar.html').read_text()
+        assert 'Diagnostics' in html
+
+    def test_top_bar_js_dispatches_nav_event(self):
+        js = (API_SITE / 'components/sp-cli/sp-cli-top-bar/v0/v0.1/v0.1.0/sp-cli-top-bar.js').read_text()
+        assert 'diagnostics' in js and 'sp-cli:nav.selected' in js
+
+    def test_admin_js_events_log_removed_from_right_panels(self):
+        content = (API_SITE / 'admin' / 'admin.js').read_text()
+        assert "key: 'events_log'" not in content
 
 # ── api view ──────────────────────────────────────────────────────────────── #
 
@@ -363,3 +425,72 @@ class Test_Nodes_View:
     def test_index_html_loads_ec2_tokens(self):
         content = (API_SITE / 'admin' / 'index.html').read_text()
         assert 'ec2-tokens.css' in content
+
+
+# ── stacks-view ───────────────────────────────────────────────────────────── #
+
+class Test_Stacks_View:
+
+    def test_trio_exists(self):
+        assert_trio(component('sp-cli-stacks-view'))
+
+    def test_html_has_coming_soon(self):
+        html = component('sp-cli-stacks-view')[1].read_text()
+        assert 'coming' in html.lower() or 'soon' in html.lower()
+
+    def test_html_describes_stacks(self):
+        html = component('sp-cli-stacks-view')[1].read_text()
+        assert 'Stack' in html
+
+    def test_html_has_feature_list(self):
+        html = component('sp-cli-stacks-view')[1].read_text()
+        assert 'cs-feature' in html
+
+    def test_registers_custom_element(self):
+        js = component('sp-cli-stacks-view')[0].read_text()
+        assert "customElements.define('sp-cli-stacks-view'" in js
+
+    def test_index_html_loads_stacks_view(self):
+        content = (API_SITE / 'admin' / 'index.html').read_text()
+        assert 'sp-cli-stacks-view.js' in content
+
+    def test_admin_js_has_stacks_in_view_titles(self):
+        content = (API_SITE / 'admin' / 'admin.js').read_text()
+        assert 'stacks' in content and 'Stacks' in content
+
+    def test_left_nav_has_stacks_item(self):
+        html = (API_SITE / 'components/sp-cli/sp-cli-left-nav/v0/v0.1/v0.1.0/sp-cli-left-nav.html').read_text()
+        assert 'stacks' in html
+
+
+# ── settings view cleanup ─────────────────────────────────────────────────── #
+
+class Test_Settings_View_Cleanup:
+
+    def test_compute_specs_section_removed_from_html(self):
+        html = component('sp-cli-settings-view')[1].read_text()
+        assert 'Compute Specs' not in html
+
+    def test_plugin_list_div_removed_from_html(self):
+        html = component('sp-cli-settings-view')[1].read_text()
+        assert 'plugin-list' not in html
+
+    def test_get_all_plugin_toggles_not_imported(self):
+        js = component('sp-cli-settings-view')[0].read_text()
+        assert 'getAllPluginToggles' not in js
+
+    def test_set_plugin_enabled_not_imported(self):
+        js = component('sp-cli-settings-view')[0].read_text()
+        assert 'setPluginEnabled' not in js
+
+    def test_ui_panels_section_still_present(self):
+        html = component('sp-cli-settings-view')[1].read_text()
+        assert 'UI Panels' in html
+
+    def test_defaults_section_still_present(self):
+        html = component('sp-cli-settings-view')[1].read_text()
+        assert 'Defaults' in html
+
+    def test_layout_reset_still_present(self):
+        html = component('sp-cli-settings-view')[1].read_text()
+        assert 'Reset layout' in html or 'btn-reset-layout' in html

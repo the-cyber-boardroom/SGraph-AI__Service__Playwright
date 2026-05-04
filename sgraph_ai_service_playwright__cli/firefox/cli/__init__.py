@@ -269,6 +269,7 @@ def create(name              : Optional[str] = typer.Argument(None, help='Stack 
            open_sg           : bool          = typer.Option(False                , '--open'             ,       help='Allow access from any IP (0.0.0.0/0). Use when behind an ALB or load balancer.'),
            cidr              : Optional[str] = typer.Option(None                 , '--cidr'             ,       help='Custom CIDR for SG ingress (e.g. 10.0.0.0/8). Overrides --caller-ip and --open.'),
            max_hours         : int           = typer.Option(1                    , '--max-hours'        ,       help='Auto-terminate after N hours (0 = disabled).'),
+           no_spot           : bool          = typer.Option(False                , '--no-spot'          ,       help='Use on-demand instance instead of spot.'),
            wait              : bool          = typer.Option(False                , '--wait'             ,       help='Block until instance is running.')):
     """Provision a Firefox (noVNC browser) + mitmproxy EC2 stack."""
     c            = Console(highlight=False, width=200)
@@ -286,6 +287,7 @@ def create(name              : Optional[str] = typer.Argument(None, help='Stack 
         interceptor   = choice                 ,
         env_source    = env_content            ,
         allowed_cidr  = allowed_cidr           ,
+        use_spot      = not no_spot            ,
         max_hours     = max_hours              )
     svc  = _service()
     resp = svc.create_stack(request)
@@ -417,6 +419,7 @@ def create_from_ami(ami_id            : Optional[str] = typer.Argument(None, hel
                     open_sg           : bool          = typer.Option(False                , '--open'             , help='Allow access from any IP (0.0.0.0/0). Use when behind an ALB or load balancer.'),
                     cidr              : Optional[str] = typer.Option(None                 , '--cidr'             , help='Custom CIDR for SG ingress (e.g. 10.0.0.0/8).'),
                     max_hours         : int           = typer.Option(1                    , '--max-hours'        , help='Auto-terminate after N hours (0 = disabled).'),
+                    no_spot           : bool          = typer.Option(False                , '--no-spot'          , help='Use on-demand instance instead of spot.'),
                     wait              : bool          = typer.Option(False                , '--wait'             )):
     """Launch a new Firefox stack from an existing AMI (fast boot — skips full install)."""
     c            = Console(highlight=False, width=200)
@@ -445,6 +448,7 @@ def create_from_ami(ami_id            : Optional[str] = typer.Argument(None, hel
         interceptor   = choice                 ,
         env_source    = env_content            ,
         allowed_cidr  = allowed_cidr           ,
+        use_spot      = not no_spot            ,
         max_hours     = max_hours              )
     resp = svc.create_from_ami(request)
     render_create(resp, c)

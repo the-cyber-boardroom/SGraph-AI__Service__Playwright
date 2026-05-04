@@ -85,7 +85,8 @@ class Prometheus__Service(Type_Safe):
         user_data    = self.user_data_builder.render(stack_name, region, compose_yaml, config_yaml)
         instance_id  = self.aws_client.launch.run_instance(region, ami_id, sg_id, user_data, tags,
                                                               instance_type         = inst_type   ,
-                                                              instance_profile_name = PROFILE_NAME)        # Required for SSM agent registration (TargetNotConnected without it).
+                                                              instance_profile_name = PROFILE_NAME        ,
+                                                              use_spot              = request.use_spot)    # Required for SSM agent registration (TargetNotConnected without it).
 
         return Schema__Prom__Stack__Create__Response(
             stack_name        = stack_name                                              ,

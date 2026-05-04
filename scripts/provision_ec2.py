@@ -288,12 +288,13 @@ docker ps --format '{{{{.ID}}}} {{{{.Names}}}}' \
   > /opt/sg-playwright/config/container-names.txt || true
 
 # ── host control plane ────────────────────────────────────────────────────────
-pip install sgraph-ai-service-playwright-host --quiet || true
-
 HOST_API_KEY=$(python3 -c "import secrets; print(secrets.token_hex(32))")
 mkdir -p /opt/host-api
 echo "$HOST_API_KEY" > /opt/host-api/api-key.txt
 chmod 600 /opt/host-api/api-key.txt
+
+aws ecr get-login-password --region {region} | \
+  docker login --username AWS --password-stdin {registry}
 
 docker run -d \
   --name sp-host-control \
@@ -301,8 +302,10 @@ docker run -d \
   --privileged \
   -v /var/run/docker.sock:/var/run/docker.sock \
   -e FAST_API__AUTH__API_KEY__VALUE="$HOST_API_KEY" \
-  -p 9000:8000 \
-  sgraph/host-control:latest || true
+  -p 19009:8000 \
+  {registry}/sgraph_ai_service_playwright_host:latest || true
+
+rm -f /root/.docker/config.json                                 # ECR token no longer needed — container is running
 
 # Push API key to vault so the SP CLI management plane can retrieve it
 aws ssm send-command \
@@ -830,11 +833,11 @@ app.add_typer(_docker_app, name='docker'        )                               
 app.add_typer(_docker_app, name='dk',   hidden=True)                                 # short alias
 
 # v0.1.97 (2/3) — sp catalog: cross-section enumeration
-from ephemeral_ec2.stacks.open_design.cli import app as _open_design_app  # noqa: E402
+from sg_compute_specs.open_design.cli import app as _open_design_app  # noqa: E402
 app.add_typer(_open_design_app, name='open-design'      )                              # ephemeral Open Design EC2 stacks
 app.add_typer(_open_design_app, name='od',   hidden=True)                              # short alias
 
-from ephemeral_ec2.stacks.ollama.cli import app as _ollama_app  # noqa: E402
+from sg_compute_specs.ollama.cli import app as _ollama_app  # noqa: E402
 app.add_typer(_ollama_app, name='ollama'        )                                      # ephemeral Ollama GPU EC2 stacks
 app.add_typer(_ollama_app, name='ol', hidden=True)                                     # short alias
 

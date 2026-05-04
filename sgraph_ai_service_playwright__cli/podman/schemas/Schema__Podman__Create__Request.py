@@ -20,5 +20,6 @@ class Schema__Podman__Create__Request(Type_Safe):
     instance_type : Safe_Str__Text           = 't3.medium'
     from_ami      : Safe_Str__AMI__Id
     caller_ip     : Safe_Str__IP__Address
+    use_spot      : bool                     = True                                 # Spot instance by default; pass use_spot=False for on-demand
     max_hours     : int                      = 1                                    # Auto-terminate after N hours; 0 = no timer
     extra_ports   : List[int]                                                       # TCP ports to open from caller /32

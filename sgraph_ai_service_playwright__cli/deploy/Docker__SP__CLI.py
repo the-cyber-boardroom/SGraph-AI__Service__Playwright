@@ -72,8 +72,8 @@ class Docker__SP__CLI(Type_Safe):
                                                               extra_ignore_names=['images']),                                       # images/ holds the dockerfile itself; no reason to bake it
                                     Schema__Image__Stage__Item(source_path=str(repo_root / 'sgraph_ai_service_playwright')     ,    # Needed by scripts.provision_ec2's top-level import of IMAGE_NAME; Playwright's own imports are lazy
                                                               target_name='sgraph_ai_service_playwright'     , is_tree=True),
-                                    Schema__Image__Stage__Item(source_path=str(repo_root / 'agent_mitmproxy')                  ,    # scripts.provision_ec2 imports IMAGE_NAME from agent_mitmproxy.docker.Docker__Agent_Mitmproxy__Base
-                                                              target_name='agent_mitmproxy'                  , is_tree=True),
+                                    Schema__Image__Stage__Item(source_path=str(repo_root / 'sg_compute_specs')                ,    # Ec2__AWS__Client imports SIDECAR_IMAGE_NAME from sg_compute_specs.mitmproxy.docker
+                                                              target_name='sg_compute_specs'                 , is_tree=True),
                                     Schema__Image__Stage__Item(source_path=str(repo_root / 'scripts')                          ,
                                                               target_name='scripts'                          , is_tree=True),
                                     Schema__Image__Stage__Item(source_path=str(repo_root / 'sgraph_ai_service_playwright__api_site'),  # Static UI assets served at /ui by Fast_API__SP__CLI._mount_ui()

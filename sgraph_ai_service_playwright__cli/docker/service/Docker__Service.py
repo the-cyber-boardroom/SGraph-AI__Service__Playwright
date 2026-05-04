@@ -4,6 +4,7 @@
 # Docker-specific user-data and health checks.
 # ═══════════════════════════════════════════════════════════════════════════════
 
+import secrets
 import time
 
 from typing                                                                         import Optional
@@ -22,6 +23,7 @@ from sgraph_ai_service_playwright__cli.docker.schemas.Schema__Docker__Health__Re
 from sgraph_ai_service_playwright__cli.docker.schemas.Schema__Docker__Info          import Schema__Docker__Info
 from sgraph_ai_service_playwright__cli.docker.schemas.Schema__Docker__List          import Schema__Docker__List
 from sgraph_ai_service_playwright__cli.docker.service.Docker__AWS__Client           import DOCKER_NAMING
+from sgraph_ai_service_playwright__cli.ec2.service.Ec2__AWS__Client                 import ecr_registry_host
 
 
 DEFAULT_REGION        = 'eu-west-2'
@@ -64,12 +66,21 @@ class Docker__Service(Type_Safe):
         itype      = str(request.instance_type) or DEFAULT_INSTANCE_TYPE
 
         sg_id     = self.aws_client.sg.ensure_security_group(region, stack_name, caller_ip,
-                                                              extra_ports=request.extra_ports)
+                                                              extra_ports = request.extra_ports,
+                                                              open_to_all = request.open_to_all)
         tags      = self.aws_client.tags.build(stack_name, caller_ip, creator)
-        user_data = self.user_data_builder.render(stack_name, region, max_hours=request.max_hours)
+        registry      = ecr_registry_host()
+        api_key_name  = str(request.api_key_name)  or 'X-API-Key'
+        api_key_value = str(request.api_key_value) or secrets.token_hex(32)
+        user_data = self.user_data_builder.render(stack_name,   region,
+                                                   registry      = registry     ,
+                                                   api_key_name  = api_key_name ,
+                                                   api_key_value = api_key_value,
+                                                   max_hours     = request.max_hours)
         iid       = self.aws_client.launch.run_instance(region, ami_id, sg_id, user_data, tags,
                                                         instance_type         = itype        ,
-                                                        instance_profile_name = PROFILE_NAME )
+                                                        instance_profile_name = PROFILE_NAME ,
+                                                        use_spot              = request.use_spot)
         info      = Schema__Docker__Info(
             stack_name        = stack_name                                  ,
             aws_name_tag      = DOCKER_NAMING.aws_name_for_stack(stack_name),
@@ -85,9 +96,13 @@ class Docker__Service(Type_Safe):
             stack_name  = stack_name              ,
             region      = region                  ,
             instance_id = str(iid)                ))
-        return Schema__Docker__Create__Response(stack_info = info                                             ,
-                                                 message    = f'Instance {iid} launching'                     ,
-                                                 elapsed_ms = int((time.monotonic()-t0)*1000)                 )
+        return Schema__Docker__Create__Response(stack_info    = info                          ,
+                                                 message       = f'Instance {iid} launching' ,
+                                                 api_key_name  = api_key_name                ,
+                                                 api_key_value = api_key_value               ,
+                                                 open_to_all   = request.open_to_all         ,
+                                                 use_spot      = request.use_spot            ,
+                                                 elapsed_ms    = int((time.monotonic()-t0)*1000))
 
     def list_stacks(self, region: str) -> Schema__Docker__List:
         region = region or DEFAULT_REGION

@@ -1,21 +1,34 @@
 import { SgComponent } from 'https://dev.tools.sgraph.ai/components/base/v1/v1.0/v1.0.0/sg-component.js'
-import { getDefault, getAllPluginToggles } from '../../../../../../shared/settings-bus.js'
+import { getDefault } from '../../../../../../shared/settings-bus.js'
+
+const _EC2_CSS = new URL('../../../../../../shared/ec2-tokens.css', import.meta.url).href
 
 // ── Spec catalogue (static until backend phase B4 ships /api/specs) ─────────
 const CATALOG = [
-    { group: 'CONTAINERS',      type_id: 'docker',     display_name: 'Docker host',             icon: '🐳', stability: 'stable',       boot: '~10min', soon: false, create_endpoint_path: '/docker/stack'     },
-    { group: 'CONTAINERS',      type_id: 'podman',     display_name: 'Podman host',             icon: '🦭', stability: 'stable',       boot: '~10min', soon: false, create_endpoint_path: '/podman/stack'     },
-    { group: 'OBSERVABILITY',   type_id: 'elastic',    display_name: 'Elastic + Kibana',        icon: '🔍', stability: 'stable',       boot: '~90s',   soon: false, create_endpoint_path: '/elastic/stack'    },
-    { group: 'OBSERVABILITY',   type_id: 'prometheus', display_name: 'Prometheus + Grafana',    icon: '📊', stability: 'experimental', boot: '~90s',   soon: false, create_endpoint_path: '/prometheus/stack' },
-    { group: 'OBSERVABILITY',   type_id: 'opensearch', display_name: 'OpenSearch + Dashboards', icon: '🌐', stability: 'experimental', boot: '—',      soon: false, create_endpoint_path: '/opensearch/stack' },
-    { group: 'REMOTE BROWSERS', type_id: 'firefox',    display_name: 'Firefox + MITM',          icon: '🦊', stability: 'experimental', boot: '~90s',   soon: false, create_endpoint_path: '/firefox/stack'    },
-    { group: 'REMOTE BROWSERS', type_id: 'vnc',        display_name: 'VNC bastion',             icon: '🖥',  stability: 'stable',       boot: '~90s',   soon: false, create_endpoint_path: '/vnc/stack'        },
-    { group: 'REMOTE BROWSERS', type_id: 'neko',       display_name: 'Neko (WebRTC)',           icon: '🌐', stability: 'experimental', boot: '—',      soon: true,  create_endpoint_path: '/neko/stack'       },
+    { group: 'CONTAINERS',      type_id: 'docker',     display_name: 'Docker host',             icon: '🐳', stability: 'stable',       boot: '~10min', soon: false, create_endpoint_path: '/docker/stack',     description: 'Docker Engine host on a fresh EC2 instance.'                           },
+    { group: 'CONTAINERS',      type_id: 'podman',     display_name: 'Podman host',             icon: '🦭', stability: 'stable',       boot: '~10min', soon: false, create_endpoint_path: '/podman/stack',     description: 'Rootless Podman host on a fresh EC2 instance.'                         },
+    { group: 'OBSERVABILITY',   type_id: 'elastic',    display_name: 'Elastic + Kibana',        icon: '🔍', stability: 'stable',       boot: '~90s',   soon: false, create_endpoint_path: '/elastic/stack',    description: 'Elasticsearch + Kibana node. Indices persist on attached gp3 storage.' },
+    { group: 'OBSERVABILITY',   type_id: 'prometheus', display_name: 'Prometheus + Grafana',    icon: '📊', stability: 'experimental', boot: '~90s',   soon: false, create_endpoint_path: '/prometheus/stack', description: 'Prometheus scraper + Grafana dashboard node.'                          },
+    { group: 'OBSERVABILITY',   type_id: 'opensearch', display_name: 'OpenSearch + Dashboards', icon: '🌐', stability: 'experimental', boot: '—',      soon: false, create_endpoint_path: '/opensearch/stack', description: 'OpenSearch cluster with Dashboards UI.'                                },
+    { group: 'REMOTE BROWSERS', type_id: 'firefox',    display_name: 'Firefox + MITM',          icon: '🦊', stability: 'experimental', boot: '~90s',   soon: false, create_endpoint_path: '/firefox/stack',    description: 'Firefox with MITM proxy for traffic inspection via browser.'           },
+    { group: 'REMOTE BROWSERS', type_id: 'vnc',        display_name: 'VNC bastion',             icon: '🖥',  stability: 'stable',       boot: '~90s',   soon: false, create_endpoint_path: '/vnc/stack',        description: 'VNC-accessible desktop bastion with noVNC web client.'                 },
+    { group: 'REMOTE BROWSERS', type_id: 'neko',       display_name: 'Neko (WebRTC)',           icon: '🌐', stability: 'experimental', boot: '—',      soon: true,  create_endpoint_path: '/neko/stack',       description: 'Browser-in-browser via WebRTC.'                                        },
 ]
 
 const REGIONS        = ['eu-west-2', 'us-east-1', 'ap-southeast-1', 'eu-west-1', 'us-west-2']
 const INSTANCE_TYPES = ['t3.micro', 't3.small', 't3.medium', 't3.large', 't3.xlarge']
 const MAX_HOURS      = [1, 2, 4, 8, 12, 24]
+
+const NAME_WORDS = [
+    'nova', 'echo', 'lark', 'ford', 'pike', 'wren', 'dusk', 'reef', 'sage', 'fern',
+    'kite', 'vale', 'bolt', 'cove', 'dune', 'flux', 'glen', 'haze', 'isle', 'jade',
+]
+
+function _genName(typeId) {
+    const word = NAME_WORDS[Math.floor(Math.random() * NAME_WORDS.length)]
+    const num  = String(Math.floor(Math.random() * 9000) + 1000)
+    return `${typeId}-${word}-${num}`
+}
 
 // Rough on-demand spot rates (USD/hr) for cost hint — intentionally approximate
 const COST_TABLE = {
@@ -27,16 +40,16 @@ class SpCliComputeView extends SgComponent {
 
     static jsUrl = import.meta.url
     get resourceName()   { return 'sp-cli-compute-view' }
-    get sharedCssPaths() { return ['https://dev.tools.sgraph.ai/components/tokens/v1/v1.0/v1.0.0/sg-tokens.css'] }
+    get sharedCssPaths() { return ['https://dev.tools.sgraph.ai/components/tokens/v1/v1.0/v1.0.0/sg-tokens.css', _EC2_CSS] }
 
     onReady() {
         this._specGroups  = this.$('.spec-groups')
         this._cfgCol      = this.$('.configure-col')
         this._cfgIcon     = this.$('.cfg-icon')
         this._cfgName     = this.$('.cfg-name')
+        this._cfgDesc     = this.$('.cfg-desc')
         this._cfgStab     = this.$('.cfg-stability')
         this._cfgBoot     = this.$('.cfg-boot-val')
-        this._cfgCost     = this.$('.cfg-cost')
         this._regionSel   = this.$('.field-region')
         this._instanceSel = this.$('.field-instance')
         this._hoursSel    = this.$('.field-hours')
@@ -46,20 +59,26 @@ class SpCliComputeView extends SgComponent {
         this._btnLabel    = this.$('.btn-label')
         this._btnSpinner  = this.$('.btn-spinner')
         this._errorMsg    = this.$('.error-msg')
+        this._barBoot     = this.$('.cfg-bar-boot')
+        this._barHourly   = this.$('.cfg-bar-hourly')
+        this._barMax      = this.$('.cfg-bar-max')
+        this._barNet      = this.$('.cfg-bar-net')
 
         this._populateSelect(this._regionSel,   REGIONS,        r => r)
         this._populateSelect(this._instanceSel, INSTANCE_TYPES, t => t)
         this._populateSelect(this._hoursSel,    MAX_HOURS,      h => `${h} hour${h > 1 ? 's' : ''}`)
 
-        this._regionSel?.addEventListener('change',   () => this._updateCost())
-        this._instanceSel?.addEventListener('change', () => this._updateCost())
+        this._regionSel?.addEventListener('change',   () => this._updateCostBar())
+        this._instanceSel?.addEventListener('change', () => this._updateCostBar())
+        this._hoursSel?.addEventListener('change',    () => this._updateCostBar())
+        this._openCheck?.addEventListener('change',   () => this._updateCostBar())
 
         this.$('.btn-close-cfg')?.addEventListener('click', () => this._closeCfg())
         this._btnLaunch?.addEventListener('click', () => this._launch())
 
         document.addEventListener('sp-cli:settings.loaded', () => this._applyDefaults())
         this._applyDefaults()
-        this._renderGroups()
+        this._renderGroups()   // catalog is static — render once
     }
 
     // Called by admin.js — no-op in new design (stacks live in nodes-view)
@@ -68,21 +87,20 @@ class SpCliComputeView extends SgComponent {
     _applyDefaults() {
         const region   = getDefault('region')        || 'eu-west-2'
         const instance = getDefault('instance_type') || 't3.medium'
-        const hours    = getDefault('max_hours')     || 4
+        const hours    = getDefault('max_hours')     || 1
         if (this._regionSel)   this._regionSel.value   = region
         if (this._instanceSel) this._instanceSel.value = instance
         if (this._hoursSel)    this._hoursSel.value     = String(hours)
-        this._updateCost()
+        this._updateCostBar()
     }
 
     _renderGroups() {
         if (!this._specGroups) return
-        const toggles = getAllPluginToggles()
-        const groups  = [...new Set(CATALOG.map(s => s.group))]
+        const groups = [...new Set(CATALOG.map(s => s.group))]
         this._specGroups.innerHTML = ''
 
         for (const group of groups) {
-            const specs = CATALOG.filter(s => s.group === group && (toggles[s.type_id]?.enabled !== false))
+            const specs = CATALOG.filter(s => s.group === group)
             if (!specs.length) continue
 
             const section = document.createElement('div')
@@ -121,28 +139,35 @@ class SpCliComputeView extends SgComponent {
         this._currentSpec = spec
         if (this._cfgIcon) this._cfgIcon.textContent = spec.icon
         if (this._cfgName) this._cfgName.textContent = spec.display_name
+        if (this._cfgDesc) this._cfgDesc.textContent = spec.description || ''
         if (this._cfgStab) {
             this._cfgStab.className = `cfg-stability ec2-pill ${spec.stability === 'stable' ? 'good' : 'warn'}`
             this._cfgStab.textContent = spec.stability
         }
         if (this._cfgBoot) this._cfgBoot.textContent = spec.boot
+        if (this._barBoot) this._barBoot.textContent = spec.boot
         this._clearError()
-        if (this._nameInput) this._nameInput.value = ''
-        this._updateCost()
+        if (this._nameInput) this._nameInput.value = _genName(spec.type_id)
+        this._updateCostBar()
         this._cfgCol.hidden = false
+        this.shadowRoot.querySelector('.compute-view')?.classList.add('spec-selected')
     }
 
     _closeCfg() {
         this._cfgCol.hidden = true
         this._currentSpec = null
+        this.shadowRoot.querySelector('.compute-view')?.classList.remove('spec-selected')
         Array.from(this.shadowRoot.querySelectorAll('.spec-card')).forEach(c => c.classList.remove('selected'))
     }
 
-    _updateCost() {
-        if (!this._cfgCost) return
-        const inst = this._instanceSel?.value || 't3.medium'
-        const rate = COST_TABLE[inst]
-        this._cfgCost.textContent = rate ? `~$${rate.toFixed(3)}/hr` : ''
+    _updateCostBar() {
+        const inst  = this._instanceSel?.value || 't3.medium'
+        const hours = parseInt(this._hoursSel?.value || '4', 10)
+        const rate  = COST_TABLE[inst] || 0
+        const open  = this._openCheck?.checked ?? false
+        if (this._barHourly) this._barHourly.textContent = rate ? `$${rate.toFixed(3)}` : '—'
+        if (this._barMax)    this._barMax.textContent    = rate ? `$${(rate * hours).toFixed(2)}` : '—'
+        if (this._barNet)    this._barNet.textContent    = open ? 'Open (0.0.0.0/0)' : 'Your IP only'
     }
 
     async _launch() {
@@ -150,7 +175,7 @@ class SpCliComputeView extends SgComponent {
         this._setLoading(true)
         this._clearError()
         const body = {
-            stack_name:    this._nameInput?.value.trim()  || null,
+            stack_name:    this._nameInput?.value.trim()  || _genName(this._currentSpec.type_id),
             region:        this._regionSel?.value         || REGIONS[0],
             instance_type: this._instanceSel?.value       || 't3.medium',
             max_hours:     parseInt(this._hoursSel?.value || '4', 10),
@@ -159,7 +184,11 @@ class SpCliComputeView extends SgComponent {
         try {
             const { apiClient } = await import('../../../../../../shared/api-client.js')
             const resp = await apiClient.post(this._currentSpec.create_endpoint_path, body)
-            document.dispatchEvent(new CustomEvent('sp-cli:launch.success', {
+            document.dispatchEvent(new CustomEvent('sp-cli:node.launched', {
+                detail:  { entry: this._currentSpec, response: resp },
+                bubbles: true, composed: true,
+            }))
+            document.dispatchEvent(new CustomEvent('sp-cli:launch.success', {   // DEPRECATED
                 detail:  { entry: this._currentSpec, response: resp },
                 bubbles: true, composed: true,
             }))

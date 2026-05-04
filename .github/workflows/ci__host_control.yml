@@ -1,0 +1,167 @@
+# ═══════════════════════════════════════════════════════════════════════════════
+# CI Pipeline — Host Control Plane (manual / emergency rebuild only)
+#
+# Automatic host image builds are now handled by ci-pipeline.yml
+# (build-and-push-host-image job) which fires on changes to sg_compute/**
+# or docker/host-control/** alongside the main Playwright pipeline.
+# This workflow is kept as a manual workflow_dispatch for emergency rebuilds
+# (e.g. base-image refresh, cache bust) without running the full pipeline.
+#
+# Jobs:
+#   1. run-unit-tests        — pytest against tests/unit/sgraph_ai_service_playwright__host/
+#   2. check-aws-credentials — gates all AWS-touching jobs
+#   3. detect-changes        — skips rebuild unless force_image_rebuild=true
+#   4. build-and-push-image  — docker build (repo root as context) + ECR push
+#
+# Image name: sgraph_ai_service_playwright_host
+# ECR URI: {account}.dkr.ecr.{region}.amazonaws.com/sgraph_ai_service_playwright_host:latest
+# Runtime port: 19009 (host) → 8000 (container)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+name: CI Pipeline - Host Control Plane
+
+on:
+  workflow_dispatch:
+    inputs:
+      force_image_rebuild:
+        description: 'Force Docker image rebuild (always true for manual runs — this workflow is manual-only)'
+        required: false
+        type: boolean
+        default: true
+
+env:
+  IMAGE_NAME: 'sgraph_ai_service_playwright_host'
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+
+  # ════════════════════════════════════════════════════════════════════════════
+  # Job 1: Unit Tests (no Docker, no AWS)
+  # ════════════════════════════════════════════════════════════════════════════
+  run-unit-tests:
+    name: "Run Unit Tests"
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+          cache-dependency-path: 'requirements.txt'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt pytest pytest-timeout
+
+      - name: Run host package unit tests
+        timeout-minutes: 5
+        run: |
+          python -m pytest tests/unit/sgraph_ai_service_playwright__host/ \
+                           -v --timeout=30
+
+  # ════════════════════════════════════════════════════════════════════════════
+  # Job 2: Check AWS Credentials
+  # ════════════════════════════════════════════════════════════════════════════
+  check-aws-credentials:
+    name: Check AWS Credentials
+    runs-on: ubuntu-latest
+    outputs:
+      has-credentials: ${{ steps.check.outputs.has-credentials }}
+    steps:
+      - name: Check if AWS credentials are configured
+        id: check
+        run: |
+          if [[ -n "${{ secrets.AWS_ACCESS_KEY_ID }}" ]] && \
+             [[ -n "${{ secrets.AWS_SECRET_ACCESS_KEY }}" ]] && \
+             [[ -n "${{ secrets.AWS_DEFAULT_REGION }}" ]] && \
+             [[ -n "${{ secrets.AWS_ACCOUNT_ID }}" ]]; then
+            echo "has-credentials=true" >> $GITHUB_OUTPUT
+          else
+            echo "has-credentials=false" >> $GITHUB_OUTPUT
+            echo "AWS credentials not configured — Docker push skipped"
+          fi
+
+  # ════════════════════════════════════════════════════════════════════════════
+  # Job 3: Detect Image-Relevant Changes
+  # ════════════════════════════════════════════════════════════════════════════
+  detect-changes:
+    name: Detect Image-Relevant Changes
+    runs-on: ubuntu-latest
+    outputs:
+      image-rebuild-needed: ${{ steps.filter.outputs.image }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Filter paths
+        id: filter
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            image:
+              - 'sg_compute/**'
+              - 'docker/host-control/Dockerfile'
+              - 'docker/host-control/requirements.txt'
+
+  # ════════════════════════════════════════════════════════════════════════════
+  # Job 4: Build + Push Docker Image to ECR
+  #   Build context is the repo root so the Dockerfile can COPY both
+  #   docker/host-control/requirements.txt and sg_compute/.
+  #   ECR repo is created idempotently before the push.
+  # ════════════════════════════════════════════════════════════════════════════
+  build-and-push-image:
+    name: "Build + Push Host Control Image to ECR"
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs: [run-unit-tests, check-aws-credentials, detect-changes]
+    if: |
+      needs.check-aws-credentials.outputs.has-credentials == 'true' &&
+      (needs.detect-changes.outputs.image-rebuild-needed == 'true' || inputs.force_image_rebuild)
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id     : ${{ secrets.AWS_ACCESS_KEY_ID     }}
+          aws-secret-access-key : ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region            : ${{ secrets.AWS_DEFAULT_REGION    }}
+
+      - name: Create ECR repository (idempotent)
+        run: |
+          aws ecr create-repository \
+            --repository-name "$IMAGE_NAME" \
+            --region "${{ secrets.AWS_DEFAULT_REGION }}" \
+          || true                                                                        # Ignore RepositoryAlreadyExistsException
+
+      - name: Authenticate Docker to ECR
+        run: |
+          aws ecr get-login-password --region "${{ secrets.AWS_DEFAULT_REGION }}" | \
+            docker login \
+              --username AWS \
+              --password-stdin \
+              "${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_DEFAULT_REGION }}.amazonaws.com"
+
+      - name: Build Docker image
+        run: |
+          docker build \
+            -f docker/host-control/Dockerfile \
+            -t "${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_DEFAULT_REGION }}.amazonaws.com/${IMAGE_NAME}:latest" \
+            .
+
+      - name: Push to ECR
+        run: |
+          docker push \
+            "${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_DEFAULT_REGION }}.amazonaws.com/${IMAGE_NAME}:latest"
+
+      - name: Verify image in ECR
+        run: |
+          aws ecr describe-images \
+            --repository-name "$IMAGE_NAME" \
+            --region "${{ secrets.AWS_DEFAULT_REGION }}" \
+            --image-ids imageTag=latest \
+            --query 'imageDetails[0].[imagePushedAt, imageSizeInBytes]' \
+            --output table

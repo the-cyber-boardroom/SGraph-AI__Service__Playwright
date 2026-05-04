@@ -36,6 +36,12 @@ class SpCliTopBar extends SgComponent {
         this.$('.brand-mark')?.addEventListener('click', () =>
             this.emit('sp-cli:brand-clicked')
         )
+
+        this.$('.btn-diagnostics')?.addEventListener('click', () =>
+            document.dispatchEvent(new CustomEvent('sp-cli:nav.selected', {
+                detail: { view: 'diagnostics' }, bubbles: true, composed: true,
+            }))
+        )
     }
 
     attributeChangedCallback(name, _old, newVal) {

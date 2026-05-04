@@ -17,8 +17,10 @@ const FAMILIES = {
              'sp-cli:vault-bus:read-completed','sp-cli:vault-bus:read-not-found',
              'sp-cli:vault-bus:read-error','sp-cli:vault-bus:write-started',
              'sp-cli:vault-bus:write-completed','sp-cli:vault-bus:write-error'],
-    stacks: ['sp-cli:stack.selected','sp-cli:stack.deleted','sp-cli:stack.launched',
-             'sp-cli:stacks.refresh','sp-cli:stack-selected','sp-cli:stack-deleted'],
+    stacks: ['sp-cli:node.selected','sp-cli:node.deleted','sp-cli:node.launched',
+             'sp-cli:nodes.refresh',
+             'sp-cli:stack.selected','sp-cli:stack.deleted','sp-cli:stack.launched',  // DEPRECATED
+             'sp-cli:stacks.refresh','sp-cli:stack-selected','sp-cli:stack-deleted'], // DEPRECATED
     launch: ['sp-cli:launch.success','sp-cli:launch.error','sp-cli:launch-success',
              'sp-cli:launch-error','sp-cli:activity-entry'],
     nav:    ['sp-cli:nav.selected','sp-cli:plugin.toggled','sp-cli:settings.loaded',
@@ -36,9 +38,12 @@ const ICONS = {
     'sp-cli:vault-bus:write-started':     '✏️',
     'sp-cli:vault-bus:write-completed':   '✅',
     'sp-cli:vault-bus:write-error':       '🔴',
-    'sp-cli:stack.selected':              '📋',
-    'sp-cli:stack.deleted':               '🗑',
-    'sp-cli:stack.launched':              '🚀',
+    'sp-cli:node.selected':               '📋',
+    'sp-cli:node.deleted':                '🗑',
+    'sp-cli:node.launched':               '🚀',
+    'sp-cli:stack.selected':              '📋',  // DEPRECATED
+    'sp-cli:stack.deleted':               '🗑',  // DEPRECATED
+    'sp-cli:stack.launched':              '🚀',  // DEPRECATED
     'sp-cli:launch.success':              '✅',
     'sp-cli:launch.error':                '🔴',
     'sp-cli:activity-entry':              '📝',

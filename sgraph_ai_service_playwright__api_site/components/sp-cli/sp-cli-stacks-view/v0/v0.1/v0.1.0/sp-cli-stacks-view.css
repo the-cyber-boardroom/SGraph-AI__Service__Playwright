@@ -1,0 +1,95 @@
+.stacks-view {
+    display: flex;
+    flex-direction: column;
+    gap: 24px;
+    padding: 24px;
+    height: 100%;
+    box-sizing: border-box;
+    background: var(--bg-app, #11112a);
+    color: var(--text-1, #e8e8f0);
+    font-family: var(--font-sans, system-ui, sans-serif);
+}
+
+.stacks-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.stacks-icon {
+    font-size: 28px;
+    color: var(--accent, #4ECDC4);
+    letter-spacing: -4px;
+}
+
+.stacks-title {
+    font-size: 18px;
+    font-weight: 600;
+    color: var(--text-1, #e8e8f0);
+}
+
+.stacks-subtitle {
+    font-size: 12px;
+    color: var(--text-3, #8888a8);
+    margin-top: 2px;
+}
+
+.coming-soon-card {
+    max-width: 520px;
+    background: var(--bg-panel, #1a1a3a);
+    border: 1px solid var(--border-1, #2a2a4a);
+    border-radius: 8px;
+    padding: 28px 28px 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.cs-icon {
+    font-size: 32px;
+}
+
+.cs-title {
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--text-2, #c8c8e0);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+}
+
+.cs-body {
+    font-size: 13px;
+    color: var(--text-3, #8888a8);
+    line-height: 1.6;
+}
+
+.cs-body strong {
+    color: var(--accent, #4ECDC4);
+    font-weight: 600;
+}
+
+.cs-features {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin-top: 4px;
+    padding-top: 16px;
+    border-top: 1px solid var(--border-1, #2a2a4a);
+}
+
+.cs-feature {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    font-size: 13px;
+    color: var(--text-3, #8888a8);
+    line-height: 1.5;
+}
+
+.cs-feature-icon {
+    flex-shrink: 0;
+    width: 20px;
+    text-align: center;
+    color: var(--accent, #4ECDC4);
+    opacity: 0.7;
+}

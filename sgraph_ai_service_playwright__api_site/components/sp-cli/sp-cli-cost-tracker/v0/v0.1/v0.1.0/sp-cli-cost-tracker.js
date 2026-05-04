@@ -22,6 +22,7 @@ class SpCliCostTracker extends SgComponent {
         this._rowsEl  = this.$('.cost-rows')
         this._totalEl = this.$('.cost-total-val')
         this._stacks  = []
+        document.addEventListener('sp-cli:stacks.updated', (e) => this.setStacks(e.detail?.stacks))
     }
 
     setStacks(stacks) {
