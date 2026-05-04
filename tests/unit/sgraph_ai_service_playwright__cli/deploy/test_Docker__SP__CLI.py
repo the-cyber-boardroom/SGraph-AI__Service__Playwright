@@ -50,7 +50,7 @@ class test_Docker__SP__CLI(TestCase):
         request = self.docker.build_request()
         targets = {str(item.target_name): item for item in request.stage_items}
         assert set(targets) == {'sgraph_ai_service_playwright__cli', 'sgraph_ai_service_playwright',
-                                'agent_mitmproxy'                  , 'scripts'                     ,
+                                'sg_compute_specs'                 , 'scripts'                     ,
                                 'sgraph_ai_service_playwright__api_site'}
         for item in request.stage_items:                                            # All five are tree copies
             assert item.is_tree is True
@@ -65,7 +65,7 @@ class test_Docker__SP__CLI(TestCase):
             assert os.path.isfile(os.path.join(staging, 'requirements.txt'))
             assert os.path.isdir (os.path.join(staging, 'sgraph_ai_service_playwright__cli'))
             assert os.path.isdir (os.path.join(staging, 'sgraph_ai_service_playwright'))           # Shared boot shim + version file
-            assert os.path.isdir (os.path.join(staging, 'agent_mitmproxy'))                        # IMAGE_NAME constant for provision_ec2
+            assert os.path.isdir (os.path.join(staging, 'sg_compute_specs'))                        # mitmproxy + playwright specs
             assert os.path.isdir (os.path.join(staging, 'scripts'))
             assert os.path.isdir (os.path.join(staging, 'sgraph_ai_service_playwright__api_site')) # Static UI assets for /ui mount
 
