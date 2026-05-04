@@ -28,7 +28,8 @@ class OpenSearch__Launch__Helper(Type_Safe):
                            user_data             : str        ,
                            tags                  : List[dict] ,
                            instance_type         : str        = DEFAULT_INSTANCE_TYPE,
-                           instance_profile_name : Optional[str] = None) -> str:    # Returns the EC2 instance_id
+                           instance_profile_name : Optional[str] = None             ,
+                           use_spot              : bool       = True                ) -> str:    # Returns the EC2 instance_id
         kwargs = dict(ImageId          = ami_id                                                            ,
                       InstanceType     = instance_type                                                     ,
                       MinCount         = 1                                                                  ,
@@ -38,6 +39,8 @@ class OpenSearch__Launch__Helper(Type_Safe):
                       TagSpecifications= [{'ResourceType': 'instance', 'Tags': tags}]                       )
         if instance_profile_name:                                                   # Optional — sp os reuses the playwright-ec2 profile when this is unset
             kwargs['IamInstanceProfile'] = {'Name': instance_profile_name}
+        if use_spot:
+            kwargs['InstanceMarketOptions'] = {'MarketType': 'spot'}
 
         resp = self.ec2_client(region).run_instances(**kwargs)
         instances = resp.get('Instances', [])

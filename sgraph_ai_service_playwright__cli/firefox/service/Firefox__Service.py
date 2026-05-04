@@ -97,9 +97,10 @@ class Firefox__Service(Type_Safe):
                                                    env_source         = env_source        ,
                                                    max_hours          = max_hours         )
         iid       = self.aws_client.launch.run_instance(region, ami_id, sg_id, user_data, tags,
-                                                        instance_type         = itype    ,
-                                                        instance_profile_name = profile  ,
-                                                        max_hours             = max_hours )
+                                                        instance_type         = itype           ,
+                                                        instance_profile_name = profile         ,
+                                                        max_hours             = max_hours       ,
+                                                        use_spot              = request.use_spot)
         event_bus.emit('firefox:stack.created', Schema__Stack__Event(
             type_id     = Enum__Stack__Type.FIREFOX,
             stack_name  = stack_name               ,
@@ -264,9 +265,10 @@ class Firefox__Service(Type_Safe):
             env_source         = env_source        ,
             max_hours          = max_hours         )
         iid       = self.aws_client.launch.run_instance(region, ami_id, sg_id, user_data, tags,
-                                                        instance_type         = itype    ,
-                                                        instance_profile_name = profile  ,
-                                                        max_hours             = max_hours )
+                                                        instance_type         = itype           ,
+                                                        instance_profile_name = profile         ,
+                                                        max_hours             = max_hours       ,
+                                                        use_spot              = request.use_spot)
         event_bus.emit('firefox:stack.created', Schema__Stack__Event(
             type_id     = Enum__Stack__Type.FIREFOX,
             stack_name  = stack_name               ,

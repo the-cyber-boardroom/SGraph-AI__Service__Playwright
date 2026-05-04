@@ -26,7 +26,8 @@ class Neko__Launch__Helper(Type_Safe):
                            user_data             : str        ,
                            tags                  : List[dict] ,
                            instance_type         : str        = DEFAULT_INSTANCE_TYPE,
-                           instance_profile_name : Optional[str] = None) -> str:
+                           instance_profile_name : Optional[str] = None             ,
+                           use_spot              : bool       = True                ) -> str:
         kwargs = dict(ImageId          = ami_id                                                           ,
                       InstanceType     = instance_type                                                    ,
                       MinCount         = 1                                                                 ,
@@ -36,6 +37,8 @@ class Neko__Launch__Helper(Type_Safe):
                       TagSpecifications= [{'ResourceType': 'instance', 'Tags': tags}]                      )
         if instance_profile_name:
             kwargs['IamInstanceProfile'] = {'Name': instance_profile_name}
+        if use_spot:
+            kwargs['InstanceMarketOptions'] = {'MarketType': 'spot'}
         resp      = self.ec2_client(region).run_instances(**kwargs)
         instances = resp.get('Instances', [])
         if not instances:

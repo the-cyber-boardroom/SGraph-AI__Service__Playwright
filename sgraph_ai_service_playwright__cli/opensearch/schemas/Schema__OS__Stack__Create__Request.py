@@ -23,5 +23,6 @@ class Schema__OS__Stack__Create__Request(Type_Safe):
     instance_type   : Safe_Str__Text            = ''                                # Safe_Str__Text preserves the dot in "t3.medium"
     from_ami        : Safe_Str__AMI__Id         = ''                                # Empty → latest AL2023 resolved by service
     caller_ip       : Safe_Str__IP__Address     = ''                                # Empty → service calls Caller__IP__Detector
+    use_spot        : bool                      = True                              # Spot instance by default; pass use_spot=False for on-demand
     max_hours       : int                       = 1                                 # Auto-terminate after N hours; 0 disables. Mirrors elastic so an OS stack doesn't run overnight.
     admin_password  : Safe_Str__OS__Password    = ''                                # Empty → service generates a random one. Pass through --password / $SG_OS_PASSWORD to keep one consistent strong password across local stacks and any AMIs baked from them.

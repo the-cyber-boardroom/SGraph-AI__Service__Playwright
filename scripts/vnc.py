@@ -144,6 +144,7 @@ def create(name             : Optional[str] = typer.Argument(None, help='Stack n
                                                              help='Open SG ingress on 443 to 0.0.0.0/0. Default: caller IP /32 only. The viewer is behind nginx Basic auth (bcrypt), so --open is reasonable for debug.'),
            interceptor      : Optional[str] = typer.Option(None, '--interceptor'         , help='Name of a baked example interceptor (see `sp vnc interceptors`).'),
            interceptor_script: Optional[str] = typer.Option(None, '--interceptor-script' , help='Path to a local Python file; embedded inline at create time.'),
+           no_spot          : bool           = typer.Option(False, '--no-spot'           , help='Use on-demand instance instead of spot.'),
            wait             : bool           = typer.Option(False, '--wait'              , help='Block until nginx + mitmweb are reachable (timeout 600s).')):
     """Provision a chromium + nginx + mitmproxy EC2 stack."""
     c       = Console(highlight=False, width=200)
@@ -154,6 +155,7 @@ def create(name             : Optional[str] = typer.Argument(None, help='Stack n
                                                     instance_type     = instance_type       ,
                                                     operator_password = password       or '',
                                                     public_ingress    = open_ingress        ,
+                                                    use_spot          = not no_spot         ,
                                                     interceptor       = choice              )
     resp = svc.create_stack(request)
     render_create(resp, c)

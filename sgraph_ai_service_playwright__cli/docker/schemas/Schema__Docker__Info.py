@@ -25,6 +25,7 @@ class Schema__Docker__Info(Type_Safe):
     allowed_ip        : Safe_Str__IP__Address
     public_ip         : Safe_Str__Text
     state             : Enum__Docker__Stack__State = Enum__Docker__Stack__State.UNKNOWN
+    spot              : bool               = False                                  # True when AWS InstanceLifecycle == 'spot'
     launch_time       : Safe_Str__Text
     uptime_seconds    : int = 0
     docker_version    : Safe_Str__Text                                              # Populated by health check when instance is running
