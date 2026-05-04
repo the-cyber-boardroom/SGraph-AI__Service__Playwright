@@ -102,10 +102,9 @@ class SpCliNodesView extends SgComponent {
                 if (stEl) stEl.textContent = updated.state
                 const upEl = this._infoKv?.querySelector('[data-kv="uptime"]')
                 if (upEl) upEl.textContent = _fmtUptime(updated.uptime_seconds)
-                // node just became running — switch health poll to sidecar mode
+                // node just became running — stop the boot poll; sidecar is up
                 if (!wasRunning && updated.state === 'running') {
                     if (this._healthPollTimer) { clearInterval(this._healthPollTimer); this._healthPollTimer = null }
-                    this._healthPollTimer = setInterval(() => this._pollHealth(), 15000)
                     // now that sidecar is up, fetch boot log if that tab is active
                     const activePanel = this.shadowRoot.querySelector('.tab-panel.active')
                     if (activePanel?.dataset?.panel === 'bootlog') this._fetchBootLog()
@@ -250,9 +249,11 @@ class SpCliNodesView extends SgComponent {
 
         if (stack.state !== 'running') this._activateTab('bootlog')
 
-        // running: poll sidecar every 15s; pending/other: poll SP CLI backend every 5s
-        const interval = stack.state === 'running' ? 15000 : 5000
-        this._healthPollTimer = setInterval(() => this._pollHealth(), interval)
+        // Only poll for non-running nodes (SP CLI backend, same-origin) to detect
+        // state transitions. Running nodes don't need a background sidecar poll.
+        if (stack.state !== 'running') {
+            this._healthPollTimer = setInterval(() => this._pollHealth(), 5000)
+        }
 
         Array.from(this.shadowRoot.querySelectorAll('.node-row')).forEach(r =>
             r.classList.toggle('selected', r.querySelector('.row-name')?.textContent === stack.stack_name)
