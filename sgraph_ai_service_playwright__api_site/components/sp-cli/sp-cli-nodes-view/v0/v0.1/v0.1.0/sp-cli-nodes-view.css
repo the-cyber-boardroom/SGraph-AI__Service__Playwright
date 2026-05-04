@@ -144,6 +144,40 @@ sp-cli-host-api-panel { display: block; height: 100%; }
 
 .mono { font-family: var(--font-mono); }
 
+/* ── API key row in overview ──────────────────── */
+.api-key-row {
+    display:     flex;
+    align-items: center;
+    gap:         6px;
+}
+.api-key-val {
+    flex:         1;
+    font-size:    11px;
+    font-family:  var(--font-mono);
+    color:        var(--text-2);
+    overflow:     hidden;
+    text-overflow:ellipsis;
+    white-space:  nowrap;
+}
+.api-key-missing {
+    font-size:  11px;
+    color:      var(--text-4);
+    font-style: italic;
+}
+.api-key-btn {
+    background:    none;
+    border:        none;
+    cursor:        pointer;
+    padding:       1px 3px;
+    border-radius: var(--r-1);
+    font-size:     12px;
+    color:         var(--text-3);
+    line-height:   1;
+    flex-shrink:   0;
+    transition:    color 100ms, background 100ms;
+}
+.api-key-btn:hover { color: var(--text-1); background: var(--bg-hover); }
+
 /* ── Containers tab ───────────────────────────────── */
 .ct-head {
     display:        flex;

@@ -97,6 +97,51 @@ class SpCliNodesView extends SgComponent {
         }
     }
 
+    _renderApiKeyRow(stack) {
+        const key = stack?.host_api_key || ''
+        const dt  = document.createElement('dt')
+        dt.textContent = 'API Key'
+
+        const dd = document.createElement('dd')
+        dd.className = 'api-key-row'
+
+        if (!key) {
+            dd.innerHTML = '<span class="api-key-missing">not captured</span>'
+            this._infoKv.appendChild(dt)
+            this._infoKv.appendChild(dd)
+            return
+        }
+
+        const val = document.createElement('span')
+        val.className = 'mono api-key-val'
+        val.textContent = this._keyRevealed ? key : key.slice(0, 8) + '••••••••'
+
+        const eye = document.createElement('button')
+        eye.className = 'api-key-btn'
+        eye.title = this._keyRevealed ? 'Hide' : 'Reveal'
+        eye.textContent = this._keyRevealed ? '🙈' : '👁'
+        eye.addEventListener('click', () => {
+            this._keyRevealed = !this._keyRevealed
+            this._renderApiKeyRow(this._currentStack)
+        })
+
+        const copy = document.createElement('button')
+        copy.className = 'api-key-btn'
+        copy.title = 'Copy'
+        copy.textContent = '⎘'
+        copy.addEventListener('click', () => navigator.clipboard?.writeText(key))
+
+        // remove old dt/dd if re-rendering
+        this._infoKv.querySelector('.api-key-row')?.previousElementSibling?.remove()
+        this._infoKv.querySelector('.api-key-row')?.remove()
+
+        dd.appendChild(val)
+        dd.appendChild(eye)
+        dd.appendChild(copy)
+        this._infoKv.appendChild(dt)
+        this._infoKv.appendChild(dd)
+    }
+
     _toggleCollapse() {
         this._nodesView?.classList.toggle('list-collapsed')
     }
@@ -125,7 +170,8 @@ class SpCliNodesView extends SgComponent {
     }
 
     _openDetail(stack) {
-        this._currentStack = stack
+        this._currentStack  = stack
+        this._keyRevealed   = false
         this._detail.hidden = false
         this.shadowRoot.querySelector('.nodes-view')?.classList.add('detail-open')
 
@@ -133,17 +179,19 @@ class SpCliNodesView extends SgComponent {
         if (this._detName) this._detName.textContent = stack.stack_name
 
         const hostUrl = stack.host_api_url || (stack.public_ip ? `http://${stack.public_ip}:19009` : null)
-        if (this._infoKv) this._infoKv.innerHTML = `
-            <dt>Type</dt>      <dd>${_esc(stack.type_id)}</dd>
-            <dt>State</dt>     <dd>${_esc(stack.state)}</dd>
-            <dt>Instance</dt>  <dd>${_esc(stack.instance_type || '—')}</dd>
-            <dt>Region</dt>    <dd>${_esc(stack.region || '—')}</dd>
-            <dt>Public IP</dt> <dd class="mono">${_esc(stack.public_ip || '—')}</dd>
-            ${hostUrl ? `<dt>Host API</dt> <dd class="mono">${_esc(hostUrl)}</dd>` : ''}
-            ${stack.host_api_key ? `<dt>API Key</dt> <dd class="mono key-trunc">${_esc(stack.host_api_key.slice(0,12))}…</dd>` : ''}
-            <dt>Node ID</dt>   <dd class="mono">${_esc(stack.stack_name)}</dd>
-            <dt>Uptime</dt>    <dd>${_fmtUptime(stack.uptime_seconds)}</dd>
-        `
+        if (this._infoKv) {
+            this._infoKv.innerHTML = `
+                <dt>Type</dt>      <dd>${_esc(stack.type_id)}</dd>
+                <dt>State</dt>     <dd>${_esc(stack.state)}</dd>
+                <dt>Instance</dt>  <dd>${_esc(stack.instance_type || '—')}</dd>
+                <dt>Region</dt>    <dd>${_esc(stack.region || '—')}</dd>
+                <dt>Public IP</dt> <dd class="mono">${_esc(stack.public_ip || '—')}</dd>
+                ${hostUrl ? `<dt>Host API</dt><dd class="mono">${_esc(hostUrl)}</dd>` : ''}
+                <dt>Node ID</dt>   <dd class="mono">${_esc(stack.stack_name)}</dd>
+                <dt>Uptime</dt>    <dd>${_fmtUptime(stack.uptime_seconds)}</dd>
+            `
+            this._renderApiKeyRow(stack)
+        }
 
         if (!this._nodesView?.classList.contains('detail-open')) {
             const w = this._nodesList?.offsetWidth ?? 280
