@@ -1,0 +1,42 @@
+name: CI Pipeline - DEV
+on:
+  workflow_dispatch:
+    inputs:
+      force_image_rebuild:
+        description: 'Force Docker image rebuild even when no image-relevant files changed'
+        required: false
+        type: boolean
+        default: false
+  push:
+    branches:
+      - dev
+    paths-ignore:
+      - 'sgraph_ai_service_playwright__cli/**'
+      - 'tests/unit/sgraph_ai_service_playwright__cli/**'
+      - 'agent_mitmproxy/**'
+      - 'tests/unit/agent_mitmproxy/**'
+      - 'scripts/provision_ec2.py'
+      - 'scripts/observability.py'
+      - 'scripts/run_sp_cli.py'
+      - 'scripts/sp-cli__run-locally.sh'
+      - '.github/workflows/ci__sp_cli.yml'
+      - '.github/workflows/ci__agent_mitmproxy.yml'
+      - 'team/**'
+      - 'library/**'
+      - '**/*.md'
+      # version-bump commits — increment-tag writes these; ignore them so the
+      # bump commit does not re-trigger a second CI run (belt-and-suspenders
+      # alongside the [skip ci] tag in the commit message)
+      - 'sgraph_ai_service_playwright/version'
+      - 'sg_compute/version'
+
+jobs:
+  deploy-dev:
+    uses: ./.github/workflows/ci-pipeline.yml
+    with:
+      git_branch          : 'dev'
+      release_type        : 'minor'
+      target_deploy       : 'dev'
+      should_increment_tag: true
+      force_image_rebuild : ${{ inputs.force_image_rebuild || false }}
+    secrets: inherit

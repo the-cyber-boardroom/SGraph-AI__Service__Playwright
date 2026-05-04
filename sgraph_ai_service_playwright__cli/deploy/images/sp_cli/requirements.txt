@@ -1,0 +1,15 @@
+# SP CLI Lambda — runtime dependencies
+# No Playwright / Chromium here — this Lambda is a management API that calls
+# AWS and returns Type_Safe JSON. Keep deps narrow to minimise cold-start.
+
+boto3
+fastapi
+mangum
+requests
+rich
+typer
+
+osbot-aws
+osbot-fast-api
+osbot-fast-api-serverless
+osbot-utils

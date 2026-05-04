@@ -1,0 +1,48 @@
+# ═══════════════════════════════════════════════════════════════════════════════
+# sg-compute-specs — spec catalogue distribution
+# pyproject.toml lives inside sg_compute_specs/; source root is one level up.
+# Build: python -m build sg_compute_specs/ --wheel --outdir dist/
+#
+# Entry-points in 'sg_compute.specs' let Spec__Loader discover specs after
+# pip-install without a filesystem walk.
+# ═══════════════════════════════════════════════════════════════════════════════
+
+[project]
+name            = "sg-compute-specs"
+version         = "0.1.0"
+description     = "SG/Compute Specs — spec catalogue for sg-compute"
+authors         = [{ name = "Dinis Cruz", email = "dinis@the-cyber-boardroom.com" }]
+license         = { text = "Apache-2.0" }
+requires-python = ">=3.12"
+dependencies    = []
+
+[project.entry-points."sg_compute.specs"]
+docker      = "sg_compute_specs.docker.manifest"
+elastic     = "sg_compute_specs.elastic.manifest"
+firefox     = "sg_compute_specs.firefox.manifest"
+mitmproxy   = "sg_compute_specs.mitmproxy.manifest"
+neko        = "sg_compute_specs.neko.manifest"
+ollama      = "sg_compute_specs.ollama.manifest"
+open_design = "sg_compute_specs.open_design.manifest"
+opensearch  = "sg_compute_specs.opensearch.manifest"
+playwright  = "sg_compute_specs.playwright.manifest"
+podman      = "sg_compute_specs.podman.manifest"
+prometheus  = "sg_compute_specs.prometheus.manifest"
+vnc         = "sg_compute_specs.vnc.manifest"
+
+[tool.setuptools]
+package-dir     = { "" = ".." }
+
+[tool.setuptools.packages.find]
+where   = [".."]
+include = ["sg_compute_specs*"]
+exclude = ["sg_compute_specs*tests*",
+           "sg_compute_specs*__pycache__*",
+           "sg_compute_specs*docker*"]
+
+[tool.setuptools.package-data]
+sg_compute_specs = ["*/version", "playwright/core/version"]
+
+[build-system]
+requires      = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"

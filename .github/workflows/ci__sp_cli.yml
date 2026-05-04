@@ -1,0 +1,382 @@
+# ═══════════════════════════════════════════════════════════════════════════════
+# CI Pipeline — SP CLI Lambda
+#
+# Two execution paths, branch-gated:
+#
+#   • Push to `dev`  → CODE-ONLY FAST PATH (~30 s round trip)
+#                       unit tests → deploy-sp-cli-code (zip + S3 + flip
+#                       AGENTIC_APP_VERSION on the agentic Lambda).
+#                       Image is NOT rebuilt; provision is NOT run. The
+#                       agentic Lambda picks up the new code on next cold
+#                       start via Agentic_Boot_Shim → S3 download.
+#
+#   • Push to `main` → FULL DEPLOY (~3 min round trip)
+#                       unit tests → build-and-push-image → provision
+#                       (both baseline + agentic variants) →
+#                       deploy-sp-cli-code. Stage = 'prod'.
+#
+#   • workflow_dispatch with `force_image_rebuild=true` overrides the gate
+#     and runs the full deploy regardless of branch.
+#
+# Pre-conditions for the dev fast path
+# ────────────────────────────────────
+# The Lambda(s) must already exist. First-time setup: push to main (or run
+# workflow_dispatch with force_image_rebuild=true) so build + provision
+# create the function + Function URL. After that, dev pushes hot-swap.
+# ═══════════════════════════════════════════════════════════════════════════════
+
+name: CI Pipeline - SP CLI Lambda
+
+on:
+  workflow_dispatch:
+    inputs:
+      stage:
+        description: 'Deployment stage (forms the Lambda name sp-playwright-cli-<stage>)'
+        required: false
+        type: string
+        default: 'dev'
+      force_image_rebuild:
+        description: 'Force full deploy (image rebuild + provision) regardless of branch'
+        required: false
+        type: boolean
+        default: false
+  push:
+    branches:
+      - dev
+      - main
+    paths:
+      - 'sgraph_ai_service_playwright__cli/**'
+      - 'sgraph_ai_service_playwright__api_site/**'
+      - 'scripts/provision_ec2.py'
+      - 'scripts/observability.py'
+      - 'tests/unit/sgraph_ai_service_playwright__cli/**'
+      - '.github/workflows/ci__sp_cli.yml'
+  pull_request:
+    paths:
+      - 'sgraph_ai_service_playwright__cli/**'
+      - 'sgraph_ai_service_playwright__api_site/**'
+      - 'scripts/provision_ec2.py'
+      - 'scripts/observability.py'
+      - 'tests/unit/sgraph_ai_service_playwright__cli/**'
+      - '.github/workflows/ci__sp_cli.yml'
+
+env:
+  IMAGE_NAME : 'sp-playwright-cli'
+  # Push to dev → deploy to dev; push to main → deploy to prod. workflow_dispatch overrides via input.
+  DEFAULT_STAGE_DEV  : 'dev'
+  DEFAULT_STAGE_MAIN : 'prod'
+
+permissions:
+  contents: write                                                                  # required by the increment-tag job to push the version-bump commit + tag back to dev/main
+  id-token: write
+
+jobs:
+
+  # ════════════════════════════════════════════════════════════════════════════
+  # Job 1: Unit Tests (no Docker, no AWS)
+  # ════════════════════════════════════════════════════════════════════════════
+  run-unit-tests:
+    name: "Run Unit Tests"
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+          cache-dependency-path: 'sgraph_ai_service_playwright__cli/deploy/images/sp_cli/requirements.txt'
+
+      - name: Install dependencies
+        run: |
+          # Install the Lambda's runtime deps (same set the image will bake in) plus the build/deploy-time extras the unit tests import at collection time (mangum + osbot-aws + typer are already in the runtime list; pytest is the only test-only pin).
+          pip install -r sgraph_ai_service_playwright__cli/deploy/images/sp_cli/requirements.txt
+          pip install pytest pytest-timeout httpx                                  # httpx is the TestClient transport
+
+      - name: Run SP CLI unit tests
+        timeout-minutes: 5
+        run: |
+          python -m pytest tests/unit/sgraph_ai_service_playwright__cli/ -v --timeout=30
+
+  # ════════════════════════════════════════════════════════════════════════════
+  # Job 2: Check AWS Credentials (gate for every AWS-touching job)
+  # ════════════════════════════════════════════════════════════════════════════
+  check-aws-credentials:
+    name: Check AWS Credentials
+    runs-on: ubuntu-latest
+    outputs:
+      has-credentials: ${{ steps.check.outputs.has-credentials }}
+    steps:
+      - name: Check if AWS credentials are configured
+        id: check
+        run: |
+          if [[ -n "${{ secrets.AWS_ACCESS_KEY_ID }}" ]] && \
+             [[ -n "${{ secrets.AWS_SECRET_ACCESS_KEY }}" ]] && \
+             [[ -n "${{ secrets.AWS_DEFAULT_REGION }}" ]] && \
+             [[ -n "${{ secrets.AWS_ACCOUNT_ID }}" ]]; then
+            echo "has-credentials=true" >> $GITHUB_OUTPUT
+          else
+            echo "has-credentials=false" >> $GITHUB_OUTPUT
+            echo "AWS credentials not configured — image push + Lambda provision skipped"
+          fi
+
+  # ════════════════════════════════════════════════════════════════════════════
+  # Job 3: Detect code changes
+  #   The image-rebuild gate is now BRANCH-based (main, or workflow_dispatch
+  #   with force_image_rebuild=true). This job only filters out test/docs-only
+  #   changes from the code-deploy fast path.
+  # ════════════════════════════════════════════════════════════════════════════
+  detect-changes:
+    name: Detect Code Changes
+    runs-on: ubuntu-latest
+    outputs:
+      code-deploy-needed  : ${{ steps.filter.outputs.code  }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Filter paths
+        id: filter
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            code:
+              - 'sgraph_ai_service_playwright__cli/**'
+              - 'sgraph_ai_service_playwright__api_site/**'
+              - 'scripts/provision_ec2.py'
+              - 'scripts/observability.py'
+              - 'scripts/__init__.py'
+
+  # ════════════════════════════════════════════════════════════════════════════
+  # Job 4: Increment Tag    [push to dev / main with code changes]
+  #   Bumps sgraph_ai_service_playwright/version (the SHARED version file —
+  #   single source of truth across the main Playwright service AND the SP
+  #   CLI). dev = minor bump, main = major bump. Mirrors the increment-tag
+  #   job in ci-pipeline.yml so both pipelines drive the same version stream.
+  #
+  #   Gated on detect-changes.code-deploy-needed so workflow-only / docs-only
+  #   pushes don't burn a version number — every bump implies a real code zip
+  #   getting uploaded to S3 and AGENTIC_APP_VERSION getting flipped on the
+  #   Lambda. Bumping without deploying would leave the Lambda pointing at a
+  #   stale version key.
+  #
+  #   The bumped commit is pushed back to the branch by the action; downstream
+  #   jobs check out github.ref_name to pick up the fresh value before they
+  #   build the image / package the zip / set AGENTIC_APP_VERSION.
+  # ════════════════════════════════════════════════════════════════════════════
+  increment-tag:
+    name: Increment Tag (dev=minor, main=major)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    needs: [run-unit-tests, detect-changes]
+    if: |
+      github.event_name == 'push' &&
+      (github.ref_name == 'dev' || github.ref_name == 'main') &&
+      needs.detect-changes.outputs.code-deploy-needed == 'true'
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Increment Tag
+        uses: owasp-sbot/OSBot-GitHub-Actions/.github/actions/git__increment-tag@dev
+        with:
+          release_type: ${{ github.ref_name == 'main' && 'major' || 'minor' }}
+
+  # ════════════════════════════════════════════════════════════════════════════
+  # Job 5: Build + Push Docker Image to ECR    [main branch only]
+  #   Branch-gated: only fires on push to main (or workflow_dispatch with
+  #   force_image_rebuild=true). dev pushes skip this entirely — the existing
+  #   image is reused and the agentic Lambda hot-swaps via S3 zip.
+  #
+  #   Build context is the repo root; the dockerfile's COPYs are rooted there.
+  #
+  #   Checks out github.ref_name (not the original push SHA) so the image
+  #   bakes the version bumped by increment-tag.
+  # ════════════════════════════════════════════════════════════════════════════
+  build-and-push-image:
+    name: "Build + Push Docker Image to ECR"
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs: [run-unit-tests, check-aws-credentials, increment-tag]
+    if: |
+      always() &&
+      needs.run-unit-tests.result == 'success' &&
+      needs.check-aws-credentials.outputs.has-credentials == 'true' &&
+      (needs.increment-tag.result == 'success' || needs.increment-tag.result == 'skipped') &&
+      (github.ref_name == 'main' || inputs.force_image_rebuild)
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.ref_name }}                                                # Pick up the version-file bump pushed by increment-tag
+
+      - name: Git Update Current Branch                                               # Pull any commits (e.g. version bump) pushed by increment-tag after the initial checkout
+        uses: owasp-sbot/OSBot-GitHub-Actions/.github/actions/git__update_branch@dev
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+          cache-dependency-path: 'sgraph_ai_service_playwright__cli/deploy/images/sp_cli/requirements.txt'
+
+      - name: Install dependencies
+        run: |
+          # Same runtime deps used by the build helpers; osbot-docker is needed by the ECR push helper in Docker__SP__CLI (via osbot-aws.helpers.Create_Image_ECR).
+          pip install -r sgraph_ai_service_playwright__cli/deploy/images/sp_cli/requirements.txt
+          pip install osbot-docker
+
+      - name: Authenticate to AWS Public ECR                                        # public.ecr.aws/lambda/python is our base — authenticated pulls are unthrottled
+        run: |
+          aws ecr-public get-login-password --region us-east-1 | \
+            docker login --username AWS --password-stdin public.ecr.aws
+        env:
+          AWS_SECRET_ACCESS_KEY : ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION    : ${{ secrets.AWS_DEFAULT_REGION    }}
+          AWS_ACCESS_KEY_ID     : ${{ secrets.AWS_ACCESS_KEY_ID     }}
+
+      - name: Build + push via Docker__SP__CLI
+        run: |
+          python -c "
+          from sgraph_ai_service_playwright__cli.deploy.Docker__SP__CLI import Docker__SP__CLI
+          docker = Docker__SP__CLI().setup()
+          result = docker.build_and_push()
+          print('image_uri:', result['image_uri'])
+          "
+        env:
+          AWS_SECRET_ACCESS_KEY : ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION    : ${{ secrets.AWS_DEFAULT_REGION    }}
+          AWS_ACCOUNT_ID        : ${{ secrets.AWS_ACCOUNT_ID        }}
+          AWS_ACCESS_KEY_ID     : ${{ secrets.AWS_ACCESS_KEY_ID     }}
+
+  # ════════════════════════════════════════════════════════════════════════════
+  # Job 5: Provision the SP CLI Lambda(s)    [main branch only]
+  #   Branch-gated, same as build-and-push-image. dev pushes skip this; the
+  #   Lambda already exists from a prior main deploy and just gets its
+  #   AGENTIC_APP_VERSION env var flipped by deploy-sp-cli-code.
+  #
+  #   On main: provisions BOTH variants (baseline + agentic), idempotent.
+  # ════════════════════════════════════════════════════════════════════════════
+  provision-sp-cli-lambda:
+    name: "Provision SP CLI Lambda (role + image + function URL)"
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: [run-unit-tests, build-and-push-image, check-aws-credentials, increment-tag]
+    if: |
+      always() &&
+      needs.run-unit-tests.result == 'success' &&
+      needs.check-aws-credentials.outputs.has-credentials == 'true' &&
+      needs.build-and-push-image.result == 'success' &&
+      (needs.increment-tag.result == 'success' || needs.increment-tag.result == 'skipped')
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.ref_name }}                                                # Pick up the version-file bump pushed by increment-tag — provision pins AGENTIC_APP_VERSION
+
+      - name: Git Update Current Branch                                               # Pull any commits (e.g. version bump) pushed by increment-tag after the initial checkout
+        uses: owasp-sbot/OSBot-GitHub-Actions/.github/actions/git__update_branch@dev
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+          cache-dependency-path: 'sgraph_ai_service_playwright__cli/deploy/images/sp_cli/requirements.txt'
+
+      - name: Install dependencies
+        run: |
+          pip install -r sgraph_ai_service_playwright__cli/deploy/images/sp_cli/requirements.txt
+
+      - name: Resolve deployment stage                                               # workflow_dispatch input wins; otherwise dev→dev, main→prod
+        id: stage
+        run: |
+          if [[ -n "${{ inputs.stage }}" ]]; then
+            echo "stage=${{ inputs.stage }}" >> $GITHUB_OUTPUT
+          elif [[ "${{ github.ref_name }}" == "main" ]]; then
+            echo "stage=${{ env.DEFAULT_STAGE_MAIN }}" >> $GITHUB_OUTPUT
+          else
+            echo "stage=${{ env.DEFAULT_STAGE_DEV }}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Provision SP CLI Lambda
+        run: |
+          python -m sgraph_ai_service_playwright__cli.deploy.provision --stage ${{ steps.stage.outputs.stage }} --skip-build   # Image was built + pushed in the prior job; --skip-build avoids re-running the Docker build (and avoids pulling in osbot-docker)
+        env:
+          AWS_SECRET_ACCESS_KEY          : ${{ secrets.AWS_SECRET_ACCESS_KEY          }}
+          AWS_DEFAULT_REGION             : ${{ secrets.AWS_DEFAULT_REGION             }}
+          AWS_ACCOUNT_ID                 : ${{ secrets.AWS_ACCOUNT_ID                 }}
+          AWS_ACCESS_KEY_ID              : ${{ secrets.AWS_ACCESS_KEY_ID              }}
+          FAST_API__AUTH__API_KEY__NAME  : ${{ secrets.FAST_API__AUTH__API_KEY__NAME  }}
+          FAST_API__AUTH__API_KEY__VALUE : ${{ secrets.FAST_API__AUTH__API_KEY__VALUE }}
+
+  # ════════════════════════════════════════════════════════════════════════════
+  # Job 6: Deploy code zip (the hot-swap)    [dev + main]
+  #   Packages sgraph_ai_service_playwright__cli/ + scripts/ into a zip,
+  #   uploads to s3://<account>--sgraph-ai--<region>/apps/sp-playwright-cli/<stage>/<version>.zip,
+  #   then flips AGENTIC_APP_VERSION on the agentic Lambda (sp-playwright-cli-<stage>)
+  #   so the next cold start pulls the fresh code.
+  #
+  #   Runs on BOTH dev and main:
+  #     • dev  → fast path (~30 s end-to-end). provision-sp-cli-lambda was
+  #              SKIPPED (no image rebuild); the existing Lambda just gets
+  #              its env var flipped.
+  #     • main → runs AFTER provision-sp-cli-lambda completes. Same zip
+  #              upload + env flip; the freshly-provisioned Lambda picks up
+  #              the matching code on first cold start.
+  #
+  #   Gated on code-deploy-needed so doc-only / workflow-only PRs skip it.
+  #   workflow_dispatch is the escape hatch: a manual run always deploys
+  #   whatever's at the current sgraph_ai_service_playwright/version (no
+  #   version bump - increment-tag stays push-only). Use it to recover
+  #   from an out-of-sync state where the version file moved but the
+  #   Lambda's AGENTIC_APP_VERSION did not.
+  # ════════════════════════════════════════════════════════════════════════════
+  deploy-sp-cli-code:
+    name: "Deploy SP CLI code (S3 zip + AGENTIC_APP_VERSION flip)"
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: [run-unit-tests, check-aws-credentials, detect-changes, build-and-push-image, provision-sp-cli-lambda, increment-tag]
+    if: |
+      always() &&
+      needs.run-unit-tests.result == 'success' &&
+      needs.check-aws-credentials.outputs.has-credentials == 'true' &&
+      (needs.detect-changes.outputs.code-deploy-needed == 'true' || github.event_name == 'workflow_dispatch') &&
+      needs.build-and-push-image.result != 'failure' &&
+      needs.provision-sp-cli-lambda.result != 'failure' &&
+      (needs.increment-tag.result == 'success' || needs.increment-tag.result == 'skipped')
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.ref_name }}                                                # Pick up the version-file bump pushed by increment-tag — deploy_code reads sgraph_ai_service_playwright/version for the S3 key + AGENTIC_APP_VERSION flip
+
+      - name: Git Update Current Branch                                               # Pull any commits (e.g. version bump) pushed by increment-tag after the initial checkout; without this the version file is stale and we re-upload an existing S3 key instead of the new one
+        uses: owasp-sbot/OSBot-GitHub-Actions/.github/actions/git__update_branch@dev
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+          cache-dependency-path: 'sgraph_ai_service_playwright__cli/deploy/images/sp_cli/requirements.txt'
+
+      - name: Install dependencies
+        run: |
+          pip install -r sgraph_ai_service_playwright__cli/deploy/images/sp_cli/requirements.txt
+
+      - name: Resolve deployment stage
+        id: stage
+        run: |
+          if [[ -n "${{ inputs.stage }}" ]]; then
+            echo "stage=${{ inputs.stage }}" >> $GITHUB_OUTPUT
+          elif [[ "${{ github.ref_name }}" == "main" ]]; then
+            echo "stage=${{ env.DEFAULT_STAGE_MAIN }}" >> $GITHUB_OUTPUT
+          else
+            echo "stage=${{ env.DEFAULT_STAGE_DEV }}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Package + upload code zip + flip Lambda env
+        run: |
+          python -m sgraph_ai_service_playwright__cli.deploy.deploy_code \
+            --stage ${{ steps.stage.outputs.stage }} --update-lambda
+        env:
+          AWS_SECRET_ACCESS_KEY : ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION    : ${{ secrets.AWS_DEFAULT_REGION    }}
+          AWS_ACCOUNT_ID        : ${{ secrets.AWS_ACCOUNT_ID        }}
+          AWS_ACCESS_KEY_ID     : ${{ secrets.AWS_ACCESS_KEY_ID     }}

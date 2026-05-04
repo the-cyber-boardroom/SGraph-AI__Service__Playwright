@@ -1,0 +1,296 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+   EC2 Automation — design tokens, aligned to sg-layout v0.1 palette
+   sg-layout uses: bg #1A1A2E, surface #162040, border #222d4d, accent #4ECDC4
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+:root {
+  /* Surface scale */
+  --bg-app:         #11112a;
+  --bg-panel:       #1a1a2e;
+  --bg-panel-2:     #1f203a;
+  --bg-elev:        #162040;
+  --bg-input:       #11122a;
+  --bg-tab-active:  #1f213d;
+  --bg-hover:       #232548;
+  --bg-row-alt:     #181934;
+
+  /* Borders */
+  --border-1:       #222d4d;
+  --border-2:       #2c3a63;
+  --border-strong:  #3d4d7a;
+  --border-focus:   #4ECDC4;
+
+  /* Text */
+  --text-1:    #e2e8f0;
+  --text-2:    #a4b1c4;
+  --text-3:    #5a6478;
+  --text-4:    #404a5e;
+  --text-link: #8ab8ff;
+
+  /* Accent — sg-layout cyan-mint */
+  --accent:       #4ECDC4;
+  --accent-hover: #6FDAD2;
+  --accent-press: #3DBAB1;
+  --accent-soft:  rgba(78,205,196,0.14);
+  --accent-line:  rgba(78,205,196,0.35);
+
+  /* Semantic states */
+  --good:      #4ade80;
+  --good-soft: rgba(74,222,128,0.14);
+  --warn:      #fbbf24;
+  --warn-soft: rgba(251,191,36,0.14);
+  --info:      #60a5fa;
+  --info-soft: rgba(96,165,250,0.14);
+  --bad:       #f87171;
+  --bad-soft:  rgba(248,113,113,0.14);
+  --muted-pill:#2c3a63;
+
+  /* Typography */
+  --font-sans: "Inter Tight", "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", "SFMono-Regular", ui-monospace, Menlo, Consolas, monospace;
+
+  /* Radii */
+  --r-1: 2px;
+  --r-2: 4px;
+  --r-3: 6px;
+  --r-4: 10px;
+
+  /* sg-layout chrome metrics */
+  --sgl-tab-h:   28px;
+  --sgl-panel-h: 32px;
+
+  /* Shadows */
+  --shadow-1: 0 1px 0 rgba(255,255,255,0.02) inset, 0 1px 2px rgba(0,0,0,0.35);
+  --shadow-2: 0 8px 24px rgba(0,0,0,0.45);
+
+  /* Spacing */
+  --pad-pane: 14px;
+  --gap-1: 6px;
+  --gap-2: 10px;
+  --gap-3: 14px;
+  --gap-4: 20px;
+
+  /* ── Map onto the --sg-* tokens that existing sp-cli-* components consume ── */
+  --sg-bg:              var(--bg-app);
+  --sg-bg-secondary:    var(--bg-panel);
+  --sg-surface:         var(--bg-elev);
+  --sg-border:          var(--border-1);
+  --sg-text:            var(--text-1);
+  --sg-text-muted:      var(--text-3);
+  --sg-accent:          var(--accent);
+  --sg-accent-hover:    var(--accent-hover);
+  --sg-font-body:       var(--font-sans);
+  --sg-font-mono:       var(--font-mono);
+  --sg-sp-1:            4px;
+  --sg-sp-2:            8px;
+  --sg-sp-3:            12px;
+  --sg-sp-4:            16px;
+  --sg-radius:          var(--r-3);
+  --sg-transition-fast: 120ms ease;
+}
+
+/* ── Root reset for any element that carries .ec2-root ── */
+.ec2-root, .ec2-root * { box-sizing: border-box; }
+.ec2-root {
+  font-family: var(--font-sans);
+  color:       var(--text-1);
+  background:  var(--bg-app);
+  font-size:   13px;
+  line-height: 1.45;
+  letter-spacing: -0.005em;
+  -webkit-font-smoothing: antialiased;
+}
+.ec2-root .mono { font-family: var(--font-mono); }
+
+/* Tiny uppercase section label */
+.tlabel {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-3);
+  white-space: nowrap;
+}
+
+/* ── Panel chrome (sg-layout style) ─────────────────────────────────────── */
+.sgl-panel {
+  background:    var(--bg-panel);
+  border:        1px solid var(--border-1);
+  display:       flex;
+  flex-direction:column;
+  min-height:    0;
+  min-width:     0;
+}
+.sgl-panel-head {
+  height:        var(--sgl-panel-h);
+  background:    var(--bg-elev);
+  border-bottom: 1px solid var(--border-1);
+  display:       flex;
+  align-items:   stretch;
+  padding-right: 4px;
+  flex-shrink:   0;
+}
+.sgl-panel-title {
+  display:        flex;
+  align-items:    center;
+  gap:            6px;
+  padding:        0 12px;
+  font-size:      11px;
+  font-weight:    600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color:          var(--text-2);
+  white-space:    nowrap;
+  flex-shrink:    0;
+}
+.sgl-panel-tabs { display: flex; align-items: stretch; flex: 1; min-width: 0; }
+.sgl-tab {
+  display:     inline-flex;
+  align-items: center;
+  gap:         6px;
+  padding:     0 12px;
+  height:      100%;
+  font-size:   12px;
+  color:       var(--text-3);
+  cursor:      pointer;
+  border:      none;
+  background:  transparent;
+  position:    relative;
+  font-family: inherit;
+  white-space: nowrap;
+}
+.sgl-tab:hover  { color: var(--text-1); background: var(--bg-hover); }
+.sgl-tab.active { color: var(--text-1); }
+.sgl-tab.active::after {
+  content:    "";
+  position:   absolute;
+  left: 0; right: 0; bottom: 0;
+  height:     2px;
+  background: var(--accent);
+}
+.sgl-panel-actions {
+  display:     flex;
+  align-items: center;
+  gap:         2px;
+  flex-shrink: 0;
+  padding:     0 4px;
+}
+.sgl-iconbtn {
+  width:       22px;
+  height:      22px;
+  background:  transparent;
+  border:      none;
+  color:       var(--text-3);
+  cursor:      pointer;
+  border-radius: 3px;
+  display:     inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.sgl-iconbtn:hover { background: var(--bg-hover); color: var(--text-1); }
+.sgl-panel-body {
+  flex:       1;
+  min-height: 0;
+  min-width:  0;
+  overflow:   auto;
+  background: var(--bg-panel);
+}
+
+/* ── Buttons ─────────────────────────────────────────────────────────────── */
+.ec2-btn {
+  display:     inline-flex;
+  align-items: center;
+  gap:         6px;
+  padding:     6px 10px;
+  border-radius: var(--r-2);
+  font-size:   12px;
+  font-weight: 500;
+  font-family: inherit;
+  border:      1px solid var(--border-2);
+  background:  var(--bg-elev);
+  color:       var(--text-1);
+  cursor:      pointer;
+  transition:  background .12s, border-color .12s;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.ec2-btn:hover              { background: var(--bg-hover); border-color: var(--border-strong); }
+.ec2-btn.primary            { background: var(--accent); color: #062623; border-color: transparent; font-weight: 600; }
+.ec2-btn.primary:hover      { background: var(--accent-hover); }
+.ec2-btn.ghost              { background: transparent; border-color: transparent; color: var(--text-2); }
+.ec2-btn.ghost:hover        { color: var(--text-1); background: var(--bg-hover); }
+.ec2-btn.danger             { color: #fecaca; border-color: rgba(248,113,113,0.35); background: rgba(248,113,113,0.08); }
+.ec2-btn.sm                 { padding: 3px 8px; font-size: 11px; }
+
+/* ── Pills ───────────────────────────────────────────────────────────────── */
+.ec2-pill {
+  display:        inline-flex;
+  align-items:    center;
+  gap:            4px;
+  padding:        2px 6px;
+  border-radius:  3px;
+  font-size:      10px;
+  font-weight:    600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  background:     var(--muted-pill);
+  color:          var(--text-1);
+  line-height:    1.4;
+  white-space:    nowrap;
+}
+.ec2-pill.good { background: var(--good-soft); color: var(--good); }
+.ec2-pill.warn { background: var(--warn-soft); color: var(--warn); }
+.ec2-pill.info { background: var(--info-soft); color: var(--info); }
+.ec2-pill.bad  { background: var(--bad-soft);  color: var(--bad);  }
+.ec2-pill.dot::before { content:""; width:6px; height:6px; border-radius:50%; background:currentColor; }
+
+/* ── Status dot ─────────────────────────────────────────────────────────── */
+.ec2-status {
+  display:     inline-flex;
+  align-items: center;
+  gap:         6px;
+  font-size:   12px;
+  color:       var(--text-1);
+  white-space: nowrap;
+}
+.ec2-status::before      { content:""; width:7px; height:7px; border-radius:50%; background:var(--text-3); flex-shrink:0; }
+.ec2-status.good::before { background: var(--good); box-shadow: 0 0 0 3px var(--good-soft); }
+.ec2-status.bad::before  { background: var(--bad);  }
+.ec2-status.warn::before { background: var(--warn); }
+
+/* ── Form inputs ─────────────────────────────────────────────────────────── */
+.ec2-input, .ec2-select {
+  width:         100%;
+  background:    var(--bg-input);
+  border:        1px solid var(--border-2);
+  color:         var(--text-1);
+  padding:       7px 10px;
+  border-radius: var(--r-2);
+  font-size:     13px;
+  font-family:   inherit;
+  outline:       none;
+}
+.ec2-input:focus, .ec2-select:focus {
+  border-color: var(--border-focus);
+  box-shadow:   0 0 0 3px var(--accent-soft);
+}
+.ec2-select {
+  appearance:       none;
+  background-image: linear-gradient(45deg, transparent 50%, var(--text-2) 50%),
+                    linear-gradient(135deg, var(--text-2) 50%, transparent 50%);
+  background-position: calc(100% - 14px) 50%, calc(100% - 9px) 50%;
+  background-size: 5px 5px, 5px 5px;
+  background-repeat: no-repeat;
+  padding-right: 28px;
+}
+.ec2-field       { display: flex; flex-direction: column; gap: 5px; }
+.ec2-field-label { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; font-size: 12px; font-weight: 500; color: var(--text-1); }
+.ec2-field-help  { font-size: 11px; color: var(--text-3); font-weight: 400; }
+
+/* ── Key-value grid ──────────────────────────────────────────────────────── */
+.ec2-kv    { display: grid; grid-template-columns: 130px 1fr; gap: 6px 16px; font-size: 12px; margin: 0; }
+.ec2-kv dt { color: var(--text-3); font-weight: 500; }
+.ec2-kv dd { color: var(--text-1); margin: 0; }
+
+/* ── Row hover utility ───────────────────────────────────────────────────── */
+.ec2-row-hover:hover { background: var(--bg-hover); }

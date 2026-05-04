@@ -1,0 +1,39 @@
+name: CI Pipeline - MAIN
+on:
+  workflow_dispatch:
+    inputs:
+      force_image_rebuild:
+        description: 'Force Docker image rebuild even when no image-relevant files changed'
+        required: false
+        type: boolean
+        default: false
+  push:
+    branches:
+      - main
+    paths-ignore:
+      - 'sgraph_ai_service_playwright__cli/**'
+      - 'tests/unit/sgraph_ai_service_playwright__cli/**'
+      - 'agent_mitmproxy/**'
+      - 'tests/unit/agent_mitmproxy/**'
+      - 'scripts/provision_ec2.py'
+      - 'scripts/observability.py'
+      - 'scripts/run_sp_cli.py'
+      - 'scripts/sp-cli__run-locally.sh'
+      - '.github/workflows/ci__sp_cli.yml'
+      - '.github/workflows/ci__agent_mitmproxy.yml'
+      - 'team/**'
+      - 'library/**'
+      - '**/*.md'
+      - 'sgraph_ai_service_playwright/version'
+      - 'sg_compute/version'
+
+jobs:
+  deploy-main:
+    uses: ./.github/workflows/ci-pipeline.yml
+    with:
+      git_branch          : 'main'
+      release_type        : 'major'
+      target_deploy       : 'main'
+      should_increment_tag: true
+      force_image_rebuild : ${{ inputs.force_image_rebuild || false }}
+    secrets: inherit

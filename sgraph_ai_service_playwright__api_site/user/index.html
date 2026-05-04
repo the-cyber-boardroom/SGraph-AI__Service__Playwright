@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SG Playwright — Provisioning Console</title>
+  <link rel="stylesheet" href="https://dev.tools.sgraph.ai/components/tokens/v1/v1.0/v1.0.0/sg-tokens.css">
+  <link rel="stylesheet" href="user.css">
+</head>
+<body>
+
+  <sp-cli-top-bar page-title="Provisioning Console">
+    <sp-cli-region-picker slot="region-picker" value="eu-west-2"></sp-cli-region-picker>
+    <sp-cli-vault-picker  slot="vault-picker"></sp-cli-vault-picker>
+  </sp-cli-top-bar>
+
+  <!-- vault gate: shown until vault connects -->
+  <div id="vault-gate" class="vault-gate">
+    <div class="vault-gate-card">
+      <div class="vault-gate-title">Connect a vault to use this console</div>
+      <div class="vault-gate-hint">Click <strong>Connect vault</strong> in the top bar →</div>
+    </div>
+  </div>
+
+  <!-- main content: hidden until vault connects -->
+  <main id="main-content" hidden>
+    <sg-layout id="main-layout"></sg-layout>
+  </main>
+
+  <sg-auth-panel></sg-auth-panel>
+  <sp-cli-launch-modal></sp-cli-launch-modal>
+
+  <script type="module" src="../components/sp-cli/sp-cli-top-bar/v0/v0.1/v0.1.0/sp-cli-top-bar.js"></script>
+  <script type="module" src="../components/sp-cli/sp-cli-region-picker/v0/v0.1/v0.1.0/sp-cli-region-picker.js"></script>
+  <script type="module" src="../components/sp-cli/sp-cli-vault-picker/v0/v0.1/v0.1.0/sp-cli-vault-picker.js"></script>
+  <script type="module" src="../components/sp-cli/sp-cli-user-pane/v0/v0.1/v0.1.0/sp-cli-user-pane.js"></script>
+  <script type="module" src="../components/sp-cli/sp-cli-vault-activity/v0/v0.1/v0.1.0/sp-cli-vault-activity.js"></script>
+  <script type="module" src="../shared/components/sg-auth-panel.js"></script>
+  <script type="module" src="../components/sp-cli/sp-cli-launch-modal/v0/v0.1/v0.1.0/sp-cli-launch-modal.js"></script>
+  <script type="module" src="../components/sp-cli/sp-cli-stack-detail/v0/v0.1/v0.1.0/sp-cli-stack-detail.js"></script>
+  <script type="module" src="user.js"></script>
+
+</body>
+</html>

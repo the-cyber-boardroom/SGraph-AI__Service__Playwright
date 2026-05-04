@@ -1,0 +1,206 @@
+# ═══════════════════════════════════════════════════════════════════════════════
+# CI Pipeline — Agent Mitmproxy (v0.1.32)
+#
+# Separate from the Playwright pipeline. Runs ONLY when files under
+# agent_mitmproxy/** or the mitmproxy provision script change, so a Playwright-
+# only PR does not pay for a mitmproxy image rebuild and vice versa.
+#
+# Jobs:
+#   1. detect-changes           — paths-filter gate (skips build when no
+#                                 mitmproxy-relevant file changed; --force
+#                                 via workflow_dispatch).
+#   2. unit-tests               — pytest against tests/unit/agent_mitmproxy/
+#                                 and the provision script tests. Uses Python
+#                                 3.12 to match the container runtime.
+#   3. check-aws-credentials    — gates every AWS-touching job.
+#   4. build-and-push-image     — builds the agent_mitmproxy image from the
+#                                 repo-root context (the dockerfile COPYs are
+#                                 rooted there) and pushes via the ECR helper.
+#
+# Deploy is intentionally NOT wired here — the EC2 spin-up goes through
+# scripts/provision_mitmproxy_ec2.py on demand (workflow_dispatch-only would
+# be the natural next step once the image stabilises).
+# ═══════════════════════════════════════════════════════════════════════════════
+
+name: CI Pipeline - Agent Mitmproxy
+
+on:
+  workflow_dispatch:
+    inputs:
+      force_image_rebuild:
+        description: 'Force Docker image rebuild even when no image-relevant files changed'
+        required: false
+        type: boolean
+        default: false
+  push:
+    branches:
+      - dev
+      - main
+    paths:
+      - 'agent_mitmproxy/**'
+      - 'scripts/provision_mitmproxy_ec2.py'
+      - 'tests/unit/agent_mitmproxy/**'
+      - 'tests/unit/scripts/test_provision_mitmproxy_ec2.py'
+      - '.github/workflows/ci__agent_mitmproxy.yml'
+  pull_request:
+    paths:
+      - 'agent_mitmproxy/**'
+      - 'scripts/provision_mitmproxy_ec2.py'
+      - 'tests/unit/agent_mitmproxy/**'
+      - 'tests/unit/scripts/test_provision_mitmproxy_ec2.py'
+      - '.github/workflows/ci__agent_mitmproxy.yml'
+
+env:
+  IMAGE_NAME: 'agent_mitmproxy'
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+
+  # ════════════════════════════════════════════════════════════════════════════
+  # Job 1: Unit Tests (no Docker, no AWS)
+  # ════════════════════════════════════════════════════════════════════════════
+  run-unit-tests:
+    name: "Run Unit Tests"
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+          cache-dependency-path: 'agent_mitmproxy/requirements.txt'
+
+      - name: Install dependencies
+        run: |
+          pip install -r agent_mitmproxy/requirements.txt
+          pip install osbot-aws osbot-docker pytest pytest-timeout httpx        # osbot-aws/osbot-docker are build/deploy-time deps (used by Docker__Agent_Mitmproxy__Base + scripts/provision_mitmproxy_ec2.py), deliberately NOT in agent_mitmproxy/requirements.txt (the container doesn't need them at runtime). The unit tests import those modules at collection time though, so install them here.
+
+      - name: Run unit tests
+        timeout-minutes: 5
+        run: |
+          python -m pytest tests/unit/agent_mitmproxy/ \
+                           tests/unit/scripts/test_provision_mitmproxy_ec2.py \
+                           -v --timeout=30
+
+  # ════════════════════════════════════════════════════════════════════════════
+  # Job 2: Check AWS Credentials (gate for every job that touches AWS)
+  # ════════════════════════════════════════════════════════════════════════════
+  check-aws-credentials:
+    name: Check AWS Credentials
+    runs-on: ubuntu-latest
+    outputs:
+      has-credentials: ${{ steps.check.outputs.has-credentials }}
+    steps:
+      - name: Check if AWS credentials are configured
+        id: check
+        run: |
+          if [[ -n "${{ secrets.AWS_ACCESS_KEY_ID }}" ]] && \
+             [[ -n "${{ secrets.AWS_SECRET_ACCESS_KEY }}" ]] && \
+             [[ -n "${{ secrets.AWS_DEFAULT_REGION }}" ]] && \
+             [[ -n "${{ secrets.AWS_ACCOUNT_ID }}" ]]; then
+            echo "has-credentials=true" >> $GITHUB_OUTPUT
+          else
+            echo "has-credentials=false" >> $GITHUB_OUTPUT
+            echo "AWS credentials not configured — Docker push skipped"
+          fi
+
+  # ════════════════════════════════════════════════════════════════════════════
+  # Job 3: Detect Image-Relevant Changes (path-filter scoped to the
+  #   mitmproxy image context; avoids rebuilds on test-only churn).
+  # ════════════════════════════════════════════════════════════════════════════
+  detect-changes:
+    name: Detect Image-Relevant Changes
+    runs-on: ubuntu-latest
+    outputs:
+      image-rebuild-needed: ${{ steps.filter.outputs.image }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Filter paths
+        id: filter
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            image:
+              - 'agent_mitmproxy/requirements.txt'
+              - 'agent_mitmproxy/addons/**'
+              - 'agent_mitmproxy/consts/**'
+              - 'agent_mitmproxy/fast_api/**'
+              - 'agent_mitmproxy/schemas/**'
+              - 'agent_mitmproxy/docker/images/**'
+              - 'agent_mitmproxy/version'
+              - 'agent_mitmproxy/__init__.py'
+
+  # ════════════════════════════════════════════════════════════════════════════
+  # Job 4: Build + Push Docker Image to ECR
+  #   Builds with the repo root as context (the dockerfile's COPYs are rooted
+  #   there) and pushes via ECR__Docker__Agent_Mitmproxy.publish_docker_image().
+  #
+  #   Skipped when detect-changes reports no image-relevant changes AND
+  #   force_image_rebuild is false — the previously-pushed :latest is left in
+  #   place.
+  # ════════════════════════════════════════════════════════════════════════════
+  build-and-push-image:
+    name: "Build + Push Docker Image to ECR"
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs: [run-unit-tests, check-aws-credentials, detect-changes]
+    if: |
+      needs.check-aws-credentials.outputs.has-credentials == 'true' &&
+      (needs.detect-changes.outputs.image-rebuild-needed == 'true' || inputs.force_image_rebuild)
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+          cache-dependency-path: 'agent_mitmproxy/requirements.txt'
+
+      - name: Install dependencies
+        run: |
+          pip install -r agent_mitmproxy/requirements.txt
+          pip install osbot-aws osbot-docker pytest pytest-timeout
+
+      - name: Build Docker image
+        run: |
+          docker build \
+            -f agent_mitmproxy/docker/images/agent_mitmproxy/dockerfile \
+            -t "${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_DEFAULT_REGION }}.amazonaws.com/${IMAGE_NAME}:latest" \
+            .
+        env:
+          AWS_SECRET_ACCESS_KEY : ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION    : ${{ secrets.AWS_DEFAULT_REGION    }}
+          AWS_ACCOUNT_ID        : ${{ secrets.AWS_ACCOUNT_ID        }}
+          AWS_ACCESS_KEY_ID     : ${{ secrets.AWS_ACCESS_KEY_ID     }}
+
+      - name: ECR setup + push
+        run: |
+          python -c "
+          from agent_mitmproxy.docker.ECR__Docker__Agent_Mitmproxy import ECR__Docker__Agent_Mitmproxy
+          ecr = ECR__Docker__Agent_Mitmproxy().setup()
+          print('repo setup:', ecr.ecr_setup())
+          print('push result:', ecr.publish_docker_image())
+          "
+        env:
+          AWS_SECRET_ACCESS_KEY : ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION    : ${{ secrets.AWS_DEFAULT_REGION    }}
+          AWS_ACCOUNT_ID        : ${{ secrets.AWS_ACCOUNT_ID        }}
+          AWS_ACCESS_KEY_ID     : ${{ secrets.AWS_ACCESS_KEY_ID     }}
+
+  # ════════════════════════════════════════════════════════════════════════════
+  # Job 5: Bake AMI — fires only when a new mitmproxy image was pushed
+  #   Gated on build-and-push-image.result == 'success' (not 'skipped') so
+  #   test-only pushes never trigger a bake.
+  # ════════════════════════════════════════════════════════════════════════════
+  call-bake-ami:
+    name: "Trigger AMI Bake (mitmproxy image updated)"
+    needs: [build-and-push-image]
+    if: needs.build-and-push-image.result == 'success'
+    uses: ./.github/workflows/bake-ami.yml
+    secrets: inherit

@@ -1,0 +1,39 @@
+# ═══════════════════════════════════════════════════════════════════════════════
+# sg-compute — core SDK distribution
+# pyproject.toml lives inside sg_compute/; source root is one level up.
+# Build: python -m build sg_compute/ --wheel --outdir dist/
+# ═══════════════════════════════════════════════════════════════════════════════
+
+[project]
+name            = "sg-compute"
+version         = "0.1.0"
+description     = "SG/Compute — ephemeral EC2 compute node management SDK"
+authors         = [{ name = "Dinis Cruz", email = "dinis@the-cyber-boardroom.com" }]
+license         = { text = "Apache-2.0" }
+requires-python = ">=3.12"
+dependencies    = [
+    "osbot-utils",
+    "osbot-aws",
+    "typer",
+    "fastapi",
+    "uvicorn",
+    "httpx",
+]
+
+[project.scripts]
+sg-compute = "sg_compute.cli.Cli__Compute:app"
+
+[tool.setuptools]
+package-dir     = { "" = ".." }
+
+[tool.setuptools.packages.find]
+where   = [".."]
+include = ["sg_compute*"]
+exclude = ["sg_compute*tests*", "sg_compute*__pycache__*"]
+
+[tool.setuptools.package-data]
+sg_compute = ["version"]
+
+[build-system]
+requires      = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"

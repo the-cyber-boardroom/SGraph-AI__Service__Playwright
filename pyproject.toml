@@ -1,0 +1,49 @@
+[tool.poetry]
+name        = "sgraph-ai-service-playwright"
+version     = "v0.1.171"
+description = "Browser automation FastAPI service for the SG/Send ecosystem. Runs identically on laptop, CI, Claude Web, Fargate, and Lambda."
+authors     = ["Dinis Cruz <dinis@the-cyber-boardroom.com>"]
+license     = "Apache-2.0"
+readme      = "README.md"
+packages    = [{ include = "sgraph_ai_service_playwright"       },
+               { include = "sgraph_ai_service_playwright__cli"  },
+               { include = "sgraph_ai_service_playwright__host" },
+               { include = "scripts"                            }]
+include     = ["sgraph_ai_service_playwright/version"      ,
+               "sgraph_ai_service_playwright__cli/version" ]
+
+[tool.poetry.dependencies]
+python                       = "^3.12"
+fastapi                      = "*"
+uvicorn                      = "*"
+requests                     = "*"
+httpx                        = "*"
+playwright                   = "*"
+osbot-utils                  = "*"
+osbot-aws                    = "*"
+osbot-fast-api               = "*"
+osbot-fast-api-serverless    = "*"
+prometheus-client            = "*"
+typer                        = "*"
+
+[tool.poetry.scripts]
+sg-play    = "scripts.provision_ec2:app"
+sg-browser = "scripts.provision_ec2:app"
+sg-p       = "scripts.provision_ec2:app"
+sg-b       = "scripts.provision_ec2:app"
+sg-ec2     = "scripts.provision_ec2:app"
+sp         = "scripts.provision_ec2:app"
+sgpl       = "scripts.provision_ec2:app"
+sp-cli     = "scripts.run_sp_cli:main"                                                  # Run the SP CLI FastAPI app locally under uvicorn (Lambda-equivalent surface; see scripts/run_sp_cli.py)
+sg-compute = "scripts.sg_compute_cli:app"                                               # sg-compute CLI (spec / node / pod / stack verbs)
+
+[tool.poetry.group.dev.dependencies]
+pytest         = "*"
+pytest-timeout = "*"
+
+[tool.pytest.ini_options]
+addopts = "--import-mode=importlib"                                                     # Avoid basename collisions between sibling test modules (e.g. tests/unit/fast_api/routes/test_Routes__Health.py vs tests/unit/agent_mitmproxy/test_Routes__Health.py) when both are collected in one run. Test dirs stay __init__.py-free per CLAUDE.md §20.
+
+[build-system]
+requires      = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"

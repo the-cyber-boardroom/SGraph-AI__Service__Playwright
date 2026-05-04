@@ -1,0 +1,24 @@
+# ═══════════════════════════════════════════════════════════════════════════════
+# SG Playwright — SP CLI Lambda image
+# Slim Python 3.12 Lambda runtime — NO Chromium. This Lambda only manages EC2
+# instances + observability stacks via the AWS API; it does not run the
+# browser itself.
+#
+# Handler entrypoint: sgraph_ai_service_playwright__cli.fast_api.lambda_handler.handler
+# (Mangum wraps the FastAPI app so Lambda can dispatch HTTP events into it.)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+FROM public.ecr.aws/lambda/python:3.12
+
+WORKDIR ${LAMBDA_TASK_ROOT}
+
+COPY requirements.txt ./
+RUN  pip install --no-cache-dir -r requirements.txt
+
+COPY sgraph_ai_service_playwright__cli/ ./sgraph_ai_service_playwright__cli/
+COPY sgraph_ai_service_playwright/      ./sgraph_ai_service_playwright/
+COPY sg_compute_specs/                  ./sg_compute_specs/
+COPY scripts/                           ./scripts/
+COPY sgraph_ai_service_playwright__api_site/ ./sgraph_ai_service_playwright__api_site/
+
+CMD ["sgraph_ai_service_playwright__cli.fast_api.lambda_handler.handler"]

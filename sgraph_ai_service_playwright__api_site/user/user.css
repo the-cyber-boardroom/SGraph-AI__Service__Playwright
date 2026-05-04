@@ -1,0 +1,45 @@
+/* ── user.css — Provisioning Console page styles ─────────────────────────── */
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+[hidden] { display: none !important; }
+
+html, body {
+    height: 100%;
+    background:     var(--sg-bg);
+    color:          var(--sg-text);
+    font-family:    var(--sg-font-body, system-ui, sans-serif);
+}
+
+body {
+    display:        flex;
+    flex-direction: column;
+}
+
+#main-content {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+}
+
+#main-layout {
+    flex: 1;
+    min-height: 0;
+}
+
+.vault-gate {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.vault-gate-card {
+    background: var(--sg-bg-secondary);
+    border: 1px solid var(--sg-border);
+    border-radius: var(--sg-radius);
+    padding: var(--sg-sp-6);
+    text-align: center;
+    max-width: 360px;
+}
+.vault-gate-title { font-size: 1rem; font-weight: 600; color: var(--sg-text-heading); margin-bottom: var(--sg-sp-2); }
+.vault-gate-hint  { font-size: var(--sg-fs-small); color: var(--sg-text-muted); }

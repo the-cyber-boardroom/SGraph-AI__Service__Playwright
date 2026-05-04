@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SG Playwright Service</title>
+  <link rel="stylesheet" href="shared/tokens.css">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: system-ui, sans-serif;
+      background: var(--color-bg, #0e1117);
+      color: var(--color-text, #c9d1d9);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 2rem 1rem;
+    }
+
+    .hero { text-align: center; margin-bottom: 2.5rem; }
+    .hero h1 { font-size: 2rem; font-weight: 700; color: #e6edf3; }
+    .hero p  { margin-top: .5rem; color: #8b949e; font-size: 1rem; }
+
+    .cards {
+      display: flex;
+      gap: 1.25rem;
+      flex-wrap: wrap;
+      justify-content: center;
+      max-width: 860px;
+      width: 100%;
+    }
+
+    .card {
+      flex: 1 1 220px;
+      max-width: 260px;
+      background: #161b22;
+      border: 1px solid #30363d;
+      border-radius: 12px;
+      padding: 1.5rem 1.25rem 1.25rem;
+      text-decoration: none;
+      color: inherit;
+      display: flex;
+      flex-direction: column;
+      gap: .6rem;
+      transition: border-color .15s, transform .15s, box-shadow .15s;
+    }
+    .card:hover {
+      border-color: #58a6ff;
+      transform: translateY(-3px);
+      box-shadow: 0 6px 20px rgba(88,166,255,.15);
+    }
+
+    .card__icon { font-size: 2rem; line-height: 1; }
+    .card__title { font-size: 1.05rem; font-weight: 600; color: #e6edf3; }
+    .card__desc  { font-size: .85rem; color: #8b949e; line-height: 1.45; }
+    .card__link  { margin-top: auto; font-size: .8rem; color: #58a6ff; }
+  </style>
+</head>
+<body>
+
+<div class="hero">
+  <h1>SG Playwright Service</h1>
+  <p>Infrastructure management &amp; browser automation</p>
+</div>
+
+<div class="cards">
+
+  <a class="card" href="admin/">
+    <div class="card__icon">🛡️</div>
+    <div class="card__title">Admin Dashboard</div>
+    <div class="card__desc">View and manage all active stacks across Linux, Docker, and Elastic.</div>
+    <div class="card__link">Open Admin →</div>
+  </a>
+
+  <a class="card" href="user/">
+    <div class="card__icon">🚀</div>
+    <div class="card__title">User Provisioning</div>
+    <div class="card__desc">Browse the stack catalog and launch or stop your own stacks.</div>
+    <div class="card__link">Open User UI →</div>
+  </a>
+
+  <a class="card" href="/docs">
+    <div class="card__icon">📖</div>
+    <div class="card__title">API Docs</div>
+    <div class="card__desc">Interactive Swagger UI for all 25+ REST endpoints.</div>
+    <div class="card__link">Open Docs →</div>
+  </a>
+
+</div>
+
+</body>
+</html>

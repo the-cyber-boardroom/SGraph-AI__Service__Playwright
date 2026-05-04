@@ -1,0 +1,105 @@
+<div class="compute-view">
+
+  <!-- ── Template browser (hidden once spec selected) ── -->
+  <div class="browser-col">
+    <div class="browser-head sgl-panel-head">
+      <div class="sgl-panel-title">Launch a node</div>
+    </div>
+    <div class="browser-body">
+      <div class="spec-groups"></div>
+    </div>
+  </div>
+
+  <!-- ── Configure pane (right, hidden until card selected) ── -->
+  <div class="configure-col" hidden>
+
+    <div class="cfg-head">
+      <div class="cfg-header-row">
+        <span class="cfg-icon"></span>
+        <div class="cfg-header-text">
+          <span class="cfg-name"></span>
+          <span class="cfg-desc"></span>
+        </div>
+        <button class="btn-close-cfg sgl-iconbtn" title="Back to catalog">✕</button>
+      </div>
+    </div>
+
+    <div class="cfg-body">
+
+      <!-- stability + boot time summary -->
+      <div class="cfg-summary">
+        <span class="cfg-stability ec2-pill"></span>
+        <span class="cfg-boot-label tlabel">Boot time</span>
+        <span class="cfg-boot-val"></span>
+      </div>
+
+      <!-- form fields -->
+      <div class="cfg-fields">
+
+        <div class="ec2-field">
+          <label class="ec2-field-label">
+            Node name
+            <span class="ec2-field-help">editable</span>
+          </label>
+          <input type="text" class="field-name ec2-input" placeholder="">
+        </div>
+
+        <div class="cfg-field-row">
+          <div class="ec2-field">
+            <label class="ec2-field-label">Region</label>
+            <select class="field-region ec2-select"></select>
+          </div>
+          <div class="ec2-field">
+            <label class="ec2-field-label">Instance type</label>
+            <select class="field-instance ec2-select"></select>
+          </div>
+        </div>
+
+        <div class="ec2-field">
+          <label class="ec2-field-label">Auto-stop after</label>
+          <select class="field-hours ec2-select"></select>
+        </div>
+
+        <div class="adv-wrap">
+          <label class="open-row">
+            <input type="checkbox" class="field-open">
+            <span class="open-label">Open access (0.0.0.0/0)</span>
+          </label>
+          <div class="ip-note">Required when launching via Lambda API (uses Lambda's IP, not yours).</div>
+        </div>
+
+      </div>
+
+      <!-- cost summary bar -->
+      <div class="cfg-cost-bar">
+        <div class="cost-cell">
+          <div class="cost-cell-label">TIME TO READY</div>
+          <div class="cost-cell-val cfg-bar-boot">—</div>
+        </div>
+        <div class="cost-cell">
+          <div class="cost-cell-label">HOURLY</div>
+          <div class="cost-cell-val cfg-bar-hourly">—</div>
+        </div>
+        <div class="cost-cell">
+          <div class="cost-cell-label">AUTO-STOP MAX</div>
+          <div class="cost-cell-val cfg-bar-max">—</div>
+        </div>
+        <div class="cost-cell">
+          <div class="cost-cell-label">NETWORK</div>
+          <div class="cost-cell-val cfg-bar-net">Your IP only</div>
+        </div>
+      </div>
+
+      <!-- launch footer -->
+      <div class="cfg-footer">
+        <div class="error-msg" hidden></div>
+        <button class="btn-launch ec2-btn primary">
+          <span class="btn-label">Launch node →</span>
+          <span class="btn-spinner" hidden>…</span>
+        </button>
+      </div>
+
+    </div>
+  </div>
+
+</div>

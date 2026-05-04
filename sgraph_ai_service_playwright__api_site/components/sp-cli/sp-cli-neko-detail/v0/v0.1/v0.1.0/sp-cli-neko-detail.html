@@ -1,0 +1,20 @@
+<div class="detail-tabs">
+  <button class="tab-btn active" data-tab="info">Info</button>
+  <button class="tab-btn"        data-tab="shell">Terminal</button>
+  <button class="tab-btn"        data-tab="hostapi">Host API</button>
+</div>
+<div class="tab-panel active" data-panel="info">
+  <div class="detail-top">
+    <sp-cli-stack-header class="detail-header"></sp-cli-stack-header>
+    <sp-cli-stop-button class="detail-stop"></sp-cli-stop-button>
+  </div>
+  <div class="detail-body">
+    <div class="stub-msg">Neko (WebRTC) stacks are not yet supported.</div>
+  </div>
+</div>
+<div class="tab-panel" data-panel="shell">
+  <sp-cli-host-shell class="host-shell"></sp-cli-host-shell>
+</div>
+<div class="tab-panel" data-panel="hostapi">
+  <sp-cli-host-api-panel class="host-api-panel"></sp-cli-host-api-panel>
+</div>

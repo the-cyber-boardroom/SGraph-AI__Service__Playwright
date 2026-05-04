@@ -1,0 +1,1 @@
+from sgraph_ai_service_playwright__cli.opensearch.plugin.Plugin__Manifest__OpenSearch import Plugin__Manifest__OpenSearch
