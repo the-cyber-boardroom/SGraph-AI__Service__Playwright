@@ -24,6 +24,8 @@ on:
       - 'team/**'
       - 'library/**'
       - '**/*.md'
+      - 'sgraph_ai_service_playwright/version'
+      - 'sg_compute/version'
 
 jobs:
   deploy-main:

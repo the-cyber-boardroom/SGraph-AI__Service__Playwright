@@ -1,14 +1,16 @@
 # ═══════════════════════════════════════════════════════════════════════════════
-# CI Pipeline — Host Control Plane
+# CI Pipeline — Host Control Plane (manual / emergency rebuild only)
 #
-# Builds and pushes the sgraph_ai_service_playwright_host Docker image to ECR.
-# Runs independently from the main Playwright pipeline — only fires when host
-# package source, the Dockerfile, or this workflow file changes.
+# Automatic host image builds are now handled by ci-pipeline.yml
+# (build-and-push-host-image job) which fires on changes to sg_compute/**
+# or docker/host-control/** alongside the main Playwright pipeline.
+# This workflow is kept as a manual workflow_dispatch for emergency rebuilds
+# (e.g. base-image refresh, cache bust) without running the full pipeline.
 #
 # Jobs:
-#   1. run-unit-tests       — pytest against tests/unit/sgraph_ai_service_playwright__host/
+#   1. run-unit-tests        — pytest against tests/unit/sgraph_ai_service_playwright__host/
 #   2. check-aws-credentials — gates all AWS-touching jobs
-#   3. detect-changes        — skips rebuild when no image-relevant file changed
+#   3. detect-changes        — skips rebuild unless force_image_rebuild=true
 #   4. build-and-push-image  — docker build (repo root as context) + ECR push
 #
 # Image name: sgraph_ai_service_playwright_host
@@ -22,25 +24,10 @@ on:
   workflow_dispatch:
     inputs:
       force_image_rebuild:
-        description: 'Force Docker image rebuild even when no image-relevant files changed'
+        description: 'Force Docker image rebuild (always true for manual runs — this workflow is manual-only)'
         required: false
         type: boolean
-        default: false
-  push:
-    branches:
-      - dev
-      - main
-    paths:
-      - 'sgraph_ai_service_playwright__host/**'
-      - 'docker/host-control/**'
-      - 'tests/unit/sgraph_ai_service_playwright__host/**'
-      - '.github/workflows/ci__host_control.yml'
-  pull_request:
-    paths:
-      - 'sgraph_ai_service_playwright__host/**'
-      - 'docker/host-control/**'
-      - 'tests/unit/sgraph_ai_service_playwright__host/**'
-      - '.github/workflows/ci__host_control.yml'
+        default: true
 
 env:
   IMAGE_NAME: 'sgraph_ai_service_playwright_host'
@@ -115,14 +102,14 @@ jobs:
         with:
           filters: |
             image:
-              - 'sgraph_ai_service_playwright__host/**'
+              - 'sg_compute/**'
               - 'docker/host-control/Dockerfile'
               - 'docker/host-control/requirements.txt'
 
   # ════════════════════════════════════════════════════════════════════════════
   # Job 4: Build + Push Docker Image to ECR
   #   Build context is the repo root so the Dockerfile can COPY both
-  #   docker/host-control/requirements.txt and sgraph_ai_service_playwright__host/.
+  #   docker/host-control/requirements.txt and sg_compute/.
   #   ECR repo is created idempotently before the push.
   # ════════════════════════════════════════════════════════════════════════════
   build-and-push-image:
