@@ -114,8 +114,8 @@ AUTH_FORM_HTML = """<!DOCTYPE html>
       body: JSON.stringify({{ cookie_value: val }}),
     }});
     if (resp.ok) {{
-      showMsg('✓ Cookie set — you can close this window. The terminal will connect automatically.', 'ok');
-      checkExisting();
+      showMsg('✓ Cookie set — returning to terminal…', 'ok');
+      setTimeout(() => {{ window.location.href = '/host/shell/page'; }}, 800);
     }} else {{
       showMsg('✗ Failed to set cookie (HTTP ' + resp.status + ')', 'err');
     }}

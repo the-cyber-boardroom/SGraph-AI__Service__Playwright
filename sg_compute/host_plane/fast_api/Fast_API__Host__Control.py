@@ -37,6 +37,9 @@ class Fast_API__Host__Control(Serverless__Fast_API):
     def setup(self):
         result = super().setup()
         register_type_safe_handlers(self.app())
+        from pathlib import Path
+        version_file = Path(__file__).parent.parent.parent.parent / 'version'
+        self.app().version = version_file.read_text().strip() if version_file.exists() else '0.1.0'
         return result
 
     def setup_middleware__cors(self):                                           # Suppressed — CORSMiddleware added as outermost in setup_middlewares()
