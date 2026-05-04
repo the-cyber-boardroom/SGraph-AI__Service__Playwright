@@ -28,7 +28,7 @@ that is your primary workspace. You have write access to it.
 ## What Has Already Been Done (previous session)
 
 The previous session (in the `the-cyber-boardroom/SGraph-AI__Service__Playwright`
-repo) produced:
+repo, branch `claude/create-node-specs-eRcPG`) produced:
 
 1. **Architecture brief** — two-layer split, four operation modes, Memory-FS
    backend seam, Phase 1 HTTP surface, call log schema, phased delivery plan.
@@ -39,41 +39,46 @@ repo) produced:
 4. **Memory-FS integration response** — received (full answers, working adapter
    code, `Storage_FS__S3` implementation). See §Memory-FS below.
 
-All four brief files are in this repo under `briefs/` (copied from the
-Playwright repo). Read them in order: `00`, `01`, `02`, `03`.
+All source files are in the **Playwright repo** — see §Where to Find Source
+Files below. Clone it read-only to access them.
 
 ---
 
 ## Where to Find Source Files
 
-### This repo (`SG-Compute/SG-Compute__Spec__Storage-S3`)
-
-```
-briefs/
-  00__README.md                       ← goal, scope, open questions
-  01__architecture.md                 ← design decisions, phase plan
-  02__node-spec-brief.md              ← 8 dev tasks + acceptance checklists
-  03__memory-fs-integration-questions.md
-  04__new-session-handover.md         ← this file
-  memory-fs-integration-response.md  ← Memory-FS team's answers (READ THIS)
-  Storage_FS__S3.py                   ← actual Storage_FS__S3 implementation
-  v0.27.2__arch-brief__s3-compatible-api-full-boto3-transparency.md  ← original human brief
-```
-
-### Playwright repo (read-only reference)
-
-Clone it read-only to understand the patterns you must follow:
+**Everything is in the Playwright repo.** Clone it read-only first:
 
 ```bash
 git clone https://github.com/the-cyber-boardroom/SGraph-AI__Service__Playwright /tmp/playwright-ref
+# then checkout the feature branch where the brief files live:
+git -C /tmp/playwright-ref fetch origin claude/create-node-specs-eRcPG
+git -C /tmp/playwright-ref checkout claude/create-node-specs-eRcPG
 ```
 
-Key paths to read there:
+### Brief files (architecture + dev tasks + handover)
+
+| File | Content |
+|------|---------|
+| `team/comms/briefs/v0.1.162__s3-storage-node/00__README.md` | Goal, scope, open questions |
+| `team/comms/briefs/v0.1.162__s3-storage-node/01__architecture.md` | Design decisions, phase plan |
+| `team/comms/briefs/v0.1.162__s3-storage-node/02__node-spec-brief.md` | **8 dev tasks + acceptance checklists — read this to build** |
+| `team/comms/briefs/v0.1.162__s3-storage-node/03__memory-fs-integration-questions.md` | Questions sent to Memory-FS team |
+| `team/comms/briefs/v0.1.162__s3-storage-node/04__new-session-handover.md` | This file |
+
+### Memory-FS source files
+
+| File | Content |
+|------|---------|
+| `team/humans/dinis_cruz/briefs/05/04/memory-fs-integration-response.md` | **Full Memory-FS answers — read before writing any backend code** |
+| `team/humans/dinis_cruz/briefs/05/04/Storage_FS__S3.py` | Actual `Storage_FS__S3` implementation (working code) |
+| `team/humans/dinis_cruz/briefs/05/04/v0.27.2__arch-brief__s3-compatible-api-full-boto3-transparency.md` | Original human brief |
+
+### Code patterns to copy
 
 | Path | Why |
 |------|-----|
 | `sg_compute_specs/docker/` | **The canonical template.** Copy its folder structure, rename Docker→S3_Server. |
-| `sg_compute/primitives/enums/Enum__Spec__Capability.py` | Add `OBJECT_STORAGE = 'object-storage'` here. |
+| `sg_compute/primitives/enums/Enum__Spec__Capability.py` | Add `OBJECT_STORAGE = 'object-storage'` here (needs a PR to the Playwright repo). |
 | `sg_compute/core/spec/schemas/Schema__Spec__Manifest__Entry.py` | The manifest schema your `manifest.py` must instantiate. |
 | `sg_compute/core/spec/Spec__Loader.py` | Discovers specs — your manifest must be discoverable by it. |
 | `.claude/CLAUDE.md` | **Project rules — non-negotiable.** Read before writing a single line. |
@@ -145,8 +150,8 @@ same storage.
 
 ### The adapter to write (`S3__Backend__Storage_FS`)
 
-See `briefs/memory-fs-integration-response.md` §6 for the complete
-implementation. The key structure:
+See `/tmp/playwright-ref/team/humans/dinis_cruz/briefs/05/04/memory-fs-integration-response.md`
+§6 for the complete implementation. The key structure:
 
 ```python
 class S3__Backend__Storage_FS(S3__Backend):
@@ -167,7 +172,7 @@ class S3__Backend__Storage_FS(S3__Backend):
 
 Storage_FS is NOT thread-safe for writes. Wrap write operations with
 `threading.RLock()`. Reads can be concurrent. See
-`briefs/memory-fs-integration-response.md` §7.
+`/tmp/playwright-ref/team/humans/dinis_cruz/briefs/05/04/memory-fs-integration-response.md` §7.
 
 ---
 
@@ -177,7 +182,7 @@ Phase 1 = **call log + full proxy mode**. Everything else is Phase 2+.
 
 ### The spec layer (`sg_compute_specs/s3_server/`) — 8 tasks
 
-Follow `briefs/02__node-spec-brief.md` exactly. Summary:
+Follow `/tmp/playwright-ref/team/comms/briefs/v0.1.162__s3-storage-node/02__node-spec-brief.md` exactly. Summary:
 
 | Task | What |
 |------|------|
@@ -251,14 +256,23 @@ These come from the Playwright repo's `CLAUDE.md`. They apply here too.
 
 ## First Steps for This Session
 
-1. Read `briefs/00__README.md` through `briefs/04__new-session-handover.md` (this file).
-2. Read `briefs/memory-fs-integration-response.md` and `briefs/Storage_FS__S3.py` in full.
-3. Clone the Playwright repo read-only: `git clone https://github.com/the-cyber-boardroom/SGraph-AI__Service__Playwright /tmp/playwright-ref`
-4. Read `/tmp/playwright-ref/.claude/CLAUDE.md` (the full rule set).
-5. Read `/tmp/playwright-ref/sg_compute_specs/docker/` — every file — this is your template.
-6. Create a branch `claude/s3-storage-node-phase1` in this repo.
-7. Start with Task 0 (Enum__Spec__Capability patch in the Playwright repo) if you have write access there; if not, note it as a dependency and proceed with Tasks 1–8 in this repo.
-8. Build the `sg_s3_server/` server package alongside the spec.
+1. Clone the Playwright repo read-only and check out the feature branch:
+   ```bash
+   git clone https://github.com/the-cyber-boardroom/SGraph-AI__Service__Playwright /tmp/playwright-ref
+   git -C /tmp/playwright-ref fetch origin claude/create-node-specs-eRcPG
+   git -C /tmp/playwright-ref checkout claude/create-node-specs-eRcPG
+   ```
+2. Read (in order):
+   - `/tmp/playwright-ref/team/comms/briefs/v0.1.162__s3-storage-node/00__README.md`
+   - `/tmp/playwright-ref/team/comms/briefs/v0.1.162__s3-storage-node/01__architecture.md`
+   - `/tmp/playwright-ref/team/comms/briefs/v0.1.162__s3-storage-node/02__node-spec-brief.md` ← the task list
+   - `/tmp/playwright-ref/team/humans/dinis_cruz/briefs/05/04/memory-fs-integration-response.md`
+   - `/tmp/playwright-ref/team/humans/dinis_cruz/briefs/05/04/Storage_FS__S3.py`
+3. Read `/tmp/playwright-ref/.claude/CLAUDE.md` — the non-negotiable code rules.
+4. Read every file under `/tmp/playwright-ref/sg_compute_specs/docker/` — this is your template.
+5. Create a branch `claude/s3-storage-node-phase1` in **this** repo (`SG-Compute/SG-Compute__Spec__Storage-S3`).
+6. Start with Task 0 (adding `OBJECT_STORAGE` to `Enum__Spec__Capability`) — if you have write access to the Playwright repo, do it there; if not, note it as a dependency and proceed with Tasks 1–8 in this repo.
+7. Build the `sg_s3_server/` server package alongside the spec.
 
 ---
 
@@ -269,7 +283,7 @@ These come from the Playwright repo's `CLAUDE.md`. They apply here too.
 | Two-layer split (spec + server) | Keeps the spec thin (matches docker/ollama scope); server evolves independently |
 | Memory-FS as storage backend | `Storage_FS` interface maps cleanly to S3 `put/get/head/delete/list`; flat-path with `bucket/key` namespace works |
 | `Storage_FS__Memory` as Phase 1 default | Fast, stateless, no deps — good for call-log capture and testing |
-| `Storage_FS__S3` for FULL_PROXY/SELECTIVE | Already implemented by Memory-FS team (see `briefs/Storage_FS__S3.py`) |
+| `Storage_FS__S3` for FULL_PROXY/SELECTIVE | Already implemented by Memory-FS team (see `/tmp/playwright-ref/team/humans/dinis_cruz/briefs/05/04/Storage_FS__S3.py`) |
 | Call log in-memory circular buffer (10k entries) | Simple, fast; `GET /call-log` JSON feed polled by browser UI |
 | `OBJECT_STORAGE` capability (not `S3_API_COMPAT`) | Correct granularity — covers S3 server + any future MinIO/GCS shim |
 | Section prefix `s3srv` | Short enough for tag values; avoids `sg-*` SG naming collision |
@@ -309,6 +323,6 @@ These come from the Playwright repo's `CLAUDE.md`. They apply here too.
 ## Questions / Contact
 
 If something is unclear about the architecture, check:
-- `briefs/01__architecture.md` — design rationale
-- `briefs/02__node-spec-brief.md` — task details
+- `/tmp/playwright-ref/team/comms/briefs/v0.1.162__s3-storage-node/01__architecture.md` — design rationale
+- `/tmp/playwright-ref/team/comms/briefs/v0.1.162__s3-storage-node/02__node-spec-brief.md` — task details
 - `/tmp/playwright-ref/sg_compute_specs/docker/` — the living reference implementation
