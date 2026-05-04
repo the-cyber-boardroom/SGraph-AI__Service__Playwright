@@ -1,18 +1,22 @@
 # host-control — Reality Index
 
-**Domain:** `host-control/` | **Last updated:** 2026-05-02 | **Maintained by:** Librarian (daily run)
+**Domain:** `host-control/` | **Last updated:** 2026-05-04 | **Maintained by:** Librarian (daily run)
 
-The Host Control Plane is a small FastAPI service that runs **inside each ephemeral EC2 instance**. It exposes a uniform HTTP surface for managing the containers, shell access, and OS-level metrics on that host — the SP CLI control plane (`Fast_API__SP__CLI`) and the dashboard talk to this service over the network.
+> **BV2.1 (2026-05-04):** `sgraph_ai_service_playwright__host/` has been **deleted** — it was an orphaned copy of `sg_compute/host_plane/`. The authoritative package is `sg_compute/host_plane/` only. All source references, pyproject.toml packaging, and legacy unit tests have been removed. The CI workflow (`ci__host_control.yml`) no longer tests the orphan; the host image builds from `sg_compute/host_plane/` via `ci-pipeline.yml`. Port is **`:19009`** (not `:9000`).
 
-Package: `sgraph_ai_service_playwright__host/`. Image: `docker/host-control/`. Listens on port 8000 inside the container; mapped to host port **9000**.
+The Host Control Plane is a small FastAPI service that runs **inside each ephemeral EC2 instance** as a sidecar. It exposes a uniform HTTP surface for managing the pods, shell access, and OS-level metrics on that host — the SP CLI control plane (`Fast_API__Compute`) and the dashboard talk to this service over the network.
+
+**Canonical package:** `sg_compute/host_plane/`. Image: `docker/host-control/`. Listens on port 8000 inside the container; mapped to host port **19009**. Installed on every Node by `Section__Sidecar` (BV2.2).
 
 ---
 
 ## EXISTS (code-verified)
 
-### HTTP surface — 9 endpoints
+> All paths below now refer to `sg_compute/host_plane/`. The `sgraph_ai_service_playwright__host/` copy was deleted in BV2.1.
 
-`Fast_API__Host__Control` (`sgraph_ai_service_playwright__host/fast_api/Fast_API__Host__Control.py:17-20`) wires three route classes:
+### HTTP surface — 9 endpoints (legacy shape; full v0.2 surface in `sg_compute/host_plane/`)
+
+`Fast_API__Host__Control` (`sg_compute/host_plane/fast_api/Fast_API__Host__Control.py`) wires route classes:
 
 #### Containers (`/containers/*`) — 6 endpoints
 
