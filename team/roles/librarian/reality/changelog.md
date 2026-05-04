@@ -12,7 +12,7 @@ This is a pointer log, not a content log. For full delta detail, see the master 
 - `sg_compute/control_plane/Fast_API__Compute.py` — UPDATED: platform field, `Exception__AWS__No_Credentials` handler registered
 - `sg_compute/platforms/exceptions/` — NEW: `Exception__AWS__No_Credentials`
 - `sg_compute/core/node/schemas/Schema__Node__List.py` — UPDATED: `total` and `region` fields added
-- `sg_compute__tests/control_plane/test_Routes__Compute__Nodes.py` — REWRITTEN: zero mocks. Commit: TBD.
+- `sg_compute__tests/control_plane/test_Routes__Compute__Nodes.py` — REWRITTEN: zero mocks. Commit: 7ca8b96.
 
 ---
 
