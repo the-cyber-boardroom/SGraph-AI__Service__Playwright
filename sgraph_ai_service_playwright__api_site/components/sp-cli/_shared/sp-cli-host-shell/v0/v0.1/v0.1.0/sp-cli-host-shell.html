@@ -2,11 +2,25 @@
   <p class="unavailable-msg">Host API not yet available for this stack.</p>
 </div>
 <div class="shell-panel hidden">
-  <div class="shell-toolbar">
-    <select class="cmd-select"></select>
-    <button class="btn-run">Run</button>
-    <button class="btn-clear">Clear</button>
-    <span class="shell-status"></span>
+  <!-- xterm section -->
+  <div class="xterm-bar">
+    <span class="xterm-status">Connecting…</span>
+    <button class="btn-reconnect sgl-iconbtn" title="Reconnect">↺</button>
   </div>
-  <div class="shell-output"></div>
+  <div class="xterm-mount"></div>
+  <!-- quick commands (collapsible) -->
+  <div class="quick-section">
+    <div class="quick-toggle">
+      <button class="btn-quick-toggle">▶ Quick Commands</button>
+    </div>
+    <div class="quick-body hidden">
+      <div class="shell-toolbar">
+        <select class="cmd-select"></select>
+        <button class="btn-run">Run</button>
+        <button class="btn-clear">Clear</button>
+        <span class="shell-status"></span>
+      </div>
+      <div class="shell-output"></div>
+    </div>
+  </div>
 </div>

@@ -49,7 +49,12 @@ class SpCliNodesView extends SgComponent {
         this._blStatus      = this.$('.bl-status')
         this._blSource      = this.$('.bl-source')
 
+        this._liveLogTimer = null
+        this._livePodName  = null
+        this._liveBtnEl    = this.$('.btn-live-log')
+
         this.$('.btn-close-log')?.addEventListener('click', () => this._closeLogDrawer())
+        this._liveBtnEl?.addEventListener('click', () => this._toggleLiveLog())
         this.$('.btn-refresh-boot')?.addEventListener('click', () => this._fetchBootLog())
         this._nodesView     = this.$('.nodes-view')
         this._nodesList     = this.$('.nodes-list')
@@ -179,6 +184,7 @@ class SpCliNodesView extends SgComponent {
     }
 
     _openDetail(stack) {
+        if (this._healthPollTimer) { clearInterval(this._healthPollTimer); this._healthPollTimer = null }
         this._currentStack  = stack
         this._keyRevealed   = false
         this._detail.hidden = false
@@ -191,13 +197,13 @@ class SpCliNodesView extends SgComponent {
         if (this._infoKv) {
             this._infoKv.innerHTML = `
                 <dt>Type</dt>      <dd>${_esc(stack.type_id)}</dd>
-                <dt>State</dt>     <dd>${_esc(stack.state)}</dd>
+                <dt>State</dt>     <dd data-kv="state">${_esc(stack.state)}</dd>
                 <dt>Instance</dt>  <dd>${_esc(stack.instance_type || '—')}</dd>
                 <dt>Region</dt>    <dd>${_esc(stack.region || '—')}</dd>
                 <dt>Public IP</dt> <dd class="mono">${_esc(stack.public_ip || '—')}</dd>
                 ${hostUrl ? `<dt>Host API</dt><dd class="mono">${_esc(hostUrl)}</dd>` : ''}
                 <dt>Node ID</dt>   <dd class="mono">${_esc(stack.stack_name)}</dd>
-                <dt>Uptime</dt>    <dd>${_fmtUptime(stack.uptime_seconds)}</dd>
+                <dt>Uptime</dt>    <dd data-kv="uptime">${_fmtUptime(stack.uptime_seconds)}</dd>
             `
             this._renderApiKeyRow(stack)
         }
@@ -212,16 +218,38 @@ class SpCliNodesView extends SgComponent {
         this._hostApi?.open?.(stack)
         this._activateTab('overview')
 
+        if (stack.state !== 'running') this._activateTab('bootlog')
+
+        this._healthPollTimer = setInterval(() => this._pollHealth(), 15000)
+
         Array.from(this.shadowRoot.querySelectorAll('.node-row')).forEach(r =>
             r.classList.toggle('selected', r.querySelector('.row-name')?.textContent === stack.stack_name)
         )
     }
 
     _closeDetail() {
+        if (this._healthPollTimer) { clearInterval(this._healthPollTimer); this._healthPollTimer = null }
         this._detail.hidden = true
         this._currentStack = null
         this.shadowRoot.querySelector('.nodes-view')?.classList.remove('detail-open')
         Array.from(this.shadowRoot.querySelectorAll('.node-row')).forEach(r => r.classList.remove('selected'))
+    }
+
+    async _pollHealth() {
+        const s = this._currentStack
+        if (!s) { clearInterval(this._healthPollTimer); this._healthPollTimer = null; return }
+        const base = s.host_api_url || (s.public_ip ? `http://${s.public_ip}:19009` : '')
+        const key  = s.host_api_key || ''
+        if (!base) return
+        try {
+            const resp = await fetch(`${base}/host/status`, { headers: key ? { 'X-API-Key': key } : {} })
+            if (!resp.ok) return
+            const st = await resp.json()
+            const uptimeEl = this._infoKv?.querySelector('[data-kv="uptime"]')
+            if (uptimeEl) uptimeEl.textContent = _fmtUptime(st.uptime_seconds)
+            const stateEl = this._infoKv?.querySelector('[data-kv="state"]')
+            if (stateEl) stateEl.textContent = `${s.state} (CPU: ${(st.cpu_percent || 0).toFixed(1)}%)`
+        } catch (_) {}
     }
 
     _activateTab(name) {
@@ -288,6 +316,19 @@ class SpCliNodesView extends SgComponent {
         }
     }
 
+    _portLinks(ports, publicIp) {
+        const LABELS = { '5601': 'Kibana', '9090': 'Prometheus', '3000': 'Grafana', '8080': 'Web', '80': 'HTTP', '4444': 'Selenium', '8888': 'Jupyter' }
+        if (!ports || !publicIp) return []
+        const links = []
+        for (const [portProto, bindings] of Object.entries(ports)) {
+            const hostPort = bindings?.[0]?.HostPort
+            if (!hostPort) continue
+            const port = portProto.split('/')[0]
+            links.push({ url: `http://${publicIp}:${hostPort}`, label: LABELS[port] || `:${hostPort}` })
+        }
+        return links
+    }
+
     _renderContainers(ct, st) {
         const pods  = ct.pods || []
         const count = ct.count ?? pods.length
@@ -318,6 +359,10 @@ class SpCliNodesView extends SgComponent {
 
         for (const c of pods) {
             const stateClass = c.status === 'running' ? 'good' : c.status === 'exited' ? 'bad' : 'warn'
+            const links = this._portLinks(c.ports, this._currentStack?.public_ip)
+            const linksHtml = links.length
+                ? `<div class="ct-ports">${links.map(l => `<a class="ct-port-link" href="${_esc(l.url)}" target="_blank" rel="noopener">${_esc(l.label)}</a>`).join('')}</div>`
+                : ''
             const row = document.createElement('div')
             row.className = 'ct-row'
             row.dataset.pod = c.name
@@ -325,6 +370,7 @@ class SpCliNodesView extends SgComponent {
                 <span class="ct-name">${_esc(c.name)}</span>
                 <span class="ec2-pill dot ${stateClass} ct-pill">${_esc(c.status)}</span>
                 <span class="ct-image">${_esc(c.image)}</span>
+                ${linksHtml}
                 <span class="ct-stats ct-state"></span>
                 <button class="ct-log-btn" title="View logs">📋</button>
             `
@@ -349,6 +395,7 @@ class SpCliNodesView extends SgComponent {
     }
 
     async _fetchPodLogs(name) {
+        this._stopLiveLog()
         const s    = this._currentStack
         const base = s?.host_api_url || (s?.public_ip ? `http://${s.public_ip}:19009` : '')
         const key  = s?.host_api_key || ''
@@ -367,6 +414,7 @@ class SpCliNodesView extends SgComponent {
                 this._podLogContent.textContent = resp.ok
                     ? (data.content || '(no output)')
                     : `Error ${resp.status}: ${data.detail || ''}`
+                this._podLogContent.scrollTop = this._podLogContent.scrollHeight
             }
         } catch (err) {
             if (this._podLogContent) this._podLogContent.textContent = `Unreachable: ${err.message}`
@@ -374,7 +422,46 @@ class SpCliNodesView extends SgComponent {
     }
 
     _closeLogDrawer() {
+        this._stopLiveLog()
         if (this._podLogDrawer) this._podLogDrawer.hidden = true
+    }
+
+    _toggleLiveLog() {
+        if (this._liveLogTimer) {
+            this._stopLiveLog()
+        } else {
+            this._livePodName = this._podLogName?.textContent || null
+            if (!this._livePodName) return
+            this._liveLogTimer = setInterval(() => this._pollLiveLogs(), 3000)
+            if (this._liveBtnEl) this._liveBtnEl.textContent = '⏸ Live'
+            this._liveBtnEl?.classList.add('live-active')
+        }
+    }
+
+    _stopLiveLog() {
+        if (this._liveLogTimer) { clearInterval(this._liveLogTimer); this._liveLogTimer = null }
+        this._livePodName = null
+        if (this._liveBtnEl) this._liveBtnEl.textContent = '▶ Live'
+        this._liveBtnEl?.classList.remove('live-active')
+    }
+
+    async _pollLiveLogs() {
+        if (this._podLogDrawer?.hidden || !this._livePodName) { this._stopLiveLog(); return }
+        const s    = this._currentStack
+        const base = s?.host_api_url || (s?.public_ip ? `http://${s.public_ip}:19009` : '')
+        const key  = s?.host_api_key || ''
+        if (!base) { this._stopLiveLog(); return }
+        try {
+            const resp = await fetch(`${base}/pods/${encodeURIComponent(this._livePodName)}/logs?tail=100`, {
+                headers: key ? { 'X-API-Key': key } : {},
+            })
+            if (!resp.ok) return
+            const data = await resp.json()
+            if (this._podLogContent) {
+                this._podLogContent.textContent = data.content || '(no output)'
+                this._podLogContent.scrollTop = this._podLogContent.scrollHeight
+            }
+        } catch (_) {}
     }
 }
 

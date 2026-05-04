@@ -282,6 +282,20 @@ sp-cli-host-api-panel { display: block; height: 100%; }
     gap:           8px;
 }
 .pod-log-name { flex: 1; font-size: 11px; font-weight: 600; color: var(--text-2); font-family: var(--font-mono); }
+
+.btn-live-log {
+    background:    none;
+    border:        1px solid var(--border-1);
+    border-radius: var(--r-1);
+    cursor:        pointer;
+    font-size:     10px;
+    color:         var(--text-3);
+    padding:       1px 7px;
+    flex-shrink:   0;
+    transition:    color 100ms, background 100ms, border-color 100ms;
+}
+.btn-live-log:hover           { color: var(--text-1); border-color: var(--accent); }
+.btn-live-log.live-active     { color: var(--good); border-color: var(--good); background: var(--good-soft, rgba(74,222,128,.08)); }
 .pod-log-content {
     flex:         1;
     overflow-y:   auto;
@@ -313,6 +327,26 @@ sp-cli-host-api-panel { display: block; height: 100%; }
 }
 
 .key-trunc { letter-spacing: 0.05em; }
+
+/* ── Pod port links ───────────────────────────── */
+.ct-ports {
+    display:    flex;
+    flex-wrap:  wrap;
+    gap:        4px;
+    flex-shrink:0;
+}
+
+.ct-port-link {
+    font-size:     10px;
+    padding:       1px 6px;
+    border-radius: var(--r-1);
+    border:        1px solid var(--border-1);
+    color:         var(--accent);
+    text-decoration: none;
+    white-space:   nowrap;
+    transition:    background 100ms, border-color 100ms;
+}
+.ct-port-link:hover { background: var(--accent-soft); border-color: var(--accent); }
 
 /* ── Boot log tab ─────────────────────────────── */
 .tab-panel[data-panel="bootlog"] {
