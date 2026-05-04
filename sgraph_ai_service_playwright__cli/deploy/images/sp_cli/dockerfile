@@ -17,7 +17,7 @@ RUN  pip install --no-cache-dir -r requirements.txt
 
 COPY sgraph_ai_service_playwright__cli/ ./sgraph_ai_service_playwright__cli/
 COPY sgraph_ai_service_playwright/      ./sgraph_ai_service_playwright/
-COPY agent_mitmproxy/                   ./agent_mitmproxy/
+COPY sg_compute_specs/                  ./sg_compute_specs/
 COPY scripts/                           ./scripts/
 COPY sgraph_ai_service_playwright__api_site/ ./sgraph_ai_service_playwright__api_site/
 
