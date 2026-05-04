@@ -68,8 +68,8 @@ class SpCliHostShell extends SgComponent {
     }
 
     _openAuth() {
-        if (!this._hostUrl) return
-        window.open(`${this._hostUrl}/auth/set-cookie-form`, '_blank', 'width=520,height=560,noopener')
+        if (!this._hostUrl || !this._iframe) return
+        this._iframe.src = `${this._hostUrl}/auth/set-cookie-form`  // load inline; form auto-returns to /host/shell/page on success
     }
 
     _toggleQuick() {

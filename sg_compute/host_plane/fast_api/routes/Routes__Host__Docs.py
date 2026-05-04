@@ -65,36 +65,34 @@ SHELL_PAGE_HTML = """<!DOCTYPE html>
   <title>Host Shell</title>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.css">
   <style>
-    * {{ margin: 0; padding: 0; box-sizing: border-box; }}
-    html, body {{ width: 100%; height: 100%; background: #0f0f1a; overflow: hidden; }}
-    #terminal {{ width: 100%; height: 100%; }}
-    #auth-prompt {{
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { width: 100%; height: 100%; background: #0f0f1a; overflow: hidden; }
+    #terminal { width: 100%; height: 100%; }
+    #auth-prompt {
       position: absolute; inset: 0; display: flex; flex-direction: column;
       align-items: center; justify-content: center; gap: 16px;
       background: #0f0f1a; color: #a0a0c0; font-family: system-ui, sans-serif;
-    }}
-    #auth-prompt h2 {{ font-size: 16px; color: #e8e8f0; }}
-    #auth-prompt p  {{ font-size: 13px; text-align: center; max-width: 360px; line-height: 1.5; }}
-    #auth-prompt a  {{ color: #7c6af7; text-decoration: none; font-weight: 600; }}
-    #auth-prompt a:hover {{ text-decoration: underline; }}
+    }
+    #auth-prompt h2 { font-size: 16px; color: #e8e8f0; }
+    #auth-prompt p  { font-size: 13px; text-align: center; max-width: 360px; line-height: 1.5; }
+    #auth-prompt a  { color: #7c6af7; text-decoration: none; font-weight: 600; }
+    #auth-prompt a:hover { text-decoration: underline; }
   </style>
 </head>
 <body>
   <div id="auth-prompt" style="display:none">
     <h2>🔑 Authentication required</h2>
     <p>Set the API key cookie to enable the terminal.</p>
-    <a href="/auth/set-cookie-form" target="_blank" onclick="this.closest('#auth-prompt').dataset.waiting=1">
-      Open authentication form →
-    </a>
+    <a href="/auth/set-cookie-form">Open authentication form →</a>
     <p style="font-size:11px;color:#666">After authenticating, reload this page.</p>
   </div>
   <div id="terminal"></div>
   <script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.js"></script>
   <script>
-    const term = new Terminal({{ theme: {{ background: '#0f0f1a', foreground: '#e8e8f0',
-      cursor: '#7c6af7', selectionBackground: 'rgba(124,106,247,0.3)' }},
-      fontFamily: "'JetBrains Mono', 'Fira Code', monospace", fontSize: 13, cursorBlink: true }});
+    const term = new Terminal({ theme: { background: '#0f0f1a', foreground: '#e8e8f0',
+      cursor: '#7c6af7', selectionBackground: 'rgba(124,106,247,0.3)' },
+      fontFamily: "'JetBrains Mono', 'Fira Code', monospace", fontSize: 13, cursorBlink: true });
     const fit  = new FitAddon.FitAddon();
     term.loadAddon(fit);
     term.open(document.getElementById('terminal'));
@@ -102,23 +100,23 @@ SHELL_PAGE_HTML = """<!DOCTYPE html>
     window.addEventListener('resize', () => fit.fit());
 
     const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const ws    = new WebSocket(`${{proto}}//${{location.host}}/host/shell/stream`);
+    const ws    = new WebSocket(`${proto}//${location.host}/host/shell/stream`);
     ws.binaryType = 'arraybuffer';
 
-    ws.onopen  = () => term.write('\\r\\n\\x1b[32m✓ Connected\\x1b[0m\\r\\n');
-    ws.onmessage = (e) => {{
+    ws.onopen  = () => term.write('\\r\\n\\x1b[32m\\u2713 Connected\\x1b[0m\\r\\n');
+    ws.onmessage = (e) => {
       const buf = e.data instanceof ArrayBuffer ? new Uint8Array(e.data) : new TextEncoder().encode(e.data);
       term.write(buf);
-    }};
-    ws.onclose = (e) => {{
-      if (e.code === 1006 || e.code === 1008) {{
+    };
+    ws.onclose = (e) => {
+      if (e.code === 1006 || e.code === 1008) {
         document.getElementById('terminal').style.display = 'none';
         document.getElementById('auth-prompt').style.display = 'flex';
-      }} else {{
-        term.write('\\r\\n\\x1b[31m✗ Disconnected\\x1b[0m\\r\\n');
-      }}
-    }};
-    ws.onerror  = () => term.write('\\r\\n\\x1b[31m✗ Connection error\\x1b[0m\\r\\n');
+      } else {
+        term.write('\\r\\n\\x1b[31m\\u2717 Disconnected\\x1b[0m\\r\\n');
+      }
+    };
+    ws.onerror  = () => term.write('\\r\\n\\x1b[31m\\u2717 Connection error\\x1b[0m\\r\\n');
     term.onData = (data) => ws.readyState === 1 && ws.send(new TextEncoder().encode(data));
   </script>
 </body>
