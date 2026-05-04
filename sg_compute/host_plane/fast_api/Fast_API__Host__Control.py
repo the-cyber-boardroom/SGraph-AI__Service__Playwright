@@ -18,6 +18,7 @@ from osbot_fast_api.api.schemas.consts.consts__Fast_API                        i
                                                                                         ENV_VAR__FAST_API__AUTH__API_KEY__VALUE)
 
 from sg_compute.host_plane.fast_api.exception_handlers                         import register_type_safe_handlers
+from sg_compute.host_plane.fast_api.routes.Routes__Host__Containers            import Routes__Host__Containers
 from sg_compute.host_plane.fast_api.routes.Routes__Host__Docs                  import Routes__Host__Docs
 from sg_compute.host_plane.fast_api.routes.Routes__Host__Logs                  import Routes__Host__Logs
 from sg_compute.host_plane.fast_api.routes.Routes__Host__Pods                  import Routes__Host__Pods
@@ -62,8 +63,9 @@ class Fast_API__Host__Control(Serverless__Fast_API):
                                   allow_credentials = False  )
 
     def setup_routes(self):
-        self.add_routes(Routes__Host__Docs  )
-        self.add_routes(Routes__Host__Logs  )
-        self.add_routes(Routes__Host__Pods  )
-        self.add_routes(Routes__Host__Shell )
-        self.add_routes(Routes__Host__Status)
+        self.add_routes(Routes__Host__Containers)
+        self.add_routes(Routes__Host__Docs      )
+        self.add_routes(Routes__Host__Logs      )
+        self.add_routes(Routes__Host__Pods      )
+        self.add_routes(Routes__Host__Shell     )
+        self.add_routes(Routes__Host__Status    )
