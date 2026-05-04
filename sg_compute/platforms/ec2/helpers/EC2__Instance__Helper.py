@@ -1,7 +1,8 @@
 # ═══════════════════════════════════════════════════════════════════════════════
 # Ephemeral EC2 — EC2__Instance__Helper
 # DescribeInstances, terminate, SSM reachability, and command execution.
-# Filters instances by Purpose=ephemeral-ec2 and StackType tag.
+# list_all_managed() / find_by_sg_stack_name() use the spec-service tag
+# convention (sg:stack-name, sg:purpose) and find nodes from any spec.
 # ═══════════════════════════════════════════════════════════════════════════════
 
 import time
@@ -45,6 +46,27 @@ class EC2__Instance__Helper(Type_Safe):
             Filters=[{'Name': f'tag:{TAG_PURPOSE_KEY}', 'Values': [TAG_PURPOSE_VALUE]  },
                      {'Name': f'tag:{TAG_STACK_NAME}' , 'Values': [stack_name]         },
                      {'Name': 'instance-state-name'   , 'Values': INSTANCE_STATES_LIVE }])
+        for reservation in resp.get('Reservations', []):
+            for instance in reservation.get('Instances', []):
+                return instance
+        return None
+
+    def list_all_managed(self, region: str) -> Dict[str, dict]:            # all spec-service nodes (tagged sg:stack-name)
+        resp = self.ec2_client(region).describe_instances(
+            Filters=[{'Name': 'tag-key'             , 'Values': ['sg:stack-name']  },
+                     {'Name': 'instance-state-name' , 'Values': INSTANCE_STATES_LIVE}])
+        out = {}
+        for reservation in resp.get('Reservations', []):
+            for instance in reservation.get('Instances', []):
+                iid = instance.get('InstanceId', '')
+                if iid:
+                    out[iid] = instance
+        return out
+
+    def find_by_sg_stack_name(self, region: str, stack_name: str) -> Optional[dict]:
+        resp = self.ec2_client(region).describe_instances(
+            Filters=[{'Name': 'tag:sg:stack-name'   , 'Values': [stack_name]       },
+                     {'Name': 'instance-state-name' , 'Values': INSTANCE_STATES_LIVE}])
         for reservation in resp.get('Reservations', []):
             for instance in reservation.get('Instances', []):
                 return instance
