@@ -34,6 +34,7 @@
         <button class="sgl-tab" data-tab="containers">Pods</button>
         <button class="sgl-tab" data-tab="terminal">Terminal</button>
         <button class="sgl-tab" data-tab="hostapi">Host API</button>
+        <button class="sgl-tab" data-tab="ec2info">EC2 Info</button>
       </div>
       <div class="sgl-panel-actions">
         <button class="btn-close-detail sgl-iconbtn" title="Close detail">✕</button>
@@ -95,6 +96,50 @@
       <!-- Host API -->
       <div class="tab-panel" data-panel="hostapi">
         <sp-cli-host-api-panel class="host-api-panel"></sp-cli-host-api-panel>
+      </div>
+
+      <!-- EC2 Info -->
+      <div class="tab-panel" data-panel="ec2info">
+        <div class="ec2i-head">
+          <span class="ec2i-status"></span>
+          <button class="btn-refresh-ec2 sgl-iconbtn" title="Refresh EC2 info">↺</button>
+        </div>
+        <div class="ec2i-body">
+          <div class="ec2i-loading">Loading EC2 info…</div>
+          <div class="ec2i-error" hidden></div>
+          <div class="ec2i-content" hidden>
+            <!-- Instance -->
+            <section class="ec2i-section">
+              <h3 class="ec2i-section-title">Instance</h3>
+              <dl class="ec2i-kv instance-kv"></dl>
+            </section>
+            <!-- Network -->
+            <section class="ec2i-section">
+              <h3 class="ec2i-section-title">Network</h3>
+              <dl class="ec2i-kv network-kv"></dl>
+            </section>
+            <!-- IAM -->
+            <section class="ec2i-section">
+              <h3 class="ec2i-section-title">IAM</h3>
+              <dl class="ec2i-kv iam-kv"></dl>
+            </section>
+            <!-- Tags -->
+            <section class="ec2i-section">
+              <h3 class="ec2i-section-title">Tags</h3>
+              <dl class="ec2i-kv tags-kv"></dl>
+            </section>
+            <!-- Storage -->
+            <section class="ec2i-section">
+              <h3 class="ec2i-section-title">Storage</h3>
+              <div class="ec2i-volumes"></div>
+            </section>
+            <!-- Security Groups -->
+            <section class="ec2i-section">
+              <h3 class="ec2i-section-title">Security Groups</h3>
+              <div class="ec2i-sgs"></div>
+            </section>
+          </div>
+        </div>
       </div>
 
     </div>

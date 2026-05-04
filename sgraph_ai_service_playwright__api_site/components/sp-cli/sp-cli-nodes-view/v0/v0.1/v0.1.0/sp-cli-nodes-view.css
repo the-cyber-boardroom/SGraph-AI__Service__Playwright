@@ -395,3 +395,113 @@ sp-cli-host-api-panel { display: block; height: 100%; }
     word-break:  break-all;
     background:  var(--bg-app);
 }
+
+/* ── EC2 Info tab ─────────────────────────────── */
+.tab-panel[data-panel="ec2info"] { overflow: hidden; }
+.tab-panel[data-panel="ec2info"].active { display: flex; flex-direction: column; }
+
+.ec2i-head {
+    display:       flex;
+    align-items:   center;
+    gap:           8px;
+    padding:       0 10px;
+    height:        28px;
+    background:    var(--bg-elev);
+    border-bottom: 1px solid var(--border-1);
+    flex-shrink:   0;
+}
+.ec2i-status { flex: 1; font-size: 10px; color: var(--text-3); }
+
+.ec2i-body {
+    flex:           1;
+    overflow-y:     auto;
+    display:        flex;
+    flex-direction: column;
+    background:     var(--bg-app);
+}
+.ec2i-loading {
+    padding:    24px;
+    text-align: center;
+    color:      var(--text-3);
+    font-size:  12px;
+}
+.ec2i-error {
+    margin:        8px 12px;
+    padding:       8px 12px;
+    font-size:     11px;
+    color:         var(--bad);
+    background:    var(--bad-soft);
+    border-radius: var(--r-2);
+    border:        1px solid rgba(248,113,113,.25);
+}
+.ec2i-content { display: flex; flex-direction: column; gap: 0; }
+
+.ec2i-section {
+    border-bottom: 1px solid var(--border-1);
+    padding:       10px 14px;
+}
+.ec2i-section:last-child { border-bottom: none; }
+
+.ec2i-section-title {
+    font-size:      10px;
+    font-weight:    700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color:          var(--text-3);
+    margin:         0 0 8px 0;
+}
+
+.ec2i-kv {
+    display:               grid;
+    grid-template-columns: 120px 1fr;
+    gap:                   3px 10px;
+    font-size:             11px;
+    margin:                0;
+}
+.ec2i-kv dt { color: var(--text-3); align-self: start; padding-top: 1px; }
+.ec2i-kv dd { color: var(--text-1); font-family: var(--font-mono); word-break: break-all; margin: 0; }
+
+/* volumes */
+.ec2i-vol {
+    display:       flex;
+    gap:           10px;
+    font-size:     11px;
+    padding:       5px 0;
+    border-bottom: 1px solid var(--border-1);
+    flex-wrap:     wrap;
+}
+.ec2i-vol:last-child { border-bottom: none; }
+.ec2i-vol-dev  { font-family: var(--font-mono); color: var(--text-2); min-width: 90px; }
+.ec2i-vol-id   { font-family: var(--font-mono); color: var(--text-3); font-size: 10px; flex: 1; }
+.ec2i-vol-size { color: var(--text-2); white-space: nowrap; }
+.ec2i-vol-enc  { font-size: 10px; color: var(--good); }
+
+/* security groups */
+.ec2i-sg {
+    margin-bottom: 10px;
+}
+.ec2i-sg-title {
+    font-size:   11px;
+    font-weight: 600;
+    color:       var(--text-2);
+    margin:      0 0 6px 0;
+}
+.ec2i-sg-subtitle {
+    font-size:      9px;
+    font-weight:    700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color:          var(--text-4);
+    margin:         4px 0 3px 0;
+}
+.ec2i-rule {
+    display:   flex;
+    gap:       8px;
+    font-size: 10px;
+    padding:   2px 0;
+    flex-wrap: wrap;
+}
+.ec2i-rule-proto { font-family: var(--font-mono); color: var(--accent); min-width: 40px; }
+.ec2i-rule-ports { font-family: var(--font-mono); color: var(--text-1); min-width: 70px; }
+.ec2i-rule-src   { color: var(--text-3); font-family: var(--font-mono); }
+.ec2i-rule-desc  { color: var(--text-4); font-style: italic; }

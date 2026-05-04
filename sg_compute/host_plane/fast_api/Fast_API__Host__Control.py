@@ -19,6 +19,7 @@ from osbot_fast_api.api.schemas.consts.consts__Fast_API                        i
 
 from sg_compute.host_plane.fast_api.exception_handlers                         import register_type_safe_handlers
 from sg_compute.host_plane.fast_api.routes.Routes__Host__Docs                  import Routes__Host__Docs
+from sg_compute.host_plane.fast_api.routes.Routes__Host__EC2                   import Routes__Host__EC2
 from sg_compute.host_plane.fast_api.routes.Routes__Host__Logs                  import Routes__Host__Logs
 from sg_compute.host_plane.fast_api.routes.Routes__Host__Pods                  import Routes__Host__Pods
 from sg_compute.host_plane.fast_api.routes.Routes__Host__Shell                 import Routes__Host__Shell
@@ -63,6 +64,7 @@ class Fast_API__Host__Control(Serverless__Fast_API):
 
     def setup_routes(self):
         self.add_routes(Routes__Host__Docs  )
+        self.add_routes(Routes__Host__EC2   )
         self.add_routes(Routes__Host__Logs  )
         self.add_routes(Routes__Host__Pods  )
         self.add_routes(Routes__Host__Shell )

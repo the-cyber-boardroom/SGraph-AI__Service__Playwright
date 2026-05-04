@@ -48,6 +48,10 @@ class SpCliNodesView extends SgComponent {
         this._blContent     = this.$('.bl-content')
         this._blStatus      = this.$('.bl-status')
         this._blSource      = this.$('.bl-source')
+        this._ec2iStatus    = this.$('.ec2i-status')
+        this._ec2iLoading   = this.$('.ec2i-loading')
+        this._ec2iError     = this.$('.ec2i-error')
+        this._ec2iContent   = this.$('.ec2i-content')
 
         this._liveLogTimer = null
         this._livePodName  = null
@@ -56,6 +60,7 @@ class SpCliNodesView extends SgComponent {
         this.$('.btn-close-log')?.addEventListener('click', () => this._closeLogDrawer())
         this._liveBtnEl?.addEventListener('click', () => this._toggleLiveLog())
         this.$('.btn-refresh-boot')?.addEventListener('click', () => this._fetchBootLog())
+        this.$('.btn-refresh-ec2')?.addEventListener('click',  () => this._fetchEc2Info())
         this._nodesView     = this.$('.nodes-view')
         this._nodesList     = this.$('.nodes-list')
         this._resizeHandle  = this.$('.resize-handle')
@@ -84,6 +89,29 @@ class SpCliNodesView extends SgComponent {
     setStacks(stacks = []) {
         if (!this._rows) { this._pendingStacks = stacks; return }
         this._stacks = stacks
+
+        // Update currentStack if it is in the refreshed list (state may have changed)
+        if (this._currentStack) {
+            const updated = stacks.find(s => s.stack_name === this._currentStack.stack_name)
+            if (updated) {
+                const wasRunning = this._currentStack.state === 'running'
+                this._currentStack = { ...this._currentStack, ...updated }
+                // update overview fields live
+                const stEl = this._infoKv?.querySelector('[data-kv="state"]')
+                if (stEl) stEl.textContent = updated.state
+                const upEl = this._infoKv?.querySelector('[data-kv="uptime"]')
+                if (upEl) upEl.textContent = _fmtUptime(updated.uptime_seconds)
+                // node just became running — switch health poll to sidecar mode
+                if (!wasRunning && updated.state === 'running') {
+                    if (this._healthPollTimer) { clearInterval(this._healthPollTimer); this._healthPollTimer = null }
+                    this._healthPollTimer = setInterval(() => this._pollHealth(), 15000)
+                    // now that sidecar is up, fetch boot log if that tab is active
+                    const activePanel = this.shadowRoot.querySelector('.tab-panel.active')
+                    if (activePanel?.dataset?.panel === 'bootlog') this._fetchBootLog()
+                }
+            }
+        }
+
         this._renderList(stacks)
     }
 
@@ -220,7 +248,9 @@ class SpCliNodesView extends SgComponent {
 
         if (stack.state !== 'running') this._activateTab('bootlog')
 
-        this._healthPollTimer = setInterval(() => this._pollHealth(), 15000)
+        // running: poll sidecar every 15s; pending/other: poll SP CLI backend every 5s
+        const interval = stack.state === 'running' ? 15000 : 5000
+        this._healthPollTimer = setInterval(() => this._pollHealth(), interval)
 
         Array.from(this.shadowRoot.querySelectorAll('.node-row')).forEach(r =>
             r.classList.toggle('selected', r.querySelector('.row-name')?.textContent === stack.stack_name)
@@ -238,6 +268,13 @@ class SpCliNodesView extends SgComponent {
     async _pollHealth() {
         const s = this._currentStack
         if (!s) { clearInterval(this._healthPollTimer); this._healthPollTimer = null; return }
+
+        // Non-running: request a same-origin refresh — setStacks() will handle the transition
+        if (s.state !== 'running') {
+            document.dispatchEvent(new CustomEvent('sp-cli:nodes.refresh', { bubbles: true, composed: true }))
+            return
+        }
+
         const base = s.host_api_url || (s.public_ip ? `http://${s.public_ip}:19009` : '')
         const key  = s.host_api_key || ''
         if (!base) return
@@ -257,6 +294,7 @@ class SpCliNodesView extends SgComponent {
         this._panels.forEach(p => p.classList.toggle('active', p.dataset.panel === name))
         if (name === 'containers') this._fetchContainers()
         if (name === 'bootlog')    this._fetchBootLog()
+        if (name === 'ec2info')    this._fetchEc2Info()
     }
 
     async _fetchBootLog() {
@@ -264,6 +302,14 @@ class SpCliNodesView extends SgComponent {
         const base = s?.host_api_url || (s?.public_ip ? `http://${s.public_ip}:19009` : '')
         const key  = s?.host_api_key || ''
         if (!base || !this._blContent) return
+
+        // Sidecar not running yet — show placeholder, no cross-origin fetch
+        if (s?.state !== 'running') {
+            if (this._blStatus)  this._blStatus.textContent  = 'Waiting for sidecar…'
+            if (this._blSource)  this._blSource.textContent  = ''
+            if (this._blContent) this._blContent.textContent = '⏳ Node is booting — boot log will appear once the sidecar is up.'
+            return
+        }
 
         if (this._blStatus)  this._blStatus.textContent  = 'Loading…'
         if (this._blSource)  this._blSource.textContent  = ''
@@ -443,6 +489,110 @@ class SpCliNodesView extends SgComponent {
         this._livePodName = null
         if (this._liveBtnEl) this._liveBtnEl.textContent = '▶ Live'
         this._liveBtnEl?.classList.remove('live-active')
+    }
+
+    async _fetchEc2Info() {
+        const s    = this._currentStack
+        const base = s?.host_api_url || (s?.public_ip ? `http://${s.public_ip}:19009` : '')
+        const key  = s?.host_api_key || ''
+        if (!base) return
+
+        if (s?.state !== 'running') {
+            if (this._ec2iStatus)  this._ec2iStatus.textContent  = 'Waiting for sidecar…'
+            if (this._ec2iLoading) this._ec2iLoading.textContent = '⏳ Node is booting — EC2 info available once sidecar is up.'
+            return
+        }
+
+        if (this._ec2iLoading) { this._ec2iLoading.textContent = 'Loading…'; this._ec2iLoading.hidden = false }
+        if (this._ec2iError)   this._ec2iError.hidden = true
+        if (this._ec2iContent) this._ec2iContent.hidden = true
+        if (this._ec2iStatus)  this._ec2iStatus.textContent = ''
+
+        try {
+            const resp = await fetch(`${base}/host/ec2-info`, { headers: key ? { 'X-API-Key': key } : {} })
+            if (!resp.ok) throw new Error(`HTTP ${resp.status}`)
+            const data = await resp.json()
+            if (data.error) throw new Error(data.error)
+            if (this._ec2iLoading) this._ec2iLoading.hidden = true
+            if (this._ec2iContent) this._ec2iContent.hidden = false
+            if (this._ec2iStatus)  this._ec2iStatus.textContent = `${data.instance_id} · ${data.instance_type} · ${data.region}`
+            this._renderEc2Info(data)
+        } catch (err) {
+            if (this._ec2iLoading) this._ec2iLoading.hidden = true
+            if (this._ec2iError)   { this._ec2iError.textContent = err.message; this._ec2iError.hidden = false }
+            if (this._ec2iStatus)  this._ec2iStatus.textContent = 'Error fetching EC2 info'
+        }
+    }
+
+    _renderEc2Info(d) {
+        const kv = (el, pairs) => {
+            if (!el) return
+            el.innerHTML = pairs.map(([k, v]) =>
+                `<dt>${_esc(k)}</dt><dd>${_esc(String(v || '—'))}</dd>`
+            ).join('')
+        }
+
+        kv(this._ec2iContent?.querySelector('.instance-kv'), [
+            ['Instance ID',  d.instance_id],
+            ['Type',         d.instance_type],
+            ['AMI',          d.ami_id],
+            ['State',        d.state],
+            ['AZ',           d.availability_zone],
+            ['Launch Time',  d.launch_time],
+        ])
+        kv(this._ec2iContent?.querySelector('.network-kv'), [
+            ['Public IP',    d.public_ip],
+            ['Private IP',   d.private_ip],
+            ['Public DNS',   d.public_dns],
+            ['Private DNS',  d.private_dns],
+            ['VPC',          d.vpc_id],
+            ['Subnet',       d.subnet_id],
+        ])
+        kv(this._ec2iContent?.querySelector('.iam-kv'), [
+            ['Profile Name', d.iam_profile_name],
+            ['Profile ARN',  d.iam_profile_arn],
+        ])
+
+        const tagsEl = this._ec2iContent?.querySelector('.tags-kv')
+        if (tagsEl) {
+            const pairs = Object.entries(d.tags || {})
+            tagsEl.innerHTML = pairs.length
+                ? pairs.map(([k, v]) => `<dt>${_esc(k)}</dt><dd>${_esc(v)}</dd>`).join('')
+                : '<dt>—</dt><dd>no tags</dd>'
+        }
+
+        const volsEl = this._ec2iContent?.querySelector('.ec2i-volumes')
+        if (volsEl) {
+            volsEl.innerHTML = (d.volumes || []).map(v => `
+                <div class="ec2i-vol">
+                  <span class="ec2i-vol-dev">${_esc(v.device)}</span>
+                  <span class="ec2i-vol-id">${_esc(v.volume_id)}</span>
+                  <span class="ec2i-vol-size">${v.size_gb || 0} GB · ${_esc(v.volume_type || '—')}</span>
+                  ${v.encrypted ? '<span class="ec2i-vol-enc">🔒 encrypted</span>' : ''}
+                </div>
+            `).join('') || '<span style="font-size:11px;color:var(--text-3)">No volumes</span>'
+        }
+
+        const sgsEl = this._ec2iContent?.querySelector('.ec2i-sgs')
+        if (sgsEl) {
+            sgsEl.innerHTML = (d.security_groups || []).map(sg => {
+                const fmtRules = (rules) => rules.length
+                    ? rules.map(r => `
+                        <div class="ec2i-rule">
+                          <span class="ec2i-rule-proto">${_esc(r.protocol)}</span>
+                          <span class="ec2i-rule-ports">${_esc(r.ports)}</span>
+                          <span class="ec2i-rule-src">${_esc((r.sources || []).join(', '))}</span>
+                          ${r.description ? `<span class="ec2i-rule-desc">${_esc(r.description)}</span>` : ''}
+                        </div>`).join('')
+                    : '<span style="font-size:10px;color:var(--text-4)">none</span>'
+                return `
+                  <div class="ec2i-sg">
+                    <div class="ec2i-sg-title">${_esc(sg.name)} <span style="color:var(--text-3);font-size:10px">${_esc(sg.id)}</span></div>
+                    <div class="ec2i-sg-subtitle">Inbound</div>${fmtRules(sg.inbound)}
+                    <div class="ec2i-sg-subtitle">Outbound</div>${fmtRules(sg.outbound)}
+                  </div>`
+            }).join('') || '<span style="font-size:11px;color:var(--text-3)">No security groups</span>'
+        }
     }
 
     async _pollLiveLogs() {
