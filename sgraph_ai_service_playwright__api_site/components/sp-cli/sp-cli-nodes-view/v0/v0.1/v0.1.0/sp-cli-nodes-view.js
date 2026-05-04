@@ -2,6 +2,7 @@ import { SgComponent } from 'https://dev.tools.sgraph.ai/components/base/v1/v1.0
 import '../../../../_shared/sp-cli-host-shell/v0/v0.1/v0.1.0/sp-cli-host-shell.js'
 import '../../../../_shared/sp-cli-host-api-panel/v0/v0.1/v0.1.0/sp-cli-host-api-panel.js'
 import '../../../../_shared/sp-cli-stop-button/v0/v0.1/v0.1.0/sp-cli-stop-button.js'
+import { apiClient } from '../../../../../../shared/api-client.js'
 
 const _EC2_CSS = new URL('../../../../../../shared/ec2-tokens.css', import.meta.url).href
 
@@ -227,6 +228,7 @@ class SpCliNodesView extends SgComponent {
                 <dt>Type</dt>      <dd>${_esc(stack.type_id)}</dd>
                 <dt>State</dt>     <dd data-kv="state">${_esc(stack.state)}</dd>
                 <dt>Instance</dt>  <dd>${_esc(stack.instance_type || '—')}</dd>
+                <dt>Instance ID</dt><dd class="mono">${_esc(stack.instance_id || '—')}</dd>
                 <dt>Region</dt>    <dd>${_esc(stack.region || '—')}</dd>
                 <dt>Public IP</dt> <dd class="mono">${_esc(stack.public_ip || '—')}</dd>
                 ${hostUrl ? `<dt>Host API</dt><dd class="mono">${_esc(hostUrl)}</dd>` : ''}
@@ -492,14 +494,10 @@ class SpCliNodesView extends SgComponent {
     }
 
     async _fetchEc2Info() {
-        const s    = this._currentStack
-        const base = s?.host_api_url || (s?.public_ip ? `http://${s.public_ip}:19009` : '')
-        const key  = s?.host_api_key || ''
-        if (!base) return
-
-        if (s?.state !== 'running') {
-            if (this._ec2iStatus)  this._ec2iStatus.textContent  = 'Waiting for sidecar…'
-            if (this._ec2iLoading) this._ec2iLoading.textContent = '⏳ Node is booting — EC2 info available once sidecar is up.'
+        const s = this._currentStack
+        if (!s?.instance_id || !s?.region) {
+            if (this._ec2iStatus)  this._ec2iStatus.textContent  = 'No instance ID'
+            if (this._ec2iLoading) this._ec2iLoading.textContent = 'Instance ID not available for this stack.'
             return
         }
 
@@ -509,9 +507,8 @@ class SpCliNodesView extends SgComponent {
         if (this._ec2iStatus)  this._ec2iStatus.textContent = ''
 
         try {
-            const resp = await fetch(`${base}/host/ec2-info`, { headers: key ? { 'X-API-Key': key } : {} })
-            if (!resp.ok) throw new Error(`HTTP ${resp.status}`)
-            const data = await resp.json()
+            // SP CLI backend has IAM creds — call same-origin, no CORS, no sidecar needed
+            const data = await apiClient.get(`/catalog/ec2-info?instance_id=${encodeURIComponent(s.instance_id)}&region=${encodeURIComponent(s.region)}`)
             if (data.error) throw new Error(data.error)
             if (this._ec2iLoading) this._ec2iLoading.hidden = true
             if (this._ec2iContent) this._ec2iContent.hidden = false
