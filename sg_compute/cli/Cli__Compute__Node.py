@@ -77,13 +77,24 @@ def create(spec_id      : str = typer.Argument(..., help='Spec identifier (docke
            api_key      : str = typer.Option('',             '--api-key',             help='Host control plane API key (auto-generated if empty).'),
            name         : str = typer.Option('',             '--name',                help='Override stack name (auto-generated if empty).')):
     """Create a new compute node running the given spec."""
-    if spec_id == 'docker':
-        _create_docker(region, instance_type, max_hours, registry, api_key, name)
-    elif spec_id == 'podman':
-        _create_podman(region, instance_type, max_hours, name)
-    else:
-        typer.echo(f'create --spec {spec_id!r} not yet wired; supported: docker, podman', err=True)
+    _DISPATCHERS = {
+        'docker'     : lambda: _create_docker     (region, instance_type, max_hours, registry, api_key, name),
+        'podman'     : lambda: _create_podman     (region, instance_type, max_hours, name),
+        'vnc'        : lambda: _create_vnc        (region, instance_type, max_hours, name),
+        'elastic'    : lambda: _create_elastic    (region, instance_type, max_hours, name),
+        'opensearch' : lambda: _create_opensearch (region, instance_type, max_hours, name),
+        'neko'       : lambda: _create_neko       (region, instance_type, max_hours, name),
+        'prometheus' : lambda: _create_prometheus (region, instance_type, max_hours, name),
+        'ollama'     : lambda: _create_ollama     (region, instance_type, max_hours, name),
+        'open_design': lambda: _create_open_design(region, instance_type, max_hours, name),
+        'firefox'    : lambda: _create_firefox    (region, instance_type, max_hours, name),
+    }
+    fn = _DISPATCHERS.get(spec_id)
+    if fn is None:
+        supported = ', '.join(sorted(_DISPATCHERS))
+        typer.echo(f'Unknown spec {spec_id!r}. Supported: {supported}', err=True)
         raise typer.Exit(1)
+    fn()
 
 
 def _create_docker(region, instance_type, max_hours, registry, api_key, name):
@@ -119,3 +130,135 @@ def _create_podman(region, instance_type, max_hours, name):
     typer.echo(f'Instance: {info.instance_id}  ({info.instance_type})')
     typer.echo(f'Region  : {info.region}')
     typer.echo(f'State   : {info.state.value}')
+
+
+def _echo_stack_info(info):
+    typer.echo(f'Created : {info.stack_name}')
+    typer.echo(f'Instance: {info.instance_id}  ({info.instance_type})')
+    typer.echo(f'Region  : {info.region}')
+    typer.echo(f'State   : {info.state}')
+
+
+def _create_vnc(region, instance_type, max_hours, name):
+    from sg_compute_specs.vnc.schemas.Schema__Vnc__Stack__Create__Request   import Schema__Vnc__Stack__Create__Request
+    from sg_compute_specs.vnc.service.Vnc__Service                          import Vnc__Service
+    svc   = Vnc__Service().setup()
+    sname = name or svc.name_gen.generate()
+    req   = Schema__Vnc__Stack__Create__Request(instance_type=instance_type, max_hours=max_hours)
+    req.stack_name.__init__(sname)
+    req.region.__init__(region)
+    resp  = svc.create_stack(req)
+    typer.echo(f'Created : {resp.stack_name}')
+    typer.echo(f'Instance: {resp.instance_id}  ({resp.instance_type})')
+    typer.echo(f'Region  : {resp.region}')
+    typer.echo(f'State   : {resp.state.value}')
+
+
+def _create_elastic(region, instance_type, max_hours, name):
+    from sg_compute_specs.elastic.schemas.Schema__Elastic__Create__Request  import Schema__Elastic__Create__Request
+    from sg_compute_specs.elastic.service.Elastic__Service                  import Elastic__Service
+    svc   = Elastic__Service().setup()
+    sname = name or svc._random_stack_name()
+    req   = Schema__Elastic__Create__Request(instance_type=instance_type, max_hours=max_hours)
+    req.stack_name.__init__(sname)
+    req.region.__init__(region)
+    resp  = svc.create(req)
+    typer.echo(f'Created : {resp.stack_name}')
+    typer.echo(f'Instance: {resp.instance_id}  ({resp.instance_type})')
+    typer.echo(f'Region  : {resp.region}')
+    typer.echo(f'State   : {resp.state.value}')
+
+
+def _create_opensearch(region, instance_type, max_hours, name):
+    from sg_compute_specs.opensearch.schemas.Schema__OS__Stack__Create__Request import Schema__OS__Stack__Create__Request
+    from sg_compute_specs.opensearch.service.OpenSearch__Service                import OpenSearch__Service
+    svc   = OpenSearch__Service().setup()
+    sname = name or f'os-{svc.name_gen.generate()}'
+    req   = Schema__OS__Stack__Create__Request(instance_type=instance_type, max_hours=max_hours)
+    req.stack_name.__init__(sname)
+    req.region.__init__(region)
+    resp  = svc.create_stack(req)
+    typer.echo(f'Created : {resp.stack_name}')
+    typer.echo(f'Instance: {resp.instance_id}  ({resp.instance_type})')
+    typer.echo(f'Region  : {resp.region}')
+    typer.echo(f'State   : {resp.state.value}')
+
+
+def _create_neko(region, instance_type, max_hours, name):                    # neko has no max_hours param
+    from sg_compute_specs.neko.schemas.Schema__Neko__Stack__Create__Request  import Schema__Neko__Stack__Create__Request
+    from sg_compute_specs.neko.service.Neko__Service                         import Neko__Service
+    svc   = Neko__Service().setup()
+    sname = name or f'neko-{svc.name_gen.generate()}'
+    req   = Schema__Neko__Stack__Create__Request(instance_type=instance_type)
+    req.stack_name.__init__(sname)
+    req.region.__init__(region)
+    resp  = svc.create_stack(req)
+    typer.echo(f'Created : {resp.stack_name}')
+    typer.echo(f'Instance: {resp.instance_id}  ({resp.instance_type})')
+    typer.echo(f'Region  : {resp.region}')
+    typer.echo(f'State   : {resp.state.value}')
+
+
+def _create_prometheus(region, instance_type, max_hours, name):
+    from sg_compute_specs.prometheus.schemas.Schema__Prom__Stack__Create__Request import Schema__Prom__Stack__Create__Request
+    from sg_compute_specs.prometheus.service.Prometheus__Service                  import Prometheus__Service
+    svc   = Prometheus__Service().setup()
+    sname = name or f'prom-{svc.name_gen.generate()}'
+    req   = Schema__Prom__Stack__Create__Request(instance_type=instance_type, max_hours=max_hours)
+    req.stack_name.__init__(sname)
+    req.region.__init__(region)
+    resp  = svc.create_stack(req)
+    typer.echo(f'Created : {resp.stack_name}')
+    typer.echo(f'Instance: {resp.instance_id}  ({resp.instance_type})')
+    typer.echo(f'Region  : {resp.region}')
+    typer.echo(f'State   : {resp.state.value}')
+
+
+def _create_ollama(region, instance_type, max_hours, name):
+    from sg_compute_specs.ollama.schemas.Schema__Ollama__Create__Request     import Schema__Ollama__Create__Request
+    from sg_compute_specs.ollama.service.Ollama__Service                     import Ollama__Service
+    svc   = Ollama__Service().setup()
+    sname = name or svc.name_gen.generate()
+    req   = Schema__Ollama__Create__Request(stack_name    = sname         ,
+                                             region        = region        ,
+                                             instance_type = instance_type ,
+                                             max_hours     = max_hours     )
+    resp  = svc.create_stack(req)
+    info  = resp.stack_info
+    typer.echo(f'Created : {info.stack_name}')
+    typer.echo(f'Instance: {info.instance_id}  ({info.instance_type})')
+    typer.echo(f'Region  : {info.region}')
+    typer.echo(f'State   : {info.state}')
+
+
+def _create_open_design(region, instance_type, max_hours, name):
+    from sg_compute_specs.open_design.schemas.Schema__Open_Design__Create__Request import Schema__Open_Design__Create__Request
+    from sg_compute_specs.open_design.service.Open_Design__Service                 import Open_Design__Service
+    svc   = Open_Design__Service().setup()
+    sname = name or svc.name_gen.generate()
+    req   = Schema__Open_Design__Create__Request(stack_name    = sname         ,
+                                                  region        = region        ,
+                                                  instance_type = instance_type ,
+                                                  max_hours     = max_hours     )
+    resp  = svc.create_stack(req)
+    info  = resp.stack_info
+    typer.echo(f'Created : {info.stack_name}')
+    typer.echo(f'Instance: {info.instance_id}  ({info.instance_type})')
+    typer.echo(f'Region  : {info.region}')
+    typer.echo(f'State   : {info.state}')
+
+
+def _create_firefox(region, instance_type, max_hours, name):
+    from sg_compute_specs.firefox.schemas.Schema__Firefox__Stack__Create__Request import Schema__Firefox__Stack__Create__Request
+    from sg_compute_specs.firefox.service.Firefox__AWS__Client                    import FIREFOX_NAMING
+    from sg_compute_specs.firefox.service.Firefox__Service                        import Firefox__Service
+    svc   = Firefox__Service().setup()
+    sname = name or FIREFOX_NAMING.generate()
+    req   = Schema__Firefox__Stack__Create__Request(instance_type=instance_type)
+    req.stack_name.__init__(sname)
+    req.region.__init__(region)
+    resp  = svc.create_stack(req)
+    typer.echo(f'Created : {resp.stack_name}')
+    typer.echo(f'Instance: {resp.instance_id}  ({resp.instance_type})')
+    typer.echo(f'Region  : {resp.region}')
+    typer.echo(f'State   : {resp.state.value}')

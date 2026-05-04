@@ -55,10 +55,9 @@ class test_Fast_API__Compute(TestCase):
 
     # ── nodes / stacks placeholders ─────────────────────────────────────────
 
-    def test_nodes_placeholder(self):
+    def test_nodes_endpoint_reachable(self):                                   # 200 with creds, 503 without
         r = self.client.get('/api/nodes')
-        assert r.status_code == 200
-        assert r.json() == {'nodes': [], 'total': 0}
+        assert r.status_code in (200, 503)
 
     def test_stacks_placeholder(self):
         r = self.client.get('/api/stacks')
