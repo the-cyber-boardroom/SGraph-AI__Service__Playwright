@@ -119,8 +119,8 @@ class Pod__Runtime__Docker(Pod__Runtime):
             args.append('--timestamps')
         args.append(name)
         stdout, stderr, rc = self._run(args)
-        if rc != 0 and not stdout.strip() and not stderr.strip():
-            return None                                                      # container not found → 404
+        if rc != 0 and not stdout.strip():
+            return None                                                      # container not found (stderr holds docker error, no log content) → 404
         content       = stdout + stderr
         content_lines = content.strip().splitlines() if content.strip() else []
         actual_lines  = len(content_lines)

@@ -117,3 +117,44 @@ def test_shell_execute__empty_command__422(client):
     r = client.post('/host/shell/execute', headers=HEADERS,
                     json={'command': '', 'timeout': 5})
     assert r.status_code in (422, 400)
+
+# ── CORS ──────────────────────────────────────────────────────────────────────
+
+def test_cors__options_preflight__200(client):
+    r = client.options('/pods/list',
+                       headers={'Origin'                         : 'http://localhost:10071',
+                                'Access-Control-Request-Method'  : 'GET'                   ,
+                                'Access-Control-Request-Headers' : 'X-API-Key'             })
+    assert r.status_code in (200, 204)
+    assert r.headers.get('access-control-allow-origin') == '*'
+    assert r.headers.get('access-control-allow-headers') in ('*', 'X-API-Key', 'x-api-key')
+
+def test_cors__response_includes_acao_header(client):
+    r = client.get('/host/status', headers={**HEADERS, 'Origin': 'http://localhost:10071'})
+    assert r.status_code == 200
+    assert r.headers.get('access-control-allow-origin') == '*'
+
+# ── Docs auth ─────────────────────────────────────────────────────────────────
+
+def test_docs_auth__returns_html_with_key(client):
+    r = client.get('/docs-auth?apikey=test-key-abc')
+    assert r.status_code == 200
+    assert 'text/html' in r.headers['content-type']
+    assert '"test-key-abc"' in r.text
+    assert 'X-API-Key'         in r.text
+    assert 'requestInterceptor' in r.text
+
+def test_docs_auth__no_key(client):
+    r = client.get('/docs-auth')
+    assert r.status_code == 200
+    assert '""' in r.text                                                    # empty string for apiKey
+
+def test_docs_auth__no_auth_required(client):
+    r = client.get('/docs-auth')                                             # No X-API-Key header
+    assert r.status_code == 200                                              # Unauthenticated access allowed
+
+def test_docs_auth__not_in_openapi_schema(client):
+    r = client.get('/openapi.json', headers=HEADERS)
+    assert r.status_code == 200
+    paths = r.json().get('paths', {})
+    assert '/docs-auth' not in paths
