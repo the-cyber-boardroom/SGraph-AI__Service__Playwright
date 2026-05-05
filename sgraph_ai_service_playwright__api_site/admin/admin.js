@@ -25,7 +25,7 @@ function _buildRootLayout() {
     }
 }
 
-const VIEW_TITLES = { compute: 'Compute', nodes: 'Active Nodes', stacks: 'Stacks', settings: 'Settings', diagnostics: 'Diagnostics', api: 'API Docs' }
+const VIEW_TITLES = { compute: 'Compute', nodes: 'Active Nodes', stacks: 'Stacks', specs: 'Specs', settings: 'Settings', diagnostics: 'Diagnostics', api: 'API Docs' }
 
 document.addEventListener('DOMContentLoaded', async () => {
     let _layoutEl         = null
@@ -319,7 +319,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     function _findMainStackId(tree) {
         const viewTags = [
             'sp-cli-compute-view', 'sp-cli-nodes-view', 'sp-cli-stacks-view', 'sp-cli-storage-view',
-            'sp-cli-settings-view', 'sp-cli-diagnostics-view', 'sp-cli-api-view',
+            'sp-cli-specs-view', 'sp-cli-settings-view', 'sp-cli-diagnostics-view', 'sp-cli-api-view',
         ]
         for (const tag of viewTags) {
             const id = _findStackWithTag(tree, tag)
@@ -333,7 +333,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (!stack) return null
         const viewTags = [
             'sp-cli-compute-view', 'sp-cli-nodes-view', 'sp-cli-stacks-view', 'sp-cli-storage-view',
-            'sp-cli-settings-view', 'sp-cli-diagnostics-view', 'sp-cli-api-view',
+            'sp-cli-specs-view', 'sp-cli-settings-view', 'sp-cli-diagnostics-view', 'sp-cli-api-view',
         ]
         for (const tag of viewTags) {
             const tab = stack.tabs?.find(t => t.tag === tag)
