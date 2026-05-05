@@ -1,0 +1,24 @@
+<div class="detail-top">
+  <sg-compute-stack-header class="detail-header"></sg-compute-stack-header>
+  <sg-compute-stop-button class="detail-stop"></sg-compute-stop-button>
+</div>
+<div class="browser-section" hidden>
+  <sg-remote-browser class="remote-browser" provider="iframe"></sg-remote-browser>
+</div>
+<div class="detail-body">
+  <div class="service-urls" hidden>
+    <div class="section-title">Service URLs</div>
+    <div class="url-list">
+      <div class="url-row">
+        <span class="url-label">Dashboards</span>
+        <a class="url-link dashboards-url" target="_blank" rel="noopener">—</a>
+      </div>
+      <div class="url-row">
+        <span class="url-label">OpenSearch</span>
+        <a class="url-link os-url" target="_blank" rel="noopener">—</a>
+      </div>
+    </div>
+  </div>
+  <sg-compute-ssm-command class="detail-ssm"></sg-compute-ssm-command>
+  <sg-compute-network-info class="detail-net"></sg-compute-network-info>
+</div>

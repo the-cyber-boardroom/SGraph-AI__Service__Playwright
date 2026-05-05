@@ -4,16 +4,16 @@ import { apiClient    } from '../shared/api-client.js'
 import { startVaultBus } from '../shared/vault-bus.js'
 
 const LAYOUT_KEY  = 'sp-cli:user:layout'
-const MODAL_TAG   = 'sp-cli-launch-modal'
+const MODAL_TAG   = 'sg-compute-launch-modal'
 
 const USER_LAYOUT = {
     type: 'row', sizes: [1.0, 0.0],
     children: [
         { type: 'stack', tabs: [
-            { tag: 'sp-cli-user-pane',      title: 'Provision',      locked: true },
+            { tag: 'sg-compute-user-pane',      title: 'Provision',      locked: true },
         ]},
         { type: 'stack', tabs: [
-            { tag: 'sp-cli-vault-activity', title: 'Vault Activity', locked: true },
+            { tag: 'sg-compute-vault-activity', title: 'Vault Activity', locked: true },
         ]},
     ],
 }
@@ -86,7 +86,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 
     function _populatePanes(types, stacks) {
-        const userPane = document.querySelector('sp-cli-user-pane')
+        const userPane = document.querySelector('sg-compute-user-pane')
         if (userPane) {
             userPane.setTypes(types)
             userPane.setStacks(stacks)

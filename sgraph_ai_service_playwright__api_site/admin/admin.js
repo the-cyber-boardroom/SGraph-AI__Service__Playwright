@@ -19,8 +19,8 @@ function _buildRootLayout() {
     return {
         type: 'row', sizes: [0.07, 0.93],
         children: [
-            { type: 'stack', tabs: [{ tag: 'sp-cli-left-nav',     title: 'Nav',     locked: true }] },
-            { type: 'stack', tabs: [{ tag: 'sp-cli-compute-view', title: 'Compute', locked: true }] },
+            { type: 'stack', tabs: [{ tag: 'sg-compute-left-nav',     title: 'Nav',     locked: true }] },
+            { type: 'stack', tabs: [{ tag: 'sg-compute-compute-view', title: 'Compute', locked: true }] },
         ],
     }
 }
@@ -200,7 +200,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     function _switchView(view) {
         if (!_layoutEl || !_mainStackId || !view || view === _currentView) return
-        const tag   = `sp-cli-${view}-view`
+        const tag   = `sg-compute-${view}-view`
         const title = VIEW_TITLES[view] || view
 
         const newTabId = _layoutEl.addTabToStack(_mainStackId, { tag, title, locked: true }, true)
@@ -224,7 +224,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
         const displayType = _capitalize(specId)
         const tabId = _layoutEl.addTabToStack(_mainStackId, {
-            tag:    `sp-cli-${specId}-detail`,
+            tag:    `sg-compute-${specId}-detail`,
             title:  `${displayType}: ${nodeId}`,
             locked: false,
         }, true)
@@ -243,7 +243,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             return
         }
         const tabId = _layoutEl.addTabToStack(_mainStackId, {
-            tag:    'sp-cli-launch-panel',
+            tag:    'sg-compute-launch-panel',
             title:  `Launching ${entry.display_name}`,
             locked: false,
         }, true)
@@ -293,8 +293,8 @@ document.addEventListener('DOMContentLoaded', async () => {
             ...s,
             host_api_key: _hostApiKeys[s.node_id || s.stack_name] || s.host_api_key || '',
         }))
-        document.querySelector('sp-cli-compute-view')?.setData?.({ types, stacks })
-        document.querySelector('sp-cli-nodes-view')?.setStacks?.(augmented)
+        document.querySelector('sg-compute-compute-view')?.setData?.({ types, stacks })
+        document.querySelector('sg-compute-nodes-view')?.setStacks?.(augmented)
         // cost-tracker may be inside shadow DOM (diagnostics view); use event so it receives data
         document.dispatchEvent(new CustomEvent('sp-cli:stacks.updated', {
             detail: { stacks }, bubbles: true, composed: true,
@@ -319,8 +319,8 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     function _findMainStackId(tree) {
         const viewTags = [
-            'sp-cli-compute-view', 'sp-cli-nodes-view', 'sp-cli-stacks-view', 'sp-cli-storage-view',
-            'sp-cli-specs-view', 'sp-cli-settings-view', 'sp-cli-diagnostics-view', 'sp-cli-api-view',
+            'sg-compute-compute-view', 'sg-compute-nodes-view', 'sg-compute-stacks-view', 'sg-compute-storage-view',
+            'sg-compute-specs-view', 'sg-compute-settings-view', 'sg-compute-diagnostics-view', 'sg-compute-api-view',
         ]
         for (const tag of viewTags) {
             const id = _findStackWithTag(tree, tag)
@@ -333,13 +333,13 @@ document.addEventListener('DOMContentLoaded', async () => {
         const stack = _findNodeById(tree, mainStackId)
         if (!stack) return null
         const viewTags = [
-            'sp-cli-compute-view', 'sp-cli-nodes-view', 'sp-cli-stacks-view', 'sp-cli-storage-view',
-            'sp-cli-specs-view', 'sp-cli-settings-view', 'sp-cli-diagnostics-view', 'sp-cli-api-view',
+            'sg-compute-compute-view', 'sg-compute-nodes-view', 'sg-compute-stacks-view', 'sg-compute-storage-view',
+            'sg-compute-specs-view', 'sg-compute-settings-view', 'sg-compute-diagnostics-view', 'sg-compute-api-view',
         ]
         for (const tag of viewTags) {
             const tab = stack.tabs?.find(t => t.tag === tag)
             if (tab?.id) {
-                _currentView = tag.replace('sp-cli-', '').replace('-view', '')
+                _currentView = tag.replace('sg-compute-', '').replace('-view', '')
                 return tab.id
             }
         }
