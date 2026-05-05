@@ -61,11 +61,7 @@
         </div>
 
         <div class="adv-wrap">
-          <label class="open-row">
-            <input type="checkbox" class="field-open">
-            <span class="open-label">Open access (0.0.0.0/0)</span>
-          </label>
-          <div class="ip-note">Required when launching via Lambda API (uses Lambda's IP, not yours).</div>
+          <div class="ip-note">Security group is restricted to your caller IP. Launching via Lambda API uses Lambda's outbound IP automatically.</div>
         </div>
 
       </div>

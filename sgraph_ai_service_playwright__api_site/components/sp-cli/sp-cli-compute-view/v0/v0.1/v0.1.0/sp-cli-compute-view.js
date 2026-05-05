@@ -49,7 +49,6 @@ class SpCliComputeView extends SgComponent {
         this._instanceSel = this.$('.field-instance')
         this._hoursSel    = this.$('.field-hours')
         this._nameInput   = this.$('.field-name')
-        this._openCheck   = this.$('.field-open')
         this._btnLaunch   = this.$('.btn-launch')
         this._btnLabel    = this.$('.btn-label')
         this._btnSpinner  = this.$('.btn-spinner')
@@ -66,7 +65,6 @@ class SpCliComputeView extends SgComponent {
         this._regionSel?.addEventListener('change',   () => this._updateCostBar())
         this._instanceSel?.addEventListener('change', () => this._updateCostBar())
         this._hoursSel?.addEventListener('change',    () => this._updateCostBar())
-        this._openCheck?.addEventListener('change',   () => this._updateCostBar())
 
         this.$('.btn-close-cfg')?.addEventListener('click', () => this._closeCfg())
         this._btnLaunch?.addEventListener('click', () => this._launch())
@@ -173,10 +171,9 @@ class SpCliComputeView extends SgComponent {
         const inst  = this._instanceSel?.value || 't3.medium'
         const hours = parseInt(this._hoursSel?.value || '4', 10)
         const rate  = COST_TABLE[inst] || 0
-        const open  = this._openCheck?.checked ?? false
         if (this._barHourly) this._barHourly.textContent = rate ? `$${rate.toFixed(3)}` : '—'
         if (this._barMax)    this._barMax.textContent    = rate ? `$${(rate * hours).toFixed(2)}` : '—'
-        if (this._barNet)    this._barNet.textContent    = open ? 'Open (0.0.0.0/0)' : 'Your IP only'
+        if (this._barNet)    this._barNet.textContent    = 'Caller IP'
     }
 
     async _launch() {
@@ -184,20 +181,20 @@ class SpCliComputeView extends SgComponent {
         this._setLoading(true)
         this._clearError()
         const body = {
-            stack_name:    this._nameInput?.value.trim()  || _genName(this._currentSpec.spec_id),
+            spec_id:       this._currentSpec.spec_id,
+            node_name:     this._nameInput?.value.trim()  || '',
             region:        this._regionSel?.value         || REGIONS[0],
             instance_type: this._instanceSel?.value       || 't3.medium',
             max_hours:     parseInt(this._hoursSel?.value || '4', 10),
-            public_ingress: this._openCheck?.checked ?? false,
         }
         try {
             const { apiClient } = await import('../../../../../../shared/api-client.js')
-            const resp = await apiClient.post(this._currentSpec.create_endpoint_path, body)
+            const resp = await apiClient.post('/api/nodes', body)
             document.dispatchEvent(new CustomEvent('sp-cli:node.launched', {
                 detail:  { entry: this._currentSpec, response: resp },
                 bubbles: true, composed: true,
             }))
-            document.dispatchEvent(new CustomEvent('sp-cli:launch.success', {   // DEPRECATED
+            document.dispatchEvent(new CustomEvent('sp-cli:launch.success', {
                 detail:  { entry: this._currentSpec, response: resp },
                 bubbles: true, composed: true,
             }))
