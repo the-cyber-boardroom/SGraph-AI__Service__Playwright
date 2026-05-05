@@ -80,7 +80,7 @@ jobs:
 
       - name: Run unit tests
         timeout-minutes: 5
-        run: python -m pytest tests/unit/ -v --timeout=30 --ignore=tests/unit/agent_mitmproxy   # agent_mitmproxy has its own pipeline (.github/workflows/ci__agent_mitmproxy.yml) and its own requirements.txt — don't sweep it in here
+        run: python -m pytest tests/unit/ -v --timeout=30
 
   # ════════════════════════════════════════════════════════════════════════════
   # Job 2: Check AWS Credentials (gate for every job that touches AWS)

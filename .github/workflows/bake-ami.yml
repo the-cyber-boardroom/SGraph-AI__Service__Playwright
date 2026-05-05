@@ -1,7 +1,7 @@
 name: Bake AMI — Playwright EC2
 
 # Triggered manually (workflow_dispatch) or automatically via workflow_call
-# from ci-pipeline.yml / ci__agent_mitmproxy.yml — fires only when a new ECR
+# from ci-pipeline.yml — fires only when a new ECR
 # image was actually pushed (build-and-push-image.result == 'success').
 # NOT triggered on every commit — the workflow_run trigger that fired on every
 # successful CI Pipeline - DEV run has been replaced with explicit workflow_call

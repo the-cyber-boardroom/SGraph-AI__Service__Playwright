@@ -1,8 +1,0 @@
-mitmproxy
-fastapi
-uvicorn[standard]
-httpx
-cryptography
-osbot-utils
-osbot-fast-api
-prometheus-client

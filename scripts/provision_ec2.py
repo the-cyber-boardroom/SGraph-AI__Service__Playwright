@@ -45,7 +45,7 @@ from osbot_aws.aws.iam.IAM_Role                                                 
 from osbot_utils.utils.Env                                                               import get_env
 
 from sg_compute_specs.playwright.core.docker.Docker__SGraph_AI__Service__Playwright__Base    import IMAGE_NAME as PLAYWRIGHT_IMAGE_NAME
-from agent_mitmproxy.docker.Docker__Agent_Mitmproxy__Base                                import IMAGE_NAME as SIDECAR_IMAGE_NAME
+from sg_compute_specs.mitmproxy.docker.Docker__Agent_Mitmproxy__Base                     import IMAGE_NAME as SIDECAR_IMAGE_NAME
 
 from sgraph_ai_service_playwright__cli.ec2.service.Ec2__AWS__Client                      import (Ec2__AWS__Client                                            ,
                                                                                                   EC2__AMI_NAME_AL2023                                        ,
