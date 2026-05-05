@@ -29,10 +29,12 @@
   <script type="module" src="../shared/components/sg-auth-panel.js"></script>
 
   <!-- plugin cards — spec_id drives which card renders; catalogue is the source of truth.
-       Until FV2.6 co-locates UI with specs, each spec still needs a <script> tag here.
+       Specs migrated via FV2.6 are loaded from /api/specs/<id>/ui/ (StaticFiles mount).
+       Remaining specs still use the dashboard-relative path until their FV2.6 session.
        If a script tag exists for a spec NOT in the catalogue, no card will render for it.
        If the catalogue lists a spec with no script tag, that spec is silently skipped. -->
-  <script type="module" src="../plugins/docker/v0/v0.1/v0.1.0/sg-compute-docker-card.js"></script>
+  <!-- docker — migrated FV2.6 -->
+  <script type="module" src="/api/specs/docker/ui/card/v0/v0.1/v0.1.0/sg-compute-docker-card.js"></script>
   <script type="module" src="../plugins/podman/v0/v0.1/v0.1.0/sg-compute-podman-card.js"></script>
   <script type="module" src="../plugins/elastic/v0/v0.1/v0.1.0/sg-compute-elastic-card.js"></script>
   <script type="module" src="../plugins/vnc/v0/v0.1/v0.1.0/sg-compute-vnc-card.js"></script>
@@ -42,7 +44,8 @@
   <script type="module" src="../plugins/firefox/v0/v0.1/v0.1.0/sg-compute-firefox-card.js"></script>
 
   <!-- per-plugin detail panels -->
-  <script type="module" src="../components/sp-cli/sg-compute-docker-detail/v0/v0.1/v0.1.0/sg-compute-docker-detail.js"></script>
+  <!-- docker — migrated FV2.6 -->
+  <script type="module" src="/api/specs/docker/ui/detail/v0/v0.1/v0.1.0/sg-compute-docker-detail.js"></script>
   <script type="module" src="../components/sp-cli/sg-compute-podman-detail/v0/v0.1/v0.1.0/sg-compute-podman-detail.js"></script>
   <script type="module" src="../components/sp-cli/sg-compute-elastic-detail/v0/v0.1/v0.1.0/sg-compute-elastic-detail.js"></script>
   <script type="module" src="../components/sp-cli/sg-compute-vnc-detail/v0/v0.1/v0.1.0/sg-compute-vnc-detail.js"></script>

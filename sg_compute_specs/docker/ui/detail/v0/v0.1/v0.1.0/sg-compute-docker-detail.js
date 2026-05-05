@@ -1,11 +1,11 @@
 import { SgComponent } from 'https://dev.tools.sgraph.ai/components/base/v1/v1.0/v1.0.0/sg-component.js'
-import { apiClient   } from '../../../../../../shared/api-client.js'
-import '../../../../_shared/sg-compute-stack-header/v0/v0.1/v0.1.0/sg-compute-stack-header.js'
-import '../../../../_shared/sg-compute-ssm-command/v0/v0.1/v0.1.0/sg-compute-ssm-command.js'
-import '../../../../_shared/sg-compute-network-info/v0/v0.1/v0.1.0/sg-compute-network-info.js'
-import '../../../../_shared/sg-compute-stop-button/v0/v0.1/v0.1.0/sg-compute-stop-button.js'
-import '../../../../_shared/sg-compute-host-shell/v0/v0.1/v0.1.0/sg-compute-host-shell.js'
-import '../../../../_shared/sg-compute-host-api-panel/v0/v0.1/v0.1.0/sg-compute-host-api-panel.js'
+import { apiClient   } from '/ui/shared/api-client.js'
+import '/ui/components/sp-cli/_shared/sg-compute-stack-header/v0/v0.1/v0.1.0/sg-compute-stack-header.js'
+import '/ui/components/sp-cli/_shared/sg-compute-ssm-command/v0/v0.1/v0.1.0/sg-compute-ssm-command.js'
+import '/ui/components/sp-cli/_shared/sg-compute-network-info/v0/v0.1/v0.1.0/sg-compute-network-info.js'
+import '/ui/components/sp-cli/_shared/sg-compute-stop-button/v0/v0.1/v0.1.0/sg-compute-stop-button.js'
+import '/ui/components/sp-cli/_shared/sg-compute-host-shell/v0/v0.1/v0.1.0/sg-compute-host-shell.js'
+import '/ui/components/sp-cli/_shared/sg-compute-host-api-panel/v0/v0.1/v0.1.0/sg-compute-host-api-panel.js'
 
 class SgComputeDockerDetail extends SgComponent {
     static jsUrl = import.meta.url

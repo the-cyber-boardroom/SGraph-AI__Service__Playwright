@@ -6,6 +6,12 @@ This is a pointer log, not a content log. For full delta detail, see the master 
 
 ---
 
+## 2026-05-05 (FV2.6 — docker pilot)
+
+- `sg-compute/index.md` — UPDATED: `sg_compute_specs/docker/ui/{card,detail}/v0/v0.1/v0.1.0/` created; 6 files moved from `api_site/plugins/docker/` and `api_site/components/sp-cli/sg-compute-docker-detail/`; detail JS imports rewritten to absolute `/ui/` paths; `admin/index.html` script tags updated to `/api/specs/docker/ui/...`.
+
+---
+
 ## 2026-05-05 (BV2.7)
 
 - `sg-compute/index.md` — UPDATED: 14 new canonical modules (primitives, enums, event_bus, image); 46 spec files import-rewritten from `__cli.*` to `sg_compute.*`; CI guard added; 584 tests passing.
