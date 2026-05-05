@@ -34,10 +34,15 @@ class test_lambda_handler(TestCase):
         from sg_compute.control_plane import lambda_handler
         assert lambda_handler._app is not None
 
-    def test_handler_is_mangum_or_none(self):
+    def test_run_is_callable(self):
         from sg_compute.control_plane import lambda_handler
-        if lambda_handler.handler is not None:
-            assert callable(lambda_handler.handler)
+        assert callable(lambda_handler.run)
+
+    def test_no_mangum_import(self):
+        import inspect
+        from sg_compute.control_plane import lambda_handler
+        src = inspect.getsource(lambda_handler)
+        assert 'mangum' not in src.lower()
 
     def test_app_has_routes(self):
         from sg_compute.control_plane import lambda_handler
