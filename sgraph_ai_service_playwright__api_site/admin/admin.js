@@ -295,7 +295,6 @@ document.addEventListener('DOMContentLoaded', async () => {
         }))
         document.querySelector('sp-cli-compute-view')?.setData?.({ types, stacks })
         document.querySelector('sp-cli-nodes-view')?.setStacks?.(augmented)
-        document.querySelector('sp-cli-stacks-pane')?.setStacks?.(stacks)
         // cost-tracker may be inside shadow DOM (diagnostics view); use event so it receives data
         document.dispatchEvent(new CustomEvent('sp-cli:stacks.updated', {
             detail: { stacks }, bubbles: true, composed: true,
