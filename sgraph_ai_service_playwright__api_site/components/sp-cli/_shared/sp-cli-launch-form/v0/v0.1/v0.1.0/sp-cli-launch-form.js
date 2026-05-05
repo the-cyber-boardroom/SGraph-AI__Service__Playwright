@@ -33,7 +33,6 @@ class SpCliLaunchForm extends SgComponent {
         this._hoursSel      = this.$('.field-hours')
         this._advToggle     = this.$('.adv-toggle')
         this._advBody       = this.$('.adv-body')
-        this._browserIpEl   = this.$('.field-browser-ip')
         this._openCheckbox  = this.$('.field-open')
 
         this._populateSelect(this._regionSel,   REGIONS,        r => r)
@@ -45,8 +44,6 @@ class SpCliLaunchForm extends SgComponent {
             if (this._advBody) this._advBody.hidden = open
             if (this._advToggle) this._advToggle.textContent = open ? '▶ Advanced' : '▼ Advanced'
         })
-
-        this._fetchBrowserIp()
 
         if (this._pendingPopulate) {
             const { entry, defaults } = this._pendingPopulate
@@ -88,16 +85,6 @@ class SpCliLaunchForm extends SgComponent {
     setDisabled(disabled) {
         [this._nameInput, this._regionSel, this._instanceSel, this._hoursSel, this._openCheckbox]
             .forEach(el => { if (el) el.disabled = disabled })
-    }
-
-    async _fetchBrowserIp() {
-        try {
-            const resp = await fetch('https://api.ipify.org?format=json')
-            const { ip } = await resp.json()
-            if (this._browserIpEl) this._browserIpEl.textContent = ip
-        } catch (_) {
-            if (this._browserIpEl) this._browserIpEl.textContent = 'unavailable'
-        }
     }
 
     _populateSelect(sel, items, labelFn) {
