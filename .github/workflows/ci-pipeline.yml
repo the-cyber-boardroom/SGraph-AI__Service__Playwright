@@ -75,7 +75,7 @@ jobs:
       - name: Install dependencies
         run: |
           pip install -r requirements.txt
-          pip install pytest pytest-timeout
+          pip install pytest pytest-timeout build
           pip install -e .
 
       - name: Run CI guards
