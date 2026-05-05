@@ -92,37 +92,24 @@ class EC2__Platform(Platform):
     def create_node(self,
                     request : Schema__Node__Create__Request__Base,
                     spec    : Schema__Spec__Manifest__Entry = None) -> Schema__Node__Info:
-        spec_id = request.spec_id
-        if spec_id == 'docker':
-            return self._create_docker_node(request)
-        raise NotImplementedError(f'create_node: no creator for spec_id={spec_id!r}')
-
-    def _create_docker_node(self, request: Schema__Node__Create__Request__Base) -> Schema__Node__Info:
-        from sg_compute_specs.docker.schemas.Schema__Docker__Create__Request import Schema__Docker__Create__Request
-        from sg_compute_specs.docker.service.Docker__Service                 import Docker__Service
-        region       = request.region or 'eu-west-2'
         node_name    = request.node_name or ''
         api_key      = secrets.token_urlsafe(32)                               # per-node random key; never reused
         ssm_path     = SSM__Sidecar__Key.path_for(node_name or 'pending')
         SSM__Sidecar__Key().write(node_name or 'pending', api_key)             # written before EC2 launch so boot script can read it
-        svc          = Docker__Service().setup()
-        docker_req   = Schema__Docker__Create__Request(
-            stack_name       = node_name       ,
-            region           = region          ,
-            instance_type    = request.instance_type ,
-            caller_ip        = request.caller_ip     ,
-            max_hours        = request.max_hours     ,
-            api_key_ssm_path = ssm_path              ,
-        )
-        resp = svc.create_stack(docker_req)
-        info = resp.stack_info
-        return Schema__Node__Info(
-            node_id              = str(info.stack_name)      ,
-            spec_id              = 'docker'                  ,
-            region               = region                    ,
-            state                = Enum__Node__State.BOOTING ,
-            public_ip            = str(info.public_ip)       ,
-            instance_id          = str(info.instance_id)     ,
-            instance_type        = str(info.instance_type)   ,
-            host_api_key_ssm_path= ssm_path                  ,
-        )
+        svc = self._service_for(request.spec_id)
+        return svc.create_node(request, api_key_ssm_path=ssm_path)
+
+    @staticmethod
+    def _service_for(spec_id: str):
+        if spec_id == 'docker':
+            from sg_compute_specs.docker.service.Docker__Service   import Docker__Service
+            return Docker__Service().setup()
+        if spec_id == 'podman':
+            from sg_compute_specs.podman.service.Podman__Service   import Podman__Service
+            return Podman__Service().setup()
+        if spec_id == 'vnc':
+            from sg_compute_specs.vnc.service.Vnc__Service         import Vnc__Service
+            return Vnc__Service().setup()
+        raise NotImplementedError(f'create_node: no service for spec_id={spec_id!r}')
+
+

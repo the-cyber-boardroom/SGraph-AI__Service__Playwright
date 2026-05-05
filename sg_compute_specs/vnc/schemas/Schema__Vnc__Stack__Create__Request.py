@@ -24,3 +24,5 @@ class Schema__Vnc__Stack__Create__Request(Type_Safe):
     operator_password : Safe_Str__Vnc__Password    = ''
     public_ingress    : bool                       = False
     interceptor       : Schema__Vnc__Interceptor__Choice
+    registry          : str                        = ''
+    api_key_ssm_path  : str                        = ''

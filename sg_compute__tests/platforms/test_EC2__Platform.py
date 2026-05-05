@@ -58,3 +58,33 @@ class test_EC2__Platform(TestCase):
         }
         info = p._raw_to_node_info(raw, 'us-east-1')
         assert info.state == Enum__Node__State.BOOTING
+
+    # ── _service_for dispatch (T2.1) ────────────────────────────────────────
+
+    def test_service_for_docker_returns_docker_service(self):
+        from sg_compute_specs.docker.service.Docker__Service import Docker__Service
+        svc = EC2__Platform._service_for('docker')
+        assert isinstance(svc, Docker__Service)
+
+    def test_service_for_podman_returns_podman_service(self):
+        from sg_compute_specs.podman.service.Podman__Service import Podman__Service
+        svc = EC2__Platform._service_for('podman')
+        assert isinstance(svc, Podman__Service)
+
+    def test_service_for_vnc_returns_vnc_service(self):
+        from sg_compute_specs.vnc.service.Vnc__Service import Vnc__Service
+        svc = EC2__Platform._service_for('vnc')
+        assert isinstance(svc, Vnc__Service)
+
+    def test_service_for_unknown_raises_not_implemented(self):
+        try:
+            EC2__Platform._service_for('nonexistent_spec_xyz')
+            assert False, 'Expected NotImplementedError'
+        except NotImplementedError as e:
+            assert 'nonexistent_spec_xyz' in str(e)
+
+    def test_service_for_each_spec_has_create_node(self):
+        for spec_id in ('docker', 'podman', 'vnc'):
+            svc = EC2__Platform._service_for(spec_id)
+            assert callable(getattr(svc, 'create_node', None)), \
+                f'{spec_id} service missing create_node'

@@ -89,12 +89,14 @@ class Vnc__Service(Type_Safe):
                                                                   public=bool(request.public_ingress))
         tags         = self.aws_client.tags.build(stack_name, caller_ip, creator, request.interceptor)
         compose_yaml = self.compose_template.render()
-        user_data    = self.user_data_builder.render(stack_name         = stack_name        ,
-                                                       region             = region            ,
-                                                       compose_yaml       = compose_yaml      ,
-                                                       interceptor_source = source            ,
-                                                       operator_password  = password          ,
-                                                       interceptor_kind   = interceptor_kind_str)
+        user_data    = self.user_data_builder.render(stack_name         = stack_name               ,
+                                                       region             = region                 ,
+                                                       compose_yaml       = compose_yaml           ,
+                                                       interceptor_source = source                 ,
+                                                       operator_password  = password               ,
+                                                       interceptor_kind   = interceptor_kind_str   ,
+                                                       registry           = request.registry       ,
+                                                       api_key_ssm_path   = request.api_key_ssm_path)
         instance_id  = self.aws_client.launch.run_instance(region, ami_id, sg_id, user_data, tags,
                                                               instance_type         = inst_type  ,
                                                               instance_profile_name = PROFILE_NAME)
@@ -116,6 +118,30 @@ class Vnc__Service(Type_Safe):
             interceptor_kind  = request.interceptor.kind                  ,
             interceptor_name  = label                                     ,
             state             = Enum__Vnc__Stack__State.PENDING           )
+
+    def create_node(self, base_request, api_key_ssm_path: str = '') -> 'Schema__Node__Info':
+        from sg_compute.core.node.schemas.Schema__Node__Info import Schema__Node__Info
+        from sg_compute.primitives.enums.Enum__Node__State   import Enum__Node__State
+        vnc_req = Schema__Vnc__Stack__Create__Request(
+            stack_name       = base_request.node_name     ,
+            region           = base_request.region        ,
+            instance_type    = base_request.instance_type ,
+            from_ami         = base_request.ami_id        ,
+            caller_ip        = base_request.caller_ip     ,
+            max_hours        = base_request.max_hours     ,
+            api_key_ssm_path = api_key_ssm_path           ,
+        )
+        resp = self.create_stack(vnc_req)
+        return Schema__Node__Info(
+            node_id              = str(resp.stack_name)      ,
+            spec_id              = 'vnc'                     ,
+            region               = base_request.region       ,
+            state                = Enum__Node__State.BOOTING ,
+            public_ip            = str(resp.public_ip)       ,
+            instance_id          = str(resp.instance_id)     ,
+            instance_type        = str(resp.instance_type)   ,
+            host_api_key_ssm_path= api_key_ssm_path          ,
+        )
 
     def list_stacks(self, region: str) -> Schema__Vnc__Stack__List:
         region = region or DEFAULT_REGION
