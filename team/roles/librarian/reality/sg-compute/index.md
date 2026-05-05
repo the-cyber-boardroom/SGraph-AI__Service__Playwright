@@ -1,7 +1,7 @@
 # Reality — SG/Compute Domain
 
 **Status:** ACTIVE — seeded in phase-1 (B1), foundations added in phase-2 (B2), pod management in BV2.3.
-**Last updated:** 2026-05-05 | **Phase:** BV2.9 (vault layer migration to sg_compute/vault/)
+**Last updated:** 2026-05-05 | **Phase:** BV2.19 (StaticFiles mount for per-spec UI assets)
 
 ---
 
@@ -39,7 +39,7 @@
 | `Enum__Pod__State` | `PENDING / RUNNING / STOPPED / FAILED` |
 | `Enum__Stack__Creation_Mode` | `FRESH / BAKE_AMI / FROM_AMI` |
 
-### sg_compute/core/spec/ — EXISTS
+### sg_compute/core/spec/ — EXISTS (+ BV2.19: Spec__UI__Resolver)
 
 | Class | Path | Description |
 |-------|------|-------------|
@@ -48,6 +48,7 @@
 | `Spec__Registry` | `core/spec/Spec__Registry.py` | In-memory registry keyed by spec_id |
 | `Spec__Resolver` | `core/spec/Spec__Resolver.py` | DAG validation + topological sort for composition |
 | `Spec__Loader` | `core/spec/Spec__Loader.py` | Discovers specs from `sg_compute_specs/*/manifest.py` and PEP 621 entry points |
+| `Spec__UI__Resolver` | `core/spec/Spec__UI__Resolver.py` | Resolves `sg_compute_specs/{spec_id}/ui/` path; `ui_root_override` for tests |
 
 ### sg_compute/core/node/ — EXISTS
 
@@ -209,7 +210,7 @@
 
 | Class | Path | Description |
 |-------|------|-------------|
-| `Fast_API__Compute` | `control_plane/Fast_API__Compute.py` | Mounts `/api/health`, `/api/specs`, `/api/nodes`, `/api/stacks`; auto-discovers per-spec routes via `Spec__Routes__Loader`; `platform` field injected in tests |
+| `Fast_API__Compute` | `control_plane/Fast_API__Compute.py` | Mounts `/api/health`, `/api/specs`, `/api/nodes`, `/api/stacks`, `/api/vault`; `StaticFiles` at `/api/specs/{spec_id}/ui` when `ui/` dir exists; `ui_root_override` for tests |
 | `Routes__Compute__Health` | `control_plane/routes/Routes__Compute__Health.py` | `GET /api/health`, `GET /api/health/ready` |
 | `Routes__Compute__Specs` | `control_plane/routes/Routes__Compute__Specs.py` | `GET /api/specs`, `GET /api/specs/{spec_id}` |
 | `Routes__Compute__Nodes` | `control_plane/routes/Routes__Compute__Nodes.py` | `GET /api/nodes`, `GET /api/nodes/{node_id}`, `POST /api/nodes`, `DELETE /api/nodes/{node_id}`; `POST` calls `EC2__Platform.create_node` (docker spec only; others raise `NotImplementedError`) |
@@ -234,6 +235,7 @@
 
 | Date | Change |
 |------|--------|
+| 2026-05-05 | BV2.19: Spec__UI__Resolver + StaticFiles mount at /api/specs/{spec_id}/ui; ui_root_override for tests; sg_compute_specs/*/ui/**/* in pyproject.toml include; 322 tests passing |
 | 2026-05-05 | BV2.9: sg_compute/vault/ created (13 files); plugin→spec rename; Routes__Vault__Spec mounted at /api/vault on Fast_API__Compute; 11 legacy shims; 313 tests passing |
 | 2026-05-05 | BV2.8: object=None → Optional[T] in 10 non-circular spec service files; 7 circular AWS__Client files kept object=None; Optional import added to 17 files |
 | 2026-05-05 | BV2.7: 14 new canonical modules in sg_compute (primitives, enums, event_bus, image); 46 spec files import-rewritten; CI guard added; 584 tests passing |

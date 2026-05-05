@@ -9,7 +9,8 @@ packages    = [{ include = "sgraph_ai_service_playwright"      },
                { include = "sgraph_ai_service_playwright__cli" },
                { include = "scripts"                           }]
 include     = ["sgraph_ai_service_playwright/version"      ,
-               "sgraph_ai_service_playwright__cli/version" ]
+               "sgraph_ai_service_playwright__cli/version" ,
+               "sg_compute_specs/*/ui/**/*"                ]
 
 [tool.poetry.dependencies]
 python                       = "^3.12"

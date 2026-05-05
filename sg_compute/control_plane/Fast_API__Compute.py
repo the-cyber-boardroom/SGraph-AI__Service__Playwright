@@ -4,12 +4,13 @@
 #
 # Mounted routes
 # ──────────────
-#   /api/health             Routes__Compute__Health   (ping + readiness)
-#   /api/specs              Routes__Compute__Specs    (catalogue + per-spec info)
-#   /api/nodes              Routes__Compute__Nodes    (cross-spec node list)
-#   /api/stacks             Routes__Compute__Stacks   (cross-spec stack list)
-#   /api/vault              Routes__Vault__Spec       (per-spec vault write/list/delete)
-#   /api/specs/{spec_id}/*  per-spec Routes__*__Stack (discovered by convention)
+#   /api/health                   Routes__Compute__Health   (ping + readiness)
+#   /api/specs                    Routes__Compute__Specs    (catalogue + per-spec info)
+#   /api/nodes                    Routes__Compute__Nodes    (cross-spec node list)
+#   /api/stacks                   Routes__Compute__Stacks   (cross-spec stack list)
+#   /api/vault                    Routes__Vault__Spec       (per-spec vault write/list/delete)
+#   /api/specs/{spec_id}/ui/*     StaticFiles               (spec UI assets — mounted when ui/ exists)
+#   /api/specs/{spec_id}/*        per-spec Routes__*__Stack (discovered by convention)
 # ═══════════════════════════════════════════════════════════════════════════════
 
 from fastapi                                                                  import Request
@@ -32,8 +33,9 @@ from sg_compute.vault.service.Vault__Spec__Writer                            imp
 
 
 class Fast_API__Compute(Fast_API):
-    registry : Spec__Registry
-    platform : Platform                                                        # injected in tests; defaults to EC2__Platform in _mount_control_routes
+    registry         : Spec__Registry
+    platform         : Platform                                                # injected in tests; defaults to EC2__Platform in _mount_control_routes
+    ui_root_override : str = ''                                                # override ui root path for testing
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -42,6 +44,7 @@ class Fast_API__Compute(Fast_API):
 
     def setup(self) -> 'Fast_API__Compute':
         self._register_exception_handlers()
+        self._mount_spec_ui_static_files()
         self._mount_control_routes()
         self._mount_spec_routes()
         return self
@@ -53,6 +56,19 @@ class Fast_API__Compute(Fast_API):
         async def no_credentials_handler(request: Request, exc: Exception__AWS__No_Credentials):
             return JSONResponse(status_code=503,
                                 content={'detail': f'AWS credentials not configured: {exc}'})
+
+    def _mount_spec_ui_static_files(self):
+        from starlette.staticfiles                              import StaticFiles
+        from sg_compute.core.spec.Spec__UI__Resolver           import Spec__UI__Resolver
+        resolver = Spec__UI__Resolver(ui_root_override=self.ui_root_override)
+        for spec_id in self.registry.spec_ids():
+            ui_path = resolver.ui_path_for_spec(spec_id)
+            if ui_path:
+                self.app().mount(
+                    f'/api/specs/{spec_id}/ui',
+                    StaticFiles(directory=str(ui_path)),
+                    name=f'spec-ui-{spec_id}',
+                )
 
     def _mount_control_routes(self):
         platform    = self._live_platform()
