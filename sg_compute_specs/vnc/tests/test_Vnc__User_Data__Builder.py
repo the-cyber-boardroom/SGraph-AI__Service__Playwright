@@ -34,7 +34,8 @@ class test_Vnc__User_Data__Builder(TestCase):
         assert 'operator_password'  in PLACEHOLDERS
         assert 'interceptor_source' in PLACEHOLDERS
         assert 'caddy_jwt_secret'   in PLACEHOLDERS
-        assert len(PLACEHOLDERS)    == 17
+        assert 'sidecar_section'    in PLACEHOLDERS
+        assert len(PLACEHOLDERS)    == 18
 
     def test_render_returns_string(self):
         result = self._render()

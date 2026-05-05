@@ -12,6 +12,7 @@ from sg_compute.platforms.ec2.user_data.Section__Env__File import Section__Env__
 from sg_compute.platforms.ec2.user_data.Section__Nginx     import Section__Nginx
 from sg_compute.platforms.ec2.user_data.Section__Node      import Section__Node
 from sg_compute.platforms.ec2.user_data.Section__Shutdown  import Section__Shutdown
+from sg_compute.platforms.ec2.user_data.Section__Sidecar   import Section__Sidecar
 
 CLONE_AND_BUILD = """
 # ── Clone and build Open Design ───────────────────────────────────────────────
@@ -71,7 +72,10 @@ class Open_Design__User_Data__Builder(Type_Safe):
                      ollama_base_url: str  = '',
                      open_design_ref: str  = 'main',
                      fast_boot      : bool = False ,
-                     max_hours      : int  = 1     ) -> str:
+                     max_hours      : int  = 1     ,
+                     registry       : str  = ''    ,
+                     api_key_name   : str  = 'X-API-Key',
+                     api_key_value  : str  = ''    ) -> str:
         parts = []
         parts.append(Section__Base().render(stack_name=stack_name))
         parts.append(Section__Docker().render())
@@ -95,6 +99,12 @@ class Open_Design__User_Data__Builder(Type_Safe):
             parts.append(CLAUDE_CLI)
 
         parts.append(Section__Nginx().render(app_port=7456))
+
+        sidecar = Section__Sidecar().render(registry      = registry      ,
+                                            api_key_name  = api_key_name  ,
+                                            api_key_value = api_key_value )
+        if sidecar:
+            parts.append(sidecar)
 
         if max_hours > 0:
             parts.append(Section__Shutdown().render(max_hours=max_hours))

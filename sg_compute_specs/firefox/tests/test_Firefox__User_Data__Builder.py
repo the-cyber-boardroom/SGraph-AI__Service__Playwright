@@ -32,7 +32,8 @@ class test_Firefox__User_Data__Builder(TestCase):
         expected = ('stack_name', 'region', 'log_file', 'firefox_dir', 'mitm_data_dir',
                     'app_data_dir', 'profile_dir', 'compose_file', 'compose_yaml',
                     'interceptor_file', 'interceptor_source', 'interceptor_kind',
-                    'user_js_file', 'user_js', 'env_file', 'env_source', 'shutdown_section')
+                    'user_js_file', 'user_js', 'env_file', 'env_source',
+                    'sidecar_section', 'shutdown_section')
         assert PLACEHOLDERS == expected
 
     def test_template_contains_all_placeholders(self):

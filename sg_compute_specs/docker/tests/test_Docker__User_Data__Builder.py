@@ -8,7 +8,6 @@ from unittest                                                                   
 from sg_compute_specs.docker.service.Docker__User_Data__Builder                     import (Docker__User_Data__Builder,
                                                                                               PLACEHOLDERS            ,
                                                                                               BASE_TEMPLATE           ,
-                                                                                              SIDECAR_TEMPLATE        ,
                                                                                               FOOTER_TEMPLATE         )
 
 
@@ -39,25 +38,23 @@ class test_Docker__User_Data__Builder(TestCase):
         assert 'eu-west-2'  in result
 
     def test_placeholders_locked(self):
-        assert PLACEHOLDERS == ('stack_name', 'region', 'log_file',
-                                'registry', 'host_control_image', 'api_key_name', 'api_key_value',
-                                'shutdown_line')
+        assert PLACEHOLDERS == ('stack_name', 'region', 'log_file', 'shutdown_line')
 
     def test_render__no_sidecar_when_registry_empty(self):
         result = self.builder.render('fast-fermi', 'eu-west-2')
-        assert 'sp-host-control' not in result
-        assert 'ecr'             not in result
+        assert 'sg-sidecar' not in result
+        assert 'ecr'        not in result
 
     def test_render__sidecar_included_when_registry_set(self):
         result = self.builder.render('fast-fermi', 'eu-west-2',
                                      registry      = '1234.dkr.ecr.eu-west-2.amazonaws.com',
                                      api_key_value = 'secret-key')
-        assert 'sp-host-control'  in result
-        assert '1234.dkr.ecr'     in result
-        assert 'secret-key'       in result
-        assert 'X-API-Key'        in result
-        assert '19009:8000'       in result
-        assert 'rm -f /root/.docker/config.json' in result  # ECR token removed after start
+        assert 'sg-sidecar'   in result
+        assert '1234.dkr.ecr' in result
+        assert 'secret-key'   in result
+        assert 'X-API-Key'    in result
+        assert '19009:8000'   in result
+        assert 'rm -f /root/.docker/config.json' in result
 
     def test_render__shutdown_timer_included_when_max_hours_set(self):
         result = self.builder.render('fast-fermi', 'eu-west-2', max_hours=1)

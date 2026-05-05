@@ -21,7 +21,8 @@ class test_Prometheus__User_Data__Builder(TestCase):
     def test_placeholders_are_locked(self):
         expected = ('stack_name', 'region', 'log_file',
                     'compose_dir', 'compose_file', 'compose_yaml',
-                    'prom_config_file', 'prom_config_yaml')
+                    'prom_config_file', 'prom_config_yaml',
+                    'sidecar_section')
         assert PLACEHOLDERS == expected
 
     def test_template_contains_all_placeholders(self):

@@ -97,6 +97,7 @@
 | `Section__Nginx` | `platforms/ec2/user_data/Section__Nginx.py` | |
 | `Section__Env__File` | `platforms/ec2/user_data/Section__Env__File.py` | |
 | `Section__Shutdown` | `platforms/ec2/user_data/Section__Shutdown.py` | |
+| `Section__Sidecar` | `platforms/ec2/user_data/Section__Sidecar.py` | Renders ECR-login + `docker run` block for the host-control sidecar; returns `''` when `registry=''` |
 | `Health__Poller` | `platforms/ec2/health/Health__Poller.py` | |
 | `Health__HTTP__Probe` | `platforms/ec2/health/Health__HTTP__Probe.py` | |
 | `Caller__IP__Detector` | `platforms/ec2/networking/Caller__IP__Detector.py` | |
@@ -169,6 +170,7 @@
 | Date | Change |
 |------|--------|
 | 2026-05-05 | BV2.6: `Spec__CLI__Loader` + `Cli__Docker` pilot; `sg-compute spec docker <verb>` routing; 19 new tests |
+| 2026-05-05 | BV2.2: `Section__Sidecar` added to `platforms/ec2/user_data/`; wired into all 10 spec `User_Data__Builder` classes; 17 new tests; 553 passing |
 | 2026-05-05 | BV2.3: `Pod__Manager`, `Sidecar__Client`, 5 pod schemas, 2 pod collections, `Routes__Compute__Pods` (6 endpoints); 246 tests passing |
 | 2026-05-04 | BV2.4: `Routes__Compute__Nodes` constructor injection; `Schema__Node__List` `total`+`region`; `Exception__AWS__No_Credentials` + 503 handler; BV2.1 orphan delete |
 | 2026-05-02 | Phase B3.0: docker spec migrated to `sg_compute_specs/docker/`; 31 new tests; `Spec__Loader` now returns 3 specs |

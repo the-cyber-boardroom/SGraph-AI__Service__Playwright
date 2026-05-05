@@ -18,7 +18,9 @@ class test_OpenSearch__User_Data__Builder(TestCase):
         self.builder = OpenSearch__User_Data__Builder()
 
     def test_placeholders_are_locked(self):
-        expected = ('stack_name', 'region', 'log_file', 'compose_dir', 'compose_file', 'compose_yaml')
+        expected = ('stack_name', 'region', 'log_file',
+                    'compose_dir', 'compose_file', 'compose_yaml',
+                    'sidecar_section')
         assert PLACEHOLDERS == expected
 
     def test_template_contains_all_placeholders(self):

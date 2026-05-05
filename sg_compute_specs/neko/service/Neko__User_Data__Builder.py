@@ -4,6 +4,8 @@
 
 from osbot_utils.type_safe.Type_Safe                                                import Type_Safe
 
+from sg_compute.platforms.ec2.user_data.Section__Sidecar                           import Section__Sidecar
+
 
 NEKO_DIR         = '/opt/sg-neko'
 COMPOSE_FILE     = '/opt/sg-neko/docker-compose.yml'
@@ -111,13 +113,15 @@ docker compose pull
 echo "[sg-neko] starting stack..."
 docker compose up -d
 
+{sidecar_section}
 echo "[sg-neko] boot complete at $(date -u +%FT%TZ)"
 """
 
 
 PLACEHOLDERS = ('stack_name', 'region', 'log_file',
                 'neko_dir', 'caddy_dir', 'caddy_file', 'certs_dir',
-                'caddyfile', 'compose_file', 'compose_yaml')                        # Locked by test
+                'caddyfile', 'compose_file', 'compose_yaml',
+                'sidecar_section')                                                   # Locked by test
 
 
 class Neko__User_Data__Builder(Type_Safe):
@@ -125,21 +129,28 @@ class Neko__User_Data__Builder(Type_Safe):
     def render(self, stack_name      : str,
                      region          : str,
                      admin_password  : str,
-                     member_password : str) -> str:
-        caddyfile    = CADDYFILE_TEMPLATE.format(caddy_certs_dir='/etc/caddy/certs')
-        compose_yaml = COMPOSE_TEMPLATE.format(neko_image       = NEKO_IMAGE      ,
-                                                member_password  = member_password ,
-                                                admin_password   = admin_password  ,
-                                                webrtc_from      = WEBRTC_PORT_FROM,
-                                                webrtc_to        = WEBRTC_PORT_TO  ,
-                                                caddy_dir        = CADDY_DIR       )
-        return USER_DATA_TEMPLATE.format(stack_name   = stack_name  ,
-                                          region       = region      ,
-                                          log_file     = LOG_FILE    ,
-                                          neko_dir     = NEKO_DIR    ,
-                                          caddy_dir    = CADDY_DIR   ,
-                                          caddy_file   = CADDY_FILE  ,
-                                          certs_dir    = CERTS_DIR   ,
-                                          caddyfile    = caddyfile   ,
-                                          compose_file = COMPOSE_FILE,
-                                          compose_yaml = compose_yaml)
+                     member_password : str,
+                     registry        : str = '',
+                     api_key_name    : str = 'X-API-Key',
+                     api_key_value   : str = '') -> str:
+        caddyfile       = CADDYFILE_TEMPLATE.format(caddy_certs_dir='/etc/caddy/certs')
+        compose_yaml    = COMPOSE_TEMPLATE.format(neko_image       = NEKO_IMAGE      ,
+                                                  member_password  = member_password ,
+                                                  admin_password   = admin_password  ,
+                                                  webrtc_from      = WEBRTC_PORT_FROM,
+                                                  webrtc_to        = WEBRTC_PORT_TO  ,
+                                                  caddy_dir        = CADDY_DIR       )
+        sidecar_section = Section__Sidecar().render(registry      = registry      ,
+                                                    api_key_name  = api_key_name  ,
+                                                    api_key_value = api_key_value )
+        return USER_DATA_TEMPLATE.format(stack_name      = stack_name      ,
+                                          region          = region          ,
+                                          log_file        = LOG_FILE        ,
+                                          neko_dir        = NEKO_DIR        ,
+                                          caddy_dir       = CADDY_DIR       ,
+                                          caddy_file      = CADDY_FILE      ,
+                                          certs_dir       = CERTS_DIR       ,
+                                          caddyfile       = caddyfile       ,
+                                          compose_file    = COMPOSE_FILE    ,
+                                          compose_yaml    = compose_yaml    ,
+                                          sidecar_section = sidecar_section )

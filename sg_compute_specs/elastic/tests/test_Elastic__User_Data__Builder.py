@@ -23,7 +23,7 @@ class test_Elastic__User_Data__Builder(TestCase):
 
     def test_placeholders_are_locked(self):
         expected = ('stack_name', 'elastic_password', 'elastic_version', 'kibana_version',
-                    'nginx_version', 'es_java_opts', 'shutdown_section')
+                    'nginx_version', 'es_java_opts', 'sidecar_section', 'shutdown_section')
         assert PLACEHOLDERS == expected
 
     def test_template_contains_all_placeholders(self):

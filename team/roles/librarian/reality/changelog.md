@@ -12,6 +12,12 @@ This is a pointer log, not a content log. For full delta detail, see the master 
 
 ---
 
+## 2026-05-05 (BV2.2)
+
+- `sg-compute/index.md` — UPDATED: `Section__Sidecar` added to platforms/ec2/user_data/; wired into all 10 spec User_Data__Builder classes (8 template-based, 2 parts-based); PLACEHOLDERS tuples updated; 17 new sidecar tests; 553 passing.
+
+---
+
 ## 2026-05-05 (BV2.3)
 
 - `sg-compute/index.md` — UPDATED: BV2.3 pod management added; `Pod__Manager`, `Sidecar__Client`, 5 pod schemas, 2 collections, `Routes__Compute__Pods` (6 endpoints), `Routes__Compute__Nodes` constructor injection. 246 tests passing.

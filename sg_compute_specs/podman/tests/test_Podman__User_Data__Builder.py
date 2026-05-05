@@ -36,7 +36,7 @@ class test_Podman__User_Data__Builder(TestCase):
         assert 'eu-west-2'  in result
 
     def test_placeholders_locked(self):
-        assert PLACEHOLDERS == ('stack_name', 'region', 'log_file', 'shutdown_line')
+        assert PLACEHOLDERS == ('stack_name', 'region', 'log_file', 'sidecar_section', 'shutdown_line')
 
     def test_template_has_all_placeholders(self):
         for p in PLACEHOLDERS:
