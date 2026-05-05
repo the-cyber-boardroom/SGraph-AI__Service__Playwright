@@ -27,13 +27,13 @@ DEFAULT_DISABLED_FEATURES = [
     'observabilityCases', 'generalCases',
 ]
 
-SHUTDOWN_SECTION_TEMPLATE = """
+SHUTDOWN_SECTION_TEMPLATE = '''
 # ── Auto-terminate after {max_hours}h ─────────────────────────────────────────
 systemd-run --on-active={max_hours}h /sbin/shutdown -h now
 echo "Auto-terminate timer started: {max_hours}h from now"
-"""
+'''
 
-USER_DATA_TEMPLATE = """\
+USER_DATA_TEMPLATE = '''\
 #!/bin/bash
 set -euxo pipefail
 exec > >(tee /var/log/sg-elastic-start.log | logger -t sg-elastic) 2>&1
@@ -189,7 +189,7 @@ echo "OK $(date --iso-8601=seconds)" > "$BOOT_STATUS_FILE"
 trap - EXIT
 {sidecar_section}
 {shutdown_section}
-"""
+'''
 
 PLACEHOLDERS = ('stack_name', 'elastic_password', 'elastic_version', 'kibana_version',
                 'nginx_version', 'es_java_opts', 'sidecar_section', 'shutdown_section')  # Locked by test

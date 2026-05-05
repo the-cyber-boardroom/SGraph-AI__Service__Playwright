@@ -9,7 +9,7 @@ CHROMIUM_IMAGE  = 'lscr.io/linuxserver/chromium:latest'
 MITMPROXY_IMAGE = 'mitmproxy/mitmproxy:10.4.2'                                      # Pinned: mitmproxy 11+ blocks cross-origin mitmweb UI requests via CSRF protection
 
 
-COMPOSE_TEMPLATE = """\
+COMPOSE_TEMPLATE = '''\
 services:
   chromium:
     image: {chromium_image}
@@ -65,7 +65,7 @@ services:
 networks:
   sg-net:
     driver: bridge
-"""
+'''
 
 
 PLACEHOLDERS = ('chromium_image', 'mitmproxy_image')                                # Locked by test

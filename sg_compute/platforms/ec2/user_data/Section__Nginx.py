@@ -8,7 +8,7 @@
 
 from osbot_utils.type_safe.Type_Safe import Type_Safe
 
-NGINX_CONF = """\
+NGINX_CONF = '''\
 server {{
     listen 443 ssl;
     server_name _;
@@ -31,9 +31,9 @@ server {{
         gzip               off;
     }}
 }}
-"""
+'''
 
-TEMPLATE = """
+TEMPLATE = '''
 # ── nginx reverse proxy (docker, --network=host) ──────────────────────────────
 echo "[ephemeral-ec2] configuring nginx..."
 mkdir -p /etc/nginx-proxy/certs /etc/nginx-proxy/conf.d
@@ -55,7 +55,7 @@ docker run -d --name nginx-proxy \\
     nginx:alpine
 
 echo "[ephemeral-ec2] nginx ready on port 443"
-"""
+'''
 
 
 class Section__Nginx(Type_Safe):

@@ -9,7 +9,7 @@ from sg_compute_specs.prometheus.collections.List__Schema__Prom__Scrape__Target 
 
 SCRAPE_INTERVAL = '15s'
 
-CONFIG_HEADER = """\
+CONFIG_HEADER = '''\
 global:
   scrape_interval: {scrape_interval}
 
@@ -20,7 +20,7 @@ scrape_configs:
   - job_name: node-exporter
     static_configs:
       - targets: ['node-exporter:9100']
-"""
+'''
 
 
 class Prometheus__Config__Generator(Type_Safe):

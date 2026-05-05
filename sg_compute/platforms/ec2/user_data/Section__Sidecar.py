@@ -25,7 +25,7 @@ IMAGE_NAME     = 'sgraph_ai_service_playwright_host'
 CONTAINER_NAME = 'sg-sidecar'
 DEFAULT_PORT   = 19009
 
-TEMPLATE = """\
+TEMPLATE = '''\
 # ── sidecar (host control plane) ─────────────────────────────────────────────
 echo "[sg-compute] starting sidecar on port {port}..."
 
@@ -50,7 +50,7 @@ docker run -d \\
 
 echo "[sg-compute] sidecar started"
 rm -f /root/.docker/config.json
-"""
+'''
 
 
 class Section__Sidecar(Type_Safe):

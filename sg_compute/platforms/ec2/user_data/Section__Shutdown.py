@@ -8,11 +8,11 @@
 
 from osbot_utils.type_safe.Type_Safe import Type_Safe
 
-TEMPLATE = """
+TEMPLATE = '''
 # ── Auto-terminate after {max_hours}h ────────────────────────────────────────
 systemd-run --on-active={max_hours}h /sbin/shutdown -h now
 echo "[ephemeral-ec2] auto-terminate timer set: {max_hours}h from now"
-"""
+'''
 
 
 class Section__Shutdown(Type_Safe):

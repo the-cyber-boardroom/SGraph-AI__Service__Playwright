@@ -5,7 +5,7 @@
 
 from osbot_utils.type_safe.Type_Safe import Type_Safe
 
-TEMPLATE = """
+TEMPLATE = '''
 # ── Node.js {node_major} + pnpm ──────────────────────────────────────────────
 echo "[ephemeral-ec2] installing Node.js {node_major}..."
 curl -fsSL https://rpm.nodesource.com/setup_{node_major}.x | bash -
@@ -14,7 +14,7 @@ node --version
 npm install -g pnpm
 pnpm --version
 echo "[ephemeral-ec2] Node.js + pnpm ready"
-"""
+'''
 
 
 class Section__Node(Type_Safe):

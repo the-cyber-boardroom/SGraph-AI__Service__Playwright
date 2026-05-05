@@ -8,7 +8,7 @@ from osbot_utils.type_safe.Type_Safe                                            
 OS_IMAGE         = 'opensearchproject/opensearch:latest'
 DASHBOARDS_IMAGE = 'opensearchproject/opensearch-dashboards:latest'
 
-COMPOSE_TEMPLATE = """\
+COMPOSE_TEMPLATE = '''\
 services:
   opensearch:
     image: {os_image}
@@ -50,7 +50,7 @@ networks:
 
 volumes:
   opensearch-data:
-"""
+'''
 
 
 PLACEHOLDERS = ('os_image', 'dashboards_image', 'admin_password', 'heap_size')      # Locked by test

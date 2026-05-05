@@ -14,7 +14,7 @@ from osbot_fast_api.api.routes.Fast_API__Routes                                 
 from osbot_fast_api.api.schemas.safe_str.Safe_Str__Fast_API__Route__Prefix         import Safe_Str__Fast_API__Route__Prefix
 
 
-INDEX_HTML = r"""<!DOCTYPE html>
+INDEX_HTML = r'''<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
@@ -594,7 +594,7 @@ document.getElementById('lb').addEventListener('click', e => {
 </div>
 </body>
 </html>
-"""
+'''
 
 
 class Routes__Index(Fast_API__Routes):

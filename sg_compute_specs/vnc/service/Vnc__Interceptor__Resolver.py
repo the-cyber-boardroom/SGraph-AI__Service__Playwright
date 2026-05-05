@@ -11,7 +11,7 @@ from sg_compute_specs.vnc.schemas.Schema__Vnc__Interceptor__Choice              
 NO_OP_SOURCE = "# sg-vnc: no interceptor active\n"
 
 
-EXAMPLE_HEADER_LOGGER = """\
+EXAMPLE_HEADER_LOGGER = '''\
 from mitmproxy import http
 
 
@@ -19,26 +19,26 @@ def request(flow: http.HTTPFlow) -> None:
     print(f'[sg-vnc:header_logger] {flow.request.method} {flow.request.pretty_url}')
     for header, value in flow.request.headers.items():
         print(f'  {header}: {value}')
-"""
+'''
 
 
-EXAMPLE_HEADER_INJECTOR = """\
+EXAMPLE_HEADER_INJECTOR = '''\
 from mitmproxy import http
 
 
 def request(flow: http.HTTPFlow) -> None:
     flow.request.headers['X-Sg-Vnc-Marker'] = 'header_injector'
-"""
+'''
 
 
-EXAMPLE_FLOW_RECORDER = """\
+EXAMPLE_FLOW_RECORDER = '''\
 from mitmproxy import http
 
 
 def response(flow: http.HTTPFlow) -> None:
     print(f'[sg-vnc:flow_recorder] {flow.request.method} {flow.request.pretty_url} '
           f'-> {flow.response.status_code if flow.response else "?"}')
-"""
+'''
 
 
 EXAMPLES = {                                                                        # Locked by test

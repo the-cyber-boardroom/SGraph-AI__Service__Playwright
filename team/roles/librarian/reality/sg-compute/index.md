@@ -25,8 +25,18 @@
 | `Safe_Str__Node__Id` | `primitives/Safe_Str__Node__Id.py` |
 | `Safe_Str__Pod__Name` | `primitives/Safe_Str__Pod__Name.py` |
 | `Safe_Str__Stack__Id` | `primitives/Safe_Str__Stack__Id.py` |
+| `Safe_Str__Stack__Name` | `primitives/Safe_Str__Stack__Name.py` |
 | `Safe_Str__Platform__Name` | `primitives/Safe_Str__Platform__Name.py` |
 | `Safe_Str__AWS__Region` | `primitives/Safe_Str__AWS__Region.py` | Canonical AWS region — regex `^[a-z]{2}-[a-z]+-\d+$`, allow_empty=True |
+| `Safe_Str__SSM__Path` | `primitives/Safe_Str__SSM__Path.py` | SSM parameter path — regex `^[a-zA-Z0-9/_.\-]*$`, allow_empty=True |
+| `Safe_Str__Image__Registry` | `primitives/Safe_Str__Image__Registry.py` | Docker/ECR registry hostname — allow_empty=True |
+| `Safe_Str__Docker__Image` | `primitives/Safe_Str__Docker__Image.py` | Full image ref (`registry/repo:tag`, `repo@sha256:digest`) — T2.6c |
+| `Safe_Str__Log__Content` | `primitives/Safe_Str__Log__Content.py` | Multi-line log text — no regex, 1 MB cap — T2.6c |
+| `Safe_Str__Message` | `primitives/Safe_Str__Message.py` | Short human-readable message/error — max 512, no regex |
+| `Safe_Int__Hours` | `primitives/Safe_Int__Hours.py` | Node lifetime in hours — min=1, max=168 |
+| `Safe_Int__Max__Hours` | `primitives/Safe_Int__Max__Hours.py` | Max node lifetime (0=no auto-terminate) — min=0, max=168 — T2.6c |
+| `Safe_Int__Log__Lines` | `primitives/Safe_Int__Log__Lines.py` | Log line count — min=0 — T2.6c |
+| `Safe_Int__Pids` | `primitives/Safe_Int__Pids.py` | Container PID count — min=0 — T2.6c |
 
 ### sg_compute/primitives/enums/ — EXISTS
 
@@ -62,19 +72,20 @@
 | `Schema__Stack__Info` (legacy) | `core/node/schemas/Schema__Stack__Info.py` | Kept for spec mapper backwards compat |
 | `Node__Manager` | `core/node/Node__Manager.py` | Delegates to Platform; accepts a Fake__Platform in tests |
 
-### sg_compute/core/pod/ — EXISTS (BV2.3)
+### sg_compute/core/pod/ — EXISTS (BV2.3 + T2.6b/T2.6c: fully typed)
 
 | Class | Path | Description |
 |-------|------|-------------|
-| `Schema__Pod__Info` | `core/pod/schemas/Schema__Pod__Info.py` | `pod_name/node_id/image/state/ports` |
+| `Schema__Pod__Info` | `core/pod/schemas/Schema__Pod__Info.py` | `pod_name: Safe_Str__Pod__Name`, `node_id: Safe_Str__Node__Id`, `image: Safe_Str__Docker__Image`, `state`, `ports: Safe_Str__Message` |
 | `Schema__Pod__List` | `core/pod/schemas/Schema__Pod__List.py` | `pods: List[Schema__Pod__Info]` |
-| `Schema__Pod__Logs__Response` | `core/pod/schemas/Schema__Pod__Logs__Response.py` | `container/lines/content/truncated` |
-| `Schema__Pod__Stop__Response` | `core/pod/schemas/Schema__Pod__Stop__Response.py` | `name/stopped/removed/error` |
-| `Schema__Pod__Start__Request` | `core/pod/schemas/Schema__Pod__Start__Request.py` | `name/image/type_id` (ports/env omitted — Type_Safe__Dict not Pydantic-serialisable) |
+| `Schema__Pod__Stats` | `core/pod/schemas/Schema__Pod__Stats.py` | `container: Safe_Str__Pod__Name`, float metrics, `pids: Safe_Int__Pids` |
+| `Schema__Pod__Logs__Response` | `core/pod/schemas/Schema__Pod__Logs__Response.py` | `container: Safe_Str__Pod__Name`, `lines: Safe_Int__Log__Lines`, `content: Safe_Str__Log__Content`, `truncated: bool` |
+| `Schema__Pod__Stop__Response` | `core/pod/schemas/Schema__Pod__Stop__Response.py` | `name: Safe_Str__Pod__Name`, `stopped/removed: bool`, `error: Safe_Str__Message` |
+| `Schema__Pod__Start__Request` | `core/pod/schemas/Schema__Pod__Start__Request.py` | `name: Safe_Str__Pod__Name`, `image: Safe_Str__Docker__Image`, `type_id: Safe_Str__Spec__Id` (ports/env omitted — Type_Safe__Dict not Pydantic-serialisable) |
 | `Dict__Pod__Ports` | `core/pod/collections/Dict__Pod__Ports.py` | `Type_Safe__Dict[str→str]` |
 | `Dict__Pod__Env` | `core/pod/collections/Dict__Pod__Env.py` | `Type_Safe__Dict[str→str]` |
 | `Sidecar__Client` | `core/pod/Sidecar__Client.py` | HTTP adapter for one node's `:19009` sidecar; `list/get/logs/start/stop/remove` |
-| `Pod__Manager` | `core/pod/Pod__Manager.py` | Bridge: `node_id → public_ip → Sidecar__Client`; translates sidecar dicts to typed schemas |
+| `Pod__Manager` | `core/pod/Pod__Manager.py` | Bridge: `node_id → public_ip → Sidecar__Client`; public methods typed `Safe_Str__Node__Id`/`Safe_Str__Pod__Name`; schema construction wraps sidecar values explicitly |
 
 ### sg_compute/core/stack/ — EXISTS (placeholders)
 

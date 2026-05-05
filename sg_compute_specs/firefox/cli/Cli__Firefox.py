@@ -37,7 +37,6 @@ def _service():
 
 @app.command()
 def list(region: str = typer.Option(DEFAULT_REGION, '--region', '-r', help='AWS region.')):
-    """List all active firefox stacks."""
     try:
         result = _service().list_stacks(region=region)
         console = Console(highlight=False, width=200)
@@ -55,7 +54,6 @@ def list(region: str = typer.Option(DEFAULT_REGION, '--region', '-r', help='AWS 
 @app.command()
 def info(stack_name: str = typer.Argument(..., help='Firefox stack name.'),
          region    : str = typer.Option(DEFAULT_REGION, '--region', '-r', help='AWS region.')):
-    """Show details for one firefox stack."""
     try:
         result = _service().get_stack_info(region=region, stack_name=stack_name)
         if result is None:
@@ -77,7 +75,6 @@ def create(region       : str = typer.Option(DEFAULT_REGION, '--region'      , '
            instance_type: str = typer.Option('t3.large'    , '--instance-type', '-t'),
            max_hours    : int = typer.Option(1             , '--max-hours'         ),
            name         : str = typer.Option(''            , '--name'              , help='Override stack name.')):
-    """Create a new firefox stack."""
     from sg_compute_specs.firefox.schemas.Schema__Firefox__Stack__Create__Request import Schema__Firefox__Stack__Create__Request
     try:
         svc  = _service()
@@ -102,7 +99,6 @@ def create(region       : str = typer.Option(DEFAULT_REGION, '--region'      , '
 def delete(stack_name: str  = typer.Argument(..., help='Firefox stack name.'),
            region    : str  = typer.Option(DEFAULT_REGION, '--region', '-r', help='AWS region.'),
            yes       : bool = typer.Option(False, '--yes', '-y', help='Skip confirmation.')):
-    """Terminate a firefox stack."""
     if not yes:
         typer.confirm(f'Delete firefox stack {stack_name!r} in {region}?', abort=True)
     try:
@@ -126,11 +122,6 @@ def delete(stack_name: str  = typer.Argument(..., help='Firefox stack name.'),
 def set_credentials(node    : str = typer.Option(..., '--node'    , '-n', help='Firefox node (stack) name.'),
                     username: str = typer.Option(..., '--username' , '-u', help='Credentials username.'),
                     password: str = typer.Option(..., '--password' , '-p', help='Credentials password.')):
-    """Set HTTP basic-auth credentials on a running firefox node.
-
-    Calls PUT /api/specs/firefox/{node}/credentials.
-    Requires T2.2b routes — raises NotImplementedError until those land.
-    """
     raise NotImplementedError(
         'set-credentials requires PUT /api/specs/firefox/{node}/credentials — '
         'see brief T2.2b for the route implementation'
@@ -140,11 +131,6 @@ def set_credentials(node    : str = typer.Option(..., '--node'    , '-n', help='
 @app.command('upload-mitm-script')
 def upload_mitm_script(node: str = typer.Option(..., '--node', '-n', help='Firefox node (stack) name.'),
                        file: str = typer.Option(..., '--file', '-f', help='Path to the mitmproxy script file.')):
-    """Upload a mitmproxy intercept script to a running firefox node.
-
-    Calls PUT /api/specs/firefox/{node}/mitm-script.
-    Requires T2.2b routes — raises NotImplementedError until those land.
-    """
     raise NotImplementedError(
         'upload-mitm-script requires PUT /api/specs/firefox/{node}/mitm-script — '
         'see brief T2.2b for the route implementation'

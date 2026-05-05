@@ -12,6 +12,9 @@ from osbot_utils.type_safe.Type_Safe                                            
 from sg_compute.catalog.enums.Enum__Stack__Type              import Enum__Stack__Type
 from sg_compute.core.event_bus.Event__Bus                    import event_bus
 from sg_compute.core.event_bus.schemas.Schema__Stack__Event  import Schema__Stack__Event
+from sg_compute.primitives.Safe_Str__AWS__Region             import Safe_Str__AWS__Region
+from sg_compute.primitives.Safe_Str__SSM__Path               import Safe_Str__SSM__Path
+from sg_compute.primitives.Safe_Str__Stack__Name             import Safe_Str__Stack__Name
 
 from sg_compute_specs.docker.collections.List__Schema__Docker__Info                 import List__Schema__Docker__Info
 from sg_compute_specs.docker.enums.Enum__Docker__Stack__State                       import Enum__Docker__Stack__State
@@ -96,7 +99,7 @@ class Docker__Service(Type_Safe):
                                                 message    = f'Instance {iid} launching'                     ,
                                                 elapsed_ms = int((time.monotonic()-t0)*1000)                 )
 
-    def create_node(self, base_request, api_key_ssm_path: str = '') -> 'Schema__Node__Info':
+    def create_node(self, base_request, api_key_ssm_path: Safe_Str__SSM__Path = Safe_Str__SSM__Path()) -> 'Schema__Node__Info':
         from sg_compute.core.node.schemas.Schema__Node__Info import Schema__Node__Info
         from sg_compute.primitives.enums.Enum__Node__State   import Enum__Node__State
         docker_req = Schema__Docker__Create__Request(
@@ -121,7 +124,7 @@ class Docker__Service(Type_Safe):
             host_api_key_ssm_path= api_key_ssm_path          ,
         )
 
-    def list_stacks(self, region: str) -> Schema__Docker__List:
+    def list_stacks(self, region: Safe_Str__AWS__Region) -> Schema__Docker__List:
         region = region or DEFAULT_REGION
         raw    = self.aws_client.instance.list_stacks(region)
         stacks = List__Schema__Docker__Info()
@@ -129,11 +132,11 @@ class Docker__Service(Type_Safe):
             stacks.append(self.mapper.to_info(details, region))
         return Schema__Docker__List(region=region, stacks=stacks, total=len(stacks))
 
-    def get_stack_info(self, region: str, stack_name: str) -> Optional[Schema__Docker__Info]:
+    def get_stack_info(self, region: Safe_Str__AWS__Region, stack_name: Safe_Str__Stack__Name) -> Optional[Schema__Docker__Info]:
         details = self.aws_client.instance.find_by_stack_name(region, stack_name)
         return self.mapper.to_info(details, region) if details else None
 
-    def delete_stack(self, region: str, stack_name: str) -> Schema__Docker__Delete__Response:
+    def delete_stack(self, region: Safe_Str__AWS__Region, stack_name: Safe_Str__Stack__Name) -> Schema__Docker__Delete__Response:
         t0      = time.monotonic()
         details = self.aws_client.instance.find_by_stack_name(region, stack_name)
         if not details:
@@ -153,6 +156,6 @@ class Docker__Service(Type_Safe):
                                                 message    = f'terminated {iid}' if ok else 'terminate failed',
                                                 elapsed_ms = int((time.monotonic()-t0)*1000)                  )
 
-    def health(self, region: str, stack_name: str,
+    def health(self, region: Safe_Str__AWS__Region, stack_name: Safe_Str__Stack__Name,
                timeout_sec: int = 300, poll_sec: int = 10) -> Schema__Docker__Health__Response:
         return self.health_checker.check(region, stack_name, timeout_sec=timeout_sec, poll_sec=poll_sec)
