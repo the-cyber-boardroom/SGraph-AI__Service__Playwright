@@ -1,7 +1,6 @@
 # ═══════════════════════════════════════════════════════════════════════════════
-# sg_compute tests — Spec UI static-file serving (BV2.19)
-# No mocks. ui_root_override injects a temp directory; no spec has a live
-# ui/ folder yet so the "absent" path is tested against the real registry.
+# sg_compute tests — Spec UI static-file serving (BV2.19) + dashboard /ui/ mount (T1.7)
+# No mocks. ui_root_override / dashboard_root_override inject temp directories.
 # ═══════════════════════════════════════════════════════════════════════════════
 
 import tempfile
@@ -99,3 +98,45 @@ class test_Spec__UI__Static__Files(TestCase):
             resp = client.get('/api/specs/docker/ui/test.js')
             assert resp.status_code == 200
             assert 'cache-control' not in resp.headers                        # CloudFront owns caching
+
+
+class test_Dashboard__UI__Mount(TestCase):                                     # T1.7 — /ui/ mount for shared assets
+
+    def test_dashboard_ui_serves_shared_file(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            shared_dir = Path(tmp) / 'shared'
+            shared_dir.mkdir()
+            (shared_dir / 'api-client.js').write_text('// api-client')
+
+            compute = Fast_API__Compute(dashboard_root_override=tmp).setup()
+            client  = TestClient(compute.app())
+
+            resp = client.get('/ui/shared/api-client.js')
+            assert resp.status_code == 200
+            assert '// api-client' in resp.text
+
+    def test_dashboard_ui_serves_shared_component(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            comp_dir = Path(tmp) / 'components' / 'sp-cli' / '_shared' / 'sg-compute-stack-header'
+            comp_dir.mkdir(parents=True)
+            (comp_dir / 'sg-compute-stack-header.js').write_text('// stack-header')
+
+            compute = Fast_API__Compute(dashboard_root_override=tmp).setup()
+            client  = TestClient(compute.app())
+
+            resp = client.get('/ui/components/sp-cli/_shared/sg-compute-stack-header/sg-compute-stack-header.js')
+            assert resp.status_code == 200
+            assert '// stack-header' in resp.text
+
+    def test_dashboard_ui_404_for_missing_file(self):
+        compute = Fast_API__Compute().setup()
+        client  = TestClient(compute.app())
+        resp    = client.get('/ui/shared/nonexistent-util.js')
+        assert resp.status_code == 404
+
+    def test_dashboard_ui_uses_real_api_site_by_default(self):                # confirms live api_site is mounted
+        compute = Fast_API__Compute().setup()
+        client  = TestClient(compute.app())
+        resp    = client.get('/ui/shared/api-client.js')
+        assert resp.status_code == 200
+        assert 'apiClient' in resp.text or 'api' in resp.text.lower()

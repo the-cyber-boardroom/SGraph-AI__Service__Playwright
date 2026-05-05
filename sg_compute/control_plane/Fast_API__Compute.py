@@ -9,6 +9,7 @@
 #   /api/nodes                    Routes__Compute__Nodes    (cross-spec node list)
 #   /api/stacks                   Routes__Compute__Stacks   (cross-spec stack list)
 #   /api/vault                    Routes__Vault__Spec       (per-spec vault write/list/delete)
+#   /ui/*                         StaticFiles               (dashboard shared assets — sgraph_ai_service_playwright__api_site/)
 #   /api/specs/{spec_id}/ui/*     StaticFiles               (spec UI assets — mounted when ui/ exists)
 #   /api/specs/{spec_id}/*        per-spec Routes__*__Stack (discovered by convention)
 #   /legacy/*                     Fast_API__SP__CLI sub-app (deprecated; X-Deprecated header on all responses)
@@ -34,9 +35,10 @@ from sg_compute.vault.service.Vault__Spec__Writer                            imp
 
 
 class Fast_API__Compute(Fast_API):
-    registry         : Spec__Registry
-    platform         : Platform                                                # injected in tests; defaults to EC2__Platform in _mount_control_routes
-    ui_root_override : str = ''                                                # override ui root path for testing
+    registry                  : Spec__Registry
+    platform                  : Platform                                       # injected in tests; defaults to EC2__Platform in _mount_control_routes
+    ui_root_override          : str = ''                                       # override spec ui root path for testing
+    dashboard_root_override   : str = ''                                       # override dashboard static path for testing
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -45,6 +47,7 @@ class Fast_API__Compute(Fast_API):
 
     def setup(self) -> 'Fast_API__Compute':
         self._register_exception_handlers()
+        self._mount_dashboard_ui()
         self._mount_spec_ui_static_files()
         self._mount_control_routes()
         self._mount_spec_routes()
@@ -58,6 +61,15 @@ class Fast_API__Compute(Fast_API):
         async def no_credentials_handler(request: Request, exc: Exception__AWS__No_Credentials):
             return JSONResponse(status_code=503,
                                 content={'detail': f'AWS credentials not configured: {exc}'})
+
+    def _mount_dashboard_ui(self):                                             # /ui/ serves shared dashboard assets (api-client, node-state, shared components)
+        from starlette.staticfiles import StaticFiles
+        if self.dashboard_root_override:
+            path = self.dashboard_root_override
+        else:
+            import sgraph_ai_service_playwright__api_site
+            path = sgraph_ai_service_playwright__api_site.path
+        self.app().mount('/ui', StaticFiles(directory=path, html=True), name='dashboard-ui')
 
     def _mount_legacy_routes(self):
         from sgraph_ai_service_playwright__cli.fast_api.Fast_API__SP__CLI import Fast_API__SP__CLI
