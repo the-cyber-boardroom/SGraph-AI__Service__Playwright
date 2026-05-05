@@ -3,3 +3,4 @@ fastapi
 psutil
 osbot-fast-api-serverless
 osbot-utils
+python-multipart
