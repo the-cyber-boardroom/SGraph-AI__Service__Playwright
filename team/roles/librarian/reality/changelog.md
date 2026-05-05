@@ -6,6 +6,12 @@ This is a pointer log, not a content log. For full delta detail, see the master 
 
 ---
 
+## 2026-05-05 (T2.2b — Firefox credentials + mitm-script routes)
+
+- `sg-compute/index.md` — UPDATED: `Schema__Firefox__Credentials__Response`, `Schema__Firefox__Mitm__Script__Response`, `Firefox__SSM__Helper` added to firefox spec. `Firefox__Service` gains `set_credentials` + `upload_mitm_script`. `Routes__Firefox__Stack` gains `PUT /{node_id}/credentials` + `PUT /{node_id}/mitm-script`. `Cli__Firefox` `NotImplementedError` removed; both CLI commands fully wired.
+
+---
+
 ## 2026-05-05 (BV__caller-ip-endpoint)
 
 - `sg-compute/index.md` — UPDATED: `Schema__Caller__IP` added to `sg_compute/catalog/schemas/`; `Routes__Compute__Catalog` added to control plane routes (`GET /catalog/caller-ip`); `/catalog/caller-ip` added to `_AUTH_FREE_PATHS`. Frontend: `sg-compute-launch-form._seedCallerIp()` calls backend on remote hosts; "Find my public IP" link removed.
