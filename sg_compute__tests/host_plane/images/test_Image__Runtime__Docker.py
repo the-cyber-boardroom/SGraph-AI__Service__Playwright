@@ -22,14 +22,14 @@ class test_Image__Runtime__Docker(TestCase):
     def setUp(self):
         self.runtime = Image__Runtime__Docker()
 
-    def test_list__returns_schema(self):
-        result = self.runtime.list()
+    def test_list_images__returns_schema(self):
+        result = self.runtime.list_images()
         assert isinstance(result, Schema__Image__List)
         assert isinstance(result.images, list)
         assert result.count == len(result.images)
 
-    def test_list__each_item_has_required_fields(self):
-        result = self.runtime.list()
+    def test_list_images__each_item_has_required_fields(self):
+        result = self.runtime.list_images()
         for img in result.images:
             assert isinstance(img, Schema__Image__Info)
             assert img.id

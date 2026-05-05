@@ -4,8 +4,6 @@
 # `docker` binary — no docker-py SDK, matching the Pod__Runtime__Docker pattern.
 # ═══════════════════════════════════════════════════════════════════════════════
 
-from __future__ import annotations   # defer annotation eval — class defines a method named 'list' which would shadow the builtin at annotation evaluation time
-
 import json
 import subprocess
 
@@ -30,7 +28,7 @@ class Image__Runtime__Docker:
         result = subprocess.run(['docker'] + args, capture_output=True, text=True, timeout=timeout)
         return result.stdout, result.stderr, result.returncode
 
-    def list(self) -> Schema__Image__List:
+    def list_images(self) -> Schema__Image__List:
         stdout, _, _ = self._run(['images', '--no-trunc', '--format', FORMAT])
         items = List__Schema__Image__Info()
         seen  = set()
