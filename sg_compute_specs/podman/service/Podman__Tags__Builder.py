@@ -8,7 +8,7 @@ from osbot_utils.type_safe.Type_Safe                                            
 
 from sg_compute_specs.podman.primitives.Safe_Str__IP__Address                       import Safe_Str__IP__Address
 from sg_compute_specs.podman.primitives.Safe_Str__Podman__Stack__Name               import Safe_Str__Podman__Stack__Name
-from sg_compute_specs.podman.service.Podman__AWS__Client                            import (PODMAN_NAMING      ,
+from sg_compute_specs.podman.service.Podman__Tags                            import (PODMAN_NAMING      ,
                                                                                               TAG_ALLOWED_IP_KEY ,
                                                                                               TAG_CREATOR_KEY    ,
                                                                                               TAG_PURPOSE_KEY    ,

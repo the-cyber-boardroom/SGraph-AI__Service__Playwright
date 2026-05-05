@@ -10,7 +10,7 @@ from osbot_utils.type_safe.Type_Safe                                            
 
 from sg_compute_specs.vnc.primitives.Safe_Str__IP__Address                          import Safe_Str__IP__Address
 from sg_compute_specs.vnc.primitives.Safe_Str__Vnc__Stack__Name                     import Safe_Str__Vnc__Stack__Name
-from sg_compute_specs.vnc.service.Vnc__AWS__Client                                  import TAG_PURPOSE_KEY, TAG_PURPOSE_VALUE, VNC_NAMING
+from sg_compute_specs.vnc.service.Vnc__Tags                                  import TAG_PURPOSE_KEY, TAG_PURPOSE_VALUE, VNC_NAMING
 
 
 VIEWER_PORT_EXTERNAL = 443

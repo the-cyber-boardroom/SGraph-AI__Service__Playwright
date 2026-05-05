@@ -25,7 +25,7 @@ from typing import Optional
 
 from sg_compute_specs.docker.service.Caller__IP__Detector       import Caller__IP__Detector
 from sg_compute_specs.docker.service.Docker__AWS__Client        import Docker__AWS__Client
-from sg_compute_specs.docker.service.Docker__AWS__Client                            import DOCKER_NAMING
+from sg_compute_specs.docker.service.Docker__Tags                            import DOCKER_NAMING
 from sg_compute_specs.docker.service.Docker__Health__Checker    import Docker__Health__Checker
 from sg_compute_specs.docker.service.Docker__Instance__Helper   import Docker__Instance__Helper
 from sg_compute_specs.docker.service.Docker__Stack__Mapper      import Docker__Stack__Mapper
@@ -95,6 +95,31 @@ class Docker__Service(Type_Safe):
         return Schema__Docker__Create__Response(stack_info = info                                             ,
                                                 message    = f'Instance {iid} launching'                     ,
                                                 elapsed_ms = int((time.monotonic()-t0)*1000)                 )
+
+    def create_node(self, base_request, api_key_ssm_path: str = '') -> 'Schema__Node__Info':
+        from sg_compute.core.node.schemas.Schema__Node__Info import Schema__Node__Info
+        from sg_compute.primitives.enums.Enum__Node__State   import Enum__Node__State
+        docker_req = Schema__Docker__Create__Request(
+            stack_name       = base_request.node_name     ,
+            region           = base_request.region        ,
+            instance_type    = base_request.instance_type ,
+            from_ami         = base_request.ami_id        ,
+            caller_ip        = base_request.caller_ip     ,
+            max_hours        = base_request.max_hours     ,
+            api_key_ssm_path = api_key_ssm_path           ,
+        )
+        resp = self.create_stack(docker_req)
+        info = resp.stack_info
+        return Schema__Node__Info(
+            node_id              = str(info.stack_name)      ,
+            spec_id              = 'docker'                  ,
+            region               = base_request.region       ,
+            state                = Enum__Node__State.BOOTING ,
+            public_ip            = str(info.public_ip)       ,
+            instance_id          = str(info.instance_id)     ,
+            instance_type        = str(info.instance_type)   ,
+            host_api_key_ssm_path= api_key_ssm_path          ,
+        )
 
     def list_stacks(self, region: str) -> Schema__Docker__List:
         region = region or DEFAULT_REGION

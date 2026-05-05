@@ -20,7 +20,7 @@ from sg_compute_specs.firefox.schemas.Schema__Firefox__Stack__List              
 from typing import Optional
 
 from sg_compute_specs.firefox.service.Firefox__AWS__Client           import Firefox__AWS__Client
-from sg_compute_specs.firefox.service.Firefox__AWS__Client                          import FIREFOX_NAMING
+from sg_compute_specs.firefox.service.Firefox__Tags                          import FIREFOX_NAMING
 from sg_compute_specs.firefox.service.Firefox__HTTP__Probe           import Firefox__HTTP__Probe
 from sg_compute_specs.firefox.service.Firefox__Interceptor__Resolver import Firefox__Interceptor__Resolver
 from sg_compute_specs.firefox.service.Firefox__Stack__Mapper         import Firefox__Stack__Mapper

@@ -20,16 +20,16 @@ class test_Schema__Node__Info(TestCase):
 
     def test_full_construction(self):
         info = Schema__Node__Info(
-            node_id       = 'firefox-quiet-fermi-7421',
-            spec_id       = 'firefox'                 ,
-            region        = 'eu-west-2'               ,
-            state         = Enum__Node__State.READY   ,
-            public_ip     = '1.2.3.4'                 ,
-            private_ip    = '10.0.0.5'                ,
-            instance_id   = 'i-0abc123'               ,
-            instance_type = 't3.large'                ,
-            ami_id        = 'ami-0123456'              ,
-            uptime_seconds= 300                        ,
+            node_id       = 'firefox-quiet-fermi-7421'  ,
+            spec_id       = 'firefox'                   ,
+            region        = 'eu-west-2'                 ,
+            state         = Enum__Node__State.READY     ,
+            public_ip     = '1.2.3.4'                   ,
+            private_ip    = '10.0.0.5'                  ,
+            instance_id   = 'i-0a1b2c3d4e5f67890'      ,
+            instance_type = 't3.large'                  ,
+            ami_id        = 'ami-0a1b2c3d4e5f67890'     ,
+            uptime_seconds= 300                          ,
         )
         assert info.node_id  == 'firefox-quiet-fermi-7421'
         assert info.state    == Enum__Node__State.READY

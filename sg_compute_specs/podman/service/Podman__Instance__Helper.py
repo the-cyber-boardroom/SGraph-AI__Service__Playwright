@@ -13,7 +13,7 @@ from typing                                                                     
 from osbot_utils.type_safe.Type_Safe                                                import Type_Safe
 
 from sg_compute_specs.podman.primitives.Safe_Str__Podman__Stack__Name               import Safe_Str__Podman__Stack__Name
-from sg_compute_specs.podman.service.Podman__AWS__Client                            import TAG_PURPOSE_KEY, TAG_PURPOSE_VALUE, TAG_STACK_NAME_KEY
+from sg_compute_specs.podman.service.Podman__Tags                            import TAG_PURPOSE_KEY, TAG_PURPOSE_VALUE, TAG_STACK_NAME_KEY
 
 
 INSTANCE_STATES_LIVE = ['pending', 'running', 'stopping', 'stopped']

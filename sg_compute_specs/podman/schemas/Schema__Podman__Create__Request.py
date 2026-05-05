@@ -15,10 +15,12 @@ from sg_compute_specs.podman.primitives.Safe_Str__Podman__Stack__Name           
 
 
 class Schema__Podman__Create__Request(Type_Safe):
-    stack_name    : Safe_Str__Podman__Stack__Name
-    region        : Safe_Str__AWS__Region
-    instance_type : Safe_Str__Text           = 't3.medium'
-    from_ami      : Safe_Str__AMI__Id
-    caller_ip     : Safe_Str__IP__Address
-    max_hours     : int                      = 1
-    extra_ports   : List[int]
+    stack_name       : Safe_Str__Podman__Stack__Name
+    region           : Safe_Str__AWS__Region
+    instance_type    : Safe_Str__Text           = 't3.medium'
+    from_ami         : Safe_Str__AMI__Id
+    caller_ip        : Safe_Str__IP__Address
+    max_hours        : int                      = 1
+    extra_ports      : List[int]
+    registry         : str                      = ''
+    api_key_ssm_path : str                      = ''

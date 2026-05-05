@@ -6,7 +6,7 @@ from osbot_utils.type_safe.Type_Safe                                            
 
 from sg_compute_specs.opensearch.enums.Enum__OS__Stack__State                       import Enum__OS__Stack__State
 from sg_compute_specs.opensearch.schemas.Schema__OS__Stack__Info                    import Schema__OS__Stack__Info
-from sg_compute_specs.opensearch.service.OpenSearch__AWS__Client                    import TAG_ALLOWED_IP_KEY, TAG_STACK_NAME_KEY
+from sg_compute_specs.opensearch.service.OpenSearch__Tags                    import TAG_ALLOWED_IP_KEY, TAG_STACK_NAME_KEY
 
 
 def _tag(details: dict, key: str) -> str:

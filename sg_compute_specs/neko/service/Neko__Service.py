@@ -25,7 +25,7 @@ from typing import Optional
 
 from sg_compute_specs.neko.service.Caller__IP__Detector           import Caller__IP__Detector
 from sg_compute_specs.neko.service.Neko__AWS__Client              import Neko__AWS__Client
-from sg_compute_specs.neko.service.Neko__AWS__Client                                import NEKO_NAMING
+from sg_compute_specs.neko.service.Neko__Tags                                import NEKO_NAMING
 from sg_compute_specs.neko.service.Neko__Stack__Mapper            import Neko__Stack__Mapper
 from sg_compute_specs.neko.service.Neko__User_Data__Builder       import Neko__User_Data__Builder
 from sg_compute_specs.neko.service.Random__Stack__Name__Generator import Random__Stack__Name__Generator

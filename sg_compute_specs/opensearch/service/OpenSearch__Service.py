@@ -21,7 +21,7 @@ from typing import Optional
 
 from sg_compute_specs.opensearch.service.Caller__IP__Detector           import Caller__IP__Detector
 from sg_compute_specs.opensearch.service.OpenSearch__AWS__Client        import OpenSearch__AWS__Client
-from sg_compute_specs.opensearch.service.OpenSearch__AWS__Client                    import OS_NAMING
+from sg_compute_specs.opensearch.service.OpenSearch__Tags                    import OS_NAMING
 from sg_compute_specs.opensearch.service.OpenSearch__Compose__Template  import OpenSearch__Compose__Template
 from sg_compute_specs.opensearch.service.OpenSearch__HTTP__Base         import OpenSearch__HTTP__Base
 from sg_compute_specs.opensearch.service.OpenSearch__HTTP__Probe        import OpenSearch__HTTP__Probe

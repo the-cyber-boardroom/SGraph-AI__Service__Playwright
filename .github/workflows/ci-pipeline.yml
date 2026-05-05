@@ -78,6 +78,10 @@ jobs:
           pip install pytest pytest-timeout
           pip install -e .
 
+      - name: Run CI guards
+        timeout-minutes: 2
+        run: python -m pytest tests/ci/ -v --timeout=30
+
       - name: Run unit tests
         timeout-minutes: 5
         run: python -m pytest tests/unit/ -v --timeout=30
