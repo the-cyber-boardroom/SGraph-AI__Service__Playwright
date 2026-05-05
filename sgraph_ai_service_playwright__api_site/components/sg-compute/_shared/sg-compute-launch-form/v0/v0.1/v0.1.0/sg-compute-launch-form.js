@@ -1,6 +1,7 @@
 import { SgComponent } from 'https://dev.tools.sgraph.ai/components/base/v1/v1.0/v1.0.0/sg-component.js'
 import '/ui/components/sg-compute/_shared/sg-compute-ami-picker/v0/v0.1/v0.1.0/sg-compute-ami-picker.js'
 import { REGIONS, INSTANCE_TYPES, MAX_HOURS } from '/ui/shared/launch-defaults.js'
+import { apiClient }                           from '/ui/shared/api-client.js'
 
 const MODE_FRESH    = 'fresh'
 const MODE_BAKE_AMI = 'bake-ami'
@@ -145,9 +146,11 @@ class SgComputeLaunchForm extends SgComponent {
         const host = window.location.hostname
         if (host === 'localhost' || host === '127.0.0.1' || host === '0.0.0.0') {
             this._callerIpInput.value = '127.0.0.1'
+            return
         }
-        // On remote hosts: leave empty — user must enter their public IP.
-        // Preferred fix: backend GET /catalog/caller-ip (see backend brief BV__caller-ip-endpoint.md).
+        apiClient.get('/catalog/caller-ip')
+            .then(r => { if (r?.ip && !this._callerIpInput.value) this._callerIpInput.value = r.ip })
+            .catch(() => {})
     }
 
     setDisabled(disabled) {
