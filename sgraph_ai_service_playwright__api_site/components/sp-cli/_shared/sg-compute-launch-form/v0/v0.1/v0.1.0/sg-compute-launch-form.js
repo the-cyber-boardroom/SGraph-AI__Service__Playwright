@@ -43,10 +43,13 @@ class SgComputeLaunchForm extends SgComponent {
         this._amiPicker     = this.$('.field-ami-picker')
         this._amiNameInput  = this.$('.field-ami-name')
         this._amiError      = this.$('.ami-required-error')
+        this._callerIpInput = this.$('.field-caller-ip')
         this._modeInputs    = this.$$('.field-mode')
 
         this._currentMode   = MODE_FRESH
         this._specId        = null
+
+        this._seedCallerIp()
 
         this._populateSelect(this._regionSel,   REGIONS,        r => r)
         this._populateSelect(this._instanceSel, INSTANCE_TYPES, t => t)
@@ -104,14 +107,15 @@ class SgComputeLaunchForm extends SgComponent {
     getValues() {
         const amiId = this._amiPicker?.getSelectedAmiId?.() || ''
         return {
-            stack_name:     this._nameInput?.value.trim()  || null,
-            region:         this._regionSel?.value         || REGIONS[0],
-            instance_type:  this._instanceSel?.value       || 't3.medium',
+            stack_name:     this._nameInput?.value.trim()     || null,
+            region:         this._regionSel?.value            || REGIONS[0],
+            instance_type:  this._instanceSel?.value          || 't3.medium',
             max_hours:      parseInt(this._hoursSel?.value || '4', 10),
-            public_ingress: this._openCheckbox?.checked    ?? false,
+            public_ingress: this._openCheckbox?.checked       ?? false,
+            caller_ip:      this._callerIpInput?.value.trim() || '',
             creation_mode:  this._currentMode,
             ami_id:         amiId,
-            ami_name:       this._amiNameInput?.value.trim() || '',
+            ami_name:       this._amiNameInput?.value.trim()  || '',
         }
     }
 
@@ -136,11 +140,22 @@ class SgComputeLaunchForm extends SgComponent {
         if (this._amiNameInput) this._amiNameInput.value = ''
         if (this._amiError)    this._amiError.hidden   = true
         this._resetMode()
+        this._seedCallerIp()
+    }
+
+    _seedCallerIp() {
+        if (!this._callerIpInput) return
+        const host = window.location.hostname
+        if (host === 'localhost' || host === '127.0.0.1' || host === '0.0.0.0') {
+            this._callerIpInput.value = '127.0.0.1'
+        }
+        // On remote hosts: leave empty — user must enter their public IP.
+        // Preferred fix: backend GET /catalog/caller-ip (see backend brief BV__caller-ip-endpoint.md).
     }
 
     setDisabled(disabled) {
         [this._nameInput, this._regionSel, this._instanceSel, this._hoursSel,
-         this._openCheckbox, this._amiNameInput].forEach(el => { if (el) el.disabled = disabled })
+         this._openCheckbox, this._amiNameInput, this._callerIpInput].forEach(el => { if (el) el.disabled = disabled })
         this._modeInputs?.forEach(r => { r.disabled = disabled })
         this._amiPicker?.setDisabled?.(disabled)
     }

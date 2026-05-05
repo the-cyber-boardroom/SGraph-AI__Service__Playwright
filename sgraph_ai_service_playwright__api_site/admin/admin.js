@@ -81,7 +81,10 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     // ── Plugin / settings events ─────────────────────────────────────────── //
 
-    document.addEventListener('sp-cli:plugin.toggled', (e) => {
+    document.addEventListener('sp-cli:spec.toggled',   (e) => _onSpecToggled(e))
+    document.addEventListener('sp-cli:plugin.toggled', (e) => _onSpecToggled(e))  // DEPRECATED alias
+
+    function _onSpecToggled(e) {
         const { name, enabled } = e.detail || {}
         if (enabled) return
         for (const [nodeId, tabId] of Object.entries(_detailTabIds)) {
@@ -96,7 +99,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             _layoutEl?.removePanel(_launchTabIds[name])
             delete _launchTabIds[name]
         }
-    })
+    }
 
     // ── Auth ──────────────────────────────────────────────────────────────── //
 

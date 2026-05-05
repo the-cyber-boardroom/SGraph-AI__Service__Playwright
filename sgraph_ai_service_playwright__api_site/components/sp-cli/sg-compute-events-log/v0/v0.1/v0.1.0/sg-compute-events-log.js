@@ -32,7 +32,8 @@ const FAMILIES = {
              'sp-cli:plugin:elastic.launch-requested','sp-cli:plugin:vnc.launch-requested',     // DEPRECATED
              'sp-cli:plugin:prometheus.launch-requested','sp-cli:plugin:opensearch.launch-requested', // DEPRECATED
              'sp-cli:plugin:neko.launch-requested','sp-cli:plugin:firefox.launch-requested'],   // DEPRECATED
-    nav:    ['sp-cli:nav.selected','sp-cli:spec.toggled','sp-cli:plugin.toggled',  // plugin.toggled DEPRECATED
+    nav:    ['sp-cli:nav.selected','sp-cli:spec.toggled',  // canonical
+             'sp-cli:plugin.toggled',                      // DEPRECATED — remove v0.3.0
              'sp-cli:settings.loaded','sp-cli:settings.saved','sp-cli:region-changed'],
 }
 
@@ -57,7 +58,8 @@ const ICONS = {
     'sp-cli:launch.error':                '🔴',
     'sp-cli:activity-entry':              '📝',
     'sp-cli:nav.selected':                '🧭',
-    'sp-cli:plugin.toggled':              '⚙',
+    'sp-cli:spec.toggled':                '⚙',
+    'sp-cli:plugin.toggled':              '⚙',  // DEPRECATED
     'sp-cli:settings.saved':              '💾',
     'sp-cli:settings.loaded':             '📂',
     'sp-cli:region-changed':              '🌍',

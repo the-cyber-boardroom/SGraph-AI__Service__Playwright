@@ -52,7 +52,7 @@ class SgComputeLaunchPanel extends SgComponent {
             instance_type:  values.instance_type  || 't3.medium',
             max_hours:      values.max_hours       || 4,
             region:         values.region          || '',
-            caller_ip:      '',
+            caller_ip:      values.caller_ip       || '',
             public_ingress: values.public_ingress  ?? false,
             creation_mode:  values.creation_mode   || 'fresh',
             ami_id:         values.ami_id          || '',

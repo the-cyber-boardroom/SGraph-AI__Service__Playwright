@@ -71,6 +71,15 @@
   <div class="adv-section">
     <button type="button" class="adv-toggle" aria-expanded="false">▶ Advanced</button>
     <div class="adv-body" hidden>
+      <!-- caller IP — pre-populated by local heuristic; backend /catalog/caller-ip preferred when available -->
+      <div class="form-group">
+        <label class="form-label">
+          Caller IP <span class="form-hint">(SG ingress allowlist — your public IP)</span>
+        </label>
+        <input type="text" class="field-caller-ip form-input" placeholder="e.g. 203.0.113.42">
+        <div class="caller-ip-hint">Used to restrict EC2 SG ingress to your machine. Leave empty to allow all IPs (not recommended).</div>
+        <a class="caller-ip-lookup" href="https://www.google.com/search?q=what+is+my+ip" target="_blank" rel="noopener">Find my public IP ↗</a>
+      </div>
       <div class="ip-info">
         <div class="ip-note">
           When launching via the Lambda API, AWS uses the Lambda's outbound IP — not your browser IP — for security-group rules.
