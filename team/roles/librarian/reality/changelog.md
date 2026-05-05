@@ -6,9 +6,9 @@ This is a pointer log, not a content log. For full delta detail, see the master 
 
 ---
 
-## 2026-05-05 (FV2.6 — docker pilot)
+## 2026-05-05 (FV2.6 — all 8 specs complete)
 
-- `sg-compute/index.md` — UPDATED: `sg_compute_specs/docker/ui/{card,detail}/v0/v0.1/v0.1.0/` created; 6 files moved from `api_site/plugins/docker/` and `api_site/components/sp-cli/sg-compute-docker-detail/`; detail JS imports rewritten to absolute `/ui/` paths; `admin/index.html` script tags updated to `/api/specs/docker/ui/...`.
+- `sg-compute/index.md` — UPDATED: 48 files moved to `sg_compute_specs/{spec}/ui/{card,detail}/v0/v0.1/v0.1.0/` for docker, podman, vnc, neko, prometheus, opensearch, elastic, firefox; `api_site/plugins/` deleted; all per-spec detail dirs in `api_site/components/sp-cli/` deleted; all detail JS imports → absolute `/ui/` paths; `admin/index.html` all spec script tags → `/api/specs/<id>/ui/...`.
 
 ---
 

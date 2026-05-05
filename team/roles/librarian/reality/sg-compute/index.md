@@ -1,7 +1,7 @@
 # Reality — SG/Compute Domain
 
 **Status:** ACTIVE — seeded in phase-1 (B1), foundations added in phase-2 (B2), pod management in BV2.3.
-**Last updated:** 2026-05-05 | **Phase:** FV2.6 (per-spec UI co-location — docker pilot)
+**Last updated:** 2026-05-05 | **Phase:** FV2.6 (per-spec UI co-location — all 8 specs complete)
 
 ---
 
@@ -184,7 +184,9 @@
 | `api/routes/Routes__Docker__Stack.py` | endpoints at `/api/specs/docker/stack*` |
 | `tests/` | 31 unit tests (manifest, user_data_builder, tags_builder, stack_mapper) |
 | `ui/card/v0/v0.1/v0.1.0/sg-compute-docker-card.{js,html,css}` | Card web component — migrated FV2.6; served at `/api/specs/docker/ui/card/...` |
-| `ui/detail/v0/v0.1/v0.1.0/sg-compute-docker-detail.{js,html,css}` | Detail web component — migrated FV2.6; served at `/api/specs/docker/ui/detail/...`; relative imports → absolute `/ui/` paths |
+| `ui/detail/v0/v0.1/v0.1.0/sg-compute-docker-detail.{js,html,css}` | Detail web component — migrated FV2.6; imports use absolute `/ui/` paths |
+
+**All 8 migrated specs** also have `ui/card/` + `ui/detail/` trees (same IFD versioning pattern): `podman`, `vnc`, `neko`, `prometheus`, `opensearch`, `elastic`, `firefox`. `api_site/plugins/` and all per-spec `api_site/components/sp-cli/sg-compute-*-detail/` directories are **deleted** — no longer in the dashboard tree.
 
 ### sg_compute/vault/ — EXISTS (BV2.9)
 
@@ -237,7 +239,7 @@
 
 | Date | Change |
 |------|--------|
-| 2026-05-05 | FV2.6 (docker pilot): sg_compute_specs/docker/ui/{card,detail}/v0/v0.1/v0.1.0/ created; 6 files moved from api_site/plugins/docker/ and api_site/components/sp-cli/sg-compute-docker-detail/; detail imports rewritten to absolute /ui/ paths; admin/index.html script tags point to /api/specs/docker/ui/ |
+| 2026-05-05 | FV2.6 (all 8 specs): ui/{card,detail}/v0/v0.1/v0.1.0/ created in sg_compute_specs for docker, podman, vnc, neko, prometheus, opensearch, elastic, firefox; 48 files moved; api_site/plugins/ deleted; all per-spec detail dirs in api_site/components/sp-cli/ deleted; detail imports rewritten to absolute /ui/ paths; admin/index.html all spec tags point to /api/specs/<id>/ui/ |
 | 2026-05-05 | BV2.19: Spec__UI__Resolver + StaticFiles mount at /api/specs/{spec_id}/ui; ui_root_override for tests; sg_compute_specs/*/ui/**/* in pyproject.toml include; 322 tests passing |
 | 2026-05-05 | BV2.9: sg_compute/vault/ created (13 files); plugin→spec rename; Routes__Vault__Spec mounted at /api/vault on Fast_API__Compute; 11 legacy shims; 313 tests passing |
 | 2026-05-05 | BV2.8: object=None → Optional[T] in 10 non-circular spec service files; 7 circular AWS__Client files kept object=None; Optional import added to 17 files |

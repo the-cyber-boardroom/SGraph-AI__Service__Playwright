@@ -33,26 +33,25 @@
        Remaining specs still use the dashboard-relative path until their FV2.6 session.
        If a script tag exists for a spec NOT in the catalogue, no card will render for it.
        If the catalogue lists a spec with no script tag, that spec is silently skipped. -->
-  <!-- docker — migrated FV2.6 -->
+  <!-- all specs migrated FV2.6 — loaded from StaticFiles mount at /api/specs/<id>/ui/ -->
   <script type="module" src="/api/specs/docker/ui/card/v0/v0.1/v0.1.0/sg-compute-docker-card.js"></script>
-  <script type="module" src="../plugins/podman/v0/v0.1/v0.1.0/sg-compute-podman-card.js"></script>
-  <script type="module" src="../plugins/elastic/v0/v0.1/v0.1.0/sg-compute-elastic-card.js"></script>
-  <script type="module" src="../plugins/vnc/v0/v0.1/v0.1.0/sg-compute-vnc-card.js"></script>
-  <script type="module" src="../plugins/prometheus/v0/v0.1/v0.1.0/sg-compute-prometheus-card.js"></script>
-  <script type="module" src="../plugins/opensearch/v0/v0.1/v0.1.0/sg-compute-opensearch-card.js"></script>
-  <script type="module" src="../plugins/neko/v0/v0.1/v0.1.0/sg-compute-neko-card.js"></script>
-  <script type="module" src="../plugins/firefox/v0/v0.1/v0.1.0/sg-compute-firefox-card.js"></script>
+  <script type="module" src="/api/specs/podman/ui/card/v0/v0.1/v0.1.0/sg-compute-podman-card.js"></script>
+  <script type="module" src="/api/specs/elastic/ui/card/v0/v0.1/v0.1.0/sg-compute-elastic-card.js"></script>
+  <script type="module" src="/api/specs/vnc/ui/card/v0/v0.1/v0.1.0/sg-compute-vnc-card.js"></script>
+  <script type="module" src="/api/specs/prometheus/ui/card/v0/v0.1/v0.1.0/sg-compute-prometheus-card.js"></script>
+  <script type="module" src="/api/specs/opensearch/ui/card/v0/v0.1/v0.1.0/sg-compute-opensearch-card.js"></script>
+  <script type="module" src="/api/specs/neko/ui/card/v0/v0.1/v0.1.0/sg-compute-neko-card.js"></script>
+  <script type="module" src="/api/specs/firefox/ui/card/v0/v0.1/v0.1.0/sg-compute-firefox-card.js"></script>
 
-  <!-- per-plugin detail panels -->
-  <!-- docker — migrated FV2.6 -->
+  <!-- per-spec detail panels — all migrated FV2.6 -->
   <script type="module" src="/api/specs/docker/ui/detail/v0/v0.1/v0.1.0/sg-compute-docker-detail.js"></script>
-  <script type="module" src="../components/sp-cli/sg-compute-podman-detail/v0/v0.1/v0.1.0/sg-compute-podman-detail.js"></script>
-  <script type="module" src="../components/sp-cli/sg-compute-elastic-detail/v0/v0.1/v0.1.0/sg-compute-elastic-detail.js"></script>
-  <script type="module" src="../components/sp-cli/sg-compute-vnc-detail/v0/v0.1/v0.1.0/sg-compute-vnc-detail.js"></script>
-  <script type="module" src="../components/sp-cli/sg-compute-prometheus-detail/v0/v0.1/v0.1.0/sg-compute-prometheus-detail.js"></script>
-  <script type="module" src="../components/sp-cli/sg-compute-opensearch-detail/v0/v0.1/v0.1.0/sg-compute-opensearch-detail.js"></script>
-  <script type="module" src="../components/sp-cli/sg-compute-neko-detail/v0/v0.1/v0.1.0/sg-compute-neko-detail.js"></script>
-  <script type="module" src="../components/sp-cli/sg-compute-firefox-detail/v0/v0.1/v0.1.0/sg-compute-firefox-detail.js"></script>
+  <script type="module" src="/api/specs/podman/ui/detail/v0/v0.1/v0.1.0/sg-compute-podman-detail.js"></script>
+  <script type="module" src="/api/specs/elastic/ui/detail/v0/v0.1/v0.1.0/sg-compute-elastic-detail.js"></script>
+  <script type="module" src="/api/specs/vnc/ui/detail/v0/v0.1/v0.1.0/sg-compute-vnc-detail.js"></script>
+  <script type="module" src="/api/specs/prometheus/ui/detail/v0/v0.1/v0.1.0/sg-compute-prometheus-detail.js"></script>
+  <script type="module" src="/api/specs/opensearch/ui/detail/v0/v0.1/v0.1.0/sg-compute-opensearch-detail.js"></script>
+  <script type="module" src="/api/specs/neko/ui/detail/v0/v0.1/v0.1.0/sg-compute-neko-detail.js"></script>
+  <script type="module" src="/api/specs/firefox/ui/detail/v0/v0.1/v0.1.0/sg-compute-firefox-detail.js"></script>
 
   <!-- host control plane widgets -->
   <script type="module" src="../components/sp-cli/_shared/sg-compute-host-shell/v0/v0.1/v0.1.0/sg-compute-host-shell.js"></script>
