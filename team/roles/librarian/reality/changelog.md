@@ -6,6 +6,12 @@ This is a pointer log, not a content log. For full delta detail, see the master 
 
 ---
 
+## 2026-05-05 (BV__spec-readme-endpoint)
+
+- `sg-compute/index.md` — UPDATED: `Spec__Readme__Resolver` added to `core/spec/` table; `Routes__Compute__Specs` description updated with `GET /api/specs/{spec_id}/readme`; `Fast_API__Compute` `readme_root_override` field added. `sg_compute_specs/firefox/README.md` created. `sg_compute_specs/pyproject.toml` includes `*/README.md` in package-data.
+
+---
+
 ## 2026-05-05 (T2.7b — docstring sweep complete)
 
 - `sg-compute/index.md` — NO CHANGE (no new code, only style/format cleanup): all `"""..."""` template string constants converted to `'''...'''` across `sg_compute/platforms/ec2/user_data/` (Section__*) and `sg_compute_specs/*/service/` builders and templates (28 files). Method docstrings deleted from `Cli__Firefox`, `Browser__Launcher`, `Playwright__Service`. `grep -rln '^\s*"""' sg_compute/ sg_compute_specs/` → zero hits.
