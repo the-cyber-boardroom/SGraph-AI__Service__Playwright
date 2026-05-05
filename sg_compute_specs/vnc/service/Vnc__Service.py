@@ -28,7 +28,7 @@ from typing import Optional
 from sg_compute_specs.vnc.service.Caller__IP__Detector           import Caller__IP__Detector
 from sg_compute_specs.vnc.service.Random__Stack__Name__Generator import Random__Stack__Name__Generator
 from sg_compute_specs.vnc.service.Vnc__AWS__Client               import Vnc__AWS__Client
-from sg_compute_specs.vnc.service.Vnc__AWS__Client                                  import VNC_NAMING
+from sg_compute_specs.vnc.service.Vnc__Tags                                  import VNC_NAMING
 from sg_compute_specs.vnc.service.Vnc__Compose__Template         import Vnc__Compose__Template
 from sg_compute_specs.vnc.service.Vnc__HTTP__Base                import Vnc__HTTP__Base
 from sg_compute_specs.vnc.service.Vnc__HTTP__Probe               import Vnc__HTTP__Probe

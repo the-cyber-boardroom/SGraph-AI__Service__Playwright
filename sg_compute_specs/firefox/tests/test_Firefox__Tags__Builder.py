@@ -5,7 +5,7 @@
 
 from unittest                                                                       import TestCase
 
-from sg_compute_specs.firefox.service.Firefox__AWS__Client                          import (FIREFOX_NAMING     ,
+from sg_compute_specs.firefox.service.Firefox__Tags                                 import (FIREFOX_NAMING     ,
                                                                                              TAG_ALLOWED_IP_KEY ,
                                                                                              TAG_CREATOR_KEY    ,
                                                                                              TAG_PURPOSE_KEY    ,

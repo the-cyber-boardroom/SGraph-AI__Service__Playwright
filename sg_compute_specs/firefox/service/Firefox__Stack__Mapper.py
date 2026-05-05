@@ -10,7 +10,7 @@ from osbot_utils.type_safe.Type_Safe                                            
 
 from sg_compute_specs.firefox.enums.Enum__Firefox__Stack__State                     import Enum__Firefox__Stack__State
 from sg_compute_specs.firefox.schemas.Schema__Firefox__Stack__Info                  import Schema__Firefox__Stack__Info
-from sg_compute_specs.firefox.service.Firefox__AWS__Client                          import TAG_ALLOWED_IP_KEY, TAG_STACK_NAME_KEY
+from sg_compute_specs.firefox.service.Firefox__Tags                          import TAG_ALLOWED_IP_KEY, TAG_STACK_NAME_KEY
 
 
 def _tag(details: dict, key: str) -> str:

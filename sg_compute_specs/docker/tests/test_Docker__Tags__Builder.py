@@ -5,7 +5,7 @@
 
 from unittest                                                                       import TestCase
 
-from sg_compute_specs.docker.service.Docker__AWS__Client                            import (TAG_ALLOWED_IP_KEY,
+from sg_compute_specs.docker.service.Docker__Tags                                   import (TAG_ALLOWED_IP_KEY,
                                                                                               TAG_CREATOR_KEY   ,
                                                                                               TAG_PURPOSE_KEY   ,
                                                                                               TAG_PURPOSE_VALUE ,
@@ -46,7 +46,7 @@ class test_Docker__Tags__Builder(TestCase):
         assert as_dict[TAG_SECTION_KEY] == 'docker'
 
     def test_build__sg_name_never_starts_with_sg_prefix(self):
-        from sg_compute_specs.docker.service.Docker__AWS__Client import DOCKER_NAMING
+        from sg_compute_specs.docker.service.Docker__Tags import DOCKER_NAMING
         sg_name = DOCKER_NAMING.sg_name_for_stack('fast-fermi')
         assert not sg_name.startswith('sg-')
         assert sg_name == 'fast-fermi-sg'

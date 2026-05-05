@@ -10,7 +10,7 @@ from osbot_utils.type_safe.Type_Safe                                            
 
 from sg_compute_specs.podman.enums.Enum__Podman__Stack__State                       import Enum__Podman__Stack__State
 from sg_compute_specs.podman.schemas.Schema__Podman__Info                           import Schema__Podman__Info
-from sg_compute_specs.podman.service.Podman__AWS__Client                            import TAG_ALLOWED_IP_KEY, TAG_STACK_NAME_KEY
+from sg_compute_specs.podman.service.Podman__Tags                            import TAG_ALLOWED_IP_KEY, TAG_STACK_NAME_KEY
 
 
 def _tag(details: dict, key: str) -> str:

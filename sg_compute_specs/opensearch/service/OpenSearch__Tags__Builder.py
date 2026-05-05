@@ -8,7 +8,7 @@ from osbot_utils.type_safe.Type_Safe                                            
 
 from sg_compute_specs.opensearch.primitives.Safe_Str__IP__Address                   import Safe_Str__IP__Address
 from sg_compute_specs.opensearch.primitives.Safe_Str__OS__Stack__Name               import Safe_Str__OS__Stack__Name
-from sg_compute_specs.opensearch.service.OpenSearch__AWS__Client                    import (OS_NAMING          ,
+from sg_compute_specs.opensearch.service.OpenSearch__Tags                    import (OS_NAMING          ,
                                                                                              TAG_ALLOWED_IP_KEY ,
                                                                                              TAG_CREATOR_KEY    ,
                                                                                              TAG_PURPOSE_KEY    ,

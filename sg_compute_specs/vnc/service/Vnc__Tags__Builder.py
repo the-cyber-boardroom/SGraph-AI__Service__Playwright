@@ -10,7 +10,7 @@ from sg_compute_specs.vnc.enums.Enum__Vnc__Interceptor__Kind                    
 from sg_compute_specs.vnc.primitives.Safe_Str__IP__Address                          import Safe_Str__IP__Address
 from sg_compute_specs.vnc.primitives.Safe_Str__Vnc__Stack__Name                     import Safe_Str__Vnc__Stack__Name
 from sg_compute_specs.vnc.schemas.Schema__Vnc__Interceptor__Choice                  import Schema__Vnc__Interceptor__Choice
-from sg_compute_specs.vnc.service.Vnc__AWS__Client                                  import (TAG_ALLOWED_IP_KEY   ,
+from sg_compute_specs.vnc.service.Vnc__Tags                                  import (TAG_ALLOWED_IP_KEY   ,
                                                                                               TAG_CREATOR_KEY      ,
                                                                                               TAG_INTERCEPTOR_KEY  ,
                                                                                               TAG_INTERCEPTOR_NONE ,

@@ -5,7 +5,7 @@
 
 from unittest                                                                       import TestCase
 
-from sg_compute_specs.vnc.service.Vnc__AWS__Client                                  import (TAG_ALLOWED_IP_KEY   ,
+from sg_compute_specs.vnc.service.Vnc__Tags                                         import (TAG_ALLOWED_IP_KEY   ,
                                                                                              TAG_CREATOR_KEY      ,
                                                                                              TAG_INTERCEPTOR_KEY  ,
                                                                                              TAG_INTERCEPTOR_NONE ,
