@@ -23,7 +23,18 @@ from sg_compute_specs.vnc.schemas.Schema__Vnc__Stack__Create__Response          
 from sg_compute_specs.vnc.schemas.Schema__Vnc__Stack__Delete__Response              import Schema__Vnc__Stack__Delete__Response
 from sg_compute_specs.vnc.schemas.Schema__Vnc__Stack__Info                          import Schema__Vnc__Stack__Info
 from sg_compute_specs.vnc.schemas.Schema__Vnc__Stack__List                          import Schema__Vnc__Stack__List
+from typing import Optional
+
+from sg_compute_specs.vnc.service.Caller__IP__Detector           import Caller__IP__Detector
+from sg_compute_specs.vnc.service.Random__Stack__Name__Generator import Random__Stack__Name__Generator
+from sg_compute_specs.vnc.service.Vnc__AWS__Client               import Vnc__AWS__Client
 from sg_compute_specs.vnc.service.Vnc__AWS__Client                                  import VNC_NAMING
+from sg_compute_specs.vnc.service.Vnc__Compose__Template         import Vnc__Compose__Template
+from sg_compute_specs.vnc.service.Vnc__HTTP__Base                import Vnc__HTTP__Base
+from sg_compute_specs.vnc.service.Vnc__HTTP__Probe               import Vnc__HTTP__Probe
+from sg_compute_specs.vnc.service.Vnc__Interceptor__Resolver     import Vnc__Interceptor__Resolver
+from sg_compute_specs.vnc.service.Vnc__Stack__Mapper             import Vnc__Stack__Mapper
+from sg_compute_specs.vnc.service.Vnc__User_Data__Builder        import Vnc__User_Data__Builder
 
 
 DEFAULT_REGION        = 'eu-west-2'
@@ -43,25 +54,16 @@ def _flow_summary_from_mitmweb(flow: dict) -> Schema__Vnc__Mitm__Flow__Summary:
 
 
 class Vnc__Service(Type_Safe):
-    aws_client           : object = None                                            # Vnc__AWS__Client
-    probe                : object = None                                            # Vnc__HTTP__Probe
-    mapper               : object = None                                            # Vnc__Stack__Mapper
-    ip_detector          : object = None                                            # Caller__IP__Detector
-    name_gen             : object = None                                            # Random__Stack__Name__Generator
-    compose_template     : object = None                                            # Vnc__Compose__Template
-    user_data_builder    : object = None                                            # Vnc__User_Data__Builder
-    interceptor_resolver : object = None                                            # Vnc__Interceptor__Resolver
+    aws_client           : Optional[Vnc__AWS__Client]           = None
+    probe                : Optional[Vnc__HTTP__Probe]           = None
+    mapper               : Optional[Vnc__Stack__Mapper]         = None
+    ip_detector          : Optional[Caller__IP__Detector]       = None
+    name_gen             : Optional[Random__Stack__Name__Generator] = None
+    compose_template     : Optional[Vnc__Compose__Template]     = None
+    user_data_builder    : Optional[Vnc__User_Data__Builder]    = None
+    interceptor_resolver : Optional[Vnc__Interceptor__Resolver] = None
 
     def setup(self) -> 'Vnc__Service':
-        from sg_compute_specs.vnc.service.Caller__IP__Detector           import Caller__IP__Detector
-        from sg_compute_specs.vnc.service.Random__Stack__Name__Generator import Random__Stack__Name__Generator
-        from sg_compute_specs.vnc.service.Vnc__AWS__Client               import Vnc__AWS__Client
-        from sg_compute_specs.vnc.service.Vnc__Compose__Template         import Vnc__Compose__Template
-        from sg_compute_specs.vnc.service.Vnc__HTTP__Base                import Vnc__HTTP__Base
-        from sg_compute_specs.vnc.service.Vnc__HTTP__Probe               import Vnc__HTTP__Probe
-        from sg_compute_specs.vnc.service.Vnc__Interceptor__Resolver     import Vnc__Interceptor__Resolver
-        from sg_compute_specs.vnc.service.Vnc__Stack__Mapper             import Vnc__Stack__Mapper
-        from sg_compute_specs.vnc.service.Vnc__User_Data__Builder        import Vnc__User_Data__Builder
         self.aws_client           = Vnc__AWS__Client()       .setup()
         self.probe                = Vnc__HTTP__Probe(http=Vnc__HTTP__Base())
         self.mapper               = Vnc__Stack__Mapper()

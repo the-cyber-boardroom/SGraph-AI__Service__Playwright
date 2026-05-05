@@ -17,7 +17,14 @@ from sg_compute_specs.firefox.schemas.Schema__Firefox__Stack__Create__Response  
 from sg_compute_specs.firefox.schemas.Schema__Firefox__Stack__Delete__Response      import Schema__Firefox__Stack__Delete__Response
 from sg_compute_specs.firefox.schemas.Schema__Firefox__Stack__Info                  import Schema__Firefox__Stack__Info
 from sg_compute_specs.firefox.schemas.Schema__Firefox__Stack__List                  import Schema__Firefox__Stack__List
+from typing import Optional
+
+from sg_compute_specs.firefox.service.Firefox__AWS__Client           import Firefox__AWS__Client
 from sg_compute_specs.firefox.service.Firefox__AWS__Client                          import FIREFOX_NAMING
+from sg_compute_specs.firefox.service.Firefox__HTTP__Probe           import Firefox__HTTP__Probe
+from sg_compute_specs.firefox.service.Firefox__Interceptor__Resolver import Firefox__Interceptor__Resolver
+from sg_compute_specs.firefox.service.Firefox__Stack__Mapper         import Firefox__Stack__Mapper
+from sg_compute_specs.firefox.service.Firefox__User_Data__Builder    import Firefox__User_Data__Builder
 
 
 DEFAULT_REGION        = 'eu-west-2'
@@ -26,18 +33,13 @@ PASSWORD_BYTES        = 16
 
 
 class Firefox__Service(Type_Safe):
-    aws_client           : object = None
-    mapper               : object = None
-    user_data_builder    : object = None
-    interceptor_resolver : object = None
-    probe                : object = None
+    aws_client           : Optional[Firefox__AWS__Client]           = None
+    mapper               : Optional[Firefox__Stack__Mapper]         = None
+    user_data_builder    : Optional[Firefox__User_Data__Builder]    = None
+    interceptor_resolver : Optional[Firefox__Interceptor__Resolver] = None
+    probe                : Optional[Firefox__HTTP__Probe]           = None
 
     def setup(self) -> 'Firefox__Service':
-        from sg_compute_specs.firefox.service.Firefox__AWS__Client           import Firefox__AWS__Client
-        from sg_compute_specs.firefox.service.Firefox__Stack__Mapper         import Firefox__Stack__Mapper
-        from sg_compute_specs.firefox.service.Firefox__User_Data__Builder    import Firefox__User_Data__Builder
-        from sg_compute_specs.firefox.service.Firefox__Interceptor__Resolver import Firefox__Interceptor__Resolver
-        from sg_compute_specs.firefox.service.Firefox__HTTP__Probe           import Firefox__HTTP__Probe
         self.aws_client           = Firefox__AWS__Client()  .setup()
         self.mapper               = Firefox__Stack__Mapper()
         self.user_data_builder    = Firefox__User_Data__Builder()

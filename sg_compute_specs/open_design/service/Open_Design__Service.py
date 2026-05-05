@@ -14,7 +14,14 @@ from sg_compute_specs.open_design.schemas.Schema__Open_Design__Create__Response 
 from sg_compute_specs.open_design.schemas.Schema__Open_Design__Delete__Response import Schema__Open_Design__Delete__Response
 from sg_compute_specs.open_design.schemas.Schema__Open_Design__Info             import Schema__Open_Design__Info
 from sg_compute_specs.open_design.schemas.Schema__Open_Design__List             import Schema__Open_Design__List
+from typing import Optional
+
+from sg_compute_specs.open_design.service.Open_Design__AWS__Client       import Open_Design__AWS__Client
+from sg_compute_specs.open_design.service.Open_Design__User_Data__Builder import Open_Design__User_Data__Builder
+from sg_compute_specs.open_design.service.Open_Design__Stack__Mapper     import Open_Design__Stack__Mapper
 from sg_compute_specs.open_design.service.Open_Design__Stack__Mapper            import STACK_TYPE, TAG_OLLAMA
+from sg_compute.platforms.ec2.networking.Caller__IP__Detector                   import Caller__IP__Detector
+from sg_compute.platforms.ec2.networking.Stack__Name__Generator                 import Stack__Name__Generator
 
 DEFAULT_REGION        = 'eu-west-2'
 DEFAULT_INSTANCE_TYPE = 't3.large'
@@ -22,18 +29,13 @@ PROFILE_NAME          = 'playwright-ec2'                                        
 
 
 class Open_Design__Service(Type_Safe):
-    aws_client        : object = None   # Open_Design__AWS__Client
-    user_data_builder : object = None   # Open_Design__User_Data__Builder
-    mapper            : object = None   # Open_Design__Stack__Mapper
-    ip_detector       : object = None   # Caller__IP__Detector
-    name_gen          : object = None   # Stack__Name__Generator
+    aws_client        : Optional[Open_Design__AWS__Client]        = None
+    user_data_builder : Optional[Open_Design__User_Data__Builder] = None
+    mapper            : Optional[Open_Design__Stack__Mapper]      = None
+    ip_detector       : Optional[Caller__IP__Detector]            = None
+    name_gen          : Optional[Stack__Name__Generator]          = None
 
     def setup(self) -> 'Open_Design__Service':
-        from sg_compute_specs.open_design.service.Open_Design__AWS__Client       import Open_Design__AWS__Client
-        from sg_compute_specs.open_design.service.Open_Design__User_Data__Builder import Open_Design__User_Data__Builder
-        from sg_compute_specs.open_design.service.Open_Design__Stack__Mapper     import Open_Design__Stack__Mapper
-        from sg_compute.platforms.ec2.networking.Caller__IP__Detector                   import Caller__IP__Detector
-        from sg_compute.platforms.ec2.networking.Stack__Name__Generator                 import Stack__Name__Generator
         self.aws_client        = Open_Design__AWS__Client       ().setup()
         self.user_data_builder = Open_Design__User_Data__Builder()
         self.mapper            = Open_Design__Stack__Mapper     ()

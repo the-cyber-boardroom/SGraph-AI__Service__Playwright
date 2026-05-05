@@ -16,7 +16,18 @@ from sg_compute_specs.prometheus.schemas.Schema__Prom__Stack__Create__Response  
 from sg_compute_specs.prometheus.schemas.Schema__Prom__Stack__Delete__Response      import Schema__Prom__Stack__Delete__Response
 from sg_compute_specs.prometheus.schemas.Schema__Prom__Stack__Info                  import Schema__Prom__Stack__Info
 from sg_compute_specs.prometheus.schemas.Schema__Prom__Stack__List                  import Schema__Prom__Stack__List
+from typing import Optional
+
+from sg_compute_specs.prometheus.service.Caller__IP__Detector               import Caller__IP__Detector
+from sg_compute_specs.prometheus.service.Prometheus__AWS__Client            import Prometheus__AWS__Client
 from sg_compute_specs.prometheus.service.Prometheus__AWS__Client                    import PROM_NAMING
+from sg_compute_specs.prometheus.service.Prometheus__Compose__Template      import Prometheus__Compose__Template
+from sg_compute_specs.prometheus.service.Prometheus__Config__Generator      import Prometheus__Config__Generator
+from sg_compute_specs.prometheus.service.Prometheus__HTTP__Base             import Prometheus__HTTP__Base
+from sg_compute_specs.prometheus.service.Prometheus__HTTP__Probe            import Prometheus__HTTP__Probe
+from sg_compute_specs.prometheus.service.Prometheus__Stack__Mapper          import Prometheus__Stack__Mapper
+from sg_compute_specs.prometheus.service.Prometheus__User_Data__Builder     import Prometheus__User_Data__Builder
+from sg_compute_specs.prometheus.service.Random__Stack__Name__Generator     import Random__Stack__Name__Generator
 
 
 DEFAULT_REGION        = 'eu-west-2'
@@ -32,25 +43,16 @@ def _count_targets(targets_body: dict) -> tuple:                                
 
 
 class Prometheus__Service(Type_Safe):
-    aws_client        : object = None                                               # Prometheus__AWS__Client
-    probe             : object = None                                               # Prometheus__HTTP__Probe
-    mapper            : object = None                                               # Prometheus__Stack__Mapper
-    ip_detector       : object = None                                               # Caller__IP__Detector
-    name_gen          : object = None                                               # Random__Stack__Name__Generator
-    compose_template  : object = None                                               # Prometheus__Compose__Template
-    config_generator  : object = None                                               # Prometheus__Config__Generator
-    user_data_builder : object = None                                               # Prometheus__User_Data__Builder
+    aws_client        : Optional[Prometheus__AWS__Client]        = None
+    probe             : Optional[Prometheus__HTTP__Probe]        = None
+    mapper            : Optional[Prometheus__Stack__Mapper]      = None
+    ip_detector       : Optional[Caller__IP__Detector]           = None
+    name_gen          : Optional[Random__Stack__Name__Generator] = None
+    compose_template  : Optional[Prometheus__Compose__Template]  = None
+    config_generator  : Optional[Prometheus__Config__Generator]  = None
+    user_data_builder : Optional[Prometheus__User_Data__Builder] = None
 
     def setup(self) -> 'Prometheus__Service':
-        from sg_compute_specs.prometheus.service.Caller__IP__Detector               import Caller__IP__Detector
-        from sg_compute_specs.prometheus.service.Prometheus__AWS__Client            import Prometheus__AWS__Client
-        from sg_compute_specs.prometheus.service.Prometheus__Compose__Template      import Prometheus__Compose__Template
-        from sg_compute_specs.prometheus.service.Prometheus__Config__Generator      import Prometheus__Config__Generator
-        from sg_compute_specs.prometheus.service.Prometheus__HTTP__Base             import Prometheus__HTTP__Base
-        from sg_compute_specs.prometheus.service.Prometheus__HTTP__Probe            import Prometheus__HTTP__Probe
-        from sg_compute_specs.prometheus.service.Prometheus__Stack__Mapper          import Prometheus__Stack__Mapper
-        from sg_compute_specs.prometheus.service.Prometheus__User_Data__Builder     import Prometheus__User_Data__Builder
-        from sg_compute_specs.prometheus.service.Random__Stack__Name__Generator     import Random__Stack__Name__Generator
         self.aws_client        = Prometheus__AWS__Client()       .setup()
         self.probe             = Prometheus__HTTP__Probe(http=Prometheus__HTTP__Base())
         self.mapper            = Prometheus__Stack__Mapper()

@@ -6,6 +6,8 @@ from osbot_utils.type_safe.Type_Safe                                            
 
 from sg_compute.platforms.ec2.helpers.Stack__Naming                            import Stack__Naming
 
+from typing import Optional
+
 
 TAG_PURPOSE_KEY    = 'sg:purpose'
 TAG_PURPOSE_VALUE  = 'neko'
@@ -19,11 +21,11 @@ NEKO_NAMING = Stack__Naming(section_prefix='neko')
 
 
 class Neko__AWS__Client(Type_Safe):
-    sg       : object = None                                                        # Neko__SG__Helper
-    ami      : object = None                                                        # Neko__AMI__Helper
-    instance : object = None                                                        # Neko__Instance__Helper
-    tags     : object = None                                                        # Neko__Tags__Builder
-    launch   : object = None                                                        # Neko__Launch__Helper
+    sg       : Optional['Neko__SG__Helper']       = None
+    ami      : Optional['Neko__AMI__Helper']      = None
+    instance : Optional['Neko__Instance__Helper'] = None
+    tags     : Optional['Neko__Tags__Builder']    = None
+    launch   : Optional['Neko__Launch__Helper']   = None
 
     def setup(self) -> 'Neko__AWS__Client':
         from sg_compute_specs.neko.service.Neko__SG__Helper       import Neko__SG__Helper

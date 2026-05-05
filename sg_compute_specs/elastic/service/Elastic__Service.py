@@ -23,7 +23,13 @@ from sg_compute_specs.elastic.schemas.Schema__Elastic__Health__Check            
 from sg_compute_specs.elastic.schemas.Schema__Elastic__Health__Response             import Schema__Elastic__Health__Response
 from sg_compute_specs.elastic.schemas.Schema__Elastic__Info                         import Schema__Elastic__Info
 from sg_compute_specs.elastic.schemas.Schema__Elastic__List                         import Schema__Elastic__List
+from typing import Optional
+
+from sg_compute_specs.elastic.service.Caller__IP__Detector       import Caller__IP__Detector
+from sg_compute_specs.elastic.service.Elastic__AWS__Client        import Elastic__AWS__Client
 from sg_compute_specs.elastic.service.Elastic__AWS__Client                          import ELASTIC_NAMING
+from sg_compute_specs.elastic.service.Elastic__HTTP__Client       import Elastic__HTTP__Client
+from sg_compute_specs.elastic.service.Elastic__User_Data__Builder import Elastic__User_Data__Builder
 
 
 DEFAULT_REGION        = 'eu-west-2'
@@ -40,16 +46,12 @@ SCIENTISTS = ['bohr','curie','darwin','dirac','einstein','euler','faraday',
 
 
 class Elastic__Service(Type_Safe):
-    aws_client        : object = None
-    http_client       : object = None
-    ip_detector       : object = None
-    user_data_builder : object = None
+    aws_client        : Optional[Elastic__AWS__Client]        = None
+    http_client       : Optional[Elastic__HTTP__Client]       = None
+    ip_detector       : Optional[Caller__IP__Detector]        = None
+    user_data_builder : Optional[Elastic__User_Data__Builder] = None
 
     def setup(self) -> 'Elastic__Service':
-        from sg_compute_specs.elastic.service.Caller__IP__Detector       import Caller__IP__Detector
-        from sg_compute_specs.elastic.service.Elastic__AWS__Client        import Elastic__AWS__Client
-        from sg_compute_specs.elastic.service.Elastic__HTTP__Client       import Elastic__HTTP__Client
-        from sg_compute_specs.elastic.service.Elastic__User_Data__Builder import Elastic__User_Data__Builder
         self.aws_client        = Elastic__AWS__Client       ()
         self.http_client       = Elastic__HTTP__Client      ()
         self.ip_detector       = Caller__IP__Detector       ()

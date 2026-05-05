@@ -5,15 +5,17 @@
 # ═══════════════════════════════════════════════════════════════════════════════
 
 import time
+from typing import Optional
 
 from osbot_utils.type_safe.Type_Safe                                                import Type_Safe
 
 from sg_compute_specs.docker.enums.Enum__Docker__Stack__State                       import Enum__Docker__Stack__State
 from sg_compute_specs.docker.schemas.Schema__Docker__Health__Response               import Schema__Docker__Health__Response
+from sg_compute_specs.docker.service.Docker__Instance__Helper                       import Docker__Instance__Helper
 
 
 class Docker__Health__Checker(Type_Safe):
-    instance  : object = None                                                       # Docker__Instance__Helper (injected by Docker__Service.setup())
+    instance  : Optional[Docker__Instance__Helper] = None                          # injected by Docker__Service.setup()
 
     def check(self, region: str, stack_name: str,
               timeout_sec: int = 300, poll_sec: int = 10) -> Schema__Docker__Health__Response:

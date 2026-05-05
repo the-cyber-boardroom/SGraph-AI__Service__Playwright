@@ -18,11 +18,11 @@ OL_NAMING = Stack__Naming(section_prefix='ol')
 
 
 class Ollama__AWS__Client(Type_Safe):
-    sg       : object = None    # EC2__SG__Helper
-    ami      : object = None    # EC2__AMI__Helper
-    instance : object = None    # EC2__Instance__Helper
-    tags     : object = None    # EC2__Tags__Builder
-    launch   : object = None    # EC2__Launch__Helper
+    sg       : Optional[EC2__SG__Helper]       = None
+    ami      : Optional[EC2__AMI__Helper]      = None
+    instance : Optional[EC2__Instance__Helper] = None
+    tags     : Optional[EC2__Tags__Builder]    = None
+    launch   : Optional[EC2__Launch__Helper]   = None
 
     def setup(self) -> 'Ollama__AWS__Client':
         self.sg       = EC2__SG__Helper      ().setup(OL_NAMING)

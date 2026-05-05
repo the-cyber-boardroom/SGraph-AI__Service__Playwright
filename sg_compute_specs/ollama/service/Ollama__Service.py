@@ -13,7 +13,14 @@ from sg_compute_specs.ollama.schemas.Schema__Ollama__Create__Response import Sch
 from sg_compute_specs.ollama.schemas.Schema__Ollama__Delete__Response import Schema__Ollama__Delete__Response
 from sg_compute_specs.ollama.schemas.Schema__Ollama__Info             import Schema__Ollama__Info
 from sg_compute_specs.ollama.schemas.Schema__Ollama__List             import Schema__Ollama__List
+from typing import Optional
+
+from sg_compute_specs.ollama.service.Ollama__AWS__Client        import Ollama__AWS__Client
+from sg_compute_specs.ollama.service.Ollama__User_Data__Builder import Ollama__User_Data__Builder
+from sg_compute_specs.ollama.service.Ollama__Stack__Mapper      import Ollama__Stack__Mapper
 from sg_compute_specs.ollama.service.Ollama__Stack__Mapper            import STACK_TYPE, TAG_MODEL
+from sg_compute.platforms.ec2.networking.Caller__IP__Detector          import Caller__IP__Detector
+from sg_compute.platforms.ec2.networking.Stack__Name__Generator        import Stack__Name__Generator
 
 DEFAULT_REGION        = 'eu-west-2'
 DEFAULT_INSTANCE_TYPE = 'g4dn.xlarge'
@@ -26,18 +33,13 @@ def _is_gpu_instance(instance_type: str) -> bool:
 
 
 class Ollama__Service(Type_Safe):
-    aws_client        : object = None   # Ollama__AWS__Client
-    user_data_builder : object = None   # Ollama__User_Data__Builder
-    mapper            : object = None   # Ollama__Stack__Mapper
-    ip_detector       : object = None   # Caller__IP__Detector
-    name_gen          : object = None   # Stack__Name__Generator
+    aws_client        : Optional[Ollama__AWS__Client]        = None
+    user_data_builder : Optional[Ollama__User_Data__Builder] = None
+    mapper            : Optional[Ollama__Stack__Mapper]      = None
+    ip_detector       : Optional[Caller__IP__Detector]       = None
+    name_gen          : Optional[Stack__Name__Generator]     = None
 
     def setup(self) -> 'Ollama__Service':
-        from sg_compute_specs.ollama.service.Ollama__AWS__Client        import Ollama__AWS__Client
-        from sg_compute_specs.ollama.service.Ollama__User_Data__Builder import Ollama__User_Data__Builder
-        from sg_compute_specs.ollama.service.Ollama__Stack__Mapper      import Ollama__Stack__Mapper
-        from sg_compute.platforms.ec2.networking.Caller__IP__Detector          import Caller__IP__Detector
-        from sg_compute.platforms.ec2.networking.Stack__Name__Generator        import Stack__Name__Generator
         self.aws_client        = Ollama__AWS__Client       ().setup()
         self.user_data_builder = Ollama__User_Data__Builder()
         self.mapper            = Ollama__Stack__Mapper     ()

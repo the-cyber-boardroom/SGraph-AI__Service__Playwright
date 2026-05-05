@@ -21,7 +21,16 @@ from sg_compute_specs.podman.schemas.Schema__Podman__Delete__Response           
 from sg_compute_specs.podman.schemas.Schema__Podman__Health__Response               import Schema__Podman__Health__Response
 from sg_compute_specs.podman.schemas.Schema__Podman__Info                           import Schema__Podman__Info
 from sg_compute_specs.podman.schemas.Schema__Podman__List                           import Schema__Podman__List
+from typing import Optional
+
+from sg_compute_specs.podman.service.Caller__IP__Detector        import Caller__IP__Detector
+from sg_compute_specs.podman.service.Podman__AWS__Client         import Podman__AWS__Client
 from sg_compute_specs.podman.service.Podman__AWS__Client                            import PODMAN_NAMING
+from sg_compute_specs.podman.service.Podman__Health__Checker     import Podman__Health__Checker
+from sg_compute_specs.podman.service.Podman__Instance__Helper    import Podman__Instance__Helper
+from sg_compute_specs.podman.service.Podman__Stack__Mapper       import Podman__Stack__Mapper
+from sg_compute_specs.podman.service.Podman__User_Data__Builder  import Podman__User_Data__Builder
+from sg_compute_specs.podman.service.Random__Stack__Name__Generator import Random__Stack__Name__Generator
 
 
 DEFAULT_REGION        = 'eu-west-2'
@@ -30,21 +39,14 @@ PROFILE_NAME          = 'playwright-ec2'
 
 
 class Podman__Service(Type_Safe):
-    aws_client        : object = None
-    health_checker    : object = None
-    mapper            : object = None
-    ip_detector       : object = None
-    name_gen          : object = None
-    user_data_builder : object = None
+    aws_client        : Optional[Podman__AWS__Client]            = None
+    health_checker    : Optional[Podman__Health__Checker]        = None
+    mapper            : Optional[Podman__Stack__Mapper]          = None
+    ip_detector       : Optional[Caller__IP__Detector]           = None
+    name_gen          : Optional[Random__Stack__Name__Generator] = None
+    user_data_builder : Optional[Podman__User_Data__Builder]     = None
 
     def setup(self) -> 'Podman__Service':
-        from sg_compute_specs.podman.service.Caller__IP__Detector        import Caller__IP__Detector
-        from sg_compute_specs.podman.service.Podman__AWS__Client         import Podman__AWS__Client
-        from sg_compute_specs.podman.service.Podman__Health__Checker     import Podman__Health__Checker
-        from sg_compute_specs.podman.service.Podman__Instance__Helper    import Podman__Instance__Helper
-        from sg_compute_specs.podman.service.Podman__Stack__Mapper       import Podman__Stack__Mapper
-        from sg_compute_specs.podman.service.Podman__User_Data__Builder  import Podman__User_Data__Builder
-        from sg_compute_specs.podman.service.Random__Stack__Name__Generator import Random__Stack__Name__Generator
         self.aws_client        = Podman__AWS__Client()     .setup()
         self.mapper            = Podman__Stack__Mapper()
         self.ip_detector       = Caller__IP__Detector()

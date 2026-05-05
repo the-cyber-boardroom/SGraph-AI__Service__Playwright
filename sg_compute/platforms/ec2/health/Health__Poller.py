@@ -6,12 +6,17 @@
 
 import time
 
+from typing import Optional
+
 from osbot_utils.type_safe.Type_Safe import Type_Safe
+
+from sg_compute.platforms.ec2.helpers.EC2__Instance__Helper import EC2__Instance__Helper
+from sg_compute.platforms.ec2.health.Health__HTTP__Probe    import Health__HTTP__Probe
 
 
 class Health__Poller(Type_Safe):
-    instance : object = None                                                        # EC2__Instance__Helper
-    probe    : object = None                                                        # Health__HTTP__Probe
+    instance : Optional[EC2__Instance__Helper] = None
+    probe    : Optional[Health__HTTP__Probe]   = None
 
     def wait_healthy(self, region       : str ,
                            instance_id  : str ,

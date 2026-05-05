@@ -17,7 +17,17 @@ from sg_compute_specs.opensearch.schemas.Schema__OS__Stack__Create__Response    
 from sg_compute_specs.opensearch.schemas.Schema__OS__Stack__Delete__Response        import Schema__OS__Stack__Delete__Response
 from sg_compute_specs.opensearch.schemas.Schema__OS__Stack__Info                    import Schema__OS__Stack__Info
 from sg_compute_specs.opensearch.schemas.Schema__OS__Stack__List                    import Schema__OS__Stack__List
+from typing import Optional
+
+from sg_compute_specs.opensearch.service.Caller__IP__Detector           import Caller__IP__Detector
+from sg_compute_specs.opensearch.service.OpenSearch__AWS__Client        import OpenSearch__AWS__Client
 from sg_compute_specs.opensearch.service.OpenSearch__AWS__Client                    import OS_NAMING
+from sg_compute_specs.opensearch.service.OpenSearch__Compose__Template  import OpenSearch__Compose__Template
+from sg_compute_specs.opensearch.service.OpenSearch__HTTP__Base         import OpenSearch__HTTP__Base
+from sg_compute_specs.opensearch.service.OpenSearch__HTTP__Probe        import OpenSearch__HTTP__Probe
+from sg_compute_specs.opensearch.service.OpenSearch__Stack__Mapper      import OpenSearch__Stack__Mapper
+from sg_compute_specs.opensearch.service.OpenSearch__User_Data__Builder import OpenSearch__User_Data__Builder
+from sg_compute_specs.opensearch.service.Random__Stack__Name__Generator import Random__Stack__Name__Generator
 
 
 DEFAULT_REGION = 'eu-west-2'
@@ -26,23 +36,15 @@ PROFILE_NAME   = 'playwright-ec2'
 
 
 class OpenSearch__Service(Type_Safe):
-    aws_client        : object = None
-    probe             : object = None
-    mapper            : object = None
-    ip_detector       : object = None
-    name_gen          : object = None
-    compose_template  : object = None
-    user_data_builder : object = None
+    aws_client        : Optional[OpenSearch__AWS__Client]        = None
+    probe             : Optional[OpenSearch__HTTP__Probe]        = None
+    mapper            : Optional[OpenSearch__Stack__Mapper]      = None
+    ip_detector       : Optional[Caller__IP__Detector]           = None
+    name_gen          : Optional[Random__Stack__Name__Generator] = None
+    compose_template  : Optional[OpenSearch__Compose__Template]  = None
+    user_data_builder : Optional[OpenSearch__User_Data__Builder] = None
 
     def setup(self) -> 'OpenSearch__Service':
-        from sg_compute_specs.opensearch.service.Caller__IP__Detector           import Caller__IP__Detector
-        from sg_compute_specs.opensearch.service.OpenSearch__AWS__Client        import OpenSearch__AWS__Client
-        from sg_compute_specs.opensearch.service.OpenSearch__Compose__Template  import OpenSearch__Compose__Template
-        from sg_compute_specs.opensearch.service.OpenSearch__HTTP__Base         import OpenSearch__HTTP__Base
-        from sg_compute_specs.opensearch.service.OpenSearch__HTTP__Probe        import OpenSearch__HTTP__Probe
-        from sg_compute_specs.opensearch.service.OpenSearch__Stack__Mapper      import OpenSearch__Stack__Mapper
-        from sg_compute_specs.opensearch.service.OpenSearch__User_Data__Builder import OpenSearch__User_Data__Builder
-        from sg_compute_specs.opensearch.service.Random__Stack__Name__Generator import Random__Stack__Name__Generator
         self.aws_client        = OpenSearch__AWS__Client()      .setup()
         self.probe             = OpenSearch__HTTP__Probe(http=OpenSearch__HTTP__Base())
         self.mapper            = OpenSearch__Stack__Mapper()

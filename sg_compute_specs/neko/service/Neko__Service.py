@@ -21,7 +21,14 @@ from sg_compute_specs.neko.schemas.Schema__Neko__Stack__Create__Response        
 from sg_compute_specs.neko.schemas.Schema__Neko__Stack__Delete__Response            import Schema__Neko__Stack__Delete__Response
 from sg_compute_specs.neko.schemas.Schema__Neko__Stack__Info                        import Schema__Neko__Stack__Info
 from sg_compute_specs.neko.schemas.Schema__Neko__Stack__List                        import Schema__Neko__Stack__List
+from typing import Optional
+
+from sg_compute_specs.neko.service.Caller__IP__Detector           import Caller__IP__Detector
+from sg_compute_specs.neko.service.Neko__AWS__Client              import Neko__AWS__Client
 from sg_compute_specs.neko.service.Neko__AWS__Client                                import NEKO_NAMING
+from sg_compute_specs.neko.service.Neko__Stack__Mapper            import Neko__Stack__Mapper
+from sg_compute_specs.neko.service.Neko__User_Data__Builder       import Neko__User_Data__Builder
+from sg_compute_specs.neko.service.Random__Stack__Name__Generator import Random__Stack__Name__Generator
 
 
 DEFAULT_REGION        = 'eu-west-2'
@@ -31,18 +38,13 @@ PASSWORD_BYTES        = 16                                                      
 
 
 class Neko__Service(Type_Safe):
-    aws_client        : object = None                                               # Neko__AWS__Client
-    mapper            : object = None                                               # Neko__Stack__Mapper
-    ip_detector       : object = None                                               # Caller__IP__Detector
-    name_gen          : object = None                                               # Random__Stack__Name__Generator
-    user_data_builder : object = None                                               # Neko__User_Data__Builder
+    aws_client        : Optional[Neko__AWS__Client]             = None
+    mapper            : Optional[Neko__Stack__Mapper]           = None
+    ip_detector       : Optional[Caller__IP__Detector]          = None
+    name_gen          : Optional[Random__Stack__Name__Generator] = None
+    user_data_builder : Optional[Neko__User_Data__Builder]      = None
 
     def setup(self) -> 'Neko__Service':
-        from sg_compute_specs.neko.service.Caller__IP__Detector           import Caller__IP__Detector
-        from sg_compute_specs.neko.service.Neko__AWS__Client              import Neko__AWS__Client
-        from sg_compute_specs.neko.service.Neko__Stack__Mapper            import Neko__Stack__Mapper
-        from sg_compute_specs.neko.service.Neko__User_Data__Builder       import Neko__User_Data__Builder
-        from sg_compute_specs.neko.service.Random__Stack__Name__Generator import Random__Stack__Name__Generator
         self.aws_client        = Neko__AWS__Client() .setup()
         self.mapper            = Neko__Stack__Mapper()
         self.ip_detector       = Caller__IP__Detector()

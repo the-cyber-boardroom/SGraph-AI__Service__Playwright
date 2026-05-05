@@ -4,15 +4,17 @@
 # ═══════════════════════════════════════════════════════════════════════════════
 
 import time
+from typing import Optional
 
 from osbot_utils.type_safe.Type_Safe                                                import Type_Safe
 
 from sg_compute_specs.podman.enums.Enum__Podman__Stack__State                       import Enum__Podman__Stack__State
 from sg_compute_specs.podman.schemas.Schema__Podman__Health__Response               import Schema__Podman__Health__Response
+from sg_compute_specs.podman.service.Podman__Instance__Helper                       import Podman__Instance__Helper
 
 
 class Podman__Health__Checker(Type_Safe):
-    instance  : object = None                                                       # Podman__Instance__Helper (injected by Podman__Service.setup())
+    instance  : Optional[Podman__Instance__Helper] = None                          # injected by Podman__Service.setup()
 
     def check(self, region: str, stack_name: str,
               timeout_sec: int = 300, poll_sec: int = 10) -> Schema__Podman__Health__Response:

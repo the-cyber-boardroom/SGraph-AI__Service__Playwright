@@ -21,7 +21,16 @@ from sg_compute_specs.docker.schemas.Schema__Docker__Delete__Response           
 from sg_compute_specs.docker.schemas.Schema__Docker__Health__Response               import Schema__Docker__Health__Response
 from sg_compute_specs.docker.schemas.Schema__Docker__Info                           import Schema__Docker__Info
 from sg_compute_specs.docker.schemas.Schema__Docker__List                           import Schema__Docker__List
+from typing import Optional
+
+from sg_compute_specs.docker.service.Caller__IP__Detector       import Caller__IP__Detector
+from sg_compute_specs.docker.service.Docker__AWS__Client        import Docker__AWS__Client
 from sg_compute_specs.docker.service.Docker__AWS__Client                            import DOCKER_NAMING
+from sg_compute_specs.docker.service.Docker__Health__Checker    import Docker__Health__Checker
+from sg_compute_specs.docker.service.Docker__Instance__Helper   import Docker__Instance__Helper
+from sg_compute_specs.docker.service.Docker__Stack__Mapper      import Docker__Stack__Mapper
+from sg_compute_specs.docker.service.Docker__User_Data__Builder import Docker__User_Data__Builder
+from sg_compute_specs.docker.service.Random__Stack__Name__Generator import Random__Stack__Name__Generator
 
 
 DEFAULT_REGION        = 'eu-west-2'
@@ -30,21 +39,14 @@ PROFILE_NAME          = 'playwright-ec2'
 
 
 class Docker__Service(Type_Safe):
-    aws_client        : object = None
-    health_checker    : object = None
-    mapper            : object = None
-    ip_detector       : object = None
-    name_gen          : object = None
-    user_data_builder : object = None
+    aws_client        : Optional[Docker__AWS__Client]            = None
+    health_checker    : Optional[Docker__Health__Checker]        = None
+    mapper            : Optional[Docker__Stack__Mapper]          = None
+    ip_detector       : Optional[Caller__IP__Detector]           = None
+    name_gen          : Optional[Random__Stack__Name__Generator] = None
+    user_data_builder : Optional[Docker__User_Data__Builder]     = None
 
     def setup(self) -> 'Docker__Service':
-        from sg_compute_specs.docker.service.Caller__IP__Detector       import Caller__IP__Detector
-        from sg_compute_specs.docker.service.Docker__AWS__Client        import Docker__AWS__Client
-        from sg_compute_specs.docker.service.Docker__Health__Checker    import Docker__Health__Checker
-        from sg_compute_specs.docker.service.Docker__Instance__Helper   import Docker__Instance__Helper
-        from sg_compute_specs.docker.service.Docker__Stack__Mapper      import Docker__Stack__Mapper
-        from sg_compute_specs.docker.service.Docker__User_Data__Builder import Docker__User_Data__Builder
-        from sg_compute_specs.docker.service.Random__Stack__Name__Generator import Random__Stack__Name__Generator
         self.aws_client        = Docker__AWS__Client()     .setup()
         self.mapper            = Docker__Stack__Mapper()
         self.ip_detector       = Caller__IP__Detector()

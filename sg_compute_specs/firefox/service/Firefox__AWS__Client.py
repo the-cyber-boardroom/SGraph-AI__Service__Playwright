@@ -7,6 +7,8 @@ from osbot_utils.type_safe.Type_Safe                                            
 
 from sg_compute.platforms.ec2.helpers.Stack__Naming                            import Stack__Naming
 
+from typing import Optional
+
 
 TAG_PURPOSE_KEY    = 'sg:purpose'
 TAG_PURPOSE_VALUE  = 'firefox'
@@ -20,11 +22,11 @@ FIREFOX_NAMING = Stack__Naming(section_prefix='firefox')
 
 
 class Firefox__AWS__Client(Type_Safe):
-    sg       : object = None
-    instance : object = None
-    tags     : object = None
-    launch   : object = None
-    iam      : object = None
+    sg       : Optional['Firefox__SG__Helper']       = None
+    instance : Optional['Firefox__Instance__Helper'] = None
+    tags     : Optional['Firefox__Tags__Builder']    = None
+    launch   : Optional['Firefox__Launch__Helper']   = None
+    iam      : Optional['Firefox__IAM__Helper']      = None
 
     def setup(self) -> 'Firefox__AWS__Client':
         from sg_compute_specs.firefox.service.Firefox__SG__Helper       import Firefox__SG__Helper
