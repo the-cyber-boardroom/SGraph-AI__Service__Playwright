@@ -12,6 +12,15 @@ This is a pointer log, not a content log. For full delta detail, see the master 
 
 ---
 
+## 2026-05-05 (BV2.5)
+
+- `sg_compute/control_plane/routes/Routes__Compute__Nodes.py` — UPDATED: added `POST /api/nodes` (`create_node`)
+- `sg_compute/platforms/ec2/EC2__Platform.py` — UPDATED: `create_node` dispatches on `spec_id`; `_create_docker_node` live
+- `sg_compute/control_plane/lambda_handler.py` — NEW: Mangum wrapper for Lambda deployment
+- `sg_compute__tests/control_plane/test_lambda_handler.py` — NEW: 3 smoke tests. 235 passing.
+
+---
+
 ## 2026-05-05 (BV2.2)
 
 - `sg-compute/index.md` — UPDATED: `Section__Sidecar` added to platforms/ec2/user_data/; wired into all 10 spec User_Data__Builder classes (8 template-based, 2 parts-based); PLACEHOLDERS tuples updated; 17 new sidecar tests; 553 passing.
