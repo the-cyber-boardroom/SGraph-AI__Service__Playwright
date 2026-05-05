@@ -6,6 +6,12 @@ This is a pointer log, not a content log. For full delta detail, see the master 
 
 ---
 
+## 2026-05-05 (BV2.7)
+
+- `sg-compute/index.md` — UPDATED: 14 new canonical modules (primitives, enums, event_bus, image); 46 spec files import-rewritten from `__cli.*` to `sg_compute.*`; CI guard added; 584 tests passing.
+
+---
+
 ## 2026-05-05 (BV2.6)
 
 - `sg-compute/index.md` — UPDATED: `Spec__CLI__Loader` + `Cli__Docker` pilot; `sg-compute spec docker <verb>` dispatcher; 19 new tests.

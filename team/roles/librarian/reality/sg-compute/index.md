@@ -1,7 +1,7 @@
 # Reality — SG/Compute Domain
 
 **Status:** ACTIVE — seeded in phase-1 (B1), foundations added in phase-2 (B2), pod management in BV2.3.
-**Last updated:** 2026-05-05 | **Phase:** BV2.3 (pod manager + sidecar client)
+**Last updated:** 2026-05-05 | **Phase:** BV2.7 (tier-1 __cli/ → sg_compute/ migration)
 
 ---
 
@@ -26,6 +26,7 @@
 | `Safe_Str__Pod__Name` | `primitives/Safe_Str__Pod__Name.py` |
 | `Safe_Str__Stack__Id` | `primitives/Safe_Str__Stack__Id.py` |
 | `Safe_Str__Platform__Name` | `primitives/Safe_Str__Platform__Name.py` |
+| `Safe_Str__AWS__Region` | `primitives/Safe_Str__AWS__Region.py` | Canonical AWS region — regex `^[a-z]{2}-[a-z]+-\d+$`, allow_empty=True |
 
 ### sg_compute/primitives/enums/ — EXISTS
 
@@ -77,6 +78,49 @@
 ### sg_compute/core/stack/ — EXISTS (placeholders)
 
 `Schema__Stack__Info` (multi-node), `Schema__Stack__List` — shape defined, no manager yet.
+
+### sg_compute/catalog/enums/ — EXISTS (BV2.7)
+
+| Class | Path | Values |
+|-------|------|--------|
+| `Enum__Stack__Type` | `catalog/enums/Enum__Stack__Type.py` | DOCKER / PODMAN / ELASTIC / OPENSEARCH / PROMETHEUS / VNC / NEKO / FIREFOX |
+
+### sg_compute/core/event_bus/ — EXISTS (BV2.7)
+
+| Class | Path | Description |
+|-------|------|-------------|
+| `Event__Bus` | `core/event_bus/Event__Bus.py` | `emit/on/off/listener_count/reset`; module-level singleton `event_bus` |
+| `Schema__Stack__Event` | `core/event_bus/schemas/Schema__Stack__Event.py` | `type_id/stack_name/region/instance_id/timestamp/detail` |
+
+### sg_compute/image/ — EXISTS (BV2.7)
+
+| Class | Path | Description |
+|-------|------|-------------|
+| `Schema__Image__Stage__Item` | `image/schemas/Schema__Image__Stage__Item.py` | One file/tree to copy into build context |
+| `Schema__Image__Build__Request` | `image/schemas/Schema__Image__Build__Request.py` | `image_folder/image_tag/stage_items/dockerfile_name/requirements_name` |
+| `Schema__Image__Build__Result` | `image/schemas/Schema__Image__Build__Result.py` | `image_id/image_tags/duration_ms` |
+| `Image__Build__Service` | `image/service/Image__Build__Service.py` | Full Docker image build orchestrator (temp dir, stage, `docker_client.images.build`) |
+| `List__Str` | `image/collections/List__Str.py` | `expected_type = str` |
+| `List__Schema__Image__Stage__Item` | `image/collections/List__Schema__Image__Stage__Item.py` | |
+
+### sg_compute/platforms/ec2/enums/ — EXISTS (BV2.7)
+
+| Class | Path | Values |
+|-------|------|--------|
+| `Enum__Instance__State` | `platforms/ec2/enums/Enum__Instance__State.py` | pending/running/shutting-down/terminated/stopping/stopped/unknown |
+
+### sg_compute/platforms/ec2/primitives/ — EXISTS (BV2.7)
+
+| Class | Path | Pattern |
+|-------|------|---------|
+| `Safe_Str__AMI__Id` | `platforms/ec2/primitives/Safe_Str__AMI__Id.py` | `^ami-[0-9a-f]{17}$` |
+| `Safe_Str__Instance__Id` | `platforms/ec2/primitives/Safe_Str__Instance__Id.py` | `^i-[0-9a-f]{17}$` |
+
+### sg_compute/platforms/ec2/collections/ — EXISTS (BV2.7)
+
+| Class | Path |
+|-------|------|
+| `List__Instance__Id` | `platforms/ec2/collections/List__Instance__Id.py` |
 
 ### sg_compute/platforms/ — EXISTS
 
@@ -169,6 +213,7 @@
 
 | Date | Change |
 |------|--------|
+| 2026-05-05 | BV2.7: 14 new canonical modules in sg_compute (primitives, enums, event_bus, image); 46 spec files import-rewritten; CI guard added; 584 tests passing |
 | 2026-05-05 | BV2.6: `Spec__CLI__Loader` + `Cli__Docker` pilot; `sg-compute spec docker <verb>` routing; 19 new tests |
 | 2026-05-05 | BV2.2: `Section__Sidecar` added to `platforms/ec2/user_data/`; wired into all 10 spec `User_Data__Builder` classes; 17 new tests; 553 passing |
 | 2026-05-05 | BV2.3: `Pod__Manager`, `Sidecar__Client`, 5 pod schemas, 2 pod collections, `Routes__Compute__Pods` (6 endpoints); 246 tests passing |
