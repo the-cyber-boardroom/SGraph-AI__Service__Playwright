@@ -90,7 +90,7 @@ class SpCliEventsLog extends SgComponent {
             detail?.bytes   ? `${detail.bytes}B` : null,
             detail?.durationMs != null ? `${detail.durationMs}ms` : null,
             detail?.error   || null,
-            detail?.stack?.stack_name || null,
+            detail?.stack?.node_id || null,
         ].filter(Boolean).join(' · ')
 
         row.innerHTML = `

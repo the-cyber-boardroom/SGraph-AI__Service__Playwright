@@ -94,7 +94,7 @@ class SpCliNodesView extends SgComponent {
 
         // Update currentStack if it is in the refreshed list (state may have changed)
         if (this._currentStack) {
-            const updated = stacks.find(s => s.stack_name === this._currentStack.stack_name)
+            const updated = stacks.find(s => s.node_id === this._currentStack.node_id)
             if (updated) {
                 const wasRunning = isRunning(this._currentStack.state)
                 this._currentStack = { ...this._currentStack, ...updated }
@@ -129,8 +129,8 @@ class SpCliNodesView extends SgComponent {
             row.className = 'node-row'
             const stateClass = nodePillClass(s.state)
             row.innerHTML = `
-                <span class="row-icon">${TYPE_ICONS[s.type_id] || '⬡'}</span>
-                <span class="row-name">${s.stack_name}</span>
+                <span class="row-icon">${TYPE_ICONS[s.spec_id] || '⬡'}</span>
+                <span class="row-name">${s.node_id}</span>
                 <span class="ec2-pill dot ${stateClass}">${s.state}</span>
                 <span class="row-ip mono">${s.public_ip || '—'}</span>
                 <span class="row-uptime">${_fmtUptime(s.uptime_seconds)}</span>
@@ -219,20 +219,20 @@ class SpCliNodesView extends SgComponent {
         this._detail.hidden = false
         this.shadowRoot.querySelector('.nodes-view')?.classList.add('detail-open')
 
-        if (this._detIcon) this._detIcon.textContent = TYPE_ICONS[stack.type_id] || '⬡'
-        if (this._detName) this._detName.textContent = stack.stack_name
+        if (this._detIcon) this._detIcon.textContent = TYPE_ICONS[stack.spec_id] || '⬡'
+        if (this._detName) this._detName.textContent = stack.node_id
 
         const hostUrl = stack.host_api_url || (stack.public_ip ? `http://${stack.public_ip}:19009` : null)
         if (this._infoKv) {
             this._infoKv.innerHTML = `
-                <dt>Type</dt>      <dd>${_esc(stack.type_id)}</dd>
+                <dt>Spec</dt>      <dd>${_esc(stack.spec_id)}</dd>
                 <dt>State</dt>     <dd data-kv="state">${_esc(stack.state)}</dd>
                 <dt>Instance</dt>  <dd>${_esc(stack.instance_type || '—')}</dd>
                 <dt>Instance ID</dt><dd class="mono">${_esc(stack.instance_id || '—')}</dd>
                 <dt>Region</dt>    <dd>${_esc(stack.region || '—')}</dd>
                 <dt>Public IP</dt> <dd class="mono">${_esc(stack.public_ip || '—')}</dd>
                 ${hostUrl ? `<dt>Host API</dt><dd class="mono">${_esc(hostUrl)}</dd>` : ''}
-                <dt>Node ID</dt>   <dd class="mono">${_esc(stack.stack_name)}</dd>
+                <dt>Node ID</dt>   <dd class="mono">${_esc(stack.node_id)}</dd>
                 <dt>Uptime</dt>    <dd data-kv="uptime">${_fmtUptime(stack.uptime_seconds)}</dd>
             `
             this._renderApiKeyRow(stack)
@@ -257,7 +257,7 @@ class SpCliNodesView extends SgComponent {
         }
 
         Array.from(this.shadowRoot.querySelectorAll('.node-row')).forEach(r =>
-            r.classList.toggle('selected', r.querySelector('.row-name')?.textContent === stack.stack_name)
+            r.classList.toggle('selected', r.querySelector('.row-name')?.textContent === stack.node_id)
         )
     }
 

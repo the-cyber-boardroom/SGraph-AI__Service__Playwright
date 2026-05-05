@@ -82,8 +82,8 @@ class SpCliUserPane extends SgComponent {
             const row = document.createElement('div')
             row.className = 'stack-row'
             row.innerHTML = `
-                <span class="type-badge type-${s.type_id}">${s.type_id}</span>
-                <span class="stack-name">${s.stack_name}</span>
+                <span class="type-badge type-${s.spec_id}">${s.spec_id}</span>
+                <span class="stack-name">${s.node_id}</span>
                 <span class="state-badge ${_stateClass(s.state)}">${s.state}</span>
                 <span class="stack-uptime">${_fmtUptime(s.uptime_seconds)}</span>
             `

@@ -46,7 +46,7 @@ class SpCliCostTracker extends SgComponent {
             const row      = document.createElement('div')
             row.className  = 'cost-row'
             row.innerHTML  = `
-                <span class="cost-name">${_esc(s.stack_name)}</span>
+                <span class="cost-name">${_esc(s.node_id)}</span>
                 <span class="cost-type">${_esc(s.instance_type || '—')}</span>
                 <span class="cost-val">$${cost.toFixed(2)}</span>
             `

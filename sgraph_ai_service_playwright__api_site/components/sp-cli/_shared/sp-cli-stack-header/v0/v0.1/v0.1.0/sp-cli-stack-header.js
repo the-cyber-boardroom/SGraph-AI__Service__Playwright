@@ -40,8 +40,8 @@ class SpCliStackHeader extends SgComponent {
     _render() {
         const s = this._stack
         if (!s) return
-        if (this._iconEl)   this._iconEl.textContent   = TYPE_ICONS[s.type_id] || '⬡'
-        if (this._nameEl)   this._nameEl.textContent   = s.stack_name || '—'
+        if (this._iconEl)   this._iconEl.textContent   = TYPE_ICONS[s.spec_id] || '⬡'
+        if (this._nameEl)   this._nameEl.textContent   = s.node_id || '—'
         this._chipEl?.setState(s.state)
         this._updateUptime()
         if (this._metaEl)   this._metaEl.textContent   = [s.instance_type, s.region].filter(Boolean).join(' · ')

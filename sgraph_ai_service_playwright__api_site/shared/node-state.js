@@ -2,16 +2,17 @@
 // Mirrors Enum__Node__State on the backend.
 
 export const NODE_STATE = {
-    BOOTING:     'BOOTING',
-    READY:       'READY',
-    TERMINATING: 'TERMINATING',
-    TERMINATED:  'TERMINATED',
-    FAILED:      'FAILED',
+    BOOTING:     'booting',
+    READY:       'ready',
+    TERMINATING: 'terminating',
+    TERMINATED:  'terminated',
+    FAILED:      'failed',
 }
 
-// Tolerant of legacy values during transition window.
+// Tolerant of legacy 'running' alias during transition window.
 export function isRunning(state) {
-    return state === NODE_STATE.READY || state === 'ready' || state === 'running'
+    const s = (state || '').toLowerCase()
+    return s === 'ready' || s === 'running'
 }
 
 // Returns CSS class — 'state-ready', 'state-booting', 'state-failed', etc.
