@@ -11,6 +11,8 @@
 #   /api/specs/{spec_id}/*  per-spec Routes__*__Stack (discovered by convention)
 # ═══════════════════════════════════════════════════════════════════════════════
 
+from fastapi                                                                  import Request
+from fastapi.responses                                                        import JSONResponse
 from osbot_fast_api.api.Fast_API                                              import Fast_API
 
 from sg_compute.control_plane.Spec__Routes__Loader                           import Spec__Routes__Loader
@@ -22,10 +24,13 @@ from sg_compute.control_plane.routes.Routes__Compute__Stacks                 imp
 from sg_compute.core.pod.Pod__Manager                                        import Pod__Manager
 from sg_compute.core.spec.Spec__Loader                                       import Spec__Loader
 from sg_compute.core.spec.Spec__Registry                                     import Spec__Registry
+from sg_compute.platforms.Platform                                            import Platform
+from sg_compute.platforms.exceptions.Exception__AWS__No_Credentials          import Exception__AWS__No_Credentials
 
 
 class Fast_API__Compute(Fast_API):
     registry : Spec__Registry
+    platform : Platform                                                        # injected in tests; defaults to EC2__Platform in _mount_control_routes
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -33,15 +38,25 @@ class Fast_API__Compute(Fast_API):
             self.registry = Spec__Loader().load_all()
 
     def setup(self) -> 'Fast_API__Compute':
+        self._register_exception_handlers()
         self._mount_control_routes()
         self._mount_spec_routes()
         return self
 
+    def _register_exception_handlers(self):
+        app = self.app()
+
+        @app.exception_handler(Exception__AWS__No_Credentials)
+        async def no_credentials_handler(request: Request, exc: Exception__AWS__No_Credentials):
+            return JSONResponse(status_code=503,
+                                content={'detail': f'AWS credentials not configured: {exc}'})
+
     def _mount_control_routes(self):
+        platform    = self._live_platform()
         pod_manager = self._live_pod_manager()
         self.add_routes(Routes__Compute__Health, prefix='/api/health', registry=self.registry)
         self.add_routes(Routes__Compute__Specs , prefix='/api/specs' , registry=self.registry)
-        self.add_routes(Routes__Compute__Nodes , prefix='/api/nodes' )
+        self.add_routes(Routes__Compute__Nodes , prefix='/api/nodes' , platform=platform      )
         self.add_routes(Routes__Compute__Pods  , prefix='/api/nodes' , manager=pod_manager   )
         self.add_routes(Routes__Compute__Stacks, prefix='/api/stacks')
 
@@ -55,6 +70,12 @@ class Fast_API__Compute(Fast_API):
         for spec_id, routes_cls in loader.load():
             service = self._make_service(spec_id, routes_cls)
             self.add_routes(routes_cls, prefix=f'/api/specs/{spec_id}', service=service)
+
+    def _live_platform(self) -> Platform:
+        if type(self.platform) is Platform:                                    # uninjected abstract base — use live EC2
+            from sg_compute.platforms.ec2.EC2__Platform import EC2__Platform
+            return EC2__Platform().setup()
+        return self.platform
 
     @staticmethod
     def _make_service(spec_id: str, routes_cls):

@@ -13,6 +13,7 @@ from sg_compute.core.node.schemas.Schema__Node__Info                         imp
 from sg_compute.core.node.schemas.Schema__Node__List                         import Schema__Node__List
 from sg_compute.core.spec.schemas.Schema__Spec__Manifest__Entry              import Schema__Spec__Manifest__Entry
 from sg_compute.platforms.Platform                                            import Platform
+from sg_compute.platforms.exceptions.Exception__AWS__No_Credentials          import Exception__AWS__No_Credentials
 from sg_compute.primitives.enums.Enum__Node__State                           import Enum__Node__State
 
 
@@ -56,10 +57,15 @@ class EC2__Platform(Platform):
 
     def list_nodes(self, region: str = 'eu-west-2') -> Schema__Node__List:
         from sg_compute.platforms.ec2.helpers.EC2__Instance__Helper import EC2__Instance__Helper
-        region    = region or 'eu-west-2'
-        raw_nodes = EC2__Instance__Helper().list_all_managed(region)
-        nodes     = [self._raw_to_node_info(raw, region) for raw in raw_nodes.values()]
-        return Schema__Node__List(nodes=nodes)
+        region = region or 'eu-west-2'
+        try:
+            raw_nodes = EC2__Instance__Helper().list_all_managed(region)
+        except Exception as e:
+            if 'credential' in str(e).lower() or 'NoCredential' in type(e).__name__:
+                raise Exception__AWS__No_Credentials(str(e)) from e
+            raise
+        nodes = [self._raw_to_node_info(raw, region) for raw in raw_nodes.values()]
+        return Schema__Node__List(nodes=nodes, total=len(nodes), region=region)
 
     def get_node(self, node_id: str, region: str = 'eu-west-2') -> 'Schema__Node__Info | None':
         from sg_compute.platforms.ec2.helpers.EC2__Instance__Helper import EC2__Instance__Helper
