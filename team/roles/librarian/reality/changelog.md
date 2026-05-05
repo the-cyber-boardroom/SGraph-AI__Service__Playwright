@@ -6,6 +6,12 @@ This is a pointer log, not a content log. For full delta detail, see the master 
 
 ---
 
+## 2026-05-05 (BV__caller-ip-endpoint)
+
+- `sg-compute/index.md` — UPDATED: `Schema__Caller__IP` added to `sg_compute/catalog/schemas/`; `Routes__Compute__Catalog` added to control plane routes (`GET /catalog/caller-ip`); `/catalog/caller-ip` added to `_AUTH_FREE_PATHS`. Frontend: `sg-compute-launch-form._seedCallerIp()` calls backend on remote hosts; "Find my public IP" link removed.
+
+---
+
 ## 2026-05-05 (BV__spec-readme-endpoint)
 
 - `sg-compute/index.md` — UPDATED: `Spec__Readme__Resolver` added to `core/spec/` table; `Routes__Compute__Specs` description updated with `GET /api/specs/{spec_id}/readme`; `Fast_API__Compute` `readme_root_override` field added. `sg_compute_specs/firefox/README.md` created. `sg_compute_specs/pyproject.toml` includes `*/README.md` in package-data.
