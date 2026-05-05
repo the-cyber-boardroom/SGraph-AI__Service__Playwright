@@ -1,7 +1,7 @@
 # Reality — SG/Compute Domain
 
 **Status:** ACTIVE — seeded in phase-1 (B1), foundations added in phase-2 (B2), pod management in BV2.3.
-**Last updated:** 2026-05-05 | **Phase:** BV2.12 (Delete agent_mitmproxy/; shim task deferred)
+**Last updated:** 2026-05-05 | **Phase:** T2.1b (AMI picker wired to live GET /api/amis)
 
 ---
 
@@ -221,8 +221,37 @@
 | `Routes__Compute__Specs` | `control_plane/routes/Routes__Compute__Specs.py` | `GET /api/specs`, `GET /api/specs/{spec_id}` |
 | `Routes__Compute__Nodes` | `control_plane/routes/Routes__Compute__Nodes.py` | `GET /api/nodes`, `GET /api/nodes/{node_id}`, `POST /api/nodes`, `DELETE /api/nodes/{node_id}`; `POST` calls `EC2__Platform.create_node` (docker spec only; others raise `NotImplementedError`) |
 | `Routes__Compute__Pods` | `control_plane/routes/Routes__Compute__Pods.py` | 6 pod endpoints under `/api/nodes/{node_id}/pods/*`; constructor injection of `Pod__Manager` |
+| `Routes__Compute__AMIs` | `control_plane/routes/Routes__Compute__AMIs.py` | `GET /api/amis?spec_id=<id>` → `Schema__AMI__List__Response`; delegates to `AMI__Lister` |
+| `AMI__Lister` | `core/ami/service/AMI__Lister.py` | Lists AMIs filtered by spec_id; returns `Schema__AMI__List__Response` |
+| `Schema__AMI__Info` | `core/ami/schemas/Schema__AMI__Info.py` | `ami_id / name / created_at / state / size_gb` |
+| `Schema__AMI__List__Response` | `core/ami/schemas/Schema__AMI__List__Response.py` | `spec_id + amis: List__Schema__AMI__Info` |
+| `List__Schema__AMI__Info` | `core/ami/collections/List__Schema__AMI__Info.py` | typed collection |
 | `Routes__Compute__Stacks` | `control_plane/routes/Routes__Compute__Stacks.py` | PLACEHOLDER |
 | `Exception__AWS__No_Credentials` | `platforms/exceptions/Exception__AWS__No_Credentials.py` | Raised when AWS credentials absent; caught by registered 503 handler in `Fast_API__Compute` |
+
+---
+
+### api_site / dashboard — frontend components — EXISTS (v0.2.1 hotfix)
+
+All dashboard web components live under `sgraph_ai_service_playwright__api_site/components/sg-compute/` (renamed from `sp-cli/` in T3.3b).
+
+| Component | Path (relative to `api_site/`) | Status | Notes |
+|-----------|-------------------------------|--------|-------|
+| `sg-compute-specs-view` | `components/sg-compute/sg-compute-specs-view/v0/v0.1/v0.1.0/` | COMPLETE | Spec grid; card-body click + keyboard (Enter/Space) dispatch `sp-cli:spec.selected`; `tabindex="0"` + `:focus-visible` ring |
+| `sg-compute-spec-detail` | `components/sg-compute/sg-compute-spec-detail/v0/v0.1/v0.1.0/` | COMPLETE | Full manifest panel; README placeholder (backend `GET /api/specs/{id}/readme` TBD); extends lineage text; baked AMIs placeholder |
+| `sg-compute-launch-form` | `components/sg-compute/_shared/sg-compute-launch-form/v0/v0.1/v0.1.0/` | COMPLETE | Three-mode selector FRESH/BAKE_AMI/FROM_AMI; CSS-only show/hide; cost preview; `getValues()` returns `creation_mode/ami_id/ami_name`; `validate()` blocks FROM_AMI without AMI |
+| `sg-compute-launch-panel` | `components/sg-compute/sg-compute-launch-panel/v0/v0.1/v0.1.0/` | COMPLETE | POST `/api/nodes` with full body including `ami_name`; error/loading states |
+| `sg-compute-ami-picker` | `components/sg-compute/_shared/sg-compute-ami-picker/v0/v0.1/v0.1.0/` | COMPLETE | `setSpecId()` fetches `GET /api/amis?spec_id=...` via `apiClient`; loading/error/empty states; dispatches `sg-compute:ami.selected` |
+| `sg-compute-compute-view` | `components/sg-compute/sg-compute-compute-view/v0/v0.1/v0.1.0/` | COMPLETE | Nodes list; launch constants from `shared/launch-defaults.js` |
+| `sg-compute-nodes-view` | `components/sg-compute/sg-compute-nodes-view/v0/v0.1/v0.1.0/` | COMPLETE | Node cards with pod state; uses canonical `pod_name` / `state` field names |
+| `sg-compute-settings-pane` | `components/sg-compute/sg-compute-settings-pane/v0/v0.1/v0.1.0/` | COMPLETE | Settings bus dual-dispatch; WCAG AA contrast |
+| `shared/launch-defaults.js` | `shared/launch-defaults.js` | COMPLETE | Single source of truth for `REGIONS`, `INSTANCE_TYPES`, `MAX_HOURS`, `COST_TABLE` |
+| `shared/api-client.js` | `shared/api-client.js` | COMPLETE | Shared fetch wrapper used by all components |
+| `shared/settings-bus.js` | `shared/settings-bus.js` | COMPLETE | Settings event bus (`getAllDefaults()`) |
+
+**Structural snapshot tests** (all green):
+- `tests/ci/test_sg_compute_spec_detail__snapshot.py` — 13 assertions
+- `tests/ci/test_sg_compute_ami_picker__snapshot.py` — 17 assertions
 
 ---
 
@@ -241,6 +270,9 @@
 
 | Date | Change |
 |------|--------|
+| 2026-05-05 | T3.3b: `components/sp-cli/` → `components/sg-compute/` directory rename; 28 api_site/ string refs + 45 sg_compute_specs/*/ui/detail/ absolute imports updated; snapshot test COMPONENT_DIR paths corrected; 32/33 CI green |
+| 2026-05-05 | T2.1b: `sg-compute-ami-picker.setSpecId()` wired to `GET /api/amis` via `apiClient`; `_populateAmis()` / `_showLoading()` / `_showError()` / `_hidePlaceholder()` added; 17-assertion snapshot test; T2.1 debrief flipped PARTIAL → COMPLETE; frontend component table added to reality doc |
+| 2026-05-05 | T2-FE-patch: `ami_name` threaded to POST body; spec-card body click + keyboard wired; README broken link → placeholder; inline styles → CSS classes; `stability||'unknown'`; 13-assertion snapshot test for spec-detail |
 | 2026-05-05 | BV2.12: agent_mitmproxy/ deleted (35 files); tests/unit/agent_mitmproxy/ deleted (12 files); ci__agent_mitmproxy.yml deleted; scripts/provision_ec2.py → sg_compute_specs.mitmproxy; shim task deferred (implementations diverged from sg_compute_specs) |
 | 2026-05-05 | BV2.11: Lambda packaging cutover — lambda_entry.py + build_request() → sg_compute_specs.playwright.core; sgraph_ai_service_playwright/ deleted (175 files); pyproject.toml updated; 55 test files bulk-updated; 2151 unit tests pass |
 | 2026-05-05 | BV2.10: Fast_API__SP__CLI sub-app mounted at /legacy in Fast_API__Compute (auth preserved); ASGI wrapper injects X-Deprecated: true; run_sp_cli.py → Fast_API__Compute; 356 passing under python3.12 |
