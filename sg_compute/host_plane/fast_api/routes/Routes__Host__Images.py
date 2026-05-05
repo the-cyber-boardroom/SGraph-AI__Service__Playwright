@@ -41,7 +41,7 @@ class Routes__Host__Images(Fast_API__Routes):
         return Image__Runtime__Docker()
 
     def list_images(self) -> dict:                                          # GET /images
-        return self._runtime().list().json()
+        return self._runtime().list_images().json()
     list_images.__route_path__ = ''
 
     def get_image(self, name: str) -> dict:                                 # GET /images/{name}

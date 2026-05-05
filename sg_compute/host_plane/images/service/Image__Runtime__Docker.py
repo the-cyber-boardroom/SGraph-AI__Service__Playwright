@@ -28,7 +28,7 @@ class Image__Runtime__Docker:
         result = subprocess.run(['docker'] + args, capture_output=True, text=True, timeout=timeout)
         return result.stdout, result.stderr, result.returncode
 
-    def list(self) -> Schema__Image__List:
+    def list_images(self) -> Schema__Image__List:
         stdout, _, _ = self._run(['images', '--no-trunc', '--format', FORMAT])
         items = List__Schema__Image__Info()
         seen  = set()
