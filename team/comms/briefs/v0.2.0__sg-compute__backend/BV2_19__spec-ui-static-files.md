@@ -16,7 +16,7 @@ The Architect decision (2026-05-05) chose `StaticFiles` over a bespoke streaming
 
 1. **Zero route logic** — FastAPI/Starlette handles MIME type, `If-None-Match`, range requests.
 2. **CF+S3 / `tools.sgraph.ai` parity** — the production path replaces the `StaticFiles` origin with a CloudFront distribution backed by S3 at the same URL prefix. No dashboard changes needed at that migration.
-3. **IFD versioning is immutable** — paths like `/api/specs/docker/ui/card/v0/v0.1/v0.1.0/sg-compute-docker-card.js` never change once published; long `Cache-Control` is safe.
+3. **IFD versioning is immutable** — paths like `/api/specs/docker/ui/card/v0/v0.1/v0.1.0/sg-compute-docker-card.js` never change once published. Cache-control headers are deliberately left to CloudFront — do not set them here.
 
 ---
 
@@ -59,19 +59,7 @@ for manifest in Spec__Loader().load_all():
 
 Mount **before** the per-spec API routes are registered, so Starlette's path-matching gives the static prefix priority over any `{path:path}` catchall (none exists today, but future-proof).
 
-### 3 — Add `Cache-Control` middleware
-
-IFD-versioned paths are immutable. Add a `Middleware` (or response hook) that sets:
-
-```
-Cache-Control: public, max-age=31536000, immutable
-```
-
-…for any response whose URL path matches `/api/specs/*/ui/*/v*/v*.*.*/*`.
-
-Non-versioned requests (e.g. `/api/specs/docker/ui/` directory listing — which `StaticFiles` 404s by default) get no special header.
-
-### 4 — Verify Lambda deployment includes `ui/` folders
+### 3 — Verify Lambda deployment includes `ui/` folders
 
 The Lambda packaging step (in `scripts/` or CI) must include `sg_compute_specs/**` in the zip. Check that `pyproject.toml` package data globs cover `ui/**`:
 
@@ -82,7 +70,7 @@ sg_compute_specs = ["*/ui/**/*"]
 
 If it's missing, add it. Without this, the Lambda filesystem won't have the `ui/` folders and `StaticFiles` will not activate.
 
-### 5 — Test (in-memory, no mocks)
+### 4 — Test (in-memory, no mocks)
 
 ```python
 # test_Spec__UI__Static__Files.py
@@ -121,7 +109,7 @@ def test_spec_ui_no_mount_when_ui_folder_absent():
 
 - `GET /api/specs/docker/ui/card/v0/v0.1/v0.1.0/sg-compute-docker-card.js` returns `200` with correct `Content-Type: application/javascript` once the `docker` spec has a `ui/` folder.
 - `GET /api/specs/ollama/ui/anything` returns `404` (no `ui/` folder for ollama yet — mount not activated).
-- `Cache-Control: public, max-age=31536000, immutable` on versioned path responses.
+- No `Cache-Control` header set by the application — caching is the responsibility of CloudFront.
 - `sg_compute_specs = ["*/ui/**/*"]` in `pyproject.toml` package-data.
 - `tests/ci/test_no_legacy_imports.py` still passes (no new legacy imports introduced).
 - All existing tests still pass.
