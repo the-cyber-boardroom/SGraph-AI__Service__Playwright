@@ -16,8 +16,10 @@ from osbot_fast_api.api.Fast_API                                              im
 from sg_compute.control_plane.Spec__Routes__Loader                           import Spec__Routes__Loader
 from sg_compute.control_plane.routes.Routes__Compute__Health                 import Routes__Compute__Health
 from sg_compute.control_plane.routes.Routes__Compute__Nodes                  import Routes__Compute__Nodes
+from sg_compute.control_plane.routes.Routes__Compute__Pods                   import Routes__Compute__Pods
 from sg_compute.control_plane.routes.Routes__Compute__Specs                  import Routes__Compute__Specs
 from sg_compute.control_plane.routes.Routes__Compute__Stacks                 import Routes__Compute__Stacks
+from sg_compute.core.pod.Pod__Manager                                        import Pod__Manager
 from sg_compute.core.spec.Spec__Loader                                       import Spec__Loader
 from sg_compute.core.spec.Spec__Registry                                     import Spec__Registry
 
@@ -36,10 +38,17 @@ class Fast_API__Compute(Fast_API):
         return self
 
     def _mount_control_routes(self):
+        pod_manager = self._live_pod_manager()
         self.add_routes(Routes__Compute__Health, prefix='/api/health', registry=self.registry)
         self.add_routes(Routes__Compute__Specs , prefix='/api/specs' , registry=self.registry)
         self.add_routes(Routes__Compute__Nodes , prefix='/api/nodes' )
+        self.add_routes(Routes__Compute__Pods  , prefix='/api/nodes' , manager=pod_manager   )
         self.add_routes(Routes__Compute__Stacks, prefix='/api/stacks')
+
+    @staticmethod
+    def _live_pod_manager() -> Pod__Manager:
+        from sg_compute.platforms.ec2.EC2__Platform import EC2__Platform
+        return Pod__Manager(platform=EC2__Platform().setup())
 
     def _mount_spec_routes(self):
         loader = Spec__Routes__Loader(registry=self.registry)

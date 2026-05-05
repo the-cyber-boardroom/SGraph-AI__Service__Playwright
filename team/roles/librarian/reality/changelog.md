@@ -6,6 +6,12 @@ This is a pointer log, not a content log. For full delta detail, see the master 
 
 ---
 
+## 2026-05-05 (BV2.3)
+
+- `sg-compute/index.md` — UPDATED: BV2.3 pod management added; `Pod__Manager`, `Sidecar__Client`, 5 pod schemas, 2 collections, `Routes__Compute__Pods` (6 endpoints), `Routes__Compute__Nodes` constructor injection. 246 tests passing.
+
+---
+
 ## 2026-05-02 (B3.0)
 
 - `sg-compute/index.md` — UPDATED: B3.0 docker spec added; `sg_compute_specs/docker/` fully documented; Spec__Loader now returns 3 specs; 183 tests passing.

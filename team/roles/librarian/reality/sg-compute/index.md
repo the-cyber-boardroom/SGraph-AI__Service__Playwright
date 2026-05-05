@@ -1,7 +1,7 @@
 # Reality — SG/Compute Domain
 
-**Status:** ACTIVE — seeded in phase-1 (B1), foundations added in phase-2 (B2).
-**Last updated:** 2026-05-02 | **Phase:** B2 (foundations)
+**Status:** ACTIVE — seeded in phase-1 (B1), foundations added in phase-2 (B2), pod management in BV2.3.
+**Last updated:** 2026-05-05 | **Phase:** BV2.3 (pod manager + sidecar client)
 
 ---
 
@@ -60,9 +60,23 @@
 | `Schema__Stack__Info` (legacy) | `core/node/schemas/Schema__Stack__Info.py` | Kept for spec mapper backwards compat |
 | `Node__Manager` | `core/node/Node__Manager.py` | Delegates to Platform; accepts a Fake__Platform in tests |
 
-### sg_compute/core/pod/ and core/stack/ — EXISTS (placeholders)
+### sg_compute/core/pod/ — EXISTS (BV2.3)
 
-`Schema__Pod__Info`, `Schema__Pod__List`, `Schema__Stack__Info` (multi-node), `Schema__Stack__List` — shape defined, no manager yet.
+| Class | Path | Description |
+|-------|------|-------------|
+| `Schema__Pod__Info` | `core/pod/schemas/Schema__Pod__Info.py` | `pod_name/node_id/image/state/ports` |
+| `Schema__Pod__List` | `core/pod/schemas/Schema__Pod__List.py` | `pods: List[Schema__Pod__Info]` |
+| `Schema__Pod__Logs__Response` | `core/pod/schemas/Schema__Pod__Logs__Response.py` | `container/lines/content/truncated` |
+| `Schema__Pod__Stop__Response` | `core/pod/schemas/Schema__Pod__Stop__Response.py` | `name/stopped/removed/error` |
+| `Schema__Pod__Start__Request` | `core/pod/schemas/Schema__Pod__Start__Request.py` | `name/image/type_id` (ports/env omitted — Type_Safe__Dict not Pydantic-serialisable) |
+| `Dict__Pod__Ports` | `core/pod/collections/Dict__Pod__Ports.py` | `Type_Safe__Dict[str→str]` |
+| `Dict__Pod__Env` | `core/pod/collections/Dict__Pod__Env.py` | `Type_Safe__Dict[str→str]` |
+| `Sidecar__Client` | `core/pod/Sidecar__Client.py` | HTTP adapter for one node's `:19009` sidecar; `list/get/logs/start/stop/remove` |
+| `Pod__Manager` | `core/pod/Pod__Manager.py` | Bridge: `node_id → public_ip → Sidecar__Client`; translates sidecar dicts to typed schemas |
+
+### sg_compute/core/stack/ — EXISTS (placeholders)
+
+`Schema__Stack__Info` (multi-node), `Schema__Stack__List` — shape defined, no manager yet.
 
 ### sg_compute/platforms/ — EXISTS
 
@@ -124,16 +138,29 @@
 | `api/routes/Routes__Docker__Stack.py` | endpoints at `/api/specs/docker/stack*` |
 | `tests/` | 31 unit tests (manifest, user_data_builder, tags_builder, stack_mapper) |
 
+### sg_compute/control_plane/ — EXISTS (B4 + BV2.3 + BV2.4)
+
+| Class | Path | Description |
+|-------|------|-------------|
+| `Fast_API__Compute` | `control_plane/Fast_API__Compute.py` | Mounts `/api/health`, `/api/specs`, `/api/nodes`, `/api/stacks`; auto-discovers per-spec routes via `Spec__Routes__Loader`; `platform` field injected in tests |
+| `Routes__Compute__Health` | `control_plane/routes/Routes__Compute__Health.py` | `GET /api/health`, `GET /api/health/ready` |
+| `Routes__Compute__Specs` | `control_plane/routes/Routes__Compute__Specs.py` | `GET /api/specs`, `GET /api/specs/{spec_id}` |
+| `Routes__Compute__Nodes` | `control_plane/routes/Routes__Compute__Nodes.py` | `GET /api/nodes`, `GET /api/nodes/{node_id}`, `DELETE /api/nodes/{node_id}`; constructor injection of `Platform` |
+| `Routes__Compute__Pods` | `control_plane/routes/Routes__Compute__Pods.py` | 6 pod endpoints under `/api/nodes/{node_id}/pods/*`; constructor injection of `Pod__Manager` |
+| `Routes__Compute__Stacks` | `control_plane/routes/Routes__Compute__Stacks.py` | PLACEHOLDER |
+| `Exception__AWS__No_Credentials` | `platforms/exceptions/Exception__AWS__No_Credentials.py` | Raised when AWS credentials absent; caught by registered 503 handler in `Fast_API__Compute` |
+
 ---
 
 ## PROPOSED — does not exist yet
 
-- `Fast_API__Compute` control plane (phase 4)
-- `sg-compute` CLI command (phase 5)
-- `sg_compute/host_plane/` (phase 6 — moves from `sgraph_ai_service_playwright__host/`)
+- `EC2__Platform.create_node` + `POST /api/nodes` (BV2.5 — blocks FV2.5 frontend launch flow)
+- `Section__Sidecar` user-data composable (BV2.2)
 - Per-spec `Spec__Service__Base` common lifecycle base class
 - `Node__Identity` — node-id generation/parsing helper
 - Remaining legacy specs migrated to `sg_compute_specs/` (phases 3.1–3.8): linux, podman, vnc, neko, prometheus, opensearch, elastic, firefox
+- `sg-compute` per-spec CLI subcommands (BV2.6)
+- Vault-sourced sidecar API key (BV2.9)
 
 ---
 
@@ -141,6 +168,8 @@
 
 | Date | Change |
 |------|--------|
+| 2026-05-05 | BV2.3: `Pod__Manager`, `Sidecar__Client`, 5 pod schemas, 2 pod collections, `Routes__Compute__Pods` (6 endpoints); 246 tests passing |
+| 2026-05-04 | BV2.4: `Routes__Compute__Nodes` constructor injection; `Schema__Node__List` `total`+`region`; `Exception__AWS__No_Credentials` + 503 handler; BV2.1 orphan delete |
 | 2026-05-02 | Phase B3.0: docker spec migrated to `sg_compute_specs/docker/`; 31 new tests; `Spec__Loader` now returns 3 specs |
 | 2026-05-02 | Phase B2: foundations — primitives, enums, core schemas, Platform/EC2__Platform, Spec__Loader/Resolver/Registry, Node__Manager, manifest.py for ollama+open_design, helpers moved to platforms/ec2/ |
 | 2026-05-02 | Phase B1: `ephemeral_ec2/` renamed to `sg_compute/`; pilot specs moved to `sg_compute_specs/`; domain placeholder created |
