@@ -9,6 +9,7 @@ from osbot_utils.type_safe.Type_Safe import Type_Safe
 
 from sg_compute.platforms.ec2.user_data.Section__Base     import Section__Base
 from sg_compute.platforms.ec2.user_data.Section__Shutdown import Section__Shutdown
+from sg_compute.platforms.ec2.user_data.Section__Sidecar  import Section__Sidecar
 
 NVIDIA_DRIVERS = """
 # ── NVIDIA drivers ────────────────────────────────────────────────────────────
@@ -48,7 +49,10 @@ class Ollama__User_Data__Builder(Type_Safe):
                      model_name  : str  = 'qwen2.5-coder:7b',
                      gpu_required: bool = True               ,
                      pull_on_boot: bool = True               ,
-                     max_hours   : int  = 4                  ) -> str:
+                     max_hours   : int  = 4                  ,
+                     registry    : str  = ''                 ,
+                     api_key_name : str = 'X-API-Key'        ,
+                     api_key_value: str = ''                 ) -> str:
         parts = []
         parts.append(Section__Base().render(stack_name=stack_name))
 
@@ -59,6 +63,12 @@ class Ollama__User_Data__Builder(Type_Safe):
 
         if pull_on_boot:
             parts.append(OLLAMA_PULL.format(model_name=model_name))
+
+        sidecar = Section__Sidecar().render(registry      = registry      ,
+                                            api_key_name  = api_key_name  ,
+                                            api_key_value = api_key_value )
+        if sidecar:
+            parts.append(sidecar)
 
         if max_hours > 0:
             parts.append(Section__Shutdown().render(max_hours=max_hours))

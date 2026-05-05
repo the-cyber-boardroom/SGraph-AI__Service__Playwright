@@ -4,6 +4,8 @@
 
 from osbot_utils.type_safe.Type_Safe                                                import Type_Safe
 
+from sg_compute.platforms.ec2.user_data.Section__Sidecar                           import Section__Sidecar
+
 
 COMPOSE_DIR      = '/opt/sg-prometheus'
 COMPOSE_FILE     = '/opt/sg-prometheus/docker-compose.yml'
@@ -45,18 +47,26 @@ echo "[sg-prometheus] starting compose..."
 cd {compose_dir}
 docker compose up -d
 
+{sidecar_section}
 echo "[sg-prometheus] boot complete at $(date -u +%FT%TZ)"
 """
 
 
 PLACEHOLDERS = ('stack_name', 'region', 'log_file',
                 'compose_dir', 'compose_file', 'compose_yaml',
-                'prom_config_file', 'prom_config_yaml')                             # Locked by test
+                'prom_config_file', 'prom_config_yaml',
+                'sidecar_section')                                                   # Locked by test
 
 
 class Prometheus__User_Data__Builder(Type_Safe):
 
-    def render(self, stack_name: str, region: str, compose_yaml: str, prom_config_yaml: str) -> str:
+    def render(self, stack_name: str, region: str, compose_yaml: str, prom_config_yaml: str,
+               registry     : str = '',
+               api_key_name : str = 'X-API-Key',
+               api_key_value: str = '') -> str:
+        sidecar_section = Section__Sidecar().render(registry      = registry      ,
+                                                    api_key_name  = api_key_name  ,
+                                                    api_key_value = api_key_value )
         return USER_DATA_TEMPLATE.format(stack_name       = str(stack_name)       ,
                                           region           = str(region)           ,
                                           log_file         = LOG_FILE              ,
@@ -64,4 +74,5 @@ class Prometheus__User_Data__Builder(Type_Safe):
                                           compose_file     = COMPOSE_FILE          ,
                                           compose_yaml     = str(compose_yaml)     ,
                                           prom_config_file = PROM_CONFIG_FILE      ,
-                                          prom_config_yaml = str(prom_config_yaml) )
+                                          prom_config_yaml = str(prom_config_yaml) ,
+                                          sidecar_section  = sidecar_section       )

@@ -5,6 +5,8 @@
 
 from osbot_utils.type_safe.Type_Safe                                                import Type_Safe
 
+from sg_compute.platforms.ec2.user_data.Section__Sidecar                           import Section__Sidecar
+
 
 FIREFOX_DIR           = '/opt/sg-firefox'
 COMPOSE_FILE          = '/opt/sg-firefox/docker-compose.yml'
@@ -25,7 +27,8 @@ MITM_PROXY_PORT       = 8080
 PLACEHOLDERS = ('stack_name', 'region', 'log_file', 'firefox_dir', 'mitm_data_dir',
                 'app_data_dir', 'profile_dir', 'compose_file', 'compose_yaml',
                 'interceptor_file', 'interceptor_source', 'interceptor_kind',
-                'user_js_file', 'user_js', 'env_file', 'env_source', 'shutdown_section')
+                'user_js_file', 'user_js', 'env_file', 'env_source',
+                'sidecar_section', 'shutdown_section')
 
 COMPOSE_TEMPLATE = """\
 services:
@@ -159,6 +162,7 @@ FIREFOX_USERJS_EOF
 echo "[sg-firefox] starting Firefox..."
 docker compose up -d firefox
 
+{sidecar_section}
 {shutdown_section}
 echo "[sg-firefox] boot complete at $(date -u +%FT%TZ)"
 """
@@ -172,7 +176,10 @@ class Firefox__User_Data__Builder(Type_Safe):
                      interceptor_source: str,
                      interceptor_kind  : str = 'none',
                      env_source        : str = ''    ,
-                     max_hours         : int = 1     ) -> str:
+                     max_hours         : int = 1     ,
+                     registry          : str = ''    ,
+                     api_key_name      : str = 'X-API-Key',
+                     api_key_value     : str = ''    ) -> str:
 
         compose_yaml     = COMPOSE_TEMPLATE.format(
             firefox_image         = FIREFOX_IMAGE        ,
@@ -187,6 +194,9 @@ class Firefox__User_Data__Builder(Type_Safe):
             password              = password             )
         user_js          = USER_JS_TEMPLATE.format(mitm_proxy_port=MITM_PROXY_PORT)
         shutdown_section = SHUTDOWN_SECTION_TEMPLATE.format(max_hours=max_hours) if max_hours > 0 else ''
+        sidecar_section  = Section__Sidecar().render(registry      = registry      ,
+                                                     api_key_name  = api_key_name  ,
+                                                     api_key_value = api_key_value )
 
         return USER_DATA_TEMPLATE.format(
             stack_name         = stack_name         ,
@@ -205,4 +215,5 @@ class Firefox__User_Data__Builder(Type_Safe):
             user_js            = user_js            ,
             env_file           = ENV_FILE           ,
             env_source         = env_source         ,
+            sidecar_section    = sidecar_section    ,
             shutdown_section   = shutdown_section   )

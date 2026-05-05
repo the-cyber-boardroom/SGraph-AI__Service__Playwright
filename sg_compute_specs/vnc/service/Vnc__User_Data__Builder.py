@@ -4,6 +4,7 @@
 
 from osbot_utils.type_safe.Type_Safe                                                import Type_Safe
 
+from sg_compute.platforms.ec2.user_data.Section__Sidecar                            import Section__Sidecar
 from sg_compute_specs.vnc.service.Vnc__Caddy__Template                              import Vnc__Caddy__Template
 
 
@@ -82,6 +83,7 @@ docker compose build caddy
 echo "[sg-vnc] starting compose..."
 docker compose up -d
 
+{sidecar_section}
 echo "[sg-vnc] boot complete at $(date -u +%FT%TZ)"
 """
 
@@ -92,7 +94,7 @@ PLACEHOLDERS = ('stack_name', 'region', 'log_file', 'operator_password',
                 'caddy_dockerfile', 'caddy_dockerfile_body',
                 'caddy_file', 'caddyfile_body',
                 'caddy_users_json', 'users_json_body',
-                'caddy_jwt_secret')                                                  # Locked by test
+                'caddy_jwt_secret', 'sidecar_section')                              # Locked by test
 
 
 class Vnc__User_Data__Builder(Type_Safe):
@@ -102,11 +104,17 @@ class Vnc__User_Data__Builder(Type_Safe):
                      compose_yaml      : str,
                      interceptor_source: str,
                      operator_password : str,
-                     interceptor_kind  : str = 'none') -> str:
+                     interceptor_kind  : str = 'none',
+                     registry          : str = ''    ,
+                     api_key_name      : str = 'X-API-Key',
+                     api_key_value     : str = ''    ) -> str:
         caddy_template   = Vnc__Caddy__Template()
         caddy_dockerfile = caddy_template.render_dockerfile()
         caddyfile_body   = caddy_template.render_caddyfile()
         users_json_body  = caddy_template.render_users_json(bcrypt_hash='${BCRYPT_HASH}')
+        sidecar_section  = Section__Sidecar().render(registry      = registry      ,
+                                                     api_key_name  = api_key_name  ,
+                                                     api_key_value = api_key_value )
 
         return USER_DATA_TEMPLATE.format(stack_name            = str(stack_name)        ,
                                          region                = str(region)            ,
@@ -120,8 +128,9 @@ class Vnc__User_Data__Builder(Type_Safe):
                                          interceptor_kind      = str(interceptor_kind)  ,
                                          caddy_dockerfile      = CADDY_DOCKERFILE       ,
                                          caddy_dockerfile_body = caddy_dockerfile       ,
-                                         caddy_file            = CADDY_FILE            ,
+                                         caddy_file            = CADDY_FILE             ,
                                          caddyfile_body        = caddyfile_body         ,
                                          caddy_users_json      = CADDY_USERS_JSON       ,
                                          users_json_body       = users_json_body        ,
-                                         caddy_jwt_secret      = CADDY_JWT_SECRET       )
+                                         caddy_jwt_secret      = CADDY_JWT_SECRET       ,
+                                         sidecar_section       = sidecar_section        )

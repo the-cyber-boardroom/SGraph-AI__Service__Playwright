@@ -27,11 +27,12 @@ class test_Neko__User_Data__Builder(TestCase):
         return self.builder.render(**defaults)
 
     def test_placeholders_tuple_locked(self):
-        assert 'stack_name'   in PLACEHOLDERS
-        assert 'region'       in PLACEHOLDERS
-        assert 'caddyfile'    in PLACEHOLDERS
-        assert 'compose_yaml' in PLACEHOLDERS
-        assert len(PLACEHOLDERS) == 10
+        assert 'stack_name'      in PLACEHOLDERS
+        assert 'region'          in PLACEHOLDERS
+        assert 'caddyfile'       in PLACEHOLDERS
+        assert 'compose_yaml'    in PLACEHOLDERS
+        assert 'sidecar_section' in PLACEHOLDERS
+        assert len(PLACEHOLDERS) == 11
 
     def test_render_returns_string(self):
         result = self._render()

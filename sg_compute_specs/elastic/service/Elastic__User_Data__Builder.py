@@ -7,6 +7,7 @@ import json
 from osbot_utils.type_safe.Type_Safe                                                import Type_Safe
 from osbot_utils.type_safe.primitives.domains.common.safe_str.Safe_Str__Text        import Safe_Str__Text
 
+from sg_compute.platforms.ec2.user_data.Section__Sidecar                            import Section__Sidecar
 from sg_compute_specs.elastic.primitives.Safe_Str__Elastic__Password                import Safe_Str__Elastic__Password
 from sg_compute_specs.elastic.primitives.Safe_Str__Elastic__Stack__Name             import Safe_Str__Elastic__Stack__Name
 
@@ -186,11 +187,12 @@ docker compose --env-file /opt/sg-elastic/.env up -d kibana nginx
 echo "=== SG Elastic start complete at $(date) ==="
 echo "OK $(date --iso-8601=seconds)" > "$BOOT_STATUS_FILE"
 trap - EXIT
+{sidecar_section}
 {shutdown_section}
 """
 
 PLACEHOLDERS = ('stack_name', 'elastic_password', 'elastic_version', 'kibana_version',
-                'nginx_version', 'es_java_opts', 'shutdown_section')                # Locked by test
+                'nginx_version', 'es_java_opts', 'sidecar_section', 'shutdown_section')  # Locked by test
 
 
 class Elastic__User_Data__Builder(Type_Safe):
@@ -201,12 +203,19 @@ class Elastic__User_Data__Builder(Type_Safe):
 
     def render(self, stack_name      : Safe_Str__Elastic__Stack__Name ,
                      elastic_password: Safe_Str__Elastic__Password    ,
-                     max_hours       : int                            = 0) -> str:
+                     max_hours       : int                            = 0,
+                     registry        : str                            = '',
+                     api_key_name    : str                            = 'X-API-Key',
+                     api_key_value   : str                            = '') -> str:
         shutdown_section = SHUTDOWN_SECTION_TEMPLATE.format(max_hours=int(max_hours)) if int(max_hours) > 0 else ''
+        sidecar_section  = Section__Sidecar().render(registry      = registry      ,
+                                                     api_key_name  = api_key_name  ,
+                                                     api_key_value = api_key_value )
         return USER_DATA_TEMPLATE.format(stack_name       = str(stack_name      )       ,
                                           elastic_password = str(elastic_password)       ,
                                           elastic_version  = str(self.elastic_version)   ,
                                           kibana_version   = str(self.kibana_version )   ,
                                           nginx_version    = str(self.nginx_version  )   ,
                                           es_java_opts     = str(self.es_java_opts   )   ,
+                                          sidecar_section  = sidecar_section             ,
                                           shutdown_section = shutdown_section             )
