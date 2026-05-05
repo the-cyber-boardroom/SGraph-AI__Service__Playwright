@@ -1,7 +1,7 @@
 /**
  * sg-remote-browser — Generic iframe/VNC/Neko remote browser widget.
  *
- * Promoted from sp-cli-vnc-viewer. Supports providers: vnc | iframe | neko | auto.
+ * Promoted from sg-compute-vnc-viewer. Supports providers: vnc | iframe | neko | auto.
  *
  * API: open({ url, auth, provider, stackName })
  *   url       — target URL to embed

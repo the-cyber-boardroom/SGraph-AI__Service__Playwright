@@ -1,0 +1,37 @@
+<div class="detail-tabs">
+  <button class="tab-btn active" data-tab="info">Info</button>
+  <button class="tab-btn"        data-tab="shell">Terminal</button>
+  <button class="tab-btn"        data-tab="hostapi">Host API</button>
+</div>
+<div class="tab-panel active" data-panel="info">
+  <div class="detail-top">
+    <sg-compute-stack-header class="detail-header"></sg-compute-stack-header>
+    <sg-compute-stop-button class="detail-stop"></sg-compute-stop-button>
+  </div>
+  <div class="browser-section" hidden>
+    <sg-remote-browser class="remote-browser" provider="iframe"></sg-remote-browser>
+  </div>
+  <div class="detail-body">
+    <div class="service-urls" hidden>
+      <div class="section-title">Service URLs</div>
+      <div class="url-list">
+        <div class="url-row">
+          <span class="url-label">Kibana</span>
+          <a class="url-link kibana-url" target="_blank" rel="noopener">—</a>
+        </div>
+        <div class="url-row">
+          <span class="url-label">Elasticsearch</span>
+          <a class="url-link es-url" target="_blank" rel="noopener">—</a>
+        </div>
+      </div>
+    </div>
+    <sg-compute-ssm-command class="detail-ssm"></sg-compute-ssm-command>
+    <sg-compute-network-info class="detail-net"></sg-compute-network-info>
+  </div>
+</div>
+<div class="tab-panel" data-panel="shell">
+  <sg-compute-host-shell class="host-shell"></sg-compute-host-shell>
+</div>
+<div class="tab-panel" data-panel="hostapi">
+  <sg-compute-host-api-panel class="host-api-panel"></sg-compute-host-api-panel>
+</div>

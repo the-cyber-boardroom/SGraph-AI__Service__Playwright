@@ -9,10 +9,10 @@
 </head>
 <body>
 
-  <sp-cli-top-bar page-title="Provisioning Console">
-    <sp-cli-region-picker slot="region-picker" value="eu-west-2"></sp-cli-region-picker>
-    <sp-cli-vault-picker  slot="vault-picker"></sp-cli-vault-picker>
-  </sp-cli-top-bar>
+  <sg-compute-top-bar page-title="Provisioning Console">
+    <sg-compute-region-picker slot="region-picker" value="eu-west-2"></sg-compute-region-picker>
+    <sg-compute-vault-picker  slot="vault-picker"></sg-compute-vault-picker>
+  </sg-compute-top-bar>
 
   <!-- vault gate: shown until vault connects -->
   <div id="vault-gate" class="vault-gate">
@@ -28,16 +28,16 @@
   </main>
 
   <sg-auth-panel></sg-auth-panel>
-  <sp-cli-launch-modal></sp-cli-launch-modal>
+  <sg-compute-launch-modal></sg-compute-launch-modal>
 
-  <script type="module" src="../components/sp-cli/sp-cli-top-bar/v0/v0.1/v0.1.0/sp-cli-top-bar.js"></script>
-  <script type="module" src="../components/sp-cli/sp-cli-region-picker/v0/v0.1/v0.1.0/sp-cli-region-picker.js"></script>
-  <script type="module" src="../components/sp-cli/sp-cli-vault-picker/v0/v0.1/v0.1.0/sp-cli-vault-picker.js"></script>
-  <script type="module" src="../components/sp-cli/sp-cli-user-pane/v0/v0.1/v0.1.0/sp-cli-user-pane.js"></script>
-  <script type="module" src="../components/sp-cli/sp-cli-vault-activity/v0/v0.1/v0.1.0/sp-cli-vault-activity.js"></script>
+  <script type="module" src="../components/sp-cli/sg-compute-top-bar/v0/v0.1/v0.1.0/sg-compute-top-bar.js"></script>
+  <script type="module" src="../components/sp-cli/sg-compute-region-picker/v0/v0.1/v0.1.0/sg-compute-region-picker.js"></script>
+  <script type="module" src="../components/sp-cli/sg-compute-vault-picker/v0/v0.1/v0.1.0/sg-compute-vault-picker.js"></script>
+  <script type="module" src="../components/sp-cli/sg-compute-user-pane/v0/v0.1/v0.1.0/sg-compute-user-pane.js"></script>
+  <script type="module" src="../components/sp-cli/sg-compute-vault-activity/v0/v0.1/v0.1.0/sg-compute-vault-activity.js"></script>
   <script type="module" src="../shared/components/sg-auth-panel.js"></script>
-  <script type="module" src="../components/sp-cli/sp-cli-launch-modal/v0/v0.1/v0.1.0/sp-cli-launch-modal.js"></script>
-  <script type="module" src="../components/sp-cli/sp-cli-stack-detail/v0/v0.1/v0.1.0/sp-cli-stack-detail.js"></script>
+  <script type="module" src="../components/sp-cli/sg-compute-launch-modal/v0/v0.1/v0.1.0/sg-compute-launch-modal.js"></script>
+  <script type="module" src="../components/sp-cli/sg-compute-stack-detail/v0/v0.1/v0.1.0/sg-compute-stack-detail.js"></script>
   <script type="module" src="user.js"></script>
 
 </body>

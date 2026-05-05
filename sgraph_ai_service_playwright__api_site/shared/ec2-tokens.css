@@ -70,7 +70,7 @@
   --gap-3: 14px;
   --gap-4: 20px;
 
-  /* ── Map onto the --sg-* tokens that existing sp-cli-* components consume ── */
+  /* ── Map onto the --sg-* tokens that existing sg-compute-* components consume ── */
   --sg-bg:              var(--bg-app);
   --sg-bg-secondary:    var(--bg-panel);
   --sg-surface:         var(--bg-elev);

@@ -1,0 +1,269 @@
+:host { display: flex; flex-direction: column; height: 100%; overflow: hidden; }
+[hidden] { display: none !important; }
+
+/* ── Two-column layout: browser | configure ────────── */
+.compute-view {
+    display:    flex;
+    height:     100%;
+    background: var(--bg-panel);
+    overflow:   hidden;
+}
+
+/* ── Template browser ───────────────────────────────── */
+.browser-col {
+    flex:           1;
+    min-width:      0;
+    display:        flex;
+    flex-direction: column;
+    border-right:   1px solid var(--border-1);
+}
+
+/* hide browser col once a spec is chosen */
+.compute-view.spec-selected .browser-col {
+    display: none;
+}
+
+/* configure-col fills width when browser is hidden */
+.compute-view.spec-selected .configure-col {
+    width:     100%;
+    max-width: 680px;
+}
+
+.browser-head { flex-shrink: 0; }
+
+.browser-body {
+    flex:       1;
+    overflow-y: auto;
+    padding:    var(--pad-pane);
+    display:    flex;
+    flex-direction: column;
+    gap:        var(--gap-4);
+}
+
+/* ── Spec groups ─────────────────────────────────────── */
+.spec-groups { display: flex; flex-direction: column; gap: var(--gap-4); }
+
+.spec-section { display: flex; flex-direction: column; gap: var(--gap-2); }
+
+.spec-group-label {
+    padding-bottom: 4px;
+    border-bottom:  1px solid var(--border-1);
+}
+
+.spec-card-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--gap-2);
+}
+
+/* ── Spec card ───────────────────────────────────────── */
+.spec-card {
+    display:       flex;
+    align-items:   center;
+    gap:           10px;
+    padding:       10px 14px;
+    background:    var(--bg-panel-2);
+    border:        1px solid var(--border-1);
+    border-radius: var(--r-3);
+    cursor:        pointer;
+    width:         220px;
+    transition:    background 120ms, border-color 120ms;
+}
+.spec-card:hover {
+    background:   var(--bg-hover);
+    border-color: var(--border-2);
+}
+.spec-card.selected {
+    border-color: var(--accent);
+    background:   var(--accent-soft);
+}
+.spec-card:focus-visible {
+    outline:        2px solid var(--border-focus);
+    outline-offset: 2px;
+}
+.spec-card--soon {
+    cursor:  default;
+    opacity: 0.55;
+}
+.spec-card--soon:hover {
+    background:   var(--bg-panel-2);
+    border-color: var(--border-1);
+}
+
+.sc-icon { font-size: 1.6rem; line-height: 1; flex-shrink: 0; }
+.sc-body { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+.sc-name { font-size: 13px; font-weight: 600; color: var(--text-1); white-space: nowrap; }
+.sc-meta { display: flex; align-items: center; gap: 5px; flex-wrap: wrap; }
+.sc-boot { font-size: 11px; color: var(--text-3); margin-left: auto; white-space: nowrap; }
+
+/* ── Configure pane ─────────────────────────────────── */
+.configure-col {
+    width:          320px;
+    min-width:      280px;
+    flex-shrink:    0;
+    display:        flex;
+    flex-direction: column;
+    background:     var(--bg-panel);
+    border-left:    1px solid var(--border-1);
+}
+
+/* ── Configure header ────────────────────────────────── */
+.cfg-head {
+    flex-shrink:    0;
+    padding:        14px 16px 12px;
+    border-bottom:  1px solid var(--border-1);
+}
+
+.cfg-header-row {
+    display:     flex;
+    align-items: flex-start;
+    gap:         10px;
+}
+
+.cfg-icon {
+    font-size:   1.6rem;
+    line-height: 1;
+    flex-shrink: 0;
+    margin-top:  2px;
+}
+
+.cfg-header-text {
+    display:        flex;
+    flex-direction: column;
+    gap:            3px;
+    flex:           1;
+    min-width:      0;
+}
+
+.cfg-name {
+    font-size:   14px;
+    font-weight: 600;
+    color:       var(--text-1);
+}
+
+.cfg-desc {
+    font-size:   11px;
+    color:       var(--text-3);
+    line-height: 1.4;
+}
+
+.btn-close-cfg {
+    flex-shrink: 0;
+    margin-top:  0;
+}
+
+/* ── Configure body ──────────────────────────────────── */
+.cfg-body {
+    flex:       1;
+    overflow-y: auto;
+    padding:    14px 16px;
+    display:    flex;
+    flex-direction: column;
+    gap:        var(--gap-3);
+    max-width:  600px;
+    width:      100%;
+}
+
+/* ── Summary row ─────────────────────────────────────── */
+.cfg-summary {
+    display:        flex;
+    align-items:    center;
+    gap:            8px;
+    padding-bottom: var(--gap-2);
+    border-bottom:  1px solid var(--border-1);
+}
+.cfg-boot-val { font-size: 11px; color: var(--text-2); margin-left: auto; }
+
+/* ── Form fields ─────────────────────────────────────── */
+.cfg-fields { display: flex; flex-direction: column; gap: var(--gap-2); }
+
+.ec2-field {
+    display:        flex;
+    flex-direction: column;
+    gap:            4px;
+}
+
+.ec2-field-label {
+    display:         flex;
+    align-items:     center;
+    justify-content: space-between;
+    font-size:       11px;
+    font-weight:     500;
+    color:           var(--text-3);
+    text-transform:  uppercase;
+    letter-spacing:  0.04em;
+}
+
+.ec2-field-help {
+    font-size:      10px;
+    color:          var(--text-4, #606080);
+    font-weight:    400;
+    text-transform: none;
+    letter-spacing: 0;
+}
+
+/* two-column field row */
+.cfg-field-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: var(--gap-2);
+}
+
+/* ── Advanced note ───────────────────────────────────── */
+.adv-wrap  { display: flex; flex-direction: column; gap: 4px; }
+.ip-note   { font-size: 10px; color: var(--text-3); line-height: 1.4; }
+
+/* ── Cost summary bar ────────────────────────────────── */
+.cfg-cost-bar {
+    display:        grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap:            0;
+    background:     var(--bg-app);
+    border:         1px solid var(--border-1);
+    border-radius:  var(--r-2);
+    overflow:       hidden;
+}
+
+.cost-cell {
+    padding:        8px 8px;
+    display:        flex;
+    flex-direction: column;
+    gap:            4px;
+    border-right:   1px solid var(--border-1);
+}
+.cost-cell:last-child { border-right: none; }
+
+.cost-cell-label {
+    font-size:      9px;
+    font-weight:    600;
+    color:          var(--text-3);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    white-space:    nowrap;
+}
+
+.cost-cell-val {
+    font-size:   12px;
+    font-weight: 600;
+    color:       var(--text-1);
+}
+
+/* ── Footer ──────────────────────────────────────────── */
+.cfg-footer {
+    margin-top:     auto;
+    padding-top:    var(--gap-3);
+    display:        flex;
+    flex-direction: column;
+    gap:            8px;
+}
+
+.error-msg {
+    font-size:     12px;
+    color:         var(--bad);
+    background:    var(--bad-soft);
+    border:        1px solid rgba(248,113,113,0.25);
+    border-radius: var(--r-2);
+    padding:       6px 10px;
+}
+
+.btn-launch { width: 100%; justify-content: center; padding: 9px 12px; font-size: 13px; }

@@ -10,73 +10,73 @@
 </head>
 <body>
 
-  <sp-cli-top-bar page-title="Admin Dashboard">
-    <sp-cli-region-picker slot="region-picker" value="eu-west-2"></sp-cli-region-picker>
-    <sp-cli-vault-picker  slot="vault-picker"></sp-cli-vault-picker>
-  </sp-cli-top-bar>
+  <sg-compute-top-bar page-title="Admin Dashboard">
+    <sg-compute-region-picker slot="region-picker" value="eu-west-2"></sg-compute-region-picker>
+    <sg-compute-vault-picker  slot="vault-picker"></sg-compute-vault-picker>
+  </sg-compute-top-bar>
 
   <main id="main-content">
     <sg-layout id="root-layout"></sg-layout>
-    <sp-cli-diagnostics-view id="diag-col" hidden></sp-cli-diagnostics-view>
+    <sg-compute-diagnostics-view id="diag-col" hidden></sg-compute-diagnostics-view>
   </main>
 
   <sg-auth-panel></sg-auth-panel>
 
   <!-- infrastructure -->
-  <script type="module" src="../components/sp-cli/sp-cli-top-bar/v0/v0.1/v0.1.0/sp-cli-top-bar.js"></script>
-  <script type="module" src="../components/sp-cli/sp-cli-region-picker/v0/v0.1/v0.1.0/sp-cli-region-picker.js"></script>
-  <script type="module" src="../components/sp-cli/sp-cli-vault-picker/v0/v0.1/v0.1.0/sp-cli-vault-picker.js"></script>
+  <script type="module" src="../components/sp-cli/sg-compute-top-bar/v0/v0.1/v0.1.0/sg-compute-top-bar.js"></script>
+  <script type="module" src="../components/sp-cli/sg-compute-region-picker/v0/v0.1/v0.1.0/sg-compute-region-picker.js"></script>
+  <script type="module" src="../components/sp-cli/sg-compute-vault-picker/v0/v0.1/v0.1.0/sg-compute-vault-picker.js"></script>
   <script type="module" src="../shared/components/sg-auth-panel.js"></script>
 
   <!-- plugin cards — spec_id drives which card renders; catalogue is the source of truth.
        Until FV2.6 co-locates UI with specs, each spec still needs a <script> tag here.
        If a script tag exists for a spec NOT in the catalogue, no card will render for it.
        If the catalogue lists a spec with no script tag, that spec is silently skipped. -->
-  <script type="module" src="../plugins/docker/v0/v0.1/v0.1.0/sp-cli-docker-card.js"></script>
-  <script type="module" src="../plugins/podman/v0/v0.1/v0.1.0/sp-cli-podman-card.js"></script>
-  <script type="module" src="../plugins/elastic/v0/v0.1/v0.1.0/sp-cli-elastic-card.js"></script>
-  <script type="module" src="../plugins/vnc/v0/v0.1/v0.1.0/sp-cli-vnc-card.js"></script>
-  <script type="module" src="../plugins/prometheus/v0/v0.1/v0.1.0/sp-cli-prometheus-card.js"></script>
-  <script type="module" src="../plugins/opensearch/v0/v0.1/v0.1.0/sp-cli-opensearch-card.js"></script>
-  <script type="module" src="../plugins/neko/v0/v0.1/v0.1.0/sp-cli-neko-card.js"></script>
-  <script type="module" src="../plugins/firefox/v0/v0.1/v0.1.0/sp-cli-firefox-card.js"></script>
+  <script type="module" src="../plugins/docker/v0/v0.1/v0.1.0/sg-compute-docker-card.js"></script>
+  <script type="module" src="../plugins/podman/v0/v0.1/v0.1.0/sg-compute-podman-card.js"></script>
+  <script type="module" src="../plugins/elastic/v0/v0.1/v0.1.0/sg-compute-elastic-card.js"></script>
+  <script type="module" src="../plugins/vnc/v0/v0.1/v0.1.0/sg-compute-vnc-card.js"></script>
+  <script type="module" src="../plugins/prometheus/v0/v0.1/v0.1.0/sg-compute-prometheus-card.js"></script>
+  <script type="module" src="../plugins/opensearch/v0/v0.1/v0.1.0/sg-compute-opensearch-card.js"></script>
+  <script type="module" src="../plugins/neko/v0/v0.1/v0.1.0/sg-compute-neko-card.js"></script>
+  <script type="module" src="../plugins/firefox/v0/v0.1/v0.1.0/sg-compute-firefox-card.js"></script>
 
   <!-- per-plugin detail panels -->
-  <script type="module" src="../components/sp-cli/sp-cli-docker-detail/v0/v0.1/v0.1.0/sp-cli-docker-detail.js"></script>
-  <script type="module" src="../components/sp-cli/sp-cli-podman-detail/v0/v0.1/v0.1.0/sp-cli-podman-detail.js"></script>
-  <script type="module" src="../components/sp-cli/sp-cli-elastic-detail/v0/v0.1/v0.1.0/sp-cli-elastic-detail.js"></script>
-  <script type="module" src="../components/sp-cli/sp-cli-vnc-detail/v0/v0.1/v0.1.0/sp-cli-vnc-detail.js"></script>
-  <script type="module" src="../components/sp-cli/sp-cli-prometheus-detail/v0/v0.1/v0.1.0/sp-cli-prometheus-detail.js"></script>
-  <script type="module" src="../components/sp-cli/sp-cli-opensearch-detail/v0/v0.1/v0.1.0/sp-cli-opensearch-detail.js"></script>
-  <script type="module" src="../components/sp-cli/sp-cli-neko-detail/v0/v0.1/v0.1.0/sp-cli-neko-detail.js"></script>
-  <script type="module" src="../components/sp-cli/sp-cli-firefox-detail/v0/v0.1/v0.1.0/sp-cli-firefox-detail.js"></script>
+  <script type="module" src="../components/sp-cli/sg-compute-docker-detail/v0/v0.1/v0.1.0/sg-compute-docker-detail.js"></script>
+  <script type="module" src="../components/sp-cli/sg-compute-podman-detail/v0/v0.1/v0.1.0/sg-compute-podman-detail.js"></script>
+  <script type="module" src="../components/sp-cli/sg-compute-elastic-detail/v0/v0.1/v0.1.0/sg-compute-elastic-detail.js"></script>
+  <script type="module" src="../components/sp-cli/sg-compute-vnc-detail/v0/v0.1/v0.1.0/sg-compute-vnc-detail.js"></script>
+  <script type="module" src="../components/sp-cli/sg-compute-prometheus-detail/v0/v0.1/v0.1.0/sg-compute-prometheus-detail.js"></script>
+  <script type="module" src="../components/sp-cli/sg-compute-opensearch-detail/v0/v0.1/v0.1.0/sg-compute-opensearch-detail.js"></script>
+  <script type="module" src="../components/sp-cli/sg-compute-neko-detail/v0/v0.1/v0.1.0/sg-compute-neko-detail.js"></script>
+  <script type="module" src="../components/sp-cli/sg-compute-firefox-detail/v0/v0.1/v0.1.0/sg-compute-firefox-detail.js"></script>
 
   <!-- host control plane widgets -->
-  <script type="module" src="../components/sp-cli/_shared/sp-cli-host-shell/v0/v0.1/v0.1.0/sp-cli-host-shell.js"></script>
-  <script type="module" src="../components/sp-cli/_shared/sp-cli-host-api-panel/v0/v0.1/v0.1.0/sp-cli-host-api-panel.js"></script>
+  <script type="module" src="../components/sp-cli/_shared/sg-compute-host-shell/v0/v0.1/v0.1.0/sg-compute-host-shell.js"></script>
+  <script type="module" src="../components/sp-cli/_shared/sg-compute-host-api-panel/v0/v0.1/v0.1.0/sg-compute-host-api-panel.js"></script>
 
   <!-- launcher pane + launch panel -->
-  <script type="module" src="../components/sp-cli/_shared/sp-cli-launch-form/v0/v0.1/v0.1.0/sp-cli-launch-form.js"></script>
-  <script type="module" src="../components/sp-cli/sp-cli-launcher-pane/v0/v0.1/v0.1.0/sp-cli-launcher-pane.js"></script>
-  <script type="module" src="../components/sp-cli/sp-cli-launch-panel/v0/v0.1/v0.1.0/sp-cli-launch-panel.js"></script>
+  <script type="module" src="../components/sp-cli/_shared/sg-compute-launch-form/v0/v0.1/v0.1.0/sg-compute-launch-form.js"></script>
+  <script type="module" src="../components/sp-cli/sg-compute-launcher-pane/v0/v0.1/v0.1.0/sg-compute-launcher-pane.js"></script>
+  <script type="module" src="../components/sp-cli/sg-compute-launch-panel/v0/v0.1/v0.1.0/sg-compute-launch-panel.js"></script>
 
   <!-- left nav + view shells -->
-  <script type="module" src="../components/sp-cli/sp-cli-left-nav/v0/v0.1/v0.1.0/sp-cli-left-nav.js"></script>
-  <script type="module" src="../components/sp-cli/sp-cli-compute-view/v0/v0.1/v0.1.0/sp-cli-compute-view.js"></script>
-  <script type="module" src="../components/sp-cli/sp-cli-nodes-view/v0/v0.1/v0.1.0/sp-cli-nodes-view.js"></script>
-  <script type="module" src="../components/sp-cli/sp-cli-specs-view/v0/v0.1/v0.1.0/sp-cli-specs-view.js"></script>
-  <script type="module" src="../components/sp-cli/sp-cli-stacks-view/v0/v0.1/v0.1.0/sp-cli-stacks-view.js"></script>
-  <script type="module" src="../components/sp-cli/sp-cli-storage-view/v0/v0.1/v0.1.0/sp-cli-storage-view.js"></script>
-  <script type="module" src="../components/sp-cli/sp-cli-settings-view/v0/v0.1/v0.1.0/sp-cli-settings-view.js"></script>
-  <script type="module" src="../components/sp-cli/sp-cli-diagnostics-view/v0/v0.1/v0.1.0/sp-cli-diagnostics-view.js"></script>
-  <script type="module" src="../components/sp-cli/sp-cli-api-view/v0/v0.1/v0.1.0/sp-cli-api-view.js"></script>
+  <script type="module" src="../components/sp-cli/sg-compute-left-nav/v0/v0.1/v0.1.0/sg-compute-left-nav.js"></script>
+  <script type="module" src="../components/sp-cli/sg-compute-compute-view/v0/v0.1/v0.1.0/sg-compute-compute-view.js"></script>
+  <script type="module" src="../components/sp-cli/sg-compute-nodes-view/v0/v0.1/v0.1.0/sg-compute-nodes-view.js"></script>
+  <script type="module" src="../components/sp-cli/sg-compute-specs-view/v0/v0.1/v0.1.0/sg-compute-specs-view.js"></script>
+  <script type="module" src="../components/sp-cli/sg-compute-stacks-view/v0/v0.1/v0.1.0/sg-compute-stacks-view.js"></script>
+  <script type="module" src="../components/sp-cli/sg-compute-storage-view/v0/v0.1/v0.1.0/sg-compute-storage-view.js"></script>
+  <script type="module" src="../components/sp-cli/sg-compute-settings-view/v0/v0.1/v0.1.0/sg-compute-settings-view.js"></script>
+  <script type="module" src="../components/sp-cli/sg-compute-diagnostics-view/v0/v0.1/v0.1.0/sg-compute-diagnostics-view.js"></script>
+  <script type="module" src="../components/sp-cli/sg-compute-api-view/v0/v0.1/v0.1.0/sg-compute-api-view.js"></script>
 
-  <!-- diagnostics panel components (used inside sp-cli-diagnostics-view nested layout) -->
-  <script type="module" src="../components/sp-cli/sp-cli-events-log/v0/v0.1/v0.1.0/sp-cli-events-log.js"></script>
-  <script type="module" src="../components/sp-cli/sp-cli-vault-status/v0/v0.1/v0.1.0/sp-cli-vault-status.js"></script>
-  <script type="module" src="../components/sp-cli/sp-cli-active-sessions/v0/v0.1/v0.1.0/sp-cli-active-sessions.js"></script>
-  <script type="module" src="../components/sp-cli/sp-cli-cost-tracker/v0/v0.1/v0.1.0/sp-cli-cost-tracker.js"></script>
-  <script type="module" src="../components/sp-cli/sp-cli-storage-viewer/v0/v0.1/v0.1.0/sp-cli-storage-viewer.js"></script>
+  <!-- diagnostics panel components (used inside sg-compute-diagnostics-view nested layout) -->
+  <script type="module" src="../components/sp-cli/sg-compute-events-log/v0/v0.1/v0.1.0/sg-compute-events-log.js"></script>
+  <script type="module" src="../components/sp-cli/sg-compute-vault-status/v0/v0.1/v0.1.0/sg-compute-vault-status.js"></script>
+  <script type="module" src="../components/sp-cli/sg-compute-active-sessions/v0/v0.1/v0.1.0/sg-compute-active-sessions.js"></script>
+  <script type="module" src="../components/sp-cli/sg-compute-cost-tracker/v0/v0.1/v0.1.0/sg-compute-cost-tracker.js"></script>
+  <script type="module" src="../components/sp-cli/sg-compute-storage-viewer/v0/v0.1/v0.1.0/sg-compute-storage-viewer.js"></script>
 
   <script type="module" src="admin.js"></script>
 
