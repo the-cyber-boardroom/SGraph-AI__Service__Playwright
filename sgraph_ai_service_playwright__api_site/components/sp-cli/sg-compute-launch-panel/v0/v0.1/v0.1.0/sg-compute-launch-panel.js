@@ -56,6 +56,7 @@ class SgComputeLaunchPanel extends SgComponent {
             caller_ip:     values.caller_ip       || '',
             creation_mode: values.creation_mode   || 'fresh',
             ami_id:        values.ami_id          || '',
+            ami_name:      values.ami_name        || '',
         }
 
         this._setLoading(true)

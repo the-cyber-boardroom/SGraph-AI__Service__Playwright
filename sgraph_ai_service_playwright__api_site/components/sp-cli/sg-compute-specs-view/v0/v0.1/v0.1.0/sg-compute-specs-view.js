@@ -38,6 +38,8 @@ class SgComputeSpecsView extends SgComponent {
         const card = document.createElement('article')
         card.className = 'spec-card'
         card.setAttribute('role', 'listitem')
+        card.setAttribute('tabindex', '0')
+        card.setAttribute('aria-label', `${_esc(spec.display_name)} spec — press Enter to view details`)
 
         const stabClass = _stabClass(spec.stability)
         const bootLabel = _fmtBoot(spec.boot_seconds_typical)
@@ -65,15 +67,31 @@ class SgComputeSpecsView extends SgComponent {
             </div>
         `
 
-        card.querySelector('.btn-detail').addEventListener('click', () => {
-            document.dispatchEvent(new CustomEvent('sp-cli:spec.selected', {
-                detail:  { spec: { ...spec } },
-                bubbles: true, composed: true,
-            }))
+        const dispatchDetail = () => document.dispatchEvent(new CustomEvent('sp-cli:spec.selected', {
+            detail: { spec: { ...spec } }, bubbles: true, composed: true,
+        }))
+
+        card.querySelector('.btn-detail').addEventListener('click', (e) => {
+            e.stopPropagation()
+            dispatchDetail()
+        })
+
+        // Card-body click opens detail (unless the click came from a button)
+        card.addEventListener('click', (e) => {
+            if (!e.target.closest('button')) dispatchDetail()
+        })
+
+        // Keyboard: Enter/Space on the card (when card itself has focus)
+        card.addEventListener('keydown', (e) => {
+            if ((e.key === 'Enter' || e.key === ' ') && e.target === card) {
+                e.preventDefault()
+                dispatchDetail()
+            }
         })
 
         if (!spec.soon) {
-            card.querySelector('.btn-launch').addEventListener('click', () => {
+            card.querySelector('.btn-launch').addEventListener('click', (e) => {
+                e.stopPropagation()
                 document.dispatchEvent(new CustomEvent('sp-cli:catalog-launch', {
                     detail:  { entry: { ...spec } },
                     bubbles: true, composed: true,

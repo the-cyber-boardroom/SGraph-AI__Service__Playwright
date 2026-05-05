@@ -44,7 +44,7 @@ class SgComputeSpecDetail extends SgComponent {
         if (this._specIdEl)   this._specIdEl.textContent   = spec.spec_id
 
         if (this._stabilityEl) {
-            const s = spec.stability || 'experimental'
+            const s = spec.stability || 'unknown'
             this._stabilityEl.textContent = s
             this._stabilityEl.className   = `sd-stability-badge ${s}`
         }
@@ -58,13 +58,13 @@ class SgComputeSpecDetail extends SgComponent {
             const caps = spec.capabilities || []
             this._capsEl.innerHTML = caps.length
                 ? caps.map(c => `<span class="cap-chip">${esc(c)}</span>`).join('')
-                : '<span style="color:var(--sg-text-muted);font-style:italic">none</span>'
+                : '<span class="sd-field-empty">none</span>'
         }
 
         if (this._endpointEl) {
             this._endpointEl.innerHTML = spec.create_endpoint_path
                 ? `<span class="sd-endpoint">${esc(spec.create_endpoint_path)}</span>`
-                : '<span style="color:var(--sg-text-muted);font-style:italic">—</span>'
+                : '<span class="sd-field-empty">—</span>'
         }
 
         const extendsArr = spec.extends || []
@@ -72,21 +72,16 @@ class SgComputeSpecDetail extends SgComponent {
         if (this._extendsList) {
             this._extendsList.hidden = extendsArr.length === 0
             this._extendsList.innerHTML = extendsArr.map(id =>
-                `<code style="font-family:monospace;font-size:0.85em;background:var(--sg-bg-alt);border:1px solid var(--sg-border);border-radius:3px;padding:1px 6px">${esc(id)}</code>`
+                `<code class="sd-extends-id">${esc(id)}</code>`
             ).join(' → ')
         }
 
-        if (this._readmeLink && this._readmePlaceholder) {
-            const href = spec.spec_id ? `/api/specs/${encodeURIComponent(spec.spec_id)}/readme` : ''
-            if (href) {
-                this._readmeLink.href        = href
-                this._readmeLink.textContent = `View README for ${esc(spec.display_name || spec.spec_id)}`
-                this._readmeLink.hidden      = false
-                this._readmePlaceholder.hidden = true
-            } else {
-                this._readmeLink.hidden      = true
-                this._readmePlaceholder.hidden = false
-            }
+        // README: always show placeholder until GET /api/specs/{id}/readme ships.
+        // See team/comms/briefs/v0.2.1__hotfix/backend/BV__spec-readme-endpoint.md
+        if (this._readmeLink)        this._readmeLink.hidden        = true
+        if (this._readmePlaceholder) {
+            this._readmePlaceholder.textContent = `Spec README will appear here once GET /api/specs/${esc(spec.spec_id)}/readme ships.`
+            this._readmePlaceholder.hidden = false
         }
     }
 
