@@ -6,6 +6,12 @@ This is a pointer log, not a content log. For full delta detail, see the master 
 
 ---
 
+## 2026-05-05 (T2.6b PARTIAL — Safe_Str public method signatures)
+
+- `sg-compute/index.md` — UPDATED: `Pod__Manager` public methods typed with `Safe_Str__Node__Id`/`Safe_Str__Pod__Name`; `Platform` + `EC2__Platform` public methods typed; routes wrap Safe_Str before calling manager/platform. Schema fields + spec-side deferred to T2.6c.
+
+---
+
 ## 2026-05-05 (T2.4b — vault production wiring fixed)
 
 - `sg-compute/index.md` — UPDATED: `Vault__Spec__Writer` description updated; `vault_attached=True` now wired in `Fast_API__Compute._mount_control_routes`; route test prefix fixed to `/api/vault`; "persistence stubbed" removed from description.
