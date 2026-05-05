@@ -825,7 +825,6 @@ app.add_typer(_firefox_app, name='ff', hidden=True)                             
 
 from scripts.podman import app as _podman_app  # noqa: E402
 app.add_typer(_podman_app, name='podman'        )                                    # ephemeral Podman EC2 stacks
-app.add_typer(_podman_app, name='linux'         )                                    # backwards-compat alias
 app.add_typer(_podman_app, name='lx',  hidden=True)                                  # short alias
 
 from scripts.docker_stack import app as _docker_app  # noqa: E402

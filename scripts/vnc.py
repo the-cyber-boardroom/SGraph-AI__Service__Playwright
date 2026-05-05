@@ -5,7 +5,7 @@
 #
 # Thin Typer wrapper. All logic lives in Vnc__Service — the CLI only
 # constructs the service, calls one method, and renders via the Renderers
-# helper. Same Tier-2A pattern as scripts/linux.py / scripts/docker_stack.py /
+# helper. Same Tier-2A pattern as scripts/docker_stack.py /
 # scripts/prometheus.py / scripts/opensearch.py.
 # ═══════════════════════════════════════════════════════════════════════════════
 
@@ -50,7 +50,7 @@ def _service() -> Vnc__Service:                                                 
     return Vnc__Service().setup()
 
 
-def _err_handler(fn):                                                               # Mirrors linux.py / docker_stack.py — friendly errors, full trace with --debug
+def _err_handler(fn):                                                               # Mirrors docker_stack.py — friendly errors, full trace with --debug
     @functools.wraps(fn)
     def wrapped(*args, **kwargs):
         try:
