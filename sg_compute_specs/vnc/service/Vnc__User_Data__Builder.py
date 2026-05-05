@@ -5,6 +5,13 @@
 from osbot_utils.type_safe.Type_Safe                                                import Type_Safe
 
 from sg_compute.platforms.ec2.user_data.Section__Sidecar                            import Section__Sidecar
+from sg_compute.primitives.Safe_Str__AWS__Region                                    import Safe_Str__AWS__Region
+from sg_compute.primitives.Safe_Str__Image__Registry                                import Safe_Str__Image__Registry
+from sg_compute.primitives.Safe_Str__Log__Content                                   import Safe_Str__Log__Content
+from sg_compute.primitives.Safe_Str__Message                                        import Safe_Str__Message
+from sg_compute.primitives.Safe_Str__Spec__Id                                       import Safe_Str__Spec__Id
+from sg_compute.primitives.Safe_Str__SSM__Path                                      import Safe_Str__SSM__Path
+from sg_compute.primitives.Safe_Str__Stack__Name                                    import Safe_Str__Stack__Name
 from sg_compute_specs.vnc.service.Vnc__Caddy__Template                              import Vnc__Caddy__Template
 
 
@@ -99,15 +106,15 @@ PLACEHOLDERS = ('stack_name', 'region', 'log_file', 'operator_password',
 
 class Vnc__User_Data__Builder(Type_Safe):
 
-    def render(self, stack_name        : str,
-                     region            : str,
-                     compose_yaml      : str,
-                     interceptor_source: str,
-                     operator_password : str,
-                     interceptor_kind  : str = 'none',
-                     registry          : str = ''    ,
-                     api_key_name      : str = 'X-API-Key',
-                     api_key_ssm_path     : str = ''    ) -> str:
+    def render(self, stack_name        : Safe_Str__Stack__Name    ,
+                     region            : Safe_Str__AWS__Region     ,
+                     compose_yaml      : Safe_Str__Log__Content    ,
+                     interceptor_source: Safe_Str__Log__Content    ,
+                     operator_password : Safe_Str__Message         ,
+                     interceptor_kind  : Safe_Str__Spec__Id        = Safe_Str__Spec__Id('none')   ,
+                     registry          : Safe_Str__Image__Registry  = Safe_Str__Image__Registry()  ,
+                     api_key_name      : Safe_Str__Message          = Safe_Str__Message('X-API-Key'),
+                     api_key_ssm_path  : Safe_Str__SSM__Path        = Safe_Str__SSM__Path()        ) -> str:
         caddy_template   = Vnc__Caddy__Template()
         caddy_dockerfile = caddy_template.render_dockerfile()
         caddyfile_body   = caddy_template.render_caddyfile()

@@ -6,6 +6,12 @@ This is a pointer log, not a content log. For full delta detail, see the master 
 
 ---
 
+## 2026-05-05 (T2.6c — pod schema primitives + spec-side service sweep)
+
+- `sg-compute/index.md` — UPDATED: 5 new primitives (`Safe_Str__Docker__Image`, `Safe_Str__Log__Content`, `Safe_Int__Log__Lines`, `Safe_Int__Pids`, `Safe_Int__Max__Hours`); all 5 pod schemas fully typed; `Pod__Manager` schema construction sites wrap sidecar values; `Docker__Service`, `Podman__Service`, `Vnc__Service` public methods typed; 3 `*__User_Data__Builder.render()` typed; `EC2__Platform.create_node` wraps SSM path.
+
+---
+
 ## 2026-05-05 (T2.6b PARTIAL — Safe_Str public method signatures)
 
 - `sg-compute/index.md` — UPDATED: `Pod__Manager` public methods typed with `Safe_Str__Node__Id`/`Safe_Str__Pod__Name`; `Platform` + `EC2__Platform` public methods typed; routes wrap Safe_Str before calling manager/platform. Schema fields + spec-side deferred to T2.6c.

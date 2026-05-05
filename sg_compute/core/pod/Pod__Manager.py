@@ -17,6 +17,11 @@ from sg_compute.core.pod.schemas.Schema__Pod__Stats                          imp
 from sg_compute.core.pod.schemas.Schema__Pod__Stop__Response                 import Schema__Pod__Stop__Response
 from sg_compute.platforms.Platform                                            import Platform
 from sg_compute.primitives.enums.Enum__Pod__State                            import Enum__Pod__State
+from sg_compute.primitives.Safe_Int__Log__Lines                              import Safe_Int__Log__Lines
+from sg_compute.primitives.Safe_Int__Pids                                    import Safe_Int__Pids
+from sg_compute.primitives.Safe_Str__Docker__Image                           import Safe_Str__Docker__Image
+from sg_compute.primitives.Safe_Str__Log__Content                            import Safe_Str__Log__Content
+from sg_compute.primitives.Safe_Str__Message                                 import Safe_Str__Message
 from sg_compute.primitives.Safe_Str__Node__Id                                import Safe_Str__Node__Id
 from sg_compute.primitives.Safe_Str__Pod__Name                               import Safe_Str__Pod__Name
 
@@ -50,11 +55,11 @@ class Pod__Manager(Type_Safe):
                      'exited' : Enum__Pod__State.STOPPED ,
                      'paused' : Enum__Pod__State.STOPPED }
         raw_status = raw.get('status', raw.get('state', ''))
-        return Schema__Pod__Info(pod_name = raw.get('name', ''),
-                                 node_id  = node_id            ,
-                                 image    = raw.get('image', ''),
+        return Schema__Pod__Info(pod_name = Safe_Str__Pod__Name   (raw.get('name' , '')),
+                                 node_id  = Safe_Str__Node__Id    (node_id             ),
+                                 image    = Safe_Str__Docker__Image(raw.get('image', '')),
                                  state    = state_map.get(raw_status, Enum__Pod__State.FAILED),
-                                 ports    = str(raw.get('ports', '')))
+                                 ports    = Safe_Str__Message      (str(raw.get('ports', ''))))
 
     def list_pods(self, node_id: Safe_Str__Node__Id) -> Schema__Pod__List:
         client = self._sidecar_client(node_id)
@@ -85,16 +90,16 @@ class Pod__Manager(Type_Safe):
         raw = client.get_pod_stats(pod_name)
         if raw is None:
             return None
-        return Schema__Pod__Stats(container      = raw.get('container'     , pod_name) ,
-                                  cpu_percent    = raw.get('cpu_percent'   , 0.0)      ,
-                                  mem_usage_mb   = raw.get('mem_usage_mb'  , 0.0)      ,
-                                  mem_limit_mb   = raw.get('mem_limit_mb'  , 0.0)      ,
-                                  mem_percent    = raw.get('mem_percent'   , 0.0)      ,
-                                  net_rx_mb      = raw.get('net_rx_mb'     , 0.0)      ,
-                                  net_tx_mb      = raw.get('net_tx_mb'     , 0.0)      ,
-                                  block_read_mb  = raw.get('block_read_mb' , 0.0)      ,
-                                  block_write_mb = raw.get('block_write_mb', 0.0)      ,
-                                  pids           = raw.get('pids'          , 0)        )
+        return Schema__Pod__Stats(container      = Safe_Str__Pod__Name(raw.get('container'     , pod_name)),
+                                  cpu_percent    = raw.get('cpu_percent'   , 0.0)                         ,
+                                  mem_usage_mb   = raw.get('mem_usage_mb'  , 0.0)                         ,
+                                  mem_limit_mb   = raw.get('mem_limit_mb'  , 0.0)                         ,
+                                  mem_percent    = raw.get('mem_percent'   , 0.0)                         ,
+                                  net_rx_mb      = raw.get('net_rx_mb'     , 0.0)                         ,
+                                  net_tx_mb      = raw.get('net_tx_mb'     , 0.0)                         ,
+                                  block_read_mb  = raw.get('block_read_mb' , 0.0)                         ,
+                                  block_write_mb = raw.get('block_write_mb', 0.0)                         ,
+                                  pids           = Safe_Int__Pids(raw.get('pids', 0))                     )
 
     def get_pod_logs(self, node_id: Safe_Str__Node__Id, pod_name: Safe_Str__Pod__Name,
                      tail: int = 100, timestamps: bool = False) -> Schema__Pod__Logs__Response:
@@ -102,27 +107,27 @@ class Pod__Manager(Type_Safe):
         if client is None:
             return Schema__Pod__Logs__Response()
         raw = client.get_pod_logs(pod_name, tail=tail, timestamps=timestamps) or {}
-        return Schema__Pod__Logs__Response(container = raw.get('container', pod_name),
-                                           lines     = raw.get('lines', 0)           ,
-                                           content   = raw.get('content', '')        ,
-                                           truncated = raw.get('truncated', False)   )
+        return Schema__Pod__Logs__Response(container = Safe_Str__Pod__Name   (raw.get('container', pod_name)),
+                                           lines     = Safe_Int__Log__Lines  (raw.get('lines'    , 0))       ,
+                                           content   = Safe_Str__Log__Content(raw.get('content'  , ''))      ,
+                                           truncated = raw.get('truncated', False)                            )
 
     def stop_pod(self, node_id: Safe_Str__Node__Id, pod_name: Safe_Str__Pod__Name) -> Schema__Pod__Stop__Response:
         client = self._sidecar_client(node_id)
         if client is None:
             return Schema__Pod__Stop__Response()
         raw = client.stop_pod(pod_name) or {}
-        return Schema__Pod__Stop__Response(name    = raw.get('name', pod_name),
-                                           stopped = raw.get('stopped', False) ,
-                                           removed = raw.get('removed', False) ,
-                                           error   = raw.get('error', '')      )
+        return Schema__Pod__Stop__Response(name    = Safe_Str__Pod__Name(raw.get('name' , pod_name)),
+                                           stopped = raw.get('stopped', False)                       ,
+                                           removed = raw.get('removed', False)                       ,
+                                           error   = Safe_Str__Message(raw.get('error' , ''))        )
 
     def remove_pod(self, node_id: Safe_Str__Node__Id, pod_name: Safe_Str__Pod__Name) -> Schema__Pod__Stop__Response:
         client = self._sidecar_client(node_id)
         if client is None:
             return Schema__Pod__Stop__Response()
         raw = client.remove_pod(pod_name) or {}
-        return Schema__Pod__Stop__Response(name    = raw.get('name', pod_name),
-                                           stopped = raw.get('stopped', False) ,
-                                           removed = raw.get('removed', False) ,
-                                           error   = raw.get('error', '')      )
+        return Schema__Pod__Stop__Response(name    = Safe_Str__Pod__Name(raw.get('name' , pod_name)),
+                                           stopped = raw.get('stopped', False)                       ,
+                                           removed = raw.get('removed', False)                       ,
+                                           error   = Safe_Str__Message(raw.get('error' , ''))        )

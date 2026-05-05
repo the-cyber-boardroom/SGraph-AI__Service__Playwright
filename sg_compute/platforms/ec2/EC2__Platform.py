@@ -20,6 +20,7 @@ from sg_compute.platforms.exceptions.Exception__AWS__No_Credentials          imp
 from sg_compute.primitives.enums.Enum__Node__State                           import Enum__Node__State
 from sg_compute.primitives.Safe_Str__AWS__Region                             import Safe_Str__AWS__Region
 from sg_compute.primitives.Safe_Str__Node__Id                                import Safe_Str__Node__Id
+from sg_compute.primitives.Safe_Str__SSM__Path                               import Safe_Str__SSM__Path
 
 
 class EC2__Platform(Platform):
@@ -99,7 +100,7 @@ class EC2__Platform(Platform):
         ssm_path     = SSM__Sidecar__Key.path_for(node_name or 'pending')
         SSM__Sidecar__Key().write(node_name or 'pending', api_key)             # written before EC2 launch so boot script can read it
         svc = self._service_for(request.spec_id)
-        return svc.create_node(request, api_key_ssm_path=ssm_path)
+        return svc.create_node(request, api_key_ssm_path=Safe_Str__SSM__Path(ssm_path))
 
     @staticmethod
     def _service_for(spec_id: str):
