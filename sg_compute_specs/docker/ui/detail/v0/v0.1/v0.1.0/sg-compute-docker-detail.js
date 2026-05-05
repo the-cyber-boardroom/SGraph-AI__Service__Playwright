@@ -6,6 +6,7 @@ import '/ui/components/sg-compute/_shared/sg-compute-network-info/v0/v0.1/v0.1.0
 import '/ui/components/sg-compute/_shared/sg-compute-stop-button/v0/v0.1/v0.1.0/sg-compute-stop-button.js'
 import '/ui/components/sg-compute/_shared/sg-compute-host-shell/v0/v0.1/v0.1.0/sg-compute-host-shell.js'
 import '/ui/components/sg-compute/_shared/sg-compute-host-api-panel/v0/v0.1/v0.1.0/sg-compute-host-api-panel.js'
+import '/ui/components/sg-compute/_shared/sg-compute-images-panel/v0/v0.1/v0.1.0/sg-compute-images-panel.js'
 
 class SgComputeDockerDetail extends SgComponent {
     static jsUrl = import.meta.url
@@ -19,6 +20,7 @@ class SgComputeDockerDetail extends SgComponent {
         this._stop    = this.$('.detail-stop')
         this._shell   = this.$('.host-shell')
         this._hostApi = this.$('.host-api-panel')
+        this._images  = this.$('.images-panel')
         this._tabs    = Array.from(this.shadowRoot.querySelectorAll('.tab-btn'))
         this._panels  = Array.from(this.shadowRoot.querySelectorAll('.tab-panel'))
         this._tabs.forEach(btn => btn.addEventListener('click', () => this._activateTab(btn.dataset.tab)))
@@ -34,6 +36,7 @@ class SgComputeDockerDetail extends SgComponent {
         this._stop.setStack?.(stack)
         this._shell  ?.open?.(stack)
         this._hostApi?.open?.(stack)
+        this._images ?.open?.(stack)
         this._fetchDetail(stack)
     }
 

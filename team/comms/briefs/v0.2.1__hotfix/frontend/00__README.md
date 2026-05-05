@@ -51,6 +51,12 @@ Status as of 2026-05-05 14:30 UTC.
 |---|------|-----|
 | **BUG-BATCH-1** | [`BUG-BATCH-1__sidecar-auth-and-terminal.md`](BUG-BATCH-1__sidecar-auth-and-terminal.md) | 5 sidecar-auth + terminal bugs observed in production; all root-cause traced; backend briefs filed |
 
+### New features from backend (filed 2026-05-05)
+
+| # | File | Why |
+|---|------|-----|
+| **FV-images** | [`FV__images-tab.md`](FV__images-tab.md) | Images tab on docker detail panel — lists/deletes images, loads from S3; backed by new `/images` host-plane routes |
+
 ---
 
 ## Hard rules (binding every PR)
