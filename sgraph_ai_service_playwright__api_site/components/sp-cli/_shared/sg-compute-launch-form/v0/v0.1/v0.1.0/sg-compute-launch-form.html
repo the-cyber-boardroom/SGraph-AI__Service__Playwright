@@ -1,8 +1,59 @@
 <div class="launch-form">
+
+  <!-- ── mode selector ──────────────────────────────────────────────── -->
+  <div class="form-group">
+    <label class="form-label" id="mode-label">Launch mode</label>
+    <div class="mode-selector" role="group" aria-labelledby="mode-label">
+      <label class="mode-option">
+        <input type="radio" name="launch-mode" class="field-mode" value="fresh" checked>
+        <span class="mode-card">
+          <span class="mode-name">Fresh</span>
+          <span class="mode-desc">Full install from scratch</span>
+        </span>
+      </label>
+      <label class="mode-option">
+        <input type="radio" name="launch-mode" class="field-mode" value="bake-ami">
+        <span class="mode-card">
+          <span class="mode-name">Bake AMI</span>
+          <span class="mode-desc">Build &amp; save an AMI snapshot</span>
+        </span>
+      </label>
+      <label class="mode-option">
+        <input type="radio" name="launch-mode" class="field-mode" value="from-ami">
+        <span class="mode-card">
+          <span class="mode-name">From AMI</span>
+          <span class="mode-desc">Launch from snapshot (fast boot)</span>
+        </span>
+      </label>
+    </div>
+  </div>
+
+  <!-- ── BAKE_AMI cost preview banner ──────────────────────────────── -->
+  <div class="cost-banner bake-only" role="note">
+    <span class="cost-icon" aria-hidden="true">ℹ</span>
+    <span class="cost-text">≈ 10 min build time · ≈ $0.05 / GB / month storage</span>
+  </div>
+
+  <!-- ── node name ─────────────────────────────────────────────────── -->
   <div class="form-group">
     <label class="form-label">Node name <span class="form-hint">(auto-generated — edit to override)</span></label>
     <input type="text" class="field-name form-input" placeholder="e.g. podman-nova-4217">
   </div>
+
+  <!-- ── BAKE_AMI: name for the new AMI ────────────────────────────── -->
+  <div class="form-group bake-only">
+    <label class="form-label">AMI name <span class="form-hint">(name for the saved snapshot)</span></label>
+    <input type="text" class="field-ami-name form-input" placeholder="e.g. docker-base-20260505">
+  </div>
+
+  <!-- ── FROM_AMI: AMI picker ──────────────────────────────────────── -->
+  <div class="form-group from-ami-only">
+    <label class="form-label">Select AMI</label>
+    <sg-compute-ami-picker class="field-ami-picker"></sg-compute-ami-picker>
+    <div class="ami-required-error" hidden role="alert">An AMI must be selected to continue.</div>
+  </div>
+
+  <!-- ── region + instance + hours (always visible) ────────────────── -->
   <div class="form-group">
     <label class="form-label">Region</label>
     <select class="field-region form-select"></select>
@@ -15,8 +66,10 @@
     <label class="form-label">Auto-stop after</label>
     <select class="field-hours form-select"></select>
   </div>
+
+  <!-- ── advanced ───────────────────────────────────────────────────── -->
   <div class="adv-section">
-    <button type="button" class="adv-toggle">▶ Advanced</button>
+    <button type="button" class="adv-toggle" aria-expanded="false">▶ Advanced</button>
     <div class="adv-body" hidden>
       <div class="ip-info">
         <div class="ip-note">

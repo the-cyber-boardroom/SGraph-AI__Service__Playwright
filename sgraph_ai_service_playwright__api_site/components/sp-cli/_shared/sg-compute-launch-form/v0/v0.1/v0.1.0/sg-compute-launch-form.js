@@ -1,8 +1,13 @@
 import { SgComponent } from 'https://dev.tools.sgraph.ai/components/base/v1/v1.0/v1.0.0/sg-component.js'
+import '/ui/components/sp-cli/_shared/sg-compute-ami-picker/v0/v0.1/v0.1.0/sg-compute-ami-picker.js'
 
 const REGIONS        = ['eu-west-2', 'us-east-1', 'ap-southeast-1', 'eu-west-1', 'us-west-2']
 const INSTANCE_TYPES = ['t3.micro', 't3.small', 't3.medium', 't3.large', 't3.xlarge']
 const MAX_HOURS      = [1, 2, 4, 8, 12, 24]
+
+const MODE_FRESH    = 'fresh'
+const MODE_BAKE_AMI = 'bake-ami'
+const MODE_FROM_AMI = 'from-ami'
 
 const WORDS = [
     'alpha','bravo','charlie','delta','echo','foxtrot','golf','hotel',
@@ -27,6 +32,7 @@ class SgComputeLaunchForm extends SgComponent {
     get sharedCssPaths() { return ['https://dev.tools.sgraph.ai/components/tokens/v1/v1.0/v1.0.0/sg-tokens.css'] }
 
     onReady() {
+        this._formRoot      = this.$('.launch-form')
         this._nameInput     = this.$('.field-name')
         this._regionSel     = this.$('.field-region')
         this._instanceSel   = this.$('.field-instance')
@@ -34,15 +40,31 @@ class SgComputeLaunchForm extends SgComponent {
         this._advToggle     = this.$('.adv-toggle')
         this._advBody       = this.$('.adv-body')
         this._openCheckbox  = this.$('.field-open')
+        this._amiPicker     = this.$('.field-ami-picker')
+        this._amiNameInput  = this.$('.field-ami-name')
+        this._amiError      = this.$('.ami-required-error')
+        this._modeInputs    = this.$$('.field-mode')
+
+        this._currentMode   = MODE_FRESH
+        this._specId        = null
 
         this._populateSelect(this._regionSel,   REGIONS,        r => r)
         this._populateSelect(this._instanceSel, INSTANCE_TYPES, t => t)
         this._populateSelect(this._hoursSel,    MAX_HOURS,      h => `${h} hour${h > 1 ? 's' : ''}`)
 
+        this._modeInputs?.forEach(radio => {
+            radio.addEventListener('change', () => {
+                if (radio.checked) this._setMode(radio.value)
+            })
+        })
+
         this._advToggle?.addEventListener('click', () => {
             const open = this._advBody?.hidden === false
-            if (this._advBody) this._advBody.hidden = open
-            if (this._advToggle) this._advToggle.textContent = open ? '▶ Advanced' : '▼ Advanced'
+            if (this._advBody)  this._advBody.hidden     = open
+            if (this._advToggle) {
+                this._advToggle.textContent  = open ? '▶ Advanced' : '▼ Advanced'
+                this._advToggle.setAttribute('aria-expanded', String(!open))
+            }
         })
 
         if (this._pendingPopulate) {
@@ -52,8 +74,20 @@ class SgComputeLaunchForm extends SgComponent {
         }
     }
 
+    _setMode(mode) {
+        this._currentMode = mode
+        if (!this._formRoot) return
+        this._formRoot.classList.remove('mode-bake-ami', 'mode-from-ami')
+        if (mode === MODE_BAKE_AMI) this._formRoot.classList.add('mode-bake-ami')
+        if (mode === MODE_FROM_AMI) this._formRoot.classList.add('mode-from-ami')
+        if (this._amiError) this._amiError.hidden = true
+        if (this._amiPicker && this._specId) this._amiPicker.setSpecId(this._specId)
+    }
+
     populate(entry, defaults = {}) {
         if (!this._nameInput) { this._pendingPopulate = { entry, defaults }; return }
+        this._specId = entry?.type_id || null
+
         const region   = defaults.region        || entry?.default_region        || REGIONS[0]
         const instType = defaults.instance_type || entry?.default_instance_type || 't3.medium'
         const hours    = defaults.max_hours     || entry?.default_max_hours     || 4
@@ -62,16 +96,35 @@ class SgComputeLaunchForm extends SgComponent {
         if (this._instanceSel) this._instanceSel.value = instType
         if (this._hoursSel)    this._hoursSel.value     = String(hours)
         if (this._nameInput)   this._nameInput.value    = entry?.type_id ? _randomName(entry.type_id) : ''
+
+        this._resetMode()
+        if (this._amiPicker && this._specId) this._amiPicker.setSpecId(this._specId)
     }
 
     getValues() {
+        const amiId = this._amiPicker?.getSelectedAmiId?.() || ''
         return {
-            stack_name:    this._nameInput?.value.trim()  || null,
-            region:        this._regionSel?.value         || REGIONS[0],
-            instance_type: this._instanceSel?.value       || 't3.medium',
-            max_hours:     parseInt(this._hoursSel?.value || '4', 10),
-            public_ingress: this._openCheckbox?.checked   ?? false,
+            stack_name:     this._nameInput?.value.trim()  || null,
+            region:         this._regionSel?.value         || REGIONS[0],
+            instance_type:  this._instanceSel?.value       || 't3.medium',
+            max_hours:      parseInt(this._hoursSel?.value || '4', 10),
+            public_ingress: this._openCheckbox?.checked    ?? false,
+            creation_mode:  this._currentMode,
+            ami_id:         amiId,
+            ami_name:       this._amiNameInput?.value.trim() || '',
         }
+    }
+
+    validate() {
+        if (this._currentMode === MODE_FROM_AMI) {
+            const amiId = this._amiPicker?.getSelectedAmiId?.() || ''
+            if (!amiId) {
+                if (this._amiError) this._amiError.hidden = false
+                return false
+            }
+        }
+        if (this._amiError) this._amiError.hidden = true
+        return true
     }
 
     reset() {
@@ -80,11 +133,24 @@ class SgComputeLaunchForm extends SgComponent {
         if (this._instanceSel) this._instanceSel.value = 't3.medium'
         if (this._hoursSel)    this._hoursSel.value    = '4'
         if (this._openCheckbox) this._openCheckbox.checked = false
+        if (this._amiNameInput) this._amiNameInput.value = ''
+        if (this._amiError)    this._amiError.hidden   = true
+        this._resetMode()
     }
 
     setDisabled(disabled) {
-        [this._nameInput, this._regionSel, this._instanceSel, this._hoursSel, this._openCheckbox]
-            .forEach(el => { if (el) el.disabled = disabled })
+        [this._nameInput, this._regionSel, this._instanceSel, this._hoursSel,
+         this._openCheckbox, this._amiNameInput].forEach(el => { if (el) el.disabled = disabled })
+        this._modeInputs?.forEach(r => { r.disabled = disabled })
+        this._amiPicker?.setDisabled?.(disabled)
+    }
+
+    _resetMode() {
+        this._currentMode = MODE_FRESH
+        if (this._formRoot) {
+            this._formRoot.classList.remove('mode-bake-ami', 'mode-from-ami')
+        }
+        this._modeInputs?.forEach(r => { r.checked = (r.value === MODE_FRESH) })
     }
 
     _populateSelect(sel, items, labelFn) {
@@ -96,6 +162,10 @@ class SgComputeLaunchForm extends SgComponent {
             opt.textContent = labelFn(item)
             sel.appendChild(opt)
         }
+    }
+
+    $$(selector) {
+        return this.shadowRoot ? [...this.shadowRoot.querySelectorAll(selector)] : []
     }
 }
 
