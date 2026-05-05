@@ -34,7 +34,7 @@ class SpCliStopButton extends SgComponent {
     _askConfirm() {
         if (this._idleWrap) this._idleWrap.hidden = true
         if (this._cnfWrap)  this._cnfWrap.hidden  = false
-        if (this._cnfName)  this._cnfName.textContent = this._stack?.stack_name || 'this node'
+        if (this._cnfName)  this._cnfName.textContent = this._stack?.node_id || 'this node'
     }
 
     _resetConfirm() {

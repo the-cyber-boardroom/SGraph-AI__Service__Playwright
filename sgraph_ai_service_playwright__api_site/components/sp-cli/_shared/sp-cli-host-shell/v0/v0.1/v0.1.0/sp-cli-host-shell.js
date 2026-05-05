@@ -52,7 +52,7 @@ class SpCliHostShell extends SgComponent {
 
         if (this._hostUrl) {
             if (!this._hostApiKey) {
-                const vaultPath = stack.host_api_key_vault_path || `/ec2/${stack.stack_name}/host-api-key`
+                const vaultPath = stack.host_api_key_vault_path || `/ec2/${stack.node_id}/host-api-key`
                 const vault = currentVault()
                 if (vault && vaultPath) vault.read(vaultPath).then(k => { this._hostApiKey = k || '' })
             }

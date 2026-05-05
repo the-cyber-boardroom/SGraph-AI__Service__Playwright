@@ -3,10 +3,11 @@
 // Vault integration paused pending refactor — see debrief 05/02 for details.  //
 // Call startSettingsBus() once from the page controller.                        //
 
-const LS_KEY = 'sp-cli:settings:v2'
+const LS_KEY = 'sp-cli:settings:v3'
 
 const DEFAULTS = {
-    schema_version: 2,
+    schema_version: 3,
+    use_legacy_api: false,
     plugins: {
         docker:     { enabled: true  },
         podman:     { enabled: true  },
@@ -58,8 +59,15 @@ export function getAllPluginToggles()   { return _deepClone(_state.plugins) }
 export function getUIPanelVisible(p)   { return _state.ui_panels[p]?.visible ?? true }
 export function getDefault(key)        { return _state.defaults[key] }
 export function getAllDefaults()        { return _deepClone(_state.defaults) }
+export function getUseLegacyApi()      { return _state.use_legacy_api ?? false }
 
 // ── Writers ───────────────────────────────────────────────────────────────── //
+
+export async function setUseLegacyApi(val) {
+    _state.use_legacy_api = !!val
+    _dispatch('sp-cli:settings.use-legacy-api.changed', { use_legacy_api: !!val })
+    _persist()
+}
 
 export async function setPluginEnabled(name, enabled) {
     if (!_state.plugins[name]) _state.plugins[name] = {}
@@ -94,10 +102,12 @@ function _persist() {
 
 function _migrate(data) {
     const v = data.schema_version || 1
-    if (v === 2) return _mergeDefaults(data)
+    if (v === 3) return _mergeDefaults(data)
+    if (v === 2) return _mergeDefaults({ ...data, use_legacy_api: data.use_legacy_api ?? false })
     if (v === 1) {
         return {
-            schema_version: 2,
+            schema_version: 3,
+            use_legacy_api: false,
             plugins:        data.plugins   || _deepClone(DEFAULTS.plugins),
             ui_panels:      data.ui_panels || _deepClone(DEFAULTS.ui_panels),
             defaults: {
@@ -113,7 +123,8 @@ function _migrate(data) {
 
 function _mergeDefaults(data) {
     return {
-        schema_version: 2,
+        schema_version: 3,
+        use_legacy_api: data.use_legacy_api ?? false,
         plugins:   { ..._deepClone(DEFAULTS.plugins),   ...(data.plugins   || {}) },
         ui_panels: { ..._deepClone(DEFAULTS.ui_panels), ...(data.ui_panels || {}) },
         defaults:  { ..._deepClone(DEFAULTS.defaults),  ...(data.defaults  || {}) },

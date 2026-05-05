@@ -47,8 +47,8 @@ class SpCliElasticDetail extends SgComponent {
 
     async _fetchDetail(stack) {
         try {
-            const info = await apiClient.get(`/elastic/stack/${stack.stack_name}`)
-            if (!this._stack || this._stack.stack_name !== stack.stack_name) return
+            const info = await apiClient.get(`/elastic/stack/${stack.node_id}`)
+            if (!this._stack || this._stack.node_id !== stack.node_id) return
             const merged = { ...stack, ...info }
             this._header.setStack?.(merged)
             this._ssm.setStack?.(merged)

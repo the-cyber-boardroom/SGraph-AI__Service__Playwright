@@ -1,7 +1,7 @@
 // ── admin.js — Admin Dashboard page controller ──────────────────────────── //
 
-import { apiClient       } from '../shared/api-client.js'
-import { startSettingsBus } from '../shared/settings-bus.js'
+import { apiClient         } from '../shared/api-client.js'
+import { startSettingsBus, getUseLegacyApi } from '../shared/settings-bus.js'
 
 const ROOT_LAYOUT_KEY   = 'sp-cli:admin:root-layout:v2'
 const HOST_API_KEYS_KEY = 'sp-cli:host-api-keys'
@@ -33,10 +33,10 @@ document.addEventListener('DOMContentLoaded', async () => {
     let _currentView      = 'compute'
     let _currentViewTabId = null
     let _region           = ''
-    let _detailTabIds     = {}      // stack_name → panelId
-    let _detailTypeIds    = {}      // stack_name → type_id
-    let _launchTabIds     = {}      // type_id    → panelId
-    let _hostApiKeys      = _loadHostApiKeys()  // stack_name → api_key_value
+    let _detailTabIds     = {}      // node_id → panelId
+    let _detailTypeIds    = {}      // node_id → spec_id
+    let _launchTabIds     = {}      // spec_id → panelId
+    let _hostApiKeys      = _loadHostApiKeys()  // node_id → api_key_value
 
     startSettingsBus()
 
@@ -77,11 +77,11 @@ document.addEventListener('DOMContentLoaded', async () => {
     document.addEventListener('sp-cli:plugin.toggled', (e) => {
         const { name, enabled } = e.detail || {}
         if (enabled) return
-        for (const [stackName, tabId] of Object.entries(_detailTabIds)) {
-            if (_detailTypeIds[stackName] === name) {
+        for (const [nodeId, tabId] of Object.entries(_detailTabIds)) {
+            if (_detailTypeIds[nodeId] === name) {
                 _layoutEl?.removePanel(tabId)
-                delete _detailTabIds[stackName]
-                delete _detailTypeIds[stackName]
+                delete _detailTabIds[nodeId]
+                delete _detailTypeIds[nodeId]
                 _activity(`Closed ${name} detail (plugin disabled)`)
             }
         }
@@ -106,28 +106,29 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     document.addEventListener('sp-cli:node.launched', (e) => {
         const { response } = e.detail || {}
-        const stackName = response?.stack_info?.stack_name || response?.stack_name
-        const apiKey    = response?.api_key_value
-        if (stackName && apiKey) {
-            _hostApiKeys[stackName] = apiKey
+        const nodeId = response?.node_id || response?.stack_info?.stack_name || response?.stack_name
+        const apiKey = response?.api_key_value
+        if (nodeId && apiKey) {
+            _hostApiKeys[nodeId] = apiKey
             _saveHostApiKeys(_hostApiKeys)
         }
     })
 
     document.addEventListener('sp-cli:launch.success', (e) => {
         const { entry, response } = e.detail || {}
-        const stackName = response?.stack_info?.stack_name || response?.stack_name || '?'
-        _activity(`✓ Launched ${entry?.display_name}: ${stackName}`)
-        if (_launchTabIds[entry?.type_id]) {
-            _layoutEl?.removePanel(_launchTabIds[entry.type_id])
-            delete _launchTabIds[entry.type_id]
+        const nodeId  = response?.node_id || response?.stack_info?.stack_name || response?.stack_name || '?'
+        const specId  = entry?.spec_id || entry?.type_id
+        _activity(`✓ Launched ${entry?.display_name}: ${nodeId}`)
+        if (specId && _launchTabIds[specId]) {
+            _layoutEl?.removePanel(_launchTabIds[specId])
+            delete _launchTabIds[specId]
         }
         setTimeout(() => _loadData(), 1_000)
     })
     document.addEventListener('sp-cli:launch-success', (e) => {                                // compat
         const { entry, response } = e.detail || {}
-        const stackName = response?.stack_info?.stack_name || response?.stack_name || '?'
-        _activity(`✓ Launched ${entry?.display_name}: ${stackName}`)
+        const nodeId = response?.node_id || response?.stack_info?.stack_name || response?.stack_name || '?'
+        _activity(`✓ Launched ${entry?.display_name}: ${nodeId}`)
         setTimeout(() => _loadData(), 1_000)
     })
     document.addEventListener('sp-cli:launch.error', (e) => {
@@ -138,10 +139,10 @@ document.addEventListener('DOMContentLoaded', async () => {
     })
 
     document.addEventListener('sp-cli:launch.cancelled', (e) => {
-        const typeId = e.detail?.entry?.type_id
-        if (typeId && _launchTabIds[typeId]) {
-            _layoutEl?.removePanel(_launchTabIds[typeId])
-            delete _launchTabIds[typeId]
+        const specId = e.detail?.entry?.spec_id || e.detail?.entry?.type_id
+        if (specId && _launchTabIds[specId]) {
+            _layoutEl?.removePanel(_launchTabIds[specId])
+            delete _launchTabIds[specId]
         }
     })
 
@@ -150,15 +151,16 @@ document.addEventListener('DOMContentLoaded', async () => {
     document.addEventListener('sp-cli:stack.stop-requested', async (e) => {
         const stack = e.detail?.stack
         if (!stack) return
+        const nodeId = stack.node_id || stack.stack_name
         try {
-            await apiClient.delete(`/${stack.type_id}/stack/${stack.stack_name}`)
-            _activity(`🗑 Deleted ${stack.type_id} stack: ${stack.stack_name}`)
+            await apiClient.delete(`/api/nodes/${nodeId}`)
+            _activity(`🗑 Deleted ${stack.spec_id || stack.type_id} node: ${nodeId}`)
             document.dispatchEvent(new CustomEvent('sp-cli:stack.deleted', {
                 detail:  { stack },
                 bubbles: true, composed: true,
             }))
         } catch (err) {
-            _activity(`✗ Delete failed (${stack.stack_name}): ${err.message}`)
+            _activity(`✗ Delete failed (${nodeId}): ${err.message}`)
             document.dispatchEvent(new CustomEvent('sp-cli:stack.stop-failed', {
                 detail:  { stack, error: err.message },
                 bubbles: true, composed: true,
@@ -205,27 +207,30 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     function _openDetailTab(stack) {
         if (!stack || !_layoutEl || !_mainStackId) return
-        if (_detailTabIds[stack.stack_name]) {
-            _layoutEl.focusPanel(_detailTabIds[stack.stack_name])
+        const nodeId = stack.node_id || stack.stack_name
+        const specId = stack.spec_id || stack.type_id
+        if (_detailTabIds[nodeId]) {
+            _layoutEl.focusPanel(_detailTabIds[nodeId])
             return
         }
-        const displayType = _capitalize(stack.type_id)
+        const displayType = _capitalize(specId)
         const tabId = _layoutEl.addTabToStack(_mainStackId, {
-            tag:    `sp-cli-${stack.type_id}-detail`,
-            title:  `${displayType}: ${stack.stack_name}`,
+            tag:    `sp-cli-${specId}-detail`,
+            title:  `${displayType}: ${nodeId}`,
             locked: false,
         }, true)
         if (tabId) {
-            _detailTabIds[stack.stack_name]  = tabId
-            _detailTypeIds[stack.stack_name] = stack.type_id
+            _detailTabIds[nodeId]  = tabId
+            _detailTypeIds[nodeId] = specId
             _layoutEl.getPanelElement(tabId)?.open?.(stack)
         }
     }
 
     function _openLaunchTab(entry) {
         if (!entry || !_layoutEl || !_mainStackId) return
-        if (_launchTabIds[entry.type_id]) {
-            _layoutEl.focusPanel(_launchTabIds[entry.type_id])
+        const specId = entry.spec_id || entry.type_id
+        if (_launchTabIds[specId]) {
+            _layoutEl.focusPanel(_launchTabIds[specId])
             return
         }
         const tabId = _layoutEl.addTabToStack(_mainStackId, {
@@ -234,18 +239,20 @@ document.addEventListener('DOMContentLoaded', async () => {
             locked: false,
         }, true)
         if (tabId) {
-            _launchTabIds[entry.type_id] = tabId
+            _launchTabIds[specId] = tabId
             _layoutEl.getPanelElement(tabId)?.open?.(entry)
         }
     }
 
     function _onStackDeleted(stack) {
         if (!stack) return
-        _activity(`🗑 Deleted ${stack.type_id} stack: ${stack.stack_name}`)
-        if (_detailTabIds[stack.stack_name]) {
-            _layoutEl?.removePanel(_detailTabIds[stack.stack_name])
-            delete _detailTabIds[stack.stack_name]
-            delete _detailTypeIds[stack.stack_name]
+        const nodeId = stack.node_id || stack.stack_name
+        const specId = stack.spec_id || stack.type_id
+        _activity(`🗑 Deleted ${specId} node: ${nodeId}`)
+        if (_detailTabIds[nodeId]) {
+            _layoutEl?.removePanel(_detailTabIds[nodeId])
+            delete _detailTabIds[nodeId]
+            delete _detailTypeIds[nodeId]
         }
         _loadData()
     }
@@ -253,11 +260,16 @@ document.addEventListener('DOMContentLoaded', async () => {
     async function _loadData() {
         try {
             const regionParam = _region ? `?region=${encodeURIComponent(_region)}` : ''
-            const [catalogResp, stacksResp] = await Promise.all([
-                apiClient.get('/catalog/types'),
-                apiClient.get(`/catalog/stacks${regionParam}`),
+            const useLegacy   = getUseLegacyApi()
+            const specsUrl    = useLegacy ? '/catalog/types'                         : '/api/specs'
+            const nodesUrl    = useLegacy ? `/catalog/stacks${regionParam}`          : `/api/nodes${regionParam}`
+            const [catalogResp, nodesResp] = await Promise.all([
+                apiClient.get(specsUrl),
+                apiClient.get(nodesUrl),
             ])
-            _populatePanes(catalogResp?.entries || [], stacksResp?.stacks || [])
+            const specs = useLegacy ? (catalogResp?.entries || []) : (catalogResp?.specs || [])
+            const nodes = useLegacy ? (nodesResp?.stacks   || []) : (nodesResp?.nodes  || [])
+            _populatePanes(specs, nodes)
         } catch (err) {
             console.warn('[admin] data load failed:', err.message)
             if (err.message?.includes('Unauthenticated') || err.message?.includes('401')) {
@@ -267,10 +279,10 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 
     function _populatePanes(types, stacks) {
-        // Augment each stack with its stored host API key (captured on launch)
+        // Augment each node with its stored host API key (captured on launch)
         const augmented = stacks.map(s => ({
             ...s,
-            host_api_key: _hostApiKeys[s.stack_name] || s.host_api_key || '',
+            host_api_key: _hostApiKeys[s.node_id || s.stack_name] || s.host_api_key || '',
         }))
         document.querySelector('sp-cli-compute-view')?.setData?.({ types, stacks })
         document.querySelector('sp-cli-nodes-view')?.setStacks?.(augmented)
