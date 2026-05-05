@@ -77,6 +77,7 @@ class SgComputeNodesView extends SgComponent {
         this.$('.btn-refresh-ct')?.addEventListener('click', () => this._fetchContainers())
         this.$('.btn-collapse')?.addEventListener('click', () => this._toggleCollapse())
         this._tabs.forEach(t => t.addEventListener('click', () => this._activateTab(t.dataset.tab)))
+        this._initTabKeyNav()
         this._initResize()
 
         if (this._pendingStacks) {
@@ -301,11 +302,32 @@ class SgComputeNodesView extends SgComponent {
         } catch (_) {}
     }
 
+    _initTabKeyNav() {
+        const tablist = this.$('[role="tablist"]')
+        if (!tablist) return
+        this._tabs.forEach(t => t.setAttribute('tabindex', t.classList.contains('active') ? '0' : '-1'))
+        tablist.addEventListener('keydown', (e) => {
+            const focused = this.shadowRoot?.activeElement
+            const idx     = this._tabs.indexOf(focused)
+            if (idx === -1) return
+            let next = idx
+            if (e.key === 'ArrowRight') { next = (idx + 1) % this._tabs.length;                  e.preventDefault() }
+            if (e.key === 'ArrowLeft')  { next = (idx - 1 + this._tabs.length) % this._tabs.length; e.preventDefault() }
+            if (e.key === 'Home')       { next = 0;                                               e.preventDefault() }
+            if (e.key === 'End')        { next = this._tabs.length - 1;                           e.preventDefault() }
+            if (next !== idx) {
+                this._activateTab(this._tabs[next].dataset.tab)
+                this._tabs[next].focus()
+            }
+        })
+    }
+
     _activateTab(name) {
         this._tabs.forEach(t => {
             const active = t.dataset.tab === name
             t.classList.toggle('active', active)
             t.setAttribute('aria-selected', String(active))
+            t.setAttribute('tabindex', active ? '0' : '-1')
         })
         this._panels.forEach(p => {
             const active = p.dataset.panel === name
@@ -423,8 +445,8 @@ class SgComputeNodesView extends SgComponent {
 
         for (const c of pods) {
             // Schema__Pod__Info: pod_name / node_id / image / state / ports (string)
-            const name      = c.pod_name || c.name || ''
-            const state     = c.state    || c.status || ''
+            const name      = c.pod_name || ''
+            const state     = c.state   || ''
             const stateClass = podPillClass(state)
             const links = this._portLinks(c.ports, this._currentStack?.public_ip)
             const linksHtml = links.length

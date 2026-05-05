@@ -3,8 +3,7 @@
 import { apiClient    } from '../shared/api-client.js'
 import { startVaultBus } from '../shared/vault-bus.js'
 
-const LAYOUT_KEY  = 'sp-cli:user:layout'
-const MODAL_TAG   = 'sg-compute-launch-modal'
+const LAYOUT_KEY = 'sp-cli:user:layout'
 
 const USER_LAYOUT = {
     type: 'row', sizes: [1.0, 0.0],
@@ -37,12 +36,10 @@ document.addEventListener('DOMContentLoaded', async () => {
     document.addEventListener('sg-auth-saved',         () => _loadData())
     document.addEventListener('sp-cli:region-changed', (e) => { _region = e.detail?.region || ''; _loadData() })
 
-    document.addEventListener('sp-cli:user-launch', (e) => _openModal(e.detail?.entry))
-
     document.addEventListener('sp-cli:launch-success', (e) => {
         const { entry, response } = e.detail
-        const stackName = response?.stack_info?.stack_name || response?.stack_name || '?'
-        console.log('[user] launched', entry.display_name, stackName)
+        const nodeId = response?.node_id || '?'
+        console.log('[user] launched', entry.display_name, nodeId)
         setTimeout(() => _loadData(), 3000)
     })
 
@@ -72,11 +69,11 @@ document.addEventListener('DOMContentLoaded', async () => {
     async function _loadData() {
         try {
             const regionParam = _region ? `?region=${encodeURIComponent(_region)}` : ''
-            const [catalogResp, stacksResp] = await Promise.all([
-                apiClient.get('/catalog/types'),
-                apiClient.get(`/catalog/stacks${regionParam}`),
+            const [specsResp, nodesResp] = await Promise.all([
+                apiClient.get('/api/specs'),
+                apiClient.get(`/api/nodes${regionParam}`),
             ])
-            _populatePanes(catalogResp?.entries || [], stacksResp?.stacks || [])
+            _populatePanes(specsResp?.specs || [], nodesResp?.nodes || [])
         } catch (err) {
             console.warn('[user] data load failed:', err.message)
             if (err.message?.includes('Unauthenticated') || err.message?.includes('401')) {
@@ -91,12 +88,6 @@ document.addEventListener('DOMContentLoaded', async () => {
             userPane.setTypes(types)
             userPane.setStacks(stacks)
         }
-    }
-
-    function _openModal(entry) {
-        if (!entry) return
-        const modal = document.querySelector(MODAL_TAG)
-        modal?.open(entry)
     }
 
     function _loadLayout() {
