@@ -37,6 +37,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     let _detailTabIds     = {}      // node_id → panelId
     let _detailTypeIds    = {}      // node_id → spec_id
     let _launchTabIds     = {}      // spec_id → panelId
+    let _specDetailTabIds = {}      // spec_id → panelId (spec catalogue detail)
     let _hostApiKeys      = _loadHostApiKeys()  // node_id → api_key_value
 
     startSettingsBus()
@@ -60,6 +61,10 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (view === 'diagnostics') _toggleDiagnostics()
         else _switchView(view)
     })
+
+    // ── Spec catalogue interactions ───────────────────────────────────────── //
+
+    document.addEventListener('sp-cli:spec.selected',   (e) => _openSpecDetailTab(e.detail?.spec))
 
     // ── Stack interactions ────────────────────────────────────────────────── //
 
@@ -232,6 +237,25 @@ document.addEventListener('DOMContentLoaded', async () => {
             _detailTabIds[nodeId]  = tabId
             _detailTypeIds[nodeId] = specId
             _layoutEl.getPanelElement(tabId)?.open?.(stack)
+        }
+    }
+
+    function _openSpecDetailTab(spec) {
+        if (!spec || !_layoutEl || !_mainStackId) return
+        const specId = spec.spec_id
+        if (!specId) return
+        if (_specDetailTabIds[specId]) {
+            _layoutEl.focusPanel(_specDetailTabIds[specId])
+            return
+        }
+        const tabId = _layoutEl.addTabToStack(_mainStackId, {
+            tag:    'sg-compute-spec-detail',
+            title:  `Spec: ${spec.display_name || specId}`,
+            locked: false,
+        }, true)
+        if (tabId) {
+            _specDetailTabIds[specId] = tabId
+            _layoutEl.getPanelElement(tabId)?.open?.(spec)
         }
     }
 
