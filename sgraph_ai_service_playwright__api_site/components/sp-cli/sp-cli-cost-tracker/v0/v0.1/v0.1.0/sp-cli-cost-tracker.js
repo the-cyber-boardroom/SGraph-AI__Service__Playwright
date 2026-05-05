@@ -9,6 +9,7 @@
  */
 
 import { SgComponent } from 'https://dev.tools.sgraph.ai/components/base/v1/v1.0/v1.0.0/sg-component.js'
+import { isRunning   } from '../../../../../../shared/node-state.js'
 
 const HOURLY_RATES = { 't3.micro': 0.0104, 't3.small': 0.0208, 't3.medium': 0.0416, 't3.large': 0.0832, 't3.xlarge': 0.1664 }
 
@@ -31,7 +32,7 @@ class SpCliCostTracker extends SgComponent {
     }
 
     _render() {
-        const running = this._stacks.filter(s => (s.state || '').toLowerCase() === 'running')
+        const running = this._stacks.filter(s => isRunning(s.state))
         if (!this._rowsEl) return
         this._rowsEl.innerHTML = ''
         let total = 0

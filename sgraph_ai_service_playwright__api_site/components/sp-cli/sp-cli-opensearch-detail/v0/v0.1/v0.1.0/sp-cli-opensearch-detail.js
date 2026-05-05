@@ -1,5 +1,6 @@
 import { SgComponent } from 'https://dev.tools.sgraph.ai/components/base/v1/v1.0/v1.0.0/sg-component.js'
 import { apiClient   } from '../../../../../../shared/api-client.js'
+import { isRunning   } from '../../../../../../shared/node-state.js'
 import '../../../../_shared/sp-cli-stack-header/v0/v0.1/v0.1.0/sp-cli-stack-header.js'
 import '../../../../_shared/sp-cli-ssm-command/v0/v0.1/v0.1.0/sp-cli-ssm-command.js'
 import '../../../../_shared/sp-cli-network-info/v0/v0.1/v0.1.0/sp-cli-network-info.js'
@@ -44,7 +45,7 @@ class SpCliOpensearchDetail extends SgComponent {
             this._ssm.setStack?.(merged)
             this._net.setStack?.(merged)
             const ip = merged.public_ip
-            if (ip && (merged.state || '').toLowerCase() === 'running') {
+            if (ip && isRunning(merged.state)) {
                 const dashboards = `https://${ip}:5601`
                 const os         = `https://${ip}:9200`
                 if (this._dashboardsUrl) { this._dashboardsUrl.href = dashboards; this._dashboardsUrl.textContent = dashboards }

@@ -1,5 +1,11 @@
 /* ── admin.css — Admin Dashboard page styles ──────────────────────────────── */
 
+/* Node-state semantic colours (mirrors Enum__Node__State; used by global elements) */
+.state-ready, .state-running { color: var(--good); }
+.state-booting, .state-terminating, .state-pending { color: var(--warn); }
+.state-failed, .state-error { color: var(--bad); }
+.state-stopped, .state-terminated { color: var(--text-3); }
+
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 [hidden] { display: none !important; }
 

@@ -67,9 +67,10 @@
     border-radius: 3px;
     flex-shrink: 0;
 }
-.state-running { background: rgba(80,200,120,.2); color: #50c878; }
-.state-stopped { background: rgba(255,80,80,.2);  color: #ff5050; }
-.state-pending { background: rgba(244,185,66,.2); color: #f4b942; }
+.state-ready, .state-running { background: rgba(80,200,120,.2); color: #50c878; }
+.state-stopped, .state-terminated { background: rgba(255,80,80,.2);  color: #ff5050; }
+.state-failed                      { background: rgba(255,80,80,.2);  color: #ff5050; }
+.state-pending, .state-booting, .state-terminating { background: rgba(244,185,66,.2); color: #f4b942; }
 
 .stack-ip     { font-family: var(--sg-font-mono); color: var(--sg-text-muted); flex-shrink: 0; }
 .stack-uptime { color: var(--sg-text-muted); flex-shrink: 0; }

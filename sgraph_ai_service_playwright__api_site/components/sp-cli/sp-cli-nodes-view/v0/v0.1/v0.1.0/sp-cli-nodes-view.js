@@ -3,6 +3,7 @@ import '../../../../_shared/sp-cli-host-shell/v0/v0.1/v0.1.0/sp-cli-host-shell.j
 import '../../../../_shared/sp-cli-host-api-panel/v0/v0.1/v0.1.0/sp-cli-host-api-panel.js'
 import '../../../../_shared/sp-cli-stop-button/v0/v0.1/v0.1.0/sp-cli-stop-button.js'
 import { apiClient } from '../../../../../../shared/api-client.js'
+import { isRunning, nodePillClass, podPillClass } from '../../../../../../shared/node-state.js'
 
 const _EC2_CSS = new URL('../../../../../../shared/ec2-tokens.css', import.meta.url).href
 
@@ -95,15 +96,15 @@ class SpCliNodesView extends SgComponent {
         if (this._currentStack) {
             const updated = stacks.find(s => s.stack_name === this._currentStack.stack_name)
             if (updated) {
-                const wasRunning = this._currentStack.state === 'running'
+                const wasRunning = isRunning(this._currentStack.state)
                 this._currentStack = { ...this._currentStack, ...updated }
                 // update overview fields live
                 const stEl = this._infoKv?.querySelector('[data-kv="state"]')
                 if (stEl) stEl.textContent = updated.state
                 const upEl = this._infoKv?.querySelector('[data-kv="uptime"]')
                 if (upEl) upEl.textContent = _fmtUptime(updated.uptime_seconds)
-                // node just became running — stop the boot poll; sidecar is up
-                if (!wasRunning && updated.state === 'running') {
+                // node just became ready — stop the boot poll; sidecar is up
+                if (!wasRunning && isRunning(updated.state)) {
                     if (this._healthPollTimer) { clearInterval(this._healthPollTimer); this._healthPollTimer = null }
                     // now that sidecar is up, fetch boot log if that tab is active
                     const activePanel = this.shadowRoot.querySelector('.tab-panel.active')
@@ -126,7 +127,7 @@ class SpCliNodesView extends SgComponent {
         for (const s of stacks) {
             const row = document.createElement('div')
             row.className = 'node-row'
-            const stateClass = s.state === 'running' ? 'good' : s.state === 'stopped' ? 'bad' : 'warn'
+            const stateClass = nodePillClass(s.state)
             row.innerHTML = `
                 <span class="row-icon">${TYPE_ICONS[s.type_id] || '⬡'}</span>
                 <span class="row-name">${s.stack_name}</span>
@@ -247,11 +248,11 @@ class SpCliNodesView extends SgComponent {
         this._hostApi?.open?.(stack)
         this._activateTab('overview')
 
-        if (stack.state !== 'running') this._activateTab('bootlog')
+        if (!isRunning(stack.state)) this._activateTab('bootlog')
 
-        // Only poll for non-running nodes (SP CLI backend, same-origin) to detect
-        // state transitions. Running nodes don't need a background sidecar poll.
-        if (stack.state !== 'running') {
+        // Only poll for non-ready nodes (SP CLI backend, same-origin) to detect
+        // state transitions. Ready nodes don't need a background sidecar poll.
+        if (!isRunning(stack.state)) {
             this._healthPollTimer = setInterval(() => this._pollHealth(), 5000)
         }
 
@@ -272,8 +273,8 @@ class SpCliNodesView extends SgComponent {
         const s = this._currentStack
         if (!s) { clearInterval(this._healthPollTimer); this._healthPollTimer = null; return }
 
-        // Non-running: request a same-origin refresh — setStacks() will handle the transition
-        if (s.state !== 'running') {
+        // Non-ready: request a same-origin refresh — setStacks() will handle the transition
+        if (!isRunning(s.state)) {
             document.dispatchEvent(new CustomEvent('sp-cli:nodes.refresh', { bubbles: true, composed: true }))
             return
         }
@@ -306,8 +307,8 @@ class SpCliNodesView extends SgComponent {
         const key  = s?.host_api_key || ''
         if (!base || !this._blContent) return
 
-        // Sidecar not running yet — show placeholder, no cross-origin fetch
-        if (s?.state !== 'running') {
+        // Sidecar not up yet — show placeholder, no cross-origin fetch
+        if (!isRunning(s?.state)) {
             if (this._blStatus)  this._blStatus.textContent  = 'Waiting for sidecar…'
             if (this._blSource)  this._blSource.textContent  = ''
             if (this._blContent) this._blContent.textContent = '⏳ Node is booting — boot log will appear once the sidecar is up.'
@@ -407,7 +408,7 @@ class SpCliNodesView extends SgComponent {
         const hdrs = key ? { 'X-API-Key': key } : {}
 
         for (const c of pods) {
-            const stateClass = c.status === 'running' ? 'good' : c.status === 'exited' ? 'bad' : 'warn'
+            const stateClass = podPillClass(c.status)
             const links = this._portLinks(c.ports, this._currentStack?.public_ip)
             const linksHtml = links.length
                 ? `<div class="ct-ports">${links.map(l => `<a class="ct-port-link" href="${_esc(l.url)}" target="_blank" rel="noopener">${_esc(l.label)}</a>`).join('')}</div>`
