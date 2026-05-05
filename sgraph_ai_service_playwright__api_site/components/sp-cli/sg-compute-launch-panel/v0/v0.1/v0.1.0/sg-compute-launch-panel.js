@@ -42,6 +42,8 @@ class SgComputeLaunchPanel extends SgComponent {
 
     async _launch() {
         if (!this._entry || this._btnLaunch?.disabled) return
+        const valid = this._form?.validate?.() ?? true
+        if (!valid) return
         const values = this._form?.getValues?.() || {}
         if (!values.stack_name) { this._showError('Stack name is required.'); return }
 
@@ -52,6 +54,8 @@ class SgComputeLaunchPanel extends SgComponent {
             region:         values.region          || '',
             caller_ip:      '',
             public_ingress: values.public_ingress  ?? false,
+            creation_mode:  values.creation_mode   || 'fresh',
+            ami_id:         values.ami_id          || '',
         }
 
         this._setLoading(true)
