@@ -32,6 +32,7 @@ PR title: `phase-BV2.{N}: {short summary}`.
 | BV2.16 | [`BV2_16__storage-spec-integration.md`](BV2_16__storage-spec-integration.md) | Storage spec category + `s3_server` cross-repo discovery test | — |
 | BV2.17 | [`BV2_17__delete-container-aliases.md`](BV2_17__delete-container-aliases.md) | Delete `/containers/*` sidecar aliases (after FV2.8 ships) | After FV2.8 |
 | BV2.18 | [`BV2_18__testpypi-publish.md`](BV2_18__testpypi-publish.md) | TestPyPI publish + `RELEASE.md` | After all above |
+| BV2.19 | [`BV2_19__spec-ui-static-files.md`](BV2_19__spec-ui-static-files.md) | `StaticFiles` mount in `Fast_API__Compute` serving `sg_compute_specs/<id>/ui/` at `/api/specs/<id>/ui/` | After BV2.13; **blocks FV2.6** |
 
 ---
 
@@ -42,6 +43,7 @@ PR title: `phase-BV2.{N}: {short summary}`.
 - **BV2.13-BV2.14** raise the bar on spec quality (canonical layout, real test coverage, no mocks).
 - **BV2.15** locks the sidecar security model — Architect must lock the cookie + CORS decisions before this starts.
 - **BV2.16-BV2.18** deliver the v0.2 strategic adds: storage-spec category, alias cleanup post-frontend, public PyPI release validation.
+- **BV2.19** adds `StaticFiles` mount infrastructure so FV2.6 (per-spec UI co-location) can proceed. Gracefully no-ops for specs with no `ui/` folder — safe to ship before any spec migrates its UI.
 
 ---
 
