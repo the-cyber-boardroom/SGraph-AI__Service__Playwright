@@ -6,6 +6,8 @@
 # semantics don't survive the Lambda Function URL adapter).
 # ═══════════════════════════════════════════════════════════════════════════════
 
+from typing                                                                             import Optional
+
 from osbot_aws.helpers.Create_Image_ECR                                                 import Create_Image_ECR
 from osbot_utils.type_safe.Type_Safe                                                    import Type_Safe
 from osbot_utils.utils.Files                                                            import path_combine
@@ -20,7 +22,7 @@ class Docker__Agent_Mitmproxy__Base(Type_Safe):
 
     image_name       : str    = IMAGE_NAME
     path_images      : str    = ''
-    create_image_ecr : object = None                                                    # Create_Image_ECR — lazy init
+    create_image_ecr : Optional[Create_Image_ECR] = None
 
     def setup(self) -> 'Docker__Agent_Mitmproxy__Base':
         self.path_images      = path_combine(_pkg.path, 'docker/images')
