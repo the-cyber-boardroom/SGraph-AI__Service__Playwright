@@ -70,6 +70,7 @@ class Fast_API__Compute(Serverless__Fast_API):
     registry                  : Spec__Registry
     platform                  : Platform                                       # injected in tests; defaults to EC2__Platform in _mount_control_routes
     ui_root_override          : str = ''                                       # override spec ui root path for testing
+    readme_root_override      : str = ''                                       # override spec readme root path for testing
     dashboard_root_override   : str = ''                                       # override dashboard static path for testing
 
     def __init__(self, **kwargs):
@@ -161,7 +162,8 @@ class Fast_API__Compute(Serverless__Fast_API):
         assert vault_writer.vault_attached, 'vault writer must be attached' # defence-in-depth: catch any future removal of vault_attached=True
         ami_lister = self._live_ami_lister()
         self.add_routes(Routes__Compute__Health, prefix='/api/health', registry=self.registry)
-        self.add_routes(Routes__Compute__Specs , prefix='/api/specs' , registry=self.registry)
+        self.add_routes(Routes__Compute__Specs , prefix='/api/specs' , registry=self.registry,
+                                                                       readme_root_override=self.readme_root_override)
         self.add_routes(Routes__Compute__Nodes , prefix='/api/nodes' , platform=platform      )
         self.add_routes(Routes__Compute__Pods  , prefix='/api/nodes' , manager=pod_manager    )
         self.add_routes(Routes__Compute__Stacks, prefix='/api/stacks')

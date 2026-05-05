@@ -41,7 +41,7 @@ exclude = ["sg_compute_specs*tests*",
            "sg_compute_specs*docker*"]
 
 [tool.setuptools.package-data]
-sg_compute_specs = ["*/version", "playwright/core/version", "*/ui/**/*"]
+sg_compute_specs = ["*/version", "playwright/core/version", "*/ui/**/*", "*/README.md"]
 
 [build-system]
 requires      = ["setuptools>=68", "wheel"]
