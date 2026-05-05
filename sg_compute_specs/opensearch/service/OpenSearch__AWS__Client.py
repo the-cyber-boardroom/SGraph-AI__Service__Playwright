@@ -6,7 +6,6 @@ from osbot_utils.type_safe.Type_Safe                                            
 
 from sg_compute.platforms.ec2.helpers.Stack__Naming                            import Stack__Naming
 
-from typing import Optional
 
 
 TAG_PURPOSE_KEY    = 'sg:purpose'
@@ -21,11 +20,11 @@ OS_NAMING = Stack__Naming(section_prefix='opensearch')
 
 
 class OpenSearch__AWS__Client(Type_Safe):
-    sg       : Optional['OpenSearch__SG__Helper']       = None
-    ami      : Optional['OpenSearch__AMI__Helper']      = None
-    instance : Optional['OpenSearch__Instance__Helper'] = None
-    tags     : Optional['OpenSearch__Tags__Builder']    = None
-    launch   : Optional['OpenSearch__Launch__Helper']   = None
+    sg       : object = None
+    ami      : object = None
+    instance : object = None
+    tags     : object = None
+    launch   : object = None
 
     def setup(self) -> 'OpenSearch__AWS__Client':
         from sg_compute_specs.opensearch.service.OpenSearch__SG__Helper       import OpenSearch__SG__Helper

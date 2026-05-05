@@ -1,18 +1,4 @@
 # ═══════════════════════════════════════════════════════════════════════════════
-# SP CLI — Safe_Str__Vault__Handle
-# Type-safe slug identifying a vault blob within a plugin+stack namespace.
-# Allows: lowercase alphanumeric, hyphens, dots (e.g. 'credentials',
-# 'mitm-script', 'profile.tar.gz', 'credentials.json').
+# SHIM — migrated to sg_compute/vault/ (BV2.9). Delete in BV2.12.
 # ═══════════════════════════════════════════════════════════════════════════════
-
-import re
-
-from osbot_utils.type_safe.primitives.core.Safe_Str                          import Safe_Str
-from osbot_utils.type_safe.primitives.core.enums.Enum__Safe_Str__Regex_Mode  import Enum__Safe_Str__Regex_Mode
-
-
-class Safe_Str__Vault__Handle(Safe_Str):
-    max_length      = 128
-    regex           = re.compile(r'[^a-z0-9\-.]')
-    regex_mode      = Enum__Safe_Str__Regex_Mode.REPLACE
-    allow_empty     = True                           # default-constructible for Type_Safe fields
+from sg_compute.vault.primitives.Safe_Str__Vault__Handle import Safe_Str__Vault__Handle  # noqa: F401

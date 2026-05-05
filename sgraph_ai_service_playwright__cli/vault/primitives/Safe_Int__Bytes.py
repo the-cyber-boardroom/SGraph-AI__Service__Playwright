@@ -1,10 +1,4 @@
 # ═══════════════════════════════════════════════════════════════════════════════
-# SP CLI — Safe_Int__Bytes
-# Non-negative integer representing a byte count.
+# SHIM — migrated to sg_compute/vault/ (BV2.9). Delete in BV2.12.
 # ═══════════════════════════════════════════════════════════════════════════════
-
-from osbot_utils.type_safe.primitives.core.Safe_Int import Safe_Int
-
-
-class Safe_Int__Bytes(Safe_Int):
-    min_value = 0
+from sg_compute.vault.primitives.Safe_Int__Bytes import Safe_Int__Bytes  # noqa: F401

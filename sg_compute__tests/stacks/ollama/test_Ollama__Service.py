@@ -10,6 +10,13 @@ from sg_compute_specs.ollama.schemas.Schema__Ollama__Create__Request  import Sch
 from sg_compute_specs.ollama.schemas.Schema__Ollama__Create__Response import Schema__Ollama__Create__Response
 from sg_compute_specs.ollama.schemas.Schema__Ollama__Delete__Response import Schema__Ollama__Delete__Response
 from sg_compute_specs.ollama.schemas.Schema__Ollama__List             import Schema__Ollama__List
+from sg_compute.platforms.ec2.helpers.EC2__AMI__Helper               import EC2__AMI__Helper
+from sg_compute.platforms.ec2.helpers.EC2__Instance__Helper          import EC2__Instance__Helper
+from sg_compute.platforms.ec2.helpers.EC2__Launch__Helper            import EC2__Launch__Helper
+from sg_compute.platforms.ec2.helpers.EC2__SG__Helper                import EC2__SG__Helper
+from sg_compute.platforms.ec2.helpers.EC2__Tags__Builder             import EC2__Tags__Builder
+from sg_compute.platforms.ec2.networking.Caller__IP__Detector        import Caller__IP__Detector
+from sg_compute_specs.ollama.service.Ollama__AWS__Client              import Ollama__AWS__Client
 from sg_compute_specs.ollama.service.Ollama__Service                  import Ollama__Service
 from sg_compute_specs.ollama.service.Ollama__Stack__Mapper            import Ollama__Stack__Mapper
 from sg_compute_specs.ollama.service.Ollama__User_Data__Builder       import Ollama__User_Data__Builder
@@ -33,7 +40,7 @@ FAKE_INSTANCE = {
 }
 
 
-class _FakeSG:
+class _FakeSG(EC2__SG__Helper):
     def ensure_security_group(self, region, stack_name, caller_ip,
                                inbound_ports=None, extra_cidrs=None):
         return 'sg-fake-ol'
@@ -41,19 +48,19 @@ class _FakeSG:
         return True
 
 
-class _FakeAMI:
+class _FakeAMI(EC2__AMI__Helper):
     def latest_al2023_ami(self, region):
         return 'ami-ol-fake'
 
 
-class _FakeLaunch:
+class _FakeLaunch(EC2__Launch__Helper):
     def run_instance(self, region, ami_id, sg_id, user_data, tags,
                      instance_type='g4dn.xlarge', instance_profile='',
                      max_hours=0, key_name=''):
         return 'i-ol-fake-instance'
 
 
-class _FakeInstance:
+class _FakeInstance(EC2__Instance__Helper):
     def __init__(self, instances=None):
         self._instances = instances or {}
 
@@ -71,21 +78,21 @@ class _FakeInstance:
         return True
 
 
-class _FakeTags:
+class _FakeTags(EC2__Tags__Builder):
     def build(self, stack_name, caller_ip, creator='', extra_tags=None):
         return [{'Key': 'StackName', 'Value': stack_name}]
 
 
-class _FakeAWSClient:
+class _FakeAWSClient(Ollama__AWS__Client):
     def __init__(self, instances=None):
-        self.sg       = _FakeSG()
-        self.ami      = _FakeAMI()
-        self.launch   = _FakeLaunch()
-        self.tags     = _FakeTags()
-        self.instance = _FakeInstance(instances)
+        object.__setattr__(self, 'sg'      , _FakeSG()             )
+        object.__setattr__(self, 'ami'     , _FakeAMI()            )
+        object.__setattr__(self, 'launch'  , _FakeLaunch()         )
+        object.__setattr__(self, 'tags'    , _FakeTags()           )
+        object.__setattr__(self, 'instance', _FakeInstance(instances))
 
 
-class _FakeIPDetector:
+class _FakeIPDetector(Caller__IP__Detector):
     def detect(self):
         return '1.2.3.4'
 

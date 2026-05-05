@@ -14,7 +14,6 @@ from osbot_utils.type_safe.Type_Safe                                            
 
 from sg_compute.platforms.ec2.helpers.Stack__Naming                            import Stack__Naming
 
-from typing import Optional
 
 
 TAG_PURPOSE_KEY     = 'sg:purpose'
@@ -30,11 +29,11 @@ DOCKER_NAMING = Stack__Naming(section_prefix='docker')
 
 
 class Docker__AWS__Client(Type_Safe):
-    sg       : Optional['Docker__SG__Helper']       = None
-    ami      : Optional['Docker__AMI__Helper']      = None
-    instance : Optional['Docker__Instance__Helper'] = None
-    tags     : Optional['Docker__Tags__Builder']    = None
-    launch   : Optional['Docker__Launch__Helper']   = None
+    sg       : object = None
+    ami      : object = None
+    instance : object = None
+    tags     : object = None
+    launch   : object = None
 
     def setup(self) -> 'Docker__AWS__Client':
         from sg_compute_specs.docker.service.Docker__SG__Helper       import Docker__SG__Helper

@@ -1,7 +1,7 @@
 # Reality — SG/Compute Domain
 
 **Status:** ACTIVE — seeded in phase-1 (B1), foundations added in phase-2 (B2), pod management in BV2.3.
-**Last updated:** 2026-05-05 | **Phase:** BV2.7 (tier-1 __cli/ → sg_compute/ migration)
+**Last updated:** 2026-05-05 | **Phase:** BV2.9 (vault layer migration to sg_compute/vault/)
 
 ---
 
@@ -183,6 +183,28 @@
 | `api/routes/Routes__Docker__Stack.py` | endpoints at `/api/specs/docker/stack*` |
 | `tests/` | 31 unit tests (manifest, user_data_builder, tags_builder, stack_mapper) |
 
+### sg_compute/vault/ — EXISTS (BV2.9)
+
+| Class | Path | Description |
+|-------|------|-------------|
+| `Enum__Vault__Error_Code` | `vault/enums/Enum__Vault__Error_Code.py` | `NO_VAULT_ATTACHED / UNKNOWN_SPEC / DISALLOWED_HANDLE / PAYLOAD_TOO_LARGE` |
+| `Safe_Str__Spec__Type_Id` | `vault/primitives/Safe_Str__Spec__Type_Id.py` | spec slug; regex rejects chars outside `[a-z0-9\-_]` |
+| `Safe_Str__Stack__Id` | `vault/primitives/Safe_Str__Stack__Id.py` | node stack-id; `_shared` is the cross-node sentinel |
+| `Safe_Str__SHA256` | `vault/primitives/Safe_Str__SHA256.py` | 64-char hex |
+| `Safe_Str__ISO_Datetime` | `vault/primitives/Safe_Str__ISO_Datetime.py` | ISO-8601 datetime string |
+| `Safe_Str__Vault__Handle` | `vault/primitives/Safe_Str__Vault__Handle.py` | handle slug |
+| `Safe_Str__Vault__Path` | `vault/primitives/Safe_Str__Vault__Path.py` | vault storage path |
+| `Safe_Int__Bytes` | `vault/primitives/Safe_Int__Bytes.py` | non-negative byte count |
+| `Schema__Vault__Write__Receipt` | `vault/schemas/Schema__Vault__Write__Receipt.py` | `spec_id/stack_id/handle/bytes_written/sha256/written_at/vault_path` |
+| `List__Schema__Vault__Write__Receipt` | `vault/collections/List__Schema__Vault__Write__Receipt.py` | typed collection |
+| `List__Vault__Handle` | `vault/collections/List__Vault__Handle.py` | typed collection |
+| `Vault__Spec__Writer` | `vault/service/Vault__Spec__Writer.py` | `write/get_metadata/list_spec/delete`; `SHARED_STACK_ID='_shared'`; persistence stubbed |
+| `Routes__Vault__Spec` | `vault/api/routes/Routes__Vault__Spec.py` | `PUT/GET/DELETE /vault/spec/{spec_id}/{stack_id}/{handle}`; mounted at `/api/vault` on `Fast_API__Compute` |
+
+**Shims:** `sgraph_ai_service_playwright__cli/vault/` — 11 legacy files replaced with re-export shims for one-release backwards compatibility.
+
+---
+
 ### sg_compute/control_plane/ — EXISTS (B4 + BV2.3 + BV2.4)
 
 | Class | Path | Description |
@@ -203,7 +225,8 @@
 - Per-spec `Spec__Service__Base` common lifecycle base class
 - `Node__Identity` — node-id generation/parsing helper
 - Remaining legacy specs migrated to `sg_compute_specs/` (phases 3.1–3.8): linux, podman, vnc, neko, prometheus, opensearch, elastic, firefox
-- Vault-sourced sidecar API key (BV2.9)
+- Vault-sourced sidecar API key (follow-on to BV2.9; persistence stubbed)
+- Real vault I/O (BV2.x follow-on — `Vault__Spec__Writer.write/list/delete` currently stubbed)
 
 ---
 
@@ -211,6 +234,8 @@
 
 | Date | Change |
 |------|--------|
+| 2026-05-05 | BV2.9: sg_compute/vault/ created (13 files); plugin→spec rename; Routes__Vault__Spec mounted at /api/vault on Fast_API__Compute; 11 legacy shims; 313 tests passing |
+| 2026-05-05 | BV2.8: object=None → Optional[T] in 10 non-circular spec service files; 7 circular AWS__Client files kept object=None; Optional import added to 17 files |
 | 2026-05-05 | BV2.7: 14 new canonical modules in sg_compute (primitives, enums, event_bus, image); 46 spec files import-rewritten; CI guard added; 584 tests passing |
 | 2026-05-05 | FV2.8: dashboard confirmed zero `/containers/*` URL references; CSS comment updated to "Pods tab"; BV2.17 (sidecar alias deletion) now unblocked |
 | 2026-05-05 | BV2.5: `EC2__Platform.create_node` + `POST /api/nodes`; `Schema__Node__Create__Request__Base` (spec_id/node_name/region/instance_type/max_hours/caller_ip); docker only — others raise `NotImplementedError` |

@@ -3,6 +3,7 @@
 # Instance lookup, termination, SSM command execution, and Docker version query.
 # ═══════════════════════════════════════════════════════════════════════════════
 
+from typing import Optional
 import json
 import time
 

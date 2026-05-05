@@ -2,6 +2,7 @@
 # SG/Compute Specs — OpenSearch: OpenSearch__Instance__Helper
 # ═══════════════════════════════════════════════════════════════════════════════
 
+from typing import Optional
 import boto3
 
 from typing                                                                         import Dict, Optional

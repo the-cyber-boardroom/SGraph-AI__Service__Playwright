@@ -13,7 +13,6 @@ from osbot_utils.type_safe.Type_Safe                                            
 
 from sg_compute.platforms.ec2.helpers.Stack__Naming                            import Stack__Naming
 
-from typing import Optional
 
 
 TAG_PURPOSE_KEY      = 'sg:purpose'
@@ -31,11 +30,11 @@ VNC_NAMING = Stack__Naming(section_prefix='vnc')
 
 
 class Vnc__AWS__Client(Type_Safe):
-    sg       : Optional['Vnc__SG__Helper']       = None
-    ami      : Optional['Vnc__AMI__Helper']      = None
-    instance : Optional['Vnc__Instance__Helper'] = None
-    tags     : Optional['Vnc__Tags__Builder']    = None
-    launch   : Optional['Vnc__Launch__Helper']   = None
+    sg       : object = None
+    ami      : object = None
+    instance : object = None
+    tags     : object = None
+    launch   : object = None
 
     def setup(self) -> 'Vnc__AWS__Client':
         from sg_compute_specs.vnc.service.Vnc__SG__Helper       import Vnc__SG__Helper

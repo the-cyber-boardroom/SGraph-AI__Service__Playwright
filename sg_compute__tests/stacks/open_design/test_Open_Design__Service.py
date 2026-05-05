@@ -10,6 +10,13 @@ from sg_compute_specs.open_design.schemas.Schema__Open_Design__Create__Request  
 from sg_compute_specs.open_design.schemas.Schema__Open_Design__Create__Response import Schema__Open_Design__Create__Response
 from sg_compute_specs.open_design.schemas.Schema__Open_Design__Delete__Response import Schema__Open_Design__Delete__Response
 from sg_compute_specs.open_design.schemas.Schema__Open_Design__List             import Schema__Open_Design__List
+from sg_compute.platforms.ec2.helpers.EC2__AMI__Helper               import EC2__AMI__Helper
+from sg_compute.platforms.ec2.helpers.EC2__Instance__Helper          import EC2__Instance__Helper
+from sg_compute.platforms.ec2.helpers.EC2__Launch__Helper            import EC2__Launch__Helper
+from sg_compute.platforms.ec2.helpers.EC2__SG__Helper                import EC2__SG__Helper
+from sg_compute.platforms.ec2.helpers.EC2__Tags__Builder             import EC2__Tags__Builder
+from sg_compute.platforms.ec2.networking.Caller__IP__Detector                   import Caller__IP__Detector
+from sg_compute_specs.open_design.service.Open_Design__AWS__Client              import Open_Design__AWS__Client
 from sg_compute_specs.open_design.service.Open_Design__Service                  import Open_Design__Service
 from sg_compute_specs.open_design.service.Open_Design__Stack__Mapper            import Open_Design__Stack__Mapper
 from sg_compute_specs.open_design.service.Open_Design__User_Data__Builder       import Open_Design__User_Data__Builder
@@ -32,26 +39,26 @@ FAKE_INSTANCE = {
 }
 
 
-class _FakeSG:
+class _FakeSG(EC2__SG__Helper):
     def ensure_security_group(self, region, stack_name, caller_ip, inbound_ports=None):
         return 'sg-fake'
     def delete_security_group(self, region, sg_id):
         return True
 
 
-class _FakeAMI:
+class _FakeAMI(EC2__AMI__Helper):
     def latest_al2023_ami(self, region):
         return 'ami-fake'
 
 
-class _FakeLaunch:
+class _FakeLaunch(EC2__Launch__Helper):
     def run_instance(self, region, ami_id, sg_id, user_data, tags,
                      instance_type='t3.large', instance_profile='',
                      max_hours=0, key_name=''):
         return 'i-fake-instance'
 
 
-class _FakeInstance:
+class _FakeInstance(EC2__Instance__Helper):
     def __init__(self, instances=None):
         self._instances = instances or {}
 
@@ -69,21 +76,21 @@ class _FakeInstance:
         return True
 
 
-class _FakeTags:
+class _FakeTags(EC2__Tags__Builder):
     def build(self, stack_name, caller_ip, creator='', extra_tags=None):
         return [{'Key': 'StackName', 'Value': stack_name}]
 
 
-class _FakeAWSClient:
+class _FakeAWSClient(Open_Design__AWS__Client):
     def __init__(self, instances=None):
-        self.sg       = _FakeSG()
-        self.ami      = _FakeAMI()
-        self.launch   = _FakeLaunch()
-        self.tags     = _FakeTags()
-        self.instance = _FakeInstance(instances)
+        object.__setattr__(self, 'sg'      , _FakeSG()             )
+        object.__setattr__(self, 'ami'     , _FakeAMI()            )
+        object.__setattr__(self, 'launch'  , _FakeLaunch()         )
+        object.__setattr__(self, 'tags'    , _FakeTags()           )
+        object.__setattr__(self, 'instance', _FakeInstance(instances))
 
 
-class _FakeIPDetector:
+class _FakeIPDetector(Caller__IP__Detector):
     def detect(self):
         return '9.9.9.9'
 

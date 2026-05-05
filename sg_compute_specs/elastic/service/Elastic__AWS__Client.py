@@ -2,6 +2,7 @@
 # SG/Compute Specs — Elastic: Elastic__AWS__Client
 # ═══════════════════════════════════════════════════════════════════════════════
 
+from typing import Optional
 import json
 import time
 from datetime                                                                       import datetime, timezone

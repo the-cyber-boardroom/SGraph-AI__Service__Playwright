@@ -11,6 +11,7 @@
 # serialise the registry for GET /metrics.
 # ═══════════════════════════════════════════════════════════════════════════════
 
+from typing import Optional
 from typing                                                                          import Optional
 
 from prometheus_client                                                               import CollectorRegistry, Counter, Histogram, generate_latest, CONTENT_TYPE_LATEST

@@ -2,6 +2,7 @@
 # SG/Compute Specs — Neko: Neko__Instance__Helper
 # ═══════════════════════════════════════════════════════════════════════════════
 
+from typing import Optional
 import boto3                                                                        # EXCEPTION — narrow boto3 boundary
 
 from typing                                                                         import Dict, Optional

@@ -2,6 +2,7 @@
 # SG/Compute Specs — Neko: Neko__Launch__Helper
 # ═══════════════════════════════════════════════════════════════════════════════
 
+from typing import Optional
 import base64
 
 from typing                                                                         import List, Optional

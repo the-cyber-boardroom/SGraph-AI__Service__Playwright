@@ -8,6 +8,7 @@
 #   /api/specs              Routes__Compute__Specs    (catalogue + per-spec info)
 #   /api/nodes              Routes__Compute__Nodes    (cross-spec node list)
 #   /api/stacks             Routes__Compute__Stacks   (cross-spec stack list)
+#   /api/vault              Routes__Vault__Spec       (per-spec vault write/list/delete)
 #   /api/specs/{spec_id}/*  per-spec Routes__*__Stack (discovered by convention)
 # ═══════════════════════════════════════════════════════════════════════════════
 
@@ -26,6 +27,8 @@ from sg_compute.core.spec.Spec__Loader                                       imp
 from sg_compute.core.spec.Spec__Registry                                     import Spec__Registry
 from sg_compute.platforms.Platform                                            import Platform
 from sg_compute.platforms.exceptions.Exception__AWS__No_Credentials          import Exception__AWS__No_Credentials
+from sg_compute.vault.api.routes.Routes__Vault__Spec                         import Routes__Vault__Spec
+from sg_compute.vault.service.Vault__Spec__Writer                            import Vault__Spec__Writer
 
 
 class Fast_API__Compute(Fast_API):
@@ -54,11 +57,13 @@ class Fast_API__Compute(Fast_API):
     def _mount_control_routes(self):
         platform    = self._live_platform()
         pod_manager = self._live_pod_manager()
+        vault_writer = Vault__Spec__Writer(spec_registry=self.registry)
         self.add_routes(Routes__Compute__Health, prefix='/api/health', registry=self.registry)
         self.add_routes(Routes__Compute__Specs , prefix='/api/specs' , registry=self.registry)
         self.add_routes(Routes__Compute__Nodes , prefix='/api/nodes' , platform=platform      )
         self.add_routes(Routes__Compute__Pods  , prefix='/api/nodes' , manager=pod_manager   )
         self.add_routes(Routes__Compute__Stacks, prefix='/api/stacks')
+        self.add_routes(Routes__Vault__Spec    , prefix='/api/vault' , service=vault_writer  )
 
     @staticmethod
     def _live_pod_manager() -> Pod__Manager:

@@ -14,7 +14,6 @@ from osbot_utils.type_safe.Type_Safe                                            
 
 from sg_compute.platforms.ec2.helpers.Stack__Naming                            import Stack__Naming
 
-from typing import Optional
 
 
 TAG_PURPOSE_KEY     = 'sg:purpose'
@@ -30,11 +29,11 @@ PODMAN_NAMING = Stack__Naming(section_prefix='podman')
 
 
 class Podman__AWS__Client(Type_Safe):
-    sg       : Optional['Podman__SG__Helper']       = None
-    ami      : Optional['Podman__AMI__Helper']      = None
-    instance : Optional['Podman__Instance__Helper'] = None
-    tags     : Optional['Podman__Tags__Builder']    = None
-    launch   : Optional['Podman__Launch__Helper']   = None
+    sg       : object = None
+    ami      : object = None
+    instance : object = None
+    tags     : object = None
+    launch   : object = None
 
     def setup(self) -> 'Podman__AWS__Client':
         from sg_compute_specs.podman.service.Podman__SG__Helper       import Podman__SG__Helper

@@ -3,6 +3,7 @@
 # Instance lookup, termination, SSM command execution, and Podman version query.
 # ═══════════════════════════════════════════════════════════════════════════════
 
+from typing import Optional
 import time
 
 import boto3                                                                        # EXCEPTION — narrow boto3 boundary

@@ -2,6 +2,7 @@
 # SG/Compute Specs — OpenSearch: OpenSearch__Launch__Helper
 # ═══════════════════════════════════════════════════════════════════════════════
 
+from typing import Optional
 import base64
 
 from typing                                                                         import List, Optional

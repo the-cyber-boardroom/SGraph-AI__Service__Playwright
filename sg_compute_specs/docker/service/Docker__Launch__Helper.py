@@ -3,6 +3,7 @@
 # Calls ec2.run_instances for a Docker node.
 # ═══════════════════════════════════════════════════════════════════════════════
 
+from typing import Optional
 import base64
 
 from typing                                                                         import List, Optional

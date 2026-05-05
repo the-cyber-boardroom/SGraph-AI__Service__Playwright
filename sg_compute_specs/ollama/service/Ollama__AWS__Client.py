@@ -3,6 +3,7 @@
 # Composition shell wiring the per-concern AWS helpers for the ollama stack.
 # ═══════════════════════════════════════════════════════════════════════════════
 
+from typing import Optional
 from osbot_utils.type_safe.Type_Safe import Type_Safe
 
 from sg_compute.platforms.ec2.helpers.EC2__AMI__Helper      import EC2__AMI__Helper
