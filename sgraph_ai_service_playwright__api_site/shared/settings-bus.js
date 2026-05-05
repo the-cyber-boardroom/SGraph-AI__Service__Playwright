@@ -8,16 +8,7 @@ const LS_KEY = 'sp-cli:settings:v3'
 const DEFAULTS = {
     schema_version: 3,
     use_legacy_api: false,
-    plugins: {
-        docker:     { enabled: true  },
-        podman:     { enabled: true  },
-        elastic:    { enabled: true  },
-        vnc:        { enabled: true  },
-        prometheus: { enabled: false },
-        opensearch: { enabled: false },
-        neko:       { enabled: true  },
-        firefox:    { enabled: true  },
-    },
+    plugins: {},   // populated from catalogue on sp-cli:catalogue.loaded
     ui_panels: {
         events_log:      { visible: true },
         vault_status:    { visible: true },
@@ -136,3 +127,19 @@ function _dispatch(name, detail) {
 }
 
 function _deepClone(obj) { return JSON.parse(JSON.stringify(obj)) }
+
+// When the catalogue loads, ensure every spec has a plugin toggle (enabled by default).
+// This replaces the old hardcoded DEFAULTS.plugins list.
+document.addEventListener('sp-cli:catalogue.loaded', (e) => {
+    let changed = false
+    for (const spec of (e.detail?.specs || [])) {
+        if (!_state.plugins[spec.spec_id]) {
+            _state.plugins[spec.spec_id] = { enabled: true }
+            changed = true
+        }
+    }
+    if (changed) {
+        _persist()
+        _dispatch('sp-cli:plugin.toggled', {})
+    }
+})
