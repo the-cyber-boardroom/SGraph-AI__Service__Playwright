@@ -11,6 +11,8 @@ from sg_compute.core.node.schemas.Schema__Node__Delete__Response             imp
 from sg_compute.core.node.schemas.Schema__Node__Info                         import Schema__Node__Info
 from sg_compute.core.node.schemas.Schema__Node__List                         import Schema__Node__List
 from sg_compute.core.spec.schemas.Schema__Spec__Manifest__Entry              import Schema__Spec__Manifest__Entry
+from sg_compute.primitives.Safe_Str__AWS__Region                             import Safe_Str__AWS__Region
+from sg_compute.primitives.Safe_Str__Node__Id                                import Safe_Str__Node__Id
 
 
 class Platform(Type_Safe):
@@ -24,11 +26,11 @@ class Platform(Type_Safe):
                     spec    : Schema__Spec__Manifest__Entry) -> Schema__Node__Info:
         raise NotImplementedError(f'{self.__class__.__name__}.create_node')
 
-    def list_nodes(self, region: str = '') -> Schema__Node__List:
+    def list_nodes(self, region: Safe_Str__AWS__Region = Safe_Str__AWS__Region()) -> Schema__Node__List:
         raise NotImplementedError(f'{self.__class__.__name__}.list_nodes')
 
-    def get_node(self, node_id: str) -> 'Schema__Node__Info | None':
+    def get_node(self, node_id: Safe_Str__Node__Id) -> 'Schema__Node__Info | None':
         raise NotImplementedError(f'{self.__class__.__name__}.get_node')
 
-    def delete_node(self, node_id: str) -> Schema__Node__Delete__Response:
+    def delete_node(self, node_id: Safe_Str__Node__Id) -> Schema__Node__Delete__Response:
         raise NotImplementedError(f'{self.__class__.__name__}.delete_node')

@@ -15,6 +15,8 @@ from osbot_fast_api.api.routes.Fast_API__Routes                               im
 
 from sg_compute.core.node.schemas.Schema__Node__Create__Request__Base         import Schema__Node__Create__Request__Base
 from sg_compute.platforms.Platform                                             import Platform
+from sg_compute.primitives.Safe_Str__AWS__Region                              import Safe_Str__AWS__Region
+from sg_compute.primitives.Safe_Str__Node__Id                                 import Safe_Str__Node__Id
 
 DEFAULT_REGION = 'eu-west-2'
 
@@ -27,7 +29,7 @@ class Routes__Compute__Nodes(Fast_API__Routes):
     platform : Platform
 
     def list_nodes(self, region: str = DEFAULT_REGION) -> dict:               # GET /api/nodes
-        return self.platform.list_nodes(region).json()
+        return self.platform.list_nodes(Safe_Str__AWS__Region(region)).json()
     list_nodes.__route_path__ = ''
 
     def create_node(self, body: Schema__Node__Create__Request__Base) -> dict: # POST /api/nodes
@@ -36,14 +38,14 @@ class Routes__Compute__Nodes(Fast_API__Routes):
     create_node.__route_path__ = ''
 
     def get_node(self, node_id: str, region: str = DEFAULT_REGION) -> dict:   # GET /api/nodes/{node_id}
-        node = self.platform.get_node(node_id, region)
+        node = self.platform.get_node(Safe_Str__Node__Id(node_id), Safe_Str__AWS__Region(region))
         if node is None:
             raise HTTPException(status_code=404, detail=f'Node {node_id!r} not found in {region}')
         return node.json()
     get_node.__route_path__ = '/{node_id}'
 
     def delete_node(self, node_id: str, region: str = DEFAULT_REGION) -> dict: # DELETE /api/nodes/{node_id}
-        result = self.platform.delete_node(node_id, region)
+        result = self.platform.delete_node(Safe_Str__Node__Id(node_id), Safe_Str__AWS__Region(region))
         if not result.deleted:
             raise HTTPException(status_code=404, detail=result.message)
         return result.json()

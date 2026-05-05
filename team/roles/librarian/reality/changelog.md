@@ -6,6 +6,42 @@ This is a pointer log, not a content log. For full delta detail, see the master 
 
 ---
 
+## 2026-05-05 (T2.2b — Firefox credentials + mitm-script routes)
+
+- `sg-compute/index.md` — UPDATED: `Schema__Firefox__Credentials__Response`, `Schema__Firefox__Mitm__Script__Response`, `Firefox__SSM__Helper` added to firefox spec. `Firefox__Service` gains `set_credentials` + `upload_mitm_script`. `Routes__Firefox__Stack` gains `PUT /{node_id}/credentials` + `PUT /{node_id}/mitm-script`. `Cli__Firefox` `NotImplementedError` removed; both CLI commands fully wired.
+
+---
+
+## 2026-05-05 (BV__caller-ip-endpoint)
+
+- `sg-compute/index.md` — UPDATED: `Schema__Caller__IP` added to `sg_compute/catalog/schemas/`; `Routes__Compute__Catalog` added to control plane routes (`GET /catalog/caller-ip`); `/catalog/caller-ip` added to `_AUTH_FREE_PATHS`. Frontend: `sg-compute-launch-form._seedCallerIp()` calls backend on remote hosts; "Find my public IP" link removed.
+
+---
+
+## 2026-05-05 (BV__spec-readme-endpoint)
+
+- `sg-compute/index.md` — UPDATED: `Spec__Readme__Resolver` added to `core/spec/` table; `Routes__Compute__Specs` description updated with `GET /api/specs/{spec_id}/readme`; `Fast_API__Compute` `readme_root_override` field added. `sg_compute_specs/firefox/README.md` created. `sg_compute_specs/pyproject.toml` includes `*/README.md` in package-data.
+
+---
+
+## 2026-05-05 (T2.7b — docstring sweep complete)
+
+- `sg-compute/index.md` — NO CHANGE (no new code, only style/format cleanup): all `"""..."""` template string constants converted to `'''...'''` across `sg_compute/platforms/ec2/user_data/` (Section__*) and `sg_compute_specs/*/service/` builders and templates (28 files). Method docstrings deleted from `Cli__Firefox`, `Browser__Launcher`, `Playwright__Service`. `grep -rln '^\s*"""' sg_compute/ sg_compute_specs/` → zero hits.
+
+---
+
+## 2026-05-05 (T2.6c — pod schema primitives + spec-side service sweep)
+
+- `sg-compute/index.md` — UPDATED: 5 new primitives (`Safe_Str__Docker__Image`, `Safe_Str__Log__Content`, `Safe_Int__Log__Lines`, `Safe_Int__Pids`, `Safe_Int__Max__Hours`); all 5 pod schemas fully typed; `Pod__Manager` schema construction sites wrap sidecar values; `Docker__Service`, `Podman__Service`, `Vnc__Service` public methods typed; 3 `*__User_Data__Builder.render()` typed; `EC2__Platform.create_node` wraps SSM path.
+
+---
+
+## 2026-05-05 (T2.6b PARTIAL — Safe_Str public method signatures)
+
+- `sg-compute/index.md` — UPDATED: `Pod__Manager` public methods typed with `Safe_Str__Node__Id`/`Safe_Str__Pod__Name`; `Platform` + `EC2__Platform` public methods typed; routes wrap Safe_Str before calling manager/platform. Schema fields + spec-side deferred to T2.6c.
+
+---
+
 ## 2026-05-05 (T2.4b — vault production wiring fixed)
 
 - `sg-compute/index.md` — UPDATED: `Vault__Spec__Writer` description updated; `vault_attached=True` now wired in `Fast_API__Compute._mount_control_routes`; route test prefix fixed to `/api/vault`; "persistence stubbed" removed from description.

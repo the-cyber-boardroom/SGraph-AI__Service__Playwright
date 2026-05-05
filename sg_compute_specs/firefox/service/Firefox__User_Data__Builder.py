@@ -30,7 +30,7 @@ PLACEHOLDERS = ('stack_name', 'region', 'log_file', 'firefox_dir', 'mitm_data_di
                 'user_js_file', 'user_js', 'env_file', 'env_source',
                 'sidecar_section', 'shutdown_section')
 
-COMPOSE_TEMPLATE = """\
+COMPOSE_TEMPLATE = '''\
 services:
   firefox:
     image: {firefox_image}
@@ -68,9 +68,9 @@ services:
       --listen-host 0.0.0.0
       --listen-port {mitm_proxy_port}
       --scripts /interceptors/active.py
-"""
+'''
 
-USER_JS_TEMPLATE = """\
+USER_JS_TEMPLATE = '''\
 // proxy: mitmproxy (docker-compose internal network)
 user_pref("network.proxy.type",          1);
 user_pref("network.proxy.http",          "mitmproxy");
@@ -81,15 +81,15 @@ user_pref("network.proxy.no_proxies_on", "localhost,127.0.0.1");
 user_pref("app.update.auto",             false);
 user_pref("app.update.enabled",          false);
 user_pref("extensions.update.enabled",   false);
-"""
+'''
 
-SHUTDOWN_SECTION_TEMPLATE = """\
+SHUTDOWN_SECTION_TEMPLATE = '''\
 # ── Auto-terminate after {max_hours}h ──────────────────────────────────────────
 systemd-run --on-active={max_hours}h /sbin/shutdown -h now
 echo "[sg-firefox] auto-terminate timer started: {max_hours}h from now"
-"""
+'''
 
-USER_DATA_TEMPLATE = """\
+USER_DATA_TEMPLATE = '''\
 #!/usr/bin/env bash
 set -euo pipefail
 exec > >(tee -a {log_file}) 2>&1
@@ -165,7 +165,7 @@ docker compose up -d firefox
 {sidecar_section}
 {shutdown_section}
 echo "[sg-firefox] boot complete at $(date -u +%FT%TZ)"
-"""
+'''
 
 
 class Firefox__User_Data__Builder(Type_Safe):
@@ -174,12 +174,13 @@ class Firefox__User_Data__Builder(Type_Safe):
                      region            : str,
                      password          : str,
                      interceptor_source: str,
-                     interceptor_kind  : str = 'none',
-                     env_source        : str = ''    ,
-                     max_hours         : int = 1     ,
-                     registry          : str = ''    ,
-                     api_key_name      : str = 'X-API-Key',
-                     api_key_ssm_path     : str = ''    ) -> str:
+                     interceptor_kind  : str  = 'none',
+                     env_source        : str  = ''    ,
+                     max_hours         : int  = 1     ,
+                     registry          : str  = ''    ,
+                     api_key_name      : str  = 'X-API-Key',
+                     api_key_ssm_path  : str  = ''    ,
+                     enable_shell      : bool = False ) -> str:
 
         compose_yaml     = COMPOSE_TEMPLATE.format(
             firefox_image         = FIREFOX_IMAGE        ,
@@ -194,9 +195,10 @@ class Firefox__User_Data__Builder(Type_Safe):
             password              = password             )
         user_js          = USER_JS_TEMPLATE.format(mitm_proxy_port=MITM_PROXY_PORT)
         shutdown_section = SHUTDOWN_SECTION_TEMPLATE.format(max_hours=max_hours) if max_hours > 0 else ''
-        sidecar_section  = Section__Sidecar().render(registry      = registry      ,
-                                                     api_key_name  = api_key_name  ,
-                                                     api_key_ssm_path = api_key_ssm_path )
+        sidecar_section  = Section__Sidecar().render(registry         = registry         ,
+                                                     api_key_name     = api_key_name     ,
+                                                     api_key_ssm_path = api_key_ssm_path ,
+                                                     enable_shell     = enable_shell     )
 
         return USER_DATA_TEMPLATE.format(
             stack_name         = stack_name         ,

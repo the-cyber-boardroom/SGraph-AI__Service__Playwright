@@ -8,8 +8,12 @@
 
 from osbot_utils.type_safe.Type_Safe                                          import Type_Safe
 
+from sg_compute.primitives.Safe_Str__Docker__Image import Safe_Str__Docker__Image
+from sg_compute.primitives.Safe_Str__Pod__Name     import Safe_Str__Pod__Name
+from sg_compute.primitives.Safe_Str__Spec__Id      import Safe_Str__Spec__Id
+
 
 class Schema__Pod__Start__Request(Type_Safe):
-    name    : str = ''
-    image   : str = ''
-    type_id : str = ''
+    name    : Safe_Str__Pod__Name    = Safe_Str__Pod__Name()
+    image   : Safe_Str__Docker__Image = Safe_Str__Docker__Image()
+    type_id : Safe_Str__Spec__Id     = Safe_Str__Spec__Id()

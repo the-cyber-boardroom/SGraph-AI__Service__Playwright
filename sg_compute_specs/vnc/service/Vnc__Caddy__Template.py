@@ -11,17 +11,17 @@ CADDY_SECURITY_VERSION  = 'v1.1.30'
 CADDY_LOCAL_IMAGE_TAG   = 'sg-vnc/caddy:local'
 
 
-CADDY_DOCKERFILE = """\
+CADDY_DOCKERFILE = '''\
 FROM {builder_image} AS builder
 RUN xcaddy build \\
     --with github.com/greenpau/caddy-security@{caddy_security_version}
 
 FROM {runtime_image}
 COPY --from=builder /usr/bin/caddy /usr/bin/caddy
-"""
+'''
 
 
-CADDYFILE_TEMPLATE = """\
+CADDYFILE_TEMPLATE = '''\
 {{
     order authenticate before respond
     order authorize    before basicauth
@@ -85,10 +85,10 @@ CADDYFILE_TEMPLATE = """\
         reverse_proxy chromium:3000
     }}
 }}
-"""
+'''
 
 
-USERS_JSON_TEMPLATE = """\
+USERS_JSON_TEMPLATE = '''\
 {{
   "users": [
     {{
@@ -108,7 +108,7 @@ USERS_JSON_TEMPLATE = """\
   ],
   "revision": 1
 }}
-"""
+'''
 
 
 class Vnc__Caddy__Template(Type_Safe):

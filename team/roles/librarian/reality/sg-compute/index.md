@@ -25,8 +25,18 @@
 | `Safe_Str__Node__Id` | `primitives/Safe_Str__Node__Id.py` |
 | `Safe_Str__Pod__Name` | `primitives/Safe_Str__Pod__Name.py` |
 | `Safe_Str__Stack__Id` | `primitives/Safe_Str__Stack__Id.py` |
+| `Safe_Str__Stack__Name` | `primitives/Safe_Str__Stack__Name.py` |
 | `Safe_Str__Platform__Name` | `primitives/Safe_Str__Platform__Name.py` |
 | `Safe_Str__AWS__Region` | `primitives/Safe_Str__AWS__Region.py` | Canonical AWS region — regex `^[a-z]{2}-[a-z]+-\d+$`, allow_empty=True |
+| `Safe_Str__SSM__Path` | `primitives/Safe_Str__SSM__Path.py` | SSM parameter path — regex `^[a-zA-Z0-9/_.\-]*$`, allow_empty=True |
+| `Safe_Str__Image__Registry` | `primitives/Safe_Str__Image__Registry.py` | Docker/ECR registry hostname — allow_empty=True |
+| `Safe_Str__Docker__Image` | `primitives/Safe_Str__Docker__Image.py` | Full image ref (`registry/repo:tag`, `repo@sha256:digest`) — T2.6c |
+| `Safe_Str__Log__Content` | `primitives/Safe_Str__Log__Content.py` | Multi-line log text — no regex, 1 MB cap — T2.6c |
+| `Safe_Str__Message` | `primitives/Safe_Str__Message.py` | Short human-readable message/error — max 512, no regex |
+| `Safe_Int__Hours` | `primitives/Safe_Int__Hours.py` | Node lifetime in hours — min=1, max=168 |
+| `Safe_Int__Max__Hours` | `primitives/Safe_Int__Max__Hours.py` | Max node lifetime (0=no auto-terminate) — min=0, max=168 — T2.6c |
+| `Safe_Int__Log__Lines` | `primitives/Safe_Int__Log__Lines.py` | Log line count — min=0 — T2.6c |
+| `Safe_Int__Pids` | `primitives/Safe_Int__Pids.py` | Container PID count — min=0 — T2.6c |
 
 ### sg_compute/primitives/enums/ — EXISTS
 
@@ -49,6 +59,7 @@
 | `Spec__Resolver` | `core/spec/Spec__Resolver.py` | DAG validation + topological sort for composition |
 | `Spec__Loader` | `core/spec/Spec__Loader.py` | Discovers specs from `sg_compute_specs/*/manifest.py` and PEP 621 entry points |
 | `Spec__UI__Resolver` | `core/spec/Spec__UI__Resolver.py` | Resolves `sg_compute_specs/{spec_id}/ui/` path; `ui_root_override` for tests |
+| `Spec__Readme__Resolver` | `core/spec/Spec__Readme__Resolver.py` | Resolves `sg_compute_specs/{spec_id}/README.md` path; `readme_root_override` for tests — BV__spec-readme-endpoint |
 
 ### sg_compute/core/node/ — EXISTS
 
@@ -62,19 +73,20 @@
 | `Schema__Stack__Info` (legacy) | `core/node/schemas/Schema__Stack__Info.py` | Kept for spec mapper backwards compat |
 | `Node__Manager` | `core/node/Node__Manager.py` | Delegates to Platform; accepts a Fake__Platform in tests |
 
-### sg_compute/core/pod/ — EXISTS (BV2.3)
+### sg_compute/core/pod/ — EXISTS (BV2.3 + T2.6b/T2.6c: fully typed)
 
 | Class | Path | Description |
 |-------|------|-------------|
-| `Schema__Pod__Info` | `core/pod/schemas/Schema__Pod__Info.py` | `pod_name/node_id/image/state/ports` |
+| `Schema__Pod__Info` | `core/pod/schemas/Schema__Pod__Info.py` | `pod_name: Safe_Str__Pod__Name`, `node_id: Safe_Str__Node__Id`, `image: Safe_Str__Docker__Image`, `state`, `ports: Safe_Str__Message` |
 | `Schema__Pod__List` | `core/pod/schemas/Schema__Pod__List.py` | `pods: List[Schema__Pod__Info]` |
-| `Schema__Pod__Logs__Response` | `core/pod/schemas/Schema__Pod__Logs__Response.py` | `container/lines/content/truncated` |
-| `Schema__Pod__Stop__Response` | `core/pod/schemas/Schema__Pod__Stop__Response.py` | `name/stopped/removed/error` |
-| `Schema__Pod__Start__Request` | `core/pod/schemas/Schema__Pod__Start__Request.py` | `name/image/type_id` (ports/env omitted — Type_Safe__Dict not Pydantic-serialisable) |
+| `Schema__Pod__Stats` | `core/pod/schemas/Schema__Pod__Stats.py` | `container: Safe_Str__Pod__Name`, float metrics, `pids: Safe_Int__Pids` |
+| `Schema__Pod__Logs__Response` | `core/pod/schemas/Schema__Pod__Logs__Response.py` | `container: Safe_Str__Pod__Name`, `lines: Safe_Int__Log__Lines`, `content: Safe_Str__Log__Content`, `truncated: bool` |
+| `Schema__Pod__Stop__Response` | `core/pod/schemas/Schema__Pod__Stop__Response.py` | `name: Safe_Str__Pod__Name`, `stopped/removed: bool`, `error: Safe_Str__Message` |
+| `Schema__Pod__Start__Request` | `core/pod/schemas/Schema__Pod__Start__Request.py` | `name: Safe_Str__Pod__Name`, `image: Safe_Str__Docker__Image`, `type_id: Safe_Str__Spec__Id` (ports/env omitted — Type_Safe__Dict not Pydantic-serialisable) |
 | `Dict__Pod__Ports` | `core/pod/collections/Dict__Pod__Ports.py` | `Type_Safe__Dict[str→str]` |
 | `Dict__Pod__Env` | `core/pod/collections/Dict__Pod__Env.py` | `Type_Safe__Dict[str→str]` |
 | `Sidecar__Client` | `core/pod/Sidecar__Client.py` | HTTP adapter for one node's `:19009` sidecar; `list/get/logs/start/stop/remove` |
-| `Pod__Manager` | `core/pod/Pod__Manager.py` | Bridge: `node_id → public_ip → Sidecar__Client`; translates sidecar dicts to typed schemas |
+| `Pod__Manager` | `core/pod/Pod__Manager.py` | Bridge: `node_id → public_ip → Sidecar__Client`; public methods typed `Safe_Str__Node__Id`/`Safe_Str__Pod__Name`; schema construction wraps sidecar values explicitly |
 
 ### sg_compute/core/stack/ — EXISTS (placeholders)
 
@@ -218,7 +230,7 @@
 | `Routes__Ec2__Playwright` | `control_plane/legacy_routes/Routes__Ec2__Playwright.py` | Moved from `fast_api/routes/`; shim left at old path |
 | `Routes__Observability` | `control_plane/legacy_routes/Routes__Observability.py` | Moved from `fast_api/routes/`; shim left at old path |
 | `Routes__Compute__Health` | `control_plane/routes/Routes__Compute__Health.py` | `GET /api/health`, `GET /api/health/ready` |
-| `Routes__Compute__Specs` | `control_plane/routes/Routes__Compute__Specs.py` | `GET /api/specs`, `GET /api/specs/{spec_id}` |
+| `Routes__Compute__Specs` | `control_plane/routes/Routes__Compute__Specs.py` | `GET /api/specs`, `GET /api/specs/{spec_id}`, `GET /api/specs/{spec_id}/readme` (text/markdown; 404 if absent) |
 | `Routes__Compute__Nodes` | `control_plane/routes/Routes__Compute__Nodes.py` | `GET /api/nodes`, `GET /api/nodes/{node_id}`, `POST /api/nodes`, `DELETE /api/nodes/{node_id}`; `POST` calls `EC2__Platform.create_node` (docker spec only; others raise `NotImplementedError`) |
 | `Routes__Compute__Pods` | `control_plane/routes/Routes__Compute__Pods.py` | 6 pod endpoints under `/api/nodes/{node_id}/pods/*`; constructor injection of `Pod__Manager` |
 | `Routes__Compute__AMIs` | `control_plane/routes/Routes__Compute__AMIs.py` | `GET /api/amis?spec_id=<id>` → `Schema__AMI__List__Response`; delegates to `AMI__Lister` |
@@ -278,6 +290,7 @@ All dashboard web components live under `sgraph_ai_service_playwright__api_site/
 | 2026-05-05 | BV2.10: Fast_API__SP__CLI sub-app mounted at /legacy in Fast_API__Compute (auth preserved); ASGI wrapper injects X-Deprecated: true; run_sp_cli.py → Fast_API__Compute; 356 passing under python3.12 |
 | 2026-05-05 | FV2.6 (all 8 specs): ui/{card,detail}/v0/v0.1/v0.1.0/ created in sg_compute_specs for docker, podman, vnc, neko, prometheus, opensearch, elastic, firefox; 48 files moved; api_site/plugins/ deleted; detail imports → absolute /ui/ paths; admin/index.html → /api/specs/<id>/ui/ |
 | 2026-05-05 | BV2.19: Spec__UI__Resolver + StaticFiles mount at /api/specs/{spec_id}/ui; ui_root_override for tests; sg_compute_specs/*/ui/**/* in pyproject.toml include; 322 tests passing |
+| 2026-05-05 | T2.6b (PARTIAL): Pod__Manager public methods typed (Safe_Str__Node__Id/Safe_Str__Pod__Name); Platform + EC2__Platform public methods typed (Safe_Str__Node__Id/Safe_Str__AWS__Region); routes wrap Safe_Str before calling manager/platform; tests updated; schema fields + spec-side deferred to T2.6c |
 | 2026-05-05 | T2.4b: vault_attached=True wired in Fast_API__Compute._mount_control_routes; route test prefix fixed to /api/vault; production PUT path unblocked |
 | 2026-05-05 | BV2.9: sg_compute/vault/ created (13 files); plugin→spec rename; Routes__Vault__Spec mounted at /api/vault on Fast_API__Compute; 11 legacy shims; 313 tests passing |
 | 2026-05-05 | BV2.8: object=None → Optional[T] in 10 non-circular spec service files; 7 circular AWS__Client files kept object=None; Optional import added to 17 files |

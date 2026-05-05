@@ -12,6 +12,10 @@ from sg_compute.catalog.enums.Enum__Stack__Type              import Enum__Stack_
 from sg_compute.core.event_bus.Event__Bus                    import event_bus
 from sg_compute.core.event_bus.schemas.Schema__Stack__Event  import Schema__Stack__Event
 from sg_compute.platforms.ec2.collections.List__Instance__Id           import List__Instance__Id
+from sg_compute.primitives.Safe_Str__AWS__Region             import Safe_Str__AWS__Region
+from sg_compute.primitives.Safe_Str__Message                 import Safe_Str__Message
+from sg_compute.primitives.Safe_Str__SSM__Path               import Safe_Str__SSM__Path
+from sg_compute.primitives.Safe_Str__Stack__Name             import Safe_Str__Stack__Name
 
 from sg_compute_specs.vnc.collections.List__Schema__Vnc__Mitm__Flow__Summary        import List__Schema__Vnc__Mitm__Flow__Summary
 from sg_compute_specs.vnc.collections.List__Schema__Vnc__Stack__Info                import List__Schema__Vnc__Stack__Info
@@ -119,7 +123,7 @@ class Vnc__Service(Type_Safe):
             interceptor_name  = label                                     ,
             state             = Enum__Vnc__Stack__State.PENDING           )
 
-    def create_node(self, base_request, api_key_ssm_path: str = '') -> 'Schema__Node__Info':
+    def create_node(self, base_request, api_key_ssm_path: Safe_Str__SSM__Path = Safe_Str__SSM__Path()) -> 'Schema__Node__Info':
         from sg_compute.core.node.schemas.Schema__Node__Info import Schema__Node__Info
         from sg_compute.primitives.enums.Enum__Node__State   import Enum__Node__State
         vnc_req = Schema__Vnc__Stack__Create__Request(
@@ -143,7 +147,7 @@ class Vnc__Service(Type_Safe):
             host_api_key_ssm_path= api_key_ssm_path          ,
         )
 
-    def list_stacks(self, region: str) -> Schema__Vnc__Stack__List:
+    def list_stacks(self, region: Safe_Str__AWS__Region) -> Schema__Vnc__Stack__List:
         region = region or DEFAULT_REGION
         raw    = self.aws_client.instance.list_stacks(region)
         stacks = List__Schema__Vnc__Stack__Info()
@@ -151,11 +155,11 @@ class Vnc__Service(Type_Safe):
             stacks.append(self.mapper.to_info(details, region))
         return Schema__Vnc__Stack__List(region=region, stacks=stacks)
 
-    def get_stack_info(self, region: str, stack_name: str) -> Optional[Schema__Vnc__Stack__Info]:
+    def get_stack_info(self, region: Safe_Str__AWS__Region, stack_name: Safe_Str__Stack__Name) -> Optional[Schema__Vnc__Stack__Info]:
         details = self.aws_client.instance.find_by_stack_name(region, stack_name)
         return self.mapper.to_info(details, region) if details else None
 
-    def delete_stack(self, region: str, stack_name: str) -> Schema__Vnc__Stack__Delete__Response:
+    def delete_stack(self, region: Safe_Str__AWS__Region, stack_name: Safe_Str__Stack__Name) -> Schema__Vnc__Stack__Delete__Response:
         details = self.aws_client.instance.find_by_stack_name(region, stack_name)
         if not details:
             return Schema__Vnc__Stack__Delete__Response()
@@ -172,7 +176,8 @@ class Vnc__Service(Type_Safe):
         return Schema__Vnc__Stack__Delete__Response(target=instance_id, stack_name=stack_name,
                                                      terminated_instance_ids=terminated)
 
-    def health(self, region: str, stack_name: str, username: str = '', password: str = '') -> Schema__Vnc__Health:
+    def health(self, region: Safe_Str__AWS__Region, stack_name: Safe_Str__Stack__Name,
+               username: Safe_Str__Message = Safe_Str__Message(), password: Safe_Str__Message = Safe_Str__Message()) -> Schema__Vnc__Health:
         info = self.get_stack_info(region, stack_name)
         if info is None or not str(info.public_ip):
             return Schema__Vnc__Health(stack_name=stack_name, error='instance not running or no public IP')
@@ -188,7 +193,8 @@ class Vnc__Service(Type_Safe):
                                     mitmweb_ok = mitmweb_ok ,
                                     flow_count = flow_count )
 
-    def flows(self, region: str, stack_name: str, username: str = '', password: str = '') -> List__Schema__Vnc__Mitm__Flow__Summary:
+    def flows(self, region: Safe_Str__AWS__Region, stack_name: Safe_Str__Stack__Name,
+              username: Safe_Str__Message = Safe_Str__Message(), password: Safe_Str__Message = Safe_Str__Message()) -> List__Schema__Vnc__Mitm__Flow__Summary:
         info = self.get_stack_info(region, stack_name)
         out  = List__Schema__Vnc__Mitm__Flow__Summary()
         if info is None or not str(info.public_ip):

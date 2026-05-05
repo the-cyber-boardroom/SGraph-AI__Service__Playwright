@@ -18,14 +18,14 @@ WEBRTC_PORT_FROM = 52000
 WEBRTC_PORT_TO   = 52100
 
 
-CADDYFILE_TEMPLATE = """\
+CADDYFILE_TEMPLATE = '''\
 :443 {{
   tls {caddy_certs_dir}/neko.crt {caddy_certs_dir}/neko.key
   reverse_proxy neko:8080
 }}
-"""
+'''
 
-COMPOSE_TEMPLATE = """\
+COMPOSE_TEMPLATE = '''\
 services:
   neko:
     image: {neko_image}
@@ -56,9 +56,9 @@ services:
       - {caddy_dir}/config:/config
     depends_on:
       - neko
-"""
+'''
 
-USER_DATA_TEMPLATE = """\
+USER_DATA_TEMPLATE = '''\
 #!/usr/bin/env bash
 set -euo pipefail
 exec > >(tee -a {log_file}) 2>&1
@@ -115,7 +115,7 @@ docker compose up -d
 
 {sidecar_section}
 echo "[sg-neko] boot complete at $(date -u +%FT%TZ)"
-"""
+'''
 
 
 PLACEHOLDERS = ('stack_name', 'region', 'log_file',

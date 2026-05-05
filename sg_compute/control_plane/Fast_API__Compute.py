@@ -43,6 +43,7 @@ from osbot_fast_api_serverless.fast_api.Serverless__Fast_API                  im
 
 from sg_compute.control_plane.Spec__Routes__Loader                           import Spec__Routes__Loader
 from sg_compute.control_plane.routes.Routes__Compute__AMIs                   import Routes__Compute__AMIs
+from sg_compute.control_plane.routes.Routes__Compute__Catalog                import Routes__Compute__Catalog
 from sg_compute.control_plane.routes.Routes__Compute__Health                 import Routes__Compute__Health
 from sg_compute.control_plane.routes.Routes__Compute__Nodes                  import Routes__Compute__Nodes
 from sg_compute.control_plane.routes.Routes__Compute__Pods                   import Routes__Compute__Pods
@@ -56,7 +57,8 @@ from sg_compute.platforms.exceptions.Exception__AWS__No_Credentials          imp
 from sg_compute.vault.api.routes.Routes__Vault__Spec                         import Routes__Vault__Spec
 from sg_compute.vault.service.Vault__Spec__Writer                            import Vault__Spec__Writer
 
-_AUTH_FREE_PATHS = {'/api/health', '/api/health/ready'}                        # load-balancer / Lambda probes; no X-API-Key required
+_AUTH_FREE_PATHS = {'/api/health', '/api/health/ready',
+                    '/catalog/caller-ip'}                                      # health probes + IP detection (reveals caller's own IP only)
 
 
 class _Middleware__Health_Bypass(Middleware__Check_API_Key):                   # Auth-free exemption for health probes
@@ -70,6 +72,7 @@ class Fast_API__Compute(Serverless__Fast_API):
     registry                  : Spec__Registry
     platform                  : Platform                                       # injected in tests; defaults to EC2__Platform in _mount_control_routes
     ui_root_override          : str = ''                                       # override spec ui root path for testing
+    readme_root_override      : str = ''                                       # override spec readme root path for testing
     dashboard_root_override   : str = ''                                       # override dashboard static path for testing
 
     def __init__(self, **kwargs):
@@ -158,14 +161,17 @@ class Fast_API__Compute(Serverless__Fast_API):
         pod_manager = self._live_pod_manager()
         vault_writer = Vault__Spec__Writer(spec_registry=self.registry,
                                             vault_attached=True)            # in-memory store for v0.2.x; real vault wiring tracked in v0.3
+        assert vault_writer.vault_attached, 'vault writer must be attached' # defence-in-depth: catch any future removal of vault_attached=True
         ami_lister = self._live_ami_lister()
-        self.add_routes(Routes__Compute__Health, prefix='/api/health', registry=self.registry)
-        self.add_routes(Routes__Compute__Specs , prefix='/api/specs' , registry=self.registry)
-        self.add_routes(Routes__Compute__Nodes , prefix='/api/nodes' , platform=platform      )
-        self.add_routes(Routes__Compute__Pods  , prefix='/api/nodes' , manager=pod_manager    )
-        self.add_routes(Routes__Compute__Stacks, prefix='/api/stacks')
-        self.add_routes(Routes__Compute__AMIs  , prefix='/api/amis'  , lister=ami_lister      )
-        self.add_routes(Routes__Vault__Spec    , prefix='/api/vault' , service=vault_writer   )
+        self.add_routes(Routes__Compute__Health  , prefix='/api/health', registry=self.registry)
+        self.add_routes(Routes__Compute__Specs  , prefix='/api/specs' , registry=self.registry,
+                                                                         readme_root_override=self.readme_root_override)
+        self.add_routes(Routes__Compute__Nodes  , prefix='/api/nodes' , platform=platform     )
+        self.add_routes(Routes__Compute__Pods   , prefix='/api/nodes' , manager=pod_manager   )
+        self.add_routes(Routes__Compute__Stacks , prefix='/api/stacks')
+        self.add_routes(Routes__Compute__AMIs   , prefix='/api/amis'  , lister=ami_lister     )
+        self.add_routes(Routes__Vault__Spec     , prefix='/api/vault' , service=vault_writer  )
+        self.add_routes(Routes__Compute__Catalog, prefix='/catalog'                           )
 
     @staticmethod
     def _live_ami_lister():

@@ -18,6 +18,9 @@ from sg_compute.platforms.Platform                                            im
 from sg_compute.platforms.ec2.secrets.SSM__Sidecar__Key                      import SSM__Sidecar__Key
 from sg_compute.platforms.exceptions.Exception__AWS__No_Credentials          import Exception__AWS__No_Credentials
 from sg_compute.primitives.enums.Enum__Node__State                           import Enum__Node__State
+from sg_compute.primitives.Safe_Str__AWS__Region                             import Safe_Str__AWS__Region
+from sg_compute.primitives.Safe_Str__Node__Id                                import Safe_Str__Node__Id
+from sg_compute.primitives.Safe_Str__SSM__Path                               import Safe_Str__SSM__Path
 
 
 class EC2__Platform(Platform):
@@ -59,7 +62,7 @@ class EC2__Platform(Platform):
             host_api_key_ssm_path= SSM__Sidecar__Key.path_for(node_id)                         ,
         )
 
-    def list_nodes(self, region: str = 'eu-west-2') -> Schema__Node__List:
+    def list_nodes(self, region: Safe_Str__AWS__Region = Safe_Str__AWS__Region()) -> Schema__Node__List:
         from sg_compute.platforms.ec2.helpers.EC2__Instance__Helper import EC2__Instance__Helper
         region = region or 'eu-west-2'
         try:
@@ -71,13 +74,13 @@ class EC2__Platform(Platform):
         nodes = [self._raw_to_node_info(raw, region) for raw in raw_nodes.values()]
         return Schema__Node__List(nodes=nodes, total=len(nodes), region=region)
 
-    def get_node(self, node_id: str, region: str = 'eu-west-2') -> 'Schema__Node__Info | None':
+    def get_node(self, node_id: Safe_Str__Node__Id, region: Safe_Str__AWS__Region = Safe_Str__AWS__Region('eu-west-2')) -> 'Schema__Node__Info | None':
         from sg_compute.platforms.ec2.helpers.EC2__Instance__Helper import EC2__Instance__Helper
         region = region or 'eu-west-2'
         raw    = EC2__Instance__Helper().find_by_sg_stack_name(region, node_id)
         return self._raw_to_node_info(raw, region) if raw else None
 
-    def delete_node(self, node_id: str, region: str = 'eu-west-2') -> Schema__Node__Delete__Response:
+    def delete_node(self, node_id: Safe_Str__Node__Id, region: Safe_Str__AWS__Region = Safe_Str__AWS__Region('eu-west-2')) -> Schema__Node__Delete__Response:
         from sg_compute.platforms.ec2.helpers.EC2__Instance__Helper import EC2__Instance__Helper
         region  = region or 'eu-west-2'
         helper  = EC2__Instance__Helper()
@@ -97,7 +100,7 @@ class EC2__Platform(Platform):
         ssm_path     = SSM__Sidecar__Key.path_for(node_name or 'pending')
         SSM__Sidecar__Key().write(node_name or 'pending', api_key)             # written before EC2 launch so boot script can read it
         svc = self._service_for(request.spec_id)
-        return svc.create_node(request, api_key_ssm_path=ssm_path)
+        return svc.create_node(request, api_key_ssm_path=Safe_Str__SSM__Path(ssm_path))
 
     @staticmethod
     def _service_for(spec_id: str):

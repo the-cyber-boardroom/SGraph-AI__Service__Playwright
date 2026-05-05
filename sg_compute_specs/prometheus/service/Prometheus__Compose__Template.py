@@ -11,7 +11,7 @@ NODE_EXPORTER_IMAGE = 'prom/node-exporter:latest'
 PROMETHEUS_RETENTION = '24h'
 
 
-COMPOSE_TEMPLATE = """\
+COMPOSE_TEMPLATE = '''\
 services:
   prometheus:
     image: {prom_image}
@@ -50,7 +50,7 @@ services:
 networks:
   sg-net:
     driver: bridge
-"""
+'''
 
 
 PLACEHOLDERS = ('prom_image', 'cadvisor_image', 'node_exporter_image', 'retention')  # Locked by test

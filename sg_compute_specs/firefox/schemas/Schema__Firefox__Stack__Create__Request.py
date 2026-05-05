@@ -21,4 +21,5 @@ class Schema__Firefox__Stack__Create__Request(Type_Safe):
     interceptor   : Schema__Firefox__Interceptor__Choice
     env_source    : Safe_Str__Firefox__Interceptor__Source
     allowed_cidr  : Safe_Str__Text
-    max_hours     : int = 1
+    max_hours     : int  = 1
+    enable_shell  : bool = False         # when True, disables the shell command allowlist on the sidecar
