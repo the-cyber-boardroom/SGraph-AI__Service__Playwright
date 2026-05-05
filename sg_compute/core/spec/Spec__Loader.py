@@ -35,7 +35,6 @@ class Spec__Loader(Type_Safe):
         return results
 
     def _load_from_package(self) -> List[Schema__Spec__Manifest__Entry]:
-        """Walk sg_compute_specs/ looking for manifest.py files."""
         try:
             import sg_compute_specs as _pkg
         except ImportError:
@@ -61,7 +60,6 @@ class Spec__Loader(Type_Safe):
         return results
 
     def _load_from_entry_points(self) -> List[Schema__Spec__Manifest__Entry]:
-        """Load specs advertised via PEP 621 entry points group 'sg_compute.specs'."""
         try:
             from importlib.metadata import entry_points
             group = entry_points(group='sg_compute.specs')

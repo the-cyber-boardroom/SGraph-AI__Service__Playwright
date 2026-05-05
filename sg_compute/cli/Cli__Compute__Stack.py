@@ -22,5 +22,5 @@ app = typer.Typer(no_args_is_help=True,
 
 @app.command()
 def list(region: Optional[str] = typer.Option('', '--region', '-r', help='AWS region (default: eu-west-2).')):
-    """List all active multi-node stacks."""
+
     render_stack_list(Schema__Stack__List(), Console(highlight=False, width=200))

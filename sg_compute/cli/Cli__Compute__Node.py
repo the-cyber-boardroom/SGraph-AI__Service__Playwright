@@ -31,7 +31,7 @@ def _platform():
 
 @app.command()
 def list(region: str = typer.Option(DEFAULT_REGION, '--region', '-r', help='AWS region.')):
-    """List all active compute nodes."""
+
     try:
         listing = _platform().list_nodes(region)
         render_node_list(listing, Console(highlight=False, width=200))
@@ -45,7 +45,7 @@ def list(region: str = typer.Option(DEFAULT_REGION, '--region', '-r', help='AWS 
 @app.command()
 def info(node_id: str = typer.Argument(..., help='Node identifier (stack name).'),
          region : str = typer.Option(DEFAULT_REGION, '--region', '-r', help='AWS region.')):
-    """Show details for one compute node."""
+
     node = _platform().get_node(node_id, region)
     if node is None:
         typer.echo(f'Node {node_id!r} not found in {region}', err=True)
@@ -57,7 +57,7 @@ def info(node_id: str = typer.Argument(..., help='Node identifier (stack name).'
 def delete(node_id: str = typer.Argument(..., help='Node identifier (stack name).'),
            region : str  = typer.Option(DEFAULT_REGION, '--region', '-r', help='AWS region.'),
            yes    : bool = typer.Option(False,           '--yes',    '-y', help='Skip confirmation.')):
-    """Terminate a compute node."""
+
     if not yes:
         typer.confirm(f'Delete node {node_id!r} in {region}?', abort=True)
     result = _platform().delete_node(node_id, region)
@@ -76,7 +76,7 @@ def create(spec_id      : str = typer.Argument(..., help='Spec identifier (docke
            registry     : str = typer.Option('',             '--registry',            help='ECR registry host (enables host control plane sidecar).'),
            api_key      : str = typer.Option('',             '--api-key',             help='Host control plane API key (auto-generated if empty).'),
            name         : str = typer.Option('',             '--name',                help='Override stack name (auto-generated if empty).')):
-    """Create a new compute node running the given spec."""
+
     _DISPATCHERS = {
         'docker'     : lambda: _create_docker     (region, instance_type, max_hours, registry, api_key, name),
         'podman'     : lambda: _create_podman     (region, instance_type, max_hours, name),
