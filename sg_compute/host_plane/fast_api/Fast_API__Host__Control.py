@@ -26,6 +26,7 @@ from sg_compute.host_plane.fast_api.exception_handlers                         i
 from sg_compute.host_plane.fast_api.routes.Routes__Host__Auth                  import Routes__Host__Auth
 from sg_compute.host_plane.fast_api.routes.Routes__Host__Containers            import Routes__Host__Containers
 from sg_compute.host_plane.fast_api.routes.Routes__Host__Docs                  import Routes__Host__Docs
+from sg_compute.host_plane.fast_api.routes.Routes__Host__Images                import Routes__Host__Images
 from sg_compute.host_plane.fast_api.routes.Routes__Host__Logs                  import Routes__Host__Logs
 from sg_compute.host_plane.fast_api.routes.Routes__Host__Pods                  import Routes__Host__Pods
 from sg_compute.host_plane.fast_api.routes.Routes__Host__Shell                 import Routes__Host__Shell
@@ -91,6 +92,7 @@ class Fast_API__Host__Control(Serverless__Fast_API):
         self.add_routes(Routes__Host__Auth      )
         self.add_routes(Routes__Host__Containers)
         self.add_routes(Routes__Host__Docs      )
+        self.add_routes(Routes__Host__Images    )
         self.add_routes(Routes__Host__Logs      )
         self.add_routes(Routes__Host__Pods      )
         self.add_routes(Routes__Host__Shell     )
