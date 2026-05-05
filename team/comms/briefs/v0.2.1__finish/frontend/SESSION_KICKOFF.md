@@ -24,9 +24,12 @@ Expect: zero hits in active code. If anything turns up, file a frontend follow-u
 
 Also: open the dashboard in a browser; click into a node's Pods tab. Should still work (calls `/api/nodes/{id}/pods/list` via the control plane, not the sidecar directly).
 
-### Smoke 2 — after BV2.15 (cookie `HttpOnly=true` + CORS allowlist)
+### Smoke 2 — after BV2.15 (cookie `HttpOnly=true`)
 
 **Critical** — the iframe pattern depends on the cookie. After BV2.15:
+
+> **Note (2026-05-05):** Architect Lock 2 deferred to v0.3 — CORS allowlist is NOT in BV2.15 scope. Only the cookie `HttpOnly=true` flip is shipping. The reflective `r".*"` CORS regex stays for v0.2.1.
+
 
 1. Open the dashboard in a browser.
 2. Click into any running node → Terminal tab.
@@ -38,7 +41,7 @@ Also: open the dashboard in a browser; click into a node's Pods tab. Should stil
 If any step fails:
 - **STOP** — file a frontend follow-up brief.
 - The cookie's `HttpOnly=true` should NOT break the iframe pattern (the browser still sends the cookie automatically). If JS in the iframe page is reading `document.cookie` for the auth key, that's a bug to fix.
-- The CORS allowlist might reject your dashboard origin — check the env var matches your serving origin.
+- CORS is **unchanged** in v0.2.1 (Lock 2 deferred); if you see a CORS rejection, that's an unrelated regression — surface it.
 
 ### Smoke 3 — before BV2.18 (TestPyPI publish)
 

@@ -24,9 +24,11 @@ The cookie is consumed by the BROWSER, not by JS. The iframe loads `/host/shell/
 
 ### Decision
 
-[ ] **Approved** — flip to `HttpOnly=true`.
+[x] **Approved** — flip to `HttpOnly=true`. *(Architect, 2026-05-05)*
 [ ] **Deferred** — keep `HttpOnly=false` and document the threat model accepted.
 [ ] **Other** — specify.
+
+**Status:** RATIFIED. BV2.15 may proceed with cookie hardening.
 
 ---
 
@@ -63,12 +65,16 @@ If the allowlist is wrong, the dashboard breaks (CORS preflight fails). Mitigati
 
 [ ] **Approved** — env-var-driven allowlist; default empty.
 [ ] **Approved with default** — env-var-driven allowlist; sensible local-dev default included.
-[ ] **Deferred** — keep `r".*"` and document the threat model accepted.
+[x] **Deferred to v0.3** — keep `r".*"` for now. *(Architect, 2026-05-05)*
 [ ] **Other** — specify.
+
+**Status:** DEFERRED. Production origins are not yet defined; locking the allowlist now would either break dev environments or force a placeholder we have to revisit. v0.3 will revisit once the dashboard's deployed origins (Lambda Web Adapter URL, CF distribution) are known.
+
+**Threat model accepted in the interim:** the sidecar runs on a private EC2 instance reached via the control plane; the reflective CORS surface is mitigated by the cookie's `HttpOnly=true` (Lock 1, ratified) plus the SSM-issued per-node API key. The R1 finding is documented and tracked, not silenced.
 
 ### If approved — list of production origins
 
-To be filled by Operator/DevOps before the PR opens:
+*(Not applicable while deferred. Will be filled by Operator/DevOps when the lock is revisited in v0.3.)*
 
 - `https://...`
 - `https://...`
@@ -79,4 +85,8 @@ To be filled by Operator/DevOps before the PR opens:
 
 Update [`v0.2.0__sg-compute__backend/BV2_15__sidecar-security-hardening.md`](../v0.2.0__sg-compute__backend/BV2_15__sidecar-security-hardening.md) "Open questions" section with the ratified decisions, then the BE dev can pick up BV2.15.
 
-The decisions also propagate into [`v0.2.0__sg-compute__architecture/00__README.md`](../v0.2.0__sg-compute__architecture/00__README.md) "Open questions" table — strike the two rows when locked.
+**As of 2026-05-05:**
+- Lock 1 ratified → BV2.15 ships the cookie `HttpOnly=true` task.
+- Lock 2 deferred → BV2.15 drops the CORS allowlist task; the reflective `r".*"` regex stays for v0.2.1. v0.3 picks up the allowlist work once production origins are defined.
+
+The decisions also propagate into [`v0.2.0__sg-compute__architecture/00__README.md`](../v0.2.0__sg-compute__architecture/00__README.md) "Open questions" table — strike Lock 1, mark Lock 2 as `DEFERRED → v0.3`.

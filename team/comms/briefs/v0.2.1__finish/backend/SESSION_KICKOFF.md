@@ -11,14 +11,14 @@ You are the **v0.2.1 finish backend** team for SG/Compute. The v0.2.1 hotfix bun
 ## Recommended order
 
 ```
-BV2.17  →  BV2.13  →  BV2.14  →  [pause for Architect locks]  →  BV2.15  →  BV2.16  →  BV2.18
+BV2.17  →  BV2.13  →  BV2.14  →  BV2.15  →  BV2.16  →  BV2.18
 ```
 
 Why this order:
 1. **BV2.17** is smallest — delete `/containers/*` sidecar aliases. Frontend FV2.8 already verified zero callers. Quick warm-up.
 2. **BV2.13** + **BV2.14** raise the spec quality bar before any public publish.
-3. **Pause for Architect locks** — see [`../architect-locks.md`](../architect-locks.md). Cookie `HttpOnly` + CORS origin allowlist must be ratified before BV2.15 opens.
-4. **BV2.15** — security hardening. Pair with FE smoke test (cookie change risks the iframe pattern).
+3. **Architect locks ratified 2026-05-05** — see [`../architect-locks.md`](../architect-locks.md). Lock 1 (cookie `HttpOnly=true`) ✅ approved. Lock 2 (CORS allowlist) ⏸ deferred to v0.3. **BV2.15 is scoped down accordingly** — cookie hardening only; do NOT touch CORS config.
+4. **BV2.15** — cookie `HttpOnly=true` + auth test coverage. Pair with FE smoke test (cookie change risks the iframe pattern).
 5. **BV2.16** — storage spec discovery test. Validates the cross-repo s3_server install.
 6. **BV2.18** — final phase. TestPyPI wheels + `RELEASE.md` = the v0.2.1 release artefact.
 

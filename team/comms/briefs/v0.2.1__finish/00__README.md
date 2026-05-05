@@ -23,7 +23,7 @@ The frontend has a small verification + smoke-test role. No new FV phase work in
 | BV2.17 | [`BV2_17__delete-container-aliases.md`](../v0.2.0__sg-compute__backend/BV2_17__delete-container-aliases.md) | Delete `/containers/*` sidecar aliases (FV2.8 verified zero refs) | — |
 | BV2.13 | [`BV2_13__spec-layout-normalisation.md`](../v0.2.0__sg-compute__backend/BV2_13__spec-layout-normalisation.md) | Normalise all 12 specs to canonical layout; lock `Enum__Spec__Capability` header | — |
 | BV2.14 | [`BV2_14__spec-test-coverage.md`](../v0.2.0__sg-compute__backend/BV2_14__spec-test-coverage.md) | Add Routes + Service tests to every spec; drop any remaining `unittest.mock.patch` | — |
-| BV2.15 | [`BV2_15__sidecar-security-hardening.md`](../v0.2.0__sg-compute__backend/BV2_15__sidecar-security-hardening.md) | Cookie `HttpOnly=true`; CORS origin allowlist; `Routes__Host__Auth` test coverage | **YES** — see [`architect-locks.md`](architect-locks.md) |
+| BV2.15 | [`BV2_15__sidecar-security-hardening.md`](../v0.2.0__sg-compute__backend/BV2_15__sidecar-security-hardening.md) | Cookie `HttpOnly=true` + `Routes__Host__Auth` test coverage. **CORS allowlist deferred to v0.3.** | ✅ Locks ratified — see [`architect-locks.md`](architect-locks.md) |
 | BV2.16 | [`BV2_16__storage-spec-integration.md`](../v0.2.0__sg-compute__backend/BV2_16__storage-spec-integration.md) | Storage spec category + `s3_server` cross-repo discovery test | — |
 | BV2.18 | [`BV2_18__testpypi-publish.md`](../v0.2.0__sg-compute__backend/BV2_18__testpypi-publish.md) | TestPyPI publish + `RELEASE.md` | — |
 
@@ -62,6 +62,7 @@ Estimated cadence: 6 backend sessions + 2-3 frontend smoke tests = ~1 week of wo
 
 - FV2.13 dashboard move (`sg_compute/frontend/`)
 - `FV__live-visual-snapshot-pattern.md` (Playwright-Node visual snapshot)
+- **CORS origin allowlist** (sidecar `Fast_API__Host__Control`) — Lock 2 deferred 2026-05-05 because production origins (Lambda Web Adapter URL, CF distribution) are not yet defined. Reflective `r".*"` stays for v0.2.1; cookie `HttpOnly=true` is the v0.2.1 mitigation.
 - Storage spec category formalisation
 - Operation-mode taxonomy generalisation (FULL_LOCAL/PROXY/HYBRID/SELECTIVE)
 - Cross-repo extraction policy formalisation
