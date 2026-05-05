@@ -156,7 +156,8 @@ class Fast_API__Compute(Serverless__Fast_API):
     def _mount_control_routes(self):
         platform    = self._live_platform()
         pod_manager = self._live_pod_manager()
-        vault_writer = Vault__Spec__Writer(spec_registry=self.registry)
+        vault_writer = Vault__Spec__Writer(spec_registry=self.registry,
+                                            vault_attached=True)            # in-memory store for v0.2.x; real vault wiring tracked in v0.3
         ami_lister = self._live_ami_lister()
         self.add_routes(Routes__Compute__Health, prefix='/api/health', registry=self.registry)
         self.add_routes(Routes__Compute__Specs , prefix='/api/specs' , registry=self.registry)

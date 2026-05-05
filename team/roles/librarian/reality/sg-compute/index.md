@@ -203,7 +203,7 @@
 | `Schema__Vault__Write__Receipt` | `vault/schemas/Schema__Vault__Write__Receipt.py` | `spec_id/stack_id/handle/bytes_written/sha256/written_at/vault_path` |
 | `List__Schema__Vault__Write__Receipt` | `vault/collections/List__Schema__Vault__Write__Receipt.py` | typed collection |
 | `List__Vault__Handle` | `vault/collections/List__Vault__Handle.py` | typed collection |
-| `Vault__Spec__Writer` | `vault/service/Vault__Spec__Writer.py` | `write/get_metadata/list_spec/delete`; `SHARED_STACK_ID='_shared'`; persistence stubbed |
+| `Vault__Spec__Writer` | `vault/service/Vault__Spec__Writer.py` | `write/get_metadata/list_spec/delete`; `SHARED_STACK_ID='_shared'`; in-memory dict backing store; `vault_attached=True` in production wiring (T2.4b); real vault I/O deferred to v0.3 |
 | `Routes__Vault__Spec` | `vault/api/routes/Routes__Vault__Spec.py` | `PUT/GET/DELETE /vault/spec/{spec_id}/{stack_id}/{handle}`; mounted at `/api/vault` on `Fast_API__Compute` |
 
 **Shims:** `sgraph_ai_service_playwright__cli/vault/` — 11 legacy files replaced with re-export shims for one-release backwards compatibility.
@@ -233,7 +233,7 @@
 - `Node__Identity` — node-id generation/parsing helper
 - Remaining legacy specs migrated to `sg_compute_specs/` (phases 3.1–3.8): linux, podman, vnc, neko, prometheus, opensearch, elastic, firefox
 - Vault-sourced sidecar API key (follow-on to BV2.9; persistence stubbed)
-- Real vault I/O (BV2.x follow-on — `Vault__Spec__Writer.write/list/delete` currently stubbed)
+- Real vault I/O (v0.3 follow-on — `Vault__Spec__Writer` now uses in-memory dict with `vault_attached=True`; persistent vault wiring deferred)
 
 ---
 
@@ -246,6 +246,7 @@
 | 2026-05-05 | BV2.10: Fast_API__SP__CLI sub-app mounted at /legacy in Fast_API__Compute (auth preserved); ASGI wrapper injects X-Deprecated: true; run_sp_cli.py → Fast_API__Compute; 356 passing under python3.12 |
 | 2026-05-05 | FV2.6 (all 8 specs): ui/{card,detail}/v0/v0.1/v0.1.0/ created in sg_compute_specs for docker, podman, vnc, neko, prometheus, opensearch, elastic, firefox; 48 files moved; api_site/plugins/ deleted; detail imports → absolute /ui/ paths; admin/index.html → /api/specs/<id>/ui/ |
 | 2026-05-05 | BV2.19: Spec__UI__Resolver + StaticFiles mount at /api/specs/{spec_id}/ui; ui_root_override for tests; sg_compute_specs/*/ui/**/* in pyproject.toml include; 322 tests passing |
+| 2026-05-05 | T2.4b: vault_attached=True wired in Fast_API__Compute._mount_control_routes; route test prefix fixed to /api/vault; production PUT path unblocked |
 | 2026-05-05 | BV2.9: sg_compute/vault/ created (13 files); plugin→spec rename; Routes__Vault__Spec mounted at /api/vault on Fast_API__Compute; 11 legacy shims; 313 tests passing |
 | 2026-05-05 | BV2.8: object=None → Optional[T] in 10 non-circular spec service files; 7 circular AWS__Client files kept object=None; Optional import added to 17 files |
 | 2026-05-05 | BV2.7: 14 new canonical modules in sg_compute (primitives, enums, event_bus, image); 46 spec files import-rewritten; CI guard added; 584 tests passing |

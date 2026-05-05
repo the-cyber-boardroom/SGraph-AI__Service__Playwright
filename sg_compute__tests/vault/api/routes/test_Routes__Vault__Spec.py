@@ -25,7 +25,7 @@ def _client(vault_attached=True, spec_ids=('firefox',), handles=None):
     )
     app = Fast_API()
     app.setup()
-    app.add_routes(Routes__Vault__Spec, service=writer)
+    app.add_routes(Routes__Vault__Spec, prefix='/api/vault', service=writer)   # must match production prefix; DO NOT remove prefix
     return app.client()
 
 
@@ -34,7 +34,7 @@ class test_Routes__Vault__Spec(TestCase):
     # ── PUT /spec/{spec_id}/{stack_id}/{handle} ──────────────────────────────
 
     def test_write__success_200(self):
-        resp = _client().put('/vault/spec/firefox/_shared/credentials', content=b'secret')
+        resp = _client().put('/api/vault/spec/firefox/_shared/credentials', content=b'secret')
         assert resp.status_code        == 200
         data = resp.json()
         assert data['spec_id']         == 'firefox'
@@ -45,39 +45,39 @@ class test_Routes__Vault__Spec(TestCase):
         assert data['vault_path']      == 'spec/firefox/_shared/credentials'
 
     def test_write__vault_path_has_spec_prefix(self):
-        resp = _client().put('/vault/spec/firefox/my-stack/mitm-script', content=b'x')
+        resp = _client().put('/api/vault/spec/firefox/my-stack/mitm-script', content=b'x')
         assert resp.status_code              == 200
         assert resp.json()['vault_path']     == 'spec/firefox/my-stack/mitm-script'
 
     def test_write__no_vault_returns_409(self):
         resp = _client(vault_attached=False).put(
-            '/vault/spec/firefox/_shared/credentials', content=b'x')
+            '/api/vault/spec/firefox/_shared/credentials', content=b'x')
         assert resp.status_code == 409
         assert resp.json()['detail']['error_code'] == 'no-vault-attached'
 
     def test_write__unknown_spec_returns_400(self):
-        resp = _client().put('/vault/spec/bogus/_shared/credentials', content=b'x')
+        resp = _client().put('/api/vault/spec/bogus/_shared/credentials', content=b'x')
         assert resp.status_code == 400
         assert resp.json()['detail']['error_code'] == 'unknown-spec'
 
     def test_write__disallowed_handle_returns_400(self):
-        resp = _client().put('/vault/spec/firefox/_shared/hacker-handle', content=b'x')
+        resp = _client().put('/api/vault/spec/firefox/_shared/hacker-handle', content=b'x')
         assert resp.status_code == 400
         assert resp.json()['detail']['error_code'] == 'disallowed-handle'
 
     # ── GET /vault/spec/{spec_id} ────────────────────────────────────────────
 
     def test_list_spec__no_vault_returns_409(self):
-        resp = _client(vault_attached=False).get('/vault/spec/firefox')
+        resp = _client(vault_attached=False).get('/api/vault/spec/firefox')
         assert resp.status_code == 409
 
     def test_list_spec__unknown_spec_returns_400(self):
-        resp = _client().get('/vault/spec/no-such-spec')
+        resp = _client().get('/api/vault/spec/no-such-spec')
         assert resp.status_code == 400
         assert resp.json()['detail']['error_code'] == 'unknown-spec'
 
     def test_list_spec__returns_receipts_envelope(self):
-        resp = _client().get('/vault/spec/firefox')
+        resp = _client().get('/api/vault/spec/firefox')
         assert resp.status_code   == 200
         data = resp.json()
         assert 'receipts'         in data
@@ -87,8 +87,8 @@ class test_Routes__Vault__Spec(TestCase):
 
     def test_delete__success_200(self):
         c = _client()
-        c.put('/vault/spec/firefox/_shared/credentials', content=b'data')
-        resp = c.delete('/vault/spec/firefox/_shared/credentials')
+        c.put('/api/vault/spec/firefox/_shared/credentials', content=b'data')
+        resp = c.delete('/api/vault/spec/firefox/_shared/credentials')
         assert resp.status_code        == 200
         data = resp.json()
         assert data['deleted']         is True
@@ -97,7 +97,7 @@ class test_Routes__Vault__Spec(TestCase):
 
     def test_delete__no_vault_returns_409(self):
         resp = _client(vault_attached=False).delete(
-            '/vault/spec/firefox/_shared/credentials')
+            '/api/vault/spec/firefox/_shared/credentials')
         assert resp.status_code == 409
 
     # ── round-trip: PUT then GET metadata ────────────────────────────────────
@@ -106,13 +106,13 @@ class test_Routes__Vault__Spec(TestCase):
         import hashlib
         blob = b'x' * 1024                                                  # 1 KB blob
         c    = _client()
-        put_resp = c.put('/vault/spec/firefox/my-node/mitm-script', content=blob)
+        put_resp = c.put('/api/vault/spec/firefox/my-node/mitm-script', content=blob)
         assert put_resp.status_code == 200
         put_data = put_resp.json()
         assert put_data['bytes_written'] == 1024
         assert put_data['sha256']        == hashlib.sha256(blob).hexdigest()
 
-        get_resp = c.get('/vault/spec/firefox/my-node/mitm-script/metadata')
+        get_resp = c.get('/api/vault/spec/firefox/my-node/mitm-script/metadata')
         assert get_resp.status_code == 200
         get_data = get_resp.json()
         assert get_data['sha256']        == put_data['sha256']
@@ -120,15 +120,15 @@ class test_Routes__Vault__Spec(TestCase):
         assert get_data['vault_path']    == 'spec/firefox/my-node/mitm-script'
 
     def test_round_trip__metadata_404_before_write(self):
-        resp = _client().get('/vault/spec/firefox/my-node/mitm-script/metadata')
+        resp = _client().get('/api/vault/spec/firefox/my-node/mitm-script/metadata')
         assert resp.status_code == 404
 
     def test_round_trip__list_contains_written_receipt(self):
         blob = b'hello'
         c    = _client()
-        c.put('/vault/spec/firefox/_shared/credentials', content=blob)
-        c.put('/vault/spec/firefox/_shared/profile',     content=blob)
-        resp = c.get('/vault/spec/firefox')
+        c.put('/api/vault/spec/firefox/_shared/credentials', content=blob)
+        c.put('/api/vault/spec/firefox/_shared/profile',     content=blob)
+        resp = c.get('/api/vault/spec/firefox')
         assert resp.status_code == 200
         data = resp.json()
         handles = {r['handle'] for r in data['receipts']}
@@ -136,7 +136,7 @@ class test_Routes__Vault__Spec(TestCase):
 
     def test_round_trip__delete_removes_metadata(self):
         c = _client()
-        c.put('/vault/spec/firefox/_shared/credentials', content=b'secret')
-        c.delete('/vault/spec/firefox/_shared/credentials')
-        resp = c.get('/vault/spec/firefox/_shared/credentials/metadata')
+        c.put('/api/vault/spec/firefox/_shared/credentials', content=b'secret')
+        c.delete('/api/vault/spec/firefox/_shared/credentials')
+        resp = c.get('/api/vault/spec/firefox/_shared/credentials/metadata')
         assert resp.status_code == 404
