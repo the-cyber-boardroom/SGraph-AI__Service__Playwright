@@ -1,6 +1,7 @@
 import { SgComponent    } from 'https://dev.tools.sgraph.ai/components/base/v1/v1.0/v1.0.0/sg-component.js'
 import { getDefault     } from '../../../../../../shared/settings-bus.js'
 import { loadCatalogue, getCatalogue } from '../../../../../../shared/spec-catalogue.js'
+import { REGIONS, INSTANCE_TYPES, MAX_HOURS, COST_TABLE } from '../../../../../../shared/launch-defaults.js'
 
 const _EC2_CSS = new URL('../../../../../../shared/ec2-tokens.css', import.meta.url).href
 
@@ -9,10 +10,6 @@ function _fmtBoot(secs) {
     if (secs < 120) return `~${secs}s`
     return `~${Math.round(secs / 60)}min`
 }
-
-const REGIONS        = ['eu-west-2', 'us-east-1', 'ap-southeast-1', 'eu-west-1', 'us-west-2']
-const INSTANCE_TYPES = ['t3.micro', 't3.small', 't3.medium', 't3.large', 't3.xlarge']
-const MAX_HOURS      = [1, 2, 4, 8, 12, 24]
 
 const NAME_WORDS = [
     'nova', 'echo', 'lark', 'ford', 'pike', 'wren', 'dusk', 'reef', 'sage', 'fern',
@@ -23,12 +20,6 @@ function _genName(typeId) {
     const word = NAME_WORDS[Math.floor(Math.random() * NAME_WORDS.length)]
     const num  = String(Math.floor(Math.random() * 9000) + 1000)
     return `${typeId}-${word}-${num}`
-}
-
-// Rough on-demand spot rates (USD/hr) for cost hint — intentionally approximate
-const COST_TABLE = {
-    't3.micro': 0.011, 't3.small': 0.023, 't3.medium': 0.047,
-    't3.large': 0.094, 't3.xlarge': 0.188,
 }
 
 class SgComputeComputeView extends SgComponent {

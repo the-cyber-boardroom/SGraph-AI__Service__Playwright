@@ -445,8 +445,8 @@ class SgComputeNodesView extends SgComponent {
 
         for (const c of pods) {
             // Schema__Pod__Info: pod_name / node_id / image / state / ports (string)
-            const name      = c.pod_name || c.name || ''
-            const state     = c.state    || c.status || ''
+            const name      = c.pod_name || ''
+            const state     = c.state   || ''
             const stateClass = podPillClass(state)
             const links = this._portLinks(c.ports, this._currentStack?.public_ip)
             const linksHtml = links.length

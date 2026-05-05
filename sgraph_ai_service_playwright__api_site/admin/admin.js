@@ -123,7 +123,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     document.addEventListener('sp-cli:node.launched', (e) => {
         const { response } = e.detail || {}
-        const nodeId = response?.node_id || response?.stack_info?.stack_name || response?.stack_name
+        const nodeId = response?.node_id
         const apiKey = response?.api_key_value
         if (nodeId && apiKey) {
             _hostApiKeys[nodeId] = apiKey
@@ -133,8 +133,8 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     document.addEventListener('sp-cli:launch.success', (e) => {
         const { entry, response } = e.detail || {}
-        const nodeId  = response?.node_id || response?.stack_info?.stack_name || response?.stack_name || '?'
-        const specId  = entry?.spec_id || entry?.type_id
+        const nodeId  = response?.node_id || '?'
+        const specId  = entry?.spec_id
         _activity(`✓ Launched ${entry?.display_name}: ${nodeId}`)
         if (specId && _launchTabIds[specId]) {
             _layoutEl?.removePanel(_launchTabIds[specId])
@@ -144,7 +144,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     })
     document.addEventListener('sp-cli:launch-success', (e) => {                                // compat
         const { entry, response } = e.detail || {}
-        const nodeId = response?.node_id || response?.stack_info?.stack_name || response?.stack_name || '?'
+        const nodeId = response?.node_id || '?'
         _activity(`✓ Launched ${entry?.display_name}: ${nodeId}`)
         setTimeout(() => _loadData(), 1_000)
     })
@@ -156,7 +156,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     })
 
     document.addEventListener('sp-cli:launch.cancelled', (e) => {
-        const specId = e.detail?.entry?.spec_id || e.detail?.entry?.type_id
+        const specId = e.detail?.entry?.spec_id
         if (specId && _launchTabIds[specId]) {
             _layoutEl?.removePanel(_launchTabIds[specId])
             delete _launchTabIds[specId]
@@ -168,10 +168,10 @@ document.addEventListener('DOMContentLoaded', async () => {
     document.addEventListener('sp-cli:stack.stop-requested', async (e) => {
         const stack = e.detail?.stack
         if (!stack) return
-        const nodeId = stack.node_id || stack.stack_name
+        const nodeId = stack.node_id
         try {
             await apiClient.delete(`/api/nodes/${nodeId}`)
-            _activity(`🗑 Deleted ${stack.spec_id || stack.type_id} node: ${nodeId}`)
+            _activity(`🗑 Deleted ${stack.spec_id} node: ${nodeId}`)
             document.dispatchEvent(new CustomEvent('sp-cli:stack.deleted', {
                 detail:  { stack },
                 bubbles: true, composed: true,
@@ -224,8 +224,8 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     function _openDetailTab(stack) {
         if (!stack || !_layoutEl || !_mainStackId) return
-        const nodeId = stack.node_id || stack.stack_name
-        const specId = stack.spec_id || stack.type_id
+        const nodeId = stack.node_id
+        const specId = stack.spec_id
         if (_detailTabIds[nodeId]) {
             _layoutEl.focusPanel(_detailTabIds[nodeId])
             return
@@ -264,7 +264,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     function _openLaunchTab(entry) {
         if (!entry || !_layoutEl || !_mainStackId) return
-        const specId = entry.spec_id || entry.type_id
+        const specId = entry.spec_id
         if (_launchTabIds[specId]) {
             _layoutEl.focusPanel(_launchTabIds[specId])
             return
@@ -282,8 +282,8 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     function _onStackDeleted(stack) {
         if (!stack) return
-        const nodeId = stack.node_id || stack.stack_name
-        const specId = stack.spec_id || stack.type_id
+        const nodeId = stack.node_id
+        const specId = stack.spec_id
         _activity(`🗑 Deleted ${specId} node: ${nodeId}`)
         if (_detailTabIds[nodeId]) {
             _layoutEl?.removePanel(_detailTabIds[nodeId])
@@ -318,7 +318,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         // Augment each node with its stored host API key (captured on launch)
         const augmented = stacks.map(s => ({
             ...s,
-            host_api_key: _hostApiKeys[s.node_id || s.stack_name] || s.host_api_key || '',
+            host_api_key: _hostApiKeys[s.node_id] || s.host_api_key || '',
         }))
         document.querySelector('sg-compute-compute-view')?.setData?.({ types, stacks })
         document.querySelector('sg-compute-nodes-view')?.setStacks?.(augmented)

@@ -1,5 +1,5 @@
-import { SgComponent } from 'https://dev.tools.sgraph.ai/components/base/v1/v1.0/v1.0.0/sg-component.js'
-import { apiClient  } from '../../../../../../shared/api-client.js'
+import { SgComponent  } from 'https://dev.tools.sgraph.ai/components/base/v1/v1.0/v1.0.0/sg-component.js'
+import { apiClient    } from '../../../../../../shared/api-client.js'
 import { getAllDefaults } from '../../../../../../shared/settings-bus.js'
 
 class SgComputeLaunchPanel extends SgComponent {
@@ -45,24 +45,24 @@ class SgComputeLaunchPanel extends SgComponent {
         const valid = this._form?.validate?.() ?? true
         if (!valid) return
         const values = this._form?.getValues?.() || {}
-        if (!values.stack_name) { this._showError('Stack name is required.'); return }
+        if (!values.node_name) { this._showError('Stack name is required.'); return }
 
         const body = {
-            stack_name:     values.stack_name,
-            instance_type:  values.instance_type  || 't3.medium',
-            max_hours:      values.max_hours       || 4,
-            region:         values.region          || '',
-            caller_ip:      values.caller_ip       || '',
-            public_ingress: values.public_ingress  ?? false,
-            creation_mode:  values.creation_mode   || 'fresh',
-            ami_id:         values.ami_id          || '',
+            spec_id:       this._entry.spec_id,
+            node_name:     values.node_name,
+            instance_type: values.instance_type  || 't3.medium',
+            max_hours:     values.max_hours       || 4,
+            region:        values.region          || '',
+            caller_ip:     values.caller_ip       || '',
+            creation_mode: values.creation_mode   || 'fresh',
+            ami_id:        values.ami_id          || '',
         }
 
         this._setLoading(true)
         this._hideError()
 
         try {
-            const response = await apiClient.post(this._entry.create_endpoint_path, body)
+            const response = await apiClient.post('/api/nodes', body)
             this._setLoading(false)
             const detail = { entry: this._entry, response }
             document.dispatchEvent(new CustomEvent('sp-cli:node.launched',   { detail, bubbles: true, composed: true }))
