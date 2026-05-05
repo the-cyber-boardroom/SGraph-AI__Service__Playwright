@@ -2,6 +2,7 @@
 
 import { apiClient         } from '../shared/api-client.js'
 import { startSettingsBus, getUseLegacyApi } from '../shared/settings-bus.js'
+import { loadCatalogue     } from '../shared/spec-catalogue.js'
 
 const ROOT_LAYOUT_KEY   = 'sp-cli:admin:root-layout:v2'
 const HOST_API_KEYS_KEY = 'sp-cli:host-api-keys'
@@ -43,6 +44,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     // ── Boot immediately ──────────────────────────────────────────────────── //
 
     await _initLayout()
+    loadCatalogue().catch(err => console.warn('[admin] catalogue load failed:', err.message))
     _loadData()
 
     // ── Settings loaded → re-init layout if settings fired before boot ────── //
@@ -95,12 +97,17 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     document.addEventListener('sg-auth-saved', () => _loadData())
 
-    // ── Launch flow ───────────────────────────────────────────────────────── //
+    // ── Launch flow — listeners wired from catalogue on load ─────────────── //
 
-    const LAUNCH_TYPES = ['docker', 'podman', 'elastic', 'vnc', 'prometheus', 'opensearch', 'neko', 'firefox']
-    LAUNCH_TYPES.forEach(t =>
-        document.addEventListener(`sp-cli:plugin:${t}.launch-requested`, (e) => _openLaunchTab(e.detail?.entry))
-    )
+    let _launchListenersWired = false
+    document.addEventListener('sp-cli:catalogue.loaded', (e) => {
+        if (_launchListenersWired) return
+        _launchListenersWired = true
+        for (const spec of (e.detail?.specs || [])) {
+            document.addEventListener(`sp-cli:plugin:${spec.spec_id}.launch-requested`,
+                (ev) => _openLaunchTab(ev.detail?.entry))
+        }
+    })
     document.addEventListener('sp-cli:catalog-launch', (e) => _openLaunchTab(e.detail?.entry)) // compat
     document.addEventListener('sp-cli:user-launch',    (e) => _openLaunchTab(e.detail?.entry)) // compat
 

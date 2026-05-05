@@ -1,19 +1,14 @@
-import { SgComponent } from 'https://dev.tools.sgraph.ai/components/base/v1/v1.0/v1.0.0/sg-component.js'
-import { getDefault } from '../../../../../../shared/settings-bus.js'
+import { SgComponent    } from 'https://dev.tools.sgraph.ai/components/base/v1/v1.0/v1.0.0/sg-component.js'
+import { getDefault     } from '../../../../../../shared/settings-bus.js'
+import { loadCatalogue, getCatalogue } from '../../../../../../shared/spec-catalogue.js'
 
 const _EC2_CSS = new URL('../../../../../../shared/ec2-tokens.css', import.meta.url).href
 
-// ── Spec catalogue (static until backend phase B4 ships /api/specs) ─────────
-const CATALOG = [
-    { group: 'CONTAINERS',      type_id: 'docker',     display_name: 'Docker host',             icon: '🐳', stability: 'stable',       boot: '~10min', soon: false, create_endpoint_path: '/docker/stack',     description: 'Docker Engine host on a fresh EC2 instance.'                           },
-    { group: 'CONTAINERS',      type_id: 'podman',     display_name: 'Podman host',             icon: '🦭', stability: 'stable',       boot: '~10min', soon: false, create_endpoint_path: '/podman/stack',     description: 'Rootless Podman host on a fresh EC2 instance.'                         },
-    { group: 'OBSERVABILITY',   type_id: 'elastic',    display_name: 'Elastic + Kibana',        icon: '🔍', stability: 'stable',       boot: '~90s',   soon: false, create_endpoint_path: '/elastic/stack',    description: 'Elasticsearch + Kibana node. Indices persist on attached gp3 storage.' },
-    { group: 'OBSERVABILITY',   type_id: 'prometheus', display_name: 'Prometheus + Grafana',    icon: '📊', stability: 'experimental', boot: '~90s',   soon: false, create_endpoint_path: '/prometheus/stack', description: 'Prometheus scraper + Grafana dashboard node.'                          },
-    { group: 'OBSERVABILITY',   type_id: 'opensearch', display_name: 'OpenSearch + Dashboards', icon: '🌐', stability: 'experimental', boot: '—',      soon: false, create_endpoint_path: '/opensearch/stack', description: 'OpenSearch cluster with Dashboards UI.'                                },
-    { group: 'REMOTE BROWSERS', type_id: 'firefox',    display_name: 'Firefox + MITM',          icon: '🦊', stability: 'experimental', boot: '~90s',   soon: false, create_endpoint_path: '/firefox/stack',    description: 'Firefox with MITM proxy for traffic inspection via browser.'           },
-    { group: 'REMOTE BROWSERS', type_id: 'vnc',        display_name: 'VNC bastion',             icon: '🖥',  stability: 'stable',       boot: '~90s',   soon: false, create_endpoint_path: '/vnc/stack',        description: 'VNC-accessible desktop bastion with noVNC web client.'                 },
-    { group: 'REMOTE BROWSERS', type_id: 'neko',       display_name: 'Neko (WebRTC)',           icon: '🌐', stability: 'experimental', boot: '—',      soon: true,  create_endpoint_path: '/neko/stack',       description: 'Browser-in-browser via WebRTC.'                                        },
-]
+function _fmtBoot(secs) {
+    if (!secs) return '—'
+    if (secs < 120) return `~${secs}s`
+    return `~${Math.round(secs / 60)}min`
+}
 
 const REGIONS        = ['eu-west-2', 'us-east-1', 'ap-southeast-1', 'eu-west-1', 'us-west-2']
 const INSTANCE_TYPES = ['t3.micro', 't3.small', 't3.medium', 't3.large', 't3.xlarge']
@@ -77,8 +72,9 @@ class SpCliComputeView extends SgComponent {
         this._btnLaunch?.addEventListener('click', () => this._launch())
 
         document.addEventListener('sp-cli:settings.loaded', () => this._applyDefaults())
+        document.addEventListener('sp-cli:catalogue.loaded', () => this._renderGroups())
         this._applyDefaults()
-        this._renderGroups()   // catalog is static — render once
+        loadCatalogue().then(() => this._renderGroups()).catch(() => {})
     }
 
     // Called by admin.js — no-op in new design (stacks live in nodes-view)
@@ -96,30 +92,33 @@ class SpCliComputeView extends SgComponent {
 
     _renderGroups() {
         if (!this._specGroups) return
-        const groups = [...new Set(CATALOG.map(s => s.group))]
+        let specs
+        try { specs = getCatalogue().specs || [] } catch (_) { return }
+        const groups = [...new Set(specs.map(s => s.nav_group || 'OTHER'))]
         this._specGroups.innerHTML = ''
 
         for (const group of groups) {
-            const specs = CATALOG.filter(s => s.group === group)
-            if (!specs.length) continue
+            const groupSpecs = specs.filter(s => (s.nav_group || 'OTHER') === group)
+            if (!groupSpecs.length) continue
 
             const section = document.createElement('div')
             section.className = 'spec-section'
             section.innerHTML = `<div class="spec-group-label tlabel">${group}</div><div class="spec-card-row"></div>`
             const row = section.querySelector('.spec-card-row')
 
-            for (const spec of specs) {
+            for (const spec of groupSpecs) {
                 const card = document.createElement('div')
                 card.className = `spec-card${spec.soon ? ' spec-card--soon' : ''}`
-                card.dataset.typeId = spec.type_id
+                card.dataset.specId = spec.spec_id
+                const bootLabel = _fmtBoot(spec.boot_seconds_typical)
                 card.innerHTML = `
-                    <div class="sc-icon">${spec.icon}</div>
+                    <div class="sc-icon">${spec.icon || '⬡'}</div>
                     <div class="sc-body">
                         <div class="sc-name">${spec.display_name}</div>
                         <div class="sc-meta">
                             ${spec.stability !== 'stable' ? `<span class="ec2-pill warn">${spec.stability}</span>` : '<span class="ec2-pill good">stable</span>'}
                             ${spec.soon ? '<span class="ec2-pill">soon</span>' : ''}
-                            <span class="sc-boot">${spec.boot}</span>
+                            <span class="sc-boot">${bootLabel}</span>
                         </div>
                     </div>
                 `
@@ -137,17 +136,18 @@ class SpCliComputeView extends SgComponent {
             c.classList.toggle('selected', c === cardEl)
         )
         this._currentSpec = spec
-        if (this._cfgIcon) this._cfgIcon.textContent = spec.icon
+        const bootLabel = _fmtBoot(spec.boot_seconds_typical)
+        if (this._cfgIcon) this._cfgIcon.textContent = spec.icon || '⬡'
         if (this._cfgName) this._cfgName.textContent = spec.display_name
-        if (this._cfgDesc) this._cfgDesc.textContent = spec.description || ''
+        if (this._cfgDesc) this._cfgDesc.textContent = spec.capabilities?.join(', ') || ''
         if (this._cfgStab) {
             this._cfgStab.className = `cfg-stability ec2-pill ${spec.stability === 'stable' ? 'good' : 'warn'}`
             this._cfgStab.textContent = spec.stability
         }
-        if (this._cfgBoot) this._cfgBoot.textContent = spec.boot
-        if (this._barBoot) this._barBoot.textContent = spec.boot
+        if (this._cfgBoot) this._cfgBoot.textContent = bootLabel
+        if (this._barBoot) this._barBoot.textContent = bootLabel
         this._clearError()
-        if (this._nameInput) this._nameInput.value = _genName(spec.type_id)
+        if (this._nameInput) this._nameInput.value = _genName(spec.spec_id)
         this._updateCostBar()
         this._cfgCol.hidden = false
         this.shadowRoot.querySelector('.compute-view')?.classList.add('spec-selected')
@@ -175,7 +175,7 @@ class SpCliComputeView extends SgComponent {
         this._setLoading(true)
         this._clearError()
         const body = {
-            stack_name:    this._nameInput?.value.trim()  || _genName(this._currentSpec.type_id),
+            stack_name:    this._nameInput?.value.trim()  || _genName(this._currentSpec.spec_id),
             region:        this._regionSel?.value         || REGIONS[0],
             instance_type: this._instanceSel?.value       || 't3.medium',
             max_hours:     parseInt(this._hoursSel?.value || '4', 10),

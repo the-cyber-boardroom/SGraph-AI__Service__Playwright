@@ -28,7 +28,10 @@
   <script type="module" src="../components/sp-cli/sp-cli-vault-picker/v0/v0.1/v0.1.0/sp-cli-vault-picker.js"></script>
   <script type="module" src="../shared/components/sg-auth-panel.js"></script>
 
-  <!-- plugin cards -->
+  <!-- plugin cards — spec_id drives which card renders; catalogue is the source of truth.
+       Until FV2.6 co-locates UI with specs, each spec still needs a <script> tag here.
+       If a script tag exists for a spec NOT in the catalogue, no card will render for it.
+       If the catalogue lists a spec with no script tag, that spec is silently skipped. -->
   <script type="module" src="../plugins/docker/v0/v0.1/v0.1.0/sp-cli-docker-card.js"></script>
   <script type="module" src="../plugins/podman/v0/v0.1/v0.1.0/sp-cli-podman-card.js"></script>
   <script type="module" src="../plugins/elastic/v0/v0.1/v0.1.0/sp-cli-elastic-card.js"></script>

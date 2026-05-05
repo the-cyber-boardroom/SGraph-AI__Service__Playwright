@@ -1,7 +1,6 @@
 import { SgComponent        } from 'https://dev.tools.sgraph.ai/components/base/v1/v1.0/v1.0.0/sg-component.js'
 import { getAllPluginToggles } from '../../../../../../shared/settings-bus.js'
-
-const PLUGIN_ORDER = ['docker', 'podman', 'elastic', 'vnc', 'prometheus', 'opensearch', 'neko', 'firefox']
+import { getCatalogue        } from '../../../../../../shared/spec-catalogue.js'
 
 class SpCliLauncherPane extends SgComponent {
     static jsUrl = import.meta.url
@@ -16,8 +15,9 @@ class SpCliLauncherPane extends SgComponent {
             this.classList.toggle('collapsed')
         })
 
-        document.addEventListener('sp-cli:settings.loaded', () => this._renderCards())
-        document.addEventListener('sp-cli:plugin.toggled',  () => this._renderCards())
+        document.addEventListener('sp-cli:settings.loaded',   () => this._renderCards())
+        document.addEventListener('sp-cli:plugin.toggled',    () => this._renderCards())
+        document.addEventListener('sp-cli:catalogue.loaded',  () => this._renderCards())
 
         this._renderCards()
     }
@@ -26,14 +26,17 @@ class SpCliLauncherPane extends SgComponent {
         if (!this._grid) return
         this._grid.innerHTML = ''
 
+        let specs
+        try { specs = getCatalogue().specs || [] } catch (_) { return }
+
         const toggles = getAllPluginToggles()
-        const enabled = PLUGIN_ORDER.filter(name => toggles[name]?.enabled)
+        const enabled = specs.filter(s => !s.soon && (toggles[s.spec_id]?.enabled ?? true))
 
         this._emptyMsg.hidden = enabled.length > 0
         this._grid.hidden     = enabled.length === 0
 
-        for (const name of enabled) {
-            const card = document.createElement(`sp-cli-${name}-card`)
+        for (const spec of enabled) {
+            const card = document.createElement(`sp-cli-${spec.spec_id}-card`)
             this._grid.appendChild(card)
         }
     }
