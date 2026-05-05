@@ -45,6 +45,12 @@ Status as of 2026-05-05 14:30 UTC.
 |---|------|-----|
 | **T2-FE-patch** | [`T2_FE-patch__ami-spec-detail-fixes.md`](T2_FE-patch__ami-spec-detail-fixes.md) | T2.1 `ami_name` data-loss + `creation_mode` enum-case + T2.2 4 hidden gaps |
 
+### Runtime bug analysis (filed 2026-05-05)
+
+| # | File | Why |
+|---|------|-----|
+| **BUG-BATCH-1** | [`BUG-BATCH-1__sidecar-auth-and-terminal.md`](BUG-BATCH-1__sidecar-auth-and-terminal.md) | 5 sidecar-auth + terminal bugs observed in production; all root-cause traced; backend briefs filed |
+
 ---
 
 ## Hard rules (binding every PR)

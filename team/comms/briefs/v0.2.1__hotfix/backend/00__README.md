@@ -48,6 +48,9 @@ Status as of 2026-05-05 14:30 UTC.
 | BV (filed) | [`BV__ami-list-endpoint.md`](BV__ami-list-endpoint.md) | FE-T2.1 dependency |
 | BV (filed) | [`BV__caller-ip-endpoint.md`](BV__caller-ip-endpoint.md) | FE-T2.5 dependency |
 | BV (NEW) | [`BV__spec-readme-endpoint.md`](BV__spec-readme-endpoint.md) | FE-T2.2 known-broken README link |
+| BV (NEW) | [`BV__host-api-key-via-ec2-tag.md`](BV__host-api-key-via-ec2-tag.md) | Bug 4 — CLI nodes have no key in dashboard |
+| BV (NEW) | [`BV__pods-500-error-handling.md`](BV__pods-500-error-handling.md) | Bug 2 — pods route throws unhandled 500 |
+| BV (NEW) | [`BV__sidecar-rbash-fix.md`](BV__sidecar-rbash-fix.md) | Bug 3 — rbash not present on EC2 AMIs |
 
 ### Backend follow-up patches (filed 2026-05-05 14:30)
 
