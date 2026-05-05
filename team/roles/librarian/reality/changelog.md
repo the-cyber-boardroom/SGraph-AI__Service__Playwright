@@ -12,6 +12,12 @@ This is a pointer log, not a content log. For full delta detail, see the master 
 
 ---
 
+## 2026-05-05 (BV2.3)
+
+- `sg-compute/index.md` — UPDATED: BV2.3 pod management added; `Pod__Manager`, `Sidecar__Client`, 5 pod schemas, 2 collections, `Routes__Compute__Pods` (6 endpoints), `Routes__Compute__Nodes` constructor injection. 246 tests passing.
+
+---
+
 ## 2026-05-04 (BV2.1)
 
 - `host-control/index.md` — UPDATED: `sgraph_ai_service_playwright__host/` deleted (orphaned copy confirmed by legacy review); authoritative package is `sg_compute/host_plane/`; port corrected `:9000` → `:19009`; tests and pyproject.toml reference removed. Commit: `0517528`.
