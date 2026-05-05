@@ -104,7 +104,9 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (_launchListenersWired) return
         _launchListenersWired = true
         for (const spec of (e.detail?.specs || [])) {
-            document.addEventListener(`sp-cli:plugin:${spec.spec_id}.launch-requested`,
+            document.addEventListener(`sp-cli:spec:${spec.spec_id}.launch-requested`,
+                (ev) => _openLaunchTab(ev.detail?.entry))
+            document.addEventListener(`sp-cli:plugin:${spec.spec_id}.launch-requested`, // DEPRECATED
                 (ev) => _openLaunchTab(ev.detail?.entry))
         }
     })

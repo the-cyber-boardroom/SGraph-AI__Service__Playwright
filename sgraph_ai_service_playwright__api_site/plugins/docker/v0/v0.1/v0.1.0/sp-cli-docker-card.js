@@ -1,6 +1,6 @@
 import { SgComponent } from 'https://dev.tools.sgraph.ai/components/base/v1/v1.0/v1.0.0/sg-component.js'
 
-const STATIC = { type_id: 'docker', display_name: 'Docker host', icon: '🐳', stability: 'stable', boot: '~10min', soon: false, create_endpoint_path: '/docker/stack' }
+const STATIC = { spec_id: 'docker', type_id: 'docker', display_name: 'Docker host', icon: '🐳', stability: 'stable', boot: '~10min', soon: false, create_endpoint_path: '/docker/stack' }
 
 class SpCliDockerCard extends SgComponent {
     static jsUrl = import.meta.url
@@ -23,7 +23,9 @@ class SpCliDockerCard extends SgComponent {
     }
 
     _launch() {
-        document.dispatchEvent(new CustomEvent('sp-cli:plugin:docker.launch-requested', { detail: { entry: this._entry }, bubbles: true, composed: true }))
+        const detail = { entry: this._entry }
+        document.dispatchEvent(new CustomEvent('sp-cli:spec:docker.launch-requested',   { detail, bubbles: true, composed: true }))
+        document.dispatchEvent(new CustomEvent('sp-cli:plugin:docker.launch-requested', { detail, bubbles: true, composed: true })) // DEPRECATED
     }
 }
 customElements.define('sp-cli-docker-card', SpCliDockerCard)

@@ -1,6 +1,6 @@
 import { SgComponent } from 'https://dev.tools.sgraph.ai/components/base/v1/v1.0/v1.0.0/sg-component.js'
 
-const STATIC = { type_id: 'prometheus', display_name: 'Prometheus + Grafana', icon: '📊', stability: 'experimental', boot: '~90s', soon: false, create_endpoint_path: '/prometheus/stack' }
+const STATIC = { spec_id: 'prometheus', type_id: 'prometheus', display_name: 'Prometheus + Grafana', icon: '📊', stability: 'experimental', boot: '~90s', soon: false, create_endpoint_path: '/prometheus/stack' }
 
 class SpCliPrometheusCard extends SgComponent {
     static jsUrl = import.meta.url
@@ -23,7 +23,9 @@ class SpCliPrometheusCard extends SgComponent {
     }
 
     _launch() {
-        document.dispatchEvent(new CustomEvent('sp-cli:plugin:prometheus.launch-requested', { detail: { entry: this._entry }, bubbles: true, composed: true }))
+        const detail = { entry: this._entry }
+        document.dispatchEvent(new CustomEvent('sp-cli:spec:prometheus.launch-requested',   { detail, bubbles: true, composed: true }))
+        document.dispatchEvent(new CustomEvent('sp-cli:plugin:prometheus.launch-requested', { detail, bubbles: true, composed: true })) // DEPRECATED
     }
 }
 customElements.define('sp-cli-prometheus-card', SpCliPrometheusCard)
