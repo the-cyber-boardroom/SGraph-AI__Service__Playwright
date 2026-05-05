@@ -60,9 +60,17 @@ class SgComputeSpecsView extends SgComponent {
             ${capChips ? `<div class="sc-caps" aria-label="Capabilities">${capChips}</div>` : ''}
             ${spec.version ? `<div class="sc-version">v${_esc(spec.version)}</div>` : ''}
             <div class="sc-actions">
+                <button class="btn-detail" aria-label="View details for spec ${_esc(spec.spec_id)}">View details</button>
                 <button class="btn-launch" ${spec.soon ? 'disabled aria-disabled="true"' : ''} aria-label="Launch a node using spec ${_esc(spec.spec_id)}">Launch node</button>
             </div>
         `
+
+        card.querySelector('.btn-detail').addEventListener('click', () => {
+            document.dispatchEvent(new CustomEvent('sp-cli:spec.selected', {
+                detail:  { spec: { ...spec } },
+                bubbles: true, composed: true,
+            }))
+        })
 
         if (!spec.soon) {
             card.querySelector('.btn-launch').addEventListener('click', () => {

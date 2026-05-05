@@ -1,0 +1,64 @@
+<div class="spec-detail">
+
+  <!-- ── header ──────────────────────────────────────────────────────── -->
+  <div class="sd-header">
+    <div class="sd-icon" aria-hidden="true"></div>
+    <div class="sd-identity">
+      <h2 class="sd-name"></h2>
+      <div class="sd-id-row">
+        <code class="sd-spec-id"></code>
+        <span class="sd-stability-badge"></span>
+        <span class="sd-nav-group"></span>
+      </div>
+    </div>
+    <div class="sd-actions-header">
+      <button class="btn-launch-header" type="button">Launch node →</button>
+    </div>
+  </div>
+
+  <!-- ── manifest fields ─────────────────────────────────────────────── -->
+  <section class="sd-section">
+    <h3 class="sd-section-title">Manifest</h3>
+    <dl class="sd-manifest-grid">
+      <dt>Version</dt>         <dd class="sd-field-version"></dd>
+      <dt>Boot time</dt>       <dd class="sd-field-boot"></dd>
+      <dt>Nav group</dt>       <dd class="sd-field-nav"></dd>
+      <dt>Capabilities</dt>    <dd class="sd-field-caps"></dd>
+      <dt>Launch endpoint</dt> <dd class="sd-field-endpoint"></dd>
+    </dl>
+  </section>
+
+  <!-- ── extends lineage ─────────────────────────────────────────────── -->
+  <section class="sd-section">
+    <h3 class="sd-section-title">Extends (lineage)</h3>
+    <div class="sd-extends">
+      <span class="sd-extends-placeholder">No parent specs — this is a root spec.</span>
+      <div class="sd-extends-list" hidden></div>
+    </div>
+  </section>
+
+  <!-- ── AMI list ────────────────────────────────────────────────────── -->
+  <section class="sd-section">
+    <h3 class="sd-section-title">Baked AMIs</h3>
+    <div class="sd-ami-placeholder" role="note">
+      <span class="sd-ami-icon" aria-hidden="true">⚠</span>
+      <span>AMI list will appear here once the backend <code>GET /api/amis</code> endpoint is available.</span>
+    </div>
+  </section>
+
+  <!-- ── README ──────────────────────────────────────────────────────── -->
+  <section class="sd-section">
+    <h3 class="sd-section-title">Documentation</h3>
+    <div class="sd-readme">
+      <a class="sd-readme-link" target="_blank" rel="noopener"></a>
+      <span class="sd-readme-placeholder" hidden>README not yet available — backend <code>GET /api/specs/{id}/readme</code> not yet wired.</span>
+    </div>
+  </section>
+
+  <!-- ── launch action ───────────────────────────────────────────────── -->
+  <section class="sd-section sd-launch-section">
+    <button class="btn-launch-footer" type="button">Launch node →</button>
+    <span class="sd-launch-hint">Opens the launch flow with this spec pre-filled.</span>
+  </section>
+
+</div>
