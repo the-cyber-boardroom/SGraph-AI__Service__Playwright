@@ -60,7 +60,7 @@ FV2.12 is therefore un-deferred from v0.3 — it must run before FV2.6 can proce
 ## Blocks / Blocked by
 
 - **Blocks:** FV2.13 (eventual dashboard move to `sg_compute/frontend/`).
-- **Blocked by:** FV2.12 (prefix rename must complete first so co-located files land with final names). Also blocked by backend BV2.x (StaticFiles mount in `Fast_API__Compute`).
+- **Blocked by:** FV2.12 (prefix rename — DONE ✅). Also blocked by backend **BV2.19** (`StaticFiles` mount in `Fast_API__Compute` — see `team/comms/briefs/v0.2.0__sg-compute__backend/BV2_19__spec-ui-static-files.md`).
 
 ## Notes
 
