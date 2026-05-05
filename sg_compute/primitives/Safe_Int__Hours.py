@@ -1,13 +1,11 @@
 # ═══════════════════════════════════════════════════════════════════════════════
-# SG/Compute — Schema__Node__Create__Response
+# SG/Compute — Safe_Int__Hours
+# Maximum lifetime of a compute node in hours: 1–168 (1 week cap).
 # ═══════════════════════════════════════════════════════════════════════════════
 
-from osbot_utils.type_safe.Type_Safe                                          import Type_Safe
-
-from sg_compute.core.node.schemas.Schema__Node__Info                         import Schema__Node__Info
-from sg_compute.primitives.Safe_Str__Message                                 import Safe_Str__Message
+from osbot_utils.type_safe.primitives.core.Safe_Int import Safe_Int
 
 
-class Schema__Node__Create__Response(Type_Safe):
-    node   : Schema__Node__Info
-    status : Safe_Str__Message = Safe_Str__Message()
+class Safe_Int__Hours(Safe_Int):
+    min_value = 1
+    max_value = 168

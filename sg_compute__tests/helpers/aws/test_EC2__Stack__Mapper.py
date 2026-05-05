@@ -9,7 +9,7 @@ from sg_compute.platforms.ec2.helpers.EC2__Stack__Mapper import EC2__Stack__Mapp
 
 FIXTURE = {
     'InstanceId'       : 'i-0123456789abcdef0',
-    'ImageId'          : 'ami-0abc1234',
+    'ImageId'          : 'ami-0a1b2c3d4e5f67890',
     'InstanceType'     : 't3.large',
     'State'            : {'Name': 'running'},
     'PublicIpAddress'  : '54.1.2.3',

@@ -26,35 +26,35 @@ class test_EC2__Platform(TestCase):
     def test_raw_to_node_info_running(self):
         p   = EC2__Platform()
         raw = {
-            'InstanceId'       : 'i-0abc123'           ,
-            'InstanceType'     : 't3.large'             ,
-            'ImageId'          : 'ami-0xyz'             ,
-            'PublicIpAddress'  : '1.2.3.4'              ,
-            'PrivateIpAddress' : '10.0.0.1'             ,
-            'State'            : {'Name': 'running'}    ,
+            'InstanceId'       : 'i-0abc1234567890abc'  ,
+            'InstanceType'     : 't3.large'              ,
+            'ImageId'          : 'ami-0abc1234567890abc' ,
+            'PublicIpAddress'  : '1.2.3.4'               ,
+            'PrivateIpAddress' : '10.0.0.1'              ,
+            'State'            : {'Name': 'running'}     ,
             'Tags'             : [
                 {'Key': 'StackName', 'Value': 'ff-quiet-fermi-1234'},
                 {'Key': 'StackType', 'Value': 'firefox'             },
             ],
-            'LaunchTime'       : None                   ,
+            'LaunchTime'       : None                    ,
         }
         info = p._raw_to_node_info(raw, 'eu-west-2', 'firefox')
         assert info.node_id              == 'ff-quiet-fermi-1234'
         assert info.spec_id              == 'firefox'
         assert info.state                == Enum__Node__State.READY
         assert info.public_ip            == '1.2.3.4'
-        assert info.instance_id          == 'i-0abc123'
+        assert info.instance_id          == 'i-0abc1234567890abc'
         assert info.host_api_key_ssm_path == '/sg-compute/nodes/ff-quiet-fermi-1234/sidecar-api-key'
 
     def test_raw_to_node_info_pending(self):
         p   = EC2__Platform()
         raw = {
-            'InstanceId'  : 'i-0def456'             ,
-            'InstanceType': 't3.medium'              ,
-            'ImageId'     : 'ami-0abc'               ,
-            'State'       : {'Name': 'pending'}      ,
+            'InstanceId'  : 'i-0def4567890abcdef'  ,
+            'InstanceType': 't3.medium'             ,
+            'ImageId'     : 'ami-0def4567890abcdef' ,
+            'State'       : {'Name': 'pending'}     ,
             'Tags'        : [{'Key': 'StackName', 'Value': 'test-node-0001'}],
-            'LaunchTime'  : None                     ,
+            'LaunchTime'  : None                    ,
         }
         info = p._raw_to_node_info(raw, 'us-east-1')
         assert info.state == Enum__Node__State.BOOTING
