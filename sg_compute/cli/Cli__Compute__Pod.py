@@ -22,5 +22,4 @@ app = typer.Typer(no_args_is_help=True,
 
 @app.command()
 def list(region: Optional[str] = typer.Option('', '--region', '-r', help='AWS region (default: eu-west-2).')):
-    """List all pods across active nodes."""
     render_pod_list(Schema__Pod__List(), Console(highlight=False, width=200))

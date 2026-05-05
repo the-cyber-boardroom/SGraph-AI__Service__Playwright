@@ -45,7 +45,6 @@ _mount_spec_sub_apps()
 
 @app.command()
 def list():
-    """List all registered specs."""
     registry  = _loader().load_all()
     catalogue = registry.catalogue()
     render_spec_catalogue(catalogue, Console(highlight=False, width=200))
@@ -53,7 +52,6 @@ def list():
 
 @app.command()
 def info(spec_id: str = typer.Argument(..., help='Spec identifier (e.g. docker, ollama).')):
-    """Show details for one spec."""
     registry = _loader().load_all()
     entry    = registry.get(spec_id)
     if entry is None:

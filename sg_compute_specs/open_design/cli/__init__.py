@@ -106,7 +106,6 @@ def create(
     wait          : bool          = typer.Option(False          , '--wait'         ,       help='Block until app is healthy.'          ),
     open_browser  : bool          = typer.Option(False          , '--open'         ,       help='Open viewer URL in browser.'          ),
 ) -> None:
-    """Provision an Open Design EC2 stack."""
     c          = Console(highlight=False, width=200)
     ollama_url = f'http://{ollama_ip}:11434/v1' if ollama_ip else ''
     req = Schema__Open_Design__Create__Request(
@@ -133,7 +132,6 @@ def create(
 @app.command(name='list')
 @_err_handler
 def list_stacks(region: str = typer.Option(DEFAULT_REGION, '--region', '-r')) -> None:
-    """List all Open Design stacks in the region."""
     listing = _svc().list_stacks(region)
     render_list(listing, Console(highlight=False, width=200))
 
@@ -144,7 +142,6 @@ def info(
     name   : Optional[str] = typer.Argument(None, help='Stack name; auto-selected when only one exists.'),
     region : str           = typer.Option(DEFAULT_REGION, '--region', '-r'),
 ) -> None:
-    """Show details for a single Open Design stack."""
     c    = Console(highlight=False, width=200)
     svc  = _svc()
     name = resolve_stack_name(svc, name, region)
@@ -161,7 +158,6 @@ def delete(
     name   : Optional[str] = typer.Argument(None, help='Stack name; auto-selected when only one exists.'),
     region : str           = typer.Option(DEFAULT_REGION, '--region', '-r'),
 ) -> None:
-    """Terminate an Open Design stack."""
     c    = Console(highlight=False, width=200)
     svc  = _svc()
     name = resolve_stack_name(svc, name, region)
@@ -178,7 +174,6 @@ def wait(
     region      : str           = typer.Option(DEFAULT_REGION, '--region', '-r'),
     timeout_sec : int           = typer.Option(600, '--timeout', help='Max seconds to wait.'),
 ) -> None:
-    """Block until the Open Design app is healthy (HTTPS reachable)."""
     c    = Console(highlight=False, width=200)
     svc  = _svc()
     name = resolve_stack_name(svc, name, region)
@@ -196,7 +191,6 @@ def health(
     region : str           = typer.Option(DEFAULT_REGION, '--region', '-r'),
     timeout: int           = typer.Option(600, '--timeout', help='Max wait seconds.'),
 ) -> None:
-    """Poll until the Open Design app is healthy (or timeout)."""
     c    = Console(highlight=False, width=200)
     svc  = _svc()
     name = resolve_stack_name(svc, name, region)
