@@ -6,6 +6,12 @@ This is a pointer log, not a content log. For full delta detail, see the master 
 
 ---
 
+## 2026-05-05 (FV2.6 — all 8 specs complete)
+
+- `sg-compute/index.md` — UPDATED: 48 files moved to `sg_compute_specs/{spec}/ui/{card,detail}/v0/v0.1/v0.1.0/` for docker, podman, vnc, neko, prometheus, opensearch, elastic, firefox; `api_site/plugins/` deleted; all per-spec detail dirs in `api_site/components/sp-cli/` deleted; all detail JS imports → absolute `/ui/` paths; `admin/index.html` all spec script tags → `/api/specs/<id>/ui/...`.
+
+---
+
 ## 2026-05-05 (BV2.7)
 
 - `sg-compute/index.md` — UPDATED: 14 new canonical modules (primitives, enums, event_bus, image); 46 spec files import-rewritten from `__cli.*` to `sg_compute.*`; CI guard added; 584 tests passing.

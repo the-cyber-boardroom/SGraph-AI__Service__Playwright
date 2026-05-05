@@ -18,7 +18,7 @@ class test_Spec__UI__Resolver(TestCase):
 
     def test_ui_path_for_spec__absent_returns_none(self):
         resolver = Spec__UI__Resolver()
-        assert resolver.ui_path_for_spec('docker') is None                    # no ui/ folder exists yet
+        assert resolver.ui_path_for_spec('ollama') is None                    # ollama has no ui/ folder
 
     def test_ui_path_for_spec__unknown_spec_returns_none(self):
         resolver = Spec__UI__Resolver()
