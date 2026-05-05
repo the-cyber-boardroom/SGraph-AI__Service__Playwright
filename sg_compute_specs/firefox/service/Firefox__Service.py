@@ -77,7 +77,8 @@ class Firefox__Service(Type_Safe):
                                                    interceptor_source = interceptor_source,
                                                    interceptor_kind   = interceptor_kind  ,
                                                    env_source         = env_source        ,
-                                                   max_hours          = max_hours         )
+                                                   max_hours          = max_hours         ,
+                                                   enable_shell       = bool(request.enable_shell))
         iid = self.aws_client.launch.run_instance(region, str(request.from_ami) or '',
                                                    sg_id, user_data, tags,
                                                    instance_type         = itype   ,

@@ -41,6 +41,21 @@ class test_Safe_Str__Shell__Command(TestCase):
         with pytest.raises(ValueError, match='not in allowlist'):
             Safe_Str__Shell__Command('cat /etc/passwd')
 
+    def test_unrestricted_mode__skips_allowlist(self):
+        import os
+        os.environ['SG_SHELL_UNRESTRICTED'] = '1'
+        try:
+            cmd = Safe_Str__Shell__Command('docker images')
+            assert str(cmd) == 'docker images'
+        finally:
+            del os.environ['SG_SHELL_UNRESTRICTED']
+
+    def test_unrestricted_mode__off_by_default(self):
+        import os
+        os.environ.pop('SG_SHELL_UNRESTRICTED', None)
+        with pytest.raises(ValueError, match='not in allowlist'):
+            Safe_Str__Shell__Command('docker images')
+
 
 class test_Shell__Executor(TestCase):
 

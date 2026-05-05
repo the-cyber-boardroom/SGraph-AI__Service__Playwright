@@ -62,16 +62,18 @@ def info(stack_name: str = typer.Argument(..., help='Firefox stack name.'),
 
 
 @app.command()
-def create(region       : str = typer.Option(DEFAULT_REGION, '--region'      , '-r'),
-           instance_type: str = typer.Option('t3.large'    , '--instance-type', '-t'),
-           max_hours    : int = typer.Option(1             , '--max-hours'         ),
-           name         : str = typer.Option(''            , '--name'              , help='Override stack name.')):
+def create(region       : str  = typer.Option(DEFAULT_REGION, '--region'      , '-r'),
+           instance_type: str  = typer.Option('t3.large'    , '--instance-type', '-t'),
+           max_hours    : int  = typer.Option(1             , '--max-hours'         ),
+           name         : str  = typer.Option(''            , '--name'              , help='Override stack name.'),
+           enable_shell : bool = typer.Option(False         , '--enable-shell'      , help='Disable the shell command allowlist on the sidecar (allows docker images, exec, etc.).')):
     from sg_compute_specs.firefox.schemas.Schema__Firefox__Stack__Create__Request import Schema__Firefox__Stack__Create__Request
     try:
         svc  = _service()
         req  = Schema__Firefox__Stack__Create__Request(
             instance_type = instance_type,
             max_hours     = max_hours    ,
+            enable_shell  = enable_shell ,
         )
         if name:
             req.stack_name.__init__(name)

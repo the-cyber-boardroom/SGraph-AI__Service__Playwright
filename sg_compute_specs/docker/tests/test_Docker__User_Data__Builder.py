@@ -75,3 +75,19 @@ class test_Docker__User_Data__Builder(TestCase):
         assert req.registry      == ''
         assert req.api_key_name  == 'X-API-Key'
         assert req.api_key_ssm_path == ''
+
+    def test_schema__enable_shell_defaults_false(self):
+        from sg_compute_specs.docker.schemas.Schema__Docker__Create__Request import Schema__Docker__Create__Request
+        assert Schema__Docker__Create__Request().enable_shell is False
+
+    def test_render__enable_shell_false__no_unrestricted_env(self):
+        result = self.builder.render('fast-fermi', 'eu-west-2',
+                                     registry     = '1234.dkr.ecr.eu-west-2.amazonaws.com',
+                                     enable_shell = False)
+        assert 'SG_SHELL_UNRESTRICTED' not in result
+
+    def test_render__enable_shell_true__injects_env_var(self):
+        result = self.builder.render('fast-fermi', 'eu-west-2',
+                                     registry     = '1234.dkr.ecr.eu-west-2.amazonaws.com',
+                                     enable_shell = True)
+        assert 'SG_SHELL_UNRESTRICTED=1' in result
