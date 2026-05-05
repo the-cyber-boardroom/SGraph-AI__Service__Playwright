@@ -73,10 +73,11 @@ class Docker__Service(Type_Safe):
         tags      = self.aws_client.tags.build(stack_name, caller_ip, creator)
         user_data = self.user_data_builder.render(stack_name                    ,
                                                           region                         ,
-                                                          registry      = str(request.registry      or ''),
-                                                          api_key_name  = str(request.api_key_name  or 'X-API-Key'),
+                                                          registry         = str(request.registry      or ''),
+                                                          api_key_name     = str(request.api_key_name  or 'X-API-Key'),
                                                           api_key_ssm_path = str(request.api_key_ssm_path or ''),
-                                                          max_hours     = request.max_hours          )
+                                                          max_hours        = request.max_hours         ,
+                                                          enable_shell     = bool(request.enable_shell))
         iid       = self.aws_client.launch.run_instance(region, ami_id, sg_id, user_data, tags,
                                                         instance_type         = itype        ,
                                                         instance_profile_name = PROFILE_NAME )

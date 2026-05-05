@@ -6,6 +6,7 @@
 # attempts that might slip through; the allowlist check is the primary gate.
 # ═══════════════════════════════════════════════════════════════════════════════
 
+import os
 import re
 
 from osbot_utils.type_safe.primitives.core.Safe_Str                         import Safe_Str
@@ -20,6 +21,7 @@ class Safe_Str__Shell__Command(Safe_Str):
     allow_empty = True                                                      # allow empty for Type_Safe default construction; Shell__Executor rejects blank at runtime
 
     def __new__(cls, value: str = ''):
-        if value and not any(value.startswith(prefix) for prefix in SHELL_COMMAND_ALLOWLIST):
-            raise ValueError(f'command not in allowlist: {value!r}')
+        if value and os.environ.get('SG_SHELL_UNRESTRICTED', '') != '1':
+            if not any(value.startswith(prefix) for prefix in SHELL_COMMAND_ALLOWLIST):
+                raise ValueError(f'command not in allowlist: {value!r}')
         return super().__new__(cls, value)

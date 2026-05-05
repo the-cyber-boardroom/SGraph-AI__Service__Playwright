@@ -174,12 +174,13 @@ class Firefox__User_Data__Builder(Type_Safe):
                      region            : str,
                      password          : str,
                      interceptor_source: str,
-                     interceptor_kind  : str = 'none',
-                     env_source        : str = ''    ,
-                     max_hours         : int = 1     ,
-                     registry          : str = ''    ,
-                     api_key_name      : str = 'X-API-Key',
-                     api_key_ssm_path     : str = ''    ) -> str:
+                     interceptor_kind  : str  = 'none',
+                     env_source        : str  = ''    ,
+                     max_hours         : int  = 1     ,
+                     registry          : str  = ''    ,
+                     api_key_name      : str  = 'X-API-Key',
+                     api_key_ssm_path  : str  = ''    ,
+                     enable_shell      : bool = False ) -> str:
 
         compose_yaml     = COMPOSE_TEMPLATE.format(
             firefox_image         = FIREFOX_IMAGE        ,
@@ -194,9 +195,10 @@ class Firefox__User_Data__Builder(Type_Safe):
             password              = password             )
         user_js          = USER_JS_TEMPLATE.format(mitm_proxy_port=MITM_PROXY_PORT)
         shutdown_section = SHUTDOWN_SECTION_TEMPLATE.format(max_hours=max_hours) if max_hours > 0 else ''
-        sidecar_section  = Section__Sidecar().render(registry      = registry      ,
-                                                     api_key_name  = api_key_name  ,
-                                                     api_key_ssm_path = api_key_ssm_path )
+        sidecar_section  = Section__Sidecar().render(registry         = registry         ,
+                                                     api_key_name     = api_key_name     ,
+                                                     api_key_ssm_path = api_key_ssm_path ,
+                                                     enable_shell     = enable_shell     )
 
         return USER_DATA_TEMPLATE.format(
             stack_name         = stack_name         ,

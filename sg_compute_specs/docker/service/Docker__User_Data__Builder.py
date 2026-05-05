@@ -63,14 +63,16 @@ class Docker__User_Data__Builder(Type_Safe):
                      registry       : Safe_Str__Image__Registry = Safe_Str__Image__Registry()        ,
                      api_key_name   : Safe_Str__Message         = Safe_Str__Message('X-API-Key')     ,
                      api_key_ssm_path: Safe_Str__SSM__Path      = Safe_Str__SSM__Path()              ,
-                     max_hours      : Safe_Int__Max__Hours       = Safe_Int__Max__Hours(1)            ) -> str:
+                     max_hours      : Safe_Int__Max__Hours       = Safe_Int__Max__Hours(1)            ,
+                     enable_shell   : bool                      = False                              ) -> str:
         shutdown_line = (SHUTDOWN_TEMPLATE.format(minutes=max_hours * 60, hours=max_hours)
                          if max_hours > 0 else SHUTDOWN_DISABLED)
         script = BASE_TEMPLATE.format(stack_name=str(stack_name),
                                       region    =str(region)    ,
                                       log_file  =LOG_FILE       )
-        script += Section__Sidecar().render(registry      = registry      ,
-                                            api_key_name  = api_key_name  ,
-                                            api_key_ssm_path = api_key_ssm_path )
+        script += Section__Sidecar().render(registry         = registry         ,
+                                            api_key_name     = api_key_name     ,
+                                            api_key_ssm_path = api_key_ssm_path ,
+                                            enable_shell     = enable_shell     )
         script += FOOTER_TEMPLATE.format(shutdown_line=shutdown_line)
         return script

@@ -98,3 +98,18 @@ class test_Section__Sidecar(TestCase):
                                      api_key_name    = SAMPLE_KEY_NAME ,
                                      api_key_ssm_path= SAMPLE_SSM_PATH )
         assert '{' not in result or '${' in result     # bash vars only, no Python {placeholders}
+
+    def test_enable_shell_false__no_unrestricted_env(self):
+        result = self.sidecar.render(registry=SAMPLE_REGISTRY, enable_shell=False)
+        assert 'SG_SHELL_UNRESTRICTED' not in result
+
+    def test_enable_shell_true__injects_env_var(self):
+        result = self.sidecar.render(registry=SAMPLE_REGISTRY, enable_shell=True)
+        assert 'SG_SHELL_UNRESTRICTED=1' in result
+
+    def test_enable_shell_true__no_unresolved_placeholders(self):
+        result = self.sidecar.render(registry        = SAMPLE_REGISTRY ,
+                                     api_key_name    = SAMPLE_KEY_NAME ,
+                                     api_key_ssm_path= SAMPLE_SSM_PATH ,
+                                     enable_shell    = True            )
+        assert '{' not in result or '${' in result

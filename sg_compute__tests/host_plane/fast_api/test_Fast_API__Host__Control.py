@@ -189,3 +189,51 @@ def test_container_logs__requires_auth(client):
 def test_container_stats__requires_auth(client):
     r = client.get('/containers/nonexistent-container/stats')
     assert r.status_code == 401
+
+# ── Images ────────────────────────────────────────────────────────────────────
+
+def test_list_images__200(client):
+    r = client.get('/images', headers=HEADERS)
+    assert r.status_code == 200
+    body = r.json()
+    assert 'images' in body
+    assert 'count'  in body
+    assert isinstance(body['images'], list)
+
+def test_list_images__requires_auth(client):
+    r = client.get('/images')
+    assert r.status_code == 401
+
+def test_get_image__not_found__404(client):
+    r = client.get('/images/no-such-image-xyz-999', headers=HEADERS)
+    assert r.status_code == 404
+
+def test_load_from_local_path__missing_path__422(client):
+    r = client.post('/images/load/from/local-path', headers=HEADERS, json={'path': ''})
+    assert r.status_code == 422
+
+def test_load_from_local_path__nonexistent__404(client):
+    r = client.post('/images/load/from/local-path', headers=HEADERS,
+                    json={'path': '/tmp/no-such-file-for-test.tar'})
+    assert r.status_code == 404
+
+def test_load_from_s3__missing_fields__422(client):
+    r = client.post('/images/load/from/s3', headers=HEADERS, json={'bucket': '', 'key': ''})
+    assert r.status_code == 422
+
+def test_load_from_s3__bucket_only__422(client):
+    r = client.post('/images/load/from/s3', headers=HEADERS, json={'bucket': 'my-bucket', 'key': ''})
+    assert r.status_code == 422
+
+def test_remove_image__not_found__404(client):
+    r = client.delete('/images/delete/no-such-image-xyz-999', headers=HEADERS)
+    assert r.status_code == 404
+
+def test_load_from_upload__empty_file__returns_load_response(client):
+    import io
+    data = {'file': ('test.tar', io.BytesIO(b''), 'application/octet-stream')}
+    r    = client.post('/images/load/from/upload', headers=HEADERS, files=data)
+    body = r.json()
+    assert 'loaded'     in body
+    assert 'size_bytes' in body
+    assert body['loaded'] is False          # empty tar is not a valid image

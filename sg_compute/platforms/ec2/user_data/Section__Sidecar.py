@@ -45,7 +45,7 @@ docker run -d \\
   -v /var/run/docker.sock:/var/run/docker.sock \\
   -e FAST_API__AUTH__API_KEY__NAME="{api_key_name}" \\
   -e FAST_API__AUTH__API_KEY__VALUE="$SIDECAR_API_KEY" \\
-  -p {port}:8000 \\
+  {shell_env_flag}-p {port}:8000 \\
   "{registry}/{image}:{image_tag}" || true
 
 echo "[sg-compute] sidecar started"
@@ -59,13 +59,16 @@ class Section__Sidecar(Type_Safe):
                      image_tag       : Safe_Str__Image__Tag      = Safe_Str__Image__Tag('latest'),
                      api_key_name    : Safe_Str__Message         = Safe_Str__Message('X-API-Key'),
                      api_key_ssm_path: Safe_Str__SSM__Path       = Safe_Str__SSM__Path(),
-                     port            : Safe_Int__Port            = Safe_Int__Port(DEFAULT_PORT)) -> str:
+                     port            : Safe_Int__Port            = Safe_Int__Port(DEFAULT_PORT),
+                     enable_shell    : bool                      = False) -> str:
         if not registry:
             return ''
+        shell_env_flag = '-e SG_SHELL_UNRESTRICTED=1 \\\n  ' if enable_shell else ''
         return TEMPLATE.format(registry         = registry         ,
                                image            = IMAGE_NAME       ,
                                image_tag        = image_tag        ,
                                api_key_name     = api_key_name     ,
                                api_key_ssm_path = api_key_ssm_path ,
                                port             = port             ,
-                               container_name   = CONTAINER_NAME   )
+                               container_name   = CONTAINER_NAME   ,
+                               shell_env_flag   = shell_env_flag   )
