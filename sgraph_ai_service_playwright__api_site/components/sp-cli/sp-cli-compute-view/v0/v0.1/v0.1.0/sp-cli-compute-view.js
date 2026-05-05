@@ -110,9 +110,13 @@ class SpCliComputeView extends SgComponent {
                 const card = document.createElement('div')
                 card.className = `spec-card${spec.soon ? ' spec-card--soon' : ''}`
                 card.dataset.specId = spec.spec_id
+                card.setAttribute('role', 'button')
+                card.setAttribute('tabindex', spec.soon ? '-1' : '0')
+                card.setAttribute('aria-label', spec.soon ? `${spec.display_name} — coming soon` : `Select ${spec.display_name}`)
+                if (spec.soon) card.setAttribute('aria-disabled', 'true')
                 const bootLabel = _fmtBoot(spec.boot_seconds_typical)
                 card.innerHTML = `
-                    <div class="sc-icon">${spec.icon || '⬡'}</div>
+                    <div class="sc-icon" aria-hidden="true">${spec.icon || '⬡'}</div>
                     <div class="sc-body">
                         <div class="sc-name">${spec.display_name}</div>
                         <div class="sc-meta">
@@ -124,6 +128,9 @@ class SpCliComputeView extends SgComponent {
                 `
                 if (!spec.soon) {
                     card.addEventListener('click', () => this._selectSpec(spec, card))
+                    card.addEventListener('keydown', (e) => {
+                        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); this._selectSpec(spec, card) }
+                    })
                 }
                 row.appendChild(card)
             }
@@ -132,9 +139,11 @@ class SpCliComputeView extends SgComponent {
     }
 
     _selectSpec(spec, cardEl) {
-        Array.from(this.shadowRoot.querySelectorAll('.spec-card')).forEach(c =>
-            c.classList.toggle('selected', c === cardEl)
-        )
+        Array.from(this.shadowRoot.querySelectorAll('.spec-card')).forEach(c => {
+            const sel = c === cardEl
+            c.classList.toggle('selected', sel)
+            c.setAttribute('aria-pressed', String(sel))
+        })
         this._currentSpec = spec
         const bootLabel = _fmtBoot(spec.boot_seconds_typical)
         if (this._cfgIcon) this._cfgIcon.textContent = spec.icon || '⬡'

@@ -127,15 +127,21 @@ class SpCliNodesView extends SgComponent {
         for (const s of stacks) {
             const row = document.createElement('div')
             row.className = 'node-row'
+            row.setAttribute('role', 'button')
+            row.setAttribute('tabindex', '0')
+            row.setAttribute('aria-label', `${s.spec_id} node ${s.node_id}, state: ${s.state}`)
             const stateClass = nodePillClass(s.state)
             row.innerHTML = `
-                <span class="row-icon">${TYPE_ICONS[s.spec_id] || '⬡'}</span>
+                <span class="row-icon" aria-hidden="true">${TYPE_ICONS[s.spec_id] || '⬡'}</span>
                 <span class="row-name">${s.node_id}</span>
                 <span class="ec2-pill dot ${stateClass}">${s.state}</span>
                 <span class="row-ip mono">${s.public_ip || '—'}</span>
                 <span class="row-uptime">${_fmtUptime(s.uptime_seconds)}</span>
             `
             row.addEventListener('click', () => this._openDetail(s))
+            row.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); this._openDetail(s) }
+            })
             this._rows.appendChild(row)
         }
     }
@@ -161,7 +167,8 @@ class SpCliNodesView extends SgComponent {
 
         const eye = document.createElement('button')
         eye.className = 'api-key-btn'
-        eye.title = this._keyRevealed ? 'Hide' : 'Reveal'
+        eye.title     = this._keyRevealed ? 'Hide key' : 'Reveal key'
+        eye.setAttribute('aria-label', this._keyRevealed ? 'Hide API key' : 'Reveal API key')
         eye.textContent = this._keyRevealed ? '🙈' : '👁'
         eye.addEventListener('click', () => {
             this._keyRevealed = !this._keyRevealed
@@ -170,7 +177,8 @@ class SpCliNodesView extends SgComponent {
 
         const copy = document.createElement('button')
         copy.className = 'api-key-btn'
-        copy.title = 'Copy'
+        copy.title     = 'Copy API key'
+        copy.setAttribute('aria-label', 'Copy API key to clipboard')
         copy.textContent = '⎘'
         copy.addEventListener('click', () => navigator.clipboard?.writeText(key))
 
@@ -294,8 +302,16 @@ class SpCliNodesView extends SgComponent {
     }
 
     _activateTab(name) {
-        this._tabs.forEach(t   => t.classList.toggle('active', t.dataset.tab === name))
-        this._panels.forEach(p => p.classList.toggle('active', p.dataset.panel === name))
+        this._tabs.forEach(t => {
+            const active = t.dataset.tab === name
+            t.classList.toggle('active', active)
+            t.setAttribute('aria-selected', String(active))
+        })
+        this._panels.forEach(p => {
+            const active = p.dataset.panel === name
+            p.classList.toggle('active', active)
+            p.setAttribute('aria-hidden', String(!active))
+        })
         if (name === 'containers') this._fetchContainers()
         if (name === 'bootlog')    this._fetchBootLog()
         if (name === 'ec2info')    this._fetchEc2Info()
@@ -422,7 +438,7 @@ class SpCliNodesView extends SgComponent {
                 <span class="ct-image">${_esc(c.image)}</span>
                 ${linksHtml}
                 <span class="ct-stats ct-state"></span>
-                <button class="ct-log-btn" title="View logs">📋</button>
+                <button class="ct-log-btn" title="View logs" aria-label="View logs for ${_esc(c.name)}">📋</button>
             `
             const statsEl = row.querySelector('.ct-stats')
             row.querySelector('.ct-log-btn')?.addEventListener('click', (e) => {
@@ -483,7 +499,10 @@ class SpCliNodesView extends SgComponent {
             this._livePodName = this._podLogName?.textContent || null
             if (!this._livePodName) return
             this._liveLogTimer = setInterval(() => this._pollLiveLogs(), 3000)
-            if (this._liveBtnEl) this._liveBtnEl.textContent = '⏸ Live'
+            if (this._liveBtnEl) {
+                this._liveBtnEl.textContent = '⏸ Live'
+                this._liveBtnEl.setAttribute('aria-label', 'Stop live log streaming')
+            }
             this._liveBtnEl?.classList.add('live-active')
         }
     }
@@ -491,7 +510,10 @@ class SpCliNodesView extends SgComponent {
     _stopLiveLog() {
         if (this._liveLogTimer) { clearInterval(this._liveLogTimer); this._liveLogTimer = null }
         this._livePodName = null
-        if (this._liveBtnEl) this._liveBtnEl.textContent = '▶ Live'
+        if (this._liveBtnEl) {
+            this._liveBtnEl.textContent = '▶ Live'
+            this._liveBtnEl.setAttribute('aria-label', 'Start live log streaming')
+        }
         this._liveBtnEl?.classList.remove('live-active')
     }
 
