@@ -6,7 +6,7 @@ import boto3                                                                    
 
 from osbot_utils.type_safe.Type_Safe                                                import Type_Safe
 
-from sg_compute_specs.prometheus.service.Prometheus__AWS__Client                    import TAG_PURPOSE_KEY, TAG_PURPOSE_VALUE
+from sg_compute_specs.prometheus.service.Prometheus__Tags                    import TAG_PURPOSE_KEY, TAG_PURPOSE_VALUE
 
 
 AL2023_NAME_FILTER = 'al2023-ami-2023.*-x86_64'

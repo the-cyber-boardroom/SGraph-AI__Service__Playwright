@@ -25,7 +25,7 @@ from typing import Optional
 
 from sg_compute_specs.docker.service.Caller__IP__Detector       import Caller__IP__Detector
 from sg_compute_specs.docker.service.Docker__AWS__Client        import Docker__AWS__Client
-from sg_compute_specs.docker.service.Docker__AWS__Client                            import DOCKER_NAMING
+from sg_compute_specs.docker.service.Docker__Tags                            import DOCKER_NAMING
 from sg_compute_specs.docker.service.Docker__Health__Checker    import Docker__Health__Checker
 from sg_compute_specs.docker.service.Docker__Instance__Helper   import Docker__Instance__Helper
 from sg_compute_specs.docker.service.Docker__Stack__Mapper      import Docker__Stack__Mapper

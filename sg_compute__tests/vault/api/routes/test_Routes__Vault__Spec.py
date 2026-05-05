@@ -86,10 +86,57 @@ class test_Routes__Vault__Spec(TestCase):
     # ── DELETE /vault/spec/{spec_id}/{stack_id}/{handle} ─────────────────────
 
     def test_delete__success_200(self):
-        resp = _client().delete('/vault/spec/firefox/_shared/credentials')
-        assert resp.status_code == 200
+        c = _client()
+        c.put('/vault/spec/firefox/_shared/credentials', content=b'data')
+        resp = c.delete('/vault/spec/firefox/_shared/credentials')
+        assert resp.status_code        == 200
+        data = resp.json()
+        assert data['deleted']         is True
+        assert data['spec_id']         == 'firefox'
+        assert data['vault_path']      == 'spec/firefox/_shared/credentials'
 
     def test_delete__no_vault_returns_409(self):
         resp = _client(vault_attached=False).delete(
             '/vault/spec/firefox/_shared/credentials')
         assert resp.status_code == 409
+
+    # ── round-trip: PUT then GET metadata ────────────────────────────────────
+
+    def test_round_trip__write_then_metadata_sha256_matches(self):
+        import hashlib
+        blob = b'x' * 1024                                                  # 1 KB blob
+        c    = _client()
+        put_resp = c.put('/vault/spec/firefox/my-node/mitm-script', content=blob)
+        assert put_resp.status_code == 200
+        put_data = put_resp.json()
+        assert put_data['bytes_written'] == 1024
+        assert put_data['sha256']        == hashlib.sha256(blob).hexdigest()
+
+        get_resp = c.get('/vault/spec/firefox/my-node/mitm-script/metadata')
+        assert get_resp.status_code == 200
+        get_data = get_resp.json()
+        assert get_data['sha256']        == put_data['sha256']
+        assert get_data['bytes_written'] == 1024
+        assert get_data['vault_path']    == 'spec/firefox/my-node/mitm-script'
+
+    def test_round_trip__metadata_404_before_write(self):
+        resp = _client().get('/vault/spec/firefox/my-node/mitm-script/metadata')
+        assert resp.status_code == 404
+
+    def test_round_trip__list_contains_written_receipt(self):
+        blob = b'hello'
+        c    = _client()
+        c.put('/vault/spec/firefox/_shared/credentials', content=blob)
+        c.put('/vault/spec/firefox/_shared/profile',     content=blob)
+        resp = c.get('/vault/spec/firefox')
+        assert resp.status_code == 200
+        data = resp.json()
+        handles = {r['handle'] for r in data['receipts']}
+        assert handles == {'credentials', 'profile'}
+
+    def test_round_trip__delete_removes_metadata(self):
+        c = _client()
+        c.put('/vault/spec/firefox/_shared/credentials', content=b'secret')
+        c.delete('/vault/spec/firefox/_shared/credentials')
+        resp = c.get('/vault/spec/firefox/_shared/credentials/metadata')
+        assert resp.status_code == 404

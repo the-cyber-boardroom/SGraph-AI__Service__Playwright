@@ -246,7 +246,7 @@ def _create_open_design(region, instance_type, max_hours, name):
 
 def _create_firefox(region, instance_type, max_hours, name):
     from sg_compute_specs.firefox.schemas.Schema__Firefox__Stack__Create__Request import Schema__Firefox__Stack__Create__Request
-    from sg_compute_specs.firefox.service.Firefox__AWS__Client                    import FIREFOX_NAMING
+    from sg_compute_specs.firefox.service.Firefox__Tags                           import FIREFOX_NAMING
     from sg_compute_specs.firefox.service.Firefox__Service                        import Firefox__Service
     svc   = Firefox__Service().setup()
     sname = name or FIREFOX_NAMING.generate()

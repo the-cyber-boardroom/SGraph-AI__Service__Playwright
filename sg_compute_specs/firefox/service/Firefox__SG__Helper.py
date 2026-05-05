@@ -8,7 +8,7 @@ import boto3
 
 from osbot_utils.type_safe.Type_Safe                                                import Type_Safe
 
-from sg_compute_specs.firefox.service.Firefox__AWS__Client                          import (FIREFOX_NAMING    ,
+from sg_compute_specs.firefox.service.Firefox__Tags                          import (FIREFOX_NAMING    ,
                                                                                              TAG_PURPOSE_KEY   ,
                                                                                              TAG_PURPOSE_VALUE )
 

@@ -20,7 +20,7 @@ from typing import Optional
 
 from sg_compute_specs.prometheus.service.Caller__IP__Detector               import Caller__IP__Detector
 from sg_compute_specs.prometheus.service.Prometheus__AWS__Client            import Prometheus__AWS__Client
-from sg_compute_specs.prometheus.service.Prometheus__AWS__Client                    import PROM_NAMING
+from sg_compute_specs.prometheus.service.Prometheus__Tags                    import PROM_NAMING
 from sg_compute_specs.prometheus.service.Prometheus__Compose__Template      import Prometheus__Compose__Template
 from sg_compute_specs.prometheus.service.Prometheus__Config__Generator      import Prometheus__Config__Generator
 from sg_compute_specs.prometheus.service.Prometheus__HTTP__Base             import Prometheus__HTTP__Base

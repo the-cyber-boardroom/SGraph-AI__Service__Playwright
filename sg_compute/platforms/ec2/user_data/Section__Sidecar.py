@@ -15,6 +15,12 @@
 
 from osbot_utils.type_safe.Type_Safe import Type_Safe
 
+from sg_compute.primitives.Safe_Int__Port                                    import Safe_Int__Port
+from sg_compute.primitives.Safe_Str__Image__Registry                        import Safe_Str__Image__Registry
+from sg_compute.primitives.Safe_Str__Image__Tag                             import Safe_Str__Image__Tag
+from sg_compute.primitives.Safe_Str__Message                                import Safe_Str__Message
+from sg_compute.primitives.Safe_Str__SSM__Path                              import Safe_Str__SSM__Path
+
 IMAGE_NAME     = 'sgraph_ai_service_playwright_host'
 CONTAINER_NAME = 'sg-sidecar'
 DEFAULT_PORT   = 19009
@@ -49,11 +55,11 @@ rm -f /root/.docker/config.json
 
 class Section__Sidecar(Type_Safe):
 
-    def render(self, registry        : str = '',
-                     image_tag       : str = 'latest',
-                     api_key_name    : str = 'X-API-Key',
-                     api_key_ssm_path: str = '',
-                     port            : int = DEFAULT_PORT) -> str:
+    def render(self, registry        : Safe_Str__Image__Registry = Safe_Str__Image__Registry(),
+                     image_tag       : Safe_Str__Image__Tag      = Safe_Str__Image__Tag('latest'),
+                     api_key_name    : Safe_Str__Message         = Safe_Str__Message('X-API-Key'),
+                     api_key_ssm_path: Safe_Str__SSM__Path       = Safe_Str__SSM__Path(),
+                     port            : Safe_Int__Port            = Safe_Int__Port(DEFAULT_PORT)) -> str:
         if not registry:
             return ''
         return TEMPLATE.format(registry         = registry         ,

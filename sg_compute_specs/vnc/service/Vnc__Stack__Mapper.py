@@ -7,7 +7,7 @@ from osbot_utils.type_safe.Type_Safe                                            
 from sg_compute_specs.vnc.enums.Enum__Vnc__Interceptor__Kind                        import Enum__Vnc__Interceptor__Kind
 from sg_compute_specs.vnc.enums.Enum__Vnc__Stack__State                             import Enum__Vnc__Stack__State
 from sg_compute_specs.vnc.schemas.Schema__Vnc__Stack__Info                          import Schema__Vnc__Stack__Info
-from sg_compute_specs.vnc.service.Vnc__AWS__Client                                  import (TAG_ALLOWED_IP_KEY   ,
+from sg_compute_specs.vnc.service.Vnc__Tags                                  import (TAG_ALLOWED_IP_KEY   ,
                                                                                              TAG_INTERCEPTOR_KEY  ,
                                                                                              TAG_INTERCEPTOR_NONE ,
                                                                                              TAG_STACK_NAME_KEY   )

@@ -4,7 +4,7 @@
 
 from unittest                                                                       import TestCase
 
-from sg_compute_specs.opensearch.service.OpenSearch__AWS__Client                    import (TAG_ALLOWED_IP_KEY ,
+from sg_compute_specs.opensearch.service.OpenSearch__Tags                           import (TAG_ALLOWED_IP_KEY ,
                                                                                              TAG_CREATOR_KEY    ,
                                                                                              TAG_PURPOSE_KEY    ,
                                                                                              TAG_PURPOSE_VALUE  ,

@@ -5,8 +5,8 @@
 # Endpoints (mounted at /api/vault):
 #   PUT    /spec/{spec_id}/{stack_id}/{handle}          → Schema__Vault__Write__Receipt
 #   GET    /spec/{spec_id}/{stack_id}/{handle}/metadata → Schema__Vault__Write__Receipt
-#   GET    /spec/{spec_id}                              → list of receipts
-#   DELETE /spec/{spec_id}/{stack_id}/{handle}          → 200 {}
+#   GET    /spec/{spec_id}                              → Schema__Vault__List__Response
+#   DELETE /spec/{spec_id}/{stack_id}/{handle}          → Schema__Vault__Delete__Response
 # ═══════════════════════════════════════════════════════════════════════════════
 
 from fastapi                                                                 import Body, HTTPException
@@ -14,6 +14,12 @@ from fastapi                                                                 imp
 from osbot_fast_api.api.routes.Fast_API__Routes                              import Fast_API__Routes
 
 from sg_compute.vault.enums.Enum__Vault__Error_Code                          import Enum__Vault__Error_Code
+from sg_compute.vault.primitives.Safe_Str__Spec__Type_Id                     import Safe_Str__Spec__Type_Id
+from sg_compute.vault.primitives.Safe_Str__Stack__Id                         import Safe_Str__Stack__Id
+from sg_compute.vault.primitives.Safe_Str__Vault__Handle                     import Safe_Str__Vault__Handle
+from sg_compute.vault.primitives.Safe_Str__Vault__Path                       import Safe_Str__Vault__Path
+from sg_compute.vault.schemas.Schema__Vault__Delete__Response                import Schema__Vault__Delete__Response
+from sg_compute.vault.schemas.Schema__Vault__List__Response                  import Schema__Vault__List__Response
 from sg_compute.vault.service.Vault__Spec__Writer                            import Vault__Spec__Writer
 
 _STATUS_FOR_ERROR = {
@@ -54,14 +60,24 @@ class Routes__Vault__Spec(Fast_API__Routes):
         receipts, err = self.service.list_spec(spec_id)
         if err:
             _raise(err)
-        return {'spec_id': spec_id, 'receipts': [r.json() for r in receipts]}
+        return Schema__Vault__List__Response(
+            spec_id  = Safe_Str__Spec__Type_Id(spec_id),
+            receipts = receipts,
+        ).json()
     list_spec.__route_path__ = '/spec/{spec_id}'
 
     def delete(self, spec_id: str, stack_id: str, handle: str) -> dict:
         ok, err = self.service.delete(spec_id, stack_id, handle)
         if err:
             _raise(err)
-        return {}
+        vault_path = f'spec/{spec_id}/{stack_id}/{handle}'
+        return Schema__Vault__Delete__Response(
+            spec_id    = Safe_Str__Spec__Type_Id(spec_id)    ,
+            stack_id   = Safe_Str__Stack__Id(stack_id)       ,
+            handle     = Safe_Str__Vault__Handle(handle)     ,
+            vault_path = Safe_Str__Vault__Path(vault_path)   ,
+            deleted    = ok                                   ,
+        ).json()
     delete.__route_path__ = '/spec/{spec_id}/{stack_id}/{handle}'
 
     def setup_routes(self):

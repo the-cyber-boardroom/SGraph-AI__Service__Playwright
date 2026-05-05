@@ -11,6 +11,8 @@
 # hyphens, so the class/module name normalises to 'SGraph_AI' per CLAUDE.md §16.
 # ═══════════════════════════════════════════════════════════════════════════════
 
+from typing                                                                             import Optional
+
 from osbot_aws.deploy.Deploy_Lambda                                                     import Deploy_Lambda
 from osbot_aws.helpers.Create_Image_ECR                                                 import Create_Image_ECR
 from osbot_utils.type_safe.Type_Safe                                                    import Type_Safe
@@ -29,8 +31,8 @@ class Docker__SGraph_AI__Service__Playwright__Base(Type_Safe):
 
     image_name       : str    = IMAGE_NAME
     path_images      : str    = ''
-    create_image_ecr : object = None                                                    # Create_Image_ECR — lazy init
-    deploy_lambda    : object = None                                                    # Deploy_Lambda    — lazy init
+    create_image_ecr : Optional[Create_Image_ECR] = None
+    deploy_lambda    : Optional[Deploy_Lambda]    = None
 
     def setup(self) -> 'Docker__SGraph_AI__Service__Playwright__Base':
         self.path_images      = path_combine(sgraph_ai_service_playwright.path, 'docker/images')

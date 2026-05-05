@@ -25,7 +25,7 @@ from typing import Optional
 
 from sg_compute_specs.podman.service.Caller__IP__Detector        import Caller__IP__Detector
 from sg_compute_specs.podman.service.Podman__AWS__Client         import Podman__AWS__Client
-from sg_compute_specs.podman.service.Podman__AWS__Client                            import PODMAN_NAMING
+from sg_compute_specs.podman.service.Podman__Tags                            import PODMAN_NAMING
 from sg_compute_specs.podman.service.Podman__Health__Checker     import Podman__Health__Checker
 from sg_compute_specs.podman.service.Podman__Instance__Helper    import Podman__Instance__Helper
 from sg_compute_specs.podman.service.Podman__Stack__Mapper       import Podman__Stack__Mapper

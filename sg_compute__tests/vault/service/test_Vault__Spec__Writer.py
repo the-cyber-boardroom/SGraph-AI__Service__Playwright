@@ -142,10 +142,17 @@ class test_Vault__Spec__Writer(TestCase):
         assert err == Enum__Vault__Error_Code.DISALLOWED_HANDLE
 
     def test_delete__success(self):
-        w       = _writer()
+        w = _writer()
+        w.write('firefox', '_shared', 'credentials', b'data')
         ok, err = w.delete('firefox', '_shared', 'credentials')
         assert err is None
         assert ok  is True
+
+    def test_delete__not_found_returns_false(self):
+        w       = _writer()
+        ok, err = w.delete('firefox', '_shared', 'credentials')
+        assert err is None
+        assert ok  is False
 
     # ── SHARED_STACK_ID constant ─────────────────────────────────────────────
 
