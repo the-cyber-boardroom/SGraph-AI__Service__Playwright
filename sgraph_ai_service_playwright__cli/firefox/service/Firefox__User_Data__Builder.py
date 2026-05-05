@@ -13,6 +13,10 @@
 # The mitmproxy CA cert is installed into the OS trust store at boot so
 # Firefox trusts it when security.enterprise_roots.enabled = true.
 # mitmweb is exposed on port 8081 (no auth; gated by SG to caller IP only).
+#
+# When registry is provided the sidecar control-plane container is pulled from
+# ECR and started on port 19009 (internal 8000). The API key is written
+# directly into user-data (never stored in git; generated per-stack at launch).
 # ═══════════════════════════════════════════════════════════════════════════════
 
 from osbot_utils.type_safe.Type_Safe                                                import Type_Safe
@@ -165,6 +169,7 @@ FIREFOX_USERJS_EOF
 echo "[sg-firefox] starting Firefox..."
 docker compose up -d firefox
 
+{sidecar_section}
 {shutdown_section}
 echo "[sg-firefox] boot complete at $(date -u +%FT%TZ)"
 """
@@ -177,6 +182,7 @@ exec > >(tee -a {log_file}) 2>&1
 echo "[sg-firefox] fast-boot from AMI starting at $(date -u +%FT%TZ)"
 
 STACK_NAME='{stack_name}'
+REGION='{region}'
 
 systemctl enable --now docker
 
@@ -204,6 +210,7 @@ echo "[sg-firefox] starting stack (mitmproxy CA already trusted from AMI)..."
 cd {firefox_dir}
 docker compose up -d
 
+{sidecar_section}
 {shutdown_section}
 echo "[sg-firefox] fast-boot complete at $(date -u +%FT%TZ)"
 """
@@ -217,6 +224,26 @@ systemd-run --on-active={max_hours}h /sbin/shutdown -h now
 echo "[sg-firefox] auto-terminate timer started: {max_hours}h from now"
 """
 
+SIDECAR_SECTION_TEMPLATE = """\
+# ── sidecar (host control plane) ─────────────────────────────────────────────
+echo "[sg-firefox] starting sidecar on port 19009..."
+
+aws ecr get-login-password --region "$REGION" | \\
+  docker login --username AWS --password-stdin "{registry}"
+
+docker run -d \\
+  --name sg-sidecar \\
+  --restart=unless-stopped \\
+  -v /var/run/docker.sock:/var/run/docker.sock \\
+  -e FAST_API__AUTH__API_KEY__NAME="{api_key_name}" \\
+  -e FAST_API__AUTH__API_KEY__VALUE="{api_key_value}" \\
+  -p 19009:8000 \\
+  "{registry}/sgraph_ai_service_playwright_host:latest" || true
+
+echo "[sg-firefox] sidecar started"
+rm -f /root/.docker/config.json
+"""
+
 
 class Firefox__User_Data__Builder(Type_Safe):
 
@@ -224,9 +251,12 @@ class Firefox__User_Data__Builder(Type_Safe):
                      region            : str,
                      password          : str,
                      interceptor_source: str,
-                     interceptor_kind  : str = 'none',
-                     env_source        : str = ''    ,
-                     max_hours         : int = 1     ) -> str:
+                     interceptor_kind  : str = 'none'    ,
+                     env_source        : str = ''        ,
+                     max_hours         : int = 1         ,
+                     registry          : str = ''        ,
+                     api_key_name      : str = 'X-API-Key',
+                     api_key_value     : str = ''        ) -> str:
 
         compose_yaml      = COMPOSE_TEMPLATE.format(
             firefox_image         = FIREFOX_IMAGE        ,
@@ -239,8 +269,11 @@ class Firefox__User_Data__Builder(Type_Safe):
             firefox_dir           = FIREFOX_DIR          ,
             mitm_data_dir         = MITM_DATA_DIR        ,
             password              = password             )
-        user_js           = USER_JS_TEMPLATE.format(mitm_proxy_port=MITM_PROXY_PORT)
-        shutdown_section  = SHUTDOWN_SECTION_TEMPLATE.format(max_hours=max_hours) if max_hours > 0 else ''
+        user_js          = USER_JS_TEMPLATE.format(mitm_proxy_port=MITM_PROXY_PORT)
+        shutdown_section = SHUTDOWN_SECTION_TEMPLATE.format(max_hours=max_hours) if max_hours > 0 else ''
+        sidecar_section  = SIDECAR_SECTION_TEMPLATE.format(registry     = registry    ,
+                                                            api_key_name = api_key_name,
+                                                            api_key_value= api_key_value) if registry else ''
 
         return USER_DATA_TEMPLATE.format(
             stack_name         = stack_name         ,
@@ -259,15 +292,19 @@ class Firefox__User_Data__Builder(Type_Safe):
             user_js            = user_js            ,
             env_file           = ENV_FILE           ,
             env_source         = env_source         ,
+            sidecar_section    = sidecar_section    ,
             shutdown_section   = shutdown_section   )
 
     def render_fast(self, stack_name        : str,
                           region            : str,
                           password          : str,
                           interceptor_source: str,
-                          interceptor_kind  : str = 'none',
-                          env_source        : str = ''    ,
-                          max_hours         : int = 1     ) -> str:
+                          interceptor_kind  : str = 'none'    ,
+                          env_source        : str = ''        ,
+                          max_hours         : int = 1         ,
+                          registry          : str = ''        ,
+                          api_key_name      : str = 'X-API-Key',
+                          api_key_value     : str = ''        ) -> str:
         compose_yaml     = COMPOSE_TEMPLATE.format(
             firefox_image         = FIREFOX_IMAGE        ,
             mitm_image            = MITM_IMAGE           ,
@@ -280,8 +317,12 @@ class Firefox__User_Data__Builder(Type_Safe):
             mitm_data_dir         = MITM_DATA_DIR        ,
             password              = password             )
         shutdown_section = SHUTDOWN_SECTION_TEMPLATE.format(max_hours=max_hours) if max_hours > 0 else ''
+        sidecar_section  = SIDECAR_SECTION_TEMPLATE.format(registry     = registry    ,
+                                                            api_key_name = api_key_name,
+                                                            api_key_value= api_key_value) if registry else ''
         return FAST_USER_DATA_TEMPLATE.format(
             stack_name         = stack_name         ,
+            region             = region             ,
             log_file           = LOG_FILE           ,
             firefox_dir        = FIREFOX_DIR        ,
             compose_file       = COMPOSE_FILE       ,
@@ -291,4 +332,5 @@ class Firefox__User_Data__Builder(Type_Safe):
             interceptor_kind   = interceptor_kind   ,
             env_file           = ENV_FILE           ,
             env_source         = env_source         ,
+            sidecar_section    = sidecar_section    ,
             shutdown_section   = shutdown_section   )

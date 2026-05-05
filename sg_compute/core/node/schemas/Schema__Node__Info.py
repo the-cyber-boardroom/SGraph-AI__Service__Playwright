@@ -13,6 +13,7 @@ from sg_compute.primitives.Safe_Str__Instance__Type                          imp
 from sg_compute.primitives.Safe_Str__IP__Address                             import Safe_Str__IP__Address
 from sg_compute.primitives.Safe_Str__Node__Id                                import Safe_Str__Node__Id
 from sg_compute.primitives.Safe_Str__Spec__Id                                import Safe_Str__Spec__Id
+from sg_compute.primitives.Safe_Str__Api__Key                                import Safe_Str__Api__Key
 from sg_compute.primitives.Safe_Str__SSM__Path                               import Safe_Str__SSM__Path
 from sg_compute.primitives.Safe_Int__Uptime__Seconds                         import Safe_Int__Uptime__Seconds
 
@@ -28,4 +29,5 @@ class Schema__Node__Info(Type_Safe):
     instance_type        : Safe_Str__Instance__Type     = Safe_Str__Instance__Type()
     ami_id               : Safe_Str__AMI__Id            = Safe_Str__AMI__Id()
     uptime_seconds       : Safe_Int__Uptime__Seconds    = Safe_Int__Uptime__Seconds()
+    host_api_key         : Safe_Str__Api__Key           = Safe_Str__Api__Key()
     host_api_key_ssm_path: Safe_Str__SSM__Path          = Safe_Str__SSM__Path()

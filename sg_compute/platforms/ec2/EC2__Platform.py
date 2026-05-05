@@ -59,6 +59,7 @@ class EC2__Platform(Platform):
             instance_type        = raw.get('InstanceType',     '')                              ,
             ami_id               = raw.get('ImageId',          '')                              ,
             uptime_seconds       = uptime_seconds(raw)                                          ,
+            host_api_key         = self._tag(raw, 'sg-compute:host-api-key')                   ,
             host_api_key_ssm_path= SSM__Sidecar__Key.path_for(node_id)                         ,
         )
 
@@ -99,8 +100,14 @@ class EC2__Platform(Platform):
         api_key      = secrets.token_urlsafe(32)                               # per-node random key; never reused
         ssm_path     = SSM__Sidecar__Key.path_for(node_name or 'pending')
         SSM__Sidecar__Key().write(node_name or 'pending', api_key)             # written before EC2 launch so boot script can read it
-        svc = self._service_for(request.spec_id)
-        return svc.create_node(request, api_key_ssm_path=Safe_Str__SSM__Path(ssm_path))
+        svc       = self._service_for(request.spec_id)
+        node_info = svc.create_node(request, api_key_ssm_path=Safe_Str__SSM__Path(ssm_path))
+        if node_info.instance_id:                                              # tag so dashboard can read key without SSM
+            from sg_compute.platforms.ec2.helpers.EC2__Launch__Helper import EC2__Launch__Helper
+            region = str(request.region) or 'eu-west-2'
+            EC2__Launch__Helper().add_tags(region, str(node_info.instance_id),
+                                           [{'Key': 'sg-compute:host-api-key', 'Value': api_key}])
+        return node_info
 
     @staticmethod
     def _service_for(spec_id: str):
