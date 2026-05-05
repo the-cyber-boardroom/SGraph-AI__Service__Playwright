@@ -65,6 +65,7 @@
 }
 .node-row:hover    { background: var(--bg-hover); }
 .node-row.selected { background: var(--accent-soft); border-left-color: var(--accent); }
+.node-row:focus-visible { outline: 2px solid var(--border-focus); outline-offset: -2px; }
 
 .row-icon   { font-size: 14px; flex-shrink: 0; }
 .row-name   { flex: 1; color: var(--text-1); font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -177,6 +178,7 @@ sp-cli-host-api-panel { display: block; height: 100%; }
     transition:    color 100ms, background 100ms;
 }
 .api-key-btn:hover { color: var(--text-1); background: var(--bg-hover); }
+.api-key-btn:focus-visible { outline: 2px solid var(--border-focus); outline-offset: 1px; }
 
 /* ── Containers tab ───────────────────────────────── */
 .ct-head {
@@ -262,6 +264,7 @@ sp-cli-host-api-panel { display: block; height: 100%; }
     transition:    color 100ms, background 100ms;
 }
 .ct-log-btn:hover { color: var(--text-1); background: var(--bg-hover); }
+.ct-log-btn:focus-visible { outline: 2px solid var(--border-focus); outline-offset: 1px; }
 
 /* ── Pod log drawer ───────────────────────────── */
 .pod-log-drawer {
@@ -296,6 +299,7 @@ sp-cli-host-api-panel { display: block; height: 100%; }
 }
 .btn-live-log:hover           { color: var(--text-1); border-color: var(--accent); }
 .btn-live-log.live-active     { color: var(--good); border-color: var(--good); background: var(--good-soft, rgba(74,222,128,.08)); }
+.btn-live-log:focus-visible   { outline: 2px solid var(--border-focus); outline-offset: 2px; }
 .pod-log-content {
     flex:         1;
     overflow-y:   auto;

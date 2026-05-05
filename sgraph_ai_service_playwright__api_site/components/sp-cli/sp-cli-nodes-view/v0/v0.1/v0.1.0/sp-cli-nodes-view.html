@@ -3,10 +3,10 @@
   <!-- ── Master list ──────────────────────────────────── -->
   <div class="nodes-list">
     <div class="list-head">
-      <button class="btn-collapse sgl-iconbtn" title="Collapse list">◀</button>
+      <button class="btn-collapse sgl-iconbtn" title="Collapse list" aria-label="Collapse node list">◀</button>
       <span class="list-title tlabel">Active Nodes</span>
-      <span class="node-count"></span>
-      <button class="btn-refresh sgl-iconbtn" title="Refresh">↺</button>
+      <span class="node-count" aria-live="polite" aria-atomic="true"></span>
+      <button class="btn-refresh sgl-iconbtn" title="Refresh" aria-label="Refresh node list">↺</button>
     </div>
     <div class="list-body">
       <div class="node-rows"></div>
@@ -28,23 +28,23 @@
         <span class="detail-icon">⬡</span>
         <span class="detail-name">—</span>
       </div>
-      <div class="sgl-panel-tabs">
-        <button class="sgl-tab active" data-tab="overview">Overview</button>
-        <button class="sgl-tab" data-tab="bootlog">Boot Log</button>
-        <button class="sgl-tab" data-tab="containers">Pods</button>
-        <button class="sgl-tab" data-tab="terminal">Terminal</button>
-        <button class="sgl-tab" data-tab="hostapi">Host API</button>
-        <button class="sgl-tab" data-tab="ec2info">EC2 Info</button>
+      <div class="sgl-panel-tabs" role="tablist" aria-label="Node detail sections">
+        <button class="sgl-tab active" id="tab-overview"    role="tab" aria-selected="true"  aria-controls="panel-overview"    data-tab="overview">Overview</button>
+        <button class="sgl-tab"        id="tab-bootlog"     role="tab" aria-selected="false" aria-controls="panel-bootlog"     data-tab="bootlog">Boot Log</button>
+        <button class="sgl-tab"        id="tab-containers"  role="tab" aria-selected="false" aria-controls="panel-containers"  data-tab="containers">Pods</button>
+        <button class="sgl-tab"        id="tab-terminal"    role="tab" aria-selected="false" aria-controls="panel-terminal"    data-tab="terminal">Terminal</button>
+        <button class="sgl-tab"        id="tab-hostapi"     role="tab" aria-selected="false" aria-controls="panel-hostapi"     data-tab="hostapi">Host API</button>
+        <button class="sgl-tab"        id="tab-ec2info"     role="tab" aria-selected="false" aria-controls="panel-ec2info"     data-tab="ec2info">EC2 Info</button>
       </div>
       <div class="sgl-panel-actions">
-        <button class="btn-close-detail sgl-iconbtn" title="Close detail">✕</button>
+        <button class="btn-close-detail sgl-iconbtn" title="Close detail" aria-label="Close node detail">✕</button>
       </div>
     </div>
 
     <div class="detail-body">
 
       <!-- Overview -->
-      <div class="tab-panel active" data-panel="overview">
+      <div class="tab-panel active" role="tabpanel" id="panel-overview" aria-labelledby="tab-overview" tabindex="0" data-panel="overview">
         <div class="overview-grid">
           <dl class="ec2-kv info-kv"></dl>
           <div class="stop-wrap">
@@ -54,16 +54,16 @@
       </div>
 
       <!-- Pods -->
-      <div class="tab-panel" data-panel="containers">
+      <div class="tab-panel" role="tabpanel" id="panel-containers" aria-labelledby="tab-containers" tabindex="0" data-panel="containers">
         <div class="ct-head">
           <div class="ct-host-stats"></div>
           <div class="ct-actions">
-            <span class="ct-status"></span>
-            <button class="btn-refresh-ct sgl-iconbtn" title="Refresh pods">↺</button>
+            <span class="ct-status" aria-live="polite"></span>
+            <button class="btn-refresh-ct sgl-iconbtn" title="Refresh pods" aria-label="Refresh pods">↺</button>
           </div>
         </div>
         <div class="ct-body">
-          <div class="ct-list"></div>
+          <div class="ct-list" role="list"></div>
           <div class="ct-empty">No pods running</div>
           <div class="ct-error" hidden></div>
         </div>
@@ -71,38 +71,38 @@
         <div class="pod-log-drawer" hidden>
           <div class="pod-log-head">
             <span class="pod-log-name"></span>
-            <button class="btn-live-log">▶ Live</button>
-            <button class="btn-close-log sgl-iconbtn" title="Close logs">✕</button>
+            <button class="btn-live-log" aria-label="Start live log streaming">▶ Live</button>
+            <button class="btn-close-log sgl-iconbtn" title="Close logs" aria-label="Close pod logs">✕</button>
           </div>
-          <pre class="pod-log-content"></pre>
+          <pre class="pod-log-content" aria-live="polite" aria-atomic="false"></pre>
         </div>
       </div>
 
       <!-- Boot Log -->
-      <div class="tab-panel" data-panel="bootlog">
+      <div class="tab-panel" role="tabpanel" id="panel-bootlog" aria-labelledby="tab-bootlog" tabindex="0" data-panel="bootlog">
         <div class="bl-head">
           <span class="bl-source"></span>
-          <span class="bl-status"></span>
-          <button class="btn-refresh-boot sgl-iconbtn" title="Refresh">↺</button>
+          <span class="bl-status" aria-live="polite"></span>
+          <button class="btn-refresh-boot sgl-iconbtn" title="Refresh boot log" aria-label="Refresh boot log">↺</button>
         </div>
         <pre class="bl-content"></pre>
       </div>
 
       <!-- Terminal -->
-      <div class="tab-panel" data-panel="terminal">
+      <div class="tab-panel" role="tabpanel" id="panel-terminal" aria-labelledby="tab-terminal" tabindex="0" data-panel="terminal">
         <sp-cli-host-shell class="host-shell"></sp-cli-host-shell>
       </div>
 
       <!-- Host API -->
-      <div class="tab-panel" data-panel="hostapi">
+      <div class="tab-panel" role="tabpanel" id="panel-hostapi" aria-labelledby="tab-hostapi" tabindex="0" data-panel="hostapi">
         <sp-cli-host-api-panel class="host-api-panel"></sp-cli-host-api-panel>
       </div>
 
       <!-- EC2 Info -->
-      <div class="tab-panel" data-panel="ec2info">
+      <div class="tab-panel" role="tabpanel" id="panel-ec2info" aria-labelledby="tab-ec2info" tabindex="0" data-panel="ec2info">
         <div class="ec2i-head">
-          <span class="ec2i-status"></span>
-          <button class="btn-refresh-ec2 sgl-iconbtn" title="Refresh EC2 info">↺</button>
+          <span class="ec2i-status" aria-live="polite"></span>
+          <button class="btn-refresh-ec2 sgl-iconbtn" title="Refresh EC2 info" aria-label="Refresh EC2 info">↺</button>
         </div>
         <div class="ec2i-body">
           <div class="ec2i-loading">Loading EC2 info…</div>

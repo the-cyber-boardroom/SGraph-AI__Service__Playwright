@@ -37,6 +37,10 @@
     background:        var(--accent-soft);
     color:             var(--text-1);
 }
+.nav-item:focus-visible {
+    outline:        2px solid var(--border-focus);
+    outline-offset: -2px;
+}
 
 .nav-icon  { font-size: 1.1rem; line-height: 1; }
 .nav-label { font-size: 9px; font-weight: 600; text-transform: uppercase; letter-spacing: .07em; margin-top: 1px; }
