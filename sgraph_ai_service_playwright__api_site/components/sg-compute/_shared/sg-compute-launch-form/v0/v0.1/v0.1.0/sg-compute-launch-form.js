@@ -1,5 +1,5 @@
 import { SgComponent } from 'https://dev.tools.sgraph.ai/components/base/v1/v1.0/v1.0.0/sg-component.js'
-import '/ui/components/sp-cli/_shared/sg-compute-ami-picker/v0/v0.1/v0.1.0/sg-compute-ami-picker.js'
+import '/ui/components/sg-compute/_shared/sg-compute-ami-picker/v0/v0.1/v0.1.0/sg-compute-ami-picker.js'
 import { REGIONS, INSTANCE_TYPES, MAX_HOURS } from '/ui/shared/launch-defaults.js'
 
 const MODE_FRESH    = 'fresh'

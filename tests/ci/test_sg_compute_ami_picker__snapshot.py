@@ -15,7 +15,7 @@ from pathlib import Path
 COMPONENT_DIR = (
     Path(__file__).parents[2]
     / 'sgraph_ai_service_playwright__api_site'
-    / 'components' / 'sp-cli' / '_shared' / 'sg-compute-ami-picker'
+    / 'components' / 'sg-compute' / '_shared' / 'sg-compute-ami-picker'
     / 'v0' / 'v0.1' / 'v0.1.0'
 )
 

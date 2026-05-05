@@ -233,18 +233,18 @@
 
 ### api_site / dashboard — frontend components — EXISTS (v0.2.1 hotfix)
 
-All dashboard web components live under `sgraph_ai_service_playwright__api_site/`.
+All dashboard web components live under `sgraph_ai_service_playwright__api_site/components/sg-compute/` (renamed from `sp-cli/` in T3.3b).
 
 | Component | Path (relative to `api_site/`) | Status | Notes |
 |-----------|-------------------------------|--------|-------|
-| `sg-compute-specs-view` | `components/sp-cli/sg-compute-specs-view/v0/v0.1/v0.1.0/` | COMPLETE | Spec grid; card-body click + keyboard (Enter/Space) dispatch `sp-cli:spec.selected`; `tabindex="0"` + `:focus-visible` ring |
-| `sg-compute-spec-detail` | `components/sp-cli/sg-compute-spec-detail/v0/v0.1/v0.1.0/` | COMPLETE | Full manifest panel; README placeholder (backend `GET /api/specs/{id}/readme` TBD); extends lineage text; baked AMIs placeholder |
-| `sg-compute-launch-form` | `components/sp-cli/sg-compute-launch-form/v0/v0.1/v0.1.0/` | COMPLETE | Three-mode selector FRESH/BAKE_AMI/FROM_AMI; CSS-only show/hide; cost preview; `getValues()` returns `creation_mode/ami_id/ami_name`; `validate()` blocks FROM_AMI without AMI |
-| `sg-compute-launch-panel` | `components/sp-cli/sg-compute-launch-panel/v0/v0.1/v0.1.0/` | COMPLETE | POST `/api/nodes` with full body including `ami_name`; error/loading states |
-| `sg-compute-ami-picker` | `components/sp-cli/_shared/sg-compute-ami-picker/v0/v0.1/v0.1.0/` | COMPLETE | `setSpecId()` fetches `GET /api/amis?spec_id=...` via `apiClient`; loading/error/empty states; dispatches `sg-compute:ami.selected` |
-| `sg-compute-compute-view` | `components/sp-cli/sg-compute-compute-view/v0/v0.1/v0.1.0/` | COMPLETE | Nodes list; launch constants from `shared/launch-defaults.js` |
-| `sg-compute-nodes-view` | `components/sp-cli/sg-compute-nodes-view/v0/v0.1/v0.1.0/` | COMPLETE | Node cards with pod state; uses canonical `pod_name` / `state` field names |
-| `sg-compute-settings-pane` | `components/sp-cli/sg-compute-settings-pane/v0/v0.1/v0.1.0/` | COMPLETE | Settings bus dual-dispatch; WCAG AA contrast |
+| `sg-compute-specs-view` | `components/sg-compute/sg-compute-specs-view/v0/v0.1/v0.1.0/` | COMPLETE | Spec grid; card-body click + keyboard (Enter/Space) dispatch `sp-cli:spec.selected`; `tabindex="0"` + `:focus-visible` ring |
+| `sg-compute-spec-detail` | `components/sg-compute/sg-compute-spec-detail/v0/v0.1/v0.1.0/` | COMPLETE | Full manifest panel; README placeholder (backend `GET /api/specs/{id}/readme` TBD); extends lineage text; baked AMIs placeholder |
+| `sg-compute-launch-form` | `components/sg-compute/_shared/sg-compute-launch-form/v0/v0.1/v0.1.0/` | COMPLETE | Three-mode selector FRESH/BAKE_AMI/FROM_AMI; CSS-only show/hide; cost preview; `getValues()` returns `creation_mode/ami_id/ami_name`; `validate()` blocks FROM_AMI without AMI |
+| `sg-compute-launch-panel` | `components/sg-compute/sg-compute-launch-panel/v0/v0.1/v0.1.0/` | COMPLETE | POST `/api/nodes` with full body including `ami_name`; error/loading states |
+| `sg-compute-ami-picker` | `components/sg-compute/_shared/sg-compute-ami-picker/v0/v0.1/v0.1.0/` | COMPLETE | `setSpecId()` fetches `GET /api/amis?spec_id=...` via `apiClient`; loading/error/empty states; dispatches `sg-compute:ami.selected` |
+| `sg-compute-compute-view` | `components/sg-compute/sg-compute-compute-view/v0/v0.1/v0.1.0/` | COMPLETE | Nodes list; launch constants from `shared/launch-defaults.js` |
+| `sg-compute-nodes-view` | `components/sg-compute/sg-compute-nodes-view/v0/v0.1/v0.1.0/` | COMPLETE | Node cards with pod state; uses canonical `pod_name` / `state` field names |
+| `sg-compute-settings-pane` | `components/sg-compute/sg-compute-settings-pane/v0/v0.1/v0.1.0/` | COMPLETE | Settings bus dual-dispatch; WCAG AA contrast |
 | `shared/launch-defaults.js` | `shared/launch-defaults.js` | COMPLETE | Single source of truth for `REGIONS`, `INSTANCE_TYPES`, `MAX_HOURS`, `COST_TABLE` |
 | `shared/api-client.js` | `shared/api-client.js` | COMPLETE | Shared fetch wrapper used by all components |
 | `shared/settings-bus.js` | `shared/settings-bus.js` | COMPLETE | Settings event bus (`getAllDefaults()`) |
@@ -270,6 +270,7 @@ All dashboard web components live under `sgraph_ai_service_playwright__api_site/
 
 | Date | Change |
 |------|--------|
+| 2026-05-05 | T3.3b: `components/sp-cli/` → `components/sg-compute/` directory rename; 28 api_site/ string refs + 45 sg_compute_specs/*/ui/detail/ absolute imports updated; snapshot test COMPONENT_DIR paths corrected; 32/33 CI green |
 | 2026-05-05 | T2.1b: `sg-compute-ami-picker.setSpecId()` wired to `GET /api/amis` via `apiClient`; `_populateAmis()` / `_showLoading()` / `_showError()` / `_hidePlaceholder()` added; 17-assertion snapshot test; T2.1 debrief flipped PARTIAL → COMPLETE; frontend component table added to reality doc |
 | 2026-05-05 | T2-FE-patch: `ami_name` threaded to POST body; spec-card body click + keyboard wired; README broken link → placeholder; inline styles → CSS classes; `stability||'unknown'`; 13-assertion snapshot test for spec-detail |
 | 2026-05-05 | BV2.12: agent_mitmproxy/ deleted (35 files); tests/unit/agent_mitmproxy/ deleted (12 files); ci__agent_mitmproxy.yml deleted; scripts/provision_ec2.py → sg_compute_specs.mitmproxy; shim task deferred (implementations diverged from sg_compute_specs) |
