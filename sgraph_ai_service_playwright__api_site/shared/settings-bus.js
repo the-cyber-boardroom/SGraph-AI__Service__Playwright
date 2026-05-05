@@ -63,7 +63,8 @@ export async function setUseLegacyApi(val) {
 export async function setPluginEnabled(name, enabled) {
     if (!_state.plugins[name]) _state.plugins[name] = {}
     _state.plugins[name].enabled = !!enabled
-    _dispatch('sp-cli:plugin.toggled', { name, enabled: !!enabled })
+    _dispatch('sp-cli:spec.toggled',   { name, enabled: !!enabled })  // canonical
+    _dispatch('sp-cli:plugin.toggled', { name, enabled: !!enabled })  // DEPRECATED alias — remove in v0.3.0
     _persist()
 }
 

@@ -1,9 +1,6 @@
 import { SgComponent } from 'https://dev.tools.sgraph.ai/components/base/v1/v1.0/v1.0.0/sg-component.js'
 import '/ui/components/sp-cli/_shared/sg-compute-ami-picker/v0/v0.1/v0.1.0/sg-compute-ami-picker.js'
-
-const REGIONS        = ['eu-west-2', 'us-east-1', 'ap-southeast-1', 'eu-west-1', 'us-west-2']
-const INSTANCE_TYPES = ['t3.micro', 't3.small', 't3.medium', 't3.large', 't3.xlarge']
-const MAX_HOURS      = [1, 2, 4, 8, 12, 24]
+import { REGIONS, INSTANCE_TYPES, MAX_HOURS } from '/ui/shared/launch-defaults.js'
 
 const MODE_FRESH    = 'fresh'
 const MODE_BAKE_AMI = 'bake-ami'
@@ -43,10 +40,13 @@ class SgComputeLaunchForm extends SgComponent {
         this._amiPicker     = this.$('.field-ami-picker')
         this._amiNameInput  = this.$('.field-ami-name')
         this._amiError      = this.$('.ami-required-error')
+        this._callerIpInput = this.$('.field-caller-ip')
         this._modeInputs    = this.$$('.field-mode')
 
         this._currentMode   = MODE_FRESH
         this._specId        = null
+
+        this._seedCallerIp()
 
         this._populateSelect(this._regionSel,   REGIONS,        r => r)
         this._populateSelect(this._instanceSel, INSTANCE_TYPES, t => t)
@@ -86,7 +86,7 @@ class SgComputeLaunchForm extends SgComponent {
 
     populate(entry, defaults = {}) {
         if (!this._nameInput) { this._pendingPopulate = { entry, defaults }; return }
-        this._specId = entry?.type_id || null
+        this._specId = entry?.spec_id || null
 
         const region   = defaults.region        || entry?.default_region        || REGIONS[0]
         const instType = defaults.instance_type || entry?.default_instance_type || 't3.medium'
@@ -104,14 +104,15 @@ class SgComputeLaunchForm extends SgComponent {
     getValues() {
         const amiId = this._amiPicker?.getSelectedAmiId?.() || ''
         return {
-            stack_name:     this._nameInput?.value.trim()  || null,
-            region:         this._regionSel?.value         || REGIONS[0],
-            instance_type:  this._instanceSel?.value       || 't3.medium',
+            node_name:      this._nameInput?.value.trim()     || null,
+            region:         this._regionSel?.value            || REGIONS[0],
+            instance_type:  this._instanceSel?.value          || 't3.medium',
             max_hours:      parseInt(this._hoursSel?.value || '4', 10),
-            public_ingress: this._openCheckbox?.checked    ?? false,
+            public_ingress: this._openCheckbox?.checked       ?? false,
+            caller_ip:      this._callerIpInput?.value.trim() || '',
             creation_mode:  this._currentMode,
             ami_id:         amiId,
-            ami_name:       this._amiNameInput?.value.trim() || '',
+            ami_name:       this._amiNameInput?.value.trim()  || '',
         }
     }
 
@@ -136,11 +137,22 @@ class SgComputeLaunchForm extends SgComponent {
         if (this._amiNameInput) this._amiNameInput.value = ''
         if (this._amiError)    this._amiError.hidden   = true
         this._resetMode()
+        this._seedCallerIp()
+    }
+
+    _seedCallerIp() {
+        if (!this._callerIpInput) return
+        const host = window.location.hostname
+        if (host === 'localhost' || host === '127.0.0.1' || host === '0.0.0.0') {
+            this._callerIpInput.value = '127.0.0.1'
+        }
+        // On remote hosts: leave empty — user must enter their public IP.
+        // Preferred fix: backend GET /catalog/caller-ip (see backend brief BV__caller-ip-endpoint.md).
     }
 
     setDisabled(disabled) {
         [this._nameInput, this._regionSel, this._instanceSel, this._hoursSel,
-         this._openCheckbox, this._amiNameInput].forEach(el => { if (el) el.disabled = disabled })
+         this._openCheckbox, this._amiNameInput, this._callerIpInput].forEach(el => { if (el) el.disabled = disabled })
         this._modeInputs?.forEach(r => { r.disabled = disabled })
         this._amiPicker?.setDisabled?.(disabled)
     }

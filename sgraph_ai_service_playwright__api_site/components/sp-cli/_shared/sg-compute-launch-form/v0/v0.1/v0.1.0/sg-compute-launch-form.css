@@ -79,3 +79,6 @@
 
 .open-row  { display: flex; align-items: flex-start; gap: 8px; cursor: pointer; }
 .open-label { font-size: var(--sg-fs-small); color: var(--sg-text); line-height: 1.4; }
+
+.caller-ip-hint { font-size: 0.72rem; color: var(--sg-text-muted); margin-top: 2px; line-height: 1.4; }
+.caller-ip-lookup { font-size: 0.72rem; color: var(--sg-accent); margin-top: 2px; }

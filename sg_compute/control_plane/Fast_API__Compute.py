@@ -42,6 +42,7 @@ from osbot_fast_api.api.schemas.consts.consts__Fast_API                      imp
 from osbot_fast_api_serverless.fast_api.Serverless__Fast_API                  import Serverless__Fast_API
 
 from sg_compute.control_plane.Spec__Routes__Loader                           import Spec__Routes__Loader
+from sg_compute.control_plane.routes.Routes__Compute__AMIs                   import Routes__Compute__AMIs
 from sg_compute.control_plane.routes.Routes__Compute__Health                 import Routes__Compute__Health
 from sg_compute.control_plane.routes.Routes__Compute__Nodes                  import Routes__Compute__Nodes
 from sg_compute.control_plane.routes.Routes__Compute__Pods                   import Routes__Compute__Pods
@@ -156,12 +157,19 @@ class Fast_API__Compute(Serverless__Fast_API):
         platform    = self._live_platform()
         pod_manager = self._live_pod_manager()
         vault_writer = Vault__Spec__Writer(spec_registry=self.registry)
+        ami_lister = self._live_ami_lister()
         self.add_routes(Routes__Compute__Health, prefix='/api/health', registry=self.registry)
         self.add_routes(Routes__Compute__Specs , prefix='/api/specs' , registry=self.registry)
         self.add_routes(Routes__Compute__Nodes , prefix='/api/nodes' , platform=platform      )
-        self.add_routes(Routes__Compute__Pods  , prefix='/api/nodes' , manager=pod_manager   )
+        self.add_routes(Routes__Compute__Pods  , prefix='/api/nodes' , manager=pod_manager    )
         self.add_routes(Routes__Compute__Stacks, prefix='/api/stacks')
-        self.add_routes(Routes__Vault__Spec    , prefix='/api/vault' , service=vault_writer  )
+        self.add_routes(Routes__Compute__AMIs  , prefix='/api/amis'  , lister=ami_lister      )
+        self.add_routes(Routes__Vault__Spec    , prefix='/api/vault' , service=vault_writer   )
+
+    @staticmethod
+    def _live_ami_lister():
+        from sg_compute.core.ami.service.AMI__Lister import AMI__Lister
+        return AMI__Lister()
 
     @staticmethod
     def _live_pod_manager() -> Pod__Manager:
