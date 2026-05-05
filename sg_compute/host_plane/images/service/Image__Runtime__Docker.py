@@ -4,6 +4,8 @@
 # `docker` binary — no docker-py SDK, matching the Pod__Runtime__Docker pattern.
 # ═══════════════════════════════════════════════════════════════════════════════
 
+from __future__ import annotations   # defer annotation eval — class defines a method named 'list' which would shadow the builtin at annotation evaluation time
+
 import json
 import subprocess
 
