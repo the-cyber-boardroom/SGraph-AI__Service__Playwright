@@ -37,6 +37,7 @@
 .sd-stability-badge.stable     { background: var(--sg-success-bg, #d4edda); color: var(--sg-success, #155724); }
 .sd-stability-badge.experimental { background: var(--sg-warn-bg, #fff3cd); color: var(--sg-warn, #856404); }
 .sd-stability-badge.deprecated { background: var(--sg-error-bg, #f8d7da); color: var(--sg-error, #721c24); }
+.sd-stability-badge.unknown    { background: var(--sg-bg-alt, var(--sg-bg)); border: 1px solid var(--sg-border); color: var(--sg-text-muted); }
 .sd-nav-group {
     background: var(--sg-bg-alt, var(--sg-bg)); border: 1px solid var(--sg-border);
     color: var(--sg-text-muted);
@@ -112,6 +113,13 @@
     font-size: var(--sg-fs-small); color: var(--sg-text-muted); font-style: italic;
 }
 code { font-family: monospace; }
+.sd-field-empty { color: var(--sg-text-muted); font-style: italic; }
+.sd-extends-id {
+    font-family: monospace; font-size: 0.85em;
+    background: var(--sg-bg-alt, var(--sg-bg));
+    border: 1px solid var(--sg-border); border-radius: 3px;
+    padding: 1px 6px;
+}
 
 /* ── launch section ──────────────────────────────────────────────────── */
 .sd-launch-section {
