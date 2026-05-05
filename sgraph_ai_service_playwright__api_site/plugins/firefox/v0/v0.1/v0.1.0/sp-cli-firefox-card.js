@@ -1,6 +1,6 @@
 import { SgComponent } from 'https://dev.tools.sgraph.ai/components/base/v1/v1.0/v1.0.0/sg-component.js'
 
-const STATIC = { type_id: 'firefox', display_name: 'Firefox', icon: '🦊', stability: 'experimental', boot: '~90s', soon: false, create_endpoint_path: '/firefox/stack' }
+const STATIC = { spec_id: 'firefox', type_id: 'firefox', display_name: 'Firefox', icon: '🦊', stability: 'experimental', boot: '~90s', soon: false, create_endpoint_path: '/firefox/stack' }
 
 class SpCliFirefoxCard extends SgComponent {
     static jsUrl = import.meta.url
@@ -23,7 +23,9 @@ class SpCliFirefoxCard extends SgComponent {
     }
 
     _launch() {
-        document.dispatchEvent(new CustomEvent('sp-cli:plugin:firefox.launch-requested', { detail: { entry: this._entry }, bubbles: true, composed: true }))
+        const detail = { entry: this._entry }
+        document.dispatchEvent(new CustomEvent('sp-cli:spec:firefox.launch-requested',   { detail, bubbles: true, composed: true }))
+        document.dispatchEvent(new CustomEvent('sp-cli:plugin:firefox.launch-requested', { detail, bubbles: true, composed: true })) // DEPRECATED
     }
 }
 customElements.define('sp-cli-firefox-card', SpCliFirefoxCard)

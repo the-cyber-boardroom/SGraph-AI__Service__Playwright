@@ -22,9 +22,18 @@ const FAMILIES = {
              'sp-cli:stack.selected','sp-cli:stack.deleted','sp-cli:stack.launched',  // DEPRECATED
              'sp-cli:stacks.refresh','sp-cli:stack-selected','sp-cli:stack-deleted'], // DEPRECATED
     launch: ['sp-cli:launch.success','sp-cli:launch.error','sp-cli:launch-success',
-             'sp-cli:launch-error','sp-cli:activity-entry'],
-    nav:    ['sp-cli:nav.selected','sp-cli:plugin.toggled','sp-cli:settings.loaded',
-             'sp-cli:settings.saved','sp-cli:region-changed'],
+             'sp-cli:launch-error','sp-cli:activity-entry',
+             'sp-cli:catalogue.loaded',
+             'sp-cli:spec:docker.launch-requested','sp-cli:spec:podman.launch-requested',
+             'sp-cli:spec:elastic.launch-requested','sp-cli:spec:vnc.launch-requested',
+             'sp-cli:spec:prometheus.launch-requested','sp-cli:spec:opensearch.launch-requested',
+             'sp-cli:spec:neko.launch-requested','sp-cli:spec:firefox.launch-requested',
+             'sp-cli:plugin:docker.launch-requested','sp-cli:plugin:podman.launch-requested',   // DEPRECATED
+             'sp-cli:plugin:elastic.launch-requested','sp-cli:plugin:vnc.launch-requested',     // DEPRECATED
+             'sp-cli:plugin:prometheus.launch-requested','sp-cli:plugin:opensearch.launch-requested', // DEPRECATED
+             'sp-cli:plugin:neko.launch-requested','sp-cli:plugin:firefox.launch-requested'],   // DEPRECATED
+    nav:    ['sp-cli:nav.selected','sp-cli:spec.toggled','sp-cli:plugin.toggled',  // plugin.toggled DEPRECATED
+             'sp-cli:settings.loaded','sp-cli:settings.saved','sp-cli:region-changed'],
 }
 
 const ICONS = {

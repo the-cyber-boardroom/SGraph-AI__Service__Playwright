@@ -1,6 +1,6 @@
 import { SgComponent } from 'https://dev.tools.sgraph.ai/components/base/v1/v1.0/v1.0.0/sg-component.js'
 
-const STATIC = { type_id: 'podman', display_name: 'Podman host', icon: '🦭', stability: 'stable', boot: '~10min', soon: false, create_endpoint_path: '/podman/stack' }
+const STATIC = { spec_id: 'podman', type_id: 'podman', display_name: 'Podman host', icon: '🦭', stability: 'stable', boot: '~10min', soon: false, create_endpoint_path: '/podman/stack' }
 
 class SpCliPodmanCard extends SgComponent {
     static jsUrl = import.meta.url
@@ -23,7 +23,9 @@ class SpCliPodmanCard extends SgComponent {
     }
 
     _launch() {
-        document.dispatchEvent(new CustomEvent('sp-cli:plugin:podman.launch-requested', { detail: { entry: this._entry }, bubbles: true, composed: true }))
+        const detail = { entry: this._entry }
+        document.dispatchEvent(new CustomEvent('sp-cli:spec:podman.launch-requested',   { detail, bubbles: true, composed: true }))
+        document.dispatchEvent(new CustomEvent('sp-cli:plugin:podman.launch-requested', { detail, bubbles: true, composed: true })) // DEPRECATED
     }
 }
 customElements.define('sp-cli-podman-card', SpCliPodmanCard)

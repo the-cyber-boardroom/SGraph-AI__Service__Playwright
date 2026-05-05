@@ -1,6 +1,6 @@
 import { SgComponent } from 'https://dev.tools.sgraph.ai/components/base/v1/v1.0/v1.0.0/sg-component.js'
 
-const STATIC = { type_id: 'neko', display_name: 'Neko (WebRTC)', icon: '🌐', stability: 'experimental', boot: '—', soon: true, create_endpoint_path: '/neko/stack' }
+const STATIC = { spec_id: 'neko', type_id: 'neko', display_name: 'Neko (WebRTC)', icon: '🌐', stability: 'experimental', boot: '—', soon: true, create_endpoint_path: '/neko/stack' }
 
 class SpCliNekoCard extends SgComponent {
     static jsUrl = import.meta.url
@@ -23,7 +23,9 @@ class SpCliNekoCard extends SgComponent {
     }
 
     _launch() {
-        document.dispatchEvent(new CustomEvent('sp-cli:plugin:neko.launch-requested', { detail: { entry: this._entry }, bubbles: true, composed: true }))
+        const detail = { entry: this._entry }
+        document.dispatchEvent(new CustomEvent('sp-cli:spec:neko.launch-requested',   { detail, bubbles: true, composed: true }))
+        document.dispatchEvent(new CustomEvent('sp-cli:plugin:neko.launch-requested', { detail, bubbles: true, composed: true })) // DEPRECATED
     }
 }
 customElements.define('sp-cli-neko-card', SpCliNekoCard)
