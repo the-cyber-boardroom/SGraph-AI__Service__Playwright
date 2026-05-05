@@ -1,6 +1,7 @@
 # ═══════════════════════════════════════════════════════════════════════════════
 # SG/Compute Specs — Firefox: Firefox__Service
-# Orchestrator for Firefox stack lifecycle: create / list / info / delete / health.
+# Orchestrator for Firefox stack lifecycle:
+# create / list / info / delete / health / set_credentials / upload_mitm_script.
 # ═══════════════════════════════════════════════════════════════════════════════
 
 import secrets
@@ -12,6 +13,8 @@ from osbot_utils.type_safe.Type_Safe                                            
 from sg_compute_specs.firefox.collections.List__Schema__Firefox__Stack__Info        import List__Schema__Firefox__Stack__Info
 from sg_compute_specs.firefox.enums.Enum__Firefox__Stack__State                     import Enum__Firefox__Stack__State
 from sg_compute_specs.firefox.schemas.Schema__Firefox__Health__Response             import Schema__Firefox__Health__Response
+from sg_compute_specs.firefox.schemas.Schema__Firefox__Credentials__Response        import Schema__Firefox__Credentials__Response
+from sg_compute_specs.firefox.schemas.Schema__Firefox__Mitm__Script__Response       import Schema__Firefox__Mitm__Script__Response
 from sg_compute_specs.firefox.schemas.Schema__Firefox__Stack__Create__Request       import Schema__Firefox__Stack__Create__Request
 from sg_compute_specs.firefox.schemas.Schema__Firefox__Stack__Create__Response      import Schema__Firefox__Stack__Create__Response
 from sg_compute_specs.firefox.schemas.Schema__Firefox__Stack__Delete__Response      import Schema__Firefox__Stack__Delete__Response
@@ -20,9 +23,10 @@ from sg_compute_specs.firefox.schemas.Schema__Firefox__Stack__List              
 from typing import Optional
 
 from sg_compute_specs.firefox.service.Firefox__AWS__Client           import Firefox__AWS__Client
-from sg_compute_specs.firefox.service.Firefox__Tags                          import FIREFOX_NAMING
+from sg_compute_specs.firefox.service.Firefox__Tags                  import FIREFOX_NAMING
 from sg_compute_specs.firefox.service.Firefox__HTTP__Probe           import Firefox__HTTP__Probe
 from sg_compute_specs.firefox.service.Firefox__Interceptor__Resolver import Firefox__Interceptor__Resolver
+from sg_compute_specs.firefox.service.Firefox__SSM__Helper           import Firefox__SSM__Helper
 from sg_compute_specs.firefox.service.Firefox__Stack__Mapper         import Firefox__Stack__Mapper
 from sg_compute_specs.firefox.service.Firefox__User_Data__Builder    import Firefox__User_Data__Builder
 
@@ -38,6 +42,7 @@ class Firefox__Service(Type_Safe):
     user_data_builder    : Optional[Firefox__User_Data__Builder]    = None
     interceptor_resolver : Optional[Firefox__Interceptor__Resolver] = None
     probe                : Optional[Firefox__HTTP__Probe]           = None
+    ssm                  : Optional[Firefox__SSM__Helper]           = None
 
     def setup(self) -> 'Firefox__Service':
         self.aws_client           = Firefox__AWS__Client()  .setup()
@@ -45,6 +50,7 @@ class Firefox__Service(Type_Safe):
         self.user_data_builder    = Firefox__User_Data__Builder()
         self.interceptor_resolver = Firefox__Interceptor__Resolver()
         self.probe                = Firefox__HTTP__Probe()
+        self.ssm                  = Firefox__SSM__Helper()
         return self
 
     def create_stack(self, request: Schema__Firefox__Stack__Create__Request,
@@ -152,3 +158,34 @@ class Firefox__Service(Type_Safe):
             deleted    = ok                                                ,
             message    = f'terminated {iid}' if ok else 'terminate failed',
             elapsed_ms = int((time.monotonic() - t0) * 1000)              )
+
+    def set_credentials(self, region: str, node_id: str,
+                        username: str, password: str) -> Schema__Firefox__Credentials__Response:
+        details = self.aws_client.instance.find_by_stack_name(region, node_id)
+        if not details:
+            return Schema__Firefox__Credentials__Response(node_id=node_id,
+                                                          message='stack not found')
+        iid     = details.get('InstanceId', '')
+        cmd     = (f"sed -i 's|WEB_AUTHENTICATION_USERNAME:.*|WEB_AUTHENTICATION_USERNAME: \"{username}\"|' "
+                   f"/opt/sg-firefox/docker-compose.yml && "
+                   f"sed -i 's|WEB_AUTHENTICATION_PASSWORD:.*|WEB_AUTHENTICATION_PASSWORD: \"{password}\"|' "
+                   f"/opt/sg-firefox/docker-compose.yml && "
+                   f"cd /opt/sg-firefox && docker compose up -d --no-deps firefox")
+        ok, msg = self.ssm.run_command(region, iid, cmd)
+        return Schema__Firefox__Credentials__Response(node_id=node_id, updated=ok,
+                                                       message=msg or ('credentials updated' if ok else 'update failed'))
+
+    def upload_mitm_script(self, region: str, node_id: str,
+                           script_content: str) -> Schema__Firefox__Mitm__Script__Response:
+        details = self.aws_client.instance.find_by_stack_name(region, node_id)
+        if not details:
+            return Schema__Firefox__Mitm__Script__Response(node_id=node_id,
+                                                            message='stack not found')
+        iid     = details.get('InstanceId', '')
+        cmd     = (f"cat > /opt/sg-firefox/interceptors/active.py << 'MITM_SCRIPT_EOF'\n"
+                   f"{script_content}\n"
+                   f"MITM_SCRIPT_EOF\n"
+                   f"cd /opt/sg-firefox && docker compose restart mitmproxy")
+        ok, msg = self.ssm.run_command(region, iid, cmd)
+        return Schema__Firefox__Mitm__Script__Response(node_id=node_id, uploaded=ok,
+                                                        message=msg or ('script uploaded' if ok else 'upload failed'))

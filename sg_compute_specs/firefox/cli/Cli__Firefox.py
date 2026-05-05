@@ -8,17 +8,8 @@
 #   sg-compute spec firefox info <stack-name> [--region X]
 #   sg-compute spec firefox create            [--region X] [--instance-type T] [--max-hours N]
 #   sg-compute spec firefox delete <name>     [--region X] [--yes]
-#   sg-compute spec firefox set-credentials   --node <id> --username <u> --password <p>
-#   sg-compute spec firefox upload-mitm-script --node <id> --file <path>
-#
-# NOTE (T2.2 / PARTIAL)
-# ─────────────────────
-# set-credentials and upload-mitm-script require per-spec API routes
-# PUT /api/specs/firefox/{node_id}/credentials and
-# PUT /api/specs/firefox/{node_id}/mitm-script
-# that do not yet exist. See brief T2.2b for the route implementation.
-# Both commands are present and parse correctly; they raise NotImplementedError
-# until T2.2b lands.
+#   sg-compute spec firefox set-credentials   --node <id> --username <u> --password <p> [--region X]
+#   sg-compute spec firefox upload-mitm-script --node <id> --file <path> [--region X]
 # ═══════════════════════════════════════════════════════════════════════════════
 
 import typer
@@ -121,17 +112,47 @@ def delete(stack_name: str  = typer.Argument(..., help='Firefox stack name.'),
 @app.command('set-credentials')
 def set_credentials(node    : str = typer.Option(..., '--node'    , '-n', help='Firefox node (stack) name.'),
                     username: str = typer.Option(..., '--username' , '-u', help='Credentials username.'),
-                    password: str = typer.Option(..., '--password' , '-p', help='Credentials password.')):
-    raise NotImplementedError(
-        'set-credentials requires PUT /api/specs/firefox/{node}/credentials — '
-        'see brief T2.2b for the route implementation'
-    )
+                    password: str = typer.Option(..., '--password' , '-p', help='Credentials password.'),
+                    region  : str = typer.Option(DEFAULT_REGION, '--region', '-r', help='AWS region.')):
+    try:
+        result  = _service().set_credentials(region=region, node_id=node, username=username, password=password)
+        console = Console(highlight=False, width=200)
+        if result.updated:
+            console.print(f'Credentials updated for {node}')
+        else:
+            console.print(f'Failed to update credentials for {node}: {result.message}', style='bold red')
+            raise typer.Exit(1)
+    except typer.Exit:
+        raise
+    except Exception as e:
+        if 'credential' in str(e).lower() or 'NoCredential' in type(e).__name__:
+            typer.echo(f'AWS credentials not configured: {e}', err=True)
+            raise typer.Exit(1)
+        raise
 
 
 @app.command('upload-mitm-script')
-def upload_mitm_script(node: str = typer.Option(..., '--node', '-n', help='Firefox node (stack) name.'),
-                       file: str = typer.Option(..., '--file', '-f', help='Path to the mitmproxy script file.')):
-    raise NotImplementedError(
-        'upload-mitm-script requires PUT /api/specs/firefox/{node}/mitm-script — '
-        'see brief T2.2b for the route implementation'
-    )
+def upload_mitm_script(node  : str = typer.Option(..., '--node'  , '-n', help='Firefox node (stack) name.'),
+                       file  : str = typer.Option(..., '--file'  , '-f', help='Path to the mitmproxy script file.'),
+                       region: str = typer.Option(DEFAULT_REGION, '--region', '-r', help='AWS region.')):
+    import pathlib
+    script_path = pathlib.Path(file)
+    if not script_path.is_file():
+        typer.echo(f'File not found: {file}', err=True)
+        raise typer.Exit(1)
+    content = script_path.read_text(encoding='utf-8')
+    try:
+        result  = _service().upload_mitm_script(region=region, node_id=node, script_content=content)
+        console = Console(highlight=False, width=200)
+        if result.uploaded:
+            console.print(f'Mitm script uploaded to {node} ({len(content)} bytes)')
+        else:
+            console.print(f'Failed to upload script to {node}: {result.message}', style='bold red')
+            raise typer.Exit(1)
+    except typer.Exit:
+        raise
+    except Exception as e:
+        if 'credential' in str(e).lower() or 'NoCredential' in type(e).__name__:
+            typer.echo(f'AWS credentials not configured: {e}', err=True)
+            raise typer.Exit(1)
+        raise
