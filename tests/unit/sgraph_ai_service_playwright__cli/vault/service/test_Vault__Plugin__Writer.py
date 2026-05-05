@@ -103,6 +103,7 @@ class test_Vault__Plugin__Writer(TestCase):
 
     def test_delete__success(self):
         w                = _writer()
+        w.write('firefox', SHARED_STACK_ID, 'credentials', b'test-data')
         ok, err          = w.delete('firefox', SHARED_STACK_ID, 'credentials')
         assert err       is None
         assert ok        is True

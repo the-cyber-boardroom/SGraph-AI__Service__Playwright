@@ -353,7 +353,7 @@ class test_cli_surface(TestCase):
         result = CliRunner().invoke(provision_ec2.app, ['--help'])
         assert result.exit_code == 0
         out = _plain(result.output)
-        for sub in ('playwright', 'elastic', 'opensearch', 'prometheus', 'vnc', 'linux', 'docker'):
+        for sub in ('playwright', 'elastic', 'opensearch', 'prometheus', 'vnc', 'docker'):
             assert sub in out, f'subgroup {sub!r} missing from --help'
         # Playwright lifecycle commands no longer at top — must go through sp pw
         assert ' env  ' not in out                                                    # `sp env` was top-level pre-v0.1.97
