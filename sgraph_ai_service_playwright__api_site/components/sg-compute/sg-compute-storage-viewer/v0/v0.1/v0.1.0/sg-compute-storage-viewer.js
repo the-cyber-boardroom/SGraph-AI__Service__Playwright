@@ -1,6 +1,6 @@
 import { SgComponent } from 'https://dev.tools.sgraph.ai/components/base/v1/v1.0/v1.0.0/sg-component.js'
 
-const _EC2_CSS = new URL('../../../../../../../shared/ec2-tokens.css', import.meta.url).href
+const _EC2_CSS = new URL('../../../../../../shared/ec2-tokens.css', import.meta.url).href
 
 const KNOWN_KEYS = [
     // Auth

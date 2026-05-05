@@ -4,7 +4,7 @@ import { apiClient         } from '../shared/api-client.js'
 import { startSettingsBus, getUseLegacyApi } from '../shared/settings-bus.js'
 import { loadCatalogue     } from '../shared/spec-catalogue.js'
 
-const ROOT_LAYOUT_KEY   = 'sp-cli:admin:root-layout:v2'
+const ROOT_LAYOUT_KEY   = 'sp-cli:admin:root-layout:v3'
 const HOST_API_KEYS_KEY = 'sp-cli:host-api-keys'
 
 function _loadHostApiKeys() {
