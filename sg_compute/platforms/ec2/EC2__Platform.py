@@ -87,5 +87,32 @@ class EC2__Platform(Platform):
 
     def create_node(self,
                     request : Schema__Node__Create__Request__Base,
-                    spec    : Schema__Spec__Manifest__Entry) -> Schema__Node__Info:
-        raise NotImplementedError('create_node: call the spec-specific service directly')
+                    spec    : Schema__Spec__Manifest__Entry = None) -> Schema__Node__Info:
+        spec_id = request.spec_id
+        if spec_id == 'docker':
+            return self._create_docker_node(request)
+        raise NotImplementedError(f'create_node: no creator for spec_id={spec_id!r}')
+
+    def _create_docker_node(self, request: Schema__Node__Create__Request__Base) -> Schema__Node__Info:
+        from sg_compute_specs.docker.schemas.Schema__Docker__Create__Request import Schema__Docker__Create__Request
+        from sg_compute_specs.docker.service.Docker__Service                 import Docker__Service
+        region = request.region or 'eu-west-2'
+        svc    = Docker__Service().setup()
+        docker_req = Schema__Docker__Create__Request(
+            stack_name    = request.node_name     ,
+            region        = region                ,
+            instance_type = request.instance_type ,
+            caller_ip     = request.caller_ip     ,
+            max_hours     = request.max_hours     ,
+        )
+        resp = svc.create_stack(docker_req)
+        info = resp.stack_info
+        return Schema__Node__Info(
+            node_id       = str(info.stack_name)    ,
+            spec_id       = 'docker'                ,
+            region        = region                  ,
+            state         = Enum__Node__State.BOOTING,
+            public_ip     = str(info.public_ip)     ,
+            instance_id   = str(info.instance_id)   ,
+            instance_type = str(info.instance_type) ,
+        )

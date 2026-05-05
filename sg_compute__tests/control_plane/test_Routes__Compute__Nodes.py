@@ -10,6 +10,7 @@ from osbot_fast_api.api.Fast_API                                              im
 
 from sg_compute.control_plane.Fast_API__Compute                              import Fast_API__Compute
 from sg_compute.control_plane.routes.Routes__Compute__Nodes                  import Routes__Compute__Nodes
+from sg_compute.core.node.schemas.Schema__Node__Create__Request__Base        import Schema__Node__Create__Request__Base
 from sg_compute.core.node.schemas.Schema__Node__Delete__Response             import Schema__Node__Delete__Response
 from sg_compute.core.node.schemas.Schema__Node__Info                         import Schema__Node__Info
 from sg_compute.core.node.schemas.Schema__Node__List                         import Schema__Node__List
@@ -30,6 +31,11 @@ class Fake__Platform__Empty(Platform):
     def delete_node(self, node_id, region='eu-west-2'):
         return Schema__Node__Delete__Response(node_id=node_id, deleted=False, message='node not found')
 
+    def create_node(self, request, spec=None):
+        return Schema__Node__Info(node_id=request.node_name or 'auto',
+                                  spec_id=request.spec_id, region=request.region or 'eu-west-2',
+                                  state=Enum__Node__State.BOOTING)
+
 
 class Fake__Platform__With_Node(Platform):
     def __init__(self, node, **kwargs):
@@ -44,6 +50,11 @@ class Fake__Platform__With_Node(Platform):
 
     def delete_node(self, node_id, region='eu-west-2'):
         return Schema__Node__Delete__Response(node_id=node_id, deleted=True, message='terminated')
+
+    def create_node(self, request, spec=None):
+        return Schema__Node__Info(node_id=request.node_name or 'auto',
+                                  spec_id=request.spec_id, region=request.region or 'eu-west-2',
+                                  state=Enum__Node__State.BOOTING)
 
 
 class Fake__Platform__No_Creds(Platform):
@@ -120,3 +131,15 @@ class test_Routes__Compute__Nodes(TestCase):
         r      = client.get('/api/nodes')
         assert r.status_code == 503
         assert 'AWS credentials' in r.json()['detail']
+
+    def test_create_node__returns_booting_node(self):
+        client  = _client(Fake__Platform__Empty())
+        payload = {'spec_id': 'docker', 'node_name': 'my-node', 'region': 'eu-west-2',
+                   'instance_type': 't3.medium', 'ami_id': '', 'caller_ip': '',
+                   'max_hours': 1, 'creation_mode': 'fresh'}
+        r = client.post('/api/nodes', json=payload)
+        assert r.status_code == 200
+        data = r.json()
+        assert data['spec_id']  == 'docker'
+        assert data['node_id']  == 'my-node'
+        assert data['state']    == Enum__Node__State.BOOTING.value
