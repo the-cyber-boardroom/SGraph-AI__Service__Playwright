@@ -19,13 +19,13 @@ PR title: `phase-FV2.{N}: {short summary}`.
 | FV2.3 | [`FV2_3__catalogue-loader.md`](FV2_3__catalogue-loader.md) | `shared/spec-catalogue.js`; delete `PLUGIN_ORDER`, `CATALOG`, `LAUNCH_TYPES`, `DEFAULTS.plugins` | FV2.2 |
 | FV2.4 | [`FV2_4__specs-view.md`](FV2_4__specs-view.md) | Specs left-nav item + `<sp-cli-specs-view>` | FV2.3 |
 | FV2.5 | [`FV2_5__launch-flow-three-modes.md`](FV2_5__launch-flow-three-modes.md) | Launch form with creation-mode selector + AMI picker + size + timeout | BV2.5 |
-| FV2.6 | [`FV2_6__per-spec-ui-co-location.md`](FV2_6__per-spec-ui-co-location.md) | Move per-spec card + detail UI into `sg_compute_specs/<name>/ui/` | FV2.3 |
 | FV2.7 | [`FV2_7__pods-tab-unified-url.md`](FV2_7__pods-tab-unified-url.md) | Switch Pods tab from `{host_api_url}/pods/list` to `/api/nodes/{id}/pods/list` | BV2.3 |
 | FV2.8 | [`FV2_8__pods-url-update.md`](FV2_8__pods-url-update.md) | Confirm zero `/containers/*` URL references in dashboard | After FV2.7 |
 | FV2.9 | [`FV2_9__event-vocabulary-finish.md`](FV2_9__event-vocabulary-finish.md) | Migrate `sp-cli:plugin:*` → `sp-cli:spec:*`; publish event vocabulary spec | — |
 | FV2.10 | [`FV2_10__a11y-pass.md`](FV2_10__a11y-pass.md) | A11y on `sp-cli-nodes-view` tabs + icon buttons + spec cards | — |
 | FV2.11 | [`FV2_11__delete-legacy-components.md`](FV2_11__delete-legacy-components.md) | Delete `sp-cli-stacks-pane`, unused `shared/catalog.js`, `api.ipify.org` external call | After FV2.4 |
-| FV2.12 | [`FV2_12__cosmetic-rename.md`](FV2_12__cosmetic-rename.md) | `sp-cli-*` → `sg-compute-*` cosmetic web-component prefix rename | After FV2.9 |
+| FV2.12 | [`FV2_12__cosmetic-rename.md`](FV2_12__cosmetic-rename.md) | `sp-cli-*` → `sg-compute-*` cosmetic web-component prefix rename | After FV2.9 ✅ — **un-deferred, blocks FV2.6** |
+| FV2.6 | [`FV2_6__per-spec-ui-co-location.md`](FV2_6__per-spec-ui-co-location.md) | Move per-spec card + detail UI into `sg_compute_specs/<name>/ui/`; `StaticFiles` mount | After FV2.12 + BV2.x (StaticFiles mount) |
 | FV2.13 | [`FV2_13__dashboard-move.md`](FV2_13__dashboard-move.md) | Move dashboard to `sg_compute/frontend/` (deferred to v0.3, doc-only here) | After FV2.12 |
 
 ---
@@ -37,10 +37,11 @@ PR title: `phase-FV2.{N}: {short summary}`.
 - **FV2.3** kills the four hardcoded plugin lists in one shot — biggest cleanup win.
 - **FV2.5** waits on BV2.5 (`POST /api/nodes` + `EC2__Platform.create_node`).
 - **FV2.7** waits on BV2.3 (`Pod__Manager` + `Routes__Compute__Pods`).
-- **FV2.6** can land after FV2.3 — moves per-spec UI into the spec folders one spec at a time.
 - **FV2.9-FV2.10** are quality bars — run when capacity allows.
 - **FV2.11** cleans up after the new path is established.
-- **FV2.12-FV2.13** are deferred to v0.3 (cosmetic + structural moves; lower priority during v0.2 stabilisation).
+- **FV2.12** is un-deferred (2026-05-05 Architect decision): must run before FV2.6 so co-located files land with final `sg-compute-*` names. Blocked by FV2.9 only — which is done.
+- **FV2.6** now runs after FV2.12 (not FV2.3 as originally planned). Also needs a backend BV2.x slice: `StaticFiles` mount in `Fast_API__Compute` serving `sg_compute_specs/<id>/ui/` at `/api/specs/<id>/ui/`. UI assets served via CF+S3 / `tools.sgraph.ai` in production (same static-file convention).
+- **FV2.13** remains deferred to v0.3.
 
 ---
 
