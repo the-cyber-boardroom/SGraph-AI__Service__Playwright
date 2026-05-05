@@ -37,7 +37,6 @@ def _service():
 
 @app.command()
 def list(region: str = typer.Option(DEFAULT_REGION, '--region', '-r', help='AWS region.')):
-    """List all active firefox stacks."""
     try:
         result = _service().list_stacks(region=region)
         console = Console(highlight=False, width=200)
@@ -55,7 +54,6 @@ def list(region: str = typer.Option(DEFAULT_REGION, '--region', '-r', help='AWS 
 @app.command()
 def info(stack_name: str = typer.Argument(..., help='Firefox stack name.'),
          region    : str = typer.Option(DEFAULT_REGION, '--region', '-r', help='AWS region.')):
-    """Show details for one firefox stack."""
     try:
         result = _service().get_stack_info(region=region, stack_name=stack_name)
         if result is None:
@@ -77,7 +75,6 @@ def create(region       : str = typer.Option(DEFAULT_REGION, '--region'      , '
            instance_type: str = typer.Option('t3.large'    , '--instance-type', '-t'),
            max_hours    : int = typer.Option(1             , '--max-hours'         ),
            name         : str = typer.Option(''            , '--name'              , help='Override stack name.')):
-    """Create a new firefox stack."""
     from sg_compute_specs.firefox.schemas.Schema__Firefox__Stack__Create__Request import Schema__Firefox__Stack__Create__Request
     try:
         svc  = _service()

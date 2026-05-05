@@ -8,7 +8,7 @@ from osbot_utils.type_safe.Type_Safe import Type_Safe
 
 LOG_FILE = '/var/log/ephemeral-ec2-boot.log'
 
-TEMPLATE = """\
+TEMPLATE = '''\
 #!/usr/bin/env bash
 set -euo pipefail
 exec > >(tee -a {log_file}) 2>&1
@@ -20,7 +20,7 @@ dnf install -y git curl jq unzip
 
 # SSM agent ships on AL2023 — ensure it is running
 systemctl enable --now amazon-ssm-agent 2>/dev/null || true
-"""
+'''
 
 
 class Section__Base(Type_Safe):

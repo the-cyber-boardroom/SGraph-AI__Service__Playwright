@@ -6,7 +6,7 @@
 
 from osbot_utils.type_safe.Type_Safe import Type_Safe
 
-TEMPLATE = """
+TEMPLATE = '''
 # ── Environment file on tmpfs (RAM only) ─────────────────────────────────────
 mkdir -p /run/{stack_name}
 mount -t tmpfs tmpfs /run/{stack_name} 2>/dev/null || true
@@ -15,7 +15,7 @@ cat > /run/{stack_name}/env <<'ENVEOF'
 ENVEOF
 chmod 600 /run/{stack_name}/env
 echo "[ephemeral-ec2] env file written to /run/{stack_name}/env"
-"""
+'''
 
 
 class Section__Env__File(Type_Safe):

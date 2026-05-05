@@ -17,7 +17,7 @@ from sg_compute.primitives.Safe_Str__Stack__Name                                
 
 LOG_FILE = '/var/log/sg-docker-boot.log'
 
-BASE_TEMPLATE = """\
+BASE_TEMPLATE = '''\
 #!/usr/bin/env bash
 set -euo pipefail
 exec > >(tee -a {log_file}) 2>&1
@@ -42,13 +42,13 @@ docker compose version
 
 # AL2023 ships with SSM agent; ensure it is active
 systemctl enable --now amazon-ssm-agent || true
-"""
+'''
 
-FOOTER_TEMPLATE = """\
+FOOTER_TEMPLATE = '''\
 {shutdown_line}
 
 echo "[sg-docker] boot complete at $(date -u +%FT%TZ)"
-"""
+'''
 
 SHUTDOWN_TEMPLATE = 'shutdown -h +{minutes}  # auto-terminate after {hours}h'
 SHUTDOWN_DISABLED = '# max_hours=0 — no auto-terminate'
