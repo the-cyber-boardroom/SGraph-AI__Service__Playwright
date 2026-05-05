@@ -356,24 +356,21 @@ class SpCliNodesView extends SgComponent {
     async _fetchContainers() {
         const s = this._currentStack
         if (!s) return
-        const base = s.host_api_url || (s.public_ip ? `http://${s.public_ip}:19009` : '')
-        const key  = s.host_api_key || ''
-        if (!base) {
-            if (this._ctStatus) this._ctStatus.textContent = 'No host URL'
-            return
-        }
+        const nodeId = s.node_id
+        const base   = s.host_api_url || (s.public_ip ? `http://${s.public_ip}:19009` : '')
+        const key    = s.host_api_key || ''
+
         this._closeLogDrawer()
         if (this._ctStatus) this._ctStatus.textContent = 'Loading…'
         if (this._ctError)  this._ctError.hidden = true
         try {
-            const headers = key ? { 'X-API-Key': key } : {}
-            const [ctResp, stResp] = await Promise.all([
-                fetch(`${base}/pods/list`,   { headers }),
-                fetch(`${base}/host/status`, { headers }),
+            // Pod list via same-origin control-plane; host stats still via sidecar (no proxy yet)
+            const [ct, st] = await Promise.all([
+                apiClient.get(`/api/nodes/${encodeURIComponent(nodeId)}/pods/list`),
+                base ? fetch(`${base}/host/status`, { headers: key ? { 'X-API-Key': key } : {} })
+                            .then(r => r.ok ? r.json() : null).catch(() => null)
+                     : Promise.resolve(null),
             ])
-            if (!ctResp.ok) throw new Error(`HTTP ${ctResp.status}`)
-            const ct = await ctResp.json()
-            const st = stResp.ok ? await stResp.json() : null
             this._renderContainers(ct, st)
         } catch (err) {
             if (this._ctStatus) this._ctStatus.textContent = 'Unreachable'
@@ -382,22 +379,23 @@ class SpCliNodesView extends SgComponent {
         }
     }
 
-    _portLinks(ports, publicIp) {
+    _portLinks(portsStr, publicIp) {
+        // portsStr is Docker format: "0.0.0.0:8080->8080/tcp, 0.0.0.0:9090->9090/tcp"
         const LABELS = { '5601': 'Kibana', '9090': 'Prometheus', '3000': 'Grafana', '8080': 'Web', '80': 'HTTP', '4444': 'Selenium', '8888': 'Jupyter' }
-        if (!ports || !publicIp) return []
+        if (!portsStr || !publicIp) return []
         const links = []
-        for (const [portProto, bindings] of Object.entries(ports)) {
-            const hostPort = bindings?.[0]?.HostPort
-            if (!hostPort) continue
-            const port = portProto.split('/')[0]
-            links.push({ url: `http://${publicIp}:${hostPort}`, label: LABELS[port] || `:${hostPort}` })
+        for (const part of String(portsStr).split(',')) {
+            const m = part.trim().match(/:(\d+)->(\d+)/)
+            if (!m) continue
+            const hostPort = m[1]
+            links.push({ url: `http://${publicIp}:${hostPort}`, label: LABELS[hostPort] || `:${hostPort}` })
         }
         return links
     }
 
     _renderContainers(ct, st) {
-        const pods  = ct.pods || []
-        const count = ct.count ?? pods.length
+        const pods  = ct?.pods || []
+        const count = pods.length
         if (this._ctStatus) this._ctStatus.textContent = `${count} pod${count !== 1 ? 's' : ''}`
 
         if (this._ctHostStats && st) {
@@ -417,38 +415,42 @@ class SpCliNodesView extends SgComponent {
         if (this._ctEmpty) this._ctEmpty.hidden = true
         if (this._ctList)  this._ctList.innerHTML = ''
 
-        // fetch stats for all pods in parallel (non-blocking)
+        // Pod stats still fetched directly from sidecar (no control-plane endpoint yet)
         const s    = this._currentStack
         const base = s?.host_api_url || (s?.public_ip ? `http://${s.public_ip}:19009` : '')
         const key  = s?.host_api_key || ''
         const hdrs = key ? { 'X-API-Key': key } : {}
 
         for (const c of pods) {
-            const stateClass = podPillClass(c.status)
+            // Schema__Pod__Info: pod_name / node_id / image / state / ports (string)
+            const name      = c.pod_name || c.name || ''
+            const state     = c.state    || c.status || ''
+            const stateClass = podPillClass(state)
             const links = this._portLinks(c.ports, this._currentStack?.public_ip)
             const linksHtml = links.length
                 ? `<div class="ct-ports">${links.map(l => `<a class="ct-port-link" href="${_esc(l.url)}" target="_blank" rel="noopener">${_esc(l.label)}</a>`).join('')}</div>`
                 : ''
             const row = document.createElement('div')
             row.className = 'ct-row'
-            row.dataset.pod = c.name
+            row.setAttribute('role', 'listitem')
+            row.dataset.pod = name
             row.innerHTML = `
-                <span class="ct-name">${_esc(c.name)}</span>
-                <span class="ec2-pill dot ${stateClass} ct-pill">${_esc(c.status)}</span>
+                <span class="ct-name">${_esc(name)}</span>
+                <span class="ec2-pill dot ${stateClass} ct-pill">${_esc(state)}</span>
                 <span class="ct-image">${_esc(c.image)}</span>
                 ${linksHtml}
                 <span class="ct-stats ct-state"></span>
-                <button class="ct-log-btn" title="View logs" aria-label="View logs for ${_esc(c.name)}">📋</button>
+                <button class="ct-log-btn" title="View logs" aria-label="View logs for ${_esc(name)}">📋</button>
             `
             const statsEl = row.querySelector('.ct-stats')
             row.querySelector('.ct-log-btn')?.addEventListener('click', (e) => {
                 e.stopPropagation()
-                this._fetchPodLogs(c.name)
+                this._fetchPodLogs(name)
             })
             this._ctList?.appendChild(row)
 
             if (base) {
-                fetch(`${base}/pods/${encodeURIComponent(c.name)}/stats`, { headers: hdrs })
+                fetch(`${base}/pods/${encodeURIComponent(name)}/stats`, { headers: hdrs })
                     .then(r => r.ok ? r.json() : null)
                     .then(st => {
                         if (st && statsEl) {
@@ -462,28 +464,22 @@ class SpCliNodesView extends SgComponent {
 
     async _fetchPodLogs(name) {
         this._stopLiveLog()
-        const s    = this._currentStack
-        const base = s?.host_api_url || (s?.public_ip ? `http://${s.public_ip}:19009` : '')
-        const key  = s?.host_api_key || ''
-        if (!base || !this._podLogDrawer) return
+        const s = this._currentStack
+        if (!s || !this._podLogDrawer) return
 
         if (this._podLogName)    this._podLogName.textContent = name
         if (this._podLogContent) this._podLogContent.textContent = 'Loading…'
         this._podLogDrawer.hidden = false
 
         try {
-            const resp = await fetch(`${base}/pods/${encodeURIComponent(name)}/logs?tail=200`, {
-                headers: key ? { 'X-API-Key': key } : {},
-            })
-            const data = await resp.json()
+            const nodeId = s.node_id
+            const data   = await apiClient.get(`/api/nodes/${encodeURIComponent(nodeId)}/pods/${encodeURIComponent(name)}/logs?tail=200`)
             if (this._podLogContent) {
-                this._podLogContent.textContent = resp.ok
-                    ? (data.content || '(no output)')
-                    : `Error ${resp.status}: ${data.detail || ''}`
-                this._podLogContent.scrollTop = this._podLogContent.scrollHeight
+                this._podLogContent.textContent = data.content || '(no output)'
+                this._podLogContent.scrollTop   = this._podLogContent.scrollHeight
             }
         } catch (err) {
-            if (this._podLogContent) this._podLogContent.textContent = `Unreachable: ${err.message}`
+            if (this._podLogContent) this._podLogContent.textContent = `Error: ${err.message}`
         }
     }
 
@@ -618,16 +614,13 @@ class SpCliNodesView extends SgComponent {
 
     async _pollLiveLogs() {
         if (this._podLogDrawer?.hidden || !this._livePodName) { this._stopLiveLog(); return }
-        const s    = this._currentStack
-        const base = s?.host_api_url || (s?.public_ip ? `http://${s.public_ip}:19009` : '')
-        const key  = s?.host_api_key || ''
-        if (!base) { this._stopLiveLog(); return }
+        const s = this._currentStack
+        if (!s) { this._stopLiveLog(); return }
         try {
-            const resp = await fetch(`${base}/pods/${encodeURIComponent(this._livePodName)}/logs?tail=100`, {
-                headers: key ? { 'X-API-Key': key } : {},
-            })
-            if (!resp.ok) return
-            const data = await resp.json()
+            const nodeId = s.node_id
+            const data = await apiClient.get(
+                `/api/nodes/${encodeURIComponent(nodeId)}/pods/${encodeURIComponent(this._livePodName)}/logs?tail=100`
+            )
             if (this._podLogContent) {
                 this._podLogContent.textContent = data.content || '(no output)'
                 this._podLogContent.scrollTop = this._podLogContent.scrollHeight
