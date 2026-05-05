@@ -55,7 +55,7 @@ class Docker__User_Data__Builder(Type_Safe):
     def render(self, stack_name: str, region: str,
                registry     : str = '',
                api_key_name : str = 'X-API-Key',
-               api_key_value: str = '',
+               api_key_ssm_path: str = '',
                max_hours    : int = 1) -> str:
         shutdown_line = (SHUTDOWN_TEMPLATE.format(minutes=max_hours * 60, hours=max_hours)
                          if max_hours > 0 else SHUTDOWN_DISABLED)
@@ -64,6 +64,6 @@ class Docker__User_Data__Builder(Type_Safe):
                                       log_file  =LOG_FILE       )
         script += Section__Sidecar().render(registry      = registry      ,
                                             api_key_name  = api_key_name  ,
-                                            api_key_value = api_key_value )
+                                            api_key_ssm_path = api_key_ssm_path )
         script += FOOTER_TEMPLATE.format(shutdown_line=shutdown_line)
         return script

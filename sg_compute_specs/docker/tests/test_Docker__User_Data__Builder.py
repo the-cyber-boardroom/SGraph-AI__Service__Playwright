@@ -48,7 +48,7 @@ class test_Docker__User_Data__Builder(TestCase):
     def test_render__sidecar_included_when_registry_set(self):
         result = self.builder.render('fast-fermi', 'eu-west-2',
                                      registry      = '1234.dkr.ecr.eu-west-2.amazonaws.com',
-                                     api_key_value = 'secret-key')
+                                     api_key_ssm_path = 'secret-key')
         assert 'sg-sidecar'   in result
         assert '1234.dkr.ecr' in result
         assert 'secret-key'   in result
@@ -74,4 +74,4 @@ class test_Docker__User_Data__Builder(TestCase):
         req = Schema__Docker__Create__Request()
         assert req.registry      == ''
         assert req.api_key_name  == 'X-API-Key'
-        assert req.api_key_value == ''
+        assert req.api_key_ssm_path == ''

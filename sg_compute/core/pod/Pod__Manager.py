@@ -17,8 +17,8 @@ from sg_compute.core.pod.schemas.Schema__Pod__Stop__Response                 imp
 from sg_compute.platforms.Platform                                            import Platform
 from sg_compute.primitives.enums.Enum__Pod__State                            import Enum__Pod__State
 
-SIDECAR_PORT    = 19009
-SIDECAR_API_KEY = 'SG_COMPUTE__SIDECAR__API_KEY'
+SIDECAR_PORT        = 19009
+SIDECAR_API_KEY_ENV = 'SG_COMPUTE__SIDECAR__API_KEY'  # local-dev fallback only; per-node SSM key takes priority in production
 
 
 class Pod__Manager(Type_Safe):
@@ -28,9 +28,17 @@ class Pod__Manager(Type_Safe):
         node = self.platform.get_node(node_id)
         if node is None or not node.public_ip:
             return None
-        api_key = os.environ.get(SIDECAR_API_KEY, '')
+        api_key = self._resolve_api_key(node_id, node.host_api_key_ssm_path)
         return Sidecar__Client(host_api_url=f'http://{node.public_ip}:{SIDECAR_PORT}',
                                api_key=api_key)
+
+    def _resolve_api_key(self, node_id: str, ssm_path: str) -> str:           # per-node SSM key; env var is local-dev fallback only
+        if ssm_path:
+            from sg_compute.platforms.ec2.secrets.SSM__Sidecar__Key import SSM__Sidecar__Key
+            key = SSM__Sidecar__Key().read(node_id)
+            if key:
+                return key
+        return os.environ.get(SIDECAR_API_KEY_ENV, '')                         # local dev / CI only — not production-safe
 
     @staticmethod
     def _map_pod_info(raw: dict, node_id: str) -> Schema__Pod__Info:

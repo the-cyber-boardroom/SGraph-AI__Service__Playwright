@@ -3,6 +3,7 @@
 # In-memory composition via fake Platform; zero mocks.
 # ═══════════════════════════════════════════════════════════════════════════════
 
+import os
 from unittest                                                                 import TestCase
 
 from fastapi.testclient                                                       import TestClient
@@ -68,10 +69,16 @@ def _client(platform):
     return TestClient(fast_api.app())
 
 
+_TEST_API_KEY_NODES = 'test-api-key-nodes-1234567890'                          # ≥ 16 chars; not a real key
+
+
 def _client_with_handler(platform):
+    os.environ.setdefault('FAST_API__AUTH__API_KEY__VALUE', _TEST_API_KEY_NODES)
+    os.environ.setdefault('FAST_API__AUTH__API_KEY__NAME' , 'X-API-Key')
     api = Fast_API__Compute(platform=platform)
     api.setup()
-    return TestClient(api.app(), raise_server_exceptions=False)
+    return TestClient(api.app(), raise_server_exceptions=False,
+                      headers={'X-API-Key': os.environ['FAST_API__AUTH__API_KEY__VALUE']})
 
 
 # ── tests ────────────────────────────────────────────────────────────────────

@@ -107,14 +107,14 @@ class Vnc__User_Data__Builder(Type_Safe):
                      interceptor_kind  : str = 'none',
                      registry          : str = ''    ,
                      api_key_name      : str = 'X-API-Key',
-                     api_key_value     : str = ''    ) -> str:
+                     api_key_ssm_path     : str = ''    ) -> str:
         caddy_template   = Vnc__Caddy__Template()
         caddy_dockerfile = caddy_template.render_dockerfile()
         caddyfile_body   = caddy_template.render_caddyfile()
         users_json_body  = caddy_template.render_users_json(bcrypt_hash='${BCRYPT_HASH}')
         sidecar_section  = Section__Sidecar().render(registry      = registry      ,
                                                      api_key_name  = api_key_name  ,
-                                                     api_key_value = api_key_value )
+                                                     api_key_ssm_path = api_key_ssm_path )
 
         return USER_DATA_TEMPLATE.format(stack_name            = str(stack_name)        ,
                                          region                = str(region)            ,

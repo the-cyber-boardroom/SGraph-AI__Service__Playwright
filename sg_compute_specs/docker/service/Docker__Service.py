@@ -72,7 +72,7 @@ class Docker__Service(Type_Safe):
                                                           region                         ,
                                                           registry      = str(request.registry      or ''),
                                                           api_key_name  = str(request.api_key_name  or 'X-API-Key'),
-                                                          api_key_value = str(request.api_key_value or ''),
+                                                          api_key_ssm_path = str(request.api_key_ssm_path or ''),
                                                           max_hours     = request.max_hours          )
         iid       = self.aws_client.launch.run_instance(region, ami_id, sg_id, user_data, tags,
                                                         instance_type         = itype        ,

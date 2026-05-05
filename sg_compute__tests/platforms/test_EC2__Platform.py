@@ -39,11 +39,12 @@ class test_EC2__Platform(TestCase):
             'LaunchTime'       : None                   ,
         }
         info = p._raw_to_node_info(raw, 'eu-west-2', 'firefox')
-        assert info.node_id       == 'ff-quiet-fermi-1234'
-        assert info.spec_id       == 'firefox'
-        assert info.state         == Enum__Node__State.READY
-        assert info.public_ip     == '1.2.3.4'
-        assert info.instance_id   == 'i-0abc123'
+        assert info.node_id              == 'ff-quiet-fermi-1234'
+        assert info.spec_id              == 'firefox'
+        assert info.state                == Enum__Node__State.READY
+        assert info.public_ip            == '1.2.3.4'
+        assert info.instance_id          == 'i-0abc123'
+        assert info.host_api_key_ssm_path == '/sg-compute/nodes/ff-quiet-fermi-1234/sidecar-api-key'
 
     def test_raw_to_node_info_pending(self):
         p   = EC2__Platform()

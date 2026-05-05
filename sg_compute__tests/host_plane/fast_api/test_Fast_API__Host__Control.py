@@ -126,13 +126,13 @@ def test_cors__options_preflight__200(client):
                                 'Access-Control-Request-Method'  : 'GET'                   ,
                                 'Access-Control-Request-Headers' : 'X-API-Key'             })
     assert r.status_code in (200, 204)
-    assert r.headers.get('access-control-allow-origin') == '*'
+    assert r.headers.get('access-control-allow-origin') == 'http://localhost:10071'  # origin reflected (allow_credentials=True precludes '*')
     assert r.headers.get('access-control-allow-headers') in ('*', 'X-API-Key', 'x-api-key')
 
 def test_cors__response_includes_acao_header(client):
     r = client.get('/host/status', headers={**HEADERS, 'Origin': 'http://localhost:10071'})
     assert r.status_code == 200
-    assert r.headers.get('access-control-allow-origin') == '*'
+    assert r.headers.get('access-control-allow-origin') == 'http://localhost:10071'  # origin reflected (allow_credentials=True precludes '*')
 
 # ── Docs auth ─────────────────────────────────────────────────────────────────
 

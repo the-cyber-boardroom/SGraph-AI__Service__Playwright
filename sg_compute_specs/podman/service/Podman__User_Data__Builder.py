@@ -51,12 +51,12 @@ class Podman__User_Data__Builder(Type_Safe):
     def render(self, stack_name: str, region: str, max_hours: int = 1,
                registry     : str = '',
                api_key_name : str = 'X-API-Key',
-               api_key_value: str = '') -> str:
+               api_key_ssm_path: str = '') -> str:
         shutdown_line   = (SHUTDOWN_TEMPLATE.format(minutes=max_hours * 60, hours=max_hours)
                            if max_hours > 0 else SHUTDOWN_DISABLED)
         sidecar_section = Section__Sidecar().render(registry      = registry      ,
                                                     api_key_name  = api_key_name  ,
-                                                    api_key_value = api_key_value )
+                                                    api_key_ssm_path = api_key_ssm_path )
         return USER_DATA_TEMPLATE.format(stack_name      = str(stack_name)  ,
                                          region          = str(region)      ,
                                          log_file        = LOG_FILE         ,

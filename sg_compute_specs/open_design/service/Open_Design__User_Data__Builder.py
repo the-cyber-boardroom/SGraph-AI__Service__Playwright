@@ -75,7 +75,7 @@ class Open_Design__User_Data__Builder(Type_Safe):
                      max_hours      : int  = 1     ,
                      registry       : str  = ''    ,
                      api_key_name   : str  = 'X-API-Key',
-                     api_key_value  : str  = ''    ) -> str:
+                     api_key_ssm_path  : str  = ''    ) -> str:
         parts = []
         parts.append(Section__Base().render(stack_name=stack_name))
         parts.append(Section__Docker().render())
@@ -102,7 +102,7 @@ class Open_Design__User_Data__Builder(Type_Safe):
 
         sidecar = Section__Sidecar().render(registry      = registry      ,
                                             api_key_name  = api_key_name  ,
-                                            api_key_value = api_key_value )
+                                            api_key_ssm_path = api_key_ssm_path )
         if sidecar:
             parts.append(sidecar)
 

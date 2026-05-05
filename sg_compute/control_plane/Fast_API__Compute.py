@@ -2,6 +2,23 @@
 # SG/Compute — Fast_API__Compute
 # Control-plane FastAPI for the SG/Compute service.
 #
+# Auth model
+# ──────────
+# Base class: Serverless__Fast_API (enable_api_key=True by default).
+# Middleware: _Middleware__Health_Bypass — forwards /api/health/* unauthenticated
+# so load-balancer / Lambda health checks don't need credentials.
+# All other routes require X-API-Key (or cookie) matching
+# FAST_API__AUTH__API_KEY__VALUE.
+#
+# Boot assertion: setup_middlewares() raises AssertionError if the env var is
+# unset or shorter than 16 chars. Fail-loud; never fail-open.
+#
+# Auth-free paths (no X-API-Key required):
+#   /api/health        — ping
+#   /api/health/ready  — readiness probe
+#   /docs              — Swagger UI  (AUTH__EXCLUDED_PATHS in middleware)
+#   /openapi.json      — OpenAPI spec
+#
 # Mounted routes
 # ──────────────
 #   /api/health                   Routes__Compute__Health   (ping + readiness)
@@ -14,9 +31,14 @@
 #   /legacy/*                     Fast_API__SP__CLI sub-app (deprecated; X-Deprecated header on all responses)
 # ═══════════════════════════════════════════════════════════════════════════════
 
+import os
+
 from fastapi                                                                  import Request
 from fastapi.responses                                                        import JSONResponse
-from osbot_fast_api.api.Fast_API                                              import Fast_API
+from osbot_fast_api.api.middlewares.Middleware__Check_API_Key                 import Middleware__Check_API_Key
+from osbot_fast_api.api.schemas.consts.consts__Fast_API                      import (ENV_VAR__FAST_API__AUTH__API_KEY__NAME ,
+                                                                                      ENV_VAR__FAST_API__AUTH__API_KEY__VALUE)
+from osbot_fast_api_serverless.fast_api.Serverless__Fast_API                  import Serverless__Fast_API
 
 from sg_compute.control_plane.Spec__Routes__Loader                           import Spec__Routes__Loader
 from sg_compute.control_plane.routes.Routes__Compute__Health                 import Routes__Compute__Health
@@ -32,8 +54,17 @@ from sg_compute.platforms.exceptions.Exception__AWS__No_Credentials          imp
 from sg_compute.vault.api.routes.Routes__Vault__Spec                         import Routes__Vault__Spec
 from sg_compute.vault.service.Vault__Spec__Writer                            import Vault__Spec__Writer
 
+_AUTH_FREE_PATHS = {'/api/health', '/api/health/ready'}                        # load-balancer / Lambda probes; no X-API-Key required
 
-class Fast_API__Compute(Fast_API):
+
+class _Middleware__Health_Bypass(Middleware__Check_API_Key):                   # Auth-free exemption for health probes
+    async def dispatch(self, request: Request, call_next):
+        if request.url.path in _AUTH_FREE_PATHS:
+            return await call_next(request)
+        return await super().dispatch(request, call_next)
+
+
+class Fast_API__Compute(Serverless__Fast_API):
     registry         : Spec__Registry
     platform         : Platform                                                # injected in tests; defaults to EC2__Platform in _mount_control_routes
     ui_root_override : str = ''                                                # override ui root path for testing
@@ -44,12 +75,33 @@ class Fast_API__Compute(Fast_API):
             self.registry = Spec__Loader().load_all()
 
     def setup(self) -> 'Fast_API__Compute':
+        self.setup_middlewares()                                                # boot-asserts key, registers auth + request-id middleware
         self._register_exception_handlers()
         self._mount_spec_ui_static_files()
         self._mount_control_routes()
         self._mount_spec_routes()
         self._mount_legacy_routes()
         return self
+
+    def setup_middlewares(self):
+        self._assert_api_key_configured()
+        super().setup_middlewares()
+
+    def _assert_api_key_configured(self):                                      # fail-loud boot assertion; never fail-open
+        key = os.environ.get(ENV_VAR__FAST_API__AUTH__API_KEY__VALUE, '')
+        assert key,          (f'Fast_API__Compute refuses to start: '
+                              f'{ENV_VAR__FAST_API__AUTH__API_KEY__VALUE} env var is unset')
+        assert len(key) >= 16, (f'Fast_API__Compute refuses to start: '
+                                f'API key is shorter than 16 characters')
+
+    def setup_middleware__api_key_check(self,
+                                        env_var__api_key_name  = ENV_VAR__FAST_API__AUTH__API_KEY__NAME ,
+                                        env_var__api_key_value = ENV_VAR__FAST_API__AUTH__API_KEY__VALUE):
+        if self.config.enable_api_key:
+            self.app().add_middleware(_Middleware__Health_Bypass            ,
+                                      env_var__api_key__name  = env_var__api_key_name  ,
+                                      env_var__api_key__value = env_var__api_key_value ,
+                                      allow_cors              = self.config.enable_cors)
 
     def _register_exception_handlers(self):
         app = self.app()

@@ -9,13 +9,14 @@ from sg_compute.primitives.enums.Enum__Node__State                           imp
 
 
 class Schema__Node__Info(Type_Safe):
-    node_id       : str                 = ''
-    spec_id       : str                 = ''
-    region        : str                 = ''
-    state         : Enum__Node__State   = Enum__Node__State.BOOTING
-    public_ip     : str                 = ''
-    private_ip    : str                 = ''
-    instance_id   : str                 = ''
-    instance_type : str                 = ''
-    ami_id        : str                 = ''
-    uptime_seconds: int                 = 0
+    node_id              : str               = ''
+    spec_id              : str               = ''
+    region               : str               = ''
+    state                : Enum__Node__State = Enum__Node__State.BOOTING
+    public_ip            : str               = ''
+    private_ip           : str               = ''
+    instance_id          : str               = ''
+    instance_type        : str               = ''
+    ami_id               : str               = ''
+    uptime_seconds       : int               = 0
+    host_api_key_ssm_path: str               = ''  # SSM path for per-node sidecar API key

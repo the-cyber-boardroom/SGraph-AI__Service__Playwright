@@ -6,18 +6,27 @@
 # are not exercised here.
 # ═══════════════════════════════════════════════════════════════════════════════
 
+import os
 from unittest                                                                 import TestCase
 
 from fastapi.testclient                                                       import TestClient
 
 from sg_compute.control_plane.Fast_API__Compute                              import Fast_API__Compute
 
+TEST_API_KEY = 'test-api-key-compute-1234567890'                               # ≥ 16 chars; not a real key
+
 
 class test_Fast_API__Compute(TestCase):
 
     def setUp(self):
+        os.environ['FAST_API__AUTH__API_KEY__VALUE'] = TEST_API_KEY
+        os.environ['FAST_API__AUTH__API_KEY__NAME']  = 'X-API-Key'
         self.fast_api = Fast_API__Compute().setup()
-        self.client   = TestClient(self.fast_api.app())
+        self.client   = TestClient(self.fast_api.app(), headers={'X-API-Key': TEST_API_KEY})
+
+    def tearDown(self):
+        os.environ.pop('FAST_API__AUTH__API_KEY__VALUE', None)
+        os.environ.pop('FAST_API__AUTH__API_KEY__NAME' , None)
 
     # ── health ──────────────────────────────────────────────────────────────
 
@@ -93,4 +102,4 @@ class test_Fast_API__Compute(TestCase):
         from fastapi.testclient import TestClient
         client = TestClient(self.fast_api.app(), raise_server_exceptions=False)
         r = client.get('/api/specs/docker/stacks')
-        assert r.status_code in (200, 404, 500)                                # route resolved, not unrouted
+        assert r.status_code in (200, 401, 404, 500)                           # route resolved, not unrouted

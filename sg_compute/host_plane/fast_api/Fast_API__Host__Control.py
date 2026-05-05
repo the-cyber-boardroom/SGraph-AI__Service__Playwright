@@ -16,6 +16,8 @@
 #   /auth/set-auth-cookie — POST endpoint that writes the cookie
 # ═══════════════════════════════════════════════════════════════════════════════
 
+import os
+
 from osbot_fast_api_serverless.fast_api.Serverless__Fast_API                   import Serverless__Fast_API
 from osbot_fast_api.api.schemas.consts.consts__Fast_API                        import (ENV_VAR__FAST_API__AUTH__API_KEY__NAME ,
                                                                                         ENV_VAR__FAST_API__AUTH__API_KEY__VALUE)
@@ -41,6 +43,13 @@ class Fast_API__Host__Control(Serverless__Fast_API):
         version_file = Path(__file__).parent.parent.parent.parent / 'version'
         self.app().version = version_file.read_text().strip() if version_file.exists() else '0.1.0'
         return result
+
+    def _assert_api_key_configured(self):                                      # fail-loud boot assertion; never fail-open
+        key = os.environ.get(ENV_VAR__FAST_API__AUTH__API_KEY__VALUE, '')
+        assert key,          (f'Fast_API__Host__Control refuses to start: '
+                              f'{ENV_VAR__FAST_API__AUTH__API_KEY__VALUE} env var is unset')
+        assert len(key) >= 16, (f'Fast_API__Host__Control refuses to start: '
+                                f'API key is shorter than 16 characters')
 
     def setup_middleware__cors(self):                                           # Suppressed — CORSMiddleware added as outermost in setup_middlewares()
         pass
@@ -69,6 +78,7 @@ class Fast_API__Host__Control(Serverless__Fast_API):
                                       allow_cors              = False                              ) # CORSMiddleware (outermost) handles OPTIONS; no need for the shortcut here
 
     def setup_middlewares(self):
+        self._assert_api_key_configured()
         super().setup_middlewares()                                             # adds: detect_disconnect, (cors=noop), _Middleware, request_id
         from starlette.middleware.cors import CORSMiddleware
         self.app().add_middleware(CORSMiddleware,                               # Outermost: handles OPTIONS preflights before api_key_check

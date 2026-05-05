@@ -68,7 +68,7 @@ def create(region       : str = typer.Option(DEFAULT_REGION, '--region'       , 
            max_hours    : int = typer.Option(1            , '--max-hours'           ),
            name         : str = typer.Option(''           , '--name'               , help='Override stack name.'),
            registry     : str = typer.Option(''           , '--registry'            , help='ECR registry host (enables sidecar).'),
-           api_key      : str = typer.Option(''           , '--api-key'             , help='Host control plane API key.')):
+           api_key      : str = typer.Option(''           , '--api-key'             , help='SSM parameter path for the sidecar API key (e.g. /sg-compute/nodes/{node_id}/sidecar-api-key).')):
     """Create a new docker stack."""
     from sg_compute_specs.docker.schemas.Schema__Docker__Create__Request import Schema__Docker__Create__Request
     try:
@@ -77,7 +77,7 @@ def create(region       : str = typer.Option(DEFAULT_REGION, '--region'       , 
         req   = Schema__Docker__Create__Request(instance_type = instance_type ,
                                                 max_hours     = max_hours     ,
                                                 registry      = registry      ,
-                                                api_key_value = api_key       )
+                                                api_key_ssm_path = api_key       )
         req.stack_name.__init__(sname)
         req.region.__init__(region)
         resp  = svc.create_stack(req)

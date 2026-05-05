@@ -179,7 +179,7 @@ class Firefox__User_Data__Builder(Type_Safe):
                      max_hours         : int = 1     ,
                      registry          : str = ''    ,
                      api_key_name      : str = 'X-API-Key',
-                     api_key_value     : str = ''    ) -> str:
+                     api_key_ssm_path     : str = ''    ) -> str:
 
         compose_yaml     = COMPOSE_TEMPLATE.format(
             firefox_image         = FIREFOX_IMAGE        ,
@@ -196,7 +196,7 @@ class Firefox__User_Data__Builder(Type_Safe):
         shutdown_section = SHUTDOWN_SECTION_TEMPLATE.format(max_hours=max_hours) if max_hours > 0 else ''
         sidecar_section  = Section__Sidecar().render(registry      = registry      ,
                                                      api_key_name  = api_key_name  ,
-                                                     api_key_value = api_key_value )
+                                                     api_key_ssm_path = api_key_ssm_path )
 
         return USER_DATA_TEMPLATE.format(
             stack_name         = stack_name         ,

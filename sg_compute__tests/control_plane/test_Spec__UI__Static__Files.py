@@ -4,6 +4,7 @@
 # ui/ folder yet so the "absent" path is tested against the real registry.
 # ═══════════════════════════════════════════════════════════════════════════════
 
+import os
 import tempfile
 from pathlib                                                                   import Path
 from unittest                                                                  import TestCase
@@ -12,6 +13,8 @@ from fastapi.testclient                                                        i
 
 from sg_compute.control_plane.Fast_API__Compute                               import Fast_API__Compute
 from sg_compute.core.spec.Spec__UI__Resolver                                  import Spec__UI__Resolver
+
+_TEST_API_KEY = 'test-api-key-ui-files-1234567890'                             # ≥ 16 chars; not a real key
 
 
 class test_Spec__UI__Resolver(TestCase):
@@ -39,9 +42,20 @@ class test_Spec__UI__Resolver(TestCase):
 
 class test_Spec__UI__Static__Files(TestCase):
 
+    def setUp(self):
+        os.environ['FAST_API__AUTH__API_KEY__VALUE'] = _TEST_API_KEY
+        os.environ['FAST_API__AUTH__API_KEY__NAME']  = 'X-API-Key'
+
+    def tearDown(self):
+        os.environ.pop('FAST_API__AUTH__API_KEY__VALUE', None)
+        os.environ.pop('FAST_API__AUTH__API_KEY__NAME' , None)
+
+    def _authed_client(self, compute):
+        return TestClient(compute.app(), headers={'X-API-Key': _TEST_API_KEY})
+
     def test_no_mount_when_ui_folder_absent(self):
         compute = Fast_API__Compute().setup()
-        client  = TestClient(compute.app())
+        client  = self._authed_client(compute)
         resp    = client.get('/api/specs/docker/ui/nonexistent.js')
         assert resp.status_code == 404
 
@@ -54,7 +68,7 @@ class test_Spec__UI__Static__Files(TestCase):
             (ui_dir / 'sg-compute-docker-card.js').write_text('// test')
 
             compute = Fast_API__Compute(ui_root_override=tmp).setup()
-            client  = TestClient(compute.app())
+            client  = self._authed_client(compute)
 
             resp = client.get(
                 f'/api/specs/{spec_id}/ui/card/v0/v0.1/v0.1.0/sg-compute-docker-card.js'
@@ -69,7 +83,7 @@ class test_Spec__UI__Static__Files(TestCase):
             (ui_dir / 'test.js').write_text('// js')
 
             compute = Fast_API__Compute(ui_root_override=tmp).setup()
-            client  = TestClient(compute.app())
+            client  = self._authed_client(compute)
 
             resp = client.get('/api/specs/docker/ui/test.js')
             assert resp.status_code == 200
@@ -82,7 +96,7 @@ class test_Spec__UI__Static__Files(TestCase):
             (ui_dir / 'test.js').write_text('// js')
 
             compute = Fast_API__Compute(ui_root_override=tmp).setup()
-            client  = TestClient(compute.app())
+            client  = self._authed_client(compute)
 
             assert client.get('/api/specs/docker/ui/test.js').status_code  == 200
             assert client.get('/api/specs/ollama/ui/test.js').status_code  == 404
@@ -94,7 +108,7 @@ class test_Spec__UI__Static__Files(TestCase):
             (ui_dir / 'test.js').write_text('// js')
 
             compute = Fast_API__Compute(ui_root_override=tmp).setup()
-            client  = TestClient(compute.app())
+            client  = self._authed_client(compute)
 
             resp = client.get('/api/specs/docker/ui/test.js')
             assert resp.status_code == 200

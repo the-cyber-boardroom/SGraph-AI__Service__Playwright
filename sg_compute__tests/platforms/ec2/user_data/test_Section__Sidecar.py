@@ -13,7 +13,7 @@ from sg_compute.platforms.ec2.user_data.Section__Sidecar                        
 
 SAMPLE_REGISTRY = '123456789.dkr.ecr.eu-west-2.amazonaws.com'
 SAMPLE_KEY_NAME = 'X-API-Key'
-SAMPLE_KEY_VAL  = 'secret-token'
+SAMPLE_SSM_PATH = '/sg-compute/nodes/test-node-001/sidecar-api-key'
 
 
 class test_Section__Sidecar(TestCase):
@@ -55,9 +55,22 @@ class test_Section__Sidecar(TestCase):
         result = self.sidecar.render(registry=SAMPLE_REGISTRY, api_key_name=SAMPLE_KEY_NAME)
         assert SAMPLE_KEY_NAME in result
 
-    def test_render_contains_api_key_value(self):
-        result = self.sidecar.render(registry=SAMPLE_REGISTRY, api_key_value=SAMPLE_KEY_VAL)
-        assert SAMPLE_KEY_VAL in result
+    def test_render_contains_ssm_path(self):                                   # key comes from SSM, not plaintext
+        result = self.sidecar.render(registry=SAMPLE_REGISTRY, api_key_ssm_path=SAMPLE_SSM_PATH)
+        assert SAMPLE_SSM_PATH in result
+
+    def test_render_fetches_key_from_ssm(self):                                # user-data must call aws ssm get-parameter, not embed key
+        result = self.sidecar.render(registry=SAMPLE_REGISTRY, api_key_ssm_path=SAMPLE_SSM_PATH)
+        assert 'ssm get-parameter' in result
+        assert '--with-decryption' in result
+
+    def test_render_has_no_privileged_flag(self):                              # T1.2 — Docker socket only, never --privileged
+        result = self.sidecar.render(registry=SAMPLE_REGISTRY)
+        assert '--privileged' not in result
+
+    def test_render_mounts_docker_socket(self):
+        result = self.sidecar.render(registry=SAMPLE_REGISTRY)
+        assert '/var/run/docker.sock' in result
 
     def test_render_uses_custom_port(self):
         result = self.sidecar.render(registry=SAMPLE_REGISTRY, port=9999)
@@ -72,10 +85,6 @@ class test_Section__Sidecar(TestCase):
         result = self.sidecar.render(registry=SAMPLE_REGISTRY, image_tag='v1.2.3')
         assert ':v1.2.3' in result
 
-    def test_render_mounts_docker_socket(self):
-        result = self.sidecar.render(registry=SAMPLE_REGISTRY)
-        assert '/var/run/docker.sock' in result
-
     def test_render_removes_docker_config(self):
         result = self.sidecar.render(registry=SAMPLE_REGISTRY)
         assert '/root/.docker/config.json' in result
@@ -85,7 +94,7 @@ class test_Section__Sidecar(TestCase):
         assert 'ecr get-login-password' in result
 
     def test_template_has_no_unresolved_placeholders(self):
-        result = self.sidecar.render(registry=SAMPLE_REGISTRY,
-                                     api_key_name=SAMPLE_KEY_NAME,
-                                     api_key_value=SAMPLE_KEY_VAL)
+        result = self.sidecar.render(registry   = SAMPLE_REGISTRY ,
+                                     api_key_name    = SAMPLE_KEY_NAME ,
+                                     api_key_ssm_path= SAMPLE_SSM_PATH )
         assert '{' not in result or '${' in result     # bash vars only, no Python {placeholders}

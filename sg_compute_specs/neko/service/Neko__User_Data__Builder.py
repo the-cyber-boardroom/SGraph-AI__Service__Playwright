@@ -132,7 +132,7 @@ class Neko__User_Data__Builder(Type_Safe):
                      member_password : str,
                      registry        : str = '',
                      api_key_name    : str = 'X-API-Key',
-                     api_key_value   : str = '') -> str:
+                     api_key_ssm_path   : str = '') -> str:
         caddyfile       = CADDYFILE_TEMPLATE.format(caddy_certs_dir='/etc/caddy/certs')
         compose_yaml    = COMPOSE_TEMPLATE.format(neko_image       = NEKO_IMAGE      ,
                                                   member_password  = member_password ,
@@ -142,7 +142,7 @@ class Neko__User_Data__Builder(Type_Safe):
                                                   caddy_dir        = CADDY_DIR       )
         sidecar_section = Section__Sidecar().render(registry      = registry      ,
                                                     api_key_name  = api_key_name  ,
-                                                    api_key_value = api_key_value )
+                                                    api_key_ssm_path = api_key_ssm_path )
         return USER_DATA_TEMPLATE.format(stack_name      = stack_name      ,
                                           region          = region          ,
                                           log_file        = LOG_FILE        ,
