@@ -1,7 +1,7 @@
 # Reality — SG/Compute Domain
 
 **Status:** ACTIVE — seeded in phase-1 (B1), foundations added in phase-2 (B2), pod management in BV2.3.
-**Last updated:** 2026-05-05 | **Phase:** BV2.19 (StaticFiles mount for per-spec UI assets)
+**Last updated:** 2026-05-05 | **Phase:** BV2.10 (fold Fast_API__SP__CLI legacy routes into Fast_API__Compute at /legacy/)
 
 ---
 
@@ -210,7 +210,9 @@
 
 | Class | Path | Description |
 |-------|------|-------------|
-| `Fast_API__Compute` | `control_plane/Fast_API__Compute.py` | Mounts `/api/health`, `/api/specs`, `/api/nodes`, `/api/stacks`, `/api/vault`; `StaticFiles` at `/api/specs/{spec_id}/ui` when `ui/` dir exists; `ui_root_override` for tests |
+| `Fast_API__Compute` | `control_plane/Fast_API__Compute.py` | Mounts `/api/health`, `/api/specs`, `/api/nodes`, `/api/stacks`, `/api/vault`; `StaticFiles` at `/api/specs/{spec_id}/ui`; `/legacy/*` (deprecated SP CLI surface with `X-Deprecated: true` header) |
+| `Routes__Ec2__Playwright` | `control_plane/legacy_routes/Routes__Ec2__Playwright.py` | Moved from `fast_api/routes/`; shim left at old path |
+| `Routes__Observability` | `control_plane/legacy_routes/Routes__Observability.py` | Moved from `fast_api/routes/`; shim left at old path |
 | `Routes__Compute__Health` | `control_plane/routes/Routes__Compute__Health.py` | `GET /api/health`, `GET /api/health/ready` |
 | `Routes__Compute__Specs` | `control_plane/routes/Routes__Compute__Specs.py` | `GET /api/specs`, `GET /api/specs/{spec_id}` |
 | `Routes__Compute__Nodes` | `control_plane/routes/Routes__Compute__Nodes.py` | `GET /api/nodes`, `GET /api/nodes/{node_id}`, `POST /api/nodes`, `DELETE /api/nodes/{node_id}`; `POST` calls `EC2__Platform.create_node` (docker spec only; others raise `NotImplementedError`) |
@@ -235,6 +237,7 @@
 
 | Date | Change |
 |------|--------|
+| 2026-05-05 | BV2.10: Routes__Ec2__Playwright + Routes__Observability moved to sg_compute/control_plane/legacy_routes/; /legacy/* mount + X-Deprecated middleware in Fast_API__Compute; run_sp_cli.py now boots Fast_API__Compute; 12 new tests; 334 passing |
 | 2026-05-05 | BV2.19: Spec__UI__Resolver + StaticFiles mount at /api/specs/{spec_id}/ui; ui_root_override for tests; sg_compute_specs/*/ui/**/* in pyproject.toml include; 322 tests passing |
 | 2026-05-05 | BV2.9: sg_compute/vault/ created (13 files); plugin→spec rename; Routes__Vault__Spec mounted at /api/vault on Fast_API__Compute; 11 legacy shims; 313 tests passing |
 | 2026-05-05 | BV2.8: object=None → Optional[T] in 10 non-circular spec service files; 7 circular AWS__Client files kept object=None; Optional import added to 17 files |

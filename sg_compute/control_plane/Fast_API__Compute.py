@@ -47,6 +47,7 @@ class Fast_API__Compute(Fast_API):
         self._mount_spec_ui_static_files()
         self._mount_control_routes()
         self._mount_spec_routes()
+        self._mount_legacy_routes()
         return self
 
     def _register_exception_handlers(self):
@@ -56,6 +57,43 @@ class Fast_API__Compute(Fast_API):
         async def no_credentials_handler(request: Request, exc: Exception__AWS__No_Credentials):
             return JSONResponse(status_code=503,
                                 content={'detail': f'AWS credentials not configured: {exc}'})
+
+    def _mount_legacy_routes(self):
+        from sgraph_ai_service_playwright__cli.catalog.fast_api.routes.Routes__Stack__Catalog import Routes__Stack__Catalog
+        from sgraph_ai_service_playwright__cli.catalog.service.Stack__Catalog__Service        import Stack__Catalog__Service
+        from sgraph_ai_service_playwright__cli.core.plugin.Plugin__Registry                   import Plugin__Registry, PLUGIN_FOLDERS
+        from sgraph_ai_service_playwright__cli.ec2.service.Ec2__Service                       import Ec2__Service
+        from sgraph_ai_service_playwright__cli.observability.service.Observability__Service   import Observability__Service
+        from sg_compute.control_plane.legacy_routes.Routes__Ec2__Playwright                   import Routes__Ec2__Playwright
+        from sg_compute.control_plane.legacy_routes.Routes__Observability                     import Routes__Observability
+
+        plugin_registry = Plugin__Registry()
+        plugin_registry.plugin_folders = list(PLUGIN_FOLDERS)
+        plugin_registry.discover().setup_all()
+
+        catalog_service = Stack__Catalog__Service(plugin_registry=plugin_registry)
+        ec2_service     = Ec2__Service()
+        obs_service     = Observability__Service()
+
+        self.add_routes(Routes__Stack__Catalog , prefix='/legacy/catalog'        , service=catalog_service)
+        self.add_routes(Routes__Ec2__Playwright , prefix='/legacy/ec2/playwright'  , service=ec2_service   )
+        self.add_routes(Routes__Observability   , prefix='/legacy/observability'   , service=obs_service   )
+        for routes_cls, svc in plugin_registry.route_service_pairs():
+            tag = str(routes_cls().tag)                                            # tag is the URL prefix in the legacy SP CLI
+            self.add_routes(routes_cls, prefix=f'/legacy/{tag}', service=svc)
+
+        self._add_deprecated_header_middleware()
+
+    def _add_deprecated_header_middleware(self):
+        app = self.app()
+
+        @app.middleware('http')
+        async def _legacy_deprecation(request, call_next):
+            response = await call_next(request)
+            if request.url.path.startswith('/legacy'):
+                response.headers['X-Deprecated']    = 'true'
+                response.headers['X-Migration-Path'] = '/api/specs'
+            return response
 
     def _mount_spec_ui_static_files(self):
         from starlette.staticfiles                              import StaticFiles
