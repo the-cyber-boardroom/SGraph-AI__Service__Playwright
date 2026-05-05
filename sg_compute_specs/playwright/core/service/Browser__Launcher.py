@@ -105,8 +105,7 @@ class Browser__Launcher(Type_Safe):
 
     # ─── helpers ───────────────────────────────────────────────────────────────
 
-    def _sigkill_tree(self, playwright_handle) -> bool:
-        """SIGKILL the Node.js subprocess and its Chromium child. Returns True if the PID was reachable."""
+    def _sigkill_tree(self, playwright_handle) -> bool:                               # SIGKILL the Node.js subprocess and its Chromium child. Returns True if the PID was reachable.
         import os, signal
         node_pid = self._node_pid(playwright_handle)
         if not node_pid:

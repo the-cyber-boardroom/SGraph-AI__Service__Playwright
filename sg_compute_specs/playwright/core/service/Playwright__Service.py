@@ -116,15 +116,7 @@ class Playwright__Service(Type_Safe):
     def _run_sequence(self, request: Schema__Sequence__Request) -> Schema__Sequence__Response:
         return self._run_sequence_via(request, self.sequence_runner)
 
-    def _run_sequence_via(self, request: Schema__Sequence__Request, runner: Sequence__Runner) -> Schema__Sequence__Response:
-        """Dispatch a sequence through the given runner.
-
-        Playwright's sync API raises if called from inside an asyncio event loop
-        (Lambda / Lambda Web Adapter runs the ASGI app inside asyncio.run()). Detect this and
-        dispatch to a fresh ThreadPoolExecutor thread that has no running loop.
-        On EC2 / local the try block raises RuntimeError immediately and we call
-        execute() directly — zero overhead on the fast path.
-        """
+    def _run_sequence_via(self, request: Schema__Sequence__Request, runner: Sequence__Runner) -> Schema__Sequence__Response:  # Dispatch a sequence through the given runner. Playwright's sync API raises if called from inside an asyncio event loop (Lambda / Lambda Web Adapter). Detect this and dispatch to a fresh ThreadPoolExecutor thread that has no running loop. On EC2 / local the try block raises RuntimeError immediately and we call execute() directly — zero overhead on the fast path.
         import asyncio
         try:
             asyncio.get_running_loop()

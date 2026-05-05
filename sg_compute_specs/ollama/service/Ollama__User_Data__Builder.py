@@ -11,7 +11,7 @@ from sg_compute.platforms.ec2.user_data.Section__Base     import Section__Base
 from sg_compute.platforms.ec2.user_data.Section__Shutdown import Section__Shutdown
 from sg_compute.platforms.ec2.user_data.Section__Sidecar  import Section__Sidecar
 
-NVIDIA_DRIVERS = """
+NVIDIA_DRIVERS = '''
 # ── NVIDIA drivers ────────────────────────────────────────────────────────────
 echo "[ollama] installing NVIDIA drivers..."
 dnf install -y kernel-devel kernel-headers
@@ -20,9 +20,9 @@ dnf config-manager --add-repo \\
 dnf install -y cuda-toolkit-12-4 nvidia-driver
 modprobe nvidia || true
 echo "[ollama] NVIDIA drivers installed"
-"""
+'''
 
-OLLAMA_INSTALL = """
+OLLAMA_INSTALL = '''
 # ── Ollama install ────────────────────────────────────────────────────────────
 echo "[ollama] installing Ollama..."
 curl -fsSL https://ollama.com/install.sh | sh
@@ -30,14 +30,14 @@ systemctl enable --now ollama
 echo "[ollama] waiting for Ollama to be ready..."
 until curl -sf http://localhost:11434/api/tags > /dev/null; do sleep 2; done
 echo "[ollama] Ollama is ready"
-"""
+'''
 
-OLLAMA_PULL = """
+OLLAMA_PULL = '''
 # ── Pull model ────────────────────────────────────────────────────────────────
 echo "[ollama] pulling model {model_name}..."
 ollama pull {model_name}
 echo "[ollama] model {model_name} ready"
-"""
+'''
 
 FOOTER = '\necho "[ephemeral-ec2] ollama boot complete at $(date -u +%FT%TZ)"\n'
 

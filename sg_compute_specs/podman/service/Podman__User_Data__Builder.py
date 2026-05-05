@@ -18,7 +18,7 @@ from sg_compute.primitives.Safe_Str__Stack__Name                                
 LOG_FILE = '/var/log/sg-podman-boot.log'
 
 
-USER_DATA_TEMPLATE = """\
+USER_DATA_TEMPLATE = '''\
 #!/usr/bin/env bash
 set -euo pipefail
 exec > >(tee -a {log_file}) 2>&1
@@ -44,7 +44,7 @@ systemctl enable --now amazon-ssm-agent || true
 {shutdown_line}
 
 echo "[sg-podman] boot complete at $(date -u +%FT%TZ)"
-"""
+'''
 
 SHUTDOWN_TEMPLATE = 'shutdown -h +{minutes}  # auto-terminate after {hours}h'
 SHUTDOWN_DISABLED = '# max_hours=0 — no auto-terminate'

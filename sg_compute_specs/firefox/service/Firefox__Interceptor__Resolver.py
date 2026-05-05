@@ -12,7 +12,7 @@ from sg_compute_specs.firefox.schemas.Schema__Firefox__Interceptor__Choice      
 NO_OP_SOURCE = "# sg-firefox: no interceptor active\n"
 
 
-EXAMPLE_HEADER_LOGGER = """\
+EXAMPLE_HEADER_LOGGER = '''\
 from mitmproxy import http
 
 
@@ -20,29 +20,29 @@ def request(flow: http.HTTPFlow) -> None:
     print(f'[sg-firefox:header_logger] {flow.request.method} {flow.request.pretty_url}')
     for header, value in flow.request.headers.items():
         print(f'  {header}: {value}')
-"""
+'''
 
 
-EXAMPLE_HEADER_INJECTOR = """\
+EXAMPLE_HEADER_INJECTOR = '''\
 from mitmproxy import http
 
 
 def request(flow: http.HTTPFlow) -> None:
     flow.request.headers['X-Sg-Firefox-Marker'] = 'header_injector'
-"""
+'''
 
 
-EXAMPLE_FLOW_RECORDER = """\
+EXAMPLE_FLOW_RECORDER = '''\
 from mitmproxy import http
 
 
 def response(flow: http.HTTPFlow) -> None:
     print(f'[sg-firefox:flow_recorder] {flow.request.method} {flow.request.pretty_url} '
           f'-> {flow.response.status_code if flow.response else "?"}')
-"""
+'''
 
 
-EXAMPLE_RESPONSE_LOGGER = """\
+EXAMPLE_RESPONSE_LOGGER = '''\
 from mitmproxy import http
 
 
@@ -50,10 +50,10 @@ def response(flow: http.HTTPFlow) -> None:
     status = flow.response.status_code if flow.response else '?'
     ct     = (flow.response.headers.get('content-type', '') if flow.response else '').split(';')[0]
     print(f'[sg-firefox:response_logger] {status} {flow.request.method} {flow.request.pretty_url}  [{ct}]')
-"""
+'''
 
 
-EXAMPLE_COOKIE_LOGGER = """\
+EXAMPLE_COOKIE_LOGGER = '''\
 from mitmproxy import http
 
 
@@ -64,10 +64,10 @@ def response(flow: http.HTTPFlow) -> None:
         if header.lower() == 'set-cookie':
             name = value.split('=', 1)[0]
             print(f'[sg-firefox:cookie_logger] SET {name!r}  <- {flow.request.pretty_url}')
-"""
+'''
 
 
-EXAMPLE_BLOCK_TRACKERS = """\
+EXAMPLE_BLOCK_TRACKERS = '''\
 from mitmproxy import http
 
 BLOCKED = {
@@ -82,10 +82,10 @@ def request(flow: http.HTTPFlow) -> None:
     if any(host == d or host.endswith('.' + d) for d in BLOCKED):
         print(f'[sg-firefox:block_trackers] blocked {host}')
         flow.response = http.Response.make(204)
-"""
+'''
 
 
-EXAMPLE_REQUEST_TIMER = """\
+EXAMPLE_REQUEST_TIMER = '''\
 import time
 from mitmproxy import http
 
@@ -101,10 +101,10 @@ def response(flow: http.HTTPFlow) -> None:
     elapsed_ms = int((time.monotonic() - start) * 1000)
     status     = flow.response.status_code if flow.response else '?'
     print(f'[sg-firefox:request_timer] {elapsed_ms:>6}ms  {status}  {flow.request.pretty_url}')
-"""
+'''
 
 
-EXAMPLE_ADD_CORS = """\
+EXAMPLE_ADD_CORS = '''\
 from mitmproxy import http
 
 
@@ -113,7 +113,7 @@ def response(flow: http.HTTPFlow) -> None:
         flow.response.headers['Access-Control-Allow-Origin']  = '*'
         flow.response.headers['Access-Control-Allow-Methods'] = 'GET, POST, PUT, DELETE, OPTIONS'
         flow.response.headers['Access-Control-Allow-Headers'] = '*'
-"""
+'''
 
 
 EXAMPLES = {

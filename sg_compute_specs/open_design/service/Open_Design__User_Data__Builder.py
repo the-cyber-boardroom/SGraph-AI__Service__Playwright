@@ -14,7 +14,7 @@ from sg_compute.platforms.ec2.user_data.Section__Node      import Section__Node
 from sg_compute.platforms.ec2.user_data.Section__Shutdown  import Section__Shutdown
 from sg_compute.platforms.ec2.user_data.Section__Sidecar   import Section__Sidecar
 
-CLONE_AND_BUILD = """
+CLONE_AND_BUILD = '''
 # ── Clone and build Open Design ───────────────────────────────────────────────
 echo "[open-design] cloning ref={ref}..."
 git clone --depth 1 https://github.com/nexu-io/open-design /opt/open-design 2>/dev/null || true
@@ -28,9 +28,9 @@ echo "[open-design] building web app..."
 pnpm --filter @open-design/web build
 
 echo "[open-design] build complete"
-"""
+'''
 
-SYSTEMD_UNIT = """
+SYSTEMD_UNIT = '''
 # ── Open Design systemd service ───────────────────────────────────────────────
 cat > /etc/systemd/system/open-design.service <<'UNITEOF'
 [Unit]
@@ -52,14 +52,14 @@ UNITEOF
 systemctl daemon-reload
 systemctl enable --now open-design
 echo "[open-design] daemon started"
-"""
+'''
 
-CLAUDE_CLI = """
+CLAUDE_CLI = '''
 # ── Claude CLI ────────────────────────────────────────────────────────────────
 echo "[open-design] installing claude CLI (detected api_key)..."
 npm install -g @anthropic-ai/claude-code
 echo "[open-design] claude CLI installed — ANTHROPIC_API_KEY will be picked up from env"
-"""
+'''
 
 FOOTER = '\necho "[ephemeral-ec2] open-design boot complete at $(date -u +%FT%TZ)"\n'
 

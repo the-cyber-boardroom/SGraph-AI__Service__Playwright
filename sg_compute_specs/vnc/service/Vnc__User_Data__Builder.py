@@ -26,7 +26,7 @@ CADDY_JWT_SECRET   = '/opt/sg-vnc/caddy/jwt-secret'
 LOG_FILE           = '/var/log/sg-vnc-boot.log'
 
 
-USER_DATA_TEMPLATE = """\
+USER_DATA_TEMPLATE = '''\
 #!/usr/bin/env bash
 set -euo pipefail
 exec > >(tee -a {log_file}) 2>&1
@@ -92,7 +92,7 @@ docker compose up -d
 
 {sidecar_section}
 echo "[sg-vnc] boot complete at $(date -u +%FT%TZ)"
-"""
+'''
 
 
 PLACEHOLDERS = ('stack_name', 'region', 'log_file', 'operator_password',
