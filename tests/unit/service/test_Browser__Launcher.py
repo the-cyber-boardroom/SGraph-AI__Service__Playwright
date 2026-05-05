@@ -13,13 +13,13 @@ from unittest                                                                   
 
 import pytest
 
-from sgraph_ai_service_playwright.consts.env_vars                                             import ENV_VAR__CHROMIUM_EXECUTABLE, ENV_VAR__DEFAULT_PROXY_URL
-from sgraph_ai_service_playwright.schemas.browser.Schema__Browser__Config                     import Schema__Browser__Config
-from sgraph_ai_service_playwright.schemas.browser.Schema__Browser__Launch__Result              import Schema__Browser__Launch__Result
-from sgraph_ai_service_playwright.schemas.enums.Enum__Browser__Name                           import Enum__Browser__Name
-from sgraph_ai_service_playwright.schemas.enums.Enum__Browser__Provider                       import Enum__Browser__Provider
-from sgraph_ai_service_playwright.schemas.primitives.identifiers.Session_Id                   import Session_Id
-from sgraph_ai_service_playwright.service.Browser__Launcher                                    import Browser__Launcher
+from sg_compute_specs.playwright.core.consts.env_vars                                             import ENV_VAR__CHROMIUM_EXECUTABLE, ENV_VAR__DEFAULT_PROXY_URL
+from sg_compute_specs.playwright.core.schemas.browser.Schema__Browser__Config                     import Schema__Browser__Config
+from sg_compute_specs.playwright.core.schemas.browser.Schema__Browser__Launch__Result              import Schema__Browser__Launch__Result
+from sg_compute_specs.playwright.core.schemas.enums.Enum__Browser__Name                           import Enum__Browser__Name
+from sg_compute_specs.playwright.core.schemas.enums.Enum__Browser__Provider                       import Enum__Browser__Provider
+from sg_compute_specs.playwright.core.schemas.primitives.identifiers.Session_Id                   import Session_Id
+from sg_compute_specs.playwright.core.service.Browser__Launcher                                    import Browser__Launcher
 
 
 class _EnvScrub:                                                                   # Snapshot + restore just the env vars this class reads — keeps tests hermetic without monkeypatch

@@ -5,7 +5,7 @@
 #
 #   1. AGENTIC_APP_VERSION env var — set by Lambda__SP__CLI on the agentic
 #      variant; matches the S3 zip key that was just hot-swapped in.
-#   2. /var/task/sgraph_ai_service_playwright/version — baked into the image
+#   2. /var/task/sg_compute_specs/playwright/core/version — baked into the image
 #      by the Dockerfile. Used on the baseline variant and as a fallback when
 #      the agentic env var is missing.
 #   3. Hardcoded VERSION_FALLBACK — local dev / tests where neither source
@@ -21,7 +21,7 @@ from pathlib                                                                    
 
 
 ENV_VAR__AGENTIC_APP_VERSION = 'AGENTIC_APP_VERSION'                                # Set on the agentic Lambda by Lambda__SP__CLI.set_env_vars
-IMAGE_VERSION_FILE_RELATIVE  = 'sgraph_ai_service_playwright/version'               # Baked at /var/task/<this> by the dockerfile (same path resolves on local dev from repo root)
+IMAGE_VERSION_FILE_RELATIVE  = 'sg_compute_specs/playwright/core/version'            # Baked at /var/task/<this> by the dockerfile (same path resolves on local dev from repo root)
 VERSION_FALLBACK             = 'v0.0.0'                                             # Local dev / tests with no env var and no version file
 
 

@@ -9,7 +9,7 @@ from unittest                                                                   
 
 from osbot_fast_api_serverless.fast_api.Serverless__Fast_API                        import Serverless__Fast_API
 
-from sgraph_ai_service_playwright.agentic_fastapi.Agentic_FastAPI                   import Agentic_FastAPI
+from sg_compute_specs.playwright.core.agentic_fastapi.Agentic_FastAPI                   import Agentic_FastAPI
 
 
 class test_Agentic_FastAPI(TestCase):
@@ -18,5 +18,5 @@ class test_Agentic_FastAPI(TestCase):
         assert issubclass(Agentic_FastAPI, Serverless__Fast_API)
 
     def test__playwright_service_extends_it(self):                                  # Inheritance chain: Serverless__Fast_API → Agentic_FastAPI → Fast_API__Playwright__Service
-        from sgraph_ai_service_playwright.fast_api.Fast_API__Playwright__Service import Fast_API__Playwright__Service
+        from sg_compute_specs.playwright.core.fast_api.Fast_API__Playwright__Service import Fast_API__Playwright__Service
         assert issubclass(Fast_API__Playwright__Service, Agentic_FastAPI)

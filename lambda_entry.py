@@ -1,10 +1,10 @@
 # ═══════════════════════════════════════════════════════════════════════════════
-# Playwright service — Lambda entry point (v0.1.29+ — generic-shim consumer)
+# Playwright service — Lambda entry point (v0.2 — sg_compute_specs path)
 #
 # Lives INSIDE the container image (copied to /var/task/lambda_entry.py) and is
 # the Lambda entry point. Delegates ALL boot logic to
-# sgraph_ai_service_playwright.agentic_fastapi_aws.Agentic_Boot_Shim — which
-# is now generic (no hardcoded app import). This file is the Playwright
+# sg_compute_specs.playwright.core.agentic_fastapi_aws.Agentic_Boot_Shim —
+# which is now generic (no hardcoded app import). This file is the Playwright
 # service's adapter: it pins the FastAPI class path + service label passed
 # into the shim. Sibling apps (e.g. sp-playwright-cli) provide their own
 # lambda_entry with their own class path.
@@ -15,10 +15,10 @@
 
 import os
 
-from sgraph_ai_service_playwright.agentic_fastapi_aws.Agentic_Boot_Shim             import Agentic_Boot_Shim
+from sg_compute_specs.playwright.core.agentic_fastapi_aws.Agentic_Boot_Shim         import Agentic_Boot_Shim
 
 
-PLAYWRIGHT_FAST_API_CLASS_PATH = 'sgraph_ai_service_playwright.fast_api.Fast_API__Playwright__Service.Fast_API__Playwright__Service'
+PLAYWRIGHT_FAST_API_CLASS_PATH = 'sg_compute_specs.playwright.core.fast_api.Fast_API__Playwright__Service.Fast_API__Playwright__Service'
 PLAYWRIGHT_SERVICE_LABEL       = 'Playwright service'
 
 

@@ -4,16 +4,16 @@
 
 from unittest import TestCase
 
-from sgraph_ai_service_playwright.schemas.collections.Dict__Artefacts__By_Step_Id            import Dict__Artefacts__By_Step_Id
-from sgraph_ai_service_playwright.schemas.collections.Dict__Step__Result__Schemas__By_Action import Dict__Step__Result__Schemas__By_Action
-from sgraph_ai_service_playwright.schemas.collections.Dict__Step__Schemas__By_Action         import Dict__Step__Schemas__By_Action
-from sgraph_ai_service_playwright.schemas.collections.List__Artefact__Refs                   import List__Artefact__Refs
-from sgraph_ai_service_playwright.schemas.collections.List__Sequence__Steps                  import List__Sequence__Steps
-from sgraph_ai_service_playwright.schemas.collections.List__Step__Results                    import List__Step__Results
-from sgraph_ai_service_playwright.schemas.enums.Enum__Step__Action                           import Enum__Step__Action
-from sgraph_ai_service_playwright.schemas.primitives.identifiers.Step_Id                     import Step_Id
-from sgraph_ai_service_playwright.schemas.steps.Schema__Step__Click                          import Schema__Step__Click
-from sgraph_ai_service_playwright.schemas.steps.Schema__Step__Navigate                       import Schema__Step__Navigate
+from sg_compute_specs.playwright.core.schemas.collections.Dict__Artefacts__By_Step_Id            import Dict__Artefacts__By_Step_Id
+from sg_compute_specs.playwright.core.schemas.collections.Dict__Step__Result__Schemas__By_Action import Dict__Step__Result__Schemas__By_Action
+from sg_compute_specs.playwright.core.schemas.collections.Dict__Step__Schemas__By_Action         import Dict__Step__Schemas__By_Action
+from sg_compute_specs.playwright.core.schemas.collections.List__Artefact__Refs                   import List__Artefact__Refs
+from sg_compute_specs.playwright.core.schemas.collections.List__Sequence__Steps                  import List__Sequence__Steps
+from sg_compute_specs.playwright.core.schemas.collections.List__Step__Results                    import List__Step__Results
+from sg_compute_specs.playwright.core.schemas.enums.Enum__Step__Action                           import Enum__Step__Action
+from sg_compute_specs.playwright.core.schemas.primitives.identifiers.Step_Id                     import Step_Id
+from sg_compute_specs.playwright.core.schemas.steps.Schema__Step__Click                          import Schema__Step__Click
+from sg_compute_specs.playwright.core.schemas.steps.Schema__Step__Navigate                       import Schema__Step__Navigate
 
 
 class test_Dict__Step__Schemas__By_Action(TestCase):

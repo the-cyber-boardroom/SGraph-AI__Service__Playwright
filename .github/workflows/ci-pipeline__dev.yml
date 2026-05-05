@@ -27,7 +27,7 @@ on:
       # version-bump commits — increment-tag writes these; ignore them so the
       # bump commit does not re-trigger a second CI run (belt-and-suspenders
       # alongside the [skip ci] tag in the commit message)
-      - 'sgraph_ai_service_playwright/version'
+      - 'sg_compute_specs/playwright/core/version'
       - 'sg_compute/version'
 
 jobs:

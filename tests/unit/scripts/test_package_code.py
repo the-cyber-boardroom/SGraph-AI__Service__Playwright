@@ -25,11 +25,11 @@ class test_build_code_zip(TestCase):
 
         with zipfile.ZipFile(io.BytesIO(zb.zip_bytes), 'r') as zf:
             names = zf.namelist()
-        assert any(n == 'sgraph_ai_service_playwright/consts/version.py'               for n in names)   # Locks the zip shape — package prefix MUST be present so `import sgraph_ai_service_playwright.consts.version` resolves after sys.path.insert on the extract dir
-        assert any(n == 'sgraph_ai_service_playwright/service/Capability__Detector.py' for n in names)
-        assert all(n.startswith('sgraph_ai_service_playwright/')                       for n in names)
-        assert all(n.endswith  ('.py'                            )                     for n in names)
-        assert not any('__pycache__' in n                                              for n in names)
+        assert any(n == 'sg_compute_specs/playwright/core/consts/version.py'               for n in names)   # Package prefix MUST be present so `from sg_compute_specs.playwright.core.consts.version import ...` resolves after sys.path.insert on the extract dir
+        assert any(n == 'sg_compute_specs/playwright/core/service/Capability__Detector.py' for n in names)
+        assert all(n.startswith('sg_compute_specs/')                                       for n in names)
+        assert all(n.endswith(('.py', '.html', '.js', '.css'))                             for n in names)   # sg_compute_specs includes spec UI assets as well as Python sources
+        assert not any('__pycache__' in n                                                  for n in names)
 
     def test__accepts_multiple_package_names(self):                                 # Locks the sibling-app contract: a list of folder names all get zipped in
         zb = package_code.build_code_zip(package_names=['sgraph_ai_service_playwright__cli', 'scripts'])
@@ -49,7 +49,7 @@ class test_build_code_zip(TestCase):
 
         with zipfile.ZipFile(io.BytesIO(zb_empty.zip_bytes), 'r') as zf:
             names = zf.namelist()
-        assert any(n.startswith('sgraph_ai_service_playwright/')      for n in names)
+        assert any(n.startswith('sg_compute_specs/')                  for n in names)
 
     def test__multi_package_entries_are_importable(self):                           # Belt-and-braces on the real use case — both prefixes must appear intact
         zb = package_code.build_code_zip(package_names=['sgraph_ai_service_playwright__cli', 'scripts'])

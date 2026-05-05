@@ -17,26 +17,26 @@
 from typing                                                                                     import Any, Dict, List, Tuple
 from unittest                                                                                   import TestCase
 
-from sgraph_ai_service_playwright.schemas.artefact.Schema__Artefact__Sink_Config                import Schema__Artefact__Sink_Config
-from sgraph_ai_service_playwright.schemas.capture.Schema__Capture__Config                       import Schema__Capture__Config
-from sgraph_ai_service_playwright.schemas.enums.Enum__Artefact__Sink                             import Enum__Artefact__Sink
-from sgraph_ai_service_playwright.schemas.enums.Enum__Artefact__Type                             import Enum__Artefact__Type
-from sgraph_ai_service_playwright.schemas.enums.Enum__Content__Format                            import Enum__Content__Format
-from sgraph_ai_service_playwright.schemas.enums.Enum__Step__Action                               import Enum__Step__Action
-from sgraph_ai_service_playwright.schemas.enums.Enum__Step__Status                               import Enum__Step__Status
-from sgraph_ai_service_playwright.schemas.primitives.identifiers.Step_Id                         import Step_Id
-from sgraph_ai_service_playwright.schemas.results.Schema__Step__Result__Get_Content              import Schema__Step__Result__Get_Content
-from sgraph_ai_service_playwright.schemas.results.Schema__Step__Result__Get_Url                  import Schema__Step__Result__Get_Url
-from sgraph_ai_service_playwright.schemas.steps.Schema__Step__Base                               import Schema__Step__Base
-from sgraph_ai_service_playwright.schemas.steps.Schema__Step__Click                              import Schema__Step__Click
-from sgraph_ai_service_playwright.schemas.steps.Schema__Step__Fill                               import Schema__Step__Fill
-from sgraph_ai_service_playwright.schemas.steps.Schema__Step__Get_Content                        import Schema__Step__Get_Content
-from sgraph_ai_service_playwright.schemas.steps.Schema__Step__Get_Url                            import Schema__Step__Get_Url
-from sgraph_ai_service_playwright.schemas.steps.Schema__Step__Hover                              import Schema__Step__Hover
-from sgraph_ai_service_playwright.schemas.steps.Schema__Step__Navigate                           import Schema__Step__Navigate
-from sgraph_ai_service_playwright.schemas.steps.Schema__Step__Screenshot                         import Schema__Step__Screenshot
-from sgraph_ai_service_playwright.service.Artefact__Writer                                       import Artefact__Writer
-from sgraph_ai_service_playwright.service.Step__Executor                                         import DEFERRED_MESSAGE, Step__Executor
+from sg_compute_specs.playwright.core.schemas.artefact.Schema__Artefact__Sink_Config                import Schema__Artefact__Sink_Config
+from sg_compute_specs.playwright.core.schemas.capture.Schema__Capture__Config                       import Schema__Capture__Config
+from sg_compute_specs.playwright.core.schemas.enums.Enum__Artefact__Sink                             import Enum__Artefact__Sink
+from sg_compute_specs.playwright.core.schemas.enums.Enum__Artefact__Type                             import Enum__Artefact__Type
+from sg_compute_specs.playwright.core.schemas.enums.Enum__Content__Format                            import Enum__Content__Format
+from sg_compute_specs.playwright.core.schemas.enums.Enum__Step__Action                               import Enum__Step__Action
+from sg_compute_specs.playwright.core.schemas.enums.Enum__Step__Status                               import Enum__Step__Status
+from sg_compute_specs.playwright.core.schemas.primitives.identifiers.Step_Id                         import Step_Id
+from sg_compute_specs.playwright.core.schemas.results.Schema__Step__Result__Get_Content              import Schema__Step__Result__Get_Content
+from sg_compute_specs.playwright.core.schemas.results.Schema__Step__Result__Get_Url                  import Schema__Step__Result__Get_Url
+from sg_compute_specs.playwright.core.schemas.steps.Schema__Step__Base                               import Schema__Step__Base
+from sg_compute_specs.playwright.core.schemas.steps.Schema__Step__Click                              import Schema__Step__Click
+from sg_compute_specs.playwright.core.schemas.steps.Schema__Step__Fill                               import Schema__Step__Fill
+from sg_compute_specs.playwright.core.schemas.steps.Schema__Step__Get_Content                        import Schema__Step__Get_Content
+from sg_compute_specs.playwright.core.schemas.steps.Schema__Step__Get_Url                            import Schema__Step__Get_Url
+from sg_compute_specs.playwright.core.schemas.steps.Schema__Step__Hover                              import Schema__Step__Hover
+from sg_compute_specs.playwright.core.schemas.steps.Schema__Step__Navigate                           import Schema__Step__Navigate
+from sg_compute_specs.playwright.core.schemas.steps.Schema__Step__Screenshot                         import Schema__Step__Screenshot
+from sg_compute_specs.playwright.core.service.Artefact__Writer                                       import Artefact__Writer
+from sg_compute_specs.playwright.core.service.Step__Executor                                         import DEFERRED_MESSAGE, Step__Executor
 
 
 # ── Fake page / locator ───────────────────────────────────────────────────────

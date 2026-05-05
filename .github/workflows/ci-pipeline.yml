@@ -46,7 +46,7 @@ on:
         required: false
 
 env:
-  PACKAGE_NAME : 'sgraph_ai_service_playwright'
+  PACKAGE_NAME : 'sg_compute_specs_playwright'
   GIT__BRANCH  : ${{ inputs.git_branch }}
   IMAGE_NAME   : 'sgraph_ai_service_playwright'
 
@@ -116,9 +116,9 @@ jobs:
   #     need an image rebuild (lambda-image filter).
   #
   #   EC2 (container stack): pulls the ECR image directly — no S3 overlay.
-  #     Any change to sgraph_ai_service_playwright/** is baked into the image
+  #     Any change to sg_compute_specs/playwright/** is baked into the image
   #     and must trigger a rebuild (ec2-image filter).
-  #     sgraph_ai_service_playwright/docker/** is excluded: that is deploy-time
+  #     sg_compute_specs/playwright/core/docker/** is excluded: deploy-time
   #     tooling (Build__Docker__*, Lambda__Docker__*), never executed at runtime.
   #
   #   image-rebuild-needed = true when EITHER filter matches.
@@ -142,10 +142,10 @@ jobs:
               - 'Dockerfile'
               - 'requirements.txt'
               - 'lambda_entry.py'
-              - 'sgraph_ai_service_playwright/docker/images/**'
+              - 'sg_compute_specs/playwright/core/docker/images/**'
             ec2-image:
-              - 'sgraph_ai_service_playwright/**'
-              - '!sgraph_ai_service_playwright/docker/**'
+              - 'sg_compute_specs/playwright/**'
+              - '!sg_compute_specs/playwright/core/docker/**'
             host-image:
               - 'sg_compute/**'
               - 'docker/host-control/**'
@@ -372,7 +372,7 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git config user.name  "github-actions[bot]"
           git pull --rebase
-          NEW_VERSION=$(cat sgraph_ai_service_playwright/version)
+          NEW_VERSION=$(cat sg_compute_specs/playwright/core/version)
           echo "$NEW_VERSION" > sg_compute/version
           sed -i "s/^version = \"[^\"]*\"/version = \"${NEW_VERSION}\"/" sg_compute/pyproject.toml
           git add sg_compute/version sg_compute/pyproject.toml
@@ -385,7 +385,7 @@ jobs:
 
   # ════════════════════════════════════════════════════════════════════════════
   # Job 6a: Upload Code to S3 (v0.1.29 — S3-only until agentic image ships)
-  #   Packages sgraph_ai_service_playwright/ as a zip and uploads it to
+  #   Packages sg_compute_specs/playwright/core/ as a zip and uploads it to
   #   s3://<bucket>/apps/<app>/<stage>/v<X.Y.Z>.zip. Does NOT touch the Lambda
   #   — no image supports the AGENTIC_* loader shim yet, so flipping env vars
   #   would be a no-op. The env-flip + smoke-test run in a later job once the

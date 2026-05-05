@@ -4,10 +4,10 @@
 
 from unittest import TestCase
 
-from sgraph_ai_service_playwright.schemas.primitives.identifiers.Session_Id          import Session_Id
-from sgraph_ai_service_playwright.schemas.primitives.identifiers.Sequence_Id         import Sequence_Id
-from sgraph_ai_service_playwright.schemas.primitives.identifiers.Step_Id             import Step_Id
-from sgraph_ai_service_playwright.schemas.primitives.identifiers.Safe_Str__Trace_Id  import Safe_Str__Trace_Id
+from sg_compute_specs.playwright.core.schemas.primitives.identifiers.Session_Id          import Session_Id
+from sg_compute_specs.playwright.core.schemas.primitives.identifiers.Sequence_Id         import Sequence_Id
+from sg_compute_specs.playwright.core.schemas.primitives.identifiers.Step_Id             import Step_Id
+from sg_compute_specs.playwright.core.schemas.primitives.identifiers.Safe_Str__Trace_Id  import Safe_Str__Trace_Id
 
 
 class test_Session_Id(TestCase):

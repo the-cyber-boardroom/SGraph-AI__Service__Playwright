@@ -5,11 +5,11 @@ description = "Browser automation FastAPI service for the SG/Send ecosystem. Run
 authors     = ["Dinis Cruz <dinis@the-cyber-boardroom.com>"]
 license     = "Apache-2.0"
 readme      = "README.md"
-packages    = [{ include = "sgraph_ai_service_playwright"      },
+packages    = [{ include = "sg_compute"                        },
+               { include = "sg_compute_specs"                  },
                { include = "sgraph_ai_service_playwright__cli" },
                { include = "scripts"                           }]
-include     = ["sgraph_ai_service_playwright/version"      ,
-               "sgraph_ai_service_playwright__cli/version" ,
+include     = ["sgraph_ai_service_playwright__cli/version" ,
                "sg_compute_specs/*/ui/**/*"                ]
 
 [tool.poetry.dependencies]

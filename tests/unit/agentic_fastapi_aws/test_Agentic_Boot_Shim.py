@@ -13,14 +13,14 @@ import sys
 import tempfile
 from unittest                                                                       import TestCase
 
-from sgraph_ai_service_playwright.agentic_fastapi_aws                        import Agentic_Boot_Shim      as agentic_boot_shim_module
-from sgraph_ai_service_playwright.agentic_fastapi_aws.Agentic_Boot_Shim       import (Agentic_Boot_Shim        ,
+from sg_compute_specs.playwright.core.agentic_fastapi_aws                        import Agentic_Boot_Shim      as agentic_boot_shim_module
+from sg_compute_specs.playwright.core.agentic_fastapi_aws.Agentic_Boot_Shim       import (Agentic_Boot_Shim        ,
                                                                                        FALLBACK_IMAGE_VERSION  ,
                                                                                        ENV_VAR__LAMBDA_FUNCTION)
-from sgraph_ai_service_playwright.agentic_fastapi.Agentic_Boot_State                import (get_boot_log    ,
+from sg_compute_specs.playwright.core.agentic_fastapi.Agentic_Boot_State                import (get_boot_log    ,
                                                                                             get_last_error  ,
                                                                                             reset_boot_state)
-from sgraph_ai_service_playwright.consts.env_vars                                   import (ENV_VAR__AGENTIC_APP_NAME              ,
+from sg_compute_specs.playwright.core.consts.env_vars                                   import (ENV_VAR__AGENTIC_APP_NAME              ,
                                                                                             ENV_VAR__AGENTIC_APP_STAGE             ,
                                                                                             ENV_VAR__AGENTIC_APP_VERSION           ,
                                                                                             ENV_VAR__AGENTIC_CODE_LOCAL_PATH       ,
@@ -43,7 +43,7 @@ ENV_KEYS = [ENV_VAR__AGENTIC_APP_NAME              ,
             ENV_VAR__LAMBDA_FUNCTION               ]
 
 
-PLAYWRIGHT_CLASS_PATH = 'sgraph_ai_service_playwright.fast_api.Fast_API__Playwright__Service.Fast_API__Playwright__Service'   # Same string the repo-root lambda_entry.py passes in production
+PLAYWRIGHT_CLASS_PATH = 'sg_compute_specs.playwright.core.fast_api.Fast_API__Playwright__Service.Fast_API__Playwright__Service'   # Same string the repo-root lambda_entry.py passes in production
 
 
 def playwright_shim() -> Agentic_Boot_Shim:                                         # Shared helper — every boot-path test needs the class path wired through
@@ -120,7 +120,7 @@ class test_boot(TestCase):
             assert os.environ.get(ENV_VAR__AGENTIC_CODE_SOURCE) == 'passthrough:sys.path'
 
     def test__error_pinned_when_import_fails_inside_lambda(self):                   # Simulate a broken zip — the service module raises on import
-        fake_path = 'sgraph_ai_service_playwright.fast_api.Fast_API__Playwright__Service'
+        fake_path = 'sg_compute_specs.playwright.core.fast_api.Fast_API__Playwright__Service'
         saved     = sys.modules.pop(fake_path, None)
         try:
             class _BoomFinder:
@@ -142,7 +142,7 @@ class test_boot(TestCase):
                 sys.modules[fake_path] = saved
 
     def test__reraises_when_import_fails_outside_lambda(self):                      # Outside Lambda — stack trace > error string
-        fake_path = 'sgraph_ai_service_playwright.fast_api.Fast_API__Playwright__Service'
+        fake_path = 'sg_compute_specs.playwright.core.fast_api.Fast_API__Playwright__Service'
         saved     = sys.modules.pop(fake_path, None)
         try:
             class _BoomFinder:
@@ -184,7 +184,7 @@ class test_boot_writes_to_boot_state(TestCase):                                 
         assert get_last_error() == ''
 
     def test__failure_inside_lambda_writes_error_and_degraded_log(self):
-        fake_path = 'sgraph_ai_service_playwright.fast_api.Fast_API__Playwright__Service'
+        fake_path = 'sg_compute_specs.playwright.core.fast_api.Fast_API__Playwright__Service'
         saved     = sys.modules.pop(fake_path, None)
         try:
             class _BoomFinder:
@@ -228,7 +228,7 @@ class test_resolve_fast_api_class(TestCase):                                    
             shim.resolve_fast_api_class()
 
     def test__error_message_uses_service_label(self):                               # service_label is propagated into the boot-failure error text
-        fake_path = 'sgraph_ai_service_playwright.fast_api.Fast_API__Playwright__Service'
+        fake_path = 'sg_compute_specs.playwright.core.fast_api.Fast_API__Playwright__Service'
         saved     = sys.modules.pop(fake_path, None)
         try:
             class _BoomFinder:

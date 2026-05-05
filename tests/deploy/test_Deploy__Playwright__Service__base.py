@@ -18,7 +18,7 @@ import os
 import pytest
 import requests
 
-from sgraph_ai_service_playwright.docker.Lambda__Docker__SGraph_AI__Service__Playwright import Lambda__Docker__SGraph_AI__Service__Playwright
+from sg_compute_specs.playwright.core.docker.Lambda__Docker__SGraph_AI__Service__Playwright import Lambda__Docker__SGraph_AI__Service__Playwright
 
 
 def _aws_creds_available() -> bool:

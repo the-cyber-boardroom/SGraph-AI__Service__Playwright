@@ -4,30 +4,30 @@
 
 from unittest import TestCase
 
-from sgraph_ai_service_playwright.schemas.enums.Enum__Content__Format                      import Enum__Content__Format
-from sgraph_ai_service_playwright.schemas.enums.Enum__Evaluate__Return_Type                import Enum__Evaluate__Return_Type
-from sgraph_ai_service_playwright.schemas.enums.Enum__Keyboard__Key                        import Enum__Keyboard__Key
-from sgraph_ai_service_playwright.schemas.enums.Enum__Mouse__Button                        import Enum__Mouse__Button
-from sgraph_ai_service_playwright.schemas.enums.Enum__Step__Action                         import Enum__Step__Action
-from sgraph_ai_service_playwright.schemas.enums.Enum__Video__Codec                         import Enum__Video__Codec
-from sgraph_ai_service_playwright.schemas.enums.Enum__Wait__State                          import Enum__Wait__State
-from sgraph_ai_service_playwright.schemas.steps.Schema__Step__Base                         import Schema__Step__Base
-from sgraph_ai_service_playwright.schemas.steps.Schema__Step__Click                        import Schema__Step__Click
-from sgraph_ai_service_playwright.schemas.steps.Schema__Step__Dispatch_Event               import Schema__Step__Dispatch_Event
-from sgraph_ai_service_playwright.schemas.steps.Schema__Step__Evaluate                     import Schema__Step__Evaluate
-from sgraph_ai_service_playwright.schemas.steps.Schema__Step__Fill                         import Schema__Step__Fill
-from sgraph_ai_service_playwright.schemas.steps.Schema__Step__Get_Content                  import Schema__Step__Get_Content
-from sgraph_ai_service_playwright.schemas.steps.Schema__Step__Get_Url                      import Schema__Step__Get_Url
-from sgraph_ai_service_playwright.schemas.steps.Schema__Step__Hover                        import Schema__Step__Hover
-from sgraph_ai_service_playwright.schemas.steps.Schema__Step__Navigate                     import Schema__Step__Navigate
-from sgraph_ai_service_playwright.schemas.steps.Schema__Step__Press                        import Schema__Step__Press
-from sgraph_ai_service_playwright.schemas.steps.Schema__Step__Screenshot                   import Schema__Step__Screenshot
-from sgraph_ai_service_playwright.schemas.steps.Schema__Step__Scroll                       import Schema__Step__Scroll
-from sgraph_ai_service_playwright.schemas.steps.Schema__Step__Select                       import Schema__Step__Select
-from sgraph_ai_service_playwright.schemas.steps.Schema__Step__Set_Viewport                 import Schema__Step__Set_Viewport
-from sgraph_ai_service_playwright.schemas.steps.Schema__Step__Video__Start                 import Schema__Step__Video__Start
-from sgraph_ai_service_playwright.schemas.steps.Schema__Step__Video__Stop                  import Schema__Step__Video__Stop
-from sgraph_ai_service_playwright.schemas.steps.Schema__Step__Wait_For                     import Schema__Step__Wait_For
+from sg_compute_specs.playwright.core.schemas.enums.Enum__Content__Format                      import Enum__Content__Format
+from sg_compute_specs.playwright.core.schemas.enums.Enum__Evaluate__Return_Type                import Enum__Evaluate__Return_Type
+from sg_compute_specs.playwright.core.schemas.enums.Enum__Keyboard__Key                        import Enum__Keyboard__Key
+from sg_compute_specs.playwright.core.schemas.enums.Enum__Mouse__Button                        import Enum__Mouse__Button
+from sg_compute_specs.playwright.core.schemas.enums.Enum__Step__Action                         import Enum__Step__Action
+from sg_compute_specs.playwright.core.schemas.enums.Enum__Video__Codec                         import Enum__Video__Codec
+from sg_compute_specs.playwright.core.schemas.enums.Enum__Wait__State                          import Enum__Wait__State
+from sg_compute_specs.playwright.core.schemas.steps.Schema__Step__Base                         import Schema__Step__Base
+from sg_compute_specs.playwright.core.schemas.steps.Schema__Step__Click                        import Schema__Step__Click
+from sg_compute_specs.playwright.core.schemas.steps.Schema__Step__Dispatch_Event               import Schema__Step__Dispatch_Event
+from sg_compute_specs.playwright.core.schemas.steps.Schema__Step__Evaluate                     import Schema__Step__Evaluate
+from sg_compute_specs.playwright.core.schemas.steps.Schema__Step__Fill                         import Schema__Step__Fill
+from sg_compute_specs.playwright.core.schemas.steps.Schema__Step__Get_Content                  import Schema__Step__Get_Content
+from sg_compute_specs.playwright.core.schemas.steps.Schema__Step__Get_Url                      import Schema__Step__Get_Url
+from sg_compute_specs.playwright.core.schemas.steps.Schema__Step__Hover                        import Schema__Step__Hover
+from sg_compute_specs.playwright.core.schemas.steps.Schema__Step__Navigate                     import Schema__Step__Navigate
+from sg_compute_specs.playwright.core.schemas.steps.Schema__Step__Press                        import Schema__Step__Press
+from sg_compute_specs.playwright.core.schemas.steps.Schema__Step__Screenshot                   import Schema__Step__Screenshot
+from sg_compute_specs.playwright.core.schemas.steps.Schema__Step__Scroll                       import Schema__Step__Scroll
+from sg_compute_specs.playwright.core.schemas.steps.Schema__Step__Select                       import Schema__Step__Select
+from sg_compute_specs.playwright.core.schemas.steps.Schema__Step__Set_Viewport                 import Schema__Step__Set_Viewport
+from sg_compute_specs.playwright.core.schemas.steps.Schema__Step__Video__Start                 import Schema__Step__Video__Start
+from sg_compute_specs.playwright.core.schemas.steps.Schema__Step__Video__Stop                  import Schema__Step__Video__Stop
+from sg_compute_specs.playwright.core.schemas.steps.Schema__Step__Wait_For                     import Schema__Step__Wait_For
 
 
 class test_Schema__Step__Base(TestCase):

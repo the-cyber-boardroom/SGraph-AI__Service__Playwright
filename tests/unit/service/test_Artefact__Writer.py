@@ -16,18 +16,18 @@ from unittest                                                                   
 
 import pytest
 
-from sgraph_ai_service_playwright.schemas.artefact.Schema__Artefact__Ref                   import Schema__Artefact__Ref
-from sgraph_ai_service_playwright.schemas.artefact.Schema__Artefact__Sink_Config           import Schema__Artefact__Sink_Config
-from sgraph_ai_service_playwright.schemas.artefact.Schema__Local_File_Ref                  import Schema__Local_File_Ref
-from sgraph_ai_service_playwright.schemas.artefact.Schema__S3_Ref                          import Schema__S3_Ref
-from sgraph_ai_service_playwright.schemas.artefact.Schema__Vault_Ref                       import Schema__Vault_Ref
-from sgraph_ai_service_playwright.schemas.enums.Enum__Artefact__Sink                       import Enum__Artefact__Sink
-from sgraph_ai_service_playwright.schemas.enums.Enum__Artefact__Type                       import Enum__Artefact__Type
-from sgraph_ai_service_playwright.schemas.primitives.s3.Safe_Str__S3_Bucket                import Safe_Str__S3_Bucket
-from sgraph_ai_service_playwright.schemas.primitives.s3.Safe_Str__S3_Key                   import Safe_Str__S3_Key
-from sgraph_ai_service_playwright.schemas.primitives.vault.Safe_Str__Vault_Key             import Safe_Str__Vault_Key
-from sgraph_ai_service_playwright.schemas.primitives.vault.Safe_Str__Vault_Path            import Safe_Str__Vault_Path
-from sgraph_ai_service_playwright.service.Artefact__Writer                                  import Artefact__Writer, FILENAME_EXTENSIONS, HASH_LEN
+from sg_compute_specs.playwright.core.schemas.artefact.Schema__Artefact__Ref                   import Schema__Artefact__Ref
+from sg_compute_specs.playwright.core.schemas.artefact.Schema__Artefact__Sink_Config           import Schema__Artefact__Sink_Config
+from sg_compute_specs.playwright.core.schemas.artefact.Schema__Local_File_Ref                  import Schema__Local_File_Ref
+from sg_compute_specs.playwright.core.schemas.artefact.Schema__S3_Ref                          import Schema__S3_Ref
+from sg_compute_specs.playwright.core.schemas.artefact.Schema__Vault_Ref                       import Schema__Vault_Ref
+from sg_compute_specs.playwright.core.schemas.enums.Enum__Artefact__Sink                       import Enum__Artefact__Sink
+from sg_compute_specs.playwright.core.schemas.enums.Enum__Artefact__Type                       import Enum__Artefact__Type
+from sg_compute_specs.playwright.core.schemas.primitives.s3.Safe_Str__S3_Bucket                import Safe_Str__S3_Bucket
+from sg_compute_specs.playwright.core.schemas.primitives.s3.Safe_Str__S3_Key                   import Safe_Str__S3_Key
+from sg_compute_specs.playwright.core.schemas.primitives.vault.Safe_Str__Vault_Key             import Safe_Str__Vault_Key
+from sg_compute_specs.playwright.core.schemas.primitives.vault.Safe_Str__Vault_Path            import Safe_Str__Vault_Path
+from sg_compute_specs.playwright.core.service.Artefact__Writer                                  import Artefact__Writer, FILENAME_EXTENSIONS, HASH_LEN
 
 
 class _InMemoryWriter(Artefact__Writer):                                           # Subclass seam — tests run against in-memory sinks, no mocks

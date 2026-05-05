@@ -4,7 +4,7 @@
 # Default mode (S3-only) — what the Day 4 CI calls:
 #
 #   1. Ensures the S3 bucket exists ({account}--sgraph-ai--{region}).
-#   2. Packages sgraph_ai_service_playwright/ into a zip (via package_code).
+#   2. Packages sg_compute_specs/playwright/core/ into a zip (via package_code).
 #   3. Uploads to s3://<bucket>/apps/<app>/<stage>/v<X.Y.Z>.zip (immutable).
 #
 # Opt-in mode (--update-lambda) — used once the agentic-image Lambda exists:
@@ -40,7 +40,7 @@ from scripts.package_code                                                       
                                                                                                          build_code_zip     ,
                                                                                                          resolve_bucket_name,
                                                                                                          resolve_region     )
-from sgraph_ai_service_playwright.consts.version                                                 import version__sgraph_ai_service_playwright
+from sg_compute_specs.playwright.core.consts.version                                                 import version__sgraph_ai_service_playwright
 
 
 # Env vars to SET on the Lambda (new AGENTIC_* scheme)
@@ -145,7 +145,7 @@ def deploy(stage        : str                   ,
               'stage'        : stage      ,
               'version'      : version    ,
               'lambda_name'  : lambda_name,
-              'package_names': package_names or ['sgraph_ai_service_playwright']}
+              'package_names': package_names or ['sg_compute_specs']}
 
     if update_lambda:                                                               # Opt-in: requires the Lambda to exist AND its image to understand AGENTIC_* env vars
         result['env_update'] = update_lambda_env(lambda_name, app_name, stage, version)
@@ -160,12 +160,12 @@ def main() -> int:
     parser.add_argument('--stage'         , required=True            , help="Deployment stage: 'dev', 'main', or 'prod'")
     parser.add_argument('--app-name'      , default=DEFAULT_APP_NAME , help=f'Logical app name (default: {DEFAULT_APP_NAME})')
     parser.add_argument('--lambda-name'   , default=None             , help='Lambda function name (default: {app-name}-{stage})')
-    parser.add_argument('--version'       , default=None             , help='Override version (default: sgraph_ai_service_playwright/version file)')
+    parser.add_argument('--version'       , default=None             , help='Override version (default: sg_compute_specs/playwright/core/version file)')
     parser.add_argument('--region'        , default=None             , help='Override AWS region (default: boto3 session region)')
     parser.add_argument('--update-lambda' , action='store_true'      , help='Flip the Lambda env vars to point at the new version (requires the Lambda to exist AND run the agentic image)')
     parser.add_argument('--smoke'         , action='store_true'      , help='After --update-lambda, probe /admin/health to verify code_source. Ignored without --update-lambda.')
     parser.add_argument('--package'       , action='append', default=None, dest='package_names', metavar='NAME',
-                                                                      help='Folder name(s) to include in the zip. Repeatable. Default: sgraph_ai_service_playwright')
+                                                                      help='Folder name(s) to include in the zip. Repeatable. Default: sg_compute_specs')
     args = parser.parse_args()
 
     deploy(stage         = args.stage         ,

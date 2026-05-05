@@ -15,17 +15,17 @@ from unittest                                                                   
 
 from fastapi.testclient                                                             import TestClient
 
-from sgraph_ai_service_playwright.agentic_fastapi.Agentic_Admin_API                 import (SKILL_NAMES              ,
+from sg_compute_specs.playwright.core.agentic_fastapi.Agentic_Admin_API                 import (SKILL_NAMES              ,
                                                                                             TAG__ROUTES_ADMIN        )
-from sgraph_ai_service_playwright.agentic_fastapi.Agentic_Boot_State                import (append_boot_log          ,
+from sg_compute_specs.playwright.core.agentic_fastapi.Agentic_Boot_State                import (append_boot_log          ,
                                                                                             reset_boot_state         ,
                                                                                             set_last_error           )
-from sgraph_ai_service_playwright.consts.env_vars                                   import (ENV_VAR__AGENTIC_APP_NAME     ,
+from sg_compute_specs.playwright.core.consts.env_vars                                   import (ENV_VAR__AGENTIC_APP_NAME     ,
                                                                                             ENV_VAR__AGENTIC_APP_STAGE    ,
                                                                                             ENV_VAR__AGENTIC_APP_VERSION  ,
                                                                                             ENV_VAR__AGENTIC_CODE_SOURCE  ,
                                                                                             ENV_VAR__AGENTIC_IMAGE_VERSION)
-from sgraph_ai_service_playwright.fast_api.Fast_API__Playwright__Service            import Fast_API__Playwright__Service
+from sg_compute_specs.playwright.core.fast_api.Fast_API__Playwright__Service            import Fast_API__Playwright__Service
 
 
 ADMIN_ENV = {ENV_VAR__AGENTIC_APP_NAME     : 'sg-playwright'         ,

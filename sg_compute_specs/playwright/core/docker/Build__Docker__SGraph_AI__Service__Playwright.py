@@ -14,8 +14,8 @@
 # specific to the Playwright image:
 #   • the dockerfile + requirements.txt from the existing image folder
 #   • lambda_entry.py + image_version from the repo root (v0.1.28 boot shim)
-#   • the whole `sgraph_ai_service_playwright/` package source (minus pycache)
-# so `python3 lambda_entry.py` resolves at container start.
+#   • the whole `sg_compute_specs/` tree (minus pycache, tests, ui) so
+#     `from sg_compute_specs.playwright.core.*` resolves at container start.
 #
 # The dockerfile is named `dockerfile` (lowercase) — Docker daemon defaults
 # to `Dockerfile` (capital D) on case-sensitive filesystems (Linux / GH
@@ -45,10 +45,10 @@ IMAGE_VERSION_FILE   = 'image_version'                                          
 class Build__Docker__SGraph_AI__Service__Playwright(Docker__SGraph_AI__Service__Playwright__Base):
 
     def build_request(self) -> Schema__Image__Build__Request:                           # Compose the Playwright-specific build request — testable in isolation
-        src_context = self.create_image_ecr.path_image()                                # .../docker/images/sgraph_ai_service_playwright/
-        pkg_src     = sgraph_ai_service_playwright.path                                 # .../sgraph_ai_service_playwright/ (the actual Python package)
-        repo_root   = os.path.dirname(pkg_src)                                          # v0.1.28 — lambda_entry.py + image_version live next to the package
-        pkg_name    = 'sgraph_ai_service_playwright'
+        src_context  = self.create_image_ecr.path_image()                               # .../core/docker/images/sgraph_ai_service_playwright/
+        core_path    = sgraph_ai_service_playwright.path                                 # .../sg_compute_specs/playwright/core/
+        specs_path   = os.path.dirname(os.path.dirname(core_path))                      # .../sg_compute_specs/
+        repo_root    = os.path.dirname(specs_path)                                       # repo root — lambda_entry.py + image_version live here
 
         return Schema__Image__Build__Request(
             image_folder         = src_context                                          ,
@@ -56,7 +56,8 @@ class Build__Docker__SGraph_AI__Service__Playwright(Docker__SGraph_AI__Service__
             build_context_prefix = 'sgraph_playwright_build_'                           ,
             stage_items          = [Schema__Image__Stage__Item(source_path=os.path.join(repo_root, BOOT_SHIM_FILENAME), target_name=BOOT_SHIM_FILENAME),
                                     Schema__Image__Stage__Item(source_path=os.path.join(repo_root, IMAGE_VERSION_FILE), target_name=IMAGE_VERSION_FILE),
-                                    Schema__Image__Stage__Item(source_path=pkg_src, target_name=pkg_name, is_tree=True)])
+                                    Schema__Image__Stage__Item(source_path=specs_path  , target_name='sg_compute_specs' , is_tree=True,
+                                                               extra_ignore_names=['tests', 'ui'])])
 
     def build_docker_image(self) -> Schema__Image__Build__Result:                       # Returns Schema__Image__Build__Result; CI test asserts on its fields
         result = Image__Build__Service().build(self.build_request(), self.api_docker().client_docker())

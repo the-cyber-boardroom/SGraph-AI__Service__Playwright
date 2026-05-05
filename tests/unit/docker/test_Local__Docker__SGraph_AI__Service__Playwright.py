@@ -8,8 +8,8 @@
 
 from unittest                                                                           import TestCase
 
-from sgraph_ai_service_playwright.docker.Docker__SGraph_AI__Service__Playwright__Base   import Docker__SGraph_AI__Service__Playwright__Base, LOCAL_PORT
-from sgraph_ai_service_playwright.docker.Local__Docker__SGraph_AI__Service__Playwright  import (LABEL_SOURCE                                 ,
+from sg_compute_specs.playwright.core.docker.Docker__SGraph_AI__Service__Playwright__Base   import Docker__SGraph_AI__Service__Playwright__Base, LOCAL_PORT
+from sg_compute_specs.playwright.core.docker.Local__Docker__SGraph_AI__Service__Playwright  import (LABEL_SOURCE                                 ,
                                                                                                  Local__Docker__SGraph_AI__Service__Playwright)
 
 

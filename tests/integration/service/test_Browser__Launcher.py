@@ -15,10 +15,10 @@ from unittest                                                                   
 
 import pytest
 
-from sgraph_ai_service_playwright.consts.env_vars                                             import ENV_VAR__CHROMIUM_EXECUTABLE
-from sgraph_ai_service_playwright.schemas.browser.Schema__Browser__Config                     import Schema__Browser__Config
-from sgraph_ai_service_playwright.schemas.primitives.identifiers.Session_Id                   import Session_Id
-from sgraph_ai_service_playwright.service.Browser__Launcher                                    import Browser__Launcher
+from sg_compute_specs.playwright.core.consts.env_vars                                             import ENV_VAR__CHROMIUM_EXECUTABLE
+from sg_compute_specs.playwright.core.schemas.browser.Schema__Browser__Config                     import Schema__Browser__Config
+from sg_compute_specs.playwright.core.schemas.primitives.identifiers.Session_Id                   import Session_Id
+from sg_compute_specs.playwright.core.service.Browser__Launcher                                    import Browser__Launcher
 
 
 def _chromium_available() -> bool:

@@ -11,7 +11,7 @@ import subprocess
 
 import pytest
 
-from sgraph_ai_service_playwright.docker.Local__Docker__SGraph_AI__Service__Playwright import Local__Docker__SGraph_AI__Service__Playwright
+from sg_compute_specs.playwright.core.docker.Local__Docker__SGraph_AI__Service__Playwright import Local__Docker__SGraph_AI__Service__Playwright
 
 
 def _docker_available() -> bool:

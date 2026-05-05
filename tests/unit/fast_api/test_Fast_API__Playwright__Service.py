@@ -14,9 +14,9 @@ from unittest                                                                   
 
 from osbot_fast_api_serverless.fast_api.Serverless__Fast_API                                import Serverless__Fast_API
 
-from sgraph_ai_service_playwright.consts.env_vars                                           import ENV_VAR__DEPLOYMENT_TARGET
-from sgraph_ai_service_playwright.fast_api.Fast_API__Playwright__Service                    import Fast_API__Playwright__Service
-from sgraph_ai_service_playwright.service.Playwright__Service                               import Playwright__Service
+from sg_compute_specs.playwright.core.consts.env_vars                                           import ENV_VAR__DEPLOYMENT_TARGET
+from sg_compute_specs.playwright.core.fast_api.Fast_API__Playwright__Service                    import Fast_API__Playwright__Service
+from sg_compute_specs.playwright.core.service.Playwright__Service                               import Playwright__Service
 
 
 ENV_VAR__API_KEY_NAME  = 'FAST_API__AUTH__API_KEY__NAME'
@@ -111,5 +111,5 @@ class test_client_end_to_end(TestCase):                                         
 class test_lambda_handler_module(TestCase):
 
     def test__import_is_side_effect_free(self):                                     # Importing lambda_handler must NOT boot uvicorn — run() is gated behind __main__
-        from sgraph_ai_service_playwright.fast_api                                      import lambda_handler
+        from sg_compute_specs.playwright.core.fast_api                                      import lambda_handler
         assert callable(lambda_handler.run)

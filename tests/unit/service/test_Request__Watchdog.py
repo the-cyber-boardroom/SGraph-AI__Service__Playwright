@@ -10,10 +10,10 @@ import os
 from typing                                                                 import Any, List, Tuple
 from unittest                                                                import TestCase
 
-from sgraph_ai_service_playwright.consts.env_vars                           import (ENV_VAR__WATCHDOG_DISABLED        ,
+from sg_compute_specs.playwright.core.consts.env_vars                           import (ENV_VAR__WATCHDOG_DISABLED        ,
                                                                                      ENV_VAR__WATCHDOG_MAX_REQUEST_MS  ,
                                                                                      ENV_VAR__WATCHDOG_POLL_INTERVAL_MS)
-from sgraph_ai_service_playwright.service.Request__Watchdog                 import (DEFAULT_MAX_REQUEST_MS   ,
+from sg_compute_specs.playwright.core.service.Request__Watchdog                 import (DEFAULT_MAX_REQUEST_MS   ,
                                                                                      DEFAULT_POLL_INTERVAL_MS ,
                                                                                      Request__Watchdog        )
 

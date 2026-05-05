@@ -7,8 +7,8 @@
 
 from unittest                                                                           import TestCase
 
-from sgraph_ai_service_playwright.docker.Build__Docker__SGraph_AI__Service__Playwright  import Build__Docker__SGraph_AI__Service__Playwright
-from sgraph_ai_service_playwright.docker.Docker__SGraph_AI__Service__Playwright__Base   import Docker__SGraph_AI__Service__Playwright__Base
+from sg_compute_specs.playwright.core.docker.Build__Docker__SGraph_AI__Service__Playwright  import Build__Docker__SGraph_AI__Service__Playwright
+from sg_compute_specs.playwright.core.docker.Docker__SGraph_AI__Service__Playwright__Base   import Docker__SGraph_AI__Service__Playwright__Base
 
 
 class test_class_shape(TestCase):

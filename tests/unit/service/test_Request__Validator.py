@@ -7,22 +7,22 @@ from unittest import TestCase
 
 from fastapi import HTTPException
 
-from sgraph_ai_service_playwright.schemas.artefact.Schema__Artefact__Sink_Config        import Schema__Artefact__Sink_Config
-from sgraph_ai_service_playwright.schemas.artefact.Schema__S3_Ref                        import Schema__S3_Ref  # noqa: F401  (reference for S3 sink later)
-from sgraph_ai_service_playwright.schemas.artefact.Schema__Vault_Ref                     import Schema__Vault_Ref
-from sgraph_ai_service_playwright.schemas.browser.Schema__Browser__Config                import Schema__Browser__Config
-from sgraph_ai_service_playwright.schemas.capture.Schema__Capture__Config                import Schema__Capture__Config
-from sgraph_ai_service_playwright.schemas.enums.Enum__Artefact__Sink                     import Enum__Artefact__Sink
-from sgraph_ai_service_playwright.schemas.enums.Enum__Browser__Name                      import Enum__Browser__Name
-from sgraph_ai_service_playwright.schemas.enums.Enum__Browser__Provider                  import Enum__Browser__Provider
-from sgraph_ai_service_playwright.schemas.enums.Enum__Deployment__Target                 import Enum__Deployment__Target
-from sgraph_ai_service_playwright.schemas.primitives.identifiers.Step_Id                 import Step_Id
-from sgraph_ai_service_playwright.schemas.service.Schema__Service__Capabilities          import Schema__Service__Capabilities
-from sgraph_ai_service_playwright.schemas.steps.Schema__Step__Click                      import Schema__Step__Click
-from sgraph_ai_service_playwright.schemas.steps.Schema__Step__Evaluate                   import Schema__Step__Evaluate
-from sgraph_ai_service_playwright.schemas.steps.Schema__Step__Navigate                   import Schema__Step__Navigate
-from sgraph_ai_service_playwright.service.JS__Expression__Allowlist                       import JS__Expression__Allowlist
-from sgraph_ai_service_playwright.service.Request__Validator                              import Request__Validator
+from sg_compute_specs.playwright.core.schemas.artefact.Schema__Artefact__Sink_Config        import Schema__Artefact__Sink_Config
+from sg_compute_specs.playwright.core.schemas.artefact.Schema__S3_Ref                        import Schema__S3_Ref  # noqa: F401  (reference for S3 sink later)
+from sg_compute_specs.playwright.core.schemas.artefact.Schema__Vault_Ref                     import Schema__Vault_Ref
+from sg_compute_specs.playwright.core.schemas.browser.Schema__Browser__Config                import Schema__Browser__Config
+from sg_compute_specs.playwright.core.schemas.capture.Schema__Capture__Config                import Schema__Capture__Config
+from sg_compute_specs.playwright.core.schemas.enums.Enum__Artefact__Sink                     import Enum__Artefact__Sink
+from sg_compute_specs.playwright.core.schemas.enums.Enum__Browser__Name                      import Enum__Browser__Name
+from sg_compute_specs.playwright.core.schemas.enums.Enum__Browser__Provider                  import Enum__Browser__Provider
+from sg_compute_specs.playwright.core.schemas.enums.Enum__Deployment__Target                 import Enum__Deployment__Target
+from sg_compute_specs.playwright.core.schemas.primitives.identifiers.Step_Id                 import Step_Id
+from sg_compute_specs.playwright.core.schemas.service.Schema__Service__Capabilities          import Schema__Service__Capabilities
+from sg_compute_specs.playwright.core.schemas.steps.Schema__Step__Click                      import Schema__Step__Click
+from sg_compute_specs.playwright.core.schemas.steps.Schema__Step__Evaluate                   import Schema__Step__Evaluate
+from sg_compute_specs.playwright.core.schemas.steps.Schema__Step__Navigate                   import Schema__Step__Navigate
+from sg_compute_specs.playwright.core.service.JS__Expression__Allowlist                       import JS__Expression__Allowlist
+from sg_compute_specs.playwright.core.service.Request__Validator                              import Request__Validator
 
 
 def _caps(supports_persistent : bool = False,

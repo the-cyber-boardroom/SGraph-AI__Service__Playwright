@@ -23,16 +23,16 @@
 import os
 from unittest                                                                               import TestCase
 
-from sgraph_ai_service_playwright.consts.env_vars                                           import (ENV_VAR__DEPLOYMENT_TARGET        ,
+from sg_compute_specs.playwright.core.consts.env_vars                                           import (ENV_VAR__DEPLOYMENT_TARGET        ,
                                                                                                     ENV_VAR__WATCHDOG_DISABLED         ,
                                                                                                     ENV_VAR__WATCHDOG_MAX_REQUEST_MS   ,
                                                                                                     ENV_VAR__WATCHDOG_POLL_INTERVAL_MS )
-from sgraph_ai_service_playwright.fast_api.Fast_API__Playwright__Service                    import Fast_API__Playwright__Service
-from sgraph_ai_service_playwright.schemas.browser.Schema__Browser__Launch__Result            import Schema__Browser__Launch__Result
-from sgraph_ai_service_playwright.service.Artefact__Writer                                  import Artefact__Writer
-from sgraph_ai_service_playwright.service.Browser__Launcher                                 import Browser__Launcher
-from sgraph_ai_service_playwright.service.Credentials__Loader                               import Credentials__Loader
-from sgraph_ai_service_playwright.service.Playwright__Service                               import Playwright__Service
+from sg_compute_specs.playwright.core.fast_api.Fast_API__Playwright__Service                    import Fast_API__Playwright__Service
+from sg_compute_specs.playwright.core.schemas.browser.Schema__Browser__Launch__Result            import Schema__Browser__Launch__Result
+from sg_compute_specs.playwright.core.service.Artefact__Writer                                  import Artefact__Writer
+from sg_compute_specs.playwright.core.service.Browser__Launcher                                 import Browser__Launcher
+from sg_compute_specs.playwright.core.service.Credentials__Loader                               import Credentials__Loader
+from sg_compute_specs.playwright.core.service.Playwright__Service                               import Playwright__Service
 
 
 ENV_VAR__API_KEY_NAME  = 'FAST_API__AUTH__API_KEY__NAME'

@@ -10,20 +10,20 @@
 
 from unittest import TestCase
 
-from sgraph_ai_service_playwright.schemas.enums.Enum__Artefact__Sink          import Enum__Artefact__Sink
-from sgraph_ai_service_playwright.schemas.enums.Enum__Artefact__Type          import Enum__Artefact__Type
-from sgraph_ai_service_playwright.schemas.enums.Enum__Browser__Name           import Enum__Browser__Name
-from sgraph_ai_service_playwright.schemas.enums.Enum__Browser__Provider       import Enum__Browser__Provider
-from sgraph_ai_service_playwright.schemas.enums.Enum__Content__Format         import Enum__Content__Format
-from sgraph_ai_service_playwright.schemas.enums.Enum__Deployment__Target      import Enum__Deployment__Target
-from sgraph_ai_service_playwright.schemas.enums.Enum__Evaluate__Return_Type   import Enum__Evaluate__Return_Type
-from sgraph_ai_service_playwright.schemas.enums.Enum__Keyboard__Key           import Enum__Keyboard__Key
-from sgraph_ai_service_playwright.schemas.enums.Enum__Mouse__Button           import Enum__Mouse__Button
-from sgraph_ai_service_playwright.schemas.enums.Enum__Sequence__Status        import Enum__Sequence__Status
-from sgraph_ai_service_playwright.schemas.enums.Enum__Step__Action            import Enum__Step__Action
-from sgraph_ai_service_playwright.schemas.enums.Enum__Step__Status            import Enum__Step__Status
-from sgraph_ai_service_playwright.schemas.enums.Enum__Video__Codec            import Enum__Video__Codec
-from sgraph_ai_service_playwright.schemas.enums.Enum__Wait__State             import Enum__Wait__State
+from sg_compute_specs.playwright.core.schemas.enums.Enum__Artefact__Sink          import Enum__Artefact__Sink
+from sg_compute_specs.playwright.core.schemas.enums.Enum__Artefact__Type          import Enum__Artefact__Type
+from sg_compute_specs.playwright.core.schemas.enums.Enum__Browser__Name           import Enum__Browser__Name
+from sg_compute_specs.playwright.core.schemas.enums.Enum__Browser__Provider       import Enum__Browser__Provider
+from sg_compute_specs.playwright.core.schemas.enums.Enum__Content__Format         import Enum__Content__Format
+from sg_compute_specs.playwright.core.schemas.enums.Enum__Deployment__Target      import Enum__Deployment__Target
+from sg_compute_specs.playwright.core.schemas.enums.Enum__Evaluate__Return_Type   import Enum__Evaluate__Return_Type
+from sg_compute_specs.playwright.core.schemas.enums.Enum__Keyboard__Key           import Enum__Keyboard__Key
+from sg_compute_specs.playwright.core.schemas.enums.Enum__Mouse__Button           import Enum__Mouse__Button
+from sg_compute_specs.playwright.core.schemas.enums.Enum__Sequence__Status        import Enum__Sequence__Status
+from sg_compute_specs.playwright.core.schemas.enums.Enum__Step__Action            import Enum__Step__Action
+from sg_compute_specs.playwright.core.schemas.enums.Enum__Step__Status            import Enum__Step__Status
+from sg_compute_specs.playwright.core.schemas.enums.Enum__Video__Codec            import Enum__Video__Codec
+from sg_compute_specs.playwright.core.schemas.enums.Enum__Wait__State             import Enum__Wait__State
 
 
 def _assert_roundtrip(enum_cls, expected_values):                                   # Round-trip every member and verify value set

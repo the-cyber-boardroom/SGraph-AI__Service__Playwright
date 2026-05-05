@@ -18,32 +18,32 @@ import os
 from typing                                                                                 import Any
 from unittest                                                                               import TestCase
 
-from sgraph_ai_service_playwright.consts.env_vars                                           import (ENV_VAR__AWS_LAMBDA_RUNTIME_API,
+from sg_compute_specs.playwright.core.consts.env_vars                                           import (ENV_VAR__AWS_LAMBDA_RUNTIME_API,
                                                                                                     ENV_VAR__CI                    ,
                                                                                                     ENV_VAR__CLAUDE_SESSION        ,
                                                                                                     ENV_VAR__DEFAULT_PROXY_URL     ,
                                                                                                     ENV_VAR__DEFAULT_S3_BUCKET     ,
                                                                                                     ENV_VAR__DEPLOYMENT_TARGET     ,
                                                                                                     ENV_VAR__SG_SEND_BASE_URL      )
-from sgraph_ai_service_playwright.schemas.browser.Schema__Browser__Click__Request            import Schema__Browser__Click__Request
-from sgraph_ai_service_playwright.schemas.browser.Schema__Browser__Fill__Request             import Schema__Browser__Fill__Request
-from sgraph_ai_service_playwright.schemas.browser.Schema__Browser__Get_Content__Request      import Schema__Browser__Get_Content__Request
-from sgraph_ai_service_playwright.schemas.browser.Schema__Browser__Get_Url__Request          import Schema__Browser__Get_Url__Request
-from sgraph_ai_service_playwright.schemas.browser.Schema__Browser__Launch__Result            import Schema__Browser__Launch__Result
-from sgraph_ai_service_playwright.schemas.browser.Schema__Browser__Navigate__Request         import Schema__Browser__Navigate__Request
-from sgraph_ai_service_playwright.schemas.browser.Schema__Browser__One_Shot__Response        import Schema__Browser__One_Shot__Response
-from sgraph_ai_service_playwright.schemas.browser.Schema__Browser__Screenshot__Request       import Schema__Browser__Screenshot__Request
-from sgraph_ai_service_playwright.schemas.browser.Schema__Browser__Screenshot__Result        import Schema__Browser__Screenshot__Result
-from sgraph_ai_service_playwright.schemas.enums.Enum__Deployment__Target                    import Enum__Deployment__Target
-from sgraph_ai_service_playwright.schemas.service.Schema__Health                            import Schema__Health
-from sgraph_ai_service_playwright.schemas.service.Schema__Service__Capabilities             import Schema__Service__Capabilities
-from sgraph_ai_service_playwright.schemas.service.Schema__Service__Info                     import Schema__Service__Info
-from sgraph_ai_service_playwright.service.Artefact__Writer                                  import Artefact__Writer
-from sgraph_ai_service_playwright.service.Browser__Launcher                                 import Browser__Launcher
-from sgraph_ai_service_playwright.service.Capability__Detector                              import Capability__Detector
-from sgraph_ai_service_playwright.service.Credentials__Loader                               import Credentials__Loader
-from sgraph_ai_service_playwright.service.Playwright__Service                               import Playwright__Service
-from sgraph_ai_service_playwright.service.Sequence__Runner                                  import Sequence__Runner
+from sg_compute_specs.playwright.core.schemas.browser.Schema__Browser__Click__Request            import Schema__Browser__Click__Request
+from sg_compute_specs.playwright.core.schemas.browser.Schema__Browser__Fill__Request             import Schema__Browser__Fill__Request
+from sg_compute_specs.playwright.core.schemas.browser.Schema__Browser__Get_Content__Request      import Schema__Browser__Get_Content__Request
+from sg_compute_specs.playwright.core.schemas.browser.Schema__Browser__Get_Url__Request          import Schema__Browser__Get_Url__Request
+from sg_compute_specs.playwright.core.schemas.browser.Schema__Browser__Launch__Result            import Schema__Browser__Launch__Result
+from sg_compute_specs.playwright.core.schemas.browser.Schema__Browser__Navigate__Request         import Schema__Browser__Navigate__Request
+from sg_compute_specs.playwright.core.schemas.browser.Schema__Browser__One_Shot__Response        import Schema__Browser__One_Shot__Response
+from sg_compute_specs.playwright.core.schemas.browser.Schema__Browser__Screenshot__Request       import Schema__Browser__Screenshot__Request
+from sg_compute_specs.playwright.core.schemas.browser.Schema__Browser__Screenshot__Result        import Schema__Browser__Screenshot__Result
+from sg_compute_specs.playwright.core.schemas.enums.Enum__Deployment__Target                    import Enum__Deployment__Target
+from sg_compute_specs.playwright.core.schemas.service.Schema__Health                            import Schema__Health
+from sg_compute_specs.playwright.core.schemas.service.Schema__Service__Capabilities             import Schema__Service__Capabilities
+from sg_compute_specs.playwright.core.schemas.service.Schema__Service__Info                     import Schema__Service__Info
+from sg_compute_specs.playwright.core.service.Artefact__Writer                                  import Artefact__Writer
+from sg_compute_specs.playwright.core.service.Browser__Launcher                                 import Browser__Launcher
+from sg_compute_specs.playwright.core.service.Capability__Detector                              import Capability__Detector
+from sg_compute_specs.playwright.core.service.Credentials__Loader                               import Credentials__Loader
+from sg_compute_specs.playwright.core.service.Playwright__Service                               import Playwright__Service
+from sg_compute_specs.playwright.core.service.Sequence__Runner                                  import Sequence__Runner
 
 
 ENV_KEYS = [ENV_VAR__AWS_LAMBDA_RUNTIME_API,
@@ -206,7 +206,7 @@ class test_get_capabilities(TestCase):
     def test__laptop_profile_has_local_file_sink(self):
         with _EnvScrub(**{ENV_VAR__DEPLOYMENT_TARGET: 'laptop'}):
             caps = Playwright__Service().get_capabilities()
-        from sgraph_ai_service_playwright.schemas.enums.Enum__Artefact__Sink import Enum__Artefact__Sink
+        from sg_compute_specs.playwright.core.schemas.enums.Enum__Artefact__Sink import Enum__Artefact__Sink
         assert Enum__Artefact__Sink.LOCAL_FILE in caps.supported_sinks
 
 
@@ -326,10 +326,10 @@ class test_browser_screenshot(TestCase):
 class test_execute_sequence(TestCase):
 
     def test__delegates_to_sequence_runner(self):
-        from sgraph_ai_service_playwright.schemas.sequence.Schema__Sequence__Request import Schema__Sequence__Request
-        from sgraph_ai_service_playwright.schemas.capture.Schema__Capture__Config    import Schema__Capture__Config
-        from sgraph_ai_service_playwright.schemas.sequence.Schema__Sequence__Config  import Schema__Sequence__Config
-        from sgraph_ai_service_playwright.schemas.enums.Enum__Sequence__Status       import Enum__Sequence__Status
+        from sg_compute_specs.playwright.core.schemas.sequence.Schema__Sequence__Request import Schema__Sequence__Request
+        from sg_compute_specs.playwright.core.schemas.capture.Schema__Capture__Config    import Schema__Capture__Config
+        from sg_compute_specs.playwright.core.schemas.sequence.Schema__Sequence__Config  import Schema__Sequence__Config
+        from sg_compute_specs.playwright.core.schemas.enums.Enum__Sequence__Status       import Enum__Sequence__Status
 
         with _EnvScrub(**{ENV_VAR__DEPLOYMENT_TARGET: 'lambda'}):
             service  = _build_service()

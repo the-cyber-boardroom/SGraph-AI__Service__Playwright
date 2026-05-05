@@ -7,10 +7,10 @@ from unittest import TestCase
 
 from fastapi import HTTPException
 
-from sgraph_ai_service_playwright.schemas.enums.Enum__Step__Action           import Enum__Step__Action
-from sgraph_ai_service_playwright.schemas.steps.Schema__Step__Click          import Schema__Step__Click
-from sgraph_ai_service_playwright.schemas.steps.Schema__Step__Navigate       import Schema__Step__Navigate
-from sgraph_ai_service_playwright.service.Sequence__Dispatcher                import Sequence__Dispatcher
+from sg_compute_specs.playwright.core.schemas.enums.Enum__Step__Action           import Enum__Step__Action
+from sg_compute_specs.playwright.core.schemas.steps.Schema__Step__Click          import Schema__Step__Click
+from sg_compute_specs.playwright.core.schemas.steps.Schema__Step__Navigate       import Schema__Step__Navigate
+from sg_compute_specs.playwright.core.service.Sequence__Dispatcher                import Sequence__Dispatcher
 
 
 class test_parse_single_step(TestCase):

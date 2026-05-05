@@ -5,17 +5,17 @@
 import os
 from unittest import TestCase
 
-from sgraph_ai_service_playwright.consts.env_vars                    import (ENV_VAR__AWS_LAMBDA_RUNTIME_API,
+from sg_compute_specs.playwright.core.consts.env_vars                    import (ENV_VAR__AWS_LAMBDA_RUNTIME_API,
                                                                              ENV_VAR__CI                    ,
                                                                              ENV_VAR__CLAUDE_SESSION        ,
                                                                              ENV_VAR__DEFAULT_PROXY_URL     ,
                                                                              ENV_VAR__DEFAULT_S3_BUCKET     ,
                                                                              ENV_VAR__DEPLOYMENT_TARGET     ,
                                                                              ENV_VAR__SG_SEND_BASE_URL      )
-from sgraph_ai_service_playwright.schemas.enums.Enum__Artefact__Sink    import Enum__Artefact__Sink
-from sgraph_ai_service_playwright.schemas.enums.Enum__Browser__Name     import Enum__Browser__Name
-from sgraph_ai_service_playwright.schemas.enums.Enum__Deployment__Target import Enum__Deployment__Target
-from sgraph_ai_service_playwright.service.Capability__Detector           import Capability__Detector
+from sg_compute_specs.playwright.core.schemas.enums.Enum__Artefact__Sink    import Enum__Artefact__Sink
+from sg_compute_specs.playwright.core.schemas.enums.Enum__Browser__Name     import Enum__Browser__Name
+from sg_compute_specs.playwright.core.schemas.enums.Enum__Deployment__Target import Enum__Deployment__Target
+from sg_compute_specs.playwright.core.service.Capability__Detector           import Capability__Detector
 
 
 ENV_KEYS_TO_SCRUB = [ENV_VAR__AWS_LAMBDA_RUNTIME_API,

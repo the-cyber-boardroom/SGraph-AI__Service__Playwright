@@ -4,8 +4,8 @@
 
 from unittest import TestCase
 
-from sgraph_ai_service_playwright.schemas.primitives.vault.Safe_Str__Vault_Key   import Safe_Str__Vault_Key
-from sgraph_ai_service_playwright.schemas.primitives.vault.Safe_Str__Vault_Path  import Safe_Str__Vault_Path
+from sg_compute_specs.playwright.core.schemas.primitives.vault.Safe_Str__Vault_Key   import Safe_Str__Vault_Key
+from sg_compute_specs.playwright.core.schemas.primitives.vault.Safe_Str__Vault_Path  import Safe_Str__Vault_Path
 
 
 class test_Safe_Str__Vault_Key(TestCase):

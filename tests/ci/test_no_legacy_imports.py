@@ -11,7 +11,7 @@ import re
 
 def test_sg_compute_does_not_import_legacy():
     legacy_pattern = re.compile(
-        r'from\s+sgraph_ai_service_playwright|import\s+sgraph_ai_service_playwright'
+        r'from\s+sgraph_ai_service_playwright[^_]|import\s+sgraph_ai_service_playwright[^_]'
     )
     offenders = []
     for root in [pathlib.Path('sg_compute'), pathlib.Path('sg_compute_specs')]:

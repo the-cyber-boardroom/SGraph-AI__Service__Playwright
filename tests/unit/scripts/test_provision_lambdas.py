@@ -14,7 +14,7 @@
 from unittest                                                                           import TestCase
 
 from scripts                                                                            import provision_lambdas
-from sgraph_ai_service_playwright.docker.Lambda__Docker__SGraph_AI__Service__Playwright import (MODE__CODE_ONLY ,
+from sg_compute_specs.playwright.core.docker.Lambda__Docker__SGraph_AI__Service__Playwright import (MODE__CODE_ONLY ,
                                                                                                 MODE__FULL      ,
                                                                                                 MODES__ALL      ,
                                                                                                 VARIANT__AGENTIC,
@@ -31,7 +31,7 @@ class test_module_surface(TestCase):
 class test_variant_ordering(TestCase):
 
     def test__baseline_is_provisioned_before_agentic(self):                             # Fallback-first: if the agentic S3 loader breaks, the baseline URL still works
-        from sgraph_ai_service_playwright.docker.Lambda__Docker__SGraph_AI__Service__Playwright import VARIANTS__ALL
+        from sg_compute_specs.playwright.core.docker.Lambda__Docker__SGraph_AI__Service__Playwright import VARIANTS__ALL
         assert VARIANTS__ALL.index(VARIANT__BASELINE) < VARIANTS__ALL.index(VARIANT__AGENTIC)
 
 

@@ -70,9 +70,7 @@ class Docker__SP__CLI(Type_Safe):
             stage_items          = [Schema__Image__Stage__Item(source_path=str(repo_root / 'sgraph_ai_service_playwright__cli'),
                                                               target_name='sgraph_ai_service_playwright__cli', is_tree=True,
                                                               extra_ignore_names=['images']),                                       # images/ holds the dockerfile itself; no reason to bake it
-                                    Schema__Image__Stage__Item(source_path=str(repo_root / 'sgraph_ai_service_playwright')     ,    # Needed by scripts.provision_ec2's top-level import of IMAGE_NAME; Playwright's own imports are lazy
-                                                              target_name='sgraph_ai_service_playwright'     , is_tree=True),
-                                    Schema__Image__Stage__Item(source_path=str(repo_root / 'sg_compute_specs')                ,    # Ec2__AWS__Client imports SIDECAR_IMAGE_NAME from sg_compute_specs.mitmproxy.docker
+                                    Schema__Image__Stage__Item(source_path=str(repo_root / 'sg_compute_specs')                ,    # Ec2__AWS__Client imports SIDECAR_IMAGE_NAME + PLAYWRIGHT_IMAGE_NAME from sg_compute_specs.*/docker
                                                               target_name='sg_compute_specs'                 , is_tree=True),
                                     Schema__Image__Stage__Item(source_path=str(repo_root / 'scripts')                          ,
                                                               target_name='scripts'                          , is_tree=True),

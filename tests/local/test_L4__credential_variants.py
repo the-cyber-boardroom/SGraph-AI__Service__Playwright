@@ -25,13 +25,13 @@ from unittest                                                                   
 
 import pytest
 
-from sgraph_ai_service_playwright.consts.env_vars                                              import (ENV_VAR__AWS_LAMBDA_RUNTIME_API,
+from sg_compute_specs.playwright.core.consts.env_vars                                              import (ENV_VAR__AWS_LAMBDA_RUNTIME_API,
                                                                                                        ENV_VAR__CI                    ,
                                                                                                        ENV_VAR__CLAUDE_SESSION        ,
                                                                                                        ENV_VAR__DEPLOYMENT_TARGET     ,
                                                                                                        ENV_VAR__SG_SEND_BASE_URL      )
-from sgraph_ai_service_playwright.fast_api.Fast_API__Playwright__Service                       import Fast_API__Playwright__Service
-from sgraph_ai_service_playwright.service.Playwright__Service                                  import Playwright__Service
+from sg_compute_specs.playwright.core.fast_api.Fast_API__Playwright__Service                       import Fast_API__Playwright__Service
+from sg_compute_specs.playwright.core.service.Playwright__Service                                  import Playwright__Service
 
 
 PROXY_HOST     = '127.0.0.1'

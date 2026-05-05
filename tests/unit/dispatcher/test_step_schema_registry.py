@@ -7,17 +7,17 @@ from unittest import TestCase
 
 from fastapi import HTTPException
 
-from sgraph_ai_service_playwright.dispatcher.step_schema_registry          import (STEP_SCHEMAS,
+from sg_compute_specs.playwright.core.dispatcher.step_schema_registry          import (STEP_SCHEMAS,
                                                                                    STEP_RESULT_SCHEMAS,
                                                                                    parse_step,
                                                                                    result_schema_for)
-from sgraph_ai_service_playwright.schemas.enums.Enum__Step__Action         import Enum__Step__Action
-from sgraph_ai_service_playwright.schemas.results.Schema__Step__Result__Base import Schema__Step__Result__Base
-from sgraph_ai_service_playwright.schemas.results.Schema__Step__Result__Get_Content import Schema__Step__Result__Get_Content
-from sgraph_ai_service_playwright.schemas.results.Schema__Step__Result__Get_Url import Schema__Step__Result__Get_Url
-from sgraph_ai_service_playwright.schemas.results.Schema__Step__Result__Evaluate import Schema__Step__Result__Evaluate
-from sgraph_ai_service_playwright.schemas.steps.Schema__Step__Click        import Schema__Step__Click
-from sgraph_ai_service_playwright.schemas.steps.Schema__Step__Navigate     import Schema__Step__Navigate
+from sg_compute_specs.playwright.core.schemas.enums.Enum__Step__Action         import Enum__Step__Action
+from sg_compute_specs.playwright.core.schemas.results.Schema__Step__Result__Base import Schema__Step__Result__Base
+from sg_compute_specs.playwright.core.schemas.results.Schema__Step__Result__Get_Content import Schema__Step__Result__Get_Content
+from sg_compute_specs.playwright.core.schemas.results.Schema__Step__Result__Get_Url import Schema__Step__Result__Get_Url
+from sg_compute_specs.playwright.core.schemas.results.Schema__Step__Result__Evaluate import Schema__Step__Result__Evaluate
+from sg_compute_specs.playwright.core.schemas.steps.Schema__Step__Click        import Schema__Step__Click
+from sg_compute_specs.playwright.core.schemas.steps.Schema__Step__Navigate     import Schema__Step__Navigate
 
 
 class test_STEP_SCHEMAS(TestCase):

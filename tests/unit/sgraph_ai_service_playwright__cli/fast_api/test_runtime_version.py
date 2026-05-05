@@ -34,7 +34,7 @@ class test_runtime_version(TestCase):
         assert resolve_version() != '   '
         assert resolve_version().startswith('v')
 
-    def test__falls_back_to_repo_version_file(self):                                # No env var: locally we should pick up sgraph_ai_service_playwright/version
+    def test__falls_back_to_repo_version_file(self):                                # No env var: locally we should pick up sg_compute_specs/playwright/core/version
         repo_root = Path(__file__).resolve().parents[4]
         file_text = (repo_root / IMAGE_VERSION_FILE_RELATIVE).read_text().strip()
         assert resolve_version() == file_text

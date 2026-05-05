@@ -9,12 +9,12 @@
 from typing                                                                                import Any, Dict, List, Tuple
 from unittest                                                                              import TestCase
 
-from sgraph_ai_service_playwright.schemas.artefact.Schema__Vault_Ref                       import Schema__Vault_Ref
-from sgraph_ai_service_playwright.schemas.primitives.vault.Safe_Str__Vault_Key             import Safe_Str__Vault_Key
-from sgraph_ai_service_playwright.schemas.primitives.vault.Safe_Str__Vault_Path            import Safe_Str__Vault_Path
-from sgraph_ai_service_playwright.schemas.session.Schema__Session__Credentials             import Schema__Session__Credentials
-from sgraph_ai_service_playwright.service.Artefact__Writer                                  import Artefact__Writer
-from sgraph_ai_service_playwright.service.Credentials__Loader                               import Credentials__Loader
+from sg_compute_specs.playwright.core.schemas.artefact.Schema__Vault_Ref                       import Schema__Vault_Ref
+from sg_compute_specs.playwright.core.schemas.primitives.vault.Safe_Str__Vault_Key             import Safe_Str__Vault_Key
+from sg_compute_specs.playwright.core.schemas.primitives.vault.Safe_Str__Vault_Path            import Safe_Str__Vault_Path
+from sg_compute_specs.playwright.core.schemas.session.Schema__Session__Credentials             import Schema__Session__Credentials
+from sg_compute_specs.playwright.core.service.Artefact__Writer                                  import Artefact__Writer
+from sg_compute_specs.playwright.core.service.Credentials__Loader                               import Credentials__Loader
 
 
 class _FakeContext:                                                                # Minimal recorder; matches the subset of Playwright BrowserContext the loader touches

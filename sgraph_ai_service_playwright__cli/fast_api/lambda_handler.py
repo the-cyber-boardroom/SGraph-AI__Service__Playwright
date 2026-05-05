@@ -52,7 +52,7 @@ def is_agentic_mode() -> bool:
 
 
 def boot_via_shim():                                                                # Agentic path: Agentic_Code_Loader pulls the S3 zip, then Fast_API__SP__CLI imports from the extracted copy. ASCII-only inline comment - see line 31 note.
-    from sgraph_ai_service_playwright.agentic_fastapi_aws.Agentic_Boot_Shim import Agentic_Boot_Shim
+    from sg_compute_specs.playwright.core.agentic_fastapi_aws.Agentic_Boot_Shim import Agentic_Boot_Shim
     shim = Agentic_Boot_Shim(fast_api_class_path = SP_CLI_FAST_API_CLASS_PATH ,
                              service_label       = SP_CLI_SERVICE_LABEL        )
     error, handler_inner, _app, _code_source = shim.boot()

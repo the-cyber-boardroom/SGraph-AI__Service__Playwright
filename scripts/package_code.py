@@ -1,13 +1,13 @@
 # ═══════════════════════════════════════════════════════════════════════════════
 # Playwright Service — package_code.py (v0.1.29 — agentic S3-zip hot-swap)
 #
-# Packages the current `sgraph_ai_service_playwright/` Python source into a zip
+# Packages the current `sg_compute_specs/playwright/core/` Python source into a zip
 # and uploads it to the account S3 bucket under:
 #
 #   s3://<account-id>--sgraph-ai--<region>/apps/<app-name>/<stage>/<version>.zip
 #
 # Every upload is IMMUTABLE — the version string comes from the repo-root
-# `sgraph_ai_service_playwright/version` file, and we never overwrite.
+# `sg_compute_specs/playwright/core/version` file, and we never overwrite.
 # There is NO `latest.zip` / `last-known-good.zip`. The Lambda's
 # AGENTIC_APP_VERSION env var IS the pointer; rollback = flip the env var
 # back to an older version.
@@ -27,10 +27,10 @@ from osbot_aws.aws.s3.S3__Zip_Bytes                                             
 from osbot_utils.utils.Files                                                                    import files_list
 from osbot_utils.utils.Regex                                                                    import list__match_regexes
 
-from sgraph_ai_service_playwright.consts.version                                                import version__sgraph_ai_service_playwright
+from sg_compute_specs.playwright.core.consts.version                                                import version__sgraph_ai_service_playwright
 
 
-PACKAGE_NAME       = 'sgraph_ai_service_playwright'                                 # Must match the folder name at repo root
+PACKAGE_NAME       = 'sg_compute_specs'                                 # Must match the folder name at repo root
 SOURCE_FILE_REGEX  = r'.*\.(py|html|js|css)$'                                       # Python sources + static UI assets (html/js/css for api_site); no __pycache__ or compiled files
 BUCKET_NAME_FORMAT = '{account_id}--sgraph-ai--{region_name}'                       # Matches the boot-shim's expectation in lambda_entry.py
 KEY_FORMAT         = 'apps/{app_name}/{stage}/{version}.zip'                        # Matches the boot-shim's expectation in lambda_entry.py

@@ -29,10 +29,10 @@ from sg_compute_specs.playwright.core.agentic_fastapi.Agentic_Admin_API         
 # app package on sys.path. Subclasses override resolve_* when they ship in
 # a different layout (extracted package, different zip layout, etc.).
 _THIS_DIR                 = os.path.dirname(os.path.abspath(__file__))
-_APP_PACKAGE_DIR          = os.path.dirname(_THIS_DIR)                              # sgraph_ai_service_playwright/
-_REPO_ROOT_GUESS          = os.path.dirname(_APP_PACKAGE_DIR)                       # Repo root (sibling to the app package)
+_APP_PACKAGE_DIR          = os.path.dirname(_THIS_DIR)                              # sg_compute_specs/playwright/core/
+_REPO_ROOT_GUESS          = os.path.dirname(os.path.dirname(os.path.dirname(_APP_PACKAGE_DIR)))  # repo root (3 levels up: core/ → playwright/ → sg_compute_specs/ → repo root)
 
-DEFAULT_SKILLS_DIR        = os.path.join(_APP_PACKAGE_DIR, 'skills')                # sgraph_ai_service_playwright/skills/
+DEFAULT_SKILLS_DIR        = os.path.join(_APP_PACKAGE_DIR, 'skills')                # sg_compute_specs/playwright/core/skills/
 DEFAULT_CAPABILITIES_PATH = os.path.join(_REPO_ROOT_GUESS, 'capabilities.json')     # Repo-root sibling to lambda_entry.py
 
 # Public admin paths bypass the API-key middleware. The admin surface is

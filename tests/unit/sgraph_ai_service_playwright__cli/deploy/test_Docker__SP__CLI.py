@@ -46,13 +46,13 @@ class test_Docker__SP__CLI(TestCase):
         assert 'sgraph_ai_service_playwright__cli.fast_api.lambda_handler.handler' in dockerfile
         assert 'public.ecr.aws/lambda/python:3.12'                                  in dockerfile
 
-    def test_build_request__has_all_five_source_trees_with_correct_target_names(self):  # Locks in the SP-CLI image composition
+    def test_build_request__has_all_four_source_trees_with_correct_target_names(self):  # Locks in the SP-CLI image composition
         request = self.docker.build_request()
         targets = {str(item.target_name): item for item in request.stage_items}
-        assert set(targets) == {'sgraph_ai_service_playwright__cli', 'sgraph_ai_service_playwright',
-                                'sg_compute_specs'                 , 'scripts'                     ,
+        assert set(targets) == {'sgraph_ai_service_playwright__cli',
+                                'sg_compute_specs'                 , 'scripts'   ,
                                 'sgraph_ai_service_playwright__api_site'}
-        for item in request.stage_items:                                            # All five are tree copies
+        for item in request.stage_items:                                            # All four are tree copies
             assert item.is_tree is True
         assert 'images' in list(targets['sgraph_ai_service_playwright__cli'].extra_ignore_names)  # Excludes the deploy/images folder
 
@@ -64,15 +64,14 @@ class test_Docker__SP__CLI(TestCase):
             assert os.path.isfile(os.path.join(staging, DOCKERFILE_NAME))
             assert os.path.isfile(os.path.join(staging, 'requirements.txt'))
             assert os.path.isdir (os.path.join(staging, 'sgraph_ai_service_playwright__cli'))
-            assert os.path.isdir (os.path.join(staging, 'sgraph_ai_service_playwright'))           # Shared boot shim + version file
-            assert os.path.isdir (os.path.join(staging, 'sg_compute_specs'))                        # mitmproxy + playwright specs
+            assert os.path.isdir (os.path.join(staging, 'sg_compute_specs'))                        # mitmproxy + playwright specs + boot shim + version file
             assert os.path.isdir (os.path.join(staging, 'scripts'))
             assert os.path.isdir (os.path.join(staging, 'sgraph_ai_service_playwright__api_site')) # Static UI assets for /ui mount
 
             assert os.path.isfile(os.path.join(staging, 'sgraph_ai_service_playwright__cli',
                                                'fast_api', 'lambda_handler.py'))    # The handler the Lambda CMD references
             assert os.path.isfile(os.path.join(staging, 'scripts', 'provision_ec2.py'))
-            assert os.path.isfile(os.path.join(staging, 'sgraph_ai_service_playwright', 'version'))             # Baked at /var/task; runtime_version reads it as a fallback when AGENTIC_APP_VERSION is unset
+            assert os.path.isfile(os.path.join(staging, 'sg_compute_specs', 'playwright', 'core', 'version'))   # Baked at /var/task; version file lives here now
 
             assert not os.path.isdir(os.path.join(staging, 'sgraph_ai_service_playwright__cli', 'deploy', 'images'))   # images/ folder is filtered out via the per-item extra_ignore_names
         finally:

@@ -4,9 +4,9 @@
 
 from unittest import TestCase
 
-from sgraph_ai_service_playwright.schemas.sequence.Schema__Sequence__Config           import Schema__Sequence__Config
-from sgraph_ai_service_playwright.schemas.sequence.Schema__Sequence__Request          import Schema__Sequence__Request
-from sgraph_ai_service_playwright.schemas.sequence.Schema__Sequence__Response         import Schema__Sequence__Response
+from sg_compute_specs.playwright.core.schemas.sequence.Schema__Sequence__Config           import Schema__Sequence__Config
+from sg_compute_specs.playwright.core.schemas.sequence.Schema__Sequence__Request          import Schema__Sequence__Request
+from sg_compute_specs.playwright.core.schemas.sequence.Schema__Sequence__Response         import Schema__Sequence__Response
 
 
 class test_Schema__Sequence__Config(TestCase):

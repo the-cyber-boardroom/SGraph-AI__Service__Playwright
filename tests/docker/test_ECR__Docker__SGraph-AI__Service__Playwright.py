@@ -18,7 +18,7 @@ import subprocess
 
 import pytest
 
-from sgraph_ai_service_playwright.docker.ECR__Docker__SGraph_AI__Service__Playwright   import ECR__Docker__SGraph_AI__Service__Playwright
+from sg_compute_specs.playwright.core.docker.ECR__Docker__SGraph_AI__Service__Playwright   import ECR__Docker__SGraph_AI__Service__Playwright
 
 
 IMAGE_NAME = 'sgraph_ai_service_playwright'

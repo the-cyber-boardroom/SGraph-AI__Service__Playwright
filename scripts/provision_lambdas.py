@@ -31,7 +31,7 @@
 import argparse
 import sys
 
-from sgraph_ai_service_playwright.docker.Lambda__Docker__SGraph_AI__Service__Playwright import (Lambda__Docker__SGraph_AI__Service__Playwright,
+from sg_compute_specs.playwright.core.docker.Lambda__Docker__SGraph_AI__Service__Playwright import (Lambda__Docker__SGraph_AI__Service__Playwright,
                                                                                                 MODE__CODE_ONLY                                ,
                                                                                                 MODE__FULL                                     ,
                                                                                                 MODES__ALL                                     ,

@@ -19,24 +19,24 @@
 import os
 from unittest                                                                               import TestCase
 
-from sgraph_ai_service_playwright.consts.env_vars                                           import (ENV_VAR__AWS_LAMBDA_RUNTIME_API,
+from sg_compute_specs.playwright.core.consts.env_vars                                           import (ENV_VAR__AWS_LAMBDA_RUNTIME_API,
                                                                                                     ENV_VAR__CI                    ,
                                                                                                     ENV_VAR__CLAUDE_SESSION        ,
                                                                                                     ENV_VAR__DEPLOYMENT_TARGET     ,
                                                                                                     ENV_VAR__IGNORE_HTTPS_ERRORS   ,
                                                                                                     ENV_VAR__SG_SEND_BASE_URL      )
-from sgraph_ai_service_playwright.schemas.browser.Schema__Browser__Config                   import Schema__Browser__Config
-from sgraph_ai_service_playwright.schemas.browser.Schema__Browser__Launch__Result            import Schema__Browser__Launch__Result
-from sgraph_ai_service_playwright.schemas.capture.Schema__Capture__Config                   import Schema__Capture__Config
-from sgraph_ai_service_playwright.schemas.enums.Enum__Sequence__Status                       import Enum__Sequence__Status
-from sgraph_ai_service_playwright.schemas.enums.Enum__Step__Status                           import Enum__Step__Status
-from sgraph_ai_service_playwright.schemas.primitives.identifiers.Session_Id                  import Session_Id
-from sgraph_ai_service_playwright.schemas.sequence.Schema__Sequence__Config                 import Schema__Sequence__Config
-from sgraph_ai_service_playwright.schemas.sequence.Schema__Sequence__Request                import Schema__Sequence__Request
-from sgraph_ai_service_playwright.service.Artefact__Writer                                  import Artefact__Writer
-from sgraph_ai_service_playwright.service.Browser__Launcher                                 import Browser__Launcher
-from sgraph_ai_service_playwright.service.Credentials__Loader                               import Credentials__Loader
-from sgraph_ai_service_playwright.service.Playwright__Service                               import Playwright__Service
+from sg_compute_specs.playwright.core.schemas.browser.Schema__Browser__Config                   import Schema__Browser__Config
+from sg_compute_specs.playwright.core.schemas.browser.Schema__Browser__Launch__Result            import Schema__Browser__Launch__Result
+from sg_compute_specs.playwright.core.schemas.capture.Schema__Capture__Config                   import Schema__Capture__Config
+from sg_compute_specs.playwright.core.schemas.enums.Enum__Sequence__Status                       import Enum__Sequence__Status
+from sg_compute_specs.playwright.core.schemas.enums.Enum__Step__Status                           import Enum__Step__Status
+from sg_compute_specs.playwright.core.schemas.primitives.identifiers.Session_Id                  import Session_Id
+from sg_compute_specs.playwright.core.schemas.sequence.Schema__Sequence__Config                 import Schema__Sequence__Config
+from sg_compute_specs.playwright.core.schemas.sequence.Schema__Sequence__Request                import Schema__Sequence__Request
+from sg_compute_specs.playwright.core.service.Artefact__Writer                                  import Artefact__Writer
+from sg_compute_specs.playwright.core.service.Browser__Launcher                                 import Browser__Launcher
+from sg_compute_specs.playwright.core.service.Credentials__Loader                               import Credentials__Loader
+from sg_compute_specs.playwright.core.service.Playwright__Service                               import Playwright__Service
 
 
 ENV_KEYS = [ENV_VAR__AWS_LAMBDA_RUNTIME_API,

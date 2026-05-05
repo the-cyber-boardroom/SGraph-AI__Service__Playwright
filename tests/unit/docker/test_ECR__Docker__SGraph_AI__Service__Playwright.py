@@ -13,8 +13,8 @@ from unittest                                                                   
 from osbot_utils.utils.Files                                                            import file_exists
 from osbot_utils.utils.Json                                                             import json_save_file
 
-from sgraph_ai_service_playwright.docker.Docker__SGraph_AI__Service__Playwright__Base   import Docker__SGraph_AI__Service__Playwright__Base
-from sgraph_ai_service_playwright.docker.ECR__Docker__SGraph_AI__Service__Playwright    import ECR__Docker__SGraph_AI__Service__Playwright
+from sg_compute_specs.playwright.core.docker.Docker__SGraph_AI__Service__Playwright__Base   import Docker__SGraph_AI__Service__Playwright__Base
+from sg_compute_specs.playwright.core.docker.ECR__Docker__SGraph_AI__Service__Playwright    import ECR__Docker__SGraph_AI__Service__Playwright
 
 
 class test_class_shape(TestCase):

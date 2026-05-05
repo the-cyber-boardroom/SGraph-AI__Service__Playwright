@@ -4,12 +4,12 @@
 
 from unittest import TestCase
 
-from sgraph_ai_service_playwright.schemas.enums.Enum__Content__Format                      import Enum__Content__Format
-from sgraph_ai_service_playwright.schemas.enums.Enum__Evaluate__Return_Type                import Enum__Evaluate__Return_Type
-from sgraph_ai_service_playwright.schemas.results.Schema__Step__Result__Base               import Schema__Step__Result__Base
-from sgraph_ai_service_playwright.schemas.results.Schema__Step__Result__Evaluate           import Schema__Step__Result__Evaluate
-from sgraph_ai_service_playwright.schemas.results.Schema__Step__Result__Get_Content        import Schema__Step__Result__Get_Content
-from sgraph_ai_service_playwright.schemas.results.Schema__Step__Result__Get_Url            import Schema__Step__Result__Get_Url
+from sg_compute_specs.playwright.core.schemas.enums.Enum__Content__Format                      import Enum__Content__Format
+from sg_compute_specs.playwright.core.schemas.enums.Enum__Evaluate__Return_Type                import Enum__Evaluate__Return_Type
+from sg_compute_specs.playwright.core.schemas.results.Schema__Step__Result__Base               import Schema__Step__Result__Base
+from sg_compute_specs.playwright.core.schemas.results.Schema__Step__Result__Evaluate           import Schema__Step__Result__Evaluate
+from sg_compute_specs.playwright.core.schemas.results.Schema__Step__Result__Get_Content        import Schema__Step__Result__Get_Content
+from sg_compute_specs.playwright.core.schemas.results.Schema__Step__Result__Get_Url            import Schema__Step__Result__Get_Url
 
 
 class test_Schema__Step__Result__Base(TestCase):

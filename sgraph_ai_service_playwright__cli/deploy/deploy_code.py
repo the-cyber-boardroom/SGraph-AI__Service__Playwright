@@ -31,11 +31,10 @@ from scripts.deploy_code                                                        
 
 
 PACKAGE_NAMES          = ['sgraph_ai_service_playwright__cli',                      # The CLI tree itself: routes, services, schemas, deploy helpers
-                          'sgraph_ai_service_playwright'       ,                    # Shared code: Agentic_Boot_Shim, Agentic_Code_Loader, env-var consts, AND the version file. Without this in the zip, those modules only ever come from the baked image — defeating the hot-swap promise.
+                          'sg_compute_specs'                   ,                    # Agentic_Boot_Shim, Agentic_Code_Loader, env-var consts, version; Ec2__AWS__Client imports SIDECAR_IMAGE_NAME + PLAYWRIGHT_IMAGE_NAME
                           'scripts'                            ,                    # provision_ec2 + observability — imported lazily by Ec2__Service / Observability__Service
-                          'sg_compute_specs'                   ,                    # Ec2__AWS__Client imports SIDECAR_IMAGE_NAME from sg_compute_specs.mitmproxy.docker
                           'sgraph_ai_service_playwright__api_site']                 # Static UI files (HTML/JS/CSS) served at /ui by Fast_API__SP__CLI._mount_ui()
-VERSION_FILE_RELATIVE  = 'sgraph_ai_service_playwright/version'                     # Shared with the main Playwright service — single source of truth bumped by git__increment-tag
+VERSION_FILE_RELATIVE  = 'sg_compute_specs/playwright/core/version'                 # Shared version — single source of truth bumped by git__increment-tag
 
 
 def read_version() -> str:                                                          # Reads the shared version file at the repo root; falls back to 'v0.0.1' if missing

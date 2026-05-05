@@ -30,13 +30,13 @@ import pytest
 
 from fastapi                                                                                   import HTTPException
 
-from sgraph_ai_service_playwright.schemas.browser.Schema__Browser__Config                      import Schema__Browser__Config
-from sgraph_ai_service_playwright.schemas.browser.Schema__Browser__Get_Content__Request        import Schema__Browser__Get_Content__Request
-from sgraph_ai_service_playwright.schemas.browser.Schema__Browser__Navigate__Request           import Schema__Browser__Navigate__Request
-from sgraph_ai_service_playwright.schemas.browser.Schema__Proxy__Auth__Basic                   import Schema__Proxy__Auth__Basic
-from sgraph_ai_service_playwright.schemas.browser.Schema__Proxy__Config                        import Schema__Proxy__Config
-from sgraph_ai_service_playwright.schemas.primitives.host.Safe_Str__Host                       import Safe_Str__Host
-from sgraph_ai_service_playwright.service.Playwright__Service                                  import Playwright__Service
+from sg_compute_specs.playwright.core.schemas.browser.Schema__Browser__Config                      import Schema__Browser__Config
+from sg_compute_specs.playwright.core.schemas.browser.Schema__Browser__Get_Content__Request        import Schema__Browser__Get_Content__Request
+from sg_compute_specs.playwright.core.schemas.browser.Schema__Browser__Navigate__Request           import Schema__Browser__Navigate__Request
+from sg_compute_specs.playwright.core.schemas.browser.Schema__Proxy__Auth__Basic                   import Schema__Proxy__Auth__Basic
+from sg_compute_specs.playwright.core.schemas.browser.Schema__Proxy__Config                        import Schema__Proxy__Config
+from sg_compute_specs.playwright.core.schemas.primitives.host.Safe_Str__Host                       import Safe_Str__Host
+from sg_compute_specs.playwright.core.service.Playwright__Service                                  import Playwright__Service
 
 
 PROXY_HOST     = '127.0.0.1'

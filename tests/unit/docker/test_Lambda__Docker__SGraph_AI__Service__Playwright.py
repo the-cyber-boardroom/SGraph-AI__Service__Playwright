@@ -14,9 +14,9 @@
 import os
 from unittest                                                                           import TestCase
 
-from sgraph_ai_service_playwright.consts.version                                        import version__sgraph_ai_service_playwright
-from sgraph_ai_service_playwright.docker.Docker__SGraph_AI__Service__Playwright__Base   import Docker__SGraph_AI__Service__Playwright__Base
-from sgraph_ai_service_playwright.docker.Lambda__Docker__SGraph_AI__Service__Playwright import (APP_NAME                                       ,
+from sg_compute_specs.playwright.core.consts.version                                        import version__sgraph_ai_service_playwright
+from sg_compute_specs.playwright.core.docker.Docker__SGraph_AI__Service__Playwright__Base   import Docker__SGraph_AI__Service__Playwright__Base
+from sg_compute_specs.playwright.core.docker.Lambda__Docker__SGraph_AI__Service__Playwright import (APP_NAME                                       ,
                                                                                                  LAMBDA_ARCHITECTURE                            ,
                                                                                                  LAMBDA_MEMORY_MB                              ,
                                                                                                  VARIANT__AGENTIC                               ,

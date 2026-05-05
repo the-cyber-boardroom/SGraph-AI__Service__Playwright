@@ -5,9 +5,9 @@
 import pytest
 from unittest import TestCase
 
-from sgraph_ai_service_playwright.schemas.primitives.browser.Safe_Str__Selector             import Safe_Str__Selector
-from sgraph_ai_service_playwright.schemas.primitives.browser.Safe_Str__Browser__Launch_Arg  import Safe_Str__Browser__Launch_Arg
-from sgraph_ai_service_playwright.schemas.primitives.browser.Safe_Str__JS__Expression       import Safe_Str__JS__Expression
+from sg_compute_specs.playwright.core.schemas.primitives.browser.Safe_Str__Selector             import Safe_Str__Selector
+from sg_compute_specs.playwright.core.schemas.primitives.browser.Safe_Str__Browser__Launch_Arg  import Safe_Str__Browser__Launch_Arg
+from sg_compute_specs.playwright.core.schemas.primitives.browser.Safe_Str__JS__Expression       import Safe_Str__JS__Expression
 
 
 class test_Safe_Str__Selector(TestCase):

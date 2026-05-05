@@ -4,8 +4,8 @@
 
 from unittest import TestCase
 
-from sgraph_ai_service_playwright.schemas.primitives.browser.Safe_Str__JS__Expression    import Safe_Str__JS__Expression
-from sgraph_ai_service_playwright.service.JS__Expression__Allowlist                       import JS__Expression__Allowlist
+from sg_compute_specs.playwright.core.schemas.primitives.browser.Safe_Str__JS__Expression    import Safe_Str__JS__Expression
+from sg_compute_specs.playwright.core.service.JS__Expression__Allowlist                       import JS__Expression__Allowlist
 
 
 class test_JS__Expression__Allowlist(TestCase):

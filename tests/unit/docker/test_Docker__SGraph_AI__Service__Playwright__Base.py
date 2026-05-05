@@ -14,7 +14,7 @@ from unittest                                                                   
 from osbot_aws.deploy.Deploy_Lambda                                                     import Deploy_Lambda
 from osbot_aws.helpers.Create_Image_ECR                                                 import Create_Image_ECR
 
-from sgraph_ai_service_playwright.docker.Docker__SGraph_AI__Service__Playwright__Base   import (CONTAINER_PORT                               ,
+from sg_compute_specs.playwright.core.docker.Docker__SGraph_AI__Service__Playwright__Base   import (CONTAINER_PORT                               ,
                                                                                                  Docker__SGraph_AI__Service__Playwright__Base,
                                                                                                  IMAGE_NAME                                   ,
                                                                                                  LOCAL_PORT                                   )
@@ -49,9 +49,9 @@ class test_setup(TestCase):
         assert base.path_images.endswith('/docker/images')
 
     def test__setup_populates_path_images_under_package(self):
-        import sgraph_ai_service_playwright
+        import sg_compute_specs.playwright.core as _playwright_pkg
         base = Docker__SGraph_AI__Service__Playwright__Base().setup()
-        assert base.path_images.startswith(sgraph_ai_service_playwright.path)
+        assert base.path_images.startswith(_playwright_pkg.path)
 
 
 class test_path_helpers(TestCase):

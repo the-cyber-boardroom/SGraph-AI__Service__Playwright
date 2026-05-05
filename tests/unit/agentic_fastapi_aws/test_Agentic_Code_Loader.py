@@ -14,11 +14,11 @@ import sys
 import tempfile
 from unittest                                                                       import TestCase
 
-from sgraph_ai_service_playwright.agentic_fastapi_aws.Agentic_Code_Loader           import (Agentic_Code_Loader,
+from sg_compute_specs.playwright.core.agentic_fastapi_aws.Agentic_Code_Loader           import (Agentic_Code_Loader,
                                                                                             DEFAULT_BUCKET_FORMAT,
                                                                                             DEFAULT_KEY_FORMAT   ,
                                                                                             PASSTHROUGH_TOKEN    )
-from sgraph_ai_service_playwright.consts.env_vars                                   import (ENV_VAR__AGENTIC_APP_NAME              ,
+from sg_compute_specs.playwright.core.consts.env_vars                                   import (ENV_VAR__AGENTIC_APP_NAME              ,
                                                                                             ENV_VAR__AGENTIC_APP_STAGE             ,
                                                                                             ENV_VAR__AGENTIC_APP_VERSION           ,
                                                                                             ENV_VAR__AGENTIC_CODE_LOCAL_PATH       ,

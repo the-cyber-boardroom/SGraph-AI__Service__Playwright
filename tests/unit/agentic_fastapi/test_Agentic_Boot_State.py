@@ -7,7 +7,7 @@
 
 from unittest                                                                       import TestCase
 
-from sgraph_ai_service_playwright.agentic_fastapi.Agentic_Boot_State                import (BOOT_LOG_MAX_LINES,
+from sg_compute_specs.playwright.core.agentic_fastapi.Agentic_Boot_State                import (BOOT_LOG_MAX_LINES,
                                                                                             append_boot_log   ,
                                                                                             get_boot_log      ,
                                                                                             get_last_error    ,
