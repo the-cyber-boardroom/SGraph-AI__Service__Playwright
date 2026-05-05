@@ -13,6 +13,7 @@ from sg_compute.core.pod.schemas.Schema__Pod__Info                           imp
 from sg_compute.core.pod.schemas.Schema__Pod__List                           import Schema__Pod__List
 from sg_compute.core.pod.schemas.Schema__Pod__Logs__Response                 import Schema__Pod__Logs__Response
 from sg_compute.core.pod.schemas.Schema__Pod__Start__Request                 import Schema__Pod__Start__Request
+from sg_compute.core.pod.schemas.Schema__Pod__Stats                          import Schema__Pod__Stats
 from sg_compute.core.pod.schemas.Schema__Pod__Stop__Response                 import Schema__Pod__Stop__Response
 from sg_compute.platforms.Platform                                            import Platform
 from sg_compute.primitives.enums.Enum__Pod__State                            import Enum__Pod__State
@@ -74,6 +75,24 @@ class Pod__Manager(Type_Safe):
             return None
         raw = client.get_pod(pod_name)
         return self._map_pod_info(raw, node_id) if raw else None
+
+    def get_pod_stats(self, node_id: str, pod_name: str) -> Schema__Pod__Stats | None:
+        client = self._sidecar_client(node_id)
+        if client is None:
+            return None
+        raw = client.get_pod_stats(pod_name)
+        if raw is None:
+            return None
+        return Schema__Pod__Stats(container      = raw.get('container'     , pod_name) ,
+                                  cpu_percent    = raw.get('cpu_percent'   , 0.0)      ,
+                                  mem_usage_mb   = raw.get('mem_usage_mb'  , 0.0)      ,
+                                  mem_limit_mb   = raw.get('mem_limit_mb'  , 0.0)      ,
+                                  mem_percent    = raw.get('mem_percent'   , 0.0)      ,
+                                  net_rx_mb      = raw.get('net_rx_mb'     , 0.0)      ,
+                                  net_tx_mb      = raw.get('net_tx_mb'     , 0.0)      ,
+                                  block_read_mb  = raw.get('block_read_mb' , 0.0)      ,
+                                  block_write_mb = raw.get('block_write_mb', 0.0)      ,
+                                  pids           = raw.get('pids'          , 0)        )
 
     def get_pod_logs(self, node_id: str, pod_name: str,
                      tail: int = 100, timestamps: bool = False) -> Schema__Pod__Logs__Response:
