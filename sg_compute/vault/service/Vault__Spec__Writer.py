@@ -1,10 +1,15 @@
 # ═══════════════════════════════════════════════════════════════════════════════
 # SG/Compute — Vault__Spec__Writer
-# Validates a vault-write request and produces a receipt. Actual vault
-# persistence is stubbed — replaced when vault I/O lands (BV2.x follow-on).
+# Validates and persists vault blobs per-spec.
+#
+# Storage backend: _store (in-memory dict keyed by vault_path).
+#   write()        → persists blob + receipt; returns receipt
+#   get_metadata() → retrieves receipt (no blob) for a given path
+#   list_spec()    → all receipts for a spec_id
+#   delete()       → removes blob + receipt
 #
 # write_handles_by_spec: spec_id → set[str] of allowed handle slugs.
-#   Empty set (default) = no restriction on handles.
+#   Empty set = no restriction on handles.
 #   spec_registry: when supplied, spec_id is validated against the registry.
 # ═══════════════════════════════════════════════════════════════════════════════
 
@@ -26,29 +31,30 @@ from sg_compute.vault.primitives.Safe_Str__Vault__Handle                     imp
 from sg_compute.vault.primitives.Safe_Str__Vault__Path                       import Safe_Str__Vault__Path
 from sg_compute.vault.schemas.Schema__Vault__Write__Receipt                  import Schema__Vault__Write__Receipt
 
-MAX_BLOB_BYTES   = 10 * 1024 * 1024                                          # 10 MB hard cap
-SHARED_STACK_ID  = '_shared'                                                 # sentinel for spec-wide (cross-node) blobs
+MAX_BLOB_BYTES  = 10 * 1024 * 1024                                           # 10 MB hard cap
+SHARED_STACK_ID = '_shared'                                                  # sentinel for spec-wide (cross-node) blobs
 
 
 class Vault__Spec__Writer(Type_Safe):
-    spec_registry       : Optional[Spec__Registry] = None                   # when set, spec_id is validated
+    spec_registry         : Optional[Spec__Registry] = None                 # when set, spec_id is validated
     write_handles_by_spec : dict                                             # spec_id → set/list of allowed handles; empty = unrestricted
-    vault_attached      : bool = False                                       # True when a vault token is wired up
+    vault_attached        : bool = False                                     # True when a vault token is wired up
+    _store                : dict                                             # vault_path → (receipt, blob_bytes)
 
     # ── validation ───────────────────────────────────────────────────────────
 
-    def _validate_spec_id(self, spec_id: str) -> Optional[str]:             # None = valid; str = error code
+    def _validate_spec_id(self, spec_id: str) -> Optional[str]:
         if self.spec_registry is not None:
             if self.spec_registry.get(spec_id) is None:
                 return Enum__Vault__Error_Code.UNKNOWN_SPEC
-        elif self.write_handles_by_spec:                                     # no registry: validate against handles dict
+        elif self.write_handles_by_spec:                                     # no registry: fall back to handles dict
             if spec_id not in self.write_handles_by_spec:
                 return Enum__Vault__Error_Code.UNKNOWN_SPEC
         return None
 
     def _validate_handle(self, spec_id: str, handle: str) -> Optional[str]:
         allowed = set(self.write_handles_by_spec.get(spec_id, []))
-        if allowed and handle not in allowed:                                # empty = no restriction
+        if allowed and handle not in allowed:                                # empty = unrestricted
             return Enum__Vault__Error_Code.DISALLOWED_HANDLE
         return None
 
@@ -84,6 +90,7 @@ class Vault__Spec__Writer(Type_Safe):
             written_at    = Safe_Str__ISO_Datetime(written_at) ,
             vault_path    = Safe_Str__Vault__Path(vault_path)  ,
         )
+        self._store[vault_path] = (receipt, body)
         return receipt, None
 
     def get_metadata(self, spec_id: str, stack_id: str,
@@ -93,7 +100,12 @@ class Vault__Spec__Writer(Type_Safe):
         err = self._validate_spec_id(spec_id)
         if err:
             return None, err
-        return None, None                                                    # stub: real lookup in follow-on
+        vault_path = f'spec/{spec_id}/{stack_id}/{handle}'
+        entry      = self._store.get(vault_path)
+        if entry is None:
+            return None, None
+        receipt, _ = entry
+        return receipt, None
 
     def list_spec(self, spec_id: str) -> tuple:
         if not self.vault_attached:
@@ -101,7 +113,11 @@ class Vault__Spec__Writer(Type_Safe):
         err = self._validate_spec_id(spec_id)
         if err:
             return None, err
-        return List__Schema__Vault__Write__Receipt(), None                   # stub: real vault scan in follow-on
+        receipts = List__Schema__Vault__Write__Receipt()
+        for vault_path, (receipt, _) in self._store.items():
+            if vault_path.startswith(f'spec/{spec_id}/'):
+                receipts.append(receipt)
+        return receipts, None
 
     def delete(self, spec_id: str, stack_id: str,
                handle: str) -> tuple:
@@ -113,4 +129,7 @@ class Vault__Spec__Writer(Type_Safe):
         err = self._validate_handle(spec_id, handle)
         if err:
             return False, err
-        return True, None                                                    # stub: real vault delete in follow-on
+        vault_path = f'spec/{spec_id}/{stack_id}/{handle}'
+        existed    = vault_path in self._store
+        self._store.pop(vault_path, None)
+        return existed, None
