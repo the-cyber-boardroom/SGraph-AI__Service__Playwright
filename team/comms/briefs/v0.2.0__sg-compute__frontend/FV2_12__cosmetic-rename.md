@@ -4,7 +4,7 @@
 
 The dashboard has 30+ web components named `sp-cli-{kebab}` ("sp-cli" = SGraph Playwright CLI). Under the v0.2 brand they should be `sg-compute-{kebab}`. This is a sweep across every component file, every `customElements.define()`, every HTML reference, every CSS host selector.
 
-**Deferred from v0.1.x for risk reasons.** Run only after the new API surface is fully stable.
+**Un-deferred 2026-05-05 (Architect decision).** Originally deferred to v0.3, but FV2.6 (per-spec UI co-location) requires FV2.12 to run first so co-located files land with their final `sg-compute-*` names. The new API surface is stable (FV2.2–FV2.9 shipped), so the precondition is met.
 
 ## Tasks
 
@@ -53,8 +53,8 @@ None — mechanical sweep.
 
 ## Blocks / Blocked by
 
-- **Blocks:** FV2.13 (dashboard move). Cleaner to rename in place before relocating.
-- **Blocked by:** FV2.9 (event vocabulary finished — events also use the prefix). After events migrate, all dashboard tag references can flip together.
+- **Blocks:** FV2.6 (per-spec UI co-location — files must land with final names) + FV2.13 (dashboard move).
+- **Blocked by:** FV2.9 (event vocabulary — DONE ✅). All preconditions met.
 
 ## Notes
 
