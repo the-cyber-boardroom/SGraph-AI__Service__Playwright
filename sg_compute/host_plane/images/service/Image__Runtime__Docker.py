@@ -89,6 +89,21 @@ class Image__Runtime__Docker:
             error  = stderr.strip() if rc != 0 else '',
         )
 
+    def load_from_s3(self, bucket: str, key: str, tmp_path: str) -> Schema__Image__Load__Response:
+        s3_uri = f's3://{bucket}/{key}'
+        dl_out, dl_err, dl_rc = self._run_aws(['s3', 'cp', s3_uri, tmp_path], timeout=600)
+        if dl_rc != 0:
+            return Schema__Image__Load__Response(
+                loaded = False,
+                output = dl_out.strip(),
+                error  = dl_err.strip() or f'failed to download {s3_uri}',
+            )
+        return self.load(tmp_path)
+
+    def _run_aws(self, args: list[str], timeout: int = 600) -> tuple[str, str, int]:
+        result = subprocess.run(['aws'] + args, capture_output=True, text=True, timeout=timeout)
+        return result.stdout, result.stderr, result.returncode
+
     def remove(self, name: str) -> Schema__Image__Remove__Response:
         _, stderr, rc = self._run(['rmi', name])
         return Schema__Image__Remove__Response(

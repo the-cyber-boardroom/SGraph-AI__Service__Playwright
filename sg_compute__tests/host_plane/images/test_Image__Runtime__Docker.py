@@ -51,3 +51,9 @@ class test_Image__Runtime__Docker(TestCase):
         assert isinstance(result, Schema__Image__Remove__Response)
         assert result.removed is False
         assert result.error
+
+    def test_load_from_s3__nonexistent_bucket__returns_error(self):
+        result = self.runtime.load_from_s3('no-such-bucket-xyz-test', 'no-such-key.tar', '/tmp/test-s3-load.tar')
+        assert isinstance(result, Schema__Image__Load__Response)
+        assert result.loaded is False
+        assert result.error
