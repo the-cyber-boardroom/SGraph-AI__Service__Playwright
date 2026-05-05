@@ -1,8 +1,11 @@
 <div class="detail-tabs">
   <button class="tab-btn active" data-tab="info">Info</button>
+  <button class="tab-btn"        data-tab="pods">Firefox Pods</button>
   <button class="tab-btn"        data-tab="shell">Terminal</button>
   <button class="tab-btn"        data-tab="hostapi">Host API</button>
 </div>
+
+<!-- ── Info tab ─────────────────────────────────────────────────────────── -->
 <div class="tab-panel active" data-panel="info">
   <div class="detail-top">
     <sg-compute-stack-header class="detail-header"></sg-compute-stack-header>
@@ -16,9 +19,63 @@
     <sg-compute-network-info class="detail-net"></sg-compute-network-info>
   </div>
 </div>
+
+<!-- ── Firefox Pods tab ──────────────────────────────────────────────────── -->
+<div class="tab-panel" data-panel="pods">
+  <div class="pods-layout">
+
+    <!-- left column: list + create form -->
+    <div class="pods-sidebar">
+
+      <div class="pods-toolbar">
+        <span class="pods-status"></span>
+        <button class="ec2-btn pods-refresh">↺</button>
+      </div>
+
+      <div class="pods-list"></div>
+
+      <div class="pods-create">
+        <div class="pods-create-title">Launch Firefox Pod</div>
+        <label class="pods-label">Name
+          <input class="ec2-input pod-name-input" type="text" placeholder="firefox-2">
+        </label>
+        <label class="pods-label">Host port
+          <input class="ec2-input pod-port-input" type="number" min="1025" max="65535" placeholder="5801">
+        </label>
+        <label class="pods-label">Password (optional)
+          <input class="ec2-input pod-pass-input" type="text" placeholder="leave blank for none">
+        </label>
+        <label class="pods-label">Image
+          <input class="ec2-input pod-image-input" type="text" value="jlesage/firefox">
+        </label>
+        <button class="ec2-btn pod-launch-btn">Launch</button>
+        <div class="pod-create-status"></div>
+      </div>
+    </div>
+
+    <!-- right column: iframe viewer -->
+    <div class="pods-viewer">
+      <div class="pods-viewer-empty">
+        <div class="pods-viewer-hint">Click a pod to open it here</div>
+      </div>
+      <div class="pods-viewer-active" hidden>
+        <div class="pods-viewer-bar">
+          <span class="pods-viewer-label"></span>
+          <a class="pods-viewer-newtab ec2-btn" target="_blank" rel="noopener noreferrer">↗ Open in new tab (authorise cert)</a>
+        </div>
+        <iframe class="pods-iframe" sandbox="allow-same-origin allow-scripts allow-forms allow-popups"></iframe>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- ── Terminal tab ──────────────────────────────────────────────────────── -->
 <div class="tab-panel" data-panel="shell">
   <sg-compute-host-shell class="host-shell"></sg-compute-host-shell>
 </div>
+
+<!-- ── Host API tab ──────────────────────────────────────────────────────── -->
 <div class="tab-panel" data-panel="hostapi">
   <sg-compute-host-api-panel class="host-api-panel"></sg-compute-host-api-panel>
 </div>
