@@ -1,6 +1,14 @@
 # Frontend hotfix session — paste into a fresh Claude Code session
 
-You are the **v0.2.1 frontend hotfix** team for SG/Compute. **Stop the line for new FV2.x phase work** until the Tier-1 runtime fix ships.
+You are the **v0.2.1 frontend hotfix** team for SG/Compute.
+
+## Status as of 2026-05-05 14:30 UTC
+
+T1.7 (runtime fix) ✅ shipped clean. T2.1 ⚠ PARTIAL textbook. T2.3, T2.4, T2.5 ✅ shipped clean. **T2.2 over-claimed COMPLETE** — 4 real gaps under that flag. T3.1-T3.5 ✅ shipped (bundled in one PR — process violation flagged but cleanup-class work makes the bundle acceptable).
+
+**Your next PR is T2-FE-patch — fixes T2.1's 2 hidden bugs (`ami_name` data-loss + `creation_mode` enum case) AND closes T2.2's 4 real gaps (card click, broken README link, snapshot, smoke screenshot).**
+
+Read the executive review at `team/humans/dinis_cruz/claude-code-web/05/05/14/00__executive-review__T2-implementation.md` first — it explains the over-claim pattern (T2.1 followed the playbook; T2.2 forgot it 14 minutes later).
 
 ---
 

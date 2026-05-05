@@ -9,37 +9,54 @@
 
 ## Phase index
 
+Status as of 2026-05-05 14:30 UTC.
+
 ### Tier 1 — Security hotfix bundle (ONE PR, security review)
 
-Ship all 6 in **one PR** titled `phase-T1__BE-security-hotfix`. Branch `claude/t1-be-hotfix-{session-id}`. The PR description lists each fix with file:line evidence. Add a security-review note.
+| # | File | Status |
+|---|------|--------|
+| T1.1 | [`T1_1__fast-api-compute-base-class.md`](T1_1__fast-api-compute-base-class.md) | ✅ DONE (commit `815b7c5`) |
+| T1.2 | [`T1_2__remove-privileged-flag.md`](T1_2__remove-privileged-flag.md) | ✅ DONE (commit `815b7c5`) |
+| T1.3 | [`T1_3__api-key-via-ssm.md`](T1_3__api-key-via-ssm.md) | ✅ DONE (commit `815b7c5`) |
+| T1.4 | [`T1_4__post-api-nodes-auth.md`](T1_4__post-api-nodes-auth.md) | ✅ DONE (transitively, commit `815b7c5`) |
+| T1.5 | [`T1_5__pod-manager-per-node-key.md`](T1_5__pod-manager-per-node-key.md) | ✅ DONE (commit `815b7c5`) |
+| T1.6 | [`T1_6__boot-time-auth-assertion.md`](T1_6__boot-time-auth-assertion.md) | ✅ DONE (commit `815b7c5`) |
 
-| # | File | What it fixes |
-|---|------|---------------|
-| T1.1 | [`T1_1__fast-api-compute-base-class.md`](T1_1__fast-api-compute-base-class.md) | `Fast_API__Compute` extends plain `Fast_API` (every `/api/*` route unauthenticated) |
-| T1.2 | [`T1_2__remove-privileged-flag.md`](T1_2__remove-privileged-flag.md) | `Section__Sidecar` runs `--privileged` (NOT in brief) |
-| T1.3 | [`T1_3__api-key-via-ssm.md`](T1_3__api-key-via-ssm.md) | API key plaintext in EC2 user-data, readable via IMDS |
-| T1.4 | [`T1_4__post-api-nodes-auth.md`](T1_4__post-api-nodes-auth.md) | `POST /api/nodes` unauthenticated AND launches sidecars with empty key |
-| T1.5 | [`T1_5__pod-manager-per-node-key.md`](T1_5__pod-manager-per-node-key.md) | `Pod__Manager` env-var key vs per-node key — Pods tab will 401 in production |
-| T1.6 | [`T1_6__boot-time-auth-assertion.md`](T1_6__boot-time-auth-assertion.md) | Legacy SP-CLI surface fails open if env unset; no boot assertion |
+### Tier 2 — Contract violations
 
-### Tier 2 — Contract violations (one PR each, in this order)
+| # | File | Status |
+|---|------|--------|
+| T2.1 | [`T2_1__create-node-podman-vnc.md`](T2_1__create-node-podman-vnc.md) | ✅ DONE (commit `02d57ea`) |
+| T2.2 | [`T2_2__firefox-cli.md`](T2_2__firefox-cli.md) | ⚠ PARTIAL textbook (commit `375f805`) — set-credentials + upload-mitm-script deferred to [`T2_2b__firefox-credentials-routes.md`](T2_2b__firefox-credentials-routes.md) |
+| T2.3 | [`T2_3__object-none-cleanup-and-ci-guard.md`](T2_3__object-none-cleanup-and-ci-guard.md) | ✅ DONE (commits `c0f6bc5` + `b562ced` + `10fcbde`) — CI guard wired into actual GH workflow |
+| T2.4 | [`T2_4__real-vault-writer.md`](T2_4__real-vault-writer.md) | 🔴 **STILL BROKEN** — commit `f8fbd52` shipped fake-stub 2.0; `vault_attached=False` in production wiring; route test bypasses prefix. **Fix in [`T2_4b__real-vault-writer-finish.md`](T2_4b__real-vault-writer-finish.md)** |
+| T2.5 | [`T2_5__lambda-web-adapter.md`](T2_5__lambda-web-adapter.md) | ⚠ PARTIAL (commit `6dbff6f`) — Mangum imports gone; Dockerfile delta + AWS Lambda Web Adapter extension layer not in commit |
+| T2.6 | [`T2_6__safe-str-primitives.md`](T2_6__safe-str-primitives.md) | ⚠ ~10% DONE (commit `2b30ff1`) — `Pod__Manager` named in brief, untouched; spec-side raw types untouched. **Finish in [`T2_6b__safe-str-primitives-finish.md`](T2_6b__safe-str-primitives-finish.md)** |
+| T2.7 | [`T2_7__strip-docstrings.md`](T2_7__strip-docstrings.md) | ⚠ PARTIAL (commits `af65c2c` + `552e5cb`) — CLI + Spec__Loader covered; `Section__*` (7 files) + `Vnc__*` (3 files) still carry docstrings. **Finish in [`T2_7b__strip-docstrings-finish.md`](T2_7b__strip-docstrings-finish.md)** |
 
-| # | File | What it fixes |
-|---|------|---------------|
-| T2.1 | [`T2_1__create-node-podman-vnc.md`](T2_1__create-node-podman-vnc.md) | BV2.5 created docker only; brief required 3 specs (docker + podman + vnc) |
-| T2.2 | [`T2_2__firefox-cli.md`](T2_2__firefox-cli.md) | BV2.6 built docker CLI; brief explicitly named **firefox** as target |
-| T2.3 | [`T2_3__object-none-cleanup-and-ci-guard.md`](T2_3__object-none-cleanup-and-ci-guard.md) | ~39 `: object = None` sites survived; CI guard not wired into GH workflow |
-| T2.4 | [`T2_4__real-vault-writer.md`](T2_4__real-vault-writer.md) | BV2.9 vault writer is fake-200 stub; URL `/vault/vault/spec/...` (double "vault"); routes return raw dicts |
-| T2.5 | [`T2_5__lambda-web-adapter.md`](T2_5__lambda-web-adapter.md) | Mangum used in `lambda_handler.py`; project mandates AWS Lambda Web Adapter |
-| T2.6 | [`T2_6__safe-str-primitives.md`](T2_6__safe-str-primitives.md) | Raw `str` / `int` parameters in `Section__Sidecar`, `Pod__Manager`, `Schema__Node__Create__Request__Base` |
-| T2.7 | [`T2_7__strip-docstrings.md`](T2_7__strip-docstrings.md) | 6 docstrings introduced in BV2.6 (`Cli__Compute__Spec.py`, `Cli__Docker.py`) |
+### Tier 3 — Integration cleanup
 
-### Tier 3 — Integration cleanup (one PR each)
+| # | File | Status |
+|---|------|--------|
+| T3.1 | [`T3_1__bv2.19-packaging-fix.md`](T3_1__bv2.19-packaging-fix.md) | ✅ DONE (commit `542cf08`) — packaging glob moved to `sg_compute_specs/pyproject.toml`; CI test added |
+| T3.2 | [`T3_2__pod-manager-stats-and-info.md`](T3_2__pod-manager-stats-and-info.md) | ✅ DONE (commit `542cf08`) — `Pod__Manager.get_pod_stats` + `Routes__Compute__Pods` extended |
 
-| # | File | What it fixes |
-|---|------|---------------|
-| T3.1 | [`T3_1__bv2.19-packaging-fix.md`](T3_1__bv2.19-packaging-fix.md) | BV2.19 `*/ui/**/*` glob in wrong pyproject; UI files won't ship to Lambda |
-| T3.2 | [`T3_2__pod-manager-stats-and-info.md`](T3_2__pod-manager-stats-and-info.md) | FV2.7 only migrated `list` + `logs`; `/pods/{name}` and `/pods/{name}/stats` still cross-origin |
+### Backend follow-up briefs (filed during execution)
+
+| # | File | Origin |
+|---|------|--------|
+| BV (filed) | [`BV__ami-list-endpoint.md`](BV__ami-list-endpoint.md) | FE-T2.1 dependency |
+| BV (filed) | [`BV__caller-ip-endpoint.md`](BV__caller-ip-endpoint.md) | FE-T2.5 dependency |
+| BV (NEW) | [`BV__spec-readme-endpoint.md`](BV__spec-readme-endpoint.md) | FE-T2.2 known-broken README link |
+
+### Backend follow-up patches (filed 2026-05-05 14:30)
+
+| # | File | Why |
+|---|------|-----|
+| **T2.4b** | [`T2_4b__real-vault-writer-finish.md`](T2_4b__real-vault-writer-finish.md) | 🔴 Still broken in production; was fake-stub 2.0 |
+| **T2.6b** | [`T2_6b__safe-str-primitives-finish.md`](T2_6b__safe-str-primitives-finish.md) | Pod__Manager + spec-side raw types |
+| **T2.7b** | [`T2_7b__strip-docstrings-finish.md`](T2_7b__strip-docstrings-finish.md) | Section__* + Vnc__* still carry docstrings |
+| **T2.2b** | [`T2_2b__firefox-credentials-routes.md`](T2_2b__firefox-credentials-routes.md) | Firefox CLI deferred verbs |
 
 ---
 

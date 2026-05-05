@@ -9,31 +9,41 @@
 
 ## Phase index
 
-### Tier 1 — Runtime breakage (ship as one PR)
+Status as of 2026-05-05 14:30 UTC.
 
-| # | File | What it fixes |
-|---|------|---------------|
-| T1.7 | [`T1_7__ui-imports-runtime-break.md`](T1_7__ui-imports-runtime-break.md) | Co-located spec detail JS uses absolute `/ui/...` imports that no longer resolve after BV2.10 — likely runtime break for every spec detail panel |
+### Tier 1 — Runtime breakage
 
-### Tier 2 — Contract violations (one PR each)
+| # | File | Status |
+|---|------|--------|
+| T1.7 | [`T1_7__ui-imports-runtime-break.md`](T1_7__ui-imports-runtime-break.md) | ✅ DONE (commit `c79770d`) — Option B (`/ui/` mount in `Fast_API__Compute`) chosen with rationale documented |
 
-| # | File | What it fixes |
-|---|------|---------------|
-| T2.1 | [`T2_1__launch-flow-three-modes.md`](T2_1__launch-flow-three-modes.md) | FV2.5 silently shipped 25% of scope (FRESH-only); ship the three-mode selector + AMI picker + size + timeout + cost preview |
-| T2.2 | [`T2_2__spec-detail-view.md`](T2_2__spec-detail-view.md) | FV2.4 silently dropped `<sg-compute-spec-detail>` (Brief Task 3) |
-| T2.3 | [`T2_3__a11y-keyboard-and-contrast.md`](T2_3__a11y-keyboard-and-contrast.md) | FV2.10 missing flagship keyboard nav; contrast sampled n=1 not n=5; `--text-3` token at 3.8:1 fails AA |
-| T2.4 | [`T2_4__settings-bus-dual-dispatch.md`](T2_4__settings-bus-dual-dispatch.md) | FV2.9 missed `sp-cli:plugin.toggled` → `sp-cli:spec.toggled` migration in `shared/settings-bus.js`; spec doc lists it RESERVED (wishful) |
-| T2.5 | [`T2_5__caller-ip-consumer.md`](T2_5__caller-ip-consumer.md) | FV2.11 deleted ipify call without replacement; build the backend `/catalog/caller-ip` consumer (and ticket the backend route) |
+### Tier 2 — Contract violations
 
-### Tier 3 — Integration cleanup (one PR each)
+| # | File | Status |
+|---|------|--------|
+| T2.1 | [`T2_1__launch-flow-three-modes.md`](T2_1__launch-flow-three-modes.md) | ⚠ PARTIAL textbook (commit `67ca15e`) — 4 of 5 brief items shipped; AMI picker is flagged placeholder; [`backend/BV__ami-list-endpoint.md`](../backend/BV__ami-list-endpoint.md) filed. **2 hidden bugs** found in review (see T2-FE-patch). |
+| T2.2 | [`T2_2__spec-detail-view.md`](T2_2__spec-detail-view.md) | ⚠ Over-claimed COMPLETE (commit `dc703ed`) — 4 real gaps under "COMPLETE": card-click not wired; README link known-broken anchor; snapshot omitted; no smoke screenshot. **Fix in [`T2_FE-patch__ami-spec-detail-fixes.md`](T2_FE-patch__ami-spec-detail-fixes.md)** |
+| T2.3 | [`T2_3__a11y-keyboard-and-contrast.md`](T2_3__a11y-keyboard-and-contrast.md) | ✅ DONE (commit `ae5fca2`) — `--text-3` raised to ≥4.65:1; keyboard nav added |
+| T2.4 | [`T2_4__settings-bus-dual-dispatch.md`](T2_4__settings-bus-dual-dispatch.md) | ✅ DONE (commit `ae5fca2`) — settings-bus dual-dispatch wired |
+| T2.5 | [`T2_5__caller-ip-consumer.md`](T2_5__caller-ip-consumer.md) | ✅ DONE (commit `ae5fca2`) — caller-ip consumer; [`backend/BV__caller-ip-endpoint.md`](../backend/BV__caller-ip-endpoint.md) filed |
 
-| # | File | What it fixes |
-|---|------|---------------|
-| T3.1 | [`T3_1__user-tree-api-migration.md`](T3_1__user-tree-api-migration.md) | `user/user.js` still calls `/catalog/types` and `/catalog/stacks` — only admin tree was migrated in FV2.2 |
-| T3.2 | [`T3_2__collapse-dual-launch-flows.md`](T3_2__collapse-dual-launch-flows.md) | Dashboard has TWO launch flows; FV2.4 "Launch node" routes to LEGACY panel, bypassing FV2.5 |
-| T3.3 | [`T3_3__cosmetic-rename-leftovers.md`](T3_3__cosmetic-rename-leftovers.md) | FV2.12 missed parent dir `components/sp-cli/`; 38 import paths still read it; `user/index.html` references deleted directories |
-| T3.4 | [`T3_4__hardcoded-instance-types-cost-table.md`](T3_4__hardcoded-instance-types-cost-table.md) | `INSTANCE_TYPES` / `REGIONS` / `MAX_HOURS` / `COST_TABLE` hardcoded in two places (already drifted) |
-| T3.5 | [`T3_5__field-name-pinning.md`](T3_5__field-name-pinning.md) | `admin.js` reads `stack.node_id || stack.stack_name` at 6+ sites — encodes migration ambiguity |
+### Tier 3 — Integration cleanup
+
+| # | File | Status |
+|---|------|--------|
+| T3.1 | [`T3_1__user-tree-api-migration.md`](T3_1__user-tree-api-migration.md) | ✅ DONE (commit `8afe5b7`, bundled) |
+| T3.2 | [`T3_2__collapse-dual-launch-flows.md`](T3_2__collapse-dual-launch-flows.md) | ✅ DONE (commit `8afe5b7`, bundled) |
+| T3.3 | [`T3_3__cosmetic-rename-leftovers.md`](T3_3__cosmetic-rename-leftovers.md) | ✅ DONE (commit `8afe5b7`, bundled) |
+| T3.4 | [`T3_4__hardcoded-instance-types-cost-table.md`](T3_4__hardcoded-instance-types-cost-table.md) | ✅ DONE (commit `8afe5b7`, bundled) — `shared/launch-defaults.js` |
+| T3.5 | [`T3_5__field-name-pinning.md`](T3_5__field-name-pinning.md) | ✅ DONE (commit `8afe5b7`, bundled) |
+
+> **Process note:** T3.1-T3.5 shipped as ONE PR (`8afe5b7`). Cleanup-class work is acceptable to bundle but the debrief should flag the bundle as a deliberate process choice. Net result is positive — all 5 cleanup items closed; debriefs backfilled.
+
+### Frontend follow-up patches (filed 2026-05-05 14:30)
+
+| # | File | Why |
+|---|------|-----|
+| **T2-FE-patch** | [`T2_FE-patch__ami-spec-detail-fixes.md`](T2_FE-patch__ami-spec-detail-fixes.md) | T2.1 `ami_name` data-loss + `creation_mode` enum-case + T2.2 4 hidden gaps |
 
 ---
 

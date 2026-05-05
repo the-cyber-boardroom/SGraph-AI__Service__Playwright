@@ -1,6 +1,14 @@
 # Backend hotfix session — paste into a fresh Claude Code session
 
-You are the **v0.2.1 backend hotfix** team for SG/Compute. **Stop the line for new BV2.x phase work** until the Tier-1 hotfix bundle ships.
+You are the **v0.2.1 backend hotfix** team for SG/Compute. **Stop the line for new BV2.x phase work.**
+
+## Status as of 2026-05-05 14:30 UTC
+
+T1 (security hotfix) ✅ shipped clean. T2.1, T2.3, T3.1, T3.2 ✅ shipped clean. T2.2 ⚠ PARTIAL textbook (T2.2b filed). **T2.4 is STILL BROKEN** — the previous shipment was fake-stub 2.0; vault writer returns 409 in production. T2.6 ⚠ ~10% done (Pod__Manager untouched). T2.7 ⚠ partially done (Sections + Vnc__* still carry docstrings).
+
+**Your next PR is T2.4b — the blocking vault-writer fix.** Then T2.6b, T2.7b. Then BV__spec-readme-endpoint. Then resume planned BV2.x work (BV2.13 onwards).
+
+Read the executive review at `team/humans/dinis_cruz/claude-code-web/05/05/14/00__executive-review__T2-implementation.md` first — it explains why T2.4 was caught (you didn't see the previous review; you were mid-flight).
 
 ---
 
