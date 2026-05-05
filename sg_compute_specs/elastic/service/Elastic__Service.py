@@ -9,7 +9,7 @@ from typing                                                                     
 
 from osbot_utils.type_safe.Type_Safe                                                import Type_Safe
 
-from sgraph_ai_service_playwright__cli.ec2.collections.List__Instance__Id           import List__Instance__Id
+from sg_compute.platforms.ec2.collections.List__Instance__Id           import List__Instance__Id
 from sg_compute_specs.elastic.collections.List__Schema__Elastic__Health__Check      import List__Schema__Elastic__Health__Check
 from sg_compute_specs.elastic.collections.List__Schema__Elastic__Info               import List__Schema__Elastic__Info
 from sg_compute_specs.elastic.enums.Enum__Elastic__State                            import Enum__Elastic__State

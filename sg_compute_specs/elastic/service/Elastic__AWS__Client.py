@@ -11,8 +11,8 @@ import boto3
 
 from osbot_utils.type_safe.Type_Safe                                                import Type_Safe
 
-from sgraph_ai_service_playwright__cli.aws.Stack__Naming                            import Stack__Naming
-from sgraph_ai_service_playwright__cli.ec2.enums.Enum__Instance__State              import Enum__Instance__State
+from sg_compute.platforms.ec2.helpers.Stack__Naming                            import Stack__Naming
+from sg_compute.platforms.ec2.enums.Enum__Instance__State              import Enum__Instance__State
 from sg_compute_specs.elastic.enums.Enum__Elastic__State                            import Enum__Elastic__State
 from sg_compute_specs.elastic.primitives.Safe_Str__Elastic__Stack__Name             import Safe_Str__Elastic__Stack__Name
 from sg_compute_specs.elastic.primitives.Safe_Str__IP__Address                      import Safe_Str__IP__Address

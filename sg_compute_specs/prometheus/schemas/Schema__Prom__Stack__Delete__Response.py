@@ -4,8 +4,8 @@
 
 from osbot_utils.type_safe.Type_Safe                                                import Type_Safe
 
-from sgraph_ai_service_playwright__cli.ec2.collections.List__Instance__Id           import List__Instance__Id
-from sgraph_ai_service_playwright__cli.ec2.primitives.Safe_Str__Instance__Id        import Safe_Str__Instance__Id
+from sg_compute.platforms.ec2.collections.List__Instance__Id           import List__Instance__Id
+from sg_compute.platforms.ec2.primitives.Safe_Str__Instance__Id        import Safe_Str__Instance__Id
 
 from sg_compute_specs.prometheus.primitives.Safe_Str__Prom__Stack__Name             import Safe_Str__Prom__Stack__Name
 

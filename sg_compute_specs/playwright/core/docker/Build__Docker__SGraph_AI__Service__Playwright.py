@@ -32,10 +32,10 @@ import sg_compute_specs.playwright.core as sgraph_ai_service_playwright
 from sg_compute_specs.playwright.core.docker.Docker__SGraph_AI__Service__Playwright__Base   import (CONTAINER_PORT                               ,
                                                                                                  Docker__SGraph_AI__Service__Playwright__Base,
                                                                                                  LOCAL_PORT                                   )
-from sgraph_ai_service_playwright__cli.image.schemas.Schema__Image__Build__Request       import Schema__Image__Build__Request
-from sgraph_ai_service_playwright__cli.image.schemas.Schema__Image__Build__Result        import Schema__Image__Build__Result
-from sgraph_ai_service_playwright__cli.image.schemas.Schema__Image__Stage__Item          import Schema__Image__Stage__Item
-from sgraph_ai_service_playwright__cli.image.service.Image__Build__Service               import Image__Build__Service
+from sg_compute.image.schemas.Schema__Image__Build__Request       import Schema__Image__Build__Request
+from sg_compute.image.schemas.Schema__Image__Build__Result        import Schema__Image__Build__Result
+from sg_compute.image.schemas.Schema__Image__Stage__Item          import Schema__Image__Stage__Item
+from sg_compute.image.service.Image__Build__Service               import Image__Build__Service
 
 
 BOOT_SHIM_FILENAME   = 'lambda_entry.py'                                                # v0.1.28 — copied from repo root into /var/task/; boots before the code zip lands

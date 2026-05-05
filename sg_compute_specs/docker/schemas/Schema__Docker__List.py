@@ -4,7 +4,7 @@
 
 from osbot_utils.type_safe.Type_Safe                                                import Type_Safe
 
-from sgraph_ai_service_playwright__cli.observability.primitives.Safe_Str__AWS__Region import Safe_Str__AWS__Region
+from sg_compute.primitives.Safe_Str__AWS__Region import Safe_Str__AWS__Region
 
 from sg_compute_specs.docker.collections.List__Schema__Docker__Info                 import List__Schema__Docker__Info
 

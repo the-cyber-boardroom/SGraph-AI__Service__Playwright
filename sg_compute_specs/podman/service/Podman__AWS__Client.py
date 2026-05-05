@@ -12,7 +12,7 @@
 
 from osbot_utils.type_safe.Type_Safe                                                import Type_Safe
 
-from sgraph_ai_service_playwright__cli.aws.Stack__Naming                            import Stack__Naming
+from sg_compute.platforms.ec2.helpers.Stack__Naming                            import Stack__Naming
 
 
 TAG_PURPOSE_KEY     = 'sg:purpose'

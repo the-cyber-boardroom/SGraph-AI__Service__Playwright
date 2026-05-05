@@ -5,7 +5,7 @@
 from osbot_utils.type_safe.Type_Safe                                                import Type_Safe
 from osbot_utils.type_safe.primitives.domains.identifiers.safe_str.Safe_Str__Id     import Safe_Str__Id
 
-from sgraph_ai_service_playwright__cli.ec2.collections.List__Instance__Id           import List__Instance__Id
+from sg_compute.platforms.ec2.collections.List__Instance__Id           import List__Instance__Id
 from sg_compute_specs.elastic.primitives.Safe_Str__Elastic__Stack__Name             import Safe_Str__Elastic__Stack__Name
 
 

@@ -9,9 +9,9 @@ from typing                                                                     
 
 from osbot_utils.type_safe.Type_Safe                                                import Type_Safe
 
-from sgraph_ai_service_playwright__cli.catalog.enums.Enum__Stack__Type              import Enum__Stack__Type
-from sgraph_ai_service_playwright__cli.core.event_bus.Event__Bus                    import event_bus
-from sgraph_ai_service_playwright__cli.core.event_bus.schemas.Schema__Stack__Event  import Schema__Stack__Event
+from sg_compute.catalog.enums.Enum__Stack__Type              import Enum__Stack__Type
+from sg_compute.core.event_bus.Event__Bus                    import event_bus
+from sg_compute.core.event_bus.schemas.Schema__Stack__Event  import Schema__Stack__Event
 
 from sg_compute_specs.docker.collections.List__Schema__Docker__Info                 import List__Schema__Docker__Info
 from sg_compute_specs.docker.enums.Enum__Docker__Stack__State                       import Enum__Docker__Stack__State

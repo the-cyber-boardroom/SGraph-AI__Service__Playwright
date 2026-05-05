@@ -8,10 +8,10 @@ from typing                                                                     
 
 from osbot_utils.type_safe.Type_Safe                                                import Type_Safe
 
-from sgraph_ai_service_playwright__cli.catalog.enums.Enum__Stack__Type              import Enum__Stack__Type
-from sgraph_ai_service_playwright__cli.core.event_bus.Event__Bus                    import event_bus
-from sgraph_ai_service_playwright__cli.core.event_bus.schemas.Schema__Stack__Event  import Schema__Stack__Event
-from sgraph_ai_service_playwright__cli.ec2.collections.List__Instance__Id           import List__Instance__Id
+from sg_compute.catalog.enums.Enum__Stack__Type              import Enum__Stack__Type
+from sg_compute.core.event_bus.Event__Bus                    import event_bus
+from sg_compute.core.event_bus.schemas.Schema__Stack__Event  import Schema__Stack__Event
+from sg_compute.platforms.ec2.collections.List__Instance__Id           import List__Instance__Id
 
 from sg_compute_specs.vnc.collections.List__Schema__Vnc__Mitm__Flow__Summary        import List__Schema__Vnc__Mitm__Flow__Summary
 from sg_compute_specs.vnc.collections.List__Schema__Vnc__Stack__Info                import List__Schema__Vnc__Stack__Info
