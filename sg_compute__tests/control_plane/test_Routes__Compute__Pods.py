@@ -22,13 +22,13 @@ from sg_compute.core.node.schemas.Schema__Node__Info                         imp
 from sg_compute.platforms.Platform                                            import Platform
 from sg_compute.primitives.enums.Enum__Node__State                           import Enum__Node__State
 from sg_compute.primitives.enums.Enum__Pod__State                            import Enum__Pod__State
+from sg_compute.primitives.Safe_Str__Node__Id                                import Safe_Str__Node__Id
+from sg_compute.primitives.Safe_Str__Pod__Name                               import Safe_Str__Pod__Name
 
 
 # ── fake sidecar client ──────────────────────────────────────────────────────
 
 class Fake__Sidecar__Client(Sidecar__Client):
-    """Returns canned data; makes no real HTTP calls."""
-
     def list_pods(self) -> list:
         return [{'name': 'web', 'image': 'nginx:latest', 'status': 'running',
                  'state': 'Up 5 minutes', 'ports': {}, 'created_at': '', 'type_id': 'docker'}]
@@ -190,7 +190,7 @@ class test_Pod__Manager(TestCase):
         self.manager = Fake__Pod__Manager(platform=Fake__Platform__With_IP())
 
     def test_list_pods(self):
-        result = self.manager.list_pods('test-node')
+        result = self.manager.list_pods(Safe_Str__Node__Id('test-node'))
         assert isinstance(result, Schema__Pod__List)
         assert len(result.pods) == 1
         assert result.pods[0].pod_name == 'web'
@@ -198,47 +198,47 @@ class test_Pod__Manager(TestCase):
         assert result.pods[0].state    == Enum__Pod__State.RUNNING
 
     def test_get_pod__found(self):
-        result = self.manager.get_pod('test-node', 'web')
+        result = self.manager.get_pod(Safe_Str__Node__Id('test-node'), Safe_Str__Pod__Name('web'))
         assert isinstance(result, Schema__Pod__Info)
         assert result.pod_name == 'web'
 
     def test_get_pod__not_found(self):
-        result = self.manager.get_pod('test-node', 'ghost')
+        result = self.manager.get_pod(Safe_Str__Node__Id('test-node'), Safe_Str__Pod__Name('ghost'))
         assert result is None
 
     def test_get_pod_logs(self):
-        result = self.manager.get_pod_logs('test-node', 'web', tail=10)
+        result = self.manager.get_pod_logs(Safe_Str__Node__Id('test-node'), Safe_Str__Pod__Name('web'), tail=10)
         assert isinstance(result, Schema__Pod__Logs__Response)
         assert result.container == 'web'
         assert result.lines     == 3
 
     def test_stop_pod(self):
-        result = self.manager.stop_pod('test-node', 'web')
+        result = self.manager.stop_pod(Safe_Str__Node__Id('test-node'), Safe_Str__Pod__Name('web'))
         assert isinstance(result, Schema__Pod__Stop__Response)
         assert result.stopped is True
 
     def test_remove_pod(self):
-        result = self.manager.remove_pod('test-node', 'web')
+        result = self.manager.remove_pod(Safe_Str__Node__Id('test-node'), Safe_Str__Pod__Name('web'))
         assert isinstance(result, Schema__Pod__Stop__Response)
         assert result.removed is True
 
     def test_get_pod_stats__found(self):
-        result = self.manager.get_pod_stats('test-node', 'web')
+        result = self.manager.get_pod_stats(Safe_Str__Node__Id('test-node'), Safe_Str__Pod__Name('web'))
         assert isinstance(result, Schema__Pod__Stats)
         assert result.container   == 'web'
         assert result.cpu_percent == 2.5
         assert result.pids        == 4
 
     def test_get_pod_stats__not_found(self):
-        result = self.manager.get_pod_stats('test-node', 'ghost')
+        result = self.manager.get_pod_stats(Safe_Str__Node__Id('test-node'), Safe_Str__Pod__Name('ghost'))
         assert result is None
 
     def test_get_pod_stats__no_node(self):
         mgr    = Fake__Pod__Manager(platform=Fake__Platform__No_Node())
-        result = mgr.get_pod_stats('ghost', 'web')
+        result = mgr.get_pod_stats(Safe_Str__Node__Id('ghost'), Safe_Str__Pod__Name('web'))
         assert result is None
 
     def test_list_pods__no_node_returns_empty(self):
         mgr    = Fake__Pod__Manager(platform=Fake__Platform__No_Node())
-        result = mgr.list_pods('ghost')
+        result = mgr.list_pods(Safe_Str__Node__Id('ghost'))
         assert result.pods == []

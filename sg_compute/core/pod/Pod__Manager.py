@@ -17,6 +17,8 @@ from sg_compute.core.pod.schemas.Schema__Pod__Stats                          imp
 from sg_compute.core.pod.schemas.Schema__Pod__Stop__Response                 import Schema__Pod__Stop__Response
 from sg_compute.platforms.Platform                                            import Platform
 from sg_compute.primitives.enums.Enum__Pod__State                            import Enum__Pod__State
+from sg_compute.primitives.Safe_Str__Node__Id                                import Safe_Str__Node__Id
+from sg_compute.primitives.Safe_Str__Pod__Name                               import Safe_Str__Pod__Name
 
 SIDECAR_PORT        = 19009
 SIDECAR_API_KEY_ENV = 'SG_COMPUTE__SIDECAR__API_KEY'  # local-dev fallback only; per-node SSM key takes priority in production
@@ -54,7 +56,7 @@ class Pod__Manager(Type_Safe):
                                  state    = state_map.get(raw_status, Enum__Pod__State.FAILED),
                                  ports    = str(raw.get('ports', '')))
 
-    def list_pods(self, node_id: str) -> Schema__Pod__List:
+    def list_pods(self, node_id: Safe_Str__Node__Id) -> Schema__Pod__List:
         client = self._sidecar_client(node_id)
         if client is None:
             return Schema__Pod__List(pods=[])
@@ -62,21 +64,21 @@ class Pod__Manager(Type_Safe):
         pods = [self._map_pod_info(p, node_id) for p in raw_pods]
         return Schema__Pod__List(pods=pods)
 
-    def start_pod(self, node_id: str, request: Schema__Pod__Start__Request) -> Schema__Pod__Info:
+    def start_pod(self, node_id: Safe_Str__Node__Id, request: Schema__Pod__Start__Request) -> Schema__Pod__Info:
         client = self._sidecar_client(node_id)
         if client is None:
             return Schema__Pod__Info(node_id=node_id)
         raw = client.start_pod(request.json())
         return self._map_pod_info(raw, node_id)
 
-    def get_pod(self, node_id: str, pod_name: str) -> Schema__Pod__Info | None:
+    def get_pod(self, node_id: Safe_Str__Node__Id, pod_name: Safe_Str__Pod__Name) -> Schema__Pod__Info | None:
         client = self._sidecar_client(node_id)
         if client is None:
             return None
         raw = client.get_pod(pod_name)
         return self._map_pod_info(raw, node_id) if raw else None
 
-    def get_pod_stats(self, node_id: str, pod_name: str) -> Schema__Pod__Stats | None:
+    def get_pod_stats(self, node_id: Safe_Str__Node__Id, pod_name: Safe_Str__Pod__Name) -> Schema__Pod__Stats | None:
         client = self._sidecar_client(node_id)
         if client is None:
             return None
@@ -94,7 +96,7 @@ class Pod__Manager(Type_Safe):
                                   block_write_mb = raw.get('block_write_mb', 0.0)      ,
                                   pids           = raw.get('pids'          , 0)        )
 
-    def get_pod_logs(self, node_id: str, pod_name: str,
+    def get_pod_logs(self, node_id: Safe_Str__Node__Id, pod_name: Safe_Str__Pod__Name,
                      tail: int = 100, timestamps: bool = False) -> Schema__Pod__Logs__Response:
         client = self._sidecar_client(node_id)
         if client is None:
@@ -105,7 +107,7 @@ class Pod__Manager(Type_Safe):
                                            content   = raw.get('content', '')        ,
                                            truncated = raw.get('truncated', False)   )
 
-    def stop_pod(self, node_id: str, pod_name: str) -> Schema__Pod__Stop__Response:
+    def stop_pod(self, node_id: Safe_Str__Node__Id, pod_name: Safe_Str__Pod__Name) -> Schema__Pod__Stop__Response:
         client = self._sidecar_client(node_id)
         if client is None:
             return Schema__Pod__Stop__Response()
@@ -115,7 +117,7 @@ class Pod__Manager(Type_Safe):
                                            removed = raw.get('removed', False) ,
                                            error   = raw.get('error', '')      )
 
-    def remove_pod(self, node_id: str, pod_name: str) -> Schema__Pod__Stop__Response:
+    def remove_pod(self, node_id: Safe_Str__Node__Id, pod_name: Safe_Str__Pod__Name) -> Schema__Pod__Stop__Response:
         client = self._sidecar_client(node_id)
         if client is None:
             return Schema__Pod__Stop__Response()
