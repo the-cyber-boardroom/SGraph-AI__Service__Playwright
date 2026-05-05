@@ -11,6 +11,7 @@
 #   /api/vault                    Routes__Vault__Spec       (per-spec vault write/list/delete)
 #   /api/specs/{spec_id}/ui/*     StaticFiles               (spec UI assets — mounted when ui/ exists)
 #   /api/specs/{spec_id}/*        per-spec Routes__*__Stack (discovered by convention)
+#   /legacy/*                     Fast_API__SP__CLI sub-app (deprecated; X-Deprecated header on all responses)
 # ═══════════════════════════════════════════════════════════════════════════════
 
 from fastapi                                                                  import Request
@@ -59,41 +60,20 @@ class Fast_API__Compute(Fast_API):
                                 content={'detail': f'AWS credentials not configured: {exc}'})
 
     def _mount_legacy_routes(self):
-        from sgraph_ai_service_playwright__cli.catalog.fast_api.routes.Routes__Stack__Catalog import Routes__Stack__Catalog
-        from sgraph_ai_service_playwright__cli.catalog.service.Stack__Catalog__Service        import Stack__Catalog__Service
-        from sgraph_ai_service_playwright__cli.core.plugin.Plugin__Registry                   import Plugin__Registry, PLUGIN_FOLDERS
-        from sgraph_ai_service_playwright__cli.ec2.service.Ec2__Service                       import Ec2__Service
-        from sgraph_ai_service_playwright__cli.observability.service.Observability__Service   import Observability__Service
-        from sg_compute.control_plane.legacy_routes.Routes__Ec2__Playwright                   import Routes__Ec2__Playwright
-        from sg_compute.control_plane.legacy_routes.Routes__Observability                     import Routes__Observability
+        from sgraph_ai_service_playwright__cli.fast_api.Fast_API__SP__CLI import Fast_API__SP__CLI
+        legacy_app = Fast_API__SP__CLI().setup().app()
 
-        plugin_registry = Plugin__Registry()
-        plugin_registry.plugin_folders = list(PLUGIN_FOLDERS)
-        plugin_registry.discover().setup_all()
+        async def _with_deprecated_headers(scope, receive, send):              # ASGI wrapper — injects X-Deprecated on every legacy response
+            async def _send(message):
+                if message['type'] == 'http.response.start':
+                    headers = list(message.get('headers', []))
+                    headers.append((b'x-deprecated'    , b'true'      ))
+                    headers.append((b'x-migration-path', b'/api/specs'))
+                    message = {**message, 'headers': headers}
+                await send(message)
+            await legacy_app(scope, receive, _send)
 
-        catalog_service = Stack__Catalog__Service(plugin_registry=plugin_registry)
-        ec2_service     = Ec2__Service()
-        obs_service     = Observability__Service()
-
-        self.add_routes(Routes__Stack__Catalog , prefix='/legacy/catalog'        , service=catalog_service)
-        self.add_routes(Routes__Ec2__Playwright , prefix='/legacy/ec2/playwright'  , service=ec2_service   )
-        self.add_routes(Routes__Observability   , prefix='/legacy/observability'   , service=obs_service   )
-        for routes_cls, svc in plugin_registry.route_service_pairs():
-            tag = str(routes_cls().tag)                                            # tag is the URL prefix in the legacy SP CLI
-            self.add_routes(routes_cls, prefix=f'/legacy/{tag}', service=svc)
-
-        self._add_deprecated_header_middleware()
-
-    def _add_deprecated_header_middleware(self):
-        app = self.app()
-
-        @app.middleware('http')
-        async def _legacy_deprecation(request, call_next):
-            response = await call_next(request)
-            if request.url.path.startswith('/legacy'):
-                response.headers['X-Deprecated']    = 'true'
-                response.headers['X-Migration-Path'] = '/api/specs'
-            return response
+        self.app().mount('/legacy', _with_deprecated_headers)
 
     def _mount_spec_ui_static_files(self):
         from starlette.staticfiles                              import StaticFiles

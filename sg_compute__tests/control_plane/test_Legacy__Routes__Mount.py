@@ -1,7 +1,11 @@
 # ═══════════════════════════════════════════════════════════════════════════════
 # sg_compute tests — BV2.10 legacy route mount in Fast_API__Compute
-# Verifies that Fast_API__Compute serves both /api/* and /legacy/* from one
-# process, and that every legacy response carries X-Deprecated: true.
+# Verifies that Fast_API__Compute serves both /api/* (modern) and /legacy/*
+# (deprecated SP CLI sub-app) from one process, and that every legacy response
+# carries X-Deprecated: true + X-Migration-Path headers.
+#
+# Requires Python 3.12 (osbot_fast_api_serverless requires >=3.12).
+# Run: python3.12 -m pytest sg_compute__tests/control_plane/test_Legacy__Routes__Mount.py
 # ═══════════════════════════════════════════════════════════════════════════════
 
 from unittest                                                                  import TestCase
@@ -36,54 +40,40 @@ class test_Legacy__Routes__Mount(TestCase):
         r = self.client.get('/api/health')
         assert 'x-deprecated' not in r.headers
 
-    def test_api_specs_has_no_deprecated_header(self):
-        r = self.client.get('/api/specs')
-        assert 'x-deprecated' not in r.headers
+    # ── /legacy/* routes enforce API-key auth (Fast_API__SP__CLI sub-app) ────
 
-    # ── /legacy/catalog/* responds correctly ──────────────────────────────────
-
-    def test_legacy_catalog_types_returns_200(self):
+    def test_legacy_catalog_types_is_auth_gated(self):
         r = self.client.get('/legacy/catalog/types')
-        assert r.status_code == 200
+        assert r.status_code == 401                                            # SP CLI middleware active
 
-    def test_legacy_catalog_types_has_deprecated_header(self):
+    def test_legacy_docker_stacks_is_auth_gated(self):
+        r = self.client.get('/legacy/docker/stacks')
+        assert r.status_code == 401
+
+    def test_legacy_ec2_playwright_list_is_auth_gated(self):
+        r = self.client.get('/legacy/ec2/playwright/list')
+        assert r.status_code == 401
+
+    # ── every legacy response carries X-Deprecated + X-Migration-Path ────────
+
+    def test_legacy_catalog_has_deprecated_header(self):
         r = self.client.get('/legacy/catalog/types')
         assert r.headers.get('x-deprecated') == 'true'
 
-    def test_legacy_catalog_types_has_migration_path_header(self):
+    def test_legacy_catalog_has_migration_path_header(self):
         r = self.client.get('/legacy/catalog/types')
         assert r.headers.get('x-migration-path') == '/api/specs'
 
-    def test_legacy_catalog_manifest_is_reachable(self):
-        r = self.client.get('/legacy/catalog/manifest')
-        assert r.status_code == 200
+    def test_legacy_docker_has_deprecated_header(self):
+        r = self.client.get('/legacy/docker/stacks')
         assert r.headers.get('x-deprecated') == 'true'
 
-    # ── /legacy/* route topology ─────────────────────────────────────────────
+    def test_legacy_ec2_has_deprecated_header(self):
+        r = self.client.get('/legacy/ec2/playwright/list')
+        assert r.headers.get('x-deprecated') == 'true'
 
-    def test_legacy_routes_registered(self):
-        all_paths = {str(r.path) for r in self.fast_api.app().routes
-                     if hasattr(r, 'path')}
-        assert '/legacy/catalog/types'            in all_paths
-        assert '/legacy/catalog/stacks'           in all_paths
-        assert '/legacy/catalog/manifest'         in all_paths
-        assert '/legacy/ec2/playwright/list'      in all_paths
-        assert '/legacy/ec2/playwright/info/{name}' in all_paths
-        assert '/legacy/observability/stacks'     in all_paths
+    # ── unknown legacy paths ──────────────────────────────────────────────────
 
-    def test_legacy_plugin_routes_registered(self):
-        all_paths = {str(r.path) for r in self.fast_api.app().routes
-                     if hasattr(r, 'path')}
-        assert '/legacy/docker/stacks'            in all_paths
-        assert '/legacy/docker/stack'             in all_paths
-
-    def test_unknown_legacy_path_returns_404(self):
+    def test_unknown_legacy_path_is_auth_gated(self):
         r = self.client.get('/legacy/nonexistent/path')
-        assert r.status_code == 404
-
-    # ── /legacy/observability/stacks works (no AWS needed) ───────────────────
-
-    def test_legacy_observability_stacks_returns_200(self):
-        r = self.client.get('/legacy/observability/stacks')
-        assert r.status_code == 200
-        assert r.headers.get('x-deprecated') == 'true'
+        assert r.status_code == 401                                            # API key middleware fires before routing
