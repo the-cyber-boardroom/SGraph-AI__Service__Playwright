@@ -6,6 +6,12 @@ This is a pointer log, not a content log. For full delta detail, see the master 
 
 ---
 
+## 2026-05-05 (BV2.6)
+
+- `sg-compute/index.md` — UPDATED: `Spec__CLI__Loader` + `Cli__Docker` pilot; `sg-compute spec docker <verb>` dispatcher; 19 new tests.
+
+---
+
 ## 2026-05-02 (B3.0)
 
 - `sg-compute/index.md` — UPDATED: B3.0 docker spec added; `sg_compute_specs/docker/` fully documented; Spec__Loader now returns 3 specs; 183 tests passing.
