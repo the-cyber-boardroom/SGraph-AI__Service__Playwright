@@ -16,6 +16,7 @@ from sg_compute.core.pod.schemas.Schema__Pod__Info                           imp
 from sg_compute.core.pod.schemas.Schema__Pod__List                           import Schema__Pod__List
 from sg_compute.core.pod.schemas.Schema__Pod__Logs__Response                 import Schema__Pod__Logs__Response
 from sg_compute.core.pod.schemas.Schema__Pod__Start__Request                 import Schema__Pod__Start__Request
+from sg_compute.core.pod.schemas.Schema__Pod__Stats                          import Schema__Pod__Stats
 from sg_compute.core.pod.schemas.Schema__Pod__Stop__Response                 import Schema__Pod__Stop__Response
 from sg_compute.core.node.schemas.Schema__Node__Info                         import Schema__Node__Info
 from sg_compute.platforms.Platform                                            import Platform
@@ -45,6 +46,9 @@ class Fake__Sidecar__Client(Sidecar__Client):
         return None
 
     def get_pod_stats(self, name: str) -> dict | None:
+        if name == 'web':
+            return {'container': 'web', 'cpu_percent': 2.5, 'mem_usage_mb': 128.0,
+                    'mem_limit_mb': 512.0, 'mem_percent': 25.0, 'pids': 4}
         return None
 
     def start_pod(self, body: dict) -> dict:
@@ -64,7 +68,7 @@ class Fake__Platform__With_IP(Platform):
     def get_node(self, node_id, region='eu-west-2'):
         return Schema__Node__Info(node_id='test-node', spec_id='docker',
                                   region='eu-west-2', state=Enum__Node__State.READY,
-                                  public_ip='10.0.0.1', instance_id='i-abc')
+                                  public_ip='10.0.0.1', instance_id='i-0abc1234567890abc')
 
     def get_node_missing(self, node_id, region='eu-west-2'):
         return None
@@ -162,6 +166,21 @@ class test_Routes__Compute__Pods(TestCase):
         data = r.json()
         assert data['pod_name'] == 'new-pod'
 
+    def test_get_pod_stats__found(self):
+        client = _client(_manager_with_ip())
+        r      = client.get('/api/nodes/test-node/pods/web/stats')
+        assert r.status_code == 200
+        data = r.json()
+        assert data['container']   == 'web'
+        assert data['cpu_percent'] == 2.5
+        assert data['mem_usage_mb']== 128.0
+        assert data['pids']        == 4
+
+    def test_get_pod_stats__not_found(self):
+        client = _client(_manager_with_ip())
+        r      = client.get('/api/nodes/test-node/pods/missing/stats')
+        assert r.status_code == 404
+
 
 # ── pod manager unit tests ────────────────────────────────────────────────────
 
@@ -202,6 +221,22 @@ class test_Pod__Manager(TestCase):
         result = self.manager.remove_pod('test-node', 'web')
         assert isinstance(result, Schema__Pod__Stop__Response)
         assert result.removed is True
+
+    def test_get_pod_stats__found(self):
+        result = self.manager.get_pod_stats('test-node', 'web')
+        assert isinstance(result, Schema__Pod__Stats)
+        assert result.container   == 'web'
+        assert result.cpu_percent == 2.5
+        assert result.pids        == 4
+
+    def test_get_pod_stats__not_found(self):
+        result = self.manager.get_pod_stats('test-node', 'ghost')
+        assert result is None
+
+    def test_get_pod_stats__no_node(self):
+        mgr    = Fake__Pod__Manager(platform=Fake__Platform__No_Node())
+        result = mgr.get_pod_stats('ghost', 'web')
+        assert result is None
 
     def test_list_pods__no_node_returns_empty(self):
         mgr    = Fake__Pod__Manager(platform=Fake__Platform__No_Node())

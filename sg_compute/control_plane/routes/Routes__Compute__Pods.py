@@ -4,12 +4,13 @@
 #
 # Endpoints (all under /api/nodes prefix)
 # ─────────────────────────────────────
-#   GET    /api/nodes/{node_id}/pods/list        → Schema__Pod__List
-#   POST   /api/nodes/{node_id}/pods             → Schema__Pod__Info
-#   GET    /api/nodes/{node_id}/pods/{name}      → Schema__Pod__Info (404 on miss)
-#   GET    /api/nodes/{node_id}/pods/{name}/logs → Schema__Pod__Logs__Response
-#   POST   /api/nodes/{node_id}/pods/{name}/stop → Schema__Pod__Stop__Response
-#   DELETE /api/nodes/{node_id}/pods/{name}      → Schema__Pod__Stop__Response
+#   GET    /api/nodes/{node_id}/pods/list         → Schema__Pod__List
+#   POST   /api/nodes/{node_id}/pods              → Schema__Pod__Info
+#   GET    /api/nodes/{node_id}/pods/{name}       → Schema__Pod__Info (404 on miss)
+#   GET    /api/nodes/{node_id}/pods/{name}/stats → Schema__Pod__Stats (404 on miss)
+#   GET    /api/nodes/{node_id}/pods/{name}/logs  → Schema__Pod__Logs__Response
+#   POST   /api/nodes/{node_id}/pods/{name}/stop  → Schema__Pod__Stop__Response
+#   DELETE /api/nodes/{node_id}/pods/{name}       → Schema__Pod__Stop__Response
 # ═══════════════════════════════════════════════════════════════════════════════
 
 from fastapi                                                                   import HTTPException
@@ -41,6 +42,13 @@ class Routes__Compute__Pods(Fast_API__Routes):
         return pod.json()
     get_pod.__route_path__ = '/{node_id}/pods/{name}'
 
+    def get_pod_stats(self, node_id: str, name: str) -> dict:                 # GET /{node_id}/pods/{name}/stats
+        stats = self.manager.get_pod_stats(node_id, name)
+        if stats is None:
+            raise HTTPException(status_code=404, detail=f'stats for pod {name!r} not found on node {node_id!r}')
+        return stats.json()
+    get_pod_stats.__route_path__ = '/{node_id}/pods/{name}/stats'
+
     def get_pod_logs(self, node_id: str, name: str,                          # GET /{node_id}/pods/{name}/logs
                      tail: int = 100, timestamps: bool = False) -> dict:
         return self.manager.get_pod_logs(node_id, name, tail=tail, timestamps=timestamps).json()
@@ -55,9 +63,10 @@ class Routes__Compute__Pods(Fast_API__Routes):
     remove_pod.__route_path__ = '/{node_id}/pods/{name}'
 
     def setup_routes(self):
-        self.add_route_get   (self.list_pods   )
-        self.add_route_post  (self.start_pod   )
-        self.add_route_get   (self.get_pod     )
-        self.add_route_get   (self.get_pod_logs)
+        self.add_route_get   (self.list_pods    )
+        self.add_route_post  (self.start_pod    )
+        self.add_route_get   (self.get_pod      )
+        self.add_route_get   (self.get_pod_stats)
+        self.add_route_get   (self.get_pod_logs )
         self.add_route_post  (self.stop_pod    )
         self.add_route_delete(self.remove_pod  )
