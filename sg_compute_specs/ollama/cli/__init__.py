@@ -103,7 +103,6 @@ def create(
     cpu_only      : bool          = typer.Option(False             , '--cpu-only'     ,       help='Allow CPU-only instance types.'       ),
     wait          : bool          = typer.Option(False             , '--wait'         ,       help='Block until Ollama API is ready.'     ),
 ) -> None:
-    """Provision an Ollama EC2 stack."""
     c   = Console(highlight=False, width=200)
     svc = _svc()
     req = Schema__Ollama__Create__Request(
@@ -128,7 +127,6 @@ def create(
 @app.command(name='list')
 @_err_handler
 def list_stacks(region: str = typer.Option(DEFAULT_REGION, '--region', '-r')) -> None:
-    """List all Ollama stacks in the region."""
     listing = _svc().list_stacks(region)
     render_list(listing, Console(highlight=False, width=200))
 
@@ -139,7 +137,6 @@ def info(
     name   : Optional[str] = typer.Argument(None, help='Stack name; auto-selected when only one exists.'),
     region : str           = typer.Option(DEFAULT_REGION, '--region', '-r'),
 ) -> None:
-    """Show details for a single Ollama stack."""
     c    = Console(highlight=False, width=200)
     svc  = _svc()
     name = resolve_stack_name(svc, name, region)
@@ -156,7 +153,6 @@ def delete(
     name   : Optional[str] = typer.Argument(None, help='Stack name; auto-selected when only one exists.'),
     region : str           = typer.Option(DEFAULT_REGION, '--region', '-r'),
 ) -> None:
-    """Terminate an Ollama stack."""
     c    = Console(highlight=False, width=200)
     svc  = _svc()
     name = resolve_stack_name(svc, name, region)
@@ -173,7 +169,6 @@ def wait(
     region      : str           = typer.Option(DEFAULT_REGION, '--region', '-r'),
     timeout_sec : int           = typer.Option(600, '--timeout', help='Max seconds to wait.'),
 ) -> None:
-    """Block until the Ollama API is reachable on port 11434."""
     c    = Console(highlight=False, width=200)
     svc  = _svc()
     name = resolve_stack_name(svc, name, region)
@@ -191,7 +186,6 @@ def health(
     region : str           = typer.Option(DEFAULT_REGION, '--region', '-r'),
     timeout: int           = typer.Option(600, '--timeout', help='Max wait seconds.'),
 ) -> None:
-    """Poll until the Ollama API is healthy (or timeout)."""
     c    = Console(highlight=False, width=200)
     svc  = _svc()
     name = resolve_stack_name(svc, name, region)
@@ -208,7 +202,6 @@ def models(
     name   : Optional[str] = typer.Argument(None, help='Stack name; auto-selected when only one exists.'),
     region : str           = typer.Option(DEFAULT_REGION, '--region', '-r'),
 ) -> None:
-    """List models currently loaded on the Ollama instance."""
     import json, urllib.request
     c    = Console(highlight=False, width=200)
     svc  = _svc()
@@ -238,7 +231,6 @@ def pull(
     name        : Optional[str] = typer.Argument(None, help='Stack name; auto-selected when only one exists.'),
     region      : str           = typer.Option(DEFAULT_REGION, '--region', '-r'),
 ) -> None:
-    """Pull an additional model onto a running Ollama instance via SSM."""
     from sg_compute.platforms.ec2.helpers.EC2__Instance__Helper import EC2__Instance__Helper
     c    = Console(highlight=False, width=200)
     svc  = _svc()

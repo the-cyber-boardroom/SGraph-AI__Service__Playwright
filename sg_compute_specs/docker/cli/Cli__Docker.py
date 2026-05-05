@@ -32,7 +32,6 @@ def _service():
 
 @app.command()
 def list(region: str = typer.Option(DEFAULT_REGION, '--region', '-r', help='AWS region.')):
-    """List all active docker stacks."""
     try:
         listing = _service().list_stacks(region=region)
         render_list(listing, Console(highlight=False, width=200))
@@ -46,7 +45,6 @@ def list(region: str = typer.Option(DEFAULT_REGION, '--region', '-r', help='AWS 
 @app.command()
 def info(stack_name: str = typer.Argument(..., help='Docker stack name.'),
          region    : str = typer.Option(DEFAULT_REGION, '--region', '-r', help='AWS region.')):
-    """Show details for one docker stack."""
     try:
         result = _service().get_stack(stack_name=stack_name, region=region)
         if result is None:
@@ -69,7 +67,6 @@ def create(region       : str = typer.Option(DEFAULT_REGION, '--region'       , 
            name         : str = typer.Option(''           , '--name'               , help='Override stack name.'),
            registry     : str = typer.Option(''           , '--registry'            , help='ECR registry host (enables sidecar).'),
            api_key      : str = typer.Option(''           , '--api-key'             , help='SSM parameter path for the sidecar API key (e.g. /sg-compute/nodes/{node_id}/sidecar-api-key).')):
-    """Create a new docker stack."""
     from sg_compute_specs.docker.schemas.Schema__Docker__Create__Request import Schema__Docker__Create__Request
     try:
         svc   = _service()
@@ -93,7 +90,6 @@ def create(region       : str = typer.Option(DEFAULT_REGION, '--region'       , 
 def delete(stack_name: str  = typer.Argument(..., help='Docker stack name.'),
            region    : str  = typer.Option(DEFAULT_REGION, '--region', '-r', help='AWS region.'),
            yes       : bool = typer.Option(False,           '--yes',    '-y', help='Skip confirmation.')):
-    """Terminate a docker stack."""
     if not yes:
         typer.confirm(f'Delete docker stack {stack_name!r} in {region}?', abort=True)
     try:

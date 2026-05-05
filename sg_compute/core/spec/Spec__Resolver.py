@@ -43,7 +43,6 @@ class Spec__Resolver(Type_Safe):
     def topological_order(self,
                           spec_id : str,
                           specs   : Dict[str, Schema__Spec__Manifest__Entry]) -> List[str]:
-        """Return spec_ids in topological order (parents before children) for spec_id."""
         result  = []
         visited = set()
 
