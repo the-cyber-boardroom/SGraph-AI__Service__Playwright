@@ -1,5 +1,6 @@
 <div class="detail-tabs">
   <button class="tab-btn active" data-tab="info">Info</button>
+  <button class="tab-btn"        data-tab="images">Images</button>
   <button class="tab-btn"        data-tab="shell">Terminal</button>
   <button class="tab-btn"        data-tab="hostapi">Host API</button>
 </div>
@@ -12,6 +13,9 @@
     <sg-compute-ssm-command class="detail-ssm"></sg-compute-ssm-command>
     <sg-compute-network-info class="detail-net"></sg-compute-network-info>
   </div>
+</div>
+<div class="tab-panel" data-panel="images">
+  <sg-compute-images-panel class="images-panel"></sg-compute-images-panel>
 </div>
 <div class="tab-panel" data-panel="shell">
   <sg-compute-host-shell class="host-shell"></sg-compute-host-shell>

@@ -90,4 +90,4 @@
 .tab-btn.active { color: var(--sg-accent); border-bottom-color: var(--sg-accent); }
 .tab-panel          { display: none; flex: 1; min-height: 0; flex-direction: column; overflow: hidden; }
 .tab-panel.active   { display: flex; }
-sg-compute-host-shell, sg-compute-host-api-panel { display: block; height: 100%; }
+sg-compute-host-shell, sg-compute-host-api-panel, sg-compute-images-panel { display: block; height: 100%; }

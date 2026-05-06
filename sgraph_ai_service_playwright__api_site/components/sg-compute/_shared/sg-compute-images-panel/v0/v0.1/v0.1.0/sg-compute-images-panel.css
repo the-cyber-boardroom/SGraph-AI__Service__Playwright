@@ -1,0 +1,99 @@
+:host { display: flex; flex-direction: column; height: 100%; overflow: hidden; }
+
+.ip-banner {
+    background: var(--sg-warn-bg, #3d2e00);
+    color: var(--sg-warn-text, #ffd86e);
+    font-size: var(--sg-fs-small);
+    padding: var(--sg-sp-2) var(--sg-sp-3);
+    border-bottom: 1px solid var(--sg-border);
+}
+
+.ip-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: var(--sg-sp-2) var(--sg-sp-3);
+    border-bottom: 1px solid var(--sg-border);
+    flex-shrink: 0;
+}
+
+.img-status {
+    font-size: var(--sg-fs-small);
+    color: var(--sg-text-muted);
+}
+
+.img-list {
+    flex: 1;
+    overflow-y: auto;
+    padding: var(--sg-sp-2) var(--sg-sp-3);
+    display: flex;
+    flex-direction: column;
+    gap: var(--sg-sp-1);
+}
+
+.img-empty {
+    font-size: var(--sg-fs-small);
+    color: var(--sg-text-muted);
+    padding: var(--sg-sp-4);
+    text-align: center;
+}
+
+.img-row {
+    display: grid;
+    grid-template-columns: 1fr auto auto auto;
+    align-items: center;
+    gap: var(--sg-sp-2);
+    padding: var(--sg-sp-2) var(--sg-sp-2);
+    border-radius: 4px;
+    background: var(--sg-bg-secondary);
+    font-size: var(--sg-fs-small);
+}
+
+.img-name { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.img-id   { color: var(--sg-text-muted); font-family: monospace; font-size: 0.85em; }
+.img-size { color: var(--sg-text-muted); white-space: nowrap; }
+
+.img-btn {
+    background: none;
+    border: 1px solid var(--sg-border);
+    border-radius: 3px;
+    cursor: pointer;
+    font-size: var(--sg-fs-small);
+    padding: 2px 6px;
+    color: var(--sg-text-muted);
+}
+.img-btn:hover      { border-color: var(--sg-text-muted); color: var(--sg-text); }
+.img-btn.del:hover  { border-color: var(--sg-danger, #d9534f); color: var(--sg-danger, #d9534f); }
+.img-btn:disabled   { opacity: 0.4; cursor: not-allowed; }
+
+.s3-section {
+    flex-shrink: 0;
+    border-top: 1px solid var(--sg-border);
+    padding: var(--sg-sp-3);
+    display: flex;
+    flex-direction: column;
+    gap: var(--sg-sp-2);
+}
+
+.s3-title {
+    font-size: var(--sg-fs-small);
+    font-weight: 600;
+    color: var(--sg-text-muted);
+    text-transform: uppercase;
+    letter-spacing: .05em;
+}
+
+.s3-form {
+    display: flex;
+    gap: var(--sg-sp-2);
+    flex-wrap: wrap;
+}
+
+.s3-bucket { flex: 1; min-width: 120px; }
+.s3-key    { flex: 2; min-width: 180px; }
+
+.s3-status {
+    font-size: var(--sg-fs-small);
+    color: var(--sg-text-muted);
+    min-height: 1.2em;
+}
