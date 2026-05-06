@@ -50,3 +50,6 @@ class EC2__Launch__Helper(Type_Safe):
         if not instances:
             raise RuntimeError('RunInstances returned no Instances')
         return instances[0].get('InstanceId', '')
+
+    def add_tags(self, region: str, instance_id: str, tags: List[dict]) -> None:
+        self.ec2_client(region).create_tags(Resources=[instance_id], Tags=tags)

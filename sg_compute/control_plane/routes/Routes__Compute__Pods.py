@@ -29,23 +29,39 @@ class Routes__Compute__Pods(Fast_API__Routes):
     prefix  : str         = '/api/nodes'
     manager : Pod__Manager
 
+    def _sidecar_error(self, node_id: str, e: Exception) -> None:
+        raise HTTPException(status_code=503,
+                            detail=f'sidecar unreachable for node {node_id}: {e}')
+
     def list_pods(self, node_id: str) -> dict:                               # GET /{node_id}/pods/list
-        return self.manager.list_pods(Safe_Str__Node__Id(node_id)).json()
+        try:
+            return self.manager.list_pods(Safe_Str__Node__Id(node_id)).json()
+        except Exception as e:
+            self._sidecar_error(node_id, e)
     list_pods.__route_path__ = '/{node_id}/pods/list'
 
     def start_pod(self, node_id: str, body: Schema__Pod__Start__Request) -> dict:  # POST /{node_id}/pods
-        return self.manager.start_pod(Safe_Str__Node__Id(node_id), body).json()
+        try:
+            return self.manager.start_pod(Safe_Str__Node__Id(node_id), body).json()
+        except Exception as e:
+            self._sidecar_error(node_id, e)
     start_pod.__route_path__ = '/{node_id}/pods'
 
     def get_pod(self, node_id: str, name: str) -> dict:                      # GET /{node_id}/pods/{name}
-        pod = self.manager.get_pod(Safe_Str__Node__Id(node_id), Safe_Str__Pod__Name(name))
+        try:
+            pod = self.manager.get_pod(Safe_Str__Node__Id(node_id), Safe_Str__Pod__Name(name))
+        except Exception as e:
+            self._sidecar_error(node_id, e)
         if pod is None:
             raise HTTPException(status_code=404, detail=f'pod {name!r} not found on node {node_id!r}')
         return pod.json()
     get_pod.__route_path__ = '/{node_id}/pods/{name}'
 
     def get_pod_stats(self, node_id: str, name: str) -> dict:                 # GET /{node_id}/pods/{name}/stats
-        stats = self.manager.get_pod_stats(Safe_Str__Node__Id(node_id), Safe_Str__Pod__Name(name))
+        try:
+            stats = self.manager.get_pod_stats(Safe_Str__Node__Id(node_id), Safe_Str__Pod__Name(name))
+        except Exception as e:
+            self._sidecar_error(node_id, e)
         if stats is None:
             raise HTTPException(status_code=404, detail=f'stats for pod {name!r} not found on node {node_id!r}')
         return stats.json()
@@ -53,16 +69,25 @@ class Routes__Compute__Pods(Fast_API__Routes):
 
     def get_pod_logs(self, node_id: str, name: str,                          # GET /{node_id}/pods/{name}/logs
                      tail: int = 100, timestamps: bool = False) -> dict:
-        return self.manager.get_pod_logs(Safe_Str__Node__Id(node_id), Safe_Str__Pod__Name(name),
-                                         tail=tail, timestamps=timestamps).json()
+        try:
+            return self.manager.get_pod_logs(Safe_Str__Node__Id(node_id), Safe_Str__Pod__Name(name),
+                                             tail=tail, timestamps=timestamps).json()
+        except Exception as e:
+            self._sidecar_error(node_id, e)
     get_pod_logs.__route_path__ = '/{node_id}/pods/{name}/logs'
 
     def stop_pod(self, node_id: str, name: str) -> dict:                     # POST /{node_id}/pods/{name}/stop
-        return self.manager.stop_pod(Safe_Str__Node__Id(node_id), Safe_Str__Pod__Name(name)).json()
+        try:
+            return self.manager.stop_pod(Safe_Str__Node__Id(node_id), Safe_Str__Pod__Name(name)).json()
+        except Exception as e:
+            self._sidecar_error(node_id, e)
     stop_pod.__route_path__ = '/{node_id}/pods/{name}/stop'
 
     def remove_pod(self, node_id: str, name: str) -> dict:                   # DELETE /{node_id}/pods/{name}
-        return self.manager.remove_pod(Safe_Str__Node__Id(node_id), Safe_Str__Pod__Name(name)).json()
+        try:
+            return self.manager.remove_pod(Safe_Str__Node__Id(node_id), Safe_Str__Pod__Name(name)).json()
+        except Exception as e:
+            self._sidecar_error(node_id, e)
     remove_pod.__route_path__ = '/{node_id}/pods/{name}'
 
     def setup_routes(self):

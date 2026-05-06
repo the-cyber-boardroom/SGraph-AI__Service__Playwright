@@ -4,8 +4,8 @@
 # WS   /host/shell/stream   → interactive pty (xterm.js client)
 #
 # /execute is allowlist-gated via Safe_Str__Shell__Command at schema level.
-# /stream uses /bin/rbash to prevent path manipulation; it bypasses the
-# allowlist because rbash itself is the security boundary.
+# /stream uses /bin/bash; EC2 AMIs do not ship /bin/rbash. The security
+# boundary is the sidecar's security group (IAM-gated), not a restricted shell.
 # ═══════════════════════════════════════════════════════════════════════════════
 
 from fastapi                                                                    import HTTPException, WebSocket, WebSocketDisconnect
@@ -32,7 +32,7 @@ class Routes__Host__Shell(Fast_API__Routes):
         await websocket.accept()
         import asyncio
         proc = await asyncio.create_subprocess_shell(
-            '/bin/rbash',
+            '/bin/bash',
             stdin  = asyncio.subprocess.PIPE,
             stdout = asyncio.subprocess.PIPE,
             stderr = asyncio.subprocess.STDOUT,

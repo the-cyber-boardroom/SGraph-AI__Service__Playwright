@@ -14,6 +14,8 @@
 import secrets
 import time
 
+from sgraph_ai_service_playwright__cli.ec2.service.Ec2__AWS__Client import ecr_registry_host
+
 from typing                                                                         import Optional
 
 from osbot_utils.type_safe.Type_Safe                                                import Type_Safe
@@ -85,17 +87,21 @@ class Firefox__Service(Type_Safe):
         cidr      = str(request.allowed_cidr) or f'{caller_ip}/32'
         max_hours = int(request.max_hours)
 
-        profile   = self.aws_client.iam.ensure(region)
-        sg_id     = self.aws_client.sg.ensure_security_group(region, stack_name, cidr)
-        tags      = self.aws_client.tags.build(stack_name, caller_ip, creator)
-        env_source = str(request.env_source)
+        profile       = self.aws_client.iam.ensure(region)
+        sg_id         = self.aws_client.sg.ensure_security_group(region, stack_name, cidr)
+        tags          = self.aws_client.tags.build(stack_name, caller_ip, creator)
+        env_source    = str(request.env_source)
+        registry      = ecr_registry_host()
+        api_key_value = secrets.token_hex(32)
         user_data = self.user_data_builder.render(stack_name         = stack_name        ,
                                                    region             = region            ,
                                                    password           = password          ,
                                                    interceptor_source = interceptor_source,
                                                    interceptor_kind   = interceptor_kind  ,
                                                    env_source         = env_source        ,
-                                                   max_hours          = max_hours         )
+                                                   max_hours          = max_hours         ,
+                                                   registry           = registry          ,
+                                                   api_key_value      = api_key_value     )
         iid       = self.aws_client.launch.run_instance(region, ami_id, sg_id, user_data, tags,
                                                         instance_type         = itype           ,
                                                         instance_profile_name = profile         ,
@@ -253,9 +259,11 @@ class Firefox__Service(Type_Safe):
         cidr             = str(request.allowed_cidr) or f'{caller_ip}/32'
         max_hours        = int(request.max_hours)
 
-        profile   = self.aws_client.iam.ensure(region)
-        sg_id     = self.aws_client.sg.ensure_security_group(region, stack_name, cidr)
-        tags      = self.aws_client.tags.build(stack_name, caller_ip, creator)
+        profile       = self.aws_client.iam.ensure(region)
+        sg_id         = self.aws_client.sg.ensure_security_group(region, stack_name, cidr)
+        tags          = self.aws_client.tags.build(stack_name, caller_ip, creator)
+        registry      = ecr_registry_host()
+        api_key_value = secrets.token_hex(32)
         user_data = self.user_data_builder.render_fast(
             stack_name         = stack_name        ,
             region             = region            ,
@@ -263,7 +271,9 @@ class Firefox__Service(Type_Safe):
             interceptor_source = interceptor_source,
             interceptor_kind   = interceptor_kind  ,
             env_source         = env_source        ,
-            max_hours          = max_hours         )
+            max_hours          = max_hours         ,
+            registry           = registry          ,
+            api_key_value      = api_key_value     )
         iid       = self.aws_client.launch.run_instance(region, ami_id, sg_id, user_data, tags,
                                                         instance_type         = itype           ,
                                                         instance_profile_name = profile         ,
@@ -336,13 +346,17 @@ class Firefox__Service(Type_Safe):
         profile          = self.aws_client.iam.ensure(region)
         instance_tags    = self.aws_client.tags.build(lt_name, '', '')
 
+        registry      = ecr_registry_host()
+        api_key_value = secrets.token_hex(32)
         render    = self.user_data_builder.render_fast if request.fast_boot else self.user_data_builder.render
         user_data = render(stack_name         = lt_name           ,
                            region             = region            ,
                            password           = password          ,
                            interceptor_source = interceptor_source,
                            interceptor_kind   = interceptor_kind  ,
-                           env_source         = env_source        )
+                           env_source         = env_source        ,
+                           registry           = registry          ,
+                           api_key_value      = api_key_value     )
 
         result = self.aws_client.lt.create_or_update(region, lt_name, ami_id, itype,
                                                       sg_id, user_data, profile, instance_tags)
