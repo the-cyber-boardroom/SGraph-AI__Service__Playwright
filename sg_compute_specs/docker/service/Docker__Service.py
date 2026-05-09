@@ -79,8 +79,9 @@ class Docker__Service(Type_Safe):
                                                           max_hours        = request.max_hours         ,
                                                           enable_shell     = bool(request.enable_shell))
         iid       = self.aws_client.launch.run_instance(region, ami_id, sg_id, user_data, tags,
-                                                        instance_type         = itype        ,
-                                                        instance_profile_name = PROFILE_NAME )
+                                                        instance_type         = itype                  ,
+                                                        instance_profile_name = PROFILE_NAME           ,
+                                                        disk_size_gb          = int(request.disk_size_gb))
         info      = Schema__Docker__Info(
             stack_name        = stack_name                                  ,
             aws_name_tag      = DOCKER_NAMING.aws_name_for_stack(stack_name),
