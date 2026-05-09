@@ -8,6 +8,7 @@ These are the **definitive** specs for the SG Playwright Service. If code and sp
 
 | Document | Lines | Content |
 |----------|------:|---------|
+| [`v0.2.6__authoring-a-new-top-level-spec.md`](v0.2.6__authoring-a-new-top-level-spec.md) | — | Developer guide for adding a new top-level Spec to SG/Compute — package skeleton, manifest contract, mandatory classes, CLI/API surface inherited for free, end-to-end walkthrough, pre-merge checklist |
 | [`v0.20.55__schema-catalogue-v2.md`](v0.20.55__schema-catalogue-v2.md) | 1439 | Every `Type_Safe` schema, enum, Safe_* primitive, and collection subclass |
 | [`v0.20.55__routes-catalogue-v2.md`](v0.20.55__routes-catalogue-v2.md) | 1234 | All 25 routes, 12 service classes, registration pattern, step dispatch |
 | [`v0.20.55__ci-pipeline.md`](v0.20.55__ci-pipeline.md)                 | 1161 | CI jobs, Docker infrastructure classes, deploy-via-pytest layout |
