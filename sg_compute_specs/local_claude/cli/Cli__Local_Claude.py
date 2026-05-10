@@ -139,11 +139,13 @@ Available sources (pick with --source / -s, or omit to be prompted):
   journal     full systemd journal — always available
 ''')
 @spec_cli_errors
-def logs(name  : str = typer.Argument(None, help='Stack name; auto-selected when only one exists.'),
-         tail  : int = typer.Option(300, '--tail', '-n', help='Number of log lines to fetch.'),
-         source: str = typer.Option('', '--source', '-s',
-                                    help='vllm | boot | cloud-init | docker | journal. Omit to be prompted.'),
-         region: str = typer.Option(DEFAULT_REGION, '--region', '-r')):
+def logs(name  : str  = typer.Argument(None, help='Stack name; auto-selected when only one exists.'),
+         tail  : int  = typer.Option(300,   '--tail', '-n',    help='Number of log lines to fetch.'),
+         follow: bool = typer.Option(False, '--follow', '-f',  help='Poll for new lines every few seconds (Ctrl-C to stop).'),
+         source: str  = typer.Option('',    '--source', '-s',
+                                     help='vllm | boot | cloud-init | docker | journal. Omit to be prompted.'),
+         region: str  = typer.Option(DEFAULT_REGION, '--region', '-r')):
+    import time
     c = Console(highlight=False)
     if not source:
         source = _prompt_for_source(c)
@@ -155,9 +157,40 @@ def logs(name  : str = typer.Argument(None, help='Stack name; auto-selected when
     name   = Spec__CLI__Builder(_cli_spec).resolver.resolve(svc, name, region, 'local-claude')
     others = '  '.join(k for k in _LOG_SOURCES if k != source)
     c.print(f'  [bold]{source}[/] [dim]──  other sources: {others}[/]')
+    if follow:
+        c.print('  [dim]following — Ctrl-C to stop[/]')
     c.print()
-    result = svc.exec(region, name, cmd_tpl.format(tail=tail), timeout_sec=timeout)
-    c.print(str(getattr(result, 'stdout', '')))
+
+    fetch_tail = max(tail, 500) if follow else tail
+
+    def fetch():
+        r = svc.exec(region, name, cmd_tpl.format(tail=fetch_tail), timeout_sec=timeout)
+        return str(getattr(r, 'stdout', '') or '').splitlines()
+
+    if not follow:
+        c.print('\n'.join(fetch()))
+        return
+
+    shown_anchor = ''   # last line printed; used to find new content each poll
+    try:
+        while True:
+            lines = fetch()
+            if not shown_anchor:
+                for line in lines:
+                    c.print(line)
+                shown_anchor = lines[-1] if lines else ''
+            else:
+                # Find the anchor in the new batch (search from the end for speed)
+                idx = next((i for i in range(len(lines) - 1, -1, -1)
+                            if lines[i] == shown_anchor), None)
+                new_lines = lines[idx + 1:] if idx is not None else lines
+                for line in new_lines:
+                    c.print(line)
+                if new_lines:
+                    shown_anchor = new_lines[-1]
+            time.sleep(4)
+    except KeyboardInterrupt:
+        c.print('\n  [dim]stopped[/]')
 
 
 @app.command()
