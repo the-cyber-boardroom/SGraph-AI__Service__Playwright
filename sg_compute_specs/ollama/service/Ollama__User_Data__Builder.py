@@ -1,7 +1,9 @@
 # ═══════════════════════════════════════════════════════════════════════════════
 # Ephemeral EC2 — Ollama__User_Data__Builder
 # Composes Section__* fragments into a cloud-init bash script.
-# Order: Base → GPU_Verify → Ollama → Agent_Tools → Claude_Launch → Sidecar → Shutdown
+# Order: Base → Shutdown → GPU_Verify → Ollama → Agent_Tools → Claude_Launch → Sidecar
+# Shutdown is registered SECOND (before any spec work) so a script failure
+# in a later section cannot leave the instance running past max_hours.
 # ═══════════════════════════════════════════════════════════════════════════════
 
 from osbot_utils.type_safe.Type_Safe import Type_Safe
@@ -30,8 +32,10 @@ class Ollama__User_Data__Builder(Type_Safe):
                      registry        : str  = ''                 ,
                      api_key_name    : str  = 'X-API-Key'        ,
                      api_key_ssm_path: str  = ''                 ) -> str:
+        shutdown = Section__Shutdown().render(max_hours=max_hours) if max_hours > 0 else ''
         parts = [
             Section__Base()         .render(stack_name=stack_name)                                        ,
+            shutdown                                                                                       ,
             Section__GPU_Verify()   .render(gpu_required=gpu_required)                                    ,
             Section__Ollama()       .render(model_name=model_name, expose_api=expose_api,
                                             pull_on_boot=pull_on_boot)                                    ,
@@ -40,7 +44,5 @@ class Ollama__User_Data__Builder(Type_Safe):
             Section__Sidecar()      .render(registry=registry, api_key_name=api_key_name,
                                             api_key_ssm_path=api_key_ssm_path)                            ,
         ]
-        if max_hours > 0:
-            parts.append(Section__Shutdown().render(max_hours=max_hours))
         parts.append(FOOTER)
         return '\n'.join(p for p in parts if p)

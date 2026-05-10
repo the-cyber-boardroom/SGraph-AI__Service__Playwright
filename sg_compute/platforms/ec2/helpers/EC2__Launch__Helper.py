@@ -49,7 +49,7 @@ class EC2__Launch__Helper(Type_Safe):
             kwargs['IamInstanceProfile'] = {'Name': profile}
         if key_name:
             kwargs['KeyName'] = key_name
-        if max_hours > 0 and not use_spot:                                                       # spot ignores InstanceInitiatedShutdownBehavior; spot always terminates on shutdown
+        if max_hours > 0 and not use_spot:                                                       # spot non-hibernation instances always terminate on OS shutdown; skip the flag (it's silently ignored)
             kwargs['InstanceInitiatedShutdownBehavior'] = 'terminate'
         if disk_size_gb and disk_size_gb > 0:
             kwargs['BlockDeviceMappings'] = [{

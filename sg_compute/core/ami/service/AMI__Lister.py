@@ -12,7 +12,9 @@ from osbot_utils.type_safe.Type_Safe import Type_Safe
 from sg_compute.core.ami.schemas.Schema__AMI__Info          import Schema__AMI__Info
 from sg_compute.core.ami.schemas.Schema__AMI__List__Response import Schema__AMI__List__Response
 
-TAG_KEY__SPEC = 'sg-compute-spec'
+TAG_KEY__SPEC            = 'sg-compute-spec'
+TAG_KEY__SOURCE_STACK    = 'sg-source-stack'
+TAG_KEY__SOURCE_INSTANCE = 'sg-source-instance'
 
 
 class AMI__Lister(Type_Safe):
@@ -52,8 +54,11 @@ class AMI__Lister(Type_Safe):
             if ebs.get('VolumeSize'):
                 size_gb = ebs['VolumeSize']
                 break
-        return Schema__AMI__Info(ami_id     = raw.get('ImageId'     , ''),
-                                 name       = raw.get('Name'        , ''),
-                                 created_at = raw.get('CreationDate', ''),
-                                 state      = raw.get('State'       , ''),
-                                 size_gb    = size_gb                    )
+        tags = {t.get('Key', ''): t.get('Value', '') for t in (raw.get('Tags') or [])}
+        return Schema__AMI__Info(ami_id          = raw.get('ImageId'     , ''),
+                                 name            = raw.get('Name'        , ''),
+                                 created_at      = raw.get('CreationDate', ''),
+                                 state           = raw.get('State'       , ''),
+                                 size_gb         = size_gb                    ,
+                                 source_stack    = tags.get(TAG_KEY__SOURCE_STACK   , ''),
+                                 source_instance = tags.get(TAG_KEY__SOURCE_INSTANCE, ''))

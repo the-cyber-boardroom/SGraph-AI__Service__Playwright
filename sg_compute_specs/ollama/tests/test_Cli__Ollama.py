@@ -20,8 +20,25 @@ class test_Cli__Ollama(TestCase):
         result = self.runner.invoke(app, ['--help'])
         assert result.exit_code == 0
         for verb in ('list', 'info', 'create', 'wait', 'health', 'connect',
-                     'exec', 'delete', 'models', 'pull', 'claude'):
+                     'exec', 'delete', 'ami', 'models', 'pull', 'claude'):
             assert verb in result.output, f'missing verb: {verb}'
+
+    def test_ami_help__lists_subcommands(self):
+        result = self.runner.invoke(app, ['ami', '--help'])
+        assert result.exit_code == 0
+        for sub in ('list', 'bake', 'wait', 'delete'):
+            assert sub in result.output, f'missing ami subcommand: {sub}'
+
+    def test_ami_bake_help__shows_reboot_and_wait_flags(self):
+        result = self.runner.invoke(app, ['ami', 'bake', '--help'])
+        assert result.exit_code == 0
+        for opt in ('--name', '--reboot', '--wait', '--region'):
+            assert opt in result.output, f'missing ami bake option: {opt}'
+
+    def test_ami_delete_help__requires_ami_id(self):
+        result = self.runner.invoke(app, ['ami', 'delete', '--help'])
+        assert result.exit_code == 0
+        assert 'AMI_ID' in result.output or 'ami_id' in result.output.lower()
 
     def test_create_help__shows_g5_xlarge_default(self):
         result = self.runner.invoke(app, ['create', '--help'])

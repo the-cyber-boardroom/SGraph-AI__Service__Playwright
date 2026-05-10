@@ -21,8 +21,10 @@ def render_list(listing, console: Console) -> None:
     t.add_column('instance-type')
     t.add_column('public-ip'    , style='cyan')
     t.add_column('region'       , style='dim')
+    t.add_column('pricing'      )
     for s in stacks:
-        state = str(s.state.value) if hasattr(s.state, 'value') else str(getattr(s, 'state', ''))
+        state   = str(s.state.value) if hasattr(s.state, 'value') else str(getattr(s, 'state', ''))
+        pricing = ('[cyan]spot[/]' if getattr(s, 'spot', False) else '[dim]on-demand[/]') if hasattr(s, 'spot') else ''
         t.add_row(
             str(getattr(s, 'stack_name',    '')) or '—',
             str(getattr(s, 'instance_id',   '')) or '—',
@@ -30,6 +32,7 @@ def render_list(listing, console: Console) -> None:
             str(getattr(s, 'instance_type', '')) or '—',
             str(getattr(s, 'public_ip',     '')) or '—',
             str(getattr(s, 'region',        '')) or '—',
+            pricing                                   ,
         )
     console.print(t)
 
@@ -89,6 +92,63 @@ def render_health_probe(probe, console: Console) -> None:
         console.print(f'  [red]✗  not healthy[/]  state={state}  ({elapsed}ms)')
         if error:
             console.print(f'     [dim]{error}[/]')
+
+
+def render_ami_list(listing, console: Console) -> None:
+    amis = getattr(listing, 'amis', [])
+    if not amis:
+        console.print('  [dim]No AMIs found for this spec.[/]')
+        return
+    t = Table(show_header=True, header_style='bold blue', box=None, padding=(0, 2))
+    t.add_column('ami-id'      , style='bold cyan')
+    t.add_column('name'        )
+    t.add_column('state'       )
+    t.add_column('created'     , style='dim')
+    t.add_column('size'        )
+    t.add_column('source-stack', style='dim')
+    for a in amis:
+        state         = str(getattr(a, 'state', ''))
+        state_styled  = (f'[green]{state}[/]'  if state == 'available'
+                    else f'[yellow]{state}[/]' if state in ('pending', 'transient')
+                    else f'[red]{state}[/]'    if state in ('failed', 'invalid', 'error')
+                    else state or '—')
+        size_gb       = int(getattr(a, 'size_gb', 0) or 0)
+        t.add_row(
+            str(getattr(a, 'ami_id'      , '')) or '—',
+            str(getattr(a, 'name'        , '')) or '—',
+            state_styled                              ,
+            str(getattr(a, 'created_at'  , ''))[:19] or '—',
+            f'{size_gb} GiB' if size_gb else '—'      ,
+            str(getattr(a, 'source_stack', '')) or '—',
+        )
+    console.print(t)
+
+
+def render_ami_bake(info, console: Console) -> None:
+    console.print()
+    console.print(Panel(f'[bold green]Baking AMI[/]  ·  {info.name}',
+                        border_style='green', expand=False))
+    console.print()
+    console.print(f'  ami-id : [bold cyan]{info.ami_id}[/]')
+    console.print(f'  state  : {info.state}  [dim](available in 5–15 min — use `ami wait`)[/]')
+    if str(getattr(info, 'source_stack', '')):
+        console.print(f'  source : {info.source_stack}  [dim]({info.source_instance})[/]')
+    console.print()
+
+
+def render_ami_delete(ami_id: str, deregistered: bool, snapshots_deleted: int,
+                      console: Console) -> None:
+    if deregistered:
+        console.print(f'  [green]✓  deregistered[/] {ami_id}  [dim]({snapshots_deleted} snapshot(s) deleted)[/]')
+    else:
+        console.print(f'  [red]✗  failed to deregister[/] {ami_id}')
+
+
+def render_ami_wait(ami_id: str, state: str, elapsed_sec: int, console: Console) -> None:
+    if state == 'available':
+        console.print(f'  [green]✓  available[/]  {ami_id}  [dim]({elapsed_sec}s)[/]')
+    else:
+        console.print(f'  [yellow]…  state={state or "unknown"}[/]  {ami_id}  [dim]({elapsed_sec}s)[/]')
 
 
 def render_exec_result(result, console: Console) -> None:

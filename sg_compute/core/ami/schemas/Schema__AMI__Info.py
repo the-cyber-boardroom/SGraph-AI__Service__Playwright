@@ -9,8 +9,10 @@ from sg_compute.platforms.ec2.primitives.Safe_Str__AMI__Id import Safe_Str__AMI_
 
 
 class Schema__AMI__Info(Type_Safe):
-    ami_id     : Safe_Str__AMI__Id = Safe_Str__AMI__Id()
-    name       : str               = ''
-    created_at : str               = ''
-    state      : str               = ''
-    size_gb    : int               = 0
+    ami_id          : Safe_Str__AMI__Id = Safe_Str__AMI__Id()
+    name            : str               = ''
+    created_at      : str               = ''
+    state           : str               = ''
+    size_gb         : int               = 0
+    source_stack    : str               = ''                                          # populated from sg-source-stack    tag
+    source_instance : str               = ''                                          # populated from sg-source-instance tag
