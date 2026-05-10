@@ -24,7 +24,7 @@ class TestSchemaLocalClaudeCreateRequest:
         assert req.with_sgit              is True
         assert req.use_spot               is True
         assert req.gpu_required           is True
-        assert req.max_hours              == 1
+        assert req.max_hours              == 1.0
 
     def test_override_model(self):
         req = Schema__Local_Claude__Create__Request()

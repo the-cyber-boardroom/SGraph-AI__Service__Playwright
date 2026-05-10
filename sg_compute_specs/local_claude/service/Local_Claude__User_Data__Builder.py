@@ -36,7 +36,7 @@ class Local_Claude__User_Data__Builder(Type_Safe):
                      max_model_len        : int   = 65536                                        ,
                      kv_cache_dtype       : str   = 'fp8'                                        ,
                      gpu_memory_utilization: float = 0.92                                        ,
-                     max_hours            : int   = 1                                            ,
+                     max_hours            : float = 1.0                                          ,
                      gpu_required         : bool  = True                                         ,
                      with_claude_code     : bool  = True                                         ,
                      with_sgit            : bool  = True                                         ,
