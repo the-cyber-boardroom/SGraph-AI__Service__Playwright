@@ -98,24 +98,33 @@ class EC2__Instance__Helper(Type_Safe):
 
     def run_command(self, region: str, instance_id: str, command: str,
                     timeout_sec: int = 60) -> str:
+        # SSM SendCommand is fundamentally asynchronous — there is no
+        # synchronous "run and return" endpoint. We poll get_command_invocation
+        # tightly (200 ms) without an artificial pre-poll wait, and treat
+        # InvocationDoesNotExist (the brief post-send propagation window) as
+        # transient rather than fatal.
         _PENDING = {'Pending', 'InProgress', 'Delayed'}
         try:
-            resp       = self.ssm_client(region).send_command(
+            resp = self.ssm_client(region).send_command(
                 InstanceIds    = [instance_id]          ,
                 DocumentName   = 'AWS-RunShellScript'   ,
                 Parameters     = {'commands': [command]},
                 TimeoutSeconds = timeout_sec             )
-            command_id = resp.get('Command', {}).get('CommandId', '')
-            deadline   = time.monotonic() + timeout_sec
-            inv        = {}
-            time.sleep(1)
-            while time.monotonic() < deadline:
+        except Exception:
+            return ''
+        command_id = resp.get('Command', {}).get('CommandId', '')
+        if not command_id:
+            return ''
+        deadline = time.monotonic() + timeout_sec
+        inv      = {}
+        while time.monotonic() < deadline:
+            try:
                 inv = self.ssm_client(region).get_command_invocation(
                     CommandId  = command_id ,
                     InstanceId = instance_id)
                 if inv.get('StatusDetails', '') not in _PENDING:
-                    break
-                time.sleep(2)
-            return inv.get('StandardOutputContent', '').strip()
-        except Exception:
-            return ''
+                    return inv.get('StandardOutputContent', '').strip()
+            except Exception:
+                pass                         # InvocationDoesNotExist / transient — keep polling
+            time.sleep(0.2)
+        return inv.get('StandardOutputContent', '').strip()

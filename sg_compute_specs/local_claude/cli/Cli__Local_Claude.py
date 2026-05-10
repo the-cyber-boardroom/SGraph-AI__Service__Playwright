@@ -156,15 +156,17 @@ def logs(name  : str  = typer.Argument(None, help='Stack name; auto-selected whe
     svc    = Local_Claude__Service().setup()
     name   = Spec__CLI__Builder(_cli_spec).resolver.resolve(svc, name, region, 'local-claude')
     others = '  '.join(k for k in _LOG_SOURCES if k != source)
+    fetch_tail = max(tail, 500) if follow else tail
+    ssm_cmd    = cmd_tpl.format(tail=fetch_tail)
+
     c.print(f'  [bold]{source}[/] [dim]──  other sources: {others}[/]')
+    c.print(f'  [dim]via SSM:[/] [cyan]{ssm_cmd}[/]')
     if follow:
         c.print('  [dim]following — Ctrl-C to stop[/]')
     c.print()
 
-    fetch_tail = max(tail, 500) if follow else tail
-
     def fetch():
-        r = svc.exec(region, name, cmd_tpl.format(tail=fetch_tail), timeout_sec=timeout)
+        r = svc.exec(region, name, ssm_cmd, timeout_sec=timeout)
         return str(getattr(r, 'stdout', '') or '').splitlines()
 
     if not follow:
