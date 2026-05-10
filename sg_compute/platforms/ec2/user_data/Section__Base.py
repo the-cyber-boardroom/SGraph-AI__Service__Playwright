@@ -8,6 +8,15 @@ from osbot_utils.type_safe.Type_Safe import Type_Safe
 
 LOG_FILE = '/var/log/ephemeral-ec2-boot.log'
 
+# The timer block is rendered separately so Section__Base.render() can inject
+# it before any failable work (L9: auto-terminate timer must precede all
+# failable work — if dnf install aborts the script, the timer still fires).
+_TIMER_BLOCK = '''\
+# ── Auto-terminate after {max_hours}h ({seconds}s) — set BEFORE any failable work ──
+systemd-run --on-active={seconds}s /sbin/shutdown -h now
+echo "[ephemeral-ec2] auto-terminate timer set: {max_hours}h ({seconds}s) from now"
+'''
+
 TEMPLATE = '''\
 #!/usr/bin/env bash
 set -euo pipefail
@@ -15,7 +24,7 @@ mkdir -p /var/lib
 trap 'rc=$?; echo "[ephemeral-ec2] boot FAILED at line $LINENO (exit=$rc)"; touch /var/lib/sg-compute-boot-failed' ERR
 exec > >(tee -a {log_file}) 2>&1
 echo "[ephemeral-ec2] boot starting: {stack_name} at $(date -u +%FT%TZ)"
-
+{timer_block}
 hostnamectl set-hostname {stack_name} 2>/dev/null || true
 dnf update -y -q
 dnf install -y --allowerasing git curl jq unzip
@@ -27,5 +36,11 @@ systemctl enable --now amazon-ssm-agent 2>/dev/null || true
 
 class Section__Base(Type_Safe):
 
-    def render(self, stack_name: str) -> str:
-        return TEMPLATE.format(stack_name=stack_name, log_file=LOG_FILE)
+    def render(self, stack_name: str, max_hours: float = 0.0) -> str:
+        if max_hours > 0:
+            seconds     = max(1, int(round(max_hours * 3600)))
+            timer_block = _TIMER_BLOCK.format(max_hours=max_hours, seconds=seconds)
+        else:
+            timer_block = ''
+        return TEMPLATE.format(stack_name=stack_name, log_file=LOG_FILE,
+                               timer_block=timer_block)

@@ -1,12 +1,11 @@
 # ═══════════════════════════════════════════════════════════════════════════════
 # Ephemeral EC2 — Local_Claude__User_Data__Builder
 # Composes Section__* fragments into a cloud-init bash script.
-# Order: Base → Shutdown → GPU_Verify → Docker → NVIDIA_Container_Toolkit
+# Order: Base (includes timer) → GPU_Verify → Docker → NVIDIA_Container_Toolkit
 #      → SGit_Venv → Claude_Code__Firstboot → VLLM → Sidecar
 #
-# Shutdown is registered SECOND (position 2) so a script failure in a later
-# section cannot leave the instance running past max_hours (L9 lesson from
-# the 2026-05-10 debrief: auto-terminate timer must precede all failable work).
+# The auto-terminate timer is baked into Section__Base (max_hours param) so it
+# fires even if a later dnf install or Docker pull aborts the script (L9 lesson).
 # Agent_Tools is intentionally omitted: it targets ec2-user + python3.13 and is
 # not used by the local-claude stack.
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -19,7 +18,6 @@ from sg_compute.platforms.ec2.user_data.Section__Docker                   import
 from sg_compute.platforms.ec2.user_data.Section__GPU_Verify               import Section__GPU_Verify
 from sg_compute.platforms.ec2.user_data.Section__NVIDIA_Container_Toolkit import Section__NVIDIA_Container_Toolkit
 from sg_compute.platforms.ec2.user_data.Section__SGit_Venv                import Section__SGit_Venv
-from sg_compute.platforms.ec2.user_data.Section__Shutdown                 import Section__Shutdown
 from sg_compute.platforms.ec2.user_data.Section__Sidecar                  import Section__Sidecar
 from sg_compute.platforms.ec2.user_data.Section__VLLM                     import Section__VLLM
 
@@ -44,10 +42,8 @@ class Local_Claude__User_Data__Builder(Type_Safe):
                      registry             : str   = ''                                           ,
                      api_key_name         : str   = 'X-API-Key'                                  ,
                      api_key_ssm_path     : str   = ''                                           ) -> str:
-        shutdown = Section__Shutdown().render(max_hours=max_hours) if max_hours > 0 else ''
         parts = [
-            Section__Base()                     .render(stack_name=stack_name)                 ,
-            shutdown                                                                            ,
+            Section__Base()                     .render(stack_name=stack_name, max_hours=max_hours) ,
             Section__GPU_Verify()               .render(gpu_required=gpu_required)             ,
             Section__Docker()                   .render()                                      ,
             Section__NVIDIA_Container_Toolkit() .render()                                      ,
