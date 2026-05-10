@@ -280,17 +280,41 @@ class Spec__CLI__Builder:
 
         @app.command(name='exec')
         @spec_cli_errors
-        def exec_cmd(name   : Optional[str] = typer.Argument(None,
-                                help='Stack name; auto-selected when only one exists.'),
-                     command: str           = typer.Argument(...,
-                                help='Shell command to run on the instance via SSM.'),
-                     region : str           = typer.Option(DEFAULT_REGION, '--region', '-r'),
-                     timeout: int           = typer.Option(DEFAULT_EXEC_TIMEOUT, '--timeout'),
-                     cwd    : str           = typer.Option('', '--cwd',
+        def exec_cmd(args   : Optional[List[str]] = typer.Argument(None,
+                                help='[STACK-NAME] CMD [ARGS…] — stack auto-selected when one exists.'),
+                     region : str                 = typer.Option(DEFAULT_REGION, '--region', '-r'),
+                     timeout: int                 = typer.Option(DEFAULT_EXEC_TIMEOUT, '--timeout'),
+                     cwd    : str                 = typer.Option('', '--cwd',
                                 help='Working directory on the remote host.')):
-            """Run a shell command on the instance via SSM and print the output."""
-            svc    = service_factory()
-            name   = resolver.resolve(svc, name, region, spec_id)
+            """Run a shell command on the instance via SSM and print the output.
+
+            \b
+            All three forms work:
+              exec STACK-NAME CMD [ARGS…]   e.g.  exec lean-euler docker images
+              exec CMD [ARGS…]              e.g.  exec docker images   (auto-resolve)
+              exec "CMD ARGS"               e.g.  exec "docker ps -a"  (quoted)
+            """
+            if not args:
+                raise typer.BadParameter('Provide a command: exec [STACK-NAME] CMD [ARGS…]')
+            svc     = service_factory()
+            listing = svc.list_stacks(region)
+            known   = {str(s.stack_name) for s in listing.stacks if str(s.stack_name)}
+            if len(args) > 1 and args[0] in known:
+                name    = args[0]
+                command = ' '.join(args[1:])
+            else:
+                stacks = sorted(known)
+                if not stacks:
+                    Console(highlight=False, stderr=True).print(
+                        f'\n  [yellow]No {spec_id} stacks in {region}.[/]\n')
+                    raise typer.Exit(1)
+                if len(stacks) == 1:
+                    Console(highlight=False).print(
+                        f'\n  [dim]One stack found — using [bold]{stacks[0]}[/][/]')
+                    name = stacks[0]
+                else:
+                    name = resolver.resolve(svc, None, region, spec_id)
+                command = ' '.join(args)
             result = svc.exec(region, name, command, timeout_sec=timeout, cwd=cwd)
             render_exec_result(result, Console(highlight=False, width=200))
 

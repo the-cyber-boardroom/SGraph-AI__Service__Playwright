@@ -12,9 +12,20 @@ echo "[ephemeral-ec2] installing Docker CE..."
 dnf install -y docker
 systemctl enable --now docker
 usermod -aG docker ec2-user  || true
-# ssm-user is created asynchronously; wait before adding to docker group
-until id ssm-user >/dev/null 2>&1; do sleep 2; done
-usermod -aG docker ssm-user
+# ssm-user is created by SSM agent on first Session Manager session, not at boot.
+# Background the wait so the main boot script is never blocked.
+(
+    count=0
+    while [ $count -lt 150 ]; do
+        if id ssm-user >/dev/null 2>&1; then
+            usermod -aG docker ssm-user
+            echo "[ephemeral-ec2] ssm-user added to docker group"
+            break
+        fi
+        sleep 2
+        count=$((count + 1))
+    done
+) &
 docker --version
 echo "[ephemeral-ec2] Docker ready"
 '''
