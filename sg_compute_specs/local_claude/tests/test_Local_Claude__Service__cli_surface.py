@@ -63,3 +63,40 @@ class TestLocalClaudeServiceCliSurface:
         builder   = Local_Claude__User_Data__Builder()
         user_data = builder.render(stack_name='test-stack', region='eu-west-2', max_hours=0)
         assert 'systemd-run' not in user_data
+
+    def test_diagnose_returns_nine_checks(self, monkeypatch):
+        svc = Local_Claude__Service()
+        # Stub out get_stack_info and exec so no AWS calls happen.
+        monkeypatch.setattr(svc, 'get_stack_info',
+                            lambda region, name: type('I', (), {'state': 'running', 'instance_id': 'i-fake'})())
+        call_no = [0]
+        def fake_exec(region, name, cmd, timeout_sec=60, cwd=''):
+            call_no[0] += 1
+            return type('R', (), {'stdout': 'ok'})()
+        monkeypatch.setattr(svc, 'exec', fake_exec)
+        checks = svc.diagnose('eu-west-2', 'test-stack')
+        assert len(checks) == 9
+        names = [c[0] for c in checks]
+        assert names == ['ec2-state', 'ssm-reachable', 'boot-failed', 'boot-ok',
+                         'docker', 'docker-access', 'gpu', 'vllm-container', 'vllm-api']
+
+    def test_diagnose_stops_at_ec2_not_running(self, monkeypatch):
+        svc = Local_Claude__Service()
+        monkeypatch.setattr(svc, 'get_stack_info',
+                            lambda region, name: type('I', (), {'state': 'pending', 'instance_id': 'i-fake'})())
+        checks = svc.diagnose('eu-west-2', 'test-stack')
+        assert checks[0] == ('ec2-state', 'fail', 'pending')
+        assert all(s == 'skip' for _, s, _ in checks[1:])
+
+    def test_diagnose_marks_boot_failed(self, monkeypatch):
+        svc = Local_Claude__Service()
+        monkeypatch.setattr(svc, 'get_stack_info',
+                            lambda region, name: type('I', (), {'state': 'running', 'instance_id': 'i-fake'})())
+        def fake_exec(region, name, cmd, timeout_sec=60, cwd=''):
+            if 'sg-compute-boot-failed' in cmd:
+                return type('R', (), {'stdout': 'YES'})()
+            return type('R', (), {'stdout': 'ok'})()
+        monkeypatch.setattr(svc, 'exec', fake_exec)
+        checks = svc.diagnose('eu-west-2', 'test-stack')
+        boot_failed = next(c for c in checks if c[0] == 'boot-failed')
+        assert boot_failed[1] == 'fail'

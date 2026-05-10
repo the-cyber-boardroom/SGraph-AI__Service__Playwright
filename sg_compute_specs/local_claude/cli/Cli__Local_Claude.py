@@ -172,3 +172,55 @@ def claude(name  : str = typer.Argument(None, help='Stack name; auto-selected wh
         f'inside the shell run [bold]~/local-llm-claude.sh[/][/]\n')
     os.execvp('aws', ['aws', 'ssm', 'start-session',
                        '--target', instance_id, '--region', region])
+
+
+_DIAG_ICONS = {
+    'ok'  : '[green]✓[/]',
+    'fail': '[red]✗[/]',
+    'warn': '[yellow]⚠[/]',
+    'skip': '[dim]⊘[/]',
+}
+
+
+@app.command()
+@spec_cli_errors
+def diag(name  : str = typer.Argument(None, help='Stack name; auto-selected when only one exists.'),
+         region: str = typer.Option(DEFAULT_REGION, '--region', '-r')):
+    """Run the sequential 9-step boot checklist and show which steps passed/failed.
+
+    \b
+    Steps checked in order:
+      ec2-state       EC2 instance is in running state
+      ssm-reachable   SSM exec can reach the instance
+      boot-failed     /var/lib/sg-compute-boot-failed is absent
+      boot-ok         /var/lib/sg-compute-boot-ok is present
+      docker          Docker CE service is active
+      docker-access   ssm-user can run docker without sudo
+      gpu             nvidia-smi reports at least one GPU
+      vllm-container  vllm-claude-code container is running
+      vllm-api        vLLM /v1/models endpoint responds
+    """
+    c      = Console(highlight=False)
+    svc    = Local_Claude__Service().setup()
+    name   = Spec__CLI__Builder(_cli_spec).resolver.resolve(svc, name, region, 'local-claude')
+    c.print()
+    c.print(f'  [bold]Diagnostics[/]  ·  [cyan]{name}[/]  [dim]{region}[/]')
+    c.print()
+    checks = svc.diagnose(region, name)
+    all_ok = True
+    for check_name, status, detail in checks:
+        icon = _DIAG_ICONS.get(status, '[dim]?[/]')
+        if status in ('fail', 'warn'):
+            all_ok = False
+        c.print(f'  {icon}  {check_name:20} [dim]{detail}[/]')
+    c.print()
+    if all_ok:
+        c.print('  [green]all checks passed[/]')
+    else:
+        failed = [n for n, s, _ in checks if s == 'fail']
+        warned = [n for n, s, _ in checks if s == 'warn']
+        parts  = []
+        if failed: parts.append(f'[red]{len(failed)} failed[/]')
+        if warned: parts.append(f'[yellow]{len(warned)} warnings[/]')
+        c.print(f'  {", ".join(parts)}')
+    c.print()

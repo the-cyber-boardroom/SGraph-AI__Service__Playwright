@@ -84,6 +84,13 @@ class TestCliLocalClaude:
         result = runner.invoke(app, ['claude', '--help'])
         assert result.exit_code == 0
 
+    def test_diag_subcommand_exists(self):
+        result = runner.invoke(app, ['diag', '--help'])
+        assert result.exit_code == 0
+        for step in ('ec2-state', 'ssm-reachable', 'boot-failed', 'boot-ok',
+                     'docker', 'docker-access', 'gpu', 'vllm-container', 'vllm-api'):
+            assert step in result.output
+
     def test_bool_defaults_with_dual_flag(self):
         result = runner.invoke(app, ['create', '--help'])
         assert result.exit_code == 0

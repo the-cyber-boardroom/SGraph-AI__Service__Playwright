@@ -12,7 +12,9 @@ echo "[ephemeral-ec2] installing Docker CE..."
 dnf install -y docker
 systemctl enable --now docker
 usermod -aG docker ec2-user  || true
-usermod -aG docker ssm-user  || true
+# ssm-user is created asynchronously; wait before adding to docker group
+until id ssm-user >/dev/null 2>&1; do sleep 2; done
+usermod -aG docker ssm-user
 docker --version
 echo "[ephemeral-ec2] Docker ready"
 '''
