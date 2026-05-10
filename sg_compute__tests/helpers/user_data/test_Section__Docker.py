@@ -17,5 +17,10 @@ class test_Section__Docker(TestCase):
         out = Section__Docker().render()
         assert 'systemctl enable --now docker' in out
 
+    def test_render__adds_docker_group_members(self):
+        out = Section__Docker().render()
+        assert 'usermod -aG docker ec2-user' in out
+        assert 'usermod -aG docker ssm-user' in out
+
     def test_render__returns_str(self):
         assert isinstance(Section__Docker().render(), str)
