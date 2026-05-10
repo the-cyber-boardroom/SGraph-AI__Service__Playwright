@@ -181,6 +181,16 @@ _DIAG_ICONS = {
     'skip': '[dim]⊘[/]',
 }
 
+# per-check log sources to suggest when a check fails/warns
+_DIAG_HINTS = {
+    'boot-ok'       : [('boot'  , 'watch boot progress')],
+    'boot-failed'   : [('boot'  , 'full boot log with error details')],
+    'docker'        : [('docker', 'docker daemon startup'), ('boot', 'earlier boot errors')],
+    'vllm-container': [('docker', 'Docker pull / container start'), ('boot', 'earlier boot errors')],
+    'vllm-api'      : [('vllm'  , 'vLLM container output')],
+    'ssm-reachable' : [('boot'  , 'see if boot completed at all')],
+}
+
 
 @app.command()
 @spec_cli_errors
@@ -243,7 +253,22 @@ def diag(name  : str = typer.Argument(None, help='Stack name; auto-selected when
         if failed: parts.append(f'[red]{len(failed)} failed[/]')
         if warned: parts.append(f'[yellow]{len(warned)} warnings[/]')
         c.print(f'  {", ".join(parts)}')
-        if failed or warned:
+        # collect suggested log commands for actionable checks, deduplicated
+        seen_sources   = set()
+        suggested_cmds = []
+        for check_name, status, _ in results:
+            if status not in ('fail', 'warn'):
+                continue
+            for source, reason in _DIAG_HINTS.get(check_name, []):
+                if source not in seen_sources:
+                    seen_sources.add(source)
+                    suggested_cmds.append((source, reason, check_name))
+        if suggested_cmds:
             c.print()
-            c.print('  [dim]Share the output above with the bot for diagnosis.[/]')
+            c.print('  [bold]Suggested next steps:[/]')
+            for source, reason, origin in suggested_cmds:
+                c.print(f'    [cyan]sg lc logs {name} --source {source:<12}[/]'
+                        f'  [dim]# {reason}  ({origin})[/]')
+        c.print()
+        c.print('  [dim]Share the output above with the bot for diagnosis.[/]')
     c.print()
