@@ -44,10 +44,14 @@ def render_info(info, console: Console) -> None:
     t = Table(box=None, show_header=False, padding=(0, 2))
     t.add_column(style='bold', min_width=16, no_wrap=True)
     t.add_column()
-    for key in ('region', 'instance_type', 'ami_id', 'public_ip', 'security_group_id', 'allowed_ip', 'uptime_seconds', 'launch_time'):
+    for key in ('region', 'instance_type', 'disk_size_gb', 'ami_id', 'public_ip',
+                'security_group_id', 'allowed_ip', 'model_name', 'api_base_url',
+                'uptime_seconds', 'launch_time'):
         val = getattr(info, key, None)
-        if val is not None:
-            t.add_row(key.replace('_', '-'), str(val) or '—')
+        if val is None:
+            continue
+        display = f'{val} GiB' if key == 'disk_size_gb' and int(val or 0) > 0 else (str(val) or '—')
+        t.add_row(key.replace('_', '-'), display)
     console.print(t)
     console.print()
 

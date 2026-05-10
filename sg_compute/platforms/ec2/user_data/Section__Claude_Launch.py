@@ -8,10 +8,10 @@ from osbot_utils.type_safe.Type_Safe import Type_Safe
 
 TEMPLATE = '''\
 # ── Claude launch (tmux) ──────────────────────────────────────────────────────
-echo '[sg-compute] installing tmux + launching Claude...'
+echo '[sg-compute] installing tmux + launching model in tmux session...'
 dnf install -y tmux
-sudo -u ec2-user tmux new-session -d -s claude 'ollama run claude --model {model_name}'
-echo 'tmux attach -t claude' > /etc/motd
+sudo -u ec2-user tmux new-session -d -s claude 'ollama run {model_name}'
+echo 'To interact: tmux attach -t claude' > /etc/motd
 '''
 
 

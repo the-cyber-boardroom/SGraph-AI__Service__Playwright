@@ -22,6 +22,7 @@ from sg_compute_specs.ollama.service.Ollama__AMI__Helper                      im
 from sg_compute_specs.ollama.service.Ollama__AWS__Client                      import Ollama__AWS__Client
 from sg_compute_specs.ollama.service.Ollama__Stack__Mapper                    import (Ollama__Stack__Mapper ,
                                                                                        STACK_TYPE            ,
+                                                                                       TAG_DISK_GB           ,
                                                                                        TAG_MODEL             )
 from sg_compute_specs.ollama.service.Ollama__User_Data__Builder               import Ollama__User_Data__Builder
 
@@ -29,6 +30,7 @@ DEFAULT_REGION         = 'eu-west-2'
 DEFAULT_INSTANCE_TYPE  = 'g5.xlarge'                              # R4 — gpt-oss:20b needs ≥24 GiB VRAM
 GPU_INSTANCE_PREFIXES  = ('g4dn', 'g5', 'g6', 'p3', 'p4', 'p5')
 PULL_TIMEOUT_SEC       = 900                                      # ollama pull is slow for 20B-class models
+PROFILE_NAME           = 'playwright-ec2'                         # IAM instance profile that grants SSM + ECR access
 
 
 def _is_gpu_instance(instance_type: str) -> bool:
@@ -85,8 +87,9 @@ class Ollama__Service(Spec__Service__Base):
             inbound_ports=[],
             extra_cidrs={11434: allowed_cidr})
 
-        extra = {TAG_MODEL: str(request.model_name)}
-        tags  = self.aws_client.tags.build(stack_name, caller_ip, creator, extra_tags=extra)
+        disk_gb = int(request.disk_size_gb)
+        extra   = {TAG_MODEL: str(request.model_name), TAG_DISK_GB: str(disk_gb)}
+        tags    = self.aws_client.tags.build(stack_name, caller_ip, creator, extra_tags=extra)
 
         user_data = self.user_data_builder.render(
             stack_name   = stack_name                  ,
@@ -99,13 +102,15 @@ class Ollama__Service(Spec__Service__Base):
             expose_api   = request.expose_api          ,
         )
         iid = self.aws_client.launch.run_instance(
-            region        = region            ,
-            ami_id        = ami_id            ,
-            sg_id         = sg_id             ,
-            user_data     = user_data         ,
-            tags          = tags              ,
-            instance_type = itype             ,
-            max_hours     = request.max_hours ,
+            region                = region              ,
+            ami_id                = ami_id              ,
+            sg_id                 = sg_id               ,
+            user_data             = user_data           ,
+            tags                  = tags                ,
+            instance_type         = itype               ,
+            max_hours             = request.max_hours   ,
+            instance_profile_name = PROFILE_NAME        ,
+            disk_size_gb          = disk_gb             ,
         )
         info = Schema__Ollama__Info(
             instance_id       = iid                ,

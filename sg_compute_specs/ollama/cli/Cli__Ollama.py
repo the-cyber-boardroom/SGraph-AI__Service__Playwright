@@ -50,7 +50,7 @@ app = Spec__CLI__Builder(
     extra_create_options = [
         ('model'      , str , 'gpt-oss:20b', 'Ollama model reference (e.g. gpt-oss:20b, llama3.3).'),
         ('ami_base'   , str , 'dlami'      , 'AMI base: dlami (default; GPU+drivers preinstalled) or al2023.'),
-        ('disk_size'  , int , 0            , 'Root volume in GiB; 0 keeps AMI default. Recommend 200 for gpt-oss:20b.'),
+        ('disk_size'  , int , 250          , 'Root volume in GiB. 250 GiB default; 0 = keep AMI default.'),
         ('with_claude', bool, False        , 'Boot Claude integration under tmux (sudo -u ec2-user tmux new-session).'),
         ('expose_api' , bool, False        , 'Bind ollama to 0.0.0.0:11434 (SG controls who can reach it).'),
     ],

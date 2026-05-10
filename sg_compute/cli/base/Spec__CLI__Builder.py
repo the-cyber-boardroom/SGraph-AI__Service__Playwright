@@ -158,9 +158,9 @@ class Spec__CLI__Builder:
                 svc.name_gen.generate() if hasattr(svc, 'name_gen') else f'{spec_id}-auto')
             req    = cli_spec.create_request_cls()
             if hasattr(req, 'stack_name'):
-                req.stack_name.__init__(name)
+                setattr(req, 'stack_name', name)
             if hasattr(req, 'region'):
-                req.region.__init__(region)
+                setattr(req, 'region', region)
             for attr, kwarg in (('instance_type', 'instance_type'),
                                  ('max_hours',     'max_hours'    ),
                                  ('from_ami',      'ami'          ),
@@ -174,7 +174,9 @@ class Spec__CLI__Builder:
             resp       = svc.create_stack(req)
             render_create(resp, Console(highlight=False, width=200))
             if kwargs.get('wait'):
-                self._wait_healthy(svc, region, name)
+                info      = getattr(resp, 'stack_info', None) or resp
+                real_name = str(getattr(info, 'stack_name', '') or name)
+                self._wait_healthy(svc, region, real_name)
 
         fn = self._build_typed_fn(create_impl, all_params, 'create')
         app.command()(spec_cli_errors(fn))
@@ -270,7 +272,7 @@ class Spec__CLI__Builder:
             svc  = service_factory()
             name = resolver.resolve(svc, name, region, spec_id)
             if not yes:
-                typer.confirm(f'Delete {spec_id} stack {name!r} in {region}?', abort=True)
+                typer.confirm(f'Delete {spec_id} stack {name!r} in {region}?', default=True, abort=True)
             result = svc.delete_stack(region, name)
             render_delete(name, getattr(result, 'deleted', False),
                           Console(highlight=False, width=200))

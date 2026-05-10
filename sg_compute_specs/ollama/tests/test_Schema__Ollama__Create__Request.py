@@ -19,7 +19,7 @@ class test_Schema__Ollama__Create__Request(TestCase):
         assert str(req.model_name) == 'gpt-oss:20b'
         assert req.with_claude     is False
         assert req.expose_api      is False
-        assert int(req.disk_size_gb) == 0
+        assert int(req.disk_size_gb) == 250
         assert req.max_hours       == 1
         assert req.instance_type   == 'g5.xlarge'
 

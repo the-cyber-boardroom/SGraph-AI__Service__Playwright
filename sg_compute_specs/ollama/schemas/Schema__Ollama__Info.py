@@ -18,5 +18,6 @@ class Schema__Ollama__Info(Type_Safe):
     security_group_id : str  = ''
     model_name        : str  = ''    # from StackModel tag
     api_base_url      : str  = ''    # http://{private_ip}:11434/v1
+    disk_size_gb      : int  = 0
     uptime_seconds    : int  = 0
     gpu_count         : int  = 0

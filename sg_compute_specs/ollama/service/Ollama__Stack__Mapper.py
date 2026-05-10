@@ -12,8 +12,9 @@ from sg_compute.platforms.ec2.helpers.EC2__Stack__Mapper             import (tag
 from sg_compute.platforms.ec2.helpers.EC2__Tags__Builder             import TAG_STACK_NAME
 from sg_compute_specs.ollama.schemas.Schema__Ollama__Info import Schema__Ollama__Info
 
-TAG_MODEL  = 'StackModel'
-STACK_TYPE = 'ollama'
+TAG_MODEL   = 'StackModel'
+TAG_DISK_GB = 'StackDiskGB'
+STACK_TYPE  = 'ollama'
 
 GPU_INSTANCE_PREFIXES = ('g4dn', 'g5', 'g6', 'p3', 'p4', 'p5')
 
@@ -40,6 +41,7 @@ class Ollama__Stack__Mapper(Type_Safe):
             security_group_id = first_sg_id(details)                     ,
             model_name        = tag_value(details, TAG_MODEL)             ,
             api_base_url      = f'http://{private_ip}:11434/v1' if private_ip else '',
+            disk_size_gb      = int(tag_value(details, TAG_DISK_GB) or 0) ,
             uptime_seconds    = uptime_seconds(details)                   ,
             gpu_count         = gpu_count_for(instance_type)              ,
         )

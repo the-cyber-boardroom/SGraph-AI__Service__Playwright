@@ -19,7 +19,7 @@ class Schema__Ollama__Create__Request(Type_Safe):
     max_hours       : int                       = 1              # D2 — 1h default for every spec
     model_name      : Safe_Str__Ollama__Model   = Safe_Str__Ollama__Model('gpt-oss:20b')
     ami_base        : Enum__Ollama__AMI__Base   = Enum__Ollama__AMI__Base.DLAMI
-    disk_size_gb    : Safe_Int__Disk__GB                         # 0 = AMI default; recommend 200 for gpt-oss:20b
+    disk_size_gb    : Safe_Int__Disk__GB   = Safe_Int__Disk__GB(250)  # 250 GiB default; 0 = keep AMI default
     with_claude     : bool                      = False          # boot Claude integration under tmux
     expose_api      : bool                      = False          # bind 0.0.0.0:11434 (requires SG lockdown)
     allowed_cidr    : str                       = ''             # empty = caller /32; CIDR for port 11434
