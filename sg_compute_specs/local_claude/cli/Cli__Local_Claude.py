@@ -99,17 +99,17 @@ def models(name  : str = typer.Argument(None, help='Stack name; auto-selected wh
 
 
 _LOG_SOURCES = {                                                       # name → (shell command template, ssm timeout, one-line description)
-    'vllm'      : ('docker logs --tail {tail} vllm-claude-code 2>&1' , 30,
+    'vllm'      : ('docker logs --tail {tail} vllm-claude-code 2>&1' , 60,
                    'vLLM container (only ready after Docker pull + container start)'),
-    'boot'      : ('tail -n {tail} /var/log/ephemeral-ec2-boot.log'  , 20,
+    'boot'      : ('tail -n {tail} /var/log/ephemeral-ec2-boot.log'  , 60,
                    'EC2 user-data boot script — available within seconds of launch'),
-    'cloud-init': ('tail -n {tail} /var/log/cloud-init-output.log'   , 20,
+    'cloud-init': ('tail -n {tail} /var/log/cloud-init-output.log'   , 60,
                    'cloud-init full output — slightly behind boot log'),
-    'docker'    : ('journalctl -u docker -n {tail} --no-pager'       , 20,
+    'docker'    : ('journalctl -u docker -n {tail} --no-pager'       , 60,
                    'docker daemon journal — only after Docker is installed'),
-    'journal'   : ('journalctl -n {tail} --no-pager'                 , 30,
+    'journal'   : ('journalctl -n {tail} --no-pager'                 , 60,
                    'full systemd journal — always available'),
-}
+}                                                                      # AWS SSM SendCommand requires TimeoutSeconds >= 30; tail/journalctl finish in <1s but 60s gives propagation headroom.
 
 
 def _prompt_for_source(c: Console) -> str:

@@ -104,6 +104,10 @@ class EC2__Instance__Helper(Type_Safe):
         # InvocationDoesNotExist (the brief post-send propagation window) as
         # transient rather than fatal.
         # Returns (stdout: str, exit_code: int). exit_code -1 on timeout/error.
+        # send_command failures (bad params, no permission, instance missing,
+        # TimeoutSeconds < 30, etc.) are surfaced to stderr — silent empty returns
+        # masked Bug B and Bug C for an entire session; do not regress.
+        import sys
         _PENDING = {'Pending', 'InProgress', 'Delayed'}
         try:
             resp = self.ssm_client(region).send_command(
@@ -111,10 +115,14 @@ class EC2__Instance__Helper(Type_Safe):
                 DocumentName   = 'AWS-RunShellScript'   ,
                 Parameters     = {'commands': [command]},
                 TimeoutSeconds = timeout_sec             )
-        except Exception:
+        except Exception as exc:
+            print(f'  [run_command] send_command failed: {type(exc).__name__}: {exc}',
+                  file=sys.stderr)
             return '', -1
         command_id = resp.get('Command', {}).get('CommandId', '')
         if not command_id:
+            print('  [run_command] send_command returned no CommandId',
+                  file=sys.stderr)
             return '', -1
         deadline = time.monotonic() + timeout_sec
         inv      = {}
