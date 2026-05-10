@@ -36,12 +36,14 @@ _AUTO_LABELS = {
 }
 
 
-def render_create_preview(spec_id   : str   ,
-                          subcommand: str   ,
-                          name      : str   ,
-                          kwargs    : dict  ,
-                          defaults  : dict  ,
-                          console   : Console) -> None:
+def render_create_preview(spec_id      : str          ,
+                          subcommand   : str          ,
+                          name         : str          ,
+                          kwargs       : dict         ,
+                          defaults     : dict         ,
+                          console      : Console      ,
+                          advanced_keys: set = None   ) -> None:
+    advanced_keys = advanced_keys or set()
     console.print(f'[cyan]{SG_BANNER}[/]')
     console.print(Panel(f'[bold cyan]SG/Compute[/]  ·  [bold]{spec_id}[/]  '
                         f'[dim]{subcommand}[/]', border_style='cyan', expand=False))
@@ -52,18 +54,23 @@ def render_create_preview(spec_id   : str   ,
         flag    = k.replace('_', '-')
         auto    = _AUTO_LABELS.get(k)
         display = auto if (auto and not v) else repr(v)
+        adv_tag = '  [dim](advanced)[/]' if k in advanced_keys and v == default else ''
         if v == default:
-            console.print(f'    [dim]{flag:24}= {display}[/]')
+            console.print(f'    [dim]{flag:24}= {display}{adv_tag}[/]')
         else:
             console.print(f'    [bold]{flag:24}= {display}[/]  [dim](default {default!r})[/]')
     console.print()
-    cmd_parts = [f'sg {spec_id} {subcommand}']
+    cmd_parts    = [f'sg {spec_id} {subcommand}']
+    adv_hidden   = 0
     if name:
         cmd_parts.append(name)
     for k, default in defaults.items():
         v    = kwargs.get(k, default)
         flag = f'--{k.replace("_", "-")}'
         if k in _AUTO_LABELS and not v:
+            continue
+        if k in advanced_keys and v == default:
+            adv_hidden += 1
             continue
         if isinstance(v, bool):
             cmd_parts.append(flag if v else f'--no-{k.replace("_", "-")}')
@@ -73,6 +80,8 @@ def render_create_preview(spec_id   : str   ,
             cmd_parts.append(f'{flag} {v}')
     console.print('  [bold]Equivalent command[/]  [dim](copy-paste to repeat)[/]')
     console.print(f'    [cyan]{" ".join(cmd_parts)}[/]', no_wrap=True, overflow='ignore')
+    if adv_hidden:
+        console.print(f'  [dim]  ({adv_hidden} advanced options at defaults hidden — pass --help to see them)[/]')
     console.print()
     console.print('  [dim]Submitting to AWS …[/]')
     console.print()

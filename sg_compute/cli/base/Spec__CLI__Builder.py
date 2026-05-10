@@ -154,12 +154,17 @@ class Spec__CLI__Builder:
             ('wait',          bool,          typer.Option(False, '--wait',
                                             help='Block until healthy after create.')),
         ]
-        extra_params = []
-        for (n, t, d, h) in extra_options:
+        extra_params  = []
+        advanced_keys = set()
+        for opt in extra_options:
+            n, t, d, h   = opt[:4]
+            is_advanced  = len(opt) > 4 and opt[4]
             flag = f'--{n.replace("_", "-")}'
             if t is bool and d is True:
                 flag = f'{flag}/--no-{n.replace("_", "-")}'                                       # dual-flag pattern lets the user opt out of true-by-default flags
-            extra_params.append((n, t, typer.Option(d, flag, help=h)))
+            extra_params.append((n, t, typer.Option(d, flag, help=h, hidden=is_advanced)))
+            if is_advanced:
+                advanced_keys.add(n)
         all_params = base_params + extra_params
 
         # Defaults for the pre-launch preview banner — must match base_params + extras.
@@ -171,13 +176,14 @@ class Spec__CLI__Builder:
             'caller_ip'    : ''                            ,
             'wait'         : False                         ,
         }
-        for (n, _t, d, _h) in extra_options:
-            preview_defaults[n] = d
+        for opt in extra_options:
+            preview_defaults[opt[0]] = opt[2]
 
         def create_impl(**kwargs):
             console = Console(highlight=False, width=200)
             render_create_preview(spec_id, 'create', kwargs.get('name') or '',
-                                  kwargs, preview_defaults, console)
+                                  kwargs, preview_defaults, console,
+                                  advanced_keys=advanced_keys)
             svc    = service_factory()
             region = kwargs['region']
             name   = kwargs.get('name') or (
@@ -195,7 +201,7 @@ class Spec__CLI__Builder:
                     setattr(req, attr, kwargs[kwarg])
             if cli_spec.extra_create_field_setters:
                 cli_spec.extra_create_field_setters(req, **{
-                    k: kwargs[k] for (k, _, _, _) in extra_options
+                    opt[0]: kwargs[opt[0]] for opt in extra_options
                 })
             resp       = svc.create_stack(req)
             render_create(resp, console)
