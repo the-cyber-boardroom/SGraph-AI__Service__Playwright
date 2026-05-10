@@ -108,6 +108,7 @@ class Spec__CLI__Builder:
         @spec_cli_errors
         def list_stacks(region: str = typer.Option(DEFAULT_REGION, '--region', '-r',
                                                    help='AWS region.')):
+            """List all running stacks in the region."""
             svc     = service_factory()
             listing = svc.list_stacks(region)
             render_list(listing, Console(highlight=False, width=200))
@@ -122,6 +123,7 @@ class Spec__CLI__Builder:
         def info(name  : Optional[str] = typer.Argument(None,
                           help='Stack name; auto-selected when only one exists.'),
                  region: str           = typer.Option(DEFAULT_REGION, '--region', '-r')):
+            """Show detailed info for a single stack."""
             svc  = service_factory()
             name = resolver.resolve(svc, name, region, spec_id)
             data = svc.get_stack_info(region, name)
@@ -203,6 +205,7 @@ class Spec__CLI__Builder:
                 self._wait_healthy(svc, region, real_name)
 
         fn = self._build_typed_fn(create_impl, all_params, 'create')
+        fn.__doc__ = 'Launch a new stack. Prints a preview banner then submits to AWS.'
         app.command()(spec_cli_errors(fn))
 
     def _register_wait(self, app):
@@ -219,6 +222,7 @@ class Spec__CLI__Builder:
                                          help='Max seconds to wait.'),
                  poll   : int           = typer.Option(DEFAULT_POLL_SEC, '--poll',
                                          help='Seconds between polls.')):
+            """Block until the stack is healthy (or timeout expires)."""
             svc    = service_factory()
             name   = resolver.resolve(svc, name, region, spec_id)
             result = svc.health(region, name, timeout_sec=timeout, poll_sec=poll)
@@ -238,6 +242,7 @@ class Spec__CLI__Builder:
                    region : str           = typer.Option(DEFAULT_REGION, '--region', '-r'),
                    timeout: int           = typer.Option(0, '--timeout',
                                            help='0 = instant probe; >0 = wait up to N seconds.')):
+            """Probe the stack health endpoint. Exit 1 if unhealthy."""
             svc    = service_factory()
             name   = resolver.resolve(svc, name, region, spec_id)
             result = svc.health(region, name, timeout_sec=timeout)
@@ -253,6 +258,7 @@ class Spec__CLI__Builder:
         def connect(name  : Optional[str] = typer.Argument(None,
                                help='Stack name; auto-selected when only one exists.'),
                     region: str           = typer.Option(DEFAULT_REGION, '--region', '-r')):
+            """Open an interactive SSM session on the instance."""
             svc         = service_factory()
             name        = resolver.resolve(svc, name, region, spec_id)
             instance_id = svc.connect_target(region, name)
@@ -276,6 +282,7 @@ class Spec__CLI__Builder:
                      timeout: int           = typer.Option(DEFAULT_EXEC_TIMEOUT, '--timeout'),
                      cwd    : str           = typer.Option('', '--cwd',
                                 help='Working directory on the remote host.')):
+            """Run a shell command on the instance via SSM and print the output."""
             svc    = service_factory()
             name   = resolver.resolve(svc, name, region, spec_id)
             result = svc.exec(region, name, command, timeout_sec=timeout, cwd=cwd)
@@ -293,6 +300,7 @@ class Spec__CLI__Builder:
                    region: str           = typer.Option(DEFAULT_REGION, '--region', '-r'),
                    yes   : bool          = typer.Option(False, '--yes', '-y',
                               help='Skip confirmation prompt.')):
+            """Terminate the instance and delete its security group."""
             svc  = service_factory()
             name = resolver.resolve(svc, name, region, spec_id)
             if not yes:

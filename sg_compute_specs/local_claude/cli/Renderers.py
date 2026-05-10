@@ -71,7 +71,7 @@ def render_info(info: Schema__Local_Claude__Info, c: Console) -> None:
     t.add_row('uptime'     , humanize_uptime(info.uptime_seconds))
     c.print(t)
     c.print()
-    c.print(f'  [dim]Connect:  sp local-claude claude {info.stack_name} --region {info.region}[/]')
+    c.print(f'  [dim]Connect:  sg local-claude claude {info.stack_name} --region {info.region}[/]')
     c.print(f'  [dim]Launcher: ~/local-llm-claude.sh   (inside the SSM session)[/]')
     c.print()
 
@@ -90,8 +90,8 @@ def render_create(resp: Schema__Local_Claude__Create__Response, c: Console) -> N
     c.print(f'  parser      : {info.tool_parser}')
     c.print(f'  submitted in: {_secs(resp.elapsed_ms)}')
     c.print()
-    c.print(f'  [dim]Wait:     sp local-claude wait {info.stack_name} --region {info.region}[/]')
-    c.print(f'  [dim]Connect:  sp local-claude claude {info.stack_name} --region {info.region}[/]')
+    c.print(f'  [dim]Wait:     sg local-claude wait {info.stack_name} --region {info.region}[/]')
+    c.print(f'  [dim]Connect:  sg local-claude claude {info.stack_name} --region {info.region}[/]')
     c.print()
 
 

@@ -26,15 +26,11 @@ prometheus-client            = "*"
 typer                        = "*"
 
 [tool.poetry.scripts]
-sg-play    = "scripts.provision_ec2:app"
-sg-browser = "scripts.provision_ec2:app"
-sg-p       = "scripts.provision_ec2:app"
-sg-b       = "scripts.provision_ec2:app"
-sg-ec2     = "scripts.provision_ec2:app"
-sp         = "scripts.provision_ec2:app"
-sgpl       = "scripts.provision_ec2:app"
+sg         = "scripts.provision_ec2:app"                                                # primary alias — new branding
+sgc        = "scripts.provision_ec2:app"                                                # short alias (sg-compute)
+sg-compute = "scripts.provision_ec2:app"                                                # full hyphenated alias
+sp         = "scripts.provision_ec2:app"                                                # legacy alias — kept for backward compat
 sp-cli     = "scripts.run_sp_cli:main"                                                  # Run the SP CLI FastAPI app locally under uvicorn (Lambda-equivalent surface; see scripts/run_sp_cli.py)
-sg-compute = "scripts.sg_compute_cli:app"                                               # sg-compute CLI (spec / node / pod / stack verbs)
 
 [tool.poetry.group.dev.dependencies]
 pytest         = "*"

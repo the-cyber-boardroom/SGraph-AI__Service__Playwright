@@ -78,7 +78,7 @@ class Local_Claude__Service(Spec__Service__Base):
         if not caller_ip:
             raise ValueError(
                 'Could not detect your public IP automatically.\n'
-                '  Pass it explicitly: sp local-claude create --caller-ip <your-ip>')
+                '  Pass it explicitly: sg local-claude create --caller-ip <your-ip>')
         ami_id       = str(request.from_ami)      or self.ami_helper.resolve_for_base(region, request.ami_base)
         itype        = str(request.instance_type) or DEFAULT_INSTANCE_TYPE
         gpu_required = request.gpu_required and _is_gpu_instance(itype)
@@ -250,7 +250,7 @@ class Local_Claude__Service(Spec__Service__Base):
         try:
             out = ssm('test -f /var/lib/sg-compute-boot-failed && echo YES || echo NO')
             if 'YES' in out:
-                add('boot-failed', 'fail', 'boot script error — run: sp local-claude logs --source boot')
+                add('boot-failed', 'fail', 'boot script error — run: sg local-claude logs --source boot')
             else:
                 add('boot-failed', 'ok', 'absent')
         except Exception:

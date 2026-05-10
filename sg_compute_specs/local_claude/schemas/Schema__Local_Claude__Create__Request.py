@@ -1,6 +1,6 @@
 # ═══════════════════════════════════════════════════════════════════════════════
 # Ephemeral EC2 — Schema__Local_Claude__Create__Request
-# Inputs for `sp local-claude create`. Pure data.
+# Inputs for `sg local-claude create`. Pure data.
 # ═══════════════════════════════════════════════════════════════════════════════
 
 from osbot_utils.type_safe.Type_Safe import Type_Safe
