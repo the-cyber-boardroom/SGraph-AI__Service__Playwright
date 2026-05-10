@@ -96,18 +96,26 @@ class EC2__Instance__Helper(Type_Safe):
             Filters=[{'Key': 'InstanceIds', 'Values': [instance_id]}])
         return bool(resp.get('InstanceInformationList'))
 
-    def run_command(self, region: str, instance_id: str, command: str) -> str:
+    def run_command(self, region: str, instance_id: str, command: str,
+                    timeout_sec: int = 60) -> str:
+        _PENDING = {'Pending', 'InProgress', 'Delayed'}
         try:
             resp       = self.ssm_client(region).send_command(
                 InstanceIds    = [instance_id]          ,
                 DocumentName   = 'AWS-RunShellScript'   ,
                 Parameters     = {'commands': [command]},
-                TimeoutSeconds = 60                     )
+                TimeoutSeconds = timeout_sec             )
             command_id = resp.get('Command', {}).get('CommandId', '')
-            time.sleep(3)
-            inv = self.ssm_client(region).get_command_invocation(
-                CommandId  = command_id ,
-                InstanceId = instance_id)
+            deadline   = time.monotonic() + timeout_sec
+            inv        = {}
+            time.sleep(1)
+            while time.monotonic() < deadline:
+                inv = self.ssm_client(region).get_command_invocation(
+                    CommandId  = command_id ,
+                    InstanceId = instance_id)
+                if inv.get('StatusDetails', '') not in _PENDING:
+                    break
+                time.sleep(2)
             return inv.get('StandardOutputContent', '').strip()
         except Exception:
             return ''
