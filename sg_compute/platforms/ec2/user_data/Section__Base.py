@@ -11,12 +11,14 @@ LOG_FILE = '/var/log/ephemeral-ec2-boot.log'
 TEMPLATE = '''\
 #!/usr/bin/env bash
 set -euo pipefail
+mkdir -p /var/lib
+trap 'rc=$?; echo "[ephemeral-ec2] boot FAILED at line $LINENO (exit=$rc)"; touch /var/lib/sg-compute-boot-failed' ERR
 exec > >(tee -a {log_file}) 2>&1
 echo "[ephemeral-ec2] boot starting: {stack_name} at $(date -u +%FT%TZ)"
 
 hostnamectl set-hostname {stack_name} 2>/dev/null || true
 dnf update -y -q
-dnf install -y git curl jq unzip
+dnf install -y --allowerasing git curl jq unzip
 
 # SSM agent ships on AL2023 — ensure it is running
 systemctl enable --now amazon-ssm-agent 2>/dev/null || true

@@ -9,6 +9,15 @@ from rich.panel   import Panel
 from rich.table   import Table
 
 
+def humanize_uptime(seconds) -> str:
+    s = int(seconds or 0)
+    if s <= 0:       return '—'
+    if s < 60:       return f'{s}s'
+    if s < 3600:     return f'{s // 60}m {s % 60}s'
+    if s < 86400:    return f'{s // 3600}h {(s % 3600) // 60}m'
+    return f'{s // 86400}d {(s % 86400) // 3600}h'
+
+
 def render_list(listing, console: Console) -> None:
     stacks = getattr(listing, 'stacks', [])
     if not stacks:
@@ -20,6 +29,7 @@ def render_list(listing, console: Console) -> None:
     t.add_column('state'        )
     t.add_column('instance-type')
     t.add_column('public-ip'    , style='cyan')
+    t.add_column('uptime'       )
     t.add_column('region'       , style='dim')
     t.add_column('pricing'      )
     for s in stacks:
@@ -31,6 +41,7 @@ def render_list(listing, console: Console) -> None:
             state or '—'                              ,
             str(getattr(s, 'instance_type', '')) or '—',
             str(getattr(s, 'public_ip',     '')) or '—',
+            humanize_uptime(getattr(s, 'uptime_seconds', 0)),
             str(getattr(s, 'region',        '')) or '—',
             pricing                                   ,
         )
@@ -53,8 +64,11 @@ def render_info(info, console: Console) -> None:
         val = getattr(info, key, None)
         if val is None:
             continue
-        display = f'{val} GiB' if key == 'disk_size_gb' and int(val or 0) > 0 else (str(val) or '—')
-        t.add_row(key.replace('_', '-'), display)
+        if   key == 'disk_size_gb' and int(val or 0) > 0: display = f'{val} GiB'
+        elif key == 'uptime_seconds':                     display = humanize_uptime(val)
+        else:                                             display = str(val) or '—'
+        label = 'uptime' if key == 'uptime_seconds' else key.replace('_', '-')
+        t.add_row(label, display)
     if hasattr(info, 'spot'):
         t.add_row('pricing', '[cyan]spot[/]' if info.spot else '[dim]on-demand[/]')
     console.print(t)
