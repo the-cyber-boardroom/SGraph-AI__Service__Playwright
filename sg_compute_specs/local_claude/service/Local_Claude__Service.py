@@ -213,6 +213,108 @@ class Local_Claude__Service(Spec__Service__Base):
         probe.elapsed_ms = int((time.monotonic() - t0) * 1000)
         return probe
 
+    # ── boot-sequence diagnostic checklist ───────────────────────────────────────
+
+    def diagnose(self, region: str, name: str):
+        checks = []
+
+        def add(check_name, status, detail):
+            checks.append((check_name, status, detail))
+
+        info = self.get_stack_info(region, name)
+        if info is None:
+            add('ec2-state', 'fail', 'stack not found')
+            return checks
+        ec2_state = str(getattr(info, 'state', '') or '')
+        add('ec2-state', 'ok' if ec2_state == 'running' else 'fail', ec2_state or '?')
+        if ec2_state != 'running':
+            for n in ('ssm-reachable', 'boot-failed', 'boot-ok',
+                      'docker', 'docker-access', 'gpu', 'vllm-container', 'vllm-api'):
+                add(n, 'skip', f'(skipped — ec2 state is {ec2_state!r})')
+            return checks
+
+        try:
+            self.exec(region, name, 'echo ok', timeout_sec=15)
+            add('ssm-reachable', 'ok', 'responsive')
+        except Exception as exc:
+            add('ssm-reachable', 'fail', str(exc)[:120])
+            for n in ('boot-failed', 'boot-ok', 'docker', 'docker-access',
+                      'gpu', 'vllm-container', 'vllm-api'):
+                add(n, 'skip', '(skipped — SSM unreachable)')
+            return checks
+
+        def ssm(cmd, timeout=12):
+            r = self.exec(region, name, cmd, timeout_sec=timeout)
+            return str(getattr(r, 'stdout', '') or '').strip()
+
+        try:
+            out = ssm('test -f /var/lib/sg-compute-boot-failed && echo YES || echo NO')
+            if 'YES' in out:
+                add('boot-failed', 'fail', 'boot script error — run: sp local-claude logs --source boot')
+            else:
+                add('boot-failed', 'ok', 'absent')
+        except Exception:
+            add('boot-failed', 'warn', 'could not check')
+
+        try:
+            out = ssm('test -f /var/lib/sg-compute-boot-ok && echo YES || echo NO')
+            if 'YES' in out:
+                add('boot-ok', 'ok', 'present')
+            else:
+                add('boot-ok', 'warn', 'not yet — still booting or failed above')
+        except Exception:
+            add('boot-ok', 'warn', 'could not check')
+
+        try:
+            out = ssm('systemctl is-active docker 2>&1 || true')
+            add('docker', 'ok' if out == 'active' else 'fail', out or '?')
+        except Exception:
+            add('docker', 'warn', 'could not check')
+
+        try:
+            out = ssm('sudo -u ssm-user docker info >/dev/null 2>&1 && echo OK || echo DENIED')
+            if 'OK' in out:
+                add('docker-access', 'ok', 'ssm-user can use docker')
+            else:
+                add('docker-access', 'warn', 'ssm-user lacks docker group — new SSM session will fix it')
+        except Exception:
+            add('docker-access', 'warn', 'could not check')
+
+        try:
+            out = ssm('nvidia-smi --query-gpu=name --format=csv,noheader 2>&1 | head -1 || echo MISSING')
+            if out and 'MISSING' not in out and 'not found' not in out.lower():
+                add('gpu', 'ok', out)
+            else:
+                add('gpu', 'fail', out or 'nvidia-smi missing')
+        except Exception:
+            add('gpu', 'warn', 'could not check')
+
+        try:
+            out = ssm('sudo docker ps --filter name=vllm-claude-code --format "{{.Status}}" 2>&1 || true')
+            if out and 'Up' in out:
+                add('vllm-container', 'ok', out)
+            elif out:
+                add('vllm-container', 'fail', out)
+            else:
+                add('vllm-container', 'fail', 'no container named vllm-claude-code')
+        except Exception:
+            add('vllm-container', 'warn', 'could not check')
+
+        container_ok = checks[-1][1] == 'ok' if checks else False
+        if not container_ok:
+            add('vllm-api', 'skip', '(skipped — container not running)')
+        else:
+            try:
+                out = ssm('curl -sf http://127.0.0.1:8000/v1/models 2>&1 | head -c 200 || echo FAIL', timeout=15)
+                if '"data"' in out or out.startswith('{'):
+                    add('vllm-api', 'ok', 'responding')
+                else:
+                    add('vllm-api', 'fail', (out[:100] if out else 'no response'))
+            except Exception as exc:
+                add('vllm-api', 'fail', str(exc)[:120])
+
+        return checks
+
     # ── local-claude-specific extras ─────────────────────────────────────────
 
     def claude_session(self, region: str, name: str) -> str:
