@@ -97,12 +97,13 @@ class EC2__Instance__Helper(Type_Safe):
         return bool(resp.get('InstanceInformationList'))
 
     def run_command(self, region: str, instance_id: str, command: str,
-                    timeout_sec: int = 60) -> str:
+                    timeout_sec: int = 60) -> tuple:
         # SSM SendCommand is fundamentally asynchronous — there is no
         # synchronous "run and return" endpoint. We poll get_command_invocation
         # tightly (200 ms) without an artificial pre-poll wait, and treat
         # InvocationDoesNotExist (the brief post-send propagation window) as
         # transient rather than fatal.
+        # Returns (stdout: str, exit_code: int). exit_code -1 on timeout/error.
         _PENDING = {'Pending', 'InProgress', 'Delayed'}
         try:
             resp = self.ssm_client(region).send_command(
@@ -111,10 +112,10 @@ class EC2__Instance__Helper(Type_Safe):
                 Parameters     = {'commands': [command]},
                 TimeoutSeconds = timeout_sec             )
         except Exception:
-            return ''
+            return '', -1
         command_id = resp.get('Command', {}).get('CommandId', '')
         if not command_id:
-            return ''
+            return '', -1
         deadline = time.monotonic() + timeout_sec
         inv      = {}
         while time.monotonic() < deadline:
@@ -123,8 +124,9 @@ class EC2__Instance__Helper(Type_Safe):
                     CommandId  = command_id ,
                     InstanceId = instance_id)
                 if inv.get('StatusDetails', '') not in _PENDING:
-                    return inv.get('StandardOutputContent', '').strip()
+                    return (inv.get('StandardOutputContent', '').strip(),
+                            int(inv.get('ResponseCode', -1) or -1))
             except Exception:
                 pass                         # InvocationDoesNotExist / transient — keep polling
             time.sleep(0.2)
-        return inv.get('StandardOutputContent', '').strip()
+        return inv.get('StandardOutputContent', '').strip(), -1

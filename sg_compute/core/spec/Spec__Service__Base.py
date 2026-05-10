@@ -97,12 +97,13 @@ class Spec__Service__Base(Type_Safe):
         if info is None:
             raise ValueError(f'no stack matched {name!r}')
         instance_id = str(getattr(info, 'instance_id', '') or '')
-        helper      = EC2__Instance__Helper()
-        output      = helper.run_command(region, instance_id,
-                                         f'cd {cwd} && {command}' if cwd else command,
-                                         timeout_sec=timeout_sec)
-        result.stdout = output
-        result.transport   = 'ssm'
+        helper          = EC2__Instance__Helper()
+        stdout, exit_code = helper.run_command(region, instance_id,
+                                               f'cd {cwd} && {command}' if cwd else command,
+                                               timeout_sec=timeout_sec)
+        result.stdout     = stdout
+        result.exit_code  = exit_code
+        result.transport  = 'ssm'
         result.duration_ms = int((time.monotonic() - t0) * 1000)
         return result
 

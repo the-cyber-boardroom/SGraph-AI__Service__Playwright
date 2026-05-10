@@ -53,9 +53,12 @@ class test_Cli__Ollama(TestCase):
     def test_create_help__lists_all_extra_options(self):
         result = self.runner.invoke(app, ['create', '--help'])
         assert result.exit_code == 0
-        for opt in ('--model', '--ami-base', '--disk-size',
-                     '--with-claude', '--expose-api'):
+        # standard (visible) options
+        for opt in ('--model', '--disk-size'):
             assert opt in result.output, f'missing extra option: {opt}'
+        # advanced options are hidden from --help
+        for opt in ('--ami-base', '--with-claude', '--expose-api'):
+            assert opt not in result.output, f'advanced option should be hidden: {opt}'
 
     def test_create_help__model_default_is_gpt_oss_20b(self):
         result = self.runner.invoke(app, ['create', '--help'])

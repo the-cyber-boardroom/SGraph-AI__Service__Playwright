@@ -272,4 +272,7 @@ def render_exec_result(result, console: Console) -> None:
         console.print(stdout)
     if stderr:
         console.print(f'[yellow]{stderr}[/]', err=True)
-    console.print(f'  [dim]exit={exit_code}  via={transport}  {elapsed}ms[/]')
+    if exit_code != 0:
+        console.print(f'  [red]exit={exit_code}[/]  [dim]via={transport}  {elapsed}ms[/]')
+    else:
+        console.print(f'  [dim]exit={exit_code}  via={transport}  {elapsed}ms[/]')
