@@ -11,8 +11,12 @@ class test_Section__Agent_Tools(TestCase):
 
     def test_render__installs_python_venv(self):
         out = Section__Agent_Tools().render()
-        assert 'python3 -m venv' in out
+        assert 'python3.13 -m venv' in out
         assert '/home/ec2-user/venvs/agent-tools' in out
+
+    def test_render__installs_python313(self):
+        out = Section__Agent_Tools().render()
+        assert 'python3.13' in out
 
     def test_render__installs_required_libraries(self):
         out = Section__Agent_Tools().render()

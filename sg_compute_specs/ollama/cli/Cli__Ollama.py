@@ -23,7 +23,7 @@ from sg_compute_specs.ollama.service.Ollama__Service                  import Oll
 
 
 def _set_extras(request, model='', ami_base='dlami', disk_size=0,
-                with_claude=False, expose_api=False):
+                with_claude=False, expose_api=False, use_spot=True):
     if model:
         request.model_name = model
     request.ami_base    = (Enum__Ollama__AMI__Base.AL2023 if ami_base == 'al2023'
@@ -31,6 +31,7 @@ def _set_extras(request, model='', ami_base='dlami', disk_size=0,
     request.disk_size_gb = int(disk_size)
     request.with_claude  = bool(with_claude)
     request.expose_api   = bool(expose_api)
+    request.use_spot     = bool(use_spot)
 
 
 _cli_spec = Schema__Spec__CLI__Spec(
@@ -41,6 +42,7 @@ _cli_spec = Schema__Spec__CLI__Spec(
     service_factory       = lambda: Ollama__Service().setup() ,
     health_path           = '/api/tags'                       ,
     health_port           = 11434                              ,
+    health_scheme         = 'http'                             ,   # Ollama API is plain HTTP on 11434
     extra_create_field_setters = _set_extras                  ,
 )
 
@@ -53,6 +55,7 @@ app = Spec__CLI__Builder(
         ('disk_size'  , int , 250          , 'Root volume in GiB. 250 GiB default; 0 = keep AMI default.'),
         ('with_claude', bool, False        , 'Boot Claude integration under tmux (sudo -u ec2-user tmux new-session).'),
         ('expose_api' , bool, False        , 'Bind ollama to 0.0.0.0:11434 (SG controls who can reach it).'),
+        ('use_spot'   , bool, True         , 'Spot instance (~70% cheaper). Pass --no-use-spot for on-demand.'),
     ],
 ).build()
 

@@ -38,50 +38,51 @@ class Spec__Service__Base(Type_Safe):
 
     def health(self, region: str, name: str, timeout_sec: int = 0, poll_sec: int = 10):
         from sg_compute.cli.base.schemas.Schema__CLI__Health__Probe import Schema__CLI__Health__Probe
-        t0    = time.monotonic()
-        probe = Schema__CLI__Health__Probe()
-        try:
-            spec = self.cli_spec()
-            info = self.get_stack_info(region, name)
-            if info is None:
-                probe.last_error = f'no stack matched {name!r}'
-                probe.elapsed_ms = int((time.monotonic() - t0) * 1000)
-                return probe
+        import urllib.request, ssl
+        t0       = time.monotonic()
+        probe    = Schema__CLI__Health__Probe()
+        spec     = self.cli_spec()
+        port     = getattr(spec, 'health_port',   80)
+        path     = getattr(spec, 'health_path',   '/')
+        scheme   = getattr(spec, 'health_scheme', 'https')
+        deadline = time.monotonic() + max(timeout_sec, 0)
+        ctx      = ssl.create_default_context()
+        ctx.check_hostname = False
+        ctx.verify_mode    = ssl.CERT_NONE
 
-            public_ip = str(getattr(info, 'public_ip', '') or '')
-            if not public_ip:
-                probe.state     = 'pending'
-                probe.last_error = 'instance has no public IP yet'
-                probe.elapsed_ms = int((time.monotonic() - t0) * 1000)
-                return probe
+        while True:
+            try:
+                info = self.get_stack_info(region, name)
+                if info is None:
+                    probe.state      = 'missing'
+                    probe.last_error = f'no stack matched {name!r}'
+                else:
+                    state     = str(getattr(info, 'state', '') or '')
+                    public_ip = str(getattr(info, 'public_ip', '') or '')
+                    if not public_ip:
+                        probe.state     = state or 'pending'
+                        probe.last_error = 'instance has no public IP yet'
+                    else:
+                        host = public_ip
+                        url  = (f'{scheme}://{host}{path}'        if (scheme == 'https' and port == 443)
+                                else f'{scheme}://{host}{path}'   if (scheme == 'http'  and port == 80 )
+                                else f'{scheme}://{host}:{port}{path}')
+                        try:
+                            with urllib.request.urlopen(url, timeout=5, context=ctx) as resp:
+                                if resp.status < 500:
+                                    probe.healthy    = True
+                                    probe.state      = 'running'
+                                    probe.last_error = ''
+                                    break
+                        except Exception as exc:
+                            probe.state      = state or 'starting'
+                            probe.last_error = str(exc)[:512]
+            except Exception as exc:
+                probe.last_error = str(exc)[:512]
 
-            port       = getattr(spec, 'health_port', 80)
-            path       = getattr(spec, 'health_path', '/')
-            url        = (f'https://{public_ip}:{port}{path}' if port != 443
-                          else f'https://{public_ip}{path}')
-            deadline   = time.monotonic() + max(timeout_sec, 0)
-
-            import urllib.request, ssl
-            ctx = ssl.create_default_context()
-            ctx.check_hostname = False
-            ctx.verify_mode    = ssl.CERT_NONE
-
-            while True:
-                try:
-                    with urllib.request.urlopen(url, timeout=5, context=ctx) as resp:
-                        if resp.status < 500:
-                            probe.healthy    = True
-                            probe.state      = 'running'
-                            break
-                except Exception as exc:
-                    probe.last_error = str(exc)[:512]
-
-                if time.monotonic() >= deadline:
-                    break
-                time.sleep(poll_sec)
-
-        except Exception as exc:
-            probe.last_error = str(exc)[:512]
+            if time.monotonic() >= deadline:
+                break
+            time.sleep(poll_sec)
 
         probe.elapsed_ms = int((time.monotonic() - t0) * 1000)
         return probe

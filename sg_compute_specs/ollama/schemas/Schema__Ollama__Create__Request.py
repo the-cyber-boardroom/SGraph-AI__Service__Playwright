@@ -25,3 +25,4 @@ class Schema__Ollama__Create__Request(Type_Safe):
     allowed_cidr    : str                       = ''             # empty = caller /32; CIDR for port 11434
     pull_on_boot    : bool                      = True           # False = model pre-baked in AMI
     gpu_required    : bool                      = True           # False = allow CPU-only instance types
+    use_spot        : bool                      = True           # spot instance by default (~70% cheaper); pass --no-use-spot for on-demand

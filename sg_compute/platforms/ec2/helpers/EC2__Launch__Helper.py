@@ -32,7 +32,8 @@ class EC2__Launch__Helper(Type_Safe):
                            instance_profile_name : str  = ''          ,
                            max_hours             : int  = 0           ,
                            key_name              : str  = ''          ,
-                           disk_size_gb          : int  = 0           ) -> str:
+                           disk_size_gb          : int  = 0           ,
+                           use_spot              : bool = False       ) -> str:
         encoded  = base64.b64encode(gzip.compress(user_data.encode('utf-8'))).decode('ascii')
         profile  = instance_profile_name or instance_profile
         kwargs   = dict(
@@ -48,7 +49,7 @@ class EC2__Launch__Helper(Type_Safe):
             kwargs['IamInstanceProfile'] = {'Name': profile}
         if key_name:
             kwargs['KeyName'] = key_name
-        if max_hours > 0:
+        if max_hours > 0 and not use_spot:                                                       # spot ignores InstanceInitiatedShutdownBehavior; spot always terminates on shutdown
             kwargs['InstanceInitiatedShutdownBehavior'] = 'terminate'
         if disk_size_gb and disk_size_gb > 0:
             kwargs['BlockDeviceMappings'] = [{
@@ -57,6 +58,8 @@ class EC2__Launch__Helper(Type_Safe):
                                'VolumeType'         : 'gp3'            ,
                                'DeleteOnTermination': True             },
             }]
+        if use_spot:
+            kwargs['InstanceMarketOptions'] = {'MarketType': 'spot'}
 
         resp      = self.ec2_client(region).run_instances(**kwargs)
         instances = resp.get('Instances', [])

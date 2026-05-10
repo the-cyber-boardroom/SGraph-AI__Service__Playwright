@@ -145,10 +145,12 @@ class Spec__CLI__Builder:
             ('wait',          bool,          typer.Option(False, '--wait',
                                             help='Block until healthy after create.')),
         ]
-        extra_params = [
-            (n, t, typer.Option(d, f'--{n.replace("_", "-")}', help=h))
-            for (n, t, d, h) in extra_options
-        ]
+        extra_params = []
+        for (n, t, d, h) in extra_options:
+            flag = f'--{n.replace("_", "-")}'
+            if t is bool and d is True:
+                flag = f'{flag}/--no-{n.replace("_", "-")}'                                       # dual-flag pattern lets the user opt out of true-by-default flags
+            extra_params.append((n, t, typer.Option(d, flag, help=h)))
         all_params = base_params + extra_params
 
         def create_impl(**kwargs):

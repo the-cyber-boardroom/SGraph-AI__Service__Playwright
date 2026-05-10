@@ -65,6 +65,7 @@ class Ollama__Service(Spec__Service__Base):
             service_factory       = lambda: Ollama__Service().setup()  ,
             health_path           = '/api/tags'                       ,
             health_port           = 11434                              ,
+            health_scheme         = 'http'                             ,   # Ollama API is plain HTTP on 11434
         )
 
     def create_stack(self, request : Schema__Ollama__Create__Request,
@@ -111,6 +112,7 @@ class Ollama__Service(Spec__Service__Base):
             max_hours             = request.max_hours   ,
             instance_profile_name = PROFILE_NAME        ,
             disk_size_gb          = disk_gb             ,
+            use_spot              = bool(request.use_spot) ,
         )
         info = Schema__Ollama__Info(
             instance_id       = iid                ,

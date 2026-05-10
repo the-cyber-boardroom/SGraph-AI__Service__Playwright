@@ -21,3 +21,4 @@ class Schema__Ollama__Info(Type_Safe):
     disk_size_gb      : int  = 0
     uptime_seconds    : int  = 0
     gpu_count         : int  = 0
+    spot              : bool = False                          # True when AWS InstanceLifecycle == 'spot'

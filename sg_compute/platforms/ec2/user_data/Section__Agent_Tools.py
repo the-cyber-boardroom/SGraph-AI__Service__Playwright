@@ -7,10 +7,10 @@
 from osbot_utils.type_safe.Type_Safe import Type_Safe
 
 TEMPLATE = '''\
-# ── Agent-tools venv ──────────────────────────────────────────────────────────
+# ── Agent-tools venv (Python 3.13) ────────────────────────────────────────────
 echo '[sg-compute] preparing agent-tools venv...'
-dnf install -y git python3 python3-pip jq curl wget
-sudo -u ec2-user python3 -m venv /home/ec2-user/venvs/agent-tools
+dnf install -y git python3.13 jq curl wget
+sudo -u ec2-user python3.13 -m venv /home/ec2-user/venvs/agent-tools
 sudo -u ec2-user /home/ec2-user/venvs/agent-tools/bin/pip install --upgrade pip requests httpx rich
 mkdir -p /var/log/sg-compute
 cat > /etc/logrotate.d/sg-compute << 'EOF'

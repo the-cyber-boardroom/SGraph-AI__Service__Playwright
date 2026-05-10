@@ -16,6 +16,7 @@ class Schema__Spec__CLI__Spec:
                  service_factory,
                  health_path                : str  = '/',
                  health_port                : int  = 80,
+                 health_scheme              : str  = 'https',
                  extra_create_field_setters        = None):
         self.spec_id                   = spec_id
         self.display_name              = display_name
@@ -24,4 +25,5 @@ class Schema__Spec__CLI__Spec:
         self.service_factory           = service_factory
         self.health_path               = health_path
         self.health_port               = health_port
+        self.health_scheme             = health_scheme
         self.extra_create_field_setters = extra_create_field_setters

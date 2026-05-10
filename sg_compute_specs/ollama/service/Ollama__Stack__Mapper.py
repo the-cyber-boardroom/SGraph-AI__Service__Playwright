@@ -44,4 +44,5 @@ class Ollama__Stack__Mapper(Type_Safe):
             disk_size_gb      = int(tag_value(details, TAG_DISK_GB) or 0) ,
             uptime_seconds    = uptime_seconds(details)                   ,
             gpu_count         = gpu_count_for(instance_type)              ,
+            spot              = details.get('InstanceLifecycle', '') == 'spot' ,
         )

@@ -52,6 +52,8 @@ def render_info(info, console: Console) -> None:
             continue
         display = f'{val} GiB' if key == 'disk_size_gb' and int(val or 0) > 0 else (str(val) or '—')
         t.add_row(key.replace('_', '-'), display)
+    if hasattr(info, 'spot'):
+        t.add_row('pricing', '[cyan]spot[/]' if info.spot else '[dim]on-demand[/]')
     console.print(t)
     console.print()
 
