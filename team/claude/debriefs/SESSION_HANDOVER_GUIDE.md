@@ -17,6 +17,17 @@ When asked to wrap up, produce **two artefacts**:
 Optionally a third if relevant:
 3. **A follow-up plan** — `team/comms/plans/v{next-version}__{slice-name}.md` for the next big slice, **only if** the next slice is concrete and the work is sized for one PR. Don't write speculative plans.
 
+## Merge before handover
+
+The wrap-up assumes this session's branch will be **merged to `dev` before the next session starts**. Agents do not push to `dev` directly (CLAUDE.md rule 31) — instead:
+
+1. Confirm the branch is pushed (`git push -u origin <branch>`).
+2. If a PR is appropriate, ask the user whether to open one (do NOT auto-open per the GitHub-integration rules).
+3. The user merges (via PR or direct push from their machine).
+4. Next session starts from `dev` — clean, with all of this session's work present.
+
+If a merge isn't possible (work-in-progress, blocked on review, etc.), the debrief's TL;DR must say so loudly and tell the user "merge before next session." That is the **only** case where the next agent should branch off the previous session's feature branch.
+
 ---
 
 ## Where things live (so the next agent can find them)
@@ -99,9 +110,9 @@ Three buckets:
 A reading order: which files / docs in what order. Include "don't bother reading X unless Y comes up" — saves the next agent context budget. Include "critical files to NOT touch unless deliberately changing the contract."
 
 ### 11. What to take into account next session
-The non-obvious stuff: branch state, AWS region the user is on, cost ceilings, harness limitations. Anything that would surprise an agent who started fresh.
+The non-obvious stuff: AWS region the user is on, cost ceilings, harness limitations. Anything that would surprise an agent who started fresh.
 
-**ALWAYS** include a "branch handover" sentence: each session has its own `claude/{description}-{session-id}` branch (CLAUDE.md rule 30). The next agent must be **aware of** the previous session's branch (it carries unmerged work) but **must NOT commit onto it** — they branch off it (or off `dev` if it has merged). Spell out the exact `git checkout -b` command in the debrief so there's no ambiguity.
+**Branch handover is standard, not a per-session note.** The convention is: by the time the next session starts, this session's work is **merged to `dev`**. The next agent always starts from `dev` (CLAUDE.md rule 29: "Default branch: `dev`"). If for some reason the merge can't happen yet, flag it as the **#1 blocker** in the TL;DR and explicitly tell the user "merge before next session" — don't quietly leave the next agent to figure out which branch to start from.
 
 ---
 
