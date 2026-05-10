@@ -836,7 +836,7 @@ from sg_compute_specs.open_design.cli import app as _open_design_app  # noqa: E4
 app.add_typer(_open_design_app, name='open-design'      )                              # ephemeral Open Design EC2 stacks
 app.add_typer(_open_design_app, name='od',   hidden=True)                              # short alias
 
-from sg_compute_specs.ollama.cli import app as _ollama_app  # noqa: E402
+from sg_compute_specs.ollama.cli.Cli__Ollama import app as _ollama_app  # noqa: E402
 app.add_typer(_ollama_app, name='ollama'        )                                      # ephemeral Ollama GPU EC2 stacks
 app.add_typer(_ollama_app, name='ol', hidden=True)                                     # short alias
 
