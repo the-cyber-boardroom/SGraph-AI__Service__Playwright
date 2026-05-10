@@ -21,8 +21,10 @@ def render_list(listing, console: Console) -> None:
     t.add_column('instance-type')
     t.add_column('public-ip'    , style='cyan')
     t.add_column('region'       , style='dim')
+    t.add_column('pricing'      )
     for s in stacks:
-        state = str(s.state.value) if hasattr(s.state, 'value') else str(getattr(s, 'state', ''))
+        state   = str(s.state.value) if hasattr(s.state, 'value') else str(getattr(s, 'state', ''))
+        pricing = ('[cyan]spot[/]' if getattr(s, 'spot', False) else '[dim]on-demand[/]') if hasattr(s, 'spot') else ''
         t.add_row(
             str(getattr(s, 'stack_name',    '')) or '—',
             str(getattr(s, 'instance_id',   '')) or '—',
@@ -30,6 +32,7 @@ def render_list(listing, console: Console) -> None:
             str(getattr(s, 'instance_type', '')) or '—',
             str(getattr(s, 'public_ip',     '')) or '—',
             str(getattr(s, 'region',        '')) or '—',
+            pricing                                   ,
         )
     console.print(t)
 
