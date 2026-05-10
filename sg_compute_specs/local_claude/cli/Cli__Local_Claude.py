@@ -71,7 +71,7 @@ app = Spec__CLI__Builder(
         ('with_claude_code' , bool, True,
          'Install Claude Code on first boot via Anthropic official installer.'),
         ('with_sgit'        , bool, True,
-         'Install sgit in a python3.12 venv for encrypted vault storage.'),
+         'Install sgit in a python3.13 venv for encrypted vault storage.'),
         ('use_spot'         , bool, True,
          'Spot instance (~70% cheaper). Pass --no-use-spot for on-demand.'),
         ('max_model_len'         , int  , 65536,

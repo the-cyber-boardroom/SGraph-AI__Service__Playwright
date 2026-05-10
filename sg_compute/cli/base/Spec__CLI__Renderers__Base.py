@@ -19,38 +19,45 @@ SG_BANNER = r'''
 '''
 
 
+_AUTO_LABELS = {
+    'ami'      : '(auto-resolve)',
+    'caller_ip': '(auto-detect)',
+}
+
+
 def render_create_preview(spec_id   : str   ,
                           subcommand: str   ,
                           name      : str   ,
                           kwargs    : dict  ,
                           defaults  : dict  ,
                           console   : Console) -> None:
-    """Pre-flight banner shown before the AWS call so the user gets immediate
-    feedback. Highlights overrides, prints an equivalent copy-paste command."""
     console.print(f'[cyan]{SG_BANNER}[/]')
     console.print(Panel(f'[bold cyan]SG/Compute[/]  ·  [bold]{spec_id}[/]  '
                         f'[dim]{subcommand}[/]', border_style='cyan', expand=False))
     console.print()
     console.print('  [bold]Parameters[/]  [dim](bold = override; others use the spec default)[/]')
-    overrides = []
     for k, default in defaults.items():
-        v = kwargs.get(k, default)
-        flag = k.replace('_', '-')
+        v       = kwargs.get(k, default)
+        flag    = k.replace('_', '-')
+        auto    = _AUTO_LABELS.get(k)
+        display = auto if (auto and not v) else repr(v)
         if v == default:
-            console.print(f'    [dim]{flag:24}= {v!r}[/]')
+            console.print(f'    [dim]{flag:24}= {display}[/]')
         else:
-            console.print(f'    [bold]{flag:24}= {v!r}[/]  [dim](default {default!r})[/]')
-            overrides.append((k, v))
+            console.print(f'    [bold]{flag:24}= {display}[/]  [dim](default {default!r})[/]')
     console.print()
     cmd_parts = [f'sg {spec_id} {subcommand}']
     if name:
         cmd_parts.append(name)
-    for k, v in overrides:
+    for k, default in defaults.items():
+        v    = kwargs.get(k, default)
         flag = f'--{k.replace("_", "-")}'
+        if k in _AUTO_LABELS and not v:
+            continue
         if isinstance(v, bool):
             cmd_parts.append(flag if v else f'--no-{k.replace("_", "-")}')
         elif isinstance(v, str) and ' ' in v:
-            cmd_parts.append(f"{flag} {v!r}")
+            cmd_parts.append(f'{flag} {v!r}')
         else:
             cmd_parts.append(f'{flag} {v}')
     console.print('  [bold]Equivalent command[/]  [dim](copy-paste to repeat)[/]')
