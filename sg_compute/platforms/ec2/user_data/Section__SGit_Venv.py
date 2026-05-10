@@ -14,8 +14,7 @@ VENV = '/home/ssm-user/claude-session-venv'
 
 TEMPLATE = '''\
 # ── sgit venv (python3.13) ────────────────────────────────────────────────────
-echo '[sg-compute] waiting for ssm-user...'
-until id ssm-user >/dev/null 2>&1; do sleep 2; done
+# ssm-user is pre-created in Section__Base; no wait needed.
 echo '[sg-compute] installing python3.13 (pip is bundled, no separate package)...'
 dnf install -y python3.13
 echo "[sg-compute] python version: $(python3.13 --version)"

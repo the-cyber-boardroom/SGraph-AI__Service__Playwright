@@ -31,6 +31,14 @@ dnf install -y --allowerasing git curl jq unzip
 
 # SSM agent ships on AL2023 — ensure it is running
 systemctl enable --now amazon-ssm-agent 2>/dev/null || true
+
+# Pre-create ssm-user so sections that write to /home/ssm-user/ never block.
+# SSM Session Manager creates this user on the first interactive session; SSM
+# SendCommand (used by `sg lc exec`) does NOT. Pre-creating ensures the boot
+# script can install Claude Code config / sgit venv / etc. on any instance,
+# regardless of whether anyone ever opens a Session Manager session.
+id ssm-user >/dev/null 2>&1 || useradd ssm-user -m -d /home/ssm-user -s /bin/bash
+echo "[ephemeral-ec2] ssm-user ensured (uid=$(id -u ssm-user))"
 '''
 
 

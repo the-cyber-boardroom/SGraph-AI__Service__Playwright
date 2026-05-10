@@ -17,8 +17,7 @@ from osbot_utils.type_safe.Type_Safe import Type_Safe
 
 _HEADER = '''\
 # ── Claude Code firstboot config ─────────────────────────────────────────────
-echo '[sg-compute] waiting for ssm-user...'
-until id ssm-user >/dev/null 2>&1; do sleep 2; done
+# ssm-user is pre-created in Section__Base; no wait needed.
 dnf install -y tmux
 echo '[sg-compute] writing Claude Code launcher and settings...'
 mkdir -p /home/ssm-user/.claude /home/ssm-user/bin

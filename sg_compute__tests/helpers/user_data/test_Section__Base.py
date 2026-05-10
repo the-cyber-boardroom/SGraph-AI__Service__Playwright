@@ -23,8 +23,17 @@ class test_Section__Base(TestCase):
 
     def test_render__installs_essentials(self):
         out = Section__Base().render('x')
-        assert 'dnf install -y git curl jq unzip' in out
+        assert 'dnf install -y --allowerasing git curl jq unzip' in out
 
     def test_render__ssm_agent(self):
         out = Section__Base().render('x')
         assert 'amazon-ssm-agent' in out
+
+    def test_render__pre_creates_ssm_user(self):
+        # ssm-user is created lazily by SSM Session Manager but never by SSM
+        # SendCommand. Pre-creating it at boot prevents Section__SGit_Venv /
+        # Section__Claude_Code__Firstboot from blocking forever on instances
+        # only ever accessed via `sg lc exec`.
+        out = Section__Base().render('x')
+        assert 'useradd ssm-user' in out
+        assert '/home/ssm-user'   in out
