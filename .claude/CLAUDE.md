@@ -41,6 +41,7 @@ The canonical location moved from `team/explorer/librarian/reality/` to `team/ro
 | Roadmap | `library/roadmap/phases/v{version}__phase-overview.md` | Phase status (✅/🟡/❌/⚠) |
 | Role definitions | `team/roles/{role}/ROLE.md` | What each agent persona owns |
 | Phase debriefs | `team/claude/debriefs/` + `index.md` | Per-slice retrospective |
+| Session handover guide | [`team/claude/debriefs/SESSION_HANDOVER_GUIDE.md`](../team/claude/debriefs/SESSION_HANDOVER_GUIDE.md) | Meta-template for "wrap up this session" |
 | Cross-role briefs / plans / changelog | `team/comms/` | Communication between roles |
 | Human inbox (HUMAN-ONLY) | `team/humans/dinis_cruz/briefs/` | Agents NEVER write here |
 | Agent outputs | `team/humans/dinis_cruz/claude-code-web/MM/DD/HH/` | Scratch space, promote to reviews when formal |
@@ -152,6 +153,7 @@ Six personas, one shared codebase. Pick the role that fits the task before you s
     - **Good failure** — surfaced early, caught by tests, informed a better design.
     - **Bad failure** — silenced, worked around, or re-introduced. A bad failure is an implicit follow-up request.
 28. **Commit hash is backfilled** into the debrief index once the Dev commit lands. The Historian chases stragglers.
+29. **Session handover** — when the user says "wrap up this session" (or similar), follow [`team/claude/debriefs/SESSION_HANDOVER_GUIDE.md`](../team/claude/debriefs/SESSION_HANDOVER_GUIDE.md). It defines the required sections, naming, gathering steps, and quality bar. Don't improvise.
 
 ### Git
 
