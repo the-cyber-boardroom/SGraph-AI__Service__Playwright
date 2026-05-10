@@ -121,8 +121,12 @@ def logs(name  : str = typer.Argument(None, help='Stack name; auto-selected when
     cmd_tpl, timeout = _LOG_SOURCES[source]
     svc    = Local_Claude__Service().setup()
     name   = Spec__CLI__Builder(_cli_spec).resolver.resolve(svc, name, region, 'local-claude')
+    c = Console(highlight=False)
+    others = '  '.join(k for k in _LOG_SOURCES if k != source)
+    c.print(f'  [bold]{source}[/] [dim]──  other sources: {others}[/]')
+    c.print()
     result = svc.exec(region, name, cmd_tpl.format(tail=tail), timeout_sec=timeout)
-    Console(highlight=False).print(str(getattr(result, 'stdout', '')))
+    c.print(str(getattr(result, 'stdout', '')))
 
 
 @app.command()

@@ -19,13 +19,13 @@ class TestLocalClaudeServiceCliSurface:
         assert spec.health_scheme         == 'http'
         assert spec.create_request_cls.__name__ == 'Schema__Local_Claude__Create__Request'
 
-    def test_user_data_shutdown_is_second(self):
+    def test_user_data_shutdown_before_dnf(self):
         builder    = Local_Claude__User_Data__Builder()
         user_data  = builder.render(stack_name='test-stack', region='eu-west-2', max_hours=1)
         lines      = user_data.splitlines()
-        shutdown_i = next(i for i, l in enumerate(lines) if 'systemd-run' in l or 'shutdown' in l.lower())
-        vllm_i     = next(i for i, l in enumerate(lines) if 'vllm-claude-code' in l)
-        assert shutdown_i < vllm_i, 'Section__Shutdown must appear before Section__VLLM'
+        timer_i    = next(i for i, l in enumerate(lines) if 'systemd-run' in l)
+        dnf_i      = next(i for i, l in enumerate(lines) if l.strip().startswith('dnf install'))
+        assert timer_i < dnf_i, 'auto-terminate timer must appear before any dnf install (L9)'
 
     def test_user_data_contains_key_sections(self):
         builder   = Local_Claude__User_Data__Builder()
