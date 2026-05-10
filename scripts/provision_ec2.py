@@ -840,6 +840,10 @@ from sg_compute_specs.ollama.cli.Cli__Ollama import app as _ollama_app  # noqa: 
 app.add_typer(_ollama_app, name='ollama'        )                                      # ephemeral Ollama GPU EC2 stacks
 app.add_typer(_ollama_app, name='ol', hidden=True)                                     # short alias
 
+from sg_compute_specs.local_claude.cli.Cli__Local_Claude import app as _local_claude_app  # noqa: E402
+app.add_typer(_local_claude_app, name='local-claude'    )                                  # local vLLM + Claude Code on EC2 GPU
+app.add_typer(_local_claude_app, name='lc', hidden=True )                                  # short alias
+
 from scripts.catalog import app as _catalog_app  # noqa: E402
 app.add_typer(_catalog_app, name='catalog')
 
