@@ -6,6 +6,7 @@
 
 import os
 import time
+from datetime import datetime, timezone, timedelta
 
 from typing import Optional
 
@@ -89,11 +90,15 @@ class Local_Claude__Service(Spec__Service__Base):
             extra_cidrs={})
 
         disk_gb = int(request.disk_size_gb)
+        from sg_compute_specs.local_claude.service.Local_Claude__Stack__Mapper import TAG_TERMINATE_AT
         extra   = {
             TAG_MODEL      : request.model               ,
             TAG_DISK_GB    : str(disk_gb)                ,
             TAG_TOOL_PARSER: request.tool_parser         ,
         }
+        if float(request.max_hours) > 0:
+            terminate_at = datetime.now(timezone.utc) + timedelta(hours=float(request.max_hours))
+            extra[TAG_TERMINATE_AT] = terminate_at.strftime('%Y-%m-%dT%H:%M:%SZ')
         tags = self.aws_client.tags.build(stack_name, caller_ip, creator, extra_tags=extra)
 
         user_data = self.user_data_builder.render(

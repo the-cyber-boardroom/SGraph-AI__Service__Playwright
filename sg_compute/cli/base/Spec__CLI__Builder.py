@@ -146,7 +146,7 @@ class Spec__CLI__Builder:
             ('region',        str,           typer.Option(DEFAULT_REGION, '--region', '-r')),
             ('instance_type', str,           typer.Option(cli_spec.default_instance_type,
                                                           '--instance-type', '-t')),
-            ('max_hours',     float,         typer.Option(DEFAULT_MAX_HOURS, '--max-hours')),
+            ('max_hours',     float,         typer.Option(DEFAULT_MAX_HOURS, '--max-hours', '--mh')),
             ('ami',           str,           typer.Option('', '--ami',
                                             help='AMI ID; resolved from spec helper if blank.')),
             ('caller_ip',     str,           typer.Option('', '--caller-ip',

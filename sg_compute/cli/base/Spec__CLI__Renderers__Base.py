@@ -72,7 +72,7 @@ def render_create_preview(spec_id   : str   ,
         else:
             cmd_parts.append(f'{flag} {v}')
     console.print('  [bold]Equivalent command[/]  [dim](copy-paste to repeat)[/]')
-    console.print(f'    [cyan]{" ".join(cmd_parts)}[/]')
+    console.print(f'    [cyan]{" ".join(cmd_parts)}[/]', no_wrap=True, overflow='ignore')
     console.print()
     console.print('  [dim]Submitting to AWS …[/]')
     console.print()
@@ -87,6 +87,17 @@ def humanize_uptime(seconds) -> str:
     return f'{s // 86400}d {(s % 86400) // 3600}h'
 
 
+def humanize_time_left(terminate_at: str, time_remaining_sec: int) -> str:
+    if not terminate_at:
+        return '—'
+    if time_remaining_sec <= 0:
+        return '[red]expired[/]'
+    s = time_remaining_sec
+    if s < 60:    return f'[yellow]{s}s left[/]'
+    if s < 3600:  return f'[yellow]{s // 60}m left[/]'
+    return f'[green]{s // 3600}h {(s % 3600) // 60}m left[/]'
+
+
 def render_list(listing, console: Console) -> None:
     stacks = getattr(listing, 'stacks', [])
     if not stacks:
@@ -99,11 +110,13 @@ def render_list(listing, console: Console) -> None:
     t.add_column('instance-type')
     t.add_column('public-ip'    , style='cyan')
     t.add_column('uptime'       )
+    t.add_column('time-left'    )
     t.add_column('region'       , style='dim')
     t.add_column('pricing'      )
     for s in stacks:
-        state   = str(s.state.value) if hasattr(s.state, 'value') else str(getattr(s, 'state', ''))
-        pricing = ('[cyan]spot[/]' if getattr(s, 'spot', False) else '[dim]on-demand[/]') if hasattr(s, 'spot') else ''
+        state     = str(s.state.value) if hasattr(s.state, 'value') else str(getattr(s, 'state', ''))
+        pricing   = ('[cyan]spot[/]' if getattr(s, 'spot', False) else '[dim]on-demand[/]') if hasattr(s, 'spot') else ''
+        time_left = humanize_time_left(getattr(s, 'terminate_at', ''), getattr(s, 'time_remaining_sec', 0))
         t.add_row(
             str(getattr(s, 'stack_name',    '')) or '—',
             str(getattr(s, 'instance_id',   '')) or '—',
@@ -111,6 +124,7 @@ def render_list(listing, console: Console) -> None:
             str(getattr(s, 'instance_type', '')) or '—',
             str(getattr(s, 'public_ip',     '')) or '—',
             humanize_uptime(getattr(s, 'uptime_seconds', 0)),
+            time_left                                 ,
             str(getattr(s, 'region',        '')) or '—',
             pricing                                   ,
         )
@@ -140,6 +154,11 @@ def render_info(info, console: Console) -> None:
         t.add_row(label, display)
     if hasattr(info, 'spot'):
         t.add_row('pricing', '[cyan]spot[/]' if info.spot else '[dim]on-demand[/]')
+    terminate_at = str(getattr(info, 'terminate_at', '') or '')
+    if terminate_at:
+        remaining = int(getattr(info, 'time_remaining_sec', 0) or 0)
+        t.add_row('terminate-at', terminate_at)
+        t.add_row('time-left',    humanize_time_left(terminate_at, remaining))
     console.print(t)
     console.print()
 
