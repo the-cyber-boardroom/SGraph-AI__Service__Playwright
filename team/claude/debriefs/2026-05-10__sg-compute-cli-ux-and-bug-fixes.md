@@ -202,13 +202,13 @@ sg lc exec "systemctl is-active docker"
 
 If those commands all return content but `sg lc logs` is still empty, the polling fix has regressed. If files are missing/empty → boot script crashed before `exec > >(tee ...)` ran; investigate the `trap ... ERR` and the order of operations in `Section__Base`.
 
-### 🟡 Issue 2 — `Schema__CLI__Exec__Result.exit_code` is never populated
+### ✅ Issue 2 — RESOLVED in `7ac4bcac`
 
-`Spec__Service__Base.exec()` sets `stdout`, `transport`, `duration_ms` — but **not** `exit_code`. `render_exec_result` always shows `exit=0`, regardless of whether the command actually succeeded. To populate it properly, `EC2__Instance__Helper.run_command` would need to return both stdout and exit code (from the invocation's `ResponseCode`), and the signature would need to change. Not urgent but misleading.
+`EC2__Instance__Helper.run_command` now returns `(stdout: str, exit_code: int)`. The exit code is read from the invocation's `ResponseCode` field (returns `-1` on timeout or error). `Spec__Service__Base.exec()` unpacks the tuple and sets `result.exit_code`. `render_exec_result` renders non-zero exit codes in red; zero remains dim.
 
-### 🟢 Issue 3 — Advanced-options pattern not applied to other specs
+### ✅ Issue 3 — RESOLVED in `7ac4bcac`
 
-The 5-tuple `(name, type, default, help, advanced=True)` was added in `Spec__CLI__Builder` and is used by local-claude only. open-design, elastic, ollama etc. still expose every option in `--help`. Mechanical follow-up.
+Advanced-options pattern applied to ollama: `ami_base`, `with_claude`, `expose_api` marked with 5th-element `True`. docker and firefox use the older manual CLI pattern (not `Spec__CLI__Builder`) — migrating them would be a larger refactor and is left for a dedicated session if needed.
 
 ---
 
@@ -218,8 +218,8 @@ When the next session (any model) picks this up:
 
 1. **Read this file first.** It supersedes any earlier session notes about `sg lc diag` / `sg lc logs` / `Section__Docker.py` / `run_command`.
 2. **Verify Bug C fix on a live instance.** Launch a stack, immediately run `sg lc logs --source boot` (no wait). The output should now begin with `via SSM: tail -n 300 /var/log/ephemeral-ec2-boot.log` and then show the actual boot log content. If it still comes back empty on a freshly-created instance, drop into the discriminator commands listed under Issue 1 — the polling fix has regressed, or it's a Hypothesis B (log file missing) situation.
-3. **Issue 2 is a quick win.** `Spec__Service__Base.exec()` sets `stdout` but never `exit_code`. Read `ResponseCode` from the invocation in `run_command`, return a `(stdout, exit_code)` tuple, set both on `Schema__CLI__Exec__Result`. About 20 LOC across two files (`EC2__Instance__Helper.py` + `Spec__Service__Base.py`). Also `render_exec_result` colors non-zero exit codes.
-4. **Issue 3 — propagate the advanced-options pattern.** open-design / elastic / ollama / podman etc. still expose every option in `--help`. Mark the rarely-touched ones (model-tuning knobs, low-level docker flags, etc.) with the 5th-element `True` flag. Mechanical.
+3. **Issue 2 — RESOLVED in `7ac4bcac`.**
+4. **Issue 3 — RESOLVED in `7ac4bcac`.** Ollama marked; docker/firefox still use manual CLI pattern.
 5. **Honour the new design principle.** When adding any new SSM-backed command, do NOT introduce artificial sleeps. Poll tightly, handle `InvocationDoesNotExist` as transient, and surface the actual shell invocation to the user. The `run_command` rewrite in commit `94ff8230` is the canonical pattern.
 6. **The `diag` generator pattern is reusable.** If the user asks for the same live-check experience on another spec (open-design, elastic), the playbook is: convert their existing health/status function into a generator yielding `(name, 'checking', '')` then `(name, status, detail)`, and copy `_DIAG_ICONS` / `_DIAG_HINTS` from `Cli__Local_Claude.py`.
 7. **Longer-term option for log retrieval.** CloudWatch Logs or a tiny on-instance HTTP server + SSM port-forward would replace polling with true streaming. Don't pursue unless the user explicitly asks — both add operational surface area.
@@ -233,7 +233,7 @@ When the next session (any model) picks this up:
 | A — Section__Docker deadlock | **Good** | Surfaced quickly by diag transparency; root cause traced via cloud-init log; clean fix. |
 | B — run_command race | **Good** (now) | Was a **bad failure** for years (silent empty returns) until diag transparency exposed it. Caught with explicit polling. |
 | C — InvocationDoesNotExist swallowed | **Good** | Caught in the same session it was introduced. Previous debrief version flagged it as the prime hypothesis; fix landed without needing diagnostic commands. |
-| Issue 2 — exit_code never set | **Bad (open)** | Misleading display, no caller can trust the exit code. |
-| Issue 3 — advanced-options not propagated | **Open (not a bug)** | Mechanical follow-up. |
+| Issue 2 — exit_code never set | **Bad → Fixed** | Resolved in `7ac4bcac`. `run_command` now returns `(stdout, exit_code)` tuple; `render_exec_result` colors failures red. |
+| Issue 3 — advanced-options not propagated | **Fixed** | Resolved in `7ac4bcac`. Ollama CLI updated; docker/firefox use the older manual pattern. |
 
 The session's lasting lesson: **silent empty returns in SSM glue code are far more dangerous than visible exceptions**, because they break every layered diagnostic that assumes content-or-error semantics. Three of the bugs in this debrief (B, C, and the original Bug A symptom) share that root cause.
