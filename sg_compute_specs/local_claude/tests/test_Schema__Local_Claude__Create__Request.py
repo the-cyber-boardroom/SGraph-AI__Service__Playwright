@@ -19,7 +19,7 @@ class TestSchemaLocalClaudeCreateRequest:
         assert req.kv_cache_dtype         == 'fp8'
         assert req.gpu_memory_utilization == 0.92
         assert int(req.disk_size_gb)      == 200
-        assert req.ami_base               == Enum__Local_Claude__AMI__Base.AL2023
+        assert req.ami_base               == Enum__Local_Claude__AMI__Base.DLAMI
         assert req.with_claude_code       is True
         assert req.with_sgit              is True
         assert req.use_spot               is True
