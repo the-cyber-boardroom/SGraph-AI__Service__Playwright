@@ -42,7 +42,7 @@ def render_create_preview(spec_id   : str   ,
             console.print(f'    [bold]{flag:24}= {v!r}[/]  [dim](default {default!r})[/]')
             overrides.append((k, v))
     console.print()
-    cmd_parts = [f'sp {spec_id} {subcommand}']
+    cmd_parts = [f'sg {spec_id} {subcommand}']
     if name:
         cmd_parts.append(name)
     for k, v in overrides:

@@ -766,8 +766,8 @@ def provision(stage                  : str          = DEFAULT_STAGE    ,
 
 # ── Typer CLI ─────────────────────────────────────────────────────────────────
 
-app = typer.Typer(name            = 'sp'                                              ,
-                   help            = 'SG Playwright CLI — manage ephemeral EC2 stacks across all sister sections.',
+app = typer.Typer(name            = 'sg'                                              ,
+                   help            = 'SG/Compute CLI — manage ephemeral EC2 stacks across all specs.',
                    no_args_is_help = True                                              ,
                    add_completion  = False                                             )
 

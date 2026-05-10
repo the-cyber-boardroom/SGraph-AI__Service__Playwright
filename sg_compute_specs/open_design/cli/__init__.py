@@ -1,6 +1,6 @@
 # ═══════════════════════════════════════════════════════════════════════════════
 # Ephemeral EC2 — Open Design CLI
-# Typer app: sp open-design create / list / info / delete / health / wait
+# Typer app: sg open-design create / list / info / delete / health / wait
 # Tier-2A pattern: thin wrapper — logic lives in Open_Design__Service.
 # ═══════════════════════════════════════════════════════════════════════════════
 
@@ -51,7 +51,7 @@ def _err_handler(fn):
             c.print()
             c.print(f'  [red]✗[/]  [bold]{type(exc).__name__}[/]: {exc}')
             if not DEBUG_TRACE:
-                c.print('     [dim]› Re-run with [bold]sp open-design --debug ...[/] to see the full traceback.[/]')
+                c.print('     [dim]› Re-run with [bold]sg open-design --debug ...[/] to see the full traceback.[/]')
             if DEBUG_TRACE:
                 c.print()
                 c.print('[dim]── traceback ────────────────────────────────────[/]')
@@ -69,7 +69,7 @@ def resolve_stack_name(svc: Open_Design__Service, provided: Optional[str], regio
     region_label = listing.region or 'the current region'
     if len(names) == 0:
         Console(highlight=False, stderr=True).print(
-            f'\n  [yellow]No open-design stacks in {region_label}.[/]  Run: [bold]sp open-design create[/]\n')
+            f'\n  [yellow]No open-design stacks in {region_label}.[/]  Run: [bold]sg open-design create[/]\n')
         raise typer.Exit(1)
     if len(names) == 1:
         Console(highlight=False).print(f'\n  [dim]One stack found — using [bold]{names[0]}[/][/]')
