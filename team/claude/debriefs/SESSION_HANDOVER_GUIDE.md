@@ -101,6 +101,8 @@ A reading order: which files / docs in what order. Include "don't bother reading
 ### 11. What to take into account next session
 The non-obvious stuff: branch state, AWS region the user is on, cost ceilings, harness limitations. Anything that would surprise an agent who started fresh.
 
+**ALWAYS** include a "branch handover" sentence: each session has its own `claude/{description}-{session-id}` branch (CLAUDE.md rule 30). The next agent must be **aware of** the previous session's branch (it carries unmerged work) but **must NOT commit onto it** — they branch off it (or off `dev` if it has merged). Spell out the exact `git checkout -b` command in the debrief so there's no ambiguity.
+
 ---
 
 ## How to gather the material (mechanical steps)
