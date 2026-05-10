@@ -214,106 +214,139 @@ class Local_Claude__Service(Spec__Service__Base):
         return probe
 
     # ── boot-sequence diagnostic checklist ───────────────────────────────────────
+    # Generator protocol: for each active check, yields (name, 'checking', '')
+    # first so the CLI can show a live "checking…" indicator, then yields the
+    # final (name, status, detail) tuple once the check completes.
+    # Skipped checks are yielded directly (no 'checking' prefix — nothing runs).
+    # On failures, 'detail' includes enough context to diagnose without SSM.
 
     def diagnose(self, region: str, name: str):
-        checks = []
-
-        def add(check_name, status, detail):
-            checks.append((check_name, status, detail))
-
-        info = self.get_stack_info(region, name)
+        # ── check 1: ec2-state ─────────────────────────────────────────────────
+        yield ('ec2-state', 'checking', '')
+        info      = self.get_stack_info(region, name)
         if info is None:
-            add('ec2-state', 'fail', 'stack not found')
-            return checks
+            yield ('ec2-state', 'fail', 'stack not found')
+            return
         ec2_state = str(getattr(info, 'state', '') or '')
-        add('ec2-state', 'ok' if ec2_state == 'running' else 'fail', ec2_state or '?')
-        if ec2_state != 'running':
+        ec2_ok    = ec2_state == 'running'
+        yield ('ec2-state', 'ok' if ec2_ok else 'fail', ec2_state or '?')
+        if not ec2_ok:
+            skip_msg = f'skipped — ec2 is {ec2_state!r}'
             for n in ('ssm-reachable', 'boot-failed', 'boot-ok',
                       'docker', 'docker-access', 'gpu', 'vllm-container', 'vllm-api'):
-                add(n, 'skip', f'(skipped — ec2 state is {ec2_state!r})')
-            return checks
+                yield (n, 'skip', skip_msg)
+            return
 
+        # ── check 2: ssm-reachable ─────────────────────────────────────────────
+        yield ('ssm-reachable', 'checking', '')
         try:
             self.exec(region, name, 'echo ok', timeout_sec=15)
-            add('ssm-reachable', 'ok', 'responsive')
+            ssm_ok = True
+            yield ('ssm-reachable', 'ok', 'responsive')
         except Exception as exc:
-            add('ssm-reachable', 'fail', str(exc)[:120])
+            ssm_ok = False
+            yield ('ssm-reachable', 'fail', str(exc)[:120])
+        if not ssm_ok:
             for n in ('boot-failed', 'boot-ok', 'docker', 'docker-access',
                       'gpu', 'vllm-container', 'vllm-api'):
-                add(n, 'skip', '(skipped — SSM unreachable)')
-            return checks
+                yield (n, 'skip', 'skipped — SSM unreachable')
+            return
 
         def ssm(cmd, timeout=12):
             r = self.exec(region, name, cmd, timeout_sec=timeout)
             return str(getattr(r, 'stdout', '') or '').strip()
 
+        # ── check 3: boot-failed ───────────────────────────────────────────────
+        yield ('boot-failed', 'checking', '')
         try:
             out = ssm('test -f /var/lib/sg-compute-boot-failed && echo YES || echo NO')
             if 'YES' in out:
-                add('boot-failed', 'fail', 'boot script error — run: sg local-claude logs --source boot')
+                tail = ssm('tail -n 15 /var/log/ephemeral-ec2-boot.log 2>/dev/null || true')
+                detail = 'boot script error:\n' + tail if tail else 'boot script error'
+                yield ('boot-failed', 'fail', detail)
             else:
-                add('boot-failed', 'ok', 'absent')
+                yield ('boot-failed', 'ok', 'absent')
         except Exception:
-            add('boot-failed', 'warn', 'could not check')
+            yield ('boot-failed', 'warn', 'could not check')
 
+        # ── check 4: boot-ok ──────────────────────────────────────────────────
+        yield ('boot-ok', 'checking', '')
         try:
             out = ssm('test -f /var/lib/sg-compute-boot-ok && echo YES || echo NO')
             if 'YES' in out:
-                add('boot-ok', 'ok', 'present')
+                yield ('boot-ok', 'ok', 'present')
             else:
-                add('boot-ok', 'warn', 'not yet — still booting or failed above')
+                tail = ssm('tail -n 5 /var/log/ephemeral-ec2-boot.log 2>/dev/null || echo "(log not yet available)"')
+                yield ('boot-ok', 'warn', f'not yet — last log: {tail[:120]}')
         except Exception:
-            add('boot-ok', 'warn', 'could not check')
+            yield ('boot-ok', 'warn', 'could not check')
 
+        # ── check 5: docker ───────────────────────────────────────────────────
+        yield ('docker', 'checking', '')
         try:
             out = ssm('systemctl is-active docker 2>&1 || true')
-            add('docker', 'ok' if out == 'active' else 'fail', out or '?')
+            if out == 'active':
+                yield ('docker', 'ok', 'active')
+            else:
+                journal = ssm('journalctl -u docker -n 5 --no-pager 2>/dev/null || true')
+                yield ('docker', 'fail', f'state={out!r}  last journal: {journal[:200]}')
         except Exception:
-            add('docker', 'warn', 'could not check')
+            yield ('docker', 'warn', 'could not check')
 
+        # ── check 6: docker-access ─────────────────────────────────────────────
+        yield ('docker-access', 'checking', '')
         try:
             out = ssm('sudo -u ssm-user docker info >/dev/null 2>&1 && echo OK || echo DENIED')
             if 'OK' in out:
-                add('docker-access', 'ok', 'ssm-user can use docker')
+                yield ('docker-access', 'ok', 'ssm-user can use docker')
             else:
-                add('docker-access', 'warn', 'ssm-user lacks docker group — new SSM session will fix it')
+                groups = ssm('id ssm-user 2>/dev/null || echo "(ssm-user not found)"')
+                yield ('docker-access', 'warn',
+                       f'permission denied — ssm-user groups: {groups[:120]}\n'
+                       '  fix: reconnect your SSM session (group change takes effect on new login)')
         except Exception:
-            add('docker-access', 'warn', 'could not check')
+            yield ('docker-access', 'warn', 'could not check')
 
+        # ── check 7: gpu ──────────────────────────────────────────────────────
+        yield ('gpu', 'checking', '')
         try:
             out = ssm('nvidia-smi --query-gpu=name --format=csv,noheader 2>&1 | head -1 || echo MISSING')
             if out and 'MISSING' not in out and 'not found' not in out.lower():
-                add('gpu', 'ok', out)
+                yield ('gpu', 'ok', out)
             else:
-                add('gpu', 'fail', out or 'nvidia-smi missing')
+                driver = ssm('modinfo nvidia 2>&1 | head -2 || echo "(kernel module not loaded)"')
+                yield ('gpu', 'fail', f'nvidia-smi not found — {driver[:120]}')
         except Exception:
-            add('gpu', 'warn', 'could not check')
+            yield ('gpu', 'warn', 'could not check')
 
+        # ── check 8: vllm-container ───────────────────────────────────────────
+        yield ('vllm-container', 'checking', '')
+        container_ok = False
         try:
             out = ssm('sudo docker ps --filter name=vllm-claude-code --format "{{.Status}}" 2>&1 || true')
             if out and 'Up' in out:
-                add('vllm-container', 'ok', out)
-            elif out:
-                add('vllm-container', 'fail', out)
+                container_ok = True
+                yield ('vllm-container', 'ok', out)
             else:
-                add('vllm-container', 'fail', 'no container named vllm-claude-code')
+                all_ct = ssm('sudo docker ps -a --format "{{.Names}}  {{.Status}}" 2>&1 | head -5 || true')
+                detail = f'not running — all containers: {all_ct}' if all_ct else 'no container named vllm-claude-code'
+                yield ('vllm-container', 'fail', detail)
         except Exception:
-            add('vllm-container', 'warn', 'could not check')
+            yield ('vllm-container', 'warn', 'could not check')
 
-        container_ok = checks[-1][1] == 'ok' if checks else False
+        # ── check 9: vllm-api ─────────────────────────────────────────────────
         if not container_ok:
-            add('vllm-api', 'skip', '(skipped — container not running)')
+            yield ('vllm-api', 'skip', 'skipped — container not running')
         else:
+            yield ('vllm-api', 'checking', '')
             try:
                 out = ssm('curl -sf http://127.0.0.1:8000/v1/models 2>&1 | head -c 200 || echo FAIL', timeout=15)
                 if '"data"' in out or out.startswith('{'):
-                    add('vllm-api', 'ok', 'responding')
+                    yield ('vllm-api', 'ok', 'responding')
                 else:
-                    add('vllm-api', 'fail', (out[:100] if out else 'no response'))
+                    yield ('vllm-api', 'fail', out[:120] if out else 'no response')
             except Exception as exc:
-                add('vllm-api', 'fail', str(exc)[:120])
-
-        return checks
+                yield ('vllm-api', 'fail', str(exc)[:120])
 
     # ── local-claude-specific extras ─────────────────────────────────────────
 
