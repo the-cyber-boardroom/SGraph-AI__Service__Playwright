@@ -21,13 +21,18 @@ from sg_compute.cli.base.Spec__CLI__Defaults      import (DEFAULT_EXEC_TIMEOUT ,
                                                            DEFAULT_REGION       ,
                                                            DEFAULT_TIMEOUT_SEC  )
 from sg_compute.cli.base.Spec__CLI__Errors        import set_debug, spec_cli_errors
-from sg_compute.cli.base.Spec__CLI__Renderers__Base import (render_create      ,
+from sg_compute.cli.base.Spec__CLI__Renderers__Base import (render_ami_bake    ,
+                                                             render_ami_delete  ,
+                                                             render_ami_list    ,
+                                                             render_ami_wait    ,
+                                                             render_create      ,
                                                              render_delete      ,
                                                              render_exec_result ,
                                                              render_health_probe,
                                                              render_info        ,
                                                              render_list        )
 from sg_compute.cli.base.Spec__CLI__Resolver      import Spec__CLI__Resolver
+from sg_compute.core.ami.service.AMI__Service     import AMI__Service
 
 
 class Spec__CLI__Builder:
@@ -56,6 +61,7 @@ class Spec__CLI__Builder:
         self._register_connect(app)
         self._register_exec   (app)
         self._register_delete (app)
+        self._register_ami    (app)
         return app
 
     # ── internal helpers ──────────────────────────────────────────────────────
@@ -280,3 +286,91 @@ class Spec__CLI__Builder:
                           Console(highlight=False, width=200))
             if not getattr(result, 'deleted', False):
                 raise typer.Exit(1)
+
+    def _register_ami(self, app):
+        service_factory = self.cli_spec.service_factory
+        resolver        = self.resolver
+        spec_id         = self.cli_spec.spec_id
+        display_name    = self.cli_spec.display_name
+
+        ami_app = typer.Typer(no_args_is_help = True                                          ,
+                              help            = f'Manage {display_name} AMIs (list/bake/wait/delete).',
+                              add_completion  = False                                          )
+
+        @ami_app.command(name='list')
+        @spec_cli_errors
+        def ami_list(region: str = typer.Option(DEFAULT_REGION, '--region', '-r')):
+            result = AMI__Service(region=region).list_amis(spec_id)
+            render_ami_list(result, Console(highlight=False, width=200))
+
+        @ami_app.command(name='bake')
+        @spec_cli_errors
+        def ami_bake(name      : Optional[str] = typer.Argument(None,
+                                  help='Stack name to bake; auto-selected when only one exists.'),
+                     region    : str           = typer.Option(DEFAULT_REGION, '--region', '-r'),
+                     ami_name  : str           = typer.Option('', '--name', '-n',
+                                  help=f'AMI name; auto-generated as {spec_id}-<stack>-<epoch> if blank.'),
+                     reboot    : bool          = typer.Option(False, '--reboot',
+                                  help='Reboot before snapshot (filesystem-consistent; ~30s downtime).'),
+                     wait      : bool          = typer.Option(False, '--wait',
+                                  help='Block until the AMI reaches state=available (5–15 min).')):
+            import time
+            svc  = service_factory()
+            name = resolver.resolve(svc, name, region, spec_id)
+            info = svc.get_stack_info(region, name)
+            if info is None:
+                Console(highlight=False, stderr=True).print(
+                    f'  [red]✗  No {spec_id} stack matched {name!r}[/]')
+                raise typer.Exit(1)
+            instance_id = str(info.instance_id)
+            final_name  = ami_name or f'{spec_id}-{name}-{int(time.time())}'
+            ami_svc     = AMI__Service(region=region)
+            baked       = ami_svc.bake(region       = region        ,
+                                       spec_id      = spec_id       ,
+                                       instance_id  = instance_id   ,
+                                       ami_name     = final_name    ,
+                                       source_stack = name          ,
+                                       no_reboot    = not reboot    )
+            render_ami_bake(baked, Console(highlight=False, width=200))
+            if wait:
+                self._wait_ami_available(ami_svc, region, str(baked.ami_id))
+
+        @ami_app.command(name='wait')
+        @spec_cli_errors
+        def ami_wait(ami_id : str = typer.Argument(..., help='AMI ID to wait on.'),
+                     region : str = typer.Option(DEFAULT_REGION, '--region', '-r')):
+            self._wait_ami_available(AMI__Service(region=region), region, ami_id)
+
+        @ami_app.command(name='delete')
+        @spec_cli_errors
+        def ami_delete(ami_id: str  = typer.Argument(..., help='AMI ID to deregister.'),
+                       region: str  = typer.Option(DEFAULT_REGION, '--region', '-r'),
+                       yes   : bool = typer.Option(False, '--yes', '-y',
+                                  help='Skip confirmation prompt.')):
+            if not yes:
+                typer.confirm(f'Deregister {ami_id} and delete its snapshots?',
+                              default=True, abort=True)
+            deregistered, snapshots_deleted = AMI__Service(region=region).delete(region, ami_id)
+            render_ami_delete(ami_id, deregistered, snapshots_deleted,
+                              Console(highlight=False, width=200))
+            if not deregistered:
+                raise typer.Exit(1)
+
+        app.add_typer(ami_app, name='ami')
+
+    def _wait_ami_available(self, ami_svc, region: str, ami_id: str,
+                                  timeout_sec: int = 1800, poll_sec: int = 15) -> None:        # 30-min ceiling: bake of a 250 GiB Ollama AMI runs 8–15 min
+        import time
+        c       = Console(highlight=False)
+        c.print(f'\n  [dim]Waiting for AMI {ami_id} to be available …[/]')
+        deadline = time.monotonic() + timeout_sec
+        state    = ''
+        while time.monotonic() < deadline:
+            state = ami_svc.describe_state(region, ami_id)
+            if state in ('available', 'failed', 'invalid', 'error'):
+                break
+            time.sleep(poll_sec)
+        elapsed = int(timeout_sec - max(0, deadline - time.monotonic()))
+        render_ami_wait(ami_id, state, elapsed, c)
+        if state != 'available':
+            raise typer.Exit(1)
