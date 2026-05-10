@@ -178,6 +178,20 @@ class Local_Claude__Service(Spec__Service__Base):
         probe    = Schema__CLI__Health__Probe()
         deadline = time.monotonic() + max(timeout_sec, 0)
         while True:
+            # Fail-fast: bail out if the boot script wrote the failure marker.
+            try:
+                marker = self.exec(region, name,
+                                   'test -f /var/lib/sg-compute-boot-failed && '
+                                   'tail -n 30 /var/log/ephemeral-ec2-boot.log || true',
+                                   timeout_sec=10)
+                tail = str(getattr(marker, 'stdout', '') or '').strip()
+                if tail:
+                    probe.healthy    = False
+                    probe.state      = 'failed'
+                    probe.last_error = tail[:1500]
+                    break
+            except Exception:
+                pass
             try:
                 result = self.exec(region, name,
                                    'curl -sf http://127.0.0.1:8000/v1/models',

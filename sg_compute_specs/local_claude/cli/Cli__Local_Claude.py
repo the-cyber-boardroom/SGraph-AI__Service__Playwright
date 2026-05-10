@@ -97,15 +97,31 @@ def models(name  : str = typer.Argument(None, help='Stack name; auto-selected wh
     Console(highlight=False).print(str(getattr(result, 'stdout', '')))
 
 
+_LOG_SOURCES = {                                                       # name → (shell command template, ssm timeout)
+    'vllm'      : ('docker logs --tail {tail} vllm-claude-code 2>&1'        , 30),
+    'boot'      : ('tail -n {tail} /var/log/ephemeral-ec2-boot.log'         , 20),
+    'cloud-init': ('tail -n {tail} /var/log/cloud-init-output.log'          , 20),
+    'docker'    : ('journalctl -u docker -n {tail} --no-pager'              , 20),
+    'journal'   : ('journalctl -n {tail} --no-pager'                        , 30),
+}
+
+
 @app.command()
 @spec_cli_errors
 def logs(name  : str = typer.Argument(None, help='Stack name; auto-selected when only one exists.'),
          tail  : int = typer.Option(100, '--tail', '-n', help='Number of log lines to fetch.'),
+         source: str = typer.Option('vllm', '--source', '-s',
+                                    help='Log source: vllm | boot | cloud-init | docker | journal'),
          region: str = typer.Option(DEFAULT_REGION, '--region', '-r')):
-    """Stream recent docker logs from the vllm-claude-code container."""
+    """Stream logs from the stack. --source picks which log: vLLM container (default),
+    EC2 boot script, cloud-init, the docker daemon, or the full systemd journal."""
+    if source not in _LOG_SOURCES:
+        raise typer.BadParameter(
+            f'unknown source {source!r}; pick from: {", ".join(_LOG_SOURCES)}')
+    cmd_tpl, timeout = _LOG_SOURCES[source]
     svc    = Local_Claude__Service().setup()
     name   = Spec__CLI__Builder(_cli_spec).resolver.resolve(svc, name, region, 'local-claude')
-    result = svc.exec(region, name, f'docker logs --tail {tail} vllm-claude-code 2>&1', timeout_sec=20)
+    result = svc.exec(region, name, cmd_tpl.format(tail=tail), timeout_sec=timeout)
     Console(highlight=False).print(str(getattr(result, 'stdout', '')))
 
 

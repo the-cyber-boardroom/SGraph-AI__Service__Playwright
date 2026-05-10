@@ -75,7 +75,10 @@ class TestCliLocalClaude:
     def test_logs_subcommand_exists(self):
         result = runner.invoke(app, ['logs', '--help'])
         assert result.exit_code == 0
-        assert '--tail' in result.output
+        assert '--tail'   in result.output
+        assert '--source' in result.output
+        for src in ('vllm', 'boot', 'cloud-init', 'docker', 'journal'):
+            assert src in result.output
 
     def test_claude_subcommand_exists(self):
         result = runner.invoke(app, ['claude', '--help'])

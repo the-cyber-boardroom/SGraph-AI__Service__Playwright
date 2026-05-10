@@ -23,7 +23,8 @@ from sg_compute.platforms.ec2.user_data.Section__Shutdown                 import
 from sg_compute.platforms.ec2.user_data.Section__Sidecar                  import Section__Sidecar
 from sg_compute.platforms.ec2.user_data.Section__VLLM                     import Section__VLLM
 
-FOOTER = '\necho "[sg-compute] local-claude boot complete at $(date -u +%FT%TZ)"\n'
+FOOTER = ('\ntouch /var/lib/sg-compute-boot-ok\n'
+          'echo "[sg-compute] local-claude boot complete at $(date -u +%FT%TZ)"\n')
 
 
 class Local_Claude__User_Data__Builder(Type_Safe):

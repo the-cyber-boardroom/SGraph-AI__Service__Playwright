@@ -7,6 +7,7 @@ from rich.console import Console
 from rich.panel   import Panel
 from rich.table   import Table
 
+from sg_compute.cli.base.Spec__CLI__Renderers__Base                                import humanize_uptime
 from sg_compute_specs.local_claude.schemas.Schema__Local_Claude__Create__Response import Schema__Local_Claude__Create__Response
 from sg_compute_specs.local_claude.schemas.Schema__Local_Claude__Info             import Schema__Local_Claude__Info
 from sg_compute_specs.local_claude.schemas.Schema__Local_Claude__List             import Schema__Local_Claude__List
@@ -67,7 +68,7 @@ def render_info(info: Schema__Local_Claude__Info, c: Console) -> None:
     t.add_row('disk-gb'    , str(info.disk_size_gb)   if info.disk_size_gb else '—')
     t.add_row('gpu-count'  , str(info.gpu_count))
     t.add_row('pricing'    , '[cyan]spot[/]' if info.spot else 'on-demand')
-    t.add_row('uptime'     , f'{info.uptime_seconds}s' if info.uptime_seconds else '—')
+    t.add_row('uptime'     , humanize_uptime(info.uptime_seconds))
     c.print(t)
     c.print()
     c.print(f'  [dim]Connect:  sp local-claude claude {info.stack_name} --region {info.region}[/]')
