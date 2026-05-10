@@ -283,8 +283,15 @@ class Local_Claude__Service(Spec__Service__Base):
                 boot_ok = True
                 yield ('boot-ok', 'ok', 'present')
             else:
-                tail = ssm('tail -n 5 /var/log/ephemeral-ec2-boot.log 2>/dev/null || echo "(log not yet available)"')
-                yield ('boot-ok', 'warn', f'not yet — last log: {tail[:120]}')
+                # Prefer the latest [sg-compute] / [ephemeral-ec2] stage marker —
+                # far more useful than the raw tail (which is usually dnf noise).
+                stage = ssm("grep -E '^\\[(sg-compute|ephemeral-ec2)\\]' "
+                            "/var/log/ephemeral-ec2-boot.log 2>/dev/null | tail -n 1 || true")
+                if stage:
+                    yield ('boot-ok', 'warn', f'not yet — current stage: {stage[:160]}')
+                else:
+                    tail = ssm('tail -n 5 /var/log/ephemeral-ec2-boot.log 2>/dev/null || echo "(log not yet available)"')
+                    yield ('boot-ok', 'warn', f'not yet — last log: {tail[:120]}')
         except Exception:
             yield ('boot-ok', 'warn', 'could not check')
 

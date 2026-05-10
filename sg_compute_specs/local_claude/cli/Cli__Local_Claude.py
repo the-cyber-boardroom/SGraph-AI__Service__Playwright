@@ -140,7 +140,7 @@ Available sources (pick with --source / -s, or omit to be prompted):
 ''')
 @spec_cli_errors
 def logs(name  : str = typer.Argument(None, help='Stack name; auto-selected when only one exists.'),
-         tail  : int = typer.Option(100, '--tail', '-n', help='Number of log lines to fetch.'),
+         tail  : int = typer.Option(300, '--tail', '-n', help='Number of log lines to fetch.'),
          source: str = typer.Option('', '--source', '-s',
                                     help='vllm | boot | cloud-init | docker | journal. Omit to be prompted.'),
          region: str = typer.Option(DEFAULT_REGION, '--region', '-r')):
