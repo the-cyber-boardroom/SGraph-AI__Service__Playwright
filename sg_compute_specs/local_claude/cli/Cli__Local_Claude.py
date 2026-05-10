@@ -200,27 +200,50 @@ def diag(name  : str = typer.Argument(None, help='Stack name; auto-selected when
       vllm-container  vllm-claude-code container is running
       vllm-api        vLLM /v1/models endpoint responds
     """
+    import sys
     c      = Console(highlight=False)
     svc    = Local_Claude__Service().setup()
     name   = Spec__CLI__Builder(_cli_spec).resolver.resolve(svc, name, region, 'local-claude')
     c.print()
     c.print(f'  [bold]Diagnostics[/]  ·  [cyan]{name}[/]  [dim]{region}[/]')
     c.print()
-    checks = svc.diagnose(region, name)
-    all_ok = True
-    for check_name, status, detail in checks:
+
+    is_tty  = sys.stdout.isatty()
+    results = []
+
+    for check_name, status, detail in svc.diagnose(region, name):
+        if status == 'checking':
+            if is_tty:
+                sys.stdout.write(f'  ···  {check_name:<20} checking…\r')
+                sys.stdout.flush()
+            continue
+
+        # Erase the "checking…" line before printing the result.
+        if is_tty:
+            sys.stdout.write('\r\033[K')
+            sys.stdout.flush()
+
         icon = _DIAG_ICONS.get(status, '[dim]?[/]')
-        if status in ('fail', 'warn'):
-            all_ok = False
-        c.print(f'  {icon}  {check_name:20} [dim]{detail}[/]')
+        results.append((check_name, status, detail))
+
+        # Multi-line detail (e.g. boot log tail on failure): indent continuation lines.
+        first_line, *rest = detail.split('\n')
+        c.print(f'  {icon}  {check_name:20} [dim]{first_line}[/]')
+        for extra in rest:
+            if extra.strip():
+                c.print(f'       [dim]{extra}[/]')
+
     c.print()
-    if all_ok:
-        c.print('  [green]all checks passed[/]')
+    failed = [n for n, s, _ in results if s == 'fail']
+    warned = [n for n, s, _ in results if s == 'warn']
+    if not failed and not warned:
+        c.print('  [green]✓  all checks passed[/]')
     else:
-        failed = [n for n, s, _ in checks if s == 'fail']
-        warned = [n for n, s, _ in checks if s == 'warn']
-        parts  = []
+        parts = []
         if failed: parts.append(f'[red]{len(failed)} failed[/]')
         if warned: parts.append(f'[yellow]{len(warned)} warnings[/]')
         c.print(f'  {", ".join(parts)}')
+        if failed or warned:
+            c.print()
+            c.print('  [dim]Share the output above with the bot for diagnosis.[/]')
     c.print()

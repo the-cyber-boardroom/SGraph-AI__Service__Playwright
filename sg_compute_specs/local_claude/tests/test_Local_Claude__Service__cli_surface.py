@@ -66,15 +66,13 @@ class TestLocalClaudeServiceCliSurface:
 
     def test_diagnose_returns_nine_checks(self, monkeypatch):
         svc = Local_Claude__Service()
-        # Stub out get_stack_info and exec so no AWS calls happen.
         monkeypatch.setattr(svc, 'get_stack_info',
                             lambda region, name: type('I', (), {'state': 'running', 'instance_id': 'i-fake'})())
-        call_no = [0]
         def fake_exec(region, name, cmd, timeout_sec=60, cwd=''):
-            call_no[0] += 1
             return type('R', (), {'stdout': 'ok'})()
         monkeypatch.setattr(svc, 'exec', fake_exec)
-        checks = svc.diagnose('eu-west-2', 'test-stack')
+        # diagnose() is now a generator; filter out the 'checking' sentinel yields
+        checks = [(n, s, d) for n, s, d in svc.diagnose('eu-west-2', 'test-stack') if s != 'checking']
         assert len(checks) == 9
         names = [c[0] for c in checks]
         assert names == ['ec2-state', 'ssm-reachable', 'boot-failed', 'boot-ok',
@@ -84,7 +82,7 @@ class TestLocalClaudeServiceCliSurface:
         svc = Local_Claude__Service()
         monkeypatch.setattr(svc, 'get_stack_info',
                             lambda region, name: type('I', (), {'state': 'pending', 'instance_id': 'i-fake'})())
-        checks = svc.diagnose('eu-west-2', 'test-stack')
+        checks = [(n, s, d) for n, s, d in svc.diagnose('eu-west-2', 'test-stack') if s != 'checking']
         assert checks[0] == ('ec2-state', 'fail', 'pending')
         assert all(s == 'skip' for _, s, _ in checks[1:])
 
@@ -97,6 +95,6 @@ class TestLocalClaudeServiceCliSurface:
                 return type('R', (), {'stdout': 'YES'})()
             return type('R', (), {'stdout': 'ok'})()
         monkeypatch.setattr(svc, 'exec', fake_exec)
-        checks = svc.diagnose('eu-west-2', 'test-stack')
+        checks = [(n, s, d) for n, s, d in svc.diagnose('eu-west-2', 'test-stack') if s != 'checking']
         boot_failed = next(c for c in checks if c[0] == 'boot-failed')
         assert boot_failed[1] == 'fail'
