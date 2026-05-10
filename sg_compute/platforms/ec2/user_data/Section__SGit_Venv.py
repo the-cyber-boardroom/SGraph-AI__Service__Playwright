@@ -21,8 +21,8 @@ echo "[sg-compute] python version: $(python3.13 --version)"
 sudo -u ssm-user python3.13 -m venv {venv}
 echo '[sg-compute] upgrading pip in venv...'
 sudo -u ssm-user {venv}/bin/python3.13 -m pip install --quiet --upgrade pip
-echo '[sg-compute] installing sgit...'
-sudo -u ssm-user {venv}/bin/python3.13 -m pip install --quiet sgit
+echo '[sg-compute] installing sgit-ai...'
+sudo -u ssm-user {venv}/bin/python3.13 -m pip install --quiet sgit-ai
 echo "[sg-compute] sgit ready: $(sudo -u ssm-user {venv}/bin/sgit --version 2>/dev/null || echo installed)"
 '''.format(venv=VENV)
 

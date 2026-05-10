@@ -222,7 +222,6 @@ _DIAG_HINTS = {
     'boot-ok'       : [('boot'  , 'watch boot progress')],
     'boot-failed'   : [('boot'  , 'full boot log with error details')],
     'docker'        : [('docker', 'docker daemon startup'), ('boot', 'earlier boot errors')],
-    'docker-access' : [('boot'  , 'check ssm-user / usermod step in boot log')],
     'vllm-container': [('boot'  , 'boot progress — docker pull is the long step'),
                        ('docker', 'docker daemon / pull errors')],
     'vllm-api'      : [('vllm'  , 'vLLM container output')],
@@ -234,7 +233,7 @@ _DIAG_HINTS = {
 @spec_cli_errors
 def diag(name  : str = typer.Argument(None, help='Stack name; auto-selected when only one exists.'),
          region: str = typer.Option(DEFAULT_REGION, '--region', '-r')):
-    """Run the sequential 9-step boot checklist and show which steps passed/failed.
+    """Run the sequential 8-step boot checklist and show which steps passed/failed.
 
     \b
     Steps checked in order:
@@ -243,7 +242,6 @@ def diag(name  : str = typer.Argument(None, help='Stack name; auto-selected when
       boot-failed     /var/lib/sg-compute-boot-failed is absent
       boot-ok         /var/lib/sg-compute-boot-ok is present
       docker          Docker CE service is active
-      docker-access   ssm-user can run docker without sudo
       gpu             nvidia-smi reports at least one GPU
       vllm-container  vllm-claude-code container is running
       vllm-api        vLLM /v1/models endpoint responds

@@ -18,9 +18,12 @@ class test_Section__Docker(TestCase):
         assert 'systemctl enable --now docker' in out
 
     def test_render__adds_docker_group_members(self):
+        # ec2-user gets the docker group at boot. ssm-user does NOT — adding
+        # ssm-user to docker effectively grants root via `docker run -v /:/host`,
+        # and the convenience is not worth the side effects.
         out = Section__Docker().render()
         assert 'usermod -aG docker ec2-user' in out
-        assert 'usermod -aG docker ssm-user' in out
+        assert 'usermod -aG docker ssm-user' not in out
 
     def test_render__returns_str(self):
         assert isinstance(Section__Docker().render(), str)

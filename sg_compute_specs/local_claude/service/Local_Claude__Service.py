@@ -188,7 +188,7 @@ class Local_Claude__Service(Spec__Service__Base):
                 marker = self.exec(region, name,
                                    'test -f /var/lib/sg-compute-boot-failed && '
                                    'tail -n 30 /var/log/ephemeral-ec2-boot.log || true',
-                                   timeout_sec=10)
+                                   timeout_sec=30)
                 tail = str(getattr(marker, 'stdout', '') or '').strip()
                 if tail:
                     probe.healthy    = False
@@ -200,7 +200,7 @@ class Local_Claude__Service(Spec__Service__Base):
             try:
                 result = self.exec(region, name,
                                    'curl -sf http://127.0.0.1:8000/v1/models',
-                                   timeout_sec=10)
+                                   timeout_sec=30)
                 stdout = str(getattr(result, 'stdout', '') or '')
                 if '"data"' in stdout or stdout.strip().startswith('{'):
                     probe.healthy    = True
@@ -238,26 +238,26 @@ class Local_Claude__Service(Spec__Service__Base):
         if not ec2_ok:
             skip_msg = f'skipped — ec2 is {ec2_state!r}'
             for n in ('ssm-reachable', 'boot-failed', 'boot-ok',
-                      'docker', 'docker-access', 'gpu', 'vllm-container', 'vllm-api'):
+                      'docker', 'gpu', 'vllm-container', 'vllm-api'):
                 yield (n, 'skip', skip_msg)
             return
 
         # ── check 2: ssm-reachable ─────────────────────────────────────────────
         yield ('ssm-reachable', 'checking', '')
         try:
-            self.exec(region, name, 'echo ok', timeout_sec=15)
+            self.exec(region, name, 'echo ok', timeout_sec=30)
             ssm_ok = True
             yield ('ssm-reachable', 'ok', 'responsive')
         except Exception as exc:
             ssm_ok = False
             yield ('ssm-reachable', 'fail', str(exc)[:120])
         if not ssm_ok:
-            for n in ('boot-failed', 'boot-ok', 'docker', 'docker-access',
+            for n in ('boot-failed', 'boot-ok', 'docker',
                       'gpu', 'vllm-container', 'vllm-api'):
                 yield (n, 'skip', 'skipped — SSM unreachable')
             return
 
-        def ssm(cmd, timeout=12):
+        def ssm(cmd, timeout=30):    # AWS SSM SendCommand requires TimeoutSeconds >= 30
             r = self.exec(region, name, cmd, timeout_sec=timeout)
             return str(getattr(r, 'stdout', '') or '').strip()
 
@@ -307,27 +307,7 @@ class Local_Claude__Service(Spec__Service__Base):
         except Exception:
             yield ('docker', 'warn', 'could not check')
 
-        # ── check 6: docker-access ─────────────────────────────────────────────
-        yield ('docker-access', 'checking', '')
-        try:
-            out = ssm('sudo -u ssm-user docker info >/dev/null 2>&1 && echo OK || echo DENIED')
-            if 'OK' in out:
-                yield ('docker-access', 'ok', 'ssm-user can use docker')
-            else:
-                groups = ssm('id ssm-user 2>/dev/null || echo "(ssm-user not found)"')
-                if 'not found' in groups:
-                    if not boot_ok:
-                        yield ('docker-access', 'warn', 'not yet — ssm-user not created by SSM agent yet (boot in progress)')
-                    else:
-                        yield ('docker-access', 'warn', 'ssm-user missing after boot — unexpected; check cloud-init')
-                else:
-                    yield ('docker-access', 'warn',
-                           f'permission denied — ssm-user groups: {groups[:120]}\n'
-                           '  fix: reconnect your SSM session (group change takes effect on new login)')
-        except Exception:
-            yield ('docker-access', 'warn', 'could not check')
-
-        # ── check 7: gpu ──────────────────────────────────────────────────────
+        # ── check 6: gpu ──────────────────────────────────────────────────────
         yield ('gpu', 'checking', '')
         try:
             out = ssm('nvidia-smi --query-gpu=name --format=csv,noheader 2>&1 | head -1 || echo MISSING')
@@ -339,7 +319,7 @@ class Local_Claude__Service(Spec__Service__Base):
         except Exception:
             yield ('gpu', 'warn', 'could not check')
 
-        # ── check 8: vllm-container ───────────────────────────────────────────
+        # ── check 7: vllm-container ───────────────────────────────────────────
         yield ('vllm-container', 'checking', '')
         container_ok = False
         try:
@@ -356,13 +336,13 @@ class Local_Claude__Service(Spec__Service__Base):
         except Exception:
             yield ('vllm-container', 'warn', 'could not check')
 
-        # ── check 9: vllm-api ─────────────────────────────────────────────────
+        # ── check 8: vllm-api ─────────────────────────────────────────────────
         if not container_ok:
             yield ('vllm-api', 'skip', 'skipped — container not running')
         else:
             yield ('vllm-api', 'checking', '')
             try:
-                out = ssm('curl -sf http://127.0.0.1:8000/v1/models 2>&1 | head -c 200 || echo FAIL', timeout=15)
+                out = ssm('curl -sf http://127.0.0.1:8000/v1/models 2>&1 | head -c 200 || echo FAIL', timeout=30)
                 if '"data"' in out or out.startswith('{'):
                     yield ('vllm-api', 'ok', 'responding')
                 else:

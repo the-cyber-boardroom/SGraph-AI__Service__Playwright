@@ -64,7 +64,7 @@ class TestLocalClaudeServiceCliSurface:
         user_data = builder.render(stack_name='test-stack', region='eu-west-2', max_hours=0)
         assert 'systemd-run' not in user_data
 
-    def test_diagnose_returns_nine_checks(self, monkeypatch):
+    def test_diagnose_returns_eight_checks(self, monkeypatch):
         svc = Local_Claude__Service()
         monkeypatch.setattr(svc, 'get_stack_info',
                             lambda region, name: type('I', (), {'state': 'running', 'instance_id': 'i-fake'})())
@@ -73,10 +73,10 @@ class TestLocalClaudeServiceCliSurface:
         monkeypatch.setattr(svc, 'exec', fake_exec)
         # diagnose() is now a generator; filter out the 'checking' sentinel yields
         checks = [(n, s, d) for n, s, d in svc.diagnose('eu-west-2', 'test-stack') if s != 'checking']
-        assert len(checks) == 9
+        assert len(checks) == 8
         names = [c[0] for c in checks]
         assert names == ['ec2-state', 'ssm-reachable', 'boot-failed', 'boot-ok',
-                         'docker', 'docker-access', 'gpu', 'vllm-container', 'vllm-api']
+                         'docker', 'gpu', 'vllm-container', 'vllm-api']
 
     def test_diagnose_stops_at_ec2_not_running(self, monkeypatch):
         svc = Local_Claude__Service()
