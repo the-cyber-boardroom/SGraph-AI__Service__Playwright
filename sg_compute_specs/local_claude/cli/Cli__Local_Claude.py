@@ -97,31 +97,61 @@ def models(name  : str = typer.Argument(None, help='Stack name; auto-selected wh
     Console(highlight=False).print(str(getattr(result, 'stdout', '')))
 
 
-_LOG_SOURCES = {                                                       # name → (shell command template, ssm timeout)
-    'vllm'      : ('docker logs --tail {tail} vllm-claude-code 2>&1'        , 30),
-    'boot'      : ('tail -n {tail} /var/log/ephemeral-ec2-boot.log'         , 20),
-    'cloud-init': ('tail -n {tail} /var/log/cloud-init-output.log'          , 20),
-    'docker'    : ('journalctl -u docker -n {tail} --no-pager'              , 20),
-    'journal'   : ('journalctl -n {tail} --no-pager'                        , 30),
+_LOG_SOURCES = {                                                       # name → (shell command template, ssm timeout, one-line description)
+    'vllm'      : ('docker logs --tail {tail} vllm-claude-code 2>&1' , 30,
+                   'vLLM container (only ready after Docker pull + container start)'),
+    'boot'      : ('tail -n {tail} /var/log/ephemeral-ec2-boot.log'  , 20,
+                   'EC2 user-data boot script — available within seconds of launch'),
+    'cloud-init': ('tail -n {tail} /var/log/cloud-init-output.log'   , 20,
+                   'cloud-init full output — slightly behind boot log'),
+    'docker'    : ('journalctl -u docker -n {tail} --no-pager'       , 20,
+                   'docker daemon journal — only after Docker is installed'),
+    'journal'   : ('journalctl -n {tail} --no-pager'                 , 30,
+                   'full systemd journal — always available'),
 }
 
 
-@app.command()
+def _prompt_for_source(c: Console) -> str:
+    c.print()
+    c.print('  [bold]Which log source?[/]')
+    keys = list(_LOG_SOURCES)
+    for i, k in enumerate(keys, 1):
+        _, _, desc = _LOG_SOURCES[k]
+        c.print(f'    [cyan]{i}[/]  [bold]{k:11}[/] [dim]{desc}[/]')
+    c.print()
+    ans = typer.prompt('  Pick a number or name', default='boot').strip()
+    if ans.isdigit() and 1 <= int(ans) <= len(keys):
+        return keys[int(ans) - 1]
+    if ans in _LOG_SOURCES:
+        return ans
+    raise typer.BadParameter(f'unknown source {ans!r}; pick from: {", ".join(_LOG_SOURCES)}')
+
+
+@app.command(help='''Stream logs from the stack.
+
+\b
+Available sources (pick with --source / -s, or omit to be prompted):
+  vllm        vLLM container (only ready after Docker pull + container start)
+  boot        EC2 user-data boot script — available within seconds of launch
+  cloud-init  cloud-init full output — slightly behind boot log
+  docker      docker daemon journal — only after Docker is installed
+  journal     full systemd journal — always available
+''')
 @spec_cli_errors
 def logs(name  : str = typer.Argument(None, help='Stack name; auto-selected when only one exists.'),
          tail  : int = typer.Option(100, '--tail', '-n', help='Number of log lines to fetch.'),
-         source: str = typer.Option('vllm', '--source', '-s',
-                                    help='Log source: vllm | boot | cloud-init | docker | journal'),
+         source: str = typer.Option('', '--source', '-s',
+                                    help='vllm | boot | cloud-init | docker | journal. Omit to be prompted.'),
          region: str = typer.Option(DEFAULT_REGION, '--region', '-r')):
-    """Stream logs from the stack. --source picks which log: vLLM container (default),
-    EC2 boot script, cloud-init, the docker daemon, or the full systemd journal."""
+    c = Console(highlight=False)
+    if not source:
+        source = _prompt_for_source(c)
     if source not in _LOG_SOURCES:
         raise typer.BadParameter(
             f'unknown source {source!r}; pick from: {", ".join(_LOG_SOURCES)}')
-    cmd_tpl, timeout = _LOG_SOURCES[source]
+    cmd_tpl, timeout, _desc = _LOG_SOURCES[source]
     svc    = Local_Claude__Service().setup()
     name   = Spec__CLI__Builder(_cli_spec).resolver.resolve(svc, name, region, 'local-claude')
-    c = Console(highlight=False)
     others = '  '.join(k for k in _LOG_SOURCES if k != source)
     c.print(f'  [bold]{source}[/] [dim]──  other sources: {others}[/]')
     c.print()

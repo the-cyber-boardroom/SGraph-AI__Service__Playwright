@@ -21,7 +21,8 @@ from sg_compute.cli.base.Spec__CLI__Defaults      import (DEFAULT_EXEC_TIMEOUT ,
                                                            DEFAULT_REGION       ,
                                                            DEFAULT_TIMEOUT_SEC  )
 from sg_compute.cli.base.Spec__CLI__Errors        import set_debug, spec_cli_errors
-from sg_compute.cli.base.Spec__CLI__Renderers__Base import (render_ami_bake    ,
+from sg_compute.cli.base.Spec__CLI__Renderers__Base import (render_ami_bake          ,
+                                                             render_create_preview   ,
                                                              render_ami_delete  ,
                                                              render_ami_list    ,
                                                              render_ami_wait    ,
@@ -159,7 +160,22 @@ class Spec__CLI__Builder:
             extra_params.append((n, t, typer.Option(d, flag, help=h)))
         all_params = base_params + extra_params
 
+        # Defaults for the pre-launch preview banner — must match base_params + extras.
+        preview_defaults = {
+            'region'       : DEFAULT_REGION                ,
+            'instance_type': cli_spec.default_instance_type,
+            'max_hours'    : DEFAULT_MAX_HOURS             ,
+            'ami'          : ''                            ,
+            'caller_ip'    : ''                            ,
+            'wait'         : False                         ,
+        }
+        for (n, _t, d, _h) in extra_options:
+            preview_defaults[n] = d
+
         def create_impl(**kwargs):
+            console = Console(highlight=False, width=200)
+            render_create_preview(spec_id, 'create', kwargs.get('name') or '',
+                                  kwargs, preview_defaults, console)
             svc    = service_factory()
             region = kwargs['region']
             name   = kwargs.get('name') or (
@@ -180,7 +196,7 @@ class Spec__CLI__Builder:
                     k: kwargs[k] for (k, _, _, _) in extra_options
                 })
             resp       = svc.create_stack(req)
-            render_create(resp, Console(highlight=False, width=200))
+            render_create(resp, console)
             if kwargs.get('wait'):
                 info      = getattr(resp, 'stack_info', None) or resp
                 real_name = str(getattr(info, 'stack_name', '') or name)

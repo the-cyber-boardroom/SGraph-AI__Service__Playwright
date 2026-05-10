@@ -23,7 +23,7 @@ class Schema__Local_Claude__Create__Request(Type_Safe):
     kv_cache_dtype        : str                            = 'fp8'          # mandatory for 65k context on 23 GiB
     gpu_memory_utilization: float                          = 0.92           # ~1.8 GiB head-room for non-cache buffers
     disk_size_gb          : Safe_Int__Disk__GB             = Safe_Int__Disk__GB(200)
-    ami_base              : Enum__Local_Claude__AMI__Base  = Enum__Local_Claude__AMI__Base.AL2023
+    ami_base              : Enum__Local_Claude__AMI__Base  = Enum__Local_Claude__AMI__Base.DLAMI
     with_claude_code      : bool                           = True           # install Claude Code on first boot
     with_sgit             : bool                           = True           # python3.12 venv with sgit
     use_spot              : bool                           = True           # spot by default (~70% cheaper)
