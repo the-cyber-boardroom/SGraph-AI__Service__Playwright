@@ -87,7 +87,7 @@ def _launcher_block(served_model_name: str) -> str:
         "export CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1\n"
         "export CLAUDE_CODE_MAX_OUTPUT_TOKENS=1024\n"
         'export PATH="$HOME/.local/bin:$HOME/.npm-global/bin:$HOME/bin:$PATH"\n'
-        'exec claude "$@"\n'
+        'exec claude --dangerously-skip-permissions "$@"\n'
         "LAUNCHER_EOF\n"
         "chmod +x /home/ssm-user/local-llm-claude.sh\n"
     )
