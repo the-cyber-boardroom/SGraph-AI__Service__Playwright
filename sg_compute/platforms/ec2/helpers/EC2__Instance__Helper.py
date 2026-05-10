@@ -124,8 +124,9 @@ class EC2__Instance__Helper(Type_Safe):
                     CommandId  = command_id ,
                     InstanceId = instance_id)
                 if inv.get('StatusDetails', '') not in _PENDING:
+                    rc = inv.get('ResponseCode')
                     return (inv.get('StandardOutputContent', '').strip(),
-                            int(inv.get('ResponseCode', -1) or -1))
+                            int(rc) if rc is not None else -1)
             except Exception:
                 pass                         # InvocationDoesNotExist / transient — keep polling
             time.sleep(0.2)
