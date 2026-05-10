@@ -9,6 +9,57 @@ from rich.panel   import Panel
 from rich.table   import Table
 
 
+SG_BANNER = r'''
+   ____   ____ __    ____                            __
+  / ___| / ___|  \  / ___|___  _ __ ___  _ __  _   _| |_ ___
+  \___ \| |  _| /\ | |   / _ \| '_ ` _ \| '_ \| | | | __/ _ \
+   ___) | |_| / __ \| |__| (_) | | | | | | |_) | |_| | ||  __/
+  |____/ \____/_/  \_\____\___/|_| |_| |_| .__/ \__,_|\__\___|
+                                          |_|
+'''
+
+
+def render_create_preview(spec_id   : str   ,
+                          subcommand: str   ,
+                          name      : str   ,
+                          kwargs    : dict  ,
+                          defaults  : dict  ,
+                          console   : Console) -> None:
+    """Pre-flight banner shown before the AWS call so the user gets immediate
+    feedback. Highlights overrides, prints an equivalent copy-paste command."""
+    console.print(f'[cyan]{SG_BANNER}[/]')
+    console.print(Panel(f'[bold cyan]SG/Compute[/]  ·  [bold]{spec_id}[/]  '
+                        f'[dim]{subcommand}[/]', border_style='cyan', expand=False))
+    console.print()
+    console.print('  [bold]Parameters[/]  [dim](bold = override; others use the spec default)[/]')
+    overrides = []
+    for k, default in defaults.items():
+        v = kwargs.get(k, default)
+        flag = k.replace('_', '-')
+        if v == default:
+            console.print(f'    [dim]{flag:24}= {v!r}[/]')
+        else:
+            console.print(f'    [bold]{flag:24}= {v!r}[/]  [dim](default {default!r})[/]')
+            overrides.append((k, v))
+    console.print()
+    cmd_parts = [f'sp {spec_id} {subcommand}']
+    if name:
+        cmd_parts.append(name)
+    for k, v in overrides:
+        flag = f'--{k.replace("_", "-")}'
+        if isinstance(v, bool):
+            cmd_parts.append(flag if v else f'--no-{k.replace("_", "-")}')
+        elif isinstance(v, str) and ' ' in v:
+            cmd_parts.append(f"{flag} {v!r}")
+        else:
+            cmd_parts.append(f'{flag} {v}')
+    console.print('  [bold]Equivalent command[/]  [dim](copy-paste to repeat)[/]')
+    console.print(f'    [cyan]{" ".join(cmd_parts)}[/]')
+    console.print()
+    console.print('  [dim]Submitting to AWS …[/]')
+    console.print()
+
+
 def humanize_uptime(seconds) -> str:
     s = int(seconds or 0)
     if s <= 0:       return '—'
