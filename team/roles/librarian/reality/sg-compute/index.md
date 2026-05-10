@@ -1,7 +1,7 @@
 # Reality — SG/Compute Domain
 
 **Status:** ACTIVE — seeded in phase-1 (B1), foundations added in phase-2 (B2), pod management in BV2.3, CLI builder in v0.2.6.
-**Last updated:** 2026-05-10 | **Phase:** v0.2.6 (Spec__CLI__Builder + base classes; no spec migrated yet)
+**Last updated:** 2026-05-10 | **Phase:** v0.2.7 (Ollama on Spec__CLI__Builder — DLAMI default + Claude tmux + 5 extras)
 
 ---
 
@@ -38,6 +38,7 @@
 | `Safe_Int__Log__Lines` | `primitives/Safe_Int__Log__Lines.py` | Log line count — min=0 — T2.6c |
 | `Safe_Int__Pids` | `primitives/Safe_Int__Pids.py` | Container PID count — min=0 — T2.6c |
 | `Safe_Int__Exit__Code` | `primitives/Safe_Int__Exit__Code.py` | POSIX exit code — min=-256, max=256 — v0.2.6 |
+| `Safe_Str__Ollama__Model` | `primitives/Safe_Str__Ollama__Model.py` | Ollama model ref `^[a-z0-9._\-:]+$`, max=64 — v0.2.7 |
 
 ### sg_compute/cli/base/ — EXISTS (v0.2.6)
 
@@ -59,6 +60,26 @@ Contract doc: `library/docs/specs/v0.2.6__spec-cli-contract.md`.
 | Class | Path | Description |
 |-------|------|-------------|
 | `Spec__Service__Base` | `core/spec/Spec__Service__Base.py` | Optional base class; default `health/exec/connect_target` impls. Sub-classes override `cli_spec()` + the 5 abstract methods. |
+
+### sg_compute_specs/ollama/ — MIGRATED to Spec__CLI__Builder (v0.2.7)
+
+| Sub-path | Contents |
+|----------|----------|
+| `cli/Cli__Ollama.py` | Builder-driven; 5 spec extras (`--model/--ami-base/--disk-size/--with-claude/--expose-api`), 3 spec verbs (`models/pull/claude`). Legacy `cli/__init__.py` is empty. |
+| `enums/Enum__Ollama__AMI__Base.py` | DLAMI / AL2023 |
+| `service/Ollama__AMI__Helper.py` | DLAMI + AL2023 SSM resolvers; `resolve_for_base(region, base)` |
+| `service/Ollama__Service.py` | Extends `Spec__Service__Base`; adds `cli_spec()`, `pull_model()`, `claude_session()`, `create_node()` |
+| `service/Ollama__User_Data__Builder.py` | Composes `Section__Base/GPU_Verify/Ollama/Agent_Tools/Claude_Launch/Sidecar/Shutdown` |
+| `schemas/Schema__Ollama__Create__Request.py` | Adds `ami_base/disk_size_gb/with_claude/expose_api`; default model `gpt-oss:20b`; default instance `g5.xlarge`; default max_hours `1` (D2) |
+
+### sg_compute/platforms/ec2/user_data/ — NEW SECTIONS (v0.2.7)
+
+| Class | Path | Description |
+|-------|------|-------------|
+| `Section__GPU_Verify` | `user_data/Section__GPU_Verify.py` | `nvidia-smi` check; exits 47 on failure. Empty when `gpu_required=False`. |
+| `Section__Ollama` | `user_data/Section__Ollama.py` | Installs Ollama, optional `--expose-api` systemd drop-in, pulls model. |
+| `Section__Claude_Launch` | `user_data/Section__Claude_Launch.py` | Boots Claude under tmux; empty when `with_claude=False`. |
+| `Section__Agent_Tools` | `user_data/Section__Agent_Tools.py` | Python venv with `requests/httpx/rich`; `/etc/logrotate.d/sg-compute` drop-in. |
 
 ### sg_compute/primitives/enums/ — EXISTS
 
@@ -314,6 +335,7 @@ All dashboard web components live under `sgraph_ai_service_playwright__api_site/
 | 2026-05-05 | BV2.19: Spec__UI__Resolver + StaticFiles mount at /api/specs/{spec_id}/ui; ui_root_override for tests; sg_compute_specs/*/ui/**/* in pyproject.toml include; 322 tests passing |
 | 2026-05-05 | T2.6b (PARTIAL): Pod__Manager public methods typed (Safe_Str__Node__Id/Safe_Str__Pod__Name); Platform + EC2__Platform public methods typed (Safe_Str__Node__Id/Safe_Str__AWS__Region); routes wrap Safe_Str before calling manager/platform; tests updated; schema fields + spec-side deferred to T2.6c |
 | 2026-05-05 | T2.4b: vault_attached=True wired in Fast_API__Compute._mount_control_routes; route test prefix fixed to /api/vault; production PUT path unblocked |
+| 2026-05-10 | v0.2.7: Ollama wedge — first spec on `Spec__CLI__Builder`. `Cli__Ollama.py` (≤90 LOC + 3 spec extras: `models/pull/claude`); `Ollama__Service` extends `Spec__Service__Base` with `cli_spec()/pull_model()/claude_session()`; new `Ollama__AMI__Helper` (DLAMI default), `Enum__Ollama__AMI__Base`, `Safe_Str__Ollama__Model` primitive; 4 new user-data sections (`Section__GPU_Verify/Section__Ollama/Section__Claude_Launch/Section__Agent_Tools`); model default `qwen2.5-coder:7b` → `gpt-oss:20b`; instance default `g4dn.xlarge` → `g5.xlarge` (R4); 78 new + 45 existing tests passing |
 | 2026-05-10 | v0.2.6: `Spec__CLI__Builder` factory + `Spec__CLI__Resolver` + `Spec__CLI__Errors` + `Spec__CLI__Defaults` + `Schema__Spec__CLI__Spec` + `Spec__Service__Base` + 2 result schemas; `Safe_Int__Exit__Code` primitive; CLI contract doc published; 34 new tests; version bumped to v0.2.6 |
 | 2026-05-10 | fix(docker): `--disk-size` wired through `sp docker create` legacy path (`sgraph_ai_service_playwright__cli/docker/`) — was already present on `sg-compute spec docker create` |
 | 2026-05-05 | BV2.9: sg_compute/vault/ created (13 files); plugin→spec rename; Routes__Vault__Spec mounted at /api/vault on Fast_API__Compute; 11 legacy shims; 313 tests passing |

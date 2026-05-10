@@ -20,15 +20,14 @@ class test_Ollama__User_Data__Builder(TestCase):
     def test_render__base_section(self):
         assert 'dnf install' in self.out
 
-    def test_render__nvidia_drivers_present_by_default(self):
-        assert 'nvidia-driver'   in self.out
-        assert 'cuda-toolkit'    in self.out
-        assert 'modprobe nvidia' in self.out
+    def test_render__gpu_verify_present_by_default(self):
+        # DLAMI default ships drivers preinstalled; user-data only verifies GPU presence.
+        assert 'nvidia-smi'              in self.out
+        assert '[sg-compute] verifying GPU presence' in self.out
 
-    def test_render__nvidia_drivers_absent_when_cpu_only(self):
+    def test_render__gpu_verify_absent_when_cpu_only(self):
         out = self.builder.render(stack_name='test-ol', region='eu-west-2', gpu_required=False)
-        assert 'nvidia-driver' not in out
-        assert 'cuda-toolkit'  not in out
+        assert 'nvidia-smi' not in out
 
     def test_render__ollama_install(self):
         assert 'ollama.com/install.sh' in self.out
