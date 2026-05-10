@@ -1,7 +1,7 @@
 # Reality — SG/Compute Domain
 
-**Status:** ACTIVE — seeded in phase-1 (B1), foundations added in phase-2 (B2), pod management in BV2.3.
-**Last updated:** 2026-05-05 | **Phase:** T2.1b (AMI picker wired to live GET /api/amis)
+**Status:** ACTIVE — seeded in phase-1 (B1), foundations added in phase-2 (B2), pod management in BV2.3, CLI builder in v0.2.6.
+**Last updated:** 2026-05-10 | **Phase:** v0.2.6 (Spec__CLI__Builder + base classes; no spec migrated yet)
 
 ---
 
@@ -37,6 +37,28 @@
 | `Safe_Int__Max__Hours` | `primitives/Safe_Int__Max__Hours.py` | Max node lifetime (0=no auto-terminate) — min=0, max=168 — T2.6c |
 | `Safe_Int__Log__Lines` | `primitives/Safe_Int__Log__Lines.py` | Log line count — min=0 — T2.6c |
 | `Safe_Int__Pids` | `primitives/Safe_Int__Pids.py` | Container PID count — min=0 — T2.6c |
+| `Safe_Int__Exit__Code` | `primitives/Safe_Int__Exit__Code.py` | POSIX exit code — min=-256, max=256 — v0.2.6 |
+
+### sg_compute/cli/base/ — EXISTS (v0.2.6)
+
+| Class | Path | Description |
+|-------|------|-------------|
+| `Spec__CLI__Builder` | `cli/base/Spec__CLI__Builder.py` | Factory; produces a `typer.Typer` with all 8 standard verbs from a `Schema__Spec__CLI__Spec`. Plain class (not Type_Safe). |
+| `Spec__CLI__Resolver` | `cli/base/Spec__CLI__Resolver.py` | Auto-pick / prompt / error rule for optional `name`. |
+| `Spec__CLI__Errors` | `cli/base/Spec__CLI__Errors.py` | `@spec_cli_errors` decorator + `set_debug()`. Module-level `_DEBUG` flag. |
+| `Spec__CLI__Defaults` | `cli/base/Spec__CLI__Defaults.py` | `DEFAULT_REGION`, `DEFAULT_MAX_HOURS=1`, `DEFAULT_TIMEOUT_SEC=600`, `DEFAULT_POLL_SEC=10`, `DEFAULT_EXEC_TIMEOUT=60`. |
+| `Schema__Spec__CLI__Spec` | `cli/base/Schema__Spec__CLI__Spec.py` | Per-spec configuration consumed by the builder. Plain class (holds class refs + callables). |
+| `Spec__CLI__Renderers__Base` | `cli/base/Spec__CLI__Renderers__Base.py` | Default Rich renderers: `render_list`, `render_info`, `render_create`, `render_delete`, `render_health_probe`, `render_exec_result`. |
+| `Schema__CLI__Exec__Result` | `cli/base/schemas/Schema__CLI__Exec__Result.py` | `stdout/stderr: str`, `exit_code: Safe_Int__Exit__Code`, `transport: str`, `duration_ms: int`, `error: str`. |
+| `Schema__CLI__Health__Probe` | `cli/base/schemas/Schema__CLI__Health__Probe.py` | `healthy: bool`, `state: str`, `elapsed_ms: int`, `last_error: str`. |
+
+Contract doc: `library/docs/specs/v0.2.6__spec-cli-contract.md`.
+
+### sg_compute/core/spec/Spec__Service__Base — EXISTS (v0.2.6)
+
+| Class | Path | Description |
+|-------|------|-------------|
+| `Spec__Service__Base` | `core/spec/Spec__Service__Base.py` | Optional base class; default `health/exec/connect_target` impls. Sub-classes override `cli_spec()` + the 5 abstract methods. |
 
 ### sg_compute/primitives/enums/ — EXISTS
 
@@ -292,6 +314,8 @@ All dashboard web components live under `sgraph_ai_service_playwright__api_site/
 | 2026-05-05 | BV2.19: Spec__UI__Resolver + StaticFiles mount at /api/specs/{spec_id}/ui; ui_root_override for tests; sg_compute_specs/*/ui/**/* in pyproject.toml include; 322 tests passing |
 | 2026-05-05 | T2.6b (PARTIAL): Pod__Manager public methods typed (Safe_Str__Node__Id/Safe_Str__Pod__Name); Platform + EC2__Platform public methods typed (Safe_Str__Node__Id/Safe_Str__AWS__Region); routes wrap Safe_Str before calling manager/platform; tests updated; schema fields + spec-side deferred to T2.6c |
 | 2026-05-05 | T2.4b: vault_attached=True wired in Fast_API__Compute._mount_control_routes; route test prefix fixed to /api/vault; production PUT path unblocked |
+| 2026-05-10 | v0.2.6: `Spec__CLI__Builder` factory + `Spec__CLI__Resolver` + `Spec__CLI__Errors` + `Spec__CLI__Defaults` + `Schema__Spec__CLI__Spec` + `Spec__Service__Base` + 2 result schemas; `Safe_Int__Exit__Code` primitive; CLI contract doc published; 34 new tests; version bumped to v0.2.6 |
+| 2026-05-10 | fix(docker): `--disk-size` wired through `sp docker create` legacy path (`sgraph_ai_service_playwright__cli/docker/`) — was already present on `sg-compute spec docker create` |
 | 2026-05-05 | BV2.9: sg_compute/vault/ created (13 files); plugin→spec rename; Routes__Vault__Spec mounted at /api/vault on Fast_API__Compute; 11 legacy shims; 313 tests passing |
 | 2026-05-05 | BV2.8: object=None → Optional[T] in 10 non-circular spec service files; 7 circular AWS__Client files kept object=None; Optional import added to 17 files |
 | 2026-05-05 | BV2.7: 14 new canonical modules in sg_compute (primitives, enums, event_bus, image); 46 spec files import-rewritten; CI guard added; 584 tests passing |
