@@ -270,10 +270,12 @@ class Local_Claude__Service(Spec__Service__Base):
             yield ('boot-failed', 'warn', 'could not check')
 
         # ── check 4: boot-ok ──────────────────────────────────────────────────
+        boot_ok = False
         yield ('boot-ok', 'checking', '')
         try:
             out = ssm('test -f /var/lib/sg-compute-boot-ok && echo YES || echo NO')
             if 'YES' in out:
+                boot_ok = True
                 yield ('boot-ok', 'ok', 'present')
             else:
                 tail = ssm('tail -n 5 /var/log/ephemeral-ec2-boot.log 2>/dev/null || echo "(log not yet available)"')
@@ -301,9 +303,15 @@ class Local_Claude__Service(Spec__Service__Base):
                 yield ('docker-access', 'ok', 'ssm-user can use docker')
             else:
                 groups = ssm('id ssm-user 2>/dev/null || echo "(ssm-user not found)"')
-                yield ('docker-access', 'warn',
-                       f'permission denied — ssm-user groups: {groups[:120]}\n'
-                       '  fix: reconnect your SSM session (group change takes effect on new login)')
+                if 'not found' in groups:
+                    if not boot_ok:
+                        yield ('docker-access', 'warn', 'not yet — ssm-user not created by SSM agent yet (boot in progress)')
+                    else:
+                        yield ('docker-access', 'warn', 'ssm-user missing after boot — unexpected; check cloud-init')
+                else:
+                    yield ('docker-access', 'warn',
+                           f'permission denied — ssm-user groups: {groups[:120]}\n'
+                           '  fix: reconnect your SSM session (group change takes effect on new login)')
         except Exception:
             yield ('docker-access', 'warn', 'could not check')
 
@@ -327,6 +335,8 @@ class Local_Claude__Service(Spec__Service__Base):
             if out and 'Up' in out:
                 container_ok = True
                 yield ('vllm-container', 'ok', out)
+            elif not boot_ok:
+                yield ('vllm-container', 'warn', 'not yet — boot still in progress (docker pull pending)')
             else:
                 all_ct = ssm('sudo docker ps -a --format "{{.Names}}  {{.Status}}" 2>&1 | head -5 || true')
                 detail = f'not running — all containers: {all_ct}' if all_ct else 'no container named vllm-claude-code'

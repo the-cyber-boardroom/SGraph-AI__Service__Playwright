@@ -186,7 +186,9 @@ _DIAG_HINTS = {
     'boot-ok'       : [('boot'  , 'watch boot progress')],
     'boot-failed'   : [('boot'  , 'full boot log with error details')],
     'docker'        : [('docker', 'docker daemon startup'), ('boot', 'earlier boot errors')],
-    'vllm-container': [('docker', 'Docker pull / container start'), ('boot', 'earlier boot errors')],
+    'docker-access' : [('boot'  , 'check ssm-user / usermod step in boot log')],
+    'vllm-container': [('boot'  , 'boot progress — docker pull is the long step'),
+                       ('docker', 'docker daemon / pull errors')],
     'vllm-api'      : [('vllm'  , 'vLLM container output')],
     'ssm-reachable' : [('boot'  , 'see if boot completed at all')],
 }
