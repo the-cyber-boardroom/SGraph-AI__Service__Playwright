@@ -15,7 +15,7 @@ class Schema__Local_Claude__Create__Request(Type_Safe):
     from_ami              : str                            = ''             # explicit AMI ID; overrides ami_base
     stack_name            : str                            = ''             # empty = auto-generate
     caller_ip             : str                            = ''             # empty = auto-detect
-    max_hours             : int                            = 1              # D2 — 1h default for every spec
+    max_hours             : float                          = 1.0            # D2 — supports fractional hours: 0.1 = 6 min
     model                 : str                            = 'QuantTrio/Qwen3-Coder-30B-A3B-Instruct-AWQ'
     served_model_name     : str                            = 'local-coder'  # alias vLLM serves; must match env vars
     tool_parser           : str                            = 'qwen3_coder'  # verified-working parser for this model

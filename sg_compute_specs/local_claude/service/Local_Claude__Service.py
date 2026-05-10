@@ -4,6 +4,7 @@
 # health/exec/connect_target inherited; spec-specific bits below.
 # ═══════════════════════════════════════════════════════════════════════════════
 
+import os
 import time
 
 from typing import Optional
@@ -26,7 +27,7 @@ from sg_compute_specs.local_claude.service.Local_Claude__Stack__Mapper          
                                                                                            TAG_TOOL_PARSER            )
 from sg_compute_specs.local_claude.service.Local_Claude__User_Data__Builder       import Local_Claude__User_Data__Builder
 
-DEFAULT_REGION        = 'eu-west-2'
+DEFAULT_REGION        = os.environ.get('AWS_DEFAULT_REGION', 'eu-west-2')
 DEFAULT_INSTANCE_TYPE = 'g5.xlarge'
 PROFILE_NAME          = 'playwright-ec2'             # IAM profile granting SSM + ECR access (L4 lesson)
 
@@ -212,7 +213,7 @@ class Local_Claude__Service(Spec__Service__Base):
             instance_type = str(base_request.instance_type) ,
             from_ami      = str(base_request.ami_id)        ,
             caller_ip     = str(base_request.caller_ip)     ,
-            max_hours     = int(base_request.max_hours)     ,
+            max_hours     = float(base_request.max_hours)   ,
         )
         resp = self.create_stack(lc_req)
         info = resp.stack_info

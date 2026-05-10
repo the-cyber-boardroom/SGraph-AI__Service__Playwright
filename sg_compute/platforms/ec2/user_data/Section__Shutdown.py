@@ -9,13 +9,14 @@
 from osbot_utils.type_safe.Type_Safe import Type_Safe
 
 TEMPLATE = '''
-# ── Auto-terminate after {max_hours}h ────────────────────────────────────────
-systemd-run --on-active={max_hours}h /sbin/shutdown -h now
-echo "[ephemeral-ec2] auto-terminate timer set: {max_hours}h from now"
+# ── Auto-terminate after {max_hours}h ({seconds}s) ───────────────────────────
+systemd-run --on-active={seconds}s /sbin/shutdown -h now
+echo "[ephemeral-ec2] auto-terminate timer set: {max_hours}h ({seconds}s) from now"
 '''
 
 
 class Section__Shutdown(Type_Safe):
 
-    def render(self, max_hours: int = 1) -> str:
-        return TEMPLATE.format(max_hours=max_hours)
+    def render(self, max_hours: float = 1.0) -> str:
+        seconds = max(1, int(round(max_hours * 3600)))
+        return TEMPLATE.format(max_hours=max_hours, seconds=seconds)
