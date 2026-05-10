@@ -11,7 +11,10 @@ from osbot_utils.type_safe.Type_Safe import Type_Safe
 
 TEMPLATE = '''\
 # ── sgit venv (python3.12) ────────────────────────────────────────────────────
-echo '[sg-compute] installing sgit venv...'
+echo '[sg-compute] waiting for ssm-user...'
+until id ssm-user >/dev/null 2>&1; do sleep 2; done
+echo '[sg-compute] installing python3.12 and sgit venv...'
+dnf install -y python3.12 python3.12-pip
 sudo -u ssm-user python3.12 -m venv /home/ssm-user/claude-session-venv
 sudo -u ssm-user /home/ssm-user/claude-session-venv/bin/pip install --quiet --upgrade pip sgit
 echo "[sg-compute] sgit ready"

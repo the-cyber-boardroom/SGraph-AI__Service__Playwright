@@ -31,13 +31,16 @@ class TestCliLocalClaude:
     def test_create_extra_options_present(self):
         result = runner.invoke(app, ['create', '--help'])
         assert result.exit_code == 0
-        assert '--model'              in result.output
-        assert '--served-model-name'  in result.output
-        assert '--tool-parser'        in result.output
-        assert '--disk-size'          in result.output
-        assert '--with-claude-code'   in result.output or '--no-with-claude-code' in result.output
-        assert '--with-sgit'          in result.output or '--no-with-sgit'        in result.output
-        assert '--use-spot'           in result.output or '--no-use-spot'         in result.output
+        assert '--model'                  in result.output
+        assert '--served-model-name'      in result.output
+        assert '--tool-parser'            in result.output
+        assert '--disk-size'              in result.output
+        assert '--with-claude-code'       in result.output or '--no-with-claude-code'       in result.output
+        assert '--with-sgit'              in result.output or '--no-with-sgit'              in result.output
+        assert '--use-spot'               in result.output or '--no-use-spot'               in result.output
+        assert '--max-model-len'   in result.output
+        assert '--kv-cache-dtype'  in result.output
+        assert 'gpu-memory-utili'  in result.output   # Rich truncates the full flag name with …
 
     def test_wait_subcommand_exists(self):
         result = runner.invoke(app, ['wait', '--help'])

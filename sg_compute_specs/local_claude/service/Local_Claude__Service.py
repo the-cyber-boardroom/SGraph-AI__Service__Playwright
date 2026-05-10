@@ -168,6 +168,36 @@ class Local_Claude__Service(Spec__Service__Base):
             elapsed_ms = int((time.monotonic() - t0) * 1000)               ,
         )
 
+    # ── health: vLLM binds to 127.0.0.1 — cannot be reached via public IP.
+    #    Use SSM exec to probe from inside the instance instead. ────────────
+
+    def health(self, region: str, name: str, timeout_sec: int = 0, poll_sec: int = 10):
+        from sg_compute.cli.base.schemas.Schema__CLI__Health__Probe import Schema__CLI__Health__Probe
+        t0       = time.monotonic()
+        probe    = Schema__CLI__Health__Probe()
+        deadline = time.monotonic() + max(timeout_sec, 0)
+        while True:
+            try:
+                result = self.exec(region, name,
+                                   'curl -sf http://127.0.0.1:8000/v1/models',
+                                   timeout_sec=10)
+                stdout = str(getattr(result, 'stdout', '') or '')
+                if '"data"' in stdout or stdout.strip().startswith('{'):
+                    probe.healthy    = True
+                    probe.state      = 'running'
+                    probe.last_error = ''
+                    break
+                probe.state      = 'starting'
+                probe.last_error = (stdout[:256] if stdout else 'empty response from vLLM')
+            except Exception as exc:
+                probe.state      = 'starting'
+                probe.last_error = str(exc)[:512]
+            if time.monotonic() >= deadline:
+                break
+            time.sleep(poll_sec)
+        probe.elapsed_ms = int((time.monotonic() - t0) * 1000)
+        return probe
+
     # ── local-claude-specific extras ─────────────────────────────────────────
 
     def claude_session(self, region: str, name: str) -> str:

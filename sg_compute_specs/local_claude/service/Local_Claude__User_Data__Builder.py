@@ -2,16 +2,17 @@
 # Ephemeral EC2 — Local_Claude__User_Data__Builder
 # Composes Section__* fragments into a cloud-init bash script.
 # Order: Base → Shutdown → GPU_Verify → Docker → NVIDIA_Container_Toolkit
-#      → Agent_Tools → SGit_Venv → Claude_Code__Firstboot → VLLM → Sidecar
+#      → SGit_Venv → Claude_Code__Firstboot → VLLM → Sidecar
 #
 # Shutdown is registered SECOND (position 2) so a script failure in a later
 # section cannot leave the instance running past max_hours (L9 lesson from
 # the 2026-05-10 debrief: auto-terminate timer must precede all failable work).
+# Agent_Tools is intentionally omitted: it targets ec2-user + python3.13 and is
+# not used by the local-claude stack.
 # ═══════════════════════════════════════════════════════════════════════════════
 
 from osbot_utils.type_safe.Type_Safe import Type_Safe
 
-from sg_compute.platforms.ec2.user_data.Section__Agent_Tools              import Section__Agent_Tools
 from sg_compute.platforms.ec2.user_data.Section__Base                     import Section__Base
 from sg_compute.platforms.ec2.user_data.Section__Claude_Code__Firstboot   import Section__Claude_Code__Firstboot
 from sg_compute.platforms.ec2.user_data.Section__Docker                   import Section__Docker
@@ -49,7 +50,6 @@ class Local_Claude__User_Data__Builder(Type_Safe):
             Section__GPU_Verify()               .render(gpu_required=gpu_required)             ,
             Section__Docker()                   .render()                                      ,
             Section__NVIDIA_Container_Toolkit() .render()                                      ,
-            Section__Agent_Tools()              .render()                                      ,
             Section__SGit_Venv()                .render() if with_sgit else ''                 ,
             Section__Claude_Code__Firstboot()   .render(served_model_name=served_model_name    ,
                                                         max_model_len=max_model_len)            if with_claude_code else '' ,

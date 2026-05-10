@@ -23,18 +23,25 @@ from sg_compute_specs.local_claude.service.Local_Claude__Service                
 
 
 def _set_extras(request, model='', served_model_name='', tool_parser='',
-                disk_size=0, with_claude_code=True, with_sgit=True, use_spot=True):
+                disk_size=0, with_claude_code=True, with_sgit=True, use_spot=True,
+                max_model_len=0, kv_cache_dtype='', gpu_memory_utilization=0.0):
     if model:
-        request.model              = model
+        request.model                  = model
     if served_model_name:
-        request.served_model_name  = served_model_name
+        request.served_model_name      = served_model_name
     if tool_parser:
-        request.tool_parser        = tool_parser
+        request.tool_parser            = tool_parser
     if disk_size:
-        request.disk_size_gb       = int(disk_size)
-    request.with_claude_code       = bool(with_claude_code)
-    request.with_sgit              = bool(with_sgit)
-    request.use_spot               = bool(use_spot)
+        request.disk_size_gb           = int(disk_size)
+    if max_model_len:
+        request.max_model_len          = int(max_model_len)
+    if kv_cache_dtype:
+        request.kv_cache_dtype         = kv_cache_dtype
+    if gpu_memory_utilization:
+        request.gpu_memory_utilization = float(gpu_memory_utilization)
+    request.with_claude_code           = bool(with_claude_code)
+    request.with_sgit                  = bool(with_sgit)
+    request.use_spot                   = bool(use_spot)
 
 
 _cli_spec = Schema__Spec__CLI__Spec(
@@ -67,6 +74,12 @@ app = Spec__CLI__Builder(
          'Install sgit in a python3.12 venv for encrypted vault storage.'),
         ('use_spot'         , bool, True,
          'Spot instance (~70% cheaper). Pass --no-use-spot for on-demand.'),
+        ('max_model_len'         , int  , 65536,
+         'Maximum sequence length. Lower to 49152/32768 on smaller GPUs.'),
+        ('kv_cache_dtype'        , str  , 'fp8',
+         'KV-cache precision. fp8 halves VRAM use vs auto (FP16).'),
+        ('gpu_memory_utilization', float, 0.92,
+         'Fraction of GPU VRAM vLLM may allocate (0.0-1.0).'),
     ],
 ).build()
 
