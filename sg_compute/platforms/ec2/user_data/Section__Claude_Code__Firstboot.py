@@ -32,9 +32,7 @@ Wants=network-online.target
 
 [Service]
 Type=oneshot
-User=ssm-user
-Group=ssm-user
-ExecStart=/bin/bash -lc 'curl -fsSL https://claude.ai/install.sh | bash && sudo touch /var/lib/claude-code-installed'
+ExecStart=/bin/bash -c 'su - ssm-user -c "curl -fsSL https://claude.ai/install.sh | bash" && touch /var/lib/claude-code-installed'
 RemainAfterExit=yes
 
 [Install]
@@ -48,8 +46,8 @@ cat > /etc/systemd/system/claude-code-firstboot.service <<'UNIT_EOF'
 ''' + _SYSTEMD_UNIT + '''\
 UNIT_EOF
 systemctl daemon-reload
-systemctl enable claude-code-firstboot.service
-echo '[sg-compute] Claude Code firstboot service enabled'
+systemctl enable --now claude-code-firstboot.service
+echo '[sg-compute] Claude Code firstboot service started'
 '''
 
 
@@ -88,6 +86,7 @@ def _launcher_block(served_model_name: str) -> str:
         "export CLAUDE_CODE_DISABLE_OFFICIAL_MARKETPLACE_AUTOINSTALL=1\n"
         "export CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1\n"
         "export CLAUDE_CODE_MAX_OUTPUT_TOKENS=1024\n"
+        'export PATH="$HOME/.local/bin:$HOME/.npm-global/bin:$HOME/bin:$PATH"\n'
         'exec claude "$@"\n'
         "LAUNCHER_EOF\n"
         "chmod +x /home/ssm-user/local-llm-claude.sh\n"
