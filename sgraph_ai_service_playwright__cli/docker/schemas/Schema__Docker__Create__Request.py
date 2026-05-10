@@ -29,3 +29,4 @@ class Schema__Docker__Create__Request(Type_Safe):
     use_spot      : bool                     = True                                 # Spot instance by default; pass use_spot=False for on-demand
     max_hours     : int                      = 1                                    # Auto-terminate after N hours; 0 = no timer
     extra_ports   : List[int]                                                       # TCP ports to open from caller /32
+    disk_size_gb  : int                      = 0                                    # 0 = use AMI default; >0 overrides root volume (gp3)

@@ -78,9 +78,10 @@ class Docker__Service(Type_Safe):
                                                    api_key_value = api_key_value,
                                                    max_hours     = request.max_hours)
         iid       = self.aws_client.launch.run_instance(region, ami_id, sg_id, user_data, tags,
-                                                        instance_type         = itype        ,
-                                                        instance_profile_name = PROFILE_NAME ,
-                                                        use_spot              = request.use_spot)
+                                                        instance_type         = itype              ,
+                                                        instance_profile_name = PROFILE_NAME       ,
+                                                        use_spot              = request.use_spot   ,
+                                                        disk_size_gb          = int(getattr(request, 'disk_size_gb', 0)))
         info      = Schema__Docker__Info(
             stack_name        = stack_name                                  ,
             aws_name_tag      = DOCKER_NAMING.aws_name_for_stack(stack_name),

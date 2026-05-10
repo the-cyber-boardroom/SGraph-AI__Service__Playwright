@@ -117,6 +117,7 @@ def create(name          : Optional[str]       = typer.Argument(None, help='Stac
            extra_ports   : Optional[List[int]] = typer.Option(None,              '--port',               help='Extra TCP ports to open (repeatable).'),
            open_to_all   : bool                = typer.Option(False,             '--open',               help='Open all ports to 0.0.0.0/0 instead of caller /32.'),
            no_spot       : bool                = typer.Option(False,             '--no-spot',            help='Use on-demand instance instead of spot.'),
+           disk_size     : int                 = typer.Option(0,                 '--disk-size',          help='Root volume in GiB (gp3). 0 keeps AMI default; e.g. 200 for large workloads.'),
            wait          : bool                = typer.Option(False,             '--wait',               help='Block until Docker and host control plane are ready (timeout 600s).')):
     """Provision an AL2023 EC2 stack with Docker CE installed."""
     c       = Console(highlight=False, width=200)
@@ -132,7 +133,8 @@ def create(name          : Optional[str]       = typer.Argument(None, help='Stac
         open_to_all   = open_to_all                   ,
         use_spot      = not no_spot                   ,
         max_hours     = max_hours                     ,
-        extra_ports   = _ports(extra_ports)           )
+        extra_ports   = _ports(extra_ports)           ,
+        disk_size_gb  = disk_size                     )
     resp = svc.create_stack(request)
     render_create(resp, c)
     if wait:
