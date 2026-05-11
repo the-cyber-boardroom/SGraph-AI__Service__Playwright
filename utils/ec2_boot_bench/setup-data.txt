@@ -1,0 +1,53 @@
+# 1. Confirm the existing instance profile has SSM perms (should be present)
+aws iam list-attached-role-policies --role-name playwright-ec2 \
+  --query 'AttachedPolicies[].PolicyName' --output text
+# expect: AmazonSSMManagedInstanceCore  (plus whatever else)
+
+> AmazonSSMManagedInstanceCore    AmazonEC2ContainerRegistryReadOnly      AmazonPrometheusRemoteWriteAccess
+
+# 2. List default subnets per AZ — pick one (or run the bench across all three)
+aws ec2 describe-subnets --region eu-west-2 \
+  --filters Name=default-for-az,Values=true \
+  --query 'Subnets[].[SubnetId,AvailabilityZone]' --output table
+
+> --------------------------------------------
+  |              DescribeSubnets             |
+  +---------------------------+--------------+
+  |  subnet-0196ff3d30c0eabf5 |  eu-west-2c  |
+  |  subnet-0336dfcbf5141812d |  eu-west-2a  |
+  |  subnet-0f6a0d20f12fcda11 |  eu-west-2b  |
+  +---------------------------+--------------+
+
+# 3. Create a dedicated bench SG (default VPC; outbound is open by default)
+DEFAULT_VPC=$(aws ec2 describe-vpcs --region eu-west-2 \
+  --filters Name=isDefault,Values=true --query 'Vpcs[0].VpcId' --output text)
+aws ec2 create-security-group --region eu-west-2 \
+  --group-name ec2-boot-bench \
+  --description "ec2-boot-bench: egress-only, SSM via 443" \
+  --vpc-id "$DEFAULT_VPC" \
+  --query GroupId --output text
+
+> sg-0f05b66a0c89d5b6b
+
+# 4. Look up the AMIs you want to compare
+# AL2023 (minimal — bench tool's recommended baseline)
+aws ssm get-parameter --region eu-west-2 \
+  --name /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64 \
+  --query Parameter.Value --output text
+
+> ami-011c04cb040289c2a
+
+# Ubuntu 24.04 (closer to the slim-AMI plan's target base)
+aws ssm get-parameter --region eu-west-2 \
+  --name /aws/service/canonical/ubuntu/server-minimal/24.04/stable/current/amd64/hvm/ebs-gp3/ami-id \
+  --query Parameter.Value --output text
+
+> ami-021561e9782b98176
+
+
+
+# DLAMI Base GPU OSS Driver, AL2023, latest
+aws ssm get-parameter --region eu-west-2 \
+    --name /aws/service/deeplearning/ami/x86_64/base-oss-nvidia-driver-gpu-amazon-linux-2023/latest/ami-id \
+    --query Parameter.Value --output text
+> ami-04a077a9cd74ceeaf

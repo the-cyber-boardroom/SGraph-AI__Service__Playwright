@@ -1,0 +1,7 @@
+region:           eu-west-2
+ami:              ami-04a077a9cd74ceeaf         #ami-011c04cb040289c2a           # ami-021561e9782b98176 (ubuntu)
+subnet:           subnet-0336dfcbf5141812d        # from step 2; pick eu-west-2a to start
+security_group:   sg-0f05b66a0c89d5b6b            # from step 3
+instance_profile: playwright-ec2
+instance_type:    g5.xlarge # c5.large  #g5.2xlarge      #
+#spot:             true       # or false for on-demand
