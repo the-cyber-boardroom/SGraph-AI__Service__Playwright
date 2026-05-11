@@ -38,7 +38,16 @@ systemctl enable --now amazon-ssm-agent 2>/dev/null || true
 # script can install Claude Code config / sgit venv / etc. on any instance,
 # regardless of whether anyone ever opens a Session Manager session.
 id ssm-user >/dev/null 2>&1 || useradd ssm-user -m -d /home/ssm-user -s /bin/bash
-echo "[ephemeral-ec2] ssm-user ensured (uid=$(id -u ssm-user))"
+# NOPASSWD sudo for ssm-user. The SSM agent normally writes this file ONLY on
+# the first interactive Session Manager session — if ssm-user already exists
+# (because we pre-created it above, or because it was baked into the AMI) the
+# agent sees "already done" and skips it, leaving connect sessions without
+# sudo. Writing it here is idempotent and survives AMI bakes.
+cat > /etc/sudoers.d/ssm-agent-users <<'SUDOERS_EOF'
+ssm-user ALL=(ALL) NOPASSWD:ALL
+SUDOERS_EOF
+chmod 440 /etc/sudoers.d/ssm-agent-users
+echo "[ephemeral-ec2] ssm-user ensured (uid=$(id -u ssm-user)); NOPASSWD sudo granted"
 '''
 
 
