@@ -34,6 +34,8 @@ Plus thin verb groups for `recipe` (multi-bundle compositions), `spec` (named us
 
 ## How to read this pack
 
+> **If you are a Dev agent starting work in the `SG-Compute__Image-Builder` repo:** read **[HANDOVER.md](HANDOVER.md)** first, then return here. It captures decisions and spike outputs that postdate the pack and that change scope.
+
 Read in this order:
 
 1. **This README** (you're reading it) — orient yourself
