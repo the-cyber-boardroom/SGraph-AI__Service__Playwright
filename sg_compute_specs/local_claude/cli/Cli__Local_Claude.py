@@ -210,6 +210,62 @@ def claude(name  : str = typer.Argument(None, help='Stack name; auto-selected wh
                        '--target', instance_id, '--region', region])
 
 
+@app.command()
+@spec_cli_errors
+def extend(name     : str   = typer.Argument(None, help='Stack name; auto-selected when only one exists.'),
+           add_hours: float = typer.Option(1.0, '--add-hours', '--ah',
+                                           help='Hours to add to the lifetime (default: 1).'),
+           region   : str   = typer.Option(DEFAULT_REGION, '--region', '-r')):
+    """Cancel the current shutdown timer and arm a new one N hours from now.
+
+    \b
+    Stops any transient run-*.timer unit on the instance (the shutdown countdown)
+    then arms a fresh systemd-run timer and updates the TerminateAt EC2 tag so
+    sg lc list shows the correct time-left.
+    """
+    from datetime import datetime, timezone, timedelta
+    from sg_compute.platforms.ec2.helpers.EC2__Instance__Helper import EC2__Instance__Helper
+    from sg_compute_specs.local_claude.service.Local_Claude__Stack__Mapper import TAG_TERMINATE_AT
+
+    c    = Console(highlight=False)
+    svc  = Local_Claude__Service().setup()
+    name = Spec__CLI__Builder(_cli_spec).resolver.resolve(svc, name, region, 'local-claude')
+    info = svc.get_stack_info(region, name)
+    if info is None:
+        c.print(f'  [red]✗  No local-claude stack matched {name!r}[/]')
+        raise typer.Exit(1)
+
+    instance_id      = str(info.instance_id)
+    new_terminate_at = datetime.now(timezone.utc) + timedelta(hours=add_hours)
+    new_seconds      = int(add_hours * 3600)
+    new_iso          = new_terminate_at.strftime('%Y-%m-%dT%H:%M:%SZ')
+
+    # Cancel existing transient shutdown timer(s) and arm a fresh one
+    ssm_cmd = (
+        "for t in $(systemctl list-units --type=timer --all --plain --no-legend"
+        " | awk '{print $1}' | grep '^run-');"
+        " do systemctl stop \"$t\" 2>/dev/null; done;"
+        f" systemd-run --on-active={new_seconds}s /sbin/shutdown -h now"
+    )
+    c.print(f'\n  [dim]via SSM:[/] [cyan]{ssm_cmd}[/]\n')
+    result = svc.exec(region, name, ssm_cmd, timeout_sec=30)
+    stdout = str(getattr(result, 'stdout', '') or '').strip()
+    if stdout:
+        c.print(f'  [dim]{stdout}[/]')
+
+    # Update TerminateAt EC2 tag so sg lc list time-left stays accurate
+    tag_ok = EC2__Instance__Helper().update_tags(region, instance_id, {TAG_TERMINATE_AT: new_iso})
+
+    c.print()
+    if tag_ok:
+        c.print(f'  [green]✓[/]  [bold]{name}[/] extended — terminates at [bold]{new_iso}[/] UTC'
+                f'  [dim](+{add_hours:.1f}h from now)[/]')
+    else:
+        c.print(f'  [yellow]⚠[/]  Timer armed on instance but TerminateAt tag update failed')
+        c.print(f'  [dim]Intended expiry: {new_iso} UTC[/]')
+    c.print()
+
+
 _DIAG_ICONS = {
     'ok'  : '[green]✓[/]',
     'fail': '[red]✗[/]',
