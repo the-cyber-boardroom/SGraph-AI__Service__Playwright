@@ -96,6 +96,15 @@ class EC2__Instance__Helper(Type_Safe):
             Filters=[{'Key': 'InstanceIds', 'Values': [instance_id]}])
         return bool(resp.get('InstanceInformationList'))
 
+    def update_tags(self, region: str, instance_id: str, tags: dict) -> bool:
+        try:
+            self.ec2_client(region).create_tags(
+                Resources=[instance_id],
+                Tags=[{'Key': k, 'Value': v} for k, v in tags.items()])
+            return True
+        except Exception:
+            return False
+
     def run_command(self, region: str, instance_id: str, command: str,
                     timeout_sec: int = 60) -> tuple:
         # SSM SendCommand is fundamentally asynchronous — there is no
