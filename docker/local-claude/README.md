@@ -28,7 +28,9 @@ protocols and lives on the compose network as the `litellm` service.
 2. Models pulled on the host (the container will NOT pull). The shipped
    `litellm.config.yaml` registers these:
 
+   - `qwen2.5-coder:7b` *(default — recommended on 24 GB Macs)*
    - `llama3.1:8b`
+   - `gemma4:e2b`
    - `gemma4:e4b`
    - `gemma4:31b`
    - `deepseek-r1:32b`
@@ -37,13 +39,13 @@ protocols and lives on the compose network as the `litellm` service.
 ## Build
 
 ```bash
-docker compose -f docker-compose.local-claude.yml build
+docker compose -f docker/local-claude/docker-compose.yml build
 ```
 
 ## Run
 
 ```bash
-docker compose -f docker-compose.local-claude.yml run --rm local-claude
+docker compose -f docker/local-claude/docker-compose.yml run --rm local-claude
 ```
 
 The current working directory is mounted at `/workspace`, so Claude can read
@@ -63,13 +65,13 @@ Inside Claude Code, use `/model <name>` with any of the names registered in
 
 To add a model, append a new `model_name` block to
 `docker/local-claude/litellm.config.yaml` and recreate the sidecar
-(`docker compose -f docker-compose.local-claude.yml up -d --force-recreate litellm`).
+(`docker compose -f docker/local-claude/docker-compose.yml up -d --force-recreate litellm`).
 
 ## Override env vars
 
 ```bash
 OLLAMA_MODEL=qwen3:30b \
-docker compose -f docker-compose.local-claude.yml run --rm local-claude
+docker compose -f docker/local-claude/docker-compose.yml run --rm local-claude
 ```
 
 `OLLAMA_MODEL` is propagated into every Claude tier
@@ -92,5 +94,5 @@ If the Ollama probe warns, check:
 If LiteLLM 4xx/5xx errors show up inside Claude Code, tail its logs:
 
 ```bash
-docker compose -f docker-compose.local-claude.yml logs -f litellm
+docker compose -f docker/local-claude/docker-compose.yml logs -f litellm
 ```
