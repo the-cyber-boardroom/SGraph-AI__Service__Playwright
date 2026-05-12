@@ -1,0 +1,34 @@
+# ═══════════════════════════════════════════════════════════════════════════════
+# SG Playwright — docker-compose.local-claude.yml
+#
+# Laptop-local twin of `sg lc` (EC2 local-claude). Runs Claude Code CLI in a
+# container pointed at the host's Ollama OpenAI-compat endpoint.
+#
+# Prereqs (on the host Mac):
+#   - `ollama serve` running with OLLAMA_HOST=0.0.0.0:11434
+#   - target model already pulled (e.g. `ollama pull llama3.1:8b`)
+#
+# Usage:
+#   docker compose -f docker-compose.local-claude.yml build
+#   docker compose -f docker-compose.local-claude.yml run --rm local-claude
+# ═══════════════════════════════════════════════════════════════════════════════
+
+services:
+
+  local-claude:
+    build:
+      context: ./docker/local-claude
+    image: sg-playwright/local-claude:latest
+    # host-gateway keeps host.docker.internal resolvable on non-Docker-Desktop
+    # runtimes too (Linux); Docker Desktop on Mac already resolves it natively.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    mem_limit: 6g
+    environment:
+      OLLAMA_MODEL:        ${OLLAMA_MODEL:-llama3.1:8b}
+      ANTHROPIC_BASE_URL:  ${ANTHROPIC_BASE_URL:-http://host.docker.internal:11434/v1}
+    volumes:
+      - ./:/workspace
+    working_dir: /workspace
+    stdin_open: true
+    tty: true

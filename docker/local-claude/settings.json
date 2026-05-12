@@ -1,0 +1,12 @@
+{
+  "theme": "auto",
+  "env": {
+    "CLAUDE_CODE_ATTRIBUTION_HEADER": "0",
+    "CLAUDE_CODE_DISABLE_1M_CONTEXT": "1",
+    "CONTEXT_WINDOW_OVERRIDE": "65536",
+    "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE": "70",
+    "ANTHROPIC_BASE_URL": "http://host.docker.internal:11434/v1",
+    "ANTHROPIC_API_KEY": "dummy",
+    "ANTHROPIC_MODEL": "llama3.1:8b"
+  }
+}
