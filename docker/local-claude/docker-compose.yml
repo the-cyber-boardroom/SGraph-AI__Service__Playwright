@@ -1,5 +1,5 @@
 # ═══════════════════════════════════════════════════════════════════════════════
-# SG Playwright — docker-compose.local-claude.yml
+# SG Playwright — docker/local-claude/docker-compose.yml
 #
 # Laptop-local twin of `sg lc` (EC2 local-claude). Runs Claude Code CLI in a
 # container that talks to a LiteLLM sidecar, which translates the Anthropic
@@ -10,11 +10,14 @@
 # Prereqs (on the host Mac):
 #   - `ollama serve` running with OLLAMA_HOST=0.0.0.0:11434
 #     (one-shot: `launchctl setenv OLLAMA_HOST 0.0.0.0:11434` + restart Ollama.app)
-#   - target model already pulled (e.g. `ollama pull llama3.1:8b`)
+#   - target model already pulled (e.g. `ollama pull qwen2.5-coder:7b`)
 #
-# Usage:
-#   docker compose -f docker-compose.local-claude.yml build
-#   docker compose -f docker-compose.local-claude.yml run --rm local-claude
+# Usage (from the repo root):
+#   docker compose -f docker/local-claude/docker-compose.yml build
+#   docker compose -f docker/local-claude/docker-compose.yml run --rm local-claude
+#
+# Compose volume paths are resolved relative to THIS file, so `../../` is the
+# repo root regardless of the shell's working directory.
 # ═══════════════════════════════════════════════════════════════════════════════
 
 services:
@@ -26,7 +29,7 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
-      - ./docker/local-claude/litellm.config.yaml:/app/config.yaml:ro
+      - ./litellm.config.yaml:/app/config.yaml:ro
     command: ["--config", "/app/config.yaml", "--port", "4000", "--host", "0.0.0.0"]
     mem_limit: 512m
     healthcheck:
@@ -39,7 +42,7 @@ services:
   # ── Claude Code CLI ────────────────────────────────────────────────────────
   local-claude:
     build:
-      context: ./docker/local-claude
+      context: .
     image: sg-playwright/local-claude:latest
     depends_on:
       litellm:
@@ -54,7 +57,9 @@ services:
       OLLAMA_MODEL:        ${OLLAMA_MODEL:-qwen2.5-coder:7b}
       ANTHROPIC_BASE_URL:  ${ANTHROPIC_BASE_URL:-http://litellm:4000}
     volumes:
-      - ./:/workspace
+      # ../../ resolves to the repo root because compose resolves paths relative
+      # to this file. Workspace mount lets Claude edit the project files.
+      - ../../:/workspace
     working_dir: /workspace
     stdin_open: true
     tty: true
