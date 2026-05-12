@@ -16,6 +16,11 @@ model_list:
       model: ollama_chat/llama3.1:8b
       api_base: http://host.docker.internal:11434
 
+  - model_name: gemma4:e2b
+    litellm_params:
+      model: ollama_chat/gemma4:e2b
+      api_base: http://host.docker.internal:11434
+
   - model_name: gemma4:e4b
     litellm_params:
       model: ollama_chat/gemma4:e4b
