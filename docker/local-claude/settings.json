@@ -7,6 +7,6 @@
     "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE": "70",
     "ANTHROPIC_BASE_URL": "http://litellm:4000",
     "ANTHROPIC_API_KEY": "dummy",
-    "ANTHROPIC_MODEL": "llama3.1:8b"
+    "ANTHROPIC_MODEL": "qwen2.5-coder:7b"
   }
 }
