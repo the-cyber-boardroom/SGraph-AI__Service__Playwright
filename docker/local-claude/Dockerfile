@@ -28,8 +28,10 @@ RUN apt-get update \
 RUN npm install -g @anthropic-ai/claude-code \
  && npm cache clean --force
 
-# Non-root user with a real home dir (Claude writes config under ~/.claude)
-RUN useradd --create-home --shell /bin/bash --uid 1000 claude \
+# Non-root user with a real home dir (Claude writes config under ~/.claude).
+# node:22 base ships a `node` user at UID 1000 — drop it so we can claim 1000.
+RUN userdel -r node 2>/dev/null || true \
+ && useradd --create-home --shell /bin/bash --uid 1000 claude \
  && mkdir -p /home/claude/.claude /workspace \
  && chown -R claude:claude /home/claude /workspace
 
