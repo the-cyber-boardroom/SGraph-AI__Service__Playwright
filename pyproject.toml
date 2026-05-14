@@ -8,8 +8,10 @@ readme      = "README.md"
 packages    = [{ include = "sg_compute"                        },
                { include = "sg_compute_specs"                  },
                { include = "sgraph_ai_service_playwright__cli" },
+               { include = "vault_publish"                     },
                { include = "scripts"                           }]
-include     = ["sgraph_ai_service_playwright__cli/version"]
+include     = ["sgraph_ai_service_playwright__cli/version",
+               "vault_publish/version"                       ]
 
 [tool.poetry.dependencies]
 python                       = "^3.12"
