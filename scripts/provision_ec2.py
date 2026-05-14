@@ -844,6 +844,10 @@ from sg_compute_specs.local_claude.cli.Cli__Local_Claude import app as _local_cl
 app.add_typer(_local_claude_app, name='local-claude'    )                                  # local vLLM + Claude Code on EC2 GPU
 app.add_typer(_local_claude_app, name='lc', hidden=True )                                  # short alias
 
+from sg_compute_specs.vault_app.cli.Cli__Vault_App import app as _vault_app_app  # noqa: E402
+app.add_typer(_vault_app_app, name='vault-app'    )                                        # vault-app substrate on EC2 (just-vault / +playwright)
+app.add_typer(_vault_app_app, name='va', hidden=True)                                      # short alias
+
 from scripts.catalog import app as _catalog_app  # noqa: E402
 app.add_typer(_catalog_app, name='catalog')
 
