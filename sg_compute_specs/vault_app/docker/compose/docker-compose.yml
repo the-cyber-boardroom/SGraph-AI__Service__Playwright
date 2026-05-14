@@ -1,0 +1,74 @@
+# ═══════════════════════════════════════════════════════════════════════════════
+# Vault App Stack — docker-compose.yml
+#
+# Four containers on a shared vault-net bridge:
+#   host-plane    — control-plane FastAPI; manages containers via Docker socket
+#   sg-send-vault — vault storage + UI; the only externally-reachable surface
+#   sg-playwright — browser automation API; internal only
+#   agent-mitmproxy — passive traffic capture; internal only, no admin ports
+#
+# Usage:
+#   cp .env.example .env          # fill in ECR_REGISTRY, tokens, optional seeds
+#   aws ecr get-login-password --region <region> \
+#     | docker login --username AWS --password-stdin <ECR_REGISTRY>
+#   docker compose pull
+#   docker compose up -d
+#
+# Vault UI:  http://localhost:8080
+# All other services: internal docker network only.
+# Use SSM port-forward to reach host-plane, playwright, or mitmproxy locally.
+# ═══════════════════════════════════════════════════════════════════════════════
+
+services:
+
+  host-plane:
+    image: ${ECR_REGISTRY}/sgraph_ai_service_playwright_host:${IMAGE_TAG:-latest}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock     # allows host-plane to manage containers
+    environment:
+      FAST_API__AUTH__API_KEY__NAME:  ${FAST_API__AUTH__API_KEY__NAME:-X-API-Key}
+      FAST_API__AUTH__API_KEY__VALUE: ${FAST_API__AUTH__API_KEY__VALUE:-change-me}
+    networks:
+      - vault-net
+    restart: unless-stopped
+
+  sg-send-vault:
+    image: diniscruz/sg-send-vault:latest
+    ports:
+      - "8080:8080"                                   # only external port in the stack
+    volumes:
+      - ${VAULT_DATA_PATH:-/opt/vault-app/data}:/data
+    environment:
+      SGRAPH_SEND__ACCESS_TOKEN: ${SGRAPH_SEND__ACCESS_TOKEN}
+      SEND__STORAGE_MODE:        ${SEND__STORAGE_MODE:-disk}
+    networks:
+      - vault-net
+    restart: unless-stopped
+
+  sg-playwright:
+    image: ${ECR_REGISTRY}/sgraph_ai_service_playwright:${IMAGE_TAG:-latest}
+    environment:
+      FAST_API__AUTH__API_KEY__NAME:           ${FAST_API__AUTH__API_KEY__NAME:-X-API-Key}
+      FAST_API__AUTH__API_KEY__VALUE:          ${FAST_API__AUTH__API_KEY__VALUE:-change-me}
+      SG_PLAYWRIGHT__DEPLOYMENT_TARGET:        container
+      SG_PLAYWRIGHT__DEFAULT_PROXY_URL:        http://agent-mitmproxy:8080
+      SG_PLAYWRIGHT__IGNORE_HTTPS_ERRORS:      'true'
+      SG_PLAYWRIGHT__WATCHDOG_MAX_REQUEST_MS:  ${SG_PLAYWRIGHT__WATCHDOG_MAX_REQUEST_MS:-120000}
+    networks:
+      - vault-net
+    depends_on:
+      - agent-mitmproxy
+    restart: unless-stopped
+
+  agent-mitmproxy:
+    image: ${ECR_REGISTRY}/agent_mitmproxy:${IMAGE_TAG:-latest}
+    environment:
+      FAST_API__AUTH__API_KEY__NAME:  ${FAST_API__AUTH__API_KEY__NAME:-X-API-Key}
+      FAST_API__AUTH__API_KEY__VALUE: ${FAST_API__AUTH__API_KEY__VALUE:-change-me}
+    networks:
+      - vault-net
+    restart: unless-stopped
+
+networks:
+  vault-net:
+    driver: bridge
