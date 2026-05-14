@@ -143,7 +143,7 @@ class Spec__CLI__Builder:
         render_create_fn = getattr(self.cli_spec, 'render_create_fn', None) or render_create
 
         base_params = [
-            ('name',          Optional[str], typer.Argument(None,
+            ('name',          Optional[str], typer.Option(None, '--name', '-n',
                               help='Stack name; auto-generated if omitted.')),
             ('region',        str,           typer.Option(DEFAULT_REGION, '--region', '-r')),
             ('instance_type', str,           typer.Option(cli_spec.default_instance_type,

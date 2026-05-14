@@ -69,6 +69,9 @@ def _render_vault_app_info(info, console: Console) -> None:
 
     if vault_url:
         t.add_row('set-cookie-form', f'[cyan]{vault_url}/auth/set-cookie-form[/]')
+        t.add_row('browser-auth',
+                  f'[dim]javascript: document.cookie = '
+                  f'"x-sgraph-access-token=YOUR_TOKEN; path=/"; location.reload();[/]')
 
     terminate_at = str(getattr(info, 'terminate_at', '') or '')
     if terminate_at:
@@ -163,9 +166,8 @@ app = Spec__CLI__Builder(
          'Comma-separated sgit keys cloned into the vault on first boot.'),
         ('disk_size'      , int , 20,
          'Root volume in GiB — vault data + container image layers.'),
-        # ── advanced: hidden from --help; still accepted ──
         ('access_token'   , str , '',
-         'Shared stack secret. Auto-generated and returned once on create if blank.', True),
+         'Shared stack secret. Auto-generated and returned once on create if blank.'),
     ],
 ).build()
 
