@@ -8,8 +8,11 @@ from io import StringIO
 from rich.console import Console
 from typer.testing import CliRunner
 
-from sg_compute_specs.vault_app.cli.Cli__Vault_App    import app, _render_vault_app_info
-from sg_compute_specs.vault_app.schemas.Schema__Vault_App__Info import Schema__Vault_App__Info
+from sg_compute_specs.vault_app.cli.Cli__Vault_App    import (app                       ,
+                                                              _render_vault_app_info    ,
+                                                              _render_vault_app_create  )
+from sg_compute_specs.vault_app.schemas.Schema__Vault_App__Info             import Schema__Vault_App__Info
+from sg_compute_specs.vault_app.schemas.Schema__Vault_App__Create__Response import Schema__Vault_App__Create__Response
 
 
 runner = CliRunner()
@@ -88,6 +91,44 @@ class TestCliVaultApp:
         assert 'with-playwright'     in out
         assert 'docker'              in out
         assert 'spot'                in out
+
+    def test_render_vault_app_info_shows_set_cookie_form(self):
+        info = Schema__Vault_App__Info(stack_name='s', instance_id='i-1', state='running',
+                                       public_ip='1.2.3.4', vault_url='http://1.2.3.4:8080')
+        buf = StringIO()
+        _render_vault_app_info(info, Console(file=buf, highlight=False, no_color=True))
+        assert 'http://1.2.3.4:8080/auth/set-cookie-form' in buf.getvalue()
+
+    def test_render_vault_app_create_shows_access_token(self):
+        resp = Schema__Vault_App__Create__Response(
+            stack_info   = Schema__Vault_App__Info(stack_name='zen-curie',
+                                                   instance_id='i-abc',
+                                                   state='pending'),
+            access_token = 'super-secret-token-xyz',
+            elapsed_ms   = 3800,
+        )
+        buf = StringIO()
+        _render_vault_app_create(resp, Console(file=buf, highlight=False, no_color=True))
+        out = buf.getvalue()
+        assert 'super-secret-token-xyz' in out
+        assert 'shown once'             in out
+        # pending instance has no public IP yet — points the user at `info`
+        assert 'sp vault-app info'      in out
+
+    def test_render_vault_app_create_shows_urls_when_ip_known(self):
+        resp = Schema__Vault_App__Create__Response(
+            stack_info   = Schema__Vault_App__Info(stack_name='zen-curie',
+                                                   instance_id='i-abc',
+                                                   state='running',
+                                                   public_ip='9.8.7.6',
+                                                   vault_url='http://9.8.7.6:8080'),
+            access_token = 'tok',
+        )
+        buf = StringIO()
+        _render_vault_app_create(resp, Console(file=buf, highlight=False, no_color=True))
+        out = buf.getvalue()
+        assert 'http://9.8.7.6:8080'                       in out
+        assert 'http://9.8.7.6:8080/auth/set-cookie-form'   in out
 
     def test_render_vault_app_info_just_vault_mode(self):
         info = Schema__Vault_App__Info(

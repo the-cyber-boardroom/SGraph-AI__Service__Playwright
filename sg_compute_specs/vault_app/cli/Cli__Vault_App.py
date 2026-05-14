@@ -67,6 +67,9 @@ def _render_vault_app_info(info, console: Console) -> None:
     if pricing is not None:
         t.add_row('pricing', '[cyan]spot[/]' if pricing else '[dim]on-demand[/]')
 
+    if vault_url:
+        t.add_row('set-cookie-form', f'[cyan]{vault_url}/auth/set-cookie-form[/]')
+
     terminate_at = str(getattr(info, 'terminate_at', '') or '')
     if terminate_at:
         remaining = int(getattr(info, 'time_remaining_sec', 0) or 0)
@@ -74,6 +77,43 @@ def _render_vault_app_info(info, console: Console) -> None:
         t.add_row('time-left',    humanize_time_left(terminate_at, remaining))
 
     console.print(t)
+    console.print()
+
+
+def _render_vault_app_create(response, console: Console) -> None:
+    info        = getattr(response, 'stack_info', None) or response
+    stack_name  = str(getattr(info, 'stack_name',  ''))
+    instance_id = str(getattr(info, 'instance_id', ''))
+    vault_url   = str(getattr(info, 'vault_url', '') or '')
+    token       = str(getattr(response, 'access_token', '') or '')
+    elapsed     = getattr(response, 'elapsed_ms', 0)
+
+    console.print()
+    console.print(Panel(f'[bold green]Launching[/]  ·  {stack_name}', border_style='green', expand=False))
+    console.print()
+    console.print(f'  instance-id : [dim]{instance_id}[/]')
+    console.print(f'  submitted in: {elapsed / 1000:.1f}s')
+    console.print()
+
+    # The access token is the one shared secret — it gates the vault HTTP API
+    # (X-API-Key header / cookie) AND is the SG/Send access token. Shown once
+    # here; recover later via `connect` → sudo cat /opt/vault-app/.env.
+    if token:
+        console.print(Panel(
+            f'[bold yellow]{token}[/]\n\n'
+            f'[dim]Save this now — shown once, not recoverable from the API.[/]\n'
+            f'[dim]It is both the vault API key and the SG/Send access token.[/]\n'
+            f'[dim]Recover later:  sp vault-app connect  →  sudo cat /opt/vault-app/.env[/]',
+            title='[bold]access token[/]', border_style='yellow', expand=False))
+        console.print()
+
+    if vault_url:
+        console.print(f'  vault-url   : [bold cyan]{vault_url}[/]')
+        console.print(f'  set-cookie  : [cyan]{vault_url}/auth/set-cookie-form[/]'
+                      f'  [dim]— paste the token here in a browser[/]')
+    else:
+        console.print('  [dim]public IP assigned shortly — run [cyan]sp vault-app info[/] for the URL,[/]')
+        console.print('  [dim]or [cyan]sp vault-app create --wait[/] to block until healthy.[/]')
     console.print()
 
 
@@ -103,6 +143,7 @@ _cli_spec = Schema__Spec__CLI__Spec(
     health_scheme         = 'http'                                   ,
     extra_create_field_setters = _set_extras                         ,
     render_info_fn             = _render_vault_app_info              ,
+    render_create_fn           = _render_vault_app_create            ,
 )
 
 

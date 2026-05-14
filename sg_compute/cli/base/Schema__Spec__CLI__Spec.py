@@ -18,7 +18,8 @@ class Schema__Spec__CLI__Spec:
                  health_port                : int  = 80,
                  health_scheme              : str  = 'https',
                  extra_create_field_setters        = None,
-                 render_info_fn                    = None):
+                 render_info_fn                    = None,
+                 render_create_fn                  = None):
         self.spec_id                   = spec_id
         self.display_name              = display_name
         self.default_instance_type     = default_instance_type
@@ -29,3 +30,4 @@ class Schema__Spec__CLI__Spec:
         self.health_scheme             = health_scheme
         self.extra_create_field_setters = extra_create_field_setters
         self.render_info_fn            = render_info_fn
+        self.render_create_fn          = render_create_fn
