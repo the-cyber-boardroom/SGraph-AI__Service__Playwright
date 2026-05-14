@@ -39,8 +39,8 @@ class TestCliVaultApp:
         assert '--storage-mode'    in result.output
         assert '--seed-vault-keys' in result.output
         assert '--disk-size'       in result.output
-        # access-token is advanced — hidden from --help
-        assert '--access-token'    not in result.output
+        assert '--access-token'    in result.output
+        assert '--name'            in result.output
 
     def test_ami_subcommand_exists(self):
         result = runner.invoke(app, ['ami', '--help'])
@@ -97,7 +97,10 @@ class TestCliVaultApp:
                                        public_ip='1.2.3.4', vault_url='http://1.2.3.4:8080')
         buf = StringIO()
         _render_vault_app_info(info, Console(file=buf, highlight=False, no_color=True))
-        assert 'http://1.2.3.4:8080/auth/set-cookie-form' in buf.getvalue()
+        out = buf.getvalue()
+        assert 'http://1.2.3.4:8080/auth/set-cookie-form' in out
+        assert 'x-sgraph-access-token=YOUR_TOKEN'         in out
+        assert 'location.reload()'                        in out
 
     def test_render_vault_app_create_shows_access_token(self):
         resp = Schema__Vault_App__Create__Response(
