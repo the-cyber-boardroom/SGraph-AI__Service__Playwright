@@ -14,4 +14,3 @@ class Enum__Stack__Type(Enum):
     VNC        = 'vnc'
     NEKO       = 'neko'
     FIREFOX    = 'firefox'
-    VAULT_APP  = 'vault_app'
