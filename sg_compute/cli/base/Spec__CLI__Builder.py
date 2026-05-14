@@ -117,6 +117,7 @@ class Spec__CLI__Builder:
         service_factory = self.cli_spec.service_factory
         resolver        = self.resolver
         spec_id         = self.cli_spec.spec_id
+        render_info_fn  = getattr(self.cli_spec, 'render_info_fn', None) or render_info
 
         @app.command()
         @spec_cli_errors
@@ -131,7 +132,7 @@ class Spec__CLI__Builder:
                 Console(highlight=False, stderr=True).print(
                     f'  [red]✗  No {spec_id} stack matched {name!r}[/]')
                 raise typer.Exit(1)
-            render_info(data, Console(highlight=False, width=200))
+            render_info_fn(data, Console(highlight=False, width=200))
 
     def _register_create(self, app):
         cli_spec        = self.cli_spec
