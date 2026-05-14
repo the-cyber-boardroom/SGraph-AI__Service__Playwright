@@ -147,7 +147,7 @@ class Vault_App__Service(Spec__Service__Base):
 
     def health(self, region: str, name: str, timeout_sec: int = 0, poll_sec: int = 10):
         from sg_compute.cli.base.schemas.Schema__CLI__Health__Probe import Schema__CLI__Health__Probe
-        import ssl, time, urllib.request
+        import ssl, time
         from rich.console import Console
 
         c        = Console(highlight=False)
@@ -160,7 +160,8 @@ class Vault_App__Service(Spec__Service__Base):
         is_wait  = timeout_sec > 0
 
         if is_wait:
-            c.print(f'\n  [dim]Polling {name} every {poll_sec}s  (timeout {timeout_sec}s) …[/]\n')
+            c.print(f'\n  [dim]Polling {name} every {poll_sec}s  (timeout {timeout_sec}s) —'
+                    f' run [cyan]sp vault-app diag[/] for the full boot checklist[/]\n')
 
         while True:
             elapsed = int(time.monotonic() - t0)
@@ -185,24 +186,23 @@ class Vault_App__Service(Spec__Service__Base):
                     if is_wait:
                         c.print(f'  [dim][t+{elapsed:>3}s][/]  state=[yellow]{state}[/]  [dim]awaiting public IP…[/]')
                 else:
-                    probe_url = f'http://{public_ip}:{VAULT_PORT}/info/health'
-                    try:
-                        with urllib.request.urlopen(probe_url, timeout=5, context=ctx) as resp:
-                            if resp.status < 500:
-                                probe.healthy    = True
-                                probe.state      = 'running'
-                                probe.last_error = ''
-                                vault_url = str(getattr(info, 'vault_url', '') or probe_url)
-                                if is_wait:
-                                    c.print(f'  [dim][t+{elapsed:>3}s][/]  [green]✓ healthy[/]  {vault_url}')
-                                break
-                    except Exception as exc:
-                        err = str(exc)[:100]
-                        probe.last_error = str(exc)[:512]
+                    status, err = self._http_status(f'http://{public_ip}:{VAULT_PORT}/info/health', ctx)
+                    # Any HTTP response (incl. 401/403 auth gate) means the vault is up.
+                    if status and status < 500:
+                        probe.healthy    = True
+                        probe.state      = 'running'
+                        probe.last_error = ''
+                        vault_url = str(getattr(info, 'vault_url', '') or f'http://{public_ip}:{VAULT_PORT}')
                         if is_wait:
-                            c.print(f'  [dim][t+{elapsed:>3}s][/]  state=[cyan]{state}[/]'
-                                    f'  ip={public_ip}'
-                                    f'  [dim]{err}[/]')
+                            gate = '  [dim](auth-gated — expected)[/]' if status in (401, 403) else ''
+                            c.print(f'  [dim][t+{elapsed:>3}s][/]  [green]✓ healthy[/]  HTTP {status}  {vault_url}{gate}')
+                        break
+                    probe.last_error = err or f'HTTP {status}'
+                    if is_wait:
+                        stage     = self._probe_boot_stage(region, name)
+                        stage_txt = f'  stage=[bold]{stage}[/]' if stage else ''
+                        c.print(f'  [dim][t+{elapsed:>3}s][/]  state=[cyan]{state}[/]  ip={public_ip}'
+                                f'{stage_txt}  [dim]{err or ("HTTP " + str(status))}[/]')
 
             if time.monotonic() >= deadline:
                 if is_wait and not probe.healthy:
@@ -212,6 +212,32 @@ class Vault_App__Service(Spec__Service__Base):
 
         probe.elapsed_ms = int((time.monotonic() - t0) * 1000)
         return probe
+
+    def _http_status(self, url: str, ctx) -> tuple:
+        # (status_code, error_str). status_code 0 = unreachable (connection refused
+        # / timeout). A 4xx — including a 401/403 auth gate — still means the
+        # server is up and responding, which is what a readiness probe cares about.
+        import urllib.error, urllib.request
+        try:
+            with urllib.request.urlopen(url, timeout=5, context=ctx) as resp:
+                return resp.status, ''
+        except urllib.error.HTTPError as exc:
+            return exc.code, ''
+        except Exception as exc:
+            return 0, str(exc)[:200]
+
+    def _probe_boot_stage(self, region: str, name: str) -> str:
+        # One cheap SSM call — returns the latest [vault-app]/[ephemeral-ec2] boot
+        # marker, or '' when SSM is not reachable yet (early boot).
+        try:
+            result = self.exec(
+                region, name,
+                "grep -E '^\\[(vault-app|ephemeral-ec2)\\]' "
+                "/var/log/ephemeral-ec2-boot.log 2>/dev/null | tail -n 1 || true",
+                timeout_sec=30)
+            return str(getattr(result, 'stdout', '') or '').strip()[:80]
+        except Exception:
+            return ''
 
     def _print_boot_log_tail(self, region: str, name: str, c) -> None:
         try:
@@ -224,6 +250,146 @@ class Vault_App__Service(Spec__Service__Base):
                 c.print()
         except Exception:
             pass
+
+    # ── boot-sequence diagnostic checklist ───────────────────────────────────────
+    # Generator protocol: yields (name, 'checking', '') for each active check so
+    # the CLI can show a live indicator, then yields the final (name, status,
+    # detail). Skipped checks are yielded directly. Mirrors local-claude's
+    # diagnose() — vault-app stages: ec2 → ssm → boot-failed → container-engine
+    # → images-pulled → containers-up → vault-http → boot-ok.
+
+    def diagnose(self, region: str, name: str):
+        _REST = ('ssm-reachable', 'boot-failed', 'container-engine',
+                 'images-pulled', 'containers-up', 'vault-http', 'boot-ok')
+
+        # ── check 1: ec2-state ─────────────────────────────────────────────────
+        yield ('ec2-state', 'checking', '')
+        info = self.get_stack_info(region, name)
+        if info is None:
+            yield ('ec2-state', 'fail', 'stack not found')
+            return
+        ec2_state = str(getattr(info, 'state', '') or '')
+        ec2_ok    = ec2_state == 'running'
+        yield ('ec2-state', 'ok' if ec2_ok else 'fail', ec2_state or '?')
+        if not ec2_ok:
+            for n in _REST:
+                yield (n, 'skip', f'skipped — ec2 is {ec2_state!r}')
+            return
+
+        engine = str(getattr(info, 'container_engine', '') or '') or 'docker'
+
+        # ── check 2: ssm-reachable ─────────────────────────────────────────────
+        yield ('ssm-reachable', 'checking', '')
+        try:
+            self.exec(region, name, 'echo ok', timeout_sec=30)
+            ssm_ok = True
+            yield ('ssm-reachable', 'ok', 'responsive')
+        except Exception as exc:
+            ssm_ok = False
+            yield ('ssm-reachable', 'fail', str(exc)[:120])
+        if not ssm_ok:
+            for n in _REST[1:]:
+                yield (n, 'skip', 'skipped — SSM unreachable')
+            return
+
+        def ssm(cmd, timeout=30):                       # SSM SendCommand requires TimeoutSeconds >= 30
+            r = self.exec(region, name, cmd, timeout_sec=timeout)
+            return str(getattr(r, 'stdout', '') or '').strip()
+
+        # ── check 3: boot-failed ───────────────────────────────────────────────
+        yield ('boot-failed', 'checking', '')
+        try:
+            out = ssm('test -f /var/lib/sg-compute-boot-failed && echo YES || echo NO')
+            if 'YES' in out:
+                tail = ssm('tail -n 15 /var/log/ephemeral-ec2-boot.log 2>/dev/null || true')
+                yield ('boot-failed', 'fail', ('boot script error:\n' + tail) if tail else 'boot script error')
+            else:
+                yield ('boot-failed', 'ok', 'absent')
+        except Exception:
+            yield ('boot-failed', 'warn', 'could not check')
+
+        # ── check 4: container-engine ──────────────────────────────────────────
+        yield ('container-engine', 'checking', '')
+        engine_ok = False
+        try:
+            unit = 'podman.socket' if engine == 'podman' else 'docker'
+            out  = ssm(f'systemctl is-active {unit} 2>&1 || true')
+            if out == 'active':
+                engine_ok = True
+                yield ('container-engine', 'ok', f'{engine} active')
+            else:
+                yield ('container-engine', 'warn', f'{engine} state={out!r} — boot may still be installing it')
+        except Exception:
+            yield ('container-engine', 'warn', 'could not check')
+
+        # ── check 5: images-pulled ─────────────────────────────────────────────
+        yield ('images-pulled', 'checking', '')
+        images_ok = False
+        try:
+            out        = ssm(f'sudo {engine} images --format "{{{{.Repository}}}}" 2>/dev/null || true')
+            have_vault = 'sg-send-vault' in out
+            have_host  = 'sgraph_ai_service_playwright_host' in out
+            if have_vault and have_host:
+                images_ok = True
+                yield ('images-pulled', 'ok', 'sg-send-vault + host-plane present')
+            elif not engine_ok:
+                yield ('images-pulled', 'warn', 'not yet — container engine not ready')
+            else:
+                missing = [n for n, ok in (('sg-send-vault', have_vault),
+                                            ('host-plane', have_host)) if not ok]
+                yield ('images-pulled', 'warn', f'pulling… still missing: {", ".join(missing)}')
+        except Exception:
+            yield ('images-pulled', 'warn', 'could not check')
+
+        # ── check 6: containers-up ─────────────────────────────────────────────
+        yield ('containers-up', 'checking', '')
+        containers_ok = False
+        try:
+            out      = ssm(f'sudo {engine} ps --format "{{{{.Names}}}}  {{{{.Status}}}}" 2>/dev/null || true')
+            up_lines = [l for l in out.splitlines() if 'Up' in l]
+            if len(up_lines) >= 2:
+                containers_ok = True
+                yield ('containers-up', 'ok', f'{len(up_lines)} running — ' + '; '.join(up_lines)[:160])
+            elif not images_ok:
+                yield ('containers-up', 'warn', 'not yet — images still pulling')
+            else:
+                all_ct = ssm(f'sudo {engine} ps -a --format "{{{{.Names}}}}  {{{{.Status}}}}" 2>/dev/null | head -5 || true')
+                yield ('containers-up', 'warn', f'not all up — {all_ct or "no containers yet"}')
+        except Exception:
+            yield ('containers-up', 'warn', 'could not check')
+
+        # ── check 7: vault-http ────────────────────────────────────────────────
+        if not containers_ok:
+            yield ('vault-http', 'skip', 'skipped — containers not running')
+        else:
+            yield ('vault-http', 'checking', '')
+            try:
+                code = ssm('curl -s -o /dev/null -w "%{http_code}" '
+                           f'http://127.0.0.1:{VAULT_PORT}/info/health 2>&1 || echo 000', timeout=30)
+                code = code.strip()
+                if code in ('200', '204'):
+                    yield ('vault-http', 'ok', f'HTTP {code}')
+                elif code in ('401', '403'):
+                    yield ('vault-http', 'ok', f'HTTP {code} — up, auth-gated (expected)')
+                elif code and code != '000':
+                    yield ('vault-http', 'warn', f'HTTP {code} — up but not ready')
+                else:
+                    yield ('vault-http', 'warn', 'no response on :8080 — vault still warming up')
+            except Exception as exc:
+                yield ('vault-http', 'fail', str(exc)[:120])
+
+        # ── check 8: boot-ok ───────────────────────────────────────────────────
+        yield ('boot-ok', 'checking', '')
+        try:
+            out = ssm('test -f /var/lib/sg-compute-boot-ok && echo YES || echo NO')
+            if 'YES' in out:
+                yield ('boot-ok', 'ok', 'present — boot script completed')
+            else:
+                stage = ssm("grep -E '^\\[(vault-app|ephemeral-ec2)\\]' "
+                            "/var/log/ephemeral-ec2-boot.log 2>/dev/null | tail -n 1 || true")
+                yield ('boot-ok', 'warn', f'not yet — current stage: {stage[:160]}' if stage else 'not yet')
+        except Exception:
+            yield ('boot-ok', 'warn', 'could not check')
 
     def delete_stack(self, region: str, stack_name: str) -> Schema__Vault_App__Delete__Response:
         t0      = time.monotonic()

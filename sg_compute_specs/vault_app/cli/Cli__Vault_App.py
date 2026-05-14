@@ -242,3 +242,101 @@ def extend(name     : str   = typer.Argument(None, help='Stack name; auto-select
         c.print(f'  [yellow]⚠[/]  Timer armed on instance but TerminateAt tag update failed')
         c.print(f'  [dim]Intended expiry: {new_iso} UTC[/]')
     c.print()
+
+
+# ── diag: sequential boot checklist ──────────────────────────────────────────
+
+_DIAG_ICONS = {
+    'ok'  : '[green]✓[/]',
+    'fail': '[red]✗[/]',
+    'warn': '[yellow]⚠[/]',
+    'skip': '[dim]⊘[/]',
+}
+
+# per-check log source to suggest when a check fails / warns
+_DIAG_HINTS = {
+    'ssm-reachable'    : [('boot'      , 'see if boot completed at all')],
+    'boot-failed'      : [('boot'      , 'full boot log with the error')],
+    'container-engine' : [('boot'      , 'engine install stage'), ('journal', 'systemd unit errors')],
+    'images-pulled'    : [('boot'      , 'ECR login + image pull is the long step')],
+    'containers-up'    : [('boot'      , 'compose up output')],
+    'vault-http'       : [('boot'      , 'container start markers')],
+    'boot-ok'          : [('boot'      , 'watch boot progress')],
+}
+
+
+@app.command()
+@spec_cli_errors
+def diag(name  : str = typer.Argument(None, help='Stack name; auto-selected when only one exists.'),
+         region: str = typer.Option(DEFAULT_REGION, '--region', '-r')):
+    """Run the sequential 8-step boot checklist and show which steps passed/failed.
+
+    \b
+    Steps checked in order:
+      ec2-state         EC2 instance is in running state
+      ssm-reachable     SSM exec can reach the instance
+      boot-failed       /var/lib/sg-compute-boot-failed is absent
+      container-engine  docker (or podman.socket) service is active
+      images-pulled     sg-send-vault + host-plane images present
+      containers-up     both compose containers are running
+      vault-http        :8080/info/health responds from inside the host
+      boot-ok           /var/lib/sg-compute-boot-ok is present
+    """
+    import sys
+
+    c    = Console(highlight=False)
+    svc  = Vault_App__Service().setup()
+    name = Spec__CLI__Builder(_cli_spec).resolver.resolve(svc, name, region, 'vault-app')
+    c.print()
+    c.print(f'  [bold]Diagnostics[/]  ·  [cyan]{name}[/]  [dim]{region}[/]')
+    c.print()
+
+    is_tty  = sys.stdout.isatty()
+    results = []
+
+    for check_name, status, detail in svc.diagnose(region, name):
+        if status == 'checking':
+            if is_tty:
+                sys.stdout.write(f'  ···  {check_name:<20} checking…\r')
+                sys.stdout.flush()
+            continue
+
+        if is_tty:
+            sys.stdout.write('\r\033[K')
+            sys.stdout.flush()
+
+        icon = _DIAG_ICONS.get(status, '[dim]?[/]')
+        results.append((check_name, status, detail))
+
+        first_line, *rest = detail.split('\n')
+        c.print(f'  {icon}  {check_name:18} [dim]{first_line}[/]')
+        for extra in rest:
+            if extra.strip():
+                c.print(f'       [dim]{extra}[/]')
+
+    c.print()
+    failed = [n for n, s, _ in results if s == 'fail']
+    warned = [n for n, s, _ in results if s == 'warn']
+    if not failed and not warned:
+        c.print('  [green]✓  all checks passed[/]')
+    else:
+        parts = []
+        if failed: parts.append(f'[red]{len(failed)} failed[/]')
+        if warned: parts.append(f'[yellow]{len(warned)} warnings[/]')
+        c.print(f'  {", ".join(parts)}')
+        seen_sources   = set()
+        suggested_cmds = []
+        for check_name, status, _ in results:
+            if status not in ('fail', 'warn'):
+                continue
+            for source, reason in _DIAG_HINTS.get(check_name, []):
+                if source not in seen_sources:
+                    seen_sources.add(source)
+                    suggested_cmds.append((source, reason, check_name))
+        if suggested_cmds:
+            c.print()
+            c.print('  [bold]Suggested next steps:[/]')
+            for source, reason, origin in suggested_cmds:
+                c.print(f'    [cyan]sp vault-app logs {name} --source {source:<10}[/]'
+                        f'  [dim]# {reason}  ({origin})[/]')
+    c.print()

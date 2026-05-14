@@ -60,6 +60,13 @@ class TestCliVaultApp:
         assert result.exit_code == 0
         assert '--add-hours' in result.output
 
+    def test_diag_subcommand_exists(self):
+        result = runner.invoke(app, ['diag', '--help'])
+        assert result.exit_code == 0
+        for step in ('ec2-state', 'ssm-reachable', 'container-engine',
+                     'images-pulled', 'containers-up', 'vault-http', 'boot-ok'):
+            assert step in result.output
+
     def test_render_vault_app_info_shows_vault_url(self):
         info = Schema__Vault_App__Info(
             stack_name        = 'test-stack'          ,
