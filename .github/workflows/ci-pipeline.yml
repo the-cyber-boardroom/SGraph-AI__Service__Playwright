@@ -1,5 +1,24 @@
 name: CI Pipeline (Base)
 
+# ═══════════════════════════════════════════════════════════════════════════════
+# Reusable base pipeline — called by ci-pipeline__{dev,main,prod}.yml.
+#
+# Jobs:
+#   1. run-unit-tests              — pytest tests/ci + tests/unit (always)
+#   2. check-aws-credentials       — gate for the host-image job
+#   3. detect-changes              — path filter: playwright-image / host-image
+#   4. increment-tag               — version bump (dev/main only)
+#   5. build-and-push-playwright-image
+#                                  — multi-arch image → Docker Hub
+#                                    (diniscruz/sg-playwright). Path-gated on
+#                                    sg_compute_specs/playwright/** + sg_compute/**.
+#   6. build-and-push-host-image   — host control image → ECR (separate concern)
+#
+# The Playwright Lambda / ECR / S3-zip jobs were retired in v0.2.11 — the
+# service now ships as a Docker Hub image only. See
+# team/roles/architect/reviews/05/14/v0.2.6__playwright-deployment-simplification.md
+# ═══════════════════════════════════════════════════════════════════════════════
+
 on:
   workflow_call:
     inputs:
@@ -20,8 +39,10 @@ on:
       force_image_rebuild:
         required: false
         type: boolean
-        default: false                                                                  # Set true to rebuild the Docker image even when no image-relevant files changed (base-image refresh, cache bust)
+        default: false                                                                  # Set true to rebuild + push the image even when no image-relevant files changed (base-image refresh, cache bust)
     secrets:
+      DOCKERHUB_TOKEN:
+        required: false                                                                 # Docker Hub PAT for the diniscruz namespace — needed to push the playwright image
       AWS_SECRET_ACCESS_KEY:
         required: false
       AWS_DEFAULT_REGION:
@@ -30,25 +51,10 @@ on:
         required: false
       AWS_ACCESS_KEY_ID:
         required: false
-      FAST_API__AUTH__API_KEY__NAME:
-        required: false
-      FAST_API__AUTH__API_KEY__VALUE:
-        required: false
-      SG_PLAYWRIGHT__ACCESS_TOKEN_HEADER:
-        required: false
-      SG_PLAYWRIGHT__ACCESS_TOKEN_VALUE:
-        required: false
-      SG_PLAYWRIGHT__SG_SEND_BASE_URL:
-        required: false
-      SG_PLAYWRIGHT__SG_SEND_VAULT_KEY:
-        required: false
-      SG_PLAYWRIGHT__DEFAULT_S3_BUCKET:
-        required: false
 
 env:
-  PACKAGE_NAME : 'sg_compute_specs_playwright'
-  GIT__BRANCH  : ${{ inputs.git_branch }}
-  IMAGE_NAME   : 'sgraph_ai_service_playwright'
+  DOCKERHUB_USERNAME : 'diniscruz'
+  IMAGE_NAME         : 'sg-playwright'
 
 permissions:
   contents: write
@@ -87,7 +93,8 @@ jobs:
         run: python -m pytest tests/unit/ -v --timeout=30
 
   # ════════════════════════════════════════════════════════════════════════════
-  # Job 2: Check AWS Credentials (gate for every job that touches AWS)
+  # Job 2: Check AWS Credentials (gate for the host-control-image job only —
+  #   the Playwright image goes to Docker Hub and needs no AWS creds).
   # ════════════════════════════════════════════════════════════════════════════
   check-aws-credentials:
     name: Check AWS Credentials
@@ -105,35 +112,27 @@ jobs:
             echo "has-credentials=true" >> $GITHUB_OUTPUT
           else
             echo "has-credentials=false" >> $GITHUB_OUTPUT
-            echo "AWS credentials not configured — Docker push + deploy skipped"
+            echo "AWS credentials not configured — host-control image push skipped"
           fi
 
   # ════════════════════════════════════════════════════════════════════════════
-  # Job 2b: Detect Image-Relevant Changes (path filter — skip image rebuilds
+  # Job 3: Detect Image-Relevant Changes (path filter — skip image rebuilds
   #   when no image-relevant file changed).
   #
-  #   Two deployment targets read from the Docker image in different ways:
+  #   playwright-image : anything baked into diniscruz/sg-playwright —
+  #                      the playwright spec + the sg_compute SDK it imports.
+  #   host-image       : the separate host-control ECR image.
   #
-  #   Lambda (agentic variant): Python source ships via S3-zip overlay —
-  #     the Lambda hot-loads from s3://<bucket>/apps/<app>/<stage>/vX.Y.Z.zip
-  #     on boot, so only Dockerfile / requirements.txt / lambda_entry.py changes
-  #     need an image rebuild (lambda-image filter).
-  #
-  #   EC2 (container stack): pulls the ECR image directly — no S3 overlay.
-  #     Any change to sg_compute_specs/playwright/** is baked into the image
-  #     and must trigger a rebuild (ec2-image filter).
-  #     sg_compute_specs/playwright/core/docker/** is excluded: deploy-time
-  #     tooling (Build__Docker__*, Lambda__Docker__*), never executed at runtime.
-  #
-  #   image-rebuild-needed = true when EITHER filter matches.
-  #   Bypass both filters with the `force_image_rebuild` workflow-dispatch input.
+  #   Each build job is gated with `if:` on its filter output (plus the
+  #   force_image_rebuild dispatch input) — this is how a single workflow
+  #   path-gates an individual job.
   # ════════════════════════════════════════════════════════════════════════════
   detect-changes:
     name: Detect Image-Relevant Changes
     runs-on: ubuntu-latest
     outputs:
-      image-rebuild-needed      : ${{ steps.combine.outputs.image-rebuild-needed       }}
-      host-image-rebuild-needed : ${{ steps.combine.outputs.host-image-rebuild-needed  }}
+      playwright-image-needed : ${{ steps.filter.outputs.playwright-image }}
+      host-image-needed       : ${{ steps.filter.outputs.host-image       }}
     steps:
       - uses: actions/checkout@v5
 
@@ -142,96 +141,109 @@ jobs:
         uses: dorny/paths-filter@v3
         with:
           filters: |
-            lambda-image:
-              - 'Dockerfile'
-              - 'requirements.txt'
-              - 'lambda_entry.py'
-              - 'sg_compute_specs/playwright/core/docker/images/**'
-            ec2-image:
+            playwright-image:
               - 'sg_compute_specs/playwright/**'
-              - '!sg_compute_specs/playwright/core/docker/**'
+              - 'sg_compute/**'
             host-image:
               - 'sg_compute/**'
               - 'docker/host-control/**'
 
-      - name: Combine image-rebuild outputs
-        id: combine
-        run: |
-          if [[ "${{ steps.filter.outputs.lambda-image }}" == "true" || \
-                "${{ steps.filter.outputs.ec2-image }}"   == "true" ]]; then
-            echo "image-rebuild-needed=true"  >> $GITHUB_OUTPUT
-          else
-            echo "image-rebuild-needed=false" >> $GITHUB_OUTPUT
-          fi
-          if [[ "${{ steps.filter.outputs.host-image }}" == "true" ]]; then
-            echo "host-image-rebuild-needed=true"  >> $GITHUB_OUTPUT
-          else
-            echo "host-image-rebuild-needed=false" >> $GITHUB_OUTPUT
-          fi
-
   # ════════════════════════════════════════════════════════════════════════════
-  # Job 3: Build + Push Docker Image to ECR (single job — no tar save/reload)
-  #   Build and push run on the same runner. The image stays in the local
-  #   Docker daemon between steps, so we skip the ~90s save + ~60s reload that
-  #   the previous split-job design paid per run.
-  #
-  #   Skipped when `detect-changes` reports no image-relevant changes AND
-  #   `force_image_rebuild` is false — in that case the existing ECR image is
-  #   reused by provision-lambdas (idempotent on the image URI).
+  # Job 4: Increment Tag (dev bumps minor, main bumps major; skipped on prod).
+  #   Runs before the image build so the pushed image is tagged with the
+  #   freshly-bumped version.
   # ════════════════════════════════════════════════════════════════════════════
-  build-and-push-image:
-    name: "Build + Push Docker Image to ECR"
+  increment-tag:
+    name: Increment Tag
     runs-on: ubuntu-latest
-    timeout-minutes: 25
-    needs: [run-unit-tests, check-aws-credentials, detect-changes]
-    if: needs.check-aws-credentials.outputs.has-credentials == 'true'  # always rebuild — dynamic source reload is not yet reliable
+    timeout-minutes: 5
+    needs: [run-unit-tests]
+    if: ${{ inputs.should_increment_tag }}
     steps:
       - uses: actions/checkout@v5
-
-      - uses: actions/setup-python@v6
         with:
-          python-version: '3.12'
-          cache: 'pip'
-          cache-dependency-path: 'requirements.txt'
+          fetch-depth: 0
 
-      - name: Install dependencies
-        run: |
-          pip install -r requirements.txt
-          pip install -e .
-          pip install pytest pytest-timeout
+      - name: Increment Tag
+        uses: owasp-sbot/OSBot-GitHub-Actions/.github/actions/git__increment-tag@dev
+        with:
+          release_type: ${{ inputs.release_type }}
 
-      - name: Authenticate to AWS Public ECR                                        # Avoids rate-limit errors when pulling public.ecr.aws base images (e.g. aws-lambda-adapter). Authenticated pulls are unthrottled.
+      - name: Sync sg_compute version
         run: |
-          aws ecr-public get-login-password --region us-east-1 | \
-            docker login --username AWS --password-stdin public.ecr.aws
-        env:
-          AWS_SECRET_ACCESS_KEY : ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          AWS_DEFAULT_REGION    : ${{ secrets.AWS_DEFAULT_REGION    }}
-          AWS_ACCESS_KEY_ID     : ${{ secrets.AWS_ACCESS_KEY_ID     }}
-
-      - name: Build Docker image via pytest
-        run: |
-          python -m pytest tests/docker/test_Build__Docker__SGraph-AI__Service__Playwright.py::test_build_docker_image -v -s
-        env:
-          AWS_SECRET_ACCESS_KEY : ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          AWS_DEFAULT_REGION    : ${{ secrets.AWS_DEFAULT_REGION    }}
-          AWS_ACCOUNT_ID        : ${{ secrets.AWS_ACCOUNT_ID        }}
-          AWS_ACCESS_KEY_ID     : ${{ secrets.AWS_ACCESS_KEY_ID     }}
-
-      - name: ECR setup + push via pytest
-        run: |
-          python -m pytest tests/docker/test_ECR__Docker__SGraph-AI__Service__Playwright.py -v -s
-        env:
-          AWS_SECRET_ACCESS_KEY : ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          AWS_DEFAULT_REGION    : ${{ secrets.AWS_DEFAULT_REGION    }}
-          AWS_ACCOUNT_ID        : ${{ secrets.AWS_ACCOUNT_ID        }}
-          AWS_ACCESS_KEY_ID     : ${{ secrets.AWS_ACCESS_KEY_ID     }}
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git config user.name  "github-actions[bot]"
+          git pull --rebase
+          NEW_VERSION=$(cat sg_compute_specs/playwright/core/version)
+          echo "$NEW_VERSION" > sg_compute/version
+          sed -i "s/^version = \"[^\"]*\"/version = \"${NEW_VERSION}\"/" sg_compute/pyproject.toml
+          git add sg_compute/version sg_compute/pyproject.toml
+          if git diff --cached --quiet; then
+            echo "sg_compute already at ${NEW_VERSION} — no commit needed"
+          else
+            git commit -m "chore: sync sg_compute version to ${NEW_VERSION} [skip ci]"
+            git push
+          fi
 
   # ════════════════════════════════════════════════════════════════════════════
-  # Job 3b: Build + Push Host Control Image to ECR
-  #   Runs in parallel with build-and-push-image. Skipped when no sg_compute/**
-  #   or docker/host-control/** files changed AND force_image_rebuild is false.
-  #   Image name: sgraph_ai_service_playwright_host
+  # Job 5: Build + Push Playwright Image to Docker Hub
+  #   Multi-arch (linux/amd64 + linux/arm64). Pushes two tags:
+  #     diniscruz/sg-playwright:<version>   — immutable, version-pinned
+  #     diniscruz/sg-playwright:latest      — floating
+  #
+  #   Path-gated: only runs when sg_compute_specs/playwright/** or sg_compute/**
+  #   changed (detect-changes), OR force_image_rebuild was set on dispatch.
+  #   Runs after increment-tag so the tag reflects the bumped version.
+  # ════════════════════════════════════════════════════════════════════════════
+  build-and-push-playwright-image:
+    name: "Build + Push Playwright Image to Docker Hub"
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    needs: [run-unit-tests, detect-changes, increment-tag]
+    if: |
+      always() &&
+      needs.run-unit-tests.result == 'success' &&
+      (needs.increment-tag.result == 'success' || needs.increment-tag.result == 'skipped') &&
+      (needs.detect-changes.outputs.playwright-image-needed == 'true' || inputs.force_image_rebuild)
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.git_branch }}                                                 # Pick up the version-file bump pushed by increment-tag
+
+      - name: Git Update Current Branch
+        uses: owasp-sbot/OSBot-GitHub-Actions/.github/actions/git__update_branch@dev
+
+      - name: Read image version
+        id: version
+        run: echo "version=$(cat sg_compute_specs/playwright/core/version)" >> $GITHUB_OUTPUT
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ env.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build + push (multi-arch)
+        uses: docker/build-push-action@v6
+        with:
+          context     : .
+          file        : sg_compute_specs/playwright/Dockerfile
+          platforms   : linux/amd64,linux/arm64
+          push        : true
+          tags        : |
+            ${{ env.DOCKERHUB_USERNAME }}/${{ env.IMAGE_NAME }}:${{ steps.version.outputs.version }}
+            ${{ env.DOCKERHUB_USERNAME }}/${{ env.IMAGE_NAME }}:latest
+          cache-from  : type=gha
+          cache-to    : type=gha,mode=max
+
+  # ════════════════════════════════════════════════════════════════════════════
+  # Job 6: Build + Push Host Control Image to ECR
+  #   Separate concern — the host control plane still ships to ECR. Skipped
+  #   when no sg_compute/** or docker/host-control/** files changed AND
+  #   force_image_rebuild is false. Image name: sgraph_ai_service_playwright_host
   # ════════════════════════════════════════════════════════════════════════════
   build-and-push-host-image:
     name: "Build + Push Host Control Image to ECR"
@@ -240,7 +252,7 @@ jobs:
     needs: [run-unit-tests, check-aws-credentials, detect-changes]
     if: |
       needs.check-aws-credentials.outputs.has-credentials == 'true' &&
-      (needs.detect-changes.outputs.host-image-rebuild-needed == 'true' || inputs.force_image_rebuild)
+      (needs.detect-changes.outputs.host-image-needed == 'true' || inputs.force_image_rebuild)
     steps:
       - uses: actions/checkout@v5
 
@@ -286,325 +298,3 @@ jobs:
             --image-ids imageTag=latest \
             --query 'imageDetails[0].[imagePushedAt, imageSizeInBytes]' \
             --output table
-
-  # ════════════════════════════════════════════════════════════════════════════
-  # Job 4: Integration Tests (browser, in local Docker container)
-  # ════════════════════════════════════════════════════════════════════════════
-  run-integration-tests:
-    name: "Run Integration Tests (Docker)"
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    needs: [build-and-push-image]
-    if: false                                                                       # v0.1.29: disabled — Day 4 replaces this with S3-zip-based integration tests
-    steps:
-      - uses: actions/checkout@v5
-
-      - uses: actions/setup-python@v6
-        with:
-          python-version: '3.12'
-          cache: 'pip'
-          cache-dependency-path: 'requirements.txt'
-
-      - name: Install dependencies
-        run: |
-          pip install -r requirements.txt
-          pip install -e .
-          pip install pytest pytest-timeout
-
-      - name: Pull Docker image from ECR                                            # build-and-push-image already pushed it — pull instead of tarball reload
-        run: |
-          aws ecr get-login-password --region "${{ secrets.AWS_DEFAULT_REGION }}" | \
-            docker login --username AWS --password-stdin "${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_DEFAULT_REGION }}.amazonaws.com"
-          docker pull "${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_DEFAULT_REGION }}.amazonaws.com/${IMAGE_NAME}:latest"
-          docker images | grep "${IMAGE_NAME}" || true
-        env:
-          AWS_SECRET_ACCESS_KEY : ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          AWS_ACCESS_KEY_ID     : ${{ secrets.AWS_ACCESS_KEY_ID     }}
-          AWS_DEFAULT_REGION    : ${{ secrets.AWS_DEFAULT_REGION    }}
-
-      - name: Start local container and run integration tests
-        timeout-minutes: 10
-        run: |
-          python -m pytest tests/docker/test_Local__Docker__SGraph-AI__Service__Playwright.py -v -s --timeout=60
-        env:
-          AWS_SECRET_ACCESS_KEY : ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          AWS_DEFAULT_REGION    : ${{ secrets.AWS_DEFAULT_REGION    }}
-          AWS_ACCOUNT_ID        : ${{ secrets.AWS_ACCOUNT_ID        }}
-          AWS_ACCESS_KEY_ID     : ${{ secrets.AWS_ACCESS_KEY_ID     }}
-
-      - name: Run integration tests against local container
-        timeout-minutes: 8
-        run: |
-          python -m pytest tests/integration/ -v -s --timeout=90
-        env:
-          AWS_SECRET_ACCESS_KEY : ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          AWS_DEFAULT_REGION    : ${{ secrets.AWS_DEFAULT_REGION    }}
-          AWS_ACCOUNT_ID        : ${{ secrets.AWS_ACCOUNT_ID        }}
-          AWS_ACCESS_KEY_ID     : ${{ secrets.AWS_ACCESS_KEY_ID     }}
-
-      - name: Upload screenshots
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: screenshots-integration
-          path: sgraph_ai_service_playwright__artefacts/
-          if-no-files-found: ignore
-
-  # ════════════════════════════════════════════════════════════════════════════
-  # Job 5: Increment Tag (runs BEFORE deploy-code so each deploy gets a fresh
-  #   immutable S3 key — without this the zip overwrites the previous version).
-  #   Skipped on prod (should_increment_tag=false); dev bumps minor, main bumps major.
-  # ════════════════════════════════════════════════════════════════════════════
-  increment-tag:
-    name: Increment Tag
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    needs: [run-unit-tests]
-    if: ${{ inputs.should_increment_tag }}
-    steps:
-      - uses: actions/checkout@v5
-        with:
-          fetch-depth: 0
-
-      - name: Increment Tag
-        uses: owasp-sbot/OSBot-GitHub-Actions/.github/actions/git__increment-tag@dev
-        with:
-          release_type: ${{ inputs.release_type }}
-
-      - name: Sync sg_compute version
-        run: |
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git config user.name  "github-actions[bot]"
-          git pull --rebase
-          NEW_VERSION=$(cat sg_compute_specs/playwright/core/version)
-          echo "$NEW_VERSION" > sg_compute/version
-          sed -i "s/^version = \"[^\"]*\"/version = \"${NEW_VERSION}\"/" sg_compute/pyproject.toml
-          git add sg_compute/version sg_compute/pyproject.toml
-          if git diff --cached --quiet; then
-            echo "sg_compute already at ${NEW_VERSION} — no commit needed"
-          else
-            git commit -m "chore: sync sg_compute version to ${NEW_VERSION} [skip ci]"
-            git push
-          fi
-
-  # ════════════════════════════════════════════════════════════════════════════
-  # Job 6a: Upload Code to S3 (v0.1.29 — S3-only until agentic image ships)
-  #   Packages sg_compute_specs/playwright/core/ as a zip and uploads it to
-  #   s3://<bucket>/apps/<app>/<stage>/v<X.Y.Z>.zip. Does NOT touch the Lambda
-  #   — no image supports the AGENTIC_* loader shim yet, so flipping env vars
-  #   would be a no-op. The env-flip + smoke-test run in a later job once the
-  #   two-Lambda provisioning chain lands (opt-in via --update-lambda).
-  #   Runs AFTER increment-tag so each push gets a fresh immutable S3 key.
-  # ════════════════════════════════════════════════════════════════════════════
-  deploy-code:
-    name: "Upload Code (S3 zip)"
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    needs: [run-unit-tests, increment-tag, check-aws-credentials]
-    if: |
-      always() &&
-      needs.run-unit-tests.result == 'success' &&
-      needs.check-aws-credentials.outputs.has-credentials == 'true' &&
-      (needs.increment-tag.result == 'success' || needs.increment-tag.result == 'skipped')
-    steps:
-      - uses: actions/checkout@v5
-        with:
-          ref: ${{ inputs.git_branch }}                                             # Pick up the version-file bump pushed by increment-tag
-
-      - name: Git Update Current Branch                                             # Belt-and-braces: pull any commits that landed between checkout and now
-        uses: owasp-sbot/OSBot-GitHub-Actions/.github/actions/git__update_branch@dev
-
-      - uses: actions/setup-python@v6
-        with:
-          python-version: '3.12'
-          cache: 'pip'
-          cache-dependency-path: 'requirements.txt'
-
-      - name: Install dependencies
-        run: |
-          pip install -r requirements.txt
-          pip install -e .
-
-      - name: Upload code zip to S3                                                 # S3-only: no --update-lambda until the agentic image exists
-        run: |
-          python scripts/deploy_code.py --stage ${{ inputs.target_deploy }}
-        env:
-          AWS_SECRET_ACCESS_KEY                : ${{ secrets.AWS_SECRET_ACCESS_KEY                }}
-          AWS_DEFAULT_REGION                   : ${{ secrets.AWS_DEFAULT_REGION                   }}
-          AWS_ACCOUNT_ID                       : ${{ secrets.AWS_ACCOUNT_ID                       }}
-          AWS_ACCESS_KEY_ID                    : ${{ secrets.AWS_ACCESS_KEY_ID                    }}
-          FAST_API__AUTH__API_KEY__NAME        : ${{ secrets.FAST_API__AUTH__API_KEY__NAME        }}
-          FAST_API__AUTH__API_KEY__VALUE       : ${{ secrets.FAST_API__AUTH__API_KEY__VALUE       }}
-          SG_PLAYWRIGHT__ACCESS_TOKEN_HEADER   : ${{ secrets.SG_PLAYWRIGHT__ACCESS_TOKEN_HEADER   }}
-          SG_PLAYWRIGHT__ACCESS_TOKEN_VALUE    : ${{ secrets.SG_PLAYWRIGHT__ACCESS_TOKEN_VALUE    }}
-          SG_PLAYWRIGHT__SG_SEND_BASE_URL      : ${{ secrets.SG_PLAYWRIGHT__SG_SEND_BASE_URL      }}
-          SG_PLAYWRIGHT__SG_SEND_VAULT_KEY     : ${{ secrets.SG_PLAYWRIGHT__SG_SEND_VAULT_KEY     }}
-          SG_PLAYWRIGHT__DEFAULT_S3_BUCKET     : ${{ secrets.SG_PLAYWRIGHT__DEFAULT_S3_BUCKET     }}
-
-  # ════════════════════════════════════════════════════════════════════════════
-  # Job 6b: Provision Lambdas (v0.1.31 — two-variant provisioning)
-  #   Upserts the two Lambdas from the ECR image that build-and-push-image
-  #   just landed:
-  #     • sg-playwright-baseline-<stage> — bakes code (passthrough:sys.path)
-  #     • sg-playwright-<stage>          — loads from S3 via AGENTIC_APP_*
-  #   Runs AFTER deploy-code (for the S3 zip) and EITHER a successful
-  #   image rebuild OR a skipped image rebuild (when no image-relevant
-  #   files changed — the existing ECR image is reused in that case,
-  #   which is fine because the agentic variant pulls fresh code from S3
-  #   and the baseline keeps running whatever was baked at last image build).
-  #   Idempotent: re-runs upsert image + env vars in place without rotating
-  #   the Function URL host UUID (CloudFront origin stays valid).
-  # ════════════════════════════════════════════════════════════════════════════
-  provision-lambdas:
-    name: "Provision Lambdas (baseline + agentic)"
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    needs: [run-unit-tests, build-and-push-image, deploy-code, check-aws-credentials]
-    if: |
-      always() &&
-      needs.run-unit-tests.result == 'success' &&
-      needs.check-aws-credentials.outputs.has-credentials == 'true' &&
-      needs.deploy-code.result == 'success' &&
-      (needs.build-and-push-image.result == 'success' || needs.build-and-push-image.result == 'skipped')
-    steps:
-      - uses: actions/checkout@v5
-        with:
-          ref: ${{ inputs.git_branch }}                                             # Pick up the version-file bump pushed by increment-tag
-
-      - name: Git Update Current Branch
-        uses: owasp-sbot/OSBot-GitHub-Actions/.github/actions/git__update_branch@dev
-
-      - uses: actions/setup-python@v6
-        with:
-          python-version: '3.12'
-          cache: 'pip'
-          cache-dependency-path: 'requirements.txt'
-
-      - name: Install dependencies
-        run: |
-          pip install -r requirements.txt
-          pip install -e .
-
-      - name: Provision baseline + agentic Lambdas                                   # Image rebuilt (success) → full; image reused (skipped) → code-only (agentic env-var refresh only, saves ~30-60s)
-        run: |
-          if [[ "${{ needs.build-and-push-image.result }}" == "success" ]]; then
-            MODE="full"
-          else
-            MODE="code-only"
-          fi
-          echo "provisioning mode: $MODE (build-and-push-image.result=${{ needs.build-and-push-image.result }})"
-          python scripts/provision_lambdas.py --stage ${{ inputs.target_deploy }} --mode=$MODE
-        env:
-          AWS_SECRET_ACCESS_KEY                : ${{ secrets.AWS_SECRET_ACCESS_KEY                }}
-          AWS_DEFAULT_REGION                   : ${{ secrets.AWS_DEFAULT_REGION                   }}
-          AWS_ACCOUNT_ID                       : ${{ secrets.AWS_ACCOUNT_ID                       }}
-          AWS_ACCESS_KEY_ID                    : ${{ secrets.AWS_ACCESS_KEY_ID                    }}
-          FAST_API__AUTH__API_KEY__NAME        : ${{ secrets.FAST_API__AUTH__API_KEY__NAME        }}
-          FAST_API__AUTH__API_KEY__VALUE       : ${{ secrets.FAST_API__AUTH__API_KEY__VALUE       }}
-          SG_PLAYWRIGHT__ACCESS_TOKEN_HEADER   : ${{ secrets.SG_PLAYWRIGHT__ACCESS_TOKEN_HEADER   }}
-          SG_PLAYWRIGHT__ACCESS_TOKEN_VALUE    : ${{ secrets.SG_PLAYWRIGHT__ACCESS_TOKEN_VALUE    }}
-          SG_PLAYWRIGHT__SG_SEND_BASE_URL      : ${{ secrets.SG_PLAYWRIGHT__SG_SEND_BASE_URL      }}
-          SG_PLAYWRIGHT__SG_SEND_VAULT_KEY     : ${{ secrets.SG_PLAYWRIGHT__SG_SEND_VAULT_KEY     }}
-          SG_PLAYWRIGHT__DEFAULT_S3_BUCKET     : ${{ secrets.SG_PLAYWRIGHT__DEFAULT_S3_BUCKET     }}
-
-  # ════════════════════════════════════════════════════════════════════════════
-  # Job 6: Deploy Lambda (Docker-image-based — DISABLED v0.1.29)
-  # ════════════════════════════════════════════════════════════════════════════
-  deploy-lambda:
-    name: "Deploy Lambda"
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    needs: [build-and-push-image, run-integration-tests, check-aws-credentials]
-    if: false                                                                       # v0.1.29: disabled — superseded by `deploy-code` above
-    steps:
-      - uses: actions/checkout@v5
-
-      - uses: actions/setup-python@v6
-        with:
-          python-version: '3.12'
-          cache: 'pip'
-          cache-dependency-path: 'requirements.txt'
-
-      - name: Git Update Current Branch
-        uses: owasp-sbot/OSBot-GitHub-Actions/.github/actions/git__update_branch@dev
-
-      - name: Install dependencies
-        run: |
-          pip install -r requirements.txt
-          pip install -e .
-          pip install pytest pytest-timeout
-
-      - name: Deploy to Lambda via pytest
-        run: |
-          python -m pytest tests/deploy/test_Deploy__Playwright__Service__to__${{ inputs.target_deploy }}.py -v -s
-        env:
-          AWS_SECRET_ACCESS_KEY                : ${{ secrets.AWS_SECRET_ACCESS_KEY                }}
-          AWS_DEFAULT_REGION                   : ${{ secrets.AWS_DEFAULT_REGION                   }}
-          AWS_ACCOUNT_ID                       : ${{ secrets.AWS_ACCOUNT_ID                       }}
-          AWS_ACCESS_KEY_ID                    : ${{ secrets.AWS_ACCESS_KEY_ID                    }}
-          FAST_API__AUTH__API_KEY__NAME        : ${{ secrets.FAST_API__AUTH__API_KEY__NAME        }}
-          FAST_API__AUTH__API_KEY__VALUE       : ${{ secrets.FAST_API__AUTH__API_KEY__VALUE       }}
-          SG_PLAYWRIGHT__ACCESS_TOKEN_HEADER   : ${{ secrets.SG_PLAYWRIGHT__ACCESS_TOKEN_HEADER   }}
-          SG_PLAYWRIGHT__ACCESS_TOKEN_VALUE    : ${{ secrets.SG_PLAYWRIGHT__ACCESS_TOKEN_VALUE    }}
-          SG_PLAYWRIGHT__SG_SEND_BASE_URL      : ${{ secrets.SG_PLAYWRIGHT__SG_SEND_BASE_URL      }}
-          SG_PLAYWRIGHT__SG_SEND_VAULT_KEY     : ${{ secrets.SG_PLAYWRIGHT__SG_SEND_VAULT_KEY     }}
-          SG_PLAYWRIGHT__DEFAULT_S3_BUCKET     : ${{ secrets.SG_PLAYWRIGHT__DEFAULT_S3_BUCKET     }}
-
-  # ════════════════════════════════════════════════════════════════════════════
-  # Job 7: Smoke Test (invoke deployed Lambda)
-  #   Runs after provision-lambdas completes. Hits /health/info, /health/status,
-  #   /health/capabilities, and browser/get-content against the Lambda Function
-  #   URL. Validates the full boot-shim → Playwright → real-site chain.
-  # ════════════════════════════════════════════════════════════════════════════
-  smoke-test:
-    name: "Smoke Test (Lambda)"
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    needs: [provision-lambdas, check-aws-credentials]
-    if: |
-      always() &&
-      needs.provision-lambdas.result == 'success' &&
-      needs.check-aws-credentials.outputs.has-credentials == 'true'
-    steps:
-      - uses: actions/checkout@v5
-        with:
-          ref: ${{ inputs.git_branch }}
-
-      - name: Git Update Current Branch
-        uses: owasp-sbot/OSBot-GitHub-Actions/.github/actions/git__update_branch@dev
-
-      - uses: actions/setup-python@v6
-        with:
-          python-version: '3.12'
-          cache: 'pip'
-          cache-dependency-path: 'requirements.txt'
-
-      - name: Install dependencies
-        run: |
-          pip install -r requirements.txt
-          pip install -e .
-          pip install pytest pytest-timeout
-
-      - name: Smoke test deployed Lambda
-        timeout-minutes: 8
-        run: |
-          python -m pytest tests/deploy/test_Smoke__Playwright__Service__${{ inputs.target_deploy }}.py -v -s --timeout=90
-        env:
-          AWS_SECRET_ACCESS_KEY          : ${{ secrets.AWS_SECRET_ACCESS_KEY          }}
-          AWS_DEFAULT_REGION             : ${{ secrets.AWS_DEFAULT_REGION             }}
-          AWS_ACCOUNT_ID                 : ${{ secrets.AWS_ACCOUNT_ID                 }}
-          AWS_ACCESS_KEY_ID              : ${{ secrets.AWS_ACCESS_KEY_ID              }}
-          FAST_API__AUTH__API_KEY__NAME  : ${{ secrets.FAST_API__AUTH__API_KEY__NAME  }}
-          FAST_API__AUTH__API_KEY__VALUE : ${{ secrets.FAST_API__AUTH__API_KEY__VALUE }}
-
-  # ════════════════════════════════════════════════════════════════════════════
-  # Job 8: Bake AMI — fires only when a new Playwright image was pushed
-  #   Gated on build-and-push-image.result == 'success' (not 'skipped') so
-  #   test-only and code-only pushes never trigger a bake.
-  # ════════════════════════════════════════════════════════════════════════════
-  call-bake-ami:
-    name: "Trigger AMI Bake (Playwright or host image updated)"
-    needs: [build-and-push-image, build-and-push-host-image]
-    if: false                                                                       # Temporarily disabled — re-enable with: always() && (needs.build-and-push-image.result == 'success' || needs.build-and-push-host-image.result == 'success')
-    uses: ./.github/workflows/bake-ami.yml
-    secrets: inherit
