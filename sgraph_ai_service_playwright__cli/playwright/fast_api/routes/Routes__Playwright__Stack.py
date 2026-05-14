@@ -12,55 +12,54 @@
 #   DELETE /playwright/stack/{name}           -> Schema__Playwright__Stack__Delete__Response (404 on miss)
 #   GET    /playwright/stack/{name}/health    -> Schema__Playwright__Health
 #
-# `name` is the logical stack name (== host-plane pod name). host_url +
-# host_api_key locate the target host control plane; both fall back to env
-# vars inside the service when blank.
+# `region` query param selects the AWS region; defaults to service DEFAULT_REGION
+# when blank. Mirrors Routes__Vnc__Stack pattern.
 #
 # The `create` handler takes `body: dict` and round-trips via
 # `Schema__Playwright__Stack__Create__Request.from_json(body)` — same
 # workaround Routes__Vnc__Stack uses for Swagger-friendly bodies.
 # ═══════════════════════════════════════════════════════════════════════════════
 
-from fastapi                                                                        import HTTPException
+from fastapi                                                                     import HTTPException
 
-from osbot_fast_api.api.routes.Fast_API__Routes                                     import Fast_API__Routes
+from osbot_fast_api.api.routes.Fast_API__Routes                                  import Fast_API__Routes
 
 from sgraph_ai_service_playwright__cli.playwright.schemas.Schema__Playwright__Stack__Create__Request import Schema__Playwright__Stack__Create__Request
 from sgraph_ai_service_playwright__cli.playwright.service.Playwright__Stack__Service import Playwright__Stack__Service
 
 
-TAG__ROUTES_PLAYWRIGHT = 'playwright'                                               # URL prefix; OpenAPI groups all five endpoints together
+TAG__ROUTES_PLAYWRIGHT = 'playwright'                                            # URL prefix; OpenAPI groups all five endpoints together
 
 
 class Routes__Playwright__Stack(Fast_API__Routes):
-    tag     : str                       = TAG__ROUTES_PLAYWRIGHT
-    service : Playwright__Stack__Service                                            # Injected by Fast_API__SP__CLI.setup_routes()
+    tag     : str                        = TAG__ROUTES_PLAYWRIGHT
+    service : Playwright__Stack__Service                                         # Injected by Fast_API__SP__CLI.setup_routes()
 
-    def list_stacks(self, host_url: str = '', host_api_key: str = '') -> dict:       # GET /playwright/stacks
-        return self.service.list_stacks(host_url, host_api_key).json()
+    def list_stacks(self, region: str = '') -> dict:                             # GET /playwright/stacks
+        return self.service.list_stacks(region).json()
     list_stacks.__route_path__ = '/stacks'
 
-    def info(self, name: str, host_url: str = '', host_api_key: str = '') -> dict:   # GET /playwright/stack/{name}
-        result = self.service.get_stack_info(host_url, host_api_key, name)
+    def info(self, name: str, region: str = '') -> dict:                         # GET /playwright/stack/{name}
+        result = self.service.get_stack_info(region, name)
         if result is None:
             raise HTTPException(status_code=404, detail=f'no playwright stack matched {name!r}')
         return result.json()
     info.__route_path__ = '/stack/{name}'
 
-    def create(self, body: dict) -> dict:                                           # POST /playwright/stack
+    def create(self, body: dict) -> dict:                                        # POST /playwright/stack
         request = Schema__Playwright__Stack__Create__Request.from_json(body)
         return self.service.create_stack(request).json()
     create.__route_path__ = '/stack'
 
-    def delete(self, name: str, host_url: str = '', host_api_key: str = '') -> dict: # DELETE /playwright/stack/{name}
-        response = self.service.delete_stack(host_url, host_api_key, name)
-        if not response.removed:
+    def delete(self, name: str, region: str = '') -> dict:                       # DELETE /playwright/stack/{name}
+        response = self.service.delete_stack(region, name)
+        if not list(response.terminated_instance_ids):
             raise HTTPException(status_code=404, detail=f'no playwright stack matched {name!r}')
         return response.json()
     delete.__route_path__ = '/stack/{name}'
 
-    def health(self, name: str, host_url: str = '', host_api_key: str = '') -> dict: # GET /playwright/stack/{name}/health
-        return self.service.health(host_url, host_api_key, name).json()
+    def health(self, name: str, region: str = '') -> dict:                       # GET /playwright/stack/{name}/health
+        return self.service.health(region, name).json()
     health.__route_path__ = '/stack/{name}/health'
 
     def setup_routes(self):

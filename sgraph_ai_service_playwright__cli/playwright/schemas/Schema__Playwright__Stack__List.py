@@ -1,15 +1,16 @@
 # ═══════════════════════════════════════════════════════════════════════════════
 # SP CLI — Schema__Playwright__Stack__List
-# Response wrapper for Playwright__Stack__Service.list_stacks. host_url on the
-# envelope so a serialised response records which host the listing came from.
+# Response wrapper for Playwright__Stack__Service.list_stacks. `region` on the
+# envelope so a serialised response records which AWS region the listing came
+# from. Mirrors Schema__Vnc__Stack__List.
 # ═══════════════════════════════════════════════════════════════════════════════
 
-from osbot_utils.type_safe.Type_Safe                                                import Type_Safe
-from osbot_utils.type_safe.primitives.domains.web.safe_str.Safe_Str__Url             import Safe_Str__Url
+from osbot_utils.type_safe.Type_Safe                                             import Type_Safe
 
+from sgraph_ai_service_playwright__cli.observability.primitives.Safe_Str__AWS__Region import Safe_Str__AWS__Region
 from sgraph_ai_service_playwright__cli.playwright.collections.List__Schema__Playwright__Stack__Info import List__Schema__Playwright__Stack__Info
 
 
 class Schema__Playwright__Stack__List(Type_Safe):
-    host_url : Safe_Str__Url
-    stacks   : List__Schema__Playwright__Stack__Info
+    region : Safe_Str__AWS__Region
+    stacks : List__Schema__Playwright__Stack__Info

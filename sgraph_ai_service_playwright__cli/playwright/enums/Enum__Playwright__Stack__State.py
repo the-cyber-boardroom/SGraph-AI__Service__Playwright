@@ -1,19 +1,19 @@
 # ═══════════════════════════════════════════════════════════════════════════════
 # SP CLI — Enum__Playwright__Stack__State
-# Lifecycle state for an ephemeral Playwright FastAPI stack running as a pod
-# on a host. Mapped from the host-plane pod status string. Mirrors the sister
-# sections' state vocabulary where it overlaps.
+# EC2 instance lifecycle state for an ephemeral Playwright stack. Mapped from
+# the boto3 instance state-name. Mirrors the vnc section's state vocabulary.
 # ═══════════════════════════════════════════════════════════════════════════════
 
 from enum import Enum
 
 
 class Enum__Playwright__Stack__State(str, Enum):
-    PENDING  = 'pending'                                                            # start accepted, container not yet reported running
-    RUNNING  = 'running'                                                            # pod container is up
-    EXITED   = 'exited'                                                             # pod container stopped
-    REMOVED  = 'removed'                                                            # pod removed from the host
-    UNKNOWN  = 'unknown'                                                            # anything the host-plane returns we don't model
+    PENDING     = 'pending'                                                      # EC2 launch accepted, instance not yet running
+    RUNNING     = 'running'                                                      # Instance is running; containers may not be up yet
+    READY       = 'ready'                                                        # /health/status probe returned 2xx
+    TERMINATING = 'terminating'                                                  # shutting-down or stopping
+    TERMINATED  = 'terminated'                                                   # stopped or terminated
+    UNKNOWN     = 'unknown'                                                      # unmapped boto3 state
 
     def __str__(self):
         return self.value
