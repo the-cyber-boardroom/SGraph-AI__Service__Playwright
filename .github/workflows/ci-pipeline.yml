@@ -55,6 +55,7 @@ on:
 env:
   DOCKERHUB_USERNAME : 'diniscruz'
   IMAGE_NAME         : 'sg-playwright'
+  REGISTRY_IMAGE     : 'diniscruz/sg-playwright'
 
 permissions:
   contents: write
@@ -186,18 +187,19 @@ jobs:
           fi
 
   # ════════════════════════════════════════════════════════════════════════════
-  # Job 5: Build + Push Playwright Image to Docker Hub
-  #   Multi-arch (linux/amd64 + linux/arm64). Pushes two tags:
-  #     diniscruz/sg-playwright:<version>   — immutable, version-pinned
-  #     diniscruz/sg-playwright:latest      — floating
+  # Job 5: Build Playwright Image — per-arch, on NATIVE runners (matrix)
+  #   linux/amd64 builds on ubuntu-latest, linux/arm64 on ubuntu-24.04-arm.
+  #   Each arch builds natively (no QEMU emulation — the slow path the single
+  #   multi-arch job paid before) and pushes BY DIGEST only (no tag yet).
+  #   Digests are handed to the merge job via artifacts.
   #
   #   Path-gated: only runs when sg_compute_specs/playwright/** or sg_compute/**
   #   changed (detect-changes), OR force_image_rebuild was set on dispatch.
-  #   Runs after increment-tag so the tag reflects the bumped version.
+  #   Runs after increment-tag so the merge job tags with the bumped version.
   # ════════════════════════════════════════════════════════════════════════════
-  build-and-push-playwright-image:
-    name: "Build + Push Playwright Image to Docker Hub"
-    runs-on: ubuntu-latest
+  build-playwright-image:
+    name: "Build Playwright Image (${{ matrix.platform }})"
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 25
     needs: [run-unit-tests, detect-changes, increment-tag]
     if: |
@@ -205,6 +207,16 @@ jobs:
       needs.run-unit-tests.result == 'success' &&
       (needs.increment-tag.result == 'success' || needs.increment-tag.result == 'skipped') &&
       (needs.detect-changes.outputs.playwright-image-needed == 'true' || inputs.force_image_rebuild)
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform : linux/amd64
+            runner   : ubuntu-latest
+            arch     : amd64
+          - platform : linux/arm64
+            runner   : ubuntu-24.04-arm
+            arch     : arm64
     steps:
       - uses: actions/checkout@v5
         with:
@@ -212,10 +224,6 @@ jobs:
 
       - name: Git Update Current Branch
         uses: owasp-sbot/OSBot-GitHub-Actions/.github/actions/git__update_branch@dev
-
-      - name: Read image version
-        id: version
-        run: echo "version=$(cat sg_compute_specs/playwright/core/version)" >> $GITHUB_OUTPUT
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -226,18 +234,83 @@ jobs:
           username: ${{ env.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Build + push (multi-arch)
+      - name: Build + push by digest
+        id: build
         uses: docker/build-push-action@v6
         with:
           context     : .
           file        : sg_compute_specs/playwright/Dockerfile
-          platforms   : linux/amd64,linux/arm64
-          push        : true
-          tags        : |
-            ${{ env.DOCKERHUB_USERNAME }}/${{ env.IMAGE_NAME }}:${{ steps.version.outputs.version }}
-            ${{ env.DOCKERHUB_USERNAME }}/${{ env.IMAGE_NAME }}:latest
-          cache-from  : type=gha
-          cache-to    : type=gha,mode=max
+          platforms   : ${{ matrix.platform }}
+          cache-from  : type=gha,scope=${{ matrix.arch }}
+          cache-to    : type=gha,scope=${{ matrix.arch }},mode=max
+          outputs     : type=image,name=${{ env.REGISTRY_IMAGE }},push-by-digest=true,name-canonical=true,push=true
+
+      - name: Export digest
+        run: |
+          mkdir -p /tmp/digests
+          digest="${{ steps.build.outputs.digest }}"
+          touch "/tmp/digests/${digest#sha256:}"
+
+      - name: Upload digest
+        uses: actions/upload-artifact@v4
+        with:
+          name              : digest-${{ matrix.arch }}
+          path              : /tmp/digests/*
+          if-no-files-found : error
+          retention-days    : 1
+
+  # ════════════════════════════════════════════════════════════════════════════
+  # Job 5b: Merge per-arch digests into the published manifest list
+  #   Combines the amd64 + arm64 digests into a single multi-arch manifest and
+  #   tags it. Pushes two tags:
+  #     diniscruz/sg-playwright:<version>   — immutable, version-pinned
+  #     diniscruz/sg-playwright:latest      — floating
+  # ════════════════════════════════════════════════════════════════════════════
+  push-playwright-manifest:
+    name: "Push Playwright Image Manifest to Docker Hub"
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: [build-playwright-image]
+    if: ${{ !cancelled() && needs.build-playwright-image.result == 'success' }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.git_branch }}
+
+      - name: Git Update Current Branch
+        uses: owasp-sbot/OSBot-GitHub-Actions/.github/actions/git__update_branch@dev
+
+      - name: Read image version
+        id: version
+        run: echo "version=$(cat sg_compute_specs/playwright/core/version)" >> $GITHUB_OUTPUT
+
+      - name: Download digests
+        uses: actions/download-artifact@v4
+        with:
+          path    : /tmp/digests
+          pattern : digest-*
+          merge-multiple: true
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ env.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Create + push manifest list
+        working-directory: /tmp/digests
+        run: |
+          docker buildx imagetools create \
+            --tag ${{ env.REGISTRY_IMAGE }}:${{ steps.version.outputs.version }} \
+            --tag ${{ env.REGISTRY_IMAGE }}:latest \
+            $(printf '${{ env.REGISTRY_IMAGE }}@sha256:%s ' *)
+
+      - name: Inspect published image
+        run: |
+          docker buildx imagetools inspect ${{ env.REGISTRY_IMAGE }}:${{ steps.version.outputs.version }}
 
   # ════════════════════════════════════════════════════════════════════════════
   # Job 6: Build + Push Host Control Image to ECR
