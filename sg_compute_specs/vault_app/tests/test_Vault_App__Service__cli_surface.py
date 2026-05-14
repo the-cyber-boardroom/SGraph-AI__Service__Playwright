@@ -63,6 +63,18 @@ class TestVaultAppServiceCliSurface:
         assert 'docker compose'        in user_data
         assert 'podman'                not in user_data
 
+    def test_user_data_docker_compose_downloaded_not_dnf(self):
+        builder   = Vault_App__User_Data__Builder()
+        user_data = builder.render(stack_name='test-stack', region='eu-west-2',
+                                   ecr_registry=REGISTRY, access_token='tok',
+                                   container_engine='docker')
+        # docker-compose-plugin is NOT in AL2023 base repos; compose V2 is downloaded
+        # from GitHub releases and installed as a CLI plugin binary — not via dnf.
+        assert 'dnf install -y docker-compose-plugin'          not in user_data
+        assert 'docker/compose/releases/download'              in user_data
+        assert 'docker-compose-linux-x86_64'                   in user_data
+        assert '/usr/local/lib/docker/cli-plugins/docker-compose' in user_data
+
     def test_user_data_podman_engine(self):
         builder   = Vault_App__User_Data__Builder()
         user_data = builder.render(stack_name='test-stack', region='eu-west-2',

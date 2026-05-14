@@ -15,13 +15,66 @@
 
 import typer
 from rich.console import Console
+from rich.panel   import Panel
+from rich.table   import Table
 
-from sg_compute.cli.base.Schema__Spec__CLI__Spec import Schema__Spec__CLI__Spec
-from sg_compute.cli.base.Spec__CLI__Builder      import Spec__CLI__Builder
-from sg_compute.cli.base.Spec__CLI__Defaults     import DEFAULT_REGION
-from sg_compute.cli.base.Spec__CLI__Errors       import spec_cli_errors
+from sg_compute.cli.base.Schema__Spec__CLI__Spec         import Schema__Spec__CLI__Spec
+from sg_compute.cli.base.Spec__CLI__Builder              import Spec__CLI__Builder
+from sg_compute.cli.base.Spec__CLI__Defaults             import DEFAULT_REGION
+from sg_compute.cli.base.Spec__CLI__Errors               import spec_cli_errors
+from sg_compute.cli.base.Spec__CLI__Renderers__Base      import humanize_time_left, humanize_uptime
 from sg_compute_specs.vault_app.schemas.Schema__Vault_App__Create__Request import Schema__Vault_App__Create__Request
 from sg_compute_specs.vault_app.service.Vault_App__Service                 import Vault_App__Service
+
+
+def _render_vault_app_info(info, console: Console) -> None:
+    stack_name  = str(getattr(info, 'stack_name',  ''))
+    instance_id = str(getattr(info, 'instance_id', ''))
+    state_raw   = (info.state.value
+                   if hasattr(info, 'state') and hasattr(info.state, 'value')
+                   else str(getattr(info, 'state', '')))
+    console.print()
+    console.print(Panel(f'[bold]{stack_name}[/]  [dim]{instance_id}[/]  {state_raw}', expand=False))
+    console.print()
+    t = Table(box=None, show_header=False, padding=(0, 2))
+    t.add_column(style='bold', min_width=18, no_wrap=True)
+    t.add_column()
+
+    vault_url = str(getattr(info, 'vault_url', '') or '')
+    if vault_url:
+        t.add_row('vault-url', f'[bold cyan]{vault_url}[/]')
+
+    with_playwright = getattr(info, 'with_playwright', False)
+    mode = '[green]with-playwright[/] (4 containers)' if with_playwright else '[dim]just-vault[/] (2 containers)'
+    t.add_row('mode', mode)
+    engine = str(getattr(info, 'container_engine', '') or '') or 'docker'
+    t.add_row('container-engine', engine)
+
+    for key, label in (('region',           'region'        ),
+                       ('instance_type',    'instance-type' ),
+                       ('ami_id',           'ami-id'        ),
+                       ('public_ip',        'public-ip'     ),
+                       ('security_group_id','security-group')):
+        val = str(getattr(info, key, '') or '')
+        if val:
+            t.add_row(label, val)
+
+    uptime = getattr(info, 'uptime_seconds', 0)
+    if uptime:
+        t.add_row('uptime', humanize_uptime(uptime))
+
+    pricing = getattr(info, 'spot', None)
+    if pricing is not None:
+        t.add_row('pricing', '[cyan]spot[/]' if pricing else '[dim]on-demand[/]')
+
+    terminate_at = str(getattr(info, 'terminate_at', '') or '')
+    if terminate_at:
+        remaining = int(getattr(info, 'time_remaining_sec', 0) or 0)
+        t.add_row('terminate-at', terminate_at)
+        t.add_row('time-left',    humanize_time_left(terminate_at, remaining))
+
+    console.print(t)
+    console.print()
 
 
 def _set_extras(request, with_playwright=False, podman=False, use_spot=True,
@@ -49,6 +102,7 @@ _cli_spec = Schema__Spec__CLI__Spec(
     health_port           = 8080                                     ,
     health_scheme         = 'http'                                   ,
     extra_create_field_setters = _set_extras                         ,
+    render_info_fn             = _render_vault_app_info              ,
 )
 
 

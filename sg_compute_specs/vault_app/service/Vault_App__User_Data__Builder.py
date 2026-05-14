@@ -8,10 +8,10 @@
 # The auto-terminate timer is inside Section__Base and fires even if a later
 # dnf install or image pull aborts the script (L9 lesson).
 #
-# Boot-time note: the slow steps are the engine install and the ECR image pull.
-# Bake an AMI from a warm stack so a re-launch skips both — see the AMI__Helper
-# header. When booting from a baked AMI the engine is already present (dnf is a
-# fast no-op) and `compose up` re-uses the local image layers.
+# Boot-time note: the slow steps are the engine install (including GitHub compose
+# download) and the ECR image pull. Bake an AMI from a warm stack so a re-launch
+# skips both — see the AMI__Helper header. When booting from a baked AMI the
+# engine is already present and `compose up` re-uses the local image layers.
 # ═══════════════════════════════════════════════════════════════════════════════
 
 from osbot_utils.type_safe.Type_Safe import Type_Safe
@@ -23,21 +23,23 @@ FOOTER = ('\ntouch /var/lib/sg-compute-boot-ok\n'
           'echo "[vault-app] boot complete at $(date -u +%FT%TZ)"\n')
 
 # ── container-engine install fragments ───────────────────────────────────────
-# docker: compose ships as a CLI plugin — installed from the AL2023 repo
-#         (docker-compose-plugin) so there is no GitHub download on the boot path.
+# docker: docker-compose-plugin is NOT in standard AL2023 repos — the compose V2
+#         CLI plugin binary is downloaded from Docker's GitHub releases instead.
 # podman: daemonless; podman-compose drives the same compose file.
 
 _ENGINE_DOCKER = '''
 # ── Docker CE + compose plugin ───────────────────────────────────────────────
 echo "[vault-app] installing Docker CE..."
 dnf install -y docker
+# docker-compose-plugin is not in standard AL2023 repos — download the CLI plugin.
+COMPOSE_VER="v2.27.0"
 mkdir -p /usr/local/lib/docker/cli-plugins
-# docker-compose-plugin is published in the AL2023 repos — no GitHub download.
-dnf install -y docker-compose-plugin || \\
-  ( ln -sf "$(command -v docker-compose 2>/dev/null || true)" \\
-       /usr/local/lib/docker/cli-plugins/docker-compose 2>/dev/null || true )
+curl -fsSL "https://github.com/docker/compose/releases/download/${COMPOSE_VER}/docker-compose-linux-x86_64" \\
+  -o /usr/local/lib/docker/cli-plugins/docker-compose
+chmod +x /usr/local/lib/docker/cli-plugins/docker-compose
 systemctl enable --now docker
 docker --version
+docker compose version
 echo "[vault-app] Docker ready"
 '''
 

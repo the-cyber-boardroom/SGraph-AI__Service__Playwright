@@ -145,6 +145,86 @@ class Vault_App__Service(Spec__Service__Base):
         details = self.aws_client.instance.find_by_stack_name(region, stack_name)
         return self.mapper.to_info(details, region) if details else None
 
+    def health(self, region: str, name: str, timeout_sec: int = 0, poll_sec: int = 10):
+        from sg_compute.cli.base.schemas.Schema__CLI__Health__Probe import Schema__CLI__Health__Probe
+        import ssl, time, urllib.request
+        from rich.console import Console
+
+        c        = Console(highlight=False)
+        t0       = time.monotonic()
+        probe    = Schema__CLI__Health__Probe()
+        deadline = time.monotonic() + max(timeout_sec, 0)
+        ctx      = ssl.create_default_context()
+        ctx.check_hostname = False
+        ctx.verify_mode    = ssl.CERT_NONE
+        is_wait  = timeout_sec > 0
+
+        if is_wait:
+            c.print(f'\n  [dim]Polling {name} every {poll_sec}s  (timeout {timeout_sec}s) …[/]\n')
+
+        while True:
+            elapsed = int(time.monotonic() - t0)
+            try:
+                info = self.get_stack_info(region, name)
+            except Exception as exc:
+                probe.last_error = str(exc)[:512]
+                if is_wait:
+                    c.print(f'  [dim][t+{elapsed:>3}s][/]  [red]describe-instances failed[/]  [dim]{str(exc)[:80]}[/]')
+            else:
+                if info is None:
+                    probe.state      = 'missing'
+                    probe.last_error = f'no stack matched {name!r}'
+                    break
+
+                state     = str(getattr(info, 'state', '') or '')
+                public_ip = str(getattr(info, 'public_ip', '') or '')
+                probe.state = state
+
+                if not public_ip:
+                    probe.last_error = 'instance has no public IP yet'
+                    if is_wait:
+                        c.print(f'  [dim][t+{elapsed:>3}s][/]  state=[yellow]{state}[/]  [dim]awaiting public IP…[/]')
+                else:
+                    probe_url = f'http://{public_ip}:{VAULT_PORT}/info/health'
+                    try:
+                        with urllib.request.urlopen(probe_url, timeout=5, context=ctx) as resp:
+                            if resp.status < 500:
+                                probe.healthy    = True
+                                probe.state      = 'running'
+                                probe.last_error = ''
+                                vault_url = str(getattr(info, 'vault_url', '') or probe_url)
+                                if is_wait:
+                                    c.print(f'  [dim][t+{elapsed:>3}s][/]  [green]✓ healthy[/]  {vault_url}')
+                                break
+                    except Exception as exc:
+                        err = str(exc)[:100]
+                        probe.last_error = str(exc)[:512]
+                        if is_wait:
+                            c.print(f'  [dim][t+{elapsed:>3}s][/]  state=[cyan]{state}[/]'
+                                    f'  ip={public_ip}'
+                                    f'  [dim]{err}[/]')
+
+            if time.monotonic() >= deadline:
+                if is_wait and not probe.healthy:
+                    self._print_boot_log_tail(region, name, c)
+                break
+            time.sleep(poll_sec)
+
+        probe.elapsed_ms = int((time.monotonic() - t0) * 1000)
+        return probe
+
+    def _print_boot_log_tail(self, region: str, name: str, c) -> None:
+        try:
+            result = self.exec(region, name, 'tail -n 20 /var/log/ephemeral-ec2-boot.log', timeout_sec=8)
+            stdout = str(getattr(result, 'stdout', '') or '').strip()
+            if stdout:
+                c.print(f'\n  [dim]── last 20 lines of boot log (via SSM) ──[/]')
+                for line in stdout.splitlines():
+                    c.print(f'  [dim]{line}[/]')
+                c.print()
+        except Exception:
+            pass
+
     def delete_stack(self, region: str, stack_name: str) -> Schema__Vault_App__Delete__Response:
         t0      = time.monotonic()
         details = self.aws_client.instance.find_by_stack_name(region, stack_name)
