@@ -33,6 +33,8 @@ sgc        = "scripts.provision_ec2:app"                                        
 sg-compute = "scripts.provision_ec2:app"                                                # full hyphenated alias
 sp         = "scripts.provision_ec2:app"                                                # legacy alias — kept for backward compat
 sp-cli     = "scripts.run_sp_cli:main"                                                  # Run the SP CLI FastAPI app locally under uvicorn (Lambda-equivalent surface; see scripts/run_sp_cli.py)
+vp         = "vault_publish.cli.Cli__Vault_Publish:app"                                 # vault-publish CLI verb tree (also reachable as `sg vp`)
+vp-server  = "scripts.run_vault_publish:main"                                           # Run the vault-publish FastAPI app locally under uvicorn (see scripts/run_vault_publish.py)
 
 [tool.poetry.group.dev.dependencies]
 pytest         = "*"

@@ -851,6 +851,11 @@ app.add_typer(_catalog_app, name='catalog')
 from scripts.doctor import app as _doctor_app  # noqa: E402
 app.add_typer(_doctor_app, name='doctor')
 
+# vault-publish — publish a vault as a website at <slug>.sgraph.app
+from vault_publish.cli.Cli__Vault_Publish import app as _vault_publish_app  # noqa: E402
+app.add_typer(_vault_publish_app, name='vp'           )                                    # primary — matches the dev pack surface
+app.add_typer(_vault_publish_app, name='vault-publish', hidden=True)                       # long alias
+
 
 def _health_check_once(base_url: str, api_key_name: str, api_key_value: str) -> dict:
     headers = {api_key_name: api_key_value} if api_key_value else {}
