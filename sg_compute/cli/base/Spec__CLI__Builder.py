@@ -135,11 +135,12 @@ class Spec__CLI__Builder:
             render_info_fn(data, Console(highlight=False, width=200))
 
     def _register_create(self, app):
-        cli_spec        = self.cli_spec
-        resolver        = self.resolver
-        service_factory = self.cli_spec.service_factory
-        spec_id         = self.cli_spec.spec_id
-        extra_options   = self.extra_create_options
+        cli_spec         = self.cli_spec
+        resolver         = self.resolver
+        service_factory  = self.cli_spec.service_factory
+        spec_id          = self.cli_spec.spec_id
+        extra_options    = self.extra_create_options
+        render_create_fn = getattr(self.cli_spec, 'render_create_fn', None) or render_create
 
         base_params = [
             ('name',          Optional[str], typer.Argument(None,
@@ -205,7 +206,7 @@ class Spec__CLI__Builder:
                     opt[0]: kwargs[opt[0]] for opt in extra_options
                 })
             resp       = svc.create_stack(req)
-            render_create(resp, console)
+            render_create_fn(resp, console)
             if kwargs.get('wait'):
                 info      = getattr(resp, 'stack_info', None) or resp
                 real_name = str(getattr(info, 'stack_name', '') or name)
