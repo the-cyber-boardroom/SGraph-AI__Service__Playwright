@@ -21,10 +21,11 @@ MANIFEST = Schema__Spec__Manifest__Entry(
     icon                 = '🗄️'                                                               ,
     version              = _read_version()                                                     ,
     stability            = Enum__Spec__Stability.EXPERIMENTAL                                  ,
-    boot_seconds_typical = 60                                                                  ,
-    capabilities         = [Enum__Spec__Capability.BROWSER_AUTOMATION ,
-                             Enum__Spec__Capability.VAULT_WRITES       ,
-                             Enum__Spec__Capability.MITM_PROXY         ,
-                             Enum__Spec__Capability.SIDECAR_ATTACH     ] ,
-    nav_group            = Enum__Spec__Nav_Group.OTHER                                         ,
+    boot_seconds_typical = 45                                                                  ,  # just-vault; faster from a baked AMI
+    capabilities         = [Enum__Spec__Capability.VAULT_WRITES       ,                            # core (just-vault mode)
+                             Enum__Spec__Capability.SIDECAR_ATTACH     ,
+                             Enum__Spec__Capability.CONTAINER_RUNTIME  ,
+                             Enum__Spec__Capability.BROWSER_AUTOMATION ,                           # optional — --with-playwright
+                             Enum__Spec__Capability.MITM_PROXY         ] ,                         # optional — --with-playwright
+    nav_group            = Enum__Spec__Nav_Group.STORAGE                                       ,
 )
