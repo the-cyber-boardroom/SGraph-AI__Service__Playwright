@@ -98,3 +98,19 @@ class TestVaultAppServiceCliSurface:
                                    ecr_registry=REGISTRY, access_token='tok',
                                    seed_vault_keys='key1,key2')
         assert 'SG_VAULT_APP__SEED_VAULT_KEYS=key1,key2' in user_data
+
+    def test_user_data_with_tls_check_adds_cert_sidecar(self):
+        builder   = Vault_App__User_Data__Builder()
+        user_data = builder.render(stack_name='test-stack', region='eu-west-2',
+                                   ecr_registry=REGISTRY, access_token='tok',
+                                   with_tls_check=True)
+        assert 'cert-init'                              in user_data
+        assert 'tls-check'                              in user_data
+        assert 'sg_compute.fast_api.tls.lambda_handler' in user_data
+
+    def test_user_data_without_tls_check_omits_cert_sidecar(self):
+        builder   = Vault_App__User_Data__Builder()
+        user_data = builder.render(stack_name='test-stack', region='eu-west-2',
+                                   ecr_registry=REGISTRY, access_token='tok')
+        assert 'cert-init' not in user_data
+        assert 'tls-check' not in user_data

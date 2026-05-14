@@ -24,3 +24,4 @@ class Schema__Vault_App__Create__Request(Type_Safe):
     access_token     : str   = ''          # shared stack secret; auto-generated if blank
     disk_size_gb     : int   = 20          # root volume — vault data + container images
     use_spot         : bool  = True        # spot by default (~70% cheaper)
+    with_tls_check   : bool  = False        # add the one-shot cert sidecar + Fast_API__TLS on :443 (secure-context PoC)

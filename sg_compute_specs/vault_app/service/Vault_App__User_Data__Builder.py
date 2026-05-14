@@ -93,7 +93,8 @@ class Vault_App__User_Data__Builder(Type_Safe):
                      image_tag        : str   = 'latest'     ,
                      storage_mode     : str   = 'disk'       ,
                      seed_vault_keys  : str   = ''           ,
-                     max_hours        : float = 1.0          ) -> str:
+                     max_hours        : float = 1.0          ,
+                     with_tls_check   : bool  = False         ) -> str:
         engine        = container_engine if container_engine in ('docker', 'podman') else 'docker'
         is_podman     = engine == 'podman'
         docker_socket = '/run/podman/podman.sock' if is_podman else '/var/run/docker.sock'
@@ -105,7 +106,8 @@ class Vault_App__User_Data__Builder(Type_Safe):
             ecr_registry    = ecr_registry    ,
             with_playwright = with_playwright ,
             image_tag       = image_tag       ,
-            docker_socket   = docker_socket   )
+            docker_socket   = docker_socket   ,
+            with_tls_check  = with_tls_check  )
 
         stack_block = _STACK_TEMPLATE.format(
             mode            = mode            ,

@@ -48,3 +48,20 @@ class TestVaultAppComposeTemplate:
         result = Vault_App__Compose__Template().render(ecr_registry=REGISTRY,
                                                        docker_socket='/run/podman/podman.sock')
         assert '/run/podman/podman.sock:/var/run/docker.sock' in result
+
+    def test_with_tls_check_adds_cert_init_and_tls_check(self):
+        result = Vault_App__Compose__Template().render(ecr_registry=REGISTRY, with_tls_check=True)
+        assert 'cert-init:'                             in result
+        assert 'tls-check:'                             in result
+        assert 'sg_compute.platforms.tls.cert_init'     in result
+        assert 'sg_compute.fast_api.tls.lambda_handler' in result
+        assert '"443:443"'                              in result
+        assert 'service_completed_successfully'         in result
+        assert '\nvolumes:\n'                           in result          # top-level volumes block
+        assert 'certs:'                                 in result
+
+    def test_without_tls_check_omits_cert_services(self):
+        result = Vault_App__Compose__Template().render(ecr_registry=REGISTRY)
+        assert 'cert-init'      not in result
+        assert 'tls-check'      not in result
+        assert '\nvolumes:\n'   not in result                              # service-level `    volumes:` still allowed
