@@ -36,7 +36,7 @@ from osbot_aws.AWS_Config                                                       
 from osbot_aws.aws.iam.IAM_Role                                                     import IAM_Role
 from osbot_utils.type_safe.Type_Safe                                                import Type_Safe
 
-from sg_compute_specs.playwright.core.docker.Docker__SGraph_AI__Service__Playwright__Base import IMAGE_NAME as PLAYWRIGHT_IMAGE_NAME
+PLAYWRIGHT_IMAGE_NAME = 'diniscruz/sg-playwright'                                       # Docker Hub image (moved from ECR docker base class)
 from sg_compute_specs.mitmproxy.docker.Docker__Agent_Mitmproxy__Base                 import IMAGE_NAME as SIDECAR_IMAGE_NAME
 
 
