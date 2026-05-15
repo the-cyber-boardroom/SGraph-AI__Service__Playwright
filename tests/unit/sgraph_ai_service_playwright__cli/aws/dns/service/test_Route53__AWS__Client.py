@@ -289,6 +289,34 @@ class test_Route53__AWS__Client(TestCase):
             self.client.delete_record('Z01ABCDEFGHIJ', 'nope.sgraph.ai',
                                       Enum__Route53__Record_Type.A)
 
+    # ── P1: batch_delete_records (used by `zone purge`) ───────────────────────
+
+    def test__batch_delete_records__raises_on_empty_list(self):
+        with pytest.raises(ValueError, match='empty list'):
+            self.client.batch_delete_records('Z01ABCDEFGHIJ', [])
+
+    def test__batch_delete_records__builds_one_batch_with_all_actions(self):
+        records = self.client.list_records('Z01ABCDEFGHIJ')                            # Reuse the canned fixture records
+        to_delete = [r for r in records if str(r.record_type) == 'A'][:1]              # Pick the one A record from the fixture
+        # Compose a second target by lifting CNAME so we have a multi-record batch
+        cnames = [r for r in records if str(r.record_type) == 'CNAME']
+        to_delete.extend(cnames)
+        result = self.client.batch_delete_records('Z01ABCDEFGHIJ', to_delete)
+        assert isinstance(result, Schema__Route53__Change__Result)
+        batch  = self.client.client().last_change_batch
+        actions = [c['Action'] for c in batch['Changes']]
+        assert actions == ['DELETE'] * len(to_delete)                                   # Every change must be a DELETE
+        assert len(batch['Changes']) == len(to_delete)
+
+    def test__batch_delete_records__preserves_per_record_ttl_and_values(self):         # Route 53 DELETE requires exact prior ttl + values
+        records   = self.client.list_records('Z01ABCDEFGHIJ')
+        target    = next(r for r in records if str(r.record_type) == 'A')
+        self.client.batch_delete_records('Z01ABCDEFGHIJ', [target])
+        rrset = self.client.client().last_change_batch['Changes'][0]['ResourceRecordSet']
+        assert rrset['Type'] == 'A'
+        assert rrset['TTL']  == int(target.ttl)
+        assert [rr['Value'] for rr in rrset['ResourceRecords']] == list(target.values)
+
     # ── P1: get_change / wait_for_change ──────────────────────────────────────
 
     def test__get_change__returns_typed_result(self):

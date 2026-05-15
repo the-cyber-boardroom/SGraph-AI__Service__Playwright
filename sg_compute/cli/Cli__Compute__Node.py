@@ -65,6 +65,26 @@ def delete(node_id: str = typer.Argument(..., help='Node identifier (stack name)
         raise typer.Exit(1)
 
 
+@app.command(name='delete-all')
+def delete_all(region: str  = typer.Option(DEFAULT_REGION, '--region', '-r', help='AWS region.'),
+               yes   : bool = typer.Option(False,           '--yes',    '-y', help='Skip confirmation.')):
+    """Delete ALL live compute nodes in a region (all specs)."""
+    listing = _platform().list_nodes(region)
+    nodes   = listing.nodes
+    if not nodes:
+        typer.echo('No live nodes found.')
+        return
+    typer.echo(f'Found {len(nodes)} node(s) in {region}:')
+    for n in nodes:
+        typer.echo(f'  {n.node_id}  [{n.spec_id}  {n.instance_type}]')
+    if not yes:
+        typer.confirm(f'\nDelete all {len(nodes)} node(s)?', abort=True)
+    for n in nodes:
+        result = _platform().delete_node(n.node_id, region)
+        status = 'Deleted' if result.deleted else 'FAILED '
+        typer.echo(f'  {status}: {n.node_id}')
+
+
 @app.command()
 def create(spec_id      : str = typer.Argument(..., help='Spec identifier (docker, podman, …)'),
            region       : str = typer.Option(DEFAULT_REGION, '--region',        '-r'),
