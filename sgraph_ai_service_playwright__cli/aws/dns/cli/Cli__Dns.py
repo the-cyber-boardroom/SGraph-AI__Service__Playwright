@@ -90,6 +90,18 @@ def _resolve_zone_id(client: Route53__AWS__Client, zone: str) -> str:           
     return str(client.resolve_default_zone().zone_id)
 
 
+def _resolve_zone_id_for_record(client: Route53__AWS__Client, zone: str, name: str) -> str:  # FQDN-aware zone resolution for record commands. With explicit --zone: use it. Without: walk labels via Route53__Zone__Resolver to find the deepest owning hosted zone (handles sub-delegations like sg-compute.sgraph.ai). Falls back to the default zone (sgraph.ai) only when the resolver finds no match.
+    if zone:
+        return client.resolve_zone_id(zone)
+    if '.' in name.rstrip('.'):                                                      # Multi-label FQDN — try deepest-zone resolution
+        try:
+            owning = Route53__Zone__Resolver(r53_client=client).resolve_zone_for_fqdn(name)
+            return str(owning.zone_id)
+        except ValueError:                                                            # No zone in the account owns this fqdn — fall back to default
+            pass
+    return str(client.resolve_default_zone().zone_id)
+
+
 def _zone_label(zone_schema) -> str:                                                 # Human-readable label for a zone in table headers
     return f'{zone_schema.name}.  ·  {zone_schema.zone_id}'
 
@@ -339,7 +351,7 @@ def records_get(name       : str  = typer.Argument(..., help='Record name (e.g. 
                 json_output: bool = typer.Option(False, '--json',       help='Output JSON instead of a table.')):
     """Show one record from a hosted zone."""
     client  = _client()
-    zone_id = _resolve_zone_id(client, zone)
+    zone_id = _resolve_zone_id_for_record(client, zone, name)
     try:
         record_type = Enum__Route53__Record_Type(rtype.upper())
     except ValueError:
@@ -392,7 +404,7 @@ def records_add(name       : str  = typer.Argument(...,  help='Record name (FQDN
         typer.echo(f'Unknown record type: {rtype}', err=True)
         raise typer.Exit(1)
     client  = _client()
-    zone_id = _resolve_zone_id(client, zone)
+    zone_id = _resolve_zone_id_for_record(client, zone, name)
     try:
         result = client.create_record(zone_id, name, record_type, [value], ttl=ttl)
     except ValueError as exc:
@@ -441,7 +453,7 @@ def records_update(name       : str  = typer.Argument(...,  help='Record name (F
         typer.echo(f'Unknown record type: {rtype}', err=True)
         raise typer.Exit(1)
     client   = _client()
-    zone_id  = _resolve_zone_id(client, zone)
+    zone_id  = _resolve_zone_id_for_record(client, zone, name)
     smart    = _make_smart_verify(client)
     decision = smart.decide_before_add(zone_id, name, record_type)
     existing = client.get_record(zone_id, name, record_type)
@@ -486,7 +498,7 @@ def records_delete(name       : str  = typer.Argument(...,  help='Record name (F
         typer.echo(f'Unknown record type: {rtype}', err=True)
         raise typer.Exit(1)
     client  = _client()
-    zone_id = _resolve_zone_id(client, zone)
+    zone_id = _resolve_zone_id_for_record(client, zone, name)
     record  = client.get_record(zone_id, name, record_type)
     if record is None:
         typer.echo(f'No {rtype} record found for {name!r} in zone {zone_id}', err=True)
@@ -556,7 +568,7 @@ def records_check(name             : str  = typer.Argument(..., help='Record nam
         raise typer.Exit(1)
 
     client     = _client()
-    zone_id    = _resolve_zone_id(client, zone)
+    zone_id    = _resolve_zone_id_for_record(client, zone, name)
     orch       = _make_orchestrator(client)
 
     auth_result   = orch.check_authoritative(zone_id, name, rtype, expected=expect)
@@ -625,7 +637,7 @@ def instance_create_record(
     client   = _client()
     if name:
         fqdn    = name
-        zone_id = _resolve_zone_id(client, zone)
+        zone_id = _resolve_zone_id_for_record(client, zone, name)
     else:
         if zone:
             zone_obj = client.get_hosted_zone(zone)
