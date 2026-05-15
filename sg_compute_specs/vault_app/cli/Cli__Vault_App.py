@@ -236,6 +236,9 @@ _LOG_SOURCES = {                                                       # name �
     'vault'     : ('(docker logs --tail {tail} vault-app-sg-send-vault-1 2>&1 || '
                    'podman logs --tail {tail} vault-app-sg-send-vault-1 2>&1) || true', 60,
                    'sg-send-vault container — the vault app itself'),
+    'mitmproxy' : ('(docker logs --tail {tail} vault-app-agent-mitmproxy-1 2>&1 || '
+                   'podman logs --tail {tail} vault-app-agent-mitmproxy-1 2>&1) || true', 60,
+                   'agent-mitmproxy container — mitmweb startup line includes the web UI password'),
 }
 
 
@@ -572,3 +575,81 @@ def open_target(target: Optional[str] = typer.Argument(None,
         '--parameters',    parameters,
         '--region',        region,
     ])
+
+
+# ── `sp vault-app recreate` — delete + create-same-shape + wait + info ───────
+# Preserves with_playwright / container_engine / with_tls_check from the existing
+# stack's tags so the operator doesn't have to retype them. Everything else
+# (tls_mode, acme_prod, max_hours, disk_size, …) resets to current `create`
+# defaults. Always --waits. For different flags, use `delete` + `create` directly.
+
+@app.command(name='recreate', help='''Delete a stack and launch a fresh one with the same shape.
+
+\b
+Preserves from the existing stack's tags:
+  • --with-playwright  (2-vs-4 container shape)
+  • container engine   (docker | podman)
+  • --with-tls-check   (HTTPS on :443 vs plain HTTP on :8080)
+
+\b
+Everything else resets to current `create` defaults (LE production cert,
+spot, max-hours, disk size, …). For different flags, use:
+  sp vault-app delete && sp vault-app create --<flags>
+
+Always --waits and prints `info` on success.
+''')
+@spec_cli_errors
+def recreate(name  : Optional[str] = typer.Argument(None, help='Stack name; auto-selected when only one exists.'),
+             region: str           = typer.Option(DEFAULT_REGION, '--region', '-r'),
+             yes   : bool          = typer.Option(False, '--yes', '-y', help='Skip the delete confirmation prompt.')):
+    c       = Console(highlight=False, width=200)
+    builder = Spec__CLI__Builder(_cli_spec)
+    svc     = Vault_App__Service().setup()
+    name    = builder.resolver.resolve(svc, name, region, 'vault-app')
+    info    = svc.get_stack_info(region, name)
+    if info is None:
+        c.print(f'  [red]✗  No vault-app stack matched {name!r}[/]')
+        raise typer.Exit(1)
+
+    with_playwright = bool(getattr(info, 'with_playwright', False))
+    engine          = str(getattr(info, 'container_engine', '') or 'docker')
+    with_tls_check  = bool(getattr(info, 'tls_enabled',      False))
+
+    shape_lbl  = '[green]with-playwright[/] (4 containers)' if with_playwright else '[dim]just-vault[/] (2 containers)'
+    tls_lbl    = '[green]TLS on[/]' if with_tls_check else '[dim]plain HTTP[/]'
+
+    c.print()
+    c.print(Panel(
+        f'[bold]Recreate[/]  ·  {name}\n'
+        f'[dim]preserving:[/]  shape={shape_lbl}  ·  engine=[cyan]{engine}[/]  ·  tls={tls_lbl}\n'
+        f'[dim]resetting:[/]   tls-mode, acme-prod, max-hours, disk-size, storage-mode → current defaults',
+        expand=False))
+
+    if not yes:
+        typer.confirm(f'\n  Delete {name!r} and launch a fresh stack?', default=True, abort=True)
+
+    c.print(f'\n  [yellow]→[/]  Deleting [bold]{name}[/]…')
+    delete_result = svc.delete_stack(region, name)
+    if not getattr(delete_result, 'deleted', False):
+        c.print(f'  [red]✗  Delete failed for {name!r}[/]')
+        raise typer.Exit(1)
+    c.print(f'  [green]✓[/]  Deleted.')
+
+    # Build the fresh request — schema defaults for everything except the three preserved fields.
+    req = Schema__Vault_App__Create__Request()
+    req.region           = region
+    req.with_playwright  = with_playwright
+    req.container_engine = 'podman' if engine == 'podman' else 'docker'
+    req.with_tls_check   = with_tls_check
+
+    c.print(f'\n  [yellow]→[/]  Launching fresh stack…\n')
+    resp = svc.create_stack(req)
+    _render_vault_app_create(resp, c)
+
+    new_info = getattr(resp, 'stack_info', None) or resp
+    new_name = str(getattr(new_info, 'stack_name', '') or '')
+    builder._wait_healthy(svc, region, new_name)
+
+    fresh = svc.get_stack_info(region, new_name)
+    if fresh is not None:
+        _render_vault_app_info(fresh, c)
