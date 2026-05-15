@@ -49,6 +49,14 @@ class TestVaultAppComposeTemplate:
                                                        docker_socket='/run/podman/podman.sock')
         assert '/run/podman/podman.sock:/var/run/docker.sock' in result
 
+    def test_with_playwright_publishes_external_port(self):
+        result = Vault_App__Compose__Template().render(ecr_registry=REGISTRY, with_playwright=True)
+        assert '"11024:8000"' in result                              # host:11024 → container:8000
+
+    def test_without_playwright_does_not_publish_11024(self):
+        result = Vault_App__Compose__Template().render(ecr_registry=REGISTRY)
+        assert '11024' not in result
+
     def test_with_playwright_wires_host_plane_to_mitmweb(self):
         # Routes__Web in host-plane defaults to 127.0.0.1:8081, which inside the
         # host-plane container points at host-plane itself — broken in compose.
