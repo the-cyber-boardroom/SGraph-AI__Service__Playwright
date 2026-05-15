@@ -110,3 +110,30 @@ class ACM__AWS__Client(Type_Safe):                                              
         if len(parts) >= 4 and parts[3]:
             return parts[3]
         return None
+
+    def get_validation_record_names(self, regions: list = None) -> set:              # Returns the set of DNS-01 validation record names (sans trailing dot) for every cert in the listed regions. Used by `zone check` to distinguish active ACM-validation CNAMEs from orphaned ones.
+        if regions is None:
+            regions = list({self.current_region(), 'us-east-1'})                      # Dedupe — current and us-east-1 are often the same
+        names = set()
+        for region in regions:
+            try:
+                acm = self.client(region)
+                paginator = acm.get_paginator('list_certificates')
+                for page in paginator.paginate():
+                    for summary in page.get('CertificateSummaryList', []):
+                        arn = summary.get('CertificateArn', '')
+                        if not arn:
+                            continue
+                        try:
+                            resp = acm.describe_certificate(CertificateArn=arn)
+                        except Exception:
+                            continue
+                        cert = resp.get('Certificate', {})
+                        for opt in cert.get('DomainValidationOptions', []):
+                            rr   = opt.get('ResourceRecord') or {}
+                            name = str(rr.get('Name', '')).rstrip('.')
+                            if name:
+                                names.add(name)
+            except Exception:                                                         # Whole-region failure (e.g. region not enabled) — skip silently
+                continue
+        return names
