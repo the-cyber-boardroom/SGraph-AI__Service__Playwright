@@ -128,10 +128,11 @@ _CERT_INIT = '''
     image: {ecr_registry}/sgraph_ai_service_playwright_host:{image_tag}
     command: ["python", "-m", "sg_compute.platforms.tls.cert_init"]
     environment:
-      SG__CERT_INIT__MODE:        ${{SG__CERT_INIT__MODE:-self-signed}}
-      SG__CERT_INIT__COMMON_NAME: ${{SG__CERT_INIT__COMMON_NAME:-}}
-      SG__CERT_INIT__ACME_PROD:   ${{SG__CERT_INIT__ACME_PROD:-false}}
-      SG__CERT_INIT__ACME_EMAIL:  ${{SG__CERT_INIT__ACME_EMAIL:-}}
+      SG__CERT_INIT__MODE:         ${{SG__CERT_INIT__MODE:-self-signed}}
+      SG__CERT_INIT__COMMON_NAME:  ${{SG__CERT_INIT__COMMON_NAME:-}}
+      SG__CERT_INIT__ACME_PROD:    ${{SG__CERT_INIT__ACME_PROD:-false}}
+      SG__CERT_INIT__ACME_EMAIL:   ${{SG__CERT_INIT__ACME_EMAIL:-}}
+      SG__CERT_INIT__TLS_HOSTNAME: ${{SG__CERT_INIT__TLS_HOSTNAME:-}}   # FQDN for letsencrypt-hostname mode; ignored for the other modes
       FAST_API__TLS__CERT_FILE:   /certs/cert.pem
       FAST_API__TLS__KEY_FILE:    /certs/key.pem
     ports:

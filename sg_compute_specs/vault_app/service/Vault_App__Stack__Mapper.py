@@ -18,6 +18,8 @@ TAG_WITH_PLAYWRIGHT = 'StackWithPlaywright'
 TAG_ENGINE          = 'StackEngine'
 TAG_TERMINATE_AT    = 'TerminateAt'
 TAG_TLS_ENABLED     = 'StackTLS'                  # 'true' when --with-tls-check; drives the vault_url scheme
+TAG_TLS_HOSTNAME    = 'StackTlsHostname'          # FQDN the LE cert was issued for (letsencrypt-hostname mode); empty otherwise.
+                                                  # Drives the vault_url *host* — must match the cert SAN or browsers reject.
 TAG_ACCESS_TOKEN    = 'AccessToken'               # vault API key + access token (same value, two headers).
                                                   # Note: ec2:DescribeInstances exposes this; the access token was
                                                   # already recoverable on the box via SSM, this just makes the
@@ -49,11 +51,20 @@ class Vault_App__Stack__Mapper(Type_Safe):
         terminate_at, remaining = _time_remaining(details)
         tls_on                  = tag_value(details, TAG_TLS_ENABLED)     == 'true'
         with_playwright         = tag_value(details, TAG_WITH_PLAYWRIGHT) == 'true'
+        tls_hostname            = tag_value(details, TAG_TLS_HOSTNAME) or ''
+        # The cert host: hostname when LE was issued for an FQDN, the IP otherwise.
+        # Browsers (and Anthropic's egress proxy) reject mismatches strictly, so the URL
+        # surfaced to operators MUST match the cert SAN.
+        cert_host = tls_hostname if tls_hostname else public_ip
         if public_ip:
-            vault_url      = f'https://{public_ip}' if tls_on else f'http://{public_ip}:{VAULT_PORT}'
-            # Omit the :80 suffix — it's the default HTTP port and 'http://ip' is cleaner / more sandbox-friendly.
+            vault_url      = (f'https://{cert_host}' if tls_on
+                              else f'http://{public_ip}:{VAULT_PORT}')
+            # Omit the :80 suffix — it's the default HTTP port and 'http://host' is cleaner / more sandbox-friendly.
             port_suffix    = '' if PLAYWRIGHT_EXTERNAL_PORT == 80 else f':{PLAYWRIGHT_EXTERNAL_PORT}'
-            playwright_url = f'http://{public_ip}{port_suffix}' if with_playwright else ''
+            # Playwright is plain HTTP; the hostname still works (resolves to the IP, no cert involved).
+            # Prefer the hostname so a single base URL covers both sandbox and laptop callers.
+            playwright_host = tls_hostname or public_ip
+            playwright_url  = f'http://{playwright_host}{port_suffix}' if with_playwright else ''
         else:
             vault_url, playwright_url = '', ''
         instance_id    = details.get('InstanceId', '') or ''

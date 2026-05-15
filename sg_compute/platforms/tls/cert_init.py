@@ -6,14 +6,22 @@
 #
 #   python -m sg_compute.platforms.tls.cert_init
 #
-# Two modes (SG__CERT_INIT__MODE):
-#   self-signed     (default)  — Cert__Generator, offline, browser will warn
-#   letsencrypt-ip             — Cert__ACME__Client, publicly-trusted IP cert
-#                                via http-01 on :80 (LE staging unless ACME_PROD)
+# Three modes (SG__CERT_INIT__MODE):
+#   self-signed             (default)  — Cert__Generator, offline, browser will warn
+#   letsencrypt-ip                     — Cert__ACME__Client, publicly-trusted IP cert
+#                                        via http-01 on :80 (LE staging unless ACME_PROD)
+#   letsencrypt-hostname               — Cert__ACME__Client, publicly-trusted DNS-name
+#                                        cert via http-01 on :80. The caller must point
+#                                        the FQDN's A record at the EC2 IP *before* boot —
+#                                        cert-init does not wait for DNS propagation.
+#                                        Reachable from sandbox-egress proxies (which
+#                                        validate hostnames strictly) — the IP-cert path
+#                                        cannot be reached that way.
 #
 # Common name / IP resolution: SG__CERT_INIT__COMMON_NAME env → EC2 IMDSv2
 # public IPv4 → 'localhost' (self-signed only; letsencrypt-ip fails loud if it
-# cannot resolve a real public IP).
+# cannot resolve a real public IP). letsencrypt-hostname uses
+# SG__CERT_INIT__TLS_HOSTNAME directly — no IMDS lookup.
 # ═══════════════════════════════════════════════════════════════════════════════
 
 import ipaddress
@@ -23,16 +31,18 @@ import urllib.request
 
 from sg_compute.platforms.tls.Cert__Generator import Cert__Generator
 
-ENV__MODE        = 'SG__CERT_INIT__MODE'
-ENV__COMMON_NAME = 'SG__CERT_INIT__COMMON_NAME'
-ENV__SANS        = 'SG__CERT_INIT__SANS'
-ENV__ACME_PROD   = 'SG__CERT_INIT__ACME_PROD'
-ENV__ACME_EMAIL  = 'SG__CERT_INIT__ACME_EMAIL'
-ENV__CERT_FILE   = 'FAST_API__TLS__CERT_FILE'
-ENV__KEY_FILE    = 'FAST_API__TLS__KEY_FILE'
+ENV__MODE         = 'SG__CERT_INIT__MODE'
+ENV__COMMON_NAME  = 'SG__CERT_INIT__COMMON_NAME'
+ENV__SANS         = 'SG__CERT_INIT__SANS'
+ENV__ACME_PROD    = 'SG__CERT_INIT__ACME_PROD'
+ENV__ACME_EMAIL   = 'SG__CERT_INIT__ACME_EMAIL'
+ENV__TLS_HOSTNAME = 'SG__CERT_INIT__TLS_HOSTNAME'
+ENV__CERT_FILE    = 'FAST_API__TLS__CERT_FILE'
+ENV__KEY_FILE     = 'FAST_API__TLS__KEY_FILE'
 
-MODE__SELF_SIGNED    = 'self-signed'
-MODE__LETSENCRYPT_IP = 'letsencrypt-ip'
+MODE__SELF_SIGNED          = 'self-signed'
+MODE__LETSENCRYPT_IP       = 'letsencrypt-ip'
+MODE__LETSENCRYPT_HOSTNAME = 'letsencrypt-hostname'
 
 DEFAULT__CERT_FILE   = '/certs/cert.pem'
 DEFAULT__KEY_FILE    = '/certs/key.pem'
@@ -70,6 +80,20 @@ def resolve_public_ip() -> str:                                              # A
     return candidate
 
 
+def resolve_tls_hostname() -> str:                                           # FQDN must already point at this box's IP
+    hostname = os.environ.get(ENV__TLS_HOSTNAME, '').strip()
+    if not hostname:
+        raise RuntimeError(f'letsencrypt-hostname mode needs {ENV__TLS_HOSTNAME} set to the FQDN to issue for')
+    if any(c in hostname for c in ('/', ':', ' ')) or '://' in hostname:
+        raise RuntimeError(f'{ENV__TLS_HOSTNAME} must be a bare FQDN (no scheme, port, or path) — got {hostname!r}')
+    try:
+        ipaddress.ip_address(hostname)                                       # if this succeeds, it's an IP, not a hostname
+        raise RuntimeError(f'{ENV__TLS_HOSTNAME}={hostname!r} is an IP — use letsencrypt-ip mode instead')
+    except ValueError:
+        pass                                                                 # not an IP — good, it's a hostname
+    return hostname
+
+
 def _run_self_signed(cert_path: str, key_path: str) -> None:
     common_name = resolve_common_name()
     sans        = [s.strip() for s in os.environ.get(ENV__SANS, '').split(',') if s.strip()]
@@ -94,6 +118,20 @@ def _run_letsencrypt_ip(cert_path: str, key_path: str) -> None:
     print(f'[cert-init] letsencrypt-ip cert issued  cert={cert_path}  key={key_path}')
 
 
+def _run_letsencrypt_hostname(cert_path: str, key_path: str) -> None:
+    from sg_compute.platforms.tls.Cert__ACME__Client import Cert__ACME__Client
+
+    hostname = resolve_tls_hostname()
+    prod     = os.environ.get(ENV__ACME_PROD, '').strip().lower() in _TRUTHY
+    email    = os.environ.get(ENV__ACME_EMAIL, '').strip()
+    client   = Cert__ACME__Client()
+    config   = client.config(prod=prod, contact_email=email, for_hostname=True)
+    print(f'[cert-init] mode=letsencrypt-hostname  hostname={hostname}  '
+          f'directory={"prod" if prod else "staging"}')
+    client.issue(hostname=hostname, cert_path=cert_path, key_path=key_path, config=config)
+    print(f'[cert-init] letsencrypt-hostname cert issued  cert={cert_path}  key={key_path}')
+
+
 def main() -> None:
     cert_path = os.environ.get(ENV__CERT_FILE) or DEFAULT__CERT_FILE
     key_path  = os.environ.get(ENV__KEY_FILE)  or DEFAULT__KEY_FILE
@@ -101,11 +139,14 @@ def main() -> None:
 
     if mode == MODE__LETSENCRYPT_IP:
         _run_letsencrypt_ip(cert_path, key_path)
+    elif mode == MODE__LETSENCRYPT_HOSTNAME:
+        _run_letsencrypt_hostname(cert_path, key_path)
     elif mode == MODE__SELF_SIGNED:
         _run_self_signed(cert_path, key_path)
     else:
-        print(f'[cert-init] unknown {ENV__MODE}={mode!r} — expected '
-              f'{MODE__SELF_SIGNED!r} or {MODE__LETSENCRYPT_IP!r}', file=sys.stderr)
+        print(f'[cert-init] unknown {ENV__MODE}={mode!r} — expected one of '
+              f'{MODE__SELF_SIGNED!r} / {MODE__LETSENCRYPT_IP!r} / {MODE__LETSENCRYPT_HOSTNAME!r}',
+              file=sys.stderr)
         sys.exit(2)
 
 

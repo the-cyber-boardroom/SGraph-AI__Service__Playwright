@@ -92,9 +92,10 @@ class TestVaultAppComposeTemplate:
 
     def test_with_tls_check_cert_init_exposes_acme_challenge_port(self):
         result = Vault_App__Compose__Template().render(ecr_registry=REGISTRY, with_tls_check=True)
-        assert 'SG__CERT_INIT__MODE'      in result                        # self-signed | letsencrypt-ip
-        assert 'SG__CERT_INIT__ACME_PROD' in result
-        assert '"80:80"'                  in result                        # http-01 challenge listener
+        assert 'SG__CERT_INIT__MODE'         in result                     # self-signed | letsencrypt-ip | letsencrypt-hostname
+        assert 'SG__CERT_INIT__ACME_PROD'    in result
+        assert 'SG__CERT_INIT__TLS_HOSTNAME' in result                     # plumbing for letsencrypt-hostname mode
+        assert '"80:80"'                     in result                     # http-01 challenge listener
 
     def test_without_tls_check_omits_cert_services(self):
         result = Vault_App__Compose__Template().render(ecr_registry=REGISTRY)

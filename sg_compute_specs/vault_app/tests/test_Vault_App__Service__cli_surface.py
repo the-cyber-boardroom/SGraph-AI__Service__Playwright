@@ -116,6 +116,36 @@ class TestVaultAppServiceCliSurface:
                                    with_tls_check=True, tls_mode='letsencrypt-ip', acme_prod=True)
         assert 'SG__CERT_INIT__MODE=letsencrypt-ip' in user_data
         assert 'SG__CERT_INIT__ACME_PROD=true'      in user_data
+        assert 'SG__CERT_INIT__TLS_HOSTNAME='       not in user_data            # IP mode never emits the FQDN .env line
+                                                                                # (the compose YAML still references ${SG__CERT_INIT__TLS_HOSTNAME:-}, resolving to empty)
+
+    def test_user_data_letsencrypt_hostname_mode_writes_fqdn_env(self):
+        builder   = Vault_App__User_Data__Builder()
+        user_data = builder.render(stack_name='test-stack', region='eu-west-2',
+                                   ecr_registry=REGISTRY, access_token='tok',
+                                   with_tls_check=True, tls_mode='letsencrypt-hostname',
+                                   acme_prod=True, tls_hostname='test-2.sg-compute.sgraph.ai')
+        assert 'SG__CERT_INIT__MODE=letsencrypt-hostname'                     in user_data
+        assert 'SG__CERT_INIT__ACME_PROD=true'                                in user_data
+        assert 'SG__CERT_INIT__TLS_HOSTNAME=test-2.sg-compute.sgraph.ai'      in user_data
+
+    def test_user_data_letsencrypt_hostname_without_fqdn_still_renders(self):
+        # Service layer is responsible for the empty-fqdn guard. The user-data builder
+        # itself just emits whatever it's given — it should not crash on an empty hostname.
+        builder   = Vault_App__User_Data__Builder()
+        user_data = builder.render(stack_name='test-stack', region='eu-west-2',
+                                   ecr_registry=REGISTRY, access_token='tok',
+                                   with_tls_check=True, tls_mode='letsencrypt-hostname',
+                                   acme_prod=True, tls_hostname='')
+        assert 'SG__CERT_INIT__MODE=letsencrypt-hostname' in user_data
+        assert 'SG__CERT_INIT__TLS_HOSTNAME='             in user_data        # empty value — cert-init will fail loud at boot
+
+    def test_user_data_unknown_tls_mode_falls_back_to_self_signed(self):
+        builder   = Vault_App__User_Data__Builder()
+        user_data = builder.render(stack_name='test-stack', region='eu-west-2',
+                                   ecr_registry=REGISTRY, access_token='tok',
+                                   with_tls_check=True, tls_mode='banana')
+        assert 'SG__CERT_INIT__MODE=self-signed' in user_data                  # whitelist guard in the builder
 
     def test_user_data_without_tls_check_omits_cert_sidecar(self):
         builder   = Vault_App__User_Data__Builder()

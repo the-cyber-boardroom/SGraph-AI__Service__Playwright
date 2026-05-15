@@ -45,3 +45,11 @@ class TestSchemaVaultAppCreateRequest:
         assert req.with_tls_check is True
         assert req.tls_mode       == 'letsencrypt-ip'
         assert req.acme_prod      is True
+        assert req.tls_hostname   == ''                      # opt-in: caller sets this to switch to letsencrypt-hostname
+
+    def test_override_tls_hostname(self):
+        req = Schema__Vault_App__Create__Request()
+        req.tls_mode     = 'letsencrypt-hostname'
+        req.tls_hostname = 'vault.example.com'
+        assert req.tls_mode     == 'letsencrypt-hostname'
+        assert req.tls_hostname == 'vault.example.com'

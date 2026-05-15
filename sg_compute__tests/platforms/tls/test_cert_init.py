@@ -60,3 +60,39 @@ class TestCertInit:
         monkeypatch.setenv('SG__CERT_INIT__COMMON_NAME', 'not-an-ip')
         with pytest.raises(RuntimeError):
             cert_init.resolve_public_ip()
+
+    def test_resolve_tls_hostname_accepts_a_valid_fqdn(self, monkeypatch):
+        monkeypatch.setenv('SG__CERT_INIT__TLS_HOSTNAME', 'test-2.sg-compute.sgraph.ai')
+        assert cert_init.resolve_tls_hostname() == 'test-2.sg-compute.sgraph.ai'
+
+    def test_resolve_tls_hostname_strips_surrounding_whitespace(self, monkeypatch):
+        monkeypatch.setenv('SG__CERT_INIT__TLS_HOSTNAME', '  vault.example.com  ')
+        assert cert_init.resolve_tls_hostname() == 'vault.example.com'
+
+    def test_resolve_tls_hostname_rejects_empty(self, monkeypatch):
+        monkeypatch.delenv('SG__CERT_INIT__TLS_HOSTNAME', raising=False)
+        with pytest.raises(RuntimeError, match='needs SG__CERT_INIT__TLS_HOSTNAME'):
+            cert_init.resolve_tls_hostname()
+
+    def test_resolve_tls_hostname_rejects_an_ip(self, monkeypatch):
+        monkeypatch.setenv('SG__CERT_INIT__TLS_HOSTNAME', '18.134.9.182')
+        with pytest.raises(RuntimeError, match='is an IP — use letsencrypt-ip mode'):
+            cert_init.resolve_tls_hostname()
+
+    def test_resolve_tls_hostname_rejects_a_url(self, monkeypatch):
+        monkeypatch.setenv('SG__CERT_INIT__TLS_HOSTNAME', 'https://vault.example.com/foo')
+        with pytest.raises(RuntimeError, match='bare FQDN'):
+            cert_init.resolve_tls_hostname()
+
+    def test_resolve_tls_hostname_rejects_a_hostport(self, monkeypatch):
+        monkeypatch.setenv('SG__CERT_INIT__TLS_HOSTNAME', 'vault.example.com:443')
+        with pytest.raises(RuntimeError, match='bare FQDN'):
+            cert_init.resolve_tls_hostname()
+
+    def test_main_letsencrypt_hostname_validates_envs_before_network(self, monkeypatch):
+        # letsencrypt-hostname mode should fail loud, locally, when the FQDN env is missing —
+        # before any LE call. This protects an unattended boot from hitting LE rate limits.
+        monkeypatch.setenv('SG__CERT_INIT__MODE', 'letsencrypt-hostname')
+        monkeypatch.delenv('SG__CERT_INIT__TLS_HOSTNAME', raising=False)
+        with pytest.raises(RuntimeError, match='needs SG__CERT_INIT__TLS_HOSTNAME'):
+            cert_init.main()

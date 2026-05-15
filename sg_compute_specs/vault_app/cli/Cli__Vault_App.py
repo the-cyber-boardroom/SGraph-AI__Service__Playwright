@@ -153,13 +153,20 @@ def _render_vault_app_create(response, console: Console) -> None:
 
 def _set_extras(request, with_playwright=False, podman=False, use_spot=True,
                 storage_mode='disk', seed_vault_keys='', access_token='', disk_size=0,
-                with_tls_check=True, tls_mode='letsencrypt-ip', acme_prod=True):
+                with_tls_check=True, tls_mode='letsencrypt-ip', acme_prod=True,
+                tls_hostname=''):
     request.with_playwright  = bool(with_playwright)
     request.container_engine = 'podman' if podman else 'docker'
     request.use_spot         = bool(use_spot)
     request.with_tls_check   = bool(with_tls_check)
-    request.tls_mode         = tls_mode or 'self-signed'
+    # Auto-bump: --tls-hostname implies letsencrypt-hostname mode when mode is left at the default IP-cert.
+    # Explicit --tls-mode wins (lets the user combine --tls-mode self-signed --tls-hostname for a self-signed CN).
+    resolved_mode = tls_mode or 'self-signed'
+    if tls_hostname and resolved_mode == 'letsencrypt-ip':
+        resolved_mode = 'letsencrypt-hostname'
+    request.tls_mode         = resolved_mode
     request.acme_prod        = bool(acme_prod)
+    request.tls_hostname     = (tls_hostname or '').strip()
     if storage_mode:
         request.storage_mode    = storage_mode
     if seed_vault_keys:
@@ -208,10 +215,17 @@ app = Spec__CLI__Builder(
          'Serve the vault over HTTPS on :443 via the one-shot cert sidecar. '
          'Default ON; pass --no-with-tls-check for plain HTTP on :8080.'),
         ('tls_mode'       , str , 'letsencrypt-ip',
-         "How cert-init obtains the cert: letsencrypt-ip (a real Let's Encrypt cert for "
-         "the EC2 public IP, default) or self-signed (offline; browser will warn)."),
+         "How cert-init obtains the cert: letsencrypt-ip (LE cert for the EC2 public IP, "
+         "default — but NOT reachable from sandbox-egress proxies that validate hostnames); "
+         "letsencrypt-hostname (LE cert for --tls-hostname, sandbox-reachable); "
+         "self-signed (offline; browser will warn)."),
+        ('tls_hostname'   , str , '',
+         "FQDN to issue the cert for when tls_mode=letsencrypt-hostname (or auto-bumps "
+         "tls_mode from letsencrypt-ip → letsencrypt-hostname when set). Point this "
+         "hostname's A record at the stack's EC2 IP BEFORE running create — cert-init "
+         "does not wait for DNS to propagate."),
         ('acme_prod'      , bool, True,
-         "letsencrypt-ip: use the LE production directory (browser-trusted, default). "
+         "letsencrypt-* modes: use the LE production directory (browser-trusted, default). "
          "Pass --no-acme-prod for LE staging (untrusted, rate-limit-safe — for debugging)."),
         # ── secret ───────────────────────────────────────────────────────
         ('access_token'   , str , '',

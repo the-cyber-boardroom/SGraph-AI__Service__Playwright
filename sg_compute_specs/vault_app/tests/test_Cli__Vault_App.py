@@ -41,6 +41,34 @@ class TestCliVaultApp:
         assert '--disk-size'       in result.output
         assert '--access-token'    in result.output
         assert '--name'            in result.output
+        assert '--tls-hostname'    in result.output
+
+    def test_set_extras_auto_bumps_to_hostname_mode_when_tls_hostname_set(self):
+        from sg_compute_specs.vault_app.cli.Cli__Vault_App                       import _set_extras
+        from sg_compute_specs.vault_app.schemas.Schema__Vault_App__Create__Request import Schema__Vault_App__Create__Request
+
+        request = Schema__Vault_App__Create__Request()
+        _set_extras(request, tls_hostname='vault.example.com')                # leave tls_mode at the default
+        assert request.tls_mode     == 'letsencrypt-hostname'
+        assert request.tls_hostname == 'vault.example.com'
+
+    def test_set_extras_explicit_tls_mode_wins_over_auto_bump(self):
+        from sg_compute_specs.vault_app.cli.Cli__Vault_App                       import _set_extras
+        from sg_compute_specs.vault_app.schemas.Schema__Vault_App__Create__Request import Schema__Vault_App__Create__Request
+
+        request = Schema__Vault_App__Create__Request()
+        _set_extras(request, tls_mode='self-signed', tls_hostname='vault.example.com')
+        assert request.tls_mode     == 'self-signed'                          # explicit mode wins; self-signed cert can still use the hostname as CN later
+        assert request.tls_hostname == 'vault.example.com'
+
+    def test_set_extras_no_hostname_keeps_default_ip_mode(self):
+        from sg_compute_specs.vault_app.cli.Cli__Vault_App                       import _set_extras
+        from sg_compute_specs.vault_app.schemas.Schema__Vault_App__Create__Request import Schema__Vault_App__Create__Request
+
+        request = Schema__Vault_App__Create__Request()
+        _set_extras(request)                                                  # all defaults
+        assert request.tls_mode     == 'letsencrypt-ip'
+        assert request.tls_hostname == ''
 
     def test_ami_subcommand_exists(self):
         result = runner.invoke(app, ['ami', '--help'])
