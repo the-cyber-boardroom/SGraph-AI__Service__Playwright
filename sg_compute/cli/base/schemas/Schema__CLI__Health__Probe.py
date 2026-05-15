@@ -9,7 +9,8 @@ from osbot_utils.type_safe.Type_Safe    import Type_Safe
 
 
 class Schema__CLI__Health__Probe(Type_Safe):
-    healthy     : bool              = False
-    state       : str               = ''
-    elapsed_ms  : int               = 0
-    last_error  : str               = ''
+    healthy      : bool             = False
+    state        : str              = ''
+    elapsed_ms   : int              = 0
+    last_error   : str              = ''
+    cert_summary : str              = ''             # served-cert one-liner when the vault was reached over HTTPS

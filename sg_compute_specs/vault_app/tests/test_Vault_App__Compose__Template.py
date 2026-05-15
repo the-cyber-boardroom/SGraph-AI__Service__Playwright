@@ -49,19 +49,29 @@ class TestVaultAppComposeTemplate:
                                                        docker_socket='/run/podman/podman.sock')
         assert '/run/podman/podman.sock:/var/run/docker.sock' in result
 
-    def test_with_tls_check_adds_cert_init_and_tls_check(self):
+    def test_with_tls_check_wires_tls_into_sg_send_vault(self):
         result = Vault_App__Compose__Template().render(ecr_registry=REGISTRY, with_tls_check=True)
+        # the real sg-send-vault service terminates its own HTTPS — no proxy, no scaffold
         assert 'cert-init:'                             in result
-        assert 'tls-check:'                             in result
         assert 'sg_compute.platforms.tls.cert_init'     in result
-        assert 'sg_compute.fast_api.tls.lambda_handler' in result
+        assert 'tls-check:'                             not in result      # P0 scaffold dropped
+        assert 'FAST_API__TLS__ENABLED:        "true"'  in result
+        assert 'certs:/certs:ro'                        in result
         assert '"443:443"'                              in result
+        assert '"8080:8080"'                            not in result      # TLS on → :443 only
         assert 'service_completed_successfully'         in result
         assert '\nvolumes:\n'                           in result          # top-level volumes block
         assert 'certs:'                                 in result
 
+    def test_with_tls_check_cert_init_exposes_acme_challenge_port(self):
+        result = Vault_App__Compose__Template().render(ecr_registry=REGISTRY, with_tls_check=True)
+        assert 'SG__CERT_INIT__MODE'      in result                        # self-signed | letsencrypt-ip
+        assert 'SG__CERT_INIT__ACME_PROD' in result
+        assert '"80:80"'                  in result                        # http-01 challenge listener
+
     def test_without_tls_check_omits_cert_services(self):
         result = Vault_App__Compose__Template().render(ecr_registry=REGISTRY)
-        assert 'cert-init'      not in result
-        assert 'tls-check'      not in result
-        assert '\nvolumes:\n'   not in result                              # service-level `    volumes:` still allowed
+        assert 'cert-init'              not in result
+        assert 'FAST_API__TLS__ENABLED' not in result
+        assert '\nvolumes:\n'           not in result                      # service-level `    volumes:` still allowed
+        assert '"8080:8080"'            in result                          # plain stack keeps the HTTP port

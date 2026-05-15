@@ -66,7 +66,7 @@ SGRAPH_SEND__ACCESS_TOKEN={access_token}
 SEND__STORAGE_MODE={storage_mode}
 VAULT_DATA_PATH=/opt/vault-app/data
 SG_VAULT_APP__SEED_VAULT_KEYS={seed_vault_keys}
-ENVEOF
+{tls_env_lines}ENVEOF
 chmod 600 /opt/vault-app/.env
 
 cat > /opt/vault-app/docker-compose.yml <<'COMPOSEEOF'
@@ -94,13 +94,22 @@ class Vault_App__User_Data__Builder(Type_Safe):
                      storage_mode     : str   = 'disk'       ,
                      seed_vault_keys  : str   = ''           ,
                      max_hours        : float = 1.0          ,
-                     with_tls_check   : bool  = False         ) -> str:
+                     with_tls_check   : bool  = False        ,
+                     tls_mode         : str   = 'self-signed',
+                     acme_prod        : bool  = False         ) -> str:
         engine        = container_engine if container_engine in ('docker', 'podman') else 'docker'
         is_podman     = engine == 'podman'
         docker_socket = '/run/podman/podman.sock' if is_podman else '/var/run/docker.sock'
         compose_cmd   = 'podman-compose' if is_podman else 'docker compose'
         engine_block  = _ENGINE_PODMAN  if is_podman else _ENGINE_DOCKER
         mode          = 'with-playwright' if with_playwright else 'just-vault'
+
+        # cert-init reads these from .env; only emitted when TLS is on.
+        tls_env_lines = ''
+        if with_tls_check:
+            tls_mode      = tls_mode if tls_mode in ('self-signed', 'letsencrypt-ip') else 'self-signed'
+            tls_env_lines = (f'SG__CERT_INIT__MODE={tls_mode}\n'
+                             f'SG__CERT_INIT__ACME_PROD={"true" if acme_prod else "false"}\n')
 
         compose_yaml  = Vault_App__Compose__Template().render(
             ecr_registry    = ecr_registry    ,
@@ -119,6 +128,7 @@ class Vault_App__User_Data__Builder(Type_Safe):
             storage_mode    = storage_mode    ,
             seed_vault_keys = seed_vault_keys ,
             region          = region          ,
+            tls_env_lines   = tls_env_lines   ,
             compose_yaml    = compose_yaml    )
 
         parts = [
