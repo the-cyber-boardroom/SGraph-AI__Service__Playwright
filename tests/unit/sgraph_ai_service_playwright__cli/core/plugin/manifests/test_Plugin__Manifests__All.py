@@ -19,6 +19,7 @@ from sgraph_ai_service_playwright__cli.elastic.plugin.Plugin__Manifest__Elastic 
 from sgraph_ai_service_playwright__cli.firefox.plugin.Plugin__Manifest__Firefox      import Plugin__Manifest__Firefox
 from sgraph_ai_service_playwright__cli.neko.plugin.Plugin__Manifest__Neko            import Plugin__Manifest__Neko
 from sgraph_ai_service_playwright__cli.opensearch.plugin.Plugin__Manifest__OpenSearch import Plugin__Manifest__OpenSearch
+from sgraph_ai_service_playwright__cli.playwright.plugin.Plugin__Manifest__Playwright import Plugin__Manifest__Playwright
 from sgraph_ai_service_playwright__cli.podman.plugin.Plugin__Manifest__Podman        import Plugin__Manifest__Podman
 from sgraph_ai_service_playwright__cli.prometheus.plugin.Plugin__Manifest__Prometheus import Plugin__Manifest__Prometheus
 from sgraph_ai_service_playwright__cli.vnc.plugin.Plugin__Manifest__Vnc              import Plugin__Manifest__Vnc
@@ -37,10 +38,10 @@ class test_Plugin__Manifests__All(TestCase):
 
     # ── registry discovery ───────────────────────────────────────────────────
 
-    def test__discover__loads_exactly_6_enabled_plugins(self):
+    def test__discover__loads_exactly_7_enabled_plugins(self):
         registry = _make_registry()
         registry.discover()
-        assert set(registry.manifests.keys()) == {'podman', 'docker', 'elastic', 'vnc', 'neko', 'firefox'}
+        assert set(registry.manifests.keys()) == {'podman', 'docker', 'elastic', 'vnc', 'neko', 'firefox', 'playwright'}
 
     def test__discover__prometheus_and_opensearch_skipped(self):
         skipped_names = []
@@ -49,16 +50,22 @@ class test_Plugin__Manifests__All(TestCase):
         assert 'prometheus'  in skipped_names
         assert 'opensearch'  in skipped_names
 
-    def test__discover__6_loaded_events_fired(self):
+    def test__discover__7_loaded_events_fired(self):
         loaded = []
         event_bus.on('core:plugin.loaded', lambda p: loaded.append(str(p.name)))
         _make_registry().discover()
-        assert set(loaded) == {'podman', 'docker', 'elastic', 'vnc', 'neko', 'firefox'}
+        assert set(loaded) == {'podman', 'docker', 'elastic', 'vnc', 'neko', 'firefox', 'playwright'}
 
-    def test__plugin_folders__contains_all_8_types(self):
-        assert set(PLUGIN_FOLDERS) == {'podman', 'docker', 'elastic', 'vnc', 'prometheus', 'opensearch', 'neko', 'firefox'}
+    def test__plugin_folders__contains_all_9_types(self):
+        assert set(PLUGIN_FOLDERS) == {'podman', 'docker', 'elastic', 'vnc', 'prometheus', 'opensearch', 'neko', 'firefox', 'playwright'}
 
     # ── individual manifest properties ───────────────────────────────────────
+
+    def test__manifest_playwright__enabled_experimental(self):
+        m = Plugin__Manifest__Playwright()
+        assert str(m.name)  == 'playwright'
+        assert m.enabled    is True
+        assert m.stability  == Enum__Plugin__Stability.EXPERIMENTAL
 
     def test__manifest_podman__properties(self):
         m = Plugin__Manifest__Podman()
