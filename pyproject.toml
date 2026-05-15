@@ -27,10 +27,10 @@ cryptography                 = "*"
 typer                        = "*"
 
 [tool.poetry.scripts]
-sg         = "scripts.provision_ec2:app"                                                # primary alias — new branding
-sgc        = "scripts.provision_ec2:app"                                                # short alias (sg-compute)
-sg-compute = "scripts.provision_ec2:app"                                                # full hyphenated alias
-sp         = "scripts.provision_ec2:app"                                                # legacy alias — kept for backward compat
+sg         = "sg_compute.cli.Cli__SG:app"                                               # primary alias — spec-driven aggregator
+sgc        = "sg_compute.cli.Cli__SG:app"                                               # short alias (sg-compute)
+sg-compute = "sg_compute.cli.Cli__SG:app"                                               # full hyphenated alias
+sp         = "sg_compute.cli.Cli__SG:app"                                               # legacy alias — kept for backward compat
 sp-cli     = "scripts.run_sp_cli:main"                                                  # Run the SP CLI FastAPI app locally under uvicorn (Lambda-equivalent surface; see scripts/run_sp_cli.py)
 
 [tool.poetry.group.dev.dependencies]
