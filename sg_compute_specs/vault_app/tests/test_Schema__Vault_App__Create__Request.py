@@ -37,3 +37,28 @@ class TestSchemaVaultAppCreateRequest:
         req = Schema__Vault_App__Create__Request()
         req.use_spot = False
         assert req.use_spot is False
+
+    def test_tls_defaults_to_production_letsencrypt(self):
+        # `sp vault-app create --wait` (no extra flags) must produce a browser-trusted
+        # LE IP cert by default — locks in the v0.2.6 final-mile defaults.
+        req = Schema__Vault_App__Create__Request()
+        assert req.with_tls_check is True
+        assert req.tls_mode       == 'letsencrypt-ip'
+        assert req.acme_prod      is True
+        assert req.tls_hostname   == ''                      # opt-in: caller sets this to switch to letsencrypt-hostname
+
+    def test_override_tls_hostname(self):
+        req = Schema__Vault_App__Create__Request()
+        req.tls_mode     = 'letsencrypt-hostname'
+        req.tls_hostname = 'vault.example.com'
+        assert req.tls_mode     == 'letsencrypt-hostname'
+        assert req.tls_hostname == 'vault.example.com'
+
+    def test_with_aws_dns_default_off(self):
+        req = Schema__Vault_App__Create__Request()
+        assert req.with_aws_dns is False        # opt-in only — the flag is the explicit consent to Route 53 mutations
+
+    def test_override_with_aws_dns(self):
+        req = Schema__Vault_App__Create__Request()
+        req.with_aws_dns = True
+        assert req.with_aws_dns is True

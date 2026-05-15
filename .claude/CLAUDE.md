@@ -109,7 +109,7 @@ Six personas, one shared codebase. Pick the role that fits the task before you s
 4. **Schemas are pure data** — no methods
 5. **Collection subclasses are pure type definitions** — no methods
 6. **Every route returns `.json()` on a Type_Safe schema** — no raw dicts
-7. **`═══` 80-char headers** — every file, every section
+7. **`═══` 80-char headers** — every file, every section. **Python files only.** In Markdown, `#` is heading syntax — a `# ═══` header block renders as a stack of H1s on GitHub. For Markdown deliverables (briefs, plans, debriefs, reviews) use YAML frontmatter — see [`library/guides/v0.2.15__markdown_doc_style.md`](../library/guides/v0.2.15__markdown_doc_style.md).
 8. **Inline comments only** — no docstrings, ever
 9. **No underscore prefix** for private methods
 
