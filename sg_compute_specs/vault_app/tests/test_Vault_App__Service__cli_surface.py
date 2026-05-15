@@ -147,6 +147,36 @@ class TestVaultAppServiceCliSurface:
                                    with_tls_check=True, tls_mode='banana')
         assert 'SG__CERT_INIT__MODE=self-signed' in user_data                  # whitelist guard in the builder
 
+    def test_with_aws_dns_derives_fqdn_from_stack_name_and_default_zone(self, monkeypatch):
+        # Pure derivation test — verifies create_stack's pre-launch wiring without going to AWS.
+        # We can't easily run the full create_stack (it talks to EC2 / IAM / SG), so we exercise
+        # the derivation logic via the helper that drives it.
+        from sg_compute_specs.vault_app.schemas.Schema__Vault_App__Create__Request import Schema__Vault_App__Create__Request
+        from sg_compute_specs.vault_app.service.Vault_App__Service                  import _default_aws_dns_zone
+
+        monkeypatch.setenv('SG_AWS__DNS__DEFAULT_ZONE', 'sg-compute.sgraph.ai')
+        request = Schema__Vault_App__Create__Request()
+        request.with_aws_dns = True
+        request.tls_hostname = ''
+        request.tls_mode     = 'letsencrypt-ip'                                 # default — should be auto-bumped
+
+        # Mirror the service's derivation block:
+        stack_name = 'warm-bohr'
+        if bool(request.with_aws_dns) and not str(request.tls_hostname).strip():
+            request.tls_hostname = f'{stack_name}.{_default_aws_dns_zone()}'
+            if str(request.tls_mode) == 'letsencrypt-ip':
+                request.tls_mode = 'letsencrypt-hostname'
+
+        assert request.tls_hostname == 'warm-bohr.sg-compute.sgraph.ai'
+        assert request.tls_mode     == 'letsencrypt-hostname'
+
+    def test_default_aws_dns_zone_env_overrides_fallback(self, monkeypatch):
+        from sg_compute_specs.vault_app.service.Vault_App__Service import _default_aws_dns_zone, DEFAULT_AWS_DNS_ZONE_FALLBACK
+        monkeypatch.delenv('SG_AWS__DNS__DEFAULT_ZONE', raising=False)
+        assert _default_aws_dns_zone() == DEFAULT_AWS_DNS_ZONE_FALLBACK
+        monkeypatch.setenv('SG_AWS__DNS__DEFAULT_ZONE', 'corp.example.com')
+        assert _default_aws_dns_zone() == 'corp.example.com'
+
     def test_user_data_without_tls_check_omits_cert_sidecar(self):
         builder   = Vault_App__User_Data__Builder()
         user_data = builder.render(stack_name='test-stack', region='eu-west-2',

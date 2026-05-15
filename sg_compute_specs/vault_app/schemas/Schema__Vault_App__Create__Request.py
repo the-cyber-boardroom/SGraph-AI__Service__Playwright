@@ -27,4 +27,5 @@ class Schema__Vault_App__Create__Request(Type_Safe):
     with_tls_check   : bool  = True         # default: serve HTTPS on :443 via the cert sidecar
     tls_mode         : str   = 'letsencrypt-ip' # letsencrypt-ip | letsencrypt-hostname | self-signed
     acme_prod        : bool  = True         # default: LE production directory (browser-trusted)
-    tls_hostname     : str   = ''           # required when tls_mode=letsencrypt-hostname; the FQDN whose A record points at this stack's EC2 IP
+    tls_hostname     : str   = ''           # required when tls_mode=letsencrypt-hostname; the FQDN whose A record points at this stack's EC2 IP. Auto-derived from stack-name + default zone when --with-aws-dns is on and this is blank.
+    with_aws_dns     : bool  = False        # opt in to parallel Route 53 A-record creation on `create`. Auto-derives tls_hostname from <stack-name>.<default-zone> (e.g. warm-bohr.sg-compute.sgraph.ai) when tls_hostname is blank. AWS-only.

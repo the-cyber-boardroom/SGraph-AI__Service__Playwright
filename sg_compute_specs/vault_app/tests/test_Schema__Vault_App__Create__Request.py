@@ -53,3 +53,12 @@ class TestSchemaVaultAppCreateRequest:
         req.tls_hostname = 'vault.example.com'
         assert req.tls_mode     == 'letsencrypt-hostname'
         assert req.tls_hostname == 'vault.example.com'
+
+    def test_with_aws_dns_default_off(self):
+        req = Schema__Vault_App__Create__Request()
+        assert req.with_aws_dns is False        # opt-in only — the flag is the explicit consent to Route 53 mutations
+
+    def test_override_with_aws_dns(self):
+        req = Schema__Vault_App__Create__Request()
+        req.with_aws_dns = True
+        assert req.with_aws_dns is True

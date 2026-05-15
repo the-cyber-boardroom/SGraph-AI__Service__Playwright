@@ -35,10 +35,15 @@ from sg_compute_specs.vault_app.service.Vault_App__Stack__Mapper            impo
                                                                                     TAG_WITH_PLAYWRIGHT      )
 from sg_compute_specs.vault_app.service.Vault_App__User_Data__Builder       import Vault_App__User_Data__Builder
 
-DEFAULT_REGION        = os.environ.get('AWS_DEFAULT_REGION', 'eu-west-2')
-DEFAULT_INSTANCE_TYPE = 't3.medium'
-PROFILE_NAME          = 'playwright-ec2'             # IAM profile granting SSM + ECR access
-VAULT_PORT            = 8080                         # only host port published by the stack
+DEFAULT_REGION                = os.environ.get('AWS_DEFAULT_REGION', 'eu-west-2')
+DEFAULT_INSTANCE_TYPE         = 't3.medium'
+PROFILE_NAME                  = 'playwright-ec2'             # IAM profile granting SSM + ECR access
+VAULT_PORT                    = 8080                         # only host port published by the stack
+DEFAULT_AWS_DNS_ZONE_FALLBACK = 'sg-compute.sgraph.ai'       # same default as sgraph_ai_service_playwright__cli/aws/dns — single source of truth via env
+
+
+def _default_aws_dns_zone() -> str:
+    return os.environ.get('SG_AWS__DNS__DEFAULT_ZONE', DEFAULT_AWS_DNS_ZONE_FALLBACK)
 
 
 class Vault_App__Service(Spec__Service__Base):
@@ -75,6 +80,14 @@ class Vault_App__Service(Spec__Service__Base):
                            creator : str = '') -> Schema__Vault_App__Create__Response:
         t0           = time.monotonic()
         stack_name   = str(request.stack_name)    or self.name_gen.generate()
+        # --with-aws-dns auto-derives the FQDN from the resolved stack name + default zone,
+        # unless the caller explicitly set tls_hostname. The derivation has to happen here
+        # (before user-data is built) because cert-init reads SG__CERT_INIT__TLS_HOSTNAME
+        # from the EC2 instance's env file.
+        if bool(request.with_aws_dns) and not str(request.tls_hostname).strip():
+            request.tls_hostname = f'{stack_name}.{_default_aws_dns_zone()}'
+            if str(request.tls_mode) == 'letsencrypt-ip':                                # auto-bump: the whole point of --with-aws-dns is to get a hostname cert
+                request.tls_mode = 'letsencrypt-hostname'
         region       = str(request.region)        or DEFAULT_REGION
         caller_ip    = str(request.caller_ip)     or self.ip_detector.detect()
         if not caller_ip:
