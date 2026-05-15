@@ -59,6 +59,9 @@ class test_Cli__Dns__helpers(TestCase):
     def test__for_record__sub_zone_fqdn_picks_deepest_zone(self):                     # The actual bug case
         assert _resolve_zone_id_for_record(self.client, '', 'test.sg-compute.sgraph.ai') == 'Z02SGCOMPUTE'
 
+    def test__for_record__child_zone_apex_picks_child_zone(self):                     # Second bug: querying NS / SOA at sg-compute.sgraph.ai must hit Z02SGCOMPUTE
+        assert _resolve_zone_id_for_record(self.client, '', 'sg-compute.sgraph.ai') == 'Z02SGCOMPUTE'
+
     def test__for_record__sub_zone_fqdn_with_trailing_dot(self):
         assert _resolve_zone_id_for_record(self.client, '', 'test.sg-compute.sgraph.ai.') == 'Z02SGCOMPUTE'
 
