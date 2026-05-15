@@ -101,7 +101,10 @@ class Vault_App__Service(Spec__Service__Base):
         ecr_registry = ecr_registry_host(region)
 
         # SG layout:
-        #   :8080  always — vault UI on plain HTTP for non-TLS / SSM-forward use; caller-/32 only.
+        #   :8080  default — vault UI on plain HTTP for non-TLS / SSM-forward use; caller-/32 only.
+        #          PROMOTED to 0.0.0.0/0 when --no-with-tls-check AND --with-aws-dns: that combination
+        #          signals "plain-HTTP vault, sandbox-reachable" (Anthropic / corporate egress proxies
+        #          reputation-block fresh HTTPS subdomains; plain HTTP passes through). Token still gates.
         #   :443   --with-tls-check — HTTPS vault. World-open (token-gated; LE validates from unpredictable IPs).
         #   :80    shared — ACME http-01 (cert-init, transient) AND playwright REST API (after cert-init exits).
         #          World-open in either case; cert-init+playwright is a compose `depends_on` race-free.
@@ -109,6 +112,8 @@ class Vault_App__Service(Spec__Service__Base):
         if bool(request.with_tls_check):
             extra_cidrs[443] = '0.0.0.0/0'
             extra_cidrs[80]  = '0.0.0.0/0'
+        elif bool(request.with_aws_dns):                                              # --no-with-tls-check + --with-aws-dns: vault on :8080 plain HTTP, world-open
+            extra_cidrs[VAULT_PORT] = '0.0.0.0/0'
         if bool(request.with_playwright):
             extra_cidrs[PLAYWRIGHT_EXTERNAL_PORT] = '0.0.0.0/0'
         sg_id = self.aws_client.sg.ensure_security_group(
@@ -124,7 +129,7 @@ class Vault_App__Service(Spec__Service__Base):
             TAG_TLS_ENABLED    : 'true' if request.with_tls_check else 'false' ,
             TAG_ACCESS_TOKEN   : access_token                                  ,   # surfaced by `sp vault-app info`; visible via ec2:DescribeInstances
         }
-        if tls_hostname and bool(request.with_tls_check):                          # only meaningful when TLS is on and the cert is for a hostname
+        if tls_hostname and (bool(request.with_tls_check) or bool(request.with_aws_dns)):  # tag carries the stack's FQDN whenever there is one — used for URL construction (cert + DNS scenarios)
             extra[TAG_TLS_HOSTNAME] = tls_hostname
         if float(request.max_hours) > 0:
             terminate_at = datetime.now(timezone.utc) + timedelta(hours=float(request.max_hours))

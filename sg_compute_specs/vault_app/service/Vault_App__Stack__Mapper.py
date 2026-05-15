@@ -52,13 +52,16 @@ class Vault_App__Stack__Mapper(Type_Safe):
         tls_on                  = tag_value(details, TAG_TLS_ENABLED)     == 'true'
         with_playwright         = tag_value(details, TAG_WITH_PLAYWRIGHT) == 'true'
         tls_hostname            = tag_value(details, TAG_TLS_HOSTNAME) or ''
-        # The cert host: hostname when LE was issued for an FQDN, the IP otherwise.
-        # Browsers (and Anthropic's egress proxy) reject mismatches strictly, so the URL
-        # surfaced to operators MUST match the cert SAN.
-        cert_host = tls_hostname if tls_hostname else public_ip
+        # vault_url construction. The FQDN tag (StackTlsHostname) is set in any of:
+        #   - TLS + LE-hostname cert: vault on :443 HTTPS at the FQDN
+        #   - --no-with-tls-check + --with-aws-dns: vault on :8080 plain HTTP at the FQDN (sandbox-reachable)
+        # Browsers reject hostname/cert mismatches, so the URL surfaced to operators MUST match
+        # the cert SAN when TLS is on. When TLS is off, the FQDN still wins (over the IP) because
+        # the A record is set and the FQDN is what egress proxies see and pass through.
+        host_for_vault = tls_hostname if tls_hostname else public_ip
         if public_ip:
-            vault_url      = (f'https://{cert_host}' if tls_on
-                              else f'http://{public_ip}:{VAULT_PORT}')
+            vault_url      = (f'https://{host_for_vault}' if tls_on
+                              else f'http://{host_for_vault}:{VAULT_PORT}')
             # Omit the :80 suffix — it's the default HTTP port and 'http://host' is cleaner / more sandbox-friendly.
             port_suffix    = '' if PLAYWRIGHT_EXTERNAL_PORT == 80 else f':{PLAYWRIGHT_EXTERNAL_PORT}'
             # Playwright is plain HTTP; the hostname still works (resolves to the IP, no cert involved).
