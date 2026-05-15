@@ -108,5 +108,15 @@ app.add_typer(_observability_app, name='observability', hidden=True)
 app.add_typer(_observability_app, name='ob',            hidden=True)
 
 
+# ── repl ─────────────────────────────────────────────────────────────────────
+import typer as _typer
+
+@app.command()
+def repl():
+    """Interactive shell — navigate sections and run commands without the sg prefix."""
+    from sg_compute.cli.Cli__SG__Repl import run_repl
+    run_repl()
+
+
 if __name__ == '__main__':
     app()
