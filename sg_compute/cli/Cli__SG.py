@@ -103,6 +103,11 @@ app.add_typer(_aws_app, name='aws')                                             
 from scripts.doctor import app as _doctor_app
 app.add_typer(_doctor_app, name='doctor')
 
+# ── vault-publish ────────────────────────────────────────────────────────────
+from vault_publish.cli.Cli__Vault_Publish import app as _vault_publish_app
+app.add_typer(_vault_publish_app, name='vp'           )                                                  # vault-publish — subdomain publishing flow (in-progress; pending rethink against sg aws / sg vault-app)
+app.add_typer(_vault_publish_app, name='vault-publish', hidden=True)
+
 
 if __name__ == '__main__':
     app()
