@@ -23,6 +23,7 @@ osbot-aws                    = "*"
 osbot-fast-api               = "*"
 osbot-fast-api-serverless    = "*"
 prometheus-client            = "*"
+cryptography                 = "*"
 typer                        = "*"
 
 [tool.poetry.scripts]
