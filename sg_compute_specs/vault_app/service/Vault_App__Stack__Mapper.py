@@ -24,8 +24,9 @@ TAG_ACCESS_TOKEN    = 'AccessToken'               # vault API key + access token
                                                   # AWS-API path explicit so `sp vault-app info` can surface it.
 STACK_TYPE          = 'vault-app'
 
-VAULT_PORT              = 8080
+VAULT_PORT               = 8080
 PLAYWRIGHT_EXTERNAL_PORT = 11024                  # host:11024 → container:8000 when --with-playwright
+HOST_PLANE_LOCAL_PORT    = 19009                  # 127.0.0.1:19009 → host-plane:8000 — SSM-port-forward target only
 
 
 def _time_remaining(details: dict) -> tuple:
@@ -52,8 +53,17 @@ class Vault_App__Stack__Mapper(Type_Safe):
             playwright_url = f'http://{public_ip}:{PLAYWRIGHT_EXTERNAL_PORT}' if with_playwright else ''
         else:
             vault_url, playwright_url = '', ''
+        instance_id    = details.get('InstanceId', '') or ''
+        host_plane_url = f'http://localhost:{HOST_PLANE_LOCAL_PORT}' if instance_id else ''
+        ssm_forward    = (
+            f'aws ssm start-session --target {instance_id} '
+            f'--document-name AWS-StartPortForwardingSession '
+            f'--parameters \'{{"portNumber":["{HOST_PLANE_LOCAL_PORT}"],'
+            f'"localPortNumber":["{HOST_PLANE_LOCAL_PORT}"]}}\' '
+            f'--region {region}'
+        ) if instance_id else ''
         return Schema__Vault_App__Info(
-            instance_id        = details.get('InstanceId', '')                       ,
+            instance_id        = instance_id                                         ,
             stack_name         = tag_value(details, TAG_STACK_NAME)                  ,
             region             = region                                              ,
             state              = state_str(details)                                  ,
@@ -64,6 +74,8 @@ class Vault_App__Stack__Mapper(Type_Safe):
             security_group_id  = first_sg_id(details)                                ,
             vault_url          = vault_url                                            ,
             playwright_url     = playwright_url                                       ,
+            host_plane_url     = host_plane_url                                       ,
+            ssm_forward        = ssm_forward                                          ,
             tls_enabled        = tls_on                                               ,
             with_playwright    = with_playwright                                      ,
             container_engine   = tag_value(details, TAG_ENGINE)                      ,

@@ -26,6 +26,8 @@ services:
 _HOST_PLANE = '''
   host-plane:
     image: {ecr_registry}/sgraph_ai_service_playwright_host:{image_tag}
+    ports:
+      - "127.0.0.1:19009:8000"   # localhost-only on the EC2 host; reachable via SSM port-forward only
     volumes:
       - {docker_socket}:/var/run/docker.sock
     environment:

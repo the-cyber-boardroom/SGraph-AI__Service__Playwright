@@ -18,6 +18,8 @@ class Schema__Vault_App__Info(Type_Safe):
     security_group_id  : str  = ''
     vault_url          : str  = ''    # https://<public-ip> (TLS on) or http://<public-ip>:8080 (plain)
     playwright_url     : str  = ''    # http://<public-ip>:11024 when --with-playwright; '' otherwise
+    host_plane_url     : str  = ''    # http://localhost:19009 — reachable only via the SSM port-forward below
+    ssm_forward        : str  = ''    # ready-to-paste `aws ssm start-session ... AWS-StartPortForwardingSession ...`
     tls_enabled        : bool = False # from StackTLS tag — drives the vault_url scheme
     access_token       : str  = ''    # from AccessToken tag — vault API key + access token (same value, two headers)
     with_playwright    : bool = False # from StackWithPlaywright tag
