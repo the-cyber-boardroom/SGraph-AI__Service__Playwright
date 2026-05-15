@@ -851,9 +851,6 @@ app.add_typer(_vault_app_app, name='va', hidden=True)                           
 from scripts.catalog import app as _catalog_app  # noqa: E402
 app.add_typer(_catalog_app, name='catalog')
 
-from sgraph_ai_service_playwright__cli.aws.cli.Cli__Aws import app as _aws_app  # noqa: E402
-app.add_typer(_aws_app, name='aws')                                                       # AWS resource management (DNS, ACM, …)
-
 # v0.1.97 (3/3) — sp doctor: global preflight (replaces sp ensure-passrole)
 from scripts.doctor import app as _doctor_app  # noqa: E402
 app.add_typer(_doctor_app, name='doctor')
