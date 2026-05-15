@@ -20,20 +20,31 @@ FROM mcr.microsoft.com/playwright/python:v1.58.0-noble
 WORKDIR /app
 
 COPY sg_compute_specs/playwright/requirements.txt ./
-RUN  python -m pip install -r requirements.txt --no-cache-dir
+# Use `python3 -m pip` (not `python -m pip`) so the install target matches the
+# CMD interpreter below. In some Microsoft playwright base-image tags `python`
+# and `python3` resolve to different interpreters with separate site-packages —
+# installing under `python` then running under `python3` produces a runtime
+# ModuleNotFoundError even though pip succeeded.
+RUN  python3 -m pip install -r requirements.txt --no-cache-dir
 
-# Build-time guard — this is the regression this layer prevents from re-shipping:
-#   1. The python `playwright` module imports.
-#   2. Its version matches the base-image tag (the wheel's Node driver protocol
-#      must align with the Chromium revision bundled in /ms-playwright/).
-#   3. The bundled Chromium binary exists where playwright expects it.
-# When bumping the base image (FROM line above), bump the literal below AND the
-# pin in requirements.txt in lockstep — all three must move together.
-RUN  python3 -c "import playwright; \
+# Build-time guard — this is the regression this layer prevents from re-shipping.
+# Runs in the same `python3` interpreter as CMD below, so a successful guard is
+# proof that runtime imports will succeed. Version-comparison is normalised
+# with packaging.version so wheel metadata suffixes (e.g. '1.58.0.post1') don't
+# break the assertion — the requirements.txt pin is the source of truth for
+# the exact version; this guard just verifies the install ended up in the
+# right interpreter and matches the major.minor.patch we asked for.
+# When bumping the base image (FROM line above), bump the pin in
+# requirements.txt AND the literal below in lockstep — all three must move
+# together.
+RUN  python3 -m pip show playwright
+RUN  python3 -c "import sys; print('python:', sys.executable, sys.version); \
+                 import playwright; print('playwright at:', playwright.__file__, 'version:', playwright.__version__); \
                  from playwright.sync_api import sync_playwright; \
-                 assert playwright.__version__ == '1.58.0', \
-                        f'playwright {playwright.__version__} != base image 1.58.0'; \
-                 print('build-time guard OK: playwright', playwright.__version__)"
+                 from packaging.version import Version; \
+                 assert Version(playwright.__version__).release[:3] == (1, 58, 0), \
+                        f'playwright {playwright.__version__} not in the 1.58.0 family (base image v1.58.0-noble)'; \
+                 print('build-time guard OK')"
 
 COPY sg_compute/        sg_compute/
 COPY sg_compute_specs/  sg_compute_specs/
