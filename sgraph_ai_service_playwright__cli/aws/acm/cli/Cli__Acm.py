@@ -17,6 +17,8 @@ import typer
 from rich.console import Console
 from rich.table   import Table
 
+from sg_compute.cli.base.Spec__CLI__Errors                                         import spec_cli_errors
+
 from sgraph_ai_service_playwright__cli.aws.acm.service.ACM__AWS__Client            import ACM__AWS__Client
 
 acm_app = typer.Typer(name='acm', help='ACM certificate management (read-only).', no_args_is_help=True)
@@ -35,6 +37,7 @@ def _arn_short(arn: str) -> str:                                                
 # ── acm list ──────────────────────────────────────────────────────────────────
 
 @acm_app.command('list')
+@spec_cli_errors
 def acm_list(region     : str  = typer.Option(None,  '--region',      '-r', help='AWS region. Omit for dual-region scan (current + us-east-1).'),
              all_regions: bool = typer.Option(False, '--all-regions',       help='Scan all commercial regions (slow; rate-limited).'),
              json_output: bool = typer.Option(False, '--json',              help='Output JSON instead of a table.')):
@@ -83,6 +86,7 @@ def acm_list(region     : str  = typer.Option(None,  '--region',      '-r', help
 # ── acm show ──────────────────────────────────────────────────────────────────
 
 @acm_app.command('show')
+@spec_cli_errors
 def acm_show(arn_or_domain: str  = typer.Argument(..., help='Full ACM certificate ARN.'),
              region       : str  = typer.Option(None,  '--region', '-r', help='AWS region. Auto-detected from ARN when omitted.'),
              json_output  : bool = typer.Option(False, '--json',         help='Output JSON instead of a table.')):

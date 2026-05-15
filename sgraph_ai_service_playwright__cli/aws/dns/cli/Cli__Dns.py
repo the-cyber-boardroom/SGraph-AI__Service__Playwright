@@ -27,6 +27,8 @@ from rich.console import Console
 from rich.table   import Table
 from rich.panel   import Panel
 
+from sg_compute.cli.base.Spec__CLI__Errors                                       import spec_cli_errors
+
 from sgraph_ai_service_playwright__cli.aws.dns.enums.Enum__Dns__Resolver                 import Enum__Dns__Resolver
 from sgraph_ai_service_playwright__cli.aws.dns.enums.Enum__Route53__Record_Type          import Enum__Route53__Record_Type
 from sgraph_ai_service_playwright__cli.aws.dns.service.Dig__Runner                       import Dig__Runner
@@ -75,8 +77,11 @@ records_app  = typer.Typer(name='records',  help='Record set commands.',     no_
 instance_app = typer.Typer(name='instance', help='EC2-instance DNS helpers.', no_args_is_help=True)
 
 dns_app.add_typer(zones_app,    name='zones'   )
+dns_app.add_typer(zones_app,    name='z',        hidden=True)                        # short alias — matches the sg sub-typer convention (pw/el/os/va/…)
 dns_app.add_typer(records_app,  name='records' )
+dns_app.add_typer(records_app,  name='r',        hidden=True)
 dns_app.add_typer(instance_app, name='instance')
+dns_app.add_typer(instance_app, name='i',        hidden=True)
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -289,6 +294,7 @@ surfaced by `sp pw v info`."""
 # ── zones list ────────────────────────────────────────────────────────────────
 
 @zones_app.command('list')
+@spec_cli_errors
 def zones_list(json_output: bool = typer.Option(False, '--json', help='Output JSON instead of a table.')):
     """List all hosted zones in the account."""
     client = _client()
@@ -323,6 +329,7 @@ def zones_list(json_output: bool = typer.Option(False, '--json', help='Output JS
 # ── zones show ────────────────────────────────────────────────────────────────
 
 @zones_app.command('show')
+@spec_cli_errors
 def zones_show(zone       : str  = typer.Argument(None, help='Zone name or id. Defaults to sgraph.ai.'),
                json_output: bool = typer.Option(False, '--json', help='Output JSON instead of a table.')):
     """Show details of one hosted zone."""
@@ -355,6 +362,7 @@ def zones_show(zone       : str  = typer.Argument(None, help='Zone name or id. D
 # ── records list ──────────────────────────────────────────────────────────────
 
 @records_app.command('list')
+@spec_cli_errors
 def records_list(zone       : str  = typer.Argument(None, help='Zone name or id. Defaults to sgraph.ai.'),
                  json_output: bool = typer.Option(False, '--json', help='Output JSON instead of a table.')):
     """List all records in a hosted zone."""
@@ -392,6 +400,7 @@ def records_list(zone       : str  = typer.Argument(None, help='Zone name or id.
 # ── records get ───────────────────────────────────────────────────────────────
 
 @records_app.command('get')
+@spec_cli_errors
 def records_get(name       : str  = typer.Argument(..., help='Record name (e.g. www.sgraph.ai).'),
                 zone       : str  = typer.Option(None,  '--zone', '-z', help='Zone name or id. Defaults to sgraph.ai.'),
                 rtype      : str  = typer.Option('A',   '--type', '-t', help='Record type (A, CNAME, MX, …).'),
@@ -443,6 +452,7 @@ def _looks_like_instance_ref(arg: str) -> bool:                                 
 
 
 @records_app.command('add')
+@spec_cli_errors
 def records_add(arg1         : str  = typer.Argument(None,  help='FQDN (e.g. test-2.sg-compute.sgraph.ai) OR instance ref (i-... / stack-name). Omit to use latest running instance + derived name.'),
                 arg2         : str  = typer.Argument(None,  help='FQDN — when arg1 is an instance ref. Omit to derive `<stack-name>.<default-zone>`.'),
                 value        : str  = typer.Option(None,  '--value', '-v', help='Explicit record value (skips instance auto-resolution). Required for non-A record types.'),
@@ -484,7 +494,14 @@ def records_add(arg1         : str  = typer.Argument(None,  help='FQDN (e.g. tes
     fqdn              = None                                                          # The record name to create — derived later if still None
     instance_resolved = False                                                          # Tracks whether the IP came from an instance lookup (controls cert-warning + auto-upsert)
 
-    if value:                                                                         # Explicit-value path — arg1 must be the FQDN, arg2 must be absent
+    if arg1 and _looks_like_instance_ref(arg1) and value:                             # Instance ref + --value: --value is the FQDN/leaf-name, NOT a record value (instance provides the IP)
+        if arg2:
+            typer.echo('When the first positional is an instance ref, do not combine --value with a second positional FQDN. Pick one.', err=True)
+            raise typer.Exit(1)
+        instance_ref = arg1
+        fqdn         = value
+        value        = None                                                            # Force instance-IP auto-resolution downstream
+    elif value:                                                                       # Explicit-value path — arg1 must be the FQDN, arg2 must be absent
         if not arg1:
             typer.echo('When --value is given, the first positional argument must be the FQDN.', err=True)
             raise typer.Exit(1)
@@ -637,6 +654,7 @@ def records_add(arg1         : str  = typer.Argument(None,  help='FQDN (e.g. tes
 # ── records update ────────────────────────────────────────────────────────────
 
 @records_app.command('update')
+@spec_cli_errors
 def records_update(name       : str  = typer.Argument(...,  help='Record name (FQDN).'),
                    value      : str  = typer.Option(...,   '--value', '-v', help='New record value.'),
                    rtype      : str  = typer.Option('A',   '--type',  '-t', help='Record type.'),
@@ -685,6 +703,7 @@ def records_update(name       : str  = typer.Argument(...,  help='Record name (F
 # ── records delete ────────────────────────────────────────────────────────────
 
 @records_app.command('delete')
+@spec_cli_errors
 def records_delete(name       : str  = typer.Argument(...,  help='Record name (FQDN).'),
                    rtype      : str  = typer.Option('A',   '--type',  '-t', help='Record type.'),
                    zone       : str  = typer.Option(None,  '--zone',  '-z', help='Zone name or id.'),
@@ -733,6 +752,7 @@ def records_delete(name       : str  = typer.Argument(...,  help='Record name (F
 # ── records check ─────────────────────────────────────────────────────────────
 
 @records_app.command('check')
+@spec_cli_errors
 def records_check(name             : str  = typer.Argument(..., help='Record name (FQDN).'),
                   rtype            : str  = typer.Option('A',   '--type',            '-t', help='Record type.'),
                   zone             : str  = typer.Option(None,  '--zone',            '-z', help='Zone name or id.'),
@@ -810,6 +830,7 @@ def records_check(name             : str  = typer.Argument(..., help='Record nam
 # ── instance create-record ────────────────────────────────────────────────────
 
 @instance_app.command('create-record')
+@spec_cli_errors
 def instance_create_record(
         instance     : str  = typer.Argument(None,   help='Instance id or Name tag. Omit to use most recent SG-AI instance.'),
         name         : str  = typer.Option(None,  '--name',       help='Explicit FQDN for the record.'),
