@@ -17,6 +17,11 @@ from sg_compute_specs.vault_app.schemas.Schema__Vault_App__Info import Schema__V
 TAG_WITH_PLAYWRIGHT = 'StackWithPlaywright'
 TAG_ENGINE          = 'StackEngine'
 TAG_TERMINATE_AT    = 'TerminateAt'
+TAG_TLS_ENABLED     = 'StackTLS'                  # 'true' when --with-tls-check; drives the vault_url scheme
+TAG_ACCESS_TOKEN    = 'AccessToken'               # vault API key + access token (same value, two headers).
+                                                  # Note: ec2:DescribeInstances exposes this; the access token was
+                                                  # already recoverable on the box via SSM, this just makes the
+                                                  # AWS-API path explicit so `sp vault-app info` can surface it.
 STACK_TYPE          = 'vault-app'
 
 VAULT_PORT = 8080
@@ -39,6 +44,11 @@ class Vault_App__Stack__Mapper(Type_Safe):
     def to_info(self, details: dict, region: str) -> Schema__Vault_App__Info:
         public_ip               = details.get('PublicIpAddress', '') or ''
         terminate_at, remaining = _time_remaining(details)
+        tls_on                  = tag_value(details, TAG_TLS_ENABLED) == 'true'
+        if public_ip:
+            vault_url = f'https://{public_ip}' if tls_on else f'http://{public_ip}:{VAULT_PORT}'
+        else:
+            vault_url = ''
         return Schema__Vault_App__Info(
             instance_id        = details.get('InstanceId', '')                       ,
             stack_name         = tag_value(details, TAG_STACK_NAME)                  ,
@@ -49,9 +59,11 @@ class Vault_App__Stack__Mapper(Type_Safe):
             instance_type      = details.get('InstanceType', '')                     ,
             ami_id             = details.get('ImageId', '')                          ,
             security_group_id  = first_sg_id(details)                                ,
-            vault_url          = f'http://{public_ip}:{VAULT_PORT}' if public_ip else '' ,
+            vault_url          = vault_url                                            ,
+            tls_enabled        = tls_on                                               ,
             with_playwright    = tag_value(details, TAG_WITH_PLAYWRIGHT) == 'true'    ,
             container_engine   = tag_value(details, TAG_ENGINE)                      ,
+            access_token       = tag_value(details, TAG_ACCESS_TOKEN)                 ,
             uptime_seconds     = uptime_seconds(details)                              ,
             spot               = details.get('InstanceLifecycle', '') == 'spot'      ,
             terminate_at       = terminate_at                                         ,
