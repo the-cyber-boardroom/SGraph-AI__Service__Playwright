@@ -26,15 +26,45 @@ from rich.console import Console
 from rich.table   import Table
 from rich.panel   import Panel
 
+from sgraph_ai_service_playwright__cli.aws.dns.enums.Enum__Dns__Resolver                 import Enum__Dns__Resolver
 from sgraph_ai_service_playwright__cli.aws.dns.enums.Enum__Route53__Record_Type          import Enum__Route53__Record_Type
 from sgraph_ai_service_playwright__cli.aws.dns.service.Dig__Runner                       import Dig__Runner
 from sgraph_ai_service_playwright__cli.aws.dns.service.Route53__Authoritative__Checker   import Route53__Authoritative__Checker
 from sgraph_ai_service_playwright__cli.aws.dns.service.Route53__AWS__Client              import Route53__AWS__Client
 from sgraph_ai_service_playwright__cli.aws.dns.service.Route53__Check__Orchestrator      import Route53__Check__Orchestrator
 from sgraph_ai_service_playwright__cli.aws.dns.service.Route53__Instance__Linker         import Route53__Instance__Linker
+from sgraph_ai_service_playwright__cli.aws.dns.service.Route53__Local__Checker           import Route53__Local__Checker
 from sgraph_ai_service_playwright__cli.aws.dns.service.Route53__Public_Resolver__Checker import Route53__Public_Resolver__Checker
 from sgraph_ai_service_playwright__cli.aws.dns.service.Route53__Smart_Verify             import Route53__Smart_Verify
 from sgraph_ai_service_playwright__cli.aws.dns.service.Route53__Zone__Resolver           import Route53__Zone__Resolver
+
+# ── Warning banners for cache-polluting check modes (P1.5) ────────────────────
+
+_WARNING__PUBLIC_RESOLVERS = """WARNING: --public-resolvers will cache the answer at each of the 8 public
+resolvers below for up to this record's TTL. If you change this record
+again, those resolvers will return the OLD value until that TTL elapses,
+and there is NO way to flush a third-party recursive cache. Only run
+--public-resolvers once you are confident the value is final. Use the
+default --authoritative mode for iterative verification."""
+
+_WARNING__LOCAL = """WARNING: --local will shell out to `dig` on this host. That query goes
+through whatever upstream resolver this machine is configured to use
+(often a corporate proxy or VPN resolver), and that resolver WILL cache
+the answer for up to the record's TTL. If you change this record again,
+this host (and anyone else behind the same upstream) will see the OLD
+value until that TTL elapses. There is no portable way to flush a
+third-party upstream cache; flush your local OS cache with platform-native
+tooling if needed. Use the default --authoritative mode for iterative
+verification."""
+
+_WARNING__ALL = """WARNING: --all enables BOTH cache-polluting modes (--public-resolvers
+and --local) in addition to the safe --authoritative check. The 8 public
+resolvers AND your host's upstream resolver will each cache the answer
+for up to the record's TTL. If you change this record again afterwards,
+those caches will return the OLD value until that TTL elapses, and
+there is NO way to flush a third-party recursive cache. Only run --all
+once you are confident the value is final. Prefer the default
+--authoritative mode for iterative verification."""
 
 # ── Typer sub-apps ────────────────────────────────────────────────────────────
 
@@ -73,9 +103,12 @@ def _assert_mutations_allowed():                                                
 
 def _make_orchestrator(r53_client: Route53__AWS__Client) -> Route53__Check__Orchestrator:
     dig    = Dig__Runner()
-    auth   = Route53__Authoritative__Checker(dig_runner=dig, r53_client=r53_client)
+    auth   = Route53__Authoritative__Checker  (dig_runner=dig, r53_client=r53_client)
     pub    = Route53__Public_Resolver__Checker(dig_runner=dig)
-    return Route53__Check__Orchestrator(authoritative_checker=auth, public_resolver_checker=pub)
+    local  = Route53__Local__Checker          (dig_runner=dig)
+    return Route53__Check__Orchestrator(authoritative_checker   = auth ,
+                                        public_resolver_checker = pub  ,
+                                        local_checker           = local)
 
 
 def _make_smart_verify(r53_client: Route53__AWS__Client) -> Route53__Smart_Verify:
@@ -104,6 +137,74 @@ def _print_auth_check(c: Console, result):                                      
     status = '✓' if result.passed else '✗'
     c.print(f'  {result.agreed_count}/{result.total_count} authoritative nameservers agree. {status}')
     c.print()
+
+
+def _resolver_name_for_ip(ip: str) -> str:                                           # Map a resolver IP back to its Enum member name; '' if unknown
+    for member in Enum__Dns__Resolver:
+        if member.value == ip:
+            return member.name
+    return ip
+
+
+def _print_public_resolvers_check(c: Console, result, min_resolvers: int):          # Print the public-resolvers fan-out table in spec format
+    c.print()
+    c.print(f'  Public-resolver check — {result.name} ({result.rtype})')
+    c.print()
+    t = Table(box=None, show_header=True, padding=(0, 2))
+    t.add_column('Resolver',  style='cyan', min_width=14, no_wrap=True)
+    t.add_column('IP',        style='dim' , min_width=16, no_wrap=True)
+    t.add_column('Value',     style=''    , min_width=15)
+    t.add_column('Match',     style=''    , min_width=5)
+    for dig_res in result.results:
+        val_str   = '  '.join(dig_res.values) if dig_res.values else '(no answer)'
+        if result.expected:
+            match_str = '✓' if result.expected in dig_res.values else '✗'
+        else:
+            match_str = '✓' if dig_res.values else '✗'
+        t.add_row(_resolver_name_for_ip(dig_res.nameserver), dig_res.nameserver,
+                  val_str, match_str)
+    c.print(t)
+    c.print()
+    if result.passed:
+        c.print(f'  {result.agreed_count}/{result.total_count} resolvers agree. ✓')
+    else:
+        c.print(f'  Quorum: {min_resolvers}/{result.total_count} needed, '
+                f'{result.agreed_count} agreed. ✗')
+    c.print()
+
+
+def _print_local_check(c: Console, result):                                          # Print the single-row local-resolver check table
+    c.print()
+    c.print(f'  Local-resolver check — {result.name} ({result.rtype})')
+    c.print()
+    t = Table(box=None, show_header=True, padding=(0, 2))
+    t.add_column('Resolver',  style='cyan', min_width=20, no_wrap=True)
+    t.add_column('Value',     style=''    , min_width=15)
+    t.add_column('Match',     style=''    , min_width=5)
+    for dig_res in result.results:
+        val_str   = '  '.join(dig_res.values) if dig_res.values else '(no answer)'
+        if result.expected:
+            match_str = '✓' if result.expected in dig_res.values else '✗'
+        else:
+            match_str = '✓' if dig_res.values else '✗'
+        t.add_row('(host default)', val_str, match_str)
+    c.print(t)
+    c.print()
+    if result.passed:
+        c.print('  Local resolver agrees. ✓')
+    else:
+        c.print('  Local resolver mismatch. ✗')
+    c.print()
+
+
+def _result_to_dict(result) -> dict:                                                 # Serialise Schema__Dns__Check__Result to a JSON-safe dict
+    return dict(mode         = str(result.mode)  ,
+                name         = result.name       ,
+                rtype        = result.rtype      ,
+                expected     = result.expected   ,
+                passed       = result.passed     ,
+                agreed_count = result.agreed_count,
+                total_count  = result.total_count )
 
 
 _CERT_WARNING = """\
@@ -424,30 +525,74 @@ def records_check(name             : str  = typer.Argument(..., help='Record nam
                   rtype            : str  = typer.Option('A',   '--type',            '-t', help='Record type.'),
                   zone             : str  = typer.Option(None,  '--zone',            '-z', help='Zone name or id.'),
                   expect           : str  = typer.Option('',    '--expect',                help='Expected value; empty = just check it resolves.'),
-                  public_resolvers : bool = typer.Option(False, '--public-resolvers',      help='(P1.5)'),
-                  local            : bool = typer.Option(False, '--local',                 help='(P1.5)'),
-                  all_checks       : bool = typer.Option(False, '--all',                   help='(P1.5)'),
-                  json_output      : bool = typer.Option(False, '--json',                  help='Emit Schema__Dns__Check__Result as JSON.')):
-    """Check DNS record consistency against authoritative nameservers."""
-    if public_resolvers or local or all_checks:
-        typer.echo('This mode ships in P1.5. Use --authoritative (default) for now.', err=True)
+                  public_resolvers : bool = typer.Option(False, '--public-resolvers',      help='Also query the 8 public resolvers (CACHE-POLLUTING).'),
+                  local            : bool = typer.Option(False, '--local',                 help='Also query the host default resolver (CACHE-POLLUTING).'),
+                  all_checks       : bool = typer.Option(False, '--all',                   help='Run authoritative + public-resolvers + local (CACHE-POLLUTING).'),
+                  yes              : bool = typer.Option(False, '--yes',                   help='Skip warning prompts on cache-polluting modes.'),
+                  min_resolvers    : int  = typer.Option(5,     '--min-resolvers',         help='Quorum threshold for --public-resolvers (default 5/8).'),
+                  json_output      : bool = typer.Option(False, '--json',                  help='Emit JSON instead of tables.')):
+    """Check DNS record consistency. Authoritative-only by default; opt-in cache-polluting modes via --public-resolvers / --local / --all."""
+    # Normalise: --public-resolvers + --local together is equivalent to --all
+    if public_resolvers and local and not all_checks:
+        all_checks = True
+    if all_checks:
+        run_public = True
+        run_local  = True
+        banner     = _WARNING__ALL
+    else:
+        run_public = public_resolvers
+        run_local  = local
+        banner     = _WARNING__PUBLIC_RESOLVERS if run_public else _WARNING__LOCAL if run_local else ''
+
+    if banner and not json_output:                                                   # Warn + prompt unless --yes; silent in --json mode (still requires --yes)
+        c_warn = Console(highlight=False, stderr=True)
+        c_warn.print()
+        c_warn.print(banner)
+        c_warn.print()
+        if not yes:
+            typer.confirm('Continue?', abort=True)
+    elif banner and json_output and not yes:
+        typer.echo('Refusing to run cache-polluting mode in --json without --yes.', err=True)
         raise typer.Exit(1)
-    client  = _client()
-    zone_id = _resolve_zone_id(client, zone)
-    orch    = _make_orchestrator(client)
-    result  = orch.check_authoritative(zone_id, name, rtype, expected=expect)
+
+    client     = _client()
+    zone_id    = _resolve_zone_id(client, zone)
+    orch       = _make_orchestrator(client)
+
+    auth_result   = orch.check_authoritative(zone_id, name, rtype, expected=expect)
+    public_result = None
+    local_result  = None
+    if run_public:
+        orch.public_resolver_checker.use_full_set(quorum=min_resolvers)              # Switch to the 8-resolver full set with the requested quorum
+        public_result = orch.check_public_resolvers(name, rtype, expected=expect)
+    if run_local:
+        local_result  = orch.check_local(name, rtype, expected=expect)
+
+    # Exit-code priority: auth fail (1) > public fail (2) > local fail (3) > 0
+    if not auth_result.passed:
+        exit_code = 1
+    elif public_result is not None and not public_result.passed:
+        exit_code = 2
+    elif local_result is not None and not local_result.passed:
+        exit_code = 3
+    else:
+        exit_code = 0
+
     if json_output:
-        typer.echo(json.dumps(dict(mode         = str(result.mode)  ,
-                                   name         = result.name       ,
-                                   rtype        = result.rtype      ,
-                                   expected     = result.expected   ,
-                                   passed       = result.passed     ,
-                                   agreed_count = result.agreed_count,
-                                   total_count  = result.total_count )))
-        return
+        payload = dict(authoritative    = _result_to_dict(auth_result)             ,
+                       public_resolvers = _result_to_dict(public_result) if public_result else None,
+                       local            = _result_to_dict(local_result)  if local_result  else None,
+                       exit_code        = exit_code                                )
+        typer.echo(json.dumps(payload, indent=2))
+        raise typer.Exit(exit_code)
+
     c = Console(highlight=False)
-    _print_auth_check(c, result)
-    raise typer.Exit(0 if result.passed else 1)
+    _print_auth_check(c, auth_result)
+    if public_result is not None:
+        _print_public_resolvers_check(c, public_result, min_resolvers)
+    if local_result is not None:
+        _print_local_check(c, local_result)
+    raise typer.Exit(exit_code)
 
 
 # ── instance create-record ────────────────────────────────────────────────────

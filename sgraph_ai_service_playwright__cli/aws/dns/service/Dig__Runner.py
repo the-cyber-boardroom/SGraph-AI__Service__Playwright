@@ -18,7 +18,10 @@ class Dig__Runner(Type_Safe):                                                   
 
     def run(self, nameserver: str, name: str, rtype: str,
             no_recurse: bool = False, timeout: int = 5) -> Schema__Dig__Result: # Build and run a dig command; return a typed result
-        cmd = ['dig', f'@{nameserver}', '+short', name, rtype]
+        cmd = ['dig']
+        if nameserver:                                                            # Empty nameserver => let dig use the host's default resolver
+            cmd.append(f'@{nameserver}')
+        cmd += ['+short', name, rtype]
         if no_recurse:
             cmd.append('+norecurse')
         env = {'LC_ALL': 'C', **os.environ}                                     # LC_ALL=C ensures English output; preserve PATH and rest of environ
