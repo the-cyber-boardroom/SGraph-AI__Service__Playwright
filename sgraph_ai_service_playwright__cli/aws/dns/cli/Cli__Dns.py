@@ -413,6 +413,46 @@ def records_list_legacy(zone       : str  = typer.Argument(None, help='Zone name
 
 # ── zone check (per-zone — health-check all records) ─────────────────────────
 
+def _classify_alias_target(target: str) -> str:                                      # Friendly label for AWS-service alias targets
+    t = target.lower()
+    if 'cloudfront.net'      in t: return 'alias → CloudFront distribution'
+    if 'elb.amazonaws.com'   in t: return 'alias → Elastic Load Balancer'
+    if 'elasticbeanstalk'    in t: return 'alias → Elastic Beanstalk'
+    if 's3-website'          in t or 's3.amazonaws' in t: return 'alias → S3 website'
+    if 'execute-api'         in t: return 'alias → API Gateway'
+    if 'amazonaws.com'       in t: return f'alias → AWS service ({target})'
+    return f'alias → {target}'
+
+
+def _classify_cname(name: str, value: str, acm_validation_names) -> tuple:           # Returns (status, note); pattern-recognises common CNAMEs. ACM-validation cross-reference uses a callable (lazy) so we only hit ACM when actually needed.
+    v_lower = value.lower()
+    if '.acm-validations.aws' in v_lower:
+        names = acm_validation_names()
+        if name in names:
+            return 'IGNORED', 'ACM cert DNS-01 validation (active cert in account)'
+        return 'ORPHANED', 'stale ACM validation — no matching cert in account'
+    if '_domainkey' in name:
+        return 'IGNORED', 'DKIM record'
+    if name.startswith('_amazonses.'):
+        return 'IGNORED', 'SES domain verification'
+    if name.startswith('autodiscover.'):
+        return 'IGNORED', 'email autodiscover'
+    if name.startswith('_acme-challenge'):
+        return 'IGNORED', 'Let’s Encrypt DNS-01 challenge'
+    return 'IGNORED', 'CNAME — manual review'
+
+
+def _classify_txt(name: str, value: str) -> tuple:
+    v = value.lower()
+    if 'v=dmarc1' in v: return 'IGNORED', 'DMARC policy'
+    if 'v=spf1'   in v: return 'IGNORED', 'SPF policy'
+    if 'v=dkim1'  in v: return 'IGNORED', 'DKIM key'
+    if 'google-site-verification' in v: return 'IGNORED', 'Google site verification'
+    if name.startswith('_amazonses.') or 'amazonses' in v: return 'IGNORED', 'SES domain verification'
+    if 'apple-domain' in v: return 'IGNORED', 'Apple domain verification'
+    return 'IGNORED', 'TXT — manual review'
+
+
 def _compute_zone_health(client: Route53__AWS__Client, zone: str):                   # Shared body for `zone check` AND `zone purge`. Returns (zone_name, zone_id, results) where each result dict carries the underlying Schema__Route53__Record under 'raw' so callers can submit DELETE batches without re-fetching.
     zone_id = _resolve_zone_id(client, zone)
     records = client.list_records(zone_id)
@@ -440,36 +480,69 @@ def _compute_zone_health(client: Route53__AWS__Client, zone: str):              
     except Exception:
         zone_name = '?'
 
+    # Lazy ACM cross-reference — only hit ACM when we actually see an ACM-shaped CNAME
+    from sgraph_ai_service_playwright__cli.aws.acm.service.ACM__AWS__Client import ACM__AWS__Client
+    _acm_names_cache = {'fetched': False, 'names': set()}
+    def _acm_validation_names():
+        if not _acm_names_cache['fetched']:
+            try:
+                _acm_names_cache['names'] = ACM__AWS__Client().get_validation_record_names()
+            except Exception:
+                _acm_names_cache['names'] = set()
+            _acm_names_cache['fetched'] = True
+        return _acm_names_cache['names']
+
     results = []
     for r in records:
         rtype = str(r.record_type)
         name  = str(r.name).rstrip('.')
         leaf  = name[:-len(zone_name) - 1] if (zone_name and name.endswith(zone_name) and name != zone_name) else ''
-        record_value = ', '.join(r.values) if r.values else ''
+        if r.alias_target:                                                            # Alias records (A / AAAA) — show the alias target as the value
+            record_value = f'alias → {r.alias_target}'
+        else:
+            record_value = ', '.join(r.values) if r.values else ''
         status   = 'IGNORED'
         inst_id  = ''
         inst_ip  = ''
         note     = ''
+
         if rtype in ('SOA', 'NS'):
-            note   = 'zone-system record'
-        elif rtype != 'A':
-            note   = f'{rtype} — not checked'
-        elif not leaf:
-            note   = 'apex record'
-        elif '.' in leaf:
-            status = 'UNMATCHED'
-            note   = 'multi-label leaf — manual review'
-        elif leaf in instances_by_name:
-            inst_id, inst_ip = instances_by_name[leaf]
-            record_ip = r.values[0] if r.values else ''
-            if record_ip == inst_ip:
-                status = 'OK'
+            note = 'zone-system record'
+        elif rtype == 'CNAME':
+            cname_value     = r.values[0] if r.values else ''
+            status, note    = _classify_cname(name, cname_value, _acm_validation_names)
+        elif rtype == 'TXT':
+            txt_value       = ' '.join(r.values) if r.values else ''
+            status, note    = _classify_txt(name, txt_value)
+        elif rtype == 'MX':
+            note = 'MX — email routing'
+        elif rtype == 'A':
+            if r.alias_target:                                                        # Alias A record (CloudFront / ELB / S3 / API Gateway) — never marked orphaned
+                note = _classify_alias_target(r.alias_target)
+            elif not leaf:
+                note = 'apex A record'
+            elif '.' in leaf:
+                status = 'UNMATCHED'
+                note   = 'multi-label leaf — manual review'
+            elif leaf in instances_by_name:
+                inst_id, inst_ip = instances_by_name[leaf]
+                record_ip = r.values[0] if r.values else ''
+                if record_ip == inst_ip:
+                    status = 'OK'
+                else:
+                    status = 'STALE'
+                    note   = f'instance public-ip is {inst_ip}'
             else:
-                status = 'STALE'
-                note   = f'instance public-ip is {inst_ip}'
+                status = 'ORPHANED'
+                note   = 'no running instance with this Name tag'
+        elif rtype == 'AAAA':
+            if r.alias_target:
+                note = _classify_alias_target(r.alias_target)
+            else:
+                note = 'AAAA — not checked'
         else:
-            status = 'ORPHANED'
-            note   = 'no running instance with this Name tag'
+            note = f'{rtype} — not checked'
+
         results.append(dict(name         = name        ,
                             record_type  = rtype       ,
                             record_value = record_value,
