@@ -47,6 +47,11 @@ class test_Route53__Zone__Resolver(TestCase):
         zone = r.resolve_zone_for_fqdn('sgraph.ai')
         assert str(zone.zone_id) == 'Z01SGRAPH'
 
+    def test__resolve_zone_for_fqdn__matches_child_zone_apex(self):                  # Regression: querying NS / SOA at the child-zone apex must target the CHILD zone, not the parent
+        r    = _resolver()
+        zone = r.resolve_zone_for_fqdn('dev.sgraph.ai')
+        assert str(zone.zone_id) == 'Z02DEV'
+
     def test__resolve_zone_for_fqdn__matches_direct_child(self):
         r    = _resolver()
         zone = r.resolve_zone_for_fqdn('www.sgraph.ai')

@@ -22,13 +22,11 @@ class Route53__Zone__Resolver(Type_Safe):                                       
             self._zone_cache = list(self.r53_client.list_hosted_zones())
         zone_names = {str(z.name).rstrip('.'): z for z in self._zone_cache}
         parts = fqdn.rstrip('.').split('.')
-        # Walk from longest candidate downward — e.g. a.b.c.d tries b.c.d, c.d, d
+        # Walk deepest candidate first — start with the FQDN itself, then strip leading labels.
+        # This is required for the case where the FQDN IS itself a zone apex (e.g. NS / SOA
+        # queries for sg-compute.sgraph.ai must target the child zone's NS, not the parent's).
         for i in range(len(parts) - 1):
-            candidate = '.'.join(parts[i + 1:])                                 # Strip leading label; try remaining as zone name
+            candidate = '.'.join(parts[i:])
             if candidate in zone_names:
                 return zone_names[candidate]
-        # Also try the fqdn itself as a zone name (exact match — rare but valid)
-        exact = fqdn.rstrip('.')
-        if exact in zone_names:
-            return zone_names[exact]
         raise ValueError(f"No hosted zone in account owns '{fqdn}'")
