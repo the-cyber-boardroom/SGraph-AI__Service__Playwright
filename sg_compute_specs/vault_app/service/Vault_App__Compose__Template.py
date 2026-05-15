@@ -29,11 +29,20 @@ _HOST_PLANE = '''
       - {docker_socket}:/var/run/docker.sock
     environment:
       FAST_API__AUTH__API_KEY__NAME:  ${{FAST_API__AUTH__API_KEY__NAME:-X-API-Key}}
-      FAST_API__AUTH__API_KEY__VALUE: ${{FAST_API__AUTH__API_KEY__VALUE}}
+      FAST_API__AUTH__API_KEY__VALUE: ${{FAST_API__AUTH__API_KEY__VALUE}}{playwright_env_extras}
     networks:
       - vault-net
     restart: unless-stopped
 '''
+
+# Only added when --with-playwright: lets Routes__Web reach mitmweb across the
+# compose network. The defaults in Routes__Web (127.0.0.1:8081) resolve to
+# host-plane itself inside its own container — broken in compose. Pointing at
+# the agent-mitmproxy service name is the fix.
+_HOST_PLANE__PLAYWRIGHT_EXTRAS = '''
+      AGENT_MITMPROXY__MITMWEB_HOST:   agent-mitmproxy
+      AGENT_MITMPROXY__MITMWEB_PORT:   "8081"
+      AGENT_MITMPROXY__ADMIN_API_PORT: "8000"'''
 
 _SG_SEND_VAULT = '''
   sg-send-vault:
@@ -152,11 +161,14 @@ class Vault_App__Compose__Template(Type_Safe):
                      sg_send_vault_image : str  = SG_SEND_VAULT_IMAGE          ,
                      docker_socket       : str  = '/var/run/docker.sock'      ,
                      with_tls_check      : bool = False                        ) -> str:
-        vault_block = (_SG_SEND_VAULT_TLS if with_tls_check else _SG_SEND_VAULT)
+        vault_block            = (_SG_SEND_VAULT_TLS if with_tls_check else _SG_SEND_VAULT)
+        playwright_env_extras  = _HOST_PLANE__PLAYWRIGHT_EXTRAS if with_playwright else ''
         parts = [
             _HEADER                                                                          ,
-            _HOST_PLANE.format(ecr_registry=ecr_registry, image_tag=image_tag,
-                               docker_socket=docker_socket)                                  ,
+            _HOST_PLANE.format(ecr_registry          = ecr_registry          ,
+                               image_tag             = image_tag             ,
+                               docker_socket         = docker_socket         ,
+                               playwright_env_extras = playwright_env_extras),
             vault_block.format(sg_send_vault_image=sg_send_vault_image)                       ,
         ]
         if with_playwright:

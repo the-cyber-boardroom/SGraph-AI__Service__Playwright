@@ -49,6 +49,18 @@ class TestVaultAppComposeTemplate:
                                                        docker_socket='/run/podman/podman.sock')
         assert '/run/podman/podman.sock:/var/run/docker.sock' in result
 
+    def test_with_playwright_wires_host_plane_to_mitmweb(self):
+        # Routes__Web in host-plane defaults to 127.0.0.1:8081, which inside the
+        # host-plane container points at host-plane itself — broken in compose.
+        # --with-playwright must redirect it to the agent-mitmproxy service name.
+        result = Vault_App__Compose__Template().render(ecr_registry=REGISTRY, with_playwright=True)
+        assert 'AGENT_MITMPROXY__MITMWEB_HOST:   agent-mitmproxy' in result
+        assert 'AGENT_MITMPROXY__MITMWEB_PORT:'   in result
+
+    def test_just_vault_omits_mitmweb_host_wiring(self):
+        result = Vault_App__Compose__Template().render(ecr_registry=REGISTRY)        # default just-vault
+        assert 'AGENT_MITMPROXY__MITMWEB_HOST' not in result
+
     def test_with_tls_check_wires_tls_into_sg_send_vault(self):
         result = Vault_App__Compose__Template().render(ecr_registry=REGISTRY, with_tls_check=True)
         # the real sg-send-vault service terminates its own HTTPS — no proxy, no scaffold
