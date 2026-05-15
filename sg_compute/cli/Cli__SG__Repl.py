@@ -26,6 +26,16 @@ def _sections(sg_app):                                                          
     return {name for name, cmd in click_app.commands.items()
             if not cmd.hidden and name != 'repl'}
 
+
+def _verbs(sg_app, section):                                                    # discover verbs for a section from the live app
+    click_app = typer.main.get_command(sg_app)
+    sub       = click_app.commands.get(section)
+    return set(sub.commands.keys()) if sub and hasattr(sub, 'commands') else set()
+
+
+def _match(prefix, options):                                                    # prefix match; returns sorted list of hits
+    return sorted(o for o in options if o.startswith(prefix))
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # REPL loop
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -62,12 +72,16 @@ def run_repl(sg_app):
         if section is None:
             if cmd in ('?', 'help', 'h'):
                 _invoke(sg_app, ['--help'])
-            elif cmd in sections:
-                section = cmd
-                _invoke(sg_app, [section, '--help'])
             else:
-                console.print(f'  [yellow]Unknown: {cmd!r}[/yellow]')
-                _invoke(sg_app, ['--help'])
+                hits = _match(cmd, sections)
+                if len(hits) == 1:
+                    section = hits[0]
+                    _invoke(sg_app, [section, '--help'])
+                elif hits:
+                    console.print(f'  [dim]{" ".join(hits)}[/dim]')
+                else:
+                    console.print(f'  [yellow]Unknown: {cmd!r}[/yellow]')
+                    _invoke(sg_app, ['--help'])
         else:
             if cmd in ('..', 'back'):
                 section = None
@@ -75,4 +89,10 @@ def run_repl(sg_app):
             elif cmd in ('?', 'help', 'h'):
                 _invoke(sg_app, [section, '--help'])
             else:
-                _invoke(sg_app, [section, cmd] + args)
+                hits = _match(cmd, _verbs(sg_app, section))
+                if len(hits) == 1:
+                    _invoke(sg_app, [section, hits[0]] + args)
+                elif hits:
+                    console.print(f'  [dim]{" ".join(hits)}[/dim]')
+                else:
+                    _invoke(sg_app, [section, cmd] + args)                     # pass through verbatim; typer will error clearly
