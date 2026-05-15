@@ -161,6 +161,7 @@ class Vault_App__Service(Spec__Service__Base):
 
     def health(self, region: str, name: str, timeout_sec: int = 0, poll_sec: int = 10):
         from sg_compute.cli.base.schemas.Schema__CLI__Health__Probe import Schema__CLI__Health__Probe
+        from sg_compute.cli.base.Spec__CLI__Renderers__Base         import format_elapsed_ms
         import ssl, time
         from rich.console import Console
 
@@ -172,6 +173,10 @@ class Vault_App__Service(Spec__Service__Base):
         ctx.check_hostname = False
         ctx.verify_mode    = ssl.CERT_NONE
         is_wait  = timeout_sec > 0
+
+        timeline       : list = []                                                # [(elapsed_s, label)] for the stage-timings summary
+        last_stage     : str  = ''
+        last_cert_init : str  = ''
 
         if is_wait:
             c.print(f'\n  [dim]Polling {name} every {poll_sec}s  (timeout {timeout_sec}s) —'
@@ -214,10 +219,17 @@ class Vault_App__Service(Spec__Service__Base):
                             url  = f'https://{public_ip}' if scheme == 'https' else f'http://{public_ip}:{VAULT_PORT}'
                             cert = f'  [dim]{probe.cert_summary}[/]' if probe.cert_summary else ''
                             c.print(f'  [dim][t+{elapsed:>3}s][/]  [green]✓ healthy[/]  HTTP {status}  {url}{gate}{cert}')
+                            timeline.append((elapsed, f'{scheme.upper()} up — HTTP {status}'))
                         break
                     probe.last_error = err or f'HTTP {status}'
                     if is_wait:
                         stage, cert_init = self._probe_progress(region, name)
+                        if stage and stage != last_stage:
+                            timeline.append((elapsed, f'boot stage · {stage}'))
+                            last_stage = stage
+                        if cert_init and cert_init != last_cert_init:
+                            timeline.append((elapsed, f'cert-init · {cert_init}'))
+                            last_cert_init = cert_init
                         bits = []
                         if cert_init:
                             bits.append(f'cert-init=[bold]{cert_init}[/]')
@@ -234,7 +246,24 @@ class Vault_App__Service(Spec__Service__Base):
             time.sleep(poll_sec)
 
         probe.elapsed_ms = int((time.monotonic() - t0) * 1000)
+        if is_wait and timeline:
+            self._print_stage_timings(c, timeline, probe.elapsed_ms, format_elapsed_ms)
         return probe
+
+    def _print_stage_timings(self, c, timeline: list, total_ms: int, fmt) -> None:
+        from rich.table import Table
+        table = Table(box=None, show_header=False, padding=(0, 2))
+        table.add_column(style='dim', justify='right', no_wrap=True)
+        table.add_column(no_wrap=False)
+        prev = 0
+        for elapsed_s, label in timeline:
+            delta = elapsed_s - prev
+            table.add_row(f't+{elapsed_s}s', f'{label}  [dim]+{delta}s[/]')
+            prev = elapsed_s
+        c.print()
+        c.print('  [bold]Stage timings[/]')
+        c.print(table)
+        c.print(f'  [bold]total:[/] {fmt(total_ms)}  [dim]({total_ms}ms)[/]\n')
 
     def _http_status(self, url: str, ctx) -> tuple:
         # (status_code, error_str). status_code 0 = unreachable (connection refused
