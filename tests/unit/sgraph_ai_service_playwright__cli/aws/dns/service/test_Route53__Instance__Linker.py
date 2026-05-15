@@ -33,6 +33,10 @@ _INST_B = _make_instance('i-bbb', 'loud-bohr',    '203.0.113.20',
                           extra_tags=[{'Key': 'sg:stack', 'Value': 'bohr'}])
 _INST_NO_IP = _make_instance('i-ccc', 'no-ip-inst', None,
                               extra_tags=[{'Key': 'sg:stack', 'Value': 'test'}])
+_INST_SG_COMPUTE = _make_instance('i-ddd', 'warm-bohr',   '203.0.113.30',                # Mirrors a real sg_compute platform stack (vault_app/ollama) — Purpose=ephemeral-ec2 instead of sg:* prefix
+                                   launch_time='2026-05-15T12:00:00Z',
+                                   extra_tags=[{'Key': 'Purpose'  , 'Value': 'ephemeral-ec2'},
+                                               {'Key': 'StackName', 'Value': 'warm-bohr'  }])
 
 
 class _Fake_EC2_Client:
@@ -104,8 +108,18 @@ class test_Route53__Instance__Linker(TestCase):
 
     def test__resolve_latest__no_sg_instances__raises(self):
         linker = _Fake_Route53__Instance__Linker(_ec2_instances=[])
-        with pytest.raises(ValueError, match='No running SG-AI instance'):
+        with pytest.raises(ValueError, match='No running SG-managed instance'):
             linker.resolve_latest()
+
+    def test__resolve_latest__matches_sg_compute_platform_tag(self):                      # Purpose=ephemeral-ec2 (vault_app / ollama / etc.) must also count
+        linker = _Fake_Route53__Instance__Linker(_ec2_instances=[_INST_SG_COMPUTE])
+        inst   = linker.resolve_latest()
+        assert inst['InstanceId'] == 'i-ddd'
+
+    def test__resolve_latest__picks_most_recent_across_tag_styles(self):                  # sg_compute Purpose=ephemeral-ec2 instance is newer (12:00) than legacy sg:* one (11:00)
+        linker = _Fake_Route53__Instance__Linker(_ec2_instances=[_INST_A, _INST_B, _INST_SG_COMPUTE])
+        inst   = linker.resolve_latest()
+        assert inst['InstanceId'] == 'i-ddd'
 
     # ── get_public_ip ─────────────────────────────────────────────────────────
 

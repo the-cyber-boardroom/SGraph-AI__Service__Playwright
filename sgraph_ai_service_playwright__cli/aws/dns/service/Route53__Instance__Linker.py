@@ -35,16 +35,22 @@ class Route53__Instance__Linker(Type_Safe):                                     
             raise ValueError(f"Ambiguous: {len(instances)} instances match Name='{instance_ref}'. Use an instance-id.")
         return instances[0]
 
-    def resolve_latest(self) -> dict:                                            # Returns most recently launched running instance with any 'sg:' tag
+    def resolve_latest(self) -> dict:                                            # Returns most recently launched running SG-managed instance. Matches both the legacy `sg:*` tag prefix (elastic / playwright / vnc / podman) AND the new sg_compute platform tag `Purpose=ephemeral-ec2` (vault_app / ollama / open_design — see sg_compute/platforms/ec2/helpers/EC2__Tags__Builder.py).
         ec2  = self.ec2_client()
         resp = ec2.describe_instances(Filters=[
             {'Name': 'instance-state-name', 'Values': ['running']},
         ])
-        instances = [i for r in resp.get('Reservations', [])
-                       for i in r.get('Instances', [])
-                       if any(t.get('Key', '').startswith('sg:') for t in i.get('Tags', []))]
+        instances = []
+        for r in resp.get('Reservations', []):
+            for i in r.get('Instances', []):
+                tags          = i.get('Tags', [])
+                has_sg_prefix = any(t.get('Key', '').startswith('sg:') for t in tags)
+                is_ephemeral  = any(t.get('Key') == 'Purpose' and t.get('Value') == 'ephemeral-ec2' for t in tags)
+                if has_sg_prefix or is_ephemeral:
+                    instances.append(i)
         if not instances:
-            raise ValueError('No running SG-AI instance found (no instance with a sg:* tag).')
+            raise ValueError('No running SG-managed instance found '
+                              '(no instance with sg:* tag or Purpose=ephemeral-ec2 tag).')
         instances.sort(key=lambda i: i.get('LaunchTime', ''), reverse=True)
         return instances[0]
 

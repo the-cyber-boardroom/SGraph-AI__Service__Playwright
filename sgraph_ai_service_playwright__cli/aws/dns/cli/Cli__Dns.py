@@ -20,6 +20,7 @@
 
 import json
 import os
+import sys
 
 import typer
 from rich.console import Console
@@ -114,18 +115,49 @@ def _assert_mutations_allowed():                                                
 
 
 def _wait_for_change(c: Console, client: Route53__AWS__Client, change_id: str,
-                      timeout: int, quiet: bool = False, poll_interval: int = 2):    # Poll Route 53 GetChange until INSYNC or timeout; print progress dots unless quiet
+                      timeout: int, quiet: bool = False, poll_interval: int = 2):    # Poll Route 53 GetChange until INSYNC or timeout; updates a single inline status line
     if not quiet:
         c.print(f'  ⏳ Waiting for Route 53 INSYNC (timeout {timeout}s)…')
     def _on_poll(result, elapsed):
         if quiet:
             return
-        c.print(f'    {result.status} ({elapsed}s)', highlight=False)
+        sys.stdout.write(f'\r    {result.status} ({elapsed}s)        ')               # \r overwrites the previous status; trailing spaces clear any leftover characters
+        sys.stdout.flush()
     final = client.wait_for_change(change_id, timeout=timeout,
                                     poll_interval=poll_interval, on_poll=_on_poll)
-    if not quiet and final.status == 'INSYNC':
-        c.print('  ✓ Route 53 INSYNC — change is live on all zone NS.\n')
+    if not quiet:
+        sys.stdout.write('\n')                                                        # Finish the inline progress line before any subsequent print
+        sys.stdout.flush()
+        if final.status == 'INSYNC':
+            c.print('  ✓ Route 53 INSYNC — change is live on all zone NS.\n')
     return final
+
+
+def _fmt_seconds(secs: float) -> str:                                                # Compact human-friendly formatter for the timings table
+    if secs < 1.0:
+        return f'{secs * 1000:.0f}ms'
+    if secs < 60:
+        return f'{secs:.2f}s'
+    minutes = int(secs // 60)
+    rest    = secs - minutes * 60
+    return f'{minutes}m {rest:.0f}s'
+
+
+def _print_timings(c: Console, phases: list, total_seconds: float):                  # Renders a small "Timings" block at the end of records add
+    if not phases:
+        return
+    c.print()
+    c.print('  [dim]Timings[/]')
+    for label, secs in phases:
+        c.print(f'    [dim]{label:38s}[/] {_fmt_seconds(secs)}', highlight=False)
+    c.print(f'    [bold]{"Total":38s} {_fmt_seconds(total_seconds)}[/]', highlight=False)
+    c.print()
+
+
+def _timings_to_dict(phases: list, total_seconds: float) -> dict:                    # Same data, JSON-friendly (seconds, 3-decimal precision)
+    out = {label: round(secs, 3) for label, secs in phases}
+    out['total'] = round(total_seconds, 3)
+    return out
 
 
 def _make_orchestrator(r53_client: Route53__AWS__Client) -> Route53__Check__Orchestrator:
@@ -432,9 +464,15 @@ def records_add(arg1         : str  = typer.Argument(None,  help='FQDN (e.g. tes
       sg aws dns records add <i-id|stack-name> <fqdn>                  # that instance, given FQDN
       sg aws dns records add <fqdn> --value <ip>                       # explicit value (no instance lookup)
 
-    Env: SG_AWS__DNS__ALLOW_MUTATIONS=1 required.
+    Env: no env gate — `add` is additive and ephemeral. Confirmation prompt protects against typos
+    (use `--yes` to skip). `update` and `delete` still require SG_AWS__DNS__ALLOW_MUTATIONS=1.
     """
-    _assert_mutations_allowed()
+    import time
+    overall_t0   = time.perf_counter()
+    timings      = []                                                                # list of (label, seconds) — printed at the end / included in --json
+    def _record(label, t0):
+        timings.append((label, time.perf_counter() - t0))
+
     try:
         record_type = Enum__Route53__Record_Type(rtype.upper())
     except ValueError:
@@ -472,6 +510,7 @@ def records_add(arg1         : str  = typer.Argument(None,  help='FQDN (e.g. tes
 
     # ── Resolve IP from instance when no explicit --value was given ─────────
     if value is None:
+        t0     = time.perf_counter()
         linker = Route53__Instance__Linker()
         try:
             inst = linker.resolve_instance(instance_ref) if instance_ref else linker.resolve_latest()
@@ -488,11 +527,19 @@ def records_add(arg1         : str  = typer.Argument(None,  help='FQDN (e.g. tes
             default  = client.resolve_default_zone()
             fqdn     = f'{name_tag}.{str(default.name)}'
         instance_resolved = True
+        _record('Instance lookup', t0)
 
+    t0      = time.perf_counter()
     zone_id = _resolve_zone_id_for_record(client, zone, fqdn)
+    _record('Zone resolution', t0)
 
     # ── Idempotency / upsert (only for instance-resolved A records) ────────
-    existing = client.get_record(zone_id, fqdn, record_type) if instance_resolved else None
+    if instance_resolved:
+        t0       = time.perf_counter()
+        existing = client.get_record(zone_id, fqdn, record_type)
+        _record('Existing-record check', t0)
+    else:
+        existing = None
     if existing:
         existing_vals = list(existing.values)
         if value in existing_vals:
@@ -500,21 +547,24 @@ def records_add(arg1         : str  = typer.Argument(None,  help='FQDN (e.g. tes
             if not json_output:
                 c.print(f'\n  Already correct — {fqdn} already points at {value}.\n')
                 c.print(_CERT_WARNING.format(fqdn=fqdn))
+                _print_timings(c, timings, time.perf_counter() - overall_t0)
             else:
                 typer.echo(json.dumps(dict(change_id='', status='ALREADY_CORRECT',
-                                            fqdn=fqdn, value=value, idempotent=True)))
+                                            fqdn=fqdn, value=value, idempotent=True,
+                                            timings=_timings_to_dict(timings, time.perf_counter() - overall_t0))))
             raise typer.Exit(0)
         if not force:
             typer.echo(f'Record {fqdn} already exists pointing at {existing_vals}. '
                        f'Use --force to upsert, or `records update` for explicit change.', err=True)
             raise typer.Exit(4)
 
-    if instance_resolved and not yes:                                                 # Confirmation prompt mirrors `instance create-record` behaviour
-        confirmed = typer.confirm(f'Create {fqdn} → {value} (TTL {ttl}s)?', default=False)
+    if not yes:                                                                       # Always-on confirm (replaces the env gate); --yes skips it
+        confirmed = typer.confirm(f'Create {fqdn} {rtype} → {value} (TTL {ttl}s)?', default=False)
         if not confirmed:
             typer.echo('Aborted.')
             raise typer.Exit(0)
 
+    t0 = time.perf_counter()
     try:
         if existing and force:
             result = client.upsert_record(zone_id, fqdn, record_type, [value], ttl=ttl)
@@ -524,6 +574,7 @@ def records_add(arg1         : str  = typer.Argument(None,  help='FQDN (e.g. tes
         typer.echo(str(exc), err=True)
         typer.echo('Use `records update` to change an existing record, or pass --force.', err=True)
         raise typer.Exit(1)
+    _record('Submit Route 53 change', t0)
 
     c = Console(highlight=False)
     if not json_output:
@@ -531,35 +582,45 @@ def records_add(arg1         : str  = typer.Argument(None,  help='FQDN (e.g. tes
         c.print(f'  Change: {result.change_id}  Status: {result.status}\n')
 
     if wait:
+        t0    = time.perf_counter()
         final = _wait_for_change(c, client, result.change_id, wait_timeout, quiet=json_output)
+        _record('Wait for INSYNC', t0)
         if final.status != 'INSYNC':
             if not json_output:
                 c.print(f'  [yellow]✗ Timed out waiting for INSYNC after {wait_timeout}s (last status: {final.status}).[/]\n')
+                _print_timings(c, timings, time.perf_counter() - overall_t0)
             if json_output:
                 typer.echo(json.dumps(dict(change_id=result.change_id, status=final.status,
                                            submitted_at=result.submitted_at, timed_out=True,
-                                           fqdn=fqdn, value=value)))
+                                           fqdn=fqdn, value=value,
+                                           timings=_timings_to_dict(timings, time.perf_counter() - overall_t0))))
             raise typer.Exit(5)
         result = final
 
-    if json_output:
-        payload = dict(change_id   =result.change_id  ,
-                       status      =result.status     ,
-                       submitted_at=result.submitted_at,
-                       fqdn        =fqdn               ,
-                       value       =value              )
-        typer.echo(json.dumps(payload))
-        return
-
     # --wait forces at least an authoritative check even if --no-verify is set.
     run_verify = wait or (not no_verify)
+    verify_result = None
     if run_verify:
+        t0    = time.perf_counter()
         smart = _make_smart_verify(client)
         from sgraph_ai_service_playwright__cli.aws.dns.enums.Enum__Smart_Verify__Decision    import Enum__Smart_Verify__Decision
         from sgraph_ai_service_playwright__cli.aws.dns.schemas.Schema__Smart_Verify__Decision import Schema__Smart_Verify__Decision
         decision = Schema__Smart_Verify__Decision(decision=Enum__Smart_Verify__Decision.NEW_NAME,
                                                   prior_ttl=0, prior_values=[])
         verify_result = smart.verify_after_mutation(decision, zone_id, fqdn, rtype, expected=value)
+        _record('Authoritative + public-resolver checks' if (verify_result.public_resolvers and not no_verify) else 'Authoritative check', t0)
+
+    if json_output:
+        payload = dict(change_id   =result.change_id  ,
+                       status      =result.status     ,
+                       submitted_at=result.submitted_at,
+                       fqdn        =fqdn               ,
+                       value       =value              ,
+                       timings     =_timings_to_dict(timings, time.perf_counter() - overall_t0))
+        typer.echo(json.dumps(payload))
+        return
+
+    if verify_result is not None:
         _print_auth_check(c, verify_result.authoritative)
         if verify_result.public_resolvers and not no_verify:
             c.print(f'  Public resolvers: {verify_result.public_resolvers.agreed_count}/'
@@ -569,6 +630,8 @@ def records_add(arg1         : str  = typer.Argument(None,  help='FQDN (e.g. tes
 
     if instance_resolved:                                                              # Cert hint only when the record points at an EC2 instance
         c.print(_CERT_WARNING.format(fqdn=fqdn))
+
+    _print_timings(c, timings, time.perf_counter() - overall_t0)
 
 
 # ── records update ────────────────────────────────────────────────────────────
