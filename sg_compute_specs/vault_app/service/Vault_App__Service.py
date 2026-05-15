@@ -24,13 +24,14 @@ from sg_compute_specs.vault_app.schemas.Schema__Vault_App__Delete__Response impo
 from sg_compute_specs.vault_app.schemas.Schema__Vault_App__List             import Schema__Vault_App__List
 from sg_compute_specs.vault_app.service.Vault_App__AMI__Helper              import Vault_App__AMI__Helper
 from sg_compute_specs.vault_app.service.Vault_App__AWS__Client              import Vault_App__AWS__Client, ecr_registry_host
-from sg_compute_specs.vault_app.service.Vault_App__Stack__Mapper            import (Vault_App__Stack__Mapper,
-                                                                                    STACK_TYPE              ,
-                                                                                    TAG_ACCESS_TOKEN        ,
-                                                                                    TAG_ENGINE              ,
-                                                                                    TAG_TERMINATE_AT        ,
-                                                                                    TAG_TLS_ENABLED         ,
-                                                                                    TAG_WITH_PLAYWRIGHT     )
+from sg_compute_specs.vault_app.service.Vault_App__Stack__Mapper            import (Vault_App__Stack__Mapper ,
+                                                                                    STACK_TYPE               ,
+                                                                                    PLAYWRIGHT_EXTERNAL_PORT ,
+                                                                                    TAG_ACCESS_TOKEN         ,
+                                                                                    TAG_ENGINE               ,
+                                                                                    TAG_TERMINATE_AT         ,
+                                                                                    TAG_TLS_ENABLED          ,
+                                                                                    TAG_WITH_PLAYWRIGHT      )
 from sg_compute_specs.vault_app.service.Vault_App__User_Data__Builder       import Vault_App__User_Data__Builder
 
 DEFAULT_REGION        = os.environ.get('AWS_DEFAULT_REGION', 'eu-west-2')
@@ -85,14 +86,17 @@ class Vault_App__Service(Spec__Service__Base):
         access_token = str(request.access_token) or secrets.token_urlsafe(24)
         ecr_registry = ecr_registry_host(region)
 
-        # Only the vault UI port is published — playwright / mitmproxy stay internal.
-        # --with-tls-check serves HTTPS on :443; that port (and :80 for the ACME
-        # http-01 challenge) must be world-open — Let's Encrypt validates from
-        # unpredictable source IPs, and the vault is access-token-gated anyway
-        # (architecture doc Q7, resolved: leave :443 world-open).
+        # SG layout:
+        #   :8080  always — vault UI on plain HTTP for non-TLS / SSM-forward use; caller-/32 only.
+        #   :443   --with-tls-check — HTTPS vault. World-open (token-gated; LE validates from unpredictable IPs).
+        #   :80    --with-tls-check — ACME http-01 challenge listener (only live during cert-init).
+        #   :11024 --with-playwright — playwright REST API. World-open (token-gated, same X-API-Key as the vault).
         extra_cidrs = {}
         if bool(request.with_tls_check):
-            extra_cidrs = {443: '0.0.0.0/0', 80: '0.0.0.0/0'}
+            extra_cidrs[443] = '0.0.0.0/0'
+            extra_cidrs[80]  = '0.0.0.0/0'
+        if bool(request.with_playwright):
+            extra_cidrs[PLAYWRIGHT_EXTERNAL_PORT] = '0.0.0.0/0'
         sg_id = self.aws_client.sg.ensure_security_group(
             region, stack_name, caller_ip,
             inbound_ports=[VAULT_PORT],
@@ -161,7 +165,8 @@ class Vault_App__Service(Spec__Service__Base):
 
     def health(self, region: str, name: str, timeout_sec: int = 0, poll_sec: int = 10):
         from sg_compute.cli.base.schemas.Schema__CLI__Health__Probe import Schema__CLI__Health__Probe
-        import ssl, time
+        from sg_compute.cli.base.Spec__CLI__Renderers__Base         import format_elapsed_ms
+        import re, ssl, time
         from rich.console import Console
 
         c        = Console(highlight=False)
@@ -172,6 +177,17 @@ class Vault_App__Service(Spec__Service__Base):
         ctx.check_hostname = False
         ctx.verify_mode    = ssl.CERT_NONE
         is_wait  = timeout_sec > 0
+
+        # The boot log writes lines like "[ephemeral-ec2] installing Docker CE…" /
+        # "[vault-app] boot complete …" — strip the source bracket prefix so the
+        # rendered stage is plain text (and so rich doesn't silently swallow the
+        # bracket as a markup tag).
+        prefix_re = re.compile(r'^\[[^\]]+\]\s*')
+
+        timeline    : list = []                          # [(elapsed_s, label)] for the post-wait timings table
+        last_sig    : tuple = ()                          # (state, ip, stage_clean, cert_init) — last printed signature
+        last_stage  : str  = ''
+        last_cert   : str  = ''
 
         if is_wait:
             c.print(f'\n  [dim]Polling {name} every {poll_sec}s  (timeout {timeout_sec}s) —'
@@ -195,37 +211,57 @@ class Vault_App__Service(Spec__Service__Base):
                 public_ip = str(getattr(info, 'public_ip', '') or '')
                 probe.state = state
 
-                if not public_ip:
-                    probe.last_error = 'instance has no public IP yet'
-                    if is_wait:
-                        c.print(f'  [dim][t+{elapsed:>3}s][/]  state=[yellow]{state}[/]  [dim]awaiting public IP…[/]')
-                else:
-                    # TLS-aware: HTTPS :443 (TLS stack) is tried before HTTP :8080 (plain).
+                # TLS-aware: HTTPS :443 (TLS stack) is tried before HTTP :8080 (plain).
+                status, scheme, err = (0, '', '')
+                if public_ip:
                     status, scheme, err = self._probe_endpoints(public_ip, ctx)
-                    # Any HTTP response (incl. 401/403 auth gate) means the vault is up.
-                    if status and status < 500:
-                        probe.healthy    = True
-                        probe.state      = 'running'
-                        probe.last_error = ''
-                        if scheme == 'https':
-                            probe.cert_summary = self._probe_cert(public_ip)
-                        if is_wait:
-                            gate = '  [dim](auth-gated — expected)[/]' if status in (401, 403) else ''
-                            url  = f'https://{public_ip}' if scheme == 'https' else f'http://{public_ip}:{VAULT_PORT}'
-                            cert = f'  [dim]{probe.cert_summary}[/]' if probe.cert_summary else ''
-                            c.print(f'  [dim][t+{elapsed:>3}s][/]  [green]✓ healthy[/]  HTTP {status}  {url}{gate}{cert}')
-                        break
-                    probe.last_error = err or f'HTTP {status}'
+
+                # Any HTTP response (incl. 401/403 auth gate) means the vault is up.
+                if status and status < 500:
+                    probe.healthy    = True
+                    probe.state      = 'running'
+                    probe.last_error = ''
+                    if scheme == 'https':
+                        probe.cert_summary = self._probe_cert(public_ip)
                     if is_wait:
-                        stage, cert_init = self._probe_progress(region, name)
-                        bits = []
-                        if cert_init:
-                            bits.append(f'cert-init=[bold]{cert_init}[/]')
-                        if stage:
-                            bits.append(f'stage=[bold]{stage}[/]')
-                        detail = ('  ' + '  '.join(bits)) if bits else ''
-                        c.print(f'  [dim][t+{elapsed:>3}s][/]  state=[cyan]{state}[/]  ip={public_ip}'
-                                f'{detail}  [dim]{err or ("HTTP " + str(status))}[/]')
+                        gate = '  [dim](auth-gated — expected)[/]' if status in (401, 403) else ''
+                        url  = f'https://{public_ip}' if scheme == 'https' else f'http://{public_ip}:{VAULT_PORT}'
+                        cert = f'  [dim]{probe.cert_summary}[/]' if probe.cert_summary else ''
+                        c.print(f'  [dim][t+{elapsed:>3}s][/]  [green]✓ healthy[/]  HTTP {status}  {url}{gate}{cert}')
+                        timeline.append((elapsed, f'{(scheme or "http").upper()} up — HTTP {status}'))
+                    break
+
+                probe.last_error = err or f'HTTP {status}' or 'awaiting boot'
+                if is_wait:
+                    stage_raw, cert_init = ('', '')
+                    if public_ip:
+                        stage_raw, cert_init = self._probe_progress(region, name)
+                    stage_clean = prefix_re.sub('', stage_raw).strip() if stage_raw else ''
+
+                    # Only print when something actually changed — drops the noisy
+                    # 5-identical-lines-per-stage repetition.
+                    signature = (state, public_ip, stage_clean, cert_init)
+                    if signature != last_sig:
+                        if not public_ip:
+                            line = f'state=[yellow]{state}[/]  [dim]awaiting public IP…[/]'
+                        else:
+                            bits = [f'state=[cyan]{state}[/]', f'ip={public_ip}']
+                            if cert_init:
+                                bits.append(f'cert-init=[bold]{cert_init}[/]')
+                            if stage_clean:
+                                bits.append(f'stage=[bold]{stage_clean}[/]')
+                            if not stage_clean and not cert_init:
+                                bits.append('[dim]waiting on boot…[/]')
+                            line = '  '.join(bits)
+                        c.print(f'  [dim][t+{elapsed:>3}s][/]  {line}')
+                        last_sig = signature
+
+                    if stage_clean and stage_clean != last_stage:
+                        timeline.append((elapsed, stage_clean))
+                        last_stage = stage_clean
+                    if cert_init and cert_init != last_cert:
+                        timeline.append((elapsed, f'cert-init {cert_init}'))
+                        last_cert = cert_init
 
             if time.monotonic() >= deadline:
                 if is_wait and not probe.healthy:
@@ -234,7 +270,27 @@ class Vault_App__Service(Spec__Service__Base):
             time.sleep(poll_sec)
 
         probe.elapsed_ms = int((time.monotonic() - t0) * 1000)
+        if is_wait and timeline:
+            self._print_stage_timings(c, timeline)
         return probe
+
+    def _print_stage_timings(self, c, timeline: list) -> None:
+        # The total is intentionally omitted here — render_health_probe prints
+        # "✓  healthy  state=running  Xm Ys (Yms)" right after, which would
+        # duplicate it. Keep the table tight; let the renderer own the summary.
+        from rich.table import Table
+        table = Table(box=None, show_header=False, padding=(0, 2))
+        table.add_column(style='dim', justify='right', no_wrap=True)
+        table.add_column(no_wrap=False)
+        prev = 0
+        for elapsed_s, label in timeline:
+            delta = elapsed_s - prev
+            table.add_row(f't+{elapsed_s}s', f'{label}  [dim]+{delta}s[/]')
+            prev = elapsed_s
+        c.print()
+        c.print('  [bold]Stage timings[/]')
+        c.print(table)
+        c.print()
 
     def _http_status(self, url: str, ctx) -> tuple:
         # (status_code, error_str). status_code 0 = unreachable (connection refused

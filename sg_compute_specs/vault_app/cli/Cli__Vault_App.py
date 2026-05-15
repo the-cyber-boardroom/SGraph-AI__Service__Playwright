@@ -13,6 +13,10 @@
 #   --ami <id>         boot from a baked AMI — skips engine install + image pull
 # ═══════════════════════════════════════════════════════════════════════════════
 
+import json
+import os
+from typing import Optional
+
 import typer
 from rich.console import Console
 from rich.panel   import Panel
@@ -40,9 +44,12 @@ def _render_vault_app_info(info, console: Console) -> None:
     t.add_column(style='bold', min_width=18, no_wrap=True)
     t.add_column()
 
-    vault_url = str(getattr(info, 'vault_url', '') or '')
+    vault_url      = str(getattr(info, 'vault_url',      '') or '')
+    playwright_url = str(getattr(info, 'playwright_url', '') or '')
     if vault_url:
         t.add_row('vault-url', f'[bold cyan]{vault_url}[/]')
+    if playwright_url:
+        t.add_row('playwright-url', f'[bold cyan]{playwright_url}[/]  [dim](same X-API-Key)[/]')
 
     with_playwright = getattr(info, 'with_playwright', False)
     mode = '[green]with-playwright[/] (4 containers)' if with_playwright else '[dim]just-vault[/] (2 containers)'
@@ -73,6 +80,25 @@ def _render_vault_app_info(info, console: Console) -> None:
 
     if vault_url:
         t.add_row('set-cookie-form', f'[cyan]{vault_url}/auth/set-cookie-form[/]')
+    if playwright_url:
+        t.add_row('playwright-cookie', f'[cyan]{playwright_url}/auth/set-cookie-form[/]')
+
+    host_plane_url = str(getattr(info, 'host_plane_url', '') or '')
+    mitmweb_url    = str(getattr(info, 'mitmweb_url',    '') or '')
+
+    if host_plane_url:
+        t.add_row('host-plane',        f'[cyan]{host_plane_url}[/]  [dim](container admin: /containers/list, /host/shell/page, …)[/]')
+        t.add_row('host-plane-cookie', f'[cyan]{host_plane_url}/auth/set-cookie-form[/]')
+    if mitmweb_url:
+        t.add_row('mitmweb',           f'[cyan]{mitmweb_url}[/]  [dim](mitmproxy admin UI)[/]')
+        t.add_row('mitmweb-cookie',    f'[cyan]http://localhost:19081/auth/set-cookie-form[/]')
+
+    open_cmds = []
+    if host_plane_url: open_cmds.append('[cyan]sp vault-app open host-plane[/]')
+    if mitmweb_url:    open_cmds.append('[cyan]sp vault-app open mitmweb[/]')
+    if open_cmds:
+        t.add_row('open', '  ·  '.join(open_cmds))
+    if vault_url:
         bookmarklet_token = token or 'YOUR_TOKEN'
         t.add_row('browser-auth',
                   f'[dim]javascript: document.cookie = '
@@ -210,6 +236,9 @@ _LOG_SOURCES = {                                                       # name �
     'vault'     : ('(docker logs --tail {tail} vault-app-sg-send-vault-1 2>&1 || '
                    'podman logs --tail {tail} vault-app-sg-send-vault-1 2>&1) || true', 60,
                    'sg-send-vault container — the vault app itself'),
+    'mitmproxy' : ('(docker logs --tail {tail} vault-app-agent-mitmproxy-1 2>&1 || '
+                   'podman logs --tail {tail} vault-app-agent-mitmproxy-1 2>&1) || true', 60,
+                   'agent-mitmproxy container — mitmweb startup line includes the web UI password'),
 }
 
 
@@ -450,3 +479,177 @@ def diag(name  : str = typer.Argument(None, help='Stack name; auto-selected when
                 c.print(f'    [cyan]sp vault-app logs {name} --source {source:<10}[/]'
                         f'  [dim]# {reason}  ({origin})[/]')
     c.print()
+
+
+# ── `sp vault-app open <target>` — SSM port-forward to an internal sidecar ───
+# A target registry maps a friendly name to (local port, post-forward URL, cookie-
+# form URL, description, with-playwright requirement). Adding a new internal
+# sidecar = one entry here; no other command changes needed.
+
+_FORWARD_TARGETS = {
+    'host-plane': {'port'            : 19009,
+                   'url'             : 'http://localhost:19009',
+                   'cookie_form'     : 'http://localhost:19009/auth/set-cookie-form',
+                   'desc'            : 'host-plane admin API — containers, shell, logs, pods, status',
+                   'needs_playwright': False},
+    'mitmweb'   : {'port'            : 19081,
+                   'url'             : 'http://localhost:19081/web/',
+                   'cookie_form'     : 'http://localhost:19081/auth/set-cookie-form',
+                   'desc'            : 'mitmproxy admin UI — requires --with-playwright',
+                   'needs_playwright': True },
+}
+
+
+def _render_open_targets(c: Console) -> None:
+    c.print()
+    c.print('  [bold]Available targets[/]  [dim](sp vault-app open <target> [stack-name])[/]')
+    t = Table(box=None, show_header=False, padding=(0, 2))
+    t.add_column(style='bold cyan', no_wrap=True)
+    t.add_column()
+    for tname, meta in _FORWARD_TARGETS.items():
+        t.add_row(tname, f'[dim]{meta["desc"]}[/]\n[dim]  → {meta["url"]}[/]')
+    c.print(t)
+    c.print()
+
+
+@app.command(name='open', help='''Open an internal sidecar via SSM port-forward.
+
+\b
+Available targets:
+  host-plane  host-plane admin API (containers, shell, logs, pods, status)
+  mitmweb     mitmproxy admin UI (--with-playwright only)
+
+\b
+Starts an `aws ssm start-session AWS-StartPortForwardingSession` tunnel,
+prints the URL + the cookie-form URL, then hands the terminal to the aws
+CLI — Ctrl-C closes the tunnel. Run with no target to list options.
+''')
+@spec_cli_errors
+def open_target(target: Optional[str] = typer.Argument(None,
+                          help='host-plane | mitmweb — omit to list available targets.'),
+                name  : Optional[str] = typer.Argument(None,
+                          help='Stack name; auto-selected when only one exists.'),
+                region: str = typer.Option(DEFAULT_REGION, '--region', '-r')):
+    c = Console(highlight=False)
+    if not target:
+        _render_open_targets(c)
+        return
+    target = target.lower()
+    if target not in _FORWARD_TARGETS:
+        raise typer.BadParameter(
+            f'unknown target {target!r}; pick from: {", ".join(_FORWARD_TARGETS)}')
+    meta = _FORWARD_TARGETS[target]
+
+    svc  = Vault_App__Service().setup()
+    name = Spec__CLI__Builder(_cli_spec).resolver.resolve(svc, name, region, 'vault-app')
+    info = svc.get_stack_info(region, name)
+    if info is None:
+        c.print(f'  [red]✗  No vault-app stack matched {name!r}[/]')
+        raise typer.Exit(1)
+    if meta['needs_playwright'] and not getattr(info, 'with_playwright', False):
+        c.print(f'  [red]✗  Target [bold]{target}[/] requires --with-playwright; '
+                f'[bold]{name}[/] is a just-vault stack.[/]')
+        raise typer.Exit(1)
+
+    iid  = str(getattr(info, 'instance_id', '') or '')
+    port = meta['port']
+
+    c.print()
+    c.print(f'  [bold]Opening {target}[/]  [dim]via SSM port-forward[/]')
+    t = Table(box=None, show_header=False, padding=(0, 2))
+    t.add_column(style='dim', no_wrap=True, min_width=14)
+    t.add_column()
+    t.add_row('stack',        f'[cyan]{name}[/]  [dim]{iid}[/]  region=[dim]{region}[/]')
+    t.add_row('url',          f'[bold cyan]{meta["url"]}[/]')
+    t.add_row('cookie-form',  f'[cyan]{meta["cookie_form"]}[/]  [dim](set the access token here once)[/]')
+    t.add_row('',             '[dim]→ once you see "Waiting for connections…", open the url above.  Ctrl-C closes the tunnel.[/]')
+    c.print(t)
+    c.print()
+
+    parameters = json.dumps({'portNumber'      : [str(port)],
+                             'localPortNumber' : [str(port)]})
+    os.execvp('aws', [
+        'aws', 'ssm', 'start-session',
+        '--target',        iid,
+        '--document-name', 'AWS-StartPortForwardingSession',
+        '--parameters',    parameters,
+        '--region',        region,
+    ])
+
+
+# ── `sp vault-app recreate` — delete + create-same-shape + wait + info ───────
+# Preserves with_playwright / container_engine / with_tls_check from the existing
+# stack's tags so the operator doesn't have to retype them. Everything else
+# (tls_mode, acme_prod, max_hours, disk_size, …) resets to current `create`
+# defaults. Always --waits. For different flags, use `delete` + `create` directly.
+
+@app.command(name='recreate', help='''Delete a stack and launch a fresh one with the same shape.
+
+\b
+Preserves from the existing stack's tags:
+  • --with-playwright  (2-vs-4 container shape)
+  • container engine   (docker | podman)
+  • --with-tls-check   (HTTPS on :443 vs plain HTTP on :8080)
+
+\b
+Everything else resets to current `create` defaults (LE production cert,
+spot, max-hours, disk size, …). For different flags, use:
+  sp vault-app delete && sp vault-app create --<flags>
+
+Always --waits and prints `info` on success.
+''')
+@spec_cli_errors
+def recreate(name  : Optional[str] = typer.Argument(None, help='Stack name; auto-selected when only one exists.'),
+             region: str           = typer.Option(DEFAULT_REGION, '--region', '-r'),
+             yes   : bool          = typer.Option(False, '--yes', '-y', help='Skip the delete confirmation prompt.')):
+    c       = Console(highlight=False, width=200)
+    builder = Spec__CLI__Builder(_cli_spec)
+    svc     = Vault_App__Service().setup()
+    name    = builder.resolver.resolve(svc, name, region, 'vault-app')
+    info    = svc.get_stack_info(region, name)
+    if info is None:
+        c.print(f'  [red]✗  No vault-app stack matched {name!r}[/]')
+        raise typer.Exit(1)
+
+    with_playwright = bool(getattr(info, 'with_playwright', False))
+    engine          = str(getattr(info, 'container_engine', '') or 'docker')
+    with_tls_check  = bool(getattr(info, 'tls_enabled',      False))
+
+    shape_lbl  = '[green]with-playwright[/] (4 containers)' if with_playwright else '[dim]just-vault[/] (2 containers)'
+    tls_lbl    = '[green]TLS on[/]' if with_tls_check else '[dim]plain HTTP[/]'
+
+    c.print()
+    c.print(Panel(
+        f'[bold]Recreate[/]  ·  {name}\n'
+        f'[dim]preserving:[/]  shape={shape_lbl}  ·  engine=[cyan]{engine}[/]  ·  tls={tls_lbl}\n'
+        f'[dim]resetting:[/]   tls-mode, acme-prod, max-hours, disk-size, storage-mode → current defaults',
+        expand=False))
+
+    if not yes:
+        typer.confirm(f'\n  Delete {name!r} and launch a fresh stack?', default=True, abort=True)
+
+    c.print(f'\n  [yellow]→[/]  Deleting [bold]{name}[/]…')
+    delete_result = svc.delete_stack(region, name)
+    if not getattr(delete_result, 'deleted', False):
+        c.print(f'  [red]✗  Delete failed for {name!r}[/]')
+        raise typer.Exit(1)
+    c.print(f'  [green]✓[/]  Deleted.')
+
+    # Build the fresh request — schema defaults for everything except the three preserved fields.
+    req = Schema__Vault_App__Create__Request()
+    req.region           = region
+    req.with_playwright  = with_playwright
+    req.container_engine = 'podman' if engine == 'podman' else 'docker'
+    req.with_tls_check   = with_tls_check
+
+    c.print(f'\n  [yellow]→[/]  Launching fresh stack…\n')
+    resp = svc.create_stack(req)
+    _render_vault_app_create(resp, c)
+
+    new_info = getattr(resp, 'stack_info', None) or resp
+    new_name = str(getattr(new_info, 'stack_name', '') or '')
+    builder._wait_healthy(svc, region, new_name)
+
+    fresh = svc.get_stack_info(region, new_name)
+    if fresh is not None:
+        _render_vault_app_info(fresh, c)

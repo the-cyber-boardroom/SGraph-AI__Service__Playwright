@@ -49,6 +49,33 @@ class TestVaultAppComposeTemplate:
                                                        docker_socket='/run/podman/podman.sock')
         assert '/run/podman/podman.sock:/var/run/docker.sock' in result
 
+    def test_with_playwright_publishes_external_port(self):
+        result = Vault_App__Compose__Template().render(ecr_registry=REGISTRY, with_playwright=True)
+        assert '"11024:8000"' in result                              # host:11024 → container:8000
+
+    def test_with_playwright_pulls_docker_hub_image(self):
+        # sg-playwright follows the sg-send-vault pattern: a Docker Hub image, not ECR.
+        result = Vault_App__Compose__Template().render(ecr_registry=REGISTRY, with_playwright=True)
+        assert 'image: diniscruz/sg-playwright:latest'                    in result
+        assert f'{REGISTRY}/sgraph_ai_service_playwright:' + 'latest'     not in result
+
+    def test_without_playwright_does_not_publish_11024(self):
+        result = Vault_App__Compose__Template().render(ecr_registry=REGISTRY)
+        assert '11024' not in result
+
+    def test_with_playwright_publishes_mitmweb_admin_on_localhost(self):
+        # Routes__Web lives on agent-mitmproxy's admin FastAPI (:8000), NOT on
+        # host-plane. Publishing it as 127.0.0.1:19081 gives SSM port-forward a
+        # target so /web/ is reachable from a laptop.
+        result = Vault_App__Compose__Template().render(ecr_registry=REGISTRY, with_playwright=True)
+        assert '"127.0.0.1:19081:8000"' in result
+
+    def test_host_plane_no_longer_carries_dead_mitmweb_env(self):
+        # An earlier commit added AGENT_MITMPROXY__MITMWEB_HOST to host-plane based
+        # on the wrong assumption that Routes__Web ran there. It doesn't.
+        result = Vault_App__Compose__Template().render(ecr_registry=REGISTRY, with_playwright=True)
+        assert 'AGENT_MITMPROXY__MITMWEB_HOST' not in result
+
     def test_with_tls_check_wires_tls_into_sg_send_vault(self):
         result = Vault_App__Compose__Template().render(ecr_registry=REGISTRY, with_tls_check=True)
         # the real sg-send-vault service terminates its own HTTPS — no proxy, no scaffold
