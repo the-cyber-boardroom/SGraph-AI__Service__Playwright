@@ -42,6 +42,29 @@ class TestCliVaultApp:
         assert '--access-token'    in result.output
         assert '--name'            in result.output
         assert '--tls-hostname'    in result.output
+        assert '--with-aws-dns'    in result.output
+
+    def test_set_extras_with_aws_dns_auto_bumps_tls_mode(self):
+        # --with-aws-dns implies the FQDN cert path. _set_extras flips tls_mode from
+        # the default letsencrypt-ip → letsencrypt-hostname so the service derives
+        # the FQDN downstream.
+        from sg_compute_specs.vault_app.cli.Cli__Vault_App                       import _set_extras
+        from sg_compute_specs.vault_app.schemas.Schema__Vault_App__Create__Request import Schema__Vault_App__Create__Request
+
+        request = Schema__Vault_App__Create__Request()
+        _set_extras(request, with_aws_dns=True)
+        assert request.with_aws_dns is True
+        assert request.tls_mode     == 'letsencrypt-hostname'
+        assert request.tls_hostname == ''                          # service will derive it from stack_name + zone
+
+    def test_set_extras_with_aws_dns_respects_explicit_self_signed(self):
+        from sg_compute_specs.vault_app.cli.Cli__Vault_App                       import _set_extras
+        from sg_compute_specs.vault_app.schemas.Schema__Vault_App__Create__Request import Schema__Vault_App__Create__Request
+
+        request = Schema__Vault_App__Create__Request()
+        _set_extras(request, with_aws_dns=True, tls_mode='self-signed')
+        assert request.with_aws_dns is True
+        assert request.tls_mode     == 'self-signed'              # explicit --tls-mode wins over the auto-bump
 
     def test_set_extras_auto_bumps_to_hostname_mode_when_tls_hostname_set(self):
         from sg_compute_specs.vault_app.cli.Cli__Vault_App                       import _set_extras

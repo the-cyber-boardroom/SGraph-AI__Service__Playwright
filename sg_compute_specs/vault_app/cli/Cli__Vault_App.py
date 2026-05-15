@@ -15,6 +15,7 @@
 
 import json
 import os
+import threading
 from typing import Optional
 
 import typer
@@ -154,15 +155,18 @@ def _render_vault_app_create(response, console: Console) -> None:
 def _set_extras(request, with_playwright=False, podman=False, use_spot=True,
                 storage_mode='disk', seed_vault_keys='', access_token='', disk_size=0,
                 with_tls_check=True, tls_mode='letsencrypt-ip', acme_prod=True,
-                tls_hostname=''):
+                tls_hostname='', with_aws_dns=False):
     request.with_playwright  = bool(with_playwright)
     request.container_engine = 'podman' if podman else 'docker'
     request.use_spot         = bool(use_spot)
     request.with_tls_check   = bool(with_tls_check)
-    # Auto-bump: --tls-hostname implies letsencrypt-hostname mode when mode is left at the default IP-cert.
-    # Explicit --tls-mode wins (lets the user combine --tls-mode self-signed --tls-hostname for a self-signed CN).
+    request.with_aws_dns     = bool(with_aws_dns)
+    # Auto-bump: --tls-hostname (or --with-aws-dns, which will derive one) implies
+    # letsencrypt-hostname mode when mode is left at the default IP-cert. Explicit
+    # --tls-mode wins (lets a caller combine --tls-mode self-signed --tls-hostname X).
     resolved_mode = tls_mode or 'self-signed'
-    if tls_hostname and resolved_mode == 'letsencrypt-ip':
+    wants_hostname_cert = bool(tls_hostname) or bool(with_aws_dns)
+    if wants_hostname_cert and resolved_mode == 'letsencrypt-ip':
         resolved_mode = 'letsencrypt-hostname'
     request.tls_mode         = resolved_mode
     request.acme_prod        = bool(acme_prod)
@@ -177,6 +181,57 @@ def _set_extras(request, with_playwright=False, podman=False, use_spot=True,
         request.disk_size_gb    = int(disk_size)
 
 
+# ── --with-aws-dns: post-launch parallel Route 53 work ───────────────────────
+# Kicked off after Vault_App__Service.create_stack returns, BEFORE _wait_healthy
+# blocks on EC2 boot. The thread polls for the public IP (allocated ~5-10s after
+# run_instance), then runs Vault_App__Auto_DNS to upsert the A record + wait for
+# INSYNC + run authoritative check. By the time --wait reaches the cert-init
+# stage, DNS has typically already converged, so cert-init's DNS-wait returns on
+# its first poll. _wait_healthy + .join(timeout=180) ensure we don't return
+# from create until both EC2 boot AND DNS are confirmed.
+
+def _vault_app_post_launch(svc, region, request, response, kwargs, console):
+    if not bool(getattr(request, 'with_aws_dns', False)):
+        return None
+    fqdn = str(getattr(request, 'tls_hostname', '') or '').strip()
+    if not fqdn:                                                                   # belt-and-braces: service should have derived this, but skip cleanly if it didn't
+        return None
+    info        = getattr(response, 'stack_info', None) or response
+    stack_name  = str(getattr(info, 'stack_name', '') or '')
+    captured    = {}                                                                # populated by the worker; read on join
+
+    def _worker():
+        import time as _time
+        from sg_compute_specs.vault_app.service.Vault_App__Auto_DNS import Vault_App__Auto_DNS
+        # Poll get_stack_info for the public IP — usually allocated within 10s; 60s ceiling.
+        public_ip = ''
+        deadline  = _time.time() + 60
+        while _time.time() < deadline:
+            fresh = svc.get_stack_info(region, stack_name)
+            ip    = str(getattr(fresh, 'public_ip', '') or '') if fresh is not None else ''
+            if ip:
+                public_ip = ip
+                break
+            _time.sleep(2)
+        if not public_ip:
+            console.print(f'  [yellow]⚠[/]  auto-dns: gave up waiting for public IP after 60s — skipping Route 53 work')
+            captured['result'] = None
+            return
+        console.print(f'  [dim]auto-dns:[/] starting  {fqdn} → {public_ip}')
+        def _progress(stage, detail):
+            console.print(f'  [dim]auto-dns:[/] {stage}  [dim]{detail}[/]')
+        result = Vault_App__Auto_DNS().run(fqdn=fqdn, public_ip=public_ip, on_progress=_progress)
+        captured['result'] = result
+        if result.error:
+            console.print(f'  [red]✗[/]  auto-dns failed: {result.error}')
+        else:
+            console.print(f'  [green]✓[/]  auto-dns: {fqdn} → {public_ip}  (INSYNC + authoritative, {result.elapsed_ms}ms)')
+
+    thread = threading.Thread(target=_worker, daemon=True, name='vault-app-auto-dns')
+    thread.start()
+    return thread                                                                  # has .join(timeout=...) — Spec__CLI__Builder joins after _wait_healthy
+
+
 _cli_spec = Schema__Spec__CLI__Spec(
     spec_id               = 'vault-app'                              ,
     display_name          = 'Vault App'                              ,
@@ -189,6 +244,7 @@ _cli_spec = Schema__Spec__CLI__Spec(
     extra_create_field_setters = _set_extras                         ,
     render_info_fn             = _render_vault_app_info              ,
     render_create_fn           = _render_vault_app_create            ,
+    post_launch_fn             = _vault_app_post_launch              ,
 )
 
 
@@ -227,6 +283,11 @@ app = Spec__CLI__Builder(
         ('acme_prod'      , bool, True,
          "letsencrypt-* modes: use the LE production directory (browser-trusted, default). "
          "Pass --no-acme-prod for LE staging (untrusted, rate-limit-safe — for debugging)."),
+        ('with_aws_dns'   , bool, False,
+         "Auto-create the Route 53 A record for this stack in parallel with the EC2 boot. "
+         "Derives the FQDN as <stack-name>.<SG_AWS__DNS__DEFAULT_ZONE> (default zone: "
+         "sg-compute.sgraph.ai). Auto-bumps --tls-mode to letsencrypt-hostname. AWS-only. "
+         "Requires this AWS account to own the default zone."),
         # ── secret ───────────────────────────────────────────────────────
         ('access_token'   , str , '',
          'Shared stack secret (vault API key + access token). Auto-generated if blank; '

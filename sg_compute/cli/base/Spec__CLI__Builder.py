@@ -240,10 +240,23 @@ class Spec__CLI__Builder:
                 })
             resp       = svc.create_stack(req)
             render_create_fn(resp, console)
+            # Optional post-launch hook — kicks off background work (e.g. vault-app
+            # --with-aws-dns running Route 53 upsert + INSYNC wait in parallel with
+            # the EC2 boot). The returned task (or None) is joined after _wait_healthy
+            # so the parallel work has the entire EC2 boot window to finish.
+            post_launch_task = None
+            if cli_spec.post_launch_fn is not None:
+                try:
+                    post_launch_task = cli_spec.post_launch_fn(svc, region, req, resp, kwargs, console)
+                except Exception as exc:                                                # never crash create on a hook failure — print and continue
+                    Console(highlight=False, stderr=True).print(
+                        f'  [yellow]⚠[/]  post_launch hook failed: {type(exc).__name__}: {exc}')
             if kwargs.get('wait'):
                 info      = getattr(resp, 'stack_info', None) or resp
                 real_name = str(getattr(info, 'stack_name', '') or name)
                 self._wait_healthy(svc, region, real_name)
+                if post_launch_task is not None and hasattr(post_launch_task, 'join'):
+                    post_launch_task.join(timeout=180)                                  # 3-min ceiling so a stuck task can't hang the CLI indefinitely
                 # surface the final info block so the URLs / access token / cert info
                 # are visible without a second `sp <spec> info` call
                 fresh = svc.get_stack_info(region, real_name)
