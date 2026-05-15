@@ -112,14 +112,14 @@ SECTIONS = {
 def _print_root():
     names = '  '.join(sorted(SECTIONS))
     console.print(f'\n  [bold]sections:[/bold]  {names}')
-    console.print('  [dim]q — quit    ? — help[/dim]\n')
+    console.print('  [dim]q — quit    help / ? / h — this list[/dim]\n')
 
 
 def _print_section(section):
     console.print()
     for verb, (_, desc) in sorted(SECTIONS[section].items()):
         console.print(f'  [cyan]{verb:<14}[/cyan] {desc}')
-    console.print('  [dim].. — back    ? — help[/dim]\n')
+    console.print('  [dim].. — back    help / ? / h — this list[/dim]\n')
 
 
 def run_repl():
@@ -152,7 +152,7 @@ def run_repl():
             break
 
         if section is None:
-            if cmd == '?':
+            if cmd in ('?', 'help', 'h'):
                 _print_root()
             elif cmd in SECTIONS:
                 section = cmd
@@ -164,7 +164,7 @@ def run_repl():
             if cmd in ('..', 'back'):
                 section = None
                 _print_root()
-            elif cmd == '?':
+            elif cmd in ('?', 'help', 'h'):
                 _print_section(section)
             elif cmd in SECTIONS[section]:
                 fn, _ = SECTIONS[section][cmd]
