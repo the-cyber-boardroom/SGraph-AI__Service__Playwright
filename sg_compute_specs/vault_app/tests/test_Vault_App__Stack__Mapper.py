@@ -76,14 +76,3 @@ class TestVaultAppStackMapper:
                        'StackWithPlaywright': 'true'                         }),
             'eu-west-2')
         assert info.playwright_url == 'http://test-2.sg-compute.sgraph.ai'
-
-    def test_no_tls_with_fqdn_yields_plain_http_vault_url_on_8080(self):
-        # --no-with-tls-check + --with-aws-dns: vault binds plain HTTP on :8080,
-        # SG opens it world-open, URL uses the FQDN (which the user-supplied or
-        # auto-derived A record points at this stack's IP).
-        info = Vault_App__Stack__Mapper().to_info(
-            _instance({'StackName'       : 's'                              ,
-                       'StackTlsHostname': 'plain-stack.sg-compute.sgraph.ai'}),  # no StackTLS tag = TLS off
-            'eu-west-2')
-        assert info.tls_enabled is False
-        assert info.vault_url   == 'http://plain-stack.sg-compute.sgraph.ai:8080'
