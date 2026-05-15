@@ -1,0 +1,21 @@
+fastapi
+uvicorn
+requests
+httpx
+playwright==1.58.0
+# ^ MUST match the base-image tag (mcr.microsoft.com/playwright/python:v1.58.0-noble).
+# The base image bundles only the Chromium revision for 1.58.0 under /ms-playwright/.
+# Unpinned `playwright` floats to pip's latest (e.g. 1.59.0) which demands a Chromium binary
+# the base image does not have, failing with: "Executable doesn't exist at
+# /ms-playwright/chromium_headless_shell-XXXX/chrome-linux/headless_shell".
+# Earlier revisions of this file omitted playwright entirely on the assumption that the base
+# image's python interpreter already had it — empirically false for v1.58.0-noble, and the
+# cause of the ModuleNotFoundError that this comment block now prevents from recurring.
+# Bumping the base image (FROM in the Dockerfile) MUST bump this pin AND the literal in the
+# Dockerfile's verify step in lockstep.
+osbot-utils
+osbot-aws
+osbot-docker
+osbot-fast-api
+osbot-fast-api-serverless
+prometheus-client

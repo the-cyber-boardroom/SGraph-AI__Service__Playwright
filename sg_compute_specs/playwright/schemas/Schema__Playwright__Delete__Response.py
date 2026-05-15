@@ -1,17 +1,12 @@
 # ═══════════════════════════════════════════════════════════════════════════════
-# SP CLI — Enum__Stack__Type
+# SG/Compute Specs — playwright: Schema__Playwright__Delete__Response
 # ═══════════════════════════════════════════════════════════════════════════════
 
-from enum import Enum
+from osbot_utils.type_safe.Type_Safe import Type_Safe
 
 
-class Enum__Stack__Type(Enum):
-    DOCKER     = 'docker'
-    PODMAN     = 'podman'
-    ELASTIC    = 'elastic'
-    OPENSEARCH = 'opensearch'
-    PROMETHEUS = 'prometheus'
-    VNC        = 'vnc'
-    NEKO       = 'neko'
-    FIREFOX    = 'firefox'
-    PLAYWRIGHT = 'playwright'
+class Schema__Playwright__Delete__Response(Type_Safe):
+    stack_name : str  = ''
+    deleted    : bool = False
+    message    : str  = ''
+    elapsed_ms : int  = 0
