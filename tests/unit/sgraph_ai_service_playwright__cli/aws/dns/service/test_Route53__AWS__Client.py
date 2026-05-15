@@ -60,7 +60,9 @@ _CANNED_CHANGE_RESPONSE = {                                                     
 
 class _Fake_Route53_Boto3_Client:                                                    # In-memory stand-in that returns canned data for the paginator calls
     def __init__(self):
-        self.last_change_batch = None                                                # Records the last change_resource_record_sets call for assertions
+        self.last_change_batch  = None                                               # Records the last change_resource_record_sets call for assertions
+        self.get_change_calls   = 0                                                  # Counts get_change calls; 0/1/2/... drives the PENDING → INSYNC scripted sequence below
+        self.get_change_script  = ['INSYNC']                                         # Override per test to script a longer PENDING → INSYNC sequence
 
     def get_paginator(self, operation):
         if operation == 'list_hosted_zones':
@@ -79,6 +81,12 @@ class _Fake_Route53_Boto3_Client:                                               
     def change_resource_record_sets(self, HostedZoneId, ChangeBatch):               # Records the call and returns a canned PENDING response
         self.last_change_batch = ChangeBatch
         return _CANNED_CHANGE_RESPONSE
+
+    def get_change(self, Id):                                                        # Returns the next status from get_change_script; sticky on the last element
+        idx    = min(self.get_change_calls, len(self.get_change_script) - 1)
+        status = self.get_change_script[idx]
+        self.get_change_calls += 1
+        return {'ChangeInfo': {'Id': Id, 'Status': status, 'SubmittedAt': '2026-05-15T00:00:00Z'}}
 
 
 class _FakePaginator:
@@ -274,3 +282,37 @@ class test_Route53__AWS__Client(TestCase):
         with pytest.raises(ValueError, match='not found'):
             self.client.delete_record('Z01ABCDEFGHIJ', 'nope.sgraph.ai',
                                       Enum__Route53__Record_Type.A)
+
+    # ── P1: get_change / wait_for_change ──────────────────────────────────────
+
+    def test__get_change__returns_typed_result(self):
+        result = self.client.get_change('/change/CFAKE123')
+        assert isinstance(result, Schema__Route53__Change__Result)
+        assert result.status == 'INSYNC'                                              # Default script
+
+    def test__get_change__strips_change_prefix_when_calling_boto3(self):
+        self.client.get_change('/change/CFAKE123')                                    # Should not raise — the prefix is stripped before the boto3 call
+        assert self.client.client().get_change_calls == 1
+
+    def test__wait_for_change__returns_immediately_when_insync(self):
+        result = self.client.wait_for_change('/change/CFAKE123', timeout=10, poll_interval=0)
+        assert result.status == 'INSYNC'
+        assert self.client.client().get_change_calls == 1                             # One poll, immediate INSYNC
+
+    def test__wait_for_change__polls_until_insync(self):
+        self.client.client().get_change_script = ['PENDING', 'PENDING', 'INSYNC']
+        result = self.client.wait_for_change('/change/CFAKE123', timeout=10, poll_interval=0)
+        assert result.status == 'INSYNC'
+        assert self.client.client().get_change_calls == 3
+
+    def test__wait_for_change__returns_pending_on_timeout(self):
+        self.client.client().get_change_script = ['PENDING']                          # Sticky PENDING → wait_for_change should bail out
+        result = self.client.wait_for_change('/change/CFAKE123', timeout=0, poll_interval=0)
+        assert result.status == 'PENDING'
+
+    def test__wait_for_change__invokes_on_poll_callback(self):
+        self.client.client().get_change_script = ['PENDING', 'INSYNC']
+        ticks = []
+        self.client.wait_for_change('/change/CFAKE123', timeout=10, poll_interval=0,
+                                     on_poll=lambda r, t: ticks.append(r.status))
+        assert ticks == ['PENDING', 'INSYNC']
