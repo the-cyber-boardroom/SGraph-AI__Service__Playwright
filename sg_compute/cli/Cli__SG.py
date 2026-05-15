@@ -17,91 +17,95 @@
 import typer
 
 
-app = typer.Typer(name            = 'sg'                                                                ,
-                  help            = 'SG/Compute CLI — manage ephemeral EC2 stacks across all specs.'    ,
-                  no_args_is_help = True                                                                ,
-                  add_completion  = False                                                               )
-
-# ── playwright (sg_compute_specs/playwright) ─────────────────────────────────
-from sg_compute_specs.playwright.cli.Cli__Playwright import app as _playwright_app
-app.add_typer(_playwright_app, name='playwright')
-app.add_typer(_playwright_app, name='pw', hidden=True)                                                  # short alias
-
-# ── observability ────────────────────────────────────────────────────────────
-from scripts.observability import app as _observability_app
-app.add_typer(_observability_app, name='observability', hidden=True)
-app.add_typer(_observability_app, name='ob',            hidden=True)
-
-# ── elastic ──────────────────────────────────────────────────────────────────
-from scripts.elastic import app as _elastic_app
-app.add_typer(_elastic_app, name='elastic')                                                             # ephemeral Elastic+Kibana EC2 stacks
-app.add_typer(_elastic_app, name='el',     hidden=True)
-
-# ── opensearch ───────────────────────────────────────────────────────────────
-from scripts.opensearch import app as _opensearch_app
-app.add_typer(_opensearch_app, name='opensearch')                                                       # ephemeral OpenSearch+Dashboards EC2 stacks
-app.add_typer(_opensearch_app, name='os',         hidden=True)
-
-# ── prometheus ───────────────────────────────────────────────────────────────
-from scripts.prometheus import app as _prometheus_app
-app.add_typer(_prometheus_app, name='prometheus')                                                       # ephemeral Prometheus+cAdvisor+node-exporter EC2 stacks
-app.add_typer(_prometheus_app, name='prom',       hidden=True)
-
-# ── vnc ──────────────────────────────────────────────────────────────────────
-from scripts.vnc import app as _vnc_app
-app.add_typer(_vnc_app, name='vnc')                                                                     # ephemeral chromium+nginx+mitmproxy EC2 stacks (browser-viewer)
-
-# ── neko ─────────────────────────────────────────────────────────────────────
-from sgraph_ai_service_playwright__cli.neko.cli import app as _neko_app
-app.add_typer(_neko_app, name='neko')                                                                   # ephemeral Neko WebRTC browser EC2 stacks (experiment)
-app.add_typer(_neko_app, name='nk', hidden=True)
-
-# ── firefox ──────────────────────────────────────────────────────────────────
-from sgraph_ai_service_playwright__cli.firefox.cli import app as _firefox_app
-app.add_typer(_firefox_app, name='firefox')                                                             # ephemeral Firefox noVNC browser EC2 stacks (experiment)
-app.add_typer(_firefox_app, name='ff', hidden=True)
-
-# ── podman ───────────────────────────────────────────────────────────────────
-from scripts.podman import app as _podman_app
-app.add_typer(_podman_app, name='podman')                                                               # ephemeral Podman EC2 stacks
-app.add_typer(_podman_app, name='lx',  hidden=True)
-
-# ── docker ───────────────────────────────────────────────────────────────────
-from scripts.docker_stack import app as _docker_app
-app.add_typer(_docker_app, name='docker')                                                               # ephemeral Docker-on-AL2023 EC2 stacks
-app.add_typer(_docker_app, name='dk',   hidden=True)
-
-# ── open-design ──────────────────────────────────────────────────────────────
-from sg_compute_specs.open_design.cli import app as _open_design_app
-app.add_typer(_open_design_app, name='open-design')                                                     # ephemeral Open Design EC2 stacks
-app.add_typer(_open_design_app, name='od',   hidden=True)
-
-# ── ollama ───────────────────────────────────────────────────────────────────
-from sg_compute_specs.ollama.cli.Cli__Ollama import app as _ollama_app
-app.add_typer(_ollama_app, name='ollama')                                                               # ephemeral Ollama GPU EC2 stacks
-app.add_typer(_ollama_app, name='ol', hidden=True)
-
-# ── local-claude ─────────────────────────────────────────────────────────────
-from sg_compute_specs.local_claude.cli.Cli__Local_Claude import app as _local_claude_app
-app.add_typer(_local_claude_app, name='local-claude')                                                   # local vLLM + Claude Code on EC2 GPU
-app.add_typer(_local_claude_app, name='lc', hidden=True)
-
-# ── vault-app ────────────────────────────────────────────────────────────────
-from sg_compute_specs.vault_app.cli.Cli__Vault_App import app as _vault_app_app
-app.add_typer(_vault_app_app, name='vault-app')                                                         # vault-app substrate on EC2 (just-vault / +playwright)
-app.add_typer(_vault_app_app, name='va', hidden=True)
-
-# ── catalog ──────────────────────────────────────────────────────────────────
-from scripts.catalog import app as _catalog_app
-app.add_typer(_catalog_app, name='catalog')
+app = typer.Typer(name            = 'sg'                                                      ,
+                  help            = 'SG/Compute CLI — manage ephemeral EC2 stacks.'        ,
+                  no_args_is_help = True                                                    ,
+                  add_completion  = False                                                   )
 
 # ── aws ──────────────────────────────────────────────────────────────────────
 from sgraph_ai_service_playwright__cli.aws.cli.Cli__Aws import app as _aws_app
-app.add_typer(_aws_app, name='aws')                                                                      # AWS resource management (DNS, ACM, …) — read-only zones/records/certs and DNS record mutations
+app.add_typer(_aws_app, name='aws',          help='AWS resource management (DNS, ACM, …).')
+
+# ── catalog ──────────────────────────────────────────────────────────────────
+from scripts.catalog import app as _catalog_app
+app.add_typer(_catalog_app, name='catalog',  help='List stack types or live stacks across all specs.')
+
+# ── docker ───────────────────────────────────────────────────────────────────
+from scripts.docker_stack import app as _docker_app
+app.add_typer(_docker_app, name='docker',    help='Ephemeral Docker EC2 stacks (AL2023 + Docker CE).')
+app.add_typer(_docker_app, name='dk',        hidden=True)
 
 # ── doctor ───────────────────────────────────────────────────────────────────
 from scripts.doctor import app as _doctor_app
-app.add_typer(_doctor_app, name='doctor')
+app.add_typer(_doctor_app, name='doctor',    help='Preflight checks — AWS account / region / ECR / IAM.')
+
+# ── elastic ──────────────────────────────────────────────────────────────────
+from scripts.elastic import app as _elastic_app
+app.add_typer(_elastic_app, name='elastic',  help='Ephemeral Elasticsearch + Kibana EC2 stacks.')
+app.add_typer(_elastic_app, name='el',       hidden=True)
+
+# ── firefox ──────────────────────────────────────────────────────────────────
+from sgraph_ai_service_playwright__cli.firefox.cli import app as _firefox_app
+app.add_typer(_firefox_app, name='firefox',  help='Ephemeral Firefox (noVNC + mitmproxy) EC2 stacks.')
+app.add_typer(_firefox_app, name='ff',       hidden=True)
+
+# ── local-claude ─────────────────────────────────────────────────────────────
+from sg_compute_specs.local_claude.cli.Cli__Local_Claude import app as _local_claude_app
+app.add_typer(_local_claude_app, name='local-claude', help='Ephemeral Local Claude EC2 stacks.')
+app.add_typer(_local_claude_app, name='lc',           hidden=True)
+
+# ── neko ─────────────────────────────────────────────────────────────────────
+from sgraph_ai_service_playwright__cli.neko.cli import app as _neko_app
+app.add_typer(_neko_app, name='neko',        help='Ephemeral Neko (WebRTC browser) EC2 stacks.')
+app.add_typer(_neko_app, name='nk',          hidden=True)
+
+# ── nodes ────────────────────────────────────────────────────────────────────
+from sg_compute.cli.Cli__Compute__Node import app as _nodes_app
+app.add_typer(_nodes_app, name='nodes',      help='List or delete compute nodes across all specs.')
+
+# ── ollama ───────────────────────────────────────────────────────────────────
+from sg_compute_specs.ollama.cli.Cli__Ollama import app as _ollama_app
+app.add_typer(_ollama_app, name='ollama',    help='Ephemeral Ollama GPU EC2 stacks.')
+app.add_typer(_ollama_app, name='ol',        hidden=True)
+
+# ── open-design ──────────────────────────────────────────────────────────────
+from sg_compute_specs.open_design.cli import app as _open_design_app
+app.add_typer(_open_design_app, name='open-design', help='Ephemeral Open Design EC2 stacks.')
+app.add_typer(_open_design_app, name='od',          hidden=True)
+
+# ── opensearch ───────────────────────────────────────────────────────────────
+from scripts.opensearch import app as _opensearch_app
+app.add_typer(_opensearch_app, name='opensearch', help='Ephemeral OpenSearch + Dashboards EC2 stacks.')
+app.add_typer(_opensearch_app, name='os',         hidden=True)
+
+# ── playwright (sg_compute_specs/playwright) ─────────────────────────────────
+from sg_compute_specs.playwright.cli.Cli__Playwright import app as _playwright_app
+app.add_typer(_playwright_app, name='playwright', help='Ephemeral Playwright EC2 stacks.')
+app.add_typer(_playwright_app, name='pw',         hidden=True)
+
+# ── podman ───────────────────────────────────────────────────────────────────
+from scripts.podman import app as _podman_app
+app.add_typer(_podman_app, name='podman',    help='Ephemeral Podman EC2 stacks (AL2023, SSM).')
+app.add_typer(_podman_app, name='lx',        hidden=True)
+
+# ── prometheus ───────────────────────────────────────────────────────────────
+from scripts.prometheus import app as _prometheus_app
+app.add_typer(_prometheus_app, name='prometheus', help='Ephemeral Prometheus + cAdvisor EC2 stacks.')
+app.add_typer(_prometheus_app, name='prom',       hidden=True)
+
+# ── vault-app ────────────────────────────────────────────────────────────────
+from sg_compute_specs.vault_app.cli.Cli__Vault_App import app as _vault_app_app
+app.add_typer(_vault_app_app, name='vault-app', help='Ephemeral Vault App EC2 stacks.')
+app.add_typer(_vault_app_app, name='va',        hidden=True)
+
+# ── vnc ──────────────────────────────────────────────────────────────────────
+from scripts.vnc import app as _vnc_app
+app.add_typer(_vnc_app, name='vnc',          help='Ephemeral VNC (chromium + nginx + mitmproxy) EC2 stacks.')
+
+# ── observability (hidden) ───────────────────────────────────────────────────
+from scripts.observability import app as _observability_app
+app.add_typer(_observability_app, name='observability', hidden=True)
+app.add_typer(_observability_app, name='ob',            hidden=True)
 
 
 if __name__ == '__main__':
