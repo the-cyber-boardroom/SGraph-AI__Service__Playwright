@@ -6,7 +6,7 @@ date: 2026-05-15 (UTC hour 08)
 repo: SGraph-AI__Service__Playwright @ dev (v0.1.140 line)
 status: PLAN — no code, no commits. For human ratification before Dev picks up.
 parent: team/humans/dinis_cruz/claude-code-web/05/15/03/architect__vault-app__cf-route53__plan.md
-revision: "rev 2 (2026-05-15 hour 09) — user feedback folded in: default zone sgraph.ai, propagation checker, ACM list, Q2/Q3/Q4/Q5/Q6 resolved; Q1 re-investigated (B vs C)."
+revision: "rev 5 (2026-05-15 hour 12) — Q7 RESOLVED (use `dig` shell-out, no dnspython dependency added); new `Dig__Runner` helper introduced as the single subprocess transport for all three checkers; smart auto-verify added on `records add` / `update` / `delete` via new `Route53__Smart_Verify` class — new-name `records add` auto-runs a curated 6-resolver EU+US public-resolver check (safe, no prior cache; 6th resolver = AdGuard EU `94.140.14.14` on neutrality grounds), upserts/deletes auto-skip public-resolver and surface the prior record's TTL in a clear info line; three new info-line wordings added verbatim to §3 and §11 for user sign-off; `--no-verify` / `--verify-public` flags introduced; §10 test plan extended with `Route53__Smart_Verify` cases; Q8 superseded — the P2 chained `--verify` flag is replaced by the always-on smart auto-verify in P1; new risk R16 added for the stale-TTL window."
 ---
 
 # Architect Briefing — sg aws dns: Route 53 DNS Management Center
@@ -35,15 +35,19 @@ stack-destroy workflow.
 **This brief carves out the Route 53 management subset and lifts it to a
 standalone CLI surface (`sg aws dns`) that is useful on its own.** It gives the
 operator a generic DNS management center — list zones, list records, add /
-update / delete records on any zone, **verify propagation across public
-resolvers**, and **list ACM certificates** — independent of whether a stack-creation
+update / delete records on any zone, **verify records via three modes
+(authoritative-NS direct query by default, public resolvers and local `dig`
+as opt-in)**, and **list ACM certificates** — independent of whether a stack-creation
 flow is in play. The same `Route53__Client` primitive that this brief
 introduces is then *consumed* by the larger CF+R53 plan: the bigger plan stops
 having to define one and instead orchestrates this one. Concretely:
 
-- **This brief delivers:** `Route53__AWS__Client`, `Route53__Propagation__Checker`,
-  `ACM__AWS__Client`, the DNS / ACM schemas, the `sg aws dns` + `sg aws acm`
-  Typer surfaces, and the test scaffolding (in-memory + integration).
+- **This brief delivers:** `Route53__AWS__Client`, the three checker classes
+  (`Route53__Authoritative__Checker`, `Route53__Public_Resolver__Checker`,
+  `Route53__Local__Checker`) plus the `Route53__Check__Orchestrator` that
+  composes them, `ACM__AWS__Client`, the DNS / ACM schemas, the `sg aws dns` +
+  `sg aws acm` Typer surfaces, and the test scaffolding (in-memory +
+  integration).
 - **The CF+R53 brief later consumes:** `Route53__AWS__Client.upsert_a_alias_record(...)`,
   `Route53__AWS__Client.upsert_record(...)` (for the `_acme-challenge` TXT
   DNS-01 flow), `Route53__AWS__Client.delete_record_set(...)` during stack
@@ -66,10 +70,21 @@ in another tab" — a CLI that does both is faster and scriptable.
 2. **List + get + add + update + delete records** within any zone, addressable
    by zone name or zone id, defaulting to **`sgraph.ai`** when `--zone` is not
    passed (resolved once per process and cached).
-3. **Verify DNS propagation** for any record across a curated set of public
-   resolvers (the whatsmydns.net pattern) and against the operator's local
-   resolver (via `dig`). Standalone `records check` command in P1; optional
-   `--verify` chaining on `records add` / `records update` in P2.
+3. **Verify DNS records** for any zone across three modes, ordered by
+   cache-pollution risk (lowest first):
+   - **`--authoritative` (DEFAULT)** — query Route 53's own NS records directly
+     with `+norecurse`. Source of truth, zero cache pollution anywhere. This
+     is what the operator wants right after `records add` / `update`.
+   - **`--public-resolvers` (OPT-IN)** — fan out across a curated 8-resolver
+     public set (the whatsmydns.net pattern). Cache-polluting; warning banner
+     printed before running.
+   - **`--local` (OPT-IN)** — shell out to `dig`. Goes through the host's
+     configured upstream resolver (often a corporate proxy); cache-polluting
+     at that upstream. Warning banner printed before running.
+
+   Authoritative-only is **P1**. Public-resolvers and local modes are
+   **P1.5 / P2**. The `--verify` chaining flag on `records add` / `records
+   update` is **P2** (Q8 RESOLVED).
 4. **List + show ACM certificates** in the account, dual-region by default
    (current region + us-east-1, because CloudFront certs must live in us-east-1).
 5. **Generic, not stack-coupled.** No EC2 / vault-app / stack-name machinery.
@@ -130,7 +145,7 @@ sg aws dns records get <name> [--zone <z>]        # show one record (defaults to
 sg aws dns records add <name> [--zone <z>]        # create a record
 sg aws dns records update <name> [--zone <z>]     # upsert / change values
 sg aws dns records delete <name> [--zone <z>]     # delete (with confirm + env gate)
-sg aws dns records check <name> [--zone <z>]      # verify propagation across public resolvers + local dig
+sg aws dns records check <name> [--zone <z>]      # verify a record (default: authoritative-NS direct query; opt-in: public resolvers, local dig)
 sg aws acm                                        # group help
 sg aws acm list                                   # list ACM certs (current region + us-east-1 by default)
 sg aws acm show <arn|domain>                      # details of one cert
@@ -163,10 +178,10 @@ JSON dump of the response schema.
 | `dns zones show`   | `--zone <name\|id>` (optional, defaults sgraph.ai) `--json` |
 | `dns records list` | `--zone <name\|id>` (optional, defaults sgraph.ai) `--json` `--type A` (filter) `--name <substring>` (filter) `--limit 100` |
 | `dns records get`  | `--zone <name\|id>` (optional, defaults sgraph.ai) `--json` `--type A` (defaults to `A`) |
-| `dns records add`  | `--zone <name\|id>` (optional, defaults sgraph.ai) `--type A` (required) `--value <ip\|val>` (required, repeatable for multi-value) `--ttl 300` (default) `--comment "..."` `--yes` (skip "create?" confirm) `--json` |
-| `dns records update` | `--zone <name\|id>` (optional, defaults sgraph.ai) `--type A` (required) `--value <ip\|val>` (required, repeatable) `--ttl <int>` `--comment "..."` `--yes` (skip "change?" confirm) `--json` |
-| `dns records delete` | `--zone <name\|id>` (optional, defaults sgraph.ai) `--type A` (required) `--yes` (skip "delete?" confirm) `--json` |
-| `dns records check`  | `--zone <name\|id>` (optional, defaults sgraph.ai) `--type A` (default) `--expect <value>` (the value the operator expects to see — required for ✓/✗ marking) `--min-resolvers 5` (default quorum) `--flush-local` (run OS cache flush before local dig; sudo on macOS) `--json` |
+| `dns records add`  | `--zone <name\|id>` (optional, defaults sgraph.ai) `--type A` (required) `--value <ip\|val>` (required, repeatable for multi-value) `--ttl 300` (default) `--comment "..."` `--yes` (skip "create?" confirm) `--no-verify` (skip smart auto-verify entirely — scripting mode) `--verify-public` (force public-resolver check on the upsert path, with WARNING banner) `--json` |
+| `dns records update` | `--zone <name\|id>` (optional, defaults sgraph.ai) `--type A` (required) `--value <ip\|val>` (required, repeatable) `--ttl <int>` `--comment "..."` `--yes` (skip "change?" confirm) `--no-verify` (skip smart auto-verify entirely) `--verify-public` (force public-resolver check with WARNING banner) `--json` |
+| `dns records delete` | `--zone <name\|id>` (optional, defaults sgraph.ai) `--type A` (required) `--yes` (skip "delete?" confirm) `--no-verify` (skip smart auto-verify entirely) `--verify-public` (force public-resolver check with WARNING banner) `--json` |
+| `dns records check`  | `--zone <name\|id>` (optional, defaults sgraph.ai) `--type A` (default) `--expect <value>` (the value the operator expects to see — required for ✓/✗ marking) `--authoritative` (DEFAULT — query Route 53 NS set directly, zero cache pollution) `--public-resolvers` (OPT-IN — fan out across 8 public resolvers; **prints cache-pollution WARNING banner**) `--local` (OPT-IN — shell out to `dig` via host upstream; **prints cache-pollution WARNING banner**) `--all` (= `--authoritative --public-resolvers --local`) `--min-resolvers 5` (quorum for public-resolvers mode) `--json`. Mode flags are stackable. Default invocation runs authoritative only. **`--flush-local` is NOT offered** — platform-native cache flushing is left to the operator. |
 | `acm list`           | `--region <name>` (override; defaults: current + us-east-1) `--all-regions` (loop with rate limiting) `--json` |
 | `acm show`           | `--region <name>` (defaults: us-east-1 if `<arn>` is a us-east-1 ARN, else current; or auto-resolve from ARN region segment) `--json` |
 
@@ -198,9 +213,11 @@ JSON dump of the response schema.
   …
 ```
 
-**`sg aws dns records add zen-darwin --type A --value 203.0.113.5 --ttl 60 --zone vault.sgraph.ai`**:
+**`sg aws dns records add zen-darwin --type A --value 203.0.113.5 --ttl 60 --zone vault.sgraph.ai`** (smart auto-verify, **new-name path** — public-resolver fan-out is safe):
 
 ```
+  Pre-flight: zen-darwin.vault.sgraph.ai. A — not currently in zone (new name).
+
   About to create record:
     zone   : vault.sgraph.ai.  (Z09876543ZYXWVUTSRQPO)
     name   : zen-darwin.vault.sgraph.ai.
@@ -210,13 +227,144 @@ JSON dump of the response schema.
   Continue? [y/N]: y
 
   ✓  Record created  ·  change-id C0123456ABCDEF  ·  status PENDING
-  Use `sg aws dns records check zen-darwin --zone vault.sgraph.ai --expect 203.0.113.5` once propagated.
+
+  Auto-verify: new name — no prior recursive cache to pollute, so the
+  authoritative check AND a curated 6-resolver EU+US public-resolver check
+  are both run. Safe by construction.
+
+  Authoritative nameservers (Route 53 delegation set; +norecurse)
+  Nameserver                          Answer            Match
+  ──────────────────────────────────  ────────────────  ─────
+  ns-123.awsdns-12.com.               203.0.113.5       ✓
+  ns-456.awsdns-56.net.               203.0.113.5       ✓
+  ns-789.awsdns-78.org.               203.0.113.5       ✓
+  ns-1011.awsdns-10.co.uk.            203.0.113.5       ✓
+
+  Authoritative agreement: 4 / 4   ✓
+
+  Public resolvers (6 — curated EU + US set; safe on new name)
+  Resolver         IP               Geo  Answer        Match
+  ───────────────  ───────────────  ───  ────────────  ─────
+  Cloudflare       1.1.1.1          US   203.0.113.5   ✓
+  Cloudflare       1.0.0.1          EU   203.0.113.5   ✓
+  Google           8.8.8.8          US   203.0.113.5   ✓
+  Google           8.8.4.4          EU   203.0.113.5   ✓
+  Quad9            9.9.9.9          Any  203.0.113.5   ✓
+  AdGuard EU       94.140.14.14     EU   203.0.113.5   ✓
+
+  Public-resolver agreement: 6 / 6   ✓  PASS
+
+  Exit code: 0
 ```
 
-**`sg aws dns records check zen-darwin --zone vault.sgraph.ai --expect 203.0.113.5`**:
+**`sg aws dns records add zen-darwin --type A --value 203.0.113.99 --ttl 60 --zone vault.sgraph.ai`** (smart auto-verify, **upsert path** — name+type already exists; the existing TTL is 60s; public-resolver check is skipped):
+
+```
+  Pre-flight: zen-darwin.vault.sgraph.ai. A — already exists (current value 203.0.113.5, ttl 60s). This will be treated as an UPSERT.
+
+  About to UPSERT record:
+    zone   : vault.sgraph.ai.  (Z09876543ZYXWVUTSRQPO)
+    name   : zen-darwin.vault.sgraph.ai.
+    type   : A
+    ttl    : 60      (was 60)
+    value  : 203.0.113.99   (was 203.0.113.5)
+  Continue? [y/N]: y
+
+  ✓  Record upserted  ·  change-id C0123456ABCDEG  ·  status PENDING
+
+  Auto-verify (authoritative only):
+
+  Authoritative nameservers (Route 53 delegation set; +norecurse)
+  Nameserver                          Answer            Match
+  ──────────────────────────────────  ────────────────  ─────
+  ns-123.awsdns-12.com.               203.0.113.99      ✓
+  ns-456.awsdns-56.net.               203.0.113.99      ✓
+  ns-789.awsdns-78.org.               203.0.113.99      ✓
+  ns-1011.awsdns-10.co.uk.            203.0.113.99      ✓
+
+  Authoritative agreement: 4 / 4   ✓  PASS
+
+  Authoritative is consistent. Public-resolver check skipped — would risk
+  locking in stale answers for the remaining ~60s of the prior record's
+  TTL. Run `sg aws dns records check zen-darwin --zone vault.sgraph.ai
+  --public-resolvers` once the old TTL has elapsed.
+
+  Exit code: 0
+```
+
+**`sg aws dns records delete zen-darwin --type A --zone vault.sgraph.ai --yes`** (smart auto-verify, **delete path** — prior record had ttl 60s; public-resolver check is skipped):
+
+```
+  Pre-flight: zen-darwin.vault.sgraph.ai. A — exists (current value
+  203.0.113.99, ttl 60s). This will be DELETED.
+
+  About to DELETE record:
+    zone   : vault.sgraph.ai.  (Z09876543ZYXWVUTSRQPO)
+    name   : zen-darwin.vault.sgraph.ai.
+    type   : A
+    ttl    : 60
+    value  : 203.0.113.99
+  (--yes supplied; skipping interactive confirm)
+
+  ✓  Record deleted  ·  change-id C0123456ABCDEH  ·  status PENDING
+
+  Auto-verify (authoritative only):
+
+  Authoritative nameservers (Route 53 delegation set; +norecurse)
+  Nameserver                          Answer            Match
+  ──────────────────────────────────  ────────────────  ─────
+  ns-123.awsdns-12.com.               NXDOMAIN          ✓
+  ns-456.awsdns-56.net.               NXDOMAIN          ✓
+  ns-789.awsdns-78.org.               NXDOMAIN          ✓
+  ns-1011.awsdns-10.co.uk.            NXDOMAIN          ✓
+
+  Authoritative agreement: 4 / 4   ✓  PASS  (NXDOMAIN as expected)
+
+  Authoritative confirms deletion. Public-resolver check skipped —
+  recursives may still serve the cached positive answer for up to ~60s.
+  Run `sg aws dns records check zen-darwin --zone vault.sgraph.ai
+  --public-resolvers` after that to confirm propagation.
+
+  Exit code: 0
+```
+
+**`sg aws dns records check zen-darwin --zone vault.sgraph.ai --expect 203.0.113.5`** (default — authoritative-only, zero cache pollution):
 
 ```
   Resolving zen-darwin.vault.sgraph.ai.  type A  expect 203.0.113.5
+  Mode: authoritative (Route 53 NS set, +norecurse) — zero cache pollution
+
+  Authoritative nameservers for vault.sgraph.ai. (Route 53 delegation set)
+  Nameserver                          Answer            Match
+  ──────────────────────────────────  ────────────────  ─────
+  ns-123.awsdns-12.com.               203.0.113.5       ✓
+  ns-456.awsdns-56.net.               203.0.113.5       ✓
+  ns-789.awsdns-78.org.               203.0.113.5       ✓
+  ns-1011.awsdns-10.co.uk.            203.0.113.5       ✓
+
+  Authoritative agreement: 4 / 4   ✓  PASS
+
+  Exit code: 0
+
+  (Tip: re-run with --public-resolvers to verify global propagation after
+   you're confident the value is final. That mode caches the answer at each
+   public resolver for up to the record's TTL.)
+```
+
+**`sg aws dns records check zen-darwin --zone vault.sgraph.ai --expect 203.0.113.5 --public-resolvers`** (opt-in — fans out to public resolvers; warning banner shown first):
+
+```
+  WARNING: --public-resolvers will cache the answer at each of the 8 public
+  resolvers below for up to this record's TTL. If you change this record
+  again, those resolvers will return the OLD value until that TTL elapses,
+  and there is NO way to flush a third-party recursive cache. Only run
+  --public-resolvers once you are confident the value is final. Use the
+  default --authoritative mode for iterative verification.
+
+  Continue with --public-resolvers? [y/N]: y
+
+  Resolving zen-darwin.vault.sgraph.ai.  type A  expect 203.0.113.5
+  Mode: public-resolvers (8 resolvers; cache-polluting)
 
   Public resolvers (8)
   Resolver                          IP                Geo    Answer            Match
@@ -232,10 +380,63 @@ JSON dump of the response schema.
 
   Quorum: 7 / 8 match expected (min required: 5)   ✓  PASS
 
-  Local resolver (dig +short @127.0.0.53)
-  Answer: 203.0.113.5                              ✓  matches expected
+  Exit code: 0
+```
+
+**`sg aws dns records check zen-darwin --zone vault.sgraph.ai --expect 203.0.113.5 --local`** (opt-in — shells out to `dig`; warning banner shown first):
+
+```
+  WARNING: --local will shell out to `dig` on this host. That query goes
+  through whatever upstream resolver this machine is configured to use
+  (often a corporate proxy or VPN resolver), and that resolver WILL cache
+  the answer for up to the record's TTL. If you change this record again,
+  this host (and anyone else behind the same upstream) will see the OLD
+  value until that TTL elapses. There is no portable way to flush a
+  third-party upstream cache; flush your local OS cache with platform-native
+  tooling if needed. Use the default --authoritative mode for iterative
+  verification.
+
+  Continue with --local? [y/N]: y
+
+  Resolving zen-darwin.vault.sgraph.ai.  type A  expect 203.0.113.5
+  Mode: local (`dig +short`; host upstream resolver; cache-polluting)
+
+  Local resolver
+  Source                            Answer            Match
+  ────────────────────────────────  ────────────────  ─────
+  dig (host upstream)               203.0.113.5       ✓
+
+  Local: 1 / 1 match expected   ✓  PASS
 
   Exit code: 0
+```
+
+**Exit code mapping:**
+
+- `0` — every selected check passed.
+- `1` — **authoritative disagreement** (at least one Route 53 NS returned a
+  different value — Route 53 itself has not converged; the bad case).
+- `2` — **public-resolvers quorum failed** (propagation not yet global, but
+  Route 53 is consistent — usually transient, retry after TTL).
+- `3` — **local mismatch** (host's upstream resolver disagrees; almost
+  always a stale upstream cache — flush manually with platform-native
+  tooling if needed).
+
+**`--all` combined banner.** When the operator passes `--all` (=
+`--authoritative --public-resolvers --local`), a single combined warning is
+printed once before any query runs:
+
+```
+  WARNING: --all enables BOTH cache-polluting modes (--public-resolvers
+  and --local) in addition to the safe --authoritative check. The 8 public
+  resolvers AND your host's upstream resolver will each cache the answer
+  for up to the record's TTL. If you change this record again afterwards,
+  those caches will return the OLD value until that TTL elapses, and
+  there is NO way to flush a third-party recursive cache. Only run --all
+  once you are confident the value is final. Prefer the default
+  --authoritative mode for iterative verification.
+
+  Continue with --all? [y/N]:
 ```
 
 **`sg aws acm list`** (default — current region + us-east-1):
@@ -432,31 +633,59 @@ ACM commands additionally default to **dual-region** (current + us-east-1)
 because of CloudFront's us-east-1 hard requirement. See §7 "Region semantics"
 for the full list of us-east-1-only / global resources relevant here.
 
-### Q7 — New: dnspython dependency
+### Q7 — DNS transport: dnspython library vs `dig` shell-out
 
-The propagation checker (`records check`) wants `dnspython` for per-resolver
-UDP/TCP queries. `dnspython` is **not** currently in `pyproject.toml` and is
-not currently a transitive dep (verified via `grep`). Question: add `dnspython`
-as a direct dep in `pyproject.toml`, or shell out to `dig` for every resolver
-(losing per-resolver query control and parallelism)?
+`records check` needs a DNS-on-the-wire transport for all three modes:
 
-Architect recommendation: **add `dnspython` as a direct dep**. Mature, pure-Python,
-small surface, makes the per-resolver + quorum logic clean. Falling back to
-`dig` for the *local* check is fine (it's what the operator's machine actually
-uses) but the multi-resolver matrix wants programmatic queries.
+1. **`--authoritative`** — direct NS query with `+norecurse`. Default mode in P1.
+2. **`--public-resolvers`** — per-resolver query across the curated set.
+3. **`--local`** — host-upstream query.
 
-**[OPEN — user must decide before P1 ships.]**
+| Opt | Position |
+|-----|----------|
+| **A** | Add `dnspython` as a direct dep. Structured results, clean per-query control. |
+| **B** | Shell out to `dig` for every query. Zero new runtime deps. |
 
-### Q8 — New: `--verify` chaining on `records add` / `records update`
+**[RESOLVED — user choice: B. Use `dig` shell-out; no `dnspython` dependency
+added.]**
+
+Rationale (one line): zero new runtime deps; `dig` is universally available
+on Linux/macOS (and the Playwright Docker base image
+`mcr.microsoft.com/playwright/python:v1.58.0-noble` already ships `dnsutils`);
+`dig @<ns> +norecurse <name> <type>` cleanly handles the authoritative
+direct-NS query, `dig @<resolver> <name> <type>` handles public-resolver mode,
+and the line-oriented output of `dig +short` / `dig +noall +answer` is stable
+and parseable. Trade-off: shell-out cost (~5-15ms per invocation) and
+parsing fragility (locale-sensitive) versus a library API. Accepted —
+mitigations are pinning `LC_ALL=C` in `subprocess.run` env, preferring
+`+short` for value extraction, and a thin shared wrapper.
+
+**Implementation note.** A thin helper `Dig__Runner` wraps
+`subprocess.run(['dig', ...])`, captures stdout/stderr, surfaces non-zero exit
+codes cleanly, and parses `+short` output. All three checkers consume this
+helper; no library import on the DNS-on-the-wire boundary.
+
+### Q8 — `--verify` chaining on `records add` / `records update`
 
 After P1 ships the standalone `records check` command, should `records add`
 and `records update` accept a `--verify` flag that automatically chains
 `records check` after the change has been submitted? The Architect leans
-**P2** — keep P1 simple, get the `records check` UX bedded in, then add the
-chaining once the operator confirms the check's defaults (quorum, resolver
-set, exit codes) match what they want. Cheap to add later.
+**P2** — keep P1 simple, get the `records check` UX bedded in (especially
+the new three-mode design), then add the chaining once the operator confirms
+the check's defaults (authoritative-only, quorum, exit codes) match what they
+want. Cheap to add later.
 
-**[OPEN — confirm P2 placement.]**
+**[SUPERSEDED in rev 5 — replaced by smart auto-verify in P1.]** The original
+plan deferred `--verify` chaining to P2. Rev 5 supersedes that: `records add`
+/ `records update` / `records delete` get **always-on smart auto-verify**
+in P1 (see §3 example outputs and §5 `Route53__Smart_Verify`). The smart
+layer is cache-pollution-aware: it auto-runs a curated EU+US public-resolver
+fan-out only on the safe case (a brand-new name with no prior recursive
+cache), and silently skips public-resolver on upserts / deletes (where the
+prior record's TTL would lock in stale answers), surfacing the wait time
+in an info line. `--no-verify` opts out for scripted runs; `--verify-public`
+forces the public-resolver check on the change/delete paths (with the
+WARNING banner). The standalone `records check` command remains unchanged.
 
 ---
 
@@ -480,8 +709,13 @@ sgraph_ai_service_playwright__cli/
     │   ├── __init__.py                        (empty)
     │   ├── service/
     │   │   ├── __init__.py                    (empty)
-    │   │   ├── Route53__AWS__Client.py        (sole boto3 boundary — NEW)
-    │   │   └── Route53__Propagation__Checker.py  (NEW — multi-resolver checker)
+    │   │   ├── Route53__AWS__Client.py            (sole boto3 boundary — NEW)
+    │   │   ├── Dig__Runner.py                     (NEW — single subprocess transport: wraps `subprocess.run(['dig', …])`, pins `LC_ALL=C`, parses `+short` output; sole boundary to the `dig` binary; consumed by all three checkers; no library import on the DNS-on-the-wire path)
+    │   │   ├── Route53__Authoritative__Checker.py     (NEW — DEFAULT mode; `Route53__AWS__Client.get_hosted_zone` for the NS set, then `Dig__Runner` invoked once per authoritative NS with `@<ns> +norecurse`; ZERO cache pollution)
+    │   │   ├── Route53__Public_Resolver__Checker.py   (NEW — `--public-resolvers` opt-in; per-resolver `Dig__Runner` calls with `@<resolver-ip>`; cache-polluting)
+    │   │   ├── Route53__Local__Checker.py             (NEW — `--local` opt-in; `Dig__Runner` with no `@<ns>` argument so the host's upstream resolver is used; cache-polluting)
+    │   │   ├── Route53__Check__Orchestrator.py        (NEW — composes the three checkers per flags; emits one Schema__Dns__Check__Result)
+    │   │   └── Route53__Smart_Verify.py               (NEW — owns the new-vs-existing decision logic on `records add` / `update` / `delete`. Reads prior-record TTL via `Route53__AWS__Client.get_record(...)` BEFORE mutation; routes to authoritative-only (skip public-resolver) on upsert / delete with TTL-aware info line, or to authoritative + curated 6-resolver public-resolver fan-out on the safe new-name path. Consumes `Route53__Check__Orchestrator`.)
     │   ├── schemas/
     │   │   ├── __init__.py                    (empty)
     │   │   ├── Schema__Route53__Hosted_Zone.py
@@ -489,11 +723,16 @@ sgraph_ai_service_playwright__cli/
     │   │   ├── Schema__Route53__Record__Alias.py   (lib-only — no CLI surface; consumed by CF+R53 brief)
     │   │   ├── Schema__Route53__Change__Result.py
     │   │   ├── Schema__Route53__Zone__List.py
-    │   │   └── Schema__Dns__Check__Result.py        (NEW — propagation-check output)
+    │   │   ├── Schema__Dns__Check__Result.py        (NEW — propagation-check output)
+    │   │   ├── Schema__Dig__Result.py               (NEW — raw `Dig__Runner.run` result)
+    │   │   ├── Schema__Smart_Verify__Decision.py    (NEW — pre-flight decision for `records add`/`update`/`delete`)
+    │   │   └── Schema__Smart_Verify__Result.py      (NEW — post-mutation verify result, including the skip info-line text)
     │   ├── enums/
     │   │   ├── __init__.py                    (empty)
     │   │   ├── Enum__Route53__Record_Type.py
-    │   │   └── Enum__Dns__Resolver.py             (NEW — curated public-resolver set)
+    │   │   ├── Enum__Dns__Resolver.py             (NEW — curated public-resolver set; flags the 6-member smart-verify subset)
+    │   │   ├── Enum__Dns__Check__Mode.py          (NEW — AUTHORITATIVE | PUBLIC_RESOLVERS | LOCAL)
+    │   │   └── Enum__Smart_Verify__Decision.py    (NEW — NEW_NAME | UPSERT | DELETE)
     │   ├── primitives/
     │   │   ├── __init__.py                    (empty)
     │   │   ├── Safe_Str__Hosted_Zone_Id.py
@@ -529,7 +768,12 @@ sgraph_ai_service_playwright__cli/
         ├── __init__.py
         ├── service/
         │   ├── test_Route53__AWS__Client.py
-        │   ├── test_Route53__Propagation__Checker.py
+        │   ├── test_Dig__Runner.py
+        │   ├── test_Route53__Authoritative__Checker.py
+        │   ├── test_Route53__Public_Resolver__Checker.py
+        │   ├── test_Route53__Local__Checker.py
+        │   ├── test_Route53__Check__Orchestrator.py
+        │   ├── test_Route53__Smart_Verify.py
         │   └── test_ACM__AWS__Client.py
         └── cli/
             ├── test_Cli__Aws_Dns.py
@@ -555,31 +799,51 @@ sgraph_ai_service_playwright__cli/
            │                                                   │
            ├──────────────────┐                                 │
            ▼                  ▼                                 ▼
-  ┌────────────────────┐ ┌────────────────────────┐  ┌────────────────────────┐
-  │ Route53__AWS__     │ │ Route53__Propagation__  │  │ ACM__AWS__Client       │
-  │ Client             │ │ Checker                 │  │ ─ sole boto3 boundary  │
-  │ ─ sole boto3       │ │ ─ uses dnspython        │  │ ─ list_certificates    │
-  │   boundary R53     │ │ ─ uses subprocess(dig)  │  │ ─ describe_certificate │
-  │ ─ default-zone     │ │ ─ quorum logic          │  │ ─ dual-region helper   │
-  │   sgraph.ai cache  │ │                         │  │                        │
-  └──────┬─────────────┘ └──────┬──────────────────┘  └──────┬─────────────────┘
-         │                      │                            │
-         ▼                      ▼                            ▼
+  ┌────────────────────┐ ┌────────────────────────────────┐  ┌────────────────────────┐
+  │ Route53__AWS__     │ │ Route53__Check__Orchestrator    │  │ ACM__AWS__Client       │
+  │ Client             │ │ ─ gates cache-polluting modes   │  │ ─ sole boto3 boundary  │
+  │ ─ sole boto3       │ │   behind WARNING banner + y/N   │  │ ─ list_certificates    │
+  │   boundary R53     │ │ ─ composes the three checkers   │  │ ─ describe_certificate │
+  │ ─ default-zone     │ │ ─ unified exit-code mapping     │  │ ─ dual-region helper   │
+  │   sgraph.ai cache  │ │                                 │  │                        │
+  └──────┬─────────────┘ └─────┬────┬────────────┬──────────┘  └──────┬─────────────────┘
+         │                     │    │            │                    │
+         │           ┌─────────┘    │            └─────────┐          │
+         │           ▼              ▼                      ▼          │
+         │   ┌───────────────┐ ┌─────────────────────┐ ┌────────────┐ │
+         │   │ Route53__     │ │ Route53__           │ │ Route53__  │ │
+         │   │ Authoritative │ │ Public_Resolver__   │ │ Local__    │ │
+         │   │ __Checker     │ │ Checker             │ │ Checker    │ │
+         │   │ (DEFAULT)     │ │ (OPT-IN; warning)   │ │ (OPT-IN;   │ │
+         │   │ ─ Dig__Runner │ │ ─ Dig__Runner per   │ │  warning)  │ │
+         │   │   @<ns>       │ │   resolver IP       │ │ ─ Dig__    │ │
+         │   │   +norecurse  │ │ ─ 6/8-resolver fan  │ │   Runner   │ │
+         │   │ ─ zero cache  │ │ ─ thread pool       │ │   no @<ns> │ │
+         │   │   pollution   │ │ ─ quorum logic      │ │ ─ host     │ │
+         │   │               │ │ ─ CACHE-POLLUTING   │ │   upstream │ │
+         │   │               │ │   at each resolver  │ │ ─ CACHE-   │ │
+         │   │               │ │                     │ │   POLLUT.  │ │
+         │   └───────┬───────┘ └─────────┬───────────┘ └─────┬──────┘ │
+         ▼           ▼                   ▼                   ▼        ▼
   ┌────────────────────────────────────────────────────────────────────┐
-  │ boto3 route53 / acm clients     +     dnspython     +     dig subprocess  │
-  │  (documented narrow boto3 exception; dnspython is direct dep)       │
+  │ boto3 route53 / acm clients   +   Dig__Runner ─► `dig` subprocess  │
+  │  (documented narrow boto3 exception; NO dnspython dependency       │
+  │   per Q7 RESOLVED — `dig` shell-out via the shared Dig__Runner is  │
+  │   the single DNS-on-the-wire transport for all three checkers)     │
   └────────────────────────────────────────────────────────────────────┘
 ```
 
 The CLI **never** touches boto3 directly. Only `Route53__AWS__Client` and
-`ACM__AWS__Client` do. The propagation checker is allowed to call `dnspython`
-and `subprocess` directly — it's the only DNS-on-the-wire / shell-out
-boundary, and it's explicitly scoped to that role.
+`ACM__AWS__Client` do. The three checkers are the only DNS-on-the-wire /
+shell-out boundary, each explicitly scoped to one mode. The orchestrator is
+the only class allowed to compose them and the only class that owns the
+WARNING-banner / y/N gate for the cache-polluting modes.
 
 Tests substitute in-memory subclasses (`Route53__AWS__Client__In_Memory`,
-`ACM__AWS__Client__In_Memory`, `Route53__Propagation__Checker__In_Memory`)
-following the exact `Elastic__AWS__Client__In_Memory` precedent — no `mock`,
-no `patch`.
+`ACM__AWS__Client__In_Memory`, `Route53__Authoritative__Checker__In_Memory`,
+`Route53__Public_Resolver__Checker__In_Memory`,
+`Route53__Local__Checker__In_Memory`) following the exact
+`Elastic__AWS__Client__In_Memory` precedent — no `mock`, no `patch`.
 
 ### `Route53__AWS__Client` method surface
 
@@ -596,13 +860,40 @@ no `patch`.
 | `delete_record(zone_id, name, record_type)` | reads current via `get_record`, then `Action=DELETE` | DELETE requires the full current RR set |
 | `upsert_a_alias_record(zone_id, name, alias_target)` | `Action=UPSERT` + `AliasTarget` block | Library-only helper — consumed by CF+R53 brief; no CLI command (Q5-A) |
 
-### `Route53__Propagation__Checker` method surface
+### Checker method surface (three classes + orchestrator)
+
+**`Route53__Authoritative__Checker`** (P1 — DEFAULT):
 
 | Method | Implementation | Notes |
 |--------|----------------|-------|
-| `check_record(name, record_type, expected_value, min_resolvers=5, flush_local=False) -> Schema__Dns__Check__Result` | dnspython per-resolver query, parallel via `concurrent.futures.ThreadPoolExecutor`, ~3s per-resolver timeout | Quorum logic; returns per-resolver rows + summary |
-| `check_local(name, record_type, expected_value, flush_local=False) -> Schema__Dns__Check__Result__Local` | `subprocess.run(['dig', '+short', '@<local>', name, type])` | Local resolver — OS-dependent cache flush if `flush_local=True` |
-| `flush_local_cache() -> bool` | macOS: `dscacheutil -flushcache; sudo killall -HUP mDNSResponder`; Linux: `systemd-resolve --flush-caches` if available | Returns True if flush attempted; warns if neither path works |
+| `check(zone_id, name, record_type, expected_value) -> Schema__Dns__Check__Result` | `Route53__AWS__Client.get_hosted_zone(zone_id)` to fetch the NS set, then `Dig__Runner.run(args=['@<ns>', '+norecurse', '+short', name, record_type])` once per authoritative NS. Parallel via `concurrent.futures.ThreadPoolExecutor`. No library import on the DNS-on-the-wire path. | **Zero cache pollution.** Returns one row per Route 53 NS (typically 4). PASS iff every NS matches `expected_value`. Exit-code 0 on pass, 1 on any disagreement. |
+
+**`Route53__Public_Resolver__Checker`** (P1.5 / P2 — OPT-IN):
+
+| Method | Implementation | Notes |
+|--------|----------------|-------|
+| `check(name, record_type, expected_value, min_resolvers=5) -> Schema__Dns__Check__Result` | `Dig__Runner.run(args=['@<resolver-ip>', '+short', name, record_type])` per resolver over the 8-resolver `Enum__Dns__Resolver` set (full standalone mode) or the 6-resolver curated EU+US subset (smart auto-verify new-name mode); parallel via `concurrent.futures.ThreadPoolExecutor`; ~3s per-resolver timeout (enforced via `Dig__Runner` subprocess timeout). | **Cache-polluting.** Quorum logic; returns per-resolver rows + summary. Orchestrator MUST have printed the WARNING banner before calling (standalone path). Smart-verify new-name path skips the banner because the safety argument holds by construction. |
+
+**`Route53__Local__Checker`** (P1.5 / P2 — OPT-IN):
+
+| Method | Implementation | Notes |
+|--------|----------------|-------|
+| `check(name, record_type, expected_value) -> Schema__Dns__Check__Result` | `Dig__Runner.run(args=['+short', name, record_type])` — no `@<ns>` (uses host's configured upstream). | **Cache-polluting** at the host's upstream. No `--flush-local` sub-option — operator flushes manually with platform-native tooling. `Dig__Runner` surfaces `FileNotFoundError` for missing `dig` cleanly (returns `local_answer=null`, exit 3 only if `--local` was explicitly requested). |
+
+**`Route53__Check__Orchestrator`** (P1; gains `--public-resolvers` and `--local` wiring in P1.5 / P2):
+
+| Method | Implementation | Notes |
+|--------|----------------|-------|
+| `run(zone_id, name, record_type, expected_value, modes: Set[Enum__Dns__Check__Mode], min_resolvers=5, yes=False) -> Schema__Dns__Check__Result` | For each mode in the input set, prints the WARNING banner + y/N (unless `yes=True`) for cache-polluting modes, then invokes the relevant checker. Merges per-row results into a single `Schema__Dns__Check__Result`. | Owns the unified exit-code mapping (0 / 1 / 2 / 3). First-failing-mode wins for the exit-code report (authoritative-fail trumps public-quorum-fail trumps local-mismatch). |
+
+### `Route53__Smart_Verify` method surface (P1 — owns the new-vs-existing decision)
+
+| Method | Implementation | Notes |
+|--------|----------------|-------|
+| `decide_before_add(zone_id, name, record_type) -> Schema__Smart_Verify__Decision` | Calls `Route53__AWS__Client.get_record(zone_id, name, record_type)` BEFORE the mutation. If the record does not exist → returns `decision=NEW_NAME`, `prior_ttl=None`, `prior_values=[]`. If it exists → returns `decision=UPSERT`, `prior_ttl=<ttl>`, `prior_values=[…]`. | Pure pre-flight read; no mutation. Surfaces the pre-flight line shown in §3 examples. |
+| `decide_before_update(zone_id, name, record_type) -> Schema__Smart_Verify__Decision` | Reads prior record; always returns `decision=UPSERT` (an update with no prior is treated as an error and rejected earlier in the CLI flow). | TTL value populated for the skip info line. |
+| `decide_before_delete(zone_id, name, record_type) -> Schema__Smart_Verify__Decision` | Reads prior record; always returns `decision=DELETE` with `prior_ttl` populated; error if record does not exist. | TTL drives the "recursives may still serve cached answer for up to ~Ns" info line. |
+| `verify_after_mutation(decision: Schema__Smart_Verify__Decision, zone_id, name, record_type, expected_value, force_public=False, no_verify=False) -> Schema__Smart_Verify__Result` | Dispatches on `decision`. **NEW_NAME** → invokes orchestrator with `{AUTHORITATIVE, PUBLIC_RESOLVERS}` and the curated 6-resolver EU+US subset (no WARNING banner — safety is structural). **UPSERT** → invokes orchestrator with `{AUTHORITATIVE}` only; emits the upsert skip info line quoting `decision.prior_ttl`; if `force_public=True`, also runs the standalone public-resolver path WITH the WARNING banner. **DELETE** → invokes orchestrator with `{AUTHORITATIVE}` only (expecting NXDOMAIN); emits the delete skip info line quoting `decision.prior_ttl`; `force_public=True` honoured the same way. `no_verify=True` skips all verification entirely (scripted-mode opt-out). | Consumes `Route53__Check__Orchestrator`. The curated 6-resolver set is a property of `Enum__Dns__Resolver` (members tagged `IN_SMART_VERIFY_NEW_NAME = True`). |
 
 ### `ACM__AWS__Client` method surface
 
@@ -627,7 +918,12 @@ Type_Safe-validated values.
 | File | One-line purpose |
 |------|-------------------|
 | `Route53__AWS__Client.py` | Sole boto3 boundary for Route 53. Includes the `sgraph.ai` default-zone resolver with per-process cache. Header documents the narrow-exception rationale (same template as `Elastic__AWS__Client`). |
-| `Route53__Propagation__Checker.py` | The whatsmydns.net-style multi-resolver checker. Uses `dnspython` for per-resolver UDP/TCP queries, `concurrent.futures` for parallelism, and `subprocess` for the local `dig` shell-out. Sole class allowed to call `dns.*` / `subprocess.*` for DNS-on-the-wire work. |
+| `Dig__Runner.py` | **Single subprocess transport for every DNS-on-the-wire query in this brief.** Wraps `subprocess.run(['dig', …])` with `env={'LC_ALL': 'C', …}`, captures stdout / stderr, surfaces non-zero exit codes cleanly, and parses `+short` output (one value per line; empty stdout → NXDOMAIN / no-answer). Methods: `run(args: List[str], timeout: int = 3) -> Schema__Dig__Result` (raw), `query_short(server: Optional[str], name: str, record_type: str, no_recurse: bool = False, timeout: int = 3) -> List[Safe_Str__Record_Value]` (convenience). All three checkers consume this helper — no other class is allowed to invoke `dig`. No library import. `FileNotFoundError` for missing `dig` is surfaced cleanly so callers can degrade gracefully. **P1.** |
+| `Route53__Authoritative__Checker.py` | **DEFAULT mode of `records check`.** Given a zone id, fetches the NS set via `Route53__AWS__Client.get_hosted_zone(...)`, then invokes `Dig__Runner` once per authoritative NS with `@<ns> +norecurse` to issue the A / AAAA / etc query directly. No library import, no cache layer. Returns one row per Route 53 NS (typically 4 rows). **Zero cache pollution anywhere** — these nameservers are the source of truth and have no upstream cache. Fails (exit 1) if any NS disagrees. **P1.** |
+| `Route53__Public_Resolver__Checker.py` | **`--public-resolvers` mode.** The whatsmydns.net-style fan-out across either the curated 8-resolver public set (`Enum__Dns__Resolver`, full standalone mode) or the 6-resolver smart-verify subset (new-name auto-verify mode). Per-resolver `Dig__Runner` calls with `@<resolver-ip>`, `concurrent.futures.ThreadPoolExecutor` for parallelism, ~3s per-resolver timeout (enforced via subprocess timeout). Quorum logic via `--min-resolvers`. **Cache-polluting** at each public resolver — the orchestrator MUST print the WARNING banner (and consume y/N confirmation unless `--yes`) before invoking this checker on the standalone path. The smart-verify new-name path is exempt (no banner) because no prior recursive cache exists for the name. **P1 (new-name auto-verify path) / P1.5 (standalone `--public-resolvers` flag).** |
+| `Route53__Local__Checker.py` | **`--local` mode.** Calls `Dig__Runner` with no `@<ns>` argument so the host's configured upstream resolver is used. Sole class allowed to call into `Dig__Runner` for the local path. **Cache-polluting** at the host's upstream (often a corporate proxy / VPN resolver). The orchestrator MUST print the WARNING banner before invoking. No `--flush-local` sub-option — platform-native cache flushing is left to the operator. **P1.5 / P2.** |
+| `Route53__Check__Orchestrator.py` | Thin composer. Reads the three mode flags (`--authoritative` default-on, `--public-resolvers`, `--local`, `--all`), gates each cache-polluting mode behind its WARNING banner + y/N confirmation, then invokes the relevant checker(s) and merges their per-row results into a single `Schema__Dns__Check__Result`. Computes the unified exit code (0 = all selected passed, 1 = authoritative disagreement, 2 = public-resolvers quorum failed, 3 = local mismatch — first-failing-mode wins for the exit-code report). |
+| `Route53__Smart_Verify.py` | **Owns the new-vs-existing decision logic on `records add` / `update` / `delete`.** Calls `Route53__AWS__Client.get_record(...)` BEFORE the mutation to detect whether the name + type is currently in the zone, and (when present) reads the existing TTL so the skip info line can quote a wait time. After mutation, dispatches to `Route53__Check__Orchestrator`: new-name path runs `{AUTHORITATIVE, PUBLIC_RESOLVERS}` with the curated 6-resolver subset (safe by construction, no banner); upsert / delete paths run `{AUTHORITATIVE}` only and emit the appropriate TTL-aware skip info line. Honours `--no-verify` (skip everything) and `--verify-public` (force public-resolver check on the change/delete paths WITH the WARNING banner). **P1.** |
 
 **`sgraph_ai_service_playwright__cli/aws/dns/schemas/`** (one class per file — rule #21)
 
@@ -639,13 +935,18 @@ Type_Safe-validated values.
 | `Schema__Route53__Change__Result.py` | `change_id`, `status`, `submitted_at` (Safe_Str__ISO datetime). |
 | `Schema__Route53__Zone__List.py` | `account_id`, `zones` (List__Schema__Route53__Hosted_Zone). |
 | `Schema__Dns__Check__Result.py` | `name`, `record_type`, `expected_value`, `resolvers` (List of per-resolver rows: resolver enum, IP, geo, answer, match-bool), `local_answer`, `local_match`, `quorum_required`, `quorum_met`, `exit_code`. |
+| `Schema__Dig__Result.py` | Raw `Dig__Runner.run` output. Fields: `argv` (List[str]), `exit_code` (int), `stdout_lines` (List[str]), `stderr` (str), `duration_ms` (int). Pure data — no methods. |
+| `Schema__Smart_Verify__Decision.py` | Pre-flight read result from `Route53__Smart_Verify.decide_before_*`. Fields: `decision` (Enum: `NEW_NAME` / `UPSERT` / `DELETE`), `prior_ttl` (Optional Safe_Int__TTL_Seconds), `prior_values` (List[Safe_Str__Record_Value]). |
+| `Schema__Smart_Verify__Result.py` | Post-mutation verify result. Fields: `decision` (Enum, copied from `Schema__Smart_Verify__Decision`), `check_result` (Schema__Dns__Check__Result), `skip_info_line` (Optional Safe_Str — the upsert / delete skip line text, empty on the new-name path), `forced_public` (bool, true when `--verify-public` was passed). |
 
 **`sgraph_ai_service_playwright__cli/aws/dns/enums/`**
 
 | File | One-line purpose |
 |------|-------------------|
 | `Enum__Route53__Record_Type.py` | `A`, `AAAA`, `CNAME`, `MX`, `TXT`, `NS`, `SOA`, `PTR`, `SRV`, `CAA` (alias-* members deferred — no CLI command; `Schema__Route53__Record__Alias` carries the alias data when needed). |
-| `Enum__Dns__Resolver.py` | Curated public-resolver list. Each member: name + IP + geo. Members: `GOOGLE_PRIMARY` (8.8.8.8 US), `GOOGLE_SECONDARY` (8.8.4.4 US), `CLOUDFLARE_PRIMARY` (1.1.1.1 Any), `CLOUDFLARE_SECONDARY` (1.0.0.1 Any), `QUAD9` (9.9.9.9 CH), `OPENDNS` (208.67.222.222 US), `YANDEX` (77.88.8.8 RU), `ADGUARD` (94.140.14.14 CY). Default 8-resolver set; `--min-resolvers` defaults to 5. |
+| `Enum__Dns__Resolver.py` | Curated public-resolver list. Each member carries: name, IP, geo, AND `in_smart_verify_new_name` (bool). Full 8-resolver set used by the standalone `--public-resolvers` flag: `GOOGLE_PRIMARY` (8.8.8.8 US, smart=true), `GOOGLE_SECONDARY` (8.8.4.4 EU, smart=true), `CLOUDFLARE_PRIMARY` (1.1.1.1 US-anycast, smart=true), `CLOUDFLARE_SECONDARY` (1.0.0.1 EU-anycast, smart=true), `QUAD9` (9.9.9.9 global anycast, smart=true), `OPENDNS` (208.67.222.222 US, smart=false), `YANDEX` (77.88.8.8 RU, smart=false), `ADGUARD_EU` (94.140.14.14 EU, smart=true). The smart-verify subset is the 6 members with `smart=true`. `--min-resolvers` defaults to 5 (standalone path); smart-verify new-name path uses 6/6 for the displayed quorum but does not fail on a single drop (info-line only). |
+| `Enum__Dns__Check__Mode.py` | The three `records check` modes. Members: `AUTHORITATIVE` (default), `PUBLIC_RESOLVERS`, `LOCAL`. Used as a set (not a Literal) on the orchestrator's input shape and on `Schema__Dns__Check__Result.modes_run` so the rendered table can show which modes actually ran. |
+| `Enum__Smart_Verify__Decision.py` | The decision computed by `Route53__Smart_Verify.decide_before_*`. Members: `NEW_NAME` (record did not exist before this `records add` — public-resolver fan-out is safe), `UPSERT` (`records add` / `update` with a prior record — skip public-resolver), `DELETE` (`records delete` — skip public-resolver, expect NXDOMAIN). |
 
 **`sgraph_ai_service_playwright__cli/aws/dns/primitives/`** (one class per file)
 
@@ -656,7 +957,7 @@ Type_Safe-validated values.
 | `Safe_Str__Record_Name.py` | Same shape as `Safe_Str__Domain_Name`; semantically the record's own FQDN. |
 | `Safe_Str__Record_Value.py` | String, max length 4000 (TXT records hard cap); CLI splits on quotes for TXT. |
 | `Safe_Str__Resolver_IP.py` | IPv4 dotted-quad or compressed IPv6, validated with `ipaddress` stdlib at construction time. Used by `Enum__Dns__Resolver` member payloads and as the `resolver_ip` field on per-resolver result rows. |
-| `Safe_Int__TTL.py` | Range 0..2147483647 (Route 53 hard limit); validated 1..86400 in practice. |
+| `Safe_Int__TTL.py` | Range 0..2147483647 (Route 53 hard limit); validated 1..86400 in practice. Also used as the `prior_ttl` type on `Schema__Smart_Verify__Decision` so the upsert / delete skip info lines can quote a TTL-aware wait time. Alias-name `Safe_Int__TTL_Seconds` is not introduced — the existing `Safe_Int__TTL` primitive covers the same semantic space and reusing it avoids duplication. |
 
 **`sgraph_ai_service_playwright__cli/aws/dns/collections/`** (rule #21 — pure type defs, no methods)
 
@@ -701,7 +1002,7 @@ Type_Safe-validated values.
 | File | One-line purpose |
 |------|-------------------|
 | `Cli__Aws.py` | Typer parent app for `sg aws`. Mounts `dns` and `acm` sub-apps. Imported from `scripts/provision_ec2.py` and wired via `app.add_typer(aws_app, name='aws')`. |
-| `Cli__Aws_Dns.py` | Typer `dns` app with sub-groups `zones` and `records`. Imports `Route53__AWS__Client` and `Route53__Propagation__Checker`. Default-zone resolution lives here (calls `Route53__AWS__Client.resolve_default_zone()` when `--zone` unset). Renderers (`_render_zones_list`, `_render_records_list`, `_render_change_result`, `_render_check_result`) using `rich.Table` + Console — mirrors `Cli__Vault_App.py`'s `_render_vault_app_info` / `_render_vault_app_create` style. `--json` flag swaps the renderer for `console.print_json(data=schema.json())`. |
+| `Cli__Aws_Dns.py` | Typer `dns` app with sub-groups `zones` and `records`. Imports `Route53__AWS__Client` and `Route53__Check__Orchestrator` (which in turn composes the three checker classes). Default-zone resolution lives here (calls `Route53__AWS__Client.resolve_default_zone()` when `--zone` unset). The `records check` command parses the mode flags into a `Set[Enum__Dns__Check__Mode]` and hands them to the orchestrator; the orchestrator is responsible for printing the cache-pollution WARNING banners and prompting y/N before invoking any cache-polluting checker. Renderers (`_render_zones_list`, `_render_records_list`, `_render_change_result`, `_render_check_result`) using `rich.Table` + Console — mirrors `Cli__Vault_App.py`'s `_render_vault_app_info` / `_render_vault_app_create` style. `--json` flag swaps the renderer for `console.print_json(data=schema.json())`. |
 | `Cli__Aws_Acm.py` | Typer `acm` app with `list` and `show` subcommands. Imports `ACM__AWS__Client`. Dual-region default behaviour for `list`; ARN-derived region for `show`. Renderers (`_render_acm_list`, `_render_acm_show`) match the rich style. |
 
 ### New files (proposed) — tests
@@ -711,7 +1012,10 @@ Type_Safe-validated values.
 | File | One-line purpose |
 |------|-------------------|
 | `service/test_Route53__AWS__Client.py` | Composition tests against `Route53__AWS__Client__In_Memory` — method signatures, schema shapes, change-set construction, `resolve_default_zone()` caching, multi-page pagination. No boto3 hit. |
-| `service/test_Route53__Propagation__Checker.py` | Tests against `Route53__Propagation__Checker__In_Memory` (in-memory fake resolver returning canned per-resolver answers). Assert: quorum-met when 5/8 match, quorum-failed when 4/8 match, exit-code = 0/1/2 mapping, `flush_local` is a no-op in the fake. |
+| `service/test_Route53__Authoritative__Checker.py` | Tests against `Route53__Authoritative__Checker__In_Memory` (in-memory fake fetching a canned NS set + canned per-NS answers). Assert: returns one row per Route 53 NS; all-agree → PASS (exit 0); one disagreement → FAIL (exit 1); zero cache pollution claim is structural (no public-resolver IPs ever touched). |
+| `service/test_Route53__Public_Resolver__Checker.py` | Tests against `Route53__Public_Resolver__Checker__In_Memory`. Assert: quorum-met when 5/8 match (default), quorum-failed when 4/8 match (and `--min-resolvers 5`), per-resolver row shape stable. |
+| `service/test_Route53__Local__Checker.py` | Tests against `Route53__Local__Checker__In_Memory` (`subprocess.run` replaced by a fake invokable returning canned `dig` output — composition, no `mock.patch`). Assert: match → PASS, mismatch → exit 3, `FileNotFoundError` from missing `dig` degrades cleanly. |
+| `service/test_Route53__Check__Orchestrator.py` | Tests against an orchestrator wired to the three `__In_Memory` checkers. Assert: default mode-set is `{AUTHORITATIVE}`; `--public-resolvers` and `--local` cause the WARNING banner to be emitted (captured via injected `Console`) before the checker runs; `yes=True` skips the prompt; unified exit-code mapping is correct (auth-fail trumps public-quorum-fail trumps local-mismatch). |
 | `service/test_ACM__AWS__Client.py` | Tests against `ACM__AWS__Client__In_Memory`. Dual-region scan dedupes when current = us-east-1, ARN-region auto-detection, `--all-regions` loop hits the expected region list. |
 | `cli/test_Cli__Aws_Dns.py` | CliRunner-based tests of the Typer surface — help text, subcommand existence, renderer output, `--json` shape, default-zone behaviour when `--zone` omitted. |
 | `cli/test_Cli__Aws_Acm.py` | CliRunner-based tests — `list`, `show`, `--json` round-trip, dual-region default in the rendered output. |
@@ -721,7 +1025,7 @@ Type_Safe-validated values.
 | File | Change |
 |------|--------|
 | `scripts/provision_ec2.py` (the top-level `sg` Typer root, line 769) | Add a new sub-app: `from sgraph_ai_service_playwright__cli.aws.cli.Cli__Aws import app as _aws_app` followed by `app.add_typer(_aws_app, name='aws')`. **Confirmed location** — pre-Dev audit complete. |
-| `pyproject.toml` | Add `dnspython = "^2.6"` (or current stable) under `[tool.poetry.dependencies]` — pending Q7 sign-off. |
+| `pyproject.toml` | **No change** (Q7 RESOLVED — no `dnspython` dependency added; `dig` shell-out via the shared `Dig__Runner` is the single DNS-on-the-wire transport). |
 | `sgraph_ai_service_playwright__cli/aws/__init__.py` | Stays empty (rule #22). |
 
 ### Files that **must not** change
@@ -826,6 +1130,24 @@ wants to see them alongside whatever's in their current region. The
 `--all-regions` flag covers exotic cases (ELB certs in regions the operator
 hasn't pinned).
 
+### Host-side prerequisites (Q7 follow-up)
+
+`Dig__Runner` shells out to `dig`. Every host that runs the CLI must therefore
+have `dig` on `$PATH`. Coverage today:
+
+- **Playwright Docker base image** (`mcr.microsoft.com/playwright/python:v1.58.0-noble`) — already ships `dnsutils` (which contains `dig`). No image change required.
+- **Bare macOS / Linux dev hosts** — `dig` is almost always present (BIND tooling is a long-standing default on Debian/Ubuntu via `dnsutils`; on macOS it ships with the system). Operators on minimal Alpine containers or stripped-down environments are the only ones likely to hit a gap.
+- **CI runners (GitHub Actions ubuntu-latest)** — ships `dig` by default.
+
+**Failure mode.** `Dig__Runner` surfaces `FileNotFoundError` cleanly. The CLI
+exits with a clear `dig not found on PATH — install dnsutils (Debian/Ubuntu) /
+bind-tools (Alpine) or run from the Playwright Docker image` error. This is
+asserted in `test_Dig__Runner.py`.
+
+`route53:ListResourceRecordSets` is **already required** for `records list` /
+`records get` and is therefore reused by `Route53__Smart_Verify.decide_before_*`
+without any IAM-policy change (verified — see the boto3 operations table above).
+
 ### AWS resource naming
 
 This brief introduces **no** persistent AWS resources of its own. Records,
@@ -866,9 +1188,12 @@ zone resolution. No DNS mutations. No propagation checker.
 - All commands work with `--json`.
 - Read-only IAM role suffices.
 
-### P1 — Record mutations + propagation checker (standalone)
+### P1 — Record mutations + authoritative-mode `records check` + smart auto-verify
 
-**Scope:** make the CLI an editing surface; add the standalone `records check`.
+**Scope:** make the CLI an editing surface; add the standalone `records check`
+limited to the **safe default mode** (authoritative-NS direct query); and ship
+**smart auto-verify** on every mutation so the operator gets the right level of
+verification by default without ever risking cache pollution.
 
 1. `Route53__AWS__Client` gains `create_record`, `upsert_record`,
    `delete_record`, `upsert_a_alias_record` (library-only — no CLI command).
@@ -878,31 +1203,64 @@ zone resolution. No DNS mutations. No propagation checker.
 4. `--yes` flag added.
 5. `SG_AWS__DNS__ALLOW_MUTATIONS=1` env gate (Q4 safety net — locked in).
 6. Diff preview in the confirmation prompt (show old → new).
-7. `Route53__Propagation__Checker` shipped, `dnspython` added as a direct dep
-   (pending Q7 sign-off).
-8. CLI subcommand shipped: `dns records check` with `--expect`, `--min-resolvers`,
-   `--flush-local`, `--json`.
-9. Exit-code mapping: 0 = all match, 1 = quorum failed, 2 = local cache stale.
+7. `Dig__Runner` shipped (the single subprocess transport for every DNS query).
+8. `Route53__Authoritative__Checker` shipped (DEFAULT mode), consuming `Dig__Runner`. **No `dnspython` dependency added** (Q7 RESOLVED).
+9. `Route53__Public_Resolver__Checker` shipped (consuming `Dig__Runner`), but **only wired into the smart auto-verify new-name path** in P1 — the standalone `--public-resolvers` flag on `records check` remains gated until P1.5 (see point 12).
+10. `Route53__Check__Orchestrator` shipped, wired to the authoritative checker
+    AND to the public-resolver checker for the smart-verify path only. The orchestrator's mode-set input accepts `LOCAL` at the type level, but invoking it raises
+    `NotImplementedError` until P1.5 lands the local checker.
+11. **`Route53__Smart_Verify` shipped.** Pre-flight read on `records add` (decides `NEW_NAME` vs `UPSERT`). Always-on by default; opt out with `--no-verify`; force public-resolver check on the upsert / delete path with `--verify-public` (WARNING banner shown). New-name path runs authoritative + 6-resolver curated EU+US public-resolver fan-out, no banner. Upsert / delete path runs authoritative only, emits TTL-aware skip info line.
+12. CLI subcommand shipped: `dns records check` accepts `--authoritative`
+    (default-on), `--expect`, `--zone`, `--type`, `--json`. The `--public-resolvers`,
+    `--local`, `--all`, `--min-resolvers` flags are **declared on the Typer
+    surface but explicitly fail with a clear "shipping in P1.5" message** for the standalone command (the smart-verify wiring uses the public-resolver checker internally — that is shipped).
+13. Exit-code mapping for P1: 0 = authoritative passed, 1 = authoritative
+    disagreement.
 
 **Acceptance:**
 - `sg aws dns records add ...` creates a record; fails cleanly if it exists.
 - `sg aws dns records update ...` upserts.
 - `sg aws dns records delete ...` requires `--yes` + env gate or interactive
   confirmation; fails cleanly without.
-- `sg aws dns records check zen-darwin --expect 203.0.113.5` returns a table
-  of 8 resolvers + local; exit code reflects quorum + local state.
+- `sg aws dns records check zen-darwin --expect 203.0.113.5` (no mode flags
+  — defaults to authoritative) returns a table of Route 53 NS rows; exit code
+  0 on full agreement, 1 on any NS disagreement. **Zero cache pollution.**
+- `sg aws dns records check ... --public-resolvers` exits with the "shipping
+  in P1.5" message until that slice lands.
 - All mutations return a `Schema__Route53__Change__Result` printed by the
   renderer (change-id + status).
+- **Smart auto-verify acceptance:** `records add` on a new name runs authoritative + 6-resolver public-resolver fan-out automatically, with no WARNING banner. `records add` on an existing name (upsert), `records update`, and `records delete` each run authoritative only and emit the TTL-aware skip info line verbatim from §3. `--no-verify` skips all verification. `--verify-public` on the upsert / delete paths runs the standalone public-resolver check WITH the WARNING banner.
 - Integration test against real Route 53 dev zone gated on
   `SG_AWS__DNS__INTEGRATION=1`.
 
-### P2 — Verify chaining + ACM enumeration polish
+### P1.5 — Cache-polluting check modes (operator-paced opt-in)
 
-**Scope:** convenience layers on top of P1; no new core primitives.
+**Scope:** light a candle the user has to choose to light. Lands when the
+operator confirms (a) the authoritative-only default has bedded in and (b)
+the WARNING-banner copy has been signed off.
 
-1. `--verify` flag on `records add` and `records update`: after submitting the
-   change, automatically invoke the propagation checker with the just-applied
-   `--expect <value>` and poll until quorum met or timeout (Q8).
+1. `Route53__Public_Resolver__Checker` shipped behind `--public-resolvers`.
+2. `Route53__Local__Checker` shipped behind `--local`.
+3. `--all` convenience flag wired (= authoritative + public + local).
+4. WARNING banner copy from §3 lands verbatim. Each cache-polluting mode
+   prints its banner and prompts y/N (skipped with `--yes`).
+5. Exit-code mapping extended: 2 = public-resolvers quorum failed, 3 = local
+   mismatch.
+6. `--min-resolvers` flag wired (defaults 5/8).
+
+**Acceptance:**
+- `sg aws dns records check ... --public-resolvers` prints the WARNING banner
+  verbatim, prompts y/N, then fans out across 8 resolvers and reports quorum.
+- `sg aws dns records check ... --local` prints the WARNING banner verbatim,
+  prompts y/N, then shells out to `dig`.
+- `sg aws dns records check ... --all` prints the combined WARNING banner
+  verbatim once, prompts y/N, then runs all three modes.
+
+### P2 — ACM enumeration polish + change polling
+
+**Scope:** convenience layers on top of P1 / P1.5; no new core primitives.
+
+1. ~~`--verify` flag on `records add` and `records update`~~ — **SUPERSEDED in rev 5** by always-on smart auto-verify in P1 (`Route53__Smart_Verify`). No separate `--verify` flag — the verification is the default behaviour, gated only by `--no-verify` and `--verify-public`.
 2. `--all-regions` flag on `acm list` exercised in CI against a fixture (P0
    ships the method but `--all-regions` is unverified at scale until P2).
 3. `get_change` polling for the eventual `--wait` flag on mutations.
@@ -910,9 +1268,8 @@ zone resolution. No DNS mutations. No propagation checker.
    CLI command. **Currently not planned.**
 
 **Acceptance:**
-- `sg aws dns records add zen-mendel --type A --value 1.2.3.4 --verify --zone
-  vault.sgraph.ai` submits, waits, runs `records check`, exits 0 only when
-  quorum met.
+- `sg aws acm list --all-regions` returns results from every commercial region
+  with rate limiting; verified against a CI fixture.
 
 ---
 
@@ -920,6 +1277,7 @@ zone resolution. No DNS mutations. No propagation checker.
 
 | # | Risk | Mitigation |
 |---|------|------------|
+| **R0** | **DNS cache pollution from verification queries.** Any recursive resolver — public (8.8.8.8, 1.1.1.1, …) or corporate / VPN upstream — caches the answer it receives for up to the record's TTL (Route 53 default 300s; corporate proxies often pin or extend TTLs). If the operator runs `records check --public-resolvers` or `records check --local` and then changes the record (retry, fix, second deployment), those caches will return the OLD value until the TTL elapses. **There is NO way to flush a third-party recursive cache.** This is a real foot-gun that has bitten real teams. | (a) **Default mode of `records check` is `--authoritative`** — queries Route 53's own NS set directly with `+norecurse`. Zero cache pollution anywhere. This is what an operator wants after `records add` / `update`. (b) `--public-resolvers` is OPT-IN and prints a WARNING banner (§3, verbatim) plus a y/N prompt before running. (c) `--local` is OPT-IN and prints its own WARNING banner (§3, verbatim) plus a y/N prompt. (d) `--all` prints a combined WARNING banner (§3, verbatim) once. (e) Authoritative-mode is **P1**; the cache-polluting modes are **P1.5 / P2**, so P1 ships with zero foot-gun risk. (f) Public-resolvers and local mode warnings reference the safe default in their copy ("Use the default --authoritative mode for iterative verification") so the operator always knows the way out. (g) P2's `--verify` chained mode on `records add` / `records update` defaults to `--authoritative`, keeping the convenience layer cache-pollution-free. |
 | R1 | Fat-fingered `records delete` on prod DNS — site goes dark | (a) Confirmation prompt with diff preview (Q4-A). (b) `SG_AWS__DNS__ALLOW_MUTATIONS=1` env gate — **locked in (Q4 RESOLVED)**. (c) `--yes` is documented as "I have verified the diff". (d) IAM policy in production scoped to specific hosted-zone ARNs only. |
 | R2 | `records update` on the wrong record (typo in name resolves to a different existing record) | Confirmation prompt shows the **resolved** FQDN (including the resolved default `sgraph.ai` zone) and the current values being replaced. Operator can abort. |
 | R3 | Zone-name resolution silently picks the wrong zone in multi-zone accounts (`example.com` vs `example.com.eu`) | `find_hosted_zone_by_name` requires an **exact** name match. If `list_hosted_zones_by_name` returns >1 candidate, raise with the list. Never auto-pick. Same rule applies to the `sgraph.ai` default lookup — exact match only. |
@@ -929,9 +1287,12 @@ zone resolution. No DNS mutations. No propagation checker.
 | R7 | boto3 pagination missed on `list_resource_record_sets` — partial record listings hide records from `records list`, then `add` later fails on duplicate | All `list_*` methods use the boto3 paginator (`get_paginator(...).paginate()`), never raw `list_*` calls. Unit-tested with multi-page in-memory fixture. |
 | R8 | `delete_record` requires the full current RR-set body — race condition between read and write means a concurrent mutator's value is silently deleted | Document the race. P2 can add `IfMatch`-style ETag if Route 53 ever supports it (today it doesn't); P1 mitigation is the confirmation prompt + short window. |
 | R9 | `sgraph.ai` is not in the operator's account → every command fails on default-zone lookup | Failure is clear: `"--zone unset and no 'sgraph.ai' hosted zone found in account 123456789012. Pass --zone explicitly or provision the zone in this account."` Documented in `--help`. |
-| R10 | **`dig` not installed on operator's machine** (rare on macOS / Linux, common on minimal containers) | `Route53__Propagation__Checker.check_local` detects `FileNotFoundError` from `subprocess.run` and degrades cleanly: skip the local check, report `local_answer = null`, set `exit_code = 2` only when `--flush-local` was passed (i.e. operator explicitly cared). Help text notes the dependency. |
-| R11 | **`--flush-local` requires sudo on macOS** (`sudo killall -HUP mDNSResponder`) | `--flush-local` documented as "may prompt for sudo on macOS". Default OFF. If sudo prompt fails, skip the flush + warn, don't abort the check. Linux path (`systemd-resolve --flush-caches`) only needs sudo on some distros. |
-| R12 | `dnspython` not currently a dep — adding it widens the dependency surface (Q7) | Mature library, pure Python, MIT, transitive-dep-free for the features used. Vetted by adding it under `[tool.poetry.dependencies]` with an upper-bound `^2.6` and re-locking. If the user rejects (Q7), fall back to shelling out to `dig` for every resolver — loses parallelism + clean error semantics. |
+| R10 | **`dig` not installed on operator's machine** (rare on macOS / Linux, common on minimal containers). Now load-bearing on EVERY mode (Q7 RESOLVED — `dig` is the single transport via `Dig__Runner`) — so a missing `dig` breaks `--authoritative`, the smart-verify public-resolver fan-out, the standalone `--public-resolvers`, AND `--local`. | (a) Playwright Docker base image already ships `dnsutils` (verified — see §7 host-side prerequisites). (b) `Dig__Runner` surfaces `FileNotFoundError` cleanly; the CLI exits with a clear `dig not found on PATH — install dnsutils (Debian/Ubuntu) / bind-tools (Alpine) or run from the Playwright Docker image` error. (c) `test_Dig__Runner.py` asserts the failure shape. (d) Help text for `records check` notes the dependency. |
+| R11 | ~~`--flush-local` requires sudo on macOS~~ | **REMOVED in rev 4.** The `--flush-local` sub-option was dropped. Platform-native cache flushing is left to the operator (`dscacheutil -flushcache; sudo killall -HUP mDNSResponder` on macOS; `systemd-resolve --flush-caches` on Linux). Pretending to abstract sudo / mDNSResponder fiddling was not worth the surface-area cost. |
+| R12 | ~~`dnspython` not currently a dep — adding it widens the dependency surface (Q7)~~ | **REMOVED in rev 5.** Q7 RESOLVED — `dnspython` is NOT added; `dig` shell-out via `Dig__Runner` covers every command all three checkers need. Zero new runtime deps. The trade-off (shell-out cost ~5-15ms, locale-sensitive parsing) is recorded under R15a / R15b below. |
+| R15a | **`dig` output parsing fragility** — output format is stable across major `dig` versions but locale-sensitive (date formats, whitespace, `;` comment positioning). Smart-verify's safety argument leans on being able to detect "NXDOMAIN vs answer" reliably. | (a) `Dig__Runner` pins `LC_ALL=C` in `subprocess.run`'s env block. (b) Prefer `+short` for value extraction (one value per line, no comments, no header). (c) NXDOMAIN detection uses the empty-stdout + non-zero exit-code signal from `dig +short` (this is well-defined across `dig` 9.x). (d) `test_Dig__Runner.py` runs canned stdout fixtures covering: positive answer (single + multi-value), NXDOMAIN, NODATA, timeout, missing-`dig` `FileNotFoundError`. |
+| R15b | `Dig__Runner` adds per-invocation subprocess cost (~5-15ms × N resolvers). The 6-resolver smart-verify fan-out runs 6 subprocesses; the authoritative path runs 4. | Per-mode `ThreadPoolExecutor` keeps wall-clock dominated by the slowest single query (~50ms typical), not the sum. Acceptable for an operator CLI that already takes seconds to set up boto3 clients. |
+| R16 | **Stale-TTL window after `records update` / `records delete`.** If a user runs the standalone `records check --public-resolvers` immediately after an upsert or delete, the public recursives will cache the answer for up to the *old* TTL — locking in either a stale positive or (on delete) a stale negative for the remainder of that window. There is NO way to flush a third-party recursive cache. | (a) **Smart auto-verify auto-skips the public-resolver path on upsert / delete** (always-on default in P1). (b) The skip info line surfaces the remaining wait time using the prior record's TTL ("for up to ~Ns of the prior record's TTL"). (c) `--verify-public` is required to force the public-resolver check in that window, AND it prints the WARNING banner first. (d) The standalone `records check --public-resolvers` keeps the same WARNING banner. A user who follows the on-screen guidance cannot accidentally cache-lock. |
 | R13 | Quorum threshold (5/8 default) is wrong for the operator's network — false alarms or false reassurances | `--min-resolvers` is a flag; help text documents the trade-off; default chosen because Route 53 propagation is usually all-or-nothing within ~60s and 5/8 catches the in-progress case. Operators with weird ISPs can lower it. |
 | R14 | The `sg aws` Typer group does not exist today; first attempt to wire it into `scripts/provision_ec2.py` could collide | **Pre-Dev audit complete** — top-level `sg` Typer root located at `scripts/provision_ec2.py:769`. No existing `add_typer(..., name='aws')` registration. Slot is free. |
 | R15 | `osbot-aws` later adds Route 53 / ACM helpers; our direct-boto3 boundary becomes inconsistent | Document the upgrade path in each `*__AWS__Client.py` header (mirrors the `Elastic__AWS__Client` template). File the upstream-osbot-aws follow-up brief once this lands. |
@@ -948,9 +1309,14 @@ guidance). Two test tracks.
 | Test file | What it asserts |
 |-----------|------------------|
 | `tests/service/test_Route53__AWS__Client.py` | Construction; method signatures match §5; an `Route53__AWS__Client__In_Memory` subclass (in `tests/service/_in_memory.py`) implements the boto3-layer methods against a dict-backed fixture, no `mock` module; each public method returns the documented schema shape; pagination across multiple pages works; `find_hosted_zone_by_name` raises on ambiguous match; **`resolve_default_zone` returns the `sgraph.ai` entry on first call, returns the cached entry without a second boto3 call on the second invocation, and raises `Route53__Default_Zone_Not_Found` when no `sgraph.ai` entry exists**. |
-| `tests/service/test_Route53__Propagation__Checker.py` | An in-memory fake resolver returns canned per-resolver answers. Assert: quorum-met when 5/8 match (default), quorum-failed when 4/8 match (and `--min-resolvers 5`), exit-code 0/1/2 mapping, local-check `subprocess.run` is replaced by a fake invokable returning canned dig output (no real `dig` spawn), `flush_local=True` triggers the OS-detection branch (returns False on Linux test runner without sudo — that's the documented "skip with warning" path). |
+| `tests/service/test_Dig__Runner.py` | A `Dig__Runner__In_Memory` subclass overrides `run(...)` to return a canned `Schema__Dig__Result` based on `(argv,)` key lookup — composition, no `mock.patch`. Assert: positive answer (single value + multi-value), NXDOMAIN (empty stdout + non-zero exit), NODATA, subprocess timeout surfaces cleanly, missing-`dig` `FileNotFoundError` surfaces cleanly, `LC_ALL=C` is set in the env passed to `subprocess.run` (verified via a sentinel-collecting fake). |
+| `tests/service/test_Route53__Authoritative__Checker.py` | Tests against `Route53__Authoritative__Checker__In_Memory` seeded with a `Dig__Runner` fake. Fixture: one NS-set response (the `get_hosted_zone` call returns 4 NS) and 4 `dig +short` outputs (one per NS). Assert: returns one row per Route 53 NS; all-agree → PASS (exit 0); one disagreement → FAIL (exit 1); the four `Dig__Runner` invocations carry `@<ns>` + `+norecurse`. Simpler than the rev 4 library-mock plan. |
+| `tests/service/test_Route53__Public_Resolver__Checker.py` | `Dig__Runner` fake seeded with per-resolver canned outputs. Assert: quorum-met when 5/8 match (default standalone), quorum-failed when 4/8 match (and `--min-resolvers 5`), smart-verify subset of 6 members is correctly selected when invoked via the new-name path. |
+| `tests/service/test_Route53__Local__Checker.py` | `Dig__Runner` fake returns canned local `dig +short` output. Assert: match → PASS, mismatch → exit 3, missing-`dig` `FileNotFoundError` degrades cleanly. |
+| `tests/service/test_Route53__Check__Orchestrator.py` | Orchestrator wired to the three `__In_Memory` checkers (each in turn fed a `Dig__Runner` fake). Assert: default mode-set runs only authoritative; cache-polluting modes emit the WARNING banner before running; unified exit-code mapping (0 / 1 / 2 / 3). |
+| `tests/service/test_Route53__Smart_Verify.py` | Wired to an `Route53__AWS__Client__In_Memory` (the existing `_Fake_R53` helper) plus the orchestrator + `Dig__Runner` fakes from above. Three test cases: **(a) new-name path** — `decide_before_add` returns `NEW_NAME` when `get_record` returns None; `verify_after_mutation` invokes the orchestrator with `{AUTHORITATIVE, PUBLIC_RESOLVERS}` and the 6-resolver smart subset; no WARNING banner printed (captured Console buffer is empty of WARNING strings). **(b) upsert path** — `decide_before_add` returns `UPSERT` with `prior_ttl=60` when `get_record` returns a hit; `verify_after_mutation` invokes orchestrator with `{AUTHORITATIVE}` only AND emits the upsert skip info line containing the literal substring `~60s of the prior record's TTL`. **(c) delete path** — `decide_before_delete` returns `DELETE` with `prior_ttl=60`; `verify_after_mutation` invokes orchestrator with `{AUTHORITATIVE}` (expecting NXDOMAIN per-NS) AND emits the delete skip info line containing `recursives may still serve the cached positive answer for up to ~60s`. Also asserts `no_verify=True` skips all verification, and `force_public=True` on upsert / delete invokes the standalone public-resolver path with the WARNING banner printed. |
 | `tests/service/test_ACM__AWS__Client.py` | Construction; an `ACM__AWS__Client__In_Memory` subclass with a `{region: [cert]}` fixture; `list_certificates(region)` returns the list; `list_certificates__dual_region()` dedupes when current = us-east-1; ARN-derived region in `describe_certificate(arn)` parses correctly for both standard and gov-cloud ARN shapes; `list_certificates__all_regions()` iterates over the expected region set. |
-| `tests/cli/test_Cli__Aws_Dns.py` | Mirrors `test_Cli__Vault_App.py`: `runner.invoke(app, ['--help'])`, `[zones, --help]`, `[records, --help]`, every subcommand has `--help`. Help text contains expected flags (`--json`, `--type`, `--ttl`, `--yes`, `--zone`, `--expect`, `--min-resolvers`, `--flush-local`). Renderer output (with no-color console) contains expected zone names and record types. `--json` output parses as valid JSON and round-trips through the schema. **No-`--zone` invocations resolve to `sgraph.ai` in the renderer header.** |
+| `tests/cli/test_Cli__Aws_Dns.py` | Mirrors `test_Cli__Vault_App.py`: `runner.invoke(app, ['--help'])`, `[zones, --help]`, `[records, --help]`, every subcommand has `--help`. Help text contains expected flags (`--json`, `--type`, `--ttl`, `--yes`, `--zone`, `--expect`, `--authoritative`, `--public-resolvers`, `--local`, `--all`, `--min-resolvers`). Renderer output (with no-color console) contains expected zone names and record types. `--json` output parses as valid JSON and round-trips through the schema. **No-`--zone` invocations resolve to `sgraph.ai` in the renderer header.** `records check` with no mode flags defaults to `--authoritative` and prints no WARNING banner. `records check --public-resolvers` and `records check --local` each emit the verbatim WARNING banner string from §3. `records check --all` emits the combined banner. |
 | `tests/cli/test_Cli__Aws_Acm.py` | Mirrors above for ACM: list, show, JSON round-trip. Default invocation reports two regions in the header (current + us-east-1). |
 | `tests/schemas/test_Schema__Route53__Record.py` | Type_Safe construction; raw primitives rejected; enum-based `type` field rejects unknown values; round-trips via `.json()` and reconstruction. |
 | `tests/schemas/test_Schema__Dns__Check__Result.py` | Construction; per-resolver list shape; quorum + local fields present; round-trips. |
@@ -989,10 +1355,13 @@ gated separately on `SG_AWS__DNS__INTEGRATION__SLOW=1`.
 
 **Yes for Track A.** Route 53's API surface is small (∼6 methods used here)
 and its data model is a flat list of resource record sets per zone. ACM's
-surface is even smaller (2 methods, paginated list). The propagation checker's
-fake is a dict mapping resolver-IP → canned answer; `subprocess.run` is replaced
-by a fake callable in-process (composition, not `mock.patch`). All deterministic,
-all fast.
+surface is even smaller (2 methods, paginated list). Each of the three
+checker classes has its own in-memory fake: the authoritative checker maps
+NS-IP → canned answer (over a canned NS set), the public-resolver checker
+maps resolver-enum → canned answer, the local checker replaces
+`subprocess.run` with a fake callable in-process (composition, not
+`mock.patch`). The orchestrator composes them in the same way the
+production class does. All deterministic, all fast.
 
 **No for Track B.** Pagination quirks, change-status polling timing, name
 servers, real-world propagation latency, IAM permission edges, and ACM
@@ -1004,7 +1373,7 @@ skip cleanly in normal CI.
 - Real Route 53 change-status propagation (`PENDING` → `INSYNC`) — Track B only.
 - Real-world DNS propagation across global resolvers — Track B (or manual via
   `sg aws dns records check`).
-- macOS sudo prompt for `--flush-local` — manual verification.
+- ~~macOS sudo prompt for `--flush-local`~~ — REMOVED (rev 4); `--flush-local` was dropped, operator flushes manually.
 - IAM-permission-denied error shapes — manual / Track B with a restricted policy.
 - Multi-account / multi-profile resolution — manual verification.
 
@@ -1019,16 +1388,24 @@ In order of blockingness:
    (`sg_compute_specs/platform/aws/{dns,acm}/` new tier). Architect
    recommendation: **B**, with the misconception-correction noted (the CLI
    namespace is NOT legacy per reality doc v0.1.31).
-2. **Q7** — confirm `dnspython` as a direct dep, or require a `dig`-shell-out
-   fallback. Architect recommendation: **add `dnspython`**.
-3. **Q8** — confirm `--verify` chaining on `records add` / `records update` is
-   P2 (not P1). Architect recommendation: **P2**.
+2. **Smart-verify info-line wordings** — sign off the three verbatim info lines below before P1 ships. These are printed by `Route53__Smart_Verify` on every `records add` (new-name and upsert paths) and `records delete`. The three lines, **verbatim from §3**:
+   - **(a) New-name auto-verify summary line** (printed before the combined authoritative + 6-resolver table on `records add` for a name+type that did NOT previously exist):
+     > `Auto-verify: new name — no prior recursive cache to pollute, so the authoritative check AND a curated 6-resolver EU+US public-resolver check are both run. Safe by construction.`
+   - **(b) Upsert "public-resolver skipped" info line** (printed after the authoritative-only verify on `records add` for an existing name+type, or on `records update`; `<T>` is filled with the prior record's TTL in seconds):
+     > `Authoritative is consistent. Public-resolver check skipped — would risk locking in stale answers for the remaining ~<T>s of the prior record's TTL. Run `sg aws dns records check <name> --public-resolvers` once the old TTL has elapsed.`
+   - **(c) Delete "public-resolver skipped" info line** (printed after the authoritative-only verify on `records delete`; `<T>` is the prior record's TTL):
+     > `Authoritative confirms deletion. Public-resolver check skipped — recursives may still serve the cached positive answer for up to ~<T>s. Run `sg aws dns records check <name> --public-resolvers` after that to confirm propagation.`
+3. **WARNING banner copy** — sign off the three verbatim banner strings in §3
+   (the `--public-resolvers` banner, the `--local` banner, and the combined
+   `--all` banner) before P1.5 ships. The default `--authoritative` mode is
+   silent (no warning needed — zero cache pollution). **[Already signed off in rev 4 — listed here for completeness.]**
 4. **Scope** — confirm P0 (read-only DNS + ACM list + sgraph.ai default) is the
    first slice Dev picks up. Smallest, lowest-risk, unblocks the bigger CF+R53
    plan's read paths.
 5. **`SG_AWS__DNS__ALLOW_MUTATIONS=1` env-var name** — bikeshed-safe but
    double-check the name is the one we want before P1 ships. (Q4 RESOLVED on
    *requiring* the gate; the *name* is editable.)
+6. **6th smart-verify resolver — AdGuard EU (`94.140.14.14`)** — Architect picked AdGuard EU over Yandex EU on neutrality grounds (Yandex's geopolitical association would surprise some operators; AdGuard is a privacy-focused commercial resolver with no comparable political baggage and a stable EU anycast presence). Flag if a different 6th member is preferred.
 
 ### RESOLVED items (no further user action)
 
@@ -1038,8 +1415,10 @@ In order of blockingness:
   env gate required.
 - **Q5** — No `records alias` CLI command. Library helper only.
 - **Q6** — `--profile` + `--region` on every command. ACM defaults dual-region.
+- **Q7** — Use `dig` shell-out via the shared `Dig__Runner` helper; no `dnspython` dependency added.
+- **Q8** — ~~`--verify` chaining on `records add` / `records update` lives in **P2**~~ **SUPERSEDED in rev 5.** Replaced by always-on smart auto-verify in P1 (`Route53__Smart_Verify`). `--no-verify` opts out for scripted runs; `--verify-public` forces the public-resolver check on the upsert / delete paths (with the WARNING banner). The standalone `records check` command is unchanged.
 
-### Dev contract (when Q1 / Q7 / Q8 land)
+### Dev contract (when Q1 / Q7 land)
 
 - The files in §6 are the slice.
 - §5's method tables are the boundaries.
@@ -1056,11 +1435,32 @@ In order of blockingness:
 
 *Filed by Architect (Claude), 2026-05-15. No code changed by this document — it
 is a plan and a set of decisions for human ratification before Dev picks it up.
-Rev 2 folds in user feedback: default zone `sgraph.ai`, propagation checker
-(`records check` with 8 public resolvers + local dig), ACM list/show (dual-region
-default), Q2/Q3/Q4/Q5/Q6 resolved, Q1 re-investigated against the proposed
-`sg_compute_specs/platform/` tier with explicit recommendation. This brief
-remains the simpler standalone subset of
+Rev 2 folded in user feedback: default zone `sgraph.ai`, propagation checker
+(`records check`), ACM list/show (dual-region default), Q2/Q3/Q4/Q5/Q6
+resolved, Q1 re-investigated against the proposed
+`sg_compute_specs/platform/` tier with explicit recommendation. Rev 4
+(this revision, 2026-05-15 hour 11) redesigns `records check` around three
+checker classes + an orchestrator to eliminate the DNS-cache-pollution
+foot-gun the user identified: the default mode (`--authoritative`) queries
+Route 53's own NS set directly with `+norecurse`, has zero cache pollution
+anywhere, and is the only mode shipped in P1. The two cache-polluting modes
+(`--public-resolvers`, `--local`) are P1.5 / P2, each gated behind a verbatim
+WARNING banner + y/N prompt. The `--flush-local` sub-option is dropped.
+Q8 RESOLVED (verify chaining is P2, defaults to `--authoritative`).
+Q7 (`dnspython` as direct dep) is now load-bearing on P1; `dig`-only
+fallback noted as viable. Rev 5 (2026-05-15 hour 12) folds in two further user
+refinements: (1) Q7 RESOLVED to use `dig` shell-out — no `dnspython` dependency
+is added; a new `Dig__Runner` helper is the single subprocess transport for all
+three checkers. (2) Smart auto-verify lands on every `records add` / `update` /
+`delete` in P1 via a new `Route53__Smart_Verify` class: new-name `records add`
+auto-runs a curated 6-resolver EU+US public-resolver check (safe, no prior
+cache); upserts and deletes auto-skip the public-resolver path and emit a
+TTL-aware skip info line; `--no-verify` opts out for scripting and
+`--verify-public` forces the public-resolver check on the change / delete
+paths WITH the WARNING banner. The 6th EU resolver is AdGuard EU
+(`94.140.14.14`) on neutrality grounds. Three new info-line wordings are listed
+verbatim in §11 for sign-off. Q8 is SUPERSEDED. New risk R16 covers the
+stale-TTL window. This brief remains the simpler standalone subset of
 `05/15/03/architect__vault-app__cf-route53__plan.md`; the bigger plan will
 consume the `Route53__AWS__Client` + `ACM__AWS__Client` primitives this brief
 defines, instead of introducing its own.*
