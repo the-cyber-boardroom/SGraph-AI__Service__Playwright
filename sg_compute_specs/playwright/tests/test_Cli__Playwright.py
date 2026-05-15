@@ -47,6 +47,10 @@ class TestCliPlaywright:
         assert result.exit_code == 0
         assert '--tail'   in result.output
         assert '--source' in result.output
+        # --follow is the short -f flag; both forms must appear so
+        # `sg playwright logs --source boot -f` works (matches vault-app + local-claude).
+        assert '--follow' in result.output
+        assert '-f'       in result.output
         for src in ('boot', 'cloud-init', 'journal'):
             assert src in result.output
 
