@@ -24,7 +24,9 @@ def render_playwright_info(info, console: Console) -> None:
 
     playwright_url = str(getattr(info, 'playwright_url', '') or '')
     if playwright_url:
-        t.add_row('playwright-url', f'[bold cyan]{playwright_url}[/]')
+        t.add_row('playwright-url', f'[bold cyan]{playwright_url}[/]  [dim](X-API-Key header)[/]')
+        t.add_row('api-docs',       f'[cyan]{playwright_url}/docs[/]')
+        t.add_row('health',         f'[cyan]{playwright_url}/health/status[/]')
 
     with_mitmproxy = bool(getattr(info, 'with_mitmproxy', False))
     mode = '[green]with-mitmproxy[/] (3 containers)' if with_mitmproxy else '[dim]default[/] (2 containers)'
@@ -32,7 +34,7 @@ def render_playwright_info(info, console: Console) -> None:
 
     sidecar_admin_url = str(getattr(info, 'sidecar_admin_url', '') or '')
     if sidecar_admin_url:
-        t.add_row('sidecar-admin', sidecar_admin_url)
+        t.add_row('sidecar-admin', f'[cyan]{sidecar_admin_url}[/]  [dim](agent-mitmproxy admin API)[/]')
 
     for key, label in (('region',           'region'        ),
                        ('instance_type',    'instance-type' ),
@@ -58,6 +60,18 @@ def render_playwright_info(info, console: Console) -> None:
         t.add_row('time-left',    humanize_time_left(terminate_at, remaining))
 
     console.print(t)
+    console.print()
+
+    # Operator hints — what to run next. Same columnar style as the rest of the
+    # table but rendered as plain prints so they stand apart visually.
+    console.print('  [dim]Wait for healthy:[/]   [cyan]sg playwright wait[/]   '
+                  f'[dim]{stack_name}[/]')
+    console.print('  [dim]Stream boot log:[/]    [cyan]sg playwright logs[/]   '
+                  f'[dim]{stack_name} --source boot[/]')
+    console.print('  [dim]SSM shell:[/]          [cyan]sg playwright connect[/] '
+                  f'[dim]{stack_name}[/]')
+    console.print('  [dim]Extend lifetime:[/]    [cyan]sg playwright extend[/]  '
+                  f'[dim]{stack_name} --add-hours 1[/]')
     console.print()
 
 

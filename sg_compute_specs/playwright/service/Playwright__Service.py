@@ -142,6 +142,182 @@ class Playwright__Service(Spec__Service__Base):
         details = self.aws_client.instance.find_by_stack_name(region, stack_name)
         return self.mapper.to_info(details, region) if details else None
 
+    # ─── health probe — staged-progress override (mirrors Vault_App__Service) ───
+    # During `wait` (timeout_sec > 0) the probe polls every poll_sec and prints
+    # a timestamped progress line for every state/ip/stage/container change.
+    # During `health` (timeout_sec == 0) one poll runs silently.
+
+    def health(self, region: str, name: str, timeout_sec: int = 0, poll_sec: int = 10):
+        from sg_compute.cli.base.schemas.Schema__CLI__Health__Probe import Schema__CLI__Health__Probe
+        import re, time
+        from rich.console import Console
+
+        c        = Console(highlight=False)
+        t0       = time.monotonic()
+        probe    = Schema__CLI__Health__Probe()
+        deadline = time.monotonic() + max(timeout_sec, 0)
+        is_wait  = timeout_sec > 0
+
+        # Boot log markers come from Section__Base / the playwright user-data:
+        # "[ephemeral-ec2] boot starting…" / "[playwright] installing Docker CE…"
+        # / "[playwright] Docker ready" / "[playwright] stack started …" /
+        # "[playwright] boot complete …". Strip the source bracket prefix so
+        # the rendered stage is plain text (and so rich doesn't swallow the
+        # bracket as a markup tag).
+        prefix_re = re.compile(r'^\[[^\]]+\]\s*')
+
+        timeline    : list = []      # [(elapsed_s, label)] for the post-wait timings table
+        last_sig    : tuple = ()      # (state, ip, stage, containers) — last printed signature
+        last_stage  : str  = ''
+        last_cont   : str  = ''
+
+        if is_wait:
+            c.print(f'\n  [dim]Polling {name} every {poll_sec}s  (timeout {timeout_sec}s) —'
+                    f' run [cyan]sg playwright logs[/] for the full boot log[/]\n')
+
+        while True:
+            elapsed = int(time.monotonic() - t0)
+            try:
+                info = self.get_stack_info(region, name)
+            except Exception as exc:
+                probe.last_error = str(exc)[:512]
+                if is_wait:
+                    c.print(f'  [dim][t+{elapsed:>3}s][/]  [red]describe-instances failed[/]  [dim]{str(exc)[:80]}[/]')
+            else:
+                if info is None:
+                    probe.state      = 'missing'
+                    probe.last_error = f'no stack matched {name!r}'
+                    break
+
+                state     = str(getattr(info, 'state', '') or '')
+                public_ip = str(getattr(info, 'public_ip', '') or '')
+                probe.state = state
+
+                status, err = (0, '')
+                if public_ip:
+                    status, err = self._probe_endpoint(public_ip)
+
+                # Any HTTP response (incl. 401/403 auth gate) means sg-playwright is up.
+                if status and status < 500:
+                    probe.healthy    = True
+                    probe.state      = 'running'
+                    probe.last_error = ''
+                    if is_wait:
+                        gate = '  [dim](auth-gated — expected)[/]' if status in (401, 403) else ''
+                        url  = f'http://{public_ip}:{PLAYWRIGHT_PORT}/health/status'
+                        c.print(f'  [dim][t+{elapsed:>3}s][/]  [green]✓ healthy[/]  HTTP {status}  {url}{gate}')
+                        timeline.append((elapsed, f'HTTP up — HTTP {status}'))
+                    break
+
+                probe.last_error = err or (f'HTTP {status}' if status else 'awaiting boot')
+                if is_wait:
+                    stage_raw, containers = ('', '')
+                    if public_ip:
+                        stage_raw, containers = self._probe_progress(region, name)
+                    stage_clean = prefix_re.sub('', stage_raw).strip() if stage_raw else ''
+
+                    # Only print when something actually changed — drops the noisy
+                    # 5-identical-lines-per-stage repetition.
+                    signature = (state, public_ip, stage_clean, containers)
+                    if signature != last_sig:
+                        if not public_ip:
+                            line = f'state=[yellow]{state}[/]  [dim]awaiting public IP…[/]'
+                        else:
+                            bits = [f'state=[cyan]{state}[/]', f'ip={public_ip}']
+                            if stage_clean:
+                                bits.append(f'stage=[bold]{stage_clean}[/]')
+                            if containers:
+                                bits.append(f'containers=[bold]{containers}[/]')
+                            if not stage_clean and not containers:
+                                bits.append('[dim]waiting on boot…[/]')
+                            line = '  '.join(bits)
+                        c.print(f'  [dim][t+{elapsed:>3}s][/]  {line}')
+                        last_sig = signature
+
+                    if stage_clean and stage_clean != last_stage:
+                        timeline.append((elapsed, stage_clean))
+                        last_stage = stage_clean
+                    if containers and containers != last_cont:
+                        timeline.append((elapsed, f'containers: {containers}'))
+                        last_cont = containers
+
+            if time.monotonic() >= deadline:
+                if is_wait and not probe.healthy:
+                    self._print_boot_log_tail(region, name, c)
+                break
+            time.sleep(poll_sec)
+
+        probe.elapsed_ms = int((time.monotonic() - t0) * 1000)
+        if is_wait and timeline:
+            self._print_stage_timings(c, timeline)
+        return probe
+
+    # ─── health probe helpers ────────────────────────────────────────────────
+
+    def _http_status(self, url: str) -> tuple:
+        # (status_code, error_str). 0 = unreachable (connection refused / timeout).
+        # A 4xx (incl. 401/403 auth gate) still means the server is up.
+        import urllib.error, urllib.request
+        try:
+            with urllib.request.urlopen(url, timeout=5) as resp:
+                return resp.status, ''
+        except urllib.error.HTTPError as exc:
+            return exc.code, ''
+        except Exception as exc:
+            return 0, str(exc)[:200]
+
+    def _probe_endpoint(self, public_ip: str) -> tuple:
+        # (status, error). sg-playwright is plain HTTP on PLAYWRIGHT_PORT.
+        return self._http_status(f'http://{public_ip}:{PLAYWRIGHT_PORT}/health/status')
+
+    def _probe_progress(self, region: str, name: str) -> tuple:
+        # One SSM round-trip → (boot_stage, containers_status).
+        # boot_stage    — latest [playwright]/[ephemeral-ec2] line from the boot log
+        # containers    — `docker ps` summary for the compose project (e.g. "2 Up")
+        try:
+            result = self.exec(
+                region, name,
+                "grep -E '^\\[(playwright|ephemeral-ec2)\\]' "
+                "/var/log/ephemeral-ec2-boot.log 2>/dev/null | tail -n 1 || true; "
+                "echo '|||CONTAINERS|||'; "
+                "docker ps --filter label=com.docker.compose.project=sg-playwright "
+                "--format '{{.Names}}={{.Status}}' 2>/dev/null | "
+                "awk -F'=' '{n++; if ($2 ~ /^Up/) up++} END "
+                "{if (n) printf \"%d/%d Up\", (up?up:0), n; else print \"-\"}' || true",
+                timeout_sec=30)
+            out = str(getattr(result, 'stdout', '') or '')
+            stage_part, _, cont_part = out.partition('|||CONTAINERS|||')
+            return stage_part.strip()[:80], cont_part.strip()[:32]
+        except Exception:
+            return '', ''
+
+    def _print_stage_timings(self, c, timeline: list) -> None:
+        from rich.table import Table
+        table = Table(box=None, show_header=False, padding=(0, 2))
+        table.add_column(style='dim', justify='right', no_wrap=True)
+        table.add_column(no_wrap=False)
+        prev = 0
+        for elapsed_s, label in timeline:
+            delta = elapsed_s - prev
+            table.add_row(f't+{elapsed_s}s', f'{label}  [dim]+{delta}s[/]')
+            prev = elapsed_s
+        c.print()
+        c.print('  [bold]Stage timings[/]')
+        c.print(table)
+        c.print()
+
+    def _print_boot_log_tail(self, region: str, name: str, c) -> None:
+        try:
+            result = self.exec(region, name, 'tail -n 20 /var/log/ephemeral-ec2-boot.log', timeout_sec=8)
+            stdout = str(getattr(result, 'stdout', '') or '').strip()
+            if stdout:
+                c.print(f'\n  [dim]── last 20 lines of boot log (via SSM) ──[/]')
+                for line in stdout.splitlines():
+                    c.print(f'  [dim]{line}[/]')
+                c.print()
+        except Exception:
+            pass
+
     def delete_stack(self, region: str, stack_name: str) -> Schema__Playwright__Delete__Response:
         t0      = time.monotonic()
         details = self.aws_client.instance.find_by_stack_name(region, stack_name)
