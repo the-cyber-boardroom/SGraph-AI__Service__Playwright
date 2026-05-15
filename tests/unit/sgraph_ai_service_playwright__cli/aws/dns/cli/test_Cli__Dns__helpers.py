@@ -41,7 +41,13 @@ class _Fake_Route53__AWS__Client(Route53__AWS__Client):
 class test_Cli__Dns__helpers(TestCase):
 
     def setUp(self):
+        import os
+        os.environ['SG_AWS__DNS__DEFAULT_ZONE'] = 'sgraph.ai'                          # Pin the default for backward compat of these tests; the dedicated tests below cover the new sg-compute.sgraph.ai default
         self.client = _Fake_Route53__AWS__Client()
+
+    def tearDown(self):
+        import os
+        os.environ.pop('SG_AWS__DNS__DEFAULT_ZONE', None)
 
     # ── _resolve_zone_id (unchanged behaviour — explicit or default) ──────────
 
@@ -73,3 +79,25 @@ class test_Cli__Dns__helpers(TestCase):
 
     def test__for_record__unowned_fqdn_falls_back_to_default(self):                   # No matching zone → fall back instead of raising
         assert _resolve_zone_id_for_record(self.client, '', 'something.unowned.example') == 'Z01SGRAPH'
+
+
+class test_Cli__Dns__helpers__sg_compute_default(TestCase):                          # Covers the new sg-compute.sgraph.ai default (no env override)
+
+    def setUp(self):
+        import os
+        os.environ.pop('SG_AWS__DNS__DEFAULT_ZONE', None)                              # Force the hardcoded sg-compute.sgraph.ai fallback
+        self.client = _Fake_Route53__AWS__Client()
+
+    def test__default_zone_is_sg_compute(self):
+        assert _resolve_zone_id(self.client, '') == 'Z02SGCOMPUTE'
+
+    def test__for_record__bare_label_uses_sg_compute_default(self):                   # Single label → no FQDN walk → new default = sg-compute.sgraph.ai
+        assert _resolve_zone_id_for_record(self.client, '', 'test-2') == 'Z02SGCOMPUTE'
+
+    def test__env_var_override_to_sgraph_ai(self):
+        import os
+        os.environ['SG_AWS__DNS__DEFAULT_ZONE'] = 'sgraph.ai'
+        try:
+            assert _resolve_zone_id(self.client, '') == 'Z01SGRAPH'
+        finally:
+            os.environ.pop('SG_AWS__DNS__DEFAULT_ZONE', None)
