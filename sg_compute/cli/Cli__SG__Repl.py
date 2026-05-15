@@ -109,27 +109,27 @@ SECTIONS = {
 # REPL loop
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def _print_root():
-    names = '  '.join(sorted(SECTIONS))
-    console.print(f'\n  [bold]sections:[/bold]  {names}')
-    console.print('  [dim]q — quit    help / ? / h — this list[/dim]\n')
+def _print_root(sg_app):
+    try:
+        sg_app(['--help'], standalone_mode=True)
+    except SystemExit:
+        pass
 
 
-def _print_section(section):
-    console.print()
-    for verb, (_, desc) in sorted(SECTIONS[section].items()):
-        console.print(f'  [cyan]{verb:<14}[/cyan] {desc}')
-    console.print('  [dim].. — back    help / ? / h — this list[/dim]\n')
+def _print_section(sg_app, section):
+    try:
+        sg_app([section, '--help'], standalone_mode=True)
+    except SystemExit:
+        pass
 
 
-def run_repl():
+def run_repl(sg_app):
     try:
         import readline                                                         # arrow keys + history; stdlib on Linux/Mac
     except ImportError:
         pass
 
-    console.print('\n  [bold]SG/Compute shell[/bold]  —  type a section to enter it')
-    _print_root()
+    console.print('\n  [bold]SG/Compute shell[/bold]  —  type a section to enter it, help to list all\n')
 
     section = None
 
@@ -153,19 +153,19 @@ def run_repl():
 
         if section is None:
             if cmd in ('?', 'help', 'h'):
-                _print_root()
+                _print_root(sg_app)
             elif cmd in SECTIONS:
                 section = cmd
-                _print_section(section)
+                _print_section(sg_app, section)
             else:
                 console.print(f'  [yellow]Unknown section {cmd!r}[/yellow]')
-                _print_root()
+                _print_root(sg_app)
         else:
             if cmd in ('..', 'back'):
                 section = None
-                _print_root()
+                _print_root(sg_app)
             elif cmd in ('?', 'help', 'h'):
-                _print_section(section)
+                _print_section(sg_app, section)
             elif cmd in SECTIONS[section]:
                 fn, _ = SECTIONS[section][cmd]
                 try:
@@ -175,4 +175,4 @@ def run_repl():
                     console.print(f'  [red]Error: {e}[/red]\n')
             else:
                 console.print(f'  [yellow]Unknown command {cmd!r}[/yellow]')
-                _print_section(section)
+                _print_section(sg_app, section)

@@ -115,7 +115,7 @@ import typer as _typer
 def repl():
     """Interactive shell — navigate sections and run commands without the sg prefix."""
     from sg_compute.cli.Cli__SG__Repl import run_repl
-    run_repl()
+    run_repl(app)
 
 
 if __name__ == '__main__':
