@@ -4,3 +4,6 @@ psutil
 osbot-fast-api-serverless
 osbot-utils
 python-multipart
+cryptography
+acme
+josepy
