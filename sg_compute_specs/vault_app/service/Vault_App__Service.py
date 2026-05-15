@@ -31,6 +31,7 @@ from sg_compute_specs.vault_app.service.Vault_App__Stack__Mapper            impo
                                                                                     TAG_ENGINE               ,
                                                                                     TAG_TERMINATE_AT         ,
                                                                                     TAG_TLS_ENABLED          ,
+                                                                                    TAG_TLS_HOSTNAME         ,
                                                                                     TAG_WITH_PLAYWRIGHT      )
 from sg_compute_specs.vault_app.service.Vault_App__User_Data__Builder       import Vault_App__User_Data__Builder
 
@@ -89,8 +90,8 @@ class Vault_App__Service(Spec__Service__Base):
         # SG layout:
         #   :8080  always — vault UI on plain HTTP for non-TLS / SSM-forward use; caller-/32 only.
         #   :443   --with-tls-check — HTTPS vault. World-open (token-gated; LE validates from unpredictable IPs).
-        #   :80    --with-tls-check — ACME http-01 challenge listener (only live during cert-init).
-        #   :11024 --with-playwright — playwright REST API. World-open (token-gated, same X-API-Key as the vault).
+        #   :80    shared — ACME http-01 (cert-init, transient) AND playwright REST API (after cert-init exits).
+        #          World-open in either case; cert-init+playwright is a compose `depends_on` race-free.
         extra_cidrs = {}
         if bool(request.with_tls_check):
             extra_cidrs[443] = '0.0.0.0/0'
@@ -102,16 +103,24 @@ class Vault_App__Service(Spec__Service__Base):
             inbound_ports=[VAULT_PORT],
             extra_cidrs=extra_cidrs)
 
+        tls_mode_resolved = str(request.tls_mode) or 'self-signed'
+        tls_hostname      = str(request.tls_hostname).strip()
         extra = {
             TAG_WITH_PLAYWRIGHT: 'true' if request.with_playwright else 'false',
             TAG_ENGINE         : engine                                        ,
             TAG_TLS_ENABLED    : 'true' if request.with_tls_check else 'false' ,
             TAG_ACCESS_TOKEN   : access_token                                  ,   # surfaced by `sp vault-app info`; visible via ec2:DescribeInstances
         }
+        if tls_hostname and bool(request.with_tls_check):                          # only meaningful when TLS is on and the cert is for a hostname
+            extra[TAG_TLS_HOSTNAME] = tls_hostname
         if float(request.max_hours) > 0:
             terminate_at = datetime.now(timezone.utc) + timedelta(hours=float(request.max_hours))
             extra[TAG_TERMINATE_AT] = terminate_at.strftime('%Y-%m-%dT%H:%M:%SZ')
         tags = self.aws_client.tags.build(stack_name, caller_ip, creator, extra_tags=extra)
+
+        if bool(request.with_tls_check) and tls_mode_resolved == 'letsencrypt-hostname' and not tls_hostname:
+            raise ValueError("tls_mode='letsencrypt-hostname' requires a non-empty tls_hostname "
+                             "(the FQDN whose A record points at this stack's EC2 IP)")
 
         user_data = self.user_data_builder.render(
             stack_name       = stack_name              ,
@@ -124,8 +133,9 @@ class Vault_App__Service(Spec__Service__Base):
             seed_vault_keys  = str(request.seed_vault_keys)        ,
             max_hours        = float(request.max_hours) ,
             with_tls_check   = bool(request.with_tls_check)        ,
-            tls_mode         = str(request.tls_mode) or 'self-signed' ,
+            tls_mode         = tls_mode_resolved                   ,
             acme_prod        = bool(request.acme_prod)             ,
+            tls_hostname     = tls_hostname                        ,
         )
         iid = self.aws_client.launch.run_instance(
             region                = region              ,

@@ -48,10 +48,31 @@ class TestVaultAppStackMapper:
         info = Vault_App__Stack__Mapper().to_info(
             _instance({'StackName': 's', 'StackWithPlaywright': 'true'}), 'eu-west-2')
         assert info.with_playwright is True
-        assert info.playwright_url  == 'http://13.40.11.113:11024'
+        assert info.playwright_url  == 'http://13.40.11.113'         # port 80 — default HTTP; suffix omitted for cleanliness
 
     def test_without_playwright_omits_playwright_url(self):
         info = Vault_App__Stack__Mapper().to_info(
             _instance({'StackName': 's'}), 'eu-west-2')              # no StackWithPlaywright
         assert info.with_playwright is False
         assert info.playwright_url  == ''
+
+    def test_tls_hostname_tag_drives_https_vault_url_to_the_fqdn(self):
+        # Cert is for the FQDN — the vault_url MUST match the cert SAN or browsers / egress
+        # proxies reject. The mapper must surface the FQDN, not the IP, when the tag is set.
+        info = Vault_App__Stack__Mapper().to_info(
+            _instance({'StackName'       : 's'                            ,
+                       'StackTLS'        : 'true'                         ,
+                       'StackTlsHostname': 'test-2.sg-compute.sgraph.ai'  }),
+            'eu-west-2')
+        assert info.vault_url == 'https://test-2.sg-compute.sgraph.ai'   # FQDN, not the IP
+
+    def test_tls_hostname_tag_drives_playwright_url_to_the_fqdn(self):
+        # Same FQDN works for plain-HTTP playwright too (no cert involved, but a single
+        # host for vault + playwright is friendlier for callers).
+        info = Vault_App__Stack__Mapper().to_info(
+            _instance({'StackName'          : 's'                            ,
+                       'StackTLS'           : 'true'                         ,
+                       'StackTlsHostname'   : 'test-2.sg-compute.sgraph.ai'  ,
+                       'StackWithPlaywright': 'true'                         }),
+            'eu-west-2')
+        assert info.playwright_url == 'http://test-2.sg-compute.sgraph.ai'

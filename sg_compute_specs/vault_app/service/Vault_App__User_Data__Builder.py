@@ -96,7 +96,8 @@ class Vault_App__User_Data__Builder(Type_Safe):
                      max_hours        : float = 1.0          ,
                      with_tls_check   : bool  = False        ,
                      tls_mode         : str   = 'self-signed',
-                     acme_prod        : bool  = False         ) -> str:
+                     acme_prod        : bool  = False        ,
+                     tls_hostname     : str   = ''            ) -> str:
         engine        = container_engine if container_engine in ('docker', 'podman') else 'docker'
         is_podman     = engine == 'podman'
         docker_socket = '/run/podman/podman.sock' if is_podman else '/var/run/docker.sock'
@@ -107,9 +108,11 @@ class Vault_App__User_Data__Builder(Type_Safe):
         # cert-init reads these from .env; only emitted when TLS is on.
         tls_env_lines = ''
         if with_tls_check:
-            tls_mode      = tls_mode if tls_mode in ('self-signed', 'letsencrypt-ip') else 'self-signed'
+            tls_mode      = tls_mode if tls_mode in ('self-signed', 'letsencrypt-ip', 'letsencrypt-hostname') else 'self-signed'
             tls_env_lines = (f'SG__CERT_INIT__MODE={tls_mode}\n'
                              f'SG__CERT_INIT__ACME_PROD={"true" if acme_prod else "false"}\n')
+            if tls_mode == 'letsencrypt-hostname':                           # FQDN is mandatory for this mode; service layer validates non-empty
+                tls_env_lines += f'SG__CERT_INIT__TLS_HOSTNAME={tls_hostname}\n'
 
         compose_yaml  = Vault_App__Compose__Template().render(
             ecr_registry    = ecr_registry    ,

@@ -87,7 +87,7 @@ _SG_PLAYWRIGHT = '''
   sg-playwright:
     image: {sg_playwright_image}
     ports:
-      - "11024:8000"             # external HTTP — same X-API-Key as the vault; see PLAYWRIGHT_EXTERNAL_PORT
+      - "80:8000"                # standard port (Claude/sandbox egress proxies only allow :80/:443); see PLAYWRIGHT_EXTERNAL_PORT
     environment:
       FAST_API__AUTH__API_KEY__NAME:      ${{FAST_API__AUTH__API_KEY__NAME:-X-API-Key}}
       FAST_API__AUTH__API_KEY__VALUE:     ${{FAST_API__AUTH__API_KEY__VALUE}}
@@ -97,7 +97,11 @@ _SG_PLAYWRIGHT = '''
     networks:
       - vault-net
     depends_on:
-      - agent-mitmproxy
+      agent-mitmproxy:
+        condition: service_started
+      cert-init:                  # cert-init also binds :80 (http-01 challenge) — wait for it to exit before grabbing the port
+        condition: service_completed_successfully
+        required: false           # ignored when cert-init isn't in the stack (--no-with-tls-check)
     restart: unless-stopped
 '''
 
@@ -124,10 +128,11 @@ _CERT_INIT = '''
     image: {ecr_registry}/sgraph_ai_service_playwright_host:{image_tag}
     command: ["python", "-m", "sg_compute.platforms.tls.cert_init"]
     environment:
-      SG__CERT_INIT__MODE:        ${{SG__CERT_INIT__MODE:-self-signed}}
-      SG__CERT_INIT__COMMON_NAME: ${{SG__CERT_INIT__COMMON_NAME:-}}
-      SG__CERT_INIT__ACME_PROD:   ${{SG__CERT_INIT__ACME_PROD:-false}}
-      SG__CERT_INIT__ACME_EMAIL:  ${{SG__CERT_INIT__ACME_EMAIL:-}}
+      SG__CERT_INIT__MODE:         ${{SG__CERT_INIT__MODE:-self-signed}}
+      SG__CERT_INIT__COMMON_NAME:  ${{SG__CERT_INIT__COMMON_NAME:-}}
+      SG__CERT_INIT__ACME_PROD:    ${{SG__CERT_INIT__ACME_PROD:-false}}
+      SG__CERT_INIT__ACME_EMAIL:   ${{SG__CERT_INIT__ACME_EMAIL:-}}
+      SG__CERT_INIT__TLS_HOSTNAME: ${{SG__CERT_INIT__TLS_HOSTNAME:-}}   # FQDN for letsencrypt-hostname mode; ignored for the other modes
       FAST_API__TLS__CERT_FILE:   /certs/cert.pem
       FAST_API__TLS__KEY_FILE:    /certs/key.pem
     ports:

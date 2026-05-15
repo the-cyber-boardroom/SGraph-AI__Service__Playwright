@@ -8,6 +8,6 @@ from enum import Enum
 
 
 class Enum__Cert__Mode(Enum):
-    SELF_SIGNED     = 'self-signed'
-    LETSENCRYPT_IP  = 'letsencrypt-ip'
-    LETSENCRYPT_DNS = 'letsencrypt-dns'
+    SELF_SIGNED          = 'self-signed'
+    LETSENCRYPT_IP       = 'letsencrypt-ip'         # IP SAN, http-01 on :80, 'shortlived' profile, ~6-day validity
+    LETSENCRYPT_HOSTNAME = 'letsencrypt-hostname'   # DNS SAN, http-01 on :80, default 90-day profile — sandbox-egress reachable

@@ -25,5 +25,6 @@ class Schema__Vault_App__Create__Request(Type_Safe):
     disk_size_gb     : int   = 20          # root volume — vault data + container images
     use_spot         : bool  = True        # spot by default (~70% cheaper)
     with_tls_check   : bool  = True         # default: serve HTTPS on :443 via the cert sidecar
-    tls_mode         : str   = 'letsencrypt-ip' # default: a real Let's Encrypt IP cert (vs self-signed offline)
+    tls_mode         : str   = 'letsencrypt-ip' # letsencrypt-ip | letsencrypt-hostname | self-signed
     acme_prod        : bool  = True         # default: LE production directory (browser-trusted)
+    tls_hostname     : str   = ''           # required when tls_mode=letsencrypt-hostname; the FQDN whose A record points at this stack's EC2 IP

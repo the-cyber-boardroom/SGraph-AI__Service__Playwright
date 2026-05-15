@@ -17,7 +17,7 @@ class Schema__Vault_App__Info(Type_Safe):
     ami_id             : str  = ''
     security_group_id  : str  = ''
     vault_url          : str  = ''    # https://<public-ip> (TLS on) or http://<public-ip>:8080 (plain)
-    playwright_url     : str  = ''    # http://<public-ip>:11024 when --with-playwright; '' otherwise
+    playwright_url     : str  = ''    # http://<public-ip> (port 80) when --with-playwright; '' otherwise
     host_plane_url      : str = ''    # http://localhost:19009 — reachable only via the SSM port-forward below
     mitmweb_url         : str = ''    # http://localhost:19081/web/ — agent-mitmproxy's admin /web/* forwarder
     ssm_forward         : str = ''    # ready-to-paste `aws ssm start-session ...` for host-plane (:19009)
