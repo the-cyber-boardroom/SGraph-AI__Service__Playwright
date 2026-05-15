@@ -413,27 +413,15 @@ def records_list_legacy(zone       : str  = typer.Argument(None, help='Zone name
 
 # ── zone check (per-zone — health-check all records) ─────────────────────────
 
-@zone_app.command('check')
-@spec_cli_errors
-def zone_check(zone       : str  = typer.Argument(None, help='Zone name or id. Defaults to sg-compute.sgraph.ai.'),
-               json_output: bool = typer.Option(False, '--json', help='Emit JSON instead of a table.')):
-    """Health-check all A records in the zone. Flags orphaned / stale entries — candidates for delete."""
-    import time
-    t_start = time.perf_counter()
-
-    client  = _client()
+def _compute_zone_health(client: Route53__AWS__Client, zone: str):                   # Shared body for `zone check` AND `zone purge`. Returns (zone_name, zone_id, results) where each result dict carries the underlying Schema__Route53__Record under 'raw' so callers can submit DELETE batches without re-fetching.
     zone_id = _resolve_zone_id(client, zone)
     records = client.list_records(zone_id)
 
-    # Build a Name-tag → instance map once. We match the record's leftmost label against
-    # the EC2 Name tag (the stack name), which is the convention used by every sg_compute
-    # spec and the legacy stack helpers. Records that don't follow that convention land
-    # in UNMATCHED — the operator decides whether they're intentional or leftover.
     linker = Route53__Instance__Linker()
     ec2    = linker.ec2_client()
     resp   = ec2.describe_instances(Filters=[{'Name': 'instance-state-name',
                                               'Values': ['running']}])
-    instances_by_name = {}                                                            # name_tag → (instance_id, public_ip)
+    instances_by_name = {}                                                            # Name tag → (instance_id, public_ip)
     for r in resp.get('Reservations', []):
         for inst in r.get('Instances', []):
             tag_name = ''
@@ -452,26 +440,23 @@ def zone_check(zone       : str  = typer.Argument(None, help='Zone name or id. D
     except Exception:
         zone_name = '?'
 
-    results = []                                                                      # list of dicts; one per record
+    results = []
     for r in records:
         rtype = str(r.record_type)
         name  = str(r.name).rstrip('.')
         leaf  = name[:-len(zone_name) - 1] if (zone_name and name.endswith(zone_name) and name != zone_name) else ''
         record_value = ', '.join(r.values) if r.values else ''
-        status   = 'IGNORED'                                                          # default for SOA/NS/CNAME/zone-apex
+        status   = 'IGNORED'
         inst_id  = ''
         inst_ip  = ''
         note     = ''
         if rtype in ('SOA', 'NS'):
-            status = 'IGNORED'
             note   = 'zone-system record'
         elif rtype != 'A':
-            status = 'IGNORED'
             note   = f'{rtype} — not checked'
         elif not leaf:
-            status = 'IGNORED'
             note   = 'apex record'
-        elif '.' in leaf:                                                             # Multi-label leaf — could be intentional (api.staging.<zone>) but won't match a single-label Name tag
+        elif '.' in leaf:
             status = 'UNMATCHED'
             note   = 'multi-label leaf — manual review'
         elif leaf in instances_by_name:
@@ -485,36 +470,25 @@ def zone_check(zone       : str  = typer.Argument(None, help='Zone name or id. D
         else:
             status = 'ORPHANED'
             note   = 'no running instance with this Name tag'
-        results.append(dict(name        = name        ,
-                            record_type = rtype       ,
-                            record_value= record_value,
-                            instance_id = inst_id     ,
-                            instance_ip = inst_ip     ,
-                            status      = status      ,
-                            note        = note        ))
+        results.append(dict(name         = name        ,
+                            record_type  = rtype       ,
+                            record_value = record_value,
+                            instance_id  = inst_id     ,
+                            instance_ip  = inst_ip     ,
+                            status       = status      ,
+                            note         = note        ,
+                            raw          = r           ))                              # underlying Schema__Route53__Record — used by purge for the DELETE batch
+    return zone_name, zone_id, results
 
-    purge_candidates = [r for r in results if r['status'] in ('ORPHANED', 'STALE')]
-    elapsed_s        = time.perf_counter() - t_start
 
-    if json_output:
-        typer.echo(json.dumps(dict(zone             = zone_name                  ,
-                                   zone_id          = zone_id                    ,
-                                   record_count     = len(results)               ,
-                                   purge_candidates = len(purge_candidates)      ,
-                                   elapsed_seconds  = round(elapsed_s, 3)        ,
-                                   results          = results                    ), indent=2))
-        return
-
+def _print_zone_health(c: Console, zone_name: str, results: list):                   # Renders the standard health table; used by `zone check` and `zone purge --dry-run`
     counts = {}
     for r in results:
         counts[r['status']] = counts.get(r['status'], 0) + 1
-
-    c = Console(highlight=False)
-    c.print()
     summary = '  '.join(f'{n} {s}' for s, n in counts.items())
+    c.print()
     c.print(f'  Zone health — {zone_name}  ·  {len(results)} records  ·  {summary}')
     c.print()
-
     t = Table(box=None, show_header=True, padding=(0, 2))
     t.add_column('Name',         style='bold', min_width=30, no_wrap=True)
     t.add_column('Type',         style='cyan', min_width=5)
@@ -531,12 +505,140 @@ def zone_check(zone       : str  = typer.Argument(None, help='Zone name or id. D
                   r['note'])
     c.print(t)
     c.print()
+
+
+@zone_app.command('check')
+@spec_cli_errors
+def zone_check(zone       : str  = typer.Argument(None, help='Zone name or id. Defaults to sg-compute.sgraph.ai.'),
+               json_output: bool = typer.Option(False, '--json', help='Emit JSON instead of a table.')):
+    """Health-check all A records in the zone. Flags orphaned / stale entries — candidates for purge."""
+    import time
+    t_start = time.perf_counter()
+
+    client = _client()
+    zone_name, zone_id, results = _compute_zone_health(client, zone)
+    purge_candidates             = [r for r in results if r['status'] in ('ORPHANED', 'STALE')]
+    elapsed_s                    = time.perf_counter() - t_start
+
+    if json_output:
+        json_results = [{k: v for k, v in r.items() if k != 'raw'} for r in results]  # drop the non-serialisable Schema__Route53__Record reference
+        typer.echo(json.dumps(dict(zone             = zone_name              ,
+                                   zone_id          = zone_id                ,
+                                   record_count     = len(results)           ,
+                                   purge_candidates = len(purge_candidates)  ,
+                                   elapsed_seconds  = round(elapsed_s, 3)    ,
+                                   results          = json_results           ), indent=2))
+        return
+
+    c = Console(highlight=False)
+    _print_zone_health(c, zone_name, results)
     if purge_candidates:
         c.print(f'  [yellow]Purge candidates:[/] {len(purge_candidates)} records ([red]ORPHANED[/] or [yellow]STALE[/]).')
-        c.print(f'  Delete one with: [bold]sg aws dns records delete <name> --type A[/]')
+        c.print(f'  Clean up with: [bold]sg aws dns zone purge[/]')
         c.print()
     else:
         c.print(f'  [green]No purge candidates — every checked A record matches a running instance.[/]\n')
+
+
+# ── zone purge (per-zone — delete orphaned + stale records) ───────────────────
+
+@zone_app.command('purge')
+@spec_cli_errors
+def zone_purge(zone        : str  = typer.Argument(None, help='Zone name or id. Defaults to sg-compute.sgraph.ai.'),
+               only        : str  = typer.Option(None,  '--only',         help='Filter to one status: orphaned | stale. Default: both.'),
+               dry_run     : bool = typer.Option(False, '--dry-run',      help='Show what would be deleted; submit nothing.'),
+               yes         : bool = typer.Option(False, '--yes',          help='Skip the confirmation prompt.'),
+               wait        : bool = typer.Option(False, '--wait',         help='Poll Route 53 until the batch is INSYNC.'),
+               wait_timeout: int  = typer.Option(120,   '--wait-timeout', help='Max seconds to wait for INSYNC.'),
+               json_output : bool = typer.Option(False, '--json',         help='Emit JSON instead of tables.')):
+    """Delete ORPHANED + STALE records in the zone (the purge candidates from `zone check`)."""
+    import time
+    t_start = time.perf_counter()
+
+    allowed = {'ORPHANED', 'STALE'}                                                    # default = both
+    if only:
+        upper = only.upper()
+        if upper not in allowed:
+            typer.echo('--only must be one of: orphaned | stale', err=True)
+            raise typer.Exit(1)
+        allowed = {upper}
+
+    client                       = _client()
+    zone_name, zone_id, results  = _compute_zone_health(client, zone)
+    candidates                   = [r for r in results if r['status'] in allowed]
+
+    c = Console(highlight=False)
+
+    if not candidates:
+        if json_output:
+            typer.echo(json.dumps(dict(zone=zone_name, zone_id=zone_id,
+                                       candidates=0, deleted=0,
+                                       dry_run=dry_run,
+                                       elapsed_seconds=round(time.perf_counter() - t_start, 3))))
+        else:
+            c.print(f'\n  [green]Nothing to purge in {zone_name}.[/]')
+            c.print(f'  (Filter: {", ".join(sorted(allowed))}; UNMATCHED + IGNORED records are never auto-deleted.)\n')
+        return
+
+    if not json_output:                                                                # Always show the preview table — confirms what's about to die
+        _print_zone_health(c, zone_name, candidates)
+
+    if dry_run:
+        if json_output:
+            json_cands = [{k: v for k, v in r.items() if k != 'raw'} for r in candidates]
+            typer.echo(json.dumps(dict(zone=zone_name, zone_id=zone_id,
+                                       candidates=len(candidates), deleted=0,
+                                       dry_run=True, results=json_cands,
+                                       elapsed_seconds=round(time.perf_counter() - t_start, 3))))
+        else:
+            c.print(f'  [dim]--dry-run: nothing submitted. Remove the flag to delete.[/]\n')
+        return
+
+    if not yes:
+        confirmed = typer.confirm(f'Delete these {len(candidates)} records?', default=False)
+        if not confirmed:
+            typer.echo('Aborted.')
+            raise typer.Exit(0)
+
+    records_to_delete = [r['raw'] for r in candidates]
+    submit_t0         = time.perf_counter()
+    result            = client.batch_delete_records(zone_id, records_to_delete)
+    submit_elapsed    = time.perf_counter() - submit_t0
+
+    if not json_output:
+        c.print(f'  ✓ Submitted batch delete of {len(candidates)} records  ({_fmt_seconds(submit_elapsed)})')
+        c.print(f'  Change: {result.change_id}  Status: {result.status}\n')
+
+    if wait:
+        final = _wait_for_change(c, client, result.change_id, wait_timeout, quiet=json_output)
+        if final.status != 'INSYNC':
+            if not json_output:
+                c.print(f'  [yellow]✗ Timed out after {wait_timeout}s (last status: {final.status}).[/]\n')
+            if json_output:
+                typer.echo(json.dumps(dict(zone=zone_name, zone_id=zone_id,
+                                           candidates=len(candidates),
+                                           deleted=len(candidates),
+                                           change_id=result.change_id,
+                                           status=final.status, timed_out=True,
+                                           elapsed_seconds=round(time.perf_counter() - t_start, 3))))
+            raise typer.Exit(5)
+        result = final
+
+    elapsed_s = time.perf_counter() - t_start
+
+    if json_output:
+        json_cands = [{k: v for k, v in r.items() if k != 'raw'} for r in candidates]
+        typer.echo(json.dumps(dict(zone=zone_name, zone_id=zone_id,
+                                   candidates=len(candidates),
+                                   deleted=len(candidates),
+                                   change_id=result.change_id,
+                                   status=result.status,
+                                   dry_run=False,
+                                   results=json_cands,
+                                   elapsed_seconds=round(elapsed_s, 3))))
+        return
+
+    c.print(f'  [green]Done.[/] {len(candidates)} records deleted from {zone_name} in {_fmt_seconds(elapsed_s)}.\n')
 
 
 # ── records get ───────────────────────────────────────────────────────────────

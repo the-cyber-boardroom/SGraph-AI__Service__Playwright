@@ -220,6 +220,30 @@ class Route53__AWS__Client(Type_Safe):                                          
                         'EvaluateTargetHealth': False}
         return self._change_rrset(zone_id, 'UPSERT', name, 'A', [], alias_target=alias_target)
 
+    @type_safe
+    def batch_delete_records(self, zone_id_or_name: str,
+                              records: list) -> Schema__Route53__Change__Result:      # Submit a single ChangeBatch with one DELETE action per supplied Schema__Route53__Record. Route 53 accepts up to 1000 changes per batch — well beyond `zone purge`'s practical scale. Each record's name/type/ttl/values are taken verbatim from the list (no re-fetch); the caller is responsible for passing records that are still current.
+        if not records:
+            raise ValueError('batch_delete_records called with empty list — nothing to submit.')
+        zone_id = self.resolve_zone_id(zone_id_or_name)
+        changes = []
+        for r in records:
+            rrset = {'Name'           : str(r.name)                                ,
+                     'Type'           : str(r.record_type)                         ,
+                     'TTL'            : int(r.ttl)                                 ,
+                     'ResourceRecords': [{'Value': v} for v in r.values]           }
+            changes.append({'Action': 'DELETE', 'ResourceRecordSet': rrset})
+        resp = self.client().change_resource_record_sets(
+            HostedZoneId = zone_id,
+            ChangeBatch  = {'Changes': changes},
+        )
+        info = resp.get('ChangeInfo', {})
+        return Schema__Route53__Change__Result(
+            change_id    = info.get('Id', '')              ,
+            status       = info.get('Status', '')          ,
+            submitted_at = str(info.get('SubmittedAt', '')),
+        )
+
     # ── P1: Change-propagation polling ────────────────────────────────────────
 
     def get_change(self, change_id: str) -> Schema__Route53__Change__Result:         # One-shot status lookup for a change-id (returns PENDING or INSYNC)
