@@ -148,3 +148,30 @@ class TestCliVaultApp:
         assert 'just-vault'    in out
         assert 'podman'        in out
         assert 'with-playwright' not in out.replace('just-vault', '')
+
+    def test_cert_subcommand_exists(self):
+        result = runner.invoke(app, ['cert', '--help'])
+        assert result.exit_code == 0
+        for verb in ('generate', 'inspect', 'show', 'check'):
+            assert verb in result.output
+
+    def test_cert_generate_and_inspect_roundtrip(self, tmp_path):
+        cert_path = str(tmp_path / 'cert.pem')
+        key_path  = str(tmp_path / 'key.pem')
+        gen = runner.invoke(app, ['cert', 'generate', '--cn', '7.7.7.7',
+                                  '--out-cert', cert_path, '--out-key', key_path])
+        assert gen.exit_code == 0, gen.output
+        assert 'self-signed cert written' in gen.output
+        inspect = runner.invoke(app, ['cert', 'inspect', '--file', cert_path])
+        assert inspect.exit_code == 0
+        assert 'CN=7.7.7.7' in inspect.output
+        assert 'self-signed' in inspect.output
+
+    def test_cert_inspect_requires_a_source(self):
+        result = runner.invoke(app, ['cert', 'inspect'])
+        assert result.exit_code != 0
+
+    def test_create_has_with_tls_check_flag(self):
+        result = runner.invoke(app, ['create', '--help'])
+        assert result.exit_code == 0
+        assert '--with-tls-check' in result.output

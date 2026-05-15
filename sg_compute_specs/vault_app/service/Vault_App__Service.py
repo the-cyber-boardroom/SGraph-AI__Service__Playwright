@@ -84,9 +84,13 @@ class Vault_App__Service(Spec__Service__Base):
         ecr_registry = ecr_registry_host(region)
 
         # Only the vault UI port is published — playwright / mitmproxy stay internal.
+        # --with-tls-check also publishes 443 for the Fast_API__TLS secure-context probe.
+        inbound_ports = [VAULT_PORT]
+        if bool(request.with_tls_check):
+            inbound_ports.append(443)
         sg_id = self.aws_client.sg.ensure_security_group(
             region, stack_name, caller_ip,
-            inbound_ports=[VAULT_PORT],
+            inbound_ports=inbound_ports,
             extra_cidrs={})
 
         extra = {
@@ -108,6 +112,7 @@ class Vault_App__Service(Spec__Service__Base):
             storage_mode     = str(request.storage_mode) or 'disk' ,
             seed_vault_keys  = str(request.seed_vault_keys)        ,
             max_hours        = float(request.max_hours) ,
+            with_tls_check   = bool(request.with_tls_check)        ,
         )
         iid = self.aws_client.launch.run_instance(
             region                = region              ,

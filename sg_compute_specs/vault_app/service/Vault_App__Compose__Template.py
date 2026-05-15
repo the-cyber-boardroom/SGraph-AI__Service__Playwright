@@ -78,10 +78,55 @@ _AGENT_MITMPROXY = '''
     restart: unless-stopped
 '''
 
+# TLS PoC — a one-shot cert sidecar seeds /certs, then Fast_API__TLS serves the
+# secure-context-check page over HTTPS on :443. cert-init runs to completion
+# first; tls-check is gated behind it via depends_on. Both run the host image
+# (it already carries sg_compute) — see the v0.2.6 TLS PoC architecture doc.
+_CERT_INIT = '''
+  cert-init:
+    image: {ecr_registry}/sgraph_ai_service_playwright_host:{image_tag}
+    command: ["python", "-m", "sg_compute.platforms.tls.cert_init"]
+    environment:
+      SG__CERT_INIT__COMMON_NAME: ${{SG__CERT_INIT__COMMON_NAME:-}}
+      FAST_API__TLS__CERT_FILE:   /certs/cert.pem
+      FAST_API__TLS__KEY_FILE:    /certs/key.pem
+    volumes:
+      - certs:/certs
+    networks:
+      - vault-net
+    restart: "no"
+'''
+
+_TLS_CHECK = '''
+  tls-check:
+    image: {ecr_registry}/sgraph_ai_service_playwright_host:{image_tag}
+    command: ["python", "-m", "sg_compute.fast_api.tls.lambda_handler"]
+    environment:
+      FAST_API__TLS__ENABLED:   "true"
+      FAST_API__TLS__CERT_FILE: /certs/cert.pem
+      FAST_API__TLS__KEY_FILE:  /certs/key.pem
+      FAST_API__TLS__PORT:      "443"
+    ports:
+      - "443:443"
+    volumes:
+      - certs:/certs:ro
+    networks:
+      - vault-net
+    depends_on:
+      cert-init:
+        condition: service_completed_successfully
+    restart: unless-stopped
+'''
+
 _NETWORKS = '''
 networks:
   vault-net:
     driver: bridge
+'''
+
+_VOLUMES = '''
+volumes:
+  certs:
 '''
 
 
@@ -91,7 +136,8 @@ class Vault_App__Compose__Template(Type_Safe):
                      with_playwright     : bool = False                       ,
                      image_tag           : str  = 'latest'                    ,
                      sg_send_vault_image : str  = SG_SEND_VAULT_IMAGE          ,
-                     docker_socket       : str  = '/var/run/docker.sock'      ) -> str:
+                     docker_socket       : str  = '/var/run/docker.sock'      ,
+                     with_tls_check      : bool = False                        ) -> str:
         parts = [
             _HEADER                                                                          ,
             _HOST_PLANE.format(ecr_registry=ecr_registry, image_tag=image_tag,
@@ -101,5 +147,10 @@ class Vault_App__Compose__Template(Type_Safe):
         if with_playwright:
             parts.append(_SG_PLAYWRIGHT.format(ecr_registry=ecr_registry, image_tag=image_tag))
             parts.append(_AGENT_MITMPROXY.format(ecr_registry=ecr_registry, image_tag=image_tag))
+        if with_tls_check:
+            parts.append(_CERT_INIT.format(ecr_registry=ecr_registry, image_tag=image_tag))
+            parts.append(_TLS_CHECK.format(ecr_registry=ecr_registry, image_tag=image_tag))
         parts.append(_NETWORKS)
+        if with_tls_check:
+            parts.append(_VOLUMES)
         return ''.join(parts)

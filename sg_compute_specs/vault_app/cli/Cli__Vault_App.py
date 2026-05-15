@@ -121,10 +121,12 @@ def _render_vault_app_create(response, console: Console) -> None:
 
 
 def _set_extras(request, with_playwright=False, podman=False, use_spot=True,
-                storage_mode='disk', seed_vault_keys='', access_token='', disk_size=0):
+                storage_mode='disk', seed_vault_keys='', access_token='', disk_size=0,
+                with_tls_check=False):
     request.with_playwright  = bool(with_playwright)
     request.container_engine = 'podman' if podman else 'docker'
     request.use_spot         = bool(use_spot)
+    request.with_tls_check   = bool(with_tls_check)
     if storage_mode:
         request.storage_mode    = storage_mode
     if seed_vault_keys:
@@ -166,6 +168,9 @@ app = Spec__CLI__Builder(
          'Comma-separated sgit keys cloned into the vault on first boot.'),
         ('disk_size'      , int , 20,
          'Root volume in GiB — vault data + container image layers.'),
+        ('with_tls_check' , bool, False,
+         'Add the one-shot cert sidecar + Fast_API__TLS on :443 — serves the '
+         'secure-context-check page over HTTPS (TLS PoC).'),
         ('access_token'   , str , '',
          'Shared stack secret. Auto-generated and returned once on create if blank.'),
     ],
