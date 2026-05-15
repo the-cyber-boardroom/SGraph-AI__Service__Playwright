@@ -63,16 +63,17 @@ class TestVaultAppComposeTemplate:
         result = Vault_App__Compose__Template().render(ecr_registry=REGISTRY)
         assert '11024' not in result
 
-    def test_with_playwright_wires_host_plane_to_mitmweb(self):
-        # Routes__Web in host-plane defaults to 127.0.0.1:8081, which inside the
-        # host-plane container points at host-plane itself — broken in compose.
-        # --with-playwright must redirect it to the agent-mitmproxy service name.
+    def test_with_playwright_publishes_mitmweb_admin_on_localhost(self):
+        # Routes__Web lives on agent-mitmproxy's admin FastAPI (:8000), NOT on
+        # host-plane. Publishing it as 127.0.0.1:19081 gives SSM port-forward a
+        # target so /web/ is reachable from a laptop.
         result = Vault_App__Compose__Template().render(ecr_registry=REGISTRY, with_playwright=True)
-        assert 'AGENT_MITMPROXY__MITMWEB_HOST:   agent-mitmproxy' in result
-        assert 'AGENT_MITMPROXY__MITMWEB_PORT:'   in result
+        assert '"127.0.0.1:19081:8000"' in result
 
-    def test_just_vault_omits_mitmweb_host_wiring(self):
-        result = Vault_App__Compose__Template().render(ecr_registry=REGISTRY)        # default just-vault
+    def test_host_plane_no_longer_carries_dead_mitmweb_env(self):
+        # An earlier commit added AGENT_MITMPROXY__MITMWEB_HOST to host-plane based
+        # on the wrong assumption that Routes__Web ran there. It doesn't.
+        result = Vault_App__Compose__Template().render(ecr_registry=REGISTRY, with_playwright=True)
         assert 'AGENT_MITMPROXY__MITMWEB_HOST' not in result
 
     def test_with_tls_check_wires_tls_into_sg_send_vault(self):

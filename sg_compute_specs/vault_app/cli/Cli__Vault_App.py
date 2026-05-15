@@ -79,12 +79,21 @@ def _render_vault_app_info(info, console: Console) -> None:
     if playwright_url:
         t.add_row('playwright-cookie', f'[cyan]{playwright_url}/auth/set-cookie-form[/]')
 
-    host_plane_url = str(getattr(info, 'host_plane_url', '') or '')
-    ssm_forward    = str(getattr(info, 'ssm_forward',    '') or '')
+    host_plane_url      = str(getattr(info, 'host_plane_url',      '') or '')
+    mitmweb_url         = str(getattr(info, 'mitmweb_url',         '') or '')
+    ssm_forward         = str(getattr(info, 'ssm_forward',         '') or '')
+    mitmweb_ssm_forward = str(getattr(info, 'mitmweb_ssm_forward', '') or '')
+
     if host_plane_url:
-        t.add_row('host-plane', f'[cyan]{host_plane_url}[/]  [dim](mitmweb at /web/ — set the cookie first)[/]')
+        t.add_row('host-plane',         f'[cyan]{host_plane_url}[/]  [dim](container admin: /containers/list, /host/shell/page, …)[/]')
+        t.add_row('host-plane-cookie',  f'[cyan]{host_plane_url}/auth/set-cookie-form[/]')
+    if mitmweb_url:
+        t.add_row('mitmweb',            f'[cyan]{mitmweb_url}[/]  [dim](mitmproxy admin UI)[/]')
+        t.add_row('mitmweb-cookie',     f'[cyan]http://localhost:19081/auth/set-cookie-form[/]')
     if ssm_forward:
-        t.add_row('ssm-forward', f'[dim]{ssm_forward}[/]')
+        t.add_row('ssm-forward',         f'[dim]{ssm_forward}[/]')
+    if mitmweb_ssm_forward:
+        t.add_row('ssm-forward-mitmweb', f'[dim]{mitmweb_ssm_forward}[/]')
     if vault_url:
         bookmarklet_token = token or 'YOUR_TOKEN'
         t.add_row('browser-auth',
