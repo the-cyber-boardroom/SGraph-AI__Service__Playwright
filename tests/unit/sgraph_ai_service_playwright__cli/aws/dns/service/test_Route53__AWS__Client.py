@@ -111,7 +111,13 @@ class _Fake_Route53__AWS__Client(Route53__AWS__Client):                         
 class test_Route53__AWS__Client(TestCase):
 
     def setUp(self):
+        import os
+        os.environ['SG_AWS__DNS__DEFAULT_ZONE'] = 'sgraph.ai'                          # Tests in this file predate the sg-compute.sgraph.ai default and assume sgraph.ai
         self.client = _Fake_Route53__AWS__Client()
+
+    def tearDown(self):
+        import os
+        os.environ.pop('SG_AWS__DNS__DEFAULT_ZONE', None)
 
     # ── list_hosted_zones ────────────────────────────────────────────────────
 

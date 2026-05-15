@@ -402,53 +402,156 @@ def records_get(name       : str  = typer.Argument(..., help='Record name (e.g. 
 
 # ── records add ───────────────────────────────────────────────────────────────
 
+def _looks_like_fqdn(arg: str) -> bool:                                              # An FQDN has at least one dot inside it (label.zone)
+    return '.' in arg.rstrip('.')
+
+
+def _looks_like_instance_ref(arg: str) -> bool:                                      # i-... = AWS instance-id; otherwise a stack-name / Name tag
+    return arg.startswith('i-') or not _looks_like_fqdn(arg)
+
+
 @records_app.command('add')
-def records_add(name         : str  = typer.Argument(...,  help='Record name (FQDN).'),
-                value        : str  = typer.Option(...,   '--value', '-v', help='Record value (e.g. IP address).'),
+def records_add(arg1         : str  = typer.Argument(None,  help='FQDN (e.g. test-2.sg-compute.sgraph.ai) OR instance ref (i-... / stack-name). Omit to use latest running instance + derived name.'),
+                arg2         : str  = typer.Argument(None,  help='FQDN — when arg1 is an instance ref. Omit to derive `<stack-name>.<default-zone>`.'),
+                value        : str  = typer.Option(None,  '--value', '-v', help='Explicit record value (skips instance auto-resolution). Required for non-A record types.'),
                 rtype        : str  = typer.Option('A',   '--type',  '-t', help='Record type.'),
                 ttl          : int  = typer.Option(60,    '--ttl',         help='TTL in seconds.'),
-                zone         : str  = typer.Option(None,  '--zone',  '-z', help='Zone name or id.'),
+                zone         : str  = typer.Option(None,  '--zone',  '-z', help='Zone name or id. Default: $SG_AWS__DNS__DEFAULT_ZONE or sg-compute.sgraph.ai.'),
                 yes          : bool = typer.Option(False, '--yes',         help='Skip confirmation prompt.'),
                 no_verify    : bool = typer.Option(False, '--no-verify',   help='Skip post-mutation DNS verify.'),
-                wait         : bool = typer.Option(False, '--wait',        help='Poll Route 53 until the change is INSYNC across all zone NS before exiting (suitable for chaining cert issuance).'),
+                wait         : bool = typer.Option(False, '--wait',        help='Poll Route 53 until the change is INSYNC (suitable for chaining cert issuance).'),
                 wait_timeout : int  = typer.Option(120,   '--wait-timeout',help='Max seconds to wait for INSYNC.'),
+                force        : bool = typer.Option(False, '--force',      help='Upsert when the record already exists (otherwise fail).'),
                 json_output  : bool = typer.Option(False, '--json',        help='Emit change result as JSON.')):
-    """Create a new DNS record. Env var SG_AWS__DNS__ALLOW_MUTATIONS=1 required."""
+    """Create a DNS record.
+
+    Forms:
+      sg aws dns records add                                           # latest running instance + derived <stack>.<default-zone>
+      sg aws dns records add <fqdn>                                    # latest running instance, given FQDN
+      sg aws dns records add <i-id|stack-name>                         # that instance, derived <stack>.<default-zone>
+      sg aws dns records add <i-id|stack-name> <fqdn>                  # that instance, given FQDN
+      sg aws dns records add <fqdn> --value <ip>                       # explicit value (no instance lookup)
+
+    Env: SG_AWS__DNS__ALLOW_MUTATIONS=1 required.
+    """
     _assert_mutations_allowed()
     try:
         record_type = Enum__Route53__Record_Type(rtype.upper())
     except ValueError:
         typer.echo(f'Unknown record type: {rtype}', err=True)
         raise typer.Exit(1)
-    client  = _client()
-    zone_id = _resolve_zone_id_for_record(client, zone, name)
+
+    # ── Dispatch the positional / --value combinations ──────────────────────
+    instance_ref      = None                                                          # If set, resolve via Route53__Instance__Linker for the IP
+    fqdn              = None                                                          # The record name to create — derived later if still None
+    instance_resolved = False                                                          # Tracks whether the IP came from an instance lookup (controls cert-warning + auto-upsert)
+
+    if value:                                                                         # Explicit-value path — arg1 must be the FQDN, arg2 must be absent
+        if not arg1:
+            typer.echo('When --value is given, the first positional argument must be the FQDN.', err=True)
+            raise typer.Exit(1)
+        if arg2:
+            typer.echo('When --value is given, only one positional argument is accepted (the FQDN).', err=True)
+            raise typer.Exit(1)
+        fqdn = arg1
+    elif arg2:                                                                        # Two positionals + no --value: arg1 = instance ref, arg2 = FQDN
+        instance_ref = arg1
+        fqdn         = arg2
+    elif arg1:                                                                        # One positional: instance ref OR FQDN
+        if _looks_like_instance_ref(arg1):
+            instance_ref = arg1                                                        # Derive FQDN from stack name later
+        else:
+            fqdn = arg1                                                                # FQDN; instance comes from --latest
+    # else: both arg1 + arg2 absent → use --latest instance, derived name
+
+    if value is None and record_type != Enum__Route53__Record_Type.A:
+        typer.echo(f'Auto-resolution from instance only supports A records. Pass --value for {rtype}.', err=True)
+        raise typer.Exit(1)
+
+    client = _client()
+
+    # ── Resolve IP from instance when no explicit --value was given ─────────
+    if value is None:
+        linker = Route53__Instance__Linker()
+        try:
+            inst = linker.resolve_instance(instance_ref) if instance_ref else linker.resolve_latest()
+        except ValueError as exc:
+            typer.echo(str(exc), err=True)
+            raise typer.Exit(1)
+        try:
+            value = linker.get_public_ip(inst)
+        except ValueError as exc:
+            typer.echo(str(exc), err=True)
+            raise typer.Exit(1)
+        if not fqdn:                                                                  # No explicit FQDN — derive from instance Name tag + default zone
+            name_tag = linker.get_name_tag(inst)
+            default  = client.resolve_default_zone()
+            fqdn     = f'{name_tag}.{str(default.name)}'
+        instance_resolved = True
+
+    zone_id = _resolve_zone_id_for_record(client, zone, fqdn)
+
+    # ── Idempotency / upsert (only for instance-resolved A records) ────────
+    existing = client.get_record(zone_id, fqdn, record_type) if instance_resolved else None
+    if existing:
+        existing_vals = list(existing.values)
+        if value in existing_vals:
+            c = Console(highlight=False)
+            if not json_output:
+                c.print(f'\n  Already correct — {fqdn} already points at {value}.\n')
+                c.print(_CERT_WARNING.format(fqdn=fqdn))
+            else:
+                typer.echo(json.dumps(dict(change_id='', status='ALREADY_CORRECT',
+                                            fqdn=fqdn, value=value, idempotent=True)))
+            raise typer.Exit(0)
+        if not force:
+            typer.echo(f'Record {fqdn} already exists pointing at {existing_vals}. '
+                       f'Use --force to upsert, or `records update` for explicit change.', err=True)
+            raise typer.Exit(4)
+
+    if instance_resolved and not yes:                                                 # Confirmation prompt mirrors `instance create-record` behaviour
+        confirmed = typer.confirm(f'Create {fqdn} → {value} (TTL {ttl}s)?', default=False)
+        if not confirmed:
+            typer.echo('Aborted.')
+            raise typer.Exit(0)
+
     try:
-        result = client.create_record(zone_id, name, record_type, [value], ttl=ttl)
+        if existing and force:
+            result = client.upsert_record(zone_id, fqdn, record_type, [value], ttl=ttl)
+        else:
+            result = client.create_record(zone_id, fqdn, record_type, [value], ttl=ttl)
     except ValueError as exc:
         typer.echo(str(exc), err=True)
-        typer.echo("Use `records update` to change an existing record.", err=True)
+        typer.echo('Use `records update` to change an existing record, or pass --force.', err=True)
         raise typer.Exit(1)
+
     c = Console(highlight=False)
     if not json_output:
-        c.print(f'\n  Created {name} {rtype} → {value}  (TTL {ttl}s)')
+        c.print(f'\n  Created {fqdn} {rtype} → {value}  (TTL {ttl}s)')
         c.print(f'  Change: {result.change_id}  Status: {result.status}\n')
-    if wait:                                                                          # Poll INSYNC before any verify step so smart-verify sees a settled zone
+
+    if wait:
         final = _wait_for_change(c, client, result.change_id, wait_timeout, quiet=json_output)
         if final.status != 'INSYNC':
             if not json_output:
                 c.print(f'  [yellow]✗ Timed out waiting for INSYNC after {wait_timeout}s (last status: {final.status}).[/]\n')
             if json_output:
                 typer.echo(json.dumps(dict(change_id=result.change_id, status=final.status,
-                                           submitted_at=result.submitted_at, timed_out=True)))
-            raise typer.Exit(5)                                                      # exit 5 = wait timeout (distinct from auth/quorum/local mismatch codes)
+                                           submitted_at=result.submitted_at, timed_out=True,
+                                           fqdn=fqdn, value=value)))
+            raise typer.Exit(5)
         result = final
+
     if json_output:
-        typer.echo(json.dumps(dict(change_id   =result.change_id  ,
-                                   status      =result.status     ,
-                                   submitted_at=result.submitted_at)))
+        payload = dict(change_id   =result.change_id  ,
+                       status      =result.status     ,
+                       submitted_at=result.submitted_at,
+                       fqdn        =fqdn               ,
+                       value       =value              )
+        typer.echo(json.dumps(payload))
         return
-    # --wait forces at least an authoritative check even if --no-verify is set: it would be misleading
-    # to claim "INSYNC, you can chain a cert tool" without confirming the auth NS actually answer correctly.
+
+    # --wait forces at least an authoritative check even if --no-verify is set.
     run_verify = wait or (not no_verify)
     if run_verify:
         smart = _make_smart_verify(client)
@@ -456,13 +559,16 @@ def records_add(name         : str  = typer.Argument(...,  help='Record name (FQ
         from sgraph_ai_service_playwright__cli.aws.dns.schemas.Schema__Smart_Verify__Decision import Schema__Smart_Verify__Decision
         decision = Schema__Smart_Verify__Decision(decision=Enum__Smart_Verify__Decision.NEW_NAME,
                                                   prior_ttl=0, prior_values=[])
-        verify_result = smart.verify_after_mutation(decision, zone_id, name, rtype, expected=value)
+        verify_result = smart.verify_after_mutation(decision, zone_id, fqdn, rtype, expected=value)
         _print_auth_check(c, verify_result.authoritative)
         if verify_result.public_resolvers and not no_verify:
             c.print(f'  Public resolvers: {verify_result.public_resolvers.agreed_count}/'
                     f'{verify_result.public_resolvers.total_count} agree.')
         if verify_result.skip_message and not no_verify:
             c.print(f'\n  {verify_result.skip_message}\n')
+
+    if instance_resolved:                                                              # Cert hint only when the record points at an EC2 instance
+        c.print(_CERT_WARNING.format(fqdn=fqdn))
 
 
 # ── records update ────────────────────────────────────────────────────────────

@@ -16,6 +16,7 @@
 # upsert_a_alias_record) plus the shared _change_rrset helper.
 # ═══════════════════════════════════════════════════════════════════════════════
 
+import os
 from typing                                                                          import Optional
 
 import boto3                                                                         # EXCEPTION — see module header
@@ -31,7 +32,11 @@ from sgraph_ai_service_playwright__cli.aws.dns.schemas.Schema__Route53__Change__
 from sgraph_ai_service_playwright__cli.aws.dns.schemas.Schema__Route53__Hosted_Zone           import Schema__Route53__Hosted_Zone
 from sgraph_ai_service_playwright__cli.aws.dns.schemas.Schema__Route53__Record                import Schema__Route53__Record
 
-DEFAULT_ZONE_NAME = 'sgraph.ai'                                                      # Default zone for the sg aws dns CLI surface when --zone is not passed
+DEFAULT_ZONE_NAME_FALLBACK = 'sg-compute.sgraph.ai'                                  # Default zone when --zone is not passed and SG_AWS__DNS__DEFAULT_ZONE env var is unset. Picked sg-compute.sgraph.ai because that's where ephemeral compute stacks live; the top-level sgraph.ai is reserved for stable apex records.
+
+
+def default_zone_name() -> str:                                                      # Late-binding accessor so tests can flip the env var per-test
+    return os.environ.get('SG_AWS__DNS__DEFAULT_ZONE', DEFAULT_ZONE_NAME_FALLBACK)
 
 
 class Route53__AWS__Client(Type_Safe):                                               # Isolated boto3 boundary for Route 53 read operations
@@ -76,11 +81,13 @@ class Route53__AWS__Client(Type_Safe):                                          
                 return zone
         return None
 
-    def resolve_default_zone(self) -> Schema__Route53__Hosted_Zone:                  # Lookup sgraph.ai; cache the result; raise ValueError when not found
+    def resolve_default_zone(self) -> Schema__Route53__Hosted_Zone:                  # Lookup the default zone; cache the result; raise ValueError when not found
         if self._default_zone is None:
-            zone = self.find_hosted_zone_by_name(DEFAULT_ZONE_NAME)
+            zone_name = default_zone_name()
+            zone      = self.find_hosted_zone_by_name(zone_name)
             if zone is None:
-                raise ValueError(f"--zone unset and no '{DEFAULT_ZONE_NAME}' hosted zone found in account")
+                raise ValueError(f"--zone unset and no '{zone_name}' hosted zone found in account "
+                                  "(set SG_AWS__DNS__DEFAULT_ZONE to override the default)")
             self._default_zone = zone
         return self._default_zone
 
