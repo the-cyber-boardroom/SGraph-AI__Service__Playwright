@@ -72,12 +72,14 @@ once you are confident the value is final. Prefer the default
 # ── Typer sub-apps ────────────────────────────────────────────────────────────
 
 dns_app      = typer.Typer(name='dns',      help='Route 53 DNS management.', no_args_is_help=True)
-zones_app    = typer.Typer(name='zones',    help='Hosted zone commands.',    no_args_is_help=True)
-records_app  = typer.Typer(name='records',  help='Record set commands.',     no_args_is_help=True)
+zones_app    = typer.Typer(name='zones',    help='Hosted-zone account-wide listing.', no_args_is_help=True)
+zone_app     = typer.Typer(name='zone',     help='Operations on one hosted zone (defaults to sg-compute.sgraph.ai).', no_args_is_help=True)
+records_app  = typer.Typer(name='records',  help='Per-record mutations + propagation check.', no_args_is_help=True)
 instance_app = typer.Typer(name='instance', help='EC2-instance DNS helpers.', no_args_is_help=True)
 
-dns_app.add_typer(zones_app,    name='zones'   )
-dns_app.add_typer(zones_app,    name='z',        hidden=True)                        # short alias — matches the sg sub-typer convention (pw/el/os/va/…)
+dns_app.add_typer(zones_app,    name='zones'   )                                     # `zones` (plural) — listing all hosted zones in the account
+dns_app.add_typer(zone_app,     name='zone'    )                                     # `zone` (singular) — list/show/check records inside one zone
+dns_app.add_typer(zone_app,     name='z',        hidden=True)                        # `z` short alias maps to the more common per-zone ops
 dns_app.add_typer(records_app,  name='records' )
 dns_app.add_typer(records_app,  name='r',        hidden=True)
 dns_app.add_typer(instance_app, name='instance')
@@ -291,7 +293,7 @@ For now, accept the cert warning or use the IP-based vault_url
 surfaced by `sp pw v info`."""
 
 
-# ── zones list ────────────────────────────────────────────────────────────────
+# ── zones list (cross-zone — all hosted zones in the account) ────────────────
 
 @zones_app.command('list')
 @spec_cli_errors
@@ -300,12 +302,12 @@ def zones_list(json_output: bool = typer.Option(False, '--json', help='Output JS
     client = _client()
     zones  = client.list_hosted_zones()
     if json_output:
-        typer.echo(json.dumps([dict(zone_id     = str(z.zone_id)       ,
-                                    name        = str(z.name)          ,
-                                    private_zone= z.private_zone       ,
-                                    record_count= z.record_count       ,
-                                    comment     = z.comment            ,
-                                    caller_reference = z.caller_reference)
+        typer.echo(json.dumps([dict(name             = str(z.name)        ,
+                                    zone_id          = str(z.zone_id)     ,
+                                    private_zone     = z.private_zone     ,
+                                    record_count     = z.record_count     ,
+                                    comment          = z.comment          ,
+                                    caller_reference = z.caller_reference )
                                 for z in zones], indent=2))
         return
     c = Console(highlight=False)
@@ -313,35 +315,35 @@ def zones_list(json_output: bool = typer.Option(False, '--json', help='Output JS
     c.print(f'  Hosted zones in account  ·  {len(zones)} zones')
     c.print()
     t = Table(box=None, show_header=True, padding=(0, 2))
+    t.add_column('Name',     style='bold',    min_width=22, no_wrap=True)             # Name first — most distinguishing column
     t.add_column('Zone Id',  style='cyan',    min_width=22, no_wrap=True)
-    t.add_column('Name',     style='bold',    min_width=20)
     t.add_column('Type',     style='',        min_width=7)
     t.add_column('Records',  style='',        min_width=7)
     t.add_column('Comment',  style='dim',     min_width=10)
     for z in zones:
         zone_type = 'private' if z.private_zone else 'public'
-        t.add_row(str(z.zone_id), str(z.name) + '.', zone_type,
+        t.add_row(str(z.name) + '.', str(z.zone_id), zone_type,
                   str(z.record_count), str(z.comment))
     c.print(t)
     c.print()
 
 
-# ── zones show ────────────────────────────────────────────────────────────────
+# ── zone show (per-zone — metadata) ───────────────────────────────────────────
 
-@zones_app.command('show')
+@zone_app.command('show')
 @spec_cli_errors
-def zones_show(zone       : str  = typer.Argument(None, help='Zone name or id. Defaults to sgraph.ai.'),
-               json_output: bool = typer.Option(False, '--json', help='Output JSON instead of a table.')):
-    """Show details of one hosted zone."""
+def zone_show(zone       : str  = typer.Argument(None, help='Zone name or id. Defaults to sg-compute.sgraph.ai.'),
+              json_output: bool = typer.Option(False, '--json', help='Output JSON instead of a table.')):
+    """Show metadata for one hosted zone."""
     client    = _client()
     zone_obj  = client.get_hosted_zone(zone) if zone else client.resolve_default_zone()
     if json_output:
-        typer.echo(json.dumps(dict(zone_id     = str(zone_obj.zone_id)        ,
-                                   name        = str(zone_obj.name)           ,
-                                   private_zone= zone_obj.private_zone        ,
-                                   record_count= zone_obj.record_count        ,
-                                   comment     = zone_obj.comment             ,
-                                   caller_reference = zone_obj.caller_reference), indent=2))
+        typer.echo(json.dumps(dict(name             = str(zone_obj.name)        ,
+                                   zone_id          = str(zone_obj.zone_id)     ,
+                                   private_zone     = zone_obj.private_zone     ,
+                                   record_count     = zone_obj.record_count     ,
+                                   comment          = zone_obj.comment          ,
+                                   caller_reference = zone_obj.caller_reference ), indent=2))
         return
     c = Console(highlight=False)
     c.print()
@@ -359,13 +361,9 @@ def zones_show(zone       : str  = typer.Argument(None, help='Zone name or id. D
     c.print()
 
 
-# ── records list ──────────────────────────────────────────────────────────────
+# ── zone list (per-zone — records in the zone) ────────────────────────────────
 
-@records_app.command('list')
-@spec_cli_errors
-def records_list(zone       : str  = typer.Argument(None, help='Zone name or id. Defaults to sgraph.ai.'),
-                 json_output: bool = typer.Option(False, '--json', help='Output JSON instead of a table.')):
-    """List all records in a hosted zone."""
+def _records_list_impl(zone: str, json_output: bool):                                # Shared body for `zone list` AND the legacy `records list` alias
     client  = _client()
     zone_id = _resolve_zone_id(client, zone)
     records = client.list_records(zone_id)
@@ -395,6 +393,150 @@ def records_list(zone       : str  = typer.Argument(None, help='Zone name or id.
         t.add_row(str(r.name), str(r.record_type), ttl_str, values_str, alias_set_str)
     c.print(t)
     c.print()
+
+
+@zone_app.command('list')
+@spec_cli_errors
+def zone_list(zone       : str  = typer.Argument(None, help='Zone name or id. Defaults to sg-compute.sgraph.ai.'),
+              json_output: bool = typer.Option(False, '--json', help='Output JSON instead of a table.')):
+    """List all records in a hosted zone."""
+    _records_list_impl(zone, json_output)
+
+
+@records_app.command('list', hidden=True)                                            # Backward-compat alias — `records list` was the original location of this command
+@spec_cli_errors
+def records_list_legacy(zone       : str  = typer.Argument(None, help='Zone name or id. Defaults to sg-compute.sgraph.ai.'),
+                        json_output: bool = typer.Option(False, '--json', help='Output JSON instead of a table.')):
+    """[deprecated alias] Use `sg aws dns zone list` instead."""
+    _records_list_impl(zone, json_output)
+
+
+# ── zone check (per-zone — health-check all records) ─────────────────────────
+
+@zone_app.command('check')
+@spec_cli_errors
+def zone_check(zone       : str  = typer.Argument(None, help='Zone name or id. Defaults to sg-compute.sgraph.ai.'),
+               json_output: bool = typer.Option(False, '--json', help='Emit JSON instead of a table.')):
+    """Health-check all A records in the zone. Flags orphaned / stale entries — candidates for delete."""
+    import time
+    t_start = time.perf_counter()
+
+    client  = _client()
+    zone_id = _resolve_zone_id(client, zone)
+    records = client.list_records(zone_id)
+
+    # Build a Name-tag → instance map once. We match the record's leftmost label against
+    # the EC2 Name tag (the stack name), which is the convention used by every sg_compute
+    # spec and the legacy stack helpers. Records that don't follow that convention land
+    # in UNMATCHED — the operator decides whether they're intentional or leftover.
+    linker = Route53__Instance__Linker()
+    ec2    = linker.ec2_client()
+    resp   = ec2.describe_instances(Filters=[{'Name': 'instance-state-name',
+                                              'Values': ['running']}])
+    instances_by_name = {}                                                            # name_tag → (instance_id, public_ip)
+    for r in resp.get('Reservations', []):
+        for inst in r.get('Instances', []):
+            tag_name = ''
+            for tag in inst.get('Tags', []):
+                if tag.get('Key') == 'Name':
+                    tag_name = tag.get('Value', '')
+                    break
+            if tag_name:
+                instances_by_name[tag_name] = (inst.get('InstanceId', ''),
+                                                inst.get('PublicIpAddress', ''))
+
+    zone_name = ''
+    try:
+        zone_obj  = client.get_hosted_zone(zone) if zone else client.resolve_default_zone()
+        zone_name = str(zone_obj.name).rstrip('.')
+    except Exception:
+        zone_name = '?'
+
+    results = []                                                                      # list of dicts; one per record
+    for r in records:
+        rtype = str(r.record_type)
+        name  = str(r.name).rstrip('.')
+        leaf  = name[:-len(zone_name) - 1] if (zone_name and name.endswith(zone_name) and name != zone_name) else ''
+        record_value = ', '.join(r.values) if r.values else ''
+        status   = 'IGNORED'                                                          # default for SOA/NS/CNAME/zone-apex
+        inst_id  = ''
+        inst_ip  = ''
+        note     = ''
+        if rtype in ('SOA', 'NS'):
+            status = 'IGNORED'
+            note   = 'zone-system record'
+        elif rtype != 'A':
+            status = 'IGNORED'
+            note   = f'{rtype} — not checked'
+        elif not leaf:
+            status = 'IGNORED'
+            note   = 'apex record'
+        elif '.' in leaf:                                                             # Multi-label leaf — could be intentional (api.staging.<zone>) but won't match a single-label Name tag
+            status = 'UNMATCHED'
+            note   = 'multi-label leaf — manual review'
+        elif leaf in instances_by_name:
+            inst_id, inst_ip = instances_by_name[leaf]
+            record_ip = r.values[0] if r.values else ''
+            if record_ip == inst_ip:
+                status = 'OK'
+            else:
+                status = 'STALE'
+                note   = f'instance public-ip is {inst_ip}'
+        else:
+            status = 'ORPHANED'
+            note   = 'no running instance with this Name tag'
+        results.append(dict(name        = name        ,
+                            record_type = rtype       ,
+                            record_value= record_value,
+                            instance_id = inst_id     ,
+                            instance_ip = inst_ip     ,
+                            status      = status      ,
+                            note        = note        ))
+
+    purge_candidates = [r for r in results if r['status'] in ('ORPHANED', 'STALE')]
+    elapsed_s        = time.perf_counter() - t_start
+
+    if json_output:
+        typer.echo(json.dumps(dict(zone             = zone_name                  ,
+                                   zone_id          = zone_id                    ,
+                                   record_count     = len(results)               ,
+                                   purge_candidates = len(purge_candidates)      ,
+                                   elapsed_seconds  = round(elapsed_s, 3)        ,
+                                   results          = results                    ), indent=2))
+        return
+
+    counts = {}
+    for r in results:
+        counts[r['status']] = counts.get(r['status'], 0) + 1
+
+    c = Console(highlight=False)
+    c.print()
+    summary = '  '.join(f'{n} {s}' for s, n in counts.items())
+    c.print(f'  Zone health — {zone_name}  ·  {len(results)} records  ·  {summary}')
+    c.print()
+
+    t = Table(box=None, show_header=True, padding=(0, 2))
+    t.add_column('Name',         style='bold', min_width=30, no_wrap=True)
+    t.add_column('Type',         style='cyan', min_width=5)
+    t.add_column('Record value', style='',     min_width=18)
+    t.add_column('Instance IP',  style='dim',  min_width=15)
+    t.add_column('Status',       style='',     min_width=10)
+    t.add_column('Note',         style='dim',  min_width=10)
+    status_style = {'OK': '[green]OK[/]', 'STALE': '[yellow]STALE[/]',
+                    'ORPHANED': '[red]ORPHANED[/]', 'UNMATCHED': '[blue]UNMATCHED[/]',
+                    'IGNORED': '[dim]IGNORED[/]'}
+    for r in results:
+        t.add_row(r['name'], r['record_type'], r['record_value'],
+                  r['instance_ip'] or '—', status_style.get(r['status'], r['status']),
+                  r['note'])
+    c.print(t)
+    c.print()
+    if purge_candidates:
+        c.print(f'  [yellow]Purge candidates:[/] {len(purge_candidates)} records ([red]ORPHANED[/] or [yellow]STALE[/]).')
+        c.print(f'  Delete one with: [bold]sg aws dns records delete <name> --type A[/]')
+        c.print()
+    else:
+        c.print(f'  [green]No purge candidates — every checked A record matches a running instance.[/]\n')
 
 
 # ── records get ───────────────────────────────────────────────────────────────
