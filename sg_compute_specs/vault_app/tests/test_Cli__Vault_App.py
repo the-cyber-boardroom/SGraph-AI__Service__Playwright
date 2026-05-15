@@ -175,3 +175,19 @@ class TestCliVaultApp:
         result = runner.invoke(app, ['create', '--help'])
         assert result.exit_code == 0
         assert '--with-tls-check' in result.output
+
+    def test_open_help_lists_known_targets(self):
+        result = runner.invoke(app, ['open', '--help'])
+        assert result.exit_code == 0
+        assert 'host-plane' in result.output
+        assert 'mitmweb'    in result.output
+
+    def test_open_with_no_target_lists_available(self):
+        result = runner.invoke(app, ['open'])
+        assert result.exit_code == 0
+        assert 'host-plane' in result.output
+        assert 'mitmweb'    in result.output
+
+    def test_open_rejects_unknown_target(self):
+        result = runner.invoke(app, ['open', 'bogus'])
+        assert result.exit_code != 0
