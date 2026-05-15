@@ -26,19 +26,25 @@
 
 import ipaddress
 import os
+import socket
 import sys
+import time
 import urllib.request
 
 from sg_compute.platforms.tls.Cert__Generator import Cert__Generator
 
-ENV__MODE         = 'SG__CERT_INIT__MODE'
-ENV__COMMON_NAME  = 'SG__CERT_INIT__COMMON_NAME'
-ENV__SANS         = 'SG__CERT_INIT__SANS'
-ENV__ACME_PROD    = 'SG__CERT_INIT__ACME_PROD'
-ENV__ACME_EMAIL   = 'SG__CERT_INIT__ACME_EMAIL'
-ENV__TLS_HOSTNAME = 'SG__CERT_INIT__TLS_HOSTNAME'
-ENV__CERT_FILE    = 'FAST_API__TLS__CERT_FILE'
-ENV__KEY_FILE     = 'FAST_API__TLS__KEY_FILE'
+ENV__MODE                  = 'SG__CERT_INIT__MODE'
+ENV__COMMON_NAME           = 'SG__CERT_INIT__COMMON_NAME'
+ENV__SANS                  = 'SG__CERT_INIT__SANS'
+ENV__ACME_PROD             = 'SG__CERT_INIT__ACME_PROD'
+ENV__ACME_EMAIL            = 'SG__CERT_INIT__ACME_EMAIL'
+ENV__TLS_HOSTNAME          = 'SG__CERT_INIT__TLS_HOSTNAME'
+ENV__DNS_WAIT_TIMEOUT_SEC  = 'SG__CERT_INIT__DNS_WAIT_TIMEOUT_SEC'
+ENV__CERT_FILE             = 'FAST_API__TLS__CERT_FILE'
+ENV__KEY_FILE              = 'FAST_API__TLS__KEY_FILE'
+
+DEFAULT__DNS_WAIT_TIMEOUT_SEC = 900                                            # 15 minutes — generous; usually returns on first poll if --with-aws-dns ran in parallel
+DNS_WAIT_POLL_SEC             = 5
 
 MODE__SELF_SIGNED          = 'self-signed'
 MODE__LETSENCRYPT_IP       = 'letsencrypt-ip'
@@ -78,6 +84,45 @@ def resolve_public_ip() -> str:                                              # A
         raise RuntimeError(f'letsencrypt-ip mode needs a public IP — resolved {candidate!r} '
                            f'(set {ENV__COMMON_NAME} or run on EC2 with IMDS reachable)')
     return candidate
+
+
+def _resolve_hostname(hostname: str) -> str:                                 # one DNS lookup attempt; returns IP string or an error sentinel
+    # Catch broadly — gethostbyname can raise gaierror on NXDOMAIN, OSError on transient
+    # network failure, and UnicodeError on malformed labels. The polling loop must never
+    # raise on a single bad lookup; it just retries until timeout.
+    try:
+        return socket.gethostbyname(hostname)
+    except (socket.gaierror, OSError, UnicodeError) as e:
+        return f'<resolution failed: {e}>'
+
+
+def wait_for_dns_to_match(hostname    : str ,
+                          my_ip       : str ,
+                          timeout_sec : int = DEFAULT__DNS_WAIT_TIMEOUT_SEC,
+                          poll_sec    : int = DNS_WAIT_POLL_SEC,
+                          now_fn           = time.time,
+                          sleep_fn         = time.sleep,
+                          resolve_fn       = _resolve_hostname) -> None:
+    # Poll DNS until `hostname` resolves to `my_ip`. Backstop for the race between EC2 boot
+    # speed and Route 53 propagation — typically returns on the first poll when the CLI's
+    # --with-aws-dns ran the upsert + INSYNC wait in parallel during the EC2 boot window.
+    # Side-effect: prints progress to stdout so `sp vault-app logs -s cert-init -f` shows
+    # what's happening. Raises RuntimeError on timeout — cert-init exits non-zero, vault
+    # never comes up healthy, and `--wait` surfaces the failure.
+    deadline  = now_fn() + timeout_sec
+    last_seen = ''
+    print(f'[cert-init] waiting for DNS: {hostname} → {my_ip}  (timeout {timeout_sec}s, poll {poll_sec}s)')
+    while now_fn() < deadline:
+        resolved = resolve_fn(hostname)
+        if resolved == my_ip:
+            print(f'[cert-init] DNS converged: {hostname} → {my_ip}')
+            return
+        if resolved != last_seen:                                            # only print on change to keep the log readable
+            print(f'[cert-init] waiting … {hostname} currently → {resolved}')
+            last_seen = resolved
+        sleep_fn(poll_sec)
+    raise RuntimeError(f'DNS for {hostname!r} did not converge to {my_ip} within {timeout_sec}s '
+                       f'(last seen: {last_seen!r})')
 
 
 def resolve_tls_hostname() -> str:                                           # FQDN must already point at this box's IP
@@ -122,6 +167,9 @@ def _run_letsencrypt_hostname(cert_path: str, key_path: str) -> None:
     from sg_compute.platforms.tls.Cert__ACME__Client import Cert__ACME__Client
 
     hostname = resolve_tls_hostname()
+    my_ip    = resolve_public_ip()                                           # ACME validates from the IP this box answers on — fail loud if no public IP
+    timeout  = int(os.environ.get(ENV__DNS_WAIT_TIMEOUT_SEC, '').strip() or DEFAULT__DNS_WAIT_TIMEOUT_SEC)
+    wait_for_dns_to_match(hostname=hostname, my_ip=my_ip, timeout_sec=timeout)
     prod     = os.environ.get(ENV__ACME_PROD, '').strip().lower() in _TRUTHY
     email    = os.environ.get(ENV__ACME_EMAIL, '').strip()
     client   = Cert__ACME__Client()

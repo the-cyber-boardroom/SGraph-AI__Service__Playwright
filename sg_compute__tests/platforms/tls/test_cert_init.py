@@ -96,3 +96,56 @@ class TestCertInit:
         monkeypatch.delenv('SG__CERT_INIT__TLS_HOSTNAME', raising=False)
         with pytest.raises(RuntimeError, match='needs SG__CERT_INIT__TLS_HOSTNAME'):
             cert_init.main()
+
+    def test_wait_for_dns_returns_immediately_when_already_matched(self):
+        # Common case when --with-aws-dns ran the Route 53 INSYNC wait in parallel —
+        # cert-init's first poll should see the FQDN already pointing at our IP.
+        ticks = []
+        cert_init.wait_for_dns_to_match(hostname='vault.example.com',
+                                        my_ip='18.0.0.1',
+                                        timeout_sec=10,
+                                        poll_sec=0,
+                                        now_fn      = lambda: 0.0,                  # never advances — we should not consult time again after the first match
+                                        sleep_fn    = lambda s: ticks.append(s),
+                                        resolve_fn  = lambda h: '18.0.0.1')
+        assert ticks == []                                                          # no sleep ever — converged on first poll
+
+    def test_wait_for_dns_converges_after_a_few_polls(self):
+        # Simulate the propagation window: first two polls see the old/empty answer,
+        # third poll sees the new IP. The function must return cleanly without timing out.
+        answers = iter(['<resolution failed: NXDOMAIN>',
+                        '1.2.3.4',                                                  # old A record still cached
+                        '18.0.0.1'])                                                # propagated
+        clock   = [0.0]
+        sleeps  = []
+        def now():
+            clock[0] += 1
+            return clock[0]
+        cert_init.wait_for_dns_to_match(hostname='vault.example.com',
+                                        my_ip='18.0.0.1',
+                                        timeout_sec=60,
+                                        poll_sec=2,
+                                        now_fn      = now,
+                                        sleep_fn    = lambda s: sleeps.append(s),
+                                        resolve_fn  = lambda h: next(answers))
+        assert sleeps == [2, 2]                                                     # two retries before the third poll matched
+
+    def test_wait_for_dns_raises_on_timeout(self):
+        clock = [0.0]
+        def now():
+            clock[0] += 10                                                          # each call to now() advances 10s — 5 calls → timeout
+            return clock[0]
+        with pytest.raises(RuntimeError, match='did not converge'):
+            cert_init.wait_for_dns_to_match(hostname='vault.example.com',
+                                            my_ip='18.0.0.1',
+                                            timeout_sec=30,
+                                            poll_sec=0,
+                                            now_fn      = now,
+                                            sleep_fn    = lambda s: None,
+                                            resolve_fn  = lambda h: '1.2.3.4')      # never matches
+
+    def test_resolve_hostname_handles_nxdomain_as_a_sentinel(self):
+        # Internal helper used by main() — must NEVER raise gaierror up to callers;
+        # returns a sentinel string so the polling loop keeps going.
+        sentinel = cert_init._resolve_hostname('definitely-not-a-real-domain-' + 'x' * 40 + '.invalid')
+        assert sentinel.startswith('<resolution failed:')
