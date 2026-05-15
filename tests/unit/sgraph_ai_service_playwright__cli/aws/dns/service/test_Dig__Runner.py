@@ -114,3 +114,37 @@ class test_Dig__Runner(TestCase):
             assert result is False
         finally:
             dig_module.subprocess.run = original
+
+    # ── Command construction — nameserver handling (P1.5 --local mode) ────────
+
+    def test__run__empty_nameserver__omits_at_arg(self):                              # Empty ns => no @<ns> token so dig uses host default resolver
+        captured = {}
+        original = dig_module.subprocess.run
+        def fake_run(cmd, **kwargs):
+            captured['cmd'] = list(cmd)
+            return _FakeCompleted(stdout='203.0.113.5\n')
+        dig_module.subprocess.run = fake_run
+        try:
+            runner = Dig__Runner()
+            runner.run(nameserver='', name='example.com', rtype='A')
+        finally:
+            dig_module.subprocess.run = original
+        cmd = captured['cmd']
+        assert cmd[0]   == 'dig'
+        assert not any(token.startswith('@') for token in cmd)                       # No @<ns> argument
+        assert 'example.com' in cmd
+        assert 'A'           in cmd
+
+    def test__run__nonempty_nameserver__includes_at_arg(self):
+        captured = {}
+        original = dig_module.subprocess.run
+        def fake_run(cmd, **kwargs):
+            captured['cmd'] = list(cmd)
+            return _FakeCompleted(stdout='203.0.113.5\n')
+        dig_module.subprocess.run = fake_run
+        try:
+            runner = Dig__Runner()
+            runner.run(nameserver='1.1.1.1', name='example.com', rtype='A')
+        finally:
+            dig_module.subprocess.run = original
+        assert '@1.1.1.1' in captured['cmd']

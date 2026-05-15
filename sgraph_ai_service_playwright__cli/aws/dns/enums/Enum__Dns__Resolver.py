@@ -21,3 +21,23 @@ class Enum__Dns__Resolver(Enum):
 
     def __str__(self):
         return self.value
+
+    @classmethod
+    def smart_verify_subset(cls):                                                  # The 6 curated resolvers used by smart-verify new-name checks
+        return [cls.CLOUDFLARE_1,
+                cls.CLOUDFLARE_2,
+                cls.GOOGLE_1    ,
+                cls.GOOGLE_2    ,
+                cls.QUAD9       ,
+                cls.ADGUARD_EU  ]
+
+    @classmethod
+    def full_set(cls):                                                              # All 8 resolvers used by P1.5 standalone --public-resolvers mode
+        return [cls.CLOUDFLARE_1,
+                cls.CLOUDFLARE_2,
+                cls.GOOGLE_1    ,
+                cls.GOOGLE_2    ,
+                cls.QUAD9       ,
+                cls.ADGUARD_EU  ,
+                cls.OPENDNS_1   ,
+                cls.OPENDNS_2   ]
