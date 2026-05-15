@@ -113,6 +113,21 @@ def _assert_mutations_allowed():                                                
         raise typer.Exit(1)
 
 
+def _wait_for_change(c: Console, client: Route53__AWS__Client, change_id: str,
+                      timeout: int, quiet: bool = False, poll_interval: int = 2):    # Poll Route 53 GetChange until INSYNC or timeout; print progress dots unless quiet
+    if not quiet:
+        c.print(f'  ⏳ Waiting for Route 53 INSYNC (timeout {timeout}s)…')
+    def _on_poll(result, elapsed):
+        if quiet:
+            return
+        c.print(f'    {result.status} ({elapsed}s)', highlight=False)
+    final = client.wait_for_change(change_id, timeout=timeout,
+                                    poll_interval=poll_interval, on_poll=_on_poll)
+    if not quiet and final.status == 'INSYNC':
+        c.print('  ✓ Route 53 INSYNC — change is live on all zone NS.\n')
+    return final
+
+
 def _make_orchestrator(r53_client: Route53__AWS__Client) -> Route53__Check__Orchestrator:
     dig    = Dig__Runner()
     auth   = Route53__Authoritative__Checker  (dig_runner=dig, r53_client=r53_client)
@@ -388,14 +403,16 @@ def records_get(name       : str  = typer.Argument(..., help='Record name (e.g. 
 # ── records add ───────────────────────────────────────────────────────────────
 
 @records_app.command('add')
-def records_add(name       : str  = typer.Argument(...,  help='Record name (FQDN).'),
-                value      : str  = typer.Option(...,   '--value', '-v', help='Record value (e.g. IP address).'),
-                rtype      : str  = typer.Option('A',   '--type',  '-t', help='Record type.'),
-                ttl        : int  = typer.Option(60,    '--ttl',         help='TTL in seconds.'),
-                zone       : str  = typer.Option(None,  '--zone',  '-z', help='Zone name or id.'),
-                yes        : bool = typer.Option(False, '--yes',         help='Skip confirmation prompt.'),
-                no_verify  : bool = typer.Option(False, '--no-verify',   help='Skip post-mutation DNS verify.'),
-                json_output: bool = typer.Option(False, '--json',        help='Emit change result as JSON.')):
+def records_add(name         : str  = typer.Argument(...,  help='Record name (FQDN).'),
+                value        : str  = typer.Option(...,   '--value', '-v', help='Record value (e.g. IP address).'),
+                rtype        : str  = typer.Option('A',   '--type',  '-t', help='Record type.'),
+                ttl          : int  = typer.Option(60,    '--ttl',         help='TTL in seconds.'),
+                zone         : str  = typer.Option(None,  '--zone',  '-z', help='Zone name or id.'),
+                yes          : bool = typer.Option(False, '--yes',         help='Skip confirmation prompt.'),
+                no_verify    : bool = typer.Option(False, '--no-verify',   help='Skip post-mutation DNS verify.'),
+                wait         : bool = typer.Option(False, '--wait',        help='Poll Route 53 until the change is INSYNC across all zone NS before exiting (suitable for chaining cert issuance).'),
+                wait_timeout : int  = typer.Option(120,   '--wait-timeout',help='Max seconds to wait for INSYNC.'),
+                json_output  : bool = typer.Option(False, '--json',        help='Emit change result as JSON.')):
     """Create a new DNS record. Env var SG_AWS__DNS__ALLOW_MUTATIONS=1 required."""
     _assert_mutations_allowed()
     try:
@@ -411,15 +428,29 @@ def records_add(name       : str  = typer.Argument(...,  help='Record name (FQDN
         typer.echo(str(exc), err=True)
         typer.echo("Use `records update` to change an existing record.", err=True)
         raise typer.Exit(1)
+    c = Console(highlight=False)
+    if not json_output:
+        c.print(f'\n  Created {name} {rtype} → {value}  (TTL {ttl}s)')
+        c.print(f'  Change: {result.change_id}  Status: {result.status}\n')
+    if wait:                                                                          # Poll INSYNC before any verify step so smart-verify sees a settled zone
+        final = _wait_for_change(c, client, result.change_id, wait_timeout, quiet=json_output)
+        if final.status != 'INSYNC':
+            if not json_output:
+                c.print(f'  [yellow]✗ Timed out waiting for INSYNC after {wait_timeout}s (last status: {final.status}).[/]\n')
+            if json_output:
+                typer.echo(json.dumps(dict(change_id=result.change_id, status=final.status,
+                                           submitted_at=result.submitted_at, timed_out=True)))
+            raise typer.Exit(5)                                                      # exit 5 = wait timeout (distinct from auth/quorum/local mismatch codes)
+        result = final
     if json_output:
         typer.echo(json.dumps(dict(change_id   =result.change_id  ,
                                    status      =result.status     ,
                                    submitted_at=result.submitted_at)))
         return
-    c = Console(highlight=False)
-    c.print(f'\n  Created {name} {rtype} → {value}  (TTL {ttl}s)')
-    c.print(f'  Change: {result.change_id}  Status: {result.status}\n')
-    if not no_verify:
+    # --wait forces at least an authoritative check even if --no-verify is set: it would be misleading
+    # to claim "INSYNC, you can chain a cert tool" without confirming the auth NS actually answer correctly.
+    run_verify = wait or (not no_verify)
+    if run_verify:
         smart = _make_smart_verify(client)
         from sgraph_ai_service_playwright__cli.aws.dns.enums.Enum__Smart_Verify__Decision    import Enum__Smart_Verify__Decision
         from sgraph_ai_service_playwright__cli.aws.dns.schemas.Schema__Smart_Verify__Decision import Schema__Smart_Verify__Decision
@@ -427,10 +458,10 @@ def records_add(name       : str  = typer.Argument(...,  help='Record name (FQDN
                                                   prior_ttl=0, prior_values=[])
         verify_result = smart.verify_after_mutation(decision, zone_id, name, rtype, expected=value)
         _print_auth_check(c, verify_result.authoritative)
-        if verify_result.public_resolvers:
+        if verify_result.public_resolvers and not no_verify:
             c.print(f'  Public resolvers: {verify_result.public_resolvers.agreed_count}/'
                     f'{verify_result.public_resolvers.total_count} agree.')
-        if verify_result.skip_message:
+        if verify_result.skip_message and not no_verify:
             c.print(f'\n  {verify_result.skip_message}\n')
 
 
@@ -611,15 +642,17 @@ def records_check(name             : str  = typer.Argument(..., help='Record nam
 
 @instance_app.command('create-record')
 def instance_create_record(
-        instance   : str  = typer.Argument(None,   help='Instance id or Name tag. Omit to use most recent SG-AI instance.'),
-        name       : str  = typer.Option(None,  '--name',       help='Explicit FQDN for the record.'),
-        zone       : str  = typer.Option(None,  '--zone', '-z', help='Zone name or id.'),
-        ttl        : int  = typer.Option(60,    '--ttl',        help='TTL in seconds.'),
-        rtype      : str  = typer.Option('A',   '--type', '-t', help='Record type (default A).'),
-        yes        : bool = typer.Option(False, '--yes',        help='Skip confirmation prompt.'),
-        no_verify  : bool = typer.Option(False, '--no-verify',  help='Skip post-mutation DNS verify.'),
-        force      : bool = typer.Option(False, '--force',      help='Upsert even if record points at different IP.'),
-        json_output: bool = typer.Option(False, '--json',       help='Emit change result as JSON.')):
+        instance     : str  = typer.Argument(None,   help='Instance id or Name tag. Omit to use most recent SG-AI instance.'),
+        name         : str  = typer.Option(None,  '--name',       help='Explicit FQDN for the record.'),
+        zone         : str  = typer.Option(None,  '--zone', '-z', help='Zone name or id.'),
+        ttl          : int  = typer.Option(60,    '--ttl',        help='TTL in seconds.'),
+        rtype        : str  = typer.Option('A',   '--type', '-t', help='Record type (default A).'),
+        yes          : bool = typer.Option(False, '--yes',        help='Skip confirmation prompt.'),
+        no_verify    : bool = typer.Option(False, '--no-verify',  help='Skip post-mutation DNS verify.'),
+        force        : bool = typer.Option(False, '--force',      help='Upsert even if record points at different IP.'),
+        wait         : bool = typer.Option(False, '--wait',       help='Poll Route 53 until INSYNC before exiting (suitable for chaining cert issuance).'),
+        wait_timeout : int  = typer.Option(120,   '--wait-timeout',help='Max seconds to wait for INSYNC.'),
+        json_output  : bool = typer.Option(False, '--json',       help='Emit change result as JSON.')):
     """Create an A record pointing at an EC2 instance's public IP."""
     _assert_mutations_allowed()
     linker = Route53__Instance__Linker()
@@ -673,20 +706,36 @@ def instance_create_record(
         result = client.upsert_record(zone_id, fqdn, record_type, [public_ip], ttl=ttl)
     else:
         result = client.create_record(zone_id, fqdn, record_type, [public_ip], ttl=ttl)
+    c = Console(highlight=False)
+    if not json_output:
+        c.print(f'\n  Created {fqdn} {rtype} → {public_ip}  (TTL {ttl}s)')
+        c.print(f'  Change: {result.change_id}  Status: {result.status}\n')
+    if wait:                                                                          # Poll INSYNC before any verify step so smart-verify sees a settled zone
+        final = _wait_for_change(c, client, result.change_id, wait_timeout, quiet=json_output)
+        if final.status != 'INSYNC':
+            if not json_output:
+                c.print(f'  [yellow]✗ Timed out waiting for INSYNC after {wait_timeout}s (last status: {final.status}).[/]\n')
+            if json_output:
+                typer.echo(json.dumps(dict(change_id=result.change_id, status=final.status,
+                                           submitted_at=result.submitted_at, fqdn=fqdn,
+                                           public_ip=public_ip, timed_out=True)))
+            raise typer.Exit(5)
+        result = final
     if json_output:
         typer.echo(json.dumps(dict(change_id   =result.change_id  ,
                                    status      =result.status     ,
-                                   submitted_at=result.submitted_at)))
+                                   submitted_at=result.submitted_at,
+                                   fqdn        =fqdn               ,
+                                   public_ip   =public_ip          )))
         return
-    c = Console(highlight=False)
-    c.print(f'\n  Created {fqdn} {rtype} → {public_ip}  (TTL {ttl}s)')
-    c.print(f'  Change: {result.change_id}  Status: {result.status}\n')
-    if not no_verify:
+    # --wait forces an authoritative check even when --no-verify is set so the user can chain a cert tool with confidence.
+    run_verify = wait or (not no_verify)
+    if run_verify:
         verify_result = smart.verify_after_mutation(decision, zone_id, fqdn, rtype, expected=public_ip)
         _print_auth_check(c, verify_result.authoritative)
-        if verify_result.public_resolvers:
+        if verify_result.public_resolvers and not no_verify:
             c.print(f'  Public resolvers: {verify_result.public_resolvers.agreed_count}/'
                     f'{verify_result.public_resolvers.total_count} agree.')
-        if verify_result.skip_message:
+        if verify_result.skip_message and not no_verify:
             c.print(f'\n  {verify_result.skip_message}\n')
     c.print(_CERT_WARNING.format(fqdn=fqdn))

@@ -212,3 +212,31 @@ class Route53__AWS__Client(Type_Safe):                                          
         alias_target = {'DNSName': alias_dns_name, 'HostedZoneId': alias_zone_id,
                         'EvaluateTargetHealth': False}
         return self._change_rrset(zone_id, 'UPSERT', name, 'A', [], alias_target=alias_target)
+
+    # ── P1: Change-propagation polling ────────────────────────────────────────
+
+    def get_change(self, change_id: str) -> Schema__Route53__Change__Result:         # One-shot status lookup for a change-id (returns PENDING or INSYNC)
+        raw_id = change_id.replace('/change/', '')                                   # boto3 accepts both forms — normalise
+        resp   = self.client().get_change(Id=raw_id)
+        info   = resp.get('ChangeInfo', {})
+        return Schema__Route53__Change__Result(
+            change_id    = info.get('Id', change_id)         ,
+            status       = info.get('Status', '')            ,
+            submitted_at = str(info.get('SubmittedAt', ''))  ,
+        )
+
+    def wait_for_change(self, change_id: str, timeout: int = 120, poll_interval: int = 2,
+                         on_poll=None) -> Schema__Route53__Change__Result:           # Poll get_change until INSYNC or timeout; on_poll(result, elapsed_s) invoked on every tick for UI
+        import time                                                                  # Local import keeps the cold-path subprocess-free clients faster
+        deadline = time.time() + timeout
+        elapsed  = 0
+        while True:
+            result = self.get_change(change_id)
+            if on_poll is not None:
+                on_poll(result, elapsed)
+            if result.status == 'INSYNC':
+                return result
+            if time.time() >= deadline:
+                return result                                                        # Last result; status still PENDING — caller decides what to do
+            time.sleep(poll_interval)
+            elapsed += poll_interval
