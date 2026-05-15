@@ -38,12 +38,15 @@ RUN  python3 -m pip install -r requirements.txt --no-cache-dir
 # requirements.txt AND the literal below in lockstep — all three must move
 # together.
 RUN  python3 -m pip show playwright
-RUN  python3 -c "import sys; print('python:', sys.executable, sys.version); \
-                 import playwright; print('playwright at:', playwright.__file__, 'version:', playwright.__version__); \
+RUN  python3 -c "import sys, importlib.metadata; \
+                 print('python:', sys.executable, sys.version); \
+                 import playwright; print('playwright at:', playwright.__file__); \
+                 v = importlib.metadata.version('playwright'); \
+                 print('playwright version:', v); \
                  from playwright.sync_api import sync_playwright; \
                  from packaging.version import Version; \
-                 assert Version(playwright.__version__).release[:3] == (1, 58, 0), \
-                        f'playwright {playwright.__version__} not in the 1.58.0 family (base image v1.58.0-noble)'; \
+                 assert Version(v).release[:3] == (1, 58, 0), \
+                        f'playwright {v} not in the 1.58.0 family (base image v1.58.0-noble)'; \
                  print('build-time guard OK')"
 
 COPY sg_compute/        sg_compute/
