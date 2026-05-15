@@ -76,6 +76,16 @@ def _render_vault_app_info(info, console: Console) -> None:
 
     if vault_url:
         t.add_row('set-cookie-form', f'[cyan]{vault_url}/auth/set-cookie-form[/]')
+    if playwright_url:
+        t.add_row('playwright-cookie', f'[cyan]{playwright_url}/auth/set-cookie-form[/]')
+
+    host_plane_url = str(getattr(info, 'host_plane_url', '') or '')
+    ssm_forward    = str(getattr(info, 'ssm_forward',    '') or '')
+    if host_plane_url:
+        t.add_row('host-plane', f'[cyan]{host_plane_url}[/]  [dim](mitmweb at /web/ — set the cookie first)[/]')
+    if ssm_forward:
+        t.add_row('ssm-forward', f'[dim]{ssm_forward}[/]')
+    if vault_url:
         bookmarklet_token = token or 'YOUR_TOKEN'
         t.add_row('browser-auth',
                   f'[dim]javascript: document.cookie = '

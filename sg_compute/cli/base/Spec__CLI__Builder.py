@@ -173,6 +173,7 @@ class Spec__CLI__Builder:
         spec_id          = self.cli_spec.spec_id
         extra_options    = self.extra_create_options
         render_create_fn = getattr(self.cli_spec, 'render_create_fn', None) or render_create
+        render_info_fn   = getattr(self.cli_spec, 'render_info_fn',   None) or render_info
 
         base_params = [
             ('name',          Optional[str], typer.Option(None, '--name', '-n',
@@ -243,6 +244,11 @@ class Spec__CLI__Builder:
                 info      = getattr(resp, 'stack_info', None) or resp
                 real_name = str(getattr(info, 'stack_name', '') or name)
                 self._wait_healthy(svc, region, real_name)
+                # surface the final info block so the URLs / access token / cert info
+                # are visible without a second `sp <spec> info` call
+                fresh = svc.get_stack_info(region, real_name)
+                if fresh is not None:
+                    render_info_fn(fresh, console)
 
         fn = self._build_typed_fn(create_impl, all_params, 'create')
         fn.__doc__ = 'Launch a new stack. Prints a preview banner then submits to AWS.'
