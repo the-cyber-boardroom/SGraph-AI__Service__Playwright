@@ -1,6 +1,6 @@
 # ═══════════════════════════════════════════════════════════════════════════════
 # SP CLI — Route53__AWS__Client
-# Sole boto3 boundary for Route 53 read operations. Every boto3 call for the
+# Sole boto3 boundary for Route 53 operations. Every boto3 call for the
 # dns sub-package lives here so Cli__Dns can stay pure Python + Type_Safe
 # schemas and the in-memory test subclass has a small, well-defined surface.
 #
@@ -12,7 +12,8 @@
 #
 # P0 surface: read-only (list_hosted_zones, find_hosted_zone_by_name,
 # resolve_default_zone, get_hosted_zone, list_records, get_record).
-# Mutation methods (create/upsert/delete) are P1.
+# P1 surface: mutations (create_record, upsert_record, delete_record,
+# upsert_a_alias_record) plus the shared _change_rrset helper.
 # ═══════════════════════════════════════════════════════════════════════════════
 
 from typing                                                                          import Optional
@@ -26,6 +27,7 @@ from sgraph_ai_service_playwright__cli.aws.dns.collections.List__Schema__Route53
 from sgraph_ai_service_playwright__cli.aws.dns.collections.List__Schema__Route53__Record      import List__Schema__Route53__Record
 from sgraph_ai_service_playwright__cli.aws.dns.enums.Enum__Route53__Record_Type               import Enum__Route53__Record_Type
 from sgraph_ai_service_playwright__cli.aws.dns.primitives.Safe_Str__Hosted_Zone_Id            import Safe_Str__Hosted_Zone_Id
+from sgraph_ai_service_playwright__cli.aws.dns.schemas.Schema__Route53__Change__Result        import Schema__Route53__Change__Result
 from sgraph_ai_service_playwright__cli.aws.dns.schemas.Schema__Route53__Hosted_Zone           import Schema__Route53__Hosted_Zone
 from sgraph_ai_service_playwright__cli.aws.dns.schemas.Schema__Route53__Record                import Schema__Route53__Record
 
@@ -151,3 +153,62 @@ class Route53__AWS__Client(Type_Safe):                                          
             if record_name == target_name and str(record.record_type) == target_type:
                 return record
         return None
+
+    # ── P1: Mutation methods ──────────────────────────────────────────────────
+
+    def _change_rrset(self, zone_id: str, action: str,
+                      name: str, rtype: str, values: list,
+                      ttl: int = None, alias_target: dict = None) -> Schema__Route53__Change__Result:  # Build the Change batch and call change_resource_record_sets
+        r53 = self.client()
+        if alias_target:
+            rrset = {'Name': name, 'Type': rtype, 'AliasTarget': alias_target}
+        else:
+            rrset = {'Name': name, 'Type': rtype, 'TTL': ttl,
+                     'ResourceRecords': [{'Value': v} for v in values]}
+        change = {'Action': action, 'ResourceRecordSet': rrset}
+        resp   = r53.change_resource_record_sets(
+            HostedZoneId = zone_id,
+            ChangeBatch  = {'Changes': [change]},
+        )
+        info   = resp.get('ChangeInfo', {})
+        return Schema__Route53__Change__Result(
+            change_id    = info.get('Id', '')         ,
+            status       = info.get('Status', '')     ,
+            submitted_at = str(info.get('SubmittedAt', '')),
+        )
+
+    def create_record(self, zone_id_or_name: str, name: str,
+                      record_type: Enum__Route53__Record_Type,
+                      values: list, ttl: int = 60) -> Schema__Route53__Change__Result:  # CREATE action; raises ValueError if record already exists
+        zone_id  = self.resolve_zone_id(zone_id_or_name)
+        existing = self.get_record(zone_id, name, record_type)
+        if existing is not None:
+            raise ValueError(
+                f"Record '{name}' ({record_type}) already exists in zone {zone_id}. "
+                "Use upsert_record (or `records update` CLI) to change it."
+            )
+        return self._change_rrset(zone_id, 'CREATE', name, str(record_type), values, ttl=ttl)
+
+    def upsert_record(self, zone_id_or_name: str, name: str,
+                      record_type: Enum__Route53__Record_Type,
+                      values: list, ttl: int = 60) -> Schema__Route53__Change__Result:  # UPSERT action — creates or replaces
+        zone_id = self.resolve_zone_id(zone_id_or_name)
+        return self._change_rrset(zone_id, 'UPSERT', name, str(record_type), values, ttl=ttl)
+
+    def delete_record(self, zone_id_or_name: str, name: str,
+                      record_type: Enum__Route53__Record_Type,
+                      values: list = None, ttl: int = None) -> Schema__Route53__Change__Result:  # DELETE action; fetches current values/ttl if not supplied
+        zone_id  = self.resolve_zone_id(zone_id_or_name)
+        existing = self.get_record(zone_id, name, record_type)
+        if existing is None:
+            raise ValueError(f"Record '{name}' ({record_type}) not found in zone {zone_id}.")
+        actual_values = values if values is not None else list(existing.values)
+        actual_ttl    = ttl    if ttl    is not None else int(existing.ttl)
+        return self._change_rrset(zone_id, 'DELETE', name, str(record_type), actual_values, ttl=actual_ttl)
+
+    def upsert_a_alias_record(self, zone_id_or_name: str, name: str,
+                               alias_dns_name: str, alias_zone_id: str) -> Schema__Route53__Change__Result:  # UPSERT A alias record (no TTL field — Route 53 manages it)
+        zone_id      = self.resolve_zone_id(zone_id_or_name)
+        alias_target = {'DNSName': alias_dns_name, 'HostedZoneId': alias_zone_id,
+                        'EvaluateTargetHealth': False}
+        return self._change_rrset(zone_id, 'UPSERT', name, 'A', [], alias_target=alias_target)

@@ -5,11 +5,13 @@
 # No mocks, no patches.
 # ═══════════════════════════════════════════════════════════════════════════════
 
+import pytest
 from unittest                                                                        import TestCase
 
 from sgraph_ai_service_playwright__cli.aws.dns.collections.List__Schema__Route53__Hosted_Zone import List__Schema__Route53__Hosted_Zone
 from sgraph_ai_service_playwright__cli.aws.dns.collections.List__Schema__Route53__Record      import List__Schema__Route53__Record
 from sgraph_ai_service_playwright__cli.aws.dns.enums.Enum__Route53__Record_Type               import Enum__Route53__Record_Type
+from sgraph_ai_service_playwright__cli.aws.dns.schemas.Schema__Route53__Change__Result        import Schema__Route53__Change__Result
 from sgraph_ai_service_playwright__cli.aws.dns.schemas.Schema__Route53__Hosted_Zone           import Schema__Route53__Hosted_Zone
 from sgraph_ai_service_playwright__cli.aws.dns.schemas.Schema__Route53__Record                import Schema__Route53__Record
 from sgraph_ai_service_playwright__cli.aws.dns.service.Route53__AWS__Client                   import Route53__AWS__Client
@@ -50,8 +52,16 @@ _FAKE_RECORDS = [                                                               
      'ResourceRecords' : [{'Value': 'sgraph.ai.'}]                            },
 ]
 
+_CANNED_CHANGE_RESPONSE = {                                                          # Canned response for change_resource_record_sets calls
+    'ChangeInfo': {'Id': '/change/CFAKE123', 'Status': 'PENDING',
+                   'SubmittedAt': '2026-05-15T00:00:00Z'}
+}
+
 
 class _Fake_Route53_Boto3_Client:                                                    # In-memory stand-in that returns canned data for the paginator calls
+    def __init__(self):
+        self.last_change_batch = None                                                # Records the last change_resource_record_sets call for assertions
+
     def get_paginator(self, operation):
         if operation == 'list_hosted_zones':
             return _FakePaginator([{'HostedZones': _FAKE_ZONES}])
@@ -63,8 +73,12 @@ class _Fake_Route53_Boto3_Client:                                               
         zone_id = Id.replace('/hostedzone/', '')
         for z in _FAKE_ZONES:
             if z['Id'].replace('/hostedzone/', '') == zone_id:
-                return {'HostedZone': z}
+                return {'HostedZone': z, 'DelegationSet': {'NameServers': ['ns-1.awsdns-1.com']}}
         return {'HostedZone': {}}
+
+    def change_resource_record_sets(self, HostedZoneId, ChangeBatch):               # Records the call and returns a canned PENDING response
+        self.last_change_batch = ChangeBatch
+        return _CANNED_CHANGE_RESPONSE
 
 
 class _FakePaginator:
@@ -76,8 +90,12 @@ class _FakePaginator:
 
 
 class _Fake_Route53__AWS__Client(Route53__AWS__Client):                              # Real subclass — overrides the boto3 seam; no mocks
+    _boto3_stub : _Fake_Route53_Boto3_Client = None
+
     def client(self):
-        return _Fake_Route53_Boto3_Client()
+        if self._boto3_stub is None:
+            self._boto3_stub = _Fake_Route53_Boto3_Client()
+        return self._boto3_stub
 
 
 # ── Tests ─────────────────────────────────────────────────────────────────────
@@ -202,3 +220,57 @@ class test_Route53__AWS__Client(TestCase):
         record = self.client.get_record('Z01ABCDEFGHIJ', 'www.sgraph.ai', Enum__Route53__Record_Type.CNAME)
         assert record is not None
         assert str(record.record_type) == 'CNAME'
+
+    # ── P1: create_record ─────────────────────────────────────────────────────
+
+    def test__create_record__returns_schema_change_result(self):
+        result = self.client.create_record('Z01ABCDEFGHIJ', 'new.sgraph.ai',
+                                           Enum__Route53__Record_Type.A, ['1.2.3.4'])
+        assert isinstance(result, Schema__Route53__Change__Result)
+
+    def test__create_record__change_id_is_populated(self):
+        result = self.client.create_record('Z01ABCDEFGHIJ', 'new.sgraph.ai',
+                                           Enum__Route53__Record_Type.A, ['1.2.3.4'])
+        assert result.change_id == '/change/CFAKE123'
+        assert result.status    == 'PENDING'
+
+    def test__create_record__calls_change_rrsets_with_create_action(self):
+        self.client.create_record('Z01ABCDEFGHIJ', 'new.sgraph.ai',
+                                  Enum__Route53__Record_Type.A, ['1.2.3.4'])
+        batch  = self.client.client().last_change_batch
+        action = batch['Changes'][0]['Action']
+        assert action == 'CREATE'
+
+    def test__create_record__raises_if_record_already_exists(self):
+        with pytest.raises(ValueError, match='already exists'):
+            self.client.create_record('Z01ABCDEFGHIJ', 'test.sgraph.ai',
+                                      Enum__Route53__Record_Type.A, ['9.9.9.9'])
+
+    # ── P1: upsert_record ─────────────────────────────────────────────────────
+
+    def test__upsert_record__returns_schema_change_result(self):
+        result = self.client.upsert_record('Z01ABCDEFGHIJ', 'test.sgraph.ai',
+                                           Enum__Route53__Record_Type.A, ['5.6.7.8'])
+        assert isinstance(result, Schema__Route53__Change__Result)
+
+    def test__upsert_record__calls_change_rrsets_with_upsert_action(self):
+        self.client.upsert_record('Z01ABCDEFGHIJ', 'test.sgraph.ai',
+                                  Enum__Route53__Record_Type.A, ['5.6.7.8'])
+        batch  = self.client.client().last_change_batch
+        action = batch['Changes'][0]['Action']
+        assert action == 'UPSERT'
+
+    # ── P1: delete_record ─────────────────────────────────────────────────────
+
+    def test__delete_record__fetches_existing_then_calls_delete(self):
+        result = self.client.delete_record('Z01ABCDEFGHIJ', 'test.sgraph.ai',
+                                           Enum__Route53__Record_Type.A)
+        assert isinstance(result, Schema__Route53__Change__Result)
+        batch  = self.client.client().last_change_batch
+        action = batch['Changes'][0]['Action']
+        assert action == 'DELETE'
+
+    def test__delete_record__raises_if_record_not_found(self):
+        with pytest.raises(ValueError, match='not found'):
+            self.client.delete_record('Z01ABCDEFGHIJ', 'nope.sgraph.ai',
+                                      Enum__Route53__Record_Type.A)
