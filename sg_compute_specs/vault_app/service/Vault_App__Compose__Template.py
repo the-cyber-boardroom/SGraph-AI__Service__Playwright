@@ -92,6 +92,8 @@ _SG_SEND_VAULT_TLS = '''
 _SG_PLAYWRIGHT = '''
   sg-playwright:
     image: {ecr_registry}/sgraph_ai_service_playwright:{image_tag}
+    ports:
+      - "11024:8000"             # external HTTP — same X-API-Key as the vault; see PLAYWRIGHT_EXTERNAL_PORT
     environment:
       FAST_API__AUTH__API_KEY__NAME:      ${{FAST_API__AUTH__API_KEY__NAME:-X-API-Key}}
       FAST_API__AUTH__API_KEY__VALUE:     ${{FAST_API__AUTH__API_KEY__VALUE}}

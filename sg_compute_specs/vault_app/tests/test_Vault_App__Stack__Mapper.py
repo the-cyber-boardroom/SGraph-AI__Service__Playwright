@@ -41,4 +41,17 @@ class TestVaultAppStackMapper:
     def test_no_public_ip_yields_empty_vault_url(self):
         info = Vault_App__Stack__Mapper().to_info(
             _instance({'StackName': 's', 'StackTLS': 'true'}, public_ip=''), 'eu-west-2')
-        assert info.vault_url == ''
+        assert info.vault_url      == ''
+        assert info.playwright_url == ''
+
+    def test_with_playwright_yields_external_playwright_url(self):
+        info = Vault_App__Stack__Mapper().to_info(
+            _instance({'StackName': 's', 'StackWithPlaywright': 'true'}), 'eu-west-2')
+        assert info.with_playwright is True
+        assert info.playwright_url  == 'http://13.40.11.113:11024'
+
+    def test_without_playwright_omits_playwright_url(self):
+        info = Vault_App__Stack__Mapper().to_info(
+            _instance({'StackName': 's'}), 'eu-west-2')              # no StackWithPlaywright
+        assert info.with_playwright is False
+        assert info.playwright_url  == ''

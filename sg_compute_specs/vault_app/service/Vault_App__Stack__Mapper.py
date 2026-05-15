@@ -24,7 +24,8 @@ TAG_ACCESS_TOKEN    = 'AccessToken'               # vault API key + access token
                                                   # AWS-API path explicit so `sp vault-app info` can surface it.
 STACK_TYPE          = 'vault-app'
 
-VAULT_PORT = 8080
+VAULT_PORT              = 8080
+PLAYWRIGHT_EXTERNAL_PORT = 11024                  # host:11024 → container:8000 when --with-playwright
 
 
 def _time_remaining(details: dict) -> tuple:
@@ -44,11 +45,13 @@ class Vault_App__Stack__Mapper(Type_Safe):
     def to_info(self, details: dict, region: str) -> Schema__Vault_App__Info:
         public_ip               = details.get('PublicIpAddress', '') or ''
         terminate_at, remaining = _time_remaining(details)
-        tls_on                  = tag_value(details, TAG_TLS_ENABLED) == 'true'
+        tls_on                  = tag_value(details, TAG_TLS_ENABLED)     == 'true'
+        with_playwright         = tag_value(details, TAG_WITH_PLAYWRIGHT) == 'true'
         if public_ip:
-            vault_url = f'https://{public_ip}' if tls_on else f'http://{public_ip}:{VAULT_PORT}'
+            vault_url      = f'https://{public_ip}' if tls_on else f'http://{public_ip}:{VAULT_PORT}'
+            playwright_url = f'http://{public_ip}:{PLAYWRIGHT_EXTERNAL_PORT}' if with_playwright else ''
         else:
-            vault_url = ''
+            vault_url, playwright_url = '', ''
         return Schema__Vault_App__Info(
             instance_id        = details.get('InstanceId', '')                       ,
             stack_name         = tag_value(details, TAG_STACK_NAME)                  ,
@@ -60,8 +63,9 @@ class Vault_App__Stack__Mapper(Type_Safe):
             ami_id             = details.get('ImageId', '')                          ,
             security_group_id  = first_sg_id(details)                                ,
             vault_url          = vault_url                                            ,
+            playwright_url     = playwright_url                                       ,
             tls_enabled        = tls_on                                               ,
-            with_playwright    = tag_value(details, TAG_WITH_PLAYWRIGHT) == 'true'    ,
+            with_playwright    = with_playwright                                      ,
             container_engine   = tag_value(details, TAG_ENGINE)                      ,
             access_token       = tag_value(details, TAG_ACCESS_TOKEN)                 ,
             uptime_seconds     = uptime_seconds(details)                              ,

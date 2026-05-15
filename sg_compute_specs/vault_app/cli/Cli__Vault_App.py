@@ -40,9 +40,12 @@ def _render_vault_app_info(info, console: Console) -> None:
     t.add_column(style='bold', min_width=18, no_wrap=True)
     t.add_column()
 
-    vault_url = str(getattr(info, 'vault_url', '') or '')
+    vault_url      = str(getattr(info, 'vault_url',      '') or '')
+    playwright_url = str(getattr(info, 'playwright_url', '') or '')
     if vault_url:
         t.add_row('vault-url', f'[bold cyan]{vault_url}[/]')
+    if playwright_url:
+        t.add_row('playwright-url', f'[bold cyan]{playwright_url}[/]  [dim](same X-API-Key)[/]')
 
     with_playwright = getattr(info, 'with_playwright', False)
     mode = '[green]with-playwright[/] (4 containers)' if with_playwright else '[dim]just-vault[/] (2 containers)'

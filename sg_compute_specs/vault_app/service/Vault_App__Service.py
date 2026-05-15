@@ -24,13 +24,14 @@ from sg_compute_specs.vault_app.schemas.Schema__Vault_App__Delete__Response impo
 from sg_compute_specs.vault_app.schemas.Schema__Vault_App__List             import Schema__Vault_App__List
 from sg_compute_specs.vault_app.service.Vault_App__AMI__Helper              import Vault_App__AMI__Helper
 from sg_compute_specs.vault_app.service.Vault_App__AWS__Client              import Vault_App__AWS__Client, ecr_registry_host
-from sg_compute_specs.vault_app.service.Vault_App__Stack__Mapper            import (Vault_App__Stack__Mapper,
-                                                                                    STACK_TYPE              ,
-                                                                                    TAG_ACCESS_TOKEN        ,
-                                                                                    TAG_ENGINE              ,
-                                                                                    TAG_TERMINATE_AT        ,
-                                                                                    TAG_TLS_ENABLED         ,
-                                                                                    TAG_WITH_PLAYWRIGHT     )
+from sg_compute_specs.vault_app.service.Vault_App__Stack__Mapper            import (Vault_App__Stack__Mapper ,
+                                                                                    STACK_TYPE               ,
+                                                                                    PLAYWRIGHT_EXTERNAL_PORT ,
+                                                                                    TAG_ACCESS_TOKEN         ,
+                                                                                    TAG_ENGINE               ,
+                                                                                    TAG_TERMINATE_AT         ,
+                                                                                    TAG_TLS_ENABLED          ,
+                                                                                    TAG_WITH_PLAYWRIGHT      )
 from sg_compute_specs.vault_app.service.Vault_App__User_Data__Builder       import Vault_App__User_Data__Builder
 
 DEFAULT_REGION        = os.environ.get('AWS_DEFAULT_REGION', 'eu-west-2')
@@ -85,14 +86,17 @@ class Vault_App__Service(Spec__Service__Base):
         access_token = str(request.access_token) or secrets.token_urlsafe(24)
         ecr_registry = ecr_registry_host(region)
 
-        # Only the vault UI port is published — playwright / mitmproxy stay internal.
-        # --with-tls-check serves HTTPS on :443; that port (and :80 for the ACME
-        # http-01 challenge) must be world-open — Let's Encrypt validates from
-        # unpredictable source IPs, and the vault is access-token-gated anyway
-        # (architecture doc Q7, resolved: leave :443 world-open).
+        # SG layout:
+        #   :8080  always — vault UI on plain HTTP for non-TLS / SSM-forward use; caller-/32 only.
+        #   :443   --with-tls-check — HTTPS vault. World-open (token-gated; LE validates from unpredictable IPs).
+        #   :80    --with-tls-check — ACME http-01 challenge listener (only live during cert-init).
+        #   :11024 --with-playwright — playwright REST API. World-open (token-gated, same X-API-Key as the vault).
         extra_cidrs = {}
         if bool(request.with_tls_check):
-            extra_cidrs = {443: '0.0.0.0/0', 80: '0.0.0.0/0'}
+            extra_cidrs[443] = '0.0.0.0/0'
+            extra_cidrs[80]  = '0.0.0.0/0'
+        if bool(request.with_playwright):
+            extra_cidrs[PLAYWRIGHT_EXTERNAL_PORT] = '0.0.0.0/0'
         sg_id = self.aws_client.sg.ensure_security_group(
             region, stack_name, caller_ip,
             inbound_ports=[VAULT_PORT],
