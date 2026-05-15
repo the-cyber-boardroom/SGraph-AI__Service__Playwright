@@ -1,12 +1,14 @@
-# ═══════════════════════════════════════════════════════════════════════════════
+---
+title: "Architect Briefing — sg aws dns: Route 53 DNS Management Center"
+file: architect__sg-aws-dns__plan.md
+author: Architect (Claude)
+date: 2026-05-15 (UTC hour 08)
+repo: SGraph-AI__Service__Playwright @ dev (v0.1.140 line)
+status: PLAN — no code, no commits. For human ratification before Dev picks up.
+parent: team/humans/dinis_cruz/claude-code-web/05/15/03/architect__vault-app__cf-route53__plan.md
+---
+
 # Architect Briefing — sg aws dns: Route 53 DNS Management Center
-# File   : architect__sg-aws-dns__plan.md
-# Author : Architect (Claude)
-# Date   : 2026-05-15 (UTC hour 08)
-# Repo   : SGraph-AI__Service__Playwright @ dev (v0.1.140 line)
-# Status : PLAN — no code, no commits. For human ratification before Dev picks up.
-# Parent : team/humans/dinis_cruz/claude-code-web/05/15/03/architect__vault-app__cf-route53__plan.md
-# ═══════════════════════════════════════════════════════════════════════════════
 
 > **PROPOSED — does not exist yet.** Nothing in this brief is implemented today.
 > Verified: there is no `route53` / `Hosted_Zone` / `Route53__Client` reference

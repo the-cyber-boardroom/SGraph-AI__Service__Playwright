@@ -1,13 +1,16 @@
-# ═══════════════════════════════════════════════════════════════════════════════
+---
+title: "Architect Briefing — vault-app: CloudFront + Route 53 + ACM"
+file: architect__vault-app__cf-route53__plan.md
+author: Architect (Claude)
+date: 2026-05-15 (UTC hour 03)
+repo: SGraph-AI__Service__Playwright @ dev (v0.1.140 line, vault-app v0.2.6)
+status: PLAN — no code, no commits. For human ratification before Dev picks up.
+parent:
+  - team/roles/architect/reviews/05/14/v0.2.6__vault-app-tls-options.md
+  - team/roles/architect/reviews/05/14/v0.2.6__vault-app-tls-poc-fastapi-sidecar.md
+---
+
 # Architect Briefing — vault-app: CloudFront + Route 53 + ACM
-# File   : architect__vault-app__cf-route53__plan.md
-# Author : Architect (Claude)
-# Date   : 2026-05-15 (UTC hour 03)
-# Repo   : SGraph-AI__Service__Playwright @ dev (v0.1.140 line, vault-app v0.2.6)
-# Status : PLAN — no code, no commits. For human ratification before Dev picks up.
-# Parent : team/roles/architect/reviews/05/14/v0.2.6__vault-app-tls-options.md
-#          team/roles/architect/reviews/05/14/v0.2.6__vault-app-tls-poc-fastapi-sidecar.md
-# ═══════════════════════════════════════════════════════════════════════════════
 
 > **PROPOSED — does not exist yet.** Nothing in this brief is implemented today.
 > CloudFront, Route 53, and ACM helpers are absent from `sg_compute*` (verified:
