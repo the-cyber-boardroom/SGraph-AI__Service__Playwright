@@ -51,6 +51,35 @@ _SG_SEND_VAULT = '''
     restart: unless-stopped
 '''
 
+# TLS variant — sg-send-vault terminates its own HTTPS on :443 via the §8.2
+# FAST_API__TLS__* contract, reading the cert the one-shot cert-init sidecar
+# wrote to the shared volume. Gated behind cert-init via depends_on, so a failed
+# issuance means the vault never starts (fail-loud, not silent plain-HTTP).
+# With TLS on, the app binds :443 only — :8080 is no longer published.
+_SG_SEND_VAULT_TLS = '''
+  sg-send-vault:
+    image: {sg_send_vault_image}
+    ports:
+      - "443:443"
+    volumes:
+      - ${{VAULT_DATA_PATH:-/opt/vault-app/data}}:/data
+      - certs:/certs:ro
+    environment:
+      SGRAPH_SEND__ACCESS_TOKEN:     ${{SGRAPH_SEND__ACCESS_TOKEN}}
+      SEND__STORAGE_MODE:            ${{SEND__STORAGE_MODE:-disk}}
+      SG_VAULT_APP__SEED_VAULT_KEYS: ${{SG_VAULT_APP__SEED_VAULT_KEYS:-}}
+      FAST_API__TLS__ENABLED:        "true"
+      FAST_API__TLS__CERT_FILE:      /certs/cert.pem
+      FAST_API__TLS__KEY_FILE:       /certs/key.pem
+      FAST_API__TLS__PORT:           "443"
+    networks:
+      - vault-net
+    depends_on:
+      cert-init:
+        condition: service_completed_successfully
+    restart: unless-stopped
+'''
+
 _SG_PLAYWRIGHT = '''
   sg-playwright:
     image: {ecr_registry}/sgraph_ai_service_playwright:{image_tag}
@@ -78,44 +107,29 @@ _AGENT_MITMPROXY = '''
     restart: unless-stopped
 '''
 
-# TLS PoC — a one-shot cert sidecar seeds /certs, then Fast_API__TLS serves the
-# secure-context-check page over HTTPS on :443. cert-init runs to completion
-# first; tls-check is gated behind it via depends_on. Both run the host image
-# (it already carries sg_compute) — see the v0.2.6 TLS PoC architecture doc.
+# One-shot cert sidecar — runs the host image (it already carries sg_compute),
+# writes /certs/{cert,key}.pem, and exits 0. self-signed mode is offline;
+# letsencrypt-ip mode runs an http-01 ACME challenge on :80 (hence the published
+# port — harmless in self-signed mode, nothing listens after the sidecar exits).
+# See the v0.2.6 TLS architecture doc §8.1.
 _CERT_INIT = '''
   cert-init:
     image: {ecr_registry}/sgraph_ai_service_playwright_host:{image_tag}
     command: ["python", "-m", "sg_compute.platforms.tls.cert_init"]
     environment:
+      SG__CERT_INIT__MODE:        ${{SG__CERT_INIT__MODE:-self-signed}}
       SG__CERT_INIT__COMMON_NAME: ${{SG__CERT_INIT__COMMON_NAME:-}}
+      SG__CERT_INIT__ACME_PROD:   ${{SG__CERT_INIT__ACME_PROD:-false}}
+      SG__CERT_INIT__ACME_EMAIL:  ${{SG__CERT_INIT__ACME_EMAIL:-}}
       FAST_API__TLS__CERT_FILE:   /certs/cert.pem
       FAST_API__TLS__KEY_FILE:    /certs/key.pem
+    ports:
+      - "80:80"
     volumes:
       - certs:/certs
     networks:
       - vault-net
     restart: "no"
-'''
-
-_TLS_CHECK = '''
-  tls-check:
-    image: {ecr_registry}/sgraph_ai_service_playwright_host:{image_tag}
-    command: ["python", "-m", "sg_compute.fast_api.tls.lambda_handler"]
-    environment:
-      FAST_API__TLS__ENABLED:   "true"
-      FAST_API__TLS__CERT_FILE: /certs/cert.pem
-      FAST_API__TLS__KEY_FILE:  /certs/key.pem
-      FAST_API__TLS__PORT:      "443"
-    ports:
-      - "443:443"
-    volumes:
-      - certs:/certs:ro
-    networks:
-      - vault-net
-    depends_on:
-      cert-init:
-        condition: service_completed_successfully
-    restart: unless-stopped
 '''
 
 _NETWORKS = '''
@@ -138,18 +152,18 @@ class Vault_App__Compose__Template(Type_Safe):
                      sg_send_vault_image : str  = SG_SEND_VAULT_IMAGE          ,
                      docker_socket       : str  = '/var/run/docker.sock'      ,
                      with_tls_check      : bool = False                        ) -> str:
+        vault_block = (_SG_SEND_VAULT_TLS if with_tls_check else _SG_SEND_VAULT)
         parts = [
             _HEADER                                                                          ,
             _HOST_PLANE.format(ecr_registry=ecr_registry, image_tag=image_tag,
                                docker_socket=docker_socket)                                  ,
-            _SG_SEND_VAULT.format(sg_send_vault_image=sg_send_vault_image)                    ,
+            vault_block.format(sg_send_vault_image=sg_send_vault_image)                       ,
         ]
         if with_playwright:
             parts.append(_SG_PLAYWRIGHT.format(ecr_registry=ecr_registry, image_tag=image_tag))
             parts.append(_AGENT_MITMPROXY.format(ecr_registry=ecr_registry, image_tag=image_tag))
         if with_tls_check:
             parts.append(_CERT_INIT.format(ecr_registry=ecr_registry, image_tag=image_tag))
-            parts.append(_TLS_CHECK.format(ecr_registry=ecr_registry, image_tag=image_tag))
         parts.append(_NETWORKS)
         if with_tls_check:
             parts.append(_VOLUMES)

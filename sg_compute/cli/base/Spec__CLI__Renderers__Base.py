@@ -196,9 +196,12 @@ def render_health_probe(probe, console: Console) -> None:
     healthy = getattr(probe, 'healthy', False)
     state   = getattr(probe, 'state',   '')
     elapsed = getattr(probe, 'elapsed_ms', 0)
-    error   = str(getattr(probe, 'last_error', '') or '')
+    error   = str(getattr(probe, 'last_error',   '') or '')
+    cert    = str(getattr(probe, 'cert_summary', '') or '')
     if healthy:
         console.print(f'  [green]✓  healthy[/]  state={state}  ({elapsed}ms)')
+        if cert:
+            console.print(f'     [dim]{cert}[/]')
     else:
         console.print(f'  [red]✗  not healthy[/]  state={state}  ({elapsed}ms)')
         if error:

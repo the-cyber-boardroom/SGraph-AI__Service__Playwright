@@ -122,11 +122,13 @@ def _render_vault_app_create(response, console: Console) -> None:
 
 def _set_extras(request, with_playwright=False, podman=False, use_spot=True,
                 storage_mode='disk', seed_vault_keys='', access_token='', disk_size=0,
-                with_tls_check=False):
+                with_tls_check=False, tls_mode='self-signed', acme_prod=False):
     request.with_playwright  = bool(with_playwright)
     request.container_engine = 'podman' if podman else 'docker'
     request.use_spot         = bool(use_spot)
     request.with_tls_check   = bool(with_tls_check)
+    request.tls_mode         = tls_mode or 'self-signed'
+    request.acme_prod        = bool(acme_prod)
     if storage_mode:
         request.storage_mode    = storage_mode
     if seed_vault_keys:
@@ -169,8 +171,11 @@ app = Spec__CLI__Builder(
         ('disk_size'      , int , 20,
          'Root volume in GiB — vault data + container image layers.'),
         ('with_tls_check' , bool, False,
-         'Add the one-shot cert sidecar + Fast_API__TLS on :443 — serves the '
-         'secure-context-check page over HTTPS (TLS PoC).'),
+         'Serve the vault over HTTPS on :443 via the one-shot cert sidecar.'),
+        ('tls_mode'       , str , 'self-signed',
+         'Cert source when --with-tls-check is set: self-signed | letsencrypt-ip.'),
+        ('acme_prod'      , bool, False,
+         'letsencrypt-ip: issue from the LE production directory (default: staging).'),
         ('access_token'   , str , '',
          'Shared stack secret. Auto-generated and returned once on create if blank.'),
     ],

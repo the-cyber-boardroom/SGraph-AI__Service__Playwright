@@ -104,13 +104,22 @@ class TestVaultAppServiceCliSurface:
         user_data = builder.render(stack_name='test-stack', region='eu-west-2',
                                    ecr_registry=REGISTRY, access_token='tok',
                                    with_tls_check=True)
-        assert 'cert-init'                              in user_data
-        assert 'tls-check'                              in user_data
-        assert 'sg_compute.fast_api.tls.lambda_handler' in user_data
+        assert 'cert-init'                          in user_data
+        assert 'sg_compute.platforms.tls.cert_init' in user_data
+        assert 'FAST_API__TLS__ENABLED'             in user_data
+        assert 'SG__CERT_INIT__MODE=self-signed'    in user_data            # default mode in .env
+
+    def test_user_data_letsencrypt_ip_mode_in_env(self):
+        builder   = Vault_App__User_Data__Builder()
+        user_data = builder.render(stack_name='test-stack', region='eu-west-2',
+                                   ecr_registry=REGISTRY, access_token='tok',
+                                   with_tls_check=True, tls_mode='letsencrypt-ip', acme_prod=True)
+        assert 'SG__CERT_INIT__MODE=letsencrypt-ip' in user_data
+        assert 'SG__CERT_INIT__ACME_PROD=true'      in user_data
 
     def test_user_data_without_tls_check_omits_cert_sidecar(self):
         builder   = Vault_App__User_Data__Builder()
         user_data = builder.render(stack_name='test-stack', region='eu-west-2',
                                    ecr_registry=REGISTRY, access_token='tok')
-        assert 'cert-init' not in user_data
-        assert 'tls-check' not in user_data
+        assert 'cert-init'           not in user_data
+        assert 'SG__CERT_INIT__MODE' not in user_data

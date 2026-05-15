@@ -84,14 +84,17 @@ class Vault_App__Service(Spec__Service__Base):
         ecr_registry = ecr_registry_host(region)
 
         # Only the vault UI port is published — playwright / mitmproxy stay internal.
-        # --with-tls-check also publishes 443 for the Fast_API__TLS secure-context probe.
-        inbound_ports = [VAULT_PORT]
+        # --with-tls-check serves HTTPS on :443; that port (and :80 for the ACME
+        # http-01 challenge) must be world-open — Let's Encrypt validates from
+        # unpredictable source IPs, and the vault is access-token-gated anyway
+        # (architecture doc Q7, resolved: leave :443 world-open).
+        extra_cidrs = {}
         if bool(request.with_tls_check):
-            inbound_ports.append(443)
+            extra_cidrs = {443: '0.0.0.0/0', 80: '0.0.0.0/0'}
         sg_id = self.aws_client.sg.ensure_security_group(
             region, stack_name, caller_ip,
-            inbound_ports=inbound_ports,
-            extra_cidrs={})
+            inbound_ports=[VAULT_PORT],
+            extra_cidrs=extra_cidrs)
 
         extra = {
             TAG_WITH_PLAYWRIGHT: 'true' if request.with_playwright else 'false',
@@ -113,6 +116,8 @@ class Vault_App__Service(Spec__Service__Base):
             seed_vault_keys  = str(request.seed_vault_keys)        ,
             max_hours        = float(request.max_hours) ,
             with_tls_check   = bool(request.with_tls_check)        ,
+            tls_mode         = str(request.tls_mode) or 'self-signed' ,
+            acme_prod        = bool(request.acme_prod)             ,
         )
         iid = self.aws_client.launch.run_instance(
             region                = region              ,
@@ -191,23 +196,32 @@ class Vault_App__Service(Spec__Service__Base):
                     if is_wait:
                         c.print(f'  [dim][t+{elapsed:>3}s][/]  state=[yellow]{state}[/]  [dim]awaiting public IP…[/]')
                 else:
-                    status, err = self._http_status(f'http://{public_ip}:{VAULT_PORT}/info/health', ctx)
+                    # TLS-aware: HTTPS :443 (TLS stack) is tried before HTTP :8080 (plain).
+                    status, scheme, err = self._probe_endpoints(public_ip, ctx)
                     # Any HTTP response (incl. 401/403 auth gate) means the vault is up.
                     if status and status < 500:
                         probe.healthy    = True
                         probe.state      = 'running'
                         probe.last_error = ''
-                        vault_url = str(getattr(info, 'vault_url', '') or f'http://{public_ip}:{VAULT_PORT}')
+                        if scheme == 'https':
+                            probe.cert_summary = self._probe_cert(public_ip)
                         if is_wait:
                             gate = '  [dim](auth-gated — expected)[/]' if status in (401, 403) else ''
-                            c.print(f'  [dim][t+{elapsed:>3}s][/]  [green]✓ healthy[/]  HTTP {status}  {vault_url}{gate}')
+                            url  = f'https://{public_ip}' if scheme == 'https' else f'http://{public_ip}:{VAULT_PORT}'
+                            cert = f'  [dim]{probe.cert_summary}[/]' if probe.cert_summary else ''
+                            c.print(f'  [dim][t+{elapsed:>3}s][/]  [green]✓ healthy[/]  HTTP {status}  {url}{gate}{cert}')
                         break
                     probe.last_error = err or f'HTTP {status}'
                     if is_wait:
-                        stage     = self._probe_boot_stage(region, name)
-                        stage_txt = f'  stage=[bold]{stage}[/]' if stage else ''
+                        stage, cert_init = self._probe_progress(region, name)
+                        bits = []
+                        if cert_init:
+                            bits.append(f'cert-init=[bold]{cert_init}[/]')
+                        if stage:
+                            bits.append(f'stage=[bold]{stage}[/]')
+                        detail = ('  ' + '  '.join(bits)) if bits else ''
                         c.print(f'  [dim][t+{elapsed:>3}s][/]  state=[cyan]{state}[/]  ip={public_ip}'
-                                f'{stage_txt}  [dim]{err or ("HTTP " + str(status))}[/]')
+                                f'{detail}  [dim]{err or ("HTTP " + str(status))}[/]')
 
             if time.monotonic() >= deadline:
                 if is_wait and not probe.healthy:
@@ -231,18 +245,50 @@ class Vault_App__Service(Spec__Service__Base):
         except Exception as exc:
             return 0, str(exc)[:200]
 
-    def _probe_boot_stage(self, region: str, name: str) -> str:
-        # One cheap SSM call — returns the latest [vault-app]/[ephemeral-ec2] boot
-        # marker, or '' when SSM is not reachable yet (early boot).
+    def _probe_endpoints(self, public_ip: str, ctx) -> tuple:
+        # (status, scheme, error). Tries HTTPS :443 first — a TLS-enabled stack
+        # binds :443 only — then falls back to plain HTTP :8080. scheme is '' when
+        # neither responds (status 0).
+        https_status, https_err = self._http_status(f'https://{public_ip}/info/health', ctx)
+        if https_status:
+            return https_status, 'https', https_err
+        http_status, http_err = self._http_status(f'http://{public_ip}:{VAULT_PORT}/info/health', ctx)
+        if http_status:
+            return http_status, 'http', http_err
+        return 0, '', https_err or http_err
+
+    def _probe_cert(self, public_ip: str) -> str:
+        # One TLS handshake — decode the cert the vault is serving for the wait
+        # line: 'self-signed · 159d left' or 'CA-signed · 6d left'.
+        try:
+            from sg_compute.platforms.tls.Cert__Inspector import Cert__Inspector
+            info = Cert__Inspector().inspect_host(public_ip, 443)
+            kind = 'self-signed' if info.is_self_signed else 'CA-signed'
+            days = int(getattr(info, 'days_remaining', 0) or 0)
+            return f'cert: {kind} · {days}d left'
+        except Exception:
+            return ''
+
+    def _probe_progress(self, region: str, name: str) -> tuple:
+        # One SSM round-trip → (boot_stage, cert_init_status). boot_stage is the
+        # latest [vault-app]/[ephemeral-ec2] boot-log marker; cert_init_status is
+        # the one-shot cert-init container's docker status line. Either is '' when
+        # absent or SSM is not reachable yet.
         try:
             result = self.exec(
                 region, name,
                 "grep -E '^\\[(vault-app|ephemeral-ec2)\\]' "
-                "/var/log/ephemeral-ec2-boot.log 2>/dev/null | tail -n 1 || true",
+                "/var/log/ephemeral-ec2-boot.log 2>/dev/null | tail -n 1 || true; "
+                "echo '|||CERT|||'; "
+                "(docker ps -a --filter name=cert-init --format '{{.Status}}' 2>/dev/null || "
+                "podman ps -a --filter name=cert-init --format '{{.Status}}' 2>/dev/null) "
+                "| head -n 1 || true",
                 timeout_sec=30)
-            return str(getattr(result, 'stdout', '') or '').strip()[:80]
+            out = str(getattr(result, 'stdout', '') or '')
+            stage_part, _, cert_part = out.partition('|||CERT|||')
+            return stage_part.strip()[:80], cert_part.strip()[:48]
         except Exception:
-            return ''
+            return '', ''
 
     def _print_boot_log_tail(self, region: str, name: str, c) -> None:
         try:
