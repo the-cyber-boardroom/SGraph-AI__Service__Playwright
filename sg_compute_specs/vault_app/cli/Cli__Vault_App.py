@@ -236,6 +236,9 @@ _LOG_SOURCES = {                                                       # name �
     'vault'     : ('(docker logs --tail {tail} vault-app-sg-send-vault-1 2>&1 || '
                    'podman logs --tail {tail} vault-app-sg-send-vault-1 2>&1) || true', 60,
                    'sg-send-vault container — the vault app itself'),
+    'mitmproxy' : ('(docker logs --tail {tail} vault-app-agent-mitmproxy-1 2>&1 || '
+                   'podman logs --tail {tail} vault-app-agent-mitmproxy-1 2>&1) || true', 60,
+                   'agent-mitmproxy container — mitmweb startup line includes the web UI password'),
 }
 
 
