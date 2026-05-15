@@ -76,6 +76,9 @@ def _render_vault_app_info(info, console: Console) -> None:
 
     if vault_url:
         t.add_row('set-cookie-form', f'[cyan]{vault_url}/auth/set-cookie-form[/]')
+    if playwright_url:
+        t.add_row('playwright-cookie', f'[cyan]{playwright_url}/auth/set-cookie-form[/]')
+    if vault_url:
         bookmarklet_token = token or 'YOUR_TOKEN'
         t.add_row('browser-auth',
                   f'[dim]javascript: document.cookie = '
