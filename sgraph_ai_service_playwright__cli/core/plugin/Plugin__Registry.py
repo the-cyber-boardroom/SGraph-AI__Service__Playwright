@@ -30,7 +30,6 @@ PLUGIN_FOLDERS: list = [
     'opensearch',
     'neko',
     'firefox',
-    'playwright',
 ]
 
 
