@@ -8,4 +8,7 @@ osbot-aws
 osbot-docker
 osbot-fast-api
 osbot-fast-api-serverless
+cryptography
+acme
+josepy
 typer

@@ -36,6 +36,37 @@ from sg_compute.cli.base.Spec__CLI__Resolver      import Spec__CLI__Resolver
 from sg_compute.core.ami.service.AMI__Service     import AMI__Service
 
 
+def render_cert_info(info, console: Console) -> None:                                  # shared by every `cert` sub-command
+    from datetime import datetime, timezone
+
+    from rich.table import Table
+
+    def _fmt(ms):
+        if not ms:
+            return '—'
+        return datetime.fromtimestamp(int(ms) / 1000, tz=timezone.utc).strftime('%Y-%m-%d %H:%M UTC')
+
+    t = Table(box=None, show_header=False, padding=(0, 2))
+    t.add_column(style='bold', min_width=16, no_wrap=True)
+    t.add_column()
+    t.add_row('source',      str(getattr(info, 'source', '') or '—'))
+    t.add_row('subject',     str(getattr(info, 'subject', '') or '—'))
+    t.add_row('issuer',      str(getattr(info, 'issuer', '') or '—'))
+    self_signed = bool(getattr(info, 'is_self_signed', False))
+    t.add_row('self-signed', '[yellow]yes[/] (browser will warn)' if self_signed else '[green]no[/]')
+    expired = bool(getattr(info, 'is_expired', False))
+    days    = int(getattr(info, 'days_remaining', 0) or 0)
+    t.add_row('validity', f'[red]EXPIRED[/]' if expired else f'[green]valid[/]  [dim]{days}d remaining[/]')
+    t.add_row('not-after',   _fmt(getattr(info, 'not_after', 0)))
+    sans = list(getattr(info, 'sans', []) or [])
+    if sans:
+        t.add_row('sans', ', '.join(str(s) for s in sans))
+    t.add_row('fingerprint', f'[dim]{getattr(info, "fingerprint_sha256", "") or "—"}[/]')
+    console.print()
+    console.print(t)
+    console.print()
+
+
 class Spec__CLI__Builder:
 
     def __init__(self, cli_spec: Schema__Spec__CLI__Spec,
@@ -63,6 +94,7 @@ class Spec__CLI__Builder:
         self._register_exec   (app)
         self._register_delete (app)
         self._register_ami    (app)
+        self._register_cert   (app)
         return app
 
     # ── internal helpers ──────────────────────────────────────────────────────
@@ -117,6 +149,7 @@ class Spec__CLI__Builder:
         service_factory = self.cli_spec.service_factory
         resolver        = self.resolver
         spec_id         = self.cli_spec.spec_id
+        render_info_fn  = getattr(self.cli_spec, 'render_info_fn', None) or render_info
 
         @app.command()
         @spec_cli_errors
@@ -131,17 +164,19 @@ class Spec__CLI__Builder:
                 Console(highlight=False, stderr=True).print(
                     f'  [red]✗  No {spec_id} stack matched {name!r}[/]')
                 raise typer.Exit(1)
-            render_info(data, Console(highlight=False, width=200))
+            render_info_fn(data, Console(highlight=False, width=200))
 
     def _register_create(self, app):
-        cli_spec        = self.cli_spec
-        resolver        = self.resolver
-        service_factory = self.cli_spec.service_factory
-        spec_id         = self.cli_spec.spec_id
-        extra_options   = self.extra_create_options
+        cli_spec         = self.cli_spec
+        resolver         = self.resolver
+        service_factory  = self.cli_spec.service_factory
+        spec_id          = self.cli_spec.spec_id
+        extra_options    = self.extra_create_options
+        render_create_fn = getattr(self.cli_spec, 'render_create_fn', None) or render_create
+        render_info_fn   = getattr(self.cli_spec, 'render_info_fn',   None) or render_info
 
         base_params = [
-            ('name',          Optional[str], typer.Argument(None,
+            ('name',          Optional[str], typer.Option(None, '--name', '-n',
                               help='Stack name; auto-generated if omitted.')),
             ('region',        str,           typer.Option(DEFAULT_REGION, '--region', '-r')),
             ('instance_type', str,           typer.Option(cli_spec.default_instance_type,
@@ -204,11 +239,29 @@ class Spec__CLI__Builder:
                     opt[0]: kwargs[opt[0]] for opt in extra_options
                 })
             resp       = svc.create_stack(req)
-            render_create(resp, console)
+            render_create_fn(resp, console)
+            # Optional post-launch hook — kicks off background work (e.g. vault-app
+            # --with-aws-dns running Route 53 upsert + INSYNC wait in parallel with
+            # the EC2 boot). The returned task (or None) is joined after _wait_healthy
+            # so the parallel work has the entire EC2 boot window to finish.
+            post_launch_task = None
+            if cli_spec.post_launch_fn is not None:
+                try:
+                    post_launch_task = cli_spec.post_launch_fn(svc, region, req, resp, kwargs, console)
+                except Exception as exc:                                                # never crash create on a hook failure — print and continue
+                    Console(highlight=False, stderr=True).print(
+                        f'  [yellow]⚠[/]  post_launch hook failed: {type(exc).__name__}: {exc}')
             if kwargs.get('wait'):
                 info      = getattr(resp, 'stack_info', None) or resp
                 real_name = str(getattr(info, 'stack_name', '') or name)
                 self._wait_healthy(svc, region, real_name)
+                if post_launch_task is not None and hasattr(post_launch_task, 'join'):
+                    post_launch_task.join(timeout=180)                                  # 3-min ceiling so a stuck task can't hang the CLI indefinitely
+                # surface the final info block so the URLs / access token / cert info
+                # are visible without a second `sp <spec> info` call
+                fresh = svc.get_stack_info(region, real_name)
+                if fresh is not None:
+                    render_info_fn(fresh, console)
 
         fn = self._build_typed_fn(create_impl, all_params, 'create')
         fn.__doc__ = 'Launch a new stack. Prints a preview banner then submits to AWS.'
@@ -411,6 +464,121 @@ class Spec__CLI__Builder:
                 raise typer.Exit(1)
 
         app.add_typer(ami_app, name='ami')
+
+    def _register_cert(self, app):
+        service_factory = self.cli_spec.service_factory
+        resolver        = self.resolver
+        spec_id         = self.cli_spec.spec_id
+
+        cert_app = typer.Typer(no_args_is_help = True                                                  ,
+                               help            = 'Inspect, generate and verify TLS certificates.'      ,
+                               add_completion  = False                                                  )
+
+        @cert_app.command(name='generate')
+        @spec_cli_errors
+        def cert_generate(common_name: str       = typer.Option(..., '--common-name', '--cn',
+                                                  help='Cert CN; also added as a SAN entry.'),
+                          san        : List[str] = typer.Option(None, '--san',
+                                                  help='Extra SAN entry — repeat for more.'),
+                          days       : int       = typer.Option(160, '--days',
+                                                  help='Validity window in days (default 160 — the LE shortlived ceiling).'),
+                          out_cert   : str       = typer.Option('cert.pem', '--out-cert'),
+                          out_key    : str       = typer.Option('key.pem',  '--out-key')):
+            """Generate a self-signed cert + key locally. No AWS, works offline."""
+            from sg_compute.platforms.tls.Cert__Generator import Cert__Generator
+            from sg_compute.platforms.tls.Cert__Inspector import Cert__Inspector
+            Cert__Generator().generate_to_files(cert_path   = out_cert            ,
+                                                key_path    = out_key             ,
+                                                common_name = common_name         ,
+                                                sans        = list(san or [])     ,
+                                                days_valid  = days                )
+            c = Console(highlight=False)
+            c.print(f'\n  [green]✓[/]  self-signed cert written  [dim]cert={out_cert}  key={out_key}[/]')
+            render_cert_info(Cert__Inspector().inspect_file(out_cert), c)
+
+        @cert_app.command(name='inspect')
+        @spec_cli_errors
+        def cert_inspect(file: str = typer.Option('', '--file', '-f', help='PEM file to decode.'),
+                         host: str = typer.Option('', '--host',       help='Live host to TLS-probe instead of a file.'),
+                         port: int = typer.Option(443, '--port')):
+            """Decode a cert from a PEM file or a live TLS handshake."""
+            from sg_compute.platforms.tls.Cert__Inspector import Cert__Inspector
+            if not file and not host:
+                raise typer.BadParameter('provide --file or --host')
+            inspector = Cert__Inspector()
+            info      = inspector.inspect_file(file) if file else inspector.inspect_host(host, port)
+            render_cert_info(info, Console(highlight=False))
+
+        @cert_app.command(name='show')
+        @spec_cli_errors
+        def cert_show(name  : Optional[str] = typer.Argument(None,
+                              help='Stack name; auto-selected when only one exists.'),
+                      region: str           = typer.Option(DEFAULT_REGION, '--region', '-r'),
+                      port  : int           = typer.Option(443, '--port')):
+            """Show the TLS cert the stack is currently serving on :443."""
+            from sg_compute.platforms.tls.Cert__Inspector import Cert__Inspector
+            svc  = service_factory()
+            name = resolver.resolve(svc, name, region, spec_id)
+            info = svc.get_stack_info(region, name)
+            ip   = str(getattr(info, 'public_ip', '') or '') if info else ''
+            if not ip:
+                Console(highlight=False, stderr=True).print(
+                    f'  [red]✗  {name!r} has no public IP yet[/]')
+                raise typer.Exit(1)
+            c = Console(highlight=False)
+            c.print(f'\n  [bold]{name}[/]  [dim]{ip}:{port}[/]')
+            render_cert_info(Cert__Inspector().inspect_host(ip, port), c)
+
+        @cert_app.command(name='check')
+        @spec_cli_errors
+        def cert_check(name  : Optional[str] = typer.Argument(None,
+                              help='Stack name; auto-selected when only one exists.'),
+                       region: str           = typer.Option(DEFAULT_REGION, '--region', '-r'),
+                       port  : int           = typer.Option(443, '--port')):
+            """Probe the stack: TLS cert + the last browser-reported secure-context result."""
+            import json
+            import ssl
+            import urllib.request
+
+            from sg_compute.platforms.tls.Cert__Inspector import Cert__Inspector
+            svc  = service_factory()
+            name = resolver.resolve(svc, name, region, spec_id)
+            info = svc.get_stack_info(region, name)
+            ip   = str(getattr(info, 'public_ip', '') or '') if info else ''
+            if not ip:
+                Console(highlight=False, stderr=True).print(
+                    f'  [red]✗  {name!r} has no public IP yet[/]')
+                raise typer.Exit(1)
+            c = Console(highlight=False)
+            c.print(f'\n  [bold]{name}[/]  [dim]{ip}:{port}[/]')
+            render_cert_info(Cert__Inspector().inspect_host(ip, port), c)
+
+            ctx = ssl.create_default_context()
+            ctx.check_hostname = False
+            ctx.verify_mode    = ssl.CERT_NONE
+            try:
+                url = f'https://{ip}:{port}/tls/secure-context-last'
+                with urllib.request.urlopen(url, timeout=5, context=ctx) as resp:
+                    last = json.loads(resp.read().decode())
+            except Exception as exc:
+                c.print(f'  [yellow]⚠[/]  could not read secure-context report  [dim]{str(exc)[:80]}[/]\n')
+                raise typer.Exit(1)
+
+            if not last.get('recorded'):
+                c.print(f'  [dim]no browser has reported yet — open[/] '
+                        f'[cyan]https://{ip}:{port}/tls/secure-context-check[/]\n')
+                return
+            secure = bool(last.get('is_secure_context'))
+            crypto = bool(last.get('has_web_crypto'))
+            ok     = '[green]PASS[/]'
+            bad    = '[red]FAIL[/]'
+            c.print(f'  window.isSecureContext   {ok if secure else bad}')
+            c.print(f'  window.crypto.subtle     {ok if crypto else bad}')
+            c.print()
+            if not (secure and crypto):
+                raise typer.Exit(1)
+
+        app.add_typer(cert_app, name='cert')
 
     def _wait_ami_available(self, ami_svc, region: str, ami_id: str,
                                   timeout_sec: int = 1800, poll_sec: int = 15) -> None:        # 30-min ceiling: bake of a 250 GiB Ollama AMI runs 8–15 min

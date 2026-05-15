@@ -17,7 +17,6 @@ on:
       - 'scripts/observability.py'
       - 'scripts/run_sp_cli.py'
       - 'scripts/sp-cli__run-locally.sh'
-      - '.github/workflows/ci__sp_cli.yml'
       - 'team/**'
       - 'library/**'
       - '**/*.md'

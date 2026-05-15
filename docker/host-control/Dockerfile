@@ -8,7 +8,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # Docker CLI client — talks to the host daemon via the mounted socket
 # (daemon not needed; socket is bind-mounted at runtime via -v /var/run/docker.sock)
-RUN apk add --no-cache docker-cli
+# bash — Routes__Host__Shell defaults to /bin/bash; the python:3.12-alpine base
+# ships busybox /bin/sh but no bash, so the shell route fails on first command.
+RUN apk add --no-cache docker-cli bash
 
 # Copy the host plane package source (not yet on PyPI — installed from repo)
 COPY sg_compute/ ./sg_compute/

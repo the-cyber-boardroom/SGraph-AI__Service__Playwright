@@ -44,7 +44,7 @@ from osbot_aws.aws.ec2.EC2                                                      
 from osbot_aws.aws.iam.IAM_Role                                                          import IAM_Role
 from osbot_utils.utils.Env                                                               import get_env
 
-from sg_compute_specs.playwright.core.docker.Docker__SGraph_AI__Service__Playwright__Base    import IMAGE_NAME as PLAYWRIGHT_IMAGE_NAME
+PLAYWRIGHT_IMAGE_NAME = 'diniscruz/sg-playwright'                                       # Docker Hub image (moved from ECR docker base class)
 from sg_compute_specs.mitmproxy.docker.Docker__Agent_Mitmproxy__Base                     import IMAGE_NAME as SIDECAR_IMAGE_NAME
 
 from sgraph_ai_service_playwright__cli.ec2.service.Ec2__AWS__Client                      import (Ec2__AWS__Client                                            ,
@@ -843,6 +843,10 @@ app.add_typer(_ollama_app, name='ol', hidden=True)                              
 from sg_compute_specs.local_claude.cli.Cli__Local_Claude import app as _local_claude_app  # noqa: E402
 app.add_typer(_local_claude_app, name='local-claude'    )                                  # local vLLM + Claude Code on EC2 GPU
 app.add_typer(_local_claude_app, name='lc', hidden=True )                                  # short alias
+
+from sg_compute_specs.vault_app.cli.Cli__Vault_App import app as _vault_app_app  # noqa: E402
+app.add_typer(_vault_app_app, name='vault-app'    )                                        # vault-app substrate on EC2 (just-vault / +playwright)
+app.add_typer(_vault_app_app, name='va', hidden=True)                                      # short alias
 
 from scripts.catalog import app as _catalog_app  # noqa: E402
 app.add_typer(_catalog_app, name='catalog')

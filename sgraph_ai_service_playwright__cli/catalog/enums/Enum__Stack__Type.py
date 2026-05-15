@@ -14,3 +14,4 @@ class Enum__Stack__Type(Enum):
     VNC        = 'vnc'
     NEKO       = 'neko'
     FIREFOX    = 'firefox'
+    PLAYWRIGHT = 'playwright'

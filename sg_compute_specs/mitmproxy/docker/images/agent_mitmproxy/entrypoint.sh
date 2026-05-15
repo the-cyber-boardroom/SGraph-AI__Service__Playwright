@@ -53,6 +53,13 @@ if [ "${AGENT_MITMPROXY__HTTP2:-true}" = "false" ]; then
     MITMWEB_CMD="${MITMWEB_CMD} --set http2=false"
 fi
 
+# mitmweb UI password — share with the FastAPI access token so the operator has
+# one secret across the whole stack. Falls back to mitmweb's auto-generated
+# random password when FAST_API__AUTH__API_KEY__VALUE isn't set (standalone use).
+if [ -n "${FAST_API__AUTH__API_KEY__VALUE:-}" ]; then
+    MITMWEB_CMD="${MITMWEB_CMD} --set web_password=${FAST_API__AUTH__API_KEY__VALUE}"
+fi
+
 # Fixed flags (always present)
 MITMWEB_CMD="${MITMWEB_CMD} --web-host 127.0.0.1"
 MITMWEB_CMD="${MITMWEB_CMD} --web-port 8081"

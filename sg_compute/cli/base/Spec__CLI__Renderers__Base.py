@@ -192,15 +192,27 @@ def render_delete(stack_name: str, deleted: bool, console: Console) -> None:
         console.print(f'  [red]✗  failed to delete[/] {stack_name}')
 
 
+def format_elapsed_ms(elapsed_ms: int) -> str:                                    # 149254 -> '2m 29s'; sub-minute -> '47s'; sub-second -> '<1s'
+    total_s = int(elapsed_ms) // 1000
+    if total_s < 1:
+        return '<1s'
+    minutes, seconds = divmod(total_s, 60)
+    return f'{minutes}m {seconds}s' if minutes else f'{seconds}s'
+
+
 def render_health_probe(probe, console: Console) -> None:
     healthy = getattr(probe, 'healthy', False)
     state   = getattr(probe, 'state',   '')
-    elapsed = getattr(probe, 'elapsed_ms', 0)
-    error   = str(getattr(probe, 'last_error', '') or '')
+    elapsed = int(getattr(probe, 'elapsed_ms', 0) or 0)
+    error   = str(getattr(probe, 'last_error',   '') or '')
+    cert    = str(getattr(probe, 'cert_summary', '') or '')
+    pretty  = f'{format_elapsed_ms(elapsed)}  [dim]({elapsed}ms)[/]'
     if healthy:
-        console.print(f'  [green]✓  healthy[/]  state={state}  ({elapsed}ms)')
+        console.print(f'  [green]✓  healthy[/]  state={state}  {pretty}')
+        if cert:
+            console.print(f'     [dim]{cert}[/]')
     else:
-        console.print(f'  [red]✗  not healthy[/]  state={state}  ({elapsed}ms)')
+        console.print(f'  [red]✗  not healthy[/]  state={state}  {pretty}')
         if error:
             console.print(f'     [dim]{error}[/]')
 

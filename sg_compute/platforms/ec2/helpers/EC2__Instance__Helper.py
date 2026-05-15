@@ -125,8 +125,12 @@ class EC2__Instance__Helper(Type_Safe):
                 Parameters     = {'commands': [command]},
                 TimeoutSeconds = timeout_sec             )
         except Exception as exc:
-            print(f'  [run_command] send_command failed: {type(exc).__name__}: {exc}',
-                  file=sys.stderr)
+            # InvalidInstanceId fires constantly during the boot window before the SSM
+            # agent has registered the instance — expected noise, not signal. Other
+            # errors (auth, throttling, etc.) keep printing so real failures stay loud.
+            if 'InvalidInstanceId' not in str(exc):
+                print(f'  [run_command] send_command failed: {type(exc).__name__}: {exc}',
+                      file=sys.stderr)
             return '', -1
         command_id = resp.get('Command', {}).get('CommandId', '')
         if not command_id:

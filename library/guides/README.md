@@ -11,6 +11,7 @@ Framework guides — read these before writing code against the corresponding li
 | [`v3.1.1__testing_guidance.md`](v3.1.1__testing_guidance.md)         | 3.1.1  | When writing tests — context managers, `.obj()`, `__SKIP__`, no-mocks discipline |
 | [`v0.24.2__fast_api_routes.md`](v0.24.2__fast_api_routes.md)         | 0.24.2 | When adding or modifying a FastAPI route class |
 | [`v0.34.0__unified_service_client.md`](v0.34.0__unified_service_client.md) | 0.34.0 | When wiring the stateless client or service registry for tests |
+| [`v0.2.15__markdown_doc_style.md`](v0.2.15__markdown_doc_style.md)   | 0.2.15 | When writing any Markdown brief / plan / debrief / review — YAML frontmatter, not `═══` heading blocks |
 
 ---
 
