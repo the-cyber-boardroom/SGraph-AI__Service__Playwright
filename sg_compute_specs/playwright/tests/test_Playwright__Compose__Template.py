@@ -23,7 +23,8 @@ class test_Playwright__Compose__Template(TestCase):
         assert 'sg-playwright'                          in yaml
         assert 'agent-mitmproxy'                        not in yaml
         assert f'{ECR}/sgraph_ai_service_playwright_host:latest' in yaml
-        assert f'{ECR}/diniscruz/sg-playwright:latest'  in yaml
+        assert 'image: diniscruz/sg-playwright:latest'   in yaml                   # Docker Hub — NO ecr_registry prefix
+        assert f'{ECR}/diniscruz/sg-playwright'         not in yaml                # never prefix the Docker Hub image with ECR
         assert '"8000:8000"'                            in yaml
         assert 'sg-net'                                 in yaml
 
@@ -61,5 +62,6 @@ class test_Playwright__Compose__Template(TestCase):
 
     def test__image_tag_threaded(self):
         yaml = self.template.render(ecr_registry=ECR, with_mitmproxy=True, image_tag='v1.2.3')
-        assert f'{ECR}/diniscruz/sg-playwright:v1.2.3'   in yaml
+        assert 'image: diniscruz/sg-playwright:v1.2.3'   in yaml                   # Docker Hub — NO ecr_registry prefix
+        assert f'{ECR}/diniscruz/sg-playwright'         not in yaml
         assert f'{ECR}/agent_mitmproxy:v1.2.3'           in yaml
