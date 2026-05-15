@@ -191,6 +191,12 @@ _LOG_SOURCES = {                                                       # name �
                    'cloud-init full output — slightly behind the boot log'),
     'journal'   : ('journalctl -n {tail} --no-pager'                 , 60,
                    'full systemd journal — always available'),
+    'cert-init' : ('(docker logs --tail {tail} vault-app-cert-init-1 2>&1 || '
+                   'podman logs --tail {tail} vault-app-cert-init-1 2>&1) || true'  , 60,
+                   'one-shot TLS cert sidecar — why it exited (self-signed gen / ACME issuance)'),
+    'vault'     : ('(docker logs --tail {tail} vault-app-sg-send-vault-1 2>&1 || '
+                   'podman logs --tail {tail} vault-app-sg-send-vault-1 2>&1) || true', 60,
+                   'sg-send-vault container — the vault app itself'),
 }
 
 
@@ -217,14 +223,21 @@ Available sources (pick with --source / -s, or omit to be prompted):
   boot        EC2 user-data boot script — [vault-app] stage markers
   cloud-init  cloud-init full output — slightly behind the boot log
   journal     full systemd journal — always available
+  cert-init   one-shot TLS cert sidecar — why it exited (--with-tls-check stacks)
+  vault       sg-send-vault container — the vault app itself
+
+\b
+Add --follow / -f to poll for new lines every few seconds (Ctrl-C to stop).
 ''')
 @spec_cli_errors
 def logs(name  : str  = typer.Argument(None, help='Stack name; auto-selected when only one exists.'),
          tail  : int  = typer.Option(300,   '--tail', '-n',   help='Number of log lines to fetch.'),
+         follow: bool = typer.Option(False, '--follow', '-f', help='Poll for new lines every few seconds (Ctrl-C to stop).'),
          source: str  = typer.Option('',    '--source', '-s',
-                                     help='boot | cloud-init | journal. Omit to be prompted.'),
+                                     help='boot | cloud-init | journal | cert-init | vault. Omit to be prompted.'),
          region: str  = typer.Option(DEFAULT_REGION, '--region', '-r')):
     """Stream logs from the stack host via SSM."""
+    import time
     c = Console(highlight=False)
     if not source:
         source = _prompt_for_source(c)
@@ -232,15 +245,46 @@ def logs(name  : str  = typer.Argument(None, help='Stack name; auto-selected whe
         raise typer.BadParameter(
             f'unknown source {source!r}; pick from: {", ".join(_LOG_SOURCES)}')
     cmd_tpl, timeout, _desc = _LOG_SOURCES[source]
-    svc     = Vault_App__Service().setup()
-    name    = Spec__CLI__Builder(_cli_spec).resolver.resolve(svc, name, region, 'vault-app')
-    ssm_cmd = cmd_tpl.format(tail=tail)
-    others  = '  '.join(k for k in _LOG_SOURCES if k != source)
+    svc        = Vault_App__Service().setup()
+    name       = Spec__CLI__Builder(_cli_spec).resolver.resolve(svc, name, region, 'vault-app')
+    others     = '  '.join(k for k in _LOG_SOURCES if k != source)
+    fetch_tail = max(tail, 500) if follow else tail
+    ssm_cmd    = cmd_tpl.format(tail=fetch_tail)
+
     c.print(f'  [bold]{source}[/] [dim]──  other sources: {others}[/]')
     c.print(f'  [dim]via SSM:[/] [cyan]{ssm_cmd}[/]')
+    if follow:
+        c.print('  [dim]following — Ctrl-C to stop[/]')
     c.print()
-    result = svc.exec(region, name, ssm_cmd, timeout_sec=timeout)
-    c.print(str(getattr(result, 'stdout', '') or ''))
+
+    def fetch():
+        r = svc.exec(region, name, ssm_cmd, timeout_sec=timeout)
+        return str(getattr(r, 'stdout', '') or '').splitlines()
+
+    if not follow:
+        c.print('\n'.join(fetch()))
+        return
+
+    shown_anchor = ''                                            # last line printed — used to find new content each poll
+    try:
+        while True:
+            lines = fetch()
+            if not shown_anchor:
+                for line in lines:
+                    c.print(line)
+                shown_anchor = lines[-1] if lines else ''
+            else:
+                # find the anchor in the new batch (search from the end for speed)
+                idx = next((i for i in range(len(lines) - 1, -1, -1)
+                            if lines[i] == shown_anchor), None)
+                new_lines = lines[idx + 1:] if idx is not None else lines
+                for line in new_lines:
+                    c.print(line)
+                if new_lines:
+                    shown_anchor = new_lines[-1]
+            time.sleep(4)
+    except KeyboardInterrupt:
+        c.print('\n  [dim]stopped[/]')
 
 
 @app.command()
