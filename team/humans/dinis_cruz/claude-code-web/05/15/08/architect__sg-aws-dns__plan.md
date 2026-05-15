@@ -6,7 +6,7 @@ date: 2026-05-15 (UTC hour 08)
 repo: SGraph-AI__Service__Playwright @ dev (v0.1.140 line)
 status: PLAN — no code, no commits. For human ratification before Dev picks up.
 parent: team/humans/dinis_cruz/claude-code-web/05/15/03/architect__vault-app__cf-route53__plan.md
-revision: "rev 5 (2026-05-15 hour 12) — Q7 RESOLVED (use `dig` shell-out, no dnspython dependency added); new `Dig__Runner` helper introduced as the single subprocess transport for all three checkers; smart auto-verify added on `records add` / `update` / `delete` via new `Route53__Smart_Verify` class — new-name `records add` auto-runs a curated 6-resolver EU+US public-resolver check (safe, no prior cache; 6th resolver = AdGuard EU `94.140.14.14` on neutrality grounds), upserts/deletes auto-skip public-resolver and surface the prior record's TTL in a clear info line; three new info-line wordings added verbatim to §3 and §11 for user sign-off; `--no-verify` / `--verify-public` flags introduced; §10 test plan extended with `Route53__Smart_Verify` cases; Q8 superseded — the P2 chained `--verify` flag is replaced by the always-on smart auto-verify in P1; new risk R16 added for the stale-TTL window."
+revision: "rev 6 (2026-05-15 hour 14) — adds `sg aws dns instance create-record` (P1) that resolves an instance-id / stack-name / `--latest` to a public IP and creates an A record under the matching hosted zone, default TTL 60s, with idempotent same-IP handling and a verbatim cert-warning info block printed after the success table; multi-label name support documented (§3 new sub-section + permissive `Safe_Str__Record_Name` regex) and backed by a new `Route53__Zone__Resolver` that walks labels to find the deepest owning hosted zone; new `Route53__Instance__Linker` consuming the per-spec `info` helpers from `sg_compute_specs/{vault_app,playwright,elastic,neko}/cli/`; new IAM action `ec2:DescribeInstances` (and `ec2:DescribeTags` already covered by it); new risk R17 — instance public IP changes on stop/start, P2 follow-up `dns instance refresh-record` or pinned EIP; new ADDENDUM §12 capturing two PROPOSED, NOT-IN-P1 cert-issuance paths (Path A — own cert sidecar reusing `sg_compute/platforms/tls/Cert__ACME__Client`; Path B — AWS Certificate Manager) plus new open Q9 on DNS-01 vs HTTP-01 for the future cert path. `Cert__ACME__Client` is **HTTP-01 only today** (verified by reading `sg_compute/platforms/tls/Cert__ACME__Client.py` — `select_http01` hard-codes the `challenges.HTTP01` filter, `ACME__Challenge__Server` binds :80 directly, no DNS-01 challenge type referenced); DNS-01 is documented as the preferred future challenge mode and is the subject of new Q9."
 ---
 
 # Architect Briefing — sg aws dns: Route 53 DNS Management Center
@@ -100,6 +100,22 @@ in another tab" — a CLI that does both is faster and scriptable.
 9. **Safety net for destructive ops.** Confirmation prompts on `update` /
    `delete`, plus a `--yes` flag for scripted runs, plus a
    `SG_AWS__DNS__ALLOW_MUTATIONS=1` env gate (locked in — see Q4).
+10. **One-shot instance → DNS-record convenience (P1).** A new
+    `sg aws dns instance create-record <instance>` command resolves an EC2
+    instance (by instance-id, by stack-name via the per-spec `info` helpers,
+    or via `--latest`), reads its public IPv4, derives a sensible default
+    name from the stack / `Name` tag, and creates the A record under the
+    matching hosted zone with `--ttl 60` by default. UX mirrors
+    `sp playwright create` / `vault-app create`. Idempotent on same-IP;
+    fails fast on different-IP unless `--force`. Smart auto-verify path is
+    "new name" (authoritative + 6-resolver EU+US public-resolver fan-out).
+11. **Multi-label name support.** Names with arbitrary depth (e.g.
+    `my-ec2-1.dev.sgraph.ai`) are first-class — the `Safe_Str__Record_Name`
+    primitive is a permissive RFC-1035 multi-label regex, and a new
+    `Route53__Zone__Resolver` walks up labels to pick the deepest owning
+    hosted zone when `--zone` is omitted. Sub-delegated zones (where
+    `dev.sgraph.ai` is later promoted to its own zone) work automatically —
+    the resolver picks the deepest match. See §3 "Multi-label name handling".
 
 ### Non-goals
 
@@ -146,6 +162,8 @@ sg aws dns records add <name> [--zone <z>]        # create a record
 sg aws dns records update <name> [--zone <z>]     # upsert / change values
 sg aws dns records delete <name> [--zone <z>]     # delete (with confirm + env gate)
 sg aws dns records check <name> [--zone <z>]      # verify a record (default: authoritative-NS direct query; opt-in: public resolvers, local dig)
+sg aws dns instance                               # group help (NEW — rev 6)
+sg aws dns instance create-record <instance>      # one-shot: resolve EC2 instance → public IP → create A record (defaults: ttl=60, name derived from stack/Name tag, zone derived by walking labels)
 sg aws acm                                        # group help
 sg aws acm list                                   # list ACM certs (current region + us-east-1 by default)
 sg aws acm show <arn|domain>                      # details of one cert
@@ -182,8 +200,58 @@ JSON dump of the response schema.
 | `dns records update` | `--zone <name\|id>` (optional, defaults sgraph.ai) `--type A` (required) `--value <ip\|val>` (required, repeatable) `--ttl <int>` `--comment "..."` `--yes` (skip "change?" confirm) `--no-verify` (skip smart auto-verify entirely) `--verify-public` (force public-resolver check with WARNING banner) `--json` |
 | `dns records delete` | `--zone <name\|id>` (optional, defaults sgraph.ai) `--type A` (required) `--yes` (skip "delete?" confirm) `--no-verify` (skip smart auto-verify entirely) `--verify-public` (force public-resolver check with WARNING banner) `--json` |
 | `dns records check`  | `--zone <name\|id>` (optional, defaults sgraph.ai) `--type A` (default) `--expect <value>` (the value the operator expects to see — required for ✓/✗ marking) `--authoritative` (DEFAULT — query Route 53 NS set directly, zero cache pollution) `--public-resolvers` (OPT-IN — fan out across 8 public resolvers; **prints cache-pollution WARNING banner**) `--local` (OPT-IN — shell out to `dig` via host upstream; **prints cache-pollution WARNING banner**) `--all` (= `--authoritative --public-resolvers --local`) `--min-resolvers 5` (quorum for public-resolvers mode) `--json`. Mode flags are stackable. Default invocation runs authoritative only. **`--flush-local` is NOT offered** — platform-native cache flushing is left to the operator. |
+| `dns instance create-record` | **NEW (rev 6).** Positional `<instance>` (one of: EC2 instance-id `i-…`, stack name resolved via `sg_compute_specs/{vault_app,playwright,elastic,neko}/cli/` `info` helpers, or `--latest` for the most recently launched instance carrying the SG-AI tag). `--name <fqdn>` (optional — derived from stack name / `Name` tag when omitted). `--zone <name\|id>` (optional — defaults `sgraph.ai`; if `--name` is a multi-label FQDN, the deepest owning zone is auto-selected via `Route53__Zone__Resolver`). `--ttl 60` (**default 60s**, not 300). `--type A` (default). `--verify/--no-verify` (default verify-on — runs the smart-verify new-name path: authoritative + 6-resolver EU+US public-resolver fan-out, no WARNING banner since the name is brand-new by construction). `--force` (override the "exists, points at a different IP" guard). `--yes` (skip the create-confirmation prompt). `--json` |
 | `acm list`           | `--region <name>` (override; defaults: current + us-east-1) `--all-regions` (loop with rate limiting) `--json` |
 | `acm show`           | `--region <name>` (defaults: us-east-1 if `<arn>` is a us-east-1 ARN, else current; or auto-resolve from ARN region segment) `--json` |
+
+### Multi-label name handling (NEW — rev 6)
+
+Route 53 fully supports arbitrary-depth records inside a single hosted zone.
+`my-ec2-1.dev.sgraph.ai` can live in the **`sgraph.ai`** zone as a single
+record without `dev.sgraph.ai` ever being a separate hosted zone. There is
+no schema or API constraint at the AWS side.
+
+What this brief commits to:
+
+- **`Safe_Str__Record_Name` is permissive.** The regex accepts arbitrary-
+  depth RFC-1035 multi-label names:
+
+  ```
+  ^([a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)*[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?$
+  ```
+
+  Total length capped at 253 (RFC 1035). Trailing-dot tolerated and
+  normalised. Empty labels rejected. The single-label primitive form
+  (`zen-darwin`) is still accepted — it falls under the optional left-hand
+  group. See §6 for the primitive's full validation rules.
+
+- **Zone resolution walks labels deepest-first.** When `--zone` is omitted
+  and `--name` is a multi-label FQDN, a new helper
+  `Route53__Zone__Resolver.resolve_zone_for_name(fqdn)` lists hosted zones
+  once per process, then walks the FQDN's labels deepest-first and picks
+  the longest suffix match. Worked examples:
+
+  | FQDN passed | Hosted zones in account | Resolver picks |
+  |-------------|--------------------------|-----------------|
+  | `my-ec2-1.dev.sgraph.ai` | `sgraph.ai` only | `sgraph.ai` (record name `my-ec2-1.dev.sgraph.ai`) |
+  | `my-ec2-1.dev.sgraph.ai` | `sgraph.ai` AND `dev.sgraph.ai` (future sub-delegation) | `dev.sgraph.ai` (record name `my-ec2-1.dev.sgraph.ai`) — deepest match |
+  | `quiet-fermi.sgraph.ai` | `sgraph.ai` only | `sgraph.ai` |
+  | `something.elsewhere.com` | `sgraph.ai` only | **error** — no owning zone in account |
+
+- **Explicit `--zone` enforces containment.** If the operator passes
+  `--zone vault.sgraph.ai --name my-ec2-1.dev.sgraph.ai`, the CLI fails
+  with `name 'my-ec2-1.dev.sgraph.ai.' is not under zone 'vault.sgraph.ai.'`
+  before any boto3 call is made.
+
+- **Sub-delegation is automatic, no code change.** If `dev.sgraph.ai`
+  is later promoted to a separate hosted zone with NS records in
+  `sgraph.ai`, `Route53__Zone__Resolver.resolve_zone_for_name(...)`
+  picks `dev.sgraph.ai` automatically because it is the longest suffix
+  match. No code change required when sub-delegation is introduced.
+
+Hosted-zone CRUD remains out of scope (Q3 RESOLVED → A) — sub-delegation
+is set up by the operator via the AWS console; this CLI simply picks the
+right zone afterwards.
 
 ### Example invocations + output
 
@@ -421,6 +489,9 @@ JSON dump of the response schema.
 - `3` — **local mismatch** (host's upstream resolver disagrees; almost
   always a stale upstream cache — flush manually with platform-native
   tooling if needed).
+- `4` — **`dns instance create-record` conflict** (NEW — rev 6 — record
+  with the derived / `--name`-supplied FQDN already exists pointing at a
+  DIFFERENT IP from the resolved instance, and `--force` was not passed).
 
 **`--all` combined banner.** When the operator passes `--all` (=
 `--authoritative --public-resolvers --local`), a single combined warning is
@@ -437,6 +508,64 @@ printed once before any query runs:
   --authoritative mode for iterative verification.
 
   Continue with --all? [y/N]:
+```
+
+**`sg aws dns instance create-record i-0abc1234`** (NEW — rev 6 — happy path; instance has `Name=quiet-fermi`, `sg-ai=...`, IP `54.92.13.7`; zone defaults to `sgraph.ai`):
+
+```
+  Resolved instance i-0abc1234 → public IP 54.92.13.7 (stack: quiet-fermi)
+  Creating A record quiet-fermi.sgraph.ai → 54.92.13.7 (TTL 60s)
+  ✓ Route 53 change submitted (change-id /change/C12345)
+  ✓ Authoritative: 4/4 NS agree on 54.92.13.7
+  ✓ EU+US public resolvers: 6/6 agree on 54.92.13.7
+  Done in 4.3s. DNS is live globally.
+
+  ⚠ HTTPS cert
+  This DNS name is now usable, but HTTPS clients will see a certificate
+  warning until a cert is issued for `quiet-fermi.sgraph.ai`. Today, the
+  vault-app / playwright stacks ship Let's Encrypt IP-anchored certs
+  (valid for the EC2 public IP, not the DNS name).
+
+  Options to fix:
+    (a) `sg playwright vault re-cert --hostname quiet-fermi.sgraph.ai`
+        — uses our own cert sidecar workflow. Fast. No AWS account
+        pollution. ⚠ PROPOSED — see brief §addendum-cert. NOT IN P1.
+    (b) `sg aws acm request --domain quiet-fermi.sgraph.ai` — issues an
+        ACM cert. Useful only if you are terminating TLS on CloudFront /
+        ELB. ⚠ Adds an entry to ACM that does NOT auto-delete when the
+        stack is destroyed. PROPOSED — NOT IN P1.
+
+  For now, accept the cert warning or use the IP-based vault_url
+  surfaced by `sp pw v info`.
+
+  Exit code: 0
+```
+
+**`sg aws dns instance create-record quiet-fermi`** (idempotent no-op — record already points at this instance's IP):
+
+```
+  Resolved instance i-0abc1234 → public IP 54.92.13.7 (stack: quiet-fermi)
+  Already correct — record quiet-fermi.sgraph.ai already points at
+  54.92.13.7 (TTL 60s). No change submitted.
+
+  (Cert info still applies:)
+
+  ⚠ HTTPS cert
+  This DNS name is now usable, but HTTPS clients will see a certificate
+  warning until a cert is issued for `quiet-fermi.sgraph.ai`. …  [cert-warning block as above, verbatim]
+
+  Exit code: 0
+```
+
+**`sg aws dns instance create-record quiet-fermi`** (record exists pointing at a DIFFERENT IP — fails without `--force`):
+
+```
+  Resolved instance i-0abc1234 → public IP 54.92.13.7 (stack: quiet-fermi)
+  ✗ Record quiet-fermi.sgraph.ai already exists pointing at 203.0.113.99
+    (not 54.92.13.7). Use `sg aws dns records update quiet-fermi --type A
+    --value 54.92.13.7 --zone sgraph.ai` or pass `--force` to overwrite.
+
+  Exit code: 4
 ```
 
 **`sg aws acm list`** (default — current region + us-east-1):
@@ -687,6 +816,58 @@ in an info line. `--no-verify` opts out for scripted runs; `--verify-public`
 forces the public-resolver check on the change/delete paths (with the
 WARNING banner). The standalone `records check` command remains unchanged.
 
+### Q9 — Future cert path: HTTP-01 (with downtime) vs DNS-01 (no downtime)? (NEW — rev 6)
+
+The §12 ADDENDUM proposes a future per-instance cert workflow (Path A — own
+cert sidecar reusing `sg_compute/platforms/tls/Cert__ACME__Client`). Today
+that client is **HTTP-01 only** — verified by reading the file:
+
+- `Cert__ACME__Client.select_http01(order)` hard-codes the
+  `isinstance(challb.chall, challenges.HTTP01)` filter — no DNS-01 branch.
+- `ACME__Challenge__Server` binds `:80` directly and serves the
+  `/.well-known/acme-challenge/<token>` path — purely HTTP-01.
+- `Schema__ACME__Config.challenge_port: int = 80` — the field name and
+  default confirm an HTTP-only design.
+- `cert_init._run_letsencrypt_ip(...)` resolves a *public IP* (not a
+  hostname) and issues an IP-anchored cert with the LE `shortlived`
+  profile — no concept of an FQDN target, no DNS provider plumbing.
+
+That means a future hostname-anchored re-cert flow has two implementation
+choices. The trade-off the user must resolve before Dev picks up §12:
+
+| Opt | Position |
+|-----|----------|
+| **A** | **Keep HTTP-01.** Stop the main service container on :443, run the cert sidecar binding :80 (the sidecar runs the unchanged `ACME__Challenge__Server`), restart the main container with the new cert. Brief downtime (~10-20s per renewal). Smallest delta to existing code: `Cert__ACME__Client.build_csr` swaps `ipaddrs=[…]` for a hostname `domains=[…]` SAN; everything else stays. |
+| **B** | **Add DNS-01 to `Cert__ACME__Client`.** New `select_dns01(order)` branch, new `Cert__ACME__Client.issue_for_hostname(hostname, ...)` method, new `Route53__AWS__Client.upsert_record(...)` call to publish the `_acme-challenge.<fqdn> TXT <key-auth>` record, poll for propagation against the authoritative NS set (we already have that helper — `Route53__Authoritative__Checker`), call `acme_client.answer_challenge`, then delete the TXT record. **Zero downtime** — the main service keeps serving on :443 the whole time. Adds the DNS-01 surface to `Cert__ACME__Client` (~50-80 LoC) and pulls `Route53__AWS__Client` into a TLS-pipeline dependency. |
+
+**Architect recommendation: B** — DNS-01 — for these reasons:
+
+1. **No downtime.** Vault-app HTTPS keeps serving the whole time. For an
+   operator running these stacks regularly, even a 10-20s blackout per
+   renewal is a foot-gun against "this is a live tool".
+2. **Plays nicely with the rest of this brief.** The `Route53__AWS__Client`
+   primitive that P1 ships already has `upsert_record` and `delete_record`;
+   DNS-01 is the natural consumer. The `Route53__Authoritative__Checker`
+   from P1 is exactly what's needed to confirm propagation before calling
+   `answer_challenge` (avoids the LE-side validation flake mode).
+3. **Wildcard becomes possible.** DNS-01 is the only challenge type that
+   can issue `*.dev.sgraph.ai`-style wildcards. Not P1 / P2 but a real
+   long-term option.
+4. **Code surface is small.** ~50-80 LoC added to `Cert__ACME__Client`;
+   nothing torn down. The HTTP-01 branch stays for the IP-cert path
+   (the boot-time cert in vault-app today is happy with HTTP-01 + IP-anchored).
+
+Trade-off (against the rec): pulls `Route53__AWS__Client` into the TLS pipeline,
+which couples cert renewal to AWS account credentials being present in the
+sidecar. The current HTTP-01 sidecar has no AWS credential requirement.
+Mitigation: scope the IAM role attached to the sidecar to
+`route53:ChangeResourceRecordSets` on **one specific hosted zone** + 
+`route53:GetChange` — the same scope the rest of this brief already requires.
+
+**Decision still pending user sign-off.** Both options live behind the §12
+ADDENDUM (NOT in P1, NOT in P2) — Q9 resolves only when the cert workflow
+slice is greenlit. Marked **PENDING** in §11.
+
 ---
 
 ## 5. Proposed architecture
@@ -715,7 +896,9 @@ sgraph_ai_service_playwright__cli/
     │   │   ├── Route53__Public_Resolver__Checker.py   (NEW — `--public-resolvers` opt-in; per-resolver `Dig__Runner` calls with `@<resolver-ip>`; cache-polluting)
     │   │   ├── Route53__Local__Checker.py             (NEW — `--local` opt-in; `Dig__Runner` with no `@<ns>` argument so the host's upstream resolver is used; cache-polluting)
     │   │   ├── Route53__Check__Orchestrator.py        (NEW — composes the three checkers per flags; emits one Schema__Dns__Check__Result)
-    │   │   └── Route53__Smart_Verify.py               (NEW — owns the new-vs-existing decision logic on `records add` / `update` / `delete`. Reads prior-record TTL via `Route53__AWS__Client.get_record(...)` BEFORE mutation; routes to authoritative-only (skip public-resolver) on upsert / delete with TTL-aware info line, or to authoritative + curated 6-resolver public-resolver fan-out on the safe new-name path. Consumes `Route53__Check__Orchestrator`.)
+    │   │   ├── Route53__Smart_Verify.py               (NEW — owns the new-vs-existing decision logic on `records add` / `update` / `delete`. Reads prior-record TTL via `Route53__AWS__Client.get_record(...)` BEFORE mutation; routes to authoritative-only (skip public-resolver) on upsert / delete with TTL-aware info line, or to authoritative + curated 6-resolver public-resolver fan-out on the safe new-name path. Consumes `Route53__Check__Orchestrator`.)
+    │   │   ├── Route53__Zone__Resolver.py             (NEW — rev 6 — deepest-suffix-match resolver for `--name` when `--zone` is omitted. Lists hosted zones once per process via `Route53__AWS__Client.list_hosted_zones()`, caches them, and walks an FQDN's labels deepest-first to pick the longest-matching owning zone. Surfaces `Route53__Zone__Not_Found` when nothing matches.)
+    │   │   └── Route53__Instance__Linker.py           (NEW — rev 6 — instance → public IP resolver for `dns instance create-record`. Accepts an EC2 instance-id (`i-…`), a stack name (resolved via the per-spec `info` helpers under `sg_compute_specs/{vault_app,playwright,elastic,neko}/cli/`), or the `--latest` sentinel (most recently launched EC2 instance carrying the SG-AI tag). Returns a `Schema__Instance__Resolution` with instance-id, public IPv4, stack-name (when known), and `Name`-tag (when set). Consumes a thin `EC2__AWS__Client` boto3 boundary scoped to `ec2:DescribeInstances` / `ec2:DescribeTags`.)
     │   ├── schemas/
     │   │   ├── __init__.py                    (empty)
     │   │   ├── Schema__Route53__Hosted_Zone.py
@@ -726,13 +909,16 @@ sgraph_ai_service_playwright__cli/
     │   │   ├── Schema__Dns__Check__Result.py        (NEW — propagation-check output)
     │   │   ├── Schema__Dig__Result.py               (NEW — raw `Dig__Runner.run` result)
     │   │   ├── Schema__Smart_Verify__Decision.py    (NEW — pre-flight decision for `records add`/`update`/`delete`)
-    │   │   └── Schema__Smart_Verify__Result.py      (NEW — post-mutation verify result, including the skip info-line text)
+    │   │   ├── Schema__Smart_Verify__Result.py      (NEW — post-mutation verify result, including the skip info-line text)
+    │   │   ├── Schema__Instance__Resolution.py      (NEW — rev 6 — output of `Route53__Instance__Linker.resolve(...)`; carries `instance_id`, `public_ipv4` (Safe_Str__IPv4), `stack_name` (Optional), `name_tag` (Optional), `resolution_source` (Enum: `INSTANCE_ID` / `STACK_NAME` / `LATEST`))
+    │   │   └── Schema__Instance__Create_Record__Result.py  (NEW — rev 6 — composite result of the `instance create-record` flow; fields: `resolution` (Schema__Instance__Resolution), `derived_name` (Safe_Str__Record_Name), `zone` (Schema__Route53__Hosted_Zone), `change_result` (Schema__Route53__Change__Result, populated when an upsert ran), `was_idempotent_no_op` (bool — true when the name already pointed at the right IP), `smart_verify_result` (Schema__Smart_Verify__Result, populated when `--verify` was on))
     │   ├── enums/
     │   │   ├── __init__.py                    (empty)
     │   │   ├── Enum__Route53__Record_Type.py
     │   │   ├── Enum__Dns__Resolver.py             (NEW — curated public-resolver set; flags the 6-member smart-verify subset)
     │   │   ├── Enum__Dns__Check__Mode.py          (NEW — AUTHORITATIVE | PUBLIC_RESOLVERS | LOCAL)
-    │   │   └── Enum__Smart_Verify__Decision.py    (NEW — NEW_NAME | UPSERT | DELETE)
+    │   │   ├── Enum__Smart_Verify__Decision.py    (NEW — NEW_NAME | UPSERT | DELETE)
+    │   │   └── Enum__Instance__Resolution__Source.py (NEW — rev 6 — INSTANCE_ID | STACK_NAME | LATEST)
     │   ├── primitives/
     │   │   ├── __init__.py                    (empty)
     │   │   ├── Safe_Str__Hosted_Zone_Id.py
@@ -740,12 +926,20 @@ sgraph_ai_service_playwright__cli/
     │   │   ├── Safe_Str__Record_Name.py
     │   │   ├── Safe_Str__Record_Value.py
     │   │   ├── Safe_Str__Resolver_IP.py            (NEW — IPv4/IPv6 of a public resolver)
+    │   │   ├── Safe_Str__IPv4.py                    (NEW — rev 6 — IPv4 dotted-quad; validated with `ipaddress.IPv4Address` at construction. Used by `Schema__Instance__Resolution.public_ipv4` and on the A-record value path.)
+    │   │   ├── Safe_Str__Instance_Id.py             (NEW — rev 6 — `i-` followed by 8 or 17 lowercase-hex chars — the two EC2 instance-id shapes AWS still emits)
     │   │   └── Safe_Int__TTL.py
     │   └── collections/
     │       ├── __init__.py                    (empty)
     │       ├── List__Schema__Route53__Hosted_Zone.py
     │       ├── List__Schema__Route53__Record.py
     │       └── List__Schema__Dns__Check__Resolver_Result.py  (NEW — per-resolver rows)
+    │
+    ├── ec2/                                   (NEW — rev 6)
+    │   ├── __init__.py                        (empty)
+    │   └── service/
+    │       ├── __init__.py                    (empty)
+    │       └── EC2__AWS__Client.py            (NEW — sole boto3 boundary for the narrow EC2 surface this brief needs: `describe_instances` for instance-id lookup, `describe_instances` filtered by `tag:Name` / `tag:sg-ai` for stack-name and `--latest` lookups, `describe_tags` for the Name-tag derivation path. Consumed by `Route53__Instance__Linker`. Same narrow-exception template as `Route53__AWS__Client` / `ACM__AWS__Client`. Note: a larger `sg aws ec2` CLI surface is OUT OF SCOPE for this brief — this client exists solely to feed `dns instance create-record`.)
     │
     ├── acm/                                   (NEW)
     │   ├── __init__.py                        (empty)
@@ -924,6 +1118,9 @@ Type_Safe-validated values.
 | `Route53__Local__Checker.py` | **`--local` mode.** Calls `Dig__Runner` with no `@<ns>` argument so the host's configured upstream resolver is used. Sole class allowed to call into `Dig__Runner` for the local path. **Cache-polluting** at the host's upstream (often a corporate proxy / VPN resolver). The orchestrator MUST print the WARNING banner before invoking. No `--flush-local` sub-option — platform-native cache flushing is left to the operator. **P1.5 / P2.** |
 | `Route53__Check__Orchestrator.py` | Thin composer. Reads the three mode flags (`--authoritative` default-on, `--public-resolvers`, `--local`, `--all`), gates each cache-polluting mode behind its WARNING banner + y/N confirmation, then invokes the relevant checker(s) and merges their per-row results into a single `Schema__Dns__Check__Result`. Computes the unified exit code (0 = all selected passed, 1 = authoritative disagreement, 2 = public-resolvers quorum failed, 3 = local mismatch — first-failing-mode wins for the exit-code report). |
 | `Route53__Smart_Verify.py` | **Owns the new-vs-existing decision logic on `records add` / `update` / `delete`.** Calls `Route53__AWS__Client.get_record(...)` BEFORE the mutation to detect whether the name + type is currently in the zone, and (when present) reads the existing TTL so the skip info line can quote a wait time. After mutation, dispatches to `Route53__Check__Orchestrator`: new-name path runs `{AUTHORITATIVE, PUBLIC_RESOLVERS}` with the curated 6-resolver subset (safe by construction, no banner); upsert / delete paths run `{AUTHORITATIVE}` only and emit the appropriate TTL-aware skip info line. Honours `--no-verify` (skip everything) and `--verify-public` (force public-resolver check on the change/delete paths WITH the WARNING banner). **P1.** |
+| `Route53__Zone__Resolver.py` | **NEW — rev 6.** Deepest-suffix-match resolver. Lists hosted zones once via `Route53__AWS__Client.list_hosted_zones()`, caches them on the instance, then resolves an FQDN by walking labels deepest-first: for `my-ec2-1.dev.sgraph.ai`, tries `my-ec2-1.dev.sgraph.ai` (full match — rare; happens only when an apex matches), then `dev.sgraph.ai`, then `sgraph.ai`, then `ai`, returning the first match found. Method surface: `resolve_zone_for_name(fqdn: Safe_Str__Record_Name) -> Schema__Route53__Hosted_Zone` (raises `Route53__Zone__Not_Found` on no match), `enforce_containment(fqdn, explicit_zone) -> None` (used when `--zone` is passed — raises `Route53__Zone__Containment_Error` if the FQDN does not end with the zone name). Trailing-dot normalisation is applied to both sides. **P1.** |
+| `Route53__Instance__Linker.py` | **NEW — rev 6.** EC2 instance → public IPv4 resolver consumed by `dns instance create-record`. Method surface: `resolve(instance_token: str, latest: bool = False) -> Schema__Instance__Resolution`. Branches: (a) `latest=True` → `EC2__AWS__Client.list_instances_by_tag('sg-ai', '*')`, sorts by `LaunchTime` descending, picks the most recent `running` instance, source=`LATEST`. (b) `instance_token` matches `Safe_Str__Instance_Id` regex (`^i-[0-9a-f]{8,17}$`) → `EC2__AWS__Client.describe_instance(instance_id)`, source=`INSTANCE_ID`. (c) otherwise treat as stack-name → call the per-spec `info` helper (`from sg_compute_specs.vault_app.cli.Cli__Vault_App import resolve_instance_for_stack` and the three siblings; tried in order vault_app → playwright → elastic → neko, first match wins; ambiguous match across specs raises with the list), source=`STACK_NAME`. Public IPv4 is always read from `Instance.PublicIpAddress`; raises `Route53__Instance__No_Public_IP` when the field is empty (instance is stopped / has no EIP). Name-tag is read from `Instance.Tags[Name]` for the `derive_record_name(...)` helper that backs the `--name` default. **P1.** |
+| `EC2__AWS__Client.py` | **NEW — rev 6 — under `sgraph_ai_service_playwright__cli/aws/ec2/service/`.** Sole boto3 boundary for the narrow EC2 surface this brief needs. Methods: `describe_instance(instance_id) -> Schema__EC2__Instance` (single-instance `describe_instances` call with `InstanceIds=[...]`), `list_instances_by_tag(tag_key, tag_value, only_running=True) -> List[Schema__EC2__Instance]` (`describe_instances` paginator with `Filters=[{Name: tag:<k>, Values: [<v>]}]` + state filter), `describe_tags_for_instance(instance_id) -> Dict[Safe_Str, Safe_Str]` (used for the Name-tag derivation). Same narrow-exception template as `Route53__AWS__Client` / `ACM__AWS__Client`. `Schema__EC2__Instance` carries `instance_id`, `state`, `public_ipv4` (Optional Safe_Str__IPv4), `launch_time` (Safe_Str__ISO), `tags` (Dict). **P1.** |
 
 **`sgraph_ai_service_playwright__cli/aws/dns/schemas/`** (one class per file — rule #21)
 
@@ -938,6 +1135,8 @@ Type_Safe-validated values.
 | `Schema__Dig__Result.py` | Raw `Dig__Runner.run` output. Fields: `argv` (List[str]), `exit_code` (int), `stdout_lines` (List[str]), `stderr` (str), `duration_ms` (int). Pure data — no methods. |
 | `Schema__Smart_Verify__Decision.py` | Pre-flight read result from `Route53__Smart_Verify.decide_before_*`. Fields: `decision` (Enum: `NEW_NAME` / `UPSERT` / `DELETE`), `prior_ttl` (Optional Safe_Int__TTL_Seconds), `prior_values` (List[Safe_Str__Record_Value]). |
 | `Schema__Smart_Verify__Result.py` | Post-mutation verify result. Fields: `decision` (Enum, copied from `Schema__Smart_Verify__Decision`), `check_result` (Schema__Dns__Check__Result), `skip_info_line` (Optional Safe_Str — the upsert / delete skip line text, empty on the new-name path), `forced_public` (bool, true when `--verify-public` was passed). |
+| `Schema__Instance__Resolution.py` | **NEW — rev 6.** Output of `Route53__Instance__Linker.resolve(...)`. Fields: `instance_id` (Safe_Str__Instance_Id), `public_ipv4` (Safe_Str__IPv4), `stack_name` (Optional Safe_Str — populated only when source=STACK_NAME or when a stack-tag is found on the instance), `name_tag` (Optional Safe_Str — verbatim `Name` tag if set), `resolution_source` (Enum__Instance__Resolution__Source — INSTANCE_ID / STACK_NAME / LATEST), `launch_time` (Safe_Str__ISO). |
+| `Schema__Instance__Create_Record__Result.py` | **NEW — rev 6.** Composite result of `dns instance create-record`. Fields: `resolution` (Schema__Instance__Resolution), `derived_name` (Safe_Str__Record_Name), `zone` (Schema__Route53__Hosted_Zone), `change_result` (Optional Schema__Route53__Change__Result — None on the idempotent no-op path), `was_idempotent_no_op` (bool — true when the name already pointed at the right IP and no upsert ran), `smart_verify_result` (Optional Schema__Smart_Verify__Result — populated when `--verify` was on), `cert_warning_emitted` (bool — true when the post-success cert-warning block was printed). |
 
 **`sgraph_ai_service_playwright__cli/aws/dns/enums/`**
 
@@ -947,6 +1146,7 @@ Type_Safe-validated values.
 | `Enum__Dns__Resolver.py` | Curated public-resolver list. Each member carries: name, IP, geo, AND `in_smart_verify_new_name` (bool). Full 8-resolver set used by the standalone `--public-resolvers` flag: `GOOGLE_PRIMARY` (8.8.8.8 US, smart=true), `GOOGLE_SECONDARY` (8.8.4.4 EU, smart=true), `CLOUDFLARE_PRIMARY` (1.1.1.1 US-anycast, smart=true), `CLOUDFLARE_SECONDARY` (1.0.0.1 EU-anycast, smart=true), `QUAD9` (9.9.9.9 global anycast, smart=true), `OPENDNS` (208.67.222.222 US, smart=false), `YANDEX` (77.88.8.8 RU, smart=false), `ADGUARD_EU` (94.140.14.14 EU, smart=true). The smart-verify subset is the 6 members with `smart=true`. `--min-resolvers` defaults to 5 (standalone path); smart-verify new-name path uses 6/6 for the displayed quorum but does not fail on a single drop (info-line only). |
 | `Enum__Dns__Check__Mode.py` | The three `records check` modes. Members: `AUTHORITATIVE` (default), `PUBLIC_RESOLVERS`, `LOCAL`. Used as a set (not a Literal) on the orchestrator's input shape and on `Schema__Dns__Check__Result.modes_run` so the rendered table can show which modes actually ran. |
 | `Enum__Smart_Verify__Decision.py` | The decision computed by `Route53__Smart_Verify.decide_before_*`. Members: `NEW_NAME` (record did not exist before this `records add` — public-resolver fan-out is safe), `UPSERT` (`records add` / `update` with a prior record — skip public-resolver), `DELETE` (`records delete` — skip public-resolver, expect NXDOMAIN). |
+| `Enum__Instance__Resolution__Source.py` | **NEW — rev 6.** How `Route53__Instance__Linker.resolve(...)` arrived at the instance. Members: `INSTANCE_ID` (token matched `Safe_Str__Instance_Id`), `STACK_NAME` (token matched a known per-spec stack-name via one of the `info` helpers), `LATEST` (`--latest` sentinel — most recently launched `running` instance with the SG-AI tag). |
 
 **`sgraph_ai_service_playwright__cli/aws/dns/primitives/`** (one class per file)
 
@@ -954,9 +1154,11 @@ Type_Safe-validated values.
 |------|-------------------|
 | `Safe_Str__Hosted_Zone_Id.py` | `Z` + 1..32 alphanumerics (Route 53 allocates uppercase alphanumeric). Regex-validated. |
 | `Safe_Str__Domain_Name.py` | RFC-1035-ish: lowercase, dots, hyphens; trailing dot tolerated and normalised. Max length 255. |
-| `Safe_Str__Record_Name.py` | Same shape as `Safe_Str__Domain_Name`; semantically the record's own FQDN. |
+| `Safe_Str__Record_Name.py` | **Updated for rev 6: permissive multi-label RFC-1035 regex.** Accepts arbitrary-depth FQDNs (e.g. `my-ec2-1.dev.sgraph.ai`) — the regex `^([a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)*[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?$` matches a sequence of RFC-1035 labels joined by dots. Total length capped at 253 (RFC 1035). Trailing dot tolerated and normalised. Empty labels rejected. The single-label form (`zen-darwin`) is still accepted — falls under the optional left-hand group. Semantically the record's own FQDN; consumed by every CLI flag, by `Route53__Zone__Resolver.resolve_zone_for_name`, and by the `instance create-record` derived-name helper. |
 | `Safe_Str__Record_Value.py` | String, max length 4000 (TXT records hard cap); CLI splits on quotes for TXT. |
 | `Safe_Str__Resolver_IP.py` | IPv4 dotted-quad or compressed IPv6, validated with `ipaddress` stdlib at construction time. Used by `Enum__Dns__Resolver` member payloads and as the `resolver_ip` field on per-resolver result rows. |
+| `Safe_Str__IPv4.py` | **NEW — rev 6.** IPv4 dotted-quad only (no IPv6), validated with `ipaddress.IPv4Address(value)` at construction. Used by `Schema__Instance__Resolution.public_ipv4` and reused as the A-record value type when an A-record is being created. Narrower than `Safe_Str__Resolver_IP` (which also accepts IPv6) because the EC2 `PublicIpAddress` field is IPv4-only and A records are IPv4-only by RFC. |
+| `Safe_Str__Instance_Id.py` | **NEW — rev 6.** EC2 instance-id regex `^i-[0-9a-f]{8,17}$` — covers both the legacy 8-char shape and the modern 17-char shape AWS still emits. Used by `Route53__Instance__Linker.resolve(...)` to decide whether a positional token is an instance-id (regex match) or a stack name (no match). |
 | `Safe_Int__TTL.py` | Range 0..2147483647 (Route 53 hard limit); validated 1..86400 in practice. Also used as the `prior_ttl` type on `Schema__Smart_Verify__Decision` so the upsert / delete skip info lines can quote a TTL-aware wait time. Alias-name `Safe_Int__TTL_Seconds` is not introduced — the existing `Safe_Int__TTL` primitive covers the same semantic space and reusing it avoids duplication. |
 
 **`sgraph_ai_service_playwright__cli/aws/dns/collections/`** (rule #21 — pure type defs, no methods)
@@ -1002,7 +1204,7 @@ Type_Safe-validated values.
 | File | One-line purpose |
 |------|-------------------|
 | `Cli__Aws.py` | Typer parent app for `sg aws`. Mounts `dns` and `acm` sub-apps. Imported from `scripts/provision_ec2.py` and wired via `app.add_typer(aws_app, name='aws')`. |
-| `Cli__Aws_Dns.py` | Typer `dns` app with sub-groups `zones` and `records`. Imports `Route53__AWS__Client` and `Route53__Check__Orchestrator` (which in turn composes the three checker classes). Default-zone resolution lives here (calls `Route53__AWS__Client.resolve_default_zone()` when `--zone` unset). The `records check` command parses the mode flags into a `Set[Enum__Dns__Check__Mode]` and hands them to the orchestrator; the orchestrator is responsible for printing the cache-pollution WARNING banners and prompting y/N before invoking any cache-polluting checker. Renderers (`_render_zones_list`, `_render_records_list`, `_render_change_result`, `_render_check_result`) using `rich.Table` + Console — mirrors `Cli__Vault_App.py`'s `_render_vault_app_info` / `_render_vault_app_create` style. `--json` flag swaps the renderer for `console.print_json(data=schema.json())`. |
+| `Cli__Aws_Dns.py` | Typer `dns` app with sub-groups `zones`, `records`, AND (rev 6) `instance`. Imports `Route53__AWS__Client`, `Route53__Check__Orchestrator` (which in turn composes the three checker classes), `Route53__Zone__Resolver`, and `Route53__Instance__Linker`. Default-zone resolution lives here (calls `Route53__AWS__Client.resolve_default_zone()` when `--zone` unset; when `--name` is a multi-label FQDN the resolver picks the deepest owning zone). The `records check` command parses the mode flags into a `Set[Enum__Dns__Check__Mode]` and hands them to the orchestrator; the orchestrator is responsible for printing the cache-pollution WARNING banners and prompting y/N before invoking any cache-polluting checker. The `instance create-record` command (rev 6) wires together `Route53__Instance__Linker.resolve(...)` → `derive_record_name(...)` → `Route53__Zone__Resolver.resolve_zone_for_name(...)` → idempotency check (compare against `Route53__AWS__Client.get_record(...)`; same-IP → exit 0 no-op, different-IP without `--force` → fail) → `Route53__AWS__Client.create_record(...)` → `Route53__Smart_Verify.verify_after_mutation(...)` (new-name path) → cert-warning info block. Renderers (`_render_zones_list`, `_render_records_list`, `_render_change_result`, `_render_check_result`, `_render_instance_create_record_result`) using `rich.Table` + Console — mirrors `Cli__Vault_App.py`'s `_render_vault_app_info` / `_render_vault_app_create` style. `--json` flag swaps the renderer for `console.print_json(data=schema.json())`. |
 | `Cli__Aws_Acm.py` | Typer `acm` app with `list` and `show` subcommands. Imports `ACM__AWS__Client`. Dual-region default behaviour for `list`; ARN-derived region for `show`. Renderers (`_render_acm_list`, `_render_acm_show`) match the rich style. |
 
 ### New files (proposed) — tests
@@ -1084,6 +1286,20 @@ it's imported (currently a small footprint — verify before commit). The
 
 STS for account-id resolution (used by the table header): `sts:GetCallerIdentity`.
 
+### boto3 operations called by `EC2__AWS__Client` (NEW — rev 6)
+
+| Method | boto3 client call | Read/Write |
+|--------|-------------------|------------|
+| `describe_instance(instance_id)` | `ec2:DescribeInstances` | R |
+| `list_instances_by_tag(tag_key, tag_value)` | `ec2:DescribeInstances` (paginator + `Filters`) | R |
+| `describe_tags_for_instance(instance_id)` | `ec2:DescribeTags` | R |
+
+`ec2:DescribeTags` is covered by `ec2:DescribeInstances` for the common case
+(the `Tags` field is on the instance shape) but the explicit `describe_tags`
+call is retained for the Name-tag-only lookup so it can be IAM-scoped down if
+desired. **`ec2:DescribeInstances` is the only net-new IAM action this rev
+adds.**
+
 ### boto3 operations called by `ACM__AWS__Client`
 
 | Method | boto3 client call | Read/Write |
@@ -1108,8 +1324,11 @@ STS for account-id resolution (used by the table header): `sts:GetCallerIdentity
 - All of the above, plus:
 - `route53:ChangeResourceRecordSets` — **scope to specific hosted zone ARN(s)** in the IAM policy resource block to limit blast radius (e.g. `arn:aws:route53:::hostedzone/Z09876543...`)
 - `route53:GetChange` — for the eventual `wait` / polling support (P2)
+- **`ec2:DescribeInstances`** (NEW — rev 6) — required by `dns instance create-record` for instance-id / stack-name / `--latest` resolution and to read the `PublicIpAddress` + `Tags[Name]` fields. Cannot be scoped to a single instance (the API is account-wide read-only); operators with stricter blast-radius requirements can attach an SCP / OU-level deny on EC2 mutations.
+- **`ec2:DescribeTags`** (NEW — rev 6) — used by the Name-tag-only derivation path. Covered de facto by `ec2:DescribeInstances` but listed explicitly so the IAM policy can be split if desired.
 
-**No `ec2:*` / `iam:*` / `cloudfront:*` permissions required.**
+**No `iam:*` / `cloudfront:*` permissions required. `ec2:*` is read-only and
+narrow — exactly two actions (`DescribeInstances`, `DescribeTags`).**
 
 ### Region semantics (new — Q6 follow-up)
 
@@ -1216,6 +1435,20 @@ verification by default without ever risking cache pollution.
     surface but explicitly fail with a clear "shipping in P1.5" message** for the standalone command (the smart-verify wiring uses the public-resolver checker internally — that is shipped).
 13. Exit-code mapping for P1: 0 = authoritative passed, 1 = authoritative
     disagreement.
+14. **`dns instance create-record` shipped (NEW — rev 6).** Wires together
+    `EC2__AWS__Client`, `Route53__Instance__Linker` (with the four per-spec
+    `info` helper imports — vault_app, playwright, elastic, neko),
+    `Route53__Zone__Resolver`, the idempotency / `--force` gate, and the
+    new-name smart-verify path. Default `--ttl 60`. Default `--verify` on
+    (runs authoritative + 6-resolver new-name path, no banner). The
+    cert-warning info block (§11 verbatim) is printed after every successful
+    create AND after every idempotent no-op (in the no-op case prefixed with
+    "Already correct — record already points at this instance. Cert info still
+    applies:"). `--json` mode emits `Schema__Instance__Create_Record__Result`;
+    the cert-warning text is included as a `cert_warning_text` field so
+    scripts can re-print it or suppress it. The cert-warning block is NOT a
+    cert-issuance flow — it is purely informational; the two cert paths
+    referenced in it are PROPOSED (§12) and not implemented.
 
 **Acceptance:**
 - `sg aws dns records add ...` creates a record; fails cleanly if it exists.
@@ -1230,6 +1463,7 @@ verification by default without ever risking cache pollution.
 - All mutations return a `Schema__Route53__Change__Result` printed by the
   renderer (change-id + status).
 - **Smart auto-verify acceptance:** `records add` on a new name runs authoritative + 6-resolver public-resolver fan-out automatically, with no WARNING banner. `records add` on an existing name (upsert), `records update`, and `records delete` each run authoritative only and emit the TTL-aware skip info line verbatim from §3. `--no-verify` skips all verification. `--verify-public` on the upsert / delete paths runs the standalone public-resolver check WITH the WARNING banner.
+- **`instance create-record` acceptance (rev 6):** `sg aws dns instance create-record i-0abc…` resolves the instance, derives a sensible name, picks the deepest owning hosted zone, creates the A record with `--ttl 60`, runs the new-name smart-verify path, and prints the cert-warning info block. `sg aws dns instance create-record <stack-name>` resolves the stack via the per-spec `info` helpers (vault_app → playwright → elastic → neko, first match wins). `sg aws dns instance create-record --latest` picks the most recently launched SG-AI-tagged instance. Same-IP idempotency exits 0 with "already correct" + the cert-warning block. Different-IP without `--force` fails with the documented error message. Multi-label name (`--name my-ec2-1.dev.sgraph.ai`) lands in the `sgraph.ai` zone as a single record. `--zone vault.sgraph.ai --name my-ec2-1.dev.sgraph.ai` fails fast on containment violation.
 - Integration test against real Route 53 dev zone gated on
   `SG_AWS__DNS__INTEGRATION=1`.
 
@@ -1296,6 +1530,7 @@ the WARNING-banner copy has been signed off.
 | R13 | Quorum threshold (5/8 default) is wrong for the operator's network — false alarms or false reassurances | `--min-resolvers` is a flag; help text documents the trade-off; default chosen because Route 53 propagation is usually all-or-nothing within ~60s and 5/8 catches the in-progress case. Operators with weird ISPs can lower it. |
 | R14 | The `sg aws` Typer group does not exist today; first attempt to wire it into `scripts/provision_ec2.py` could collide | **Pre-Dev audit complete** — top-level `sg` Typer root located at `scripts/provision_ec2.py:769`. No existing `add_typer(..., name='aws')` registration. Slot is free. |
 | R15 | `osbot-aws` later adds Route 53 / ACM helpers; our direct-boto3 boundary becomes inconsistent | Document the upgrade path in each `*__AWS__Client.py` header (mirrors the `Elastic__AWS__Client` template). File the upstream-osbot-aws follow-up brief once this lands. |
+| **R17** | **Instance public IP changes after `dns instance create-record`.** EC2 public IPv4 addresses are released when an instance is stopped and a new one is assigned when it next starts (unless an Elastic IP is attached). After a stop-start cycle, the A record this command created still points at the **OLD** IP — and because the default TTL is 60s, anyone who resolved the name in that window also caches the stale value for up to 60s. The user-visible failure is "DNS works, but the connection goes to the wrong host (or to nothing)". | (a) **Document the risk in the cert-warning block and in `--help`** — explicitly note that this command does not track IP changes and the operator must re-run it after a reboot, OR attach an EIP to the instance to pin the IP. (b) **P2 follow-up: `sg aws dns instance refresh-record <stack>`** — re-resolves the current public IP and upserts the existing record; idempotent if the IP has not changed. **Not in this brief.** (c) **P2 follow-up: `--attach-eip` flag** on `instance create-record` that allocates an EIP, associates it with the instance, and uses the EIP as the A-record target. Permanently stable. **Not in this brief.** (d) **Documentation-only mitigation in P1.** The TTL-60s default means the stale window after a stop-start is bounded at ~60s for downstream caches — acceptable for the ephemeral-stack use case the user has in mind. |
 
 ---
 
@@ -1324,6 +1559,13 @@ guidance). Two test tracks.
 | `tests/primitives/test_Safe_Str__Hosted_Zone_Id.py` | Accepts `Z01234567ABCDEFGHIJKL`; rejects lowercase, too-long, too-short. |
 | `tests/primitives/test_Safe_Str__Resolver_IP.py` | Accepts IPv4 dotted-quad (`8.8.8.8`, `1.1.1.1`); accepts compressed IPv6; rejects hostnames; rejects malformed strings. Uses `ipaddress` stdlib at validation time. |
 | `tests/primitives/test_Safe_Int__TTL.py` | 1..86400 accepted; 0 rejected (or accepted, depending on Q-followup); negative rejected. |
+| `tests/primitives/test_Safe_Str__Record_Name.py` | **NEW — rev 6.** Single-label (`zen-darwin`) accepted; two-label (`zen-darwin.sgraph.ai`) accepted; deep multi-label (`my-ec2-1.dev.sgraph.ai`, `a.b.c.d.e.f.example.com`) accepted; trailing dot tolerated and normalised; empty labels (`..`, `a..b`) rejected; label > 63 chars rejected; total length > 253 chars rejected; leading hyphen rejected; underscore rejected. Asserts the permissive multi-label regex. |
+| `tests/primitives/test_Safe_Str__IPv4.py` | **NEW — rev 6.** `8.8.8.8` accepted; `0.0.0.0` accepted; `255.255.255.255` accepted; `256.0.0.0` rejected; `8.8.8` rejected; IPv6 (`::1`) rejected. |
+| `tests/primitives/test_Safe_Str__Instance_Id.py` | **NEW — rev 6.** `i-0abc1234` (8 chars) accepted; `i-0abc1234567890abc` (17 chars) accepted; `I-0abc1234` (uppercase prefix) rejected; uppercase hex in body rejected; missing `i-` prefix rejected; `i-` alone rejected. |
+| `tests/service/test_Route53__Zone__Resolver.py` | **NEW — rev 6.** Backed by an in-memory `Route53__AWS__Client__In_Memory` seeded with various zone-list fixtures. **(a) single-zone case** — `resolve_zone_for_name('my-ec2-1.dev.sgraph.ai')` returns `sgraph.ai` when only `sgraph.ai` exists; **(b) deepest-match case** — same call returns `dev.sgraph.ai` when both zones exist (simulates future sub-delegation); **(c) apex case** — `resolve_zone_for_name('sgraph.ai')` returns the `sgraph.ai` zone; **(d) no-match case** — raises `Route53__Zone__Not_Found`; **(e) trailing-dot normalisation** — `my-ec2-1.dev.sgraph.ai.` matches the same way as the non-dot form; **(f) caching** — the list-hosted-zones call happens once across N resolutions; **(g) containment enforcement** — `enforce_containment('my-ec2-1.dev.sgraph.ai', 'vault.sgraph.ai')` raises `Route53__Zone__Containment_Error`; `enforce_containment('zen-darwin.vault.sgraph.ai', 'vault.sgraph.ai')` passes. |
+| `tests/service/test_Route53__Instance__Linker.py` | **NEW — rev 6.** Backed by `EC2__AWS__Client__In_Memory` (a `_Fake_EC2` dict-backed fixture) plus stub per-spec `info` helpers in `tests/service/_fake_specs.py`. **(a) instance-id path** — `resolve('i-0abc1234')` calls `describe_instance` once, returns `Schema__Instance__Resolution(source=INSTANCE_ID, ...)`. **(b) stack-name path** — `resolve('quiet-fermi')` tries vault_app first; on match returns `source=STACK_NAME, stack_name='quiet-fermi'`. **(c) stack-name fallthrough** — when not in vault_app, tries playwright, then elastic, then neko. **(d) `--latest` path** — `resolve('', latest=True)` lists by `tag:sg-ai=*`, sorts by `LaunchTime`, returns the most recent `running` instance, `source=LATEST`. **(e) no-public-IP** — raises `Route53__Instance__No_Public_IP` when `PublicIpAddress` is empty (stopped instance). **(f) ambiguous stack-name** — when the same stack-name appears in two specs (artificial but possible in tests), raises with the list. **(g) name-tag derivation** — `derive_record_name(resolution, zone)` returns `<name-tag>.<zone>` when `Name` tag is set; falls back to `<stack-name>.<zone>` otherwise; falls back to `<instance-id>.<zone>` when neither is known. |
+| `tests/service/test_EC2__AWS__Client.py` | **NEW — rev 6.** `EC2__AWS__Client__In_Memory` with a `{instance_id: instance-shape}` fixture; assert `describe_instance` round-trips a single instance; `list_instances_by_tag('sg-ai', '*')` paginator handles multi-page; `describe_tags_for_instance` reads the `Tags` block. Asserts the boto3 client never touches the network in unit tests (the in-memory client is the only implementation called). |
+| `tests/cli/test_Cli__Aws_Dns__instance_create_record.py` | **NEW — rev 6.** CliRunner-based tests of `dns instance create-record`. **(a) happy path** — `sg aws dns instance create-record i-0abc1234` resolves through the in-memory EC2 client + the in-memory Route 53 client + a fake `Route53__Zone__Resolver`, prints the success table, prints the cert-warning info block verbatim, exits 0. **(b) idempotent no-op** — same command run twice in a row: second run sees the existing record pointing at the same IP, exits 0 with "Already correct — record already points at this instance." AND prints the cert-warning block. **(c) different-IP without `--force`** — the existing record points at a different IP, exits non-zero with `"name exists pointing at <other-ip>; use sg aws dns records update or pass --force"`. **(d) `--force` overrides** — runs an upsert, exits 0. **(e) multi-label name** — `--name my-ec2-1.dev.sgraph.ai` lands in the `sgraph.ai` zone (single-zone fixture). **(f) `--zone` containment violation** — `--zone vault.sgraph.ai --name my-ec2-1.dev.sgraph.ai` fails fast before any boto3 call. **(g) `--latest`** — picks the most recently launched fixture instance. **(h) `--json`** — output parses as `Schema__Instance__Create_Record__Result`; `cert_warning_text` field is present and non-empty. (i) **`--no-verify`** — skips the smart-verify block in the rendered output. |
 
 ### Track B — integration / real AWS (gated)
 
@@ -1405,7 +1647,32 @@ In order of blockingness:
 5. **`SG_AWS__DNS__ALLOW_MUTATIONS=1` env-var name** — bikeshed-safe but
    double-check the name is the one we want before P1 ships. (Q4 RESOLVED on
    *requiring* the gate; the *name* is editable.)
-6. **6th smart-verify resolver — AdGuard EU (`94.140.14.14`)** — Architect picked AdGuard EU over Yandex EU on neutrality grounds (Yandex's geopolitical association would surprise some operators; AdGuard is a privacy-focused commercial resolver with no comparable political baggage and a stable EU anycast presence). Flag if a different 6th member is preferred.
+6. **6th smart-verify resolver — AdGuard EU (`94.140.14.14`)** — Architect picked AdGuard EU over Yandex EU on neutrality grounds (Yandex's geopolitical association would surprise some operators; AdGuard is a privacy-focused commercial resolver with no comparable political baggage and a stable EU anycast presence). **Revisitable in rev 6** — flag if Yandex EU (`77.88.8.8`) or a different 6th member is preferred.
+7. **Cert-warning text block — sign off the verbatim copy (NEW — rev 6).** This block is printed by `sg aws dns instance create-record` after every successful create AND after every idempotent no-op (in the no-op case prefixed by "Already correct — record already points at this instance. Cert info still applies:"). It is **informational only** — the two cert paths it references are PROPOSED (§12), NOT in P1, NOT in P2. The verbatim copy below must be confirmed before P1 ships:
+
+   ```
+   ⚠ HTTPS cert
+   This DNS name is now usable, but HTTPS clients will see a certificate
+   warning until a cert is issued for `quiet-fermi.sgraph.ai`. Today, the
+   vault-app / playwright stacks ship Let's Encrypt IP-anchored certs
+   (valid for the EC2 public IP, not the DNS name).
+
+   Options to fix:
+     (a) `sg playwright vault re-cert --hostname quiet-fermi.sgraph.ai`
+         — uses our own cert sidecar workflow. Fast. No AWS account
+         pollution. ⚠ PROPOSED — see brief §addendum-cert. NOT IN P1.
+     (b) `sg aws acm request --domain quiet-fermi.sgraph.ai` — issues an
+         ACM cert. Useful only if you are terminating TLS on CloudFront /
+         ELB. ⚠ Adds an entry to ACM that does NOT auto-delete when the
+         stack is destroyed. PROPOSED — NOT IN P1.
+
+   For now, accept the cert warning or use the IP-based vault_url
+   surfaced by `sp pw v info`.
+   ```
+
+   The `quiet-fermi.sgraph.ai` substring is interpolated with the actual
+   derived FQDN at runtime. Everything else is fixed copy.
+8. **Q9 — HTTP-01 (downtime) vs DNS-01 (no downtime) for the future cert path (NEW — rev 6).** See §4 Q9 for the full breakdown. Architect recommendation: **B (DNS-01)**. Decision pending and **not blocking P1** — Q9 only resolves when the §12 cert workflow slice is greenlit.
 
 ### RESOLVED items (no further user action)
 
@@ -1430,6 +1697,195 @@ In order of blockingness:
 - The bigger CF+R53 brief (`05/15/03/architect__vault-app__cf-route53__plan.md`)
   can be updated to **consume** `Route53__AWS__Client` and `ACM__AWS__Client`
   rather than define its own — one Architect follow-up review entry.
+
+---
+
+## 12. Addendum — per-instance HTTPS cert workflows (PROPOSED, NOT in P1) {#addendum-cert}
+
+**Scope of this addendum.** `sg aws dns instance create-record` (P1, §3, §6,
+§8) lands a DNS A record pointing at an EC2 instance, but the instance is
+still serving HTTPS with whatever cert it booted with — today that's an
+IP-anchored Let's Encrypt cert from the `letsencrypt-ip` mode of
+`sg_compute/platforms/tls/cert_init.py` (the boot-time mode landed in commit
+`8aad135`; verified by reading `cert_init.py:83`+`Cert__ACME__Client.py`).
+That cert is valid for the **IP address**, not for the FQDN the user just
+created — so HTTPS clients hitting `https://quiet-fermi.sgraph.ai` will get
+a CN-mismatch warning. This addendum captures two **future** paths to fix
+that, both marked **PROPOSED** and explicitly **NOT in P1, NOT in P2**.
+
+### Existing cert infrastructure (read first)
+
+The repo already ships an ACME client for Let's Encrypt. **Verified by
+reading the source on 2026-05-15:**
+
+- `sg_compute/platforms/tls/Cert__ACME__Client.py` — issues a publicly-trusted
+  cert via the ACME protocol (RFC 8555). `issue(ip, cert_path, key_path,
+  config)` is the one-shot entry. Builds a CSR with `crypto_util.make_csr(
+  cert_key_pem, ipaddrs=[ip])` — **IP-anchored only today**; no `domains=[...]`
+  branch. Default directory is LE staging.
+- `sg_compute/platforms/tls/cert_init.py` — entry point for the one-shot
+  sidecar; modes are `self-signed` (default, offline) and `letsencrypt-ip`
+  (calls `Cert__ACME__Client.issue(...)`). The CN / IP resolution path is
+  `SG__CERT_INIT__COMMON_NAME` env → IMDSv2 public IPv4 → `localhost` (the
+  `letsencrypt-ip` mode hard-fails if it cannot resolve a real public IP).
+- `sg_compute/platforms/tls/ACME__Challenge__Server.py` — the throwaway
+  HTTP server that serves the `.well-known/acme-challenge/<token>` path on
+  port 80 during issuance. Binds `0.0.0.0:80` directly — there is no DNS-01
+  pathway here.
+- `sg_compute/platforms/tls/Schema__ACME__Config.py` — config schema;
+  `challenge_port: int = 80` confirms the HTTP-only design.
+
+**Is DNS-01 supported today? NO.** `Cert__ACME__Client.select_http01(order)`
+hard-codes `isinstance(challb.chall, challenges.HTTP01)` and raises
+`RuntimeError('ACME order offered no http-01 challenge')` if no HTTP-01 is
+present. No `select_dns01` method exists; no `dns_*` helper anywhere in the
+file; no `Route53__*` import. Q9 (§4) asks the user to decide whether to
+add DNS-01 alongside HTTP-01 (Architect rec: add it).
+
+### Path A — own cert sidecar (preferred long-term)
+
+**Workflow (HTTP-01 variant — Q9-A).**
+
+1. The host runs the main service container (vault-app, playwright) on :443
+   with the LE-IP cert.
+2. Operator runs `sg playwright vault re-cert --hostname quiet-fermi.sgraph.ai`
+   (PROPOSED command — no implementation today).
+3. CLI resolves the instance (reuses `Route53__Instance__Linker` from this
+   brief), connects via SSH / SSM, runs a re-cert script that:
+   - Stops the main service container (vault-app or playwright). Brief
+     downtime begins.
+   - Starts the cert sidecar (`python -m sg_compute.platforms.tls.cert_init`)
+     with `SG__CERT_INIT__MODE=letsencrypt-hostname` (new mode — does not
+     exist today) and `SG__CERT_INIT__COMMON_NAME=quiet-fermi.sgraph.ai`.
+   - The sidecar binds :80, runs HTTP-01 (relies on the DNS A record
+     already pointing at this IP — that's what `dns instance create-record`
+     just ensured, and the new-name auto-verify path already confirmed
+     global propagation across the 6-resolver fan-out).
+   - On success, new `fullchain.pem` + `privkey.pem` land on the shared
+     `/certs` volume.
+   - Stops the sidecar.
+   - Restarts the main service container with the new cert mounted.
+4. Operator now has working HTTPS at `https://quiet-fermi.sgraph.ai`.
+
+**Workflow (DNS-01 variant — Q9-B, recommended).**
+
+1. Main service stays up on :443 — no downtime.
+2. Operator runs `sg playwright vault re-cert --hostname quiet-fermi.sgraph.ai
+   --dns-01`.
+3. CLI calls a new `Cert__ACME__Client.issue_for_hostname(hostname, ...)`
+   method (PROPOSED — see Q9), which:
+   - Builds a CSR with `domains=[hostname]` instead of `ipaddrs=[...]`.
+   - Selects the DNS-01 challenge from the ACME order
+     (`select_dns01(order)` — new method).
+   - Reads the key-authorization value and publishes it as a TXT record
+     `_acme-challenge.quiet-fermi.sgraph.ai` via
+     `Route53__AWS__Client.upsert_record(...)` (already exists in P1).
+   - Polls the authoritative NS set via `Route53__Authoritative__Checker`
+     (already exists in P1) until the TXT record is propagated — zero
+     cache pollution.
+   - Calls `acme_client.answer_challenge(...)` and
+     `acme_client.poll_and_finalize(...)`.
+   - Deletes the TXT record via `Route53__AWS__Client.delete_record(...)`.
+4. New cert lands in `/certs`; the main service is signalled to reload
+   (Nginx-style `kill -HUP`, or container restart if reload-on-cert-change
+   is not wired).
+5. Operator has working HTTPS at `https://quiet-fermi.sgraph.ai` with **zero
+   downtime**.
+
+**Trade-offs (both variants share most of these; differences flagged):**
+
+- ✓ **No AWS Certificate Manager entries created.** Zero ACM-account
+  pollution even with hundreds of ephemeral stacks.
+- ✓ **Faster than ACM end-to-end.** LE issuance is typically ~10-30s for
+  HTTP-01 and ~30-90s for DNS-01 (validation propagation is the slow part);
+  ACM DNS-01 validation for the first cert in an account can take 5+ min.
+- ✓ **Reuses existing in-repo code** (`Cert__ACME__Client`, `cert_init.py`).
+- ✗ **HTTP-01 variant: brief service downtime (~10-20s)** while the sidecar
+  binds :80 and the main container is stopped. **DNS-01 variant: ZERO
+  downtime.** This is the single biggest argument for Q9-B.
+- ✗ **Let's Encrypt rate limits.** 50 certs / registered-domain (`sgraph.ai`)
+  per week. Could bite at scale. Mitigation: use LE **staging** (no rate
+  limit, untrusted-CA cert) for ephemeral dev stacks, and only use LE
+  **production** for stacks the operator explicitly marks for trusted-cert
+  provisioning. The `prod` flag in `Cert__ACME__Client.config(prod=False)`
+  already exists for exactly this.
+- ✗ **HTTP-01 variant: 60s-TTL interaction.** LE's validation server resolves
+  the FQDN → this IP at validation time. With a 60s TTL on a freshly-created
+  record, the new-name auto-verify (P1, §3) already proves the record is
+  live globally before re-cert runs, so this is fine in practice. DNS-01
+  variant does not have this dependency (LE just checks the TXT record).
+- ✗ **DNS-01 variant pulls `Route53__AWS__Client` into the TLS pipeline.**
+  The sidecar needs an AWS IAM role scoped to
+  `route53:ChangeResourceRecordSets` on the relevant hosted zone +
+  `route53:GetChange`. Same scope this brief already establishes.
+- ✗ **DNS-01 variant pulls in DNS-01 ACME plumbing** (~50-80 LoC in
+  `Cert__ACME__Client`). The HTTP-01 path stays unchanged for the
+  boot-time IP cert.
+
+### Path B — AWS Certificate Manager (documented for completeness; not recommended for ephemeral stacks)
+
+**Workflow.**
+
+1. Operator runs `sg aws acm request --domain quiet-fermi.sgraph.ai`
+   (PROPOSED — see §2 non-goal "No ACM cert issuance"; this would lift the
+   non-goal).
+2. CLI calls a new `ACM__AWS__Client.request_certificate(domain,
+   validation_method='DNS')` (PROPOSED — not in this brief; would be added
+   as a sibling to the existing read-only methods).
+3. ACM creates a pending cert; the response includes a DNS validation
+   record (`_xyz.quiet-fermi.sgraph.ai CNAME _abc.acm-validations.aws`).
+4. CLI auto-creates that CNAME via `Route53__AWS__Client.upsert_record(...)`
+   (already exists in P1).
+5. CLI polls `acm:DescribeCertificate` (already exists in P0) until
+   `Status == 'ISSUED'`. Typical 2-5 min; can be much longer for first cert
+   in a new account.
+6. Cert ARN returned. To use it on the actual instance you have to either
+   import it into the host (defeating the point of ACM), front the
+   instance with CloudFront / ELB (heavy lift, separate brief), or accept
+   that the ACM cert lives unused.
+
+**Trade-offs.**
+
+- ✓ **AWS-managed renewal** (60 days before expiry).
+- ✓ **Useful if terminating TLS on CloudFront / ELB.** For those cases ACM
+  is mandatory — CloudFront refuses to attach non-ACM certs.
+- ✗ **Pollutes the AWS account.** Every ephemeral stack adds an ACM entry
+  that does NOT auto-delete when the EC2 stack is destroyed. The user
+  specifically flagged this as the disqualifier for routine use.
+- ✗ **Slower than LE.** Validation propagation + ACM polling (5-15 min for
+  first cert in a new account; 2-5 min subsequent).
+- ✗ **Cert lifecycle is decoupled from the EC2 stack lifecycle.** Orphaned
+  certs accumulate. Cleanup is a separate operator chore.
+- ✗ **No short-lived option.** ACM-issued *public* certs are 13 months. LE
+  has a `shortlived` profile (~6 days for IP certs); there's no comparable
+  knob in ACM.
+
+### Recommendation
+
+**Path A (DNS-01 variant — Q9-B) is the right primary path.** Reasons:
+
+1. Zero downtime for the operator.
+2. Zero AWS-account pollution.
+3. Reuses every primitive this brief already ships (`Route53__AWS__Client`,
+   `Route53__Authoritative__Checker`).
+4. Small code delta in the cert pipeline (~50-80 LoC).
+5. Aligns with the "ephemeral stacks, short-lived certs" model the user
+   has already endorsed for the boot-time cert path.
+
+**Path B is the right escape hatch** for the CloudFront-termination case
+only — where ACM is mandatory and there is no choice.
+
+### Out-of-scope clarifications
+
+- This addendum does **not** implement either path. P1 / P2 of this brief
+  do **not** include any cert-issuance code beyond what already exists in
+  `sg_compute/platforms/tls/`.
+- The cert-warning text block (§11 §11.7) is **informational only** — it
+  points operators at the two paths above but does not promise either is
+  available today.
+- Q9 (§4) is the decision the user must make before the cert workflow
+  slice is greenlit. Until then, the cert-warning block remains "accept
+  the cert warning or use the IP-based vault_url".
 
 ---
 
@@ -1460,7 +1916,32 @@ TTL-aware skip info line; `--no-verify` opts out for scripting and
 paths WITH the WARNING banner. The 6th EU resolver is AdGuard EU
 (`94.140.14.14`) on neutrality grounds. Three new info-line wordings are listed
 verbatim in §11 for sign-off. Q8 is SUPERSEDED. New risk R16 covers the
-stale-TTL window. This brief remains the simpler standalone subset of
+stale-TTL window. Rev 6 (this revision, 2026-05-15 hour 14) folds in three
+further user-driven additions: (1) **`sg aws dns instance create-record`**
+(P1) — a single command that resolves an EC2 instance (instance-id, stack
+name via the per-spec `info` helpers under `sg_compute_specs/{vault_app,
+playwright,elastic,neko}/cli/`, or the `--latest` sentinel) to its public
+IPv4, derives a sensible record name (Name-tag → stack-name → instance-id),
+picks the deepest owning hosted zone via the new `Route53__Zone__Resolver`,
+runs the new-name smart-verify path, and prints a verbatim cert-warning info
+block. Default TTL 60s. Idempotent on same-IP; fails-fast on different-IP
+without `--force`. (2) **Multi-label name support** — `Safe_Str__Record_Name`
+becomes a permissive RFC-1035 multi-label regex; the new
+`Route53__Zone__Resolver.resolve_zone_for_name(fqdn)` walks labels deepest-
+first to pick the longest-matching owning zone, so sub-delegation (when
+`dev.sgraph.ai` is later promoted to its own zone) works with zero code
+change. (3) **§12 ADDENDUM — per-instance cert workflows** (PROPOSED, NOT in
+P1, NOT in P2) capturing Path A (own cert sidecar reusing
+`sg_compute/platforms/tls/Cert__ACME__Client`; HTTP-01 today, DNS-01
+proposed) and Path B (AWS Certificate Manager, documented as the
+account-polluting escape hatch). `Cert__ACME__Client` verified **HTTP-01
+only** today; new **Q9** (DNS-01 vs HTTP-01) added for the future cert path.
+New file `Route53__Instance__Linker`, new boto3 boundary `EC2__AWS__Client`
+under `sgraph_ai_service_playwright__cli/aws/ec2/`, new IAM action
+`ec2:DescribeInstances` (+ `ec2:DescribeTags`). New risk **R17** — instance
+public IP changes after stop-start; P2 follow-ups are
+`dns instance refresh-record` and `--attach-eip`. This brief remains the
+simpler standalone subset of
 `05/15/03/architect__vault-app__cf-route53__plan.md`; the bigger plan will
 consume the `Route53__AWS__Client` + `ACM__AWS__Client` primitives this brief
 defines, instead of introducing its own.*
