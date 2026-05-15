@@ -51,7 +51,7 @@ class TestVaultAppComposeTemplate:
 
     def test_with_playwright_publishes_external_port(self):
         result = Vault_App__Compose__Template().render(ecr_registry=REGISTRY, with_playwright=True)
-        assert '"11024:8000"' in result                              # host:11024 → container:8000
+        assert '"80:8000"' in result                                 # host:80 → container:8000 (standard port so sandbox egress proxies can reach it)
 
     def test_with_playwright_pulls_docker_hub_image(self):
         # sg-playwright follows the sg-send-vault pattern: a Docker Hub image, not ECR.
@@ -59,9 +59,9 @@ class TestVaultAppComposeTemplate:
         assert 'image: diniscruz/sg-playwright:latest'                    in result
         assert f'{REGISTRY}/sgraph_ai_service_playwright:' + 'latest'     not in result
 
-    def test_without_playwright_does_not_publish_11024(self):
+    def test_without_playwright_does_not_publish_playwright_port(self):
         result = Vault_App__Compose__Template().render(ecr_registry=REGISTRY)
-        assert '11024' not in result
+        assert '"80:8000"' not in result                             # only published when --with-playwright
 
     def test_with_playwright_publishes_mitmweb_admin_on_localhost(self):
         # Routes__Web lives on agent-mitmproxy's admin FastAPI (:8000), NOT on

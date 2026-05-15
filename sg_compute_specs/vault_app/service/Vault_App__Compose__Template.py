@@ -87,7 +87,7 @@ _SG_PLAYWRIGHT = '''
   sg-playwright:
     image: {sg_playwright_image}
     ports:
-      - "11024:8000"             # external HTTP — same X-API-Key as the vault; see PLAYWRIGHT_EXTERNAL_PORT
+      - "80:8000"                # standard port (Claude/sandbox egress proxies only allow :80/:443); see PLAYWRIGHT_EXTERNAL_PORT
     environment:
       FAST_API__AUTH__API_KEY__NAME:      ${{FAST_API__AUTH__API_KEY__NAME:-X-API-Key}}
       FAST_API__AUTH__API_KEY__VALUE:     ${{FAST_API__AUTH__API_KEY__VALUE}}
@@ -97,7 +97,11 @@ _SG_PLAYWRIGHT = '''
     networks:
       - vault-net
     depends_on:
-      - agent-mitmproxy
+      agent-mitmproxy:
+        condition: service_started
+      cert-init:                  # cert-init also binds :80 (http-01 challenge) — wait for it to exit before grabbing the port
+        condition: service_completed_successfully
+        required: false           # ignored when cert-init isn't in the stack (--no-with-tls-check)
     restart: unless-stopped
 '''
 

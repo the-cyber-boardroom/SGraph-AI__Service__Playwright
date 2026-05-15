@@ -89,8 +89,8 @@ class Vault_App__Service(Spec__Service__Base):
         # SG layout:
         #   :8080  always — vault UI on plain HTTP for non-TLS / SSM-forward use; caller-/32 only.
         #   :443   --with-tls-check — HTTPS vault. World-open (token-gated; LE validates from unpredictable IPs).
-        #   :80    --with-tls-check — ACME http-01 challenge listener (only live during cert-init).
-        #   :11024 --with-playwright — playwright REST API. World-open (token-gated, same X-API-Key as the vault).
+        #   :80    shared — ACME http-01 (cert-init, transient) AND playwright REST API (after cert-init exits).
+        #          World-open in either case; cert-init+playwright is a compose `depends_on` race-free.
         extra_cidrs = {}
         if bool(request.with_tls_check):
             extra_cidrs[443] = '0.0.0.0/0'

@@ -25,7 +25,7 @@ TAG_ACCESS_TOKEN    = 'AccessToken'               # vault API key + access token
 STACK_TYPE          = 'vault-app'
 
 VAULT_PORT               = 8080
-PLAYWRIGHT_EXTERNAL_PORT = 11024                  # host:11024 → container:8000 when --with-playwright
+PLAYWRIGHT_EXTERNAL_PORT = 80                     # host:80 → container:8000 — standard port so Claude/sandbox egress proxies (which only allow :80/:443) can reach it
 HOST_PLANE_LOCAL_PORT    = 19009                  # 127.0.0.1:19009 → host-plane:8000 — SSM-port-forward target only
 MITMWEB_LOCAL_PORT       = 19081                  # 127.0.0.1:19081 → agent-mitmproxy:8000 (admin FastAPI, with Routes__Web /web/* → mitmweb)
 
@@ -51,7 +51,9 @@ class Vault_App__Stack__Mapper(Type_Safe):
         with_playwright         = tag_value(details, TAG_WITH_PLAYWRIGHT) == 'true'
         if public_ip:
             vault_url      = f'https://{public_ip}' if tls_on else f'http://{public_ip}:{VAULT_PORT}'
-            playwright_url = f'http://{public_ip}:{PLAYWRIGHT_EXTERNAL_PORT}' if with_playwright else ''
+            # Omit the :80 suffix — it's the default HTTP port and 'http://ip' is cleaner / more sandbox-friendly.
+            port_suffix    = '' if PLAYWRIGHT_EXTERNAL_PORT == 80 else f':{PLAYWRIGHT_EXTERNAL_PORT}'
+            playwright_url = f'http://{public_ip}{port_suffix}' if with_playwright else ''
         else:
             vault_url, playwright_url = '', ''
         instance_id    = details.get('InstanceId', '') or ''

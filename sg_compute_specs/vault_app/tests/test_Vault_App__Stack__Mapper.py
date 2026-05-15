@@ -48,7 +48,7 @@ class TestVaultAppStackMapper:
         info = Vault_App__Stack__Mapper().to_info(
             _instance({'StackName': 's', 'StackWithPlaywright': 'true'}), 'eu-west-2')
         assert info.with_playwright is True
-        assert info.playwright_url  == 'http://13.40.11.113:11024'
+        assert info.playwright_url  == 'http://13.40.11.113'         # port 80 — default HTTP; suffix omitted for cleanliness
 
     def test_without_playwright_omits_playwright_url(self):
         info = Vault_App__Stack__Mapper().to_info(
