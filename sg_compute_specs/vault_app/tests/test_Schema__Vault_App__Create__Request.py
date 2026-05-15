@@ -37,3 +37,11 @@ class TestSchemaVaultAppCreateRequest:
         req = Schema__Vault_App__Create__Request()
         req.use_spot = False
         assert req.use_spot is False
+
+    def test_tls_defaults_to_production_letsencrypt(self):
+        # `sp vault-app create --wait` (no extra flags) must produce a browser-trusted
+        # LE IP cert by default — locks in the v0.2.6 final-mile defaults.
+        req = Schema__Vault_App__Create__Request()
+        assert req.with_tls_check is True
+        assert req.tls_mode       == 'letsencrypt-ip'
+        assert req.acme_prod      is True

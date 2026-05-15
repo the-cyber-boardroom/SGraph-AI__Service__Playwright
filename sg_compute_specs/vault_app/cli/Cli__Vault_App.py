@@ -67,11 +67,16 @@ def _render_vault_app_info(info, console: Console) -> None:
     if pricing is not None:
         t.add_row('pricing', '[cyan]spot[/]' if pricing else '[dim]on-demand[/]')
 
+    token = str(getattr(info, 'access_token', '') or '')
+    if token:
+        t.add_row('access-token', f'[bold]{token}[/]  [dim](X-API-Key + x-sgraph-access-token)[/]')
+
     if vault_url:
         t.add_row('set-cookie-form', f'[cyan]{vault_url}/auth/set-cookie-form[/]')
+        bookmarklet_token = token or 'YOUR_TOKEN'
         t.add_row('browser-auth',
                   f'[dim]javascript: document.cookie = '
-                  f'"x-sgraph-access-token=YOUR_TOKEN; path=/"; location.reload();[/]')
+                  f'"x-sgraph-access-token={bookmarklet_token}; path=/"; location.reload();[/]')
 
     terminate_at = str(getattr(info, 'terminate_at', '') or '')
     if terminate_at:
@@ -122,7 +127,7 @@ def _render_vault_app_create(response, console: Console) -> None:
 
 def _set_extras(request, with_playwright=False, podman=False, use_spot=True,
                 storage_mode='disk', seed_vault_keys='', access_token='', disk_size=0,
-                with_tls_check=False, tls_mode='self-signed', acme_prod=False):
+                with_tls_check=True, tls_mode='letsencrypt-ip', acme_prod=True):
     request.with_playwright  = bool(with_playwright)
     request.container_engine = 'podman' if podman else 'docker'
     request.use_spot         = bool(use_spot)
@@ -157,6 +162,7 @@ _cli_spec = Schema__Spec__CLI__Spec(
 app = Spec__CLI__Builder(
     cli_spec             = _cli_spec,
     extra_create_options = [
+        # ── stack shape ──────────────────────────────────────────────────
         ('with_playwright', bool, False,
          'Add the sg-playwright + agent-mitmproxy pair (4-container stack). '
          'Default: just-vault (2 containers: host-plane + sg-send-vault).'),
@@ -164,20 +170,27 @@ app = Spec__CLI__Builder(
          'Use Podman instead of Docker as the container engine.'),
         ('use_spot'       , bool, True,
          'Spot instance (~70% cheaper). Pass --no-use-spot for on-demand.'),
+        ('disk_size'      , int , 20,
+         'Root volume in GiB — vault data + container image layers.'),
+        # ── vault storage ────────────────────────────────────────────────
         ('storage_mode'   , str , 'disk',
          'sg-send-vault storage backend: disk | memory | s3.'),
         ('seed_vault_keys', str , '',
          'Comma-separated sgit keys cloned into the vault on first boot.'),
-        ('disk_size'      , int , 20,
-         'Root volume in GiB — vault data + container image layers.'),
-        ('with_tls_check' , bool, False,
-         'Serve the vault over HTTPS on :443 via the one-shot cert sidecar.'),
-        ('tls_mode'       , str , 'self-signed',
-         'Cert source when --with-tls-check is set: self-signed | letsencrypt-ip.'),
-        ('acme_prod'      , bool, False,
-         'letsencrypt-ip: issue from the LE production directory (default: staging).'),
+        # ── TLS (on by default — a real LE cert for the EC2 IP) ──────────
+        ('with_tls_check' , bool, True,
+         'Serve the vault over HTTPS on :443 via the one-shot cert sidecar. '
+         'Default ON; pass --no-with-tls-check for plain HTTP on :8080.'),
+        ('tls_mode'       , str , 'letsencrypt-ip',
+         "How cert-init obtains the cert: letsencrypt-ip (a real Let's Encrypt cert for "
+         "the EC2 public IP, default) or self-signed (offline; browser will warn)."),
+        ('acme_prod'      , bool, True,
+         "letsencrypt-ip: use the LE production directory (browser-trusted, default). "
+         "Pass --no-acme-prod for LE staging (untrusted, rate-limit-safe — for debugging)."),
+        # ── secret ───────────────────────────────────────────────────────
         ('access_token'   , str , '',
-         'Shared stack secret. Auto-generated and returned once on create if blank.'),
+         'Shared stack secret (vault API key + access token). Auto-generated if blank; '
+         'always recoverable from sp vault-app info (tagged on the instance).'),
     ],
 ).build()
 

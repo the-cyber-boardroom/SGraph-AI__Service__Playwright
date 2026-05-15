@@ -24,6 +24,6 @@ class Schema__Vault_App__Create__Request(Type_Safe):
     access_token     : str   = ''          # shared stack secret; auto-generated if blank
     disk_size_gb     : int   = 20          # root volume — vault data + container images
     use_spot         : bool  = True        # spot by default (~70% cheaper)
-    with_tls_check   : bool  = False        # serve the vault over HTTPS on :443 via the one-shot cert sidecar
-    tls_mode         : str   = 'self-signed' # self-signed | letsencrypt-ip — how cert-init obtains the cert
-    acme_prod        : bool  = False         # letsencrypt-ip: use the LE production directory instead of staging
+    with_tls_check   : bool  = True         # default: serve HTTPS on :443 via the cert sidecar
+    tls_mode         : str   = 'letsencrypt-ip' # default: a real Let's Encrypt IP cert (vs self-signed offline)
+    acme_prod        : bool  = True         # default: LE production directory (browser-trusted)

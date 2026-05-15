@@ -26,8 +26,10 @@ from sg_compute_specs.vault_app.service.Vault_App__AMI__Helper              impo
 from sg_compute_specs.vault_app.service.Vault_App__AWS__Client              import Vault_App__AWS__Client, ecr_registry_host
 from sg_compute_specs.vault_app.service.Vault_App__Stack__Mapper            import (Vault_App__Stack__Mapper,
                                                                                     STACK_TYPE              ,
+                                                                                    TAG_ACCESS_TOKEN        ,
                                                                                     TAG_ENGINE              ,
                                                                                     TAG_TERMINATE_AT        ,
+                                                                                    TAG_TLS_ENABLED         ,
                                                                                     TAG_WITH_PLAYWRIGHT     )
 from sg_compute_specs.vault_app.service.Vault_App__User_Data__Builder       import Vault_App__User_Data__Builder
 
@@ -99,6 +101,8 @@ class Vault_App__Service(Spec__Service__Base):
         extra = {
             TAG_WITH_PLAYWRIGHT: 'true' if request.with_playwright else 'false',
             TAG_ENGINE         : engine                                        ,
+            TAG_TLS_ENABLED    : 'true' if request.with_tls_check else 'false' ,
+            TAG_ACCESS_TOKEN   : access_token                                  ,   # surfaced by `sp vault-app info`; visible via ec2:DescribeInstances
         }
         if float(request.max_hours) > 0:
             terminate_at = datetime.now(timezone.utc) + timedelta(hours=float(request.max_hours))

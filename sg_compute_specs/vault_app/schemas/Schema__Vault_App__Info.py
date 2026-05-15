@@ -16,7 +16,9 @@ class Schema__Vault_App__Info(Type_Safe):
     instance_type      : str  = ''
     ami_id             : str  = ''
     security_group_id  : str  = ''
-    vault_url          : str  = ''    # http://<public-ip>:8080 — the only externally-reachable surface
+    vault_url          : str  = ''    # https://<public-ip> (TLS on) or http://<public-ip>:8080 (plain)
+    tls_enabled        : bool = False # from StackTLS tag — drives the vault_url scheme
+    access_token       : str  = ''    # from AccessToken tag — vault API key + access token (same value, two headers)
     with_playwright    : bool = False # from StackWithPlaywright tag
     container_engine   : str  = ''    # from StackEngine tag — docker | podman
     uptime_seconds     : int  = 0
