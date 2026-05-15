@@ -1,13 +1,22 @@
 ---
-title: "QA Vault-App — briefing pack"
+title: "QA Vault-App — briefing pack (SUPERSEDED by v0.2.19)"
 version: v0.2.6
 date: 2026-05-15
-status: PROPOSED — the substrate exists today; the QA vault-app itself is what this pack proposes
+status: SUPERSEDED — see team/comms/briefs/v0.2.19__qa-vault-app/ for the current version.
 audience: Architect, Dev, QA, Librarian (cross-role)
 supersedes (in part):
   - team/humans/dinis_cruz/claude-code-web/05/13/21/v0.2.6__arch-plan__qa-service.md
   - team/humans/dinis_cruz/claude-code-web/05/14/01/v0.2.6__arch-plan__vault-app-stack__v2-delta.md
+superseded_by: team/comms/briefs/v0.2.19__qa-vault-app/
 ---
+
+> **⚠ This pack is superseded.** v0.2.19 reframes the status table
+> (2 ACs promoted from 🟡 to ✅), updates the Playwright API port from
+> `:11024` to `:80` throughout, and reorients file 01 from "inventory"
+> to "contract." Read **`team/comms/briefs/v0.2.19__qa-vault-app/`** instead.
+> This file is kept only for historical reference.
+
+
 
 # QA Vault-App — Briefing Pack
 
