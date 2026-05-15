@@ -44,9 +44,8 @@ RUN  python3 -c "import sys, importlib.metadata; \
                  v = importlib.metadata.version('playwright'); \
                  print('playwright version:', v); \
                  from playwright.sync_api import sync_playwright; \
-                 from packaging.version import Version; \
-                 assert Version(v).release[:3] == (1, 58, 0), \
-                        f'playwright {v} not in the 1.58.0 family (base image v1.58.0-noble)'; \
+                 assert v == '1.58.0', \
+                        f'playwright {v} != 1.58.0 (base image v1.58.0-noble) — bump requirements.txt and this literal in lockstep'; \
                  print('build-time guard OK')"
 
 COPY sg_compute/        sg_compute/
