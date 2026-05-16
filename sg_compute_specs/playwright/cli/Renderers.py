@@ -36,6 +36,25 @@ def render_playwright_info(info, console: Console) -> None:
     if sidecar_admin_url:
         t.add_row('sidecar-admin', f'[cyan]{sidecar_admin_url}[/]  [dim](agent-mitmproxy admin API)[/]')
 
+    api_key = str(getattr(info, 'api_key', '') or '')
+    if api_key:
+        # The API key gates every non-/auth route on sg-playwright. Same value
+        # works as the X-API-Key header AND the X-API-Key cookie.
+        t.add_row('api-key', f'[bold]{api_key}[/]  [dim](X-API-Key header or cookie)[/]')
+
+    if playwright_url:
+        # /auth/set-cookie-form is the browser-friendly UI that pastes the
+        # API key into the cookie for the current origin — bypasses the
+        # "Client API key is missing" gate when opening the service in a tab.
+        t.add_row('set-cookie-form', f'[cyan]{playwright_url}/auth/set-cookie-form[/]')
+        # One-click bookmarklet: drag to bookmark bar, click on the playwright
+        # tab, cookie is set + page reloaded. Pre-filled with the actual key
+        # when we have it; placeholder otherwise.
+        bookmarklet_key = api_key or 'YOUR_API_KEY'
+        t.add_row('browser-auth',
+                  f'[dim]javascript: document.cookie = '
+                  f'"X-API-Key={bookmarklet_key}; path=/"; location.reload();[/]')
+
     for key, label in (('region',           'region'        ),
                        ('instance_type',    'instance-type' ),
                        ('ami_id',           'ami-id'        ),

@@ -16,10 +16,12 @@ from sg_compute_specs.playwright.schemas.Schema__Playwright__Info import Schema_
 
 TAG_WITH_MITMPROXY = 'StackWithMitmproxy'
 TAG_TERMINATE_AT   = 'TerminateAt'
+TAG_API_KEY        = 'StackApiKey'                                                 # FAST_API__AUTH__API_KEY__VALUE; surfaced by `sg playwright info`. Visible via ec2:DescribeInstances — same trade-off as vault-app's AccessToken tag.
 STACK_TYPE         = 'playwright'
 
 PLAYWRIGHT_PORT    = 8000                                                          # sg-playwright FastAPI — the public surface
 SIDECAR_ADMIN_PORT = 8001                                                          # agent-mitmproxy admin API — only when with_mitmproxy
+API_KEY_HEADER     = 'X-API-Key'                                                   # baked into the compose .env by the user-data builder; same name for both header and cookie
 
 
 def _time_remaining(details: dict) -> tuple:
@@ -54,6 +56,7 @@ class Playwright__Stack__Mapper(Type_Safe):
             sidecar_admin_url  = (f'http://{public_ip}:{SIDECAR_ADMIN_PORT}'
                                   if (public_ip and with_mitmproxy) else '')                  ,
             with_mitmproxy     = with_mitmproxy                                                ,
+            api_key            = tag_value(details, TAG_API_KEY)                               ,
             uptime_seconds     = uptime_seconds(details)                                       ,
             spot               = details.get('InstanceLifecycle', '') == 'spot'                ,
             terminate_at       = terminate_at                                                  ,

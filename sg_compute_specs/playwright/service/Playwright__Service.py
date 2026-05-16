@@ -26,6 +26,7 @@ from sg_compute_specs.playwright.service.Playwright__AMI__Helper              im
 from sg_compute_specs.playwright.service.Playwright__AWS__Client              import Playwright__AWS__Client, ecr_registry_host
 from sg_compute_specs.playwright.service.Playwright__Stack__Mapper            import (Playwright__Stack__Mapper,
                                                                                        STACK_TYPE               ,
+                                                                                       TAG_API_KEY              ,
                                                                                        TAG_TERMINATE_AT         ,
                                                                                        TAG_WITH_MITMPROXY       )
 from sg_compute_specs.playwright.service.Playwright__User_Data__Builder       import Playwright__User_Data__Builder
@@ -92,7 +93,8 @@ class Playwright__Service(Spec__Service__Base):
             inbound_ports=inbound_ports,
             extra_cidrs={})
 
-        extra = {TAG_WITH_MITMPROXY: 'true' if request.with_mitmproxy else 'false'}
+        extra = {TAG_WITH_MITMPROXY: 'true' if request.with_mitmproxy else 'false',
+                 TAG_API_KEY       : api_key                                       }   # surfaced by `sg playwright info`; visible via ec2:DescribeInstances (same trade-off as vault-app's AccessToken)
         if float(request.max_hours) > 0:
             terminate_at = datetime.now(timezone.utc) + timedelta(hours=float(request.max_hours))
             extra[TAG_TERMINATE_AT] = terminate_at.strftime('%Y-%m-%dT%H:%M:%SZ')
