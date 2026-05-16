@@ -26,11 +26,14 @@ class Cost_Explorer__AWS__Client(Type_Safe):                                    
     def get_cost_and_usage(self, start: str, end: str,
                            granularity: str = 'DAILY',
                            metrics: list = None,
-                           group_by: list = None) -> list:                           # Calls ce.get_cost_and_usage, paginates via NextPageToken, returns raw ResultsByTime list
+                           group_by: list = None,
+                           record_types: list = None) -> list:                       # Calls ce.get_cost_and_usage, paginates via NextPageToken, returns raw ResultsByTime list
         if metrics is None:
             metrics = ['UnblendedCost']
         if group_by is None:
             group_by = []
+        if record_types is None:
+            record_types = ['Usage']                                                  # Default: Usage only — matches Cost Explorer console default and excludes credits/refunds/taxes
 
         ce       = self.client()
         params   = dict(TimePeriod   = dict(Start=start, End=end),
@@ -38,6 +41,10 @@ class Cost_Explorer__AWS__Client(Type_Safe):                                    
                         Metrics      = metrics                   )
         if group_by:
             params['GroupBy'] = group_by
+        if record_types:                                                               # Empty list means no filter — include all charge types (credits, refunds, taxes, …)
+            params['Filter'] = {'Dimensions': {'Key': 'RECORD_TYPE',
+                                               'Values': record_types,
+                                               'MatchOptions': ['EQUALS']}}
 
         results = []
         try:

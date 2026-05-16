@@ -34,15 +34,17 @@ class Billing__Report__Builder(Type_Safe):
 
     def build(self, start: str, end: str, granularity: str,
               keyword: str, metric: str = 'UnblendedCost',
-              group_by_key: str = 'SERVICE', top_n: int = 10) -> Schema__Billing__Report:
+              group_by_key: str = 'SERVICE', top_n: int = 10,
+              all_charges: bool = False) -> Schema__Billing__Report:
         self.setup()
         account_id  = self.ce_client.get_caller_account_id()
         raw_results = self.ce_client.get_cost_and_usage(
-            start       = start       ,
-            end         = end         ,
-            granularity = granularity ,
-            metrics     = [metric]    ,
-            group_by    = [{'Type': 'DIMENSION', 'Key': group_by_key}],
+            start        = start                         ,
+            end          = end                           ,
+            granularity  = granularity                   ,
+            metrics      = [metric]                      ,
+            group_by     = [{'Type': 'DIMENSION', 'Key': group_by_key}],
+            record_types = [] if all_charges else ['Usage'],  # [] = no filter; ['Usage'] = exclude credits/refunds/taxes
         )
 
         buckets     = List__Schema__Billing__Daily_Bucket()
