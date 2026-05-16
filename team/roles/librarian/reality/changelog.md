@@ -6,6 +6,13 @@ This is a pointer log, not a content log. For full delta detail, see the master 
 
 ---
 
+## 2026-05-15 (sg aws dns + acm — P0 + P1 + P1.5 + ergonomics shipped)
+
+- `v0.1.31/16__sg-aws-dns-and-acm.md` — NEW: full per-zone DNS management surface (`sg aws dns zones list`, `dns zone show/list/check/purge`, `dns records add/update/delete/check/get/list`, `dns instance create-record`) + ACM inventory (`sg aws acm list/show`). 136 unit tests, no mocks. `Route53__AWS__Client` + `ACM__AWS__Client` are the boto3 boundaries. Default mode is zero-cache-pollution (authoritative-NS direct via `dig @ns +norecurse`); cache-polluting modes opt-in behind verbatim WARNING banners. `zone check` cross-references ACM cert validation CNAMEs to identify orphaned records; `zone purge` batch-deletes ORPHANED + STALE A records in a single Route 53 ChangeBatch. Wired into `sg_compute/cli/Cli__SG.py`. Brief: `team/humans/dinis_cruz/claude-code-web/05/15/08/architect__sg-aws-dns__plan.md`. Debriefs under `team/claude/debriefs/2026-05-15__sg-aws-dns-*`.
+- `v0.1.31/README.md` — Index updated with row 16.
+
+---
+
 ## 2026-05-05 (T2.2b — Firefox credentials + mitm-script routes)
 
 - `sg-compute/index.md` — UPDATED: `Schema__Firefox__Credentials__Response`, `Schema__Firefox__Mitm__Script__Response`, `Firefox__SSM__Helper` added to firefox spec. `Firefox__Service` gains `set_credentials` + `upload_mitm_script`. `Routes__Firefox__Stack` gains `PUT /{node_id}/credentials` + `PUT /{node_id}/mitm-script`. `Cli__Firefox` `NotImplementedError` removed; both CLI commands fully wired.
