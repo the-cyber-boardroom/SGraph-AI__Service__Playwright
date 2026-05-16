@@ -26,11 +26,14 @@ class Cost_Explorer__AWS__Client(Type_Safe):                                    
     def get_cost_and_usage(self, start: str, end: str,
                            granularity: str = 'DAILY',
                            metrics: list = None,
-                           group_by: list = None) -> list:                           # Calls ce.get_cost_and_usage, paginates via NextPageToken, returns raw ResultsByTime list
+                           group_by: list = None,
+                           record_types: list = None) -> list:                       # Calls ce.get_cost_and_usage, paginates via NextPageToken, returns raw ResultsByTime list
         if metrics is None:
             metrics = ['UnblendedCost']
         if group_by is None:
             group_by = []
+        if record_types is None:
+            record_types = ['Usage']                                                  # Default: Usage only — matches Cost Explorer console default and excludes credits/refunds/taxes
 
         ce       = self.client()
         params   = dict(TimePeriod   = dict(Start=start, End=end),
@@ -38,6 +41,10 @@ class Cost_Explorer__AWS__Client(Type_Safe):                                    
                         Metrics      = metrics                   )
         if group_by:
             params['GroupBy'] = group_by
+        if record_types:                                                               # Empty list means no filter — include all charge types (credits, refunds, taxes, …)
+            params['Filter'] = {'Dimensions': {'Key': 'RECORD_TYPE',
+                                               'Values': record_types,
+                                               'MatchOptions': ['EQUALS']}}
 
         results = []
         try:
@@ -51,8 +58,7 @@ class Cost_Explorer__AWS__Client(Type_Safe):                                    
         except botocore.exceptions.ClientError as e:
             code = e.response['Error']['Code']
             msg  = e.response['Error'].get('Message', '')
-            if code == 'DataUnavailableException' or (
-                    code == 'AccessDeniedException' and 'ce:GetCostAndUsage' in msg):
+            if code == 'DataUnavailableException':                                       # Cost Explorer disabled on the account or first-24h data prep window
                 account_id = self._safe_account_id()
                 raise RuntimeError(
                     f'Error: AWS Cost Explorer is not enabled for account {account_id}.\n'
@@ -62,6 +68,29 @@ class Cost_Explorer__AWS__Client(Type_Safe):                                    
                     f'\n'
                     f'After enabling, the first API call may fail for up to 24 hours while AWS\n'
                     f'prepares the data. Re-run `sg aws billing <verb>` once that window has passed.'
+                ) from e
+            if code in ('AccessDeniedException', 'AccessDenied', 'UnauthorizedException'):  # IAM principal missing ce:GetCostAndUsage — Cost Explorer itself may be enabled
+                account_id = self._safe_account_id()
+                raise RuntimeError(
+                    f'Error: AWS principal is not authorised to call Cost Explorer in account {account_id}.\n'
+                    f'\n'
+                    f'AWS reported: {code}: {msg}\n'
+                    f'\n'
+                    f'Cost Explorer may already be enabled (the AWS Console can show spend even\n'
+                    f"when the API can't), but the IAM identity these CLI credentials resolve to\n"
+                    f'lacks the required permissions. Attach a policy granting:\n'
+                    f'\n'
+                    f'    ce:GetCostAndUsage\n'
+                    f'    ce:GetDimensionValues   (optional, for future group-by surfaces)\n'
+                    f'    sts:GetCallerIdentity   (already required and presumably present)\n'
+                    f'\n'
+                    f'on Resource "*" — Cost Explorer does not support resource-level IAM.\n'
+                    f'\n'
+                    f'Check which principal is being used:\n'
+                    f'    aws sts get-caller-identity\n'
+                    f'\n'
+                    f'Then attach the policy to that user/role in IAM (or switch to a profile\n'
+                    f'whose principal already has it).'
                 ) from e
             raise
 

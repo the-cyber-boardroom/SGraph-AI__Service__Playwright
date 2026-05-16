@@ -34,7 +34,8 @@ DEFAULT_METRIC = 'UnblendedCost'
 
 
 def _run_report(keyword: str, start, end, json_output: bool,
-                top_n: int, metric: str, group_by: str):                             # Shared body: resolve window, call builder, emit table or JSON
+                top_n: int, metric: str, group_by: str,
+                all_charges: bool = False):                                           # Shared body: resolve window, call builder, emit table or JSON
     if keyword == 'window':                                                            # Explicit range — use the caller's start/end, daily granularity
         granularity = 'DAILY'
     else:
@@ -42,13 +43,14 @@ def _run_report(keyword: str, start, end, json_output: bool,
 
     try:
         report = Billing__Report__Builder().build(
-            start        = start      ,
-            end          = end        ,
-            granularity  = granularity,
-            keyword      = keyword    ,
-            metric       = metric     ,
-            group_by_key = group_by   ,
-            top_n        = top_n      ,
+            start        = start       ,
+            end          = end         ,
+            granularity  = granularity ,
+            keyword      = keyword     ,
+            metric       = metric      ,
+            group_by_key = group_by    ,
+            top_n        = top_n       ,
+            all_charges  = all_charges ,
         )
     except RuntimeError as e:
         typer.echo(str(e), err=True)
@@ -103,41 +105,45 @@ def _run_report(keyword: str, start, end, json_output: bool,
 
 @billing_app.command('last-48h')
 @spec_cli_errors
-def last_48h(json_output: bool = typer.Option(False, '--json',     help='Output JSON instead of a table.'),
-             top_n:       int  = typer.Option(DEFAULT_TOP_N, '--top',      help='Top N services per bucket (rest rolled into OTHER).'),
-             metric:      str  = typer.Option(DEFAULT_METRIC, '--metric',  help='Cost Explorer metric (UnblendedCost, BlendedCost, …).'),
-             group_by:    str  = typer.Option('SERVICE', '--group-by',     help='Dimension to group by (SERVICE, USAGE_TYPE, REGION, …).')):
+def last_48h(json_output:  bool = typer.Option(False, '--json',         help='Output JSON instead of a table.'),
+             top_n:        int  = typer.Option(DEFAULT_TOP_N, '--top',  help='Top N services per bucket (rest rolled into OTHER).'),
+             metric:       str  = typer.Option(DEFAULT_METRIC, '--metric', help='Cost Explorer metric (UnblendedCost, BlendedCost, …).'),
+             group_by:     str  = typer.Option('SERVICE', '--group-by', help='Dimension to group by (SERVICE, USAGE_TYPE, REGION, …).'),
+             all_charges:  bool = typer.Option(False, '--all-charges',  help='Include credits, refunds and taxes (default: Usage only).')):
     """Last 48 hours of AWS spend (two daily buckets)."""
-    _run_report('last-48h', None, None, json_output, top_n, metric, group_by)
+    _run_report('last-48h', None, None, json_output, top_n, metric, group_by, all_charges)
 
 
 @billing_app.command('week')
 @spec_cli_errors
-def week(json_output: bool = typer.Option(False, '--json',     help='Output JSON instead of a table.'),
-         top_n:       int  = typer.Option(DEFAULT_TOP_N, '--top',      help='Top N services per bucket (rest rolled into OTHER).'),
-         metric:      str  = typer.Option(DEFAULT_METRIC, '--metric',  help='Cost Explorer metric (UnblendedCost, BlendedCost, …).'),
-         group_by:    str  = typer.Option('SERVICE', '--group-by',     help='Dimension to group by (SERVICE, USAGE_TYPE, REGION, …).')):
+def week(json_output:  bool = typer.Option(False, '--json',         help='Output JSON instead of a table.'),
+         top_n:        int  = typer.Option(DEFAULT_TOP_N, '--top',  help='Top N services per bucket (rest rolled into OTHER).'),
+         metric:       str  = typer.Option(DEFAULT_METRIC, '--metric', help='Cost Explorer metric (UnblendedCost, BlendedCost, …).'),
+         group_by:     str  = typer.Option('SERVICE', '--group-by', help='Dimension to group by (SERVICE, USAGE_TYPE, REGION, …).'),
+         all_charges:  bool = typer.Option(False, '--all-charges',  help='Include credits, refunds and taxes (default: Usage only).')):
     """Last 7 days of AWS spend."""
-    _run_report('week', None, None, json_output, top_n, metric, group_by)
+    _run_report('week', None, None, json_output, top_n, metric, group_by, all_charges)
 
 
 @billing_app.command('mtd')
 @spec_cli_errors
-def mtd(json_output: bool = typer.Option(False, '--json',     help='Output JSON instead of a table.'),
-        top_n:       int  = typer.Option(DEFAULT_TOP_N, '--top',      help='Top N services per bucket (rest rolled into OTHER).'),
-        metric:      str  = typer.Option(DEFAULT_METRIC, '--metric',  help='Cost Explorer metric (UnblendedCost, BlendedCost, …).'),
-        group_by:    str  = typer.Option('SERVICE', '--group-by',     help='Dimension to group by (SERVICE, USAGE_TYPE, REGION, …).')):
+def mtd(json_output:  bool = typer.Option(False, '--json',         help='Output JSON instead of a table.'),
+        top_n:        int  = typer.Option(DEFAULT_TOP_N, '--top',  help='Top N services per bucket (rest rolled into OTHER).'),
+        metric:       str  = typer.Option(DEFAULT_METRIC, '--metric', help='Cost Explorer metric (UnblendedCost, BlendedCost, …).'),
+        group_by:     str  = typer.Option('SERVICE', '--group-by', help='Dimension to group by (SERVICE, USAGE_TYPE, REGION, …).'),
+        all_charges:  bool = typer.Option(False, '--all-charges',  help='Include credits, refunds and taxes (default: Usage only).')):
     """Month-to-date AWS spend."""
-    _run_report('mtd', None, None, json_output, top_n, metric, group_by)
+    _run_report('mtd', None, None, json_output, top_n, metric, group_by, all_charges)
 
 
 @billing_app.command('window')
 @spec_cli_errors
-def window(start:      str  = typer.Argument(..., help='Start date YYYY-MM-DD (inclusive).'),
-           end:        str  = typer.Argument(..., help='End date YYYY-MM-DD (exclusive).'),
-           json_output: bool = typer.Option(False, '--json',     help='Output JSON instead of a table.'),
-           top_n:       int  = typer.Option(DEFAULT_TOP_N, '--top',      help='Top N services per bucket (rest rolled into OTHER).'),
-           metric:      str  = typer.Option(DEFAULT_METRIC, '--metric',  help='Cost Explorer metric (UnblendedCost, BlendedCost, …).'),
-           group_by:    str  = typer.Option('SERVICE', '--group-by',     help='Dimension to group by (SERVICE, USAGE_TYPE, REGION, …).')):
+def window(start:        str  = typer.Argument(..., help='Start date YYYY-MM-DD (inclusive).'),
+           end:          str  = typer.Argument(..., help='End date YYYY-MM-DD (exclusive).'),
+           json_output:  bool = typer.Option(False, '--json',         help='Output JSON instead of a table.'),
+           top_n:        int  = typer.Option(DEFAULT_TOP_N, '--top',  help='Top N services per bucket (rest rolled into OTHER).'),
+           metric:       str  = typer.Option(DEFAULT_METRIC, '--metric', help='Cost Explorer metric (UnblendedCost, BlendedCost, …).'),
+           group_by:     str  = typer.Option('SERVICE', '--group-by', help='Dimension to group by (SERVICE, USAGE_TYPE, REGION, …).'),
+           all_charges:  bool = typer.Option(False, '--all-charges',  help='Include credits, refunds and taxes (default: Usage only).')):
     """Explicit date-range AWS spend."""
-    _run_report('window', start, end, json_output, top_n, metric, group_by)
+    _run_report('window', start, end, json_output, top_n, metric, group_by, all_charges)
