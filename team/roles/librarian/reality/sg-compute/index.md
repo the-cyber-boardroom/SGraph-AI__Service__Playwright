@@ -1,7 +1,7 @@
 # Reality — SG/Compute Domain
 
-**Status:** ACTIVE — seeded in phase-1 (B1), foundations added in phase-2 (B2), pod management in BV2.3, CLI builder in v0.2.6.
-**Last updated:** 2026-05-10 | **Phase:** v0.2.7 (Ollama on Spec__CLI__Builder — DLAMI default + Claude tmux + 5 extras)
+**Status:** ACTIVE — seeded in phase-1 (B1), foundations added in phase-2 (B2), pod management in BV2.3, CLI builder in v0.2.6, billing CLI in v0.2.22.
+**Last updated:** 2026-05-16 | **Phase:** v0.2.22 (sg aws billing — AWS Cost Explorer CLI sub-package)
 
 ---
 
@@ -39,6 +39,70 @@
 | `Safe_Int__Pids` | `primitives/Safe_Int__Pids.py` | Container PID count — min=0 — T2.6c |
 | `Safe_Int__Exit__Code` | `primitives/Safe_Int__Exit__Code.py` | POSIX exit code — min=-256, max=256 — v0.2.6 |
 | `Safe_Str__Ollama__Model` | `primitives/Safe_Str__Ollama__Model.py` | Ollama model ref `^[a-z0-9._\-:]+$`, max=64 — v0.2.7 |
+
+### sgraph_ai_service_playwright__cli/aws/billing/ — EXISTS (v0.2.22)
+
+Six `sg aws billing` commands backed by AWS Cost Explorer.
+
+#### Primitives
+
+| Class | Path | Notes |
+|-------|------|-------|
+| `Safe_Decimal__Currency__USD` | `billing/primitives/Safe_Decimal__Currency__USD.py` | Decimal-backed USD; `decimal_places=4`; `min_value=None` (credits are legitimately negative); extends `Safe_Float__Money` |
+| `Safe_Str__Aws_Service_Code` | `billing/primitives/Safe_Str__Aws_Service_Code.py` | CE service display name; permissive regex `r'[^A-Za-z0-9 \-().,/&_]'`; `allow_empty=True` |
+| `Safe_Str__Iso8601_Date` | `billing/primitives/Safe_Str__Iso8601_Date.py` | YYYY-MM-DD date string |
+| `Safe_Str__Aws_Usage_Type` | `billing/primitives/Safe_Str__Aws_Usage_Type.py` | CE usage type string |
+
+#### Enums
+
+| Class | Values |
+|-------|--------|
+| `Enum__Billing__Granularity` | `DAILY / HOURLY / MONTHLY` |
+| `Enum__Billing__Metric` | `UNBLENDED_COST / BLENDED_COST / NET_UNBLENDED_COST / AMORTIZED_COST` |
+| `Enum__Billing__Group_By` | `SERVICE / USAGE_TYPE / LINKED_ACCOUNT / REGION` |
+| `Enum__Billing__Window_Keyword` | `LAST_48H / LAST_7D / MONTH_TO_DATE` |
+
+#### Schemas (pure data, no methods)
+
+| Class | Key fields |
+|-------|------------|
+| `Schema__Billing__Window` | `start / end (Safe_Str__Iso8601_Date)`, `granularity (Enum)`, `keyword (str)` |
+| `Schema__Billing__Line_Item` | `service (Safe_Str__Aws_Service_Code)`, `amount_usd (Safe_Decimal__Currency__USD)`, `metric (Enum)` |
+| `Schema__Billing__Daily_Bucket` | `date`, `total_usd`, `line_items (List__Schema__Billing__Line_Item)` |
+| `Schema__Billing__Report` | `window`, `metric`, `group_by`, `buckets`, `total_usd`, `account_id`, `currency='USD'`, `generated_at` |
+
+#### Collections
+
+`List__Schema__Billing__Daily_Bucket`, `List__Schema__Billing__Line_Item`, `List__Schema__Billing__Group` (scaffolded, unused in MVP).
+
+#### Service layer
+
+| Class | Path | Notes |
+|-------|------|-------|
+| `Cost_Explorer__AWS__Client` | `billing/service/Cost_Explorer__AWS__Client.py` | Sole boto3 boundary for CE + STS. `client()` is the test seam. Manual `NextPageToken` pagination. `RECORD_TYPE=Usage` filter by default; empty list = all charges. Splits `DataUnavailableException` (CE disabled) from `AccessDeniedException` (IAM missing). Validates all amounts are USD. |
+| `Billing__Window__Resolver` | `billing/service/Billing__Window__Resolver.py` | Maps `'last-48h'` / `'week'` / `'mtd'` keywords → `(start, end, granularity)` tuples |
+| `Billing__Report__Builder` | `billing/service/Billing__Report__Builder.py` | `ce_client=None` (lazy-inits in `setup()`); `build(start, end, granularity, keyword, metric, group_by_key, top_n, all_charges)` → `Schema__Billing__Report` |
+
+#### CLI commands
+
+Registered as `billing_app` in `sgraph_ai_service_playwright__cli/aws/cli/Cli__Aws.py`.
+
+| Command | Description |
+|---------|-------------|
+| `sg aws billing last-48h` | Daily breakdown, last 2 days |
+| `sg aws billing week` | Daily breakdown, last 7 days |
+| `sg aws billing mtd` | Month-to-date daily breakdown |
+| `sg aws billing window --start YYYY-MM-DD --end YYYY-MM-DD` | Custom date range |
+| `sg aws billing summary` | Aggregated service totals: share % + horizontal bars |
+| `sg aws billing chart` | Daily totals bar chart: ▲ peak / ▼ low markers, stats footer |
+
+All commands accept `--all-charges` to include credits/refunds/taxes.
+
+#### IAM requirements
+
+`ce:GetCostAndUsage` + `sts:GetCallerIdentity` on `Resource: "*"` (mandatory — CE has no resource-level IAM). `ce:GetDimensionValues` optional.
+
+---
 
 ### sg_compute/cli/base/ — EXISTS (v0.2.6)
 
@@ -325,6 +389,7 @@ All dashboard web components live under `sgraph_ai_service_playwright__api_site/
 
 | Date | Change |
 |------|--------|
+| 2026-05-16 | v0.2.22: `sg aws billing` CLI sub-package — 6 commands, 4 primitives, 4 enums, 4 schemas, 3 collections, 3 service classes, `Cli__Billing.py`. `Cli__Aws.py` updated to register `billing_app`. 6 commits on `claude/plan-billing-view-u0NFG`. |
 | 2026-05-05 | T3.3b: `components/sp-cli/` → `components/sg-compute/` directory rename; 28 api_site/ string refs + 45 sg_compute_specs/*/ui/detail/ absolute imports updated; snapshot test COMPONENT_DIR paths corrected; 32/33 CI green |
 | 2026-05-05 | T2.1b: `sg-compute-ami-picker.setSpecId()` wired to `GET /api/amis` via `apiClient`; `_populateAmis()` / `_showLoading()` / `_showError()` / `_hidePlaceholder()` added; 17-assertion snapshot test; T2.1 debrief flipped PARTIAL → COMPLETE; frontend component table added to reality doc |
 | 2026-05-05 | T2-FE-patch: `ami_name` threaded to POST body; spec-card body click + keyboard wired; README broken link → placeholder; inline styles → CSS classes; `stability||'unknown'`; 13-assertion snapshot test for spec-detail |
