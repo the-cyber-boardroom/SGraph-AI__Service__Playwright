@@ -4,7 +4,10 @@ file: architect__billing-view-plan.md
 author: Architect (Claude)
 date: 2026-05-15 (UTC hour 14)
 repo: SGraph-AI__Service__Playwright @ claude/plan-billing-view-u0NFG
-status: PROPOSED — does not exist yet. Plan-only deliverable for human ratification before Dev picks it up.
+status: PROPOSED — does not exist yet. Plan-only deliverable. All open questions resolved 2026-05-15; ready for Dev pickup pending final ratification.
+revisions:
+  - 2026-05-15 (UTC hour 14) — initial plan published
+  - 2026-05-15 — open questions resolved (see §10 and Revision history)
 parallel-to: sgraph_ai_service_playwright__cli/aws/dns/
 parent: .claude/CLAUDE.md
 ---
@@ -45,6 +48,7 @@ The DNS sub-package is the template. The billing sub-package mirrors it one-for-
 | `aws/dns/collections/List__Schema__Route53__Record.py` | `aws/billing/collections/List__Schema__Billing__Line_Item.py` | Typed list per rule 21 |
 | `aws/dns/enums/Enum__Route53__Record_Type.py` | `aws/billing/enums/Enum__Billing__Granularity.py` | Enum, no Literals |
 | `aws/dns/primitives/Safe_Str__Domain_Name.py` | `aws/billing/primitives/Safe_Str__Aws_Service_Code.py` | Domain-specific Safe_* primitives |
+| (n/a) | `aws/billing/primitives/Safe_Decimal__Currency__USD.py` | Local USD money primitive — subclasses `osbot_utils ... Safe_Float__Money` (which is `Safe_Float` with `use_decimal=True`, 2 dp). See §10.1 / §4.1 for the codebase scan that resolved this. |
 | `aws/cli/Cli__Aws.py` (existing) | edit — adds `app.add_typer(billing_app, name='billing')` | The only cross-package edit |
 
 ---
@@ -87,7 +91,7 @@ sgraph_ai_service_playwright__cli/aws/billing/
     Safe_Str__Aws_Service_Code.py
     Safe_Str__Aws_Usage_Type.py
     Safe_Str__Iso8601_Date.py
-    Safe_Decimal__Usd_Amount.py
+    Safe_Decimal__Currency__USD.py
 ```
 
 One edit outside the new package:
@@ -107,7 +111,7 @@ All extend `Type_Safe`. Zero raw primitives — `Safe_*`, `Enum__*`, and collect
 | `Safe_Str__Aws_Service_Code` | `Safe_Str` | Cost Explorer `Dimensions.SERVICE` value (e.g. `Amazon Elastic Compute Cloud - Compute`). Length-bounded; allowed charset includes spaces and hyphens. |
 | `Safe_Str__Aws_Usage_Type` | `Safe_Str` | Cost Explorer `Dimensions.USAGE_TYPE` value. |
 | `Safe_Str__Iso8601_Date` | `Safe_Str` | `YYYY-MM-DD`. Validated by regex in the primitive. |
-| `Safe_Decimal__Usd_Amount` | `Safe_Decimal` | Non-negative; 4 decimal places (Cost Explorer returns up to 10, we truncate at the boundary). |
+| `Safe_Decimal__Currency__USD` | `Safe_Float__Money` (osbot-utils, `domains/numerical/safe_float/Safe_Float__Money.py` — `Safe_Float` with `use_decimal=True`, `decimal_places=2`, `min_value=0.0`, `round_output=True`). | Non-negative USD amount. Inherits 2-dp Decimal-backed arithmetic from `Safe_Float__Money`; we override to 4 dp at the boundary to match Cost Explorer precision before bucket totals are summed and re-rounded to 2 dp at render. |
 
 ### 4.2 Enums
 
@@ -129,17 +133,17 @@ Schema__Billing__Window
 
 Schema__Billing__Line_Item                  # one row in a daily bucket, grouped by service
   service       : Safe_Str__Aws_Service_Code
-  amount_usd    : Safe_Decimal__Usd_Amount
+  amount_usd    : Safe_Decimal__Currency__USD
   metric        : Enum__Billing__Metric
 
 Schema__Billing__Group                      # legacy/alt grouping (usage-type, region) — present for forward-compat
   group_key     : str                       # opaque key, kept generic to support multi-dim group-by
-  amount_usd    : Safe_Decimal__Usd_Amount
+  amount_usd    : Safe_Decimal__Currency__USD
   metric        : Enum__Billing__Metric
 
 Schema__Billing__Daily_Bucket
   date          : Safe_Str__Iso8601_Date
-  total_usd     : Safe_Decimal__Usd_Amount
+  total_usd     : Safe_Decimal__Currency__USD
   line_items    : List__Schema__Billing__Line_Item
 
 Schema__Billing__Report
@@ -147,12 +151,19 @@ Schema__Billing__Report
   metric        : Enum__Billing__Metric
   group_by      : Enum__Billing__Group_By
   buckets       : List__Schema__Billing__Daily_Bucket
-  total_usd     : Safe_Decimal__Usd_Amount
-  account_id    : str                       # populated from STS GetCallerIdentity at render time, not from Cost Explorer
+  total_usd     : Safe_Decimal__Currency__USD
+  account_id    : str                       # populated from STS GetCallerIdentity at render time, not from Cost Explorer (the resolved caller account is the desired scope — no --org flag in MVP)
+  currency      : str                       # hard-coded "USD" at MVP. If Cost Explorer returns a non-USD unit, the builder raises and aborts with the §10.1 currency-mismatch message — we never render a non-USD report.
   generated_at  : Safe_Str__Iso8601_Date    # UTC date the report was built
 ```
 
-`Safe_Decimal__Usd_Amount` may not exist as a Safe_* primitive yet — see §10 open questions.
+**Codebase scan result (resolves the §10.1 open question).** Direct inspection of the installed `osbot-utils` package and this repo's primitives folders on 2026-05-15:
+
+- `osbot_utils/type_safe/primitives/core/` ships `Safe_Str`, `Safe_Int`, `Safe_UInt`, `Safe_Float` — **no `Safe_Decimal` base.**
+- `osbot_utils/type_safe/primitives/domains/numerical/safe_float/` ships seven Safe_Float subclasses including **`Safe_Float__Money`** (`decimal_places=2`, `use_decimal=True`, `allow_inf=False`, `allow_nan=False`, `min_value=0.0`, `round_output=True`) and `Safe_Float__Financial`. `Safe_Float__Money` internally uses `Decimal` arithmetic, so the "decimal" semantic is already covered.
+- This repo's own `*/primitives/` folders (under `sg_compute/`, `sg_compute_specs/*/`, `sgraph_ai_service_playwright__cli/*/`) ship dozens of `Safe_Str__*` and `Safe_Int__*` primitives but **no money/decimal/currency primitive.**
+
+**Decision (Dinis, 2026-05-15):** add `Safe_Decimal__Currency__USD` as a local subclass of `Safe_Float__Money` in the billing primitives folder. The "Decimal" in the name reflects the *internal* representation (`use_decimal=True` is inherited from `Safe_Float__Money`), not a separate Python base class. No upstream PR or `Safe_Float` fallback needed — the upstream base already gives us Decimal-backed money arithmetic. The class is a thin override (constraints + naming) so the rest of the billing tree never mentions `Safe_Float`.
 
 ---
 
@@ -321,14 +332,68 @@ For the workstation/dev path, the existing AWS credential resolution chain (env 
 
 ---
 
-## 10. Open Questions (for Dinis to decide before Dev picks up)
+## 10. Open Questions — RESOLVED (Dinis, 2026-05-15)
 
-1. **`Safe_Decimal__Usd_Amount` — does it exist in `osbot-utils` already?** If not, do we add a `Safe_Decimal` primitive locally, or use `Safe_Float` with documented loss? Recommend: check `osbot-utils`; if absent, file a small upstream PR. Fallback: `Safe_Float` with 4-decimal truncation at the boundary.
-2. **Default account scope** — `sg aws billing week` on a payer account shows the entire org. Is that the desired default, or should we filter to the principal's own account by default and require `--org` to broaden? Recommend: default to principal account, `--org` opt-in.
-3. **`mtd` and `window <start> <end>` — in MVP or follow-up slice?** Strictly the brief asks for "48h" and "week"; MTD and explicit-window are obvious next steps. Recommend: include in MVP — adds ~20 lines.
-4. **Cost Explorer first-time enablement** — should the CLI detect the "not yet enabled" error and print actionable guidance, or fail with the raw boto3 message? Recommend: catch and print guidance, matching the DNS `--zone unset` error style.
-5. **Output currency** — Cost Explorer returns the account's billing currency (USD for most accounts). Do we hard-code "USD" in the table header or read the unit from the API response? Recommend: read the unit from the response; surface a warning if it isn't `USD`.
-6. **Caching** — Cost Explorer is billable per request ($0.01 after the free tier). Do we add a short-lived on-disk cache (e.g. 1h TTL keyed by `(window, metric, group-by)`) to keep dev/test costs near zero? Recommend: not in MVP; revisit if anyone reports surprise charges.
+All six questions are now closed. Decisions captured below; see "Revision history" at the bottom of this doc for the audit trail.
+
+### 10.1 `Safe_Decimal__Currency__USD` — RESOLVED
+
+**Decision:** add `Safe_Decimal__Currency__USD` as a local subclass of `osbot_utils ... Safe_Float__Money` in `aws/billing/primitives/`. Name uses "Decimal" because the upstream parent already sets `use_decimal=True` (Decimal-backed internally) — the name describes the storage semantic, not a Python base class.
+
+Scan evidence (see §4.1 in full):
+- `osbot_utils/type_safe/primitives/core/` — no `Safe_Decimal` base exists.
+- `osbot_utils/type_safe/primitives/domains/numerical/safe_float/Safe_Float__Money.py` — exists; `Safe_Float` + `decimal_places=2` + `use_decimal=True` + `min_value=0.0`.
+- This repo's primitives folders — no money/decimal primitive exists today; this is the first one.
+
+Upstream PR for a true `Safe_Decimal` base is **not pursued**. Fallback to bare `Safe_Float` is **not used** (would lose Decimal semantics we already have for free).
+
+### 10.2 Account scope — RESOLVED
+
+**Decision:** default scope is whatever account the current AWS credentials resolve to via `sts:GetCallerIdentity`. Drop the `--org` opt-in entirely from MVP. If a payer-account credential happens to be in scope, the totals it shows are simply the totals it has permission to see — we make no special org/payer detection.
+
+Implementation impact:
+- `Billing__Report__Builder` calls `sts.get_caller_identity` once per report and stamps `account_id` on `Schema__Billing__Report`.
+- No CLI flag for organisation rollup. `GroupBy=LINKED_ACCOUNT` stays in `Enum__Billing__Group_By` only for forward-compat (already noted §11).
+- IAM requirements in §8 are unchanged (already minimal).
+
+### 10.3 `mtd` and `window <start> <end>` in MVP — RESOLVED
+
+**Decision:** confirmed in MVP, alongside `last-48h` and `week`. Locked in. No change to §6 — the four verbs (`last-48h`, `week`, `mtd`, `window <start> <end>`) are the MVP surface.
+
+### 10.4 Cost Explorer "not yet enabled" error — RESOLVED
+
+**Decision:** catch the error in `Cost_Explorer__AWS__Client`, abort with an actionable message styled on the DNS `--zone unset` error. Specifically, when boto3 raises a `DataUnavailableException` or `AccessDenied`-with-`ce:GetCostAndUsage` from a known-good principal, surface:
+
+```
+Error: AWS Cost Explorer is not enabled for account <account_id>.
+
+Cost Explorer must be enabled once per account from the AWS Console:
+  https://console.aws.amazon.com/cost-management/home#/cost-explorer
+
+After enabling, the first API call may fail for up to 24 hours while AWS
+prepares the data. Re-run `sg aws billing <verb>` once that window has
+passed.
+```
+
+The principal/account is filled in from `sts:GetCallerIdentity` (already in the report path). The CLI exits with status 2 (mirrors DNS unset-zone exit code).
+
+### 10.5 Currency — RESOLVED
+
+**Decision:** hard-code USD. If `get_cost_and_usage` returns a `Unit` other than `USD` for any bucket, `Billing__Report__Builder` **raises and aborts** — no partial rendering, no warning. Error:
+
+```
+Error: AWS Cost Explorer returned non-USD currency unit '<unit>' for account
+<account_id>. This CLI hard-codes USD output; multi-currency rendering is
+out of scope for MVP. File an issue if you need <unit> support.
+```
+
+Schema-level enforcement: `Schema__Billing__Report.currency` is set unconditionally to the literal `"USD"` by the builder; any divergence from the API response triggers the abort above before the schema is constructed. (Future slice can promote `currency` to an `Enum__Currency` if multi-currency lands.)
+
+### 10.6 Caching — RESOLVED
+
+**Decision:** not in MVP. Cost Explorer charges per request after the free tier; that risk is accepted for the MVP cadence.
+
+**Future-slice note (Dinis's words):** a future slice will use **vaults** to hold cached billing data. No design here — that slice will land alongside the broader vault-cached-data pattern. The current plan stays cache-free; do not stub a cache interface "just in case".
 
 ---
 
@@ -359,3 +424,12 @@ When this plan is ratified:
 3. QA runs the unit suite + the gated live-AWS test against a sandbox account.
 4. Librarian appends a "PROPOSED" entry under the relevant domain (`cli/` or a new `cli/aws-billing/` sub-domain) and flips it to "EXISTS" only once the merge lands.
 5. Historian files a slice debrief under `team/claude/debriefs/`.
+
+---
+
+## 13. Revision history
+
+| Date (UTC) | Author | Change |
+|---|---|---|
+| 2026-05-15 hour 14 | Architect (Claude) | Initial plan published (commit `d0f02d45`). |
+| 2026-05-15 | Architect (Claude) | Folded in Dinis's decisions on all six open questions: (1) `Safe_Decimal__Currency__USD` subclasses upstream `Safe_Float__Money` (confirmed by direct osbot-utils scan — no `Safe_Decimal` base, but `Safe_Float__Money` already gives Decimal-backed money arithmetic); (2) default scope is the STS caller identity, `--org` removed from MVP; (3) `mtd` and `window <start> <end>` locked into MVP; (4) Cost Explorer not-enabled error caught and rendered with actionable guidance matching DNS `--zone unset` style; (5) USD hard-coded, builder aborts on non-USD `Unit` from Cost Explorer; (6) caching deferred to a future vault-backed slice. |
