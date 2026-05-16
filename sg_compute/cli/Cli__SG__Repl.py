@@ -25,7 +25,7 @@ def _click_node(sg_app, path):                                                  
     return node
 
 
-def _children(sg_app, path):                                                    # visible sub-commands at the current path
+def _children(sg_app, path):                                                    # visible sub-commands at current path
     node = _click_node(sg_app, path)
     if node and hasattr(node, 'commands'):
         return {name for name, cmd in node.commands.items() if not cmd.hidden}
@@ -46,6 +46,28 @@ def _invoke(sg_app, args):
         sg_app(args, standalone_mode=True)
     except SystemExit:
         pass
+
+
+def _resolve(sg_app, base_path, words):
+    """Prefix-resolve words through the click tree starting from base_path.
+
+    Returns (full_path, trailing_args).
+    Returns (None, candidates) when a step is ambiguous.
+    Stops early when a word starts with '-' or no child matches (rest become args).
+    """
+    current = list(base_path)
+    for i, word in enumerate(words):
+        if word.startswith('-') or not _is_group(sg_app, current):             # option flag or leaf — rest are args
+            return current, list(words[i:])
+        available = _children(sg_app, current) - ({'repl'} if not current else set())
+        hits      = _match(word, available)
+        if len(hits) == 1:
+            current.append(hits[0])
+        elif len(hits) > 1:
+            return None, hits                                                   # ambiguous
+        else:
+            return current, list(words[i:])                                    # no match — rest are args
+    return current, []
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # REPL loop
@@ -74,7 +96,6 @@ def run_repl(sg_app):
 
         parts = line.split()
         cmd   = parts[0]
-        args  = parts[1:]
 
         if cmd in ('q', 'quit', 'exit'):
             break
@@ -89,17 +110,12 @@ def run_repl(sg_app):
             _invoke(sg_app, path + ['--help'])
             continue
 
-        available = _children(sg_app, path) - ({'repl'} if not path else set())
-        hits      = _match(cmd, available)
+        resolved, trailing = _resolve(sg_app, path, parts)
 
-        if len(hits) == 1:
-            hit = hits[0]
-            if _is_group(sg_app, path + [hit]):
-                path.append(hit)
-                _invoke(sg_app, path + ['--help'])
-            else:
-                _invoke(sg_app, path + [hit] + args)
-        elif hits:
-            console.print(f'  [dim]{" ".join(hits)}[/dim]')
+        if resolved is None:
+            console.print(f'  [dim]{" ".join(trailing)}[/dim]')               # ambiguous — show candidates
+        elif len(parts) == 1 and not trailing and _is_group(sg_app, resolved) and resolved != path:
+            path[:] = resolved                                                  # single word → group: navigate
+            _invoke(sg_app, path + ['--help'])
         else:
-            _invoke(sg_app, path + [cmd] + args)                               # pass through verbatim; typer prints a clear error
+            _invoke(sg_app, resolved + trailing)                               # execute without navigating
