@@ -64,9 +64,9 @@ SERVICE_DISPLAY = {                                                             
     'OTHER'                                  : 'OTHER'                    ,
 }
 
-SERVICE_EMOJI = {                                                                      # Normalised display name → emoji
+SERVICE_EMOJI = {                                                                      # Normalised display name → emoji (all values MUST be Emoji_Presentation 2-cell wide for column alignment)
     'EC2 Compute'      : '🖥️',
-    'EC2 Other'        : '🖧 ',
+    'EC2 Other'        : '🧰',
     'S3'               : '🪣',
     'VPC'              : '🕸️',
     'ECR'              : '📦',
@@ -76,7 +76,7 @@ SERVICE_EMOJI = {                                                               
     'Route 53'         : '🧭',
     'CloudFront'       : '☁️',
     'CloudTrail'       : '📜',
-    'Lambda'           : 'λ ',
+    'Lambda'           : '🟧',
     'CloudWatch'       : '👁️',
     'DynamoDB'         : '⚡',
     'RDS'              : '🗄️',
