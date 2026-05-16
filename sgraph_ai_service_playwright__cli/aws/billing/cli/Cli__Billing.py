@@ -221,14 +221,13 @@ def _run_report(keyword: str, start, end, json_output: bool,
 
     t = Table(box=None, show_header=True, padding=(0, 2))
     t.add_column('Date',    style='cyan', min_width=12, no_wrap=True)
-    t.add_column('Service', style='',     min_width=24)
-    t.add_column('USD',     style='',     justify='right', min_width=10)
-    t.add_column('',        style='',     min_width=30)                                # Inline bar
+    t.add_column('',        style='',     min_width=2, max_width=2, no_wrap=True)     # Emoji — fixed 2-cell keeps name flush
+    t.add_column('Service', style='',     min_width=20)
+    t.add_column('USD',     style='',     justify='right', min_width=9)
+    t.add_column('',        style='',     min_width=28)                                # Inline bar
 
     prev_bucket_total = None
-    bucket_count      = 0
     for bucket in report.buckets:
-        bucket_count += 1
         date_str   = str(bucket.date)
         items      = sorted(list(bucket.line_items),
                             key=lambda x: float(x.amount_usd), reverse=True)
@@ -242,29 +241,26 @@ def _run_report(keyword: str, start, end, json_output: bool,
         for item in top_items:
             amount   = float(item.amount_usd)
             style    = _amount_style(amount)
-            label    = _service_label(str(item.service))
+            name     = _display_name(str(item.service))
+            emoji    = _service_emoji(name).strip()
             row_date = date_str if first else ''
             first    = False
-            t.add_row(row_date,
-                      label,
+            t.add_row(row_date, emoji, name,
                       f'[{style}]{amount:>8,.2f}[/]' if style else f'{amount:>8,.2f}',
                       f'[dim]{_bar(amount, bucket_max)}[/]')
 
         if other_sum > 0.005:
-            t.add_row('' if not first else date_str,
-                      _service_label('OTHER'),
+            t.add_row('' if not first else date_str, '🧩', 'OTHER',
                       f'{other_sum:>8,.2f}',
                       f'[dim]{_bar(other_sum, bucket_max)}[/]')
             first = False
 
         if not top_items and other_sum <= 0.005:
-            t.add_row(date_str, '[dim](no spend)[/]', '[dim]0.00[/]', '')
+            t.add_row(date_str, '', '[dim](no spend)[/]', '[dim]0.00[/]', '')
 
         trend = _trend_arrow(float(bucket.total_usd), prev_bucket_total) if prev_bucket_total is not None else ' '
-        t.add_row('',
-                  f'[bold]── Subtotal {date_str} {trend}[/]',
-                  f'[bold]{float(bucket.total_usd):>8,.2f}[/]',
-                  '')
+        t.add_row('', '', f'[bold]── Subtotal {date_str} {trend}[/]',
+                  f'[bold]{float(bucket.total_usd):>8,.2f}[/]', '')
         prev_bucket_total = float(bucket.total_usd)
         t.add_section()
 
@@ -301,25 +297,29 @@ def _run_summary(keyword: str, start, end, json_output: bool, top_n: int,
     max_v = max([v for _, v in top] + [other, 0.001])
 
     t = Table(box=None, show_header=True, padding=(0, 2))
-    t.add_column('Service', style='',     min_width=26)
-    t.add_column('USD',     style='',     justify='right', min_width=10)
-    t.add_column('Share',   style='dim',  justify='right', min_width=7 )
+    t.add_column('',        style='',     min_width=2,  max_width=2,  no_wrap=True)   # Emoji — fixed 2-cell column keeps name column flush
+    t.add_column('Service', style='',     min_width=20)
+    t.add_column('USD',     style='',     justify='right', min_width=9)
+    t.add_column('Share',   style='dim',  justify='right', min_width=7)
     t.add_column('',        style='',     min_width=34)
     for svc, amount in top:
+        name  = _display_name(svc)
+        emoji = _service_emoji(name).strip()                                           # Strip padding — column width handles spacing
         share = (amount / grand_total * 100) if grand_total else 0.0
         style = _amount_style(amount)
-        t.add_row(_service_label(svc),
+        t.add_row(emoji,
+                  name,
                   f'[{style}]{amount:>8,.2f}[/]' if style else f'{amount:>8,.2f}',
                   f'{share:5.1f}%',
                   f'[cyan]{_bar(amount, max_v, width=30)}[/]')
     if other > 0.005:
         share = (other / grand_total * 100) if grand_total else 0.0
-        t.add_row(_service_label('OTHER'),
+        t.add_row('🧩', 'OTHER',
                   f'{other:>8,.2f}',
                   f'{share:5.1f}%',
                   f'[dim]{_bar(other, max_v, width=30)}[/]')
     t.add_section()
-    t.add_row('[bold]── Total[/]',
+    t.add_row('', '[bold]── Total[/]',
               f'[bold]{grand_total:>8,.2f}[/]',
               '[bold]100.0%[/]', '')
     c.print(t)
