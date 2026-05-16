@@ -114,14 +114,19 @@ Available sources (pick with --source / -s, or omit to be prompted):
   boot        EC2 user-data boot script — [playwright] stage markers
   cloud-init  cloud-init full output — slightly behind the boot log
   journal     full systemd journal — always available
+
+\b
+Add --follow / -f to poll for new lines every few seconds (Ctrl-C to stop).
 ''')
 @spec_cli_errors
-def logs(name  : str = typer.Argument(None, help='Stack name; auto-selected when only one exists.'),
-         tail  : int = typer.Option(300,   '--tail', '-n',   help='Number of log lines to fetch.'),
-         source: str = typer.Option('',    '--source', '-s',
-                                    help='boot | cloud-init | journal. Omit to be prompted.'),
-         region: str = typer.Option(DEFAULT_REGION, '--region', '-r')):
+def logs(name  : str  = typer.Argument(None, help='Stack name; auto-selected when only one exists.'),
+         tail  : int  = typer.Option(300,   '--tail', '-n',   help='Number of log lines to fetch.'),
+         follow: bool = typer.Option(False, '--follow', '-f', help='Poll for new lines every few seconds (Ctrl-C to stop).'),
+         source: str  = typer.Option('',    '--source', '-s',
+                                     help='boot | cloud-init | journal. Omit to be prompted.'),
+         region: str  = typer.Option(DEFAULT_REGION, '--region', '-r')):
     """Stream logs from the stack host via SSM."""
+    import time
     c = Console(highlight=False)
     if not source:
         source = _prompt_for_source(c)
@@ -129,15 +134,46 @@ def logs(name  : str = typer.Argument(None, help='Stack name; auto-selected when
         raise typer.BadParameter(
             f'unknown source {source!r}; pick from: {", ".join(_LOG_SOURCES)}')
     cmd_tpl, timeout, _desc = _LOG_SOURCES[source]
-    svc     = Playwright__Service().setup()
-    name    = Spec__CLI__Builder(_cli_spec).resolver.resolve(svc, name, region, 'playwright')
-    ssm_cmd = cmd_tpl.format(tail=tail)
-    others  = '  '.join(k for k in _LOG_SOURCES if k != source)
+    svc        = Playwright__Service().setup()
+    name       = Spec__CLI__Builder(_cli_spec).resolver.resolve(svc, name, region, 'playwright')
+    others     = '  '.join(k for k in _LOG_SOURCES if k != source)
+    fetch_tail = max(tail, 500) if follow else tail                                # follow mode needs headroom so the dedupe anchor doesn't fall off the back of a small tail
+    ssm_cmd    = cmd_tpl.format(tail=fetch_tail)
+
     c.print(f'  [bold]{source}[/] [dim]──  other sources: {others}[/]')
     c.print(f'  [dim]via SSM:[/] [cyan]{ssm_cmd}[/]')
+    if follow:
+        c.print('  [dim]following — Ctrl-C to stop[/]')
     c.print()
-    result = svc.exec(region, name, ssm_cmd, timeout_sec=timeout)
-    c.print(str(getattr(result, 'stdout', '') or ''))
+
+    def fetch():
+        r = svc.exec(region, name, ssm_cmd, timeout_sec=timeout)
+        return str(getattr(r, 'stdout', '') or '').splitlines()
+
+    if not follow:
+        c.print('\n'.join(fetch()))
+        return
+
+    shown_anchor = ''                                                              # last line printed — used to find new content each poll
+    try:
+        while True:
+            lines = fetch()
+            if not shown_anchor:
+                for line in lines:
+                    c.print(line)
+                shown_anchor = lines[-1] if lines else ''
+            else:
+                # find the anchor in the new batch (search from the end for speed)
+                idx = next((i for i in range(len(lines) - 1, -1, -1)
+                            if lines[i] == shown_anchor), None)
+                new_lines = lines[idx + 1:] if idx is not None else lines
+                for line in new_lines:
+                    c.print(line)
+                if new_lines:
+                    shown_anchor = new_lines[-1]
+            time.sleep(4)
+    except KeyboardInterrupt:
+        c.print('\n  [dim]stopped[/]')
 
 
 @app.command()
