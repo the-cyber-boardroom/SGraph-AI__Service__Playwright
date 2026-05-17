@@ -169,15 +169,11 @@ def role_delete(name    : str  = typer.Argument(...,   help='IAM role name.'),
     _mutation_guard()
     if not confirm_or_abort(f'Delete role "{name}"?', yes=yes, dry_run=dry_run):
         raise typer.Exit(0)
-    ok = _client().delete_role(name)
+    _client().delete_role(name)
     if as_json:
-        typer.echo(json.dumps({'deleted': ok, 'role_name': name}))
+        typer.echo(json.dumps({'deleted': True, 'role_name': name}))
         return
-    if ok:
-        console.print(f'[green]Deleted[/green] {name}')
-    else:
-        console.print(f'[red]Failed to delete[/red] {name}')
-        raise typer.Exit(1)
+    console.print(f'[green]Deleted[/green] {name}')
 
 
 # ── role check ────────────────────────────────────────────────────────────────
@@ -236,12 +232,8 @@ def policy_attach(role    : str  = typer.Argument(..., help='IAM role name.'),
                   arn     : str  = typer.Option(...,  '--arn', help='Managed policy ARN to attach.')):
     """Attach a managed policy to an IAM role."""
     _mutation_guard()
-    ok = _client().attach_managed_policy(role, arn)
-    if ok:
-        console.print(f'[green]Attached[/green] {arn} → {role}')
-    else:
-        console.print(f'[red]Failed[/red]')
-        raise typer.Exit(1)
+    _client().attach_managed_policy(role, arn)
+    console.print(f'[green]Attached[/green] {arn} → {role}')
 
 
 # ── policy detach ─────────────────────────────────────────────────────────────
@@ -252,12 +244,8 @@ def policy_detach(role    : str  = typer.Argument(..., help='IAM role name.'),
                   arn     : str  = typer.Option(...,  '--arn', help='Managed policy ARN to detach.')):
     """Detach a managed policy from an IAM role."""
     _mutation_guard()
-    ok = _client().detach_managed_policy(role, arn)
-    if ok:
-        console.print(f'[green]Detached[/green] {arn} from {role}')
-    else:
-        console.print(f'[red]Failed[/red]')
-        raise typer.Exit(1)
+    _client().detach_managed_policy(role, arn)
+    console.print(f'[green]Detached[/green] {arn} from {role}')
 
 
 # ── policy put-inline ─────────────────────────────────────────────────────────
@@ -298,12 +286,8 @@ def policy_put_inline(
     msg = f'Put inline policy "{name}" on role "{role}"?'
     if not confirm_or_abort(msg, yes=yes, dry_run=dry_run):
         raise typer.Exit(0)
-    ok = _client().put_raw_inline_policy(role, name, raw)
-    if ok:
-        console.print(f'[green]Attached[/green] inline policy "{name}" → {role}')
-    else:
-        console.print(f'[red]Failed[/red] to attach inline policy')
-        raise typer.Exit(1)
+    _client().put_raw_inline_policy(role, name, raw)
+    console.print(f'[green]Attached[/green] inline policy "{name}" → {role}')
 
 
 # ── policy list ───────────────────────────────────────────────────────────────

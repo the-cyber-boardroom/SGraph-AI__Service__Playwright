@@ -421,27 +421,22 @@ def cmd_cp(src     : str  = typer.Argument(..., help='Source — local path or s
             raise typer.Exit(1)
         with open(src, 'rb') as fh:
             body = fh.read()
-        ok = client.put_object(dst_bucket, dst_key, body)
+        client.put_object(dst_bucket, dst_key, body)
     elif not src_local and dst_local:                                             # s3 → local
         src_bucket, src_key = _parse_s3_uri(src)
         body = client.get_object_body(src_bucket, src_key)
         os.makedirs(os.path.dirname(dst) or '.', exist_ok=True)
         with open(dst, 'wb') as fh:
             fh.write(body)
-        ok = True
     elif not src_local and not dst_local:                                         # s3 → s3
         sb, sk = _parse_s3_uri(src)
         db, dk = _parse_s3_uri(dst)
-        ok = client.copy_object(sb, sk, db, dk)
+        client.copy_object(sb, sk, db, dk)
     else:
         console.print('[red]At least one side must be an S3 path.[/red]')
         raise typer.Exit(1)
 
-    if ok:
-        console.print(f'[green]Copied[/green] {src} → {dst}')
-    else:
-        console.print(f'[red]Copy failed[/red]')
-        raise typer.Exit(1)
+    console.print(f'[green]Copied[/green] {src} → {dst}')
 
 
 # ── mv ────────────────────────────────────────────────────────────────────────
@@ -461,9 +456,7 @@ def cmd_mv(src     : str  = typer.Argument(..., help='Source s3://bucket/key.'),
     if not sb or not sk or not db or not dk:
         console.print('[red]Both src and dst must be full s3://bucket/key paths for mv.[/red]')
         raise typer.Exit(1)
-    if not client.copy_object(sb, sk, db, dk):
-        console.print('[red]Copy step failed — source not deleted.[/red]')
-        raise typer.Exit(1)
+    client.copy_object(sb, sk, db, dk)
     client.delete_object(sb, sk)
     console.print(f'[green]Moved[/green] {src} → {dst}')
 
@@ -482,12 +475,8 @@ def cmd_rm(path    : str  = typer.Argument(..., help='s3://bucket/key'),
         raise typer.Exit(1)
     if not confirm_or_abort(f'Delete {path}?', yes=yes, dry_run=dry_run):
         raise typer.Exit(0)
-    ok = _client().delete_object(bucket, key)
-    if ok:
-        console.print(f'[green]Deleted[/green] {path}')
-    else:
-        console.print(f'[red]Delete failed[/red]')
-        raise typer.Exit(1)
+    _client().delete_object(bucket, key)
+    console.print(f'[green]Deleted[/green] {path}')
 
 
 # ── sync ──────────────────────────────────────────────────────────────────────
@@ -530,15 +519,11 @@ def cmd_sync(local_dir : str  = typer.Argument(..., help='Local directory.'),
         raise typer.Exit(0)
 
     client  = _client()
-    ok_count = 0
     for local_path, remote_key in to_upload:
         with open(local_path, 'rb') as fh:
             body = fh.read()
-        if client.put_object(bucket, remote_key, body):
-            ok_count += 1
-        else:
-            console.print(f'[yellow]  Failed:[/yellow] {remote_key}')
-    console.print(f'[green]Uploaded {ok_count}/{len(to_upload)} files.[/green]')
+        client.put_object(bucket, remote_key, body)
+    console.print(f'[green]Uploaded {len(to_upload)}/{len(to_upload)} files.[/green]')
 
 
 # ── edit ──────────────────────────────────────────────────────────────────────
@@ -587,9 +572,5 @@ def cmd_bucket_create(bucket  : str  = typer.Argument(..., help='Bucket name to 
     """Create an S3 bucket with versioning enabled and public access blocked."""
     if not confirm_or_abort(f'Create bucket "{bucket}"?', yes=yes, dry_run=dry_run):
         raise typer.Exit(0)
-    ok = _client().create_bucket(bucket, region=region)
-    if ok:
-        console.print(f'[green]Created[/green] {bucket}')
-    else:
-        console.print(f'[red]Failed to create bucket[/red] {bucket}')
-        raise typer.Exit(1)
+    _client().create_bucket(bucket, region=region)
+    console.print(f'[green]Created[/green] {bucket}')

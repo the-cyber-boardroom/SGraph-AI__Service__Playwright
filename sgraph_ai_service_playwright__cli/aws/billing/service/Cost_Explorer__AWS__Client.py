@@ -131,5 +131,5 @@ class Cost_Explorer__AWS__Client(Type_Safe):                                    
     def _safe_account_id(self) -> str:                                                # Best-effort account id for error messages; falls back to '<unknown>' on failure
         try:
             return self.get_caller_account_id()
-        except Exception:
+        except Exception:                                                              # best-effort — used only inside error message construction; one failure must not mask the original error
             return '<unknown>'

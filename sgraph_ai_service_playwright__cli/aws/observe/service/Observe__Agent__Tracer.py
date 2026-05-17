@@ -39,7 +39,7 @@ class Observe__Agent__Tracer(Type_Safe):
                             'message'   : ev.message,
                         })
                 except Exception:
-                    pass
+                    pass                                                        # best-effort — tracer collects from many sources; one failure must not abort the whole trace
         return results
 
     def trace_summary(self, session_id: str, since: str = '24h') -> dict:

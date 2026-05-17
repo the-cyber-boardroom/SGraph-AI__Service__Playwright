@@ -21,6 +21,7 @@
 from typing                                                                          import Optional
 
 import boto3                                                                         # EXCEPTION — see module header
+from botocore.exceptions                                                             import ClientError
 
 from osbot_utils.type_safe.Type_Safe                                                 import Type_Safe
 from osbot_utils.type_safe.type_safe_core.decorators.type_safe                       import type_safe
@@ -74,8 +75,11 @@ class ACM__AWS__Client(Type_Safe):                                              
         acm              = self.client(effective_region)
         try:
             resp = acm.describe_certificate(CertificateArn=arn)
-        except Exception:
-            return None
+        except ClientError as exc:
+            code = exc.response.get('Error', {}).get('Code', '')
+            if code in ('ResourceNotFoundException', 'NoSuchEntity'):
+                return None
+            raise
         raw  = resp.get('Certificate', {})
         return self.map_certificate(raw, effective_region)
 
@@ -126,7 +130,7 @@ class ACM__AWS__Client(Type_Safe):                                              
                             continue
                         try:
                             resp = acm.describe_certificate(CertificateArn=arn)
-                        except Exception:
+                        except ClientError:
                             continue
                         cert = resp.get('Certificate', {})
                         for opt in cert.get('DomainValidationOptions', []):
@@ -134,6 +138,6 @@ class ACM__AWS__Client(Type_Safe):                                              
                             name = str(rr.get('Name', '')).rstrip('.')
                             if name:
                                 names.add(name)
-            except Exception:                                                         # Whole-region failure (e.g. region not enabled) — skip silently
+            except ClientError:                                                       # Whole-region failure (e.g. region not enabled) — skip silently
                 continue
         return names
