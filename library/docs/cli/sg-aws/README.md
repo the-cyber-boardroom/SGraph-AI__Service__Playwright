@@ -33,9 +33,9 @@ How to drive the `sg aws *` command surface from a terminal. This pack is a **us
 | 10 | [`10__ec2.md`](10__ec2.md) *(LANDED — v0.2.29)* | `sg aws ec2` — EC2 instance management |
 | 11 | [`11__fargate.md`](11__fargate.md) *(LANDED — v0.2.29)* | `sg aws fargate` — ECS Fargate clusters and tasks |
 | 12 | [`12__iam-graph.md`](12__iam-graph.md) *(LANDED — v0.2.29)* | `sg aws iam graph` — IAM-as-graph discovery and cleanup |
-| 13 | `13__bedrock.md` *(PROPOSED — Slice E)* | `sg aws bedrock` — Bedrock chat, agents, tools |
-| 14 | [`13__cloudtrail.md`](13__cloudtrail.md) *(LANDED — v0.2.29 Slice F)* | `sg aws cloudtrail` — CloudTrail events and trails (read-only) |
-| 15 | `15__creds.md` *(PROPOSED — Slice G)* | `sg aws creds` — scoped STS credential delivery |
+| 13 | [`13__bedrock.md`](13__bedrock.md) *(LANDED — v0.2.29)* | `sg aws bedrock` — Bedrock chat, agents, tools |
+| 14 | [`14__cloudtrail.md`](14__cloudtrail.md) *(LANDED — v0.2.29)* | `sg aws cloudtrail` — CloudTrail events and trails (read-only) |
+| 15 | [`15__creds.md`](15__creds.md) *(LANDED — Slice G)* | `sg aws creds` — scoped STS credential delivery |
 | 16 | [`16__observe.md`](16__observe.md) *(LANDED — Slice H)* | `sg aws observe` — unified observability REPL |
 
 ---
@@ -67,10 +67,10 @@ sg aws
 ├── fargate     ← ECS Fargate (LANDED — v0.2.29)     (cluster/task/task-def lifecycle)
 ├── iam
 │   └── graph   ← IAM graph                         (discover, filter, delete, stats, …)
-├── bedrock     ← Bedrock (PROPOSED — Slice E)       (chat, agent, tool sub-trees)
-├── cloudtrail  ← CloudTrail (v0.2.29 Slice F)        (events list/show, trail list/show — read-only)
-├── creds       ← Scoped STS (PROPOSED — Slice G)    (get, scope, audit)
-└── observe     ← Observability REPL (PROPOSED — Slice H) (tail, query, stats, agent-trace)
+├── bedrock     ← Bedrock (LANDED — v0.2.29)          (chat, agent, tool sub-trees)
+├── cloudtrail  ← CloudTrail (LANDED — v0.2.29)       (events list/show, trail list/show — read-only)
+├── creds       ← Scoped STS (LANDED — v0.2.29 Slice G)  (get, scope, audit)
+└── observe     ← Observability REPL (LANDED — v0.2.29)   (sources, tail, query, stats, agent-trace, replay)
 ```
 
 `<function-name>` accepts a **fuzzy substring** — e.g. `sg aws lambda waker info` resolves to `sg-compute-vault-publish-waker`.
