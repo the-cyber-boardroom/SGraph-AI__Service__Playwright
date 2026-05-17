@@ -14,21 +14,25 @@
 # instance lifecycle surface. A v0.2.30 hygiene pass will consolidate.
 # ═══════════════════════════════════════════════════════════════════════════════
 
-import json
 from typing import Optional
 
 from botocore.exceptions import ClientError
 from osbot_utils.type_safe.Type_Safe import Type_Safe
 
-from sgraph_ai_service_playwright__cli.aws.ec2.collections.List__Schema__EC2__Instance  import List__Schema__EC2__Instance
-from sgraph_ai_service_playwright__cli.aws.ec2.enums.Enum__EC2__Instance__State         import Enum__EC2__Instance__State
-from sgraph_ai_service_playwright__cli.aws.ec2.primitives.Safe_Str__EC2__AMI_Id         import Safe_Str__EC2__AMI_Id
-from sgraph_ai_service_playwright__cli.aws.ec2.primitives.Safe_Str__EC2__Instance_Id    import Safe_Str__EC2__Instance_Id
-from sgraph_ai_service_playwright__cli.aws.ec2.primitives.Safe_Str__EC2__Instance__Type import Safe_Str__EC2__Instance__Type
-from sgraph_ai_service_playwright__cli.aws.ec2.schemas.Schema__EC2__Instance            import Schema__EC2__Instance
-from sgraph_ai_service_playwright__cli.aws.ec2.schemas.Schema__EC2__Instance__Detail    import Schema__EC2__Instance__Detail
-from sgraph_ai_service_playwright__cli.aws.ec2.schemas.Schema__EC2__Create__Request     import Schema__EC2__Create__Request
-from sgraph_ai_service_playwright__cli.credentials.service.Sg__Aws__Session             import Sg__Aws__Session
+from sgraph_ai_service_playwright__cli.aws.ec2.collections.Dict__EC2__Tag                         import Dict__EC2__Tag
+from sgraph_ai_service_playwright__cli.aws.ec2.collections.List__Schema__EC2__Block_Device__Mapping import List__Schema__EC2__Block_Device__Mapping
+from sgraph_ai_service_playwright__cli.aws.ec2.collections.List__Schema__EC2__Instance             import List__Schema__EC2__Instance
+from sgraph_ai_service_playwright__cli.aws.ec2.collections.List__Schema__EC2__Security_Group__Ref  import List__Schema__EC2__Security_Group__Ref
+from sgraph_ai_service_playwright__cli.aws.ec2.enums.Enum__EC2__Instance__State                    import Enum__EC2__Instance__State
+from sgraph_ai_service_playwright__cli.aws.ec2.primitives.Safe_Str__EC2__AMI_Id                    import Safe_Str__EC2__AMI_Id
+from sgraph_ai_service_playwright__cli.aws.ec2.primitives.Safe_Str__EC2__Instance_Id               import Safe_Str__EC2__Instance_Id
+from sgraph_ai_service_playwright__cli.aws.ec2.primitives.Safe_Str__EC2__Instance__Type            import Safe_Str__EC2__Instance__Type
+from sgraph_ai_service_playwright__cli.aws.ec2.schemas.Schema__EC2__Block_Device__Mapping          import Schema__EC2__Block_Device__Mapping
+from sgraph_ai_service_playwright__cli.aws.ec2.schemas.Schema__EC2__Create__Request                import Schema__EC2__Create__Request
+from sgraph_ai_service_playwright__cli.aws.ec2.schemas.Schema__EC2__Instance                       import Schema__EC2__Instance
+from sgraph_ai_service_playwright__cli.aws.ec2.schemas.Schema__EC2__Instance__Detail               import Schema__EC2__Instance__Detail
+from sgraph_ai_service_playwright__cli.aws.ec2.schemas.Schema__EC2__Security_Group__Ref            import Schema__EC2__Security_Group__Ref
+from sgraph_ai_service_playwright__cli.credentials.service.Sg__Aws__Session                        import Sg__Aws__Session
 
 
 class EC2__AWS__Client(Type_Safe):
@@ -106,7 +110,7 @@ class EC2__AWS__Client(Type_Safe):
     def create_instance(self, request: Schema__EC2__Create__Request,
                         extra_tags: Optional[list] = None) -> Optional[str]:   # Returns new instance_id or None
         ec2   = self.client()
-        tags  = [{'Key': 'Name', 'Value': request.name}] if request.name else []
+        tags  = [{'Key': 'Name', 'Value': str(request.name)}] if str(request.name) else []
         if extra_tags:
             tags.extend(extra_tags)
         kwargs = dict(
@@ -115,14 +119,14 @@ class EC2__AWS__Client(Type_Safe):
             MinCount     = 1,
             MaxCount     = 1,
         )
-        if request.key_pair:
-            kwargs['KeyName'] = request.key_pair
-        if request.subnet_id:
-            kwargs['SubnetId'] = request.subnet_id
-        if request.security_groups:
-            kwargs['SecurityGroupIds'] = [s.strip() for s in request.security_groups.split(',') if s.strip()]
-        if request.user_data:
-            kwargs['UserData'] = request.user_data
+        if str(request.key_pair):
+            kwargs['KeyName'] = str(request.key_pair)
+        if str(request.subnet_id):
+            kwargs['SubnetId'] = str(request.subnet_id)
+        if str(request.security_groups):
+            kwargs['SecurityGroupIds'] = [s.strip() for s in str(request.security_groups).split(',') if s.strip()]
+        if str(request.user_data):
+            kwargs['UserData'] = str(request.user_data)
         if tags:
             kwargs['TagSpecifications'] = [{'ResourceType': 'instance', 'Tags': tags}]
         resp      = ec2.run_instances(**kwargs)
@@ -193,6 +197,28 @@ class EC2__AWS__Client(Type_Safe):
         iam_profile = ''
         if raw.get('IamInstanceProfile'):
             iam_profile = raw['IamInstanceProfile'].get('Arn', '')
+        tags_dict = Dict__EC2__Tag()
+        for k, v in tags.items():
+            tags_dict[k] = v
+
+        sgs_list = List__Schema__EC2__Security_Group__Ref()
+        for sg_raw in raw.get('SecurityGroups', []):
+            sgs_list.append(Schema__EC2__Security_Group__Ref(
+                group_id   = sg_raw.get('GroupId', ''),
+                group_name = sg_raw.get('GroupName', ''),
+            ))
+
+        bdm_list = List__Schema__EC2__Block_Device__Mapping()
+        for bdm in raw.get('BlockDeviceMappings', []):
+            ebs = bdm.get('Ebs', {})
+            bdm_list.append(Schema__EC2__Block_Device__Mapping(
+                device_name           = bdm.get('DeviceName', ''),
+                volume_id             = ebs.get('VolumeId', ''),
+                volume_size           = ebs.get('VolumeSize', 0),
+                delete_on_termination = bool(ebs.get('DeleteOnTermination', True)),
+                status                = ebs.get('Status', ''),
+            ))
+
         return Schema__EC2__Instance__Detail(
             instance_id          = Safe_Str__EC2__Instance_Id(iid)     if iid   else Safe_Str__EC2__Instance_Id(''),
             instance_type        = Safe_Str__EC2__Instance__Type(itype) if itype else Safe_Str__EC2__Instance__Type(''),
@@ -208,10 +234,10 @@ class EC2__AWS__Client(Type_Safe):
             vpc_id               = raw.get('VpcId', '')            or '',
             subnet_id            = raw.get('SubnetId', '')         or '',
             architecture         = raw.get('Architecture', '')     or '',
-            platform             = raw.get('Platform', 'Linux')    or 'Linux',
+            platform             = raw.get('Platform', '')         or '',
             iam_instance_profile = iam_profile,
             root_device_type     = raw.get('RootDeviceType', '')   or '',
-            tags_raw             = json.dumps(tags),
-            security_groups_raw  = json.dumps(raw.get('SecurityGroups', [])),
-            block_devices_raw    = json.dumps(raw.get('BlockDeviceMappings', [])),
+            tags                 = tags_dict,
+            security_groups      = sgs_list,
+            block_devices        = bdm_list,
         )

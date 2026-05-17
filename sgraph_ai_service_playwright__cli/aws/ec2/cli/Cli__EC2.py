@@ -83,13 +83,13 @@ def ec2_list(ctx    : typer.Context,
     instances = client.list_instances(state=state, name_prefix=prefix, tag_filters=tf or None)
     if as_json:
         typer.echo(json.dumps([dict(instance_id  = str(i.instance_id),
-                                    name         = i.name,
+                                    name         = str(i.name),
                                     instance_type= str(i.instance_type),
                                     state        = str(i.state),
-                                    public_ip    = i.public_ip,
-                                    private_ip   = i.private_ip,
-                                    launch_time  = i.launch_time,
-                                    key_name     = i.key_name) for i in instances], indent=2))
+                                    public_ip    = str(i.public_ip),
+                                    private_ip   = str(i.private_ip),
+                                    launch_time  = str(i.launch_time),
+                                    key_name     = str(i.key_name)) for i in instances], indent=2))
         return
     if not instances:
         console.print('No instances found.')
@@ -103,8 +103,8 @@ def ec2_list(ctx    : typer.Context,
     t.add_column('Key',          style='dim')
     for i in instances:
         state_style = 'green' if str(i.state) == 'running' else ('yellow' if str(i.state) == 'stopped' else 'dim')
-        t.add_row(str(i.instance_id), i.name, str(i.instance_type),
-                  f'[{state_style}]{i.state}[/]', i.public_ip or '—', i.key_name or '—')
+        t.add_row(str(i.instance_id), str(i.name), str(i.instance_type),
+                  f'[{state_style}]{i.state}[/]', str(i.public_ip) or '—', str(i.key_name) or '—')
     console.print(t)
 
 
@@ -121,28 +121,27 @@ def ec2_describe(ctx    : typer.Context,
         console.print(f'[red]Instance not found:[/red] {target}')
         raise typer.Exit(1)
     if as_json:
-        tags = json.loads(detail.tags_raw) if detail.tags_raw else {}
-        sgs  = json.loads(detail.security_groups_raw) if detail.security_groups_raw else []
         typer.echo(json.dumps(dict(
             instance_id          = str(detail.instance_id),
-            name                 = detail.name,
+            name                 = str(detail.name),
             instance_type        = str(detail.instance_type),
             state                = str(detail.state),
             ami_id               = str(detail.ami_id),
-            public_ip            = detail.public_ip,
-            public_dns           = detail.public_dns,
-            private_ip           = detail.private_ip,
-            private_dns          = detail.private_dns,
-            key_name             = detail.key_name,
-            launch_time          = detail.launch_time,
-            vpc_id               = detail.vpc_id,
-            subnet_id            = detail.subnet_id,
-            architecture         = detail.architecture,
-            platform             = detail.platform,
-            iam_instance_profile = detail.iam_instance_profile,
-            root_device_type     = detail.root_device_type,
-            tags                 = tags,
-            security_groups      = sgs,
+            public_ip            = str(detail.public_ip),
+            public_dns           = str(detail.public_dns),
+            private_ip           = str(detail.private_ip),
+            private_dns          = str(detail.private_dns),
+            key_name             = str(detail.key_name),
+            launch_time          = str(detail.launch_time),
+            vpc_id               = str(detail.vpc_id),
+            subnet_id            = str(detail.subnet_id),
+            architecture         = str(detail.architecture),
+            platform             = str(detail.platform),
+            iam_instance_profile = str(detail.iam_instance_profile),
+            root_device_type     = str(detail.root_device_type),
+            tags                 = {str(k): str(v) for k, v in detail.tags.items()},
+            security_groups      = [{'group_id': str(sg.group_id), 'group_name': str(sg.group_name)}
+                                    for sg in detail.security_groups],
         ), indent=2))
         return
     t = Table(box=None, show_header=False, padding=(0, 2))
@@ -150,20 +149,20 @@ def ec2_describe(ctx    : typer.Context,
     t.add_column()
     rows = [
         ('id',              str(detail.instance_id)),
-        ('name',            detail.name or '—'),
+        ('name',            str(detail.name)               or '—'),
         ('type',            str(detail.instance_type)),
         ('state',           str(detail.state)),
         ('ami',             str(detail.ami_id)),
-        ('public ip',       detail.public_ip   or '—'),
-        ('public dns',      detail.public_dns  or '—'),
-        ('private ip',      detail.private_ip  or '—'),
-        ('key name',        detail.key_name    or '—'),
-        ('launched',        detail.launch_time or '—'),
-        ('vpc',             detail.vpc_id      or '—'),
-        ('subnet',          detail.subnet_id   or '—'),
-        ('architecture',    detail.architecture or '—'),
-        ('platform',        detail.platform     or '—'),
-        ('iam profile',     detail.iam_instance_profile or '—'),
+        ('public ip',       str(detail.public_ip)          or '—'),
+        ('public dns',      str(detail.public_dns)         or '—'),
+        ('private ip',      str(detail.private_ip)         or '—'),
+        ('key name',        str(detail.key_name)           or '—'),
+        ('launched',        str(detail.launch_time)        or '—'),
+        ('vpc',             str(detail.vpc_id)             or '—'),
+        ('subnet',          str(detail.subnet_id)          or '—'),
+        ('architecture',    str(detail.architecture)       or '—'),
+        ('platform',        str(detail.platform)           or '—'),
+        ('iam profile',     str(detail.iam_instance_profile) or '—'),
     ]
     for label, value in rows:
         t.add_row(label, value)
@@ -183,13 +182,13 @@ def ec2_ssh_info(ctx   : typer.Context,
     if detail is None:
         console.print(f'[red]Instance not found:[/red] {target}')
         raise typer.Exit(1)
-    if not detail.public_ip and not detail.public_dns:
+    if not str(detail.public_ip) and not str(detail.public_dns):
         console.print('[yellow]No public IP or DNS — instance may be in a private subnet or stopped.[/yellow]')
         raise typer.Exit(1)
-    host     = detail.public_dns or detail.public_ip
-    key_name = detail.key_name or '<key-name>'
+    host     = str(detail.public_dns) or str(detail.public_ip)
+    key_name = str(detail.key_name) or '<key-name>'
     user     = 'ec2-user'                                                      # Amazon Linux / AL2023 default
-    if 'ubuntu' in str(detail.ami_id).lower() or 'ubuntu' in detail.name.lower():
+    if 'ubuntu' in str(detail.ami_id).lower() or 'ubuntu' in str(detail.name).lower():
         user = 'ubuntu'
     console.print()
     console.print(f'  [bold]Host :[/bold]  {host}')
@@ -282,13 +281,13 @@ def ec2_pricing(instance_type: str  = typer.Argument(..., help='Instance type, e
     pricing = EC2__Pricing__Client().get_price(instance_type=instance_type, region=region)
     if as_json:
         typer.echo(json.dumps(dict(instance_type   = str(pricing.instance_type),
-                                   region          = pricing.region,
-                                   price_per_hour  = pricing.price_per_hour,
-                                   price_per_second= pricing.price_per_second,
-                                   currency        = pricing.currency,
-                                   os              = pricing.os), indent=2))
+                                   region          = str(pricing.region),
+                                   price_per_hour  = str(pricing.price_per_hour),
+                                   price_per_second= str(pricing.price_per_second),
+                                   currency        = str(pricing.currency),
+                                   os              = str(pricing.os)), indent=2))
         return
-    if not pricing.price_per_hour:
+    if not str(pricing.price_per_hour):
         console.print(f'[yellow]No pricing data found for {instance_type!r} in {region!r}.[/yellow]')
         return
     console.print()

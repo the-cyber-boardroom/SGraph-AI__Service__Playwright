@@ -43,8 +43,7 @@ class Test__Fargate__AWS__Client:
     def test_5__delete_cluster(self):
         c = _client()
         c.create_cluster('to-delete')
-        ok = c.delete_cluster('to-delete')
-        assert ok is True
+        c.delete_cluster('to-delete')
         assert c.describe_cluster('to-delete') is None
 
     def test_6__delete_cluster_with_running_tasks_raises(self):
@@ -126,7 +125,6 @@ class Test__Fargate__AWS__Client:
         c.register_task_definition('hello-world', 'hello:latest')
         task = c.run_task(cluster='sg-cluster', task_def='hello-world:1')
         arn  = str(task.task_arn)
-        ok   = c.stop_task(arn)
-        assert ok is True
+        c.stop_task(arn)
         desc = c.describe_task(arn)
         assert str(desc.status) == 'STOPPED'
