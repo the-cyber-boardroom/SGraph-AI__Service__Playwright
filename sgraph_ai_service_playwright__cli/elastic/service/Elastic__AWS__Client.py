@@ -30,7 +30,6 @@ import time
 from datetime                                                                       import datetime, timezone
 from typing                                                                         import Dict, Optional, Tuple
 
-import boto3                                                                        # EXCEPTION — see module header
 
 from osbot_utils.type_safe.Type_Safe                                                import Type_Safe
 from osbot_utils.type_safe.type_safe_core.decorators.type_safe                      import type_safe
@@ -99,13 +98,22 @@ def elastic_state_from_ec2(state_str: str) -> Enum__Elastic__State:
 class Elastic__AWS__Client(Type_Safe):                                              # Isolated boto3 boundary
 
     def ec2_client(self, region: str):                                              # Single seam — tests override to return a fake client
-        return boto3.client('ec2', region_name=region)
+        from sgraph_ai_service_playwright__cli.credentials.service.Sg__Aws__Session  import Sg__Aws__Session
+        from sgraph_ai_service_playwright__cli.credentials.service.Credentials__Store import Credentials__Store
+        return Sg__Aws__Session(store=Credentials__Store()).boto3_client_from_context(
+            service_name='ec2', region=region or '')
 
     def ssm_client(self, region: str):
-        return boto3.client('ssm', region_name=region)
+        from sgraph_ai_service_playwright__cli.credentials.service.Sg__Aws__Session  import Sg__Aws__Session
+        from sgraph_ai_service_playwright__cli.credentials.service.Credentials__Store import Credentials__Store
+        return Sg__Aws__Session(store=Credentials__Store()).boto3_client_from_context(
+            service_name='ssm', region=region or '')
 
     def iam_client(self, region: str):                                              # IAM is a global service; region is ignored but kept for parameter symmetry
-        return boto3.client('iam', region_name=region)
+        from sgraph_ai_service_playwright__cli.credentials.service.Sg__Aws__Session  import Sg__Aws__Session
+        from sgraph_ai_service_playwright__cli.credentials.service.Credentials__Store import Credentials__Store
+        return Sg__Aws__Session(store=Credentials__Store()).boto3_client_from_context(
+            service_name='iam', region=region or '')
 
     @type_safe
     def ensure_instance_profile(self, region: str) -> str:                          # Idempotent: ensure role + instance profile + SSM policy attachment exist; returns profile name

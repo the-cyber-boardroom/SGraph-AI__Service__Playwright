@@ -6,19 +6,29 @@
 #
 # boto3 EXCEPTION: boto3 is used directly here for STS AssumeRole.
 # osbot_aws does not expose a STS AssumeRole helper that fits this pattern.
+#
+# v0.2.28 additions:
+#   - _session_name() generates CloudTrail-correlatable session names
+#   - from_context() class method reads the global Sg__Aws__Context role
+#   - boto3_client_from_context() falls through to bare boto3 when no role set
 # ═══════════════════════════════════════════════════════════════════════════════
+
+import time
+import uuid
 
 import boto3                                                        # boto3 EXCEPTION — STS AssumeRole only
 
 from osbot_utils.type_safe.Type_Safe                                                            import Type_Safe
 
-from sgraph_ai_service_playwright__cli.credentials.primitives.Safe_Str__AWS__Access__Key       import Safe_Str__AWS__Access__Key
-from sgraph_ai_service_playwright__cli.credentials.primitives.Safe_Str__AWS__Secret__Key       import Safe_Str__AWS__Secret__Key
-from sgraph_ai_service_playwright__cli.credentials.primitives.Safe_Str__AWS__Region            import Safe_Str__AWS__Region
-from sgraph_ai_service_playwright__cli.credentials.primitives.Safe_Str__Role__Name             import Safe_Str__Role__Name
 from sgraph_ai_service_playwright__cli.credentials.schemas.Schema__AWS__Credentials            import Schema__AWS__Credentials
 from sgraph_ai_service_playwright__cli.credentials.schemas.Schema__AWS__Role__Config           import Schema__AWS__Role__Config
 from sgraph_ai_service_playwright__cli.credentials.service.Credentials__Store                  import Credentials__Store
+
+
+def _session_name(role_name: str) -> str:                           # sg-<role>-<ts>-<8hex>
+    role_part = role_name[:40].replace(' ', '-')
+    raw       = f'sg-{role_part}-{int(time.time())}-{uuid.uuid4().hex[:8]}'
+    return raw[:64]                                                  # IAM SessionName hard limit
 
 
 class Sg__Aws__Session(Type_Safe):
@@ -36,11 +46,11 @@ class Sg__Aws__Session(Type_Safe):
 
     def _assume_role(self, base_session: object, config: Schema__AWS__Role__Config) -> object:
         arn          = str(config.assume_role_arn)
-        session_name = str(config.session_name) or 'sg-cli'
+        sname        = _session_name(str(config.name))              # correlatable with CloudTrail
         sts_client   = base_session.client('sts')
         response     = sts_client.assume_role(
-            RoleArn         = arn         ,
-            RoleSessionName = session_name,
+            RoleArn         = arn   ,
+            RoleSessionName = sname ,
         )
         assumed_creds = response['Credentials']
         return boto3.Session(
@@ -70,3 +80,24 @@ class Sg__Aws__Session(Type_Safe):
         if session is None:
             return None
         return session.client(service_name)
+
+    def boto3_client_from_context(self, service_name: str, region: str = '') -> object:
+        from sgraph_ai_service_playwright__cli.credentials.service.Sg__Aws__Context import Sg__Aws__Context
+        role = Sg__Aws__Context.get_current_role()
+        if role:
+            client = self.boto3_client(role, service_name)
+            if client:
+                return client
+        kwargs = {}
+        if region:
+            kwargs['region_name'] = region
+        return boto3.client(service_name, **kwargs)                 # fall-through: bare boto3
+
+    # ── class method ──────────────────────────────────────────────────────────
+
+    @classmethod
+    def from_context(cls, context=None) -> 'Sg__Aws__Session':
+        from sgraph_ai_service_playwright__cli.credentials.service.Sg__Aws__Context import Sg__Aws__Context
+        from sgraph_ai_service_playwright__cli.osx.keyring.service.Keyring__Mac__OS  import Keyring__Mac__OS
+        store = Credentials__Store(keyring=Keyring__Mac__OS())
+        return cls(store=store)

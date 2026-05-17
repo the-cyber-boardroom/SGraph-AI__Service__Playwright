@@ -4,8 +4,6 @@
 # AMI lifecycle (create / wait / tag / deregister) lives elsewhere.
 # ═══════════════════════════════════════════════════════════════════════════════
 
-import boto3                                                                        # EXCEPTION — narrow boto3 boundary
-
 from osbot_utils.type_safe.Type_Safe                                                import Type_Safe
 
 from sgraph_ai_service_playwright__cli.vnc.service.Vnc__AWS__Client                 import TAG_PURPOSE_KEY, TAG_PURPOSE_VALUE
@@ -19,7 +17,10 @@ TAG_AMI_STATUS_KEY = 'sg:ami-status'
 class Vnc__AMI__Helper(Type_Safe):
 
     def ec2_client(self, region: str):                                              # Single seam — tests override
-        return boto3.client('ec2', region_name=region)
+        from sgraph_ai_service_playwright__cli.credentials.service.Sg__Aws__Session  import Sg__Aws__Session
+        from sgraph_ai_service_playwright__cli.credentials.service.Credentials__Store import Credentials__Store
+        return Sg__Aws__Session(store=Credentials__Store()).boto3_client_from_context(
+            service_name='ec2', region=region or '')
 
     def latest_al2023_ami_id(self, region: str) -> str:
         resp   = self.ec2_client(region).describe_images(

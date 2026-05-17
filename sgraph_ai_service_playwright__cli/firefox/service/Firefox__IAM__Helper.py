@@ -15,8 +15,6 @@
 import json
 import time
 
-import boto3                                                                        # EXCEPTION — narrow boto3 boundary
-
 from osbot_utils.type_safe.Type_Safe                                                import Type_Safe
 
 
@@ -35,7 +33,10 @@ EC2_TRUST_POLICY = {
 class Firefox__IAM__Helper(Type_Safe):
 
     def iam_client(self, region: str):                                              # IAM is global; region kept for call symmetry
-        return boto3.client('iam', region_name=region)
+        from sgraph_ai_service_playwright__cli.credentials.service.Sg__Aws__Session  import Sg__Aws__Session
+        from sgraph_ai_service_playwright__cli.credentials.service.Credentials__Store import Credentials__Store
+        return Sg__Aws__Session(store=Credentials__Store()).boto3_client_from_context(
+            service_name='iam', region=region or '')
 
     def ensure(self, region: str) -> str:                                           # Idempotent; returns PROFILE_NAME
         iam       = self.iam_client(region)

@@ -73,7 +73,7 @@ class Credentials__Store(Type_Safe):
         deleted_aws  = self.aws_credentials_delete(role_name)
         return deleted_cfg or deleted_aws
 
-    def role_list(self) -> list:                           # list[str] — role names
+    def role_list(self) -> list:                           # list[str] — role names, sorted
         prefix  = f'{Enum__Keyring__Service.ROLE}.'
         entries = self.keyring.list(prefix=prefix)
         names   = []
@@ -83,7 +83,7 @@ class Credentials__Store(Type_Safe):
                 name = svc[len(prefix):]
                 if name and name not in names:
                     names.append(name)
-        return names
+        return sorted(names)
 
     # ── aws credentials ───────────────────────────────────────────────────────
 
@@ -125,6 +125,23 @@ class Credentials__Store(Type_Safe):
         service = self._vault_service_name(vault_name)
         return self.keyring.delete(service, vault_name)
 
+    def vault_list(self) -> list:                               # list[str] — vault names
+        prefix  = f'{Enum__Keyring__Service.VAULT}.'
+        entries = self.keyring.list(prefix=prefix)
+        names   = []
+        for entry in entries:
+            svc = str(entry.service_name)
+            if svc.startswith(prefix):
+                name = svc[len(prefix):]
+                if name and name not in names:
+                    names.append(name)
+        return sorted(names)
+
+    vault_key_set    = vault_set                                # convenience aliases
+    vault_key_get    = vault_get
+    vault_key_delete = vault_delete
+    vault_key_list   = vault_list
+
     # ── arbitrary secrets ─────────────────────────────────────────────────────
 
     def secret_set(self, ns: str, name: str, value: str) -> bool:
@@ -138,6 +155,13 @@ class Credentials__Store(Type_Safe):
     def secret_delete(self, ns: str, name: str) -> bool:
         service = self._secret_service_name(ns, name)
         return self.keyring.delete(service, name)
+
+    def secret_list(self, ns: str) -> list:                     # list[str] — names in namespace
+        prefix  = f'{Enum__Keyring__Service.SECRET}.{ns}.'
+        entries = self.keyring.list(prefix=prefix)
+        names   = sorted({str(e.account) for e in entries
+                          if str(e.service_name).startswith(prefix) and str(e.account)})
+        return names
 
     # ── route mappings ────────────────────────────────────────────────────────
 
@@ -153,3 +177,16 @@ class Credentials__Store(Type_Safe):
             return json.loads(raw)
         except json.JSONDecodeError:
             return []
+
+    def route_add(self, pattern: str, role: str) -> bool:          # append {pattern, role} entry
+        routes = self.routes_get()
+        routes.append({'pattern': pattern, 'role': role})
+        return self.routes_set(routes)
+
+    def route_delete(self, pattern: str) -> bool:                  # remove first entry matching pattern
+        routes  = self.routes_get()
+        updated = [r for r in routes if r.get('pattern') != pattern]
+        if len(updated) == len(routes):
+            return False
+        self.routes_set(updated)
+        return True
