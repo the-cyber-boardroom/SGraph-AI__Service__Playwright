@@ -4,6 +4,7 @@
 # No mocks, no patches.
 # ═══════════════════════════════════════════════════════════════════════════════
 
+from pathlib                                                                     import Path
 from unittest                                                                    import TestCase
 
 from sgraph_ai_service_playwright__cli.aws.bedrock.enums.Enum__Bedrock__Provider          import Enum__Bedrock__Provider
@@ -127,3 +128,47 @@ class test_Bedrock__Model__Resolver(TestCase):
         aliases = self.resolver.list_aliases('nova')
         assert 'lite' in aliases
         assert 'pro'  in aliases
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Real-disk-load tests — exercise the actual YAML path resolution that the
+# Fake__Resolver bypasses. This is what would have caught the parents[6]
+# off-by-two before it shipped.
+# ─────────────────────────────────────────────────────────────────────────────
+
+class test_Bedrock__Model__Resolver__real_yaml(TestCase):
+
+    def setUp(self):
+        self.resolver = Bedrock__Model__Resolver()                                 # NO override — uses the actual YAML path
+
+    def test__alias_yaml_path_resolves_to_existing_file(self):                     # the off-by-two regression test
+        from sgraph_ai_service_playwright__cli.aws.bedrock.service.Bedrock__Model__Resolver import _ALIAS_YAML
+        assert _ALIAS_YAML.exists(), f'Bedrock alias YAML missing at {_ALIAS_YAML}'
+
+    def test__aliases_loads_from_disk_and_contains_all_providers(self):
+        table = self.resolver.aliases()
+        assert table                                                                # non-empty (previous bug returned {})
+        for provider in ('claude', 'nova', 'llama'):
+            assert provider in table, f'{provider!r} missing from alias table loaded from disk'
+            assert table[provider], f'{provider!r} section is empty'
+
+    def test__resolve_nova_default_from_disk(self):                                # the exact path that broke for the user 2026-05-17
+        mid = self.resolver.resolve('nova', 'default')
+        assert mid.startswith('amazon.nova-')                                       # value comes from the YAML; assert shape not exact
+
+    def test__resolve_claude_default_from_disk(self):
+        mid = self.resolver.resolve('claude', 'default')
+        assert mid.startswith('anthropic.claude-')
+
+    def test__missing_yaml_raises_with_helpful_message(self):                      # silent swallow was the original trap
+        from sgraph_ai_service_playwright__cli.aws.bedrock.service import Bedrock__Model__Resolver as mod
+        original = mod._ALIAS_YAML
+        try:
+            mod._ALIAS_YAML = Path('/nonexistent/does/not/exist.yaml')
+            r = Bedrock__Model__Resolver()
+            with self.assertRaises(FileNotFoundError) as ctx:
+                r.aliases()
+            assert 'Bedrock alias YAML not found' in str(ctx.exception)
+            assert 'SG_AWS__BEDROCK__ALIAS_YAML' in str(ctx.exception)               # hint about override is in the message
+        finally:
+            mod._ALIAS_YAML = original
