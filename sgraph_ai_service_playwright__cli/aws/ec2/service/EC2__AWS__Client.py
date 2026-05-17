@@ -17,6 +17,7 @@
 import json
 from typing import Optional
 
+from botocore.exceptions import ClientError
 from osbot_utils.type_safe.Type_Safe import Type_Safe
 
 from sgraph_ai_service_playwright__cli.aws.ec2.collections.List__Schema__EC2__Instance  import List__Schema__EC2__Instance
@@ -74,19 +75,19 @@ class EC2__AWS__Client(Type_Safe):
             if not instances:
                 return None
             return self._parse_detail(instances[0])
-        except Exception:
-            return None
+        except ClientError as exc:
+            code = exc.response.get('Error', {}).get('Code', '')
+            if code == 'InvalidInstanceID.NotFound':
+                return None
+            raise
 
     def get_instance_tags(self, instance_id: str) -> dict:                     # Returns {Key: Value} map
-        try:
-            ec2  = self.client()
-            resp = ec2.describe_tags(Filters=[
-                {'Name': 'resource-id', 'Values': [instance_id]},
-                {'Name': 'resource-type', 'Values': ['instance']},
-            ])
-            return {t['Key']: t['Value'] for t in resp.get('Tags', [])}
-        except Exception:
-            return {}
+        ec2  = self.client()
+        resp = ec2.describe_tags(Filters=[
+            {'Name': 'resource-id', 'Values': [instance_id]},
+            {'Name': 'resource-type', 'Values': ['instance']},
+        ])
+        return {t['Key']: t['Value'] for t in resp.get('Tags', [])}
 
     def list_instance_types(self, family: str = '') -> list:                   # Returns list of instance type name strings
         ec2      = self.client()
@@ -124,55 +125,32 @@ class EC2__AWS__Client(Type_Safe):
             kwargs['UserData'] = request.user_data
         if tags:
             kwargs['TagSpecifications'] = [{'ResourceType': 'instance', 'Tags': tags}]
-        try:
-            resp        = ec2.run_instances(**kwargs)
-            instances   = resp.get('Instances', [])
-            if not instances:
-                return None
-            return instances[0].get('InstanceId')
-        except Exception:
+        resp      = ec2.run_instances(**kwargs)
+        instances = resp.get('Instances', [])
+        if not instances:
             return None
+        return instances[0].get('InstanceId')
 
-    def start_instance(self, instance_id: str) -> bool:
-        try:
-            self.client().start_instances(InstanceIds=[instance_id])
-            return True
-        except Exception:
-            return False
+    def start_instance(self, instance_id: str) -> None:
+        self.client().start_instances(InstanceIds=[instance_id])
 
-    def stop_instance(self, instance_id: str) -> bool:
-        try:
-            self.client().stop_instances(InstanceIds=[instance_id])
-            return True
-        except Exception:
-            return False
+    def stop_instance(self, instance_id: str) -> None:
+        self.client().stop_instances(InstanceIds=[instance_id])
 
-    def terminate_instance(self, instance_id: str) -> bool:
-        try:
-            self.client().terminate_instances(InstanceIds=[instance_id])
-            return True
-        except Exception:
-            return False
+    def terminate_instance(self, instance_id: str) -> None:
+        self.client().terminate_instances(InstanceIds=[instance_id])
 
-    def add_tags(self, instance_id: str, tags: dict) -> bool:                  # tags is {Key: Value} map
-        try:
-            self.client().create_tags(
-                Resources = [instance_id],
-                Tags      = [{'Key': k, 'Value': v} for k, v in tags.items()],
-            )
-            return True
-        except Exception:
-            return False
+    def add_tags(self, instance_id: str, tags: dict) -> None:                  # tags is {Key: Value} map
+        self.client().create_tags(
+            Resources = [instance_id],
+            Tags      = [{'Key': k, 'Value': v} for k, v in tags.items()],
+        )
 
-    def remove_tags(self, instance_id: str, keys: list) -> bool:
-        try:
-            self.client().delete_tags(
-                Resources = [instance_id],
-                Tags      = [{'Key': k} for k in keys],
-            )
-            return True
-        except Exception:
-            return False
+    def remove_tags(self, instance_id: str, keys: list) -> None:
+        self.client().delete_tags(
+            Resources = [instance_id],
+            Tags      = [{'Key': k} for k in keys],
+        )
 
     # ── internal ──────────────────────────────────────────────────────────────
 

@@ -10,6 +10,7 @@
 
 from typing import Optional
 
+from botocore.exceptions import ClientError
 from osbot_utils.type_safe.Type_Safe                                              import Type_Safe
 
 from sgraph_ai_service_playwright__cli.aws.fargate.collections.List__Schema__ECS__Cluster        import List__Schema__ECS__Cluster
@@ -67,8 +68,11 @@ class Fargate__AWS__Client(Type_Safe):
             if not clusters:
                 return None
             return self._parse_cluster(clusters[0])
-        except Exception:
-            return None
+        except ClientError as exc:
+            code = exc.response.get('Error', {}).get('Code', '')
+            if code == 'ClusterNotFoundException':
+                return None
+            raise
 
     # ── cluster mutations ─────────────────────────────────────────────────────
 
@@ -86,17 +90,11 @@ class Fargate__AWS__Client(Type_Safe):
         )
         return self._parse_cluster(resp['cluster'])
 
-    def delete_cluster(self, name: str) -> bool:
-        try:
-            cluster = self.describe_cluster(name)
-            if cluster and cluster.running_tasks > 0:
-                raise ValueError(f'Cluster "{name}" has {cluster.running_tasks} running tasks — stop them first.')
-            self.client().delete_cluster(cluster=name)
-            return True
-        except ValueError:
-            raise
-        except Exception:
-            return False
+    def delete_cluster(self, name: str) -> None:
+        cluster = self.describe_cluster(name)
+        if cluster and cluster.running_tasks > 0:
+            raise ValueError(f'Cluster "{name}" has {cluster.running_tasks} running tasks — stop them first.')
+        self.client().delete_cluster(cluster=name)
 
     # ── task-def read ─────────────────────────────────────────────────────────
 
@@ -125,41 +123,41 @@ class Fargate__AWS__Client(Type_Safe):
             resp = self.client().describe_task_definition(taskDefinition=family_rev, include=['TAGS'])
             raw  = resp.get('taskDefinition', {})
             return self._parse_task_def_full(raw)
-        except Exception:
-            return None
+        except ClientError as exc:
+            code = exc.response.get('Error', {}).get('Code', '')
+            if code in ('ClientException', 'InvalidParameterException'):
+                return None
+            raise
 
     # ── task-def mutation ─────────────────────────────────────────────────────
 
     def register_task_definition(self, name: str, image: str,
                                   cpu: str = '256', memory: str = '512',
-                                  env: dict = None) -> Optional[Schema__ECS__Task__Definition]:
+                                  env: dict = None) -> Schema__ECS__Task__Definition:
         env_list = [{'name': k, 'value': v} for k, v in (env or {}).items()]
-        try:
-            resp = self.client().register_task_definition(
-                family               = name,
-                networkMode          = 'awsvpc',
-                requiresCompatibilities = ['FARGATE'],
-                cpu                  = cpu,
-                memory               = memory,
-                executionRoleArn     = '',           # caller must pre-create if needed
-                containerDefinitions = [{
-                    'name'       : name,
-                    'image'      : image,
-                    'essential'  : True,
-                    'environment': env_list,
-                    'logConfiguration': {
-                        'logDriver': 'awslogs',
-                        'options'  : {
-                            'awslogs-group'        : f'/ecs/{name}',
-                            'awslogs-region'       : self.region or 'us-east-1',
-                            'awslogs-stream-prefix': 'ecs',
-                        },
+        resp = self.client().register_task_definition(
+            family               = name,
+            networkMode          = 'awsvpc',
+            requiresCompatibilities = ['FARGATE'],
+            cpu                  = cpu,
+            memory               = memory,
+            executionRoleArn     = '',           # caller must pre-create if needed
+            containerDefinitions = [{
+                'name'       : name,
+                'image'      : image,
+                'essential'  : True,
+                'environment': env_list,
+                'logConfiguration': {
+                    'logDriver': 'awslogs',
+                    'options'  : {
+                        'awslogs-group'        : f'/ecs/{name}',
+                        'awslogs-region'       : self.region or 'us-east-1',
+                        'awslogs-stream-prefix': 'ecs',
                     },
-                }],
-            )
-            return self._parse_task_def_full(resp.get('taskDefinition', {}))
-        except Exception:
-            return None
+                },
+            }],
+        )
+        return self._parse_task_def_full(resp.get('taskDefinition', {}))
 
     # ── task read ─────────────────────────────────────────────────────────────
 
@@ -190,17 +188,14 @@ class Fargate__AWS__Client(Type_Safe):
         return result
 
     def describe_task(self, task_arn: str, cluster: str = '') -> Optional[Schema__ECS__Task]:
-        try:
-            kwargs = {'tasks': [task_arn]}
-            if cluster:
-                kwargs['cluster'] = cluster
-            resp  = self.client().describe_tasks(**kwargs)
-            tasks = resp.get('tasks', [])
-            if not tasks:
-                return None
-            return self._parse_task(tasks[0])
-        except Exception:
+        kwargs = {'tasks': [task_arn]}
+        if cluster:
+            kwargs['cluster'] = cluster
+        resp  = self.client().describe_tasks(**kwargs)
+        tasks = resp.get('tasks', [])
+        if not tasks:
             return None
+        return self._parse_task(tasks[0])
 
     # ── task mutations ────────────────────────────────────────────────────────
 
@@ -215,33 +210,26 @@ class Fargate__AWS__Client(Type_Safe):
                 'assignPublicIp' : 'ENABLED' if assign_public_ip else 'DISABLED',
             }
         }
-        try:
-            resp  = self.client().run_task(
-                cluster              = cluster,
-                taskDefinition       = task_def,
-                count                = count,
-                launchType           = 'FARGATE',
-                networkConfiguration = vpc_config,
-                tags                 = [{'key': 'sg:managed', 'value': 'true'}],
-            )
-            tasks = resp.get('tasks', [])
-            if not tasks:
-                return None
-            return self._parse_task(tasks[0])
-        except Exception:
+        resp  = self.client().run_task(
+            cluster              = cluster,
+            taskDefinition       = task_def,
+            count                = count,
+            launchType           = 'FARGATE',
+            networkConfiguration = vpc_config,
+            tags                 = [{'key': 'sg:managed', 'value': 'true'}],
+        )
+        tasks = resp.get('tasks', [])
+        if not tasks:
             return None
+        return self._parse_task(tasks[0])
 
-    def stop_task(self, task_arn: str, cluster: str = '', reason: str = '') -> bool:
-        try:
-            kwargs = {'task': task_arn}
-            if cluster:
-                kwargs['cluster'] = cluster
-            if reason:
-                kwargs['reason'] = reason
-            self.client().stop_task(**kwargs)
-            return True
-        except Exception:
-            return False
+    def stop_task(self, task_arn: str, cluster: str = '', reason: str = '') -> None:
+        kwargs = {'task': task_arn}
+        if cluster:
+            kwargs['cluster'] = cluster
+        if reason:
+            kwargs['reason'] = reason
+        self.client().stop_task(**kwargs)
 
     # ── log group discovery ───────────────────────────────────────────────────
 
@@ -275,7 +263,7 @@ class Fargate__AWS__Client(Type_Safe):
                 status          = 'ACTIVE',
                 family_revision = Safe_Str__ECS__Task__Definition(tail),
             )
-        except Exception:
+        except (ValueError, IndexError):
             return None
 
     def _parse_task_def_full(self, raw: dict) -> Schema__ECS__Task__Definition:

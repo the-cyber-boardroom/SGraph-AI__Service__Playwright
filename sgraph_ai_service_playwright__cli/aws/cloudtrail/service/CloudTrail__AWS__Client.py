@@ -14,6 +14,7 @@ import time
 from datetime  import datetime, timezone
 from typing    import Optional
 
+from botocore.exceptions import ClientError
 from osbot_utils.type_safe.Type_Safe import Type_Safe
 
 from sgraph_ai_service_playwright__cli.aws.cloudtrail.collections.List__Schema__CloudTrail__Event import List__Schema__CloudTrail__Event
@@ -108,17 +109,17 @@ class CloudTrail__AWS__Client(Type_Safe):
             status = {}
             try:
                 status = ct.get_trail_status(Name=name)
-            except Exception:
+            except ClientError:
                 pass
             return self._parse_trail_full(raw, status)
-        except Exception:
-            return None
+        except ClientError as exc:
+            code = exc.response.get('Error', {}).get('Code', '')
+            if code == 'TrailNotFoundException':
+                return None
+            raise
 
     def get_trail_status(self, name: str) -> dict:
-        try:
-            return self.client().get_trail_status(Name=name)
-        except Exception:
-            return {}
+        return self.client().get_trail_status(Name=name)
 
     # ── internal ──────────────────────────────────────────────────────────────
 
@@ -153,7 +154,7 @@ class CloudTrail__AWS__Client(Type_Safe):
         if raw.get('CloudTrailEvent'):
             try:
                 ct_record = json.loads(raw['CloudTrailEvent'])
-            except Exception:
+            except json.JSONDecodeError:
                 pass
         event_time = raw.get('EventTime')
         time_str   = str(event_time) if event_time else ''
@@ -178,7 +179,7 @@ class CloudTrail__AWS__Client(Type_Safe):
         try:
             status = ct.get_trail_status(Name=name)
             is_log = bool(status.get('IsLogging', False))
-        except Exception:
+        except ClientError:
             pass
         return Schema__CloudTrail__Trail(
             name                         = name,

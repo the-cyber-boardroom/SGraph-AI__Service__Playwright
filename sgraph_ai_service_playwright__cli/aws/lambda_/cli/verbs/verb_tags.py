@@ -72,12 +72,8 @@ def tags_set(ctx, pairs):
         tags[k] = v
     with spec_cli_errors():
         arn  = _get_arn(fn_name)
-        ok   = Lambda__AWS__Client().tag_resource(arn, tags)
-        if ok:
-            console.print(f'[green]Tags set[/green] on {fn_name}')
-        else:
-            console.print('[red]Failed to set tags.[/red]')
-            raise SystemExit(1)
+        Lambda__AWS__Client().tag_resource(arn, tags)
+        console.print(f'[green]Tags set[/green] on {fn_name}')
 
 
 @cmd_tags.command('remove')
@@ -89,9 +85,5 @@ def tags_remove(ctx, keys):
     fn_name = ctx.obj['function_name']
     with spec_cli_errors():
         arn = _get_arn(fn_name)
-        ok  = Lambda__AWS__Client().untag_resource(arn, list(keys))
-        if ok:
-            console.print(f'[green]Tags removed[/green] from {fn_name}')
-        else:
-            console.print('[red]Failed to remove tags.[/red]')
-            raise SystemExit(1)
+        Lambda__AWS__Client().untag_resource(arn, list(keys))
+        console.print(f'[green]Tags removed[/green] from {fn_name}')

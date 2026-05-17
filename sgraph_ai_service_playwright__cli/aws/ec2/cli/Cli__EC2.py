@@ -366,12 +366,8 @@ def ec2_start(target  : str  = typer.Argument(...,    help='Instance ID or Name 
     if not confirm_or_abort(f'Start instance {target!r}?', yes=yes, dry_run=dry_run):
         raise typer.Exit(0)
     iid = _resolve(target)
-    ok  = _client().start_instance(iid)
-    if ok:
-        console.print(f'[green]Started[/green] {iid}')
-    else:
-        console.print(f'[red]Failed to start[/red] {iid}')
-        raise typer.Exit(1)
+    _client().start_instance(iid)
+    console.print(f'[green]Started[/green] {iid}')
 
 
 # ── stop ──────────────────────────────────────────────────────────────────────
@@ -385,12 +381,8 @@ def ec2_stop(target  : str  = typer.Argument(...,    help='Instance ID or Name t
     if not confirm_or_abort(f'Stop instance {target!r}?', yes=yes, dry_run=dry_run):
         raise typer.Exit(0)
     iid = _resolve(target)
-    ok  = _client().stop_instance(iid)
-    if ok:
-        console.print(f'[green]Stopped[/green] {iid}')
-    else:
-        console.print(f'[red]Failed to stop[/red] {iid}')
-        raise typer.Exit(1)
+    _client().stop_instance(iid)
+    console.print(f'[green]Stopped[/green] {iid}')
 
 
 # ── terminate ─────────────────────────────────────────────────────────────────
@@ -404,12 +396,8 @@ def ec2_terminate(target  : str  = typer.Argument(...,    help='Instance ID or N
     if not confirm_or_abort(f'Terminate {target!r}? This is IRREVERSIBLE.', yes=yes, dry_run=dry_run):
         raise typer.Exit(0)
     iid = _resolve(target)
-    ok  = _client().terminate_instance(iid)
-    if ok:
-        console.print(f'[green]Terminating[/green] {iid}')
-    else:
-        console.print(f'[red]Failed to terminate[/red] {iid}')
-        raise typer.Exit(1)
+    _client().terminate_instance(iid)
+    console.print(f'[green]Terminating[/green] {iid}')
 
 
 # ── wait ──────────────────────────────────────────────────────────────────────

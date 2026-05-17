@@ -86,8 +86,4 @@ def url_delete(ctx, yes, as_json):
         if as_json:
             click.echo(json.dumps(resp.json(), indent=2))
             return
-        if resp.success:
-            console.print(f'[green]URL deleted[/green] for {fn_name}')
-        else:
-            console.print(f'[red]Failed:[/red] {resp.message}')
-            raise SystemExit(1)
+        console.print(f'[green]URL deleted[/green] for {fn_name}')

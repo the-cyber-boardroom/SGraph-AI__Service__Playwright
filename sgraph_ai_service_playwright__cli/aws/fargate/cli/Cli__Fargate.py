@@ -163,15 +163,11 @@ def cluster_delete(name    : str  = typer.Argument(...,   help='Cluster name.'),
     if not confirm_or_abort(f'Delete cluster "{name}"?', yes=yes, dry_run=dry_run):
         raise typer.Exit(0)
     try:
-        ok = _client().delete_cluster(name)
+        _client().delete_cluster(name)
     except ValueError as exc:
         console.print(f'[red]Cannot delete:[/red] {exc}')
         raise typer.Exit(1)
-    if ok:
-        console.print(f'[green]Deleted[/green] {name}')
-    else:
-        console.print(f'[red]Failed to delete[/red] {name}')
-        raise typer.Exit(1)
+    console.print(f'[green]Deleted[/green] {name}')
 
 
 # ════════════════════════════════════════════════════════════════════════════════
@@ -409,12 +405,8 @@ def task_stop(task_arn: str  = typer.Argument(...,    help='Task ARN.'),
     """Stop a running ECS task."""
     if not confirm_or_abort(f'Stop task "{task_arn}"?', yes=yes, dry_run=dry_run):
         raise typer.Exit(0)
-    ok = _client().stop_task(task_arn, cluster=cluster, reason=reason)
-    if ok:
-        console.print(f'[green]Stopped[/green] {task_arn}')
-    else:
-        console.print(f'[red]Failed to stop[/red] {task_arn}')
-        raise typer.Exit(1)
+    _client().stop_task(task_arn, cluster=cluster, reason=reason)
+    console.print(f'[green]Stopped[/green] {task_arn}')
 
 
 # ════════════════════════════════════════════════════════════════════════════════
