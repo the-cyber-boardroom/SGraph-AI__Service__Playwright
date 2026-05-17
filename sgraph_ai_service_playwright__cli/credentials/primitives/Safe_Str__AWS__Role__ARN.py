@@ -1,16 +1,5 @@
 # ═══════════════════════════════════════════════════════════════════════════════
-# SG Credentials — Safe_Str__AWS__Role__ARN
-# Type-safe AWS IAM Role ARN string.
+# SG Credentials — Safe_Str__AWS__Role__ARN (re-export shim)
+# Canonical home: aws/_shared/primitives/. Shim kept for one release; drop v0.3.x.
 # ═══════════════════════════════════════════════════════════════════════════════
-
-import re
-
-from osbot_utils.type_safe.primitives.core.Safe_Str                          import Safe_Str
-from osbot_utils.type_safe.primitives.core.enums.Enum__Safe_Str__Regex_Mode  import Enum__Safe_Str__Regex_Mode
-
-
-class Safe_Str__AWS__Role__ARN(Safe_Str):
-    max_length      = 256
-    regex           = re.compile(r'[^a-zA-Z0-9:/\-_@.]')
-    regex_mode      = Enum__Safe_Str__Regex_Mode.REPLACE
-    allow_empty     = True
+from sgraph_ai_service_playwright__cli.aws._shared.primitives.Safe_Str__AWS__Role__ARN import Safe_Str__AWS__Role__ARN  # noqa: F401

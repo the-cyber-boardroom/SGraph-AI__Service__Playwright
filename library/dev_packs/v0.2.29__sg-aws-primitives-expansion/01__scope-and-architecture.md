@@ -98,15 +98,16 @@ Every verb accepts `--json`. Without it: Rich panel/table. With it: a `Schema__*
 
 ### 3.6 Tagging convention
 
-Every resource the CLI creates carries these tags (Foundation-owned, `aws/Aws__Tagger.py`):
+Every resource the CLI creates carries these tags (Foundation-owned, `aws/Aws__Tagger.py`). Return type is `List__Schema__AWS__Tag`; callers use `Aws__Tagger.as_boto3_tags()` for the raw boto3-compatible list.
 
 | Tag key | Value |
 |---------|-------|
-| `sg:owner` | from env `SG_AWS__OWNER` (default: `$USER`) |
-| `sg:source` | `sg-aws-cli` |
-| `sg:created-by` | `<sg-version>:<surface>:<verb>` |
-| `sg:created-at` | ISO 8601 UTC |
+| `sg:managed-by` | `sg-cli` (constant) |
 | `sg:surface` | the surface name (`s3`, `ec2`, `fargate`, etc.) |
+| `sg:verb` | the CLI verb that created the resource |
+| `sg:created-by` | `$USER` env var (falls back to `socket.gethostname()`) |
+| `sg:created-at` | ISO 8601 UTC (`%Y-%m-%dT%H:%M:%SZ`) |
+| `sg:session-id` | observability correlation ID (omitted when empty) |
 
 This is the precondition for Slice H's observability filters and for the future v0.2.30 leak-sweeper.
 
