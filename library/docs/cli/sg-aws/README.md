@@ -70,7 +70,7 @@ sg aws
 ├── bedrock     ← Bedrock (LANDED — v0.2.29)          (chat, agent, tool sub-trees)
 ├── cloudtrail  ← CloudTrail (LANDED — v0.2.29)       (events list/show, trail list/show — read-only)
 ├── creds       ← Scoped STS (PROPOSED — Slice G)    (get, scope, audit)
-└── observe     ← Observability REPL (PROPOSED — Slice H) (tail, query, stats, agent-trace)
+└── observe     ← Observability REPL (LANDED — v0.2.29)   (sources, tail, query, stats, agent-trace, replay)
 ```
 
 `<function-name>` accepts a **fuzzy substring** — e.g. `sg aws lambda waker info` resolves to `sg-compute-vault-publish-waker`.
