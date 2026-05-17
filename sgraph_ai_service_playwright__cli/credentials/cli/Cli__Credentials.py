@@ -11,7 +11,7 @@
 #   sg credentials show   <role>
 #   sg credentials status
 #   sg credentials log    [--n 20]
-#   sg credentials trace  <role>
+#   sg credentials trace  <command...>   (v0.2.28: dry-run resolver)
 #   sg credentials export <role>
 # ═══════════════════════════════════════════════════════════════════════════════
 
@@ -19,6 +19,7 @@ import json
 import os
 
 import typer
+from typing import List
 
 from sgraph_ai_service_playwright__cli.credentials.enums.Enum__Audit__Action                  import Enum__Audit__Action
 from sgraph_ai_service_playwright__cli.credentials.primitives.Safe_Str__AWS__Region            import Safe_Str__AWS__Region
@@ -26,6 +27,7 @@ from sgraph_ai_service_playwright__cli.credentials.primitives.Safe_Str__AWS__Rol
 from sgraph_ai_service_playwright__cli.credentials.primitives.Safe_Str__Role__Name             import Safe_Str__Role__Name
 from sgraph_ai_service_playwright__cli.credentials.schemas.Schema__AWS__Role__Config           import Schema__AWS__Role__Config
 from sgraph_ai_service_playwright__cli.credentials.service.Audit__Log                         import Audit__Log
+from sgraph_ai_service_playwright__cli.credentials.service.Credentials__Resolver              import Credentials__Resolver
 from sgraph_ai_service_playwright__cli.credentials.service.Credentials__Store                 import Credentials__Store
 from sgraph_ai_service_playwright__cli.osx.keyring.service.Keyring__Mac__OS                   import Keyring__Mac__OS
 
@@ -57,7 +59,7 @@ def list_cmd():
     for role in roles:
         marker = ' *' if role == current else ''
         typer.echo(f'  {role}{marker}')
-    _audit().log(Enum__Audit__Action.LIST, detail='list roles')
+    _audit().log(Enum__Audit__Action.LIST, command_args='list roles')
 
 
 @app.command()
@@ -78,7 +80,7 @@ def add(role       : str = typer.Argument(..., help='Role name (e.g. admin, dev)
     ok_aws = store.aws_credentials_set(role, access_key, secret_key)
     if ok_cfg and ok_aws:
         typer.echo(f'[ok] role {role!r} added/updated')
-        _audit().log(Enum__Audit__Action.ADD, role=role, detail=f'add role {role}')
+        _audit().log(Enum__Audit__Action.ADD, role=role, command_args=f'credentials add {role} <redacted> <redacted>')
     else:
         typer.echo(f'[error] failed to save credentials for {role!r}', err=True)
         raise typer.Exit(1)
@@ -91,7 +93,7 @@ def remove(role: str = typer.Argument(..., help='Role name to remove.')):
     ok    = store.role_delete(role)
     if ok:
         typer.echo(f'[ok] role {role!r} removed')
-        _audit().log(Enum__Audit__Action.REMOVE, role=role, detail=f'remove role {role}')
+        _audit().log(Enum__Audit__Action.REMOVE, role=role, command_args=f'credentials remove {role}')
     else:
         typer.echo(f'[not found] role {role!r}', err=True)
         raise typer.Exit(1)
@@ -111,7 +113,7 @@ def switch(role: str = typer.Argument(..., help='Role name to activate for this 
     typer.echo(f'export AWS_SECRET_ACCESS_KEY={str(creds.secret_key)!r}')
     typer.echo(f'export AWS_DEFAULT_REGION={region!r}')
     typer.echo(f'export {_CURRENT_ROLE_ENV}={role!r}')
-    _audit().log(Enum__Audit__Action.SWITCH, role=role, detail=f'switch to {role}')
+    _audit().log(Enum__Audit__Action.SWITCH, role=role, command_args=f'credentials switch {role}')
 
 
 @app.command()
@@ -133,7 +135,7 @@ def show(role: str = typer.Argument(..., help='Role name to inspect.')):
     else:
         typer.echo('access_key    : (not set)')
         typer.echo('secret_key    : (not set)')
-    _audit().log(Enum__Audit__Action.SHOW, role=role, detail=f'show config for {role}')
+    _audit().log(Enum__Audit__Action.SHOW, role=role, command_args=f'credentials show {role}')
 
 
 @app.command()
@@ -144,7 +146,7 @@ def status():
         typer.echo(f'active role: {current}')
     else:
         typer.echo('no role active  (use: eval $(sg credentials switch <role>))')
-    _audit().log(Enum__Audit__Action.STATUS, detail='status check')
+    _audit().log(Enum__Audit__Action.STATUS, command_args='credentials status')
 
 
 @app.command()
@@ -156,20 +158,23 @@ def log(n: int = typer.Option(20, help='Number of recent audit events to show.')
         typer.echo('(audit log is empty)')
         return
     for event in events:
-        typer.echo(f"{event.get('timestamp','')}  {event.get('action',''):8}  {event.get('role',''):12}  {event.get('detail','')}")
+        typer.echo(f"{event.get('timestamp','')}  {event.get('action',''):8}  {event.get('role',''):12}  {event.get('command_args','')}")
 
 
 @app.command()
-def trace(role: str = typer.Argument(..., help='Role to trace in the audit log.')):
-    """Show all audit events for a specific role."""
-    audit  = _audit()
-    events = [e for e in audit.read_all() if e.get('role') == role]
-    if not events:
-        typer.echo(f'(no audit events for role {role!r})')
-        return
-    for event in events:
-        typer.echo(f"{event.get('timestamp','')}  {event.get('action',''):8}  {event.get('detail','')}")
-    _audit().log(Enum__Audit__Action.LIST, role=role, detail=f'trace {role}')
+def trace(command: List[str] = typer.Argument(None, help='Command path to trace, e.g. aws lambda waker info')):
+    """Dry-run: show which role would handle this command path. No AWS calls."""
+    command_path = list(command) if command else []
+    store    = _store()
+    resolver = Credentials__Resolver(store=store)
+    result   = resolver.trace(command_path)
+    typer.echo(f'[trace] command path:    {" ".join(result.command_path) or "(empty)"}')
+    typer.echo(f'[trace] routing match:   {result.matched_route or "(no match)"}  →  role: {result.matched_role or "(none)"}')
+    chain_str = ' → '.join(result.role_chain)
+    typer.echo(f'[trace] role chain:      {chain_str or "(empty)"}')
+    typer.echo(f'[trace] would assume:    {result.would_assume_arn or "(direct creds — no assume)"}')
+    typer.echo(f'[trace] session name:    {result.session_name_tmpl or "(n/a)"} (dry-run; not generated)')
+    typer.echo(f'[trace] effective creds: source={result.source_creds}')
 
 
 @app.command()
@@ -186,4 +191,4 @@ def export(role: str = typer.Argument(..., help='Role to export as shell environ
     typer.echo(f'export AWS_ACCESS_KEY_ID={str(creds.access_key)!r}')
     typer.echo(f'export AWS_SECRET_ACCESS_KEY={str(creds.secret_key)!r}')
     typer.echo(f'export AWS_DEFAULT_REGION={region!r}')
-    _audit().log(Enum__Audit__Action.EXPORT, role=role, detail=f'export {role}')
+    _audit().log(Enum__Audit__Action.EXPORT, role=role, command_args=f'credentials export {role}')

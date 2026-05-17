@@ -9,6 +9,8 @@
 #   as          — clear pinned role
 #   q / quit / exit / Ctrl-D — exit
 #   Ctrl-C      — if a role is pinned, clear it; otherwise exit
+#
+# v0.2.28 — _match() supports prefix matching with substring fall-back.
 # ═══════════════════════════════════════════════════════════════════════════════
 
 import typer.main
@@ -46,10 +48,6 @@ def _is_group(sg_app, path):                                                    
     return bool(node and hasattr(node, 'commands') and node.commands)
 
 
-def _match(prefix, options):                                                    # sorted prefix filter
-    return sorted(o for o in options if o.startswith(prefix))
-
-
 def _invoke(sg_app, args):
     try:
         sg_app(args, standalone_mode=True)
@@ -68,15 +66,24 @@ def _resolve(sg_app, base_path, words):
     for i, word in enumerate(words):
         if word.startswith('-') or not _is_group(sg_app, current):             # option flag or leaf — rest are args
             return current, list(words[i:])
-        available = _children(sg_app, current) - ({'repl'} if not current else set())
-        hits      = _match(word, available)
+        available    = _children(sg_app, current) - ({'repl'} if not current else set())
+        hits, kind   = _match(word, available)
         if len(hits) == 1:
             current.append(hits[0])
+            if kind == 'substring':
+                console.print(f"  [dim]→ matched {word!r} as {hits[0]!r} (substring)[/dim]")
         elif len(hits) > 1:
             return None, hits                                                   # ambiguous
         else:
             return current, list(words[i:])                                    # no match — rest are args
     return current, []
+
+def _match(prefix: str, options) -> tuple:                          # (hits, kind) — prefix first, substring fall-back
+    prefix_hits    = sorted(o for o in options if o.startswith(prefix))
+    if prefix_hits:
+        return prefix_hits, 'prefix'
+    substring_hits = sorted(o for o in options if prefix in o)
+    return substring_hits, 'substring'
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # Cli__SG__Repl — Type_Safe wrapper exposing prompt + as-handler for testability
