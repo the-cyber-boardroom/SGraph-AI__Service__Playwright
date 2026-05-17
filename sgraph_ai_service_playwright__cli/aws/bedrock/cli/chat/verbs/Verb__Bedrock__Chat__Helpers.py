@@ -104,7 +104,7 @@ def run_chat(provider: str, alias: str, prompt_text: str,
 
     try:
         safe_mid = Safe_Str__Bedrock__Model_Id(model_id)
-    except Exception:
+    except ValueError:
         safe_mid = Safe_Str__Bedrock__Model_Id('')
 
     schema = Schema__Bedrock__Chat__Response(

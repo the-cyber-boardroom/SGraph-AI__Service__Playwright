@@ -28,41 +28,36 @@ def _seed_client(client: IAM__AWS__Client__In_Memory):
 
 class Test__Cli__Iam:
 
-    def test_1__role_list_empty(self, monkeypatch):
+    def test_1__role_list_empty(self):
         client = IAM__AWS__Client__In_Memory()
-        monkeypatch.setattr('sgraph_ai_service_playwright__cli.aws.iam.cli.Cli__Iam._client', lambda: client)
-        result = runner.invoke(iam_app, ['role', 'list'])
+        result = runner.invoke(iam_app, ['role', 'list'], obj={'iam_client': client})
         assert result.exit_code == 0
         assert 'No IAM roles' in result.output
 
-    def test_2__role_list_json(self, monkeypatch):
+    def test_2__role_list_json(self):
         client = _seed_client(IAM__AWS__Client__In_Memory())
-        monkeypatch.setattr('sgraph_ai_service_playwright__cli.aws.iam.cli.Cli__Iam._client', lambda: client)
-        result = runner.invoke(iam_app, ['role', 'list', '--json'])
+        result = runner.invoke(iam_app, ['role', 'list', '--json'], obj={'iam_client': client})
         assert result.exit_code == 0
         data   = json.loads(result.output)
         assert any(r['role_name'] == 'sg-waker-role' for r in data)
 
-    def test_3__role_show_existing(self, monkeypatch):
+    def test_3__role_show_existing(self):
         client = _seed_client(IAM__AWS__Client__In_Memory())
-        monkeypatch.setattr('sgraph_ai_service_playwright__cli.aws.iam.cli.Cli__Iam._client', lambda: client)
-        result = runner.invoke(iam_app, ['role', 'show', 'sg-waker-role', '--json'])
+        result = runner.invoke(iam_app, ['role', 'show', 'sg-waker-role', '--json'], obj={'iam_client': client})
         assert result.exit_code == 0
         data   = json.loads(result.output)
         assert data['role_name'] == 'sg-waker-role'
 
-    def test_4__role_show_missing(self, monkeypatch):
+    def test_4__role_show_missing(self):
         client = IAM__AWS__Client__In_Memory()
-        monkeypatch.setattr('sgraph_ai_service_playwright__cli.aws.iam.cli.Cli__Iam._client', lambda: client)
-        result = runner.invoke(iam_app, ['role', 'show', 'no-such-role'])
+        result = runner.invoke(iam_app, ['role', 'show', 'no-such-role'], obj={'iam_client': client})
         assert result.exit_code == 1
 
-    def test_5__role_check_clean(self, monkeypatch):
+    def test_5__role_check_clean(self):
         from sgraph_ai_service_playwright__cli.aws.iam.service.templates.Waker__Policy__Template import Waker__Policy__Template
         client = _seed_client(IAM__AWS__Client__In_Memory())
         client.put_inline_policy('sg-waker-role', 'permissions', Waker__Policy__Template().build())
-        monkeypatch.setattr('sgraph_ai_service_playwright__cli.aws.iam.cli.Cli__Iam._client', lambda: client)
-        result = runner.invoke(iam_app, ['role', 'check', 'sg-waker-role', '--json'])
+        result = runner.invoke(iam_app, ['role', 'check', 'sg-waker-role', '--json'], obj={'iam_client': client})
         assert result.exit_code == 0
         data = json.loads(result.output)
         assert data['overall_severity'] == 'INFO'

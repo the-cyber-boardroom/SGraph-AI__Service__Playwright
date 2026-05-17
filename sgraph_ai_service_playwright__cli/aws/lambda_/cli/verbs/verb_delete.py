@@ -40,8 +40,4 @@ def cmd_delete(ctx, yes, as_json):
         if as_json:
             click.echo(json.dumps(resp.json(), indent=2))
             return
-        if resp.success:
-            console.print(f'[green]Deleted[/green] {fn_name}')
-        else:
-            console.print(f'[red]Failed:[/red] {resp.message}')
-            raise SystemExit(1)
+        console.print(f'[green]Deleted[/green] {fn_name}')

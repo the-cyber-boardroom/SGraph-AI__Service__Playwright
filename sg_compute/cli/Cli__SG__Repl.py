@@ -7,10 +7,14 @@
 # Pseudo-commands (handled before dispatch):
 #   as <role>   — pin role for the REPL session (prompt shows [role] suffix)
 #   as          — clear pinned role
+#   debug on    — flip Spec__CLI__Errors._DEBUG to True for the session
+#   debug off   — flip it back to False
 #   q / quit / exit / Ctrl-D — exit
 #   Ctrl-C      — if a role is pinned, clear it; otherwise exit
 #
 # v0.2.28 — _match() supports prefix matching with substring fall-back.
+# v0.2.30 — REPL hoists `--debug` / `-D` to the front of the assembled
+#           command line so the top-level @app.callback() fires (Open-5).
 # ═══════════════════════════════════════════════════════════════════════════════
 
 import typer.main
@@ -84,6 +88,44 @@ def _match(prefix: str, options) -> tuple:                          # (hits, kin
         return prefix_hits, 'prefix'
     substring_hits = sorted(o for o in options if prefix in o)
     return substring_hits, 'substring'
+
+
+DEBUG_FLAGS = ('--debug', '-D')
+
+
+def _extract_debug_flag(parts):                                     # returns (debug_present, parts_without_debug)
+    has_debug = any(p in DEBUG_FLAGS for p in parts)
+    if not has_debug:
+        return False, list(parts)
+    return True, [p for p in parts if p not in DEBUG_FLAGS]
+
+
+def _assemble_args(base_path, parts, sg_app=None, resolve_fn=None):
+    """Assemble the full click argv for a REPL line.
+
+    Hoists --debug / -D to position 0 so the top-level @app.callback() fires
+    (Click rejects --debug at the verb level — it's a top-level option).
+    Returns (full_args, resolved_path, trailing_args, ambiguous_candidates).
+    When ambiguous, full_args is None and ambiguous_candidates is populated.
+    """
+    debug_present, parts_clean = _extract_debug_flag(parts)
+    if resolve_fn is None or sg_app is None:                        # caller supplied no resolver — pure hoist mode
+        full = (['--debug'] if debug_present else []) + list(parts_clean)
+        return full, None, None, None
+    resolved, trailing = resolve_fn(sg_app, base_path, parts_clean)
+    if resolved is None:
+        return None, None, list(trailing), trailing                 # ambiguous — caller handles
+    full_args = (['--debug'] if debug_present else []) + resolved + trailing
+    return full_args, resolved, trailing, None
+
+
+def _handle_debug_toggle(parts) -> bool:                            # True = handled; don't dispatch
+    if not (parts and parts[0] == 'debug' and len(parts) == 2 and parts[1] in ('on', 'off')):
+        return False
+    from sg_compute.cli.base.Spec__CLI__Errors import set_debug
+    set_debug(parts[1] == 'on')
+    console.print(f'  [dim]debug {parts[1]}[/dim]')
+    return True
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # Cli__SG__Repl — Type_Safe wrapper exposing prompt + as-handler for testability
@@ -174,12 +216,17 @@ def run_repl(sg_app=None):
         if repl._handle_as(parts):                                              # as <role> pseudo-command
             continue
 
-        resolved, trailing = _resolve(sg_app, repl.path, parts)
+        if _handle_debug_toggle(parts):                                         # debug on / debug off pseudo-command
+            continue
+
+        debug_present, parts_clean = _extract_debug_flag(parts)                 # hoist --debug / -D out before _resolve
+        resolved, trailing         = _resolve(sg_app, repl.path, parts_clean)
 
         if resolved is None:
             console.print(f'  [dim]{" ".join(trailing)}[/dim]')                # ambiguous — show candidates
-        elif len(parts) == 1 and not trailing and _is_group(sg_app, resolved) and resolved != repl.path:
+        elif len(parts_clean) == 1 and not trailing and _is_group(sg_app, resolved) and resolved != repl.path:
             repl.path[:] = resolved                                             # single word → group: navigate
             _invoke(sg_app, repl.path + ['--help'])
         else:
-            _invoke(sg_app, resolved + trailing)                               # execute without navigating
+            full_args = (['--debug'] if debug_present else []) + resolved + trailing
+            _invoke(sg_app, full_args)                                          # execute without navigating

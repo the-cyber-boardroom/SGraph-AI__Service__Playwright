@@ -8,6 +8,7 @@
 
 import json
 
+from botocore.exceptions import ClientError
 from osbot_utils.type_safe.Type_Safe import Type_Safe
 
 from sgraph_ai_service_playwright__cli.aws.ec2.primitives.Safe_Str__EC2__Instance__Type import Safe_Str__EC2__Instance__Type
@@ -39,30 +40,27 @@ class EC2__Pricing__Client(Type_Safe):
             {'Type': 'TERM_MATCH', 'Field': 'preInstalledSw',  'Value': 'NA'},
             {'Type': 'TERM_MATCH', 'Field': 'capacitystatus',  'Value': 'Used'},
         ]
-        try:
-            resp  = pricing_client.get_products(ServiceCode='AmazonEC2', Filters=filters, MaxResults=5)
-            items = resp.get('PriceList', [])
-            if not items:
-                return self._empty_pricing(instance_type, region, os)
-            price_doc = json.loads(items[0])
-            price_per_hour = self._extract_price(price_doc)
-            price_per_second = ''
-            if price_per_hour:
-                try:
-                    pph = float(price_per_hour)
-                    price_per_second = f'{pph / 3600:.12f}'.rstrip('0')
-                except ValueError:
-                    pass
-            itype_safe = Safe_Str__EC2__Instance__Type(instance_type) if instance_type else Safe_Str__EC2__Instance__Type('')
-            return Schema__EC2__Pricing(
-                instance_type    = itype_safe,
-                region           = region,
-                price_per_hour   = price_per_hour,
-                price_per_second = price_per_second,
-                os               = os,
-            )
-        except Exception:
+        resp  = pricing_client.get_products(ServiceCode='AmazonEC2', Filters=filters, MaxResults=5)
+        items = resp.get('PriceList', [])
+        if not items:
             return self._empty_pricing(instance_type, region, os)
+        price_doc = json.loads(items[0])
+        price_per_hour = self._extract_price(price_doc)
+        price_per_second = ''
+        if price_per_hour:
+            try:
+                pph = float(price_per_hour)
+                price_per_second = f'{pph / 3600:.12f}'.rstrip('0')
+            except ValueError:
+                pass
+        itype_safe = Safe_Str__EC2__Instance__Type(instance_type) if instance_type else Safe_Str__EC2__Instance__Type('')
+        return Schema__EC2__Pricing(
+            instance_type    = itype_safe,
+            region           = region,
+            price_per_hour   = price_per_hour,
+            price_per_second = price_per_second,
+            os               = os,
+        )
 
     def _empty_pricing(self, instance_type: str, region: str, os: str) -> Schema__EC2__Pricing:
         itype_safe = Safe_Str__EC2__Instance__Type(instance_type) if instance_type else Safe_Str__EC2__Instance__Type('')
