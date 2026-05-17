@@ -14,6 +14,8 @@
 #   sp          = "sg_compute.cli.Cli__SG:app"   # legacy alias
 # ═══════════════════════════════════════════════════════════════════════════════
 
+from typing import List, Optional
+
 import typer
 
 
@@ -133,10 +135,22 @@ app.add_typer(_observability_app, name='ob',            hidden=True)
 # ── repl ─────────────────────────────────────────────────────────────────────
 
 @app.command()
-def repl():
-    """Interactive shell — navigate sections and run commands without the sg prefix."""
+def repl(path: Optional[List[str]] = typer.Argument(None,
+                help='Optional initial REPL path, e.g. `sg repl aws bedrock`.')):
+    """Interactive shell — navigate sections and run commands without the sg prefix.
+
+    With an optional positional path, the REPL starts already navigated
+    into that group:  `sg repl aws bedrock`  →  `sg/aws/bedrock>` prompt.
+    """
     from sg_compute.cli.Cli__SG__Repl import run_repl
-    run_repl(app)
+    run_repl(app, initial_path=list(path) if path else None)
+
+
+@app.command(name='r', hidden=True)                                     # short alias for `sg repl`; hidden from --help
+def _repl_alias(path: Optional[List[str]] = typer.Argument(None)):
+    """Short alias for `sg repl` (accepts the same initial path)."""
+    from sg_compute.cli.Cli__SG__Repl import run_repl
+    run_repl(app, initial_path=list(path) if path else None)
 
 
 if __name__ == '__main__':

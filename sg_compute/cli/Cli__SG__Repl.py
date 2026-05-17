@@ -92,6 +92,52 @@ def _match(prefix: str, options) -> tuple:                          # (hits, kin
     return substring_hits, 'substring'
 
 
+# ═══════════════════════════════════════════════════════════════════════════════
+# readline tab-completion — context-aware against the current REPL path
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def _completion_candidates(sg_app, base_path, words, last_word):
+    """Return the list of completion candidates for the last word of `words`.
+
+    Walks the click tree from base_path through the resolved words,
+    then returns the children at that point matching last_word (prefix
+    match for completion).
+    """                                                                          # inline
+    # Resolve the words that come BEFORE the cursor through the click tree
+    resolved_path, _trailing = _resolve(sg_app, base_path, words)
+    if resolved_path is None:                                                    # ambiguous mid-word — no completion
+        return []
+    children = _children(sg_app, resolved_path) - ({'repl'} if not resolved_path else set())
+    if not last_word:
+        return sorted(children)
+    return sorted(c for c in children if c.startswith(last_word))
+
+
+def _setup_tab_completion(sg_app, get_path, readline):
+    """Register a readline completer that walks the click tree at the current REPL path."""
+
+    def _completer(text, state):                                                 # readline contract: called with (text, state); return one match or None
+        try:
+            line   = readline.get_line_buffer()
+            words  = line.split()
+            if line.endswith(' ') or not words:
+                last_word = ''
+                prior     = words
+            else:
+                last_word = words[-1]
+                prior     = words[:-1]
+            candidates = _completion_candidates(sg_app, get_path(), prior, last_word)
+            if state < len(candidates):
+                return candidates[state]
+        except Exception:                                                        # never propagate from a completer — readline silently swallows but we'd rather no-op
+            return None
+        return None
+
+    readline.set_completer(_completer)
+    readline.parse_and_bind('tab: complete')
+    readline.set_completer_delims(' \t\n')                                       # only break on whitespace; preserve `--` and `=` in option-token completion
+
+
 DEBUG_FLAGS = ('--debug', '-D')
 
 
@@ -166,17 +212,36 @@ class Cli__SG__Repl(Type_Safe):
 # REPL loop
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def run_repl(sg_app=None):
+def run_repl(sg_app=None, initial_path=None):
     if sg_app is None:                                                          # `sg-repl` console-script entry point
         from sg_compute.cli.Cli__SG import app as _sg_app
         sg_app = _sg_app
 
+    repl      = Cli__SG__Repl(context=Sg__Aws__Context()).setup()
+
+    if initial_path:                                                            # `sg repl aws bedrock` → start already navigated into aws/bedrock
+        for segment in initial_path:
+            if not _is_group(sg_app, repl.path):
+                console.print(f'  [yellow]Initial path stops at {repl.path}: {segment!r} is not a navigable group; ignoring rest.[/]')
+                break
+            available  = _children(sg_app, repl.path) - ({'repl'} if not repl.path else set())
+            hits, kind = _match(segment, available)
+            if len(hits) == 1:
+                repl.path.append(hits[0])
+                if kind == 'substring':
+                    console.print(f"  [dim]→ matched {segment!r} as {hits[0]!r} (substring)[/]")
+            elif len(hits) > 1:
+                console.print(f"  [yellow]Initial path: {segment!r} is ambiguous (matches {hits}); stopping at {repl.path}[/]")
+                break
+            else:
+                console.print(f"  [yellow]Initial path: {segment!r} not found under {repl.path}; stopping[/]")
+                break
+
     try:
-        import readline                                                         # arrow keys + history; stdlib on Linux/Mac
+        import readline                                                         # arrow keys + history + tab completion; stdlib on Linux/Mac
+        _setup_tab_completion(sg_app, lambda: repl.path, readline)
     except ImportError:
         pass
-
-    repl      = Cli__SG__Repl(context=Sg__Aws__Context()).setup()
     role_line = f'role: {repl.context.current_role}' if repl.context.has_role() else 'role: (none)'
 
     console.print('\n  [bold]SG/Compute shell[/bold]  —  type a section to enter it, [bold]help[/bold] to list all')
