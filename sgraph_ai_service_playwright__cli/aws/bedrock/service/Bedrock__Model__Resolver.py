@@ -47,7 +47,7 @@ class Bedrock__Model__Resolver(Type_Safe):
         try:
             with open(_ALIAS_YAML, 'r') as f:
                 self._aliases = yaml.safe_load(f) or {}
-        except Exception:
+        except (FileNotFoundError, yaml.YAMLError):
             self._aliases = {}
         return self._aliases
 

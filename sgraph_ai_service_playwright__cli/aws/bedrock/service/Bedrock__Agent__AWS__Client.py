@@ -16,6 +16,7 @@
 
 import boto3                                                                     # used only in current_region() for config reading
 
+from botocore.exceptions                                                         import ClientError
 from osbot_utils.type_safe.Type_Safe                                             import Type_Safe
 
 from sgraph_ai_service_playwright__cli.aws.bedrock.collections.List__Schema__Bedrock__Agent import List__Schema__Bedrock__Agent
@@ -56,26 +57,20 @@ class Bedrock__Agent__AWS__Client(Type_Safe):
         kwargs           = dict(agentName            = name                    ,
                                 foundationModel      = model_id                ,
                                 agentResourceRoleArn = ''                      )    # Role ARN managed externally
-        try:
-            resp     = agentc.create_agent(**kwargs)
-            agent_raw= resp.get('agent', {})
-            return self.map_agent(agent_raw, tools=tools, memory=memory, region=effective_region)
-        except Exception as exc:
-            raise RuntimeError(f'create_agent failed: {exc}') from exc
+        resp      = agentc.create_agent(**kwargs)
+        agent_raw = resp.get('agent', {})
+        return self.map_agent(agent_raw, tools=tools, memory=memory, region=effective_region)
 
     def list_agents(self, region: str = None) -> List__Schema__Bedrock__Agent:
         effective_region = region or self.current_region()
         agentc           = self.client(effective_region)
-        result           = List__Schema__Bedrock__Agent()
-        try:
-            paginator = agentc.get_paginator('list_agents')
-            for page in paginator.paginate():
-                for item in page.get('agentSummaries', []):
-                    agent = self.map_agent_summary(item, effective_region)
-                    if agent:
-                        result.append(agent)
-        except Exception:
-            pass
+        result    = List__Schema__Bedrock__Agent()
+        paginator = agentc.get_paginator('list_agents')
+        for page in paginator.paginate():
+            for item in page.get('agentSummaries', []):
+                agent = self.map_agent_summary(item, effective_region)
+                if agent:
+                    result.append(agent)
         return result
 
     def get_agent(self, agent_id: str, region: str = None) -> Schema__Bedrock__Agent:
@@ -84,39 +79,35 @@ class Bedrock__Agent__AWS__Client(Type_Safe):
         try:
             resp = agentc.get_agent(agentId=agent_id)
             return self.map_agent(resp.get('agent', {}), region=effective_region)
-        except Exception as exc:
-            raise RuntimeError(f'get_agent failed: {exc}') from exc
+        except ClientError as exc:
+            code = exc.response.get('Error', {}).get('Code', '')
+            if code == 'ResourceNotFoundException':
+                return None
+            raise
 
     def invoke_agent(self, agent_id: str, alias_id: str, session_id: str,
                      prompt: str, region: str = None) -> dict:
         effective_region = region or self.current_region()
         runtime          = self.runtime_client(effective_region)
-        try:
-            resp           = runtime.invoke_agent(agentId        = agent_id  ,
-                                                  agentAliasId   = alias_id  ,
-                                                  sessionId      = session_id,
-                                                  inputText      = prompt    )
-            completion     = resp.get('completion', {})
-            text_parts     = []
-            for event in completion:
-                chunk = event.get('chunk', {})
-                if 'bytes' in chunk:
-                    text_parts.append(chunk['bytes'].decode('utf-8', errors='replace'))
-            return {'text': ''.join(text_parts), 'session_id': session_id}
-        except Exception as exc:
-            raise RuntimeError(f'invoke_agent failed: {exc}') from exc
+        resp             = runtime.invoke_agent(agentId        = agent_id  ,
+                                                agentAliasId   = alias_id  ,
+                                                sessionId      = session_id,
+                                                inputText      = prompt    )
+        completion       = resp.get('completion', {})
+        text_parts       = []
+        for event in completion:
+            chunk = event.get('chunk', {})
+            if 'bytes' in chunk:
+                text_parts.append(chunk['bytes'].decode('utf-8', errors='replace'))
+        return {'text': ''.join(text_parts), 'session_id': session_id}
 
     def stop_session(self, session_id: str, agent_id: str,
-                     alias_id: str, region: str = None) -> bool:
+                     alias_id: str, region: str = None) -> None:
         effective_region = region or self.current_region()
         runtime          = self.runtime_client(effective_region)
-        try:
-            runtime.end_session(agentId      = agent_id  ,
-                                agentAliasId = alias_id  ,
-                                sessionId    = session_id)
-            return True
-        except Exception:
-            return False
+        runtime.end_session(agentId      = agent_id  ,
+                            agentAliasId = alias_id  ,
+                            sessionId    = session_id)
 
     # ── Mapping helpers ───────────────────────────────────────────────────────
 
@@ -129,11 +120,11 @@ class Bedrock__Agent__AWS__Client(Type_Safe):
         status     = raw.get('agentStatus', 'UNKNOWN')
         try:
             safe_arn = Safe_Str__Bedrock__Agent_Arn(agent_arn)
-        except Exception:
+        except ValueError:
             safe_arn = Safe_Str__Bedrock__Agent_Arn('')
         try:
             safe_mid = Safe_Str__Bedrock__Model_Id(model_id)
-        except Exception:
+        except ValueError:
             safe_mid = Safe_Str__Bedrock__Model_Id('')
         return Schema__Bedrock__Agent(agent_id    = agent_id   ,
                                       agent_arn   = safe_arn   ,

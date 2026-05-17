@@ -52,14 +52,11 @@ class Bedrock__Runtime__AWS__Client(Type_Safe):
                 yield event
 
     def extract_text(self, response: dict) -> str:                               # Extract the assistant text from a converse response
-        try:
-            output   = response.get('output', {})
-            message  = output.get('message', {})
-            contents = message.get('content', [])
-            parts    = [c.get('text', '') for c in contents if c.get('text')]
-            return '\n'.join(parts)
-        except Exception:
-            return ''
+        output   = response.get('output', {})
+        message  = output.get('message', {})
+        contents = message.get('content', [])
+        parts    = [c.get('text', '') for c in contents if c.get('text')]
+        return '\n'.join(parts)
 
     def extract_usage(self, response: dict) -> tuple:                            # Returns (input_tokens, output_tokens) from a converse response
         usage = response.get('usage', {})

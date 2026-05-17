@@ -14,6 +14,7 @@ import typer
 from rich.console                                                                import Console
 from rich.table                                                                  import Table
 
+from sg_compute.cli.base.Spec__CLI__Errors                                       import spec_cli_errors
 from sgraph_ai_service_playwright__cli.aws._shared.Mutation__Gate               import require_mutation_gate
 from sgraph_ai_service_playwright__cli.aws.bedrock.service.Bedrock__Agent__AWS__Client import Bedrock__Agent__AWS__Client
 from sgraph_ai_service_playwright__cli.aws.bedrock.service.Bedrock__Capture__Writer    import Bedrock__Capture__Writer
@@ -34,6 +35,7 @@ def _client() -> Bedrock__Agent__AWS__Client:
 
 @agent_app.command('create')
 @require_mutation_gate(BEDROCK_GATE)
+@spec_cli_errors
 def agent_create(
     name        : str          = typer.Option(...,   '--name',   '-n', help='Agent name.'),
     model       : str          = typer.Option(...,   '--model',  '-m', help='Model alias or model ID (e.g. claude, haiku-4.5).'),
@@ -52,18 +54,14 @@ def agent_create(
         model_id = resolver.resolve(model if model not in ('claude','nova','llama') else model, 'default', region)
     except ValueError:
         model_id = model                                                          # raw model ID passed directly
-    try:
-        agent  = client.create_agent(name, model_id, tools=tools, memory=memory)
-        writer = Bedrock__Capture__Writer()
-        path   = writer.write_agent_definition(name, {'agent_id'  : agent.agent_id  ,
-                                                      'agent_arn' : str(agent.agent_arn),
-                                                      'model_id'  : str(agent.model_id) ,
-                                                      'status'    : agent.status        ,
-                                                      'tools'     : tools               ,
-                                                      'memory'    : memory              })
-    except RuntimeError as exc:
-        typer.echo(str(exc), err=True)
-        raise typer.Exit(2)
+    agent  = client.create_agent(name, model_id, tools=tools, memory=memory)
+    writer = Bedrock__Capture__Writer()
+    path   = writer.write_agent_definition(name, {'agent_id'  : agent.agent_id  ,
+                                                   'agent_arn' : str(agent.agent_arn),
+                                                   'model_id'  : str(agent.model_id) ,
+                                                   'status'    : agent.status        ,
+                                                   'tools'     : tools               ,
+                                                   'memory'    : memory              })
     if json_output:
         typer.echo(json.dumps(dict(agent_id   = agent.agent_id         ,
                                    agent_arn  = str(agent.agent_arn)   ,
@@ -79,14 +77,11 @@ def agent_create(
 # ── agent list ────────────────────────────────────────────────────────────────
 
 @agent_app.command('list')
+@spec_cli_errors
 def agent_list(json_output: bool = typer.Option(False, '--json', help='Output JSON.')):
     """List AgentCore agents. [EXPERIMENTAL]"""
     client = _client()
-    try:
-        agents = client.list_agents()
-    except Exception as exc:
-        typer.echo(str(exc), err=True)
-        raise typer.Exit(2)
+    agents = client.list_agents()
     if json_output:
         typer.echo(json.dumps([dict(agent_id  = a.agent_id        ,
                                     agent_name= a.agent_name      ,
@@ -111,15 +106,12 @@ def agent_list(json_output: bool = typer.Option(False, '--json', help='Output JS
 # ── agent get ─────────────────────────────────────────────────────────────────
 
 @agent_app.command('get')
+@spec_cli_errors
 def agent_get(agent_id  : str  = typer.Argument(..., help='AgentCore agent ID.'),
               json_output: bool = typer.Option(False, '--json', help='Output JSON.')):
     """Get details of one AgentCore agent. [EXPERIMENTAL]"""
     client = _client()
-    try:
-        agent = client.get_agent(agent_id)
-    except RuntimeError as exc:
-        typer.echo(str(exc), err=True)
-        raise typer.Exit(2)
+    agent  = client.get_agent(agent_id)
     if json_output:
         typer.echo(json.dumps(dict(agent_id  = agent.agent_id       ,
                                    agent_arn = str(agent.agent_arn) ,
@@ -147,6 +139,7 @@ def agent_get(agent_id  : str  = typer.Argument(..., help='AgentCore agent ID.')
 
 @agent_app.command('invoke')
 @require_mutation_gate(BEDROCK_GATE)
+@spec_cli_errors
 def agent_invoke(
     agent_id   : str          = typer.Argument(..., help='AgentCore agent ID.'),
     prompt     : str          = typer.Option(...,   '--prompt', '-p', help='Prompt text.'),
@@ -160,11 +153,7 @@ def agent_invoke(
         typer.confirm(f'Invoke agent {agent_id!r}?', abort=True)
     sid    = session_id or uuid.uuid4().hex
     client = _client()
-    try:
-        result = client.invoke_agent(agent_id, alias_id, sid, prompt)
-    except RuntimeError as exc:
-        typer.echo(str(exc), err=True)
-        raise typer.Exit(2)
+    result = client.invoke_agent(agent_id, alias_id, sid, prompt)
     writer = Bedrock__Capture__Writer()
     path   = writer.write_agent_session(agent_id, sid, dict(agent_id  = agent_id ,
                                                              session_id= sid      ,
@@ -185,6 +174,7 @@ def agent_invoke(
 
 @agent_app.command('stop')
 @require_mutation_gate(BEDROCK_GATE)
+@spec_cli_errors
 def agent_stop(
     session_id : str  = typer.Argument(..., help='Session ID to stop.'),
     agent_id   : str  = typer.Option(...,   '--agent',  help='Agent ID owning this session.'),
@@ -195,12 +185,9 @@ def agent_stop(
     if not yes:
         typer.confirm(f'Stop session {session_id!r}?', abort=True)
     client = _client()
-    ok     = client.stop_session(session_id, agent_id, alias_id)
-    c      = Console(highlight=False)
-    if ok:
-        c.print(f'\n  Session {session_id} stopped.\n')
-    else:
-        c.print(f'\n  [yellow]Could not stop session {session_id} (may already be stopped).[/]\n')
+    client.stop_session(session_id, agent_id, alias_id)
+    c = Console(highlight=False)
+    c.print(f'\n  Session {session_id} stopped.\n')
 
 
 # ── memory list ───────────────────────────────────────────────────────────────
