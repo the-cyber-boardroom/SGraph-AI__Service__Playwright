@@ -1,8 +1,8 @@
 ---
-title: "v0.2.30 — sg aws hygiene pack (Open-1, Open-2, Open-3 from v0.2.29 close-out)"
+title: "v0.2.30 — sg aws hygiene pack (Open-1, Open-2, Open-3, Open-4 from v0.2.29 close-out + IAM put-inline diagnosis)"
 file: README.md
 author: Architect (Claude — Opus 4.7)
-date: 2026-05-17
+date: 2026-05-17 (rev 2 — Open-4 added after user hit `sg aws iam policy put-inline` failure with no diagnostic)
 repo: SGraph-AI__Service__Playwright @ dev (v0.2.29 line → targeting v0.2.30)
 status: PROPOSED — for Dev pickup after v0.2.29 merges to dev + version bump lands
 parent_review: team/roles/architect/reviews/05/17/v0.2.29__milestone-closeout__review.md
@@ -10,13 +10,13 @@ related:
   - library/dev_packs/v0.2.29__sg-aws-primitives-expansion/        # the milestone this cleans up after
   - team/claude/debriefs/2026-05-17__v0.2.29-sg-aws-primitives-expansion.md
 feature_branch: claude/aws-hygiene-v0.2.30
-size: M — ~700 prod LOC + ~300 test LOC + 5 days net (parallelisable to ~2 calendar days)
-priority: NORMAL — no blockers; pays down debt accumulated during the 1-day v0.2.29 sprint
+size: L — ~1100 prod LOC + ~400 test LOC + 8-9 days net (parallelisable to ~3 calendar days)
+priority: HIGH — Open-4 is user-visible blocker for every `sg aws` error message; Open-1/2/3 are debt
 ---
 
 # v0.2.30 — `sg aws` hygiene pack
 
-Three cleanup items left open after v0.2.29 shipped. None block the milestone merge; all three pay down debt that will compound if left untouched. The three items are independent — they can be three small PRs in parallel, one per item.
+Four cleanup items left open after v0.2.29 shipped. **Open-4 is user-visible blocker** — every "Failed" message across the `sg aws *` surface throws away the underlying AWS diagnostic, and there's no top-level `--debug` to recover it. Open-1/2/3 are non-blocking debt. All four are independent — they can be four PRs in parallel, one per item.
 
 > **PROPOSED — does not exist yet.** Picks up after v0.2.29 (root `version` bumped to `0.2.29`) lands on dev.
 
@@ -24,13 +24,322 @@ Three cleanup items left open after v0.2.29 shipped. None block the milestone me
 
 ## TL;DR
 
-| Item | What | Where | Effort |
-|------|------|-------|-------:|
-| **Open-1** | Refactor 131 `monkeypatch` calls into in-memory composition (CLAUDE.md "no mocks, no patches") | 5 CLI test files in `aws/{ec2,fargate,iam,iam/graph,cloudtrail}/` | ~5 days (1/slice, parallel) |
-| **Open-2** | Type 91 raw-`str` schema fields with `Safe_Str__*` + replace 3 JSON-encoded escape hatches with proper collections | 7 surface `schemas/` folders (worst: EC2 with 34) | ~3 days (1/surface, parallel) |
-| **Open-3** | Replace `boto3.session.Session().region_name` in 6 clients' `current_region()` with `Aws__Region__Resolver` | 6 service clients in `aws/*/service/` | ~30 minutes |
+| Item | What | Where | Effort | Priority |
+|------|------|-------|-------:|----------|
+| **Open-4** | Stop swallowing AWS exceptions in 18 client files (75 `except Exception: return False`) + add `--debug` callback at `sg` top level and `sg aws` | 18 service files; 2 CLI entry-points | ~3-4 days | **HIGH** (every error message today is undebuggable) |
+| **Open-1** | Refactor 131 `monkeypatch` calls into in-memory composition (CLAUDE.md "no mocks, no patches") | 5 CLI test files in `aws/{ec2,fargate,iam,iam/graph,cloudtrail}/` | ~5 days (1/slice, parallel) | NORMAL |
+| **Open-2** | Type 91 raw-`str` schema fields with `Safe_Str__*` + replace 3 JSON-encoded escape hatches with proper collections | 7 surface `schemas/` folders (worst: EC2 with 34) | ~3 days (1/surface, parallel) | NORMAL |
+| **Open-3** | Replace `boto3.session.Session().region_name` in 6 clients' `current_region()` with `Aws__Region__Resolver` | 6 service clients in `aws/*/service/` | ~30 minutes | LOW |
 
-Parallel critical path is **~1.5 calendar days** if three Sonnet sessions take one item each. Sequential is ~5 days.
+Parallel critical path is **~3 calendar days** if four Sonnet sessions take one item each (Open-4 sets it). Sequential is ~8-9 days.
+
+**Recommended order if single-session:** Open-4 first (every other `sg aws` interaction benefits immediately), then Open-3 (quick win), then Open-2, then Open-1.
+
+---
+
+## Item Open-4 — Stop swallowing AWS exceptions + wire `--debug` at the top
+
+### The problem (the one that triggered this revision)
+
+Real session from the user, 2026-05-17:
+
+```
+$ sg aws iam policy put-inline my-role \
+    --name bedrock-access --file /tmp/pol.json --yes
+Failed to attach inline policy
+
+$ sg --debug aws iam policy put-inline my-role \
+    --name bedrock-access --file /tmp/pol.json --yes
+Error: No such option: --debug
+```
+
+Two compounding bugs hit at once:
+
+1. **`IAM__AWS__Client.put_inline_policy` swallows the underlying exception:**
+
+```python
+def put_inline_policy(self, role_name, policy_name, doc) -> bool:
+    try:
+        self.client().put_role_policy(...)
+        return True
+    except Exception:            # ← swallows ALL: AccessDenied, MalformedJSON, NoSuchEntity, ...
+        return False
+```
+
+The CLI verb does `if not ok: print("Failed")` and exits 1. The actual AWS error (`AccessDenied: User X is not authorized to perform iam:PutRolePolicy on Y`, or `MalformedPolicyDocument: ...`, or `NoSuchEntity: ...`) is thrown away.
+
+The CLI verb itself uses `@spec_cli_errors` which would catch and render the exception nicely — but the decorator only catches what *escapes* the function body. Since the client swallows and returns `False`, the decorator never sees it.
+
+2. **`--debug` doesn't exist at the top of the `sg` tree.** Sub-apps `firefox`, `neko`, and the Spec__CLI__Builder-built apps (docker, ollama, playwright, …) each have a `@app.callback()` with `--debug`. The top-level `sg` Typer app does not. The `aws` Typer subapp does not either. So `sg --debug aws ...` rightly errors with "No such option" — Typer parses options at the level where the callback is defined.
+
+### Scope (the swallow pattern is milestone-wide)
+
+```
+S3 client + Source__Adapter:            18 swallows in 2 files
+Bedrock {Agent,Control,Runtime,Tool,Model__Resolver}:  15 swallows in 5 files
+IAM client:                              9 swallows
+EC2 client + Pricing:                    9 swallows in 2 files
+Fargate client:                          8 swallows
+Lambda client + Deployer:                6 swallows in 2 files
+CloudTrail client:                       5 swallows
+ACM client:                              3 swallows
+Creds STS / Billing / Observe Tracer:    3 swallows in 3 files
+                                         ─────
+                                         76 swallows across 18 files in 11 surfaces
+```
+
+Every `try: ... except Exception: return False` (or `return None`, or `return []`) collapses different AWS errors to the same useless outcome. Every "Failed" / "0 models" / "not found" message across `sg aws *` may be hiding a real AWS error.
+
+### The fix — Part A: stop swallowing in the service layer
+
+Per-method pattern. For each `except Exception: return <falsy>` in `aws/*/service/*.py`:
+
+**Read paths** (`get_*`, `describe_*`, `list_*`) — let `botocore.exceptions.ClientError` propagate. Only catch `ClientError` and only for genuine "not found" codes if the contract is to return `None`:
+
+```python
+# Before
+def get_role(self, role_name: str) -> Optional[Schema__IAM__Role]:
+    try:
+        resp = self.client().get_role(RoleName=role_name)
+        return self._parse(resp)
+    except Exception:
+        return None
+
+# After
+def get_role(self, role_name: str) -> Optional[Schema__IAM__Role]:
+    try:
+        resp = self.client().get_role(RoleName=role_name)
+    except ClientError as exc:
+        code = exc.response.get('Error', {}).get('Code', '')
+        if code == 'NoSuchEntity':        # contract: not found returns None
+            return None
+        raise                              # everything else propagates
+    return self._parse(resp)
+```
+
+**Mutating paths** (`create_*`, `put_*`, `delete_*`, `attach_*`) — let `botocore.exceptions.ClientError` propagate UNCONDITIONALLY. The bool return becomes `None`:
+
+```python
+# Before
+def put_inline_policy(self, role_name, policy_name, doc) -> bool:
+    try:
+        self.client().put_role_policy(RoleName=role_name, PolicyName=policy_name, PolicyDocument=doc)
+        return True
+    except Exception:
+        return False
+
+# After
+def put_inline_policy(self, role_name: str, policy_name: str, doc: str) -> None:
+    self.client().put_role_policy(RoleName=role_name, PolicyName=policy_name, PolicyDocument=doc)
+    # ClientError propagates — @spec_cli_errors at the CLI verb level renders it
+```
+
+CLI verbs change correspondingly — drop `if not ok: ... raise Exit(1)`:
+
+```python
+# Before
+ok = _client().put_inline_policy(role, policy_name, doc)
+if ok:
+    console.print(f'[green]Attached[/green] {policy_name} → {role}')
+else:
+    console.print(f'[red]Failed[/red]')
+    raise typer.Exit(1)
+
+# After
+_client().put_inline_policy(role, policy_name, doc)   # raises on failure; spec_cli_errors renders it
+console.print(f'[green]Attached[/green] {policy_name} → {role}')
+```
+
+Because every CLI verb already has `@spec_cli_errors`, the user sees:
+
+```
+$ sg aws iam policy put-inline my-role --name bedrock-access --file /tmp/pol.json --yes
+  ✗  AccessDeniedException: User: arn:aws:iam::123:user/x is not authorized
+     to perform iam:PutRolePolicy on resource arn:aws:iam::123:role/my-role
+     › Re-run with --debug to see the full traceback.
+```
+
+Or with the JSON variant:
+
+```
+$ sg aws iam policy put-inline my-role --name bedrock-access --file /tmp/bad.json --yes
+  ✗  MalformedPolicyDocument: Syntax errors in policy.
+     › Re-run with --debug to see the full traceback.
+```
+
+### The fix — Part B: wire `--debug` at the top of the `sg` tree
+
+Two callbacks, ~15 minutes:
+
+**1. Top-level `sg`** — `sg_compute/cli/Cli__SG.py`:
+
+```python
+@app.callback()
+def _root(debug: bool = typer.Option(False, '--debug', '-D',
+                                     help='Show full Python traceback on errors.')):
+    from sg_compute.cli.base.Spec__CLI__Errors import set_debug
+    set_debug(debug)
+```
+
+**2. `sg aws` subapp** — `sgraph_ai_service_playwright__cli/aws/cli/Cli__Aws.py`:
+
+```python
+@app.callback()
+def _root(debug: bool = typer.Option(False, '--debug', '-D',
+                                     help='Show full Python traceback on errors.')):
+    from sg_compute.cli.base.Spec__CLI__Errors import set_debug
+    set_debug(debug)
+```
+
+Both call the existing `set_debug()` setter on the existing `_DEBUG` module-level flag in `sg_compute/cli/base/Spec__CLI__Errors.py`. The `@spec_cli_errors` decorator already reads that flag and renders the traceback when set:
+
+```python
+# Existing infrastructure — already in place, just unused at the top level
+if _DEBUG:
+    c.print('\n[dim]── traceback ────────────────────────────────────[/]')
+    c.print(traceback.format_exc(), end='')
+else:
+    c.print('     [dim]› Re-run with --debug to see the full traceback.[/]')
+```
+
+Result:
+
+```
+$ sg --debug aws iam policy put-inline my-role --name bedrock-access --file /tmp/pol.json --yes
+  ✗  AccessDeniedException: User: arn:aws:iam::123:user/x is not authorized to perform iam:PutRolePolicy
+  ── traceback ────────────────────────────────────
+  Traceback (most recent call last):
+    File ".../IAM__AWS__Client.py", line N, in put_inline_policy
+      self.client().put_role_policy(...)
+    File ".../botocore/client.py", line N, in _make_api_call
+      raise error_class(...)
+  botocore.exceptions.ClientError: An error occurred (AccessDeniedException) ...
+
+$ sg aws --debug iam policy put-inline ...    # also works (subapp-level)
+```
+
+### Scope (one PR — touches many files but the change is mechanical)
+
+**Service files to sweep** (~76 method bodies):
+
+```
+sgraph_ai_service_playwright__cli/aws/acm/service/ACM__AWS__Client.py                       3 swallows
+sgraph_ai_service_playwright__cli/aws/bedrock/service/Bedrock__Agent__AWS__Client.py        4 swallows
+sgraph_ai_service_playwright__cli/aws/bedrock/service/Bedrock__Control__AWS__Client.py      1 swallow
+sgraph_ai_service_playwright__cli/aws/bedrock/service/Bedrock__Model__Resolver.py           1 swallow
+sgraph_ai_service_playwright__cli/aws/bedrock/service/Bedrock__Runtime__AWS__Client.py      1 swallow
+sgraph_ai_service_playwright__cli/aws/bedrock/service/Bedrock__Tool__AWS__Client.py         8 swallows
+sgraph_ai_service_playwright__cli/aws/billing/service/Cost_Explorer__AWS__Client.py         1 swallow
+sgraph_ai_service_playwright__cli/aws/cloudtrail/service/CloudTrail__AWS__Client.py         5 swallows
+sgraph_ai_service_playwright__cli/aws/creds/service/Creds__STS__Client.py                   1 swallow
+sgraph_ai_service_playwright__cli/aws/ec2/service/EC2__AWS__Client.py                       8 swallows
+sgraph_ai_service_playwright__cli/aws/ec2/service/EC2__Pricing__Client.py                   1 swallow
+sgraph_ai_service_playwright__cli/aws/fargate/service/Fargate__AWS__Client.py               8 swallows
+sgraph_ai_service_playwright__cli/aws/iam/service/IAM__AWS__Client.py                       9 swallows
+sgraph_ai_service_playwright__cli/aws/lambda_/service/Lambda__AWS__Client.py                5 swallows
+sgraph_ai_service_playwright__cli/aws/lambda_/service/Lambda__Deployer.py                   1 swallow
+sgraph_ai_service_playwright__cli/aws/observe/service/Observe__Agent__Tracer.py             1 swallow
+sgraph_ai_service_playwright__cli/aws/s3/service/S3__AWS__Client.py                        15 swallows
+sgraph_ai_service_playwright__cli/aws/s3/service/S3__Source__Adapter.py                     3 swallows
+                                                                                            ───
+                                                                                            76
+```
+
+**CLI files to sweep** (drop `if not ok: ... raise Exit(1)` for every mutating verb that called a now-raising method):
+
+```
+sgraph_ai_service_playwright__cli/aws/{iam,acm,bedrock,ec2,fargate,lambda_,s3,creds}/cli/Cli__*.py
+sgraph_ai_service_playwright__cli/aws/iam/graph/cli/Cli__Iam__Graph.py
+```
+
+Every CLI verb that consumes one of these methods. Some already use `@spec_cli_errors` (most of `iam/`, all of `iam/graph/`); some don't. Add the decorator to verbs that lack it.
+
+**Callback wiring** (2 files):
+
+```
+sg_compute/cli/Cli__SG.py                                       — add @app.callback() with --debug
+sgraph_ai_service_playwright__cli/aws/cli/Cli__Aws.py           — add @app.callback() with --debug
+```
+
+### Tests
+
+Mechanical: tests that previously asserted `ok = client.create_X(...); assert ok is False` now need to assert the exception is raised. Most CLI tests using `runner.invoke` already pick up the new exception via `result.exit_code == 2` (from `spec_cli_errors`) and `result.output` containing the error message.
+
+Add at least one new test per surface that the diagnostic actually surfaces:
+
+```python
+def test_put_inline_policy_surfaces_aws_error(in_memory_iam):
+    in_memory_iam.fail_next_call(code='AccessDeniedException',
+                                  message='User X is not authorized to perform iam:PutRolePolicy')
+    result = runner.invoke(app, ['policy', 'put-inline', 'my-role',
+                                  '--name', 'foo', '--file', tmp_policy, '--yes'])
+    assert result.exit_code == 2
+    assert 'AccessDeniedException' in result.output
+    assert 'iam:PutRolePolicy'      in result.output
+```
+
+(The In_Memory fakes need a `fail_next_call(code, message)` helper — small addition.)
+
+### Acceptance
+
+```bash
+# Part A — exceptions surface, not "Failed"
+sg aws iam policy put-inline non-existent-role --name foo --file /tmp/pol.json --yes
+# → ✗ NoSuchEntity: Role non-existent-role not found
+#   › Re-run with --debug to see the full traceback.
+
+sg aws bedrock chat list-models
+# → if no perm: ✗ AccessDeniedException: ...
+# → if no models: 0 models (legitimate) — distinguishable from the above
+
+# Part B — --debug works at top + at aws
+sg --debug aws iam policy put-inline non-existent-role --name foo --file /tmp/pol.json --yes
+# → adds traceback after the error line
+
+sg aws --debug iam policy put-inline non-existent-role --name foo --file /tmp/pol.json --yes
+# → same effect, scoped to aws subtree
+
+sg --help | grep -- '--debug'
+# → "  --debug, -D     Show full Python traceback on errors."
+
+# No regressions
+pytest tests/unit/sgraph_ai_service_playwright__cli/aws/ -q
+# → ≥689 tests pass (mutating-verb tests update; the count grows slightly with the new error-surface tests)
+
+# Sanity: zero remaining `except Exception:` swallows in service layer
+grep -rn "except Exception:" sgraph_ai_service_playwright__cli/aws/*/service/*.py | grep -v "/test_" | wc -l
+# → 0 (or a handful of documented exceptions — e.g. Observe__Agent__Tracer where the contract is "best-effort across multiple sources")
+```
+
+### Estimated effort
+
+| Sub-task | LOC | Hours |
+|----------|----:|------:|
+| Part A (swallow sweep): IAM (9 swallows) | ~30 | 1 |
+| Part A: S3 + S3 Source Adapter (18 swallows) | ~60 | 1.5 |
+| Part A: Bedrock 5 files (15 swallows) | ~50 | 1.5 |
+| Part A: EC2 + Pricing (9 swallows) | ~30 | 1 |
+| Part A: Fargate (8 swallows) | ~25 | 1 |
+| Part A: Lambda + Deployer (6 swallows) | ~20 | 0.5 |
+| Part A: CloudTrail (5 swallows) | ~15 | 0.5 |
+| Part A: ACM + Billing + Creds + Observe (6 swallows) | ~20 | 1 |
+| Part A: CLI verb cleanups (drop `if not ok` across ~30 verbs) | ~60 | 2 |
+| Part A: Per-surface "error surfaces correctly" tests (1 per surface, ~10 surfaces) | ~80 test LOC | 1.5 |
+| Part B: 2 callbacks | ~20 | 0.25 |
+| **Total** | ~390 prod + ~80 test | **~12 hours = 1.5-2 days** |
+
+Earlier "3-4 days" estimate was conservative; the change is mechanical once the pattern is clear. Could be one big PR (one surface = one commit inside it) or one PR per surface.
+
+### Order within Open-4
+
+Best done as **one PR per surface in priority order**, so the highest-traffic surfaces get the fix first:
+
+1. **IAM** (the surface that triggered this brief; user-impacting today) — start here
+2. **EC2** + **S3** + **Bedrock** (high traffic; most likely to surface errors)
+3. **Fargate** + **Lambda** + **CloudTrail** + **Creds** (everything else)
+4. **Callback wiring** (Part B) — last, so it picks up everything
+
+If a single Sonnet session takes this: start with IAM, ship Part B early (it's 15 minutes and pays back immediately on every other commit), then sweep the rest.
 
 ---
 
@@ -348,13 +657,16 @@ sg aws bedrock check
 
 ## Sequencing
 
-**All three items are independent.** Three Sonnet sessions can pick one each and fire in parallel.
+**All four items are independent.** Four Sonnet sessions can pick one each and fire in parallel.
 
 If only one session is available, the recommended order:
 
-1. **Open-3 first** (30 minutes) — quick win; affects diagnostic output (Bedrock check), so worth getting right early.
-2. **Open-2 next** (~3 days) — payback is large (M-3 + M-5 from prior reviews) and unlocks proper typed iteration in CLI verbs.
-3. **Open-1 last** (~5 days) — biggest scope; each slice can be a separate PR. Don't bundle them.
+1. **Open-4 first** (~1.5-2 days) — highest user-visible payback. Every `sg aws *` error message becomes diagnostic. Until this lands, every other `sg aws` failure (Open-1/2/3 acceptance commands included) is debuggability-blind. Suggest doing **Part B (--debug callbacks) before Part A (swallow sweep)** because Part B is 15 minutes and benefits Part A's own debugging.
+2. **Open-3 next** (30 minutes) — quick win; affects diagnostic output (Bedrock check), so worth getting right early.
+3. **Open-2** (~3 days) — payback is large (M-3 + M-5 from prior reviews) and unlocks proper typed iteration in CLI verbs.
+4. **Open-1 last** (~5 days) — biggest scope; each slice can be a separate PR. Don't bundle them.
+
+**Crucially: Open-4 makes the other three items easier to ship safely.** When Open-1's tests start failing in unexpected ways, you want a useful error message instead of "Failed". Same for Open-2's schema changes that may surface AWS-side issues you couldn't see before.
 
 ---
 
@@ -382,31 +694,33 @@ Per item:
 ```
 fix(v0.2.30): Open-<N> — <one-line summary>
 
-Closes Open-<N> from the v0.2.29 close-out architect review at
-team/roles/architect/reviews/05/17/v0.2.29__milestone-closeout__review.md
+Closes Open-<N> from the v0.2.30 hygiene pack at
+library/dev_packs/v0.2.30__sg-aws-hygiene/README.md
 
 <2-3 line body describing the specific scope>
 
 https://claude.ai/code/session_XXX
 ```
 
-Each item's PR targets `dev` directly (no integration branch needed — they're independent). Open-1 has 5 sub-PRs that can land in any order.
+Each item's PR targets `dev` directly (no integration branch needed — they're independent). Open-1 has 5 sub-PRs (one per slice). Open-4 should be **at minimum two PRs**: Part B (callbacks, ~15 min) first; Part A (swallow sweep) as one PR per surface so each can be reviewed independently.
 
 ---
 
 ## What this pack is + isn't
 
-**Is:** Three deferred-cleanup items from v0.2.29's close-out review. No new features. No new verbs. No new schemas (except the typed M-5 replacements in EC2). No new dependencies.
+**Is:** Four cleanup items — three deferred from v0.2.29's close-out review (Open-1/2/3), plus one user-discovered diagnostic blocker (Open-4). No new features. No new verbs (except the `--debug` flag wiring). No new schemas (except the typed M-5 replacements in EC2). No new dependencies.
 
-**Isn't:** Not a new milestone. Not a refactor of `aws/_shared/`. Not addressing the larger v0.2.30 deferrals (container hosts, instance sizing, Bedrock extensions, IAM graph Phase 4) — those are separate packs.
+**Isn't:** Not a new milestone. Not a refactor of `aws/_shared/`. Not addressing the larger v0.2.30 deferrals (container hosts, instance sizing, Bedrock extensions, IAM graph Phase 4) — those are separate packs (see Out of Scope above).
 
 ---
 
 ## Pointer back
 
 - Parent review (Open-1/2/3 originate here): [`team/roles/architect/reviews/05/17/v0.2.29__milestone-closeout__review.md`](../../../team/roles/architect/reviews/05/17/v0.2.29__milestone-closeout__review.md)
-- Original Slice B review (M-3 + M-5): [`team/roles/architect/reviews/05/17/v0.2.29__slice-b-ec2__review.md`](../../../team/roles/architect/reviews/05/17/v0.2.29__slice-b-ec2__review.md)
+- Original Slice B review (M-1 silent-exception pattern; M-3 + M-5): [`team/roles/architect/reviews/05/17/v0.2.29__slice-b-ec2__review.md`](../../../team/roles/architect/reviews/05/17/v0.2.29__slice-b-ec2__review.md)
 - v0.2.29 debrief: [`team/claude/debriefs/2026-05-17__v0.2.29-sg-aws-primitives-expansion.md`](../../../team/claude/debriefs/2026-05-17__v0.2.29-sg-aws-primitives-expansion.md)
-- Canonical In-memory pattern reference: `tests/unit/sgraph_ai_service_playwright__cli/aws/s3/service/S3__AWS__Client__In_Memory.py`
-- Canonical typed-schema reference (Bedrock — 0 raw-str): `sgraph_ai_service_playwright__cli/aws/bedrock/schemas/`
+- Canonical In-memory pattern reference (Open-1): `tests/unit/sgraph_ai_service_playwright__cli/aws/s3/service/S3__AWS__Client__In_Memory.py`
+- Canonical typed-schema reference (Open-2; Bedrock — 0 raw-str): `sgraph_ai_service_playwright__cli/aws/bedrock/schemas/`
+- Existing `--debug` callback pattern to copy for Open-4 Part B: `sg_compute/cli/base/Spec__CLI__Builder.py` (`_root` callback) + `sgraph_ai_service_playwright__cli/firefox/cli/__init__.py` (`_firefox_root`)
+- Existing `@spec_cli_errors` decorator that Open-4 Part B turns on globally: `sg_compute/cli/base/Spec__CLI__Errors.py`
 - Foundation helpers used: `aws/_shared/Aws__Region__Resolver.py` (Open-3), `aws/_shared/Aws__Confirm.py` (already done in v0.2.29)
