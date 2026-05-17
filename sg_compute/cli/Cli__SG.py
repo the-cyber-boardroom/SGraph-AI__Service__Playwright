@@ -30,6 +30,10 @@ app.add_typer(_aws_app, name='aws',          help='AWS resource management (DNS,
 from scripts.catalog import app as _catalog_app
 app.add_typer(_catalog_app, name='catalog',  help='List stack types or live stacks across all specs.')
 
+# ── credentials (v0.2.25) ────────────────────────────────────────────────────
+from sgraph_ai_service_playwright__cli.credentials.cli.Cli__Credentials import app as _credentials_app
+app.add_typer(_credentials_app, name='credentials', help='Manage AWS credentials and roles (Keychain-backed).')
+
 # ── docker ───────────────────────────────────────────────────────────────────
 from scripts.docker_stack import app as _docker_app
 app.add_typer(_docker_app, name='docker',    help='Ephemeral Docker EC2 stacks (AL2023 + Docker CE).')
@@ -78,6 +82,10 @@ from scripts.opensearch import app as _opensearch_app
 app.add_typer(_opensearch_app, name='opensearch', help='Ephemeral OpenSearch + Dashboards EC2 stacks.')
 app.add_typer(_opensearch_app, name='os',         hidden=True)
 
+# ── osx (v0.2.25) ────────────────────────────────────────────────────────────
+from sgraph_ai_service_playwright__cli.osx.cli.Cli__OSX import app as _osx_app
+app.add_typer(_osx_app, name='osx', help='macOS-specific helpers (Keychain, etc.).')
+
 # ── playwright (sg_compute_specs/playwright) ─────────────────────────────────
 from sg_compute_specs.playwright.cli.Cli__Playwright import app as _playwright_app
 app.add_typer(_playwright_app, name='playwright', help='Ephemeral Playwright EC2 stacks.')
@@ -114,7 +122,6 @@ app.add_typer(_observability_app, name='ob',            hidden=True)
 
 
 # ── repl ─────────────────────────────────────────────────────────────────────
-import typer as _typer
 
 @app.command()
 def repl():

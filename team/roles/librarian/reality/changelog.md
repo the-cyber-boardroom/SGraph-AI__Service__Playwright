@@ -116,6 +116,18 @@ This is a pointer log, not a content log. For full delta detail, see the master 
 
 ---
 
+## 2026-05-17 (v0.2.25 Phases A–E — credentials multi-role keyring)
+
+- `sg-compute/index.md` — UPDATED: `Keyring__Mac__OS`, `Credentials__Store`, `Audit__Log`, `Sg__Aws__Context`, `Sg__Aws__Session`, `Cli__Credentials`, `Cli__OSX__Keyring`, `Cli__SG__Repl` (now exposes `Cli__SG__Repl` Type_Safe class with `as <role>` pseudo-command) all exist. Phases A–E shipped (keyring backend, standard CLI commands, low-level `sg osx keyring`, REPL `as` + context, STS AssumeRole + cache). 57 new tests; 185 total (no regressions). Phases C/F/G (edit mode, AWS-client migration, transparency banner + correlatable session names + backup/restore) DEFERRED to a v0.2.28 follow-up brief.
+
+---
+
+## 2026-05-17 (v0.2.26 — sg aws lambda extension)
+
+- `sg-compute/index.md` — UPDATED: new `aws/logs/` package (`Logs__AWS__Client`, `Logs__Time__Parser`, `Logs__Insights__Queries`); extended `Lambda__AWS__Client` with `get_function_details`, `invoke`, `list_versions`, `list_aliases`, `list_tags`, `tag_resource`, `untag_resource`, `update_function_configuration`; new services `Lambda__Name__Resolver` (5-tier fuzzy + 5-min cache) and `Lambda__Invocations__Reporter`; new two-level Click hierarchy `Lambda__App__Group` / `Lambda__Function__Group` exposing 12 verbs (`info`, `details`, `config`, `logs`, `invocations`, `invoke`, `deploy`, `delete`, `url`, `tags`, `versions`, `aliases`) + `list`. REPL-navigable: function names appear in `Lambda__App__Group.list_commands()`. Legacy `sg aws lambda deployment {deploy,delete,list}` and `sg aws lambda url {create,show,delete} <name>` kept as deprecation shims (hidden, one-release window). 249 new tests; 265 AWS-CLI total; all 16 pre-existing Lambda tests still pass.
+
+---
+
 ## 2026-05-02 (B3.0)
 
 - `sg-compute/index.md` — UPDATED: B3.0 docker spec added; `sg_compute_specs/docker/` fully documented; Spec__Loader now returns 3 specs; 183 tests passing.

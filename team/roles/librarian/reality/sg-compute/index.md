@@ -501,6 +501,70 @@ Test helpers: `tests/unit/.../Lambda__AWS__Client__In_Memory.py` + `Lambda__Depl
 
 ---
 
+### sg_compute/cli/ — EXISTS (v0.2.25)
+
+| Class / File | Path | Description |
+|--------------|------|-------------|
+| `Cli__SG` | `cli/Cli__SG.py` | Top-level `sg` Typer app; mounts `credentials` + `osx` subapps |
+| `Cli__SG__Repl` | `cli/Cli__SG__Repl.py` | Interactive REPL; `as <role>` pseudo-command; `Ctrl-C` clears role |
+
+### sgraph_ai_service_playwright__cli/credentials/ — EXISTS (v0.2.25)
+
+| Class | Path | Description |
+|-------|------|-------------|
+| `Enum__Credential__Kind` | `credentials/enums/Enum__Credential__Kind.py` | ROLE/AWS/VAULT/SECRET/ROUTES |
+| `Enum__Audit__Action` | `credentials/enums/Enum__Audit__Action.py` | ADD/REMOVE/SWITCH/EDIT/EXPORT/ASSUME/LIST/SHOW/STATUS |
+| `Safe_Str__Role__Name` | `credentials/primitives/` | lowercase alphanum + hyphens, max 64 |
+| `Safe_Str__AWS__Region` | `credentials/primitives/` | e.g. `us-east-1` |
+| `Safe_Str__AWS__Access__Key` | `credentials/primitives/` | repr=`****` |
+| `Safe_Str__AWS__Secret__Key` | `credentials/primitives/` | repr=`****` |
+| `Safe_Str__AWS__Role__ARN` | `credentials/primitives/` | ARN format, mixed case |
+| `Safe_Str__Audit__Detail` | `credentials/primitives/` | printable ASCII, max 512 |
+| `Schema__AWS__Role__Config` | `credentials/schemas/` | name + region + assume_role_arn + session_name |
+| `Schema__AWS__Credentials` | `credentials/schemas/` | role_name + access_key + secret_key |
+| `Schema__Audit__Event` | `credentials/schemas/` | timestamp + action + role + detail |
+| `Credentials__Store` | `credentials/service/` | high-level keyring ops; maps roles↔keyring service names |
+| `Audit__Log` | `credentials/service/` | append-only JSONL at `~/.sg/audit.jsonl` |
+| `Sg__Aws__Context` | `credentials/service/` | session-level active role; `set_role()` / `clear_role()` |
+| `Sg__Aws__Session` | `credentials/service/` | vends `boto3.Session` for a role; STS AssumeRole if ARN set |
+| `Cli__Credentials` | `credentials/cli/` | `sg credentials.*` Typer subapp (list/add/remove/switch/show/status/log/trace/export) |
+
+### sgraph_ai_service_playwright__cli/osx/ — EXISTS (v0.2.25)
+
+| Class | Path | Description |
+|-------|------|-------------|
+| `Enum__Keyring__Service` | `osx/keyring/enums/` | sg.config.role / sg.config.routes / sg.aws / sg.vault / sg.secret |
+| `Safe_Str__Keyring__Account` | `osx/keyring/primitives/` | lowercase alphanum + hyphens/dots/underscores |
+| `Safe_Str__Keyring__Service_Name` | `osx/keyring/primitives/` | same character set |
+| `Safe_Str__Secret__Value` | `osx/keyring/primitives/` | repr=`****` |
+| `Schema__Keyring__Entry` | `osx/keyring/schemas/` | service_name + account |
+| `Keyring__Mac__OS` | `osx/keyring/service/` | `/usr/bin/security` wrapper; override `_run_security()` in tests |
+| `Cli__OSX__Keyring` | `osx/keyring/cli/` | `sg osx keyring.*` (get/set/delete/list/search) |
+| `Cli__OSX` | `osx/cli/` | `sg osx` root app |
+
+### Keyring service namespacing — EXISTS (v0.2.25)
+
+| Namespace | Format | Stores |
+|-----------|--------|--------|
+| `sg.config.role.<name>` | account=`config` | JSON role config blob |
+| `sg.config.routes` | account=`routes` | JSON route list |
+| `sg.aws.<role>` | account=`access_key` / `secret_key` | AWS credentials pair |
+| `sg.vault.<name>` | account=`<name>` | vault key |
+| `sg.secret.<ns>.<name>` | account=`<name>` | arbitrary secret |
+
+### Audit log — EXISTS (v0.2.25)
+
+JSONL file at `~/.sg/audit.jsonl`. One event per line: `{timestamp, action, role, detail}`. Secrets never written. Read via `Audit__Log.read_all()` / `.tail(n)`.
+
+### Entry points (v0.2.25)
+
+| Script | Module | Description |
+|--------|--------|-------------|
+| `sg` | `sg_compute.cli.Cli__SG:app` | top-level sg CLI |
+| `sg-repl` | `sg_compute.cli.Cli__SG__Repl:run_repl` | interactive REPL |
+
+---
+
 ## PROPOSED — does not exist yet
 
 - `Section__Sidecar` user-data composable (BV2.2)
@@ -509,6 +573,12 @@ Test helpers: `tests/unit/.../Lambda__AWS__Client__In_Memory.py` + `Lambda__Depl
 - Remaining legacy specs migrated to `sg_compute_specs/` (phases 3.1–3.8): linux, podman, vnc, neko, prometheus, opensearch, elastic, firefox
 - Vault-sourced sidecar API key (follow-on to BV2.9; persistence stubbed)
 - Real vault I/O (v0.3 follow-on — `Vault__Spec__Writer` now uses in-memory dict with `vault_attached=True`; persistent vault wiring deferred)
+- **v0.2.25 Phase C — edit mode UX** (`.toml.sg-edit` temp file → `$EDITOR` → diff → confirm → apply → shred); see `team/comms/plans/v0.2.28__sg-credentials-deferred-work.md`
+- **v0.2.25 Phase F — migrate existing `client()` callers** to `Sg__Aws__Session.boto3_client()` (IAM, ACM, CF, Lambda, EC2, Route53, Elastic, …)
+- **v0.2.25 Phase G — backup/restore** (`sg credentials backup` / `restore`, age-encrypted)
+- **v0.2.25 §3.8 transparency** — identity banner on startup, correlatable STS session names (`sg-<role>-<ts>-<uuid>`), JSONL audit log with `identity_arn`/`session_id`/`resolved_via`/`command_args` (allowlist-redacted)/`session_expiry`/`duration_ms`; `sg credentials trace` as dry-run resolver (currently stubbed as audit-log grep)
+- **v0.2.25 missing CLI commands:** `init`, `test`, `whoami`, `route`, `wipe`, `backup`, `restore`
+- **v0.2.27 REPL substring fall-back** — `_match()` falls back to substring when prefix has zero hits
 
 ---
 
