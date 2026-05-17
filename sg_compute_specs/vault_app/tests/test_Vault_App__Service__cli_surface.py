@@ -183,3 +183,29 @@ class TestVaultAppServiceCliSurface:
                                    ecr_registry=REGISTRY, access_token='tok')
         assert 'cert-init'           not in user_data
         assert 'SG__CERT_INIT__MODE' not in user_data
+
+    def test_user_data_default_shutdown_behavior_uses_halt(self):
+        builder   = Vault_App__User_Data__Builder()
+        user_data = builder.render(stack_name='test-stack', region='eu-west-2',
+                                   ecr_registry=REGISTRY, access_token='tok', max_hours=1)
+        assert '/sbin/shutdown -h now' in user_data
+        assert 'aws ec2 stop-instances' not in user_data
+
+    def test_user_data_stop_shutdown_behavior_uses_imdsv2_stop(self):
+        builder   = Vault_App__User_Data__Builder()
+        user_data = builder.render(stack_name='test-stack', region='eu-west-2',
+                                   ecr_registry=REGISTRY, access_token='tok', max_hours=1,
+                                   shutdown_behavior='stop')
+        assert 'aws ec2 stop-instances' in user_data
+        assert '/sbin/shutdown -h now'  not in user_data
+        assert 'X-aws-ec2-metadata-token' in user_data  # IMDSv2 token fetch
+
+    def test_user_data_stop_timer_still_before_dnf(self):
+        builder   = Vault_App__User_Data__Builder()
+        user_data = builder.render(stack_name='test-stack', region='eu-west-2',
+                                   ecr_registry=REGISTRY, access_token='tok', max_hours=1,
+                                   shutdown_behavior='stop')
+        lines   = user_data.splitlines()
+        timer_i = next(i for i, l in enumerate(lines) if 'systemd-run' in l)
+        dnf_i   = next(i for i, l in enumerate(lines) if l.strip().startswith('dnf install'))
+        assert timer_i < dnf_i, 'auto-stop timer must appear before any dnf install (L9)'

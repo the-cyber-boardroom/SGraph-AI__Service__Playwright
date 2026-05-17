@@ -152,6 +152,7 @@ IAM__PROMETHEUS_RW_POLICY_ARN  = 'arn:aws:iam::aws:policy/AmazonPrometheusRemote
 IAM__OBSERVABILITY_POLICY_ARNS = (IAM__PROMETHEUS_RW_POLICY_ARN,)                   # OpenSearch write access is domain-specific — added via resource policy. Phase C will move/strip this once observability moves to its own section.
 IAM__ASSUME_ROLE_SERVICE       = 'ec2.amazonaws.com'
 IAM__PASSROLE_POLICY_NAME      = 'sg-playwright-passrole-ec2'
+IAM__STOP_INSTANCES_POLICY_NAME = 'sg-playwright-stop-vault-app'  # inline policy granting ec2:StopInstances on vault-app-tagged instances only
 
 
 def decode_aws_auth_error(exc: Exception) -> str:                                   # Decodes the AWS-encoded "authorization failure" blob via sts:DecodeAuthorizationMessage
@@ -204,6 +205,26 @@ def ensure_caller_passrole(account: str) -> dict:                               
             'detail': f'Attached inline policy {IAM__PASSROLE_POLICY_NAME!r} to {username} (PassRole → {role_arn}, EC2 only).'}
 
 
+def ensure_stop_instances_policy() -> dict:                                         # Idempotent inline policy: allow ec2:StopInstances on vault-app-tagged instances only
+    import boto3
+    policy_doc = json.dumps({
+        'Version'  : '2012-10-17',
+        'Statement': [{'Sid'      : 'StopVaultAppInstances'                ,
+                       'Effect'   : 'Allow'                                ,
+                       'Action'   : 'ec2:StopInstances'                    ,
+                       'Resource' : 'arn:aws:ec2:*:*:instance/*'           ,
+                       'Condition': {'StringEquals': {'aws:ResourceTag/StackType': 'vault-app'}}}],
+    })
+    iam = boto3.client('iam')
+    existing = iam.list_role_policies(RoleName=IAM__ROLE_NAME).get('PolicyNames', [])
+    if IAM__STOP_INSTANCES_POLICY_NAME in existing:
+        return {'ok': True, 'action': 'already_exists'}
+    iam.put_role_policy(RoleName     = IAM__ROLE_NAME                   ,
+                        PolicyName   = IAM__STOP_INSTANCES_POLICY_NAME  ,
+                        PolicyDocument = policy_doc                      )
+    return {'ok': True, 'action': 'created'}
+
+
 def ensure_instance_profile() -> str:                                               # Idempotent: ensure role + instance profile + SSM/ECR policy attachments exist
     role = IAM_Role(role_name=IAM__ROLE_NAME)
     if role.not_exists():
@@ -222,6 +243,7 @@ def ensure_instance_profile() -> str:                                           
         pass
     for policy_arn in (*IAM__POLICY_ARNS, *IAM__OBSERVABILITY_POLICY_ARNS):
         role.iam.role_policy_attach(policy_arn)
+    ensure_stop_instances_policy()
     return IAM__ROLE_NAME
 
 

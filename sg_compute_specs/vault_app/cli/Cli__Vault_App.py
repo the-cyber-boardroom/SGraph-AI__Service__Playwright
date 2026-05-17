@@ -728,3 +728,63 @@ def recreate(name  : Optional[str] = typer.Argument(None, help='Stack name; auto
     fresh = svc.get_stack_info(region, new_name)
     if fresh is not None:
         _render_vault_app_info(fresh, c)
+
+
+@app.command(name='stop', help='''Stop a running vault-app stack.
+
+\b
+Stops the EC2 instance (preserving EBS volumes) and deletes the per-slug
+DNS A record so requests are not routed to a stopped node.
+Use `sg vault-app start` to restart and re-create the DNS record.
+''')
+@spec_cli_errors
+def stop_stack(name  : Optional[str] = typer.Argument(None, help='Stack name; auto-selected when only one exists.'),
+               region: str           = typer.Option(DEFAULT_REGION, '--region', '-r'),
+               wait  : bool          = typer.Option(False, '--wait', '-w', help='Wait until the instance reports stopped state.')):
+    c    = Console(highlight=False)
+    svc  = Vault_App__Service().setup()
+    name = Spec__CLI__Builder(_cli_spec).resolver.resolve(svc, name, region, 'vault-app')
+    c.print(f'\n  [yellow]→[/]  Stopping [bold]{name}[/]…')
+    result = svc.stop_stack(region, name)
+    if not getattr(result, 'stopped', False):
+        msg = str(getattr(result, 'message', 'stop failed'))
+        c.print(f'  [red]✗  {msg}[/]')
+        raise typer.Exit(1)
+    dns_note = '  DNS A record deleted.' if getattr(result, 'dns_deleted', False) else ''
+    if wait:
+        from sg_compute.platforms.ec2.helpers.EC2__Instance__Helper import EC2__Instance__Helper
+        info = svc.get_stack_info(region, name)
+        iid  = str(getattr(info, 'instance_id', '') or '')
+        if iid:
+            c.print('  [dim]Waiting for stopped state…[/]')
+            EC2__Instance__Helper().wait_for_stopped(region, iid)
+    c.print(f'  [green]✓[/]  [bold]{name}[/] stopped.{dns_note}')
+    c.print()
+
+
+@app.command(name='start', help='''Start a stopped vault-app stack.
+
+\b
+Starts the EC2 instance and, if the stack has a registered FQDN,
+re-creates the DNS A record pointing at the new public IP.
+''')
+@spec_cli_errors
+def start_stack(name  : Optional[str] = typer.Argument(None, help='Stack name; auto-selected when only one exists.'),
+                region: str           = typer.Option(DEFAULT_REGION, '--region', '-r'),
+                wait  : bool          = typer.Option(False, '--wait', '-w', help='Wait for running state and re-upsert DNS.')):
+    c    = Console(highlight=False)
+    svc  = Vault_App__Service().setup()
+    name = Spec__CLI__Builder(_cli_spec).resolver.resolve(svc, name, region, 'vault-app')
+    c.print(f'\n  [yellow]→[/]  Starting [bold]{name}[/]…')
+    result = svc.start_stack(region, name, wait_running=wait)
+    if not getattr(result, 'started', False):
+        msg = str(getattr(result, 'message', 'start failed'))
+        c.print(f'  [red]✗  {msg}[/]')
+        raise typer.Exit(1)
+    parts = [f'  [green]✓[/]  [bold]{name}[/] started.']
+    if getattr(result, 'public_ip', ''):
+        parts.append(f'  IP: {result.public_ip}')
+    if getattr(result, 'dns_upserted', False):
+        parts.append(f'  DNS A → {result.public_ip}  ({result.fqdn})')
+    c.print('\n'.join(parts))
+    c.print()

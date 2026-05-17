@@ -12,10 +12,25 @@ LOG_FILE = '/var/log/ephemeral-ec2-boot.log'
 # it before any failable work (L9: auto-terminate timer must precede all
 # failable work — if dnf install aborts the script, the timer still fires).
 _TIMER_BLOCK = '''\
-# ── Auto-terminate after {max_hours}h ({seconds}s) — set BEFORE any failable work ──
-systemd-run --on-active={seconds}s /sbin/shutdown -h now
-echo "[ephemeral-ec2] auto-terminate timer set: {max_hours}h ({seconds}s) from now"
+# ── Auto-{action} after {max_hours}h ({seconds}s) — set BEFORE any failable work ──
+systemd-run --on-active={seconds}s {shutdown_cmd}
+echo "[ephemeral-ec2] auto-{action} timer set: {max_hours}h ({seconds}s) from now"
 '''
+
+# When InstanceInitiatedShutdownBehavior='stop' (vault-publish stacks), the
+# timer calls aws ec2 stop-instances via IMDSv2 instead of halting the OS.
+# IMDSv2 token first (required on all new AL2023 instances), then stop.
+_STOP_CMD = (
+    'bash -c \''
+    'TOKEN=$(curl -s -X PUT http://169.254.169.254/latest/api/token '
+    '-H "X-aws-ec2-metadata-token-ttl-seconds: 21600") && '
+    'IID=$(curl -s -H "X-aws-ec2-metadata-token: $TOKEN" '
+    'http://169.254.169.254/latest/meta-data/instance-id) && '
+    'REGION=$(curl -s -H "X-aws-ec2-metadata-token: $TOKEN" '
+    'http://169.254.169.254/latest/meta-data/placement/region) && '
+    'aws ec2 stop-instances --instance-ids "$IID" --region "$REGION"\''
+)
+_HALT_CMD = '/sbin/shutdown -h now'
 
 TEMPLATE = '''\
 #!/usr/bin/env bash
@@ -53,10 +68,16 @@ echo "[ephemeral-ec2] ssm-user ensured (uid=$(id -u ssm-user)); NOPASSWD sudo gr
 
 class Section__Base(Type_Safe):
 
-    def render(self, stack_name: str, max_hours: float = 0.0) -> str:
+    def render(self, stack_name: str, max_hours: float = 0.0,
+               shutdown_behavior: str = 'terminate') -> str:
         if max_hours > 0:
-            seconds     = max(1, int(round(max_hours * 3600)))
-            timer_block = _TIMER_BLOCK.format(max_hours=max_hours, seconds=seconds)
+            seconds      = max(1, int(round(max_hours * 3600)))
+            shutdown_cmd = _STOP_CMD if shutdown_behavior == 'stop' else _HALT_CMD
+            action       = 'stop' if shutdown_behavior == 'stop' else 'terminate'
+            timer_block  = _TIMER_BLOCK.format(max_hours    = max_hours   ,
+                                               seconds      = seconds     ,
+                                               shutdown_cmd = shutdown_cmd ,
+                                               action       = action      )
         else:
             timer_block = ''
         return TEMPLATE.format(stack_name=stack_name, log_file=LOG_FILE,

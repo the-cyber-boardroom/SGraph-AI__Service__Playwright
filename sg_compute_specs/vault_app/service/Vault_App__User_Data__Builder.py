@@ -84,20 +84,21 @@ echo "[vault-app] stack started ({mode}, engine={engine})"
 
 class Vault_App__User_Data__Builder(Type_Safe):
 
-    def render(self, stack_name       : str   ,
-                     region           : str   ,
-                     ecr_registry     : str   ,
-                     access_token     : str   ,
-                     with_playwright  : bool  = False        ,
-                     container_engine : str   = 'docker'     ,
-                     image_tag        : str   = 'latest'     ,
-                     storage_mode     : str   = 'disk'       ,
-                     seed_vault_keys  : str   = ''           ,
-                     max_hours        : float = 1.0          ,
-                     with_tls_check   : bool  = False        ,
-                     tls_mode         : str   = 'self-signed',
-                     acme_prod        : bool  = False        ,
-                     tls_hostname     : str   = ''            ) -> str:
+    def render(self, stack_name         : str   ,
+                     region             : str   ,
+                     ecr_registry       : str   ,
+                     access_token       : str   ,
+                     with_playwright    : bool  = False        ,
+                     container_engine   : str   = 'docker'     ,
+                     image_tag          : str   = 'latest'     ,
+                     storage_mode       : str   = 'disk'       ,
+                     seed_vault_keys    : str   = ''           ,
+                     max_hours          : float = 1.0          ,
+                     with_tls_check     : bool  = False        ,
+                     tls_mode           : str   = 'self-signed',
+                     acme_prod          : bool  = False        ,
+                     tls_hostname       : str   = ''           ,
+                     shutdown_behavior  : str   = 'terminate'  ) -> str:
         engine        = container_engine if container_engine in ('docker', 'podman') else 'docker'
         is_podman     = engine == 'podman'
         docker_socket = '/run/podman/podman.sock' if is_podman else '/var/run/docker.sock'
@@ -135,7 +136,8 @@ class Vault_App__User_Data__Builder(Type_Safe):
             compose_yaml    = compose_yaml    )
 
         parts = [
-            Section__Base().render(stack_name=stack_name, max_hours=max_hours),
+            Section__Base().render(stack_name=stack_name, max_hours=max_hours,
+                                   shutdown_behavior=shutdown_behavior),
             engine_block ,
             stack_block  ,
             FOOTER       ,
