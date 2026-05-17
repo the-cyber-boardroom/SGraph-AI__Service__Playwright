@@ -82,10 +82,10 @@ The migration is queued in the Librarian's [`../DAILY_RUN.md`](../DAILY_RUN.md) 
 
 Pre-domain-tree reality snapshots, preserved for reference:
 
-- [`v0.1.31/`](v0.1.31/README.md) — split-file reality doc covering v0.1.31 → v0.1.46+. Authoritative for un-migrated domains.
-- [`v0.1.29__what-exists-today.md`](v0.1.29__what-exists-today.md) — superseded by `v0.1.31/`.
-- [`v0.1.24__what-exists-today.md`](v0.1.24__what-exists-today.md) — superseded.
-- [`v0.1.13__what-exists-today.md`](v0.1.13__what-exists-today.md) — superseded.
-- [`v0.1.12__what-exists-today.md`](v0.1.12__what-exists-today.md) — superseded.
+- [`v0.1.31/`](_archive/v0.1.31/README.md) — split-file reality doc covering v0.1.31 → v0.1.46+. Authoritative for un-migrated domains.
+- [`v0.1.29__what-exists-today.md`](_archive/v0.1.29__what-exists-today.md) — superseded by `v0.1.31/`.
+- [`v0.1.24__what-exists-today.md`](_archive/v0.1.24__what-exists-today.md) — superseded.
+- [`v0.1.13__what-exists-today.md`](_archive/v0.1.13__what-exists-today.md) — superseded.
+- [`v0.1.12__what-exists-today.md`](_archive/v0.1.12__what-exists-today.md) — superseded.
 
 Old single-file naming was `v{version}__what-exists-today.md`. The v0.1.31 split used numbered sub-files inside a versioned folder. Both are retained as-is; new content goes into the domain tree only.

@@ -14,7 +14,7 @@
 
 **Before describing, assessing, or assuming what the Playwright service can do, READ the current reality doc.**
 
-Start here: [`team/roles/librarian/reality/README.md`](../team/roles/librarian/reality/README.md) — it points at the current `v{version}__what-exists-today.md` and lists supersession rules. The filename is version-stamped; the README always tracks the current one, so you do not need to edit this CLAUDE.md on every version bump.
+Start here: [`team/roles/librarian/reality/index.md`](../team/roles/librarian/reality/index.md) — master domain map (11 domains, each with its own `index.md` + `proposed/`). The [`README.md`](../team/roles/librarian/reality/README.md) explains the structure and the 300-line split rule.
 
 ### Rules (Non-Negotiable)
 
@@ -32,12 +32,12 @@ The canonical location moved from `team/explorer/librarian/reality/` to `team/ro
 | Kind | Path | Authority |
 |------|------|-----------|
 | **Project catalogue** | [`library/catalogue/README.md`](../library/catalogue/README.md) | **Start here for orientation.** Fractal index of all packages, services, tests, schemas, and AWS resources. Read before any new task. |
-| What exists today | `team/roles/librarian/reality/v{version}__what-exists-today.md` | **Canonical.** If not here, it does not exist. |
+| What exists today | `team/roles/librarian/reality/index.md` → per-domain `{domain}/index.md` | **Canonical.** If not here, it does not exist. |
 | Contracts / specs | `library/docs/specs/` | Aspiration until reality-doc confirms |
 | Research | `library/docs/research/` | Context, not spec |
 | Style / patterns | `library/guides/` | Non-negotiable once adopted |
 | Historical context | `library/reference/v{version}__arch-brief.md`, `library/reference/v{version}__decisions-log.md` | Append-only |
-| Onboarding briefs | `library/briefing/` | Numbered reading order |
+| Onboarding briefs | `library/onboarding/` | Numbered reading order |
 | Roadmap | `library/roadmap/phases/v{version}__phase-overview.md` | Phase status (✅/🟡/❌/⚠) |
 | Role definitions | `team/roles/{role}/ROLE.md` | What each agent persona owns |
 | Phase debriefs | `team/claude/debriefs/` + `index.md` | Per-slice retrospective |
@@ -67,7 +67,7 @@ Six personas, one shared codebase. Pick the role that fits the task before you s
 
 **SG Playwright Service** — browser automation API for the SG/Send ecosystem. Runs identically on laptop, CI, Claude Web, Fargate, and Lambda. Declarative step language, vault-integrated, Docker-image-based.
 
-**Version file:** `sgraph_ai_service_playwright/version`
+**Version file:** `version` (repo root). Canonical for Librarian naming. The package-internal `sg_compute_specs_playwright/version` is for that sub-package only.
 
 ---
 
@@ -184,7 +184,7 @@ The authoritative dev pack is vault-hosted. A 2026-04-17 mirror of the dev pack 
 | `dev-specs/routes-catalogue-v2.md` | `library/docs/specs/v0.20.55__routes-catalogue-v2.md` |
 | `dev-specs/ci-pipeline.md` | `library/docs/specs/v0.20.55__ci-pipeline.md` |
 | `guidance/*` | `library/guides/v*.md` |
-| `briefing/*` | `library/briefing/v0.20.55__*.md` |
+| `briefing/*` | `library/onboarding/v0.20.55__*.md` |
 | `reference/*` | `library/reference/v0.20.55__*.md` |
 
 If you need to re-sync from vault:
@@ -200,7 +200,7 @@ Vault key is shared out-of-band — do NOT commit it.
 ## First Session
 
 1. `git fetch origin dev && git merge origin/dev`
-2. Read `sgraph_ai_service_playwright/version`.
+2. Read `version` (repo root — canonical).
 3. **Read [`library/catalogue/README.md`](../library/catalogue/README.md)** — fractal index of all packages, services, tests, and AWS resources. This is the fastest orientation.
 4. Read the current reality doc under `team/roles/librarian/reality/`.
 5. Read the role definition under `team/roles/{role}/ROLE.md` that matches your task.
