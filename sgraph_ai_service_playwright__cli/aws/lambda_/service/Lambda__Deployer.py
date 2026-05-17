@@ -12,6 +12,7 @@ import time
 import zipfile
 
 import boto3                                                                          # EXCEPTION — see module header
+from botocore.exceptions import ClientError
 
 from osbot_utils.type_safe.Type_Safe                                                          import Type_Safe
 
@@ -49,48 +50,45 @@ class Lambda__Deployer(Type_Safe):
         try:
             lc.get_function(FunctionName=name)
             existing = True
-        except Exception:
-            existing = False
-        try:
-            if existing:
-                self._wait_for_update(lc, name)                                     # wait for any in-progress update before code upload
-                lc.update_function_code(FunctionName=name, ZipFile=code)
-                self._wait_for_update(lc, name)                                     # wait for code upload before config update
-                lc.update_function_configuration(
-                    FunctionName = name,
-                    Handler      = req.handler,
-                    Runtime      = str(req.runtime),
-                    Timeout      = req.timeout,
-                    MemorySize   = req.memory_size,
-                    Description  = req.description,
-                )
-                resp = lc.get_function(FunctionName=name)
-                arn  = resp['Configuration']['FunctionArn']
+        except ClientError as exc:
+            code = exc.response.get('Error', {}).get('Code', '')
+            if code == 'ResourceNotFoundException':
+                existing = False
             else:
-                resp = lc.create_function(
-                    FunctionName = name,
-                    Runtime      = str(req.runtime),
-                    Role         = req.role_arn,
-                    Handler      = req.handler,
-                    Code         = {'ZipFile': code},
-                    Timeout      = req.timeout,
-                    MemorySize   = req.memory_size,
-                    Description  = req.description,
-                )
-                arn = resp['FunctionArn']
-            return Schema__Lambda__Deploy__Response(
-                name         = Safe_Str__Lambda__Name(name),
-                function_arn = Safe_Str__Lambda__Arn(arn) if arn.startswith('arn:') else Safe_Str__Lambda__Arn(''),
-                created      = not existing,
-                success      = True,
-                message      = 'created' if not existing else 'updated',
+                raise
+        if existing:
+            self._wait_for_update(lc, name)                                         # wait for any in-progress update before code upload
+            lc.update_function_code(FunctionName=name, ZipFile=code)
+            self._wait_for_update(lc, name)                                         # wait for code upload before config update
+            lc.update_function_configuration(
+                FunctionName = name,
+                Handler      = req.handler,
+                Runtime      = str(req.runtime),
+                Timeout      = req.timeout,
+                MemorySize   = req.memory_size,
+                Description  = req.description,
             )
-        except Exception as e:
-            return Schema__Lambda__Deploy__Response(
-                name    = Safe_Str__Lambda__Name(name),
-                success = False,
-                message = str(e),
+            resp = lc.get_function(FunctionName=name)
+            arn  = resp['Configuration']['FunctionArn']
+        else:
+            resp = lc.create_function(
+                FunctionName = name,
+                Runtime      = str(req.runtime),
+                Role         = req.role_arn,
+                Handler      = req.handler,
+                Code         = {'ZipFile': code},
+                Timeout      = req.timeout,
+                MemorySize   = req.memory_size,
+                Description  = req.description,
             )
+            arn = resp['FunctionArn']
+        return Schema__Lambda__Deploy__Response(
+            name         = Safe_Str__Lambda__Name(name),
+            function_arn = Safe_Str__Lambda__Arn(arn) if arn.startswith('arn:') else Safe_Str__Lambda__Arn(''),
+            created      = not existing,
+            success      = True,
+            message      = 'created' if not existing else 'updated',
+        )
 
     def _zip_folder(self, folder_path: str) -> bytes:
         buf = io.BytesIO()

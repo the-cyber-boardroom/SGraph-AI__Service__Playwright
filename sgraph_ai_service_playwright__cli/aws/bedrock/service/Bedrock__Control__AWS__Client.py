@@ -59,7 +59,7 @@ class Bedrock__Control__AWS__Client(Type_Safe):
         output_mods= ', '.join(raw.get('outputModalities', []))
         try:
             safe_id    = Safe_Str__Bedrock__Model_Id(model_id)
-        except Exception:
+        except ValueError:
             return None
         provider_enum = self.infer_provider(provider, model_id)
         return Schema__Bedrock__Model(model_id          = safe_id      ,
