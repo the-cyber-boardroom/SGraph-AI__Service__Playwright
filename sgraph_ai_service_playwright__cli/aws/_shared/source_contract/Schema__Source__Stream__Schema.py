@@ -1,5 +1,19 @@
 # ═══════════════════════════════════════════════════════════════════════════════
-# SG Credentials — Safe_Str__AWS__Account_Id (re-export shim)
-# Canonical home: aws/_shared/primitives/. Shim kept for one release; drop v0.3.x.
+# SP CLI _shared — Schema__Source__Stream__Schema
+# Describes the field layout of a named stream.
 # ═══════════════════════════════════════════════════════════════════════════════
-from sgraph_ai_service_playwright__cli.aws._shared.primitives.Safe_Str__AWS__Account_Id import Safe_Str__AWS__Account_Id  # noqa: F401
+
+from typing import List
+
+from osbot_utils.type_safe.Type_Safe import Type_Safe
+
+
+class Schema__Source__Field(Type_Safe):
+    name     : str = ''
+    type_hint: str = ''
+    nullable : bool = True
+
+
+class Schema__Source__Stream__Schema(Type_Safe):
+    stream : str = ''
+    fields : List[Schema__Source__Field]

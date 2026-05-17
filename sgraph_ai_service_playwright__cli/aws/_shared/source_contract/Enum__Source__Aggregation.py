@@ -1,5 +1,14 @@
 # ═══════════════════════════════════════════════════════════════════════════════
-# SG Credentials — Safe_Str__AWS__Account_Id (re-export shim)
-# Canonical home: aws/_shared/primitives/. Shim kept for one release; drop v0.3.x.
+# SP CLI _shared — Enum__Source__Aggregation
 # ═══════════════════════════════════════════════════════════════════════════════
-from sgraph_ai_service_playwright__cli.aws._shared.primitives.Safe_Str__AWS__Account_Id import Safe_Str__AWS__Account_Id  # noqa: F401
+
+from enum import Enum
+
+
+class Enum__Source__Aggregation(str, Enum):
+    COUNT  = 'count'
+    SUM    = 'sum'
+    AVG    = 'avg'
+    MIN    = 'min'
+    MAX    = 'max'
+    UNIQUE = 'unique'

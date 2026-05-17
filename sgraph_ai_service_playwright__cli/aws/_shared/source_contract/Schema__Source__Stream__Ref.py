@@ -1,5 +1,12 @@
 # ═══════════════════════════════════════════════════════════════════════════════
-# SG Credentials — Safe_Str__AWS__Account_Id (re-export shim)
-# Canonical home: aws/_shared/primitives/. Shim kept for one release; drop v0.3.x.
+# SP CLI _shared — Schema__Source__Stream__Ref
+# Lightweight pointer to a named stream within a source.
 # ═══════════════════════════════════════════════════════════════════════════════
-from sgraph_ai_service_playwright__cli.aws._shared.primitives.Safe_Str__AWS__Account_Id import Safe_Str__AWS__Account_Id  # noqa: F401
+
+from osbot_utils.type_safe.Type_Safe import Type_Safe
+
+
+class Schema__Source__Stream__Ref(Type_Safe):
+    name        : str = ''
+    description : str = ''
+    last_event  : str = ''
