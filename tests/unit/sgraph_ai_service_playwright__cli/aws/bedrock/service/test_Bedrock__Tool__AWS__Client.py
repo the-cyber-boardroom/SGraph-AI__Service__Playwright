@@ -29,6 +29,8 @@ from sgraph_ai_service_playwright__cli.aws.bedrock.service.Bedrock__Tool__AWS__C
 
 _VALID_START_BROWSER_KWARGS          = {'browserIdentifier', 'name', 'sessionTimeoutSeconds', 'clientToken'}
 _VALID_START_CODE_INTERPRETER_KWARGS = {'codeInterpreterIdentifier', 'name', 'sessionTimeoutSeconds', 'clientToken', 'traceId', 'traceParent', 'certificates'}
+_VALID_INVOKE_BROWSER_KWARGS         = {'browserIdentifier', 'sessionId', 'action'}
+_VALID_BROWSER_ACTION_KEYS           = {'mouseClick', 'mouseMove', 'mouseDrag', 'mouseScroll', 'keyType', 'keyPress', 'keyShortcut', 'screenshot'}
 
 
 class _FakeAgentCoreClient:
@@ -46,6 +48,25 @@ class _FakeAgentCoreClient:
         if unknown:
             raise TypeError(f"Unknown parameter(s): {sorted(unknown)}")
         return {'sessionId': 'fake-browser-session-id'}
+
+    def invoke_browser(self, **kwargs):
+        self.calls.append(('invoke_browser', kwargs))
+        if 'browserIdentifier' not in kwargs:
+            raise TypeError("Missing required parameter: 'browserIdentifier'")
+        if 'sessionId' not in kwargs:
+            raise TypeError("Missing required parameter: 'sessionId'")
+        if 'action' not in kwargs:
+            raise TypeError("Missing required parameter: 'action'")
+        unknown = set(kwargs) - _VALID_INVOKE_BROWSER_KWARGS
+        if unknown:
+            raise TypeError(f"Unknown parameter(s): {sorted(unknown)}")
+        action_keys = set(kwargs['action'])
+        invalid_actions = action_keys - _VALID_BROWSER_ACTION_KEYS
+        if invalid_actions:
+            raise TypeError(f"Invalid action key(s): {sorted(invalid_actions)}")
+        if 'screenshot' in kwargs['action']:
+            return {'result': {'screenshot': {'bytes': b'\x89PNG-fake-bytes'}}}
+        return {'result': {}}
 
     def start_code_interpreter_session(self, **kwargs):
         self.calls.append(('start_code_interpreter_session', kwargs))
@@ -101,6 +122,66 @@ class test_browser_start(TestCase):
         self.client.browser_start(region='eu-west-1')
         _api, kwargs = self.client._fake_agentcore.calls[-1]
         assert 'region' not in kwargs
+
+
+# ── Tests — browser_screenshot ───────────────────────────────────────────────
+# Regression for 2026-05-17: `browser_tool` was the wrong boto3 method name
+# (`AttributeError: 'BedrockAgentCore' object has no attribute 'browser_tool'`).
+# Correct method is `invoke_browser`, with `screenshot` as an action key.
+
+class test_browser_screenshot(TestCase):
+
+    def setUp(self):
+        self.client = _Fake_Bedrock__Tool__AWS__Client()
+
+    def test__calls_invoke_browser_with_screenshot_action(self):
+        data = self.client.browser_screenshot('sid-123')
+        assert data == b'\x89PNG-fake-bytes'
+        api, kwargs = self.client._fake_agentcore.calls[-1]
+        assert api                            == 'invoke_browser'                 # NOT 'browser_tool' (the original bug)
+        assert kwargs['sessionId']            == 'sid-123'
+        assert kwargs['browserIdentifier']    == DEFAULT_BROWSER_ID
+        assert 'screenshot' in kwargs['action']
+        assert kwargs['action']['screenshot']['format'] == 'PNG'
+
+    def test__honours_custom_browser_identifier(self):
+        self.client.browser_screenshot('sid-123', browser_identifier='custom.browser.v1')
+        _api, kwargs = self.client._fake_agentcore.calls[-1]
+        assert kwargs['browserIdentifier']    == 'custom.browser.v1'
+
+    def test__extracts_image_bytes_from_nested_result(self):                     # `resp['result']['screenshot']['bytes']`
+        data = self.client.browser_screenshot('sid-123')
+        assert isinstance(data, bytes)
+        assert data == b'\x89PNG-fake-bytes'
+
+
+# ── Tests — browser_navigate ─────────────────────────────────────────────────
+# Regression for 2026-05-17: navigate was calling `browser_tool` (wrong method)
+# AND `invoke_browser` has no `navigate` action — only OS-level actions
+# (mouse/keyboard/screenshot). Honest behaviour: raise NotImplementedError
+# with a message pointing at the right path (Playwright over CDP stream).
+
+class test_browser_navigate(TestCase):
+
+    def setUp(self):
+        self.client = _Fake_Bedrock__Tool__AWS__Client()
+
+    def test__raises_not_implemented_with_explanation(self):
+        try:
+            self.client.browser_navigate('sid-123', 'https://example.com')
+        except NotImplementedError as exc:
+            msg = str(exc)
+            assert 'invoke_browser' in msg
+            assert 'CDP' in msg or 'Chrome DevTools Protocol' in msg              # message points the reader at the right next step
+            return
+        raise AssertionError('Expected NotImplementedError')
+
+    def test__does_not_call_aws_when_unimplemented(self):                        # belt-and-braces: no API call attempt
+        try:
+            self.client.browser_navigate('sid-123', 'https://example.com')
+        except NotImplementedError:
+            pass
+        assert self.client._fake_agentcore.calls == []                            # nothing was attempted
 
 
 # ── Tests — code_interpreter_start ───────────────────────────────────────────

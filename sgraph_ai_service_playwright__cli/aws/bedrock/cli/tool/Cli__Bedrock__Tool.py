@@ -98,14 +98,15 @@ def browser_session_list(
 def browser_session_navigate(
     session_id : str  = typer.Argument(..., help='Browser session ID.'),
     url        : str  = typer.Argument(..., help='URL to navigate to.'),
-    region     : Optional[str] = typer.Option(None,  '--region', '-r', help='AWS region.'),
-    yes        : bool          = typer.Option(False, '--yes',   '-y',  help='Skip confirmation.'),
+    browser_id : Optional[str] = typer.Option(None,  '--browser-id', '-b', help='Browser identifier (default: aws.browser.v1).'),
+    region     : Optional[str] = typer.Option(None,  '--region',     '-r', help='AWS region.'),
+    yes        : bool          = typer.Option(False, '--yes',        '-y', help='Skip confirmation.'),
 ):
-    """Navigate a browser session to a URL. [EXPERIMENTAL]"""
+    """Navigate a browser session to a URL. [EXPERIMENTAL — not yet implemented]"""
     if not yes:
         typer.confirm(f'Navigate session {session_id!r} to {url!r}?', abort=True)
     client = _client()
-    resp   = client.browser_navigate(session_id, url, region=region)
+    resp   = client.browser_navigate(session_id, url, region=region, browser_identifier=browser_id)
     writer = Bedrock__Capture__Writer()
     writer.write_browser_action(session_id, {'action': 'navigate', 'url': url, 'response': resp})
     c = Console(highlight=False)
@@ -117,15 +118,16 @@ def browser_session_navigate(
 @spec_cli_errors
 def browser_session_screenshot(
     session_id  : str          = typer.Argument(..., help='Browser session ID.'),
-    output_file : Optional[str]= typer.Option(None, '--output', '-o', help='Save screenshot to this path.'),
-    region      : Optional[str]= typer.Option(None, '--region', '-r', help='AWS region.'),
-    yes         : bool         = typer.Option(False,'--yes',    '-y', help='Skip confirmation.'),
+    output_file : Optional[str]= typer.Option(None, '--output',     '-o', help='Save screenshot to this path.'),
+    browser_id  : Optional[str]= typer.Option(None, '--browser-id', '-b', help='Browser identifier (default: aws.browser.v1).'),
+    region      : Optional[str]= typer.Option(None, '--region',     '-r', help='AWS region.'),
+    yes         : bool         = typer.Option(False,'--yes',        '-y', help='Skip confirmation.'),
 ):
     """Take a screenshot from a browser session. [EXPERIMENTAL]"""
     if not yes:
         typer.confirm(f'Screenshot session {session_id!r}?', abort=True)
     client     = _client()
-    image_data = client.browser_screenshot(session_id, region=region)
+    image_data = client.browser_screenshot(session_id, region=region, browser_identifier=browser_id)
     writer     = Bedrock__Capture__Writer()
     folder  = writer.browser_session_path(session_id)
     folder.mkdir(parents=True, exist_ok=True)

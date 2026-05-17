@@ -195,6 +195,41 @@ class test_apply_relative_navigation__core(TestCase):
         assert base  == ['aws', 'bedrock']
         assert parts == ['agent']
 
+    # ── post-navigation tokens are preserved as-is (regression 2026-05-17) ──
+    # Bug: nav helper was splitting EVERY token on `/`, which mangled URLs
+    # passed as arg values:
+    #   `navigate <session-id> https://sgraph.ai`
+    #     → ['navigate', '<session-id>', 'https:', 'sgraph.ai']
+    #     → typer: "Got unexpected extra argument (sgraph.ai)"
+
+    def test__url_arg_after_verb_is_not_split_on_slashes(self):
+        base, parts = _apply_relative_navigation(
+            ['navigate', 'abc-session', 'https://sgraph.ai'],
+            current_path=['aws', 'bedrock', 'tool', 'browser', 'session'])
+        assert base  == ['aws', 'bedrock', 'tool', 'browser', 'session']
+        assert parts == ['navigate', 'abc-session', 'https://sgraph.ai']         # URL intact
+
+    def test__s3_uri_arg_after_verb_is_not_split(self):
+        base, parts = _apply_relative_navigation(
+            ['upload', 's3://my-bucket/key/path.json'],
+            current_path=['aws', 's3'])
+        assert base  == ['aws', 's3']
+        assert parts == ['upload', 's3://my-bucket/key/path.json']
+
+    def test__file_path_arg_after_verb_is_not_split(self):
+        base, parts = _apply_relative_navigation(
+            ['put', '--file', 'path/to/file.json'],
+            current_path=['aws', 's3'])
+        assert base  == ['aws', 's3']
+        assert parts == ['put', '--file', 'path/to/file.json']
+
+    def test__nav_then_verb_then_url_combines_correctly(self):                   # `../navigate https://example.com`
+        base, parts = _apply_relative_navigation(
+            ['../navigate', 'abc-session', 'https://example.com'],
+            current_path=['aws', 'bedrock', 'tool', 'browser', 'session', 'inner'])
+        assert base  == ['aws', 'bedrock', 'tool', 'browser', 'session']
+        assert parts == ['navigate', 'abc-session', 'https://example.com']
+
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # (2) Pipeline tests — full REPL resolution chain
