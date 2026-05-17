@@ -10,6 +10,7 @@
 # dict; no YAML / JSON / disk I/O). Tests subclass and override aliases().
 # ═══════════════════════════════════════════════════════════════════════════════
 
+import re
 from typing                                                                      import Optional
 
 from osbot_utils.type_safe.Type_Safe                                             import Type_Safe
@@ -27,6 +28,12 @@ _PROVIDER_MAP = {
     'openai'  : Enum__Bedrock__Provider.OPENAI ,
 }
 
+# Literal Bedrock model IDs look like `<lowercase-provider>.<model>` — e.g.
+# `openai.gpt-oss-safeguard-120b`, `amazon.nova-lite-v1:0`, `anthropic.claude-sonnet-4-6`.
+# This regex distinguishes them from short aliases like `haiku-4.5` or `opus-4.7`
+# (which start with a model-family word and contain `-` before the `.`).
+_LITERAL_MODEL_ID_RE = re.compile(r'^(?:us\.|eu\.|apac\.)?[a-z]+\.')
+
 
 class Bedrock__Model__Resolver(Type_Safe):
 
@@ -38,12 +45,30 @@ class Bedrock__Model__Resolver(Type_Safe):
     # ── Public API ────────────────────────────────────────────────────────────
 
     def resolve(self, provider: str, alias: str = 'default', region: str = '') -> str:
-        """Return the canonical model ID for provider+alias+region."""           # inline
+        """Return the canonical model ID for provider+alias+region.
+
+        If `alias` already looks like a fully-qualified Bedrock model ID
+        (`openai.gpt-oss-safeguard-120b`, `amazon.nova-lite-v1:0`,
+        `eu.anthropic.claude-sonnet-4-6`, etc.), return it verbatim and
+        skip alias-table lookup entirely — the user gave us an exact ID,
+        we trust them. This is essential for `sg aws bedrock chat any`
+        to work with providers that don't have alias-table entries
+        (Gemma, Qwen, Mistral, GPT-OSS, DeepSeek, Nemotron, etc.).
+
+        Otherwise: alias-table lookup. provider/alias both case-insensitive
+        for the lookup.
+        """                                                                      # inline
+        if _LITERAL_MODEL_ID_RE.match(alias or ''):                              # `--model openai.gpt-oss-...` → pass through
+            return alias
+
         table = self.aliases()
         provider_key = provider.lower()
         provider_section = table.get(provider_key, {})
         if not provider_section:
-            raise ValueError(f'Unknown provider: {provider!r}')
+            raise ValueError(f'Unknown provider: {provider!r}. '
+                             f'Known providers: {sorted(k for k in table if k != "region_overrides")}. '
+                             f'Tip: pass --model with a full Bedrock model ID '
+                             f'(e.g. `openai.gpt-oss-safeguard-120b`) to bypass the alias table.')
 
         # Check region-specific override first
         region_overrides = table.get('region_overrides', {})
@@ -54,7 +79,8 @@ class Bedrock__Model__Resolver(Type_Safe):
 
         # Fall back to provider section — raise for unknown non-default alias
         if alias != 'default' and alias not in provider_section:
-            raise ValueError(f'Unknown alias {alias!r} for provider {provider!r}')
+            raise ValueError(f'Unknown alias {alias!r} for provider {provider!r}. '
+                             f'Known aliases: {sorted(k for k in provider_section if k != "default")}')
         model_id = provider_section.get(alias) or provider_section.get('default', '')
         if not model_id:
             raise ValueError(f'Unknown alias {alias!r} for provider {provider!r}')
