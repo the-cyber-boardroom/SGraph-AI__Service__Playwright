@@ -2,7 +2,7 @@
 title: "Reality — sg aws s3 (CLI surface)"
 file: aws-s3.md
 domain: cli
-status: LANDED — v0.2.29
+status: LANDED — v0.2.29; updated v0.2.30 Open-2 (typed primitives)
 landed_commit: TBD — backfill after merge
 date: 2026-05-17
 author: Dev (Claude)
@@ -39,7 +39,14 @@ sgraph_ai_service_playwright__cli/aws/s3/
 │   ├── Safe_Str__S3__URI.py            # (pre-existing from Foundation)
 │   ├── Safe_Str__S3__Bucket.py         # (pre-existing from Foundation)
 │   ├── Safe_Str__S3__Key.py            # (pre-existing from Foundation)
-│   └── Safe_Str__S3__ETag.py          # (pre-existing from Foundation)
+│   ├── Safe_Str__S3__ETag.py           # (pre-existing from Foundation)
+│   ├── Safe_Str__S3__Timestamp.py      # REPLACE, allow_empty — ISO-8601 from S3 (v0.2.30 Open-2)
+│   ├── Safe_Str__S3__Content_Type.py   # REPLACE, allow_empty — MIME type (v0.2.30 Open-2)
+│   ├── Safe_Str__S3__Encryption.py     # REPLACE, allow_empty — AES256 / aws:kms (v0.2.30 Open-2)
+│   ├── Safe_Str__S3__Version_Id.py     # REPLACE, allow_empty — object version ID (v0.2.30 Open-2)
+│   ├── Safe_Str__S3__Versioning.py     # REPLACE, allow_empty — Enabled/Suspended/Disabled (v0.2.30 Open-2)
+│   ├── Safe_Str__S3__Prefix.py         # REPLACE, allow_empty — list prefix / "folder" (v0.2.30 Open-2)
+│   └── Safe_Str__S3__Next_Token.py     # REPLACE, allow_empty — ListObjectsV2 pagination token (v0.2.30 Open-2)
 ├── enums/
 │   ├── Enum__S3__Storage__Class.py     # (pre-existing from Foundation)
 │   └── Enum__S3__Object__Format.py
@@ -87,6 +94,14 @@ Total: **40 unit tests** — all pass.
 **Mutation gate:** `SG_AWS__S3__ALLOW_MUTATIONS=1`
 
 ---
+
+### v0.2.30 Open-2 — schema fields typed
+
+Previously raw `str` fields in S3 schemas now use typed primitives:
+- `Schema__S3__Bucket`: `creation_date → Safe_Str__S3__Timestamp`, `region → Safe_Str__AWS__Region`, `versioning → Safe_Str__S3__Versioning`
+- `Schema__S3__Object`: `last_modified → Safe_Str__S3__Timestamp`, `content_type → Safe_Str__S3__Content_Type`
+- `Schema__S3__Stat`: `last_modified → Safe_Str__S3__Timestamp`, `content_type → Safe_Str__S3__Content_Type`, `encryption → Safe_Str__S3__Encryption`, `version_id → Safe_Str__S3__Version_Id`
+- `Schema__S3__List__Response`: `prefix → Safe_Str__S3__Prefix`, `next_token → Safe_Str__S3__Next_Token`
 
 ## Out of scope for this slice
 

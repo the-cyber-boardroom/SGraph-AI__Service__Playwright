@@ -3,14 +3,14 @@ title: "Reality — cli/aws-ec2"
 file: aws-ec2.md
 author: Dev (Claude)
 date: 2026-05-17
-status: LIVE — implemented in v0.2.29 Slice B
+status: LIVE — implemented in v0.2.29 Slice B; updated v0.2.30 Open-2 (typed primitives)
 parent: cli/index.md
 ---
 
 # cli/aws-ec2 — `sg aws ec2` Surface
 
-**Last updated:** 2026-05-17
-**Slice:** v0.2.29 Slice B
+**Last updated:** 2026-05-17 (v0.2.30 Open-2 — typed primitives)
+**Slice:** v0.2.29 Slice B; v0.2.30 Open-2
 **Branch:** `claude/aws-primitives-support-uNnZY`
 
 ---
@@ -60,6 +60,31 @@ Registered in `Cli__Aws` as `app.add_typer(ec2_app, name='ec2')`.
 | `primitives/Safe_Str__EC2__AMI_Id.py` | AMI ID or alias string |
 | `primitives/Safe_Str__EC2__Instance__Type.py` | Instance type (e.g. `t3.micro`) |
 | `collections/List__Schema__EC2__Instance.py` | Typed list for list output |
+| `schemas/Schema__EC2__Security_Group__Ref.py` | `group_id: Safe_Str__EC2__SG_Id`, `group_name: Safe_Str__AWS__Tag_Value` |
+| `schemas/Schema__EC2__Block_Device__Mapping.py` | `device_name`, `volume_id`, `volume_size: Safe_Int__EC2__GiB`, `delete_on_termination: bool`, `status` |
+| `collections/Dict__EC2__Tag.py` | `Type_Safe__Dict[Safe_Str__AWS__Tag_Key, Safe_Str__AWS__Tag_Value]` |
+| `collections/List__Schema__EC2__Security_Group__Ref.py` | `Type_Safe__List[Schema__EC2__Security_Group__Ref]` |
+| `collections/List__Schema__EC2__Block_Device__Mapping.py` | `Type_Safe__List[Schema__EC2__Block_Device__Mapping]` |
+| `primitives/Safe_Str__EC2__Name.py` | REPLACE — printable ASCII, `allow_empty` |
+| `primitives/Safe_Str__EC2__IP_Address.py` | REPLACE — digits, colon, dot (IPv4 + IPv6) |
+| `primitives/Safe_Str__EC2__DNS_Name.py` | REPLACE — `[a-zA-Z0-9.\-]` |
+| `primitives/Safe_Str__EC2__Launch_Time.py` | REPLACE — printable ASCII (ISO-8601) |
+| `primitives/Safe_Str__EC2__Key_Pair.py` | REPLACE — `[A-Za-z0-9_\-]` |
+| `primitives/Safe_Str__EC2__VPC_Id.py` | REPLACE — `[a-z0-9\-]` |
+| `primitives/Safe_Str__EC2__Subnet_Id.py` | REPLACE — `[a-z0-9\-]` |
+| `primitives/Safe_Str__EC2__Architecture.py` | REPLACE — `[a-z0-9_]` |
+| `primitives/Safe_Str__EC2__Platform.py` | REPLACE — `[A-Za-z0-9 \-_.]` |
+| `primitives/Safe_Str__EC2__Root_Device_Type.py` | REPLACE — `[a-z\-]` (ebs / instance-store) |
+| `primitives/Safe_Str__EC2__SG_Id.py` | REPLACE — `[a-z0-9\-]` |
+| `primitives/Safe_Str__EC2__Device_Name.py` | REPLACE — `[a-z0-9/\-]` |
+| `primitives/Safe_Str__EC2__Volume_Id.py` | REPLACE — `[a-z0-9\-]` |
+| `primitives/Safe_Str__EC2__BDM_Status.py` | REPLACE — `[A-Za-z0-9\-_]` |
+| `primitives/Safe_Str__EC2__Price.py` | REPLACE — `[0-9.]` |
+| `primitives/Safe_Str__EC2__Currency.py` | REPLACE — `[A-Z]` |
+| `primitives/Safe_Str__EC2__OS.py` | REPLACE — `[A-Za-z0-9 \-_.]` |
+| `primitives/Safe_Str__EC2__User_Data.py` | REPLACE — printable ASCII + tab/LF/CR |
+| `primitives/Safe_Str__EC2__SG_Id_List.py` | REPLACE — comma-separated SG IDs |
+| `primitives/Safe_Int__EC2__GiB.py` | Safe_Int, min=0 max=65536 |
 
 ### Tests
 
@@ -82,6 +107,22 @@ Total: 50 unit tests, all green.
 
 `EC2__AWS__Client__In_Memory` — real subclass with dict-backed fake boto3 client. No mocks, no patches.
 Provides `seed_instance(...)` helper for populating test state.
+
+### v0.2.30 Open-2 — escape-hatch replacement
+
+`Schema__EC2__Instance__Detail` previously carried three JSON-serialised string escape hatches:
+- `tags_raw: str` → replaced with `tags: Dict__EC2__Tag`
+- `security_groups_raw: str` → replaced with `security_groups: List__Schema__EC2__Security_Group__Ref`
+- `block_devices_raw: str` → replaced with `block_devices: List__Schema__EC2__Block_Device__Mapping`
+
+`EC2__AWS__Client._parse_detail` now builds these typed collections directly from boto3 response dicts.
+`Cli__EC2.ec2_describe` now iterates the typed collections instead of calling `json.loads`.
+`Schema__EC2__Create__Request.extra_tags_raw: str` replaced with `extra_tags: Dict__EC2__Tag`.
+`Schema__EC2__Pricing` fields `currency` and `os` had hard-coded string defaults removed (both now empty by default).
+`Schema__EC2__Instance` fields `name`, `public_ip`, `private_ip`, `launch_time`, `key_name` → typed.
+
+All 20 new EC2 primitives and the `Safe_Int__EC2__GiB` use REPLACE mode with `allow_empty = True`
+so boto3 values are never rejected and no existing string operations break.
 
 ### Coexistence with legacy `__cli/ec2/`
 

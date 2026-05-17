@@ -4,7 +4,7 @@ file: aws-observe.md
 domain: cli
 author: Librarian (Claude)
 date: 2026-05-17
-status: LANDED — v0.2.29
+status: LANDED — v0.2.29; updated v0.2.30 Open-2 (typed primitives)
 ---
 
 # `sg aws observe` — Reality Doc
@@ -55,8 +55,15 @@ Commands (all read-only — no mutation gate):
 
 | File | Fields |
 |------|--------|
-| `schemas/Schema__Observe__Source__Status.py` | `name`, `connected`, `stream_count`, `last_event` |
+| `schemas/Schema__Observe__Source__Status.py` | `name: Safe_Str__Observe__Source_Name`, `connected: bool`, `stream_count: int`, `last_event: Safe_Str__Observe__Event_Time` |
 | `collections/List__Schema__Observe__Source__Status.py` | `items: List[Schema__Observe__Source__Status]` |
+
+### Primitives (v0.2.30 Open-2)
+
+| File | Description |
+|------|-------------|
+| `primitives/Safe_Str__Observe__Source_Name.py` | REPLACE, allow_empty — source adapter name |
+| `primitives/Safe_Str__Observe__Event_Time.py` | REPLACE, allow_empty — ISO-8601 last event timestamp |
 
 ### Tests
 

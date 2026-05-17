@@ -70,10 +70,11 @@ class Bedrock__Model__Resolver(Type_Safe):
                              f'Tip: pass --model with a full Bedrock model ID '
                              f'(e.g. `openai.gpt-oss-safeguard-120b`) to bypass the alias table.')
 
-        # Check region-specific override first
+        # Check region+provider specific override first (covers 'default' alias too).
+        # Override table is provider-scoped: region_overrides[region][provider][alias]
         region_overrides = table.get('region_overrides', {})
-        if region and alias != 'default':
-            override = region_overrides.get(region, {}).get(alias)
+        if region:
+            override = region_overrides.get(region, {}).get(provider_key, {}).get(alias)
             if override:
                 return override
 
