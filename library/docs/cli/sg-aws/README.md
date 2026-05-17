@@ -29,10 +29,10 @@ How to drive the `sg aws *` command surface from a terminal. This pack is a **us
 | 06 | [`06__iam.md`](06__iam.md) | `sg aws iam` — roles, trust policies, policy attach/detach, audit |
 | 07 | [`07__lambda.md`](07__lambda.md) | `sg aws lambda` — info / details / config / logs / invocations / invoke / url |
 | 08 | [`08__credentials.md`](08__credentials.md) | `sg aws credentials` — Keychain-backed long-lived credentials store |
-| 09 | `09__s3.md` *(PROPOSED — Slice A)* | `sg aws s3` — S3 object and bucket management |
-| 10 | [`10__ec2.md`](10__ec2.md) | `sg aws ec2` — EC2 instance management |
-| 11 | [`11__fargate.md`](11__fargate.md) | `sg aws fargate` — ECS Fargate clusters and tasks |
-| 12 | [`12__iam-graph.md`](12__iam-graph.md) | `sg aws iam graph` — IAM-as-graph discovery and cleanup |
+| 09 | [`09__s3.md`](09__s3.md) *(LANDED — v0.2.29)* | `sg aws s3` — S3 object and bucket management |
+| 10 | [`10__ec2.md`](10__ec2.md) *(LANDED — v0.2.29)* | `sg aws ec2` — EC2 instance management |
+| 11 | [`11__fargate.md`](11__fargate.md) *(LANDED — v0.2.29)* | `sg aws fargate` — ECS Fargate clusters and tasks |
+| 12 | [`12__iam-graph.md`](12__iam-graph.md) *(LANDED — v0.2.29)* | `sg aws iam graph` — IAM-as-graph discovery and cleanup |
 | 13 | `13__bedrock.md` *(PROPOSED — Slice E)* | `sg aws bedrock` — Bedrock chat, agents, tools |
 | 14 | `14__cloudtrail.md` *(PROPOSED — Slice F)* | `sg aws cloudtrail` — CloudTrail events and trails (read-only) |
 | 15 | `15__creds.md` *(PROPOSED — Slice G)* | `sg aws creds` — scoped STS credential delivery |
@@ -62,9 +62,9 @@ sg aws
 │   ├── list
 │   └── <function-name> {info,details,config,logs,invocations,invoke,deploy,delete,
 │                         url {create,show,delete}, tags, versions, aliases}
-├── s3          ← S3 (PROPOSED — Slice A)           (ls, view, cat, cp, mv, rm, sync, …)
-├── ec2         ← EC2 (v0.2.29 Slice B)              (list, describe, ssh-info, tags, instance-types, pricing, create, start, stop, terminate, wait)
-├── fargate     ← ECS Fargate (v0.2.29 Slice C)      (cluster/task/task-def lifecycle)
+├── s3          ← S3 (LANDED — v0.2.29)              (ls, view, cat, head, tail, stat, presign, search, cp, mv, rm, sync, edit, bucket-list, bucket-stat, bucket-create)
+├── ec2         ← EC2 (LANDED — v0.2.29)             (list, describe, ssh-info, tags, instance-types, pricing, create, start, stop, terminate, wait)
+├── fargate     ← ECS Fargate (LANDED — v0.2.29)     (cluster/task/task-def lifecycle)
 ├── iam
 │   └── graph   ← IAM graph                         (discover, filter, delete, stats, …)
 ├── bedrock     ← Bedrock (PROPOSED — Slice E)       (chat, agent, tool sub-trees)
@@ -99,6 +99,7 @@ Mutating commands refuse to run unless the relevant env var is set. This is a de
 | CloudFront | `SG_AWS__CF__ALLOW_MUTATIONS=1` | `distribution create/disable/delete` |
 | IAM | `SG_AWS__IAM__ALLOW_MUTATIONS=1` | `role create/delete`, `policy attach/detach` |
 | Lambda | `SG_AWS__LAMBDA__ALLOW_MUTATIONS=1` | `<name> deploy/delete`, `<name> url create/delete` |
+| S3 | `SG_AWS__S3__ALLOW_MUTATIONS=1` | `cp`, `mv`, `rm`, `sync`, `edit`, `bucket-create` |
 
 Read-only verbs (everything in `acm`, `billing`, every `*list/show/check/get/wait`) never require a gate.
 
