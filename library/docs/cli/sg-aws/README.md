@@ -3,8 +3,9 @@ title: "sg aws — User Guide"
 file: README.md
 author: Architect (Claude)
 date: 2026-05-17
-repo: SGraph-AI__Service__Playwright @ dev (v0.2.27 line)
-status: REFERENCE — describes commands that exist today (v0.2.27).
+updated: 2026-05-17
+repo: SGraph-AI__Service__Playwright @ dev (v0.2.29 line)
+status: REFERENCE — describes commands that exist today; v0.2.29 new surfaces marked PROPOSED until slice PRs land.
 ---
 
 # `sg aws` — User Guide
@@ -27,6 +28,15 @@ How to drive the `sg aws *` command surface from a terminal. This pack is a **us
 | 05 | [`05__cloudfront.md`](05__cloudfront.md) | `sg aws cf` — distribution list / show / create / disable / delete / wait |
 | 06 | [`06__iam.md`](06__iam.md) | `sg aws iam` — roles, trust policies, policy attach/detach, audit |
 | 07 | [`07__lambda.md`](07__lambda.md) | `sg aws lambda` — info / details / config / logs / invocations / invoke / url |
+| 08 | [`08__credentials.md`](08__credentials.md) | `sg aws credentials` — Keychain-backed long-lived credentials store |
+| 09 | `09__s3.md` *(PROPOSED — Slice A)* | `sg aws s3` — S3 object and bucket management |
+| 10 | `10__ec2.md` *(PROPOSED — Slice B)* | `sg aws ec2` — EC2 instance management |
+| 11 | `11__fargate.md` *(PROPOSED — Slice C)* | `sg aws fargate` — ECS Fargate clusters and tasks |
+| 12 | `12__iam-graph.md` *(PROPOSED — Slice D)* | `sg aws iam graph` — IAM-as-graph discovery and cleanup |
+| 13 | `13__bedrock.md` *(PROPOSED — Slice E)* | `sg aws bedrock` — Bedrock chat, agents, tools |
+| 14 | `14__cloudtrail.md` *(PROPOSED — Slice F)* | `sg aws cloudtrail` — CloudTrail events and trails (read-only) |
+| 15 | `15__creds.md` *(PROPOSED — Slice G)* | `sg aws creds` — scoped STS credential delivery |
+| 16 | `16__observe.md` *(PROPOSED — Slice H)* | `sg aws observe` — unified observability REPL |
 
 ---
 
@@ -47,10 +57,20 @@ sg aws
 ├── iam                 ← IAM                       (role / policy management + audit)
 │   ├── role {list,show,create,delete,check}
 │   └── policy {attach,detach,list}
-└── lambda              ← Lambda                    (per-function verbs + fuzzy name match)
-    ├── list
-    └── <function-name> {info,details,config,logs,invocations,invoke,deploy,delete,
-                          url {create,show,delete}, tags, versions, aliases}
+├── credentials         ← Keychain credentials store (long-lived keys — see 08__)
+├── lambda              ← Lambda                    (per-function verbs + fuzzy name match)
+│   ├── list
+│   └── <function-name> {info,details,config,logs,invocations,invoke,deploy,delete,
+│                         url {create,show,delete}, tags, versions, aliases}
+├── s3          ← S3 (PROPOSED — Slice A)           (ls, view, cat, cp, mv, rm, sync, …)
+├── ec2         ← EC2 (PROPOSED — Slice B)           (list, describe, start, stop, terminate, …)
+├── fargate     ← ECS Fargate (PROPOSED — Slice C)  (cluster/task lifecycle)
+├── iam
+│   └── graph   ← IAM graph (PROPOSED — Slice D)    (discover, filter, delete, stats, …)
+├── bedrock     ← Bedrock (PROPOSED — Slice E)       (chat, agent, tool sub-trees)
+├── cloudtrail  ← CloudTrail (PROPOSED — Slice F)    (events, trails — read-only)
+├── creds       ← Scoped STS (PROPOSED — Slice G)    (get, scope, audit)
+└── observe     ← Observability REPL (PROPOSED — Slice H) (tail, query, stats, agent-trace)
 ```
 
 `<function-name>` accepts a **fuzzy substring** — e.g. `sg aws lambda waker info` resolves to `sg-compute-vault-publish-waker`.

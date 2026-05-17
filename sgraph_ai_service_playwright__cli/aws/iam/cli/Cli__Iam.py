@@ -31,6 +31,7 @@ from sgraph_ai_service_playwright__cli.aws.iam.primitives.Safe_Str__IAM__Role_Na
 from sgraph_ai_service_playwright__cli.aws.iam.schemas.Schema__IAM__Role__Create__Request import Schema__IAM__Role__Create__Request
 from sgraph_ai_service_playwright__cli.aws.iam.service.IAM__AWS__Client                 import IAM__AWS__Client
 from sgraph_ai_service_playwright__cli.aws.iam.service.IAM__Policy__Auditor             import IAM__Policy__Auditor
+from sgraph_ai_service_playwright__cli.aws.iam.graph.cli.Cli__Iam__Graph                import graph_app
 
 console = Console()
 
@@ -40,6 +41,7 @@ policy_app = typer.Typer(name='policy', help='IAM inline/managed policy manageme
 
 iam_app.add_typer(role_app,   name='role')
 iam_app.add_typer(policy_app, name='policy')
+iam_app.add_typer(graph_app,  name='graph')
 
 
 def _client() -> IAM__AWS__Client:

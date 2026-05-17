@@ -3,6 +3,8 @@
 **Parent:** [`index.md`](index.md) | **Last updated:** 2026-05-17
 **Source:** `_archive/v0.1.31/09__sp-cli-observability-routes.md` + `13__sp-cli-linux-docker-elastic-catalog-ui.md` (route mounts).
 
+> **Scope note (v0.2.29):** This file covers the AMP/OpenSearch/AMG **infrastructure** surface (`Observability__AWS__Client` / `Observability__Service` — manages monitoring workspaces). The unified observability **read** surface (`sg aws observe` REPL — tail, query, stats, agent-trace across S3/CloudWatch/CloudTrail) is a separate package under `aws/observe/` and will be documented at [`aws-observe.md`](aws-observe.md) once Slice H lands. The two are complementary, not competing.
+
 The Tier-1 observability service and its routes (`/observability/*`), plus the slice-13 / slice-14 mounts that bring `Routes__Linux__Stack`, `Routes__Docker__Stack`, `Routes__Stack__Catalog`, `Routes__Elastic__Stack`, `Routes__Vnc__Stack`, `Routes__Vnc__Flows` onto `Fast_API__SP__CLI`.
 
 ---

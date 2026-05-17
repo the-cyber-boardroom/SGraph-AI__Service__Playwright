@@ -60,14 +60,24 @@ SG_AWS__DNS__ALLOW_MUTATIONS=1 sg aws dns records delete tmp.sgraph.ai --yes
 # → deletes
 ```
 
-The four gates:
+Gates — existing surfaces:
 
 | Gate | Covers |
 |------|--------|
 | `SG_AWS__DNS__ALLOW_MUTATIONS=1` | `dns records add/update/delete`, `dns zone purge`, `dns instance create-record` |
 | `SG_AWS__CF__ALLOW_MUTATIONS=1` | `cf distribution create/disable/delete` |
-| `SG_AWS__IAM__ALLOW_MUTATIONS=1` | `iam role create/delete`, `iam policy attach/detach` |
+| `SG_AWS__IAM__ALLOW_MUTATIONS=1` | `iam role create/delete`, `iam policy attach/detach`, `iam graph delete` |
 | `SG_AWS__LAMBDA__ALLOW_MUTATIONS=1` | `lambda <name> deploy/delete`, `lambda <name> url create/delete` |
+
+Gates — v0.2.29 new surfaces (PROPOSED — active once slice PRs land):
+
+| Gate | Covers |
+|------|--------|
+| `SG_AWS__S3__ALLOW_MUTATIONS=1` | `s3 edit`, `s3 cp/mv/rm/sync`, `s3 bucket-create` |
+| `SG_AWS__EC2__ALLOW_MUTATIONS=1` | `ec2 create/start/stop/terminate` |
+| `SG_AWS__FARGATE__ALLOW_MUTATIONS=1` | `fargate cluster-create/delete`, `fargate task-run/stop` |
+| `SG_AWS__BEDROCK__ALLOW_MUTATIONS=1` | `bedrock agent create/stop/memory-clear/tools-add`, `bedrock tool * session start/stop/run` |
+| `SG_AWS__CREDS__ALLOW_MUTATIONS=1` | `creds scope add/remove/update` |
 
 Read-only verbs (`list`, `show`, `check`, `get`, `wait`, `details`, `config`, `logs`, `invocations`) never need a gate.
 

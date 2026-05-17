@@ -30,9 +30,9 @@ app.add_typer(_aws_app, name='aws',          help='AWS resource management (DNS,
 from scripts.catalog import app as _catalog_app
 app.add_typer(_catalog_app, name='catalog',  help='List stack types or live stacks across all specs.')
 
-# ── credentials (v0.2.25) ────────────────────────────────────────────────────
+# ── credentials (v0.2.25) ─ hidden alias; canonical path is `sg aws credentials` (locked decision #13) ──
 from sgraph_ai_service_playwright__cli.credentials.cli.Cli__Credentials import app as _credentials_app
-app.add_typer(_credentials_app, name='credentials', help='Manage AWS credentials and roles (Keychain-backed).')
+app.add_typer(_credentials_app, name='credentials', hidden=True)          # alias of sg aws credentials; drop in v0.2.30
 
 # ── docker ───────────────────────────────────────────────────────────────────
 from scripts.docker_stack import app as _docker_app
