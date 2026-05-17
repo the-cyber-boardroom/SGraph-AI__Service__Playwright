@@ -47,32 +47,33 @@ def _mutation_guard():
 # ── deployment list ───────────────────────────────────────────────────────────
 
 @deployment_app.command('list')
+@spec_cli_errors
 def deployment_list(
     as_json: bool = typer.Option(False, '--json', help='Output as JSON.'),
 ):
     """List all Lambda functions in the account/region."""
-    with spec_cli_errors():
-        fns = Lambda__AWS__Client().list_functions()
-        if as_json:
-            typer.echo(json.dumps([f.json() for f in fns], indent=2))
-            return
-        if not fns:
-            console.print('No Lambda functions found.')
-            return
-        tbl = Table(title='Lambda Functions')
-        tbl.add_column('Name',    style='cyan')
-        tbl.add_column('Runtime', style='green')
-        tbl.add_column('State',   style='yellow')
-        tbl.add_column('Handler', style='white')
-        tbl.add_column('Memory',  style='dim')
-        for f in fns:
-            tbl.add_row(str(f.name), str(f.runtime), str(f.state), f.handler, str(f.memory_size))
-        console.print(tbl)
+    fns = Lambda__AWS__Client().list_functions()
+    if as_json:
+        typer.echo(json.dumps([f.json() for f in fns], indent=2))
+        return
+    if not fns:
+        console.print('No Lambda functions found.')
+        return
+    tbl = Table(title='Lambda Functions')
+    tbl.add_column('Name',    style='cyan')
+    tbl.add_column('Runtime', style='green')
+    tbl.add_column('State',   style='yellow')
+    tbl.add_column('Handler', style='white')
+    tbl.add_column('Memory',  style='dim')
+    for f in fns:
+        tbl.add_row(str(f.name), str(f.runtime), str(f.state), f.handler, str(f.memory_size))
+    console.print(tbl)
 
 
 # ── deployment deploy ─────────────────────────────────────────────────────────
 
 @deployment_app.command('deploy')
+@spec_cli_errors
 def deployment_deploy(
     name:      str = typer.Argument(..., help='Lambda function name.'),
     code_path: str = typer.Option(...,  '--code-path', help='Path to folder containing function code.'),
@@ -85,59 +86,59 @@ def deployment_deploy(
 ):
     """Deploy or update a Lambda function from a local folder."""
     _mutation_guard()
-    with spec_cli_errors():
-        from sgraph_ai_service_playwright__cli.aws.lambda_.enums.Enum__Lambda__Runtime import Enum__Lambda__Runtime
-        try:
-            rt = Enum__Lambda__Runtime(runtime)
-        except ValueError:
-            console.print(f'[red]Unknown runtime: {runtime}[/red]')
-            raise typer.Exit(1)
-        req = Schema__Lambda__Deploy__Request(
-            name        = Safe_Str__Lambda__Name(name),
-            folder_path = code_path,
-            handler     = handler,
-            role_arn    = role_arn,
-            runtime     = rt,
-            memory_size = memory,
-            timeout     = timeout,
-        )
-        resp = Lambda__Deployer().deploy_from_folder(req)
-        if as_json:
-            typer.echo(json.dumps(resp.json(), indent=2))
-            return
-        if resp.success:
-            verb = 'Created' if resp.created else 'Updated'
-            console.print(f'[green]{verb}[/green] {name}')
-            console.print(f'  ARN: {resp.function_arn}')
-        else:
-            console.print(f'[red]Failed:[/red] {resp.message}')
-            raise typer.Exit(1)
+    from sgraph_ai_service_playwright__cli.aws.lambda_.enums.Enum__Lambda__Runtime import Enum__Lambda__Runtime
+    try:
+        rt = Enum__Lambda__Runtime(runtime)
+    except ValueError:
+        console.print(f'[red]Unknown runtime: {runtime}[/red]')
+        raise typer.Exit(1)
+    req = Schema__Lambda__Deploy__Request(
+        name        = Safe_Str__Lambda__Name(name),
+        folder_path = code_path,
+        handler     = handler,
+        role_arn    = role_arn,
+        runtime     = rt,
+        memory_size = memory,
+        timeout     = timeout,
+    )
+    resp = Lambda__Deployer().deploy_from_folder(req)
+    if as_json:
+        typer.echo(json.dumps(resp.json(), indent=2))
+        return
+    if resp.success:
+        verb = 'Created' if resp.created else 'Updated'
+        console.print(f'[green]{verb}[/green] {name}')
+        console.print(f'  ARN: {resp.function_arn}')
+    else:
+        console.print(f'[red]Failed:[/red] {resp.message}')
+        raise typer.Exit(1)
 
 
 # ── deployment delete ─────────────────────────────────────────────────────────
 
 @deployment_app.command('delete')
+@spec_cli_errors
 def deployment_delete(
     name:    str  = typer.Argument(...,  help='Lambda function name.'),
     as_json: bool = typer.Option(False, '--json', help='Output as JSON.'),
 ):
     """Delete a Lambda function."""
     _mutation_guard()
-    with spec_cli_errors():
-        resp = Lambda__AWS__Client().delete_function(name)
-        if as_json:
-            typer.echo(json.dumps(resp.json(), indent=2))
-            return
-        if resp.success:
-            console.print(f'[green]Deleted[/green] {name}')
-        else:
-            console.print(f'[red]Failed:[/red] {resp.message}')
-            raise typer.Exit(1)
+    resp = Lambda__AWS__Client().delete_function(name)
+    if as_json:
+        typer.echo(json.dumps(resp.json(), indent=2))
+        return
+    if resp.success:
+        console.print(f'[green]Deleted[/green] {name}')
+    else:
+        console.print(f'[red]Failed:[/red] {resp.message}')
+        raise typer.Exit(1)
 
 
 # ── url create ────────────────────────────────────────────────────────────────
 
 @url_app.command('create')
+@spec_cli_errors
 def url_create(
     name:      str  = typer.Argument(...,  help='Lambda function name.'),
     auth_type: str  = typer.Option('NONE', '--auth-type', help='Auth type: NONE or AWS_IAM.'),
@@ -145,57 +146,56 @@ def url_create(
 ):
     """Create a Function URL for a Lambda function."""
     _mutation_guard()
-    with spec_cli_errors():
-        try:
-            at = Enum__Lambda__Url__Auth_Type(auth_type)
-        except ValueError:
-            console.print(f'[red]Unknown auth-type: {auth_type}[/red]')
-            raise typer.Exit(1)
-        info = Lambda__AWS__Client().create_function_url(name, auth_type=at)
-        if as_json:
-            typer.echo(json.dumps(info.json(), indent=2))
-            return
-        console.print(f'[green]URL created[/green]')
-        console.print(f'  URL:       {info.function_url}')
-        console.print(f'  Auth type: {info.auth_type}')
+    try:
+        at = Enum__Lambda__Url__Auth_Type(auth_type)
+    except ValueError:
+        console.print(f'[red]Unknown auth-type: {auth_type}[/red]')
+        raise typer.Exit(1)
+    info = Lambda__AWS__Client().create_function_url(name, auth_type=at)
+    if as_json:
+        typer.echo(json.dumps(info.json(), indent=2))
+        return
+    console.print(f'[green]URL created[/green]')
+    console.print(f'  URL:       {info.function_url}')
+    console.print(f'  Auth type: {info.auth_type}')
 
 
 # ── url show ──────────────────────────────────────────────────────────────────
 
 @url_app.command('show')
+@spec_cli_errors
 def url_show(
     name:    str  = typer.Argument(...,  help='Lambda function name.'),
     as_json: bool = typer.Option(False, '--json', help='Output as JSON.'),
 ):
     """Show the Function URL for a Lambda function."""
-    with spec_cli_errors():
-        info = Lambda__AWS__Client().get_function_url(name)
-        if as_json:
-            typer.echo(json.dumps(info.json(), indent=2))
-            return
-        if not info.exists:
-            console.print(f'[yellow]No Function URL configured for {name}[/yellow]')
-            return
-        console.print(f'  URL:       {info.function_url}')
-        console.print(f'  Auth type: {info.auth_type}')
+    info = Lambda__AWS__Client().get_function_url(name)
+    if as_json:
+        typer.echo(json.dumps(info.json(), indent=2))
+        return
+    if not info.exists:
+        console.print(f'[yellow]No Function URL configured for {name}[/yellow]')
+        return
+    console.print(f'  URL:       {info.function_url}')
+    console.print(f'  Auth type: {info.auth_type}')
 
 
 # ── url delete ────────────────────────────────────────────────────────────────
 
 @url_app.command('delete')
+@spec_cli_errors
 def url_delete(
     name:    str  = typer.Argument(...,  help='Lambda function name.'),
     as_json: bool = typer.Option(False, '--json', help='Output as JSON.'),
 ):
     """Delete the Function URL for a Lambda function."""
     _mutation_guard()
-    with spec_cli_errors():
-        resp = Lambda__AWS__Client().delete_function_url(name)
-        if as_json:
-            typer.echo(json.dumps(resp.json(), indent=2))
-            return
-        if resp.success:
-            console.print(f'[green]URL deleted[/green] for {name}')
-        else:
-            console.print(f'[red]Failed:[/red] {resp.message}')
-            raise typer.Exit(1)
+    resp = Lambda__AWS__Client().delete_function_url(name)
+    if as_json:
+        typer.echo(json.dumps(resp.json(), indent=2))
+        return
+    if resp.success:
+        console.print(f'[green]URL deleted[/green] for {name}')
+    else:
+        console.print(f'[red]Failed:[/red] {resp.message}')
+        raise typer.Exit(1)
