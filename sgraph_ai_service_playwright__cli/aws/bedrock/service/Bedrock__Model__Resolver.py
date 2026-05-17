@@ -1,0 +1,90 @@
+# ═══════════════════════════════════════════════════════════════════════════════
+# SP CLI — Bedrock__Model__Resolver
+# Translates user-facing model aliases (e.g. "opus-4.7", "haiku-4.5") to the
+# canonical Bedrock model ID or inference-profile ARN for the active region.
+#
+# Single source of truth for model-ID complexity.  No other class (CLI verbs,
+# service clients, tests) is allowed to hard-code Bedrock model IDs.
+#
+# Alias YAML: library/reference/v0.2.29__bedrock-model-aliases.yaml
+# ═══════════════════════════════════════════════════════════════════════════════
+
+import os
+from pathlib                                                                     import Path
+from typing                                                                      import Optional
+
+import yaml                                                                      # pyyaml — present in osbot-utils dependency tree
+
+from osbot_utils.type_safe.Type_Safe                                             import Type_Safe
+
+from sgraph_ai_service_playwright__cli.aws.bedrock.enums.Enum__Bedrock__Provider import Enum__Bedrock__Provider
+from sgraph_ai_service_playwright__cli.aws.bedrock.primitives.Safe_Str__Bedrock__Model_Id import Safe_Str__Bedrock__Model_Id
+
+# ── Alias YAML location ───────────────────────────────────────────────────────
+
+_ALIAS_YAML = Path(__file__).parents[6] / 'library' / 'reference' / 'v0.2.29__bedrock-model-aliases.yaml'
+
+# ── Provider keyword → Enum__Bedrock__Provider ────────────────────────────────
+
+_PROVIDER_MAP = {
+    'claude'  : Enum__Bedrock__Provider.CLAUDE ,
+    'nova'    : Enum__Bedrock__Provider.NOVA   ,
+    'llama'   : Enum__Bedrock__Provider.LLAMA  ,
+    'openai'  : Enum__Bedrock__Provider.OPENAI ,
+}
+
+
+class Bedrock__Model__Resolver(Type_Safe):
+    _aliases: dict                                                                   # loaded once from YAML; lazy-populated
+
+    # ── Alias loading ─────────────────────────────────────────────────────────
+
+    def aliases(self) -> dict:                                                      # Load alias table lazily from the YAML file
+        if not hasattr(self, '_aliases') or self._aliases is None:
+            self._aliases = {}
+        if self._aliases:
+            return self._aliases
+        try:
+            with open(_ALIAS_YAML, 'r') as f:
+                self._aliases = yaml.safe_load(f) or {}
+        except Exception:
+            self._aliases = {}
+        return self._aliases
+
+    # ── Public API ────────────────────────────────────────────────────────────
+
+    def resolve(self, provider: str, alias: str = 'default', region: str = '') -> str:
+        """Return the canonical model ID for provider+alias+region."""           # inline
+        table = self.aliases()
+        provider_key = provider.lower()
+        provider_section = table.get(provider_key, {})
+        if not provider_section:
+            raise ValueError(f'Unknown provider: {provider!r}')
+
+        # Check region-specific override first
+        region_overrides = table.get('region_overrides', {})
+        if region and alias != 'default':
+            override = region_overrides.get(region, {}).get(alias)
+            if override:
+                return override
+
+        # Fall back to provider section — raise for unknown non-default alias
+        if alias != 'default' and alias not in provider_section:
+            raise ValueError(f'Unknown alias {alias!r} for provider {provider!r}')
+        model_id = provider_section.get(alias) or provider_section.get('default', '')
+        if not model_id:
+            raise ValueError(f'Unknown alias {alias!r} for provider {provider!r}')
+        return model_id
+
+    def resolve_safe(self, provider: str, alias: str = 'default', region: str = '') -> Safe_Str__Bedrock__Model_Id:
+        raw = self.resolve(provider, alias, region)                               # wraps resolve in the primitive type
+        return Safe_Str__Bedrock__Model_Id(raw)
+
+    def provider_enum(self, provider: str) -> Enum__Bedrock__Provider:            # Map provider keyword to enum
+        key = provider.lower()
+        return _PROVIDER_MAP.get(key, Enum__Bedrock__Provider.OTHER)
+
+    def list_aliases(self, provider: str) -> list:                                # Returns all known aliases for a provider (excluding 'default')
+        table   = self.aliases()
+        section = table.get(provider.lower(), {})
+        return [k for k in section if k != 'default']

@@ -27,6 +27,7 @@ cryptography                 = "*"
 acme                         = "*"
 josepy                       = "*"
 typer                        = "*"
+pyyaml                       = "*"
 
 [tool.poetry.scripts]
 sg         = "sg_compute.cli.Cli__SG:app"                                               # primary alias — spec-driven aggregator
