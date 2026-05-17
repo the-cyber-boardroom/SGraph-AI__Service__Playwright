@@ -2,7 +2,7 @@
 title: "03 — Sonnet sub-agent orchestration plan"
 file: 03__sonnet-orchestration-plan.md
 author: Architect (Claude)
-date: 2026-05-17 (rev 2)
+date: 2026-05-17 (rev 3 — after v0.2.29 _shared/ landed and DNS deep-dive)
 parent: README.md
 ---
 
@@ -103,14 +103,14 @@ The only file all five agents touch is `service/experiments/registry.py`. Confli
 
 | Agent | Size | Lines of prod | Lines of test | Critical deps | Touches files outside its folder |
 |-------|------|--------------:|--------------:|---------------|----------------------------------|
-| **0 Foundation** | S | ~1500 | ~600 | none | many — but **first**, so no conflicts |
-| **A DNS** | S | ~900 | ~500 | Foundation; existing `Route53__AWS__Client` | `registry.py` (5 lines); `Render__Timeline__ASCII` |
-| **B Lambda** | M | ~1200 | ~500 | Foundation; **v2 phase 2b (`sg aws lambda` expansion)**; existing `Lambda__AWS__Client`; `osbot-aws.Deploy_Lambda` | `registry.py` (6 lines); `Render__Histogram__ASCII` |
-| **C CloudFront** | M | ~1200 | ~400 | Foundation; **v2 phase 2a (`sg aws cf` expansion)**; existing `CloudFront__AWS__Client` | `registry.py` (5 lines) |
+| **0 Foundation** | S | ~1000 | ~500 | v0.2.29 `_shared/` (already in dev) | many — but **first**, so no conflicts |
+| **A DNS** | S | ~700 | ~400 | Foundation; existing `Route53__AWS__Client`+`Public_Resolver__Checker`+`Smart_Verify`+`Zone__Resolver`+`Dig__Runner`; `_shared/` | `registry.py` (5 lines); `Render__Timeline__ASCII`; `Lab__Source__Adapter` (4 source registrations) |
+| **B Lambda** | M | ~1100 | ~500 | Foundation; **v2 phase 2b**; existing `Lambda__AWS__Client`+`Lambda__Deployer`+`Lambda__Name__Resolver`+`Logs__AWS__Client`; v0.2.29 `sg aws creds` (for E33); `osbot-aws.Deploy_Lambda` | `registry.py` (6 lines); `Render__Histogram__ASCII` |
+| **C CloudFront** | M | ~1100 | ~400 | Foundation; **v2 phase 2a**; existing `CloudFront__AWS__Client`+`ACM__AWS__Client`; v0.2.29 `EC2__AWS__Client`+`EC2__Name__Resolver` (for `Lab__Teardown__EC2`) | `registry.py` (5 lines) |
 | **D Transition** | M | ~1100 | ~400 | Foundation + A + B + C | `registry.py` (4 lines); enriched `Render__Timeline__ASCII` |
-| **E Viewer** | S | ~700 | ~300 | Foundation | `Render__HTML`, `runs diff` impl |
+| **E Viewer** | S | ~700 | ~300 | Foundation | `Render__HTML`, `runs diff` impl. Coexists with `sg aws observe` — see slice brief §"Coexistence" |
 
-Total: **~6600 production lines + ~2700 test lines** across 6 PRs (down from rev 1's 8400+3100, after dropping the primitive expansions and temp clients).
+Total: **~5700 production lines + ~2500 test lines** across 6 PRs (down from rev 2's 6600+2700 after the DNS deep-dive showed Agent A is smaller than estimated and the `_shared/` reuse shrinks the Foundation).
 
 ---
 

@@ -18,6 +18,6 @@ This folder mirrors the pattern used in `SGraph-AI__App__Send/library/sgraph-sen
 | [`v0.2.8__sg-image-builder/`](v0.2.8__sg-image-builder/) | v0.2.8 | — | Image-builder pack |
 | [`v0.2.9__improve-playwritght-api/`](v0.2.9__improve-playwritght-api/) | v0.2.9 | — | Playwright API improvements |
 | [`v0.2.11__vault-publish/`](v0.2.11__vault-publish/) | v0.2.11 | PROPOSED | The v2 vault-publish brief — wildcard CF + waker Lambda + per-slug EC2 |
-| [`v0.3.0__sg-aws-lab-harness/`](v0.3.0__sg-aws-lab-harness/) | v0.3.0 (post-v2) | PROPOSED | `sg aws lab` measurement harness. 5-Sonnet-sub-agent orchestration plan; sequential after v2 vault-publish phases 2a/2b which ship the `sg aws cf` / `sg aws lambda` primitive expansions. (Renamed from rev-1 `v0.2.28__` which collided with the credentials slot.) |
+| [`v0.3.0__sg-aws-lab-harness/`](v0.3.0__sg-aws-lab-harness/) | v0.3.0 (post-v2) | PROPOSED (rev 3) | `sg aws lab` measurement harness. 5-Sonnet-sub-agent orchestration plan. Sequential after v2 vault-publish phases 2a/2b. Heavy reuse of v0.2.29's `_shared/` scaffold + `sg aws creds` + `sg aws observe` (Decisions #9, #10). DNS Agent A reuse table refined after code-level deep-dive of `sg aws dns`. |
 
 _The upstream "playwright-dev-pack" (v0.20.55) is mirrored under [`../briefing/`](../briefing/), [`../guides/`](../guides/), [`../docs/`](../docs/), and [`../reference/`](../reference/) rather than kept as a single pack here._

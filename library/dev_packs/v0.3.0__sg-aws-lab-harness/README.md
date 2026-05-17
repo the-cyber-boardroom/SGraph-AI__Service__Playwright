@@ -2,16 +2,17 @@
 title: "sg aws lab — Dev Briefing Pack (post-v2)"
 file: README.md
 author: Architect (Claude)
-date: 2026-05-17 (rev 2 — after dev merge)
-repo: SGraph-AI__Service__Playwright @ dev (current root version: v0.2.27)
+date: 2026-05-17 (rev 3 — after v0.2.29 merge and DNS deep-dive)
+repo: SGraph-AI__Service__Playwright @ dev (root version: v0.2.28; v0.2.29 incoming)
 status: PROPOSED — no code yet. For human ratification before Dev picks up.
-sequencing: POST-V2. Lands AFTER v2 vault-publish (plan: v0.2.23) ships its phases 2a/2b.
+sequencing: POST-V2. Lands AFTER v2 vault-publish (plan: v0.2.23) ships its phases 2a/2b. v0.2.29 already shipped the new AWS primitive surfaces (s3/ec2/fargate/iam-graph/bedrock/cloudtrail/creds/observe) which this pack heavily reuses.
 parent:
   - team/humans/dinis_cruz/briefs/05/17/from__claude-web/lab-brief/README.md
   - team/humans/dinis_cruz/claude-code-web/05/17/00/v0.2.23__plan__vault-publish-spec/README.md
 related:
   - library/docs/cli/sg-aws/README.md                                          # user-facing surface that exists today
-  - team/comms/plans/v0.2.28__sg-credentials-deferred-work.md                  # AWS session machinery this pack rides on top of
+  - team/comms/plans/v0.2.28__sg-credentials-deferred-work.md                  # AWS session machinery (Sg__Aws__Session)
+  - team/claude/debriefs/2026-05-17__v0.2.29-sg-aws-primitives-expansion.md    # 8 new aws/* surfaces + _shared/ scaffold
   - team/humans/dinis_cruz/claude-code-web/05/17/00/v0.2.23__plan__vault-publish-spec/03__delta-from-lab-brief.md   # lab-brief compliance corrections
 feature_branch: claude/aws-primitives-support-NVyEh
 ---
@@ -26,19 +27,18 @@ A **measurement harness** for AWS-side behaviour: ~24 named experiments that tur
 
 ---
 
-## Why this revision exists (read this if you saw rev 1)
+## Why this revision exists (read this if you saw rev 1 or rev 2)
 
-Rev 1 of this pack (committed 2026-05-17 in `v0.2.28__sg-aws-lab-harness/`) made three assumptions that **conflict with decisions already in `dev`**:
+**Rev 1 → Rev 2** (2026-05-17, after first `dev` merge): renamed `v0.2.28__` → `v0.3.0__` (v0.2.28 was taken by credentials); removed Decisions #8 + #9 (primitive expansion belongs to v2 phases 2a/2b per delta `B.5`); resequenced to v2-first.
 
-1. **It claimed v0.2.28** — but v0.2.28 is the `sg credentials` deferred work (`team/comms/plans/v0.2.28__sg-credentials-deferred-work.md`). Renamed to `v0.3.0__sg-aws-lab-harness/`.
-2. **It folded `sg aws cf` / `sg aws lambda` primitive expansion into the lab milestone** — but the v0.2.23 vault-publish plan (`03__delta-from-lab-brief.md §B.5`) already decided those expansions belong to vault-publish phases 2a/2b, not the lab. Decisions #8 and #9 of rev 1 are **removed**.
-3. **It assumed lab and v2 could ship in parallel** — but v0.2.23 Q1 decided **sequential, v2 first**. Critical-path diagram rebuilt accordingly.
+**Rev 2 → Rev 3** (2026-05-17, after second `dev` merge bringing in v0.2.29 + a deep-dive on `sg aws dns`):
 
-Rev 2 also:
-- Routes lab AWS calls through `Sg__Aws__Session.from_context().boto3_client_from_context()` (the v0.2.28 Phase D seam), not bare boto3 (decision #6 updated).
-- Marks open Qs 1/4/6/11/14 as RESOLVED by the v0.2.23 plan.
-- Cites `03__delta-from-lab-brief.md` deltas B.1-B.7 in every agent brief so Sonnet sub-agents don't replicate the lab-brief's CLAUDE.md compliance errors.
-- Updates reality-doc and catalogue references to the new domain tree / 8-shard layout.
+1. **`v0.2.29` shipped 8 new AWS surfaces** (s3, ec2, fargate, iam-graph, bedrock, cloudtrail, creds, observe) plus a `_shared/` scaffold (`Mutation__Gate`, `Aws__Confirm`, `Aws__Tagger`, `Aws__Region__Resolver`, `Source__Contract`, shared primitives/schemas/enums). Decision #6 reworked; new Decision #9 added; foundation scope shrinks because the lab inherits ~30% of its plumbing from `_shared/`.
+2. **HCD-1 reshape** (v0.2.29) added a `session : object` attribute + `setup()` method to the 9 new v0.2.29 AWS clients — the lab's optional client wrappers follow that pattern. Note: the **legacy 7 clients** the lab depends on most (`Route53__AWS__Client`, `Lambda__AWS__Client`, `CloudFront__AWS__Client`, `IAM__AWS__Client`, `ACM__AWS__Client`, `Logs__AWS__Client`, `Cost_Explorer__AWS__Client`) are still on bare boto3 — pickup is tracked by v0.2.28 plan §3.4.
+3. **HCD-3** wired `confirm_or_abort` + `--dry-run` to every mutating verb in the new surfaces — the lab MUST follow that pattern (use `_shared/Aws__Confirm.confirm_or_abort`).
+4. **`sg aws creds`** (Slice G) — scoped STS credential delivery. Agent B uses it for the lab Lambda's internal AWS calls (E33).
+5. **`sg aws observe`** (Slice H) — unified observability REPL with a `Source__Contract` pattern. **New Decision #10**: lab read-only experiments register as observe sources via `Lab__Source__Adapter`.
+6. **DNS deep-dive** found the `sg aws dns` package already provides MORE than the lab-brief credited: `Route53__AWS__Client.wait_for_change(...)` with `on_poll` callback; `Route53__Smart_Verify` decision logic; `Route53__Public_Resolver__Checker.use_full_set()` (answers open Q5). Agent A's reuse table is substantially expanded.
 
 ---
 
@@ -54,7 +54,8 @@ The v2 vault-publish brief leans on five claims about AWS behaviour — wildcard
 |--------|-----------|---------|
 | `team/humans/dinis_cruz/briefs/05/17/from__claude-web/lab-brief/` (9 files) | **Architect brief — the design** | Component decomposition, experiment catalogue, safety story, module layout. The ground truth for *what* the harness does. |
 | `team/humans/dinis_cruz/claude-code-web/05/17/00/v0.2.23__plan__vault-publish-spec/` (9 files) | **v2 plan with 17 resolved decisions** | Especially `03__delta-from-lab-brief.md` (lab-brief compliance corrections, B.1-B.7) and `08__decisions-applied.md` (decisions that already settle some of our open questions) |
-| `team/comms/plans/v0.2.28__sg-credentials-deferred-work.md` | Credentials/AWS-session plan | The `Sg__Aws__Session` seam this pack rides on top of |
+| `team/claude/debriefs/2026-05-17__v0.2.29-sg-aws-primitives-expansion.md` | **v0.2.29 debrief — what shipped** | The 8 new surfaces, the `_shared/` scaffold, HCD-1 (session+setup), HCD-3 (confirm/dry-run wiring). The lab inherits all of this. |
+| `team/comms/plans/v0.2.28__sg-credentials-deferred-work.md` | Credentials/AWS-session plan | The `Sg__Aws__Session` seam this pack rides on top of (via the v0.2.29 `_shared/` reuse) |
 | `library/docs/cli/sg-aws/` | User-facing reference | What `sg aws *` does today (the substrate the lab measures against) |
 
 If this pack contradicts any of those, **the source wins** — open an Architect-review request, do not silently diverge.
@@ -88,11 +89,13 @@ These are settled. If any seems wrong, raise an Architect-review request — do 
 | 3 | **Three independent cleanup layers + TTL-stamped tags.** Resource ledger + atexit/signal handlers + tag-driven leak sweeper + `sg:lab:expires-at` 1-h default. **No experiment may leak.** Lab safety story stays in lab — **do NOT generalise it into vault-publish** (per delta `B.7`). | Hard guarantee from lab-brief §4. |
 | 4 | **Read-only by default.** Mutations gated by `SG_AWS__LAB__ALLOW_MUTATIONS=1`. Tier-2 also needs `--tier-2-confirm`. | Same gate pattern as the rest of `sg aws *`. |
 | 5 | **All A-record VALUES restricted to TEST-NET-1/2/3** (`192.0.2.0/24`, `198.51.100.0/24`, `203.0.113.0/24`) unless `--force-real-ip`. | Removes "lab record accidentally points at someone's production IP" failure mode. |
-| 6 | **All lab AWS calls route through `Sg__Aws__Session.from_context().boto3_client_from_context(...)`** — the v0.2.28 Phase D seam. Falls through to bare boto3 when no role is set (behaviour-preserving for unconfigured operators); honours the active role (e.g. `sg --as lab ...`) when one is set. The existing per-service `*__AWS__Client.client()` methods (`Lambda__AWS__Client`, `CloudFront__AWS__Client`, `Route53__AWS__Client`, etc.) still call bare `boto3.client(...)` today — Phase D migrated only the per-resource `ec2_client/ssm_client/iam_client` seams across 62 files. Per-service-client migration is tracked in the v0.2.28 plan §3.4 as ongoing. The lab inherits the role-aware credentials, CloudTrail-correlatable session names, and audit-log integration as those clients migrate. **Platform caveat:** the keyring backend is macOS-only today; on Linux CI workers the seam falls through to bare boto3 (no role-awareness). See `02__common-foundation.md §8`. | One seam to inherit from; pragmatic about the in-progress migration. |
+| 6 | **All lab AWS calls inherit the v0.2.29 client conventions.** Lab uses the existing per-service clients (`Route53__AWS__Client`, `Lambda__AWS__Client`, `CloudFront__AWS__Client`, `IAM__AWS__Client`, `ACM__AWS__Client`, `Logs__AWS__Client`) directly — each routes through whatever credential chain the operator's environment provides. The 9 new v0.2.29 clients (S3, EC2, Fargate, etc.) carry HCD-1 `session : object = None` + `setup() -> Self` and route through `Sg__Aws__Session.from_context()` for role-awareness; the lab's lab Lambda (Agent B) and any new lab-side wrappers follow that pattern. The 7 legacy clients (R53, Lambda, CF, IAM, ACM, Logs, Cost Explorer) still use bare `boto3.client(...)`; the lab inherits whatever they do. Per-service-client migration to HCD-1 is tracked in v0.2.28 plan §3.4. **Platform caveat:** `Sg__Aws__Session.from_context()` instantiates `Keyring__Mac__OS` — macOS only. On Linux CI workers the seam falls through to bare boto3 (no role-awareness). See `02__common-foundation.md §8`. | One seam to inherit from; pragmatic about the in-progress migration. |
+| 9 | **Reuse `_shared/` from v0.2.29** — the lab's `Lab__Tagger`, mutation-gate decorator, confirm prompts, region resolver, primitives (`Safe_Str__AWS__Tag_Key`, `Safe_Str__AWS__ARN`, etc.), schemas (`Schema__AWS__Tag`, `Schema__AWS__ARN`, etc.), and enums (`Enum__AWS__Mutation__Tier`) come from `sgraph_ai_service_playwright__cli/aws/_shared/`. The lab adds only `sg:lab:*` tag keys and lab-specific schemas; it does NOT reinvent the canonical `sg:*` tag set, the `@require_mutation_gate` decorator, or `confirm_or_abort(msg, yes, dry_run)`. | The whole point of `_shared/`. |
+| 10 | **Lab read-only experiments are registerable as `sg aws observe` sources.** A new `Lab__Source__Adapter` in the foundation implements `Source__Contract` (from `_shared/source_contract/`) — operators using `sg aws observe` see lab read-only experiments in the unified REPL (e.g. `sg aws observe sources` lists them; `sg aws observe tail lab:resolver-latency` streams results). Lab keeps `sg aws lab` as the primary surface (for mutating experiments + run history + sweeper), but the read-only half is also a citizen of `sg aws observe`. | Avoids two ways to "watch DNS resolver latency"; the lab's value-add lives in the historical `.sg-lab/runs/` + sweeper, not in re-inventing the read interface. |
 | 7 | **Type_Safe + per-class-file + empty `__init__.py`** everywhere. **Specifically:** no `Set__Str`, no `Dict__Str__Str`, no `Dict__Str__Int` (use `Type_Safe__Dict__Safe_Str__Safe_Str` etc.); runner injected at `setup` time as a field, not per-call (per delta `B.1`, `B.2`, `B.4`). **File names match class names exactly** — no `E01__zone_inventory.py` prefixing; experiment files are e.g. `Lab__Experiment__Zone_Inventory.py` per CLAUDE.md rule #21 (per delta `B.3`). | CLAUDE.md rules #1, #3, #20, #21, #22; lab-brief deltas B.1-B.4. |
 | 8 | **Per-Sonnet-agent branches off `claude/aws-primitives-support-NVyEh`.** Each opens its own PR to the integration branch; integration merges to `dev` once all five are reviewed. | Bounded blast radius; parallel reviews. |
 
-(Rev 1's decisions #8 and #9 — folding `sg aws cf` / `sg aws lambda` primitive expansion into the lab milestone — are **REMOVED**. Those expansions belong to vault-publish phases 2a/2b per the v0.2.23 plan.)
+(Rev 1's decisions #8 and #9 — folding `sg aws cf` / `sg aws lambda` primitive expansion into the lab milestone — are **REMOVED**. Those expansions belong to vault-publish phases 2a/2b per the v0.2.23 plan. The slots are reused in rev 3 by the `_shared/` and observe-integration decisions above.)
 
 ---
 
@@ -106,7 +109,7 @@ The lab-brief's `08__open-questions.md` listed 15 open questions. Several were r
 | Q2 — single AWS account or shared? | Architect rec: share, plus `Lab__Safety__Account_Guard` + dedicated `lab` role via `sg credentials`. Operator decision. | unchanged |
 | Q3 — default TTL on lab-tagged resources? | Architect rec: 1 h, `--ttl` override. Operator decision. | unchanged |
 | **Q4 — where do lab-minted ACM certs live?** | **RESOLVED.** Post-v2, lab uses its own wildcard cert in the lab zone (Q1). Pre-v2, lab P0+P1 needs no cert (DNS-only). | v0.2.23 plan Q7, Q15-Q17 |
-| Q5 — 6 or 8 public resolvers? | Architect rec: 6 (smart-verify subset), `--full-set` flag. Operator decision. | unchanged |
+| Q5 — 6 or 8 public resolvers? | **RESOLVED.** `Route53__Public_Resolver__Checker` already supports both — default is the 6-resolver smart-verify subset; `.use_full_set(quorum=0)` switches to all 8. Lab experiments inherit this; `--full-set` flag toggles. | DNS deep-dive 2026-05-17 |
 | **Q6 — Function URL auth NONE vs AWS_IAM?** | **RESOLVED.** v2 confirmed `auth_type='NONE'`; lab follows the same pattern. | v0.2.23 plan Q8 |
 | Q7 — share resources across runs? | Architect rec: per-run in P3, revisit B as P-Followup. | unchanged |
 | Q8 — `.sg-lab/` location? | Architect rec: repo-root, `SG_AWS__LAB__HOME` override. | unchanged |
@@ -118,7 +121,7 @@ The lab-brief's `08__open-questions.md` listed 15 open questions. Several were r
 | **Q14 — `sg vault-publish lab` sub-command?** | **RESOLVED.** No. Labs are platform-level, stay under `sg aws lab`. | v0.2.23 plan structure |
 | Q15 — what does v2 "validate Phase 0" mean? | **PARTIALLY RESOLVED.** v0.2.23 Q6 marks v2 Phase 0 as already COMPLETED 2026-05-17. The lab's first acceptance run (E10/E11/E12 against the lab zone, post-v2) becomes a baseline measurement, not a v2 gate. | v0.2.23 plan Q6 |
 
-Open: Q2, Q3, Q5, Q7, Q8, Q9, Q10, Q12, Q13 — Architect has recommendations; operator decision needed before P1/P2/P3.
+Open: Q2, Q3, Q7, Q8, Q9, Q10, Q12, Q13 — Architect has recommendations; operator decision needed before P1/P2/P3.
 
 ---
 
@@ -156,4 +159,5 @@ When this milestone closes:
 | Date | Note |
 |------|------|
 | 2026-05-17 | Pack rev 1 filed at `v0.2.28__sg-aws-lab-harness/`. |
-| 2026-05-17 | Pack rev 2 filed at `v0.3.0__sg-aws-lab-harness/` after `dev` merge — rev 1 conflicted with v0.2.28 credentials slot, the v0.2.23 vault-publish plan's primitive-expansion ownership, and the v2-first sequencing decision. See "Why this revision exists" above. Pack now consistent with `dev`. |
+| 2026-05-17 | Pack rev 2 filed at `v0.3.0__sg-aws-lab-harness/` after `dev` merge — rev 1 conflicted with v0.2.28 credentials slot, the v0.2.23 vault-publish plan's primitive-expansion ownership, and the v2-first sequencing decision. |
+| 2026-05-17 | Pack rev 3 — after second `dev` merge bringing in v0.2.29 (8 new surfaces + `_shared/` + HCD-1 + HCD-3) and a code-level deep-dive on `sg aws dns`. Added Decisions #9 (`_shared/` reuse) and #10 (lab as observe source); resolved Q5 (6 vs 8 resolvers — already addressed by existing `use_full_set()`); rewrote Agent A reuse table around `wait_for_change`, `Smart_Verify`, and the existing dig/resolver primitives. Foundation PR scope shrinks ~30% because the lab inherits plumbing from `_shared/`. |
