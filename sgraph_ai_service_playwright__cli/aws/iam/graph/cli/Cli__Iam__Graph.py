@@ -31,6 +31,7 @@ from rich.console import Console
 from rich.table   import Table
 
 from sg_compute.cli.base.Spec__CLI__Errors                                                   import spec_cli_errors
+from sgraph_ai_service_playwright__cli.aws._shared.Aws__Confirm                             import confirm_or_abort
 from sgraph_ai_service_playwright__cli.aws._shared.Mutation__Gate                           import require_mutation_gate
 from sgraph_ai_service_playwright__cli.aws.iam.graph.service.Iam__Discovery__Orchestrator  import Iam__Discovery__Orchestrator
 from sgraph_ai_service_playwright__cli.aws.iam.graph.service.Iam__Graph__Builder           import Iam__Graph__Builder
@@ -272,10 +273,11 @@ def filter_nodes(
 @require_mutation_gate(_IAM_MUTATIONS_ENV)
 @spec_cli_errors
 def delete_roles(
-    from_file : str  = typer.Option(..., '--from',    help='Path to candidate JSON file (output of filter).'),
-    confirm   : bool = typer.Option(False, '--confirm', help='Actually delete (omit for dry-run).'),
+    from_file : str  = typer.Option(...,  '--from',     help='Path to candidate JSON file (output of filter).'),
+    confirm   : bool = typer.Option(False, '--confirm',  help='Actually delete (omit for dry-run).'),
     yes       : bool = typer.Option(False, '--yes', '-y', help='Skip confirmation prompt.'),
-    as_json   : bool = typer.Option(False, '--json',   help='Output as JSON.'),
+    dry_run   : bool = typer.Option(False, '--dry-run',  help='Print would-be deletion without executing.'),
+    as_json   : bool = typer.Option(False, '--json',     help='Output as JSON.'),
 ):
     """Delete IAM roles from a candidate file. Dry-run by default; --confirm to mutate.
 
@@ -312,8 +314,8 @@ def delete_roles(
         return
 
     # ── real deletion path ────────────────────────────────────────────────────
-    if not yes:
-        typer.confirm(f'Delete {len(plan.candidates)} IAM roles?', abort=True)
+    if not confirm_or_abort(f'Delete {len(plan.candidates)} IAM roles?', yes=yes, dry_run=dry_run):
+        raise typer.Exit(0)
 
     executed = cleanup.execute_plan(plan, confirm=True)
     payload  = dict(

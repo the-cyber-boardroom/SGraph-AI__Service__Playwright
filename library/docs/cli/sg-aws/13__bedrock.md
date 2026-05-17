@@ -30,6 +30,103 @@ sg aws bedrock chat list-models
 
 ---
 
+## `check` — diagnostic preflight
+
+```bash
+sg aws bedrock check
+sg aws bedrock check --region us-east-1
+sg aws bedrock check --json
+```
+
+Runs 8 diagnostic probes against the active role and region. Prints a Rich table with ✓ / ⚠ / ✗. Exits 1 on any FAIL; exits 0 with a warning line if only ⚠; exits 0 silently on all PASS. No mutations — safe to run repeatedly.
+
+| # | Probe |
+|---|-------|
+| 1 | STS caller identity resolves |
+| 2 | Region supports Bedrock (GA allowlist) |
+| 3 | `bedrock:ListFoundationModels` permission |
+| 4 | Total models in catalogue (region catalogue count) |
+| 5 | Models with enabled access |
+| 6 | At least one Claude / Nova / Llama model enabled |
+| 7 | `bedrock:InvokeModel` permission (1-token smoke-test) |
+| 8 | Capture writer (`~/.sg/aws/bedrock/`) reachable and writable |
+
+Example output:
+
+```
+$ sg aws bedrock check
+  Bedrock preflight  ·  role=dev  ·  region=eu-west-2
+
+  [✓]  sts identity         arn:aws:iam::123456789012:user/dinis
+  [✓]  region supported     eu-west-2 (Bedrock GA)
+  [✓]  list-models perm     bedrock:ListFoundationModels
+  [✓]  models in catalogue  42
+  [⚠]  models with access   0 of 42 — none enabled yet
+  [✗]  claude available     0 enabled — `chat claude` will fail
+  [✗]  invoke perm          smoke-test skipped (no models enabled)
+  [✓]  capture writer       ~/.sg/aws/bedrock/ writable
+
+  Next step:  sg aws bedrock setup --open-console
+```
+
+Flags:
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--region R` | active role default | Override region for all probes. |
+| `--json` | off | Output JSON array of `Schema__Bedrock__Check__Result`. |
+
+---
+
+## `setup` — guided enablement
+
+```bash
+sg aws bedrock setup
+sg aws bedrock setup --print-policy
+sg aws bedrock setup --print-policy --output policy.json
+sg aws bedrock setup --open-console
+sg aws bedrock setup --region us-east-1 --models claude,nova
+```
+
+Prints a 3-step guided setup: IAM permissions, model access, and verification. Read-only by default — no AWS mutations.
+
+Flags:
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--region R` | active role default | Region for deeplinks and policy context. |
+| `--open-console` | off | Open the Bedrock model-access console deeplink in `$BROWSER`. |
+| `--print-policy` | off | Print the minimal IAM policy JSON to stdout. |
+| `--output FILE` | none | Write the IAM policy JSON to FILE (use with `--print-policy`). |
+| `--models PROVIDERS` | `claude,nova` | Comma-separated providers to target in setup recommendations. |
+
+Example (`--print-policy`):
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [{
+    "Sid": "SgAwsBedrockChat",
+    "Effect": "Allow",
+    "Action": [
+      "bedrock:ListFoundationModels",
+      "bedrock:GetFoundationModel",
+      "bedrock:InvokeModel",
+      "bedrock:InvokeModelWithResponseStream"
+    ],
+    "Resource": "*"
+  }]
+}
+```
+
+Console deeplink (opened by `--open-console`):
+
+```
+https://<region>.console.aws.amazon.com/bedrock/home?region=<region>#/modelaccess
+```
+
+---
+
 ## Chat sub-tree
 
 Chat is **read-only** — no mutation gate required.
@@ -266,6 +363,8 @@ Session artefacts captured to `~/.sg/aws/bedrock/tools/code-interpreter/<session
 
 | Sub-tree / verb | Gate required |
 |-----------------|---------------|
+| `check` | No |
+| `setup` | No |
 | `chat *` | No |
 | `agent list / get / memory list` | No |
 | `agent create / invoke / stop / memory clear` | `SG_AWS__BEDROCK__ALLOW_MUTATIONS=1` |

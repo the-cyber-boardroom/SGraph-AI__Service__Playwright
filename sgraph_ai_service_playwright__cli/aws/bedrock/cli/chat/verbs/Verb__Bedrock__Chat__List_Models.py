@@ -8,6 +8,7 @@ import json
 from typing                                                                      import Optional
 
 import typer
+from botocore.exceptions                                                         import ClientError
 from rich.console                                                                import Console
 from rich.table                                                                  import Table
 
@@ -21,7 +22,22 @@ def register_list_models(app: typer.Typer) -> None:
                     json_output: bool          = typer.Option(False, '--json',           help='Output JSON instead of a table.')):
         """List Bedrock foundation models enabled in the current account and region."""
         client = Bedrock__Control__AWS__Client()
-        models = client.list_models(provider_filter=provider)
+        try:
+            models = client.list_models(provider_filter=provider)
+        except ClientError as exc:
+            code = exc.response.get('Error', {}).get('Code', 'Unknown')
+            msg  = exc.response.get('Error', {}).get('Message', str(exc))
+            c = Console(highlight=False)
+            c.print()
+            c.print(f'  [red][✗] {code}[/red]: {msg}')
+            c.print( '      Run:  sg aws bedrock check')
+            c.print( '      Or:   sg aws bedrock setup --print-policy')
+            c.print()
+            raise typer.Exit(1)
+        except Exception as exc:
+            c = Console(highlight=False)
+            c.print(f'  [red]Error:[/red] {exc}')
+            raise typer.Exit(1)
         region = client.current_region()
 
         if json_output:
