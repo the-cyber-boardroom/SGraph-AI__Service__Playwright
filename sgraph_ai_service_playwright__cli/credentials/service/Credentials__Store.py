@@ -48,7 +48,8 @@ class Credentials__Store(Type_Safe):
         payload  = json.dumps({'name'           : str(config.name           ),
                                'region'         : str(config.region         ),
                                'assume_role_arn': str(config.assume_role_arn),
-                               'session_name'   : str(config.session_name   )})
+                               'session_name'   : str(config.session_name   ),
+                               'account_id'     : str(config.account_id     )})
         return self.keyring.set(service, _ACCOUNT_CONFIG, payload)
 
     def role_get(self, role_name: str) -> Schema__AWS__Role__Config | None:
@@ -65,6 +66,7 @@ class Credentials__Store(Type_Safe):
             region          = data.get('region'         , ''),
             assume_role_arn = data.get('assume_role_arn', ''),
             session_name    = data.get('session_name'   , ''),
+            account_id      = data.get('account_id'     , ''),
         )
 
     def role_delete(self, role_name: str) -> bool:

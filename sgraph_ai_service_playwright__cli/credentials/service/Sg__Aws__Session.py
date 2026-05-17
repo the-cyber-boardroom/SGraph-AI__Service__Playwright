@@ -93,7 +93,27 @@ class Sg__Aws__Session(Type_Safe):
             kwargs['region_name'] = region
         return boto3.client(service_name, **kwargs)                 # fall-through: bare boto3
 
-    # ── class method ──────────────────────────────────────────────────────────
+    def account_id_for(self, role_name: str) -> str:               # cached → STS → write-back → return
+        config = self.store.role_get(role_name)
+        if config is None:
+            return ''
+        cached = str(config.account_id)
+        if cached:
+            return cached
+        sts = self.boto3_client(role_name, 'sts')
+        if sts is None:
+            return ''
+        try:
+            resolved = str(sts.get_caller_identity().get('Account', ''))
+        except Exception:
+            return ''
+        if resolved:
+            from sgraph_ai_service_playwright__cli.credentials.primitives.Safe_Str__AWS__Account_Id import Safe_Str__AWS__Account_Id
+            config.account_id = Safe_Str__AWS__Account_Id(resolved)
+            self.store.role_set(config)
+        return resolved
+
+    # ── class methods ─────────────────────────────────────────────────────────
 
     @classmethod
     def from_context(cls, context=None) -> 'Sg__Aws__Session':
@@ -101,3 +121,13 @@ class Sg__Aws__Session(Type_Safe):
         from sgraph_ai_service_playwright__cli.osx.keyring.service.Keyring__Mac__OS  import Keyring__Mac__OS
         store = Credentials__Store(keyring=Keyring__Mac__OS())
         return cls(store=store)
+
+    @classmethod
+    def account_id_from_context(cls) -> str:                       # cached account_id for the active role; '' if no role or not cached
+        from sgraph_ai_service_playwright__cli.credentials.service.Sg__Aws__Context import Sg__Aws__Context
+        from sgraph_ai_service_playwright__cli.osx.keyring.service.Keyring__Mac__OS  import Keyring__Mac__OS
+        role = Sg__Aws__Context.get_current_role()
+        if not role:
+            return ''
+        store = Credentials__Store(keyring=Keyring__Mac__OS())
+        return cls(store=store).account_id_for(role)

@@ -118,8 +118,10 @@ def instance_deploy_name(details: dict) -> str:                                 
 # Pure-data accessors over osbot_aws.AWS_Config — kept as module-level functions
 # (no EC2 client needed). Each AWS_Config() call uses osbot_aws's auth caching.
 
-def aws_account_id() -> str:
-    return AWS_Config().aws_session_account_id()
+def aws_account_id() -> str:                                                        # cached via sg credentials store; STS fallback when no sg role active
+    from sgraph_ai_service_playwright__cli.credentials.service.Sg__Aws__Session import Sg__Aws__Session
+    cached = Sg__Aws__Session.account_id_from_context()
+    return cached or AWS_Config().aws_session_account_id()
 
 
 def aws_region() -> str:

@@ -34,6 +34,7 @@ from typing import List, Optional
 from sgraph_ai_service_playwright__cli.credentials.enums.Enum__Audit__Action                  import Enum__Audit__Action
 from sgraph_ai_service_playwright__cli.credentials.primitives.Safe_Str__AWS__Region            import Safe_Str__AWS__Region
 from sgraph_ai_service_playwright__cli.credentials.primitives.Safe_Str__AWS__Role__ARN         import Safe_Str__AWS__Role__ARN
+from sgraph_ai_service_playwright__cli.credentials.primitives.Safe_Str__AWS__Account_Id        import Safe_Str__AWS__Account_Id
 from sgraph_ai_service_playwright__cli.credentials.primitives.Safe_Str__Role__Name             import Safe_Str__Role__Name
 from sgraph_ai_service_playwright__cli.credentials.schemas.Schema__AWS__Role__Config           import Schema__AWS__Role__Config
 from sgraph_ai_service_playwright__cli.credentials.service.Audit__Log                         import Audit__Log
@@ -77,27 +78,63 @@ def list_cmd():
 
 
 @app.command()
-def add(role       : str = typer.Argument(..., help='Role name (e.g. admin, dev).'),
-        access_key : str = typer.Argument(..., help='AWS access key ID.'),
-        secret_key : str = typer.Argument(..., help='AWS secret access key.'),
-        region     : str = typer.Option('us-east-1', help='Default AWS region.'),
-        arn        : str = typer.Option('', help='STS AssumeRole ARN (leave empty to use keys directly.')):
+def add(role       : str  = typer.Argument(..., help='Role name (e.g. admin, dev).'),
+        access_key : str  = typer.Argument(..., help='AWS access key ID.'),
+        secret_key : str  = typer.Argument(..., help='AWS secret access key.'),
+        region     : str  = typer.Option('us-east-1', help='Default AWS region.'),
+        arn        : str  = typer.Option('', help='STS AssumeRole ARN (leave empty to use keys directly).'),
+        account_id : str  = typer.Option('', '--account-id', help='AWS account ID (12 digits). Auto-detected via STS if omitted.'),
+        detect     : bool = typer.Option(True,  '--detect/--no-detect', help='Auto-detect account ID via STS GetCallerIdentity when --account-id is not given.')):
     """Add or update credentials for a role."""
     store  = _store()
+    ok_aws = store.aws_credentials_set(role, access_key, secret_key)
+    if not ok_aws:
+        typer.echo(f'[error] failed to save AWS credentials for {role!r}', err=True)
+        raise typer.Exit(1)
+
+    if not account_id and detect:
+        account_id = _detect_account_id(store, role, region, arn) or ''
+        if account_id:
+            typer.echo(f'[detected] account_id: {account_id}')
+        else:
+            typer.echo('[warn] could not auto-detect account_id; saving without it', err=True)
+
     config = Schema__AWS__Role__Config(
-        name            = Safe_Str__Role__Name(role)       ,
-        region          = Safe_Str__AWS__Region(region)    ,
-        assume_role_arn = Safe_Str__AWS__Role__ARN(arn)    ,
-        session_name    = Safe_Str__Role__Name(f'sg-{role}'),
+        name            = Safe_Str__Role__Name      (role)       ,
+        region          = Safe_Str__AWS__Region     (region)     ,
+        assume_role_arn = Safe_Str__AWS__Role__ARN  (arn)        ,
+        session_name    = Safe_Str__Role__Name      (f'sg-{role}'),
+        account_id      = Safe_Str__AWS__Account_Id (account_id) ,
     )
     ok_cfg = store.role_set(config)
-    ok_aws = store.aws_credentials_set(role, access_key, secret_key)
-    if ok_cfg and ok_aws:
+    if ok_cfg:
         typer.echo(f'[ok] role {role!r} added/updated')
         _audit().log(Enum__Audit__Action.ADD, role=role, command_args=f'credentials add {role} <redacted> <redacted>')
     else:
-        typer.echo(f'[error] failed to save credentials for {role!r}', err=True)
+        typer.echo(f'[error] failed to save role config for {role!r}', err=True)
         raise typer.Exit(1)
+
+
+def _detect_account_id(store, role: str, region: str, arn: str) -> str:
+    """Call STS GetCallerIdentity to populate account_id. Returns '' on failure."""
+    from sgraph_ai_service_playwright__cli.credentials.service.Sg__Aws__Session import Sg__Aws__Session
+
+    placeholder = Schema__AWS__Role__Config(
+        name            = Safe_Str__Role__Name      (role)       ,
+        region          = Safe_Str__AWS__Region     (region)     ,
+        assume_role_arn = Safe_Str__AWS__Role__ARN  (arn)        ,
+        session_name    = Safe_Str__Role__Name      (f'sg-{role}'),
+    )
+    store.role_set(placeholder)
+
+    session = Sg__Aws__Session(store=store)
+    sts     = session.boto3_client(role, 'sts')
+    if sts is None:
+        return ''
+    try:
+        return str(sts.get_caller_identity().get('Account', ''))
+    except Exception:
+        return ''
 
 
 @app.command()
@@ -141,6 +178,7 @@ def show(role: str = typer.Argument(..., help='Role name to inspect.')):
     creds  = store.aws_credentials_get(role)
     typer.echo(f'role          : {config.name}')
     typer.echo(f'region        : {config.region}')
+    typer.echo(f'account_id    : {config.account_id or "(not set — run: sg credentials test " + role + ")"}')
     typer.echo(f'assume_role   : {config.assume_role_arn or "(direct)"}')
     typer.echo(f'session_name  : {config.session_name}')
     if creds is not None:
