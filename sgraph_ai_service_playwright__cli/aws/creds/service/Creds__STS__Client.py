@@ -4,14 +4,22 @@
 # substitute an in-memory fake without patching or mocking.
 # ═══════════════════════════════════════════════════════════════════════════════
 
-from osbot_utils.type_safe.Type_Safe import Type_Safe
+from osbot_utils.type_safe.Type_Safe                                             import Type_Safe
+
+from sgraph_ai_service_playwright__cli.credentials.service.Sg__Aws__Session      import Sg__Aws__Session
 
 
 class Creds__STS__Client(Type_Safe):
+    session : Sg__Aws__Session = None                                           # cached session — injected or lazy-init via setup()
+
+    def setup(self):                                                             # idempotent — noop if session already set
+        if self.session is None:
+            self.session = Sg__Aws__Session.from_context()
+        return self
 
     def client(self):                                                           # Single seam — override in subclass for in-memory tests
-        from sgraph_ai_service_playwright__cli.credentials.service.Sg__Aws__Session import Sg__Aws__Session
-        return Sg__Aws__Session.from_context().boto3_client_from_context('sts')
+        self.setup()
+        return self.session.boto3_client_from_context('sts')
 
     def assume_role(self, role_arn: str, session_name: str,
                     duration_seconds: int) -> dict:                             # Returns AccessKeyId/SecretAccessKey/SessionToken/Expiration

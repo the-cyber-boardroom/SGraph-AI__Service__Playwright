@@ -23,14 +23,21 @@ from sgraph_ai_service_playwright__cli.aws.fargate.primitives.Safe_Str__ECS__Tas
 from sgraph_ai_service_playwright__cli.aws.fargate.schemas.Schema__ECS__Cluster                   import Schema__ECS__Cluster
 from sgraph_ai_service_playwright__cli.aws.fargate.schemas.Schema__ECS__Task                      import Schema__ECS__Task
 from sgraph_ai_service_playwright__cli.aws.fargate.schemas.Schema__ECS__Task__Definition          import Schema__ECS__Task__Definition
+from sgraph_ai_service_playwright__cli.credentials.service.Sg__Aws__Session                       import Sg__Aws__Session
 
 
 class Fargate__AWS__Client(Type_Safe):
-    region : str = ''                                                             # override to target a specific region
+    session : Sg__Aws__Session = None                                             # cached session — injected or lazy-init via setup()
+    region  : str              = ''                                               # override to target a specific region
+
+    def setup(self):                                                              # idempotent — noop if session already set
+        if self.session is None:
+            self.session = Sg__Aws__Session.from_context()
+        return self
 
     def client(self):                                                             # single boto3 seam — subclass overrides for tests
-        from sgraph_ai_service_playwright__cli.credentials.service.Sg__Aws__Session import Sg__Aws__Session
-        return Sg__Aws__Session.from_context().boto3_client_from_context('ecs', region=self.region)
+        self.setup()
+        return self.session.boto3_client_from_context('ecs', region=self.region)
 
     # ── cluster read ──────────────────────────────────────────────────────────
 

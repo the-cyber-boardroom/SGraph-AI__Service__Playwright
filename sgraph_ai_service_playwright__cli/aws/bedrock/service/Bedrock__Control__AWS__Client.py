@@ -3,11 +3,11 @@
 # Sole boto3 boundary for the Bedrock control-plane API (service name 'bedrock').
 # Used for list-models only (list_foundation_models).
 #
-# EXCEPTION: boto3 used directly — no osbot-aws Bedrock wrapper exists.
-# Pattern matches ACM__AWS__Client precedent.
+# Note: boto3.session.Session() is used in current_region() for config reading
+# only — no client calls bypass Sg__Aws__Session.
 # ═══════════════════════════════════════════════════════════════════════════════
 
-import boto3                                                                     # EXCEPTION — see module header
+import boto3                                                                     # used only in current_region() for config reading
 
 from osbot_utils.type_safe.Type_Safe                                             import Type_Safe
 
@@ -15,15 +15,22 @@ from sgraph_ai_service_playwright__cli.aws.bedrock.collections.List__Schema__Bed
 from sgraph_ai_service_playwright__cli.aws.bedrock.enums.Enum__Bedrock__Provider             import Enum__Bedrock__Provider
 from sgraph_ai_service_playwright__cli.aws.bedrock.primitives.Safe_Str__Bedrock__Model_Id    import Safe_Str__Bedrock__Model_Id
 from sgraph_ai_service_playwright__cli.aws.bedrock.schemas.Schema__Bedrock__Model            import Schema__Bedrock__Model
+from sgraph_ai_service_playwright__cli.credentials.service.Sg__Aws__Session                  import Sg__Aws__Session
 
 FALLBACK_REGION = 'us-east-1'
 
 
 class Bedrock__Control__AWS__Client(Type_Safe):
+    session : Sg__Aws__Session = None                                            # cached session — injected or lazy-init via setup()
+
+    def setup(self):                                                              # idempotent — noop if session already set
+        if self.session is None:
+            self.session = Sg__Aws__Session.from_context()
+        return self
 
     def client(self, region: str = None):                                        # Single seam — tests override to return a fake client
-        from sgraph_ai_service_playwright__cli.credentials.service.Sg__Aws__Session import Sg__Aws__Session
-        return Sg__Aws__Session.from_context().boto3_client_from_context('bedrock', region=region or self.current_region())
+        self.setup()
+        return self.session.boto3_client_from_context('bedrock', region=region or self.current_region())
 
     def current_region(self) -> str:                                             # Returns the boto3 configured region, falling back to us-east-1
         region = boto3.session.Session().region_name

@@ -25,14 +25,21 @@ from sgraph_ai_service_playwright__cli.aws.s3.schemas.Schema__S3__Bucket        
 from sgraph_ai_service_playwright__cli.aws.s3.schemas.Schema__S3__List__Response import Schema__S3__List__Response
 from sgraph_ai_service_playwright__cli.aws.s3.schemas.Schema__S3__Object         import Schema__S3__Object
 from sgraph_ai_service_playwright__cli.aws.s3.schemas.Schema__S3__Stat           import Schema__S3__Stat
+from sgraph_ai_service_playwright__cli.credentials.service.Sg__Aws__Session      import Sg__Aws__Session
 
 
 class S3__AWS__Client(Type_Safe):
-    region : str = ''                                                             # override to target specific region
+    session : Sg__Aws__Session = None                                             # cached session — injected or lazy-init via setup()
+    region  : str              = ''                                               # override to target specific region
+
+    def setup(self):                                                              # idempotent — noop if session already set
+        if self.session is None:
+            self.session = Sg__Aws__Session.from_context()
+        return self
 
     def client(self):                                                             # single boto3 seam — subclass overrides to inject fake
-        from sgraph_ai_service_playwright__cli.credentials.service.Sg__Aws__Session import Sg__Aws__Session
-        return Sg__Aws__Session.from_context().boto3_client_from_context('s3', region=self.region)
+        self.setup()
+        return self.session.boto3_client_from_context('s3', region=self.region)
 
     # ── list operations ───────────────────────────────────────────────────────
 

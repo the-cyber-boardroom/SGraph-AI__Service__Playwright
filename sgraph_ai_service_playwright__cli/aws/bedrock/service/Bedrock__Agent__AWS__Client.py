@@ -9,9 +9,12 @@
 #
 # When bedrock_agentcore becomes available, replace the boto3 calls below with
 # the SDK calls — the public method signatures stay the same.
+#
+# Note: boto3.session.Session() is used in current_region() for config reading
+# only — no client calls bypass Sg__Aws__Session.
 # ═══════════════════════════════════════════════════════════════════════════════
 
-import boto3                                                                     # EXCEPTION — see module header
+import boto3                                                                     # used only in current_region() for config reading
 
 from osbot_utils.type_safe.Type_Safe                                             import Type_Safe
 
@@ -19,19 +22,26 @@ from sgraph_ai_service_playwright__cli.aws.bedrock.collections.List__Schema__Bed
 from sgraph_ai_service_playwright__cli.aws.bedrock.primitives.Safe_Str__Bedrock__Agent_Arn  import Safe_Str__Bedrock__Agent_Arn
 from sgraph_ai_service_playwright__cli.aws.bedrock.primitives.Safe_Str__Bedrock__Model_Id   import Safe_Str__Bedrock__Model_Id
 from sgraph_ai_service_playwright__cli.aws.bedrock.schemas.Schema__Bedrock__Agent           import Schema__Bedrock__Agent
+from sgraph_ai_service_playwright__cli.credentials.service.Sg__Aws__Session                 import Sg__Aws__Session
 
 FALLBACK_REGION = 'us-east-1'
 
 
 class Bedrock__Agent__AWS__Client(Type_Safe):
+    session : Sg__Aws__Session = None                                            # cached session — injected or lazy-init via setup()
+
+    def setup(self):                                                              # idempotent — noop if session already set
+        if self.session is None:
+            self.session = Sg__Aws__Session.from_context()
+        return self
 
     def client(self, region: str = None):                                        # boto3 control-plane client for Agents
-        from sgraph_ai_service_playwright__cli.credentials.service.Sg__Aws__Session import Sg__Aws__Session
-        return Sg__Aws__Session.from_context().boto3_client_from_context('bedrock-agent', region=region or self.current_region())
+        self.setup()
+        return self.session.boto3_client_from_context('bedrock-agent', region=region or self.current_region())
 
     def runtime_client(self, region: str = None):                                # boto3 runtime client for invoke
-        from sgraph_ai_service_playwright__cli.credentials.service.Sg__Aws__Session import Sg__Aws__Session
-        return Sg__Aws__Session.from_context().boto3_client_from_context('bedrock-agent-runtime', region=region or self.current_region())
+        self.setup()
+        return self.session.boto3_client_from_context('bedrock-agent-runtime', region=region or self.current_region())
 
     def current_region(self) -> str:
         region = boto3.session.Session().region_name

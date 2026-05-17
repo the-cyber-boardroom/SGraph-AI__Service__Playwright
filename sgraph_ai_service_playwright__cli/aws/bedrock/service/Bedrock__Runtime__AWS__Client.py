@@ -3,22 +3,30 @@
 # Sole boto3 boundary for the Bedrock runtime API (service name 'bedrock-runtime').
 # Handles converse calls for all chat providers.
 #
-# EXCEPTION: boto3 used directly — no osbot-aws Bedrock-runtime wrapper exists.
-# Pattern matches ACM__AWS__Client precedent.
+# Note: boto3.session.Session() is used in current_region() for config reading
+# only — no client calls bypass Sg__Aws__Session.
 # ═══════════════════════════════════════════════════════════════════════════════
 
-import boto3                                                                     # EXCEPTION — see module header
+import boto3                                                                     # used only in current_region() for config reading
 
 from osbot_utils.type_safe.Type_Safe                                             import Type_Safe
+
+from sgraph_ai_service_playwright__cli.credentials.service.Sg__Aws__Session      import Sg__Aws__Session
 
 FALLBACK_REGION = 'us-east-1'
 
 
 class Bedrock__Runtime__AWS__Client(Type_Safe):
+    session : Sg__Aws__Session = None                                            # cached session — injected or lazy-init via setup()
+
+    def setup(self):                                                              # idempotent — noop if session already set
+        if self.session is None:
+            self.session = Sg__Aws__Session.from_context()
+        return self
 
     def client(self, region: str = None):                                        # Single seam — tests override to return a fake client
-        from sgraph_ai_service_playwright__cli.credentials.service.Sg__Aws__Session import Sg__Aws__Session
-        return Sg__Aws__Session.from_context().boto3_client_from_context('bedrock-runtime', region=region or self.current_region())
+        self.setup()
+        return self.session.boto3_client_from_context('bedrock-runtime', region=region or self.current_region())
 
     def current_region(self) -> str:                                             # Returns the boto3 configured region, falling back to us-east-1
         region = boto3.session.Session().region_name

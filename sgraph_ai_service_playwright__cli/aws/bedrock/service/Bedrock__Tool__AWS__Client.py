@@ -5,9 +5,12 @@
 # EXPERIMENTAL: uses boto3 'bedrock-agentcore-control' and
 # 'bedrock-agentcore' namespaces. When the AgentCore Python SDK stabilises,
 # replace the boto3 surface here — CLI signatures stay unchanged.
+#
+# Note: boto3.session.Session() is used in current_region() for config reading
+# only — no client calls bypass Sg__Aws__Session.
 # ═══════════════════════════════════════════════════════════════════════════════
 
-import boto3                                                                     # EXCEPTION — see module header
+import boto3                                                                     # used only in current_region() for config reading
 
 from osbot_utils.type_safe.Type_Safe                                             import Type_Safe
 
@@ -15,23 +18,30 @@ from sgraph_ai_service_playwright__cli.aws.bedrock.collections.List__Schema__Bed
 from sgraph_ai_service_playwright__cli.aws.bedrock.enums.Enum__Bedrock__Tool__Type                  import Enum__Bedrock__Tool__Type
 from sgraph_ai_service_playwright__cli.aws.bedrock.primitives.Safe_Str__Bedrock__Session_Id         import Safe_Str__Bedrock__Session_Id
 from sgraph_ai_service_playwright__cli.aws.bedrock.schemas.Schema__Bedrock__Tool__Session           import Schema__Bedrock__Tool__Session
+from sgraph_ai_service_playwright__cli.credentials.service.Sg__Aws__Session                         import Sg__Aws__Session
 
 FALLBACK_REGION = 'us-east-1'
 
 
 class Bedrock__Tool__AWS__Client(Type_Safe):
+    session : Sg__Aws__Session = None                                            # cached session — injected or lazy-init via setup()
+
+    def setup(self):                                                              # idempotent — noop if session already set
+        if self.session is None:
+            self.session = Sg__Aws__Session.from_context()
+        return self
 
     def current_region(self) -> str:
         region = boto3.session.Session().region_name
         return region if region else FALLBACK_REGION
 
     def agentcore_client(self, region: str = None):                              # AgentCore runtime client (browser + code-interpreter)
-        from sgraph_ai_service_playwright__cli.credentials.service.Sg__Aws__Session import Sg__Aws__Session
-        return Sg__Aws__Session.from_context().boto3_client_from_context('bedrock-agentcore', region=region or self.current_region())
+        self.setup()
+        return self.session.boto3_client_from_context('bedrock-agentcore', region=region or self.current_region())
 
     def agentcore_control_client(self, region: str = None):                      # AgentCore control-plane client
-        from sgraph_ai_service_playwright__cli.credentials.service.Sg__Aws__Session import Sg__Aws__Session
-        return Sg__Aws__Session.from_context().boto3_client_from_context('bedrock-agentcore-control', region=region or self.current_region())
+        self.setup()
+        return self.session.boto3_client_from_context('bedrock-agentcore-control', region=region or self.current_region())
 
     # ── Browser sessions ──────────────────────────────────────────────────────
 

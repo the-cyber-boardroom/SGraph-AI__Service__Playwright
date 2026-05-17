@@ -20,6 +20,7 @@ from sgraph_ai_service_playwright__cli.aws.cloudtrail.collections.List__Schema__
 from sgraph_ai_service_playwright__cli.aws.cloudtrail.collections.List__Schema__CloudTrail__Trail import List__Schema__CloudTrail__Trail
 from sgraph_ai_service_playwright__cli.aws.cloudtrail.schemas.Schema__CloudTrail__Event           import Schema__CloudTrail__Event
 from sgraph_ai_service_playwright__cli.aws.cloudtrail.schemas.Schema__CloudTrail__Trail           import Schema__CloudTrail__Trail
+from sgraph_ai_service_playwright__cli.credentials.service.Sg__Aws__Session                       import Sg__Aws__Session
 
 
 _RELATIVE = re.compile(r'^(\d+)(s|m|h|d)$')
@@ -27,10 +28,16 @@ _UNIT_S   = {'s': 1, 'm': 60, 'h': 3600, 'd': 86400}
 
 
 class CloudTrail__AWS__Client(Type_Safe):
+    session : Sg__Aws__Session = None                                             # cached session — injected or lazy-init via setup()
+
+    def setup(self):                                                              # idempotent — noop if session already set
+        if self.session is None:
+            self.session = Sg__Aws__Session.from_context()
+        return self
 
     def client(self):                                                             # single boto3 seam — subclass overrides for tests
-        from sgraph_ai_service_playwright__cli.credentials.service.Sg__Aws__Session import Sg__Aws__Session
-        return Sg__Aws__Session.from_context().boto3_client_from_context('cloudtrail')
+        self.setup()
+        return self.session.boto3_client_from_context('cloudtrail')
 
     # ── read ──────────────────────────────────────────────────────────────────
 
