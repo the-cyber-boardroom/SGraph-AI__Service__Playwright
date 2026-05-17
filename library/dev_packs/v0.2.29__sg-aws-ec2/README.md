@@ -16,19 +16,22 @@ feature_branch: claude/aws-primitives-support-uNnZY-ec2
 
 **The EC2 primitive layer that the v0.2.30 container-hosts primitive will build on.** The two source briefs that drive this slice — [container-hosts](../../../team/humans/dinis_cruz/briefs/05/17/from__daily-briefs/v0.27.43__dev-brief__sg-compute-container-hosts-primitive.md) and [instance-sizing-experiments](../../../team/humans/dinis_cruz/briefs/05/17/from__daily-briefs/v0.27.43__dev-brief__instance-sizing-and-startup-experiments.md) — both want a clean, type-safe CLI for "list / describe / create / start / stop / terminate an EC2 instance" before their own substrate work can sit cleanly on top. Slice B delivers exactly that primitive layer. The container-hosts primitive itself and the measurement programme are explicit v0.2.30 work (per umbrella locked decisions #11 + #12).
 
-Implementation mechanism: extract the genuinely-EC2-shaped logic from `scripts/provision_ec2.py` (~2500 LOC) and `Elastic__AWS__Client` into a tidy `aws/ec2/` namespace; `scripts/provision_ec2.py` keeps working as a thin Typer wrapper that delegates to the new primitives.
+Implementation mechanism: build the new `aws/ec2/` namespace from scratch (or by recovering reference logic from the deleted `scripts/provision_ec2.py` via git history) and extract genuinely-EC2-shaped helpers from `Elastic__AWS__Client`.
+
+> **Note (2026-05-17):** The legacy `scripts/provision_ec2.py` (2510 LOC) and the legacy `/api/ec2/playwright/*` HTTP routes were deleted ahead of Slice B as a cleanup pass. See [`library/reference/v0.2.11__provision_ec2-legacy-snapshot.md`](../../reference/v0.2.11__provision_ec2-legacy-snapshot.md) for the deletion record and git-history recovery instructions. Slice B no longer needs to keep any wrapper around the old file — it starts from a clean baseline.
 
 > **PROPOSED — does not exist yet.** Cross-check `team/roles/librarian/reality/cli/` (look for `cli/aws-*.md`) before describing anything here as built.
 
 ### Coexistence with existing `__cli/ec2/` (locked decision #14)
 
-There is already a top-level package `sgraph_ai_service_playwright__cli/ec2/` (~550 LOC, `Ec2__AWS__Client` + `Ec2__Service` + schemas + primitives + AMI helpers). It powers:
+The legacy `__cli/ec2/` package was substantially **trimmed on 2026-05-17** (deletion of `Ec2__Service.py`, the route-only schemas, `Routes__Ec2__Playwright`, and `scripts/provision_ec2.py`). What remains is the still-useful, narrow surface:
 
-- The FastAPI duality routes (`Routes__Ec2__Playwright` on `Fast_API__SP__CLI`)
-- `default_playwright_image_uri()` / `default_sidecar_image_uri()` consumed by `Docker__Service`, `Firefox__Service`, and several specs
-- `aws_account_id()` (now backed by the v0.2.28 credentials cache via `Sg__Aws__Session.account_id_from_context()`)
+- `Ec2__AWS__Client` — `ecr_registry_host()` / `aws_account_id()` / `aws_region()` / `default_playwright_image_uri()` / `default_sidecar_image_uri()` / IAM helpers. **Consumed by `Docker__Service`, `Firefox__Service`, `scripts/doctor.py`** — keep this working.
+- `Safe_Str__Instance__Id`, `Safe_Str__AMI__Id`, `Safe_Str__Deploy_Name`, `Safe_Str__Stage`, `Safe_UInt__Max_Hours`, `Safe_Str__AWS__Account_Id` (primitives) — used by `vnc/`, `podman/`, observability schemas.
+- `List__Instance__Id` (collection) — used widely across stack schemas.
+- `Enum__Instance__State` — still used by `Elastic__AWS__Client`.
 
-**Coexistence rule:** the new `aws/ec2/service/EC2__AWS__Client.py` *wraps and extends* the existing `__cli/ec2/service/Ec2__AWS__Client.py` — it does not reinvent it. Where the existing client already has a method that does what we need (`find_instances`, `instance_tag`, `resolve_target`), import and call it. Where new behaviour is needed (full `describe`, `pricing`, `ssh-info`, AMI alias resolution), add it in the new client. A v0.2.30 hygiene pack consolidates the two locations once the new CLI surface is stable.
+**Coexistence rule:** the new `aws/ec2/service/EC2__AWS__Client.py` *wraps and extends* the existing `__cli/ec2/service/Ec2__AWS__Client.py` rather than reinventing those helpers. Where the existing client already has a method that does what we need, import and call it. Where new behaviour is needed (full `describe`, `pricing`, `ssh-info`, AMI alias resolution), add it in the new client. A v0.2.30 hygiene pack consolidates the two locations and absorbs the remaining `__cli/ec2/` primitives into `aws/_shared/` once the new CLI surface is stable.
 
 This same coexistence principle applies whenever a slice finds a pre-existing top-level package (Slice H + `__cli/observability/` is the other example).
 
@@ -167,9 +170,6 @@ SG_AWS__EC2__ALLOW_MUTATIONS=1 sg aws ec2 stop sg-test-tmp-<suffix> --yes
 SG_AWS__EC2__ALLOW_MUTATIONS=1 sg aws ec2 start sg-test-tmp-<suffix> --yes
 SG_AWS__EC2__ALLOW_MUTATIONS=1 sg aws ec2 terminate sg-test-tmp-<suffix> --yes
 
-# regression: scripts/provision_ec2.py still works (calls the new primitives)
-python scripts/provision_ec2.py --help
-
 # tests
 pytest tests/unit/sgraph_ai_service_playwright__cli/aws/ec2/ -v
 SG_AWS__EC2__INTEGRATION=1 pytest tests/integration/sgraph_ai_service_playwright__cli/aws/ec2/ -v
@@ -180,12 +180,12 @@ SG_AWS__EC2__INTEGRATION=1 pytest tests/integration/sgraph_ai_service_playwright
 ## Deliverables
 
 1. All files under `aws/ec2/` per the layout above
-2. Refactored `scripts/provision_ec2.py` + extracted helpers from `elastic/` (existing tests must keep passing)
+2. Extracted/promoted helpers from `__cli/elastic/service/Elastic__AWS__Client.py` (existing elastic tests must keep passing)
 3. Unit tests under `tests/unit/sgraph_ai_service_playwright__cli/aws/ec2/`
 4. Integration tests under `tests/integration/sgraph_ai_service_playwright__cli/aws/ec2/` (gated)
 5. New user-guide page `library/docs/cli/sg-aws/10__ec2.md`
 6. One row added to `library/docs/cli/sg-aws/README.md` "at-a-glance command map"
-7. Reality-doc update: new `team/roles/librarian/reality/cli/aws-ec2.md` (the existing `cli/ec2.md` continues to cover the FastAPI duality) (supersedes the `scripts/provision_ec2.py` note)
+7. Reality-doc update: new `team/roles/librarian/reality/cli/aws-ec2.md` (the existing `cli/ec2.md` is being trimmed alongside Slice B since the legacy FastAPI routes were retired on 2026-05-17)
 
 ---
 
@@ -193,10 +193,9 @@ SG_AWS__EC2__INTEGRATION=1 pytest tests/integration/sgraph_ai_service_playwright
 
 - **Security-group naming.** CLAUDE.md rule #14 forbids `sg-*` GroupName. Use the existing helper from `Elastic__AWS__Client` (`sg_name_for_stack`) — promote it to `aws/ec2/service/`.
 - **AMI alias drift.** Aliases like `ubuntu-22.04-arm64` resolve to different IDs per region and over time. Cache resolutions for the session; expose `--ami-id` to bypass alias resolution.
-- **Wait-for-state semantics.** Default `--wait` to true on `create / start / stop / terminate`. Polling backoff: 2s → 5s → 10s → 15s capped, total 5 min. `Ec2__Service` (in the existing `__cli/ec2/`) already has wait logic — promote/reuse, do not reinvent.
+- **Wait-for-state semantics.** Default `--wait` to true on `create / start / stop / terminate`. Polling backoff: 2s → 5s → 10s → 15s capped, total 5 min. Wait logic patterns are recoverable from the deleted `scripts/provision_ec2.py` git history if useful as reference.
 - **Named-resource → verb pattern.** EC2 `<id-or-name>` resolution + per-instance verbs should follow the existing `Lambda__Click__Group` two-level dynamic Click group at `sgraph_ai_service_playwright__cli/aws/lambda_/cli/Lambda__Click__Group.py` so REPL prefix navigation works (`sg-c stop` style). The pattern is small enough to copy; do NOT extract a shared base.
 - **Pricing API region.** AWS Pricing API only lives in `us-east-1` regardless of caller region. `EC2__Pricing__Client` ignores the resolver and pins us-east-1.
-- **Existing script regression.** `scripts/provision_ec2.py` callers (CI, partner provisioning, etc.) must keep working. Migrate behaviour, not interface.
 - **Name-tag fuzzy resolution.** Ambiguity (two instances both named `dev-*`) must error with both IDs listed, not pick one silently.
 
 ---
