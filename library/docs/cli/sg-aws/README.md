@@ -30,7 +30,7 @@ How to drive the `sg aws *` command surface from a terminal. This pack is a **us
 | 07 | [`07__lambda.md`](07__lambda.md) | `sg aws lambda` — info / details / config / logs / invocations / invoke / url |
 | 08 | [`08__credentials.md`](08__credentials.md) | `sg aws credentials` — Keychain-backed long-lived credentials store |
 | 09 | `09__s3.md` *(PROPOSED — Slice A)* | `sg aws s3` — S3 object and bucket management |
-| 10 | `10__ec2.md` *(PROPOSED — Slice B)* | `sg aws ec2` — EC2 instance management |
+| 10 | [`10__ec2.md`](10__ec2.md) | `sg aws ec2` — EC2 instance management |
 | 11 | `11__fargate.md` *(PROPOSED — Slice C)* | `sg aws fargate` — ECS Fargate clusters and tasks |
 | 12 | `12__iam-graph.md` *(PROPOSED — Slice D)* | `sg aws iam graph` — IAM-as-graph discovery and cleanup |
 | 13 | `13__bedrock.md` *(PROPOSED — Slice E)* | `sg aws bedrock` — Bedrock chat, agents, tools |
@@ -63,7 +63,7 @@ sg aws
 │   └── <function-name> {info,details,config,logs,invocations,invoke,deploy,delete,
 │                         url {create,show,delete}, tags, versions, aliases}
 ├── s3          ← S3 (PROPOSED — Slice A)           (ls, view, cat, cp, mv, rm, sync, …)
-├── ec2         ← EC2 (PROPOSED — Slice B)           (list, describe, start, stop, terminate, …)
+├── ec2         ← EC2                                 (list, describe, ssh-info, tags, instance-types, pricing, create, start, stop, terminate, wait)
 ├── fargate     ← ECS Fargate (PROPOSED — Slice C)  (cluster/task lifecycle)
 ├── iam
 │   └── graph   ← IAM graph (PROPOSED — Slice D)    (discover, filter, delete, stats, …)
