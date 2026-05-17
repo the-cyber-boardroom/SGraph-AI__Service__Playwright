@@ -22,7 +22,8 @@ FALLBACK_REGION = 'us-east-1'
 class Bedrock__Control__AWS__Client(Type_Safe):
 
     def client(self, region: str = None):                                        # Single seam — tests override to return a fake client
-        return boto3.client('bedrock', region_name=region or self.current_region())
+        from sgraph_ai_service_playwright__cli.credentials.service.Sg__Aws__Session import Sg__Aws__Session
+        return Sg__Aws__Session.from_context().boto3_client_from_context('bedrock', region=region or self.current_region())
 
     def current_region(self) -> str:                                             # Returns the boto3 configured region, falling back to us-east-1
         region = boto3.session.Session().region_name
@@ -32,14 +33,11 @@ class Bedrock__Control__AWS__Client(Type_Safe):
         effective_region = region or self.current_region()
         bedrock          = self.client(effective_region)
         models           = List__Schema__Bedrock__Model()
-        try:
-            kwargs = {'byInferenceType': 'ON_DEMAND'}
-            if provider_filter:
-                kwargs['byProvider'] = provider_filter
-            resp  = bedrock.list_foundation_models(**kwargs)
-            items = resp.get('modelSummaries', [])
-        except Exception:
-            return models
+        kwargs = {'byInferenceType': 'ON_DEMAND'}
+        if provider_filter:
+            kwargs['byProvider'] = provider_filter
+        resp  = bedrock.list_foundation_models(**kwargs)              # let ClientError propagate — no silent swallow
+        items = resp.get('modelSummaries', [])
         for item in items:
             model = self.map_model(item, effective_region)
             if model is not None:

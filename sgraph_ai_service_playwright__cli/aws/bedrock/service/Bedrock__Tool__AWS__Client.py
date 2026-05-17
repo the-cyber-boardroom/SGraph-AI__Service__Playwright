@@ -26,12 +26,12 @@ class Bedrock__Tool__AWS__Client(Type_Safe):
         return region if region else FALLBACK_REGION
 
     def agentcore_client(self, region: str = None):                              # AgentCore runtime client (browser + code-interpreter)
-        return boto3.client('bedrock-agentcore',
-                            region_name=region or self.current_region())
+        from sgraph_ai_service_playwright__cli.credentials.service.Sg__Aws__Session import Sg__Aws__Session
+        return Sg__Aws__Session.from_context().boto3_client_from_context('bedrock-agentcore', region=region or self.current_region())
 
     def agentcore_control_client(self, region: str = None):                      # AgentCore control-plane client
-        return boto3.client('bedrock-agentcore-control',
-                            region_name=region or self.current_region())
+        from sgraph_ai_service_playwright__cli.credentials.service.Sg__Aws__Session import Sg__Aws__Session
+        return Sg__Aws__Session.from_context().boto3_client_from_context('bedrock-agentcore-control', region=region or self.current_region())
 
     # ── Browser sessions ──────────────────────────────────────────────────────
 
