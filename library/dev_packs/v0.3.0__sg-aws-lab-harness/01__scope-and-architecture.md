@@ -2,7 +2,7 @@
 title: "01 — Scope and architecture"
 file: 01__scope-and-architecture.md
 author: Architect (Claude)
-date: 2026-05-17
+date: 2026-05-17 (rev 2)
 parent: README.md
 ---
 
@@ -131,7 +131,6 @@ sgraph_ai_service_playwright__cli/aws/lab/
 │   │   ├── lambda_/                  ← Agent B
 │   │   └── transition/               ← Agent D
 │   ├── renderers/                    ← Agent E (table baseline lives in foundation)
-│   ├── temp_clients/                 ← scheduled-for-deletion
 │   └── lambdas/                      ← in-tree lab Lambdas (B's territory)
 ├── schemas/                          ← one Schema__Lab__* per file
 ├── enums/                            ← one Enum__Lab__* per file
@@ -139,7 +138,9 @@ sgraph_ai_service_playwright__cli/aws/lab/
 └── collections/                      ← List__Schema__Lab__*
 ```
 
-Full per-file breakdown is in `lab-brief/05 §1`. ~40 production files + ~30 test files, ~7800 total lines.
+**No `temp_clients/` folder** (rev 2). Per decision #2, the lab uses real primitives — `Route53__AWS__Client` for P0+P1; `Lambda__AWS__Client` and `CloudFront__AWS__Client` for P2+P3 once v2 vault-publish phases 2b/2a expand them.
+
+Full per-file breakdown is in `lab-brief/05 §1`, with the per-file *naming* corrected per delta `B.3` (no `E01__` numeric prefix — files are named after their classes, e.g. `Lab__Experiment__Zone_Inventory.py`). ~40 production files + ~30 test files, ~7000 total lines (~800 lower than rev 1 after dropping temp-clients).
 
 **Empty `__init__.py` everywhere.** Callers import the per-class fully-qualified path. No re-exports. (CLAUDE.md rule #22.)
 
@@ -175,31 +176,18 @@ Tier-2 also requires `--tier-2-confirm` (or an interactive `y/N`).
 
 ---
 
-## 8. The two primitive expansions (Decisions #8 and #9)
+## 8. Primitive dependencies (NOT this pack's scope)
 
-The harness depends on capabilities `sg aws cf` and `sg aws lambda` don't have today. These are folded into this milestone — Agent C builds the CF additions while building the CF experiments; Agent B builds the Lambda additions while building the Lambda experiments.
+The lab harness needs capabilities `sg aws cf` and `sg aws lambda` don't have today (`distribution update`, `distribution invalidate`, `distribution origin-group`, `<name> alias`, `<name> permissions`, etc.). Per Dinis's 2026-05-17 decision (delta `B.5`), **these expansions belong to v2 vault-publish phases 2a (CF) and 2b (Lambda), NOT the lab milestone.**
 
-### `sg aws cf` — additions (Agent C)
+What this means for the lab:
 
-| New verb | Purpose | Used by |
-|----------|---------|---------|
-| `distribution update` | Edit cache behaviour, alias list, origin (without delete-recreate) | E25, E26, v2 brief phase 1 |
-| `distribution invalidate` | Create + monitor a cache invalidation | E25 cleanup, v2 brief operationally |
-| `distribution origin-group create` | Build CF origin-group (primary + secondary failover) | E26 `--case timeout`, v2 brief phase 2b |
-| `distribution tags {list,set,remove}` | Tag management | Lab tagging convention; sweeper |
-| `oac {create,list,delete}` | Origin Access Control objects (for future S3 origins) | v2 brief future hardening |
+- **Agents A and E never need any primitive expansion.** They ship as soon as the foundation merges.
+- **Agent B (Lambda experiments) waits for v2 phase 2b** to ship `sg aws lambda` expansion verbs the experiments need (alias, permissions, deploy-from-image).
+- **Agent C (CloudFront experiments) waits for v2 phase 2a** to ship `sg aws cf` expansion verbs (update, invalidate, origin-group, tags, oac).
+- **Agent D (transition / composite) waits for A + B + C** as before.
 
-### `sg aws lambda` — additions (Agent B)
-
-| New verb | Purpose | Used by |
-|----------|---------|---------|
-| `<name> deploy-from-image` | Deploy from an ECR container image instead of zip | v2 brief (waker as container) |
-| `<name> alias {create,list,update,delete}` | Lambda alias management | E33, v2 brief versioning |
-| `<name> permissions {add,list,remove}` | Resource-policy statement management (e.g. allow CF to invoke) | E25, E26 (CF→Lambda invoke perm) |
-| `<name> concurrency {get,set,clear}` | Reserved-concurrency control | Lab safety guard (cap lab Lambdas to 2) |
-| `<name> env {get,set,unset}` | Env-var management without full `--update-function-configuration` | Convenience verb, used everywhere |
-
-The current `sg aws lambda` `<name> tags / versions / aliases` placeholders get filled in as part of this expansion.
+The lab also adopts the **v0.2.28 `Sg__Aws__Session` seam** for every AWS call — see decision #6 in the README. Once the per-service-client migration completes (v0.2.28 plan §3.4, ongoing), the lab transparently picks up role-aware credentials, CloudTrail-correlatable session names, and the audit-log integration.
 
 ---
 

@@ -2,10 +2,12 @@
 title: "07 — Agent D — Composite transition experiments (P4)"
 file: 07__agent-D__transition-experiments.md
 author: Architect (Claude)
-date: 2026-05-17
+date: 2026-05-17 (rev 2)
 parent: README.md
 size: M (medium) — ~1100 prod lines, ~400 test lines, ~1.5 days
-depends_on: Foundation PR + Agent A + Agent B + Agent C (or their temp clients)
+depends_on: Foundation PR + Agent A + Agent B + Agent C (real clients only — no temp fallback per rev 2 decision #2)
+mandatory_reading:
+  - team/humans/dinis_cruz/claude-code-web/05/17/00/v0.2.23__plan__vault-publish-spec/03__delta-from-lab-brief.md  # §B.1 — §B.7
 delivers: lab P4 from lab-brief/07
 ---
 
@@ -48,33 +50,59 @@ The slice that proves the **system**, not the primitives. Four experiments that 
 
 ## How to compose
 
-Each transition experiment is built by **calling the existing experiments in sequence** — not by re-implementing their primitives. The pattern:
+Each transition experiment is built by **calling the existing experiments in sequence** — not by re-implementing their primitives. The pattern (with the `runner` injected at `setup` per delta `B.2`, **NOT** passed into `execute()`):
 
 ```python
-class E40__Dns_Swap_Window(Lab__Experiment):
-    def execute(self, runner: 'Lab__Runner') -> Schema__Lab__Run__Result:
-        # 1. Use Agent A's helpers
-        baseline = E11__Propagation_Timeline().execute(runner)
+class Lab__Experiment__Transition__DNS_Swap_Window(Lab__Experiment):
+    name           : Safe_Str__Lab__Experiment_Name = 'dns-swap-window'
+    tier           : Enum__Lab__Tier                = Enum__Lab__Tier.MUTATING_LOW
+    runner         : Lab__Runner                                          # injected at setup
+    nominal_ttl    : Safe_Int__TTL__Seconds         = 60
 
-        # 2. Trigger the specific-record upsert
-        record_id = runner.create_and_register(
+    def setup(self, runner: Lab__Runner, ttl: int = 60) -> 'Self':
+        self.runner      = runner
+        self.nominal_ttl = ttl
+        return self
+
+    def execute(self) -> Schema__Lab__Run__Result:                        # no runner parameter
+        # 1. Establish baseline using Agent A's read-only experiment
+        baseline = (Lab__Experiment__Wildcard_Pre_Check()
+                       .setup(self.runner, name=self.target_name)
+                       .execute())
+
+        # 2. Trigger the specific-record upsert via the runner's ledger-aware helper
+        record_id = self.runner.create_and_register(
             resource_type   = Enum__Lab__Resource_Type.R53_RECORD,
-            factory         = lambda: runner.r53().upsert_record(...),
+            factory         = lambda: self.runner.r53().upsert_record(...),
             cleanup_payload = {...},
             teardown_order  = 30,
         )
 
-        # 3. Use Agent A's resolver fan-out
-        observations = runner.public_resolver_checker().observe_until_flip(...)
+        # 3. Sample per-resolver flip times by repeatedly calling the existing
+        #    Route53__Public_Resolver__Checker.check(...) method (which already
+        #    exists in aws/dns/service/) and recording the moment each resolver
+        #    starts returning the new value.
+        per_resolver_flip_seconds = {}
+        deadline = perf_counter() + self.nominal_ttl + 30
+        while perf_counter() < deadline and len(per_resolver_flip_seconds) < 8:
+            check_result = self.runner.public_resolver_checker().check(
+                name     = self.target_name,
+                rtype    = 'A',
+                expected = self.specific_value,
+            )
+            for obs in check_result.results:
+                if obs.passed and obs.resolver not in per_resolver_flip_seconds:
+                    per_resolver_flip_seconds[obs.resolver] = perf_counter() - start
+            sleep(2)
 
         return Schema__Lab__Result__Transition__DNS_Swap(
-            nominal_ttl                = 60,
-            per_resolver_flip_seconds  = observations,
-            max_flip_seconds           = max(observations.values()),
+            nominal_ttl               = self.nominal_ttl,
+            per_resolver_flip_seconds = per_resolver_flip_seconds,
+            max_flip_seconds          = max(per_resolver_flip_seconds.values()),
         )
 ```
 
-You **never** call boto3, dig, or the temp clients directly. Everything is through `runner.*()` accessors.
+You **never** call boto3 or dig directly. Everything is through `self.runner.*()` accessors. Note the **existing** `Route53__Public_Resolver__Checker.check(name, rtype, expected)` method returns a `Schema__Dns__Check__Result` with a `.results` list — Agent D polls that in a loop to measure flip times. There is no `observe_until_flip()` helper today; if it's used by 2+ transition experiments, lift it into `Route53__Public_Resolver__Checker` as a *new* method (and update Agent A's brief accordingly — small change).
 
 ---
 
@@ -84,10 +112,12 @@ You have two start-time options:
 
 | Option | Trade-off |
 |--------|-----------|
-| **Start when A+B+C merge into integration** (recommended) | Cleanest. You use the real primitives. E27 is straightforward. |
-| **Start in parallel with B+C as soon as A merges** | E40+E41 are DNS-only and don't need B+C. You write them first, gate E27/E42 on B+C arrival. |
+| **Start when A+B+C merge into integration** (recommended) | Cleanest. You use the real primitives (with v2 phase 2a/2b's expansions). E27 is straightforward. |
+| **Start in parallel with B/C as soon as A merges** | E40+E41 are DNS-only and don't need B/C. You write them first; E27/E42 sit behind `pytest.skip` markers until B/C land. |
 
 The Architect's recommendation is to **wait** — your slice is small and lands fast once you have the working primitives. Don't fight merge conflicts in B/C's renderers and runner client accessors.
+
+**Rev 2 note:** with temp-client fallbacks removed (decision #2), there is no "use temp client temporarily" path. If you start early, the E27/E42 stubs literally `raise NotImplementedError` until B+C ship.
 
 ---
 
@@ -143,6 +173,6 @@ SG_AWS__LAB__ALLOW_MUTATIONS=1 SG_AWS__LAB__DESTROY_TEST=1 \
 
 ## Commit + PR
 
-Branch: `claude/aws-primitives-support-NVyEh-transition`. Commit prefix: `feat(v0.2.28): lab agent-D — composite transition experiments`.
+Branch: `claude/aws-primitives-support-NVyEh-transition`. Commit prefix: `feat(v0.3.0): lab agent-D — composite transition experiments`.
 
 Open PR against `claude/aws-primitives-support-NVyEh`. This is the last *experimental* PR — Agent E (viewer) is the only one that can land after you.

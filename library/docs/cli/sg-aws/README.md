@@ -3,15 +3,15 @@ title: "sg aws — User Guide"
 file: README.md
 author: Architect (Claude)
 date: 2026-05-17
-repo: SGraph-AI__Service__Playwright @ dev (v0.2.26 line)
-status: REFERENCE — describes commands that exist today (v0.2.26).
+repo: SGraph-AI__Service__Playwright @ dev (v0.2.27 line)
+status: REFERENCE — describes commands that exist today (v0.2.27).
 ---
 
 # `sg aws` — User Guide
 
 How to drive the `sg aws *` command surface from a terminal. This pack is a **user reference**, not an architecture brief. Each file covers one AWS service area and lists the verbs, flags, env-var gates, and copy-paste examples an operator actually needs.
 
-> **Scope:** only commands that exist in code at v0.2.26. Anything proposed (e.g. `sg aws lab`, the expanded `sg aws cf` / `sg aws lambda` surface from the v0.2.28 plan) is **not** in this pack — see [`library/dev_packs/v0.2.28__sg-aws-lab-harness/`](../../../dev_packs/v0.2.28__sg-aws-lab-harness/README.md) for those.
+> **Scope:** only commands that exist in code at v0.2.27. Anything proposed (e.g. `sg aws lab`; the expanded `sg aws cf` / `sg aws lambda` surface in v2 vault-publish phases 2a/2b) is **not** in this pack — see [`library/dev_packs/v0.3.0__sg-aws-lab-harness/`](../../../dev_packs/v0.3.0__sg-aws-lab-harness/README.md) for the lab harness consumer.
 
 ---
 

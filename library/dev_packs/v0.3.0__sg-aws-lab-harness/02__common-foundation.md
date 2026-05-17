@@ -2,7 +2,7 @@
 title: "02 — Common foundation (must land first)"
 file: 02__common-foundation.md
 author: Architect (Claude)
-date: 2026-05-17
+date: 2026-05-17 (rev 2)
 parent: README.md
 ---
 
@@ -30,19 +30,20 @@ Production code (all under `sgraph_ai_service_playwright__cli/aws/lab/`):
   - `abort(reason)`
   - `create_and_register(...)` — the create+register pairing helper (`lab-brief/04 §1.3`)
   - `now_iso() / stopwatch(label) / log(...)`
-  - client accessors `r53() / cf() / lambda_() / dig() / authoritative_checker() / public_resolver_checker()` — return the real client if it exists, or the `Lab__*__Client__Temp` if not
+  - client accessors `r53() / cf() / lambda_() / dig() / authoritative_checker() / public_resolver_checker()` — return the existing `*__AWS__Client` from `aws/<svc>/service/`. For P0+P1 only `r53()`, `dig()`, and the two resolver checkers are wired in foundation. `cf()` and `lambda_()` raise `Lab__Phase__Not_Ready__Error` until v2 vault-publish 2a/2b ship the expanded primitives — see decision #2.
 - `Lab__Ledger.py` — append-only JSONL writer/reader with file locking
 - `Lab__Sweeper.py` — tag-driven discovery + delete. R53 / CF / Lambda / ACM / EC2 / SSM / IAM resource scanners; CLI driver in `Cli__Lab.py sweep`
 - `Lab__Tagger.py` — centralised application of the five required tags (`sg:lab`, `sg:lab:run-id`, `sg:lab:experiment`, `sg:lab:expires-at`, `sg:lab:created-by`)
 - `Lab__Safety__Account_Guard.py` — refuses to run if `SG_AWS__LAB__EXPECTED_ACCOUNT_ID` is set and doesn't match `sts.get_caller_identity()`
 - `Lab__Timing.py` — `perf_counter` wrapper, ISO timestamps, duration helpers
+- `Lab__Phase__Not_Ready__Error.py` — exception raised by `Lab__Runner.cf()` / `lambda_()` accessors when their gating v2 phase hasn't shipped yet. One-line exception class subclassing `Exception`.
 - `teardown/Lab__Teardown__Dispatcher.py` — maps `Enum__Lab__Resource_Type` → teardown fn
 - `teardown/Lab__Teardown__R53.py` — full implementation (DNS is the only mutating surface in P1)
 - `teardown/Lab__Teardown__{CF,Lambda,ACM,EC2,SSM,IAM}.py` — **stub files that raise `NotImplementedError`**. Agents B/C/D fill these in for their slices.
-- `experiments/Lab__Experiment.py` — abstract base (`name`, `tier`, `budget_seconds`, `budget_resources`, `execute()`, `metadata()`)
+- `experiments/Lab__Experiment.py` — abstract base. Per delta `B.2`, the runner is injected as a field at `setup()` time (Type_Safe field assignment), not passed into `execute(runner)` per call. Attributes: `name`, `tier`, `budget_seconds`, `budget_resources`; methods: `setup() -> Self`, `execute() -> Schema__Lab__Run__Result`, `metadata() -> Schema__Lab__Experiment__Metadata`.
 - `renderers/Render__Table.py` — Rich-based table renderer (every result schema renderable as a table)
 - `renderers/Render__JSON.py` — pretty JSON dump
-- `temp_clients/__init__.py` — empty; per-agent PRs add `Lab__CloudFront__Client__Temp.py` (Agent C) and `Lab__Lambda__Client__Temp.py` (Agent B)
+- **(no `temp_clients/` folder)** — per rev 2 decision #2.
 
 ### `schemas/` (per-class files)
 
@@ -93,11 +94,14 @@ Foundation schemas (every per-agent PR adds its own `Schema__Lab__Result__*` lat
   app.add_typer(lab_app, name='lab')
   ```
 
-  alongside the existing `dns`, `acm`, `billing`, `cf`, `iam` mounts. Lambda is the dynamic-group exception and is unchanged.
+  alongside the existing `dns`, `acm`, `billing`, `cf`, `iam` mounts. Lambda is the dynamic-group exception and is unchanged. Mount order per delta `B.6`: `dns`, `acm`, `billing`, `cf`, `iam`, `lab`.
 
 - `.gitignore` — add `.sg-lab/` so ledger / runs / state never get committed.
 
-- `library/catalogue/02__cli-packages.md` and `library/catalogue/08__aws-and-infrastructure.md` — add the new `aws/lab/` package entry. (Librarian task; the foundation PR includes the doc edit so the catalogue stays in sync.)
+- **Catalogue + reality-doc updates** (Librarian-style — same PR):
+  - `library/catalogue/cli.md` — add `sg aws lab` entry (8-shard layout; old `02__cli-packages.md` is archived under `library/catalogue/_archive/`).
+  - `library/catalogue/infra.md` — add the lab tag/sweep AWS surface entry (old `08__aws-and-infrastructure.md` is archived).
+  - `team/roles/librarian/reality/cli/` (domain tree) — add `sg aws lab` to the per-domain `index.md`. The old `team/roles/librarian/reality/v0.1.31/` monoliths are archived (`team/roles/librarian/reality/_archive/`); do not edit them.
 
 ---
 
@@ -189,7 +193,7 @@ If these are not stable before agents A-E start, every PR fights every other PR 
 - No `serve` implementation — Agent E.
 - No `Lab__Teardown__{CF,Lambda,ACM,EC2,SSM,IAM}.py` filled in — they're stubs raising `NotImplementedError`. Per-agent PRs implement.
 - No in-tree lab Lambda functions — Agent B brings these.
-- No `Lab__*__Client__Temp` boto3 wrappers — Agents B and C bring these.
+- **No `Lab__*__Client__Temp` boto3 wrappers** (rev 2) — see decision #2. Agents B / C use the existing `*__AWS__Client` classes once v2 phases 2a/2b ship the expansions.
 
 Keeping these out of the foundation keeps the foundation PR reviewable in one pass.
 
@@ -206,7 +210,22 @@ Before merging the foundation PR:
 - [ ] `Lab__Runner.create_and_register(...)` writes ledger entry *before* invoking the factory (verified by test)
 - [ ] `Lab__Sweeper` refuses to delete a resource missing any of the three required tags (verified by test)
 - [ ] `.sg-lab/` is in `.gitignore`
-- [ ] `library/catalogue/02__cli-packages.md` and `library/catalogue/08__aws-and-infrastructure.md` mention `aws/lab/`
-- [ ] No `boto3` import outside the (stubbed) `temp_clients/` folder
+- [ ] `library/catalogue/cli.md` and `library/catalogue/infra.md` mention `aws/lab/`; corresponding `team/roles/librarian/reality/cli/index.md` updated
+- [ ] **No `boto3` import in `aws/lab/`** — every AWS call goes through an existing `*__AWS__Client` (which itself routes through `Sg__Aws__Session.from_context().boto3_client_from_context()` per decision #6). The one exception is `Lab__Safety__Account_Guard` calling STS `GetCallerIdentity` directly, which uses `Sg__Aws__Session` too.
 
-Once these are green, fire Agents A-E in parallel.
+Once these are green, fire Agents A and E in parallel (no v2 dependency). Agents B and C wait for v2 phases 2b/2a respectively. Agent D waits for B + C.
+
+---
+
+## 8. Platform note — keyring dependency
+
+`Sg__Aws__Session.from_context()` (used everywhere per decision #6) internally instantiates `Keyring__Mac__OS()` which calls `/usr/bin/security` — **macOS only**. On Linux (CI workers, container hosts), the keyring call returns an error and `from_context()` falls through to bare `boto3.client(service)` with no role set.
+
+**Implication for the lab:**
+
+- **Local dev (macOS operator)** — role-aware credentials work; `sg --as lab ...` honoured.
+- **Linux CI / container hosts** — falls through to whatever the AMI/container's default boto3 credential chain provides (env vars, IMDS, `~/.aws/credentials`). The audit-log integration and CloudTrail-correlatable session names are not active in that mode.
+
+For lab integration tests gated by `SG_AWS__LAB__ALLOW_MUTATIONS=1` running on Linux, the operator must supply credentials via the standard boto3 chain. This is acceptable for the foundation — but the v0.2.28 credentials plan §"Anti-scope" item "Cross-platform keyring (Linux Secret Service, Windows Credential Manager)" tracks the longer-term fix.
+
+The foundation PR must document this loudly in the `Cli__Lab.py` top-level `--help` text and in `Lab__Safety__Account_Guard` so an operator on Linux doesn't think the role system is broken.

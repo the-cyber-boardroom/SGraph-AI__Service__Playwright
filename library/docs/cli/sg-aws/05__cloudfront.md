@@ -138,7 +138,7 @@ Tests: `tests/unit/sgraph_ai_service_playwright__cli/aws/cf/`.
 
 ## Not yet implemented
 
-The v0.2.26 surface is intentionally narrow. **PROPOSED** for v0.2.28 (see [`library/dev_packs/v0.2.28__sg-aws-lab-harness/`](../../../dev_packs/v0.2.28__sg-aws-lab-harness/README.md)):
+The v0.2.27 surface is intentionally narrow. **PROPOSED** for v2 vault-publish phase 2a, then consumed by the lab harness (see [`library/dev_packs/v0.3.0__sg-aws-lab-harness/`](../../../dev_packs/v0.3.0__sg-aws-lab-harness/README.md)):
 
 - Custom cache behaviours beyond `CachingDisabled`
 - Multi-origin distributions and origin groups via flags (not just builders)
