@@ -50,7 +50,7 @@ def browser_session_start(
 ):
     """Start a new AgentCore browser session. [EXPERIMENTAL]"""
     if not yes:
-        typer.confirm('Start browser session?', abort=True)
+        typer.confirm('Start browser session?', default=True, abort=True)
     client  = _client()
     session = client.browser_start(region=region, browser_identifier=browser_id)
     writer  = Bedrock__Capture__Writer()
@@ -194,7 +194,7 @@ def code_session_start(
 ):
     """Start a code-interpreter session. [EXPERIMENTAL]"""
     if not yes:
-        typer.confirm(f'Start code-interpreter session (language={language})?', abort=True)
+        typer.confirm(f'Start code-interpreter session (language={language})?', default=True, abort=True)
     client  = _client()
     session = client.code_interpreter_start(language=language, region=region, code_interpreter_id=code_interpreter_id)
     writer  = Bedrock__Capture__Writer()
