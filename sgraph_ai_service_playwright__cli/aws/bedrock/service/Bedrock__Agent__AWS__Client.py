@@ -10,22 +10,17 @@
 # When bedrock_agentcore becomes available, replace the boto3 calls below with
 # the SDK calls — the public method signatures stay the same.
 #
-# Note: boto3.session.Session() is used in current_region() for config reading
-# only — no client calls bypass Sg__Aws__Session.
 # ═══════════════════════════════════════════════════════════════════════════════
-
-import boto3                                                                     # used only in current_region() for config reading
 
 from botocore.exceptions                                                         import ClientError
 from osbot_utils.type_safe.Type_Safe                                             import Type_Safe
 
+from sgraph_ai_service_playwright__cli.aws._shared.Aws__Region__Resolver               import Aws__Region__Resolver
 from sgraph_ai_service_playwright__cli.aws.bedrock.collections.List__Schema__Bedrock__Agent import List__Schema__Bedrock__Agent
 from sgraph_ai_service_playwright__cli.aws.bedrock.primitives.Safe_Str__Bedrock__Agent_Arn  import Safe_Str__Bedrock__Agent_Arn
 from sgraph_ai_service_playwright__cli.aws.bedrock.primitives.Safe_Str__Bedrock__Model_Id   import Safe_Str__Bedrock__Model_Id
 from sgraph_ai_service_playwright__cli.aws.bedrock.schemas.Schema__Bedrock__Agent           import Schema__Bedrock__Agent
 from sgraph_ai_service_playwright__cli.credentials.service.Sg__Aws__Session                 import Sg__Aws__Session
-
-FALLBACK_REGION = 'us-east-1'
 
 
 class Bedrock__Agent__AWS__Client(Type_Safe):
@@ -45,8 +40,7 @@ class Bedrock__Agent__AWS__Client(Type_Safe):
         return self.session.boto3_client_from_context('bedrock-agent-runtime', region=region or self.current_region())
 
     def current_region(self) -> str:
-        region = boto3.session.Session().region_name
-        return region if region else FALLBACK_REGION
+        return str(Aws__Region__Resolver().resolve())
 
     # ── Agent lifecycle ───────────────────────────────────────────────────────
 
