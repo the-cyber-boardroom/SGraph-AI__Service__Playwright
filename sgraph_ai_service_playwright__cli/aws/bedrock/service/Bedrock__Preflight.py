@@ -154,17 +154,25 @@ class Bedrock__Preflight(Type_Safe):
             out_tok = resp.get('usage', {}).get('outputTokens', 0)
             return _result(check_name, PASS, f'{model_id} — OK ({in_tok}→{out_tok} tokens)')
         except Exception as exc:
-            err_msg   = str(exc)
+            err      = getattr(exc, 'response', {}).get('Error', {})               # boto3 ClientError path
+            code     = err.get('Code', '')
+            err_msg  = err.get('Message', '') or str(exc)
+            if not code:                                                            # non-boto3: infer code from message
+                for token in ('ValidationException', 'AccessDeniedException', 'ResourceNotFoundException'):
+                    if token in err_msg:
+                        code = token
+                        break
             code_hint = ''
-            if 'ValidationException' in err_msg and 'model' in err_msg.lower():
+            if code == 'ValidationException' and 'model' in err_msg.lower():
                 code_hint = (f'Model ID invalid in {effective_region}. '
-                             f'Try: sg aws bedrock chat list-models  '
+                             f'Try: sg aws bedrock chat list-models '
                              f'or run: sg aws bedrock setup --open-console')
-            elif 'AccessDeniedException' in err_msg or 'AccessDenied' in err_msg:
+            elif code in ('AccessDeniedException', 'AccessDenied'):
                 code_hint = 'Missing bedrock:InvokeModel permission. Run: sg aws bedrock setup --print-policy'
-            elif 'ResourceNotFoundException' in err_msg:
+            elif code == 'ResourceNotFoundException':
                 code_hint = 'Model not found in this region. Try --region or check list-models.'
-            return _result(check_name, FAIL, f'{model_id} — {exc}', hint=code_hint)
+            label = f'{code}: {err_msg}' if code else err_msg
+            return _result(check_name, FAIL, f'{model_id} — {label}', hint=code_hint)
 
     def check_8__capture_writer(self) -> Schema__Bedrock__Check__Result:
         name = 'capture writer'
