@@ -4,15 +4,14 @@
 # substitute an in-memory fake without patching or mocking.
 # ═══════════════════════════════════════════════════════════════════════════════
 
-import boto3
-
 from osbot_utils.type_safe.Type_Safe import Type_Safe
 
 
 class Creds__STS__Client(Type_Safe):
 
     def client(self):                                                           # Single seam — override in subclass for in-memory tests
-        return boto3.client('sts')
+        from sgraph_ai_service_playwright__cli.credentials.service.Sg__Aws__Session import Sg__Aws__Session
+        return Sg__Aws__Session.from_context().boto3_client_from_context('sts')
 
     def assume_role(self, role_arn: str, session_name: str,
                     duration_seconds: int) -> dict:                             # Returns AccessKeyId/SecretAccessKey/SessionToken/Expiration

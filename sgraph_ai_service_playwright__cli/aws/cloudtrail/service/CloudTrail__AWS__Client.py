@@ -3,9 +3,9 @@
 # Thin boto3 boundary for CloudTrail lookup_events, list_trails, describe_trail,
 # and get_trail_status.  All operations are read-only — no mutation gate needed.
 #
-# EXCEPTION — boto3 used directly.  osbot_aws does not expose a CloudTrail
-# wrapper at the level needed here.  This module is the single CloudTrail boto3
-# seam; subclasses override client() to inject fakes for unit tests.
+# Credentials are resolved via Sg__Aws__Session.from_context() so that
+# `sg credentials switch dev` is honoured by all CloudTrail calls.
+# Subclasses override client() to inject fakes for unit tests.
 # ═══════════════════════════════════════════════════════════════════════════════
 
 import json
@@ -13,8 +13,6 @@ import re
 import time
 from datetime  import datetime, timezone
 from typing    import Optional
-
-import boto3                                                                      # EXCEPTION — see module header
 
 from osbot_utils.type_safe.Type_Safe import Type_Safe
 
@@ -31,7 +29,8 @@ _UNIT_S   = {'s': 1, 'm': 60, 'h': 3600, 'd': 86400}
 class CloudTrail__AWS__Client(Type_Safe):
 
     def client(self):                                                             # single boto3 seam — subclass overrides for tests
-        return boto3.client('cloudtrail')
+        from sgraph_ai_service_playwright__cli.credentials.service.Sg__Aws__Session import Sg__Aws__Session
+        return Sg__Aws__Session.from_context().boto3_client_from_context('cloudtrail')
 
     # ── read ──────────────────────────────────────────────────────────────────
 
