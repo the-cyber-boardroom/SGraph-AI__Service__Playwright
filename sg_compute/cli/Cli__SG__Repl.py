@@ -92,6 +92,31 @@ def _match(prefix: str, options) -> tuple:                          # (hits, kin
     return substring_hits, 'substring'
 
 
+def normalise_initial_path(raw_segments):
+    """Normalise a positional REPL path so all these are equivalent:
+
+        ['aws', 'bedrock']                              ← typed as separate words
+        ['sg/aws/bedrock/tool/browser/session']         ← copy-pasted from a REPL prompt
+        ['aws/bedrock', 'chat']                         ← mix
+        ['/aws/bedrock/']                               ← leading/trailing slash
+        ['sg']                                          ← bare sg prefix → empty path
+
+    Returns a flat list of segments, no empty strings, no leading 'sg'.
+    Pass None or [] to get an empty list.
+    """                                                                          # inline
+    if not raw_segments:
+        return []
+    expanded = []
+    for seg in raw_segments:
+        for part in str(seg).split('/'):
+            part = part.strip()
+            if part:
+                expanded.append(part)
+    if expanded and expanded[0] == 'sg':                                         # drop the literal 'sg' root prefix if user pasted it in
+        expanded = expanded[1:]
+    return expanded
+
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # Bash escape — allow a curated whitelist of read-only shell commands inside
 # the REPL so users don't have to leave for trivial things like `cat output.json`.

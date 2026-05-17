@@ -31,6 +31,7 @@ Four cleanup items left open after v0.2.29 shipped. **Open-4 is user-visible blo
 | **Open-2** | Type 91 raw-`str` schema fields with `Safe_Str__*` + replace 3 JSON-encoded escape hatches with proper collections | 7 surface `schemas/` folders (worst: EC2 with 34) | ~3 days (1/surface, parallel) | NORMAL |
 | **Open-3** | Replace `boto3.session.Session().region_name` in 6 clients' `current_region()` with `Aws__Region__Resolver` | 6 service clients in `aws/*/service/` | ~30 minutes | LOW |
 | **[Open-5](02__open-5-repl-debug-and-broader-safe-str-audit.md)** | REPL `--debug` hoist (so `<verb> --debug <args>` works inside `sg repl`) + Safe_Str default-regex audit for 3 latent primitives outside the credentials surface | `Cli__SG__Repl.py`; `sg_compute/primitives/{Log__Content,Message}.py`; `aws/billing/primitives/Safe_Str__Aws_Usage_Type.py` | ~2 hours | NORMAL (REPL UX) |
+| **[Open-7](03__open-7-bedrock-alias-regional-overrides.md)** | Bedrock alias **regional overrides** (so `claude default` resolves to `eu.anthropic.…` in EU regions) + `check` verifies the **default model for each provider in use**, not just the cheapest enabled one | `Bedrock__Model__Aliases.py`, `Bedrock__Model__Resolver.py`, `Bedrock__Preflight.py` | ~2 hours | **HIGH** (Bedrock chat unusable in EU/APAC; check green-lights broken environments) |
 
 Parallel critical path is **~3 calendar days** if multiple Sonnet sessions take one item each (Open-4 sets it). Sequential is ~8-9 days for Open-1/2/3/4 plus ~2 hours for Open-5.
 

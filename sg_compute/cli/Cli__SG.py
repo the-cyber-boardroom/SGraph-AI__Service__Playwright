@@ -136,21 +136,27 @@ app.add_typer(_observability_app, name='ob',            hidden=True)
 
 @app.command()
 def repl(path: Optional[List[str]] = typer.Argument(None,
-                help='Optional initial REPL path, e.g. `sg repl aws bedrock`.')):
+                help='Optional initial REPL path. Both forms work: '
+                     '`sg repl aws bedrock` or `sg repl sg/aws/bedrock/tool` '
+                     '(copy-paste from a REPL prompt).')):
     """Interactive shell — navigate sections and run commands without the sg prefix.
 
     With an optional positional path, the REPL starts already navigated
-    into that group:  `sg repl aws bedrock`  →  `sg/aws/bedrock>` prompt.
+    into that group. Slashes are recognised and the literal `sg` prefix
+    is stripped, so all these are equivalent:
+      sg repl aws bedrock
+      sg repl sg/aws/bedrock
+      sg repl /aws/bedrock/
     """
-    from sg_compute.cli.Cli__SG__Repl import run_repl
-    run_repl(app, initial_path=list(path) if path else None)
+    from sg_compute.cli.Cli__SG__Repl import run_repl, normalise_initial_path
+    run_repl(app, initial_path=normalise_initial_path(path))
 
 
 @app.command(name='r', hidden=True)                                     # short alias for `sg repl`; hidden from --help
 def _repl_alias(path: Optional[List[str]] = typer.Argument(None)):
-    """Short alias for `sg repl` (accepts the same initial path)."""
-    from sg_compute.cli.Cli__SG__Repl import run_repl
-    run_repl(app, initial_path=list(path) if path else None)
+    """Short alias for `sg repl` (accepts the same initial path forms)."""
+    from sg_compute.cli.Cli__SG__Repl import run_repl, normalise_initial_path
+    run_repl(app, initial_path=normalise_initial_path(path))
 
 
 if __name__ == '__main__':
