@@ -35,7 +35,7 @@ How to drive the `sg aws *` command surface from a terminal. This pack is a **us
 | 12 | [`12__iam-graph.md`](12__iam-graph.md) *(LANDED — v0.2.29)* | `sg aws iam graph` — IAM-as-graph discovery and cleanup |
 | 13 | [`13__bedrock.md`](13__bedrock.md) *(LANDED — v0.2.29)* | `sg aws bedrock` — Bedrock chat, agents, tools |
 | 14 | [`14__cloudtrail.md`](14__cloudtrail.md) *(LANDED — v0.2.29)* | `sg aws cloudtrail` — CloudTrail events and trails (read-only) |
-| 15 | `15__creds.md` *(PROPOSED — Slice G)* | `sg aws creds` — scoped STS credential delivery |
+| 15 | [`15__creds.md`](15__creds.md) *(LANDED — Slice G)* | `sg aws creds` — scoped STS credential delivery |
 | 16 | [`16__observe.md`](16__observe.md) *(LANDED — Slice H)* | `sg aws observe` — unified observability REPL |
 
 ---
@@ -69,7 +69,7 @@ sg aws
 │   └── graph   ← IAM graph                         (discover, filter, delete, stats, …)
 ├── bedrock     ← Bedrock (LANDED — v0.2.29)          (chat, agent, tool sub-trees)
 ├── cloudtrail  ← CloudTrail (LANDED — v0.2.29)       (events list/show, trail list/show — read-only)
-├── creds       ← Scoped STS (PROPOSED — Slice G)    (get, scope, audit)
+├── creds       ← Scoped STS (LANDED — v0.2.29 Slice G)  (get, scope, audit)
 └── observe     ← Observability REPL (LANDED — v0.2.29)   (sources, tail, query, stats, agent-trace, replay)
 ```
 
