@@ -47,6 +47,15 @@ app = typer.Typer(
     cls             = _AwsGroup,
 )
 
+
+@app.callback()
+def _root(debug: bool = typer.Option(False, '--debug', '-D',
+                                     help='Show full Python traceback on errors.',
+                                     is_eager=True)):
+    from sg_compute.cli.base.Spec__CLI__Errors import set_debug
+    set_debug(debug)
+
+
 # ── existing surfaces ─────────────────────────────────────────────────────────
 app.add_typer(dns_app,        name='dns'        )
 app.add_typer(acm_app,        name='acm'        )

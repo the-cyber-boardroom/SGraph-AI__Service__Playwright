@@ -2,9 +2,9 @@
 title: "06 — Agent C — CloudFront experiments (P3)"
 file: 06__agent-C__cloudfront-experiments.md
 author: Architect (Claude)
-date: 2026-05-17 (rev 2)
+date: 2026-05-17 (rev 3 — v0.2.29 EC2/IAM clients available)
 parent: README.md
-size: M (medium) — ~1200 prod lines, ~400 test lines, ~2 days
+size: M (medium) — ~1100 prod lines, ~400 test lines, ~2 days
 depends_on: Foundation PR + v2 vault-publish phase 2a (sg aws cf expansion)
 mandatory_reading:
   - team/humans/dinis_cruz/claude-code-web/05/17/00/v0.2.23__plan__vault-publish-spec/03__delta-from-lab-brief.md  # §B.1 — §B.7
@@ -44,8 +44,8 @@ Note: **E27** (full-cold-path-end-to-end) is **Agent D's**, not yours — it's t
 **Plus:**
 - `service/teardown/Lab__Teardown__CF.py` — full implementation, **including the async disable-pending-delete pattern** (per `02__common-foundation.md §4`). The hard part of this slice. Uses `CloudFront__AWS__Client` directly (v2 phase 2a's update / disable / delete / wait surface).
 - `service/teardown/Lab__Teardown__ACM.py` — implementation (lab-minted certs only — **never** delete a shared cert). Uses `ACM__AWS__Client`.
-- `service/teardown/Lab__Teardown__EC2.py` — implementation for E26's "origin pointed at non-existent host" case (lab-tagged only)
-- `service/teardown/Lab__Teardown__SSM.py` — implementation
+- `service/teardown/Lab__Teardown__EC2.py` — implementation for E26's "origin pointed at non-existent host" case (lab-tagged only). **Use v0.2.29's `EC2__AWS__Client` directly** (`sgraph_ai_service_playwright__cli/aws/ec2/service/EC2__AWS__Client.py` — terminate, describe by tag) plus `EC2__Name__Resolver` for tag-filter lookups. Don't reinvent.
+- `service/teardown/Lab__Teardown__SSM.py` — implementation (no v0.2.29 SSM client yet; lab adds a minimal one in `_shared/` style if needed, or uses bare boto3 with a clear FIXME pointing at a future SSM slice)
 - `schemas/Schema__Lab__Result__CF__*.py` — one per result shape. **Per delta `B.1` and `B.4`**: typed collections, no `Dict__Str__Str`.
 - Registration lines in `service/experiments/registry.py` (5 entries)
 

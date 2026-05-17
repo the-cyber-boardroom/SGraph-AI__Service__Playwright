@@ -12,6 +12,8 @@ import gzip
 import time
 from datetime import datetime, timezone
 
+from botocore.exceptions import ClientError
+
 from sgraph_ai_service_playwright__cli.aws._shared.schemas.Schema__AWS__Source__Event   import Schema__AWS__Source__Event
 from sgraph_ai_service_playwright__cli.aws._shared.source_contract.Source__Contract     import Source__Contract
 from sgraph_ai_service_playwright__cli.aws._shared.source_contract.Source__Query        import Source__Query
@@ -34,7 +36,7 @@ class S3__Source__Adapter(Source__Contract):
         try:
             buckets = self.s3_client.list_buckets()
             return isinstance(buckets, list)
-        except Exception:
+        except ClientError:
             return False
 
     def list_streams(self) -> list:                                               # bucket names are the streams
@@ -65,7 +67,7 @@ class S3__Source__Adapter(Source__Contract):
                             message   = line.rstrip('\n'),
                             raw       = {'bucket': bucket, 'key': key, 'line': line},
                         )
-                except Exception:
+                except ClientError:
                     break
                 time.sleep(5)                                                     # poll interval for tail
 

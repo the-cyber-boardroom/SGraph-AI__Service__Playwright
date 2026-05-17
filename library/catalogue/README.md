@@ -2,8 +2,8 @@
 title: "Library Catalogue — SG Playwright Service"
 file: README.md
 shard: index-meta
-as_of: v0.2.25
-last_refreshed: 2026-05-17
+as_of: v0.2.28
+last_refreshed: 2026-05-17 (PM sync)
 maintainer: Librarian
 status: LIVE — 8 stable-filename shards refreshed each session. The 9 legacy numbered files moved to `_archive/` under M-007a on 2026-05-17. Immutable snapshots under `_snapshots/v{X.Y.Z}/`.
 ---
@@ -15,7 +15,7 @@ hosts a CLI/HTTP control plane for ephemeral cloud stacks (EC2, Elastic/Kibana,
 OpenSearch, Prometheus) and a LETS pipeline that indexes CloudFront logs into Elasticsearch.
 It runs identically on laptop, CI, Claude Web, Fargate, and AWS Lambda.
 
-**Current version:** `v0.2.25` (root `version`)
+**Current version:** `v0.2.28` (root `version`)
 **Master shard:** [`index.md`](index.md) — start here.
 **Reality docs:** [`team/roles/librarian/reality/index.md`](../../team/roles/librarian/reality/index.md) — master domain map (11 domains)
 
@@ -49,7 +49,7 @@ Frontmatter on every shard declares `as_of:` so readers see currency at a glance
 
 1. `/.claude/CLAUDE.md` — project rules, stack constraints, non-negotiables
 2. [`team/roles/librarian/reality/index.md`](../../team/roles/librarian/reality/index.md) — master domain map → drill into the relevant `{domain}/index.md`
-3. `version` (repo root) — current package version (today: `v0.2.25`)
+3. `version` (repo root) — current package version (today: `v0.2.28`)
 4. [`index.md`](index.md) — master catalogue shard with the navigation map
 5. The catalogue shard for your concern area (`service.md` / `cli.md` / `specs.md` / `infra.md` / `tests.md` / `team.md`)
 6. `team/roles/{role}/ROLE.md` — your role's responsibilities

@@ -127,6 +127,44 @@ https://<region>.console.aws.amazon.com/bedrock/home?region=<region>#/modelacces
 
 ---
 
+## End-to-end: fixing Bedrock permissions
+
+When `sg aws bedrock check` reports `FAIL: AccessDenied`, the typical fix is:
+
+1. **Get the minimal IAM policy JSON**
+   ```bash
+   sg aws bedrock setup --print-policy
+   # or save to file:
+   sg aws bedrock setup --print-policy > /tmp/bedrock-policy.json
+   ```
+
+2. **Find which IAM role your CLI uses**
+   ```bash
+   sg aws credentials status          # which role is active
+   sg aws iam role show <your-role>   # confirm it exists
+   ```
+
+3. **Attach the inline policy**
+   ```bash
+   SG_AWS__IAM__ALLOW_MUTATIONS=1 sg aws iam policy put-inline <your-role> \
+     --name bedrock-access \
+     --file /tmp/bedrock-policy.json --yes
+   ```
+
+4. **Verify**
+   ```bash
+   sg aws bedrock check          # all probes should pass
+   sg aws bedrock chat list-models   # live smoke test
+   ```
+
+If you need to grant access to specific model families (not just all ON_DEMAND), pass `--models` to `setup`:
+
+```bash
+sg aws bedrock setup --models "Anthropic,Amazon" --print-policy
+```
+
+---
+
 ## Chat sub-tree
 
 Chat is **read-only** — no mutation gate required.

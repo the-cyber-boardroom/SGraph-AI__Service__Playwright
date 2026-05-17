@@ -22,6 +22,15 @@ app = typer.Typer(name            = 'sg'                                        
                   no_args_is_help = True                                                    ,
                   add_completion  = False                                                   )
 
+
+@app.callback()
+def _root(debug: bool = typer.Option(False, '--debug', '-D',
+                                     help='Show full Python traceback on errors.',
+                                     is_eager=True)):
+    from sg_compute.cli.base.Spec__CLI__Errors import set_debug
+    set_debug(debug)
+
+
 # ── aws ──────────────────────────────────────────────────────────────────────
 from sgraph_ai_service_playwright__cli.aws.cli.Cli__Aws import app as _aws_app
 app.add_typer(_aws_app, name='aws',          help='AWS resource management (DNS, ACM, …).')

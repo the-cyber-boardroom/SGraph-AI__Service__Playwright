@@ -8,7 +8,6 @@
 import os
 from unittest                                                                                                              import TestCase
 
-from sgraph_ai_service_playwright__cli.ec2.service.Ec2__Service                                                            import Ec2__Service
 from sgraph_ai_service_playwright__cli.fast_api.Fast_API__SP__CLI                                                          import Fast_API__SP__CLI
 from sgraph_ai_service_playwright__cli.observability.enums.Enum__Stack__Component__Status                                  import Enum__Stack__Component__Status
 from sgraph_ai_service_playwright__cli.observability.schemas.Schema__Stack__Component__AMP                                 import Schema__Stack__Component__AMP
@@ -53,8 +52,7 @@ class test_Routes__Observability(TestCase):
         os.environ[ENV_VAR__API_KEY_NAME ] = API_KEY_NAME
         os.environ[ENV_VAR__API_KEY_VALUE] = API_KEY_VALUE
         cls.obs_service = Observability__Service(aws_client=build_obs_client())
-        cls.fast_api    = Fast_API__SP__CLI(ec2_service           = Ec2__Service()   ,
-                                            observability_service = cls.obs_service  ).setup()
+        cls.fast_api    = Fast_API__SP__CLI(observability_service = cls.obs_service).setup()
         cls.client      = cls.fast_api.client()
 
     @classmethod
