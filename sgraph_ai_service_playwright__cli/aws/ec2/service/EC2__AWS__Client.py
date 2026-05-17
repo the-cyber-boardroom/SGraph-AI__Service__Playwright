@@ -17,8 +17,6 @@
 import json
 from typing import Optional
 
-import boto3                                                                    # direct boto3 seam — narrow surface; each method only touches its own API call
-
 from osbot_utils.type_safe.Type_Safe import Type_Safe
 
 from sgraph_ai_service_playwright__cli.aws.ec2.collections.List__Schema__EC2__Instance  import List__Schema__EC2__Instance
@@ -34,7 +32,8 @@ from sgraph_ai_service_playwright__cli.aws.ec2.schemas.Schema__EC2__Create__Requ
 class EC2__AWS__Client(Type_Safe):
 
     def client(self):                                                           # Single seam — subclass overrides for in-memory tests
-        return boto3.client('ec2')
+        from sgraph_ai_service_playwright__cli.credentials.service.Sg__Aws__Session import Sg__Aws__Session
+        return Sg__Aws__Session.from_context().boto3_client_from_context('ec2')
 
     # ── read ──────────────────────────────────────────────────────────────────
 

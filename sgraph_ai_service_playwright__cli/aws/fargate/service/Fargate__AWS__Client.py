@@ -3,13 +3,10 @@
 # Sole boto3 boundary for ECS Fargate operations.  Covers clusters, task
 # definitions, tasks, and log-group discovery.
 #
-# EXCEPTION — boto3 used directly.  osbot_aws does not expose an ECS wrapper
-# at the level needed here (list clusters, describe tasks, run task, etc.).
-# This module is the single ECS boto3 seam; subclasses override client() to
-# inject fakes for unit tests.  Migrate once osbot-aws ECS support lands.
+# Credentials are resolved via Sg__Aws__Session.from_context() so that
+# `sg credentials switch dev` is honoured by all ECS calls.
+# Subclasses override client() to inject fakes for unit tests.
 # ═══════════════════════════════════════════════════════════════════════════════
-
-import boto3                                                                      # EXCEPTION — see module header
 
 from typing import Optional
 
@@ -32,10 +29,8 @@ class Fargate__AWS__Client(Type_Safe):
     region : str = ''                                                             # override to target a specific region
 
     def client(self):                                                             # single boto3 seam — subclass overrides for tests
-        kwargs = {}
-        if self.region:
-            kwargs['region_name'] = self.region
-        return boto3.client('ecs', **kwargs)
+        from sgraph_ai_service_playwright__cli.credentials.service.Sg__Aws__Session import Sg__Aws__Session
+        return Sg__Aws__Session.from_context().boto3_client_from_context('ecs', region=self.region)
 
     # ── cluster read ──────────────────────────────────────────────────────────
 

@@ -2,10 +2,9 @@
 # SP CLI — S3__AWS__Client
 # Sole boto3 boundary for S3 object and bucket operations.
 #
-# EXCEPTION — boto3 used directly. osbot_aws.aws.s3.S3 is not available in the
-# current dependency set (ModuleNotFoundError on import). This module is the
-# sole boto3 boundary for S3 — subclasses override client() to inject fakes
-# for unit tests.
+# Credentials are resolved via Sg__Aws__Session.from_context() so that
+# `sg credentials switch dev` is honoured by all S3 calls.
+# Subclasses override client() to inject fakes for unit tests.
 #
 # Mutation guard: callers must set SG_AWS__S3__ALLOW_MUTATIONS=1 before calling
 # cp, mv, rm, sync, edit, bucket_create, or bucket_config.
@@ -15,8 +14,6 @@ import io
 import time
 from datetime import datetime, timezone
 from typing   import Optional, Iterator
-
-import boto3                                                                      # EXCEPTION — see module header
 
 from osbot_utils.type_safe.Type_Safe                                              import Type_Safe
 
@@ -34,10 +31,8 @@ class S3__AWS__Client(Type_Safe):
     region : str = ''                                                             # override to target specific region
 
     def client(self):                                                             # single boto3 seam — subclass overrides to inject fake
-        kwargs = {}
-        if self.region:
-            kwargs['region_name'] = self.region
-        return boto3.client('s3', **kwargs)
+        from sgraph_ai_service_playwright__cli.credentials.service.Sg__Aws__Session import Sg__Aws__Session
+        return Sg__Aws__Session.from_context().boto3_client_from_context('s3', region=self.region)
 
     # ── list operations ───────────────────────────────────────────────────────
 
