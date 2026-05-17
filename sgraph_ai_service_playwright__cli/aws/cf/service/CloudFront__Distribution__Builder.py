@@ -69,7 +69,7 @@ class CloudFront__Distribution__Builder(Type_Safe):
                 'HTTPSPort'             : 443,
                 'HTTPPort'              : 80,
                 'OriginProtocolPolicy'  : str(self.protocol),
-                'OriginSSLProtocols'    : {'Quantity': 1, 'Items': ['TLSv1.2']},
+                'OriginSslProtocols'    : {'Quantity': 1, 'Items': ['TLSv1.2']},
             },
         }
 
