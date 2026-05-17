@@ -4,6 +4,8 @@
 # substitute an in-memory fake without patching or mocking.
 # ═══════════════════════════════════════════════════════════════════════════════
 
+from botocore.exceptions                                                         import ClientError
+
 from osbot_utils.type_safe.Type_Safe                                             import Type_Safe
 
 from sgraph_ai_service_playwright__cli.credentials.service.Sg__Aws__Session      import Sg__Aws__Session
@@ -41,5 +43,5 @@ class Creds__STS__Client(Type_Safe):
         try:
             resp = self.client().get_caller_identity()
             return resp.get('Arn', 'unknown')
-        except Exception:
+        except ClientError:
             return 'unknown'
