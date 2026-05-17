@@ -12,8 +12,10 @@ class _Fake_Lambda_Client:
     """Minimal boto3-alike Lambda + Paginator client backed by a shared dict store."""
 
     def __init__(self, store: dict, url_store: dict):
-        self._store     = store
-        self._url_store = url_store
+        self._store      = store
+        self._url_store  = url_store
+        self._tags_store = {}                                                          # arn -> tag dict
+        self._invoke_log = []                                                          # list of (name, payload) pairs
 
     # ── paginator ─────────────────────────────────────────────────────────────
 
@@ -41,6 +43,11 @@ class _Fake_Lambda_Client:
             'Description' : Description,
             'State'       : 'Active',
             'LastModified': '',
+            'Role'        : Role,
+            'CodeSize'    : 0,
+            'Architectures': ['x86_64'],
+            'TracingConfig': {'Mode': 'PassThrough'},
+            'EphemeralStorage': {'Size': 512},
         }
         return self._store[FunctionName]
 
@@ -48,18 +55,55 @@ class _Fake_Lambda_Client:
         if FunctionName not in self._store:
             raise Exception(f'Function not found: {FunctionName}')
 
-    def update_function_configuration(self, FunctionName: str, Handler: str,
-                                      Runtime: str, Timeout: int, MemorySize: int,
-                                      Description: str = '', **_):
+    def update_function_configuration(self, FunctionName: str, **kwargs):
         if FunctionName not in self._store:
             raise Exception(f'Function not found: {FunctionName}')
-        self._store[FunctionName].update({'Handler': Handler, 'Runtime': Runtime,
-                                          'Timeout': Timeout, 'MemorySize': MemorySize})
+        mapping = {                                                                    # allow both old positional and new kwarg forms
+            'Handler'    : 'Handler',
+            'Runtime'    : 'Runtime',
+            'Timeout'    : 'Timeout',
+            'MemorySize' : 'MemorySize',
+            'Description': 'Description',
+            'Environment': 'Environment',
+        }
+        for key in mapping:
+            if key in kwargs:
+                self._store[FunctionName][key] = kwargs[key]
 
     def delete_function(self, FunctionName: str, **_):
         if FunctionName not in self._store:
             raise Exception(f'Function not found: {FunctionName}')
         del self._store[FunctionName]
+
+    # ── invoke ────────────────────────────────────────────────────────────────
+
+    def invoke(self, FunctionName: str, InvocationType: str = 'RequestResponse',
+               Payload: bytes = b'{}', LogType: str = 'None', **_):
+        if FunctionName not in self._store:
+            raise Exception(f'Function not found: {FunctionName}')
+        self._invoke_log.append((FunctionName, Payload))
+        import io
+        resp = {
+            'StatusCode'   : 200,
+            'Payload'      : io.BytesIO(b'{"result": "ok"}'),
+            'FunctionError': '',
+            'LogResult'    : '',
+        }
+        return resp
+
+    # ── tags ──────────────────────────────────────────────────────────────────
+
+    def list_tags(self, Resource: str, **_):
+        return {'Tags': dict(self._tags_store.get(Resource, {}))}
+
+    def tag_resource(self, Resource: str, Tags: dict, **_):
+        if Resource not in self._tags_store:
+            self._tags_store[Resource] = {}
+        self._tags_store[Resource].update(Tags)
+
+    def untag_resource(self, Resource: str, TagKeys: list, **_):
+        for k in TagKeys:
+            self._tags_store.get(Resource, {}).pop(k, None)
 
     # ── URL management ────────────────────────────────────────────────────────
 
@@ -87,9 +131,23 @@ class _Fake_Paginator:
         self._client = client
         self._method = method
 
-    def paginate(self, **_):
+    def paginate(self, FunctionName: str = None, **_):
         if self._method == 'list_functions':
             yield {'Functions': list(self._client._store.values())}
+        elif self._method == 'list_versions_by_function':
+            cfg = self._client._store.get(FunctionName, {})
+            if cfg:
+                yield {'Versions': [{
+                    'FunctionName': FunctionName,
+                    'Version'     : '$LATEST',
+                    'Description' : '',
+                    'LastModified': cfg.get('LastModified', ''),
+                    'CodeSize'    : cfg.get('CodeSize', 0),
+                }]}
+            else:
+                yield {'Versions': []}
+        elif self._method == 'list_aliases':
+            yield {'Aliases': []}                                                      # no aliases in in-memory store by default
 
 
 class Lambda__AWS__Client__In_Memory(Lambda__AWS__Client):

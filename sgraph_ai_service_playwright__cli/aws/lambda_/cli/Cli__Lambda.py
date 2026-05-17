@@ -1,21 +1,26 @@
 # ═══════════════════════════════════════════════════════════════════════════════
 # SP CLI — Cli__Lambda
-# Typer CLI surface for Lambda function management.
+# Entry point for the `sg aws lambda` subtree.
 #
-# Command tree:
-#   sg aws lambda deployment deploy <name> --code-path <path> --handler <h>
-#   sg aws lambda deployment delete <name>
-#   sg aws lambda deployment list
-#   sg aws lambda url create <name> [--auth-type NONE|AWS_IAM]
-#   sg aws lambda url show <name>
-#   sg aws lambda url delete <name>
+# New command shape (v0.2.26):
+#   sg aws lambda list
+#   sg aws lambda <name> info|details|config|logs|invocations|invoke|deploy
+#                         |delete|url|tags|versions|aliases
+#
+# Legacy commands kept with deprecation warnings (remove in v0.2.27):
+#   sg aws lambda deployment list   → sg aws lambda list
+#   sg aws lambda deployment deploy → sg aws lambda <name> deploy
+#   sg aws lambda deployment delete → sg aws lambda <name> delete
+#   sg aws lambda url create/show/delete <name> → sg aws lambda <name> url ...
 #
 # Mutations require SG_AWS__LAMBDA__ALLOW_MUTATIONS=1.
 # ═══════════════════════════════════════════════════════════════════════════════
 
 import json
 import os
+import sys
 
+import click
 import typer
 from rich.console import Console
 from rich.table   import Table
@@ -27,12 +32,22 @@ from sgraph_ai_service_playwright__cli.aws.lambda_.primitives.Safe_Str__Lambda__
 from sgraph_ai_service_playwright__cli.aws.lambda_.schemas.Schema__Lambda__Deploy__Request import Schema__Lambda__Deploy__Request
 from sgraph_ai_service_playwright__cli.aws.lambda_.service.Lambda__AWS__Client           import Lambda__AWS__Client
 from sgraph_ai_service_playwright__cli.aws.lambda_.service.Lambda__Deployer              import Lambda__Deployer
+from sgraph_ai_service_playwright__cli.aws.lambda_.cli.Lambda__Click__Group              import Lambda__App__Group
 
 console = Console()
 
-lambda_app     = typer.Typer(name='lambda',     help='Lambda function management.',              no_args_is_help=True)
-deployment_app = typer.Typer(name='deployment', help='Deploy, update, delete Lambda functions.', no_args_is_help=True)
-url_app        = typer.Typer(name='url',        help='Lambda Function URL management.',          no_args_is_help=True)
+# ── new Click-based entry point ───────────────────────────────────────────────
+
+lambda_click_app = Lambda__App__Group()                                           # the new `sg aws lambda` root
+
+
+# ── legacy Typer shim (deprecated) ───────────────────────────────────────────
+# These commands still work but print a one-line deprecation warning.
+# They will be removed in v0.2.27.
+
+lambda_app     = typer.Typer(name='lambda',     help='Lambda function management (legacy — use new shape).', no_args_is_help=True, hidden=True)
+deployment_app = typer.Typer(name='deployment', help='[DEPRECATED] Deploy, update, delete Lambda functions.', no_args_is_help=True, hidden=True)
+url_app        = typer.Typer(name='url',        help='[DEPRECATED] Lambda Function URL management.',          no_args_is_help=True, hidden=True)
 
 lambda_app.add_typer(deployment_app, name='deployment')
 lambda_app.add_typer(url_app,        name='url')
@@ -44,13 +59,18 @@ def _mutation_guard():
         raise typer.Exit(1)
 
 
+def _deprecation(old: str, new: str):
+    console.print(f'[yellow]⚠  DEPRECATED:[/yellow] `{old}` — use `{new}` instead. Will be removed in v0.2.27.', file=sys.stderr)
+
+
 # ── deployment list ───────────────────────────────────────────────────────────
 
 @deployment_app.command('list')
 def deployment_list(
     as_json: bool = typer.Option(False, '--json', help='Output as JSON.'),
 ):
-    """List all Lambda functions in the account/region."""
+    """[DEPRECATED] List all Lambda functions. Use `sg aws lambda list`."""
+    _deprecation('sg aws lambda deployment list', 'sg aws lambda list')
     with spec_cli_errors():
         fns = Lambda__AWS__Client().list_functions()
         if as_json:
@@ -83,7 +103,8 @@ def deployment_deploy(
     timeout:   int = typer.Option(900,  '--timeout',   help='Timeout in seconds.'),
     as_json:   bool= typer.Option(False,'--json',      help='Output as JSON.'),
 ):
-    """Deploy or update a Lambda function from a local folder."""
+    """[DEPRECATED] Deploy or update a Lambda function. Use `sg aws lambda <name> deploy`."""
+    _deprecation('sg aws lambda deployment deploy <name>', f'sg aws lambda {name} deploy')
     _mutation_guard()
     with spec_cli_errors():
         from sgraph_ai_service_playwright__cli.aws.lambda_.enums.Enum__Lambda__Runtime import Enum__Lambda__Runtime
@@ -121,7 +142,8 @@ def deployment_delete(
     name:    str  = typer.Argument(...,  help='Lambda function name.'),
     as_json: bool = typer.Option(False, '--json', help='Output as JSON.'),
 ):
-    """Delete a Lambda function."""
+    """[DEPRECATED] Delete a Lambda function. Use `sg aws lambda <name> delete`."""
+    _deprecation('sg aws lambda deployment delete <name>', f'sg aws lambda {name} delete')
     _mutation_guard()
     with spec_cli_errors():
         resp = Lambda__AWS__Client().delete_function(name)
@@ -143,7 +165,8 @@ def url_create(
     auth_type: str  = typer.Option('NONE', '--auth-type', help='Auth type: NONE or AWS_IAM.'),
     as_json:   bool = typer.Option(False,  '--json',      help='Output as JSON.'),
 ):
-    """Create a Function URL for a Lambda function."""
+    """[DEPRECATED] Create a Function URL. Use `sg aws lambda <name> url create`."""
+    _deprecation('sg aws lambda url create <name>', f'sg aws lambda {name} url create')
     _mutation_guard()
     with spec_cli_errors():
         try:
@@ -167,7 +190,8 @@ def url_show(
     name:    str  = typer.Argument(...,  help='Lambda function name.'),
     as_json: bool = typer.Option(False, '--json', help='Output as JSON.'),
 ):
-    """Show the Function URL for a Lambda function."""
+    """[DEPRECATED] Show the Function URL. Use `sg aws lambda <name> url show`."""
+    _deprecation('sg aws lambda url show <name>', f'sg aws lambda {name} url show')
     with spec_cli_errors():
         info = Lambda__AWS__Client().get_function_url(name)
         if as_json:
@@ -187,7 +211,8 @@ def url_delete(
     name:    str  = typer.Argument(...,  help='Lambda function name.'),
     as_json: bool = typer.Option(False, '--json', help='Output as JSON.'),
 ):
-    """Delete the Function URL for a Lambda function."""
+    """[DEPRECATED] Delete the Function URL. Use `sg aws lambda <name> url delete`."""
+    _deprecation('sg aws lambda url delete <name>', f'sg aws lambda {name} url delete')
     _mutation_guard()
     with spec_cli_errors():
         resp = Lambda__AWS__Client().delete_function_url(name)
