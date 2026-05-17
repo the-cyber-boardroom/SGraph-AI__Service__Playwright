@@ -1,11 +1,11 @@
 ---
 title: "Library Catalogue — SG Playwright Service"
 file: README.md
-shard: index
+shard: index-meta
 as_of: v0.2.25
 last_refreshed: 2026-05-17
 maintainer: Librarian
-status: TRANSITIONAL — flat numbered shards (01..09) being replaced by live per-domain shards (see §3.6 of v0.2.25__ontology-and-taxonomy-proposal.md). Old shards will move to `_archive/` once their replacements land under M-007a.
+status: LIVE — 8 stable-filename shards refreshed each session. The 9 legacy numbered files moved to `_archive/` under M-007a on 2026-05-17. Immutable snapshots under `_snapshots/v{X.Y.Z}/`.
 ---
 
 # Library Catalogue — SG Playwright Service
@@ -16,23 +16,32 @@ OpenSearch, Prometheus) and a LETS pipeline that indexes CloudFront logs into El
 It runs identically on laptop, CI, Claude Web, Fargate, and AWS Lambda.
 
 **Current version:** `v0.2.25` (root `version`)
+**Master shard:** [`index.md`](index.md) — start here.
 **Reality docs:** [`team/roles/librarian/reality/index.md`](../../team/roles/librarian/reality/index.md) — master domain map (11 domains)
 
 ---
 
-## Map of Maps (legacy flat shards — to be replaced under M-007a)
+## Map of Shards (live — refreshed each session)
 
 | File | What it covers | Who reads it |
 |------|---------------|--------------|
-| `01__project-overview.md` | Two packages, stack, key rules | Everyone — read first |
-| `02__cli-packages.md` | All sub-packages under `sgraph_ai_service_playwright__cli/` | Dev adding a new CLI section |
-| `03__lets-pipeline.md` | L-C-E-T-S pipeline, all 4 slices, index patterns | Dev working on LETS |
-| `04__elastic-stack.md` | Elastic/Kibana stack management, HTTP client, dashboards | Dev touching `sp el` |
-| `05__playwright-service.md` | FastAPI browser API, 25 endpoints, service classes | Dev touching the Playwright service |
-| `06__scripts-and-cli.md` | Every script in `scripts/`, Typer app tree | Dev running or extending CLI |
-| `07__testing-patterns.md` | No-mocks rule, `*__In_Memory` pattern, test layout | Dev writing new tests |
-| `08__aws-and-infrastructure.md` | Lambda, EC2, S3, OpenSearch, ECR, IAM, CI | DevOps / Architect |
-| `09__team-and-roles.md` | 6 agent roles, debrief index, human inbox rules | All agents |
+| [`index.md`](index.md) | Master index + map-of-maps + new-session quick-start + cross-links | Everyone — read first |
+| [`service.md`](service.md) | Playwright service: endpoints, schemas, service classes, step actions | Dev touching the Playwright service |
+| [`cli.md`](cli.md) | All CLI namespaces (`sp`, `sg compute`, `sg aws`, `sg repl`) + per-package map | Dev adding/extending CLI |
+| [`specs.md`](specs.md) | `sg_compute_specs/` inventory (15 specs) + Spec__CLI__Builder pattern | Dev adding a new spec |
+| [`infra.md`](infra.md) | Docker images, CI workflows, ECR, Lambda (retired), EC2, observability | DevOps / Architect |
+| [`tests.md`](tests.md) | Test layout, counts, no-mocks rule, in-memory pattern, deploy-via-pytest | Dev writing new tests |
+| [`team.md`](team.md) | 6 agent roles, debrief index, human inbox rules, comms structure | All agents |
+| [`findings.md`](findings.md) | Health metrics: oversized files, broken links, open `M-NNN`, last reality update | Librarian (continuous) |
+
+Frontmatter on every shard declares `as_of:` so readers see currency at a glance.
+
+---
+
+## Snapshots & Archive
+
+- [`_snapshots/v0.2.25/`](_snapshots/v0.2.25/) — first immutable freeze of the live shards (2026-05-17, commit ab0c380). Pattern: `cp -r` of the live tree on every minor version bump.
+- [`_archive/`](_archive/) — the 9 legacy numbered files (`01__project-overview.md` … `09__team-and-roles.md`) preserved verbatim. See `_archive/README.md`.
 
 ---
 
@@ -41,12 +50,11 @@ It runs identically on laptop, CI, Claude Web, Fargate, and AWS Lambda.
 1. `/.claude/CLAUDE.md` — project rules, stack constraints, non-negotiables
 2. [`team/roles/librarian/reality/index.md`](../../team/roles/librarian/reality/index.md) — master domain map → drill into the relevant `{domain}/index.md`
 3. `version` (repo root) — current package version (today: `v0.2.25`)
-4. This file (`library/catalogue/README.md`) — orient yourself in the graph
-5. `library/catalogue/01__project-overview.md` — architecture snapshot
-6. The catalogue file for your concern area (02–09 above)
-7. `team/roles/{role}/ROLE.md` — your role's responsibilities
-8. `team/comms/` — any open briefs or plans for your area
-9. `team/claude/debriefs/index.md` — what each prior slice delivered
+4. [`index.md`](index.md) — master catalogue shard with the navigation map
+5. The catalogue shard for your concern area (`service.md` / `cli.md` / `specs.md` / `infra.md` / `tests.md` / `team.md`)
+6. `team/roles/{role}/ROLE.md` — your role's responsibilities
+7. `team/comms/` — any open briefs or plans for your area
+8. `team/claude/debriefs/index.md` — what each prior slice delivered
 
 ---
 
@@ -56,6 +64,7 @@ It runs identically on laptop, CI, Claude Web, Fargate, and AWS Lambda.
 |-------------|------|
 | Reality master index | [`team/roles/librarian/reality/index.md`](../../team/roles/librarian/reality/index.md) |
 | Reality changelog | [`team/roles/librarian/reality/changelog.md`](../../team/roles/librarian/reality/changelog.md) |
+| Verified-by log | [`team/roles/librarian/reality/verified-by.md`](../../team/roles/librarian/reality/verified-by.md) |
 | Project rules | `/.claude/CLAUDE.md` |
 | Testing guide | [`library/guides/v3.1.1__testing_guidance.md`](../guides/v3.1.1__testing_guidance.md) |
 | Schema catalogue (spec) | [`library/docs/specs/v0.20.55__schema-catalogue-v2.md`](../docs/specs/v0.20.55__schema-catalogue-v2.md) |
@@ -64,3 +73,4 @@ It runs identically on laptop, CI, Claude Web, Fargate, and AWS Lambda.
 | Open plans | `team/comms/plans/` |
 | Onboarding sequence | [`library/onboarding/`](../onboarding/) |
 | Ontology proposal | [`team/roles/librarian/reviews/05/17/v0.2.25__ontology-and-taxonomy-proposal.md`](../../team/roles/librarian/reviews/05/17/v0.2.25__ontology-and-taxonomy-proposal.md) |
+| Librarian ID registry | [`team/roles/librarian/ids/README.md`](../../team/roles/librarian/ids/README.md) |
