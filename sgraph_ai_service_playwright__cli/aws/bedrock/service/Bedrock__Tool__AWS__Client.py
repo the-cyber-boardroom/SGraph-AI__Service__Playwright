@@ -18,6 +18,14 @@ from sgraph_ai_service_playwright__cli.aws.bedrock.primitives.Safe_Str__Bedrock_
 from sgraph_ai_service_playwright__cli.aws.bedrock.schemas.Schema__Bedrock__Tool__Session           import Schema__Bedrock__Tool__Session
 from sgraph_ai_service_playwright__cli.credentials.service.Sg__Aws__Session                         import Sg__Aws__Session
 
+# AWS-managed default AgentCore tool identifiers. AgentCore start-session APIs
+# require an identifier of a previously-created (or built-in) tool resource.
+# `aws.browser.v1` and `aws.codeinterpreter.v1` are the always-available
+# system sandboxes — using them avoids the control-plane round-trip to
+# create-then-start a custom tool resource.
+DEFAULT_BROWSER_ID          = 'aws.browser.v1'
+DEFAULT_CODE_INTERPRETER_ID = 'aws.codeinterpreter.v1'
+
 
 class Bedrock__Tool__AWS__Client(Type_Safe):
     session : Sg__Aws__Session = None                                            # cached session — injected or lazy-init via setup()
@@ -40,10 +48,10 @@ class Bedrock__Tool__AWS__Client(Type_Safe):
 
     # ── Browser sessions ──────────────────────────────────────────────────────
 
-    def browser_start(self, region: str = None) -> Schema__Bedrock__Tool__Session:
+    def browser_start(self, region: str = None, browser_identifier: str = None) -> Schema__Bedrock__Tool__Session:
         effective_region = region or self.current_region()
         client = self.agentcore_client(effective_region)
-        resp   = client.start_browser_session()
+        resp   = client.start_browser_session(browserIdentifier=browser_identifier or DEFAULT_BROWSER_ID)
         sid    = resp.get('sessionId', '')
         try:
             safe_sid = Safe_Str__Bedrock__Session_Id(sid)
@@ -96,10 +104,18 @@ class Bedrock__Tool__AWS__Client(Type_Safe):
 
     # ── Code-interpreter sessions ─────────────────────────────────────────────
 
-    def code_interpreter_start(self, language: str = 'python', region: str = None) -> Schema__Bedrock__Tool__Session:
+    def code_interpreter_start(self,
+                               language              : str = 'python',
+                               region                : str = None    ,
+                               code_interpreter_id   : str = None    ,
+                               ) -> Schema__Bedrock__Tool__Session:
+        # `language` is tracked locally for capture metadata; it is NOT a
+        # valid parameter on the AWS `start_code_interpreter_session` API
+        # (which accepts: codeInterpreterIdentifier, name, sessionTimeoutSeconds,
+        # certificates, clientToken, traceId, traceParent).
         effective_region = region or self.current_region()
         client = self.agentcore_client(effective_region)
-        resp   = client.start_code_interpreter_session(language=language)
+        resp   = client.start_code_interpreter_session(codeInterpreterIdentifier=code_interpreter_id or DEFAULT_CODE_INTERPRETER_ID)
         sid    = resp.get('sessionId', '')
         try:
             safe_sid = Safe_Str__Bedrock__Session_Id(sid)
