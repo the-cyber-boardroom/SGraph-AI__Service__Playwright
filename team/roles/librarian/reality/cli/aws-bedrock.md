@@ -24,9 +24,14 @@ All three sub-trees are implemented:
 | `agent` | LIVE — EXPERIMENTAL; gated by `SG_AWS__BEDROCK__ALLOW_MUTATIONS=1` |
 | `tool` | LIVE — EXPERIMENTAL; gated by `SG_AWS__BEDROCK__ALLOW_MUTATIONS=1` |
 
+### Top-level verbs (LANDED — v0.2.29)
+
+- `sg aws bedrock check [--region R] [--json]` — 8-probe diagnostic preflight; Rich ✓/⚠/✗ table; exits 1 on any FAIL; no mutations
+- `sg aws bedrock setup [--region R] [--open-console] [--print-policy] [--output FILE] [--models PROVIDERS]` — guided 3-step setup (IAM permissions, model access, verify); prints minimal IAM policy JSON; opens Bedrock console deeplink in browser
+
 ### Chat verbs
 
-- `sg aws bedrock chat list-models [--provider X] [--json]` — ON_DEMAND models in current account/region
+- `sg aws bedrock chat list-models [--provider X] [--json]` — ON_DEMAND models in current account/region; propagates `ClientError` (AccessDenied renders actionable hint)
 - `sg aws bedrock chat claude --prompt TEXT [--model ALIAS] [--input FILE] [--stream] [--json] [--cost-override N]`
 - `sg aws bedrock chat nova --prompt TEXT [--model ALIAS] [--input FILE] [--json]`
 - `sg aws bedrock chat llama --prompt TEXT [--model ALIAS] [--input FILE] [--json]`
