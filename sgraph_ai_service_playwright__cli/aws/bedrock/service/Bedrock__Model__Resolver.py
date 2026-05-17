@@ -6,35 +6,17 @@
 # Single source of truth for model-ID complexity.  No other class (CLI verbs,
 # service clients, tests) is allowed to hard-code Bedrock model IDs.
 #
-# Alias YAML: library/reference/v0.2.29__bedrock-model-aliases.yaml
+# Alias table: Bedrock__Model__Aliases.BEDROCK_MODEL_ALIASES (plain Python
+# dict; no YAML / JSON / disk I/O). Tests subclass and override aliases().
 # ═══════════════════════════════════════════════════════════════════════════════
 
-import os
-from pathlib                                                                     import Path
 from typing                                                                      import Optional
-
-import yaml                                                                      # pyyaml — present in osbot-utils dependency tree
 
 from osbot_utils.type_safe.Type_Safe                                             import Type_Safe
 
 from sgraph_ai_service_playwright__cli.aws.bedrock.enums.Enum__Bedrock__Provider import Enum__Bedrock__Provider
 from sgraph_ai_service_playwright__cli.aws.bedrock.primitives.Safe_Str__Bedrock__Model_Id import Safe_Str__Bedrock__Model_Id
-
-# ── Alias YAML location ───────────────────────────────────────────────────────
-#
-# __file__ is at  …/sgraph_ai_service_playwright__cli/aws/bedrock/service/Bedrock__Model__Resolver.py
-# Counting parents from the file:
-#   parents[0] = service/
-#   parents[1] = bedrock/
-#   parents[2] = aws/
-#   parents[3] = sgraph_ai_service_playwright__cli/
-#   parents[4] = repo root  ←  what we want; library/reference/ lives here
-#
-# This used to use parents[6] (off-by-two) which silently fell back to '{}' via
-# the bare `except Exception` in aliases(), leaving every provider lookup
-# raising "Unknown provider" — even though the YAML on disk was perfectly fine.
-
-_ALIAS_YAML = Path(__file__).parents[4] / 'library' / 'reference' / 'v0.2.29__bedrock-model-aliases.yaml'
+from sgraph_ai_service_playwright__cli.aws.bedrock.service.Bedrock__Model__Aliases       import BEDROCK_MODEL_ALIASES
 
 # ── Provider keyword → Enum__Bedrock__Provider ────────────────────────────────
 
@@ -47,24 +29,11 @@ _PROVIDER_MAP = {
 
 
 class Bedrock__Model__Resolver(Type_Safe):
-    _aliases: dict                                                                   # loaded once from YAML; lazy-populated
 
     # ── Alias loading ─────────────────────────────────────────────────────────
 
-    def aliases(self) -> dict:                                                      # Load alias table lazily from the YAML file
-        if not hasattr(self, '_aliases') or self._aliases is None:
-            self._aliases = {}
-        if self._aliases:
-            return self._aliases
-        if not _ALIAS_YAML.exists():                                                # loud error — silent swallow here was the original SignatureDoesNotMatch-shaped trap
-            raise FileNotFoundError(
-                f'Bedrock alias YAML not found at {_ALIAS_YAML}. '
-                'Expected at <repo-root>/library/reference/v0.2.29__bedrock-model-aliases.yaml. '
-                'If running from a non-standard install, set SG_AWS__BEDROCK__ALIAS_YAML to override.'
-            )
-        with open(_ALIAS_YAML, 'r') as f:
-            self._aliases = yaml.safe_load(f) or {}
-        return self._aliases
+    def aliases(self) -> dict:                                                      # Override in tests for controlled fixtures
+        return BEDROCK_MODEL_ALIASES
 
     # ── Public API ────────────────────────────────────────────────────────────
 
