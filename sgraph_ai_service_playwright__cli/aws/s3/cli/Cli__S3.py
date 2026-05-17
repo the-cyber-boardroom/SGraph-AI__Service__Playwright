@@ -35,6 +35,7 @@ from rich.panel   import Panel
 from rich.syntax  import Syntax
 from rich.table   import Table
 
+from sgraph_ai_service_playwright__cli.aws._shared.Aws__Confirm                      import confirm_or_abort
 from sgraph_ai_service_playwright__cli.aws._shared.Mutation__Gate                    import require_mutation_gate
 from sgraph_ai_service_playwright__cli.aws.s3.enums.Enum__S3__Object__Format         import Enum__S3__Object__Format
 from sgraph_ai_service_playwright__cli.aws.s3.service.S3__AWS__Client                import S3__AWS__Client
@@ -402,12 +403,13 @@ def cmd_bucket_stat(bucket  : str  = typer.Argument(..., help='Bucket name.'),
 
 @app.command('cp')
 @require_mutation_gate(_MUTATION_ENV)
-def cmd_cp(src : str  = typer.Argument(..., help='Source — local path or s3://bucket/key.'),
-           dst : str  = typer.Argument(..., help='Destination — s3://bucket/key or local path.'),
-           yes : bool = typer.Option(False, '--yes', '-y', help='Skip confirmation prompt.')):
+def cmd_cp(src     : str  = typer.Argument(..., help='Source — local path or s3://bucket/key.'),
+           dst     : str  = typer.Argument(..., help='Destination — s3://bucket/key or local path.'),
+           yes     : bool = typer.Option(False, '--yes', '-y',   help='Skip confirmation prompt.'),
+           dry_run : bool = typer.Option(False, '--dry-run',     help='Print action without executing.')):
     """Copy an object from src to dst. Either side may be local or s3://."""
-    if not yes:
-        typer.confirm(f'Copy {src} → {dst}?', abort=True)
+    if not confirm_or_abort(f'Copy {src} → {dst}?', yes=yes, dry_run=dry_run):
+        raise typer.Exit(0)
     client    = _client()
     src_local = not src.startswith('s3://')
     dst_local = not dst.startswith('s3://')
@@ -446,12 +448,13 @@ def cmd_cp(src : str  = typer.Argument(..., help='Source — local path or s3://
 
 @app.command('mv')
 @require_mutation_gate(_MUTATION_ENV)
-def cmd_mv(src : str  = typer.Argument(..., help='Source s3://bucket/key.'),
-           dst : str  = typer.Argument(..., help='Destination s3://bucket/key.'),
-           yes : bool = typer.Option(False, '--yes', '-y', help='Skip confirmation prompt.')):
+def cmd_mv(src     : str  = typer.Argument(..., help='Source s3://bucket/key.'),
+           dst     : str  = typer.Argument(..., help='Destination s3://bucket/key.'),
+           yes     : bool = typer.Option(False, '--yes', '-y',   help='Skip confirmation prompt.'),
+           dry_run : bool = typer.Option(False, '--dry-run',     help='Print action without executing.')):
     """Move an S3 object (copy + delete)."""
-    if not yes:
-        typer.confirm(f'Move {src} → {dst}?', abort=True)
+    if not confirm_or_abort(f'Move {src} → {dst}?', yes=yes, dry_run=dry_run):
+        raise typer.Exit(0)
     client = _client()
     sb, sk = _parse_s3_uri(src)
     db, dk = _parse_s3_uri(dst)
@@ -469,15 +472,16 @@ def cmd_mv(src : str  = typer.Argument(..., help='Source s3://bucket/key.'),
 
 @app.command('rm')
 @require_mutation_gate(_MUTATION_ENV)
-def cmd_rm(path : str  = typer.Argument(..., help='s3://bucket/key'),
-           yes  : bool = typer.Option(False, '--yes', '-y', help='Skip confirmation prompt.')):
+def cmd_rm(path    : str  = typer.Argument(..., help='s3://bucket/key'),
+           yes     : bool = typer.Option(False, '--yes', '-y',   help='Skip confirmation prompt.'),
+           dry_run : bool = typer.Option(False, '--dry-run',     help='Print action without executing.')):
     """Delete an S3 object."""
     bucket, key = _parse_s3_uri(path)
     if not bucket or not key:
         console.print('[red]Specify a full s3://bucket/key path.[/red]')
         raise typer.Exit(1)
-    if not yes:
-        typer.confirm(f'Delete {path}?', abort=True)
+    if not confirm_or_abort(f'Delete {path}?', yes=yes, dry_run=dry_run):
+        raise typer.Exit(0)
     ok = _client().delete_object(bucket, key)
     if ok:
         console.print(f'[green]Deleted[/green] {path}')
@@ -522,8 +526,8 @@ def cmd_sync(local_dir : str  = typer.Argument(..., help='Local directory.'),
     if dry_run:
         return
 
-    if not yes:
-        typer.confirm(f'Upload {len(to_upload)} files?', abort=True)
+    if not confirm_or_abort(f'Upload {len(to_upload)} files?', yes=yes, dry_run=dry_run):
+        raise typer.Exit(0)
 
     client  = _client()
     ok_count = 0
@@ -576,12 +580,13 @@ def cmd_edit(path       : str  = typer.Argument(..., help='s3://bucket/key'),
 
 @app.command('bucket-create')
 @require_mutation_gate(_MUTATION_ENV)
-def cmd_bucket_create(bucket : str  = typer.Argument(..., help='Bucket name to create.'),
-                      region : str  = typer.Option('',    '--region', '-r', help='AWS region.'),
-                      yes    : bool = typer.Option(False, '--yes',    '-y', help='Skip confirmation.')):
+def cmd_bucket_create(bucket  : str  = typer.Argument(..., help='Bucket name to create.'),
+                      region  : str  = typer.Option('',    '--region', '-r', help='AWS region.'),
+                      yes     : bool = typer.Option(False, '--yes',    '-y', help='Skip confirmation.'),
+                      dry_run : bool = typer.Option(False, '--dry-run',      help='Print action without executing.')):
     """Create an S3 bucket with versioning enabled and public access blocked."""
-    if not yes:
-        typer.confirm(f'Create bucket "{bucket}"?', abort=True)
+    if not confirm_or_abort(f'Create bucket "{bucket}"?', yes=yes, dry_run=dry_run):
+        raise typer.Exit(0)
     ok = _client().create_bucket(bucket, region=region)
     if ok:
         console.print(f'[green]Created[/green] {bucket}')
