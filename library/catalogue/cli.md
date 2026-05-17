@@ -2,8 +2,8 @@
 title: "Catalogue — CLI"
 file: cli.md
 shard: cli
-as_of: v0.2.25
-last_refreshed: 2026-05-17
+as_of: v0.2.28
+last_refreshed: 2026-05-17 (PM sync)
 maintainer: Librarian
 prior_snapshot: (none — first snapshot)
 ---
