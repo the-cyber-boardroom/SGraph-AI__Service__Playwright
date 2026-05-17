@@ -64,18 +64,31 @@ class Bedrock__Tool__AWS__Client(Type_Safe):
                                               region       = effective_region            ,
                                               capture_path = ''                          )
 
-    def browser_navigate(self, session_id: str, url: str, region: str = None) -> dict:
-        effective_region = region or self.current_region()
-        client = self.agentcore_client(effective_region)
-        return client.browser_tool(sessionId=session_id,
-                                   action   =dict(type='navigate', url=url))
+    def browser_navigate(self, session_id: str, url: str, region: str = None, browser_identifier: str = None) -> dict:
+        # AWS `invoke_browser` only exposes OS-level actions (mouseClick,
+        # keyType, screenshot, etc.) — there is NO `navigate` action in the
+        # BrowserAction union. URL navigation must go through the session's
+        # CDP/WebSocket stream endpoint (returned by `start_browser_session`
+        # / `get_browser_session`) with a CDP client like Playwright.
+        # This isn't wired up yet — fail loud rather than silently.
+        raise NotImplementedError(
+            'browser_navigate is not implemented via the AgentCore API: '
+            '`invoke_browser` only supports OS-level actions (mouse/keyboard/screenshot). '
+            'URL navigation requires connecting to the session stream endpoint '
+            'via the Chrome DevTools Protocol (Playwright over CDP). Track: '
+            'plug Playwright into `get_browser_session` → streamEndpoint.')
 
-    def browser_screenshot(self, session_id: str, region: str = None) -> bytes:
+    def browser_screenshot(self, session_id: str, region: str = None, browser_identifier: str = None) -> bytes:
         effective_region = region or self.current_region()
         client = self.agentcore_client(effective_region)
-        resp   = client.browser_tool(sessionId=session_id,
-                                     action   =dict(type='screenshot'))
-        return resp.get('imageData', b'')
+        resp   = client.invoke_browser(browserIdentifier=browser_identifier or DEFAULT_BROWSER_ID,
+                                       sessionId        =session_id                              ,
+                                       action           =dict(screenshot=dict(format='PNG'))     )
+        # The screenshot result lives under action result → screenshot → bytes.
+        # Shape (per AWS docs): {'result': {'screenshot': {'bytes': b'...'}}}
+        result = resp.get('result', {}) or {}
+        screenshot_payload = result.get('screenshot', {}) or {}
+        return screenshot_payload.get('bytes', b'')
 
     def browser_stop(self, session_id: str, region: str = None) -> None:
         effective_region = region or self.current_region()

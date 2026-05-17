@@ -341,17 +341,24 @@ def _apply_relative_navigation(parts, current_path):
     consuming_navigation = True
 
     for token in parts:
+        if not consuming_navigation:
+            # Navigation phase already ended — pass tokens through as-is.
+            # Critical: do NOT split on `/`, or URLs and other slash-containing
+            # arg values (`https://...`, `s3://...`, `path/to/file`) get
+            # shredded into separate args.
+            out.append(token)
+            continue
         for seg in str(token).split('/'):
             if not seg:
                 continue
-            if consuming_navigation and seg in ('..', 'back'):
+            if seg in ('..', 'back'):
                 if out:
                     out.pop()
                 elif base:
                     base.pop()
                 # else: at root, .. is a silent no-op
                 continue
-            if consuming_navigation and seg == '.':
+            if seg == '.':
                 continue                                                          # no-op; still in navigation phase
             consuming_navigation = False                                          # first non-nav segment ends the walk
             out.append(seg)
