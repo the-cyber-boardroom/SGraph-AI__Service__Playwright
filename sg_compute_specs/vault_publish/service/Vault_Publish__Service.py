@@ -1,7 +1,6 @@
 # ═══════════════════════════════════════════════════════════════════════════════
 # SG/Compute Specs — vault-publish: Vault_Publish__Service
-# Orchestrator: register / unpublish / status / list.
-# bootstrap() is a Phase 2d stub that exits non-zero until landed.
+# Orchestrator: register / unpublish / status / list / bootstrap.
 #
 # Dependencies injected via Optional factory seams so unit tests compose
 # in-memory fakes without touching AWS. Flat scheme: <slug>.aws.sg-labs.app
@@ -19,6 +18,8 @@ from sg_compute_specs.vault_publish.schemas.Enum__Slug__Error_Code              
 from sg_compute_specs.vault_publish.schemas.Enum__Vault_Publish__State          import Enum__Vault_Publish__State
 from sg_compute_specs.vault_publish.schemas.Safe_Str__Slug                      import Safe_Str__Slug
 from sg_compute_specs.vault_publish.schemas.Schema__Vault_Publish__Entry        import Schema__Vault_Publish__Entry
+from sg_compute_specs.vault_publish.schemas.Schema__Vault_Publish__Bootstrap__Request  import Schema__Vault_Publish__Bootstrap__Request
+from sg_compute_specs.vault_publish.schemas.Schema__Vault_Publish__Bootstrap__Response import Schema__Vault_Publish__Bootstrap__Response
 from sg_compute_specs.vault_publish.schemas.Schema__Vault_Publish__List__Response   import Schema__Vault_Publish__List__Response
 from sg_compute_specs.vault_publish.schemas.Schema__Vault_Publish__Register__Request  import Schema__Vault_Publish__Register__Request
 from sg_compute_specs.vault_publish.schemas.Schema__Vault_Publish__Register__Response import Schema__Vault_Publish__Register__Response
@@ -35,10 +36,17 @@ def _default_zone() -> str:
     return os.environ.get('SG_AWS__DNS__DEFAULT_ZONE', DEFAULT_ZONE_FALLBACK)
 
 
+WAKER_LAMBDA_NAME = 'sg-compute-vault-publish-waker'
+WAKER_HANDLER     = 'lambda_entry.run'
+
+
 class Vault_Publish__Service(Type_Safe):
-    _registry_factory   : Optional[Callable] = None  # seam: () -> Slug__Registry
-    _vault_app_factory  : Optional[Callable] = None  # seam: () -> Vault_App__Service
-    _validator          : Optional[Slug__Validator] = None
+    _registry_factory      : Optional[Callable] = None  # seam: () -> Slug__Registry
+    _vault_app_factory     : Optional[Callable] = None  # seam: () -> Vault_App__Service
+    _cf_client_factory     : Optional[Callable] = None  # seam: () -> CloudFront__AWS__Client
+    _deployer_factory      : Optional[Callable] = None  # seam: () -> Lambda__Deployer
+    _lambda_client_factory : Optional[Callable] = None  # seam: () -> Lambda__AWS__Client
+    _validator             : Optional[Slug__Validator] = None
 
     def setup(self) -> 'Vault_Publish__Service':
         self._validator = Slug__Validator()
@@ -54,6 +62,24 @@ class Vault_Publish__Service(Type_Safe):
             return self._vault_app_factory()
         from sg_compute_specs.vault_app.service.Vault_App__Service import Vault_App__Service
         return Vault_App__Service().setup()
+
+    def _cf_client(self):
+        if self._cf_client_factory is not None:
+            return self._cf_client_factory()
+        from sgraph_ai_service_playwright__cli.aws.cf.service.CloudFront__AWS__Client import CloudFront__AWS__Client
+        return CloudFront__AWS__Client()
+
+    def _deployer(self):
+        if self._deployer_factory is not None:
+            return self._deployer_factory()
+        from sgraph_ai_service_playwright__cli.aws.lambda_.service.Lambda__Deployer import Lambda__Deployer
+        return Lambda__Deployer()
+
+    def _lambda_client(self):
+        if self._lambda_client_factory is not None:
+            return self._lambda_client_factory()
+        from sgraph_ai_service_playwright__cli.aws.lambda_.service.Lambda__AWS__Client import Lambda__AWS__Client
+        return Lambda__AWS__Client()
 
     def _validator_or_default(self) -> Slug__Validator:
         return self._validator or Slug__Validator()
@@ -176,6 +202,60 @@ class Vault_Publish__Service(Type_Safe):
             entries    = entries,
             total      = len(entries),
             elapsed_ms = int((time.monotonic() - t0) * 1000))
+
+    def bootstrap(self, request: Schema__Vault_Publish__Bootstrap__Request = None
+                  ) -> Schema__Vault_Publish__Bootstrap__Response:
+        t0      = time.monotonic()
+        request = request or Schema__Vault_Publish__Bootstrap__Request()
+
+        from sgraph_ai_service_playwright__cli.aws.cf.collections.List__CF__Alias         import List__CF__Alias
+        from sgraph_ai_service_playwright__cli.aws.cf.primitives.Safe_Str__CF__Domain_Name import Safe_Str__CF__Domain_Name
+        from sgraph_ai_service_playwright__cli.aws.cf.primitives.Safe_Str__Cert__Arn       import Safe_Str__Cert__Arn
+        from sgraph_ai_service_playwright__cli.aws.cf.schemas.Schema__CF__Create__Request  import Schema__CF__Create__Request
+        from sgraph_ai_service_playwright__cli.aws.lambda_.enums.Enum__Lambda__Runtime     import Enum__Lambda__Runtime
+        from sgraph_ai_service_playwright__cli.aws.lambda_.primitives.Safe_Str__Lambda__Name import Safe_Str__Lambda__Name
+        from sgraph_ai_service_playwright__cli.aws.lambda_.schemas.Schema__Lambda__Deploy__Request import Schema__Lambda__Deploy__Request
+
+        waker_folder = os.path.join(os.path.dirname(__file__), '..', 'waker')
+        deploy_req   = Schema__Lambda__Deploy__Request(
+            name        = Safe_Str__Lambda__Name(WAKER_LAMBDA_NAME),
+            folder_path = os.path.abspath(waker_folder),
+            handler     = WAKER_HANDLER,
+            role_arn    = request.role_arn,
+            runtime     = Enum__Lambda__Runtime.PYTHON_3_12,
+            memory_size = 512,
+            timeout     = 60,
+            description = 'Vault Publish Waker — cold-start wake + proxy',
+        )
+        deploy_resp = self._deployer().deploy_from_folder(deploy_req)
+        if not deploy_resp.success:
+            return Schema__Vault_Publish__Bootstrap__Response(
+                message    = f'lambda deploy failed: {deploy_resp.message}',
+                elapsed_ms = int((time.monotonic() - t0) * 1000),
+            )
+
+        url_info  = self._lambda_client().create_function_url(WAKER_LAMBDA_NAME)
+        waker_url = str(url_info.function_url)
+
+        origin_domain = waker_url.removeprefix('https://').rstrip('/')
+        cf_req = Schema__CF__Create__Request(
+            origin_domain = Safe_Str__CF__Domain_Name(origin_domain),
+            cert_arn      = Safe_Str__Cert__Arn(request.cert_arn),
+            aliases       = List__CF__Alias([f'*.{request.zone}']),
+            comment       = f'vault-publish waker — {request.zone}',
+        )
+        cf_resp = self._cf_client().create_distribution(cf_req)
+
+        return Schema__Vault_Publish__Bootstrap__Response(
+            distribution_id = str(cf_resp.distribution_id),
+            domain_name     = str(cf_resp.domain_name),
+            lambda_name     = WAKER_LAMBDA_NAME,
+            waker_url       = waker_url,
+            zone            = request.zone,
+            created         = True,
+            message         = 'bootstrapped',
+            elapsed_ms      = int((time.monotonic() - t0) * 1000),
+        )
 
 
 def _map_state(state_raw: str) -> Enum__Vault_Publish__State:

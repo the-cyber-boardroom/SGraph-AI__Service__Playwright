@@ -5,7 +5,7 @@
 #   unpublish : remove slug, stack, and DNS record
 #   status    : show EC2 state + FQDN for a slug
 #   list      : list all registered slugs (vault keys redacted)
-#   bootstrap : Phase 2d stub — prints PROPOSED and exits non-zero
+#   bootstrap : deploy Waker Lambda + CloudFront distribution
 # ═══════════════════════════════════════════════════════════════════════════════
 
 import os
@@ -20,6 +20,8 @@ from rich.table   import Table
 from sg_compute.cli.base.Spec__CLI__Defaults                              import DEFAULT_REGION
 from sg_compute_specs.vault_publish.schemas.Safe_Str__Slug                import Safe_Str__Slug
 from sg_compute_specs.vault_publish.schemas.Safe_Str__Vault__Key          import Safe_Str__Vault__Key
+from sg_compute_specs.vault_publish.schemas.Schema__Vault_Publish__Bootstrap__Request import (
+    Schema__Vault_Publish__Bootstrap__Request, DEFAULT_CERT_ARN, DEFAULT_ZONE)
 from sg_compute_specs.vault_publish.schemas.Schema__Vault_Publish__Register__Request import Schema__Vault_Publish__Register__Request
 from sg_compute_specs.vault_publish.service.Vault_Publish__Service        import Vault_Publish__Service
 
@@ -104,8 +106,30 @@ def list_slugs():
     c.print(f'\n  Total: {resp.total}\n')
 
 
-@app.command(name='bootstrap', help='[PROPOSED] Bootstrap CloudFront + Waker Lambda. Lands in Phase 2d.')
-def bootstrap():
+@app.command(name='bootstrap', help='Deploy Waker Lambda + CloudFront distribution for vault-publish.')
+def bootstrap(
+    cert_arn : str = typer.Option(DEFAULT_CERT_ARN, '--cert-arn', help='ACM wildcard certificate ARN'),
+    zone     : str = typer.Option(DEFAULT_ZONE,     '--zone',     help='DNS apex zone (e.g. aws.sg-labs.app)'),
+    role_arn : str = typer.Option('',               '--role-arn', help='Lambda execution role ARN'),
+    yes      : bool = typer.Option(False, '--yes', '-y', help='Skip confirmation'),
+):
     c = Console(highlight=False)
-    c.print('\n  [yellow]⚠[/]  PROPOSED — does not exist yet. Land in phase 2d.\n')
-    raise typer.Exit(2)
+    if not yes:
+        typer.confirm(
+            f"\n  Bootstrap vault-publish for zone '{zone}'?\n"
+            f"  This will create a Lambda function and CloudFront distribution.",
+            default=True, abort=True)
+    c.print(f'\n  [yellow]→[/]  Bootstrapping vault-publish for [bold]{zone}[/]…')
+    req  = Schema__Vault_Publish__Bootstrap__Request(cert_arn=cert_arn, zone=zone, role_arn=role_arn)
+    resp = _svc().bootstrap(req)
+    if not resp.created:
+        c.print(f'  [red]✗  {resp.message}[/]')
+        raise typer.Exit(1)
+    c.print(f'  [green]✓[/]  Bootstrapped')
+    c.print(f'      Lambda      : {resp.lambda_name}')
+    c.print(f'      Waker URL   : {resp.waker_url}')
+    c.print(f'      CF dist     : {resp.distribution_id}')
+    c.print(f'      CF domain   : {resp.domain_name}')
+    c.print(f'      Zone        : {resp.zone}')
+    c.print(f'      elapsed     : {resp.elapsed_ms}ms')
+    c.print()
