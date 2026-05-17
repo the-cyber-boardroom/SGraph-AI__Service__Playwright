@@ -104,7 +104,7 @@ class Test__CloudTrail__AWS__Client:
         c.seed_trail(name='active-trail',  is_logging=True)
         c.seed_trail(name='stopped-trail', is_logging=False)
         result = c.list_trails()
-        by_name = {tr.name: tr for tr in result}
+        by_name = {str(tr.name): tr for tr in result}          # str() needed: Safe_Str hash != plain str hash
         assert by_name['active-trail'].is_logging  is True
         assert by_name['stopped-trail'].is_logging is False
 
