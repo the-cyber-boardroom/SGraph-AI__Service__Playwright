@@ -34,22 +34,19 @@ def _make_candidates_file(tmp: str, *names) -> str:
 
 class Test__Cli__Iam__Graph__Discover:
 
-    def test_1__discover_no_real_aws_monkeypatched(self, monkeypatch, tmp_path):
+    def test_1__discover_no_real_aws_monkeypatched(self, tmp_path):
         from sgraph_ai_service_playwright__cli.aws.iam.graph.service.Iam__Discovery__Orchestrator  import Iam__Discovery__Orchestrator
         from sgraph_ai_service_playwright__cli.aws.iam.graph.service.Iam__Graph__Vault__Writer     import Iam__Graph__Vault__Writer
         from sgraph_ai_service_playwright__cli.aws.iam.graph.collections.List__Schema__IAM__Graph__Node import List__Schema__IAM__Graph__Node
         from sgraph_ai_service_playwright__cli.aws.iam.graph.collections.List__Schema__IAM__Graph__Edge import List__Schema__IAM__Graph__Edge
         from tests.unit.sgraph_ai_service_playwright__cli.aws.iam.graph.service.Iam__Discovery__Orchestrator__In_Memory import Iam__Discovery__Orchestrator__In_Memory
 
-        writer = Iam__Graph__Vault__Writer(base_path=str(tmp_path))
-        monkeypatch.setattr(
-            'sgraph_ai_service_playwright__cli.aws.iam.graph.cli.Cli__Iam__Graph._default_orchestrator',
-            lambda: Iam__Discovery__Orchestrator__In_Memory())
-        monkeypatch.setattr(
-            'sgraph_ai_service_playwright__cli.aws.iam.graph.cli.Cli__Iam__Graph._default_writer',
-            lambda: writer)
+        writer       = Iam__Graph__Vault__Writer(base_path=str(tmp_path))
+        orchestrator = Iam__Discovery__Orchestrator__In_Memory()
 
-        result = runner.invoke(graph_app, ['discover', '--json'])
+        result = runner.invoke(graph_app, ['discover', '--json'],
+                               obj={'iam_graph_orchestrator': orchestrator,
+                                    'iam_graph_writer'      : writer})
         assert result.exit_code == 0, result.output
         data = json.loads(result.output)
         assert 'snapshot_id' in data
@@ -60,16 +57,13 @@ class Test__Cli__Iam__Graph__Discover:
 
 class Test__Cli__Iam__Graph__Show:
 
-    def test_1__show_no_snapshots(self, monkeypatch, tmp_path):
+    def test_1__show_no_snapshots(self, tmp_path):
         from sgraph_ai_service_playwright__cli.aws.iam.graph.service.Iam__Graph__Vault__Writer import Iam__Graph__Vault__Writer
         writer = Iam__Graph__Vault__Writer(base_path=str(tmp_path))
-        monkeypatch.setattr(
-            'sgraph_ai_service_playwright__cli.aws.iam.graph.cli.Cli__Iam__Graph._default_writer',
-            lambda: writer)
-        result = runner.invoke(graph_app, ['show'])
+        result = runner.invoke(graph_app, ['show'], obj={'iam_graph_writer': writer})
         assert result.exit_code == 1
 
-    def test_2__show_existing_snapshot_json(self, monkeypatch, tmp_path):
+    def test_2__show_existing_snapshot_json(self, tmp_path):
         from sgraph_ai_service_playwright__cli.aws.iam.graph.service.Iam__Graph__Vault__Writer     import Iam__Graph__Vault__Writer
         from sgraph_ai_service_playwright__cli.aws.iam.graph.collections.List__Schema__IAM__Graph__Node import List__Schema__IAM__Graph__Node
         from sgraph_ai_service_playwright__cli.aws.iam.graph.collections.List__Schema__IAM__Graph__Edge import List__Schema__IAM__Graph__Edge
@@ -84,11 +78,9 @@ class Test__Cli__Iam__Graph__Show:
             role_count  = 5,
         )
         writer.write(meta, List__Schema__IAM__Graph__Node(), List__Schema__IAM__Graph__Edge())
-        monkeypatch.setattr(
-            'sgraph_ai_service_playwright__cli.aws.iam.graph.cli.Cli__Iam__Graph._default_writer',
-            lambda: writer)
 
-        result = runner.invoke(graph_app, ['show', '--snapshot', snap_id, '--json'])
+        result = runner.invoke(graph_app, ['show', '--snapshot', snap_id, '--json'],
+                               obj={'iam_graph_writer': writer})
         assert result.exit_code == 0
         data = json.loads(result.output)
         assert data['role_count'] == 5
@@ -130,35 +122,31 @@ class Test__Cli__Iam__Graph__Filter:
         writer.write(meta, nodes, List__Schema__IAM__Graph__Edge())
         return writer
 
-    def test_1__filter_unused_json(self, monkeypatch, tmp_path):
+    def test_1__filter_unused_json(self, tmp_path):
         snap_id = '2026-05-17T10:00:00Z__fff111'
         roles   = [
             {'name': 'sg-stale',  'last_used': '2025-01-01T00:00:00+00:00'},
             {'name': 'sg-recent', 'last_used': '2026-05-10T00:00:00+00:00'},
         ]
         writer = self._write_snapshot_with_roles(tmp_path, snap_id, roles)
-        monkeypatch.setattr(
-            'sgraph_ai_service_playwright__cli.aws.iam.graph.cli.Cli__Iam__Graph._default_writer',
-            lambda: writer)
         result = runner.invoke(graph_app, ['filter', '--unused', '--days', '90',
-                                           '--snapshot', snap_id, '--json'])
+                                           '--snapshot', snap_id, '--json'],
+                               obj={'iam_graph_writer': writer})
         assert result.exit_code == 0, result.output
         data = json.loads(result.output)
         assert data['count'] == 1
         assert data['candidates'][0]['name'] == 'sg-stale'
 
-    def test_2__filter_aws_default_json(self, monkeypatch, tmp_path):
+    def test_2__filter_aws_default_json(self, tmp_path):
         snap_id = '2026-05-17T10:00:01Z__fff222'
         roles   = [
             {'name': 'user-role'},
             {'name': 'AWSServiceRole', 'is_aws_default': True},
         ]
         writer = self._write_snapshot_with_roles(tmp_path, snap_id, roles)
-        monkeypatch.setattr(
-            'sgraph_ai_service_playwright__cli.aws.iam.graph.cli.Cli__Iam__Graph._default_writer',
-            lambda: writer)
         result = runner.invoke(graph_app, ['filter', '--aws-default',
-                                           '--snapshot', snap_id, '--json'])
+                                           '--snapshot', snap_id, '--json'],
+                               obj={'iam_graph_writer': writer})
         assert result.exit_code == 0, result.output
         data = json.loads(result.output)
         assert data['count'] == 1
@@ -203,14 +191,12 @@ class Test__Cli__Iam__Graph__Delete:
             trust_service= Enum__IAM__Trust__Service.LAMBDA,
         ))
         cleanup = Iam__Graph__Cleanup(iam_client=client)
-        monkeypatch.setattr(
-            'sgraph_ai_service_playwright__cli.aws.iam.graph.cli.Cli__Iam__Graph.Iam__Graph__Cleanup',
-            lambda: cleanup)
 
         with tempfile.TemporaryDirectory() as tmp:
             cand_file = _make_candidates_file(tmp, 'sg-to-delete')
             result = runner.invoke(graph_app,
-                                   ['delete', '--from', cand_file, '--confirm', '--yes', '--json'])
+                                   ['delete', '--from', cand_file, '--confirm', '--yes', '--json'],
+                                   obj={'iam_graph_cleanup': cleanup})
         assert result.exit_code == 0, result.output
         data = json.loads(result.output)
         assert data['executed'] is True
@@ -221,12 +207,9 @@ class Test__Cli__Iam__Graph__Delete:
 
 class Test__Cli__Iam__Graph__Snapshots:
 
-    def test_1__snapshots_list_empty(self, monkeypatch, tmp_path):
+    def test_1__snapshots_list_empty(self, tmp_path):
         from sgraph_ai_service_playwright__cli.aws.iam.graph.service.Iam__Graph__Vault__Writer import Iam__Graph__Vault__Writer
         writer = Iam__Graph__Vault__Writer(base_path=str(tmp_path))
-        monkeypatch.setattr(
-            'sgraph_ai_service_playwright__cli.aws.iam.graph.cli.Cli__Iam__Graph._default_writer',
-            lambda: writer)
-        result = runner.invoke(graph_app, ['snapshots', 'list'])
+        result = runner.invoke(graph_app, ['snapshots', 'list'], obj={'iam_graph_writer': writer})
         assert result.exit_code == 0
         assert 'No snapshots' in result.output
