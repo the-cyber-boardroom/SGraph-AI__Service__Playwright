@@ -5,8 +5,6 @@
 
 import json
 
-import boto3
-
 from osbot_utils.type_safe.Type_Safe                                                import Type_Safe
 
 
@@ -20,8 +18,11 @@ EC2_TRUST_POLICY = {'Version'  : '2012-10-17',
 
 class Firefox__IAM__Helper(Type_Safe):
 
-    def iam_client(self, region: str):
-        return boto3.client('iam', region_name=region)
+    def iam_client(self, region: str):                                              # Single seam — tests override
+        from sgraph_ai_service_playwright__cli.credentials.service.Sg__Aws__Session  import Sg__Aws__Session
+        from sgraph_ai_service_playwright__cli.credentials.service.Credentials__Store import Credentials__Store
+        return Sg__Aws__Session(store=Credentials__Store()).boto3_client_from_context(
+            service_name='iam', region=region or '')
 
     def ensure(self, region: str) -> str:
         iam       = self.iam_client(region)

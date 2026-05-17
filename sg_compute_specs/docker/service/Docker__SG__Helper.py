@@ -5,8 +5,6 @@
 
 from typing                                                                         import List
 
-import boto3                                                                        # EXCEPTION — narrow boto3 boundary
-
 from osbot_utils.type_safe.Type_Safe                                                import Type_Safe
 
 from sg_compute_specs.docker.primitives.Safe_Str__IP__Address                       import Safe_Str__IP__Address
@@ -16,8 +14,11 @@ from sg_compute_specs.docker.service.Docker__Tags                            imp
 
 class Docker__SG__Helper(Type_Safe):
 
-    def ec2_client(self, region: str):
-        return boto3.client('ec2', region_name=region)
+    def ec2_client(self, region: str):                                              # Single seam — tests override
+        from sgraph_ai_service_playwright__cli.credentials.service.Sg__Aws__Session  import Sg__Aws__Session
+        from sgraph_ai_service_playwright__cli.credentials.service.Credentials__Store import Credentials__Store
+        return Sg__Aws__Session(store=Credentials__Store()).boto3_client_from_context(
+            service_name='ec2', region=region or '')
 
     def ensure_security_group(self, region       : str                          ,
                                      stack_name   : Safe_Str__Docker__Stack__Name,

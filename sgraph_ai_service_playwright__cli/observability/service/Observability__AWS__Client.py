@@ -13,7 +13,7 @@
 
 from typing                                                                         import Dict
 
-import boto3                                                                        # EXCEPTION — see module header
+import boto3                                                                        # boto3 EXCEPTION — boto3.Session() used for SigV4 credentials only; service clients use Sg__Aws__Session
 import requests
 from botocore.auth                                                                  import SigV4Auth
 from botocore.awsrequest                                                            import AWSRequest
@@ -47,7 +47,10 @@ class Observability__AWS__Client(Type_Safe):                                    
     def amp_workspaces(self, region: str) -> Dict[str, Schema__Stack__Component__AMP]:
         out: Dict[str, Schema__Stack__Component__AMP] = {}
         try:                                                                        # Swallow region-wide errors (missing perms / empty account) — matches legacy behaviour
-            amp   = boto3.client('amp', region_name=region)
+            from sgraph_ai_service_playwright__cli.credentials.service.Sg__Aws__Session  import Sg__Aws__Session
+            from sgraph_ai_service_playwright__cli.credentials.service.Credentials__Store import Credentials__Store
+            amp   = Sg__Aws__Session(store=Credentials__Store()).boto3_client_from_context(
+                service_name='amp', region=region or '')
             pages = amp.get_paginator('list_workspaces').paginate()
             for page in pages:
                 for ws in page.get('workspaces', []):
@@ -66,7 +69,10 @@ class Observability__AWS__Client(Type_Safe):                                    
     def opensearch_domains(self, region: str) -> Dict[str, Schema__Stack__Component__OpenSearch]:
         out: Dict[str, Schema__Stack__Component__OpenSearch] = {}
         try:
-            osc   = boto3.client('opensearch', region_name=region)
+            from sgraph_ai_service_playwright__cli.credentials.service.Sg__Aws__Session  import Sg__Aws__Session
+            from sgraph_ai_service_playwright__cli.credentials.service.Credentials__Store import Credentials__Store
+            osc   = Sg__Aws__Session(store=Credentials__Store()).boto3_client_from_context(
+                service_name='opensearch', region=region or '')
             names = [d['DomainName'] for d in osc.list_domain_names().get('DomainNames', [])]
             if not names:
                 return out
@@ -88,7 +94,10 @@ class Observability__AWS__Client(Type_Safe):                                    
     def amg_workspaces(self, region: str) -> Dict[str, Schema__Stack__Component__Grafana]:
         out: Dict[str, Schema__Stack__Component__Grafana] = {}
         try:
-            grafana = boto3.client('grafana', region_name=region)
+            from sgraph_ai_service_playwright__cli.credentials.service.Sg__Aws__Session  import Sg__Aws__Session
+            from sgraph_ai_service_playwright__cli.credentials.service.Credentials__Store import Credentials__Store
+            grafana = Sg__Aws__Session(store=Credentials__Store()).boto3_client_from_context(
+                service_name='grafana', region=region or '')
             pages   = grafana.get_paginator('list_workspaces').paginate()
             for page in pages:
                 for ws in page.get('workspaces', []):
@@ -108,7 +117,10 @@ class Observability__AWS__Client(Type_Safe):                                    
     def amp_delete_workspace(self, region: str, alias: str) -> Schema__Stack__Component__Delete__Result:
         result = Schema__Stack__Component__Delete__Result(kind = Enum__Stack__Component__Kind.AMP)
         try:
-            amp        = boto3.client('amp', region_name=region)
+            from sgraph_ai_service_playwright__cli.credentials.service.Sg__Aws__Session  import Sg__Aws__Session
+            from sgraph_ai_service_playwright__cli.credentials.service.Credentials__Store import Credentials__Store
+            amp        = Sg__Aws__Session(store=Credentials__Store()).boto3_client_from_context(
+                service_name='amp', region=region or '')
             workspaces = amp.list_workspaces(alias=alias).get('workspaces', [])     # Aliased lookup — cheaper than paginating all
             if not workspaces:
                 result.outcome = Enum__Component__Delete__Outcome.NOT_FOUND
@@ -128,7 +140,10 @@ class Observability__AWS__Client(Type_Safe):                                    
         result = Schema__Stack__Component__Delete__Result(kind        = Enum__Stack__Component__Kind.OPENSEARCH,
                                                           resource_id = domain_name                            )
         try:
-            osc = boto3.client('opensearch', region_name=region)
+            from sgraph_ai_service_playwright__cli.credentials.service.Sg__Aws__Session  import Sg__Aws__Session
+            from sgraph_ai_service_playwright__cli.credentials.service.Credentials__Store import Credentials__Store
+            osc = Sg__Aws__Session(store=Credentials__Store()).boto3_client_from_context(
+                service_name='opensearch', region=region or '')
             try:
                 osc.delete_domain(DomainName=domain_name)
                 result.outcome = Enum__Component__Delete__Outcome.DELETED           # AWS returns immediately; the domain enters DELETING state for ~10 min
@@ -143,7 +158,10 @@ class Observability__AWS__Client(Type_Safe):                                    
     def amg_delete_workspace(self, region: str, name: str) -> Schema__Stack__Component__Delete__Result:
         result = Schema__Stack__Component__Delete__Result(kind = Enum__Stack__Component__Kind.GRAFANA)
         try:
-            grafana       = boto3.client('grafana', region_name=region)
+            from sgraph_ai_service_playwright__cli.credentials.service.Sg__Aws__Session  import Sg__Aws__Session
+            from sgraph_ai_service_playwright__cli.credentials.service.Credentials__Store import Credentials__Store
+            grafana       = Sg__Aws__Session(store=Credentials__Store()).boto3_client_from_context(
+                service_name='grafana', region=region or '')
             workspace_id  = ''
             for page in grafana.get_paginator('list_workspaces').paginate():        # AMG has no alias-lookup API; paginate to find by name
                 for ws in page.get('workspaces', []):

@@ -8,8 +8,6 @@
 # and the mitmproxy proxy port 8080 is loopback-only on the docker network.
 # ═══════════════════════════════════════════════════════════════════════════════
 
-import boto3                                                                        # EXCEPTION — narrow boto3 boundary, see plan doc 2
-
 from osbot_utils.type_safe.Type_Safe                                                import Type_Safe
 
 from sgraph_ai_service_playwright__cli.vnc.primitives.Safe_Str__IP__Address         import Safe_Str__IP__Address
@@ -23,7 +21,10 @@ VIEWER_PORT_EXTERNAL = 443                                                      
 class Vnc__SG__Helper(Type_Safe):
 
     def ec2_client(self, region: str):                                              # Single seam — tests override
-        return boto3.client('ec2', region_name=region)
+        from sgraph_ai_service_playwright__cli.credentials.service.Sg__Aws__Session  import Sg__Aws__Session
+        from sgraph_ai_service_playwright__cli.credentials.service.Credentials__Store import Credentials__Store
+        return Sg__Aws__Session(store=Credentials__Store()).boto3_client_from_context(
+            service_name='ec2', region=region or '')
 
     def ensure_security_group(self, region: str, stack_name: Safe_Str__Vnc__Stack__Name,
                                      caller_ip: Safe_Str__IP__Address, public: bool = False) -> str:
