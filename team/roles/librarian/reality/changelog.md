@@ -6,6 +6,12 @@ This is a pointer log, not a content log. For full delta detail, see the master 
 
 ---
 
+## 2026-05-16 (sg aws billing — AWS Cost Explorer CLI sub-package)
+
+- `sg-compute/index.md` — UPDATED: `sgraph_ai_service_playwright__cli/aws/billing/` sub-package added (EXISTS). 4 primitives (`Safe_Decimal__Currency__USD`, `Safe_Str__Aws_Service_Code`, `Safe_Str__Iso8601_Date`, `Safe_Str__Aws_Usage_Type`), 4 enums, 4 schemas, 3 collections, 3 service classes (`Cost_Explorer__AWS__Client`, `Billing__Window__Resolver`, `Billing__Report__Builder`), 6 CLI commands (`last-48h`, `week`, `mtd`, `window`, `summary`, `chart`). `Cli__Aws.py` registers `billing_app`. IAM requirements documented. Branch `claude/plan-billing-view-u0NFG`.
+
+---
+
 ## 2026-05-05 (T2.2b — Firefox credentials + mitm-script routes)
 
 - `sg-compute/index.md` — UPDATED: `Schema__Firefox__Credentials__Response`, `Schema__Firefox__Mitm__Script__Response`, `Firefox__SSM__Helper` added to firefox spec. `Firefox__Service` gains `set_credentials` + `upload_mitm_script`. `Routes__Firefox__Stack` gains `PUT /{node_id}/credentials` + `PUT /{node_id}/mitm-script`. `Cli__Firefox` `NotImplementedError` removed; both CLI commands fully wired.
