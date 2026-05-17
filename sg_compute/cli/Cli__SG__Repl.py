@@ -92,6 +92,31 @@ def _match(prefix: str, options) -> tuple:                          # (hits, kin
     return substring_hits, 'substring'
 
 
+def normalise_initial_path(raw_segments):
+    """Normalise a positional REPL path so all these are equivalent:
+
+        ['aws', 'bedrock']                              ← typed as separate words
+        ['sg/aws/bedrock/tool/browser/session']         ← copy-pasted from a REPL prompt
+        ['aws/bedrock', 'chat']                         ← mix
+        ['/aws/bedrock/']                               ← leading/trailing slash
+        ['sg']                                          ← bare sg prefix → empty path
+
+    Returns a flat list of segments, no empty strings, no leading 'sg'.
+    Pass None or [] to get an empty list.
+    """                                                                          # inline
+    if not raw_segments:
+        return []
+    expanded = []
+    for seg in raw_segments:
+        for part in str(seg).split('/'):
+            part = part.strip()
+            if part:
+                expanded.append(part)
+    if expanded and expanded[0] == 'sg':                                         # drop the literal 'sg' root prefix if user pasted it in
+        expanded = expanded[1:]
+    return expanded
+
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # Bash escape — allow a curated whitelist of read-only shell commands inside
 # the REPL so users don't have to leave for trivial things like `cat output.json`.
@@ -282,6 +307,37 @@ def _extract_debug_flag(parts):                                     # returns (d
     return True, [p for p in parts if p not in DEBUG_FLAGS]
 
 
+def _maybe_absolute_dispatch(parts, current_path):
+    """If the user typed an absolute command (starts with `sg`, `/`, or a
+    slash-containing first token), dispatch from the root instead of the
+    current REPL path. Returns (base_path, cleaned_parts).
+
+    The motivating case: hint lines printed by error renderers (e.g.
+    "Try: sg aws bedrock check") should be copy-pasteable into the REPL
+    from any depth. Without this, `sg/aws/bedrock/chat>` looking at a
+    failure with that hint tries to find `sg` as a sub-command of `chat`
+    and errors with "No such command 'sg'".
+
+    Recognised forms:
+      ['sg', 'aws', 'bedrock', 'check']          → ([], ['aws','bedrock','check'])
+      ['/aws/bedrock', 'check']                  → ([], ['aws','bedrock','check'])
+      ['sg/aws/bedrock', 'check']                → ([], ['aws','bedrock','check'])
+      ['aws', 'bedrock']                          → (current_path, ['aws','bedrock'])    (no-op)
+      []                                          → (current_path, [])                    (no-op)
+    """                                                                          # inline
+    if not parts:
+        return list(current_path), list(parts)
+    first = parts[0]
+    is_absolute = (first == 'sg'
+                   or first.startswith('/')
+                   or first.startswith('sg/')
+                   or '/' in first and not first.startswith('-'))                # `aws/bedrock` first-token also treated as absolute
+    if not is_absolute:
+        return list(current_path), list(parts)
+    flattened = normalise_initial_path(parts)
+    return [], flattened
+
+
 def _assemble_args(base_path, parts, sg_app=None, resolve_fn=None):
     """Assemble the full click argv for a REPL line.
 
@@ -434,7 +490,13 @@ def run_repl(sg_app=None, initial_path=None):
             continue
 
         debug_present, parts_clean = _extract_debug_flag(parts)                 # hoist --debug / -D out before _resolve
-        resolved, trailing         = _resolve(sg_app, repl.path, parts_clean)
+
+        # `sg <anything>` or `/<anything>` typed inside the REPL → dispatch
+        # from the ROOT, not from repl.path. Lets users copy-paste the help-hints
+        # we render in error messages (`sg aws bedrock check`) and have them
+        # work from anywhere in the tree.
+        dispatch_base, parts_clean = _maybe_absolute_dispatch(parts_clean, repl.path)
+        resolved, trailing         = _resolve(sg_app, dispatch_base, parts_clean)
 
         if resolved is None:
             console.print(f'  [dim]{" ".join(trailing)}[/dim]')                # ambiguous — show candidates
