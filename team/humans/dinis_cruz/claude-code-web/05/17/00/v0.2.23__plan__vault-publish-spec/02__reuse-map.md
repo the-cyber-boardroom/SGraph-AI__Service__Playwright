@@ -54,7 +54,9 @@ Action choice is driven by the principle: **maximise REUSE, prefer EXTEND over N
 | Default zone constant + env var | `Route53__AWS__Client.DEFAULT_ZONE_NAME_FALLBACK` + `SG_AWS__DNS__DEFAULT_ZONE` | REUSE (must not re-derive in vault-publish) |
 | `Cli__Dns.py` patterns (mutation gate, sub-typers) | `aws/dns/cli/Cli__Dns.py` (1248 lines) | TEMPLATE — copy shape into `Cli__Cf.py` and `Cli__Lambda.py` |
 
-**Domain-specific Route 53 reuse for `sg-labs.app`** — see `07__domain-strategy.md §5` for the full reuse-map addendum (per-namespace wildcard ALIAS, per-slug A under `<namespace>.sg-labs.app`, TTL policy). Zero new boto3 surface; all reuse of the rows above.
+**Domain-specific Route 53 reuse for `aws.sg-labs.app`** — see `07__domain-strategy.md §5` for the full reuse-map addendum (single wildcard ALIAS, per-slug A under `aws.sg-labs.app`, TTL policy). Zero new boto3 surface; all reuse of the rows above.
+
+**Flat scheme decided 2026-05-17 (Q-Scheme).** Zone is `aws.sg-labs.app` (delegated child of `sg-labs.app`); existing wildcard cert `*.aws.sg-labs.app` (ARN `arn:aws:acm:us-east-1:745506449035:certificate/99346343-dc1e-4a62-a6d3-0f22ab7bfffa`, status Issued) covers every leaf. **No `namespace` concept in v2.** FQDN computation is `f'{slug}.aws.sg-labs.app'` — inlined in `Vault_Publish__Service.register`, no helper class. `Slug__From_Host` strips the apex `.aws.sg-labs.app` and validates the resulting leaf with `Safe_Str__Slug` — returns the `Safe_Str__Slug` directly (no `Schema__Subdomain__Parts`).
 
 ---
 

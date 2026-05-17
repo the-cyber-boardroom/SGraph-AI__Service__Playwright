@@ -111,12 +111,21 @@ def test_register_writes_registry_and_creates_stack():
     resp = svc.register(slug=Safe_Str__Slug('sara-cv'),
                         vault_key=Safe_Str__Vault__Key('vk-abc123'))
 
-    assert resp.fqdn  == 'sara-cv.sg-compute.sgraph.ai'
+    assert resp.fqdn  == 'sara-cv.aws.sg-labs.app'    # flat scheme, decided 2026-05-17
     assert registry.get(Safe_Str__Slug('sara-cv')) is not None
     assert len(vault_app.aws_client.instance.calls('run_instance')) == 1
 ```
 
 No `@patch`, no `MagicMock`. The test reads exactly like production code — that's the test-strategy invariant the codebase enforces.
+
+### 3.1 Zone-parametrise convention (decided 2026-05-17)
+
+Tests touching DNS parametrise over zone-name so the env-var override path is covered:
+
+- **vault-app substrate tests** — default fallback `sg-compute.sgraph.ai`. Existing behaviour.
+- **vault-publish v2 tests** — set `SG_AWS__DNS__DEFAULT_ZONE=aws.sg-labs.app` for the test. Verifies the override drives the right hosted-zone lookup.
+
+No `namespace` parametrise — the flat scheme has no namespace concept.
 
 ---
 

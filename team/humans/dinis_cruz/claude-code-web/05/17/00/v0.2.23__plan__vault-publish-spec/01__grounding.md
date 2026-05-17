@@ -210,9 +210,9 @@ The brief's manifest sketch ([`04 §9`](file:///tmp/vault-publish-brief/04__vaul
 
 ## 11. Version
 
-`sgraph_ai_service_playwright/` does not exist as a Python package in this tree (verified — only `sgraph_ai_service_playwright__cli/` and `sgraph_ai_service_playwright__api_site/` exist). The version file at the repo root (`/home/user/SGraph-AI__Service__Playwright/version`) currently reads `vDONT-MERGE.DONT-MERGE.1` (a session-marker, not a real version). The reality master index reports the codebase at **v0.1.140**, and `sg_compute/version` is `v0.1.162`. The plan uses **v0.1.140** (the reality-doc value) in its filename per the README convention; Dev should treat the version field as cosmetic until the root `version` is cleaned up.
+**RESOLVED 2026-05-17.** The repo-root `version` placeholder (`vDONT-MERGE.DONT-MERGE.1`) was a versioning-bug session marker. Pulling `dev` into the working branch resolves it to **v0.2.23**. The plan folder is named accordingly: `v0.2.23__plan__vault-publish-spec/`. The new spec `sg_compute_specs/vault_publish/version` starts at `v0.1.0` (mirroring `sg_compute_specs/elastic/version` and other independently-versioned specs).
 
-This is flagged in `06__open-questions.md` Q4.
+See `06__open-questions.md` Q4 (RESOLVED).
 
 ---
 
@@ -230,4 +230,42 @@ This is flagged in `06__open-questions.md` Q4.
 | "`osbot_aws.Cloud_Front` only covers list + invalidate" | TRUE (per upstream docs) | confirmed via brief; not re-verified upstream in this plan |
 | "Top-level `vault_publish/` package on `claude/review-subdomain-workflow-bRIbm`" | MIS-CITES BRANCH | absent on `dev`; see §6.1 |
 
-Eight of nine load-bearing claims verified. The ninth (file ports from a different branch) needs the human's call on cherry-pick vs re-author.
+Eight of nine load-bearing claims verified. The ninth (file ports from a different branch) is RESOLVED: **re-author** (see `06__open-questions.md` Q2).
+
+---
+
+## 13. Phase 0 — VERIFIED on 2026-05-17
+
+**Status:** COMPLETED. Empirically validated end-to-end by the human operator on 2026-05-17.
+
+### 13.1 Command
+
+```bash
+sg vault-app create --with-aws-dns --name hello-world --wait
+```
+
+Simpler than the original Phase 0 sketch — no explicit `--tls-mode` / `--tls-hostname` flags required; the substrate's `--with-aws-dns` flow handles cert issuance end-to-end.
+
+### 13.2 Result
+
+| Field | Value |
+|-------|-------|
+| Instance ID | `i-05c161bc8aae48b01` |
+| Public IP | `18.130.98.215` |
+| FQDN | `hello-world.sg-compute.sgraph.ai` |
+| Wall-clock to healthy | **1 min 54 s** |
+| TLS issuer | Let's Encrypt R13 (CA-signed, browser-trusted) |
+| Cert remaining | 89 days |
+| Auto-DNS verification log line | `auto-dns: done … (INSYNC + authoritative)` in 24190 ms |
+
+### 13.3 What this proves
+
+- The warm path (`create_stack` → `Vault_App__Auto_DNS` → cert-init → LE issuance → vault healthy) works end-to-end without any v2 work.
+- The 60-second TTL convention in `Vault_App__Auto_DNS.AUTO_DNS__RECORD_TTL_SEC` allows propagation to authoritative + public-resolver sync in ~24 s.
+- No substrate fixes required before P1a Dev work starts. The only gating substrate concern is the Q13 audit of `delete_stack` (see §13.4).
+
+### 13.4 Side finding — `delete_stack` does NOT delete DNS
+
+Verified during this plan's preparation (`sg_compute_specs/vault_app/service/Vault_App__Service.py:528-546`): `delete_stack` calls `instance.terminate` and `sg.delete_security_group`, but never invokes `Route53__AWS__Client.delete_record` or `Vault_App__Auto_DNS` cleanup. Every `sg vault-app delete` to date has leaked an A record under `sg-compute.sgraph.ai`.
+
+This is a substrate bad-failure (CLAUDE.md rule #27) — caught here, fixed at the start of P1a. The substrate already exposes `sg aws dns records delete` (verified at `sgraph_ai_service_playwright__cli/aws/dns/cli/Cli__Dns.py:1054`), so the wiring is purely composition. See `06__open-questions.md` Q13 (RESOLVED, gating for P1a) and `04__phased-implementation.md` Phase 1a.

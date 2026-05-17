@@ -10,7 +10,7 @@ parent: README.md
 
 The v2 brief and the lab-brief are good designs, but neither was written against an open copy of `.claude/CLAUDE.md`. This file lists every place the brief or lab-brief proposes a shape that violates a project rule, and gives the compliant rewrite Dev should use.
 
-The first half is **brief deltas** (corrections to `/tmp/vault-publish-brief/`). The second half is **lab-brief deltas** (corrections to `team/humans/dinis_cruz/briefs/05/17/from__claude-web/lab-brief/`) — but the lab-brief is **out of the v2 vault-publish critical path**; it is treated as a parallel sibling track, not as part of this plan's deliverables.
+The first half is **brief deltas** (corrections to `/tmp/vault-publish-brief/`). The second half is **lab-brief deltas** (corrections to `team/humans/dinis_cruz/briefs/05/17/from__claude-web/lab-brief/`) — but the lab-brief is **deferred to post-v2** (decided 2026-05-17, Q1); the corrections apply only when Dev eventually tackles the lab brief after v2 vault-publish lands.
 
 ---
 
@@ -280,9 +280,9 @@ The folder layout file-tree shows `Endpoint__Resolver__Fargate.py` as if it land
 
 ---
 
-## B. Lab-brief deltas (parallel sibling track, not in vault-publish critical path)
+## B. Lab-brief deltas (deferred post-v2; not in vault-publish critical path)
 
-The lab-brief is a **measurement harness** for the same primitives the v2 brief builds. It is excellent work, but it is not a dependency of vault-publish v2. The plan keeps it as a **parallel track**: it can land before, alongside, or after the v2 implementation without affecting the v2 deliverable.
+The lab-brief is a **measurement harness** for the same primitives the v2 brief builds. It is excellent work, but per Q1 (decided 2026-05-17) it ships **sequentially, after** v2 vault-publish lands. The corrections below apply only when Dev tackles the lab brief separately, post-v2.
 
 That said, several of the lab-brief's design choices would violate project rules if Dev picked them up unchanged. The corrections below apply only when Dev tackles the lab brief separately.
 

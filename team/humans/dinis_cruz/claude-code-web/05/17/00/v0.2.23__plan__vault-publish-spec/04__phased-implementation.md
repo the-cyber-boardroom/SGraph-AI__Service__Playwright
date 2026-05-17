@@ -16,29 +16,37 @@ Each phase entry covers: **scope** (files touched / created), **tests added**, *
 
 ## Phase 0 — Validate the warm path today (NO CODE)
 
-**Status:** ❌ not started. **Owner:** human operator (smoke test). **Size:** ~30 min.
+**Status:** ✅ **COMPLETED 2026-05-17.** Empirically verified by human operator. **Owner:** human operator. **Actual size:** 1 min 54 s wall-clock.
 
-**Scope:**
+**Command executed:**
 
-```
-sg vault-app create --with-aws-dns hello-world \
-                    --tls-mode letsencrypt-hostname \
-                    --tls-hostname hello-world.sg-compute.sgraph.ai
-# wait 3-5 minutes for cert-init + LE issuance
-open https://hello-world.sg-compute.sgraph.ai/
+```bash
+sg vault-app create --with-aws-dns --name hello-world --wait
 ```
 
-**Tests added:** none — this is a one-shot manual validation.
+Simpler than the original sketch — `--with-aws-dns` alone drove cert issuance end-to-end; no explicit `--tls-mode` / `--tls-hostname` flags required.
 
-**Success criteria:** browser-trusted cert, vault content visible, no warnings.
+**Result (evidence captured):**
 
-**Domain-strategy addendum** (per `07__domain-strategy.md §6`): also confirm the `sg-labs.app` hosted zone is resolvable from the operator's account (`aws route53 list-hosted-zones | grep sg-labs.app`) and that `SG_AWS__DNS__DEFAULT_ZONE=sg-labs.app sg aws dns zones default-zone` returns the right zone. Optional in P0 but cheap to do alongside the warm-path smoke test.
+| Field | Value |
+|-------|-------|
+| Instance ID | `i-05c161bc8aae48b01` |
+| Public IP | `18.130.98.215` |
+| FQDN | `hello-world.sg-compute.sgraph.ai` |
+| Wall-clock to healthy | 1 min 54 s |
+| TLS issuer | Let's Encrypt R13 (CA-signed) |
+| Cert remaining | 89 days |
+| Auto-DNS log line | `auto-dns: done … (INSYNC + authoritative)` in 24190 ms |
 
-**Risks:** if this fails, every subsequent phase blocks until the substrate is fixed. Phase 0 must precede phase 1a.
+**Tests added:** none — this was a one-shot manual validation.
+
+**Success criteria — MET:** browser-trusted cert, vault content visible, no warnings, validated via certificate viewer.
+
+**`aws.sg-labs.app` zone check (optional follow-up, non-gating):** `aws route53 list-hosted-zones | grep aws.sg-labs.app` (zone exists — verified via Route 53 console; 3 records: NS / SOA / ACM validation CNAME for `*.aws.sg-labs.app`).
 
 **Dependencies:** none.
 
-**Reality-doc update:** none yet (no code changed).
+**Reality-doc update:** none (no code changed). Evidence captured in `01__grounding.md §13`.
 
 ---
 
@@ -87,11 +95,11 @@ open https://hello-world.sg-compute.sgraph.ai/   # works again after ≤60s DNS 
 **Domain-strategy addendum** (per `07__domain-strategy.md §3.5 / §6`):
 
 - **GATING — Q13 audit.** Dev must first verify that `Vault_App__Service.delete_stack` (`sg_compute_specs/vault_app/service/Vault_App__Service.py:528`) already deletes the per-slug A record. If it does NOT, that's a substrate bad-failure (CLAUDE.md rule #27); fix it as the first commit of P1a so `stop_stack`'s DNS-delete can mirror the reference path.
-- **Parametrise stop/start tests over zone-name** — run both `sg-compute.sgraph.ai` (default) and `sg-labs.app` (env-overridden via `SG_AWS__DNS__DEFAULT_ZONE`). Same code path; just ensures the override works.
+- **Parametrise stop/start tests over zone-name** — run both `sg-compute.sgraph.ai` (substrate default, vault-app substrate tests) and `aws.sg-labs.app` (env-overridden via `SG_AWS__DNS__DEFAULT_ZONE=aws.sg-labs.app` — vault-publish v2 default zone). Same code path; just ensures the override works.
 
 **Dependencies:** Phase 0 passes.
 
-**Reality-doc update:** add `vault-app stop / start` to `team/roles/librarian/reality/v0.1.31/01__playwright-service.md` (or the migrated `playwright-service/index.md`) under EXISTS.
+**Reality-doc update (decided 2026-05-17, Q9 = A):** add `vault-app stop / start` to `team/roles/librarian/reality/v0.1.31/01__playwright-service.md` (un-migrated) under EXISTS. Do NOT migrate the domain index as part of this phase.
 
 ---
 
@@ -123,7 +131,6 @@ sg_compute_specs/vault_publish/
 │   ├── Safe_Str__Slug.py
 │   ├── Safe_Str__Vault__Key.py
 │   ├── Enum__Slug__Error_Code.py
-│   ├── Enum__Sg_Labs__Namespace.py                # vp, lab, ... (see 07__domain-strategy.md §1.5)
 │   ├── Enum__Vault_Publish__State.py
 │   ├── Schema__Vault_Publish__Entry.py
 │   ├── Schema__Vault_Publish__Register__Request.py
@@ -177,14 +184,15 @@ sg vp unpublish sara-cv                             # → vault-app deleted, reg
 
 **Domain-strategy addendum** (per `07__domain-strategy.md §1 / §5 / §6`):
 
-- **FQDN scheme is `<slug>.<namespace>.sg-labs.app`** (two-level under a namespace label). `Vault_Publish__Service.register` computes `f'{slug}.{namespace.value}.{zone_apex}'`.
-- `Schema__Vault_Publish__Register__Request` gains a `namespace : Enum__Sg_Labs__Namespace = Enum__Sg_Labs__Namespace.VP` field — default `vp`, future lab spec can override.
-- `Reserved__Slugs` seeded with namespace strings (`vp`, `lab`) **and** a generous shadow list pending Q15 decision (`www`, `api`, `admin`, `status`, `mail`, `cdn`, `auth`).
+- **FQDN scheme is FLAT: `<slug>.aws.sg-labs.app`** (decided 2026-05-17). `Vault_Publish__Service.register` computes `f'{slug}.aws.sg-labs.app'` (or `f'{slug}.{zone_apex}'` where `zone_apex` is resolved from `SG_AWS__DNS__DEFAULT_ZONE`). Inlined in `register` — no `Fqdn__Builder` helper class for v2.
+- `Schema__Vault_Publish__Register__Request` carries **no** `namespace` field. The flat scheme has no namespace concept.
+- `Reserved__Slugs` seeded with the generous shadow list: `www`, `api`, `admin`, `status`, `mail`, `cdn`, `auth`. (No namespace tokens — the scheme is flat. Decided 2026-05-17, Q15.)
 - **No new boto3 surface.** All Route 53 work composes existing `Route53__AWS__Client` methods (`upsert_record`, `delete_record`, `upsert_a_alias_record`, `find_hosted_zone_by_name`).
+- **Lab-track forward note (not v2 scope).** When labs eventually land (after v2), they get their **own** delegated zone (e.g., `lab.sg-labs.app`) with their **own** wildcard cert. Clean separation, no slug collisions with `aws.sg-labs.app`. Parked here — implementation lives in the future lab spec, not in this plan.
 
 **Dependencies:** Phase 1a complete (the orchestrator delegates to `vault_app.stop_stack` / `start_stack` for the operator's manual cold-restart).
 
-**Reality-doc update:** create `team/roles/librarian/reality/v0.1.31/sg-compute/vault_publish/index.md` (or migrate to the domain-tree style at `team/roles/librarian/reality/sg-compute/vault-publish/`). Mark "Phase 1b — scaffold + operator surface" under EXISTS; cold path still PROPOSED.
+**Reality-doc update (decided 2026-05-17, Q9 = A):** create a new entry for vault-publish — `team/roles/librarian/reality/v0.1.31/sg-compute/vault_publish/index.md` (un-migrated style). Mark "Phase 1b — scaffold + operator surface" under EXISTS; cold path still PROPOSED.
 
 ---
 
@@ -223,7 +231,7 @@ sg aws cf distribution delete <id>
 
 **Dependencies:** none — can run in parallel with 1a / 1b.
 
-**Reality-doc update:** add `aws/cf/` to `team/roles/librarian/reality/v0.1.31/01__playwright-service.md` (or the migrated domain index).
+**Reality-doc update (decided 2026-05-17, Q9 = A):** add `aws/cf/` to `team/roles/librarian/reality/v0.1.31/01__playwright-service.md` (un-migrated). Same for `aws/lambda_/` in P2b.
 
 ---
 
@@ -277,7 +285,6 @@ waker/
     ├── __init__.py
     ├── Enum__Instance__State.py
     ├── Schema__Endpoint__Resolution.py     # (per delta A.8 — no tuples)
-    ├── Schema__Subdomain__Parts.py         # (per 07__domain-strategy.md §1.4 / §5 — slug + namespace + apex; returned by Slug__From_Host instead of a tuple)
     └── Schema__Waker__Request_Context.py
 ```
 
@@ -314,9 +321,19 @@ curl -H 'Host: sara-cv.sg-compute.sgraph.ai' http://localhost:8090/
 **Scope:**
 
 - `sg_compute_specs/vault_publish/service/Vault_Publish__Service.py` — EXTEND with `bootstrap()` method per brief [`04 §6`](file:///tmp/vault-publish-brief/04__vault-publish-spec.md).
-- `sg_compute_specs/vault_publish/schemas/Schema__Vault_Publish__Bootstrap__Request.py` — NEW. Includes required `namespace : Enum__Sg_Labs__Namespace` field — bootstrap is per-namespace (see `07__domain-strategy.md §2.2 / §6`).
+- `sg_compute_specs/vault_publish/schemas/Schema__Vault_Publish__Bootstrap__Request.py` — NEW. Takes `--cert-arn` (default the existing wildcard ARN below) and `--zone` (default `aws.sg-labs.app`). **No `namespace` field** — bootstrap is singular under the flat scheme.
 - `sg_compute_specs/vault_publish/schemas/Schema__Vault_Publish__Bootstrap__Response.py` — NEW.
 - `sg_compute_specs/vault_publish/cli/Cli__Vault_Publish.py` — EXTEND (`bootstrap`, `waker info / logs / invoke` sub-verbs).
+
+**Existing cert ARN (consume, do not mint — decided 2026-05-17, Q7):**
+
+```
+arn:aws:acm:us-east-1:745506449035:certificate/99346343-dc1e-4a62-a6d3-0f22ab7bfffa
+```
+
+Status: Issued, covers `*.aws.sg-labs.app`. Pass to `sg vp bootstrap --cert-arn …` (no per-namespace cert provisioning in v2).
+
+**Function URL auth (decided 2026-05-17, Q8):** `auth_type='NONE'` for v2. OAC verifier deferred to phase-2d-followup.
 
 Tests:
 
@@ -338,9 +355,9 @@ sg vp unpublish hello-world
 
 **Risks:**
 
-- The bootstrap is idempotent on paper. In practice, "create CF distribution if absent" needs to look up by `Comment` field or by stored ID; the latter requires `~/.sg/vault-publish-bootstrap.json` write (or SSM `/sg-compute/vault-publish/bootstrap/<namespace>/distribution-id` — note per-namespace prefix per `07__domain-strategy.md §4.3`). Use SSM — file-local config rots faster than tags.
+- The bootstrap is idempotent on paper. In practice, "create CF distribution if absent" needs to look up by `Comment` field or by stored ID. **SSM-only (decided 2026-05-17, Q10)** — no local cache file. Keys: `/sg-compute/vault-publish/bootstrap/{cloudfront-distribution-id, lambda-name, zone, cert-arn, waker-function-url}` (no `<namespace>` segment under the flat scheme).
 - ACM cert lookup in `us-east-1` requires explicit region pinning; the existing `ACM__AWS__Client` defaults to the caller's region — verify it accepts a region override.
-- **Cert provisioning is manual and per-namespace** (see `07__domain-strategy.md §2.2`). The operator must have issued `*.vp.sg-labs.app` in `us-east-1` before running `sg vp bootstrap --namespace vp`. Document the prerequisite at the top of the bootstrap CLI help string.
+- **Cert provisioning is already done** — the `*.aws.sg-labs.app` wildcard ARN above is Issued. Bootstrap consumes it via `--cert-arn`; no operator-side cert work needed for v2.
 
 **Dependencies:** phases 1b, 2a, 2b, 2c all complete.
 
@@ -362,19 +379,17 @@ Same — separate brief, deliberately deferred.
 
 ## Cross-phase dependencies
 
+**Parallel within Phase 2 (decided 2026-05-17, Q6 = B):** two Devs run (2a) and (2b → 2c) in parallel; 2d waits on both.
+
 ```
-P0 ──► P1a ──► P1b ──┐
-                     │
-                     ├──► P2d ──► DONE
-                     │
-P2a ─────────────────┤
-P2b ─────────────────┤
-P2c ─────────────────┘
+                ┌─► P2a ───────────┐
+P0 ─► P1a ─► P1b ─┤                  ├─► P2d ─► DONE
+                └─► P2b ─► P2c ────┘
 ```
 
-P2a / P2b / P2c can be picked up in parallel by additional Dev capacity (the lab brief notes the same observation about its own phasing).
+**Critical path:** P0 → P1a → P1b → P2d (gated on P2a AND P2c). With one Dev the serial path is P0 + P1a + P1b + P2a + P2b + P2c + P2d ≈ 12 working days. With two Devs running 2a alongside 2b→2c, ≈ 8 working days.
 
-**Critical path:** P0 → P1a → P1b → P2d (gated on P2a/P2b/P2c). The shortest serial path is P0 + P1a + P1b + P2a + P2b + P2c + P2d ≈ 12 working days for a single Dev.
+**Sequencing relative to lab-brief (decided 2026-05-17, Q1):** **v2 vault-publish ships FIRST, sequentially.** Lab-brief work happens AFTER v2 lands. Not parallel.
 
 ---
 
