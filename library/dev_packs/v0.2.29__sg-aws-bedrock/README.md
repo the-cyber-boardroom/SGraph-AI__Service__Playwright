@@ -14,7 +14,7 @@ feature_branch: claude/aws-primitives-support-uNnZY-bedrock
 
 Bedrock absorbed into the type-safe SG `sg aws *` surface. **Scope locked to `chat` + `agent` + `tool` sub-trees.** `kb`, `guardrail`, `eval`, `observe`, `meta`, multi-agent collaboration, and payments are all explicitly deferred to a v0.2.30 follow-up pack.
 
-> **PROPOSED — does not exist yet.** Cross-check `team/roles/librarian/reality/aws-and-infrastructure/` before describing anything here as built.
+> **PROPOSED — does not exist yet.** Cross-check `team/roles/librarian/reality/cli/` (look for `cli/aws-*.md`) before describing anything here as built.
 
 ---
 
@@ -86,6 +86,10 @@ Every call writes to a vault location by default (unless `--no-vault`):
 
 A central `Bedrock__Vault__Writer` (one class, used by every verb) enforces the layout.
 
+**Integration with the canonical vault writer:** `Bedrock__Vault__Writer` wraps `sg_compute/vault/Vault__Spec__Writer` (the BV2.9 canonical writer) and registers `bedrock` as a vault namespace. Treating Bedrock as a vault-writer client (not a peer of `vault_publish` / `vault_app` in `sg_compute_specs/`) is intentional — Bedrock isn't a "spec" in the SG/Compute spec sense, it's a managed AWS service we record outputs from. The writer interface stays `(namespace, stack_id, handle, bytes)` per BV2.9; `Bedrock__Vault__Writer` translates the layout above into those triples.
+
+If a future requirement turns "running bedrock agents on our infra" into a real spec (parallel to `vault_app`), it gets its own `sg_compute_specs/bedrock_agent/` and the writer integration changes shape — out of scope here.
+
 ### Model-ID resolution (per brief §"Critical detail")
 
 A `Bedrock__Model__Resolver` class hides Bedrock's model-ID complexity:
@@ -93,7 +97,7 @@ A `Bedrock__Model__Resolver` class hides Bedrock's model-ID complexity:
 - User says `claude`, `nova`, `llama`, `openai` → resolver returns the canonical model ID for the user's region + account
 - User says `claude --model opus-4.7` → resolver picks the right inference profile (cross-region profile when needed, application inference profile when needed)
 - Aliases live in a per-region YAML at `library/reference/v0.2.29__bedrock-model-aliases.yaml` (Foundation ships this; this slice maintains it)
-- `list-models` reports what's enabled in the account/region, not the full Bedrock catalogue
+- `list-models` reports what's enabled in the account/region, not the full Bedrock catalogue — data source is `boto3.client('bedrock').list_foundation_models()` (`bedrock` control-plane API, not `bedrock-runtime`), filtered to models in `byInferenceType IN ('ON_DEMAND','PROVISIONED')` for the active region. Wrapped by `Bedrock__Control__AWS__Client` honouring `Sg__Aws__Session`.
 
 ### SDK choice (per brief §"Open Questions" #7)
 
@@ -206,7 +210,7 @@ SG_AWS__BEDROCK__INTEGRATION=1 pytest tests/integration/sgraph_ai_service_playwr
 4. `library/reference/v0.2.29__bedrock-model-aliases.yaml` — per-region alias table
 5. New user-guide page `library/docs/cli/sg-aws/13__bedrock.md` (~10 KB; split into chat/agent/tool sections)
 6. One row added to `library/docs/cli/sg-aws/README.md` "at-a-glance command map"
-7. Reality-doc update: new `team/roles/librarian/reality/aws-and-infrastructure/bedrock.md`
+7. Reality-doc update: new `team/roles/librarian/reality/cli/aws-bedrock.md`
 
 ---
 

@@ -16,7 +16,7 @@ feature_branch: claude/aws-primitives-support-uNnZY-cloudtrail
 
 Read-only CloudTrail surface. Provides the events + trails primitives that Slice D Phase 4 (IAM-graph evidence layer — v0.2.30) and Slice H (observability v1) build on.
 
-> **PROPOSED — does not exist yet.** Cross-check `team/roles/librarian/reality/aws-and-infrastructure/` before describing anything here as built.
+> **PROPOSED — does not exist yet.** Cross-check `team/roles/librarian/reality/cli/` (look for `cli/aws-*.md`) before describing anything here as built.
 
 ---
 
@@ -139,7 +139,7 @@ SG_AWS__CLOUDTRAIL__INTEGRATION=1 pytest tests/integration/sgraph_ai_service_pla
 3. Integration tests under `tests/integration/sgraph_ai_service_playwright__cli/aws/cloudtrail/` (gated)
 4. New user-guide page `library/docs/cli/sg-aws/14__cloudtrail.md` (~4 KB; small surface)
 5. One row added to `library/docs/cli/sg-aws/README.md` "at-a-glance command map"
-6. Reality-doc update: new `team/roles/librarian/reality/aws-and-infrastructure/cloudtrail.md`
+6. Reality-doc update: new `team/roles/librarian/reality/cli/aws-cloudtrail.md`
 
 ---
 

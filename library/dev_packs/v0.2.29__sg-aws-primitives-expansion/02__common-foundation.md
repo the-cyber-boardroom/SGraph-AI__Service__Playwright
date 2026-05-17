@@ -4,8 +4,8 @@ file: 02__common-foundation.md
 author: Architect (Claude)
 date: 2026-05-17
 parent: README.md
-size: S (small) — ~1500 prod lines, ~600 test lines, ~1 day
-delivers: shared scaffold that every sibling pack depends on
+size: S-M — ~1700 prod lines, ~700 test lines, ~1.5 days (grew slightly to absorb the credentials remount + primitive de-duplication called out in the 2026-05-17 architect review)
+delivers: shared scaffold that every sibling pack depends on, plus two one-time consolidations
 ---
 
 # 02 — Common foundation (Agent 0)
@@ -36,10 +36,11 @@ aws/_shared/
 │   ├── Schema__AWS__ARN.py              # parsed ARN
 │   ├── Schema__AWS__Resource__Reference.py
 │   └── Schema__AWS__Source__Event.py    # one row from any observability source
-├── primitives/
+├── primitives/                          # canonical home — supersedes duplicates listed below
 │   ├── Safe_Str__AWS__ARN.py
-│   ├── Safe_Str__AWS__Region.py
-│   ├── Safe_Str__AWS__Account_Id.py
+│   ├── Safe_Str__AWS__Region.py         # consolidates 3 existing copies
+│   ├── Safe_Str__AWS__Account_Id.py     # consolidates `ec2/primitives/` + `credentials/primitives/` copies (added 2026-05-17)
+│   ├── Safe_Str__AWS__Role__ARN.py      # consolidates `credentials/primitives/` copy
 │   ├── Safe_Str__AWS__Tag_Key.py
 │   └── Safe_Str__AWS__Tag_Value.py
 ├── enums/
@@ -69,16 +70,19 @@ Foundation creates the empty surface folder for each new Click group so sibling 
 | `aws/bedrock/` | same shape; three sub-groups (`chat`, `agent`, `tool`) wired | Slice E |
 | `aws/cloudtrail/` | same shape; `CloudTrail__AWS__Client` interface stub (consumed by Slice H) | Slice F |
 | `aws/creds/` | same shape | Slice G |
-| `aws/observability/` | same shape; `Cli__Observe.py` skeleton with REPL entry-point stub | Slice H |
+| `aws/observe/` | same shape; `Cli__Observe.py` skeleton with REPL entry-point stub. Folder is `observe` (not `observability`) to avoid clash with existing `__cli/observability/` (different semantics — see Slice H README) | Slice H |
 
 For each, Foundation ships **interface signatures only** — every method body raises `NotImplementedError("agent-X owns this")`. The sibling packs fill in the bodies and never edit the signatures (signature changes would mean re-coordinating across slices).
 
-### 1.3 Top-level Click wiring — `sgraph_ai_service_playwright__cli/aws/cli/Cli__Aws.py`
+### 1.3 Top-level Click wiring — two files
 
-Adds seven new `add_typer` (or `add_command`) lines to the top-level `sg aws` group:
+**`sgraph_ai_service_playwright__cli/aws/cli/Cli__Aws.py`** — adds eight new `add_typer` lines (seven new namespaces + the credentials remount per locked decision #13):
 
 ```python
-# (existing lines — acm, billing, cf, dns, iam, lambda_, logs, credentials)
+# (existing lines — acm, billing, cf, dns, iam, lambda_, logs)
+from sgraph_ai_service_playwright__cli.credentials.cli.Cli__Credentials import app as _credentials_app
+
+app.add_typer(_credentials_app,    name='credentials')  # remount of existing sg credentials (locked decision #13)
 app.add_typer(Cli__S3.app,         name='s3')
 app.add_typer(Cli__EC2.app,        name='ec2')
 app.add_typer(Cli__Fargate.app,    name='fargate')
@@ -88,9 +92,21 @@ app.add_typer(Cli__Creds.app,      name='creds')
 app.add_typer(Cli__Observe.app,    name='observe')
 ```
 
-Plus the `iam graph` sub-group wired to the existing `iam` Typer app.
+**`sg_compute/cli/Cli__SG.py`** — convert the existing `sg credentials` mount into a hidden alias (so `sg credentials …` keeps working for muscle memory and existing scripts, but `sg --help` shows only `sg aws credentials`):
 
-This is the **only file all eight sibling slices indirectly touch**, and only Foundation edits it. After Foundation merges, sibling packs add verbs *inside* their own surface — not at the top level.
+```python
+# was: app.add_typer(_credentials_app, name='credentials', help='…')
+app.add_typer(_credentials_app, name='credentials', hidden=True)  # alias of sg aws credentials; drop in v0.2.30
+```
+
+Plus the `iam graph` sub-group wired to the existing `iam` Typer app inside `aws/iam/cli/Cli__Iam.py`:
+
+```python
+from sgraph_ai_service_playwright__cli.aws.iam.graph.cli.Cli__Iam__Graph import graph_app
+iam_app.add_typer(graph_app, name='graph')
+```
+
+These are the **only files all eight sibling slices indirectly touch**, and only Foundation edits them. After Foundation merges, sibling packs add verbs *inside* their own surface — not at the top level.
 
 ### 1.4 Test scaffolding — `tests/unit/sgraph_ai_service_playwright__cli/aws/_shared/`
 
@@ -102,14 +118,23 @@ Per-class tests for every Foundation file. Plus:
 ### 1.5 Documentation deltas
 
 - `library/docs/cli/sg-aws/01__getting-started.md` gets a new row in the mutation-gate table for every new env var (Foundation edits this — sibling packs do not).
-- `library/docs/cli/sg-aws/README.md` "at-a-glance command map" gets seven new tree branches added.
-- `library/docs/cli/sg-aws/08__credentials.md` is created (covers the existing v0.2.28 `sg aws credentials` verbs — a small backfill the Foundation PR delivers because no sibling owns it).
+- `library/docs/cli/sg-aws/README.md` "at-a-glance command map" gets seven new tree branches added + the `credentials` row updated to reflect the new `sg aws credentials` path.
+- `library/docs/cli/sg-aws/08__credentials.md` already exists in this dev-pack drop and accurately describes the post-remount command surface (`sg aws credentials …`). Foundation only needs to land the remount in `Cli__Aws.py` for the doc to be true.
 
 The eight new per-surface user-guide pages (`09__s3.md` ... `16__observe.md`) are owned by their respective sibling packs.
 
 ### 1.6 Reality-doc delta
 
-- `team/roles/librarian/reality/aws-and-infrastructure/index.md` gains the eight PROPOSED surfaces with the `PROPOSED — does not exist yet` marker. Each sibling pack updates the marker to `LANDED — v0.2.29` in its own PR when its slice lands.
+The reality-doc home is `team/roles/librarian/reality/cli/` (matching existing `cli/aws-dns.md` / `cli/observability.md`), **not** the `aws-and-infrastructure/` domain referenced in earlier drafts (that domain doesn't exist).
+
+Foundation creates **`cli/aws.md`** as the umbrella index for the `sg aws` namespace:
+
+- Lists all currently-mounted `sg aws X` sub-groups
+- Names the `_shared/` scaffold (mutation gate, tagger, region resolver, source contract, primitives)
+- Lists the eight PROPOSED surfaces with the `PROPOSED — does not exist yet` marker
+- Each sibling pack updates its own row to `LANDED — v0.2.29` in its own PR when its slice lands, AND creates its own `cli/aws-<surface>.md` per the architect-review naming convention
+
+Foundation also adds a one-line cross-reference from the existing `cli/observability.md` saying "the AMP/OpenSearch/Grafana infrastructure surface lives here; the unified observability READ surface lives at `cli/aws-observe.md` (Slice H)" so future readers don't get the two confused.
 
 ---
 
@@ -127,7 +152,17 @@ Returns the five-tag set described in `01__scope-and-architecture.md §3.6`. Eve
 
 ### 2.3 `Aws__Region__Resolver.resolve(region_flag: Optional[Safe_Str__AWS__Region], resource_hint: Optional[Safe_Str__AWS__Region]) -> Safe_Str__AWS__Region`
 
-Applies the precedence in `01 §3.7`.
+Applies the precedence in `01 §3.7`. Importantly: queries `Sg__Aws__Context.get_current_role()` + `Credentials__Store.role_get()` to read the active role's region as one of the precedence tiers — this is what keeps the resolver consistent with `Sg__Aws__Session`'s own region selection.
+
+### 2.6 Named-resource → verb sub-trees use the `Lambda__Click__Group` pattern
+
+Slices that need "select a resource by name, then run a verb on it" (Slice B EC2 `<id-or-name>` resolution, Slice E Bedrock `agent <name>` + `tool * session <id>`, Slice C Fargate `task-describe <task-id>`) **reuse the existing `Lambda__Click__Group` two-level dynamic Click group pattern** at `sgraph_ai_service_playwright__cli/aws/lambda_/cli/Lambda__Click__Group.py`. That pattern already proves out the REPL prefix navigation story (`sg-c info` works because `node.commands.items()` enumerates real Command objects).
+
+Foundation does NOT extract a shared base class — the pattern is small enough to copy. Each slice imports the existing module as a reference and produces its own per-resource group.
+
+### 2.7 Tagging convention — `sg:session-id` added
+
+The five-tag set in `01 §3.6` is the **minimum**. Foundation tagger also writes an optional `sg:session-id` tag when the verb runs inside an `sg aws observe` session capture (Slice H) or when an explicit `--session-id` flag is passed. This is the correlation key Slice H's `agent-trace` uses to join across S3 / CloudWatch / CloudTrail / vault sources.
 
 ### 2.4 `Aws__Confirm.confirm_or_abort(message: str, yes: bool, dry_run: bool) -> bool`
 
@@ -161,8 +196,17 @@ Slice A, F, and H all build against this. The existing `aws/logs/` (CloudWatch) 
 
 - Does NOT implement any verb body. Every body raises `NotImplementedError`.
 - Does NOT migrate existing surfaces (`acm`, `billing`, `cf`, `dns`, `iam`, `lambda`) to `aws/_shared/`. That's a separate hygiene PR after v0.2.29 ships.
+- Does NOT migrate the direct `boto3.client('s3')` calls in `__cli/elastic/lets/cf/*/service/S3__*.py` (4 files) to the new `S3__AWS__Client` — Slice A owns that migration (per architect review §2.4).
 - Does NOT write the user-guide pages for the new surfaces (sibling packs own those).
 - Does NOT update reality-doc per-surface entries (sibling packs own those).
+
+### 3.1 Why Foundation owns `Source__Contract` (decision recap)
+
+The architect review (§4.1) flagged that `Source__Contract` could ship in Slice H instead of Foundation. We keep it in Foundation because:
+
+- Two slices (A, F) ship adapters for it; landing the contract first prevents an A↔F↔H signature negotiation mid-flight.
+- Foundation includes a `Test__Source__Contract__Behaviour.py` adapter contract test that exercises every method on a stub adapter — locks the signatures hard.
+- If a sibling slice genuinely needs a signature change, the rule from `03 §6.3` applies: raise Architect-review request, no in-PR amendment.
 
 ---
 
@@ -172,11 +216,16 @@ Slice A, F, and H all build against this. The existing `aws/logs/` (CloudWatch) 
 # 1. Type-check / lint pass clean
 pytest tests/unit/sgraph_ai_service_playwright__cli/aws/_shared/ -v
 
-# 2. Top-level sg aws --help shows the eight new groups
-sg aws --help                                                       # → s3, ec2, fargate, bedrock, cloudtrail, creds, observe visible
+# 2. Top-level sg aws --help shows the eight new groups + credentials remount
+sg aws --help                                                       # → credentials, s3, ec2, fargate, bedrock, cloudtrail, creds, observe visible
 sg aws iam --help                                                   # → graph sub-group visible
 sg aws s3 --help                                                    # → verb tree visible (every verb raises NotImplementedError with a clear message)
 sg aws bedrock --help                                               # → chat / agent / tool sub-groups visible
+
+# 2b. Credentials remount round-trip
+sg aws credentials list                                             # → same output as pre-Foundation `sg credentials list`
+sg credentials list                                                 # → still works (hidden alias); not in `sg --help`
+sg --help | grep -F credentials                                     # → no match (alias is hidden)
 
 # 3. Mutation gate works
 sg aws s3 rm s3://test/foo                                          # → "SG_AWS__S3__ALLOW_MUTATIONS must be set" Rich panel
@@ -185,10 +234,19 @@ SG_AWS__S3__ALLOW_MUTATIONS=1 sg aws s3 rm s3://test/foo --yes      # → NotImp
 # 4. Tagger / region resolver round-trip via in-memory tests
 pytest tests/unit/sgraph_ai_service_playwright__cli/aws/_shared/Test__Aws__Tagger.py -v
 pytest tests/unit/sgraph_ai_service_playwright__cli/aws/_shared/Test__Aws__Region__Resolver.py -v
+pytest tests/unit/sgraph_ai_service_playwright__cli/aws/_shared/Test__Source__Contract__Behaviour.py -v
+
+# 4b. Primitive consolidation kept callers green
+pytest tests/unit/sgraph_ai_service_playwright__cli/ec2/ -v          # legacy callers still pass via deprecation re-exports (if used)
+pytest tests/unit/sgraph_ai_service_playwright__cli/credentials/ -v  # 146+ tests still pass
 
 # 5. User-guide additions present
 ls library/docs/cli/sg-aws/08__credentials.md                       # exists
 grep 'SG_AWS__S3__ALLOW_MUTATIONS' library/docs/cli/sg-aws/01__getting-started.md  # → table row exists
+
+# 6. Reality-doc additions present
+ls team/roles/librarian/reality/cli/aws.md                          # NEW — sg aws namespace overview
+grep 'PROPOSED — does not exist yet' team/roles/librarian/reality/cli/aws.md  # → 8 markers, one per sibling slice
 ```
 
 ---

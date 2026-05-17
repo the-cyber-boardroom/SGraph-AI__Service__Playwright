@@ -14,7 +14,7 @@ feature_branch: claude/aws-primitives-support-uNnZY-fargate
 
 The CLI primitive layer for Fargate. Enables the Fargate-vs-Lambda benchmark the source brief frames (the benchmark itself is a separate experiment, not part of this slice).
 
-> **PROPOSED — does not exist yet.** Cross-check `team/roles/librarian/reality/aws-and-infrastructure/` before describing anything here as built.
+> **PROPOSED — does not exist yet.** Cross-check `team/roles/librarian/reality/cli/` (look for `cli/aws-*.md`) before describing anything here as built.
 
 ---
 
@@ -155,7 +155,7 @@ SG_AWS__FARGATE__INTEGRATION=1 pytest tests/integration/sgraph_ai_service_playwr
 4. A fixture task-definition YAML under `tests/fixtures/fargate/hello-world.yaml`
 5. New user-guide page `library/docs/cli/sg-aws/11__fargate.md`
 6. One row added to `library/docs/cli/sg-aws/README.md` "at-a-glance command map"
-7. Reality-doc update: new `team/roles/librarian/reality/aws-and-infrastructure/fargate.md`
+7. Reality-doc update: new `team/roles/librarian/reality/cli/aws-fargate.md`
 
 ---
 
