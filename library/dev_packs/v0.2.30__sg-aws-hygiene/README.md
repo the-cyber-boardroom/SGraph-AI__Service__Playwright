@@ -30,8 +30,9 @@ Four cleanup items left open after v0.2.29 shipped. **Open-4 is user-visible blo
 | **Open-1** | Refactor 131 `monkeypatch` calls into in-memory composition (CLAUDE.md "no mocks, no patches") | 5 CLI test files in `aws/{ec2,fargate,iam,iam/graph,cloudtrail}/` | ~5 days (1/slice, parallel) | NORMAL |
 | **Open-2** | Type 91 raw-`str` schema fields with `Safe_Str__*` + replace 3 JSON-encoded escape hatches with proper collections | 7 surface `schemas/` folders (worst: EC2 with 34) | ~3 days (1/surface, parallel) | NORMAL |
 | **Open-3** | Replace `boto3.session.Session().region_name` in 6 clients' `current_region()` with `Aws__Region__Resolver` | 6 service clients in `aws/*/service/` | ~30 minutes | LOW |
+| **[Open-5](02__open-5-repl-debug-and-broader-safe-str-audit.md)** | REPL `--debug` hoist (so `<verb> --debug <args>` works inside `sg repl`) + Safe_Str default-regex audit for 3 latent primitives outside the credentials surface | `Cli__SG__Repl.py`; `sg_compute/primitives/{Log__Content,Message}.py`; `aws/billing/primitives/Safe_Str__Aws_Usage_Type.py` | ~2 hours | NORMAL (REPL UX) |
 
-Parallel critical path is **~3 calendar days** if four Sonnet sessions take one item each (Open-4 sets it). Sequential is ~8-9 days.
+Parallel critical path is **~3 calendar days** if multiple Sonnet sessions take one item each (Open-4 sets it). Sequential is ~8-9 days for Open-1/2/3/4 plus ~2 hours for Open-5.
 
 **Recommended order if single-session:** Open-4 first (every other `sg aws` interaction benefits immediately), then Open-3 (quick win), then Open-2, then Open-1.
 
