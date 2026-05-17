@@ -12,9 +12,10 @@ import os
 import secrets
 import time
 from datetime import datetime, timedelta, timezone
-from typing   import Optional
+from typing   import Callable, Optional
 
 from sg_compute.core.spec.Spec__Service__Base                   import Spec__Service__Base
+from sg_compute.platforms.ec2.helpers.EC2__Stack__Mapper        import tag_value
 from sg_compute.platforms.ec2.networking.Caller__IP__Detector   import Caller__IP__Detector
 from sg_compute.platforms.ec2.networking.Stack__Name__Generator import Stack__Name__Generator
 
@@ -22,6 +23,10 @@ from sg_compute_specs.vault_app.schemas.Schema__Vault_App__Create__Request  impo
 from sg_compute_specs.vault_app.schemas.Schema__Vault_App__Create__Response import Schema__Vault_App__Create__Response
 from sg_compute_specs.vault_app.schemas.Schema__Vault_App__Delete__Response import Schema__Vault_App__Delete__Response
 from sg_compute_specs.vault_app.schemas.Schema__Vault_App__List             import Schema__Vault_App__List
+from sg_compute_specs.vault_app.schemas.Schema__Vault_App__Start__Request   import Schema__Vault_App__Start__Request
+from sg_compute_specs.vault_app.schemas.Schema__Vault_App__Start__Response  import Schema__Vault_App__Start__Response
+from sg_compute_specs.vault_app.schemas.Schema__Vault_App__Stop__Request    import Schema__Vault_App__Stop__Request
+from sg_compute_specs.vault_app.schemas.Schema__Vault_App__Stop__Response   import Schema__Vault_App__Stop__Response
 from sg_compute_specs.vault_app.service.Vault_App__AMI__Helper              import Vault_App__AMI__Helper
 from sg_compute_specs.vault_app.service.Vault_App__AWS__Client              import Vault_App__AWS__Client, ecr_registry_host
 from sg_compute_specs.vault_app.service.Vault_App__Stack__Mapper            import (Vault_App__Stack__Mapper ,
@@ -47,12 +52,14 @@ def _default_aws_dns_zone() -> str:
 
 
 class Vault_App__Service(Spec__Service__Base):
-    aws_client        : Optional[Vault_App__AWS__Client]        = None
-    user_data_builder : Optional[Vault_App__User_Data__Builder] = None
-    mapper            : Optional[Vault_App__Stack__Mapper]      = None
-    ip_detector       : Optional[Caller__IP__Detector]          = None
-    name_gen          : Optional[Stack__Name__Generator]        = None
-    ami_helper        : Optional[Vault_App__AMI__Helper]        = None
+    aws_client         : Optional[Vault_App__AWS__Client]        = None
+    user_data_builder  : Optional[Vault_App__User_Data__Builder] = None
+    mapper             : Optional[Vault_App__Stack__Mapper]      = None
+    ip_detector        : Optional[Caller__IP__Detector]          = None
+    name_gen           : Optional[Stack__Name__Generator]        = None
+    ami_helper         : Optional[Vault_App__AMI__Helper]        = None
+    _r53_client_factory : Optional[Callable]                     = None  # seam for tests
+    _auto_dns_factory   : Optional[Callable]                     = None  # seam for tests
 
     def setup(self) -> 'Vault_App__Service':
         self.aws_client        = Vault_App__AWS__Client       ().setup()
@@ -525,6 +532,28 @@ class Vault_App__Service(Spec__Service__Base):
         except Exception:
             yield ('boot-ok', 'warn', 'could not check')
 
+    def _r53_client(self):
+        if self._r53_client_factory is not None:
+            return self._r53_client_factory()
+        from sgraph_ai_service_playwright__cli.aws.dns.service.Route53__AWS__Client import Route53__AWS__Client
+        return Route53__AWS__Client()
+
+    def tls_hostname_from_details(self, details: dict) -> str:
+        return tag_value(details, TAG_TLS_HOSTNAME) or ''
+
+    def delete_per_slug_a_record(self, region: str, details: dict) -> bool:
+        fqdn = self.tls_hostname_from_details(details)
+        if not fqdn:
+            return False
+        try:
+            zone      = _default_aws_dns_zone()
+            r53       = self._r53_client()
+            from sgraph_ai_service_playwright__cli.aws.dns.enums.Enum__Route53__Record_Type import Enum__Route53__Record_Type
+            r53.delete_record(zone, fqdn, Enum__Route53__Record_Type.A)
+            return True
+        except Exception:
+            return False
+
     def delete_stack(self, region: str, stack_name: str) -> Schema__Vault_App__Delete__Response:
         t0      = time.monotonic()
         details = self.aws_client.instance.find_by_stack_name(region, stack_name)
@@ -535,6 +564,7 @@ class Vault_App__Service(Spec__Service__Base):
                 elapsed_ms = int((time.monotonic() - t0) * 1000))
         iid   = details.get('InstanceId', '')
         sg_id = (details.get('SecurityGroups') or [{}])[0].get('GroupId', '')
+        self.delete_per_slug_a_record(region, details)
         ok    = self.aws_client.instance.terminate(region, iid)
         if ok and sg_id:
             self.aws_client.sg.delete_security_group(region, sg_id)
@@ -543,4 +573,63 @@ class Vault_App__Service(Spec__Service__Base):
             deleted    = ok                                                 ,
             message    = f'terminated {iid}' if ok else 'terminate failed' ,
             elapsed_ms = int((time.monotonic() - t0) * 1000)               ,
+        )
+
+    def stop_stack(self, region: str, stack_name: str) -> Schema__Vault_App__Stop__Response:
+        t0      = time.monotonic()
+        details = self.aws_client.instance.find_by_stack_name(region, stack_name)
+        if not details:
+            return Schema__Vault_App__Stop__Response(
+                stack_name = stack_name       ,
+                message    = 'stack not found',
+                elapsed_ms = int((time.monotonic() - t0) * 1000))
+        iid         = details.get('InstanceId', '')
+        dns_deleted = self.delete_per_slug_a_record(region, details)
+        stopped     = self.aws_client.instance.stop(region, iid)
+        return Schema__Vault_App__Stop__Response(
+            stack_name  = stack_name                                       ,
+            stopped     = stopped                                          ,
+            dns_deleted = dns_deleted                                      ,
+            message     = f'stopped {iid}' if stopped else 'stop failed'  ,
+            elapsed_ms  = int((time.monotonic() - t0) * 1000)             ,
+        )
+
+    def start_stack(self, region: str, stack_name: str,
+                    wait_running: bool = False) -> Schema__Vault_App__Start__Response:
+        t0      = time.monotonic()
+        details = self.aws_client.instance.find_by_stack_name(region, stack_name)
+        if not details:
+            return Schema__Vault_App__Start__Response(
+                stack_name = stack_name       ,
+                message    = 'stack not found',
+                elapsed_ms = int((time.monotonic() - t0) * 1000))
+        iid     = details.get('InstanceId', '')
+        fqdn    = self.tls_hostname_from_details(details)
+        started = self.aws_client.instance.start(region, iid)
+        if not started:
+            return Schema__Vault_App__Start__Response(
+                stack_name = stack_name         ,
+                message    = 'start failed'     ,
+                elapsed_ms = int((time.monotonic() - t0) * 1000))
+        public_ip   = ''
+        dns_upserted = False
+        if wait_running:
+            self.aws_client.instance.wait_for_running(region, iid)
+            public_ip = self.aws_client.instance.get_public_ip(region, iid)
+            if fqdn and public_ip:
+                if self._auto_dns_factory is not None:
+                    auto_dns = self._auto_dns_factory()
+                else:
+                    from sg_compute_specs.vault_app.service.Vault_App__Auto_DNS import Vault_App__Auto_DNS
+                    auto_dns = Vault_App__Auto_DNS()
+                dns_result   = auto_dns.run(fqdn, public_ip)
+                dns_upserted = not bool(dns_result.error)
+        return Schema__Vault_App__Start__Response(
+            stack_name   = stack_name                                              ,
+            started      = started                                                 ,
+            public_ip    = public_ip                                               ,
+            dns_upserted = dns_upserted                                            ,
+            fqdn         = fqdn                                                    ,
+            message      = f'started {iid}'                                       ,
+            elapsed_ms   = int((time.monotonic() - t0) * 1000)                    ,
         )

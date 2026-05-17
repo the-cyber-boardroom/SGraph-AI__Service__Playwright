@@ -20,3 +20,4 @@ class Enum__Spec__Capability(str, Enum):
     BROWSER_AUTOMATION= 'browser-automation'
     LLM_INFERENCE     = 'llm-inference'
     DESIGN_TOOL       = 'design-tool'
+    SUBDOMAIN_ROUTING = 'subdomain-routing'

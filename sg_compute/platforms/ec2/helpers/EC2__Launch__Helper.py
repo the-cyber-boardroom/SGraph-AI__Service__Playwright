@@ -33,7 +33,8 @@ class EC2__Launch__Helper(Type_Safe):
                            max_hours             : int  = 0           ,
                            key_name              : str  = ''          ,
                            disk_size_gb          : int  = 0           ,
-                           use_spot              : bool = False       ) -> str:
+                           use_spot              : bool = False       ,
+                           shutdown_behavior     : str  = 'terminate' ) -> str:
         encoded  = base64.b64encode(gzip.compress(user_data.encode('utf-8'))).decode('ascii')
         profile  = instance_profile_name or instance_profile
         kwargs   = dict(
@@ -50,7 +51,7 @@ class EC2__Launch__Helper(Type_Safe):
         if key_name:
             kwargs['KeyName'] = key_name
         if max_hours > 0 and not use_spot:                                                       # spot non-hibernation instances always terminate on OS shutdown; skip the flag (it's silently ignored)
-            kwargs['InstanceInitiatedShutdownBehavior'] = 'terminate'
+            kwargs['InstanceInitiatedShutdownBehavior'] = shutdown_behavior
         if disk_size_gb and disk_size_gb > 0:
             kwargs['BlockDeviceMappings'] = [{
                 'DeviceName': AL2023_ROOT_DEVICE_NAME,

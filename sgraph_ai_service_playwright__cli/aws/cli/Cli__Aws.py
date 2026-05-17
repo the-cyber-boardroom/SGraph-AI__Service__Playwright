@@ -1,7 +1,7 @@
 # ═══════════════════════════════════════════════════════════════════════════════
 # SP CLI — Cli__Aws
 # Typer parent group for all AWS resource management commands.
-# Sub-apps: dns, acm, billing. Future siblings (ec2, iam, …) drop in next to them.
+# Sub-apps: dns, acm, billing, cf. Future siblings (lambda, ec2, iam, …) drop in next to them.
 # Registered in scripts/provision_ec2.py as `app.add_typer(_aws_app, name='aws')`.
 # ═══════════════════════════════════════════════════════════════════════════════
 
@@ -10,8 +10,12 @@ import typer
 from sgraph_ai_service_playwright__cli.aws.dns.cli.Cli__Dns         import dns_app
 from sgraph_ai_service_playwright__cli.aws.acm.cli.Cli__Acm         import acm_app
 from sgraph_ai_service_playwright__cli.aws.billing.cli.Cli__Billing  import billing_app
+from sgraph_ai_service_playwright__cli.aws.cf.cli.Cli__Cf              import cf_app
+from sgraph_ai_service_playwright__cli.aws.lambda_.cli.Cli__Lambda      import lambda_app
 
-app = typer.Typer(name='aws', help='AWS resource management (DNS, ACM, billing, …).', no_args_is_help=True)
+app = typer.Typer(name='aws', help='AWS resource management (DNS, ACM, billing, CloudFront, Lambda, …).', no_args_is_help=True)
 app.add_typer(dns_app,     name='dns'    )
 app.add_typer(acm_app,     name='acm'    )
 app.add_typer(billing_app, name='billing')
+app.add_typer(cf_app,      name='cf'     )
+app.add_typer(lambda_app,  name='lambda' )

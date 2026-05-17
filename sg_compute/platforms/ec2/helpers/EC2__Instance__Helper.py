@@ -72,12 +72,45 @@ class EC2__Instance__Helper(Type_Safe):
                 return instance
         return None
 
+    def stop(self, region: str, instance_id: str) -> bool:
+        try:
+            self.ec2_client(region).stop_instances(InstanceIds=[instance_id])
+            return True
+        except Exception:
+            return False
+
+    def start(self, region: str, instance_id: str) -> bool:
+        try:
+            self.ec2_client(region).start_instances(InstanceIds=[instance_id])
+            return True
+        except Exception:
+            return False
+
     def terminate(self, region: str, instance_id: str) -> bool:
         try:
             self.ec2_client(region).terminate_instances(InstanceIds=[instance_id])
             return True
         except Exception:
             return False
+
+    def get_public_ip(self, region: str, instance_id: str) -> str:
+        resp = self.ec2_client(region).describe_instances(InstanceIds=[instance_id])
+        for r in resp.get('Reservations', []):
+            for inst in r.get('Instances', []):
+                return inst.get('PublicIpAddress', '') or ''
+        return ''
+
+    def wait_for_stopped(self, region: str, instance_id: str,
+                         timeout_sec: int = 120, poll_sec: int = 5) -> bool:
+        deadline = time.monotonic() + timeout_sec
+        while time.monotonic() < deadline:
+            resp = self.ec2_client(region).describe_instances(InstanceIds=[instance_id])
+            for r in resp.get('Reservations', []):
+                for inst in r.get('Instances', []):
+                    if inst.get('State', {}).get('Name') == 'stopped':
+                        return True
+            time.sleep(poll_sec)
+        return False
 
     def wait_for_running(self, region: str, instance_id: str,
                          timeout_sec: int = 300, poll_sec: int = 10) -> bool:
