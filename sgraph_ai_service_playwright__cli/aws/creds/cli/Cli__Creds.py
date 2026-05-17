@@ -14,7 +14,8 @@ from rich.console import Console
 from rich.panel   import Panel
 from rich.table   import Table
 
-from sgraph_ai_service_playwright__cli.aws._shared.Mutation__Gate  import require_mutation_gate
+from sgraph_ai_service_playwright__cli.aws._shared.Aws__Confirm     import confirm_or_abort
+from sgraph_ai_service_playwright__cli.aws._shared.Mutation__Gate   import require_mutation_gate
 from sgraph_ai_service_playwright__cli.aws.creds.service.Creds__Audit__Log       import Creds__Audit__Log
 from sgraph_ai_service_playwright__cli.aws.creds.service.Creds__Scope__Catalogue import Creds__Scope__Catalogue
 from sgraph_ai_service_playwright__cli.aws.creds.service.Creds__STS__Client      import Creds__STS__Client
@@ -184,14 +185,15 @@ def scope_show(name: str = typer.Argument(...), as_json: bool = typer.Option(Fal
 
 @scope.command('add')
 @require_mutation_gate('SG_AWS__CREDS__ALLOW_MUTATIONS')
-def scope_add(name:    str  = typer.Option(..., '--name'),
-              role:    str  = typer.Option(..., '--role'),
-              max_ttl: str  = typer.Option('1h', '--max-ttl'),
+def scope_add(name:    str  = typer.Option(...,   '--name'),
+              role:    str  = typer.Option(...,   '--role'),
+              max_ttl: str  = typer.Option('1h',  '--max-ttl'),
               yes:     bool = typer.Option(False, '--yes', '-y'),
+              dry_run: bool = typer.Option(False, '--dry-run', help='Print action without executing.'),
               as_json: bool = typer.Option(False, '--json')):
     """Add a scope to the catalogue (gated)."""
-    if not yes:
-        typer.confirm(f'Add scope {name!r} → {role!r} (max-ttl={max_ttl})?', abort=True)
+    if not confirm_or_abort(f'Add scope {name!r} → {role!r} (max-ttl={max_ttl})?', yes=yes, dry_run=dry_run):
+        raise typer.Exit(0)
 
     cat   = _catalogue()
     entry = cat.scope_add(name, role, max_ttl)
@@ -211,10 +213,12 @@ def scope_add(name:    str  = typer.Option(..., '--name'),
 
 @scope.command('remove')
 @require_mutation_gate('SG_AWS__CREDS__ALLOW_MUTATIONS')
-def scope_remove(name: str = typer.Argument(...), yes: bool = typer.Option(False, '--yes', '-y')):
+def scope_remove(name:    str  = typer.Argument(...),
+                 yes:     bool = typer.Option(False, '--yes', '-y'),
+                 dry_run: bool = typer.Option(False, '--dry-run', help='Print action without executing.')):
     """Remove a scope from the catalogue (gated)."""
-    if not yes:
-        typer.confirm(f'Remove scope {name!r}?', abort=True)
+    if not confirm_or_abort(f'Remove scope {name!r}?', yes=yes, dry_run=dry_run):
+        raise typer.Exit(0)
 
     cat = _catalogue()
     ok  = cat.scope_remove(name)
@@ -234,6 +238,7 @@ def scope_update(name:    str  = typer.Argument(...),
                  role:    str  = typer.Option('', '--role'),
                  max_ttl: str  = typer.Option('', '--max-ttl'),
                  yes:     bool = typer.Option(False, '--yes', '-y'),
+                 dry_run: bool = typer.Option(False, '--dry-run', help='Print action without executing.'),
                  as_json: bool = typer.Option(False, '--json')):
     """Update a scope in the catalogue (gated)."""
     cat   = _catalogue()
@@ -246,8 +251,8 @@ def scope_update(name:    str  = typer.Argument(...),
     new_role    = role    if role    else entry['role_arn']
     new_max_ttl = max_ttl if max_ttl else entry['max_ttl']
 
-    if not yes:
-        typer.confirm(f'Update scope {name!r}?', abort=True)
+    if not confirm_or_abort(f'Update scope {name!r}?', yes=yes, dry_run=dry_run):
+        raise typer.Exit(0)
 
     updated = cat.scope_add(name, new_role, new_max_ttl)
 

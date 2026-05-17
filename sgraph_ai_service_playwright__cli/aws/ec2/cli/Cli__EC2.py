@@ -28,6 +28,7 @@ import typer
 from rich.console import Console
 from rich.table   import Table
 
+from sgraph_ai_service_playwright__cli.aws._shared.Aws__Confirm                import confirm_or_abort
 from sgraph_ai_service_playwright__cli.aws._shared.Mutation__Gate              import require_mutation_gate
 from sgraph_ai_service_playwright__cli.aws.ec2.enums.Enum__EC2__Instance__State import Enum__EC2__Instance__State
 from sgraph_ai_service_playwright__cli.aws.ec2.primitives.Safe_Str__EC2__AMI_Id          import Safe_Str__EC2__AMI_Id
@@ -199,20 +200,21 @@ def ec2_ssh_info(target: str = typer.Argument(..., help='Instance ID or Name tag
 # ── tags ──────────────────────────────────────────────────────────────────────
 
 @app.command('tags')
-def ec2_tags(target : str       = typer.Argument(..., help='Instance ID or Name tag.'),
-             add    : List[str] = typer.Option([], '--add',    help='Add tag K=V (repeatable, mutating).'),
-             remove : List[str] = typer.Option([], '--remove', help='Remove tag by key (repeatable, mutating).'),
-             clear  : bool      = typer.Option(False, '--clear', help='Remove all tags (mutating).'),
-             yes    : bool      = typer.Option(False, '--yes',   help='Skip confirmation for mutations.'),
-             as_json: bool      = typer.Option(False, '--json',  help='Output current tags as JSON.')):
+def ec2_tags(target  : str       = typer.Argument(..., help='Instance ID or Name tag.'),
+             add     : List[str] = typer.Option([], '--add',      help='Add tag K=V (repeatable, mutating).'),
+             remove  : List[str] = typer.Option([], '--remove',   help='Remove tag by key (repeatable, mutating).'),
+             clear   : bool      = typer.Option(False, '--clear',   help='Remove all tags (mutating).'),
+             yes     : bool      = typer.Option(False, '--yes',     help='Skip confirmation for mutations.'),
+             dry_run : bool      = typer.Option(False, '--dry-run', help='Print action without executing.'),
+             as_json : bool      = typer.Option(False, '--json',    help='Output current tags as JSON.')):
     """View and optionally modify tags on an EC2 instance."""
     is_mutating = bool(add or remove or clear)
     if is_mutating:
         if os.environ.get(_MUTATION_ENV) != '1':
             console.print(f'[red]Set {_MUTATION_ENV}=1 to allow tag mutations.[/red]')
             raise typer.Exit(1)
-        if not yes:
-            typer.confirm(f'Modify tags on {target!r}?', abort=True)
+        if not confirm_or_abort(f'Modify tags on {target!r}?', yes=yes, dry_run=dry_run):
+            raise typer.Exit(0)
     iid    = _resolve(target)
     client = _client()
     if clear:
@@ -305,10 +307,11 @@ def ec2_create(name          : str       = typer.Option(...,   '--name',        
                extra_tags    : List[str] = typer.Option([],    '--tags',          help='Extra tags K=V (repeatable).'),
                wait          : bool      = typer.Option(True,  '--wait/--no-wait',help='Wait for running state.'),
                yes           : bool      = typer.Option(False, '--yes',           help='Skip confirmation.'),
+               dry_run       : bool      = typer.Option(False, '--dry-run',       help='Print action without executing.'),
                as_json       : bool      = typer.Option(False, '--json',          help='Output as JSON.')):
     """Launch a new EC2 instance (requires SG_AWS__EC2__ALLOW_MUTATIONS=1)."""
-    if not yes:
-        typer.confirm(f'Create instance {name!r} ({instance_type}, {ami})?', abort=True)
+    if not confirm_or_abort(f'Create instance {name!r} ({instance_type}, {ami})?', yes=yes, dry_run=dry_run):
+        raise typer.Exit(0)
     user_data_content = ''
     if user_data_file:
         try:
@@ -356,11 +359,12 @@ def ec2_create(name          : str       = typer.Option(...,   '--name',        
 
 @app.command('start')
 @require_mutation_gate(_MUTATION_ENV)
-def ec2_start(target: str  = typer.Argument(...,   help='Instance ID or Name tag.'),
-              yes   : bool = typer.Option(False, '--yes', help='Skip confirmation.')):
+def ec2_start(target  : str  = typer.Argument(...,    help='Instance ID or Name tag.'),
+              yes     : bool = typer.Option(False, '--yes',     help='Skip confirmation.'),
+              dry_run : bool = typer.Option(False, '--dry-run', help='Print action without executing.')):
     """Start a stopped EC2 instance (requires SG_AWS__EC2__ALLOW_MUTATIONS=1)."""
-    if not yes:
-        typer.confirm(f'Start instance {target!r}?', abort=True)
+    if not confirm_or_abort(f'Start instance {target!r}?', yes=yes, dry_run=dry_run):
+        raise typer.Exit(0)
     iid = _resolve(target)
     ok  = _client().start_instance(iid)
     if ok:
@@ -374,11 +378,12 @@ def ec2_start(target: str  = typer.Argument(...,   help='Instance ID or Name tag
 
 @app.command('stop')
 @require_mutation_gate(_MUTATION_ENV)
-def ec2_stop(target: str  = typer.Argument(...,   help='Instance ID or Name tag.'),
-             yes   : bool = typer.Option(False, '--yes', help='Skip confirmation.')):
+def ec2_stop(target  : str  = typer.Argument(...,    help='Instance ID or Name tag.'),
+             yes     : bool = typer.Option(False, '--yes',     help='Skip confirmation.'),
+             dry_run : bool = typer.Option(False, '--dry-run', help='Print action without executing.')):
     """Stop a running EC2 instance (requires SG_AWS__EC2__ALLOW_MUTATIONS=1)."""
-    if not yes:
-        typer.confirm(f'Stop instance {target!r}?', abort=True)
+    if not confirm_or_abort(f'Stop instance {target!r}?', yes=yes, dry_run=dry_run):
+        raise typer.Exit(0)
     iid = _resolve(target)
     ok  = _client().stop_instance(iid)
     if ok:
@@ -392,11 +397,12 @@ def ec2_stop(target: str  = typer.Argument(...,   help='Instance ID or Name tag.
 
 @app.command('terminate')
 @require_mutation_gate(_MUTATION_ENV)
-def ec2_terminate(target: str  = typer.Argument(...,   help='Instance ID or Name tag.'),
-                  yes   : bool = typer.Option(False, '--yes', help='Skip confirmation.')):
+def ec2_terminate(target  : str  = typer.Argument(...,    help='Instance ID or Name tag.'),
+                  yes     : bool = typer.Option(False, '--yes',     help='Skip confirmation.'),
+                  dry_run : bool = typer.Option(False, '--dry-run', help='Print action without executing.')):
     """Terminate an EC2 instance — irreversible (requires SG_AWS__EC2__ALLOW_MUTATIONS=1)."""
-    if not yes:
-        typer.confirm(f'Terminate {target!r}? This is IRREVERSIBLE.', abort=True)
+    if not confirm_or_abort(f'Terminate {target!r}? This is IRREVERSIBLE.', yes=yes, dry_run=dry_run):
+        raise typer.Exit(0)
     iid = _resolve(target)
     ok  = _client().terminate_instance(iid)
     if ok:

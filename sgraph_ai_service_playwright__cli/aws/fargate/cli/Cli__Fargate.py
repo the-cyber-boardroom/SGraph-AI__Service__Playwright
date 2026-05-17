@@ -30,6 +30,7 @@ import typer
 from rich.console import Console
 from rich.table   import Table
 
+from sgraph_ai_service_playwright__cli.aws._shared.Aws__Confirm                import confirm_or_abort
 from sgraph_ai_service_playwright__cli.aws._shared.Mutation__Gate              import require_mutation_gate
 from sgraph_ai_service_playwright__cli.aws.fargate.service.Fargate__AWS__Client import Fargate__AWS__Client
 
@@ -126,14 +127,15 @@ def cluster_describe(name   : str  = typer.Argument(...,   help='Cluster name.')
 
 @cluster_app.command('create')
 @require_mutation_gate(_MUTATION_ENV)
-def cluster_create(name   : str        = typer.Argument(...,   help='Cluster name.'),
-                   tag    : List[str]  = typer.Option([],  '--tag',  '-t',
-                                                     help='Tag as k=v (repeatable).'),
-                   yes    : bool       = typer.Option(False, '--yes', '-y', help='Skip confirmation.'),
-                   as_json: bool       = typer.Option(False, '--json', help='Output as JSON.')):
+def cluster_create(name    : str        = typer.Argument(...,   help='Cluster name.'),
+                   tag     : List[str]  = typer.Option([],  '--tag',  '-t',
+                                                      help='Tag as k=v (repeatable).'),
+                   yes     : bool       = typer.Option(False, '--yes', '-y',   help='Skip confirmation.'),
+                   dry_run : bool       = typer.Option(False, '--dry-run',     help='Print action without executing.'),
+                   as_json : bool       = typer.Option(False, '--json',        help='Output as JSON.')):
     """Create an ECS Fargate cluster with FARGATE + FARGATE_SPOT capacity providers."""
-    if not yes:
-        typer.confirm(f'Create cluster "{name}"?', abort=True)
+    if not confirm_or_abort(f'Create cluster "{name}"?', yes=yes, dry_run=dry_run):
+        raise typer.Exit(0)
     tags = {}
     for t in tag:
         k, _, v = t.partition('=')
@@ -154,11 +156,12 @@ def cluster_create(name   : str        = typer.Argument(...,   help='Cluster nam
 
 @cluster_app.command('delete')
 @require_mutation_gate(_MUTATION_ENV)
-def cluster_delete(name: str  = typer.Argument(...,   help='Cluster name.'),
-                   yes : bool = typer.Option(False, '--yes', '-y', help='Skip confirmation.')):
+def cluster_delete(name    : str  = typer.Argument(...,   help='Cluster name.'),
+                   yes     : bool = typer.Option(False, '--yes', '-y',   help='Skip confirmation.'),
+                   dry_run : bool = typer.Option(False, '--dry-run',     help='Print action without executing.')):
     """Delete an ECS cluster (refuses if tasks are still running)."""
-    if not yes:
-        typer.confirm(f'Delete cluster "{name}"?', abort=True)
+    if not confirm_or_abort(f'Delete cluster "{name}"?', yes=yes, dry_run=dry_run):
+        raise typer.Exit(0)
     try:
         ok = _client().delete_cluster(name)
     except ValueError as exc:
@@ -246,17 +249,18 @@ def task_def_show(family_rev: str  = typer.Argument(...,   help='Family:revision
 
 @task_def_app.command('register')
 @require_mutation_gate(_MUTATION_ENV)
-def task_def_register(name   : str       = typer.Option(..., '--name',   '-n', help='Task family name.'),
-                      image  : str       = typer.Option(..., '--image',  '-i', help='Container image URI.'),
-                      cpu    : str       = typer.Option('256',  '--cpu',  help='vCPU units (e.g. 256, 512).'),
-                      memory : str       = typer.Option('512',  '--memory', help='Memory in MiB (e.g. 512, 1024).'),
-                      env    : List[str] = typer.Option([],     '--env',  '-e',
-                                                        help='Env var as K=V (repeatable).'),
-                      yes    : bool      = typer.Option(False, '--yes', '-y', help='Skip confirmation.'),
-                      as_json: bool      = typer.Option(False, '--json', help='Output as JSON.')):
+def task_def_register(name    : str       = typer.Option(...,  '--name',    '-n', help='Task family name.'),
+                      image   : str       = typer.Option(...,  '--image',   '-i', help='Container image URI.'),
+                      cpu     : str       = typer.Option('256', '--cpu',          help='vCPU units (e.g. 256, 512).'),
+                      memory  : str       = typer.Option('512', '--memory',       help='Memory in MiB (e.g. 512, 1024).'),
+                      env     : List[str] = typer.Option([],    '--env',    '-e',
+                                                         help='Env var as K=V (repeatable).'),
+                      yes     : bool      = typer.Option(False, '--yes', '-y',    help='Skip confirmation.'),
+                      dry_run : bool      = typer.Option(False, '--dry-run',      help='Print action without executing.'),
+                      as_json : bool      = typer.Option(False, '--json',         help='Output as JSON.')):
     """Register a new ECS task definition revision."""
-    if not yes:
-        typer.confirm(f'Register task definition "{name}" with image "{image}"?', abort=True)
+    if not confirm_or_abort(f'Register task definition "{name}" with image "{image}"?', yes=yes, dry_run=dry_run):
+        raise typer.Exit(0)
     env_dict = {}
     for e in env:
         k, _, v = e.partition('=')
@@ -362,17 +366,18 @@ def task_describe(task_arn: str  = typer.Argument(...,   help='Task ARN.'),
 
 @task_app.command('run')
 @require_mutation_gate(_MUTATION_ENV)
-def task_run(cluster         : str       = typer.Option(...,  '--cluster',  '-c', help='Target cluster name.'),
-             task_def        : str       = typer.Option(...,  '--task-def', '-t', help='Task definition family:revision.'),
-             count           : int       = typer.Option(1,    '--count',          help='Number of tasks to launch.'),
-             subnet          : List[str] = typer.Option([],   '--subnet',         help='Subnet ID(s) (repeatable).'),
-             sg              : List[str] = typer.Option([],   '--sg',             help='Security group ID(s) (repeatable).'),
-             assign_public_ip: bool      = typer.Option(False,'--assign-public-ip', help='Assign public IP.'),
-             yes             : bool      = typer.Option(False,'--yes', '-y',       help='Skip confirmation.'),
-             as_json         : bool      = typer.Option(False,'--json',            help='Output as JSON.')):
+def task_run(cluster         : str       = typer.Option(...,   '--cluster',  '-c',  help='Target cluster name.'),
+             task_def        : str       = typer.Option(...,   '--task-def', '-t',  help='Task definition family:revision.'),
+             count           : int       = typer.Option(1,     '--count',           help='Number of tasks to launch.'),
+             subnet          : List[str] = typer.Option([],    '--subnet',          help='Subnet ID(s) (repeatable).'),
+             sg              : List[str] = typer.Option([],    '--sg',              help='Security group ID(s) (repeatable).'),
+             assign_public_ip: bool      = typer.Option(False, '--assign-public-ip', help='Assign public IP.'),
+             yes             : bool      = typer.Option(False, '--yes', '-y',        help='Skip confirmation.'),
+             dry_run         : bool      = typer.Option(False, '--dry-run',          help='Print action without executing.'),
+             as_json         : bool      = typer.Option(False, '--json',             help='Output as JSON.')):
     """Run a Fargate task (FARGATE launch type only)."""
-    if not yes:
-        typer.confirm(f'Run task "{task_def}" on cluster "{cluster}"?', abort=True)
+    if not confirm_or_abort(f'Run task "{task_def}" on cluster "{cluster}"?', yes=yes, dry_run=dry_run):
+        raise typer.Exit(0)
     t = _client().run_task(cluster=cluster, task_def=task_def,
                            count=count, subnets=subnet, security_groups=sg,
                            assign_public_ip=assign_public_ip)
@@ -399,10 +404,11 @@ def task_run(cluster         : str       = typer.Option(...,  '--cluster',  '-c'
 def task_stop(task_arn: str  = typer.Argument(...,    help='Task ARN.'),
               cluster : str  = typer.Option('',     '--cluster', '-c', help='Cluster name.'),
               reason  : str  = typer.Option('',     '--reason',  '-r', help='Stop reason text.'),
-              yes     : bool = typer.Option(False,  '--yes', '-y',      help='Skip confirmation.')):
+              yes     : bool = typer.Option(False,  '--yes', '-y',      help='Skip confirmation.'),
+              dry_run : bool = typer.Option(False,  '--dry-run',        help='Print action without executing.')):
     """Stop a running ECS task."""
-    if not yes:
-        typer.confirm(f'Stop task "{task_arn}"?', abort=True)
+    if not confirm_or_abort(f'Stop task "{task_arn}"?', yes=yes, dry_run=dry_run):
+        raise typer.Exit(0)
     ok = _client().stop_task(task_arn, cluster=cluster, reason=reason)
     if ok:
         console.print(f'[green]Stopped[/green] {task_arn}')
