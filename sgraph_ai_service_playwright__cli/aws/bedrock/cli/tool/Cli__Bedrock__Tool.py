@@ -125,7 +125,7 @@ def browser_session_screenshot(
 ):
     """Take a screenshot from a browser session. [EXPERIMENTAL]"""
     if not yes:
-        typer.confirm(f'Screenshot session {session_id!r}?', abort=True)
+        typer.confirm(f'Screenshot session {session_id!r}?', default=True, abort=True)   # read-only op — default Y
     client     = _client()
     image_data = client.browser_screenshot(session_id, region=region, browser_identifier=browser_id)
     writer     = Bedrock__Capture__Writer()
