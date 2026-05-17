@@ -227,6 +227,40 @@ Closes Open-7 in library/dev_packs/v0.2.30__sg-aws-hygiene/.
 
 ---
 
+## Real-world data — eu-west-2 inventory (2026-05-17)
+
+The user shared their actual `list-models` output for eu-west-2. The implementer should match the alias-table updates against this list, **not** against the stale defaults in `Bedrock__Model__Aliases.py`. Key Anthropic models actually available bare in eu-west-2:
+
+```
+anthropic.claude-3-haiku-20240307-v1:0
+anthropic.claude-3-sonnet-20240229-v1:0
+anthropic.claude-3-7-sonnet-20250219-v1:0
+anthropic.claude-sonnet-4-6                  (NEW naming — no version suffix, no `:0`)
+anthropic.claude-opus-4-6-v1                 (NEW model — 4-6, not 4-7)
+```
+
+**NOT available** in eu-west-2 today (alias-table entries that point at these will fail):
+
+```
+anthropic.claude-3-5-haiku-20241022-v1:0     ← current `claude default` alias 😱
+anthropic.claude-haiku-4-5:0                  ← current `claude haiku-4.5` alias
+anthropic.claude-sonnet-4-6:0                 ← current `claude sonnet-4.6` alias (has stale `:0` suffix)
+anthropic.claude-opus-4-7:0                   ← current `claude opus-4.7` alias (Opus is at 4-6, not 4-7)
+```
+
+So the alias-table refresh has two dimensions: regional inference profile prefixes (the original Open-7 ask) **and** updating the bare model IDs to match what's actually published in 2026. Anthropic moved away from the `<provider>.<model>-<YYYYMMDD>-v1:0` naming for the newer Claude generation; the convention is now `<provider>.<model>-<major>-<minor>` (no date, no `:0`).
+
+Action for the implementer:
+1. Hard-update each `claude` alias entry against the real eu-west-2 inventory above
+2. Add the regional prefix mechanism (the original Open-7 design — Part 1)
+3. Add the per-provider check (Part 2)
+4. Cross-check `nova` (`amazon.nova-lite-v1:0`, `amazon.nova-pro-v1:0`, `amazon.nova-micro-v1:0` all confirmed in the inventory)
+5. Cross-check `llama` (`meta.llama3-8b-instruct-v1:0`, `meta.llama3-70b-instruct-v1:0` confirmed; `llama3-1` / `llama3-2` / `llama4-scout` / `llama4-maverick` aliases will need verification against the actual list-models output per region)
+
+Other useful providers in the user's inventory worth aliasing while we're there: `google.gemma-*`, `mistral.*`, `openai.gpt-oss-*`, `qwen.*`, `deepseek.*`, `nvidia.nemotron-*`. Currently `sg aws bedrock chat any --provider X` is the only way to reach them. A `--provider gemma` / `--provider mistral` shortcut would be a nice follow-up but is out of scope for Open-7.
+
+---
+
 ## Pointer back
 
 - Parent pack: [`README.md`](README.md)
