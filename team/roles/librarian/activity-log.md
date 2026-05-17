@@ -14,6 +14,7 @@ Read the latest entry at the start of every session before reading [`DAILY_RUN.m
 |------|---------|--------------------------|---------|
 | 2026-05-02 | v0.1.140 | `reality/index.md` (NEW), `reality/changelog.md` (NEW), `reality/README.md` (rewritten), `reality/host-control/` (NEW domain — pilot), `DAILY_RUN.md` (NEW), this log (NEW) | Reality refactor: introduced 10-domain fractal tree, migrated `host-control/` as pilot, seeded daily-run backlog with B-001 … B-012. |
 | 2026-05-17 | v0.2.25 | `reviews/05/17/v0.2.25__ontology-and-taxonomy-proposal.md` (NEW) | Researched sgai-send + sgai-tools librarian patterns; audited reality fragmentation, brief sprawl (4 homes), and oversized docs; proposed 7-kind ontology + taxonomy with phased migration plan (M-001..M-012). Non-destructive; awaits human ratification. |
+| 2026-05-17 | v0.2.25 | proposal §3.1, §3.6, §7 (REVISED) | Merged `origin/dev` (sg_compute/version deleted, confirms Q1). Ratifications Q1–Q6 + catalogue concern recorded. Split naming into Pattern A (live, stable filename, frontmatter `as_of`) and Pattern B (versioned snapshot); rewrote §3.6 so live catalogue shards use stable filenames with `_snapshots/v{X.Y.Z}/` for periodic freezes — eliminates rename churn on every version bump. |
 
 ---
 
