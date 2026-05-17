@@ -26,10 +26,12 @@ FALLBACK_REGION = 'us-east-1'
 class Bedrock__Agent__AWS__Client(Type_Safe):
 
     def client(self, region: str = None):                                        # boto3 control-plane client for Agents
-        return boto3.client('bedrock-agent', region_name=region or self.current_region())
+        from sgraph_ai_service_playwright__cli.credentials.service.Sg__Aws__Session import Sg__Aws__Session
+        return Sg__Aws__Session.from_context().boto3_client_from_context('bedrock-agent', region=region or self.current_region())
 
     def runtime_client(self, region: str = None):                                # boto3 runtime client for invoke
-        return boto3.client('bedrock-agent-runtime', region_name=region or self.current_region())
+        from sgraph_ai_service_playwright__cli.credentials.service.Sg__Aws__Session import Sg__Aws__Session
+        return Sg__Aws__Session.from_context().boto3_client_from_context('bedrock-agent-runtime', region=region or self.current_region())
 
     def current_region(self) -> str:
         region = boto3.session.Session().region_name
