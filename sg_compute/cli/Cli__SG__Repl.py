@@ -93,6 +93,70 @@ def _match(prefix: str, options) -> tuple:                          # (hits, kin
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# Bash escape — allow a curated whitelist of read-only shell commands inside
+# the REPL so users don't have to leave for trivial things like `cat output.json`.
+#
+# Strict whitelist, no shell=True, no shell-feature passthrough — argv goes
+# straight to subprocess. The `!cmd` prefix is also supported as an explicit
+# escape for anything (still no shell=True; argv via shlex.split).
+# ═══════════════════════════════════════════════════════════════════════════════
+
+BASH_WHITELIST = {
+    # navigation / inspection
+    'pwd', 'ls', 'cat', 'head', 'tail', 'less', 'more', 'file', 'wc', 'stat',
+    'tree', 'find', 'du', 'df',
+    # text
+    'grep', 'awk', 'sed', 'sort', 'uniq', 'cut', 'tr', 'diff', 'jq',
+    # time / env
+    'date', 'env', 'whoami', 'uname', 'which',
+    # version control (read-only-ish; commits / pushes still possible — but matches user expectation)
+    'git',
+}
+
+
+def _is_bash_command(parts) -> bool:
+    """True if the first token is in the whitelist OR explicitly `!`-prefixed."""
+    if not parts:
+        return False
+    cmd = parts[0]
+    if cmd.startswith('!'):
+        return True
+    return cmd in BASH_WHITELIST
+
+
+def _normalise_bang(argv):
+    """Strip the leading `!` (with or without space) from an argv list.
+    Returns the cleaned argv. Returns None if the result is empty."""             # inline
+    argv = list(argv)
+    if not argv or not argv[0].startswith('!'):
+        return argv
+    rest_of_first = argv[0][1:]                                                  # `!cat foo` → 'cat'; `! cat foo` → ''
+    if rest_of_first:
+        argv[0] = rest_of_first
+    else:
+        argv = argv[1:]                                                          # `!` was its own token; drop it
+    return argv if argv and argv[0] else None
+
+
+def _run_bash(parts) -> None:
+    """Run a bash command from the REPL. argv-only — never shell=True.
+    Stdout / stderr / exit code flow through to the user's terminal naturally.
+    """                                                                          # inline
+    import subprocess
+
+    argv = _normalise_bang(parts)
+    if argv is None:
+        console.print('  [yellow]Empty `!` command — type `!<cmd> [args]`[/]')
+        return
+    try:
+        subprocess.run(argv, check=False)                                        # argv-only, no shell injection; user sees the real exit code via the next prompt
+    except FileNotFoundError:
+        console.print(f'  [red]Command not found:[/] {argv[0]}')
+    except PermissionError as exc:
+        console.print(f'  [red]Permission denied:[/] {exc}')
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # readline tab-completion — context-aware against the current REPL path
 # ═══════════════════════════════════════════════════════════════════════════════
 
@@ -275,6 +339,10 @@ def run_repl(sg_app=None, initial_path=None):
 
         if cmd in repl.exit_words:
             break
+
+        if _is_bash_command(parts):                                              # bash escape: pwd / ls / cat / git / ... + explicit `!cmd ...`
+            _run_bash(parts)
+            continue
 
         if cmd in ('..', 'back'):
             if repl.path:
