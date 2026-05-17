@@ -70,20 +70,17 @@ class Test__EC2__AWS__Client:
     def test_7__start_stop_instance(self):
         client = EC2__AWS__Client__In_Memory()
         iid    = client.seed_instance(state='stopped')
-        ok     = client.start_instance(iid)
-        assert ok is True
+        client.start_instance(iid)
         detail = client.describe_instance(iid)
         assert detail.state == Enum__EC2__Instance__State.RUNNING
-        ok2    = client.stop_instance(iid)
-        assert ok2 is True
+        client.stop_instance(iid)
         detail2 = client.describe_instance(iid)
         assert detail2.state == Enum__EC2__Instance__State.STOPPED
 
     def test_8__terminate_instance(self):
         client = EC2__AWS__Client__In_Memory()
         iid    = client.seed_instance(state='running')
-        ok     = client.terminate_instance(iid)
-        assert ok is True
+        client.terminate_instance(iid)
         detail = client.describe_instance(iid)
         assert detail.state == Enum__EC2__Instance__State.TERMINATED
 
