@@ -10,12 +10,15 @@ from typing                                                                     
 
 import typer
 
+from sg_compute.cli.base.Spec__CLI__Errors                                       import spec_cli_errors
+
 from sgraph_ai_service_playwright__cli.aws.bedrock.cli.chat.verbs.Verb__Bedrock__Chat__Helpers import resolve_prompt, run_chat
 
 
 def register_any(app: typer.Typer) -> None:
 
     @app.command('any')
+    @spec_cli_errors
     def chat_any(
         prompt_arg   : Optional[List[str]] = typer.Argument(None,                   help='Prompt text — quoted or as multiple words (alternative to --prompt).'),
         prompt       : Optional[str]   = typer.Option(None,  '--prompt',   '-p',   help='Prompt text.'),

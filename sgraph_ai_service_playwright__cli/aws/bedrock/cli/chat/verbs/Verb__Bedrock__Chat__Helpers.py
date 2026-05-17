@@ -10,6 +10,7 @@ from pathlib                                                                    
 from typing                                                                      import Optional
 
 import typer
+from botocore.exceptions                                                         import ClientError as _ClientError
 from rich.console                                                                import Console
 from rich.panel                                                                  import Panel
 
@@ -22,6 +23,47 @@ from sgraph_ai_service_playwright__cli.aws.bedrock.schemas.Schema__Bedrock__Chat
 from sgraph_ai_service_playwright__cli.aws.bedrock.primitives.Safe_Str__Bedrock__Model_Id  import Safe_Str__Bedrock__Model_Id
 
 _console = Console(stderr=True)
+
+
+def _render_bedrock_client_error(exc: _ClientError, model_id: str, alias: str,
+                                  provider: str, region: str) -> None:
+    """Translate a boto3 ClientError from Bedrock Converse into an actionable
+    error message with next-step hints. Avoids dumping a 60-frame traceback
+    for what is almost always a model-access or region-availability issue.
+    """                                                                          # inline
+    err   = exc.response.get('Error', {}) if hasattr(exc, 'response') else {}
+    code  = err.get('Code', type(exc).__name__)
+    msg   = err.get('Message', str(exc))
+
+    _console.print()
+    _console.print(f'  [red]✗ {code}[/]: {msg}')
+    _console.print(f'  [dim]model = {model_id}[/]')
+    _console.print(f'  [dim]alias = {alias!r}  provider = {provider!r}  region = {region}[/]')
+    _console.print()
+
+    if code == 'ValidationException' and 'model' in msg.lower():
+        _console.print('  This usually means one of:')
+        _console.print(f'    • the model is not enabled for your account in [bold]{region}[/]')
+        _console.print(f'    • the model ID requires a cross-region inference profile (e.g. [bold]eu.{model_id}[/])')
+        _console.print( '    • the alias maps to a model that is no longer published')
+        _console.print()
+        _console.print('  Try:')
+        _console.print('    [dim]sg aws bedrock chat list-models[/]              # see what is actually enabled')
+        _console.print('    [dim]sg aws bedrock setup --open-console[/]          # enable model access')
+        _console.print('    [dim]sg aws bedrock check[/]                         # full preflight')
+    elif code in ('AccessDeniedException', 'AccessDenied'):
+        _console.print('  The active IAM identity is not authorised to call this Bedrock model.')
+        _console.print('  Try:')
+        _console.print('    [dim]sg aws bedrock setup --print-policy[/]          # minimal IAM policy snippet')
+        _console.print('    [dim]sg aws bedrock check[/]                         # full preflight')
+    elif code in ('ResourceNotFoundException',):
+        _console.print('  Bedrock could not find the model in this region.')
+        _console.print('  Try a different region (--region) or check `sg aws bedrock chat list-models`.')
+    elif code in ('ThrottlingException', 'TooManyRequestsException'):
+        _console.print('  Rate limited by Bedrock. Wait a moment and retry.')
+    else:
+        _console.print('  [dim]Run with --debug to see the full traceback.[/]')
+    _console.print()
 
 
 def load_prompt(prompt: str, input_file: Optional[str]) -> str:                  # Combine --prompt and optional --input file content
@@ -84,20 +126,24 @@ def run_chat(provider: str, alias: str, prompt_text: str,
         _console.print(Panel(str(exc), title='[red]Cost cap exceeded[/]', border_style='red'))
         raise typer.Exit(1)
 
-    # Execute call
-    if stream:
-        stream_events = list(runtime.converse_stream(model_id, prompt_text, region=region))
-        adapter       = Bedrock__Stream__Adapter()
-        response_text = adapter.collect(stream_events)
-        input_tokens  = 0
-        output_tokens = 0
-        if json_output:
-            for line in adapter.to_ndjson(iter(stream_events)):
-                typer.echo(line)
-    else:
-        resp          = runtime.converse(model_id, prompt_text, region=region)
-        response_text = runtime.extract_text(resp)
-        input_tokens, output_tokens = runtime.extract_usage(resp)
+    # Execute call (translate boto3 ClientError to actionable hint)
+    try:
+        if stream:
+            stream_events = list(runtime.converse_stream(model_id, prompt_text, region=region))
+            adapter       = Bedrock__Stream__Adapter()
+            response_text = adapter.collect(stream_events)
+            input_tokens  = 0
+            output_tokens = 0
+            if json_output:
+                for line in adapter.to_ndjson(iter(stream_events)):
+                    typer.echo(line)
+        else:
+            resp          = runtime.converse(model_id, prompt_text, region=region)
+            response_text = runtime.extract_text(resp)
+            input_tokens, output_tokens = runtime.extract_usage(resp)
+    except _ClientError as exc:
+        _render_bedrock_client_error(exc, model_id, alias, provider, region)
+        raise typer.Exit(1)
 
     cost  = calc.estimate(model_id, input_tokens, output_tokens)
     run_id= uuid.uuid4().hex

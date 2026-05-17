@@ -101,6 +101,76 @@ def _match(prefix: str, options) -> tuple:                          # (hits, kin
 # escape for anything (still no shell=True; argv via shlex.split).
 # ═══════════════════════════════════════════════════════════════════════════════
 
+# ═══════════════════════════════════════════════════════════════════════════════
+# Shell-builtin pseudo-commands — handled in the REPL itself because they need
+# to mutate the REPL process's env / cwd (subprocess can't help with these).
+#
+# Supported:
+#   export VAR=value         # set env var (persists across commands in the session)
+#   export VAR               # show current value (or print "not set")
+#   export                   # list SG_* / AWS_* env vars
+#   unset VAR                # remove env var
+#   cd <dir>                 # change working directory (persists in the session)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+def _handle_shell_builtin(parts) -> bool:
+    """Handle `export` / `unset` / `cd` in-process. Returns True if handled."""   # inline
+    import os
+
+    if not parts:
+        return False
+    cmd = parts[0]
+
+    if cmd == 'export':
+        if len(parts) == 1:                                                       # bare `export` — list SG_*/AWS_* env vars
+            keys = sorted(k for k in os.environ if k.startswith(('SG_', 'AWS_')))
+            if not keys:
+                console.print('  [dim](no SG_* / AWS_* env vars set)[/]')
+            for k in keys:
+                console.print(f'  {k}={os.environ[k]}')
+            return True
+        for assignment in parts[1:]:
+            if '=' in assignment:
+                k, _, v = assignment.partition('=')
+                os.environ[k] = v
+                console.print(f'  [dim]export[/] [bold]{k}[/]={v}')
+            else:
+                k = assignment
+                v = os.environ.get(k)
+                if v is None:
+                    console.print(f'  [yellow]{k}[/] is not set')
+                else:
+                    console.print(f'  {k}={v}')
+        return True
+
+    if cmd == 'unset':
+        if len(parts) == 1:
+            console.print('  [yellow]unset: requires a variable name[/]')
+            return True
+        for k in parts[1:]:
+            if k in os.environ:
+                del os.environ[k]
+                console.print(f'  [dim]unset[/] {k}')
+            else:
+                console.print(f'  [yellow]{k}[/] was not set')
+        return True
+
+    if cmd == 'cd':
+        if len(parts) == 1:                                                       # `cd` with no args → $HOME
+            target = os.path.expanduser('~')
+        else:
+            target = os.path.expanduser(parts[1])
+        try:
+            os.chdir(target)
+            console.print(f'  [dim]cwd[/] {os.getcwd()}')
+        except OSError as exc:
+            console.print(f'  [red]cd: {exc}[/]')
+        return True
+
+    return False
+
+
 BASH_WHITELIST = {
     # navigation / inspection
     'pwd', 'ls', 'cat', 'head', 'tail', 'less', 'more', 'file', 'wc', 'stat',
@@ -339,6 +409,9 @@ def run_repl(sg_app=None, initial_path=None):
 
         if cmd in repl.exit_words:
             break
+
+        if _handle_shell_builtin(parts):                                         # shell builtins: export / unset / cd — handled in-process; must come BEFORE bash-escape
+            continue
 
         if _is_bash_command(parts):                                              # bash escape: pwd / ls / cat / git / ... + explicit `!cmd ...`
             _run_bash(parts)
