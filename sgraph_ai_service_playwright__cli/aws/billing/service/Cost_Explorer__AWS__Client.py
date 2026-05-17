@@ -120,7 +120,11 @@ class Cost_Explorer__AWS__Client(Type_Safe):                                    
                         f"out of scope for MVP. File an issue if you need {unit} support."
                     )
 
-    def get_caller_account_id(self) -> str:                                           # Uses STS get_caller_identity — same boto3 credential context as Cost Explorer
+    def get_caller_account_id(self) -> str:                                           # cached via sg credentials store; STS fallback when no sg role active
+        from sgraph_ai_service_playwright__cli.credentials.service.Sg__Aws__Session import Sg__Aws__Session
+        cached = Sg__Aws__Session.account_id_from_context()
+        if cached:
+            return cached
         sts = boto3.client('sts')
         return sts.get_caller_identity()['Account']
 
