@@ -6,7 +6,31 @@ This is a pointer log, not a content log. For full delta detail, see the master 
 
 ---
 
-## 2026-05-17 (M-001..M-007 — ontology rollout: reality + catalogue + briefs)
+## 2026-05-17 PM (v0.2.29 — `sg aws` primitives expansion — Foundation + 8 slices shipped to dev)
+
+Single landing across ~94 commits on `origin/dev` (`ab0c380..759dfaa`). Root `version` bumped to **v0.2.28** (v0.2.29 not yet stamped despite the work-stream label). Source pack: `library/dev_packs/v0.2.29__sg-aws-primitives-expansion/`. Architect reviews under `team/roles/architect/reviews/05/17/v0.2.29__*.md`. Master Dev debrief: `team/claude/debriefs/2026-05-17__v0.2.29-sg-aws-primitives-expansion.md`.
+
+- `cli/aws.md` — NEW: umbrella reality index for `sg aws *`. Documents the shared `aws/_shared/` scaffold (`Mutation__Gate`, `Aws__Tagger`, `Aws__Region__Resolver`, `Aws__Confirm`, `Source__Contract` ABC, shared primitives/schemas/enums).
+- `cli/aws-s3.md` — NEW: Slice A. `sg aws s3` — bucket/object lifecycle, `s3 ls/get/put/rm`, signed URLs.
+- `cli/aws-ec2.md` — NEW: Slice B. `sg aws ec2` — instance + AMI + key-pair management routed through `Sg__Aws__Session`.
+- `cli/aws-fargate.md` — NEW: Slice C. `sg aws fargate` — ECS Fargate cluster / task-definition / task lifecycle.
+- `cli/aws-iam-graph.md` — NEW: Slice D. `sg aws iam graph` — IAM relationship graph, role/policy traversal.
+- `cli/aws-bedrock.md` — NEW: Slice E. `sg aws bedrock` — `chat`, `agent`, `tool` sub-trees with local-file capture; `check`/`setup` verbs.
+- `cli/aws-cloudtrail.md` — NEW: Slice F. `sg aws cloudtrail` — trail listing, event search, JSON export.
+- `cli/aws-creds.md` — NEW: Slice G. `sg aws creds` — scoped-credentials surface (REVIEW gate: AppSec sign-off pending).
+- `cli/aws-observe.md` — NEW: Slice H. `sg aws observe` — read-only CloudWatch metrics/logs/alarms.
+- `cli/index.md` — UPDATED: added rows for all 7 new `cli/aws-*.md` sub-files + the umbrella `cli/aws.md`. Added the v0.2.29 Foundation note.
+- `cli/observability.md` — UPDATED: cross-links to the new `aws-observe.md` (note relationship between the legacy `Routes__Observability` and the new read-only CLI).
+- `sg-compute/index.md` — UPDATED: notes that `Sg__Aws__Session` now backs all 9 AWS client classes (HCD-1 reshape), `confirm_or_abort` + `--dry-run` wired across mutating verbs (HCD-3).
+
+Significant defects surfaced by Architect reviews and tracked for next session (see `ids/README.md` for new IDs):
+
+- One **CRITICAL regression** during the work-stream (`bcd33439`): Foundation follow-up overwrote Slice B/C/D CLI bodies with `NotImplementedError`. Fixed in `c4cc6ea0`. Worth a hard-won-rule INC.
+- **Direct `boto3` usage** has spread across 6 slices and 9 client files (CLAUDE.md rule 13 violation). Architect flagged H-1 as HIGH priority. Tracked as a new INC entry.
+
+---
+
+## 2026-05-17 AM (M-001..M-007 — ontology rollout: reality + catalogue + briefs)
 
 - `reality/` (whole tree) — REFACTOR: full rollout of the ontology proposal §3.4. The 4 flat `v0.1.X__what-exists-today.md` monoliths + `v0.1.31/` migrated to `_archive/`. 9 unmigrated domains (`agent-mitmproxy`, `cli`, `infra`, `lets`, `playwright-service`, `ui`, `qa`, `security`, `vault`) lifted into per-domain `{domain}/index.md` + `proposed/index.md` files. `sg-compute/index.md` (545 lines) split into cover sheet + 6 subarea files (`primitives.md`, `platform.md`, `specs.md`, `cli.md`, `pods.md`, `host-plane.md`) per the 300-line fractal rule. `index.md` Status table refreshed to "11 of 11 migrated"; Migration shim section removed. NEW `verified-by.md` rolling log. Source: ontology proposal at `team/roles/librarian/reviews/05/17/v0.2.25__ontology-and-taxonomy-proposal.md`.
 - `library/catalogue/` — REFACTOR: replaced 9 stale numbered shards with 8 live shards (`index`, `service`, `cli`, `specs`, `infra`, `tests`, `team`, `findings`) using Pattern A naming (stable filenames + frontmatter `as_of:`). First immutable snapshot at `_snapshots/v0.2.25/`. Old shards in `_archive/`.
