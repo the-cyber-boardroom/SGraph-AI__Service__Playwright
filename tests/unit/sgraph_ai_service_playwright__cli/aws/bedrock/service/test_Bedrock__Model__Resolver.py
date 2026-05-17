@@ -127,3 +127,40 @@ class test_Bedrock__Model__Resolver(TestCase):
         aliases = self.resolver.list_aliases('nova')
         assert 'lite' in aliases
         assert 'pro'  in aliases
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Real-table tests — exercise the actual BEDROCK_MODEL_ALIASES Python dict
+# that the Fake__Resolver bypasses. Catches drift between the runtime table
+# and the resolver's expectations (this is what caught the original
+# yaml-path off-by-two before it became a yaml-import dependency story).
+# ─────────────────────────────────────────────────────────────────────────────
+
+class test_Bedrock__Model__Resolver__real_table(TestCase):
+
+    def setUp(self):
+        self.resolver = Bedrock__Model__Resolver()                                 # NO override — uses the actual BEDROCK_MODEL_ALIASES dict
+
+    def test__aliases_is_importable_without_yaml(self):                            # ensure no `import yaml` lurks
+        from sgraph_ai_service_playwright__cli.aws.bedrock.service.Bedrock__Model__Aliases import BEDROCK_MODEL_ALIASES
+        assert isinstance(BEDROCK_MODEL_ALIASES, dict)
+        assert BEDROCK_MODEL_ALIASES                                                # non-empty
+
+    def test__aliases_contains_all_providers(self):
+        table = self.resolver.aliases()
+        assert table                                                                # non-empty
+        for provider in ('claude', 'nova', 'llama'):
+            assert provider in table, f'{provider!r} missing from alias table'
+            assert table[provider], f'{provider!r} section is empty'
+
+    def test__resolve_nova_default_from_real_table(self):                          # the exact path that broke for the user 2026-05-17
+        mid = self.resolver.resolve('nova', 'default')
+        assert mid.startswith('amazon.nova-')
+
+    def test__resolve_claude_default_from_real_table(self):
+        mid = self.resolver.resolve('claude', 'default')
+        assert mid.startswith('anthropic.claude-')
+
+    def test__resolve_llama_default_from_real_table(self):
+        mid = self.resolver.resolve('llama', 'default')
+        assert mid.startswith('meta.llama')

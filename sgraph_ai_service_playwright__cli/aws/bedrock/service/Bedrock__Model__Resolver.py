@@ -6,23 +6,17 @@
 # Single source of truth for model-ID complexity.  No other class (CLI verbs,
 # service clients, tests) is allowed to hard-code Bedrock model IDs.
 #
-# Alias YAML: library/reference/v0.2.29__bedrock-model-aliases.yaml
+# Alias table: Bedrock__Model__Aliases.BEDROCK_MODEL_ALIASES (plain Python
+# dict; no YAML / JSON / disk I/O). Tests subclass and override aliases().
 # ═══════════════════════════════════════════════════════════════════════════════
 
-import os
-from pathlib                                                                     import Path
 from typing                                                                      import Optional
-
-import yaml                                                                      # pyyaml — present in osbot-utils dependency tree
 
 from osbot_utils.type_safe.Type_Safe                                             import Type_Safe
 
 from sgraph_ai_service_playwright__cli.aws.bedrock.enums.Enum__Bedrock__Provider import Enum__Bedrock__Provider
 from sgraph_ai_service_playwright__cli.aws.bedrock.primitives.Safe_Str__Bedrock__Model_Id import Safe_Str__Bedrock__Model_Id
-
-# ── Alias YAML location ───────────────────────────────────────────────────────
-
-_ALIAS_YAML = Path(__file__).parents[6] / 'library' / 'reference' / 'v0.2.29__bedrock-model-aliases.yaml'
+from sgraph_ai_service_playwright__cli.aws.bedrock.service.Bedrock__Model__Aliases       import BEDROCK_MODEL_ALIASES
 
 # ── Provider keyword → Enum__Bedrock__Provider ────────────────────────────────
 
@@ -35,21 +29,11 @@ _PROVIDER_MAP = {
 
 
 class Bedrock__Model__Resolver(Type_Safe):
-    _aliases: dict                                                                   # loaded once from YAML; lazy-populated
 
     # ── Alias loading ─────────────────────────────────────────────────────────
 
-    def aliases(self) -> dict:                                                      # Load alias table lazily from the YAML file
-        if not hasattr(self, '_aliases') or self._aliases is None:
-            self._aliases = {}
-        if self._aliases:
-            return self._aliases
-        try:
-            with open(_ALIAS_YAML, 'r') as f:
-                self._aliases = yaml.safe_load(f) or {}
-        except (FileNotFoundError, yaml.YAMLError):
-            self._aliases = {}
-        return self._aliases
+    def aliases(self) -> dict:                                                      # Override in tests for controlled fixtures
+        return BEDROCK_MODEL_ALIASES
 
     # ── Public API ────────────────────────────────────────────────────────────
 

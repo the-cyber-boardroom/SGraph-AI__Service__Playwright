@@ -35,6 +35,19 @@ def load_prompt(prompt: str, input_file: Optional[str]) -> str:                 
     return text.strip()
 
 
+def resolve_prompt(positional: Optional[str], option: Optional[str], input_file: Optional[str]) -> str:
+    """Resolve the prompt from positional arg, --prompt option, or --input file.
+    Positional and --prompt are equivalent — if both are given, --prompt wins
+    (explicit option beats implicit argument). Errors cleanly if nothing usable.
+    """                                                                          # inline
+    prompt = option or positional
+    if not prompt and not input_file:
+        _console.print('[red]Provide a prompt as a positional argument, '
+                       '--prompt/-p TEXT, or --input FILE.[/]')
+        raise typer.Exit(1)
+    return load_prompt(prompt or '', input_file)
+
+
 def run_chat(provider: str, alias: str, prompt_text: str,
              stream: bool, json_output: bool,
              cost_override: Optional[float],
