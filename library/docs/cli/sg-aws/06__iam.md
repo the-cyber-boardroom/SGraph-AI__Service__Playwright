@@ -18,6 +18,7 @@ Subcommand groups:
 |-------|--------------|
 | `role` | Role lifecycle + audit |
 | `policy` | Managed-policy attachment |
+| `graph` | IAM-as-graph discovery, filtering, and bulk cleanup — see [`12__iam-graph.md`](12__iam-graph.md) |
 
 ---
 

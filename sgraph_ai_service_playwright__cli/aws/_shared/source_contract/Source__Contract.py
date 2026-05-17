@@ -10,9 +10,13 @@ from abc import ABC, abstractmethod
 
 from osbot_utils.type_safe.Type_Safe import Type_Safe
 
-from sgraph_ai_service_playwright__cli.aws._shared.source_contract.Source__Query       import Source__Query
-from sgraph_ai_service_playwright__cli.aws._shared.source_contract.Source__Result__Page import Source__Result__Page
-from sgraph_ai_service_playwright__cli.aws._shared.source_contract.Source__Stream      import Source__Stream
+from sgraph_ai_service_playwright__cli.aws._shared.source_contract.Enum__Source__Aggregation      import Enum__Source__Aggregation
+from sgraph_ai_service_playwright__cli.aws._shared.source_contract.Schema__Source__Stream__Ref    import Schema__Source__Stream__Ref
+from sgraph_ai_service_playwright__cli.aws._shared.source_contract.Schema__Source__Stats          import Schema__Source__Stats
+from sgraph_ai_service_playwright__cli.aws._shared.source_contract.Schema__Source__Stream__Schema import Schema__Source__Stream__Schema
+from sgraph_ai_service_playwright__cli.aws._shared.source_contract.Source__Query                  import Source__Query
+from sgraph_ai_service_playwright__cli.aws._shared.source_contract.Source__Result__Page           import Source__Result__Page
+from sgraph_ai_service_playwright__cli.aws._shared.source_contract.Source__Stream                 import Source__Stream
 
 
 class Source__Contract(Type_Safe, ABC):
@@ -22,7 +26,7 @@ class Source__Contract(Type_Safe, ABC):
         ...
 
     @abstractmethod
-    def list_streams(self) -> list:
+    def list_streams(self) -> list:                                    # list[Schema__Source__Stream__Ref]
         ...
 
     @abstractmethod
@@ -34,9 +38,9 @@ class Source__Contract(Type_Safe, ABC):
         ...
 
     @abstractmethod
-    def stats(self, stream: str, agg: str) -> dict:
+    def stats(self, stream: str, agg: Enum__Source__Aggregation) -> Schema__Source__Stats:
         ...
 
     @abstractmethod
-    def schema(self, stream: str) -> dict:
+    def schema(self, stream: str) -> Schema__Source__Stream__Schema:
         ...
