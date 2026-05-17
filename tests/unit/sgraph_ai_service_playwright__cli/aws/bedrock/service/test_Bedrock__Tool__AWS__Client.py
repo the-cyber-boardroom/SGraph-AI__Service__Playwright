@@ -31,6 +31,13 @@ _VALID_START_BROWSER_KWARGS          = {'browserIdentifier', 'name', 'sessionTim
 _VALID_START_CODE_INTERPRETER_KWARGS = {'codeInterpreterIdentifier', 'name', 'sessionTimeoutSeconds', 'clientToken', 'traceId', 'traceParent', 'certificates'}
 _VALID_INVOKE_BROWSER_KWARGS         = {'browserIdentifier', 'sessionId', 'action'}
 _VALID_BROWSER_ACTION_KEYS           = {'mouseClick', 'mouseMove', 'mouseDrag', 'mouseScroll', 'keyType', 'keyPress', 'keyShortcut', 'screenshot'}
+_VALID_STOP_BROWSER_KWARGS           = {'browserIdentifier', 'sessionId', 'clientToken', 'traceId', 'traceParent'}
+_VALID_LIST_BROWSER_KWARGS           = {'browserIdentifier', 'maxResults', 'nextToken', 'status'}
+_VALID_GET_BROWSER_KWARGS            = {'browserIdentifier', 'sessionId'}
+_VALID_STOP_CODE_INTERPRETER_KWARGS  = {'codeInterpreterIdentifier', 'sessionId', 'clientToken', 'traceId', 'traceParent'}
+_VALID_LIST_CODE_INTERPRETER_KWARGS  = {'codeInterpreterIdentifier', 'maxResults', 'nextToken', 'status'}
+_VALID_INVOKE_CODE_INTERPRETER_KWARGS= {'codeInterpreterIdentifier', 'sessionId', 'name', 'arguments', 'traceId', 'traceParent'}
+_VALID_INVOKE_CODE_INTERPRETER_NAMES = {'executeCode', 'executeCommand', 'readFiles', 'listFiles', 'removeFiles', 'writeFiles', 'startCommandExecution', 'getTask', 'stopTask'}
 
 
 class _FakeAgentCoreClient:
@@ -76,6 +83,83 @@ class _FakeAgentCoreClient:
         if unknown:
             raise TypeError(f"Unknown parameter(s): {sorted(unknown)}")
         return {'sessionId': 'fake-code-interpreter-session-id'}
+
+    def stop_browser_session(self, **kwargs):
+        self.calls.append(('stop_browser_session', kwargs))
+        if 'browserIdentifier' not in kwargs:
+            raise TypeError("Missing required parameter: 'browserIdentifier'")
+        if 'sessionId' not in kwargs:
+            raise TypeError("Missing required parameter: 'sessionId'")
+        unknown = set(kwargs) - _VALID_STOP_BROWSER_KWARGS
+        if unknown:
+            raise TypeError(f"Unknown parameter(s): {sorted(unknown)}")
+        return {}
+
+    def list_browser_sessions(self, **kwargs):
+        self.calls.append(('list_browser_sessions', kwargs))
+        if 'browserIdentifier' not in kwargs:
+            raise TypeError("Missing required parameter: 'browserIdentifier'")
+        unknown = set(kwargs) - _VALID_LIST_BROWSER_KWARGS
+        if unknown:
+            raise TypeError(f"Unknown parameter(s): {sorted(unknown)}")
+        return {'items': [
+            {'sessionId': 'sid-1', 'browserIdentifier': kwargs['browserIdentifier'], 'status': 'READY'},
+            {'sessionId': 'sid-2', 'browserIdentifier': kwargs['browserIdentifier'], 'status': 'TERMINATED'},
+        ]}
+
+    def get_browser_session(self, **kwargs):
+        self.calls.append(('get_browser_session', kwargs))
+        if 'browserIdentifier' not in kwargs:
+            raise TypeError("Missing required parameter: 'browserIdentifier'")
+        if 'sessionId' not in kwargs:
+            raise TypeError("Missing required parameter: 'sessionId'")
+        unknown = set(kwargs) - _VALID_GET_BROWSER_KWARGS
+        if unknown:
+            raise TypeError(f"Unknown parameter(s): {sorted(unknown)}")
+        return {
+            'sessionId': kwargs['sessionId'],
+            'browserIdentifier': kwargs['browserIdentifier'],
+            'status': 'READY',
+            'streams': {
+                'automationStream': {'streamEndpoint': 'wss://fake.example/automation/' + kwargs['sessionId']},
+                'liveViewStream':   {'streamEndpoint': 'wss://fake.example/live/'       + kwargs['sessionId']},
+            },
+        }
+
+    def stop_code_interpreter_session(self, **kwargs):
+        self.calls.append(('stop_code_interpreter_session', kwargs))
+        if 'codeInterpreterIdentifier' not in kwargs:
+            raise TypeError("Missing required parameter: 'codeInterpreterIdentifier'")
+        if 'sessionId' not in kwargs:
+            raise TypeError("Missing required parameter: 'sessionId'")
+        unknown = set(kwargs) - _VALID_STOP_CODE_INTERPRETER_KWARGS
+        if unknown:
+            raise TypeError(f"Unknown parameter(s): {sorted(unknown)}")
+        return {}
+
+    def list_code_interpreter_sessions(self, **kwargs):
+        self.calls.append(('list_code_interpreter_sessions', kwargs))
+        if 'codeInterpreterIdentifier' not in kwargs:
+            raise TypeError("Missing required parameter: 'codeInterpreterIdentifier'")
+        unknown = set(kwargs) - _VALID_LIST_CODE_INTERPRETER_KWARGS
+        if unknown:
+            raise TypeError(f"Unknown parameter(s): {sorted(unknown)}")
+        return {'items': [
+            {'sessionId': 'sid-1', 'codeInterpreterIdentifier': kwargs['codeInterpreterIdentifier'], 'status': 'READY'},
+        ]}
+
+    def invoke_code_interpreter(self, **kwargs):
+        self.calls.append(('invoke_code_interpreter', kwargs))
+        if 'codeInterpreterIdentifier' not in kwargs:
+            raise TypeError("Missing required parameter: 'codeInterpreterIdentifier'")
+        if 'name' not in kwargs:
+            raise TypeError("Missing required parameter: 'name'")
+        unknown = set(kwargs) - _VALID_INVOKE_CODE_INTERPRETER_KWARGS
+        if unknown:
+            raise TypeError(f"Unknown parameter(s): {sorted(unknown)}")
+        if kwargs['name'] not in _VALID_INVOKE_CODE_INTERPRETER_NAMES:
+            raise TypeError(f"Invalid name: {kwargs['name']!r}")
+        return {'output': 'fake-result'}
 
 
 class _Fake_Bedrock__Tool__AWS__Client(Bedrock__Tool__AWS__Client):
@@ -155,33 +239,95 @@ class test_browser_screenshot(TestCase):
         assert data == b'\x89PNG-fake-bytes'
 
 
-# ── Tests — browser_navigate ─────────────────────────────────────────────────
-# Regression for 2026-05-17: navigate was calling `browser_tool` (wrong method)
-# AND `invoke_browser` has no `navigate` action — only OS-level actions
-# (mouse/keyboard/screenshot). Honest behaviour: raise NotImplementedError
-# with a message pointing at the right path (Playwright over CDP stream).
+# ── Tests — browser_navigate (returns CDP stream endpoints) ──────────────────
+# Now returns the streamEndpoint dict from get_browser_session so the caller
+# can hand it to an external Playwright/CDP client. (Full in-process navigate
+# is a follow-up — needs Playwright connected over CDP to the SigV4-signed
+# stream URL.)
 
 class test_browser_navigate(TestCase):
 
     def setUp(self):
         self.client = _Fake_Bedrock__Tool__AWS__Client()
 
-    def test__raises_not_implemented_with_explanation(self):
-        try:
-            self.client.browser_navigate('sid-123', 'https://example.com')
-        except NotImplementedError as exc:
-            msg = str(exc)
-            assert 'invoke_browser' in msg
-            assert 'CDP' in msg or 'Chrome DevTools Protocol' in msg              # message points the reader at the right next step
-            return
-        raise AssertionError('Expected NotImplementedError')
+    def test__returns_stream_endpoints_for_external_playwright(self):
+        resp = self.client.browser_navigate('sid-abc', 'https://example.com')
+        assert resp['status']                              == 'STREAM_ENDPOINT_RETURNED'
+        assert resp['requested_url']                       == 'https://example.com'
+        assert resp['stream_endpoints']['automation']      == 'wss://fake.example/automation/sid-abc'
+        assert resp['stream_endpoints']['live_view']       == 'wss://fake.example/live/sid-abc'
 
-    def test__does_not_call_aws_when_unimplemented(self):                        # belt-and-braces: no API call attempt
-        try:
-            self.client.browser_navigate('sid-123', 'https://example.com')
-        except NotImplementedError:
-            pass
-        assert self.client._fake_agentcore.calls == []                            # nothing was attempted
+    def test__calls_get_browser_session_with_correct_kwargs(self):
+        self.client.browser_navigate('sid-abc', 'https://example.com')
+        api, kwargs = self.client._fake_agentcore.calls[-1]
+        assert api                          == 'get_browser_session'
+        assert kwargs['sessionId']          == 'sid-abc'
+        assert kwargs['browserIdentifier']  == DEFAULT_BROWSER_ID
+
+    def test__honours_custom_browser_identifier(self):
+        self.client.browser_navigate('sid-abc', 'https://example.com', browser_identifier='custom.browser.v1')
+        _api, kwargs = self.client._fake_agentcore.calls[-1]
+        assert kwargs['browserIdentifier']  == 'custom.browser.v1'
+
+    def test__no_unknown_kwargs_are_sent(self):
+        self.client.browser_navigate('sid-abc', 'https://example.com')
+        _api, kwargs = self.client._fake_agentcore.calls[-1]
+        assert set(kwargs) <= _VALID_GET_BROWSER_KWARGS
+
+
+# ── Tests — browser_list / browser_stop (regression: also need identifier) ───
+
+class test_browser_list_and_stop(TestCase):
+
+    def setUp(self):
+        self.client = _Fake_Bedrock__Tool__AWS__Client()
+
+    def test__list_sends_browser_identifier(self):                               # regression: was failing with ParamValidationError
+        sessions = self.client.browser_list()
+        assert len(sessions) == 2
+        assert str(sessions[0].session_id) == 'sid-1'
+        api, kwargs = self.client._fake_agentcore.calls[-1]
+        assert api                          == 'list_browser_sessions'
+        assert kwargs['browserIdentifier']  == DEFAULT_BROWSER_ID
+
+    def test__list_reads_items_key_not_sessions(self):                           # AWS field is `items`, not `sessions`
+        sessions = self.client.browser_list()
+        assert len(sessions) == 2                                                # both items returned
+
+    def test__list_honours_custom_browser_identifier(self):
+        self.client.browser_list(browser_identifier='custom.browser.v1')
+        _api, kwargs = self.client._fake_agentcore.calls[-1]
+        assert kwargs['browserIdentifier']  == 'custom.browser.v1'
+
+    def test__stop_sends_browser_identifier_and_session_id(self):
+        self.client.browser_stop('sid-xyz')
+        api, kwargs = self.client._fake_agentcore.calls[-1]
+        assert api                          == 'stop_browser_session'
+        assert kwargs['browserIdentifier']  == DEFAULT_BROWSER_ID
+        assert kwargs['sessionId']          == 'sid-xyz'
+
+    def test__stop_honours_custom_browser_identifier(self):
+        self.client.browser_stop('sid-xyz', browser_identifier='custom.browser.v1')
+        _api, kwargs = self.client._fake_agentcore.calls[-1]
+        assert kwargs['browserIdentifier']  == 'custom.browser.v1'
+
+
+# ── Tests — browser_get / browser_stream_endpoints ───────────────────────────
+
+class test_browser_get_and_stream_endpoints(TestCase):
+
+    def setUp(self):
+        self.client = _Fake_Bedrock__Tool__AWS__Client()
+
+    def test__browser_get_returns_full_session_details(self):
+        resp = self.client.browser_get('sid-abc')
+        assert resp['sessionId']                                     == 'sid-abc'
+        assert resp['streams']['automationStream']['streamEndpoint'] == 'wss://fake.example/automation/sid-abc'
+
+    def test__browser_stream_endpoints_extracts_both_streams(self):
+        endpoints = self.client.browser_stream_endpoints('sid-abc')
+        assert endpoints['automation'] == 'wss://fake.example/automation/sid-abc'
+        assert endpoints['live_view']  == 'wss://fake.example/live/sid-abc'
 
 
 # ── Tests — code_interpreter_start ───────────────────────────────────────────
@@ -225,3 +371,40 @@ class test_code_interpreter_start(TestCase):
         self.client.code_interpreter_start(language='python', region='eu-west-1', code_interpreter_id='custom.ci.v1')
         _api, kwargs = self.client._fake_agentcore.calls[-1]
         assert set(kwargs) <= _VALID_START_CODE_INTERPRETER_KWARGS
+
+
+# ── Tests — code_interpreter_run / stop / list (identifier-fix regressions) ─
+
+class test_code_interpreter_run_stop_list(TestCase):
+
+    def setUp(self):
+        self.client = _Fake_Bedrock__Tool__AWS__Client()
+
+    def test__run_sends_correct_invoke_shape(self):                              # name='executeCode' + arguments={code, language}
+        self.client.code_interpreter_run('sid-1', 'print("hi")')
+        api, kwargs = self.client._fake_agentcore.calls[-1]
+        assert api                                  == 'invoke_code_interpreter'
+        assert kwargs['codeInterpreterIdentifier']  == DEFAULT_CODE_INTERPRETER_ID
+        assert kwargs['sessionId']                  == 'sid-1'
+        assert kwargs['name']                       == 'executeCode'
+        assert kwargs['arguments']                  == {'code': 'print("hi")', 'language': 'python'}
+
+    def test__run_honours_language_and_custom_identifier(self):
+        self.client.code_interpreter_run('sid-1', 'console.log("hi")', language='javascript', code_interpreter_id='custom.ci.v1')
+        _api, kwargs = self.client._fake_agentcore.calls[-1]
+        assert kwargs['codeInterpreterIdentifier']  == 'custom.ci.v1'
+        assert kwargs['arguments']['language']      == 'javascript'
+
+    def test__stop_sends_identifier_and_session_id(self):                        # regression: identifier was missing
+        self.client.code_interpreter_stop('sid-1')
+        api, kwargs = self.client._fake_agentcore.calls[-1]
+        assert api                                  == 'stop_code_interpreter_session'
+        assert kwargs['codeInterpreterIdentifier']  == DEFAULT_CODE_INTERPRETER_ID
+        assert kwargs['sessionId']                  == 'sid-1'
+
+    def test__list_sends_identifier_and_reads_items(self):                       # regression: identifier missing AND wrong response key
+        sessions = self.client.code_interpreter_list()
+        assert len(sessions) == 1
+        api, kwargs = self.client._fake_agentcore.calls[-1]
+        assert api                                  == 'list_code_interpreter_sessions'
+        assert kwargs['codeInterpreterIdentifier']  == DEFAULT_CODE_INTERPRETER_ID
