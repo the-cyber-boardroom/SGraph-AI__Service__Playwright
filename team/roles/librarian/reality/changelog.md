@@ -6,6 +6,20 @@ This is a pointer log, not a content log. For full delta detail, see the master 
 
 ---
 
+## 2026-05-17 (M-001..M-007 — ontology rollout: reality + catalogue + briefs)
+
+- `reality/` (whole tree) — REFACTOR: full rollout of the ontology proposal §3.4. The 4 flat `v0.1.X__what-exists-today.md` monoliths + `v0.1.31/` migrated to `_archive/`. 9 unmigrated domains (`agent-mitmproxy`, `cli`, `infra`, `lets`, `playwright-service`, `ui`, `qa`, `security`, `vault`) lifted into per-domain `{domain}/index.md` + `proposed/index.md` files. `sg-compute/index.md` (545 lines) split into cover sheet + 6 subarea files (`primitives.md`, `platform.md`, `specs.md`, `cli.md`, `pods.md`, `host-plane.md`) per the 300-line fractal rule. `index.md` Status table refreshed to "11 of 11 migrated"; Migration shim section removed. NEW `verified-by.md` rolling log. Source: ontology proposal at `team/roles/librarian/reviews/05/17/v0.2.25__ontology-and-taxonomy-proposal.md`.
+- `library/catalogue/` — REFACTOR: replaced 9 stale numbered shards with 8 live shards (`index`, `service`, `cli`, `specs`, `infra`, `tests`, `team`, `findings`) using Pattern A naming (stable filenames + frontmatter `as_of:`). First immutable snapshot at `_snapshots/v0.2.25/`. Old shards in `_archive/`.
+- `library/docs/specs/` — REFACTOR: `v0.20.55__schema-catalogue-v2.md` (1,439 lines) split into cover sheet + 4 parts; `v0.20.55__routes-catalogue-v2.md` (1,234 lines) split into cover sheet + 4 parts. `═══` H1 banner blocks stripped from these + `v0.20.55__ci-pipeline.md`, replaced with YAML frontmatter per `library/guides/v0.2.15__markdown_doc_style.md`.
+- `library/briefing/` → `library/onboarding/` — RENAME: 9 files (M-006a). Distinguishes onboarding sequence from `team/comms/briefs/`. Inbound links updated in `CLAUDE.md`, `library/README.md`, `library/roadmap/phases/v0.1.9__phase-overview.md`.
+- `sg_compute/brief/` → `team/comms/briefs/v0.2.25__sg-compute/` — MOVE: 8 files (M-006b). Keeps `sg_compute/` code-only.
+- `CLAUDE.md` — FIX: reality-doc pointer now points at `reality/index.md` (not non-existent `v{version}__what-exists-today.md`); canonical version file declared as root `version`; `library/briefing/` references updated to `library/onboarding/`.
+- `team/roles/librarian/ids/` — NEW: stable ID registry per ontology proposal §3.3 (`M-NNN` migrations, `INC-NNN` incidents, `B-NNN` backlog). All M-001..M-007 tasks tracked.
+
+Master debrief: this commit batch (six commits: `0556dcc`, `2722cbb`, `277428a`, `7f48cde`, `754aad6`, `1724d95`, `6817f27`, `b62ba53`, `99b5447`, …) plus this changelog entry. Implementation pass for the v0.2.25 ontology rollout. Author: Librarian/Claude. Verified against commits `ce981e5..ab0c380`.
+
+---
+
 ## 2026-05-16 (sg aws billing — AWS Cost Explorer CLI sub-package)
 
 - `sg-compute/index.md` — UPDATED: `sgraph_ai_service_playwright__cli/aws/billing/` sub-package added (EXISTS). 4 primitives (`Safe_Decimal__Currency__USD`, `Safe_Str__Aws_Service_Code`, `Safe_Str__Iso8601_Date`, `Safe_Str__Aws_Usage_Type`), 4 enums, 4 schemas, 3 collections, 3 service classes (`Cost_Explorer__AWS__Client`, `Billing__Window__Resolver`, `Billing__Report__Builder`), 6 CLI commands (`last-48h`, `week`, `mtd`, `window`, `summary`, `chart`). `Cli__Aws.py` registers `billing_app`. IAM requirements documented. Branch `claude/plan-billing-view-u0NFG`.

@@ -15,7 +15,7 @@ Until 2026-04-17 the authoritative specs lived only in an sgit vault; this direc
 | [`docs/_to_process/`](docs/_to_process/) | Inbox for unsorted material — Librarian classifies and moves out |
 | [`guides/`](guides/)                 | Framework guides (Type_Safe, Safe primitives, testing, FastAPI routes, etc.) |
 | [`roadmap/phases/`](roadmap/phases/) | Phased delivery plan (Phase 0 → Phase 4) |
-| [`briefing/`](briefing/)             | Orientation documents — what the project is, reading order, first-session prompt |
+| [`onboarding/`](onboarding/)             | Orientation documents — what the project is, reading order, first-session prompt |
 | [`reference/`](reference/)           | Architecture brief + decisions log (historical context) |
 | [`dev_packs/`](dev_packs/)           | Briefing packs for downstream agent sessions (placeholder) |
 | [`skills/`](skills/)                 | Reusable skill packs (placeholder) |
@@ -24,10 +24,10 @@ Until 2026-04-17 the authoritative specs lived only in an sgit vault; this direc
 
 ## Reading Order for a New Agent
 
-1. [`briefing/v0.20.55__07_first-session-brief.md`](briefing/v0.20.55__07_first-session-brief.md) — start here
-2. [`briefing/v0.20.55__01_project-context.md`](briefing/v0.20.55__01_project-context.md) — what the service is, 5 deployment targets
-3. [`briefing/v0.20.55__02_mission-brief.md`](briefing/v0.20.55__02_mission-brief.md) — phased deliverables + rules
-4. [`briefing/v0.20.55__04_practices-reference.md`](briefing/v0.20.55__04_practices-reference.md) — Type_Safe quick rules
+1. [`onboarding/v0.20.55__07_first-session-brief.md`](onboarding/v0.20.55__07_first-session-brief.md) — start here
+2. [`onboarding/v0.20.55__01_project-context.md`](onboarding/v0.20.55__01_project-context.md) — what the service is, 5 deployment targets
+3. [`onboarding/v0.20.55__02_mission-brief.md`](onboarding/v0.20.55__02_mission-brief.md) — phased deliverables + rules
+4. [`onboarding/v0.20.55__04_practices-reference.md`](onboarding/v0.20.55__04_practices-reference.md) — Type_Safe quick rules
 5. [`guides/v3.63.4__type_safe.md`](guides/v3.63.4__type_safe.md) — **MUST READ** before writing any class
 6. [`docs/specs/v0.20.55__schema-catalogue-v2.md`](docs/specs/v0.20.55__schema-catalogue-v2.md) — definitive schema spec
 7. [`docs/specs/v0.20.55__routes-catalogue-v2.md`](docs/specs/v0.20.55__routes-catalogue-v2.md) — definitive routes + service classes

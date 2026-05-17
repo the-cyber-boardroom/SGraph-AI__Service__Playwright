@@ -74,46 +74,46 @@ Work these when no urgent brief processing is needed. Pick **one per session**. 
 ### B-001 · Migrate domain — `playwright-service/`
 
 **Status:** QUEUED
-**What:** Convert `reality/v0.1.31/01__playwright-service.md` into `reality/playwright-service/index.md` + `reality/playwright-service/proposed/index.md`. Cross-check current code (`sgraph_ai_service_playwright/fast_api/`, `sgraph_ai_service_playwright/service/`) before copying — the v0.1.31 slice was last refreshed 2026-04-20 and the codebase has moved (firefox config endpoints, three-mode stack creation payload, etc. have landed since).
+**What:** Convert `reality/_archive/v0.1.31/01__playwright-service.md` into `reality/playwright-service/index.md` + `reality/playwright-service/proposed/index.md`. Cross-check current code (`sgraph_ai_service_playwright/fast_api/`, `sgraph_ai_service_playwright/service/`) before copying — the v0.1.31 slice was last refreshed 2026-04-20 and the codebase has moved (firefox config endpoints, three-mode stack creation payload, etc. have landed since).
 **Why:** Largest domain. The Architect, Dev and QA roles all read this first.
-**Acceptance:** Domain index lists every live endpoint, every Type_Safe service class, every step action; proposed file lists deferred work pulled from `v0.1.31/05__proposed.md` filtered to this domain.
+**Acceptance:** Domain index lists every live endpoint, every Type_Safe service class, every step action; proposed file lists deferred work pulled from `_archive/v0.1.31/05__proposed.md` filtered to this domain.
 
 ### B-002 · Migrate domain — `cli/`
 
 **Status:** QUEUED
-**What:** Consolidate `v0.1.31/06__sp-cli-duality-refactor.md`, `07__sp-cli-ec2-fastapi.md`, `09__sp-cli-observability-routes.md`, and the catalog-routes portion of `13__*.md` into `reality/cli/index.md`. Add the recent vault-routes work (`Routes__Vault__Plugin`) and the firefox-config routes if they live on the CLI app.
+**What:** Consolidate `_archive/v0.1.31/06__sp-cli-duality-refactor.md`, `07__sp-cli-ec2-fastapi.md`, `09__sp-cli-observability-routes.md`, and the catalog-routes portion of `13__*.md` into `reality/cli/index.md`. Add the recent vault-routes work (`Routes__Vault__Plugin`) and the firefox-config routes if they live on the CLI app.
 **Why:** Second-largest domain. Multiple slices currently fragmented.
 **Acceptance:** Single index covering every route on `Fast_API__SP__CLI` plus the Typer command surface. Cross-link to `host-control/` for the host package interactions.
 
 ### B-003 · Migrate domain — `ui/`
 
 **Status:** QUEUED
-**What:** Consolidate `v0.1.31/13__sp-cli-linux-docker-elastic-catalog-ui.md`, `14__sp-cli-ui-sg-layout-vnc-wiring.md`, `15__sp-cli-ui-dev-agent-dashboard.md` into `reality/ui/index.md`. Bring in the post-fractal-UI changes already on dev (firefox card+detail, podman card+detail, stop-button polish, vault gate removal). Cross-link to the UI Architect orientation review.
+**What:** Consolidate `_archive/v0.1.31/13__sp-cli-linux-docker-elastic-catalog-ui.md`, `14__sp-cli-ui-sg-layout-vnc-wiring.md`, `15__sp-cli-ui-dev-agent-dashboard.md` into `reality/ui/index.md`. Bring in the post-fractal-UI changes already on dev (firefox card+detail, podman card+detail, stop-button polish, vault gate removal). Cross-link to the UI Architect orientation review.
 **Why:** UI work is the most active surface. Agents currently read three separate slices.
 **Acceptance:** Single index listing every `sp-cli-*` web component with file:line refs and every plugin folder. Reserved-but-unimplemented events documented under `proposed/`.
 
 ### B-004 · Migrate domain — `lets/`
 
 **Status:** QUEUED
-**What:** Consolidate `v0.1.31/10__lets-cf-inventory.md`, `11__lets-cf-events.md`, `12__lets-cf-consolidate.md` into `reality/lets/index.md`. The LETS surface is self-contained and a clean migration candidate.
+**What:** Consolidate `_archive/v0.1.31/10__lets-cf-inventory.md`, `11__lets-cf-events.md`, `12__lets-cf-consolidate.md` into `reality/lets/index.md`. The LETS surface is self-contained and a clean migration candidate.
 **Why:** Smallest of the multi-slice domains; good warm-up.
 
 ### B-005 · Migrate domain — `agent-mitmproxy/`
 
 **Status:** QUEUED
-**What:** Convert `v0.1.31/02__agent-mitmproxy-sibling.md` into `reality/agent-mitmproxy/index.md`. Cross-check the addons (`addons/Default_Interceptor.py`, `Audit_Log.py`, `prometheus_metrics_addon.py`) and the admin endpoints.
+**What:** Convert `_archive/v0.1.31/02__agent-mitmproxy-sibling.md` into `reality/agent-mitmproxy/index.md`. Cross-check the addons (`addons/Default_Interceptor.py`, `Audit_Log.py`, `prometheus_metrics_addon.py`) and the admin endpoints.
 **Why:** Sibling package; clean boundary.
 
 ### B-006 · Migrate domain — `infra/`
 
 **Status:** QUEUED
-**What:** Consolidate `v0.1.31/03__docker-and-ci.md` and `08__sp-cli-lambda-deploy.md` into `reality/infra/index.md`. Add the EC2 provisioning content from the firefox brief and the new `docker/host-control/` Dockerfile.
+**What:** Consolidate `_archive/v0.1.31/03__docker-and-ci.md` and `08__sp-cli-lambda-deploy.md` into `reality/infra/index.md`. Add the EC2 provisioning content from the firefox brief and the new `docker/host-control/` Dockerfile.
 **Why:** DevOps reads this first.
 
 ### B-007 · Migrate domain — `qa/`
 
 **Status:** QUEUED
-**What:** Convert `v0.1.31/04__tests.md` into `reality/qa/index.md`. Refresh test counts (commit `11c2a08` reports 1653 unit tests).
+**What:** Convert `_archive/v0.1.31/04__tests.md` into `reality/qa/index.md`. Refresh test counts (commit `11c2a08` reports 1653 unit tests).
 **Why:** QA reads this first; the count is stale.
 
 ### B-008 · Migrate domain — `vault/`
@@ -125,10 +125,10 @@ Work these when no urgent brief processing is needed. Pick **one per session**. 
 ### B-009 · Migrate domain — `security/`
 
 **Status:** QUEUED
-**What:** Extract security-critical content from `.claude/CLAUDE.md` (rules 10-15: JS allowlist, vault keys, AWS resource naming) and the allowlist sections of `v0.1.31/01__playwright-service.md` into `reality/security/index.md`.
+**What:** Extract security-critical content from `.claude/CLAUDE.md` (rules 10-15: JS allowlist, vault keys, AWS resource naming) and the allowlist sections of `_archive/v0.1.31/01__playwright-service.md` into `reality/security/index.md`.
 **Why:** Cross-cutting security properties have no single home today; AppSec reviews need it.
 
-### B-010 · Distribute `v0.1.31/05__proposed.md` across domain `proposed/index.md` files
+### B-010 · Distribute `_archive/v0.1.31/05__proposed.md` across domain `proposed/index.md` files
 
 **Status:** QUEUED
 **What:** Walk the existing cross-cutting proposed list and place each item under its owning domain's `proposed/index.md`. Items that span multiple domains are duplicated (or referenced) per domain.
