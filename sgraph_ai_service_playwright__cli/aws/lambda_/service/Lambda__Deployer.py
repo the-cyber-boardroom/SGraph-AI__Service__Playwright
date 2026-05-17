@@ -8,6 +8,7 @@
 
 import io
 import os
+import time
 import zipfile
 
 import boto3                                                                          # EXCEPTION — see module header
@@ -29,6 +30,18 @@ class Lambda__Deployer(Type_Safe):
             kwargs['region_name'] = self.region
         return boto3.client('lambda', **kwargs)
 
+    def _wait_for_update(self, lc, name: str, timeout_sec: int = 60) -> None:       # polls until LastUpdateStatus != InProgress
+        deadline = time.time() + timeout_sec
+        delay    = 1
+        while time.time() < deadline:
+            cfg    = lc.get_function(FunctionName=name)['Configuration']
+            status = cfg.get('LastUpdateStatus', 'Successful')
+            if status != 'InProgress':
+                return
+            time.sleep(delay)
+            delay = min(delay * 2, 8)
+        raise TimeoutError(f'Lambda {name} did not finish updating within {timeout_sec}s')
+
     def deploy_from_folder(self, req: Schema__Lambda__Deploy__Request) -> Schema__Lambda__Deploy__Response:
         name  = str(req.name)
         code  = self._zip_folder(req.folder_path)
@@ -40,7 +53,9 @@ class Lambda__Deployer(Type_Safe):
             existing = False
         try:
             if existing:
+                self._wait_for_update(lc, name)                                     # wait for any in-progress update before code upload
                 lc.update_function_code(FunctionName=name, ZipFile=code)
+                self._wait_for_update(lc, name)                                     # wait for code upload before config update
                 lc.update_function_configuration(
                     FunctionName = name,
                     Handler      = req.handler,
