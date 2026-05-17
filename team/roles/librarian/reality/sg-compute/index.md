@@ -1,7 +1,7 @@
 # Reality — SG/Compute Domain
 
-**Status:** ACTIVE — seeded in phase-1 (B1), foundations added in phase-2 (B2), pod management in BV2.3, CLI builder in v0.2.6, billing CLI in v0.2.22.
-**Last updated:** 2026-05-16 | **Phase:** v0.2.22 (sg aws billing — AWS Cost Explorer CLI sub-package)
+**Status:** ACTIVE — seeded in phase-1 (B1), foundations added in phase-2 (B2), pod management in BV2.3, CLI builder in v0.2.6, billing CLI in v0.2.22, vault-publish spec in v0.2.23.
+**Last updated:** 2026-05-17 | **Phase:** v0.2.23 (vault-publish spec — subdomain routing cold path)
 
 ---
 
@@ -374,6 +374,133 @@ All dashboard web components live under `sgraph_ai_service_playwright__api_site/
 
 ---
 
+### sg_compute_specs/vault_publish/ — EXISTS (v0.2.23)
+
+Subdomain-routing cold path for vault-app stacks. Slug registry + Waker Lambda + CloudFront + bootstrap CLI.
+
+#### Spec entry point
+
+| File | Description |
+|------|-------------|
+| `manifest.py` | `spec_id='vault_publish'`, stability=EXPERIMENTAL, capabilities=[VAULT_WRITES, CONTAINER_RUNTIME, SUBDOMAIN_ROUTING] |
+| `version` | Current version string |
+
+#### Primitives and enums (schemas/)
+
+| Class | Path | Pattern |
+|-------|------|---------|
+| `Safe_Str__Slug` | `schemas/Safe_Str__Slug.py` | `^[a-z0-9][a-z0-9\-]{1,61}[a-z0-9]$` |
+| `Safe_Str__Vault__Key` | `schemas/Safe_Str__Vault__Key.py` | permissive identifier |
+| `Enum__Slug__Error_Code` | `schemas/Enum__Slug__Error_Code.py` | `INVALID_FORMAT / RESERVED / TOO_SHORT / TOO_LONG` |
+| `Enum__Vault_Publish__State` | `schemas/Enum__Vault_Publish__State.py` | `UNKNOWN / RUNNING / STOPPED / PENDING / STOPPING` |
+
+#### Schemas (schemas/)
+
+| Class | Key fields |
+|-------|------------|
+| `Schema__Vault_Publish__Entry` | `slug / vault_key / stack_name / fqdn / region / created_at` |
+| `Schema__Vault_Publish__Register__Request` | `slug / vault_key / region` |
+| `Schema__Vault_Publish__Register__Response` | `slug / fqdn / stack_name / message / elapsed_ms` |
+| `Schema__Vault_Publish__Status__Response` | `slug / state / fqdn / vault_url / public_ip / stack_name / elapsed_ms` |
+| `Schema__Vault_Publish__Unpublish__Response` | `slug / deleted / stack_name / message / elapsed_ms` |
+| `Schema__Vault_Publish__List__Response` | `entries / total / elapsed_ms` |
+| `Schema__Vault_Publish__Bootstrap__Request` | `cert_arn / zone / role_arn` — defaults: wildcard ACM ARN + `aws.sg-labs.app` |
+| `Schema__Vault_Publish__Bootstrap__Response` | `distribution_id / domain_name / lambda_name / waker_url / zone / created / message / elapsed_ms` |
+
+#### Collections (schemas/)
+
+| Class | Type |
+|-------|------|
+| `List__Slug` | `Type_Safe__List`, `expected_type = Safe_Str__Slug` |
+| `List__Schema__Vault_Publish__Entry` | `Type_Safe__List`, `expected_type = Schema__Vault_Publish__Entry` |
+
+#### Service layer (service/)
+
+| Class | Description |
+|-------|-------------|
+| `Slug__Registry` | SSM-backed registry at `/sg-compute/vault-publish/slugs/{slug}`. CRUD: `get/put/delete/list_all`. Factory seam `_ssm_factory`. |
+| `Slug__Validator` | `validate(slug)` — returns `Enum__Slug__Error_Code` or `None`. Checks format + length + reserved list. |
+| `Slug__Routing__Lookup` | DNS/SSM lookup by slug — PROPOSED path for Waker routing; not yet wired. |
+| `Reserved__Slugs` | `service/reserved/Reserved__Slugs.py` — hardcoded reserved set (www, api, admin, …). |
+| `Vault_Publish__Service` | Orchestrator: `register / unpublish / status / list_slugs / bootstrap`. Five factory seams: `_registry_factory / _vault_app_factory / _cf_client_factory / _deployer_factory / _lambda_client_factory`. |
+
+#### Waker Lambda (waker/)
+
+| Class | Description |
+|-------|-------------|
+| `Slug__From_Host` | `extract(host) -> Optional[Safe_Str__Slug]`. Parses `<slug>.{SG_AWS__DNS__DEFAULT_ZONE}`. Rejects nested subdomains. |
+| `Endpoint__Resolver` | Abstract base — `resolve(slug) / start(instance_id)` |
+| `Endpoint__Resolver__EC2` | boto3 `describe_instances` with `tag:StackName` + `tag:StackType=vault-app`. Factory seam `_registry_factory`. |
+| `Warming__Page` | `render(slug) -> str` (HTML with auto-refresh meta). `headers() -> dict` (no-cache). `refresh_seconds=10`. |
+| `Endpoint__Proxy` | urllib3-based proxy. 5 MB response cap. Returns `{status_code, headers, body}`. |
+| `Waker__Handler` | State machine: STOPPED→start+202, PENDING/STOPPING→202, RUNNING+healthy→proxy, UNKNOWN→404. Seams: `_resolver_factory / _proxy_factory`. |
+| `Fast_API__Waker` | FastAPI app: catch-all `/{path:path}` + `GET /health`. |
+| `lambda_entry.py` | LWA entrypoint: `_app = Fast_API__Waker().setup().app()`. Boots uvicorn on port 8080. |
+
+Waker schemas:
+- `waker/schemas/Enum__Instance__State.py` — `RUNNING / STOPPED / PENDING / STOPPING / UNKNOWN`
+- `waker/schemas/Schema__Endpoint__Resolution.py` — `slug / instance_id / public_ip / vault_url / state / region`
+- `waker/schemas/Schema__Waker__Request_Context.py` — `host / slug / path / method / body`
+
+#### CLI (cli/)
+
+| Command | Description |
+|---------|-------------|
+| `sg vp register <slug> --vault-key <key>` | Create vault-app stack + register slug in SSM |
+| `sg vp unpublish <slug>` | Delete stack + remove slug from SSM |
+| `sg vp status <slug>` | Show EC2 state + FQDN |
+| `sg vp list` | List all registered slugs (vault keys redacted) |
+| `sg vp bootstrap [--cert-arn ARN] [--zone ZONE] [--role-arn ARN]` | Deploy Waker Lambda + create Lambda Function URL + create CF distribution |
+
+Mutation guard: `SG_AWS__CF__ALLOW_MUTATIONS=1` required for bootstrap CF creation.
+
+#### Tests (tests/)
+
+| File | Count | Covers |
+|------|-------|--------|
+| `test_Safe_Str__Slug.py` | 12 | Slug primitive validation |
+| `test_Slug__Registry.py` | 18 | SSM-backed registry in-memory |
+| `test_Slug__Validator.py` | 17 | Validator + reserved slugs |
+| `test_Vault_Publish__Service.py` | 47 | register/unpublish/status/list_slugs end-to-end |
+| `tests/waker/test_Slug__From_Host.py` | 10 | Host parsing |
+| `tests/waker/test_Warming__Page.py` | 9 | HTML render + headers |
+| `tests/waker/test_Waker__Handler.py` | 12 | State machine paths (all 5 states) |
+| `test_Vault_Publish__Service__bootstrap.py` | 24 | Bootstrap end-to-end in-memory |
+
+Total: **149 tests, 0 mocks, 0 patches.**
+
+#### sgraph_ai_service_playwright__cli/aws/cf/ — EXISTS (v0.2.23)
+
+CloudFront CRUD primitive. Sole boto3 boundary for CF. Guarded by `SG_AWS__CF__ALLOW_MUTATIONS=1`.
+
+| Layer | Classes |
+|-------|---------|
+| Enums | `Enum__CF__Distribution__Status` (Deployed/InProgress), `Enum__CF__Price__Class`, `Enum__CF__Origin__Protocol` |
+| Primitives | `Safe_Str__CF__Distribution_Id`, `Safe_Str__CF__Domain_Name`, `Safe_Str__Cert__Arn`, `Safe_Str__CF__Origin_Id` |
+| Collections | `List__CF__Alias`, `List__Schema__CF__Distribution`, `List__Schema__CF__Origin` |
+| Schemas | `Schema__CF__Distribution`, `Schema__CF__Create__Request`, `Schema__CF__Create__Response`, `Schema__CF__Action__Response`, `Schema__CF__Origin` |
+| Service | `CloudFront__Distribution__Builder` (builds DistributionConfig dict), `CloudFront__Origin__Failover__Builder`, `CloudFront__AWS__Client` (list/get/create/disable/delete/wait_deployed) |
+| CLI | `Cli__Cf.py` — `sg aws cf distributions list/show/create/disable/delete/wait` |
+
+Test helper: `tests/unit/.../CloudFront__AWS__Client__In_Memory.py` — dict-backed fake, monotonic counter for IDs, `set_deployed()` shortcut. 36 tests.
+
+#### sgraph_ai_service_playwright__cli/aws/lambda_/ — EXISTS (v0.2.23)
+
+Lambda deploy + URL CRUD primitive.
+
+| Layer | Classes |
+|-------|---------|
+| Enums | `Enum__Lambda__Url__Auth_Type` (NONE/AWS_IAM), `Enum__Lambda__Runtime` (Python 3.11/3.12/3.13), `Enum__Lambda__State` (ACTIVE/INACTIVE/PENDING/FAILED) |
+| Primitives | `Safe_Str__Lambda__Name`, `Safe_Str__Lambda__Arn`, `Safe_Str__Lambda__Url` |
+| Collections | `List__Schema__Lambda__Function` |
+| Schemas | `Schema__Lambda__Function`, `Schema__Lambda__Deploy__Request`, `Schema__Lambda__Deploy__Response`, `Schema__Lambda__Url__Info`, `Schema__Lambda__Action__Response` |
+| Service | `Lambda__AWS__Client` (list/get/exists/get_function_url/create_function_url/delete_function_url/delete_function), `Lambda__Deployer` (zip-and-deploy from folder, create or update) |
+| CLI | `Cli__Lambda.py` — `sg aws lambda deploy/list/delete` + `url create/show/delete` |
+
+Test helpers: `tests/unit/.../Lambda__AWS__Client__In_Memory.py` + `Lambda__Deployer__In_Memory`. 16 tests.
+
+---
+
 ## PROPOSED — does not exist yet
 
 - `Section__Sidecar` user-data composable (BV2.2)
@@ -389,6 +516,7 @@ All dashboard web components live under `sgraph_ai_service_playwright__api_site/
 
 | Date | Change |
 |------|--------|
+| 2026-05-17 | v0.2.23: vault-publish spec — full cold path: slug registry (SSM), `Vault_Publish__Service` (register/unpublish/status/list/bootstrap), `sg_compute_specs/vault_publish/waker/` (Waker Lambda with FastAPI + LWA), `sgraph_ai_service_playwright__cli/aws/cf/` (CloudFront CRUD), `sgraph_ai_service_playwright__cli/aws/lambda_/` (Lambda deploy + URL CRUD). 5 commits (a5de0b1 P1a → 432ba5d P2d). 149 waker+vault-publish tests + 52 CF/Lambda tests — all passing. |
 | 2026-05-16 | v0.2.22: `sg aws billing` CLI sub-package — 6 commands, 4 primitives, 4 enums, 4 schemas, 3 collections, 3 service classes, `Cli__Billing.py`. `Cli__Aws.py` updated to register `billing_app`. 6 commits on `claude/plan-billing-view-u0NFG`. |
 | 2026-05-05 | T3.3b: `components/sp-cli/` → `components/sg-compute/` directory rename; 28 api_site/ string refs + 45 sg_compute_specs/*/ui/detail/ absolute imports updated; snapshot test COMPONENT_DIR paths corrected; 32/33 CI green |
 | 2026-05-05 | T2.1b: `sg-compute-ami-picker.setSpecId()` wired to `GET /api/amis` via `apiClient`; `_populateAmis()` / `_showLoading()` / `_showError()` / `_hidePlaceholder()` added; 17-assertion snapshot test; T2.1 debrief flipped PARTIAL → COMPLETE; frontend component table added to reality doc |
