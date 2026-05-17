@@ -2,10 +2,12 @@
 title: "04 — Agent A — DNS experiments (P0+P1)"
 file: 04__agent-A__dns-experiments.md
 author: Architect (Claude)
-date: 2026-05-17
+date: 2026-05-17 (rev 2)
 parent: README.md
 size: S (small) — ~900 prod lines, ~500 test lines, ~2 days
 depends_on: Foundation PR (02__common-foundation.md)
+mandatory_reading:
+  - team/humans/dinis_cruz/claude-code-web/05/17/00/v0.2.23__plan__vault-publish-spec/03__delta-from-lab-brief.md  # §B.1 — §B.7 — non-negotiable lab-brief corrections
 delivers: lab P0 + lab P1 from lab-brief/07
 ---
 
@@ -19,26 +21,48 @@ The smallest slice. The most valuable slice. Lands answers to Q1 + Q2 (the v2 br
 
 **Folder:** `sgraph_ai_service_playwright__cli/aws/lab/service/experiments/dns/`
 
-**Files to create** (per `lab-brief/05 §1`):
+**Files to create** (per `lab-brief/05 §1` — but **filenames are CORRECTED per delta `B.3`**: no `E01__` numeric prefix; each file is named after its class):
 
 | File | Tier | Experiment |
 |------|------|------------|
-| `E01__zone_inventory.py` | 0 (read-only) | Show NS set, record counts, existing wildcards |
-| `E02__resolver_latency.py` | 0 | 8-public-resolver dig latency baseline |
-| `E03__authoritative_ns_latency.py` | 0 | Per-NS SOA latency |
-| `E04__wildcard_pre_check.py` | 0 | What resolvers return for a not-yet-created name |
-| `E10__insync_distribution.py` | 1 (mutating-low) | Q2 — `ChangeInfo` PENDING→INSYNC distribution |
-| `E11__propagation_timeline.py` | 1 | Q2+Q1 — per-resolver first-correct time after INSYNC |
-| `E12__wildcard_vs_specific.py` | 1 | Q1 — specific-record-beats-wildcard |
-| `E13__ttl_respect.py` | 1 | Do public resolvers respect declared TTL? |
-| `E14__delete_propagation.py` | 1 | How long after `delete_record` do resolvers return NXDOMAIN? |
+| `Lab__Experiment__Zone_Inventory.py` | 0 (read-only) | Show NS set, record counts, existing wildcards |
+| `Lab__Experiment__Resolver_Latency.py` | 0 | 8-public-resolver dig latency baseline |
+| `Lab__Experiment__Authoritative_NS_Latency.py` | 0 | Per-NS SOA latency |
+| `Lab__Experiment__Wildcard_Pre_Check.py` | 0 | What resolvers return for a not-yet-created name |
+| `Lab__Experiment__InSync_Distribution.py` | 1 (mutating-low) | Q2 — `ChangeInfo` PENDING→INSYNC distribution |
+| `Lab__Experiment__Propagation_Timeline.py` | 1 | Q2+Q1 — per-resolver first-correct time after INSYNC |
+| `Lab__Experiment__Wildcard_Vs_Specific.py` | 1 | Q1 — specific-record-beats-wildcard |
+| `Lab__Experiment__TTL_Respect.py` | 1 | Do public resolvers respect declared TTL? |
+| `Lab__Experiment__Delete_Propagation.py` | 1 | How long after `delete_record` do resolvers return NXDOMAIN? |
+
+The numeric IDs (`E01`, `E02`, ...) are preserved in each experiment's `name` attribute and surfaced via `sg aws lab list`, but they do NOT appear in filenames. (Source ordering inside the directory is by class name — that's fine.)
 
 **Plus:**
 - `service/teardown/Lab__Teardown__R53.py` — full implementation (delete record-set with idempotency)
-- `schemas/Schema__Lab__Result__DNS__*.py` — one file per result shape (~6 files)
+- `schemas/Schema__Lab__Result__DNS__*.py` — one file per result shape (~6 files). **Per delta `B.1` and `B.4`**: no `Set__Str` / `Dict__Str__Str` / `Dict__Str__Int` field types — use `Type_Safe__Dict__Safe_Str__Safe_Str` (etc.) collection subclasses with their own files under `collections/`.
 - `service/renderers/Render__Timeline__ASCII.py` — fill in the `render_event_list(...)` body (foundation ships the stub)
 - `service/Rate__Limiter__Token__Bucket.py` — Route 53 mutations rate-limit at 5/s/zone; ~30 lines
 - Registration lines in `service/experiments/registry.py` (9 entries)
+
+**Experiment-class shape — per delta `B.2`:**
+
+```python
+# Lab__Experiment__Zone_Inventory.py
+class Lab__Experiment__Zone_Inventory(Lab__Experiment):
+    name           : Safe_Str__Lab__Experiment_Name = 'zone-inventory'
+    tier           : Enum__Lab__Tier                = Enum__Lab__Tier.READ_ONLY
+    budget_seconds : int                            = 30
+    runner         : Lab__Runner                                          # injected at setup, NOT a parameter to execute()
+    zone           : Safe_Str__DNS__Zone
+
+    def setup(self, runner: Lab__Runner, zone: str) -> 'Self':
+        self.runner = runner
+        self.zone   = zone
+        return self
+
+    def execute(self) -> Schema__Lab__Run__Result:                        # no runner parameter
+        ...
+```
 
 ---
 
@@ -71,21 +95,23 @@ Run from a fresh checkout of the integration branch with the Foundation PR merge
 
 ```bash
 # read-only — no env vars
-sg aws lab list                                       # 9 DNS experiments visible
-sg aws lab run E01 --zone sg-compute.sgraph.ai        # zone inventory table
-sg aws lab run E02 google.com                         # resolver-latency table
-sg aws lab run E03 sg-compute.sgraph.ai               # authoritative NS latency
-sg aws lab run E04 not-yet-created.sg-compute.sgraph.ai
+sg aws lab list                                                                # 9 DNS experiments visible
+sg aws lab run zone-inventory          --zone sg-compute.sgraph.ai             # by experiment name
+sg aws lab run resolver-latency        google.com
+sg aws lab run authoritative-ns-latency sg-compute.sgraph.ai
+sg aws lab run wildcard-pre-check      not-yet-created.sg-compute.sgraph.ai
 
 # mutating
-SG_AWS__LAB__ALLOW_MUTATIONS=1 sg aws lab run E10 --repeat 5         # INSYNC distribution
-SG_AWS__LAB__ALLOW_MUTATIONS=1 sg aws lab run E11 --ttl 60           # propagation timeline
-SG_AWS__LAB__ALLOW_MUTATIONS=1 sg aws lab run E12                    # wildcard-vs-specific
-SG_AWS__LAB__ALLOW_MUTATIONS=1 sg aws lab run E14                    # delete propagation
+SG_AWS__LAB__ALLOW_MUTATIONS=1 sg aws lab run insync-distribution --repeat 5
+SG_AWS__LAB__ALLOW_MUTATIONS=1 sg aws lab run propagation-timeline --ttl 60
+SG_AWS__LAB__ALLOW_MUTATIONS=1 sg aws lab run wildcard-vs-specific
+SG_AWS__LAB__ALLOW_MUTATIONS=1 sg aws lab run delete-propagation
 
 # verify clean
 sg aws lab sweep                                      # → "no leaked resources"
 ```
+
+(The CLI accepts either the experiment `name` — `zone-inventory` — or the numeric ID — `E01` — both resolve via the registry. The `name` form is the public surface.)
 
 **Plus** unit tests under `tests/unit/sgraph_ai_service_playwright__cli/aws/lab/experiments/dns/` pass:
 

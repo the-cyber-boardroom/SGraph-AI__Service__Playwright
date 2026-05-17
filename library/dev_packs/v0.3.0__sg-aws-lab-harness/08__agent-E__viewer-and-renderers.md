@@ -2,10 +2,12 @@
 title: "08 — Agent E — Viewer + diff + HTML renderers (P5)"
 file: 08__agent-E__viewer-and-renderers.md
 author: Architect (Claude)
-date: 2026-05-17
+date: 2026-05-17 (rev 2)
 parent: README.md
 size: S (small) — ~700 prod lines, ~300 test lines, ~1 day
 depends_on: Foundation PR (no dependency on A/B/C/D)
+mandatory_reading:
+  - team/humans/dinis_cruz/claude-code-web/05/17/00/v0.2.23__plan__vault-publish-spec/03__delta-from-lab-brief.md  # §B.1 — §B.7
 delivers: lab P5 from lab-brief/07 — fully independent slice
 ---
 
@@ -150,6 +152,6 @@ pytest tests/unit/sgraph_ai_service_playwright__cli/aws/lab/ -k "viewer or diff 
 
 ## Commit + PR
 
-Branch: `claude/aws-primitives-support-NVyEh-viewer`. Commit prefix: `feat(v0.2.28): lab agent-E — viewer + diff + HTML renderers`.
+Branch: `claude/aws-primitives-support-NVyEh-viewer`. Commit prefix: `feat(v0.3.0): lab agent-E — viewer + diff + HTML renderers`.
 
 Open PR against `claude/aws-primitives-support-NVyEh`.

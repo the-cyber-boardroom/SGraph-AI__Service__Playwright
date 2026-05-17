@@ -77,4 +77,4 @@ Tests: `tests/unit/sgraph_ai_service_playwright__cli/aws/acm/`.
 
 ## Not yet implemented
 
-The current surface is read-only — Phase 0 only. Cert **request / issue / validate / delete** verbs are PROPOSED for v0.2.28 (see [`library/dev_packs/v0.2.28__sg-aws-lab-harness/`](../../../dev_packs/v0.2.28__sg-aws-lab-harness/README.md)). Today, mint certs via the AWS console or the `aws` CLI.
+The current surface is read-only. Cert **request / issue / validate / delete** verbs are PROPOSED — covered by v2 vault-publish phase 2a (`sg aws cf` / ACM additions); see the lab harness pack at [`library/dev_packs/v0.3.0__sg-aws-lab-harness/`](../../../dev_packs/v0.3.0__sg-aws-lab-harness/README.md) for the consumer. Today, mint certs via the AWS console or the `aws` CLI.
