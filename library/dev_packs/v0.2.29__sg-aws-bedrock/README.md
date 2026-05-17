@@ -71,24 +71,22 @@ sg aws bedrock
 
 **Mutation gate:** `SG_AWS__BEDROCK__ALLOW_MUTATIONS=1` required for `agent {create,stop,memory clear,tools add}` and `tool * session {start,stop,navigate,click,run}`. `chat` is read-only (no gate); `agent invoke` is read-only on the agent definition but mutates session state — treat as mutating to be safe.
 
-### Vault-grounding (per brief §"The Vault Grounding")
+### Local-file grounding (vault deferred per locked decision #15)
 
-Every call writes to a vault location by default (unless `--no-vault`):
+Every call writes to a local file by default (unless `--no-capture`). Vault integration is explicitly out of scope for v0.2.29 (umbrella locked decision #15) — a future v0.3.x pack re-targets the writer to point at the canonical vault writer without changing the CLI contract.
 
-| Output type | Vault layout |
+| Output type | Local layout |
 |-------------|--------------|
-| `chat` interactions | `<vault>/bedrock/chat/<ISO-day>/<run-id>.json` — prompt + response + tokens + cost + model + region |
-| `agent` definitions | `<vault>/bedrock/agents/<agent-name>/definition.json` (versioned) |
-| `agent invoke` sessions | `<vault>/bedrock/agents/<agent-name>/sessions/<session-id>/...` — full trace |
-| `agent` memory snapshots | `<vault>/bedrock/agents/<agent-name>/memory/<scope>/<snapshot-id>.json` |
-| `tool browser` sessions | `<vault>/bedrock/tools/browser/<session-id>/...` — actions log + screenshots |
-| `tool code-interpreter` sessions | `<vault>/bedrock/tools/code-interpreter/<session-id>/...` — code + stdout + stderr |
+| `chat` interactions | `~/.sg/aws/bedrock/chat/<ISO-day>/<run-id>.json` — prompt + response + tokens + cost + model + region |
+| `agent` definitions | `~/.sg/aws/bedrock/agents/<agent-name>/definition.json` (versioned by mtime-keyed copies) |
+| `agent invoke` sessions | `~/.sg/aws/bedrock/agents/<agent-name>/sessions/<session-id>/...` — full trace |
+| `agent` memory snapshots | `~/.sg/aws/bedrock/agents/<agent-name>/memory/<scope>/<snapshot-id>.json` |
+| `tool browser` sessions | `~/.sg/aws/bedrock/tools/browser/<session-id>/...` — actions log + screenshots |
+| `tool code-interpreter` sessions | `~/.sg/aws/bedrock/tools/code-interpreter/<session-id>/...` — code + stdout + stderr |
 
-A central `Bedrock__Vault__Writer` (one class, used by every verb) enforces the layout.
+A central `Bedrock__Capture__Writer` (one class, used by every verb) enforces the layout. Files are written with `0600` perms (same convention as the v0.2.28 credentials store).
 
-**Integration with the canonical vault writer:** `Bedrock__Vault__Writer` wraps `sg_compute/vault/Vault__Spec__Writer` (the BV2.9 canonical writer) and registers `bedrock` as a vault namespace. Treating Bedrock as a vault-writer client (not a peer of `vault_publish` / `vault_app` in `sg_compute_specs/`) is intentional — Bedrock isn't a "spec" in the SG/Compute spec sense, it's a managed AWS service we record outputs from. The writer interface stays `(namespace, stack_id, handle, bytes)` per BV2.9; `Bedrock__Vault__Writer` translates the layout above into those triples.
-
-If a future requirement turns "running bedrock agents on our infra" into a real spec (parallel to `vault_app`), it gets its own `sg_compute_specs/bedrock_agent/` and the writer integration changes shape — out of scope here.
+The class is intentionally writer-interface-shaped: when the v0.3.x vault re-introduction pack lands, swapping `Bedrock__Capture__Writer` for a `Bedrock__Vault__Writer` will be a constructor change at the call sites, not a verb-level rewrite.
 
 ### Model-ID resolution (per brief §"Critical detail")
 
@@ -136,7 +134,7 @@ aws/bedrock/
 │   ├── Bedrock__Agent__AWS__Client.py      # AgentCore SDK
 │   ├── Bedrock__Tool__AWS__Client.py       # AgentCore SDK
 │   ├── Bedrock__Model__Resolver.py
-│   ├── Bedrock__Vault__Writer.py
+│   ├── Bedrock__Capture__Writer.py         # local-file writer (vault deferred — locked decision #15)
 │   ├── Bedrock__Stream__Adapter.py         # SSE → NDJSON for --json mode
 │   └── Bedrock__Cost__Calculator.py        # tokens × per-region pricing
 ├── schemas/                                # Schema__Bedrock__Chat__Response, ...Agent__Definition, ...Tool__Session, ...Memory__Snapshot, etc.
@@ -167,9 +165,9 @@ sg aws bedrock chat claude --prompt "What is 2+2?" --model haiku-4.5  # → resp
 sg aws bedrock chat nova --prompt "Summarise this:" --input README.md  # → response
 sg aws bedrock chat any --provider anthropic --prompt "ping"
 
-# chat with vault grounding
-sg aws bedrock chat claude --prompt "hello"                            # → response; vault file appears
-ls <vault-root>/bedrock/chat/$(date +%Y-%m-%d)/                       # → at least one .json
+# chat with local-file capture (vault deferred — locked decision #15)
+sg aws bedrock chat claude --prompt "hello"                            # → response; capture file appears
+ls ~/.sg/aws/bedrock/chat/$(date +%Y-%m-%d)/                          # → at least one .json
 
 # chat --json + streaming
 sg aws bedrock chat claude --prompt "long answer" --stream --json | head -5  # → NDJSON chunks
@@ -177,10 +175,10 @@ sg aws bedrock chat claude --prompt "long answer" --stream --json | head -5  # �
 # agent (gated)
 SG_AWS__BEDROCK__ALLOW_MUTATIONS=1 sg aws bedrock agent create \
     --name researcher --model claude --tools "browser,code-interpreter" \
-    --memory both --vault-path /agents/researcher --yes
+    --memory both --capture-path ~/.sg/aws/bedrock/agents/researcher --yes
 sg aws bedrock agent list                                              # → researcher visible
 SG_AWS__BEDROCK__ALLOW_MUTATIONS=1 sg aws bedrock agent invoke researcher \
-    --prompt "Research X and report" --yes                             # → response; session captured to vault
+    --prompt "Research X and report" --yes                             # → response; session captured to ~/.sg/aws/bedrock/agents/researcher/sessions/<id>/
 sg aws bedrock agent memory list --agent researcher
 SG_AWS__BEDROCK__ALLOW_MUTATIONS=1 sg aws bedrock agent stop <session-id> --yes
 
@@ -228,9 +226,9 @@ SG_AWS__BEDROCK__INTEGRATION=1 pytest tests/integration/sgraph_ai_service_playwr
 
 ## Commit + PR
 
-Branch: `claude/aws-primitives-support-uNnZY-bedrock`
+Branch: `v0.2.28__bedrock__uNnZY` (off `claude/aws-primitives-support-uNnZY` after Foundation merges)
 
-Commit message: `feat(v0.2.29): sg aws bedrock — chat + agent + tool sub-trees with vault grounding`.
+Commit message: `feat(v0.2.29): sg aws bedrock — chat + agent + tool sub-trees with local-file capture`.
 
 PR target: `claude/aws-primitives-support-uNnZY`. Tag the Opus coordinator. Do **not** merge yourself.
 

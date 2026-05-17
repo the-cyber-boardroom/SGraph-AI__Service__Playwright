@@ -194,7 +194,7 @@ Acceptance criterion from the source brief (§Acceptance #5): "At least 30% of A
 
 ## Commit + PR
 
-Branch: `claude/aws-primitives-support-uNnZY-iam-graph`
+Branch: `v0.2.28__iam-graph__uNnZY` (off `claude/aws-primitives-support-uNnZY` after Foundation merges)
 
 Commit message: `feat(v0.2.29): sg aws iam graph — discovery + cleanup workflow (Phases 1+3)`.
 

@@ -202,7 +202,7 @@ SG_AWS__EC2__INTEGRATION=1 pytest tests/integration/sgraph_ai_service_playwright
 
 ## Commit + PR
 
-Branch: `claude/aws-primitives-support-uNnZY-ec2`
+Branch: `v0.2.28__ec2__uNnZY` (off `claude/aws-primitives-support-uNnZY` after Foundation merges)
 
 Commit message: `feat(v0.2.29): sg aws ec2 — primitives, name resolver, promotes provision_ec2.py`.
 

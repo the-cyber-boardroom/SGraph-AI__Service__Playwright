@@ -171,7 +171,7 @@ SG_AWS__FARGATE__INTEGRATION=1 pytest tests/integration/sgraph_ai_service_playwr
 
 ## Commit + PR
 
-Branch: `claude/aws-primitives-support-uNnZY-fargate`
+Branch: `v0.2.28__fargate__uNnZY` (off `claude/aws-primitives-support-uNnZY` after Foundation merges)
 
 Commit message: `feat(v0.2.29): sg aws fargate — cluster/task/task-def primitives + logs streaming`.
 

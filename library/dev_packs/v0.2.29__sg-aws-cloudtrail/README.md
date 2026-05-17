@@ -154,7 +154,7 @@ SG_AWS__CLOUDTRAIL__INTEGRATION=1 pytest tests/integration/sgraph_ai_service_pla
 
 ## Commit + PR
 
-Branch: `claude/aws-primitives-support-uNnZY-cloudtrail`
+Branch: `v0.2.28__cloudtrail__uNnZY` (off `claude/aws-primitives-support-uNnZY` after Foundation merges)
 
 Commit message: `feat(v0.2.29): sg aws cloudtrail — events + trails read-only primitives + Source__Contract adapter`.
 

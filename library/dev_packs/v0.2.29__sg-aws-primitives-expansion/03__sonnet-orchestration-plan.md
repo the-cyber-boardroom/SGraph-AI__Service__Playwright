@@ -45,7 +45,9 @@ This is the centrepiece of the umbrella. The per-area briefs (`v0.2.29__sg-aws-<
                           └─────────────────────────┘
 ```
 
-**Critical path is Foundation → max(A, B, C, D, E, F, G, H).** With parallel execution this is **~5 calendar days** for one Sonnet-on-eight-branches-with-an-Opus-coordinator workflow. Sequential, it would be ~22 days.
+**Critical path is Foundation → max(A, B, C, D, E, F, G, H).** With parallel execution this is **~5 calendar days** for an orchestrating Sonnet driving sub-agents across eight branches. Sequential, it would be ~22 days.
+
+> **Note (locked decision #17):** the orchestrator is **Sonnet, not Opus**. The user switches the Claude Code UI to Sonnet before triggering execution; that single Sonnet session is the orchestrator. Throughout this document the historical phrase "Opus coordinator" should be read as "the orchestrating Sonnet session".
 
 Slice H **prefers** A and F to be ~24 h from merging before it starts (it consumes their `S3__AWS__Client` and `CloudTrail__AWS__Client` implementations). It *can* run in parallel against the Foundation-shipped interface stubs and swap to the real clients during a final rebase.
 
@@ -149,10 +151,29 @@ When done:
   2. Update the user-guide page (library/docs/cli/sg-aws/<NN>__<surface>.md) — required deliverable
   3. Update the reality-doc entry — create team/roles/librarian/reality/cli/aws-<surface>.md and flip the matching row in team/roles/librarian/reality/cli/aws.md (umbrella) from PROPOSED to LANDED
   4. Commit with the message template in the brief
-  5. Push to claude/aws-primitives-support-uNnZY-<slice-suffix>
-  6. Open a PR against claude/aws-primitives-support-uNnZY
+  5. Push to v0.2.28__<surface>__uNnZY  (locked decision #16 — version-prefixed branch)
+  6. Open a Draft PR against claude/aws-primitives-support-uNnZY (the integration branch).
+     For Slices D and G also tag AppSec on the draft (locked decision #18 — AppSec reviews
+     the drafted code, not a pre-code aspirational brief).
   7. Hand off — do NOT merge yourself
 ```
+
+### Branch naming summary (locked decision #16)
+
+| Role | Branch |
+|------|--------|
+| Integration / session branch | `claude/aws-primitives-support-uNnZY` (the existing branch this work lives on; the integration target for every PR) |
+| Foundation | `v0.2.28__foundation__uNnZY` |
+| Slice A — S3 | `v0.2.28__s3__uNnZY` |
+| Slice B — EC2 | `v0.2.28__ec2__uNnZY` |
+| Slice C — Fargate | `v0.2.28__fargate__uNnZY` |
+| Slice D — IAM graph | `v0.2.28__iam-graph__uNnZY` |
+| Slice E — Bedrock | `v0.2.28__bedrock__uNnZY` |
+| Slice F — CloudTrail | `v0.2.28__cloudtrail__uNnZY` |
+| Slice G — Scoped creds | `v0.2.28__scoped-creds__uNnZY` |
+| Slice H — Observability | `v0.2.28__observability__uNnZY` |
+
+Each branch is cut off `claude/aws-primitives-support-uNnZY` after Foundation merges into it. The version prefix is the **current code version** at the time of this milestone (`v0.2.28`), not the target milestone (`v0.2.29`).
 
 ---
 

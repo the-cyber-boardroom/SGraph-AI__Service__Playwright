@@ -12,7 +12,7 @@ feature_branch: claude/aws-primitives-support-uNnZY-creds
 
 # `sg aws creds` — Slice G
 
-Local scoped-credential delivery via STS AssumeRole. Each command requests the privileges it needs, gets temporary credentials, performs the action, and the credentials expire. **Phase 1 + Phase 2 only** — local service with vault-stored scope catalogue. Phase 5 (deployed service) and Phase 6 (audit dashboard) defer to v0.2.30.
+Local scoped-credential delivery via STS AssumeRole. Each command requests the privileges it needs, gets temporary credentials, performs the action, and the credentials expire. **Phase 1 + Phase 2 only** — local service with **local-file** scope catalogue (vault deferred — umbrella locked decision #15). Phase 5 (deployed service) and Phase 6 (audit dashboard) defer to v0.2.30.
 
 > **PROPOSED — does not exist yet.** Cross-check `team/roles/librarian/reality/security/` and `cli/aws-creds.md` before describing anything here as built.
 
@@ -35,7 +35,7 @@ Naming: this new namespace is `sg aws creds` (short, action-oriented). It is **s
 This slice ships:
 
 - **Phase 1** — Local credential service with 5-10 scoped roles
-- **Phase 2** — Scope catalogue stored in a vault, version-controlled
+- **Phase 2** — Scope catalogue stored locally (`~/.sg/aws/creds-catalogue/`) under git for version control if the user chooses; vault grounding deferred to v0.3.x per umbrella locked decision #15
 
 Deferred to v0.2.30:
 
@@ -57,24 +57,26 @@ Deferred to v0.2.30:
 | `get --scope <name> [--role-hint <name>] [--ttl <duration>]` | read-only (STS-side) | Returns temporary credentials for the scope; default TTL 1h, cap 12h |
 | `list-scopes` | read-only | All scopes in the catalogue |
 | `scope show <name>` | read-only | The scope: name, mapped role ARN, policy summary, authorised callers |
-| `scope add --name X --role <arn> [--allowed-callers <user-list>] [--max-ttl <duration>]` | mutating | Adds a scope to the catalogue (vault commit) |
-| `scope remove <name>` | mutating | Removes a scope (vault commit) |
-| `scope update <name> --field value [--field value ...]` | mutating | Edits scope metadata (vault commit) |
+| `scope add --name X --role <arn> [--allowed-callers <user-list>] [--max-ttl <duration>]` | mutating | Adds a scope to the catalogue (local JSON write) |
+| `scope remove <name>` | mutating | Removes a scope (local JSON write) |
+| `scope update <name> --field value [--field value ...]` | mutating | Edits scope metadata (local JSON write) |
 | `audit list [--caller X] [--scope X] [--since <duration>]` | read-only | Tail of the assumption log |
 | `audit show <assumption-id>` | read-only | Full record: caller, scope, role, timestamp, expiry, success/failure |
 
 **Mutation gate:** `SG_AWS__CREDS__ALLOW_MUTATIONS=1` required for `scope add/remove/update`. `get` does not require it — it's the whole point of the system that getting credentials is friction-free.
 
-### Scope catalogue layout (vault)
+### Scope catalogue layout (local — vault deferred per umbrella locked decision #15)
 
 ```
-<vault-root>/aws/creds-catalogue/
+~/.sg/aws/creds-catalogue/
 ├── catalogue.json                       # top-level index
 ├── scopes/<scope-name>.json             # one file per scope (Schema__Scope__Definition)
 └── audit/<YYYY-MM>/assumptions.jsonl    # monthly assumption logs
 ```
 
-**Vault writer integration:** the layout above is realised via `sg_compute/vault/Vault__Spec__Writer` (the BV2.9 canonical writer) — `Creds__Catalogue__Vault__Writer` wraps it and registers `aws-creds-catalogue` as a vault namespace, then maps the on-disk layout to the writer's `(namespace, stack_id, handle, bytes)` interface. Same translation pattern as Bedrock's `Bedrock__Vault__Writer`.
+Same shape, same `0600` perms as the v0.2.28 credentials store. The user may put `~/.sg/aws/creds-catalogue/` under git for review if they want version control.
+
+**Catalogue writer:** `Creds__Catalogue__Local__Writer` owns the on-disk layout. It is intentionally writer-interface-shaped so the v0.3.x vault-re-introduction pack can swap it for a `Creds__Catalogue__Vault__Writer` without touching the verb code.
 
 ### API stability commitment (Phase 1 → Phase 5)
 
@@ -163,7 +165,8 @@ aws/creds/
 ## Acceptance
 
 ```bash
-# bootstrap a vault catalogue with seed scopes
+# bootstrap a local catalogue with seed scopes
+# (Dinis pre-provisions the 5 sg-scope-* IAM roles per umbrella locked decision #20)
 SG_AWS__CREDS__ALLOW_MUTATIONS=1 sg aws creds scope add \
     --name iam:read-only \
     --role arn:aws:iam::123456789012:role/sg-scope-iam-read-only \
@@ -202,7 +205,7 @@ SG_AWS__CREDS__INTEGRATION=1 pytest tests/integration/sgraph_ai_service_playwrig
 1. All files under `aws/creds/` per the layout above
 2. Unit tests under `tests/unit/sgraph_ai_service_playwright__cli/aws/creds/`
 3. Integration tests under `tests/integration/sgraph_ai_service_playwright__cli/aws/creds/` (gated; provisions a real `sg-scope-test-*` role and AssumeRoles into it)
-4. Initial scope catalogue seed (5 scopes minimum): `iam:read-only`, `lambda:list`, `s3:read:specific:sg-test-bucket`, `route53:read-only`, `cloudtrail:read-only`. Committed to the dev vault as part of the PR.
+4. Initial scope catalogue seed (5 scopes minimum): `iam:read-only`, `lambda:list`, `s3:read:specific:sg-test-bucket`, `route53:read-only`, `cloudtrail:read-only`. Committed as fixtures under `tests/fixtures/aws/creds/seed-catalogue/` and loaded into `~/.sg/aws/creds-catalogue/` by the acceptance bootstrap.
 5. New user-guide page `library/docs/cli/sg-aws/15__creds.md` — must clearly distinguish `sg aws creds` (this slice, scoped STS) from `sg aws credentials` (existing, long-lived keys)
 6. One row added to `library/docs/cli/sg-aws/README.md` "at-a-glance command map"
 7. Reality-doc update: new `team/roles/librarian/reality/cli/aws-creds.md` + cross-reference from `security/` index and from `cli/aws-iam.md`
@@ -214,7 +217,7 @@ SG_AWS__CREDS__INTEGRATION=1 pytest tests/integration/sgraph_ai_service_playwrig
 - **Role-trust-policy provisioning.** The roles `get` assumes must be pre-provisioned with a TrustPolicy allowing the SG account / caller principal. The pack does not auto-create roles in this slice (that's `iam role create` — already exists in the existing IAM CLI). Document the trust-policy template in the user-guide.
 - **Credential caching.** Cache by (caller, scope) tuple in-memory; never persist to disk. On expiry, transparently re-assume. Cache TTL = min(`granted_ttl`, `max_ttl`) - 60s safety margin.
 - **Naming collision with `sg aws credentials`.** Confusing for users. Mitigation: distinct verb sets (`creds get / scope` vs `credentials add / switch`), and the user-guide page leads with a comparison table.
-- **Local catalogue path.** The vault location is `$SG_VAULT_ROOT/aws/creds-catalogue/`. If `$SG_VAULT_ROOT` isn't set, refuse to operate (clear error, link to the vault-setup doc). Never silently fall back to `~/.sg/`.
+- **Local catalogue path.** Fixed at `~/.sg/aws/creds-catalogue/` (overridable via `$SG_AWS__CREDS__CATALOGUE_DIR`). Created on first use with `0700` directory perms / `0600` file perms — matches the v0.2.28 credentials store. Vault location is deferred to v0.3.x per umbrella locked decision #15.
 - **Audit log integrity.** The log file is append-only and group-restricted (`0660`); rotation is monthly. Do not allow `audit list/show` to mutate the file inadvertently.
 - **Cache poisoning across users.** The in-memory cache is per-process; nothing crosses users. Document this as an invariant — never share the process between users.
 
@@ -222,7 +225,7 @@ SG_AWS__CREDS__INTEGRATION=1 pytest tests/integration/sgraph_ai_service_playwrig
 
 ## Commit + PR
 
-Branch: `claude/aws-primitives-support-uNnZY-creds`
+Branch: `v0.2.28__scoped-creds__uNnZY` (off `claude/aws-primitives-support-uNnZY` after Foundation merges)
 
 Commit message: `feat(v0.2.29): sg aws creds — local scoped STS credential delivery (Phases 1+2)`.
 

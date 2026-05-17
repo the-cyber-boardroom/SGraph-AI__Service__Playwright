@@ -67,7 +67,7 @@ sg aws observe replay <session>  # re-run a captured session
 | `query "<dsl>" [--source X] [--since DUR] [--limit N]` | Run a query (per-source-capability) |
 | `stats --source X --stream Y --by <field> [--since DUR]` | Aggregations |
 | `schema --source X --stream Y` | Describe the source's fields |
-| `agent-trace <vault-session-id>` | **The cross-source feature** — pulls the full trace of one session from every source |
+| `agent-trace <session-id>` | **The cross-source feature** — pulls the full trace of one session from every source (correlation ID — see `### The agent-trace cross-source query` below) |
 | `dashboard fetch <name> [--time ts]` | (v2 stub — returns "not implemented in v1; see addendum") |
 | `set --time-window <DUR>` | Adjust default time window |
 | `set --default-source X` | Adjust default source |
@@ -84,7 +84,7 @@ Every REPL command has a one-shot form for scripting:
 sg aws observe tail --source cloudwatch --stream /aws/lambda/foo --since 1h
 sg aws observe query "errors" --since 24h --json
 sg aws observe stats --source cloudtrail --stream <trail> --by service --since 7d --json
-sg aws observe agent-trace <vault-session-id> --json
+sg aws observe agent-trace <session-id> --json
 ```
 
 ### Sources for v1
@@ -99,14 +99,16 @@ Each adapter implements the `Source__Contract` from `aws/_shared/source_contract
 
 ### The `agent-trace` cross-source query
 
-Given a vault session ID, pulls the full trace by issuing parallel queries across the connected sources:
+Given a **session correlation ID** (any opaque string the operator used as `sg:session-id` when emitting their workload — typically the run-id from Slice E's `~/.sg/aws/bedrock/.../sessions/<id>/`), pulls the full trace by issuing parallel queries across the connected sources:
 
-1. **From the vault** — the session's own commit history (which lives in the vault that captured the session)
-2. **From S3** — the session's stdout/stderr captures (looks up `s3://sg-logs/<session-id>/...`)
-3. **From CloudWatch** — Lambda or Fargate invocations correlated by `sg:session-id` tag
+1. **From the local capture dir** — `~/.sg/aws/*/sessions/<id>/` (the v0.2.29 stand-in for "the vault" per umbrella locked decision #15). The `Observe__Local__Capture__Reader` knows the layout that Bedrock, scoped-creds audit, and the REPL itself use.
+2. **From S3** — the session's stdout/stderr captures (looks up `s3://sg-logs/<session-id>/...` when the bucket is configured)
+3. **From CloudWatch** — Lambda or Fargate invocations correlated by `sg:session-id` tag (the tag is added by Foundation's `Aws__Tagger` per `01__scope-and-architecture.md §3.6`)
 4. **From CloudTrail** — IAM/STS events with the session's caller identity in the same time window
 
 Output: a unified timeline rendered as a Rich table (or NDJSON for `--json`).
+
+When the v0.3.x vault re-introduction pack lands, `Observe__Local__Capture__Reader` swaps for a vault reader without changing the verb signature.
 
 ---
 
@@ -125,7 +127,7 @@ aws/observe/
 │   ├── Observability__REPL.py               # the interactive session loop
 │   ├── REPL__Command__Parser.py
 │   ├── REPL__State.py                       # session state: connected sources, time window, history
-│   └── REPL__Capture.py                     # writes session to vault for replay
+│   └── REPL__Capture.py                     # writes session to ~/.sg/aws/observe/sessions/<id>.jsonl for replay (vault deferred — locked decision #15)
 ├── service/
 │   ├── Source__Registry.py                  # the configured-sources registry
 │   ├── Source__Orchestrator.py              # cross-source dispatch
@@ -175,8 +177,8 @@ sg aws observe query "errors" --since 24h --json | jq length
 sg aws observe agent-trace 2026-05-14T03:00:00Z__abc123 --json | jq '.timeline | length'
 
 # replay
-ls <vault-root>/observability/sessions/                                 # → capture from the previous interactive session
-sg aws observe replay <vault-root>/observability/sessions/<session>     # re-runs the queries
+ls ~/.sg/aws/observe/sessions/                                          # → capture from the previous interactive session
+sg aws observe replay ~/.sg/aws/observe/sessions/<session>              # re-runs the queries
 
 # tests
 pytest tests/unit/sgraph_ai_service_playwright__cli/aws/observe/ -v
@@ -203,7 +205,7 @@ Acceptance criterion from the source brief: "the 'what was happening when X fail
 - **Slice A or F late.** Foundation ships interface stubs; build against those. If Slice A or F miss the integration window, ship Slice H with the missing adapters returning a clean `Source__Not__Available` error in the REPL; users can still use the other sources. The "three-source" acceptance criterion degrades to "two-source" and the user-guide notes it.
 - **REPL UX.** Decision per source brief §"Open Questions" #1 — v1 ships a **REPL** (Python `cmd`-style or `prompt_toolkit`). TUI / notebook are v2. Lock to REPL; don't drift mid-implementation.
 - **Query DSL.** Keep it simple. Free-text search with optional `field:value` filters. SQL-like is v2. Hard rule: no embedded code execution in the DSL.
-- **Credential redaction in capture.** Captured sessions live in the vault. Redact `AWS_*` env vars, any `password`/`secret`/`token` substring before write. Tests must cover the redaction.
+- **Credential redaction in capture.** Captured sessions live at `~/.sg/aws/observe/sessions/` (vault deferred — locked decision #15). Redact `AWS_*` env vars, any `password`/`secret`/`token` substring before write. Tests must cover the redaction.
 - **Large query results.** Default `--limit 100`; warn before fetching anything beyond 10K rows; require explicit `--no-limit` for unbounded queries.
 - **CloudWatch Logs cost.** `FilterLogEvents` is billed per GB scanned. Pre-flight: estimate scan cost via the existing `aws/logs/` cost helper; require `--cost-override $X` if the predicted scan > `$SG_AWS__OBSERVE__MAX_SCAN_COST` (default $1.00).
 - **Multi-region.** v1 operates in the current region only. `set --region <r>` switches; multi-region fan-out is v2.
@@ -212,7 +214,7 @@ Acceptance criterion from the source brief: "the 'what was happening when X fail
 
 ## Commit + PR
 
-Branch: `claude/aws-primitives-support-uNnZY-observability`
+Branch: `v0.2.28__observability__uNnZY` (off `claude/aws-primitives-support-uNnZY` after Foundation merges)
 
 Commit message: `feat(v0.2.29): sg aws observe — unified observability REPL v1 (S3+CloudWatch+CloudTrail)`.
 

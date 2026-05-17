@@ -213,7 +213,7 @@ SG_AWS__S3__TEST_BUCKET=sg-test-bucket-<unique> \
 
 ## Commit + PR
 
-Branch: `claude/aws-primitives-support-uNnZY-s3` (off `claude/aws-primitives-support-uNnZY`)
+Branch: `v0.2.28__s3__uNnZY` (off `claude/aws-primitives-support-uNnZY` after Foundation merges)
 
 Commit message style: `feat(v0.2.29): sg aws s3 — primitives, vim round-trip, format-aware rendering`.
 
