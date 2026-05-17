@@ -204,6 +204,8 @@ BASH_WHITELIST = {
     'grep', 'awk', 'sed', 'sort', 'uniq', 'cut', 'tr', 'diff', 'jq',
     # time / env
     'date', 'env', 'whoami', 'uname', 'which',
+    # open file/url in default app (macOS `open`, linux `xdg-open`)
+    'open', 'xdg-open',
     # version control (read-only-ish; commits / pushes still possible — but matches user expectation)
     'git',
 }

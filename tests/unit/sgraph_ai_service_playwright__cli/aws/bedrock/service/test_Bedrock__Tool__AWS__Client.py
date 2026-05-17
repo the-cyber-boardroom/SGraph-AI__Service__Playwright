@@ -72,7 +72,7 @@ class _FakeAgentCoreClient:
         if invalid_actions:
             raise TypeError(f"Invalid action key(s): {sorted(invalid_actions)}")
         if 'screenshot' in kwargs['action']:
-            return {'result': {'screenshot': {'bytes': b'\x89PNG-fake-bytes'}}}
+            return {'result': {'screenshot': {'status': 'SUCCESS', 'data': b'\x89PNG-fake-bytes', 'error': ''}}}
         return {'result': {}}
 
     def start_code_interpreter_session(self, **kwargs):
@@ -233,10 +233,25 @@ class test_browser_screenshot(TestCase):
         _api, kwargs = self.client._fake_agentcore.calls[-1]
         assert kwargs['browserIdentifier']    == 'custom.browser.v1'
 
-    def test__extracts_image_bytes_from_nested_result(self):                     # `resp['result']['screenshot']['bytes']`
+    def test__extracts_image_bytes_from_nested_result(self):                     # AWS field is `data`, not `bytes`
         data = self.client.browser_screenshot('sid-123')
         assert isinstance(data, bytes)
         assert data == b'\x89PNG-fake-bytes'
+
+    def test__raises_when_aws_returns_no_data(self):                             # regression: CLI used to print "saved" with no file
+        # Inject a failed-screenshot response (status=ERROR, no data).
+        class _FailingAgentCore(_FakeAgentCoreClient):
+            def invoke_browser(self, **kwargs):
+                self.calls.append(('invoke_browser', kwargs))
+                return {'result': {'screenshot': {'status': 'ERROR', 'data': b'', 'error': 'something went wrong'}}}
+        self.client._fake_agentcore = _FailingAgentCore()
+        try:
+            self.client.browser_screenshot('sid-123')
+        except RuntimeError as exc:
+            assert 'ERROR'              in str(exc)
+            assert 'something went wrong' in str(exc)
+            return
+        raise AssertionError('Expected RuntimeError when AWS returns no screenshot data')
 
 
 # ── Tests — browser_navigate (returns CDP stream endpoints) ──────────────────

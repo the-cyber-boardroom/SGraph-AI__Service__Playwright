@@ -145,19 +145,17 @@ def browser_session_screenshot(
     client     = _client()
     image_data = client.browser_screenshot(session_id, region=region, browser_identifier=browser_id)
     writer     = Bedrock__Capture__Writer()
-    folder  = writer.browser_session_path(session_id)
+    folder     = writer.browser_session_path(session_id)
     folder.mkdir(parents=True, exist_ok=True)
     if output_file:
-        import shutil, os
         out = output_file
     else:
         import uuid
         out = str(folder / f'screenshot_{uuid.uuid4().hex[:8]}.png')
-    if image_data:
-        with open(out, 'wb') as fh:
-            fh.write(image_data)
+    with open(out, 'wb') as fh:                                                  # `browser_screenshot` raises on empty data; if we got here, write it
+        fh.write(image_data)
     c = Console(highlight=False)
-    c.print(f'\n  Screenshot saved: {out}\n')
+    c.print(f'\n  Screenshot saved: {out}  ({len(image_data):,} bytes)\n')
 
 
 @browser_session_app.command('stop')
