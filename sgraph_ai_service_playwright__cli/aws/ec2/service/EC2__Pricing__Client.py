@@ -12,13 +12,20 @@ from osbot_utils.type_safe.Type_Safe import Type_Safe
 
 from sgraph_ai_service_playwright__cli.aws.ec2.primitives.Safe_Str__EC2__Instance__Type import Safe_Str__EC2__Instance__Type
 from sgraph_ai_service_playwright__cli.aws.ec2.schemas.Schema__EC2__Pricing              import Schema__EC2__Pricing
+from sgraph_ai_service_playwright__cli.credentials.service.Sg__Aws__Session             import Sg__Aws__Session
 
 
 class EC2__Pricing__Client(Type_Safe):
+    session : Sg__Aws__Session = None                                           # cached session — injected or lazy-init via setup()
+
+    def setup(self):                                                             # idempotent — noop if session already set
+        if self.session is None:
+            self.session = Sg__Aws__Session.from_context()
+        return self
 
     def client(self):                                                           # Pricing API lives exclusively in us-east-1
-        from sgraph_ai_service_playwright__cli.credentials.service.Sg__Aws__Session import Sg__Aws__Session
-        return Sg__Aws__Session.from_context().boto3_client_from_context('pricing', region='us-east-1')
+        self.setup()
+        return self.session.boto3_client_from_context('pricing', region='us-east-1')
 
     def get_price(self, instance_type: str, region: str = 'us-east-1',
                   os: str = 'Linux') -> Schema__EC2__Pricing:

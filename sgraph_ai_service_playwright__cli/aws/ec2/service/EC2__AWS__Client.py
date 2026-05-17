@@ -27,13 +27,20 @@ from sgraph_ai_service_playwright__cli.aws.ec2.primitives.Safe_Str__EC2__Instanc
 from sgraph_ai_service_playwright__cli.aws.ec2.schemas.Schema__EC2__Instance            import Schema__EC2__Instance
 from sgraph_ai_service_playwright__cli.aws.ec2.schemas.Schema__EC2__Instance__Detail    import Schema__EC2__Instance__Detail
 from sgraph_ai_service_playwright__cli.aws.ec2.schemas.Schema__EC2__Create__Request     import Schema__EC2__Create__Request
+from sgraph_ai_service_playwright__cli.credentials.service.Sg__Aws__Session             import Sg__Aws__Session
 
 
 class EC2__AWS__Client(Type_Safe):
+    session : Sg__Aws__Session = None                                           # cached session — injected or lazy-init via setup()
+
+    def setup(self):                                                             # idempotent — noop if session already set
+        if self.session is None:
+            self.session = Sg__Aws__Session.from_context()
+        return self
 
     def client(self):                                                           # Single seam — subclass overrides for in-memory tests
-        from sgraph_ai_service_playwright__cli.credentials.service.Sg__Aws__Session import Sg__Aws__Session
-        return Sg__Aws__Session.from_context().boto3_client_from_context('ec2')
+        self.setup()
+        return self.session.boto3_client_from_context('ec2')
 
     # ── read ──────────────────────────────────────────────────────────────────
 
