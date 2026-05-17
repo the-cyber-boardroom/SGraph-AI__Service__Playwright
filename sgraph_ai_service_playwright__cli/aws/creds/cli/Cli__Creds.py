@@ -32,28 +32,26 @@ _console = Console()
 _err     = Console(stderr=True)
 
 
-def _catalogue() -> Creds__Scope__Catalogue:                                   # Factory — override in tests via monkeypatch
-    return Creds__Scope__Catalogue()
-
-
-def _sts_client() -> Creds__STS__Client:                                       # Factory — override in tests via monkeypatch
-    return Creds__STS__Client()
-
-
-def _audit_log() -> Creds__Audit__Log:                                         # Factory — override in tests via monkeypatch
-    return Creds__Audit__Log()
+@app.callback()
+def _setup_ctx(ctx: typer.Context):
+    if ctx.obj is None:
+        ctx.obj = {}
+    ctx.obj.setdefault('creds_catalogue' , Creds__Scope__Catalogue())
+    ctx.obj.setdefault('creds_sts_client', Creds__STS__Client())
+    ctx.obj.setdefault('creds_audit_log' , Creds__Audit__Log())
 
 
 # ── get ───────────────────────────────────────────────────────────────────────
 
 @app.command('get')
-def get(scope_name:   str  = typer.Option(..., '--scope'),
+def get(ctx:          typer.Context,
+        scope_name:   str  = typer.Option(..., '--scope'),
         role_hint:    str  = typer.Option('', '--role-hint'),
         ttl:          str  = typer.Option('1h', '--ttl'),
         shell_export: bool = typer.Option(False, '--shell-export'),
         as_json:      bool = typer.Option(False, '--json')):
     """Get temporary scoped credentials for a named scope."""
-    cat   = _catalogue()
+    cat   = ctx.obj['creds_catalogue']
     entry = cat.scope_get(scope_name)
     if entry is None:
         _err.print(Panel(f'Scope [bold]{scope_name}[/bold] not found in catalogue.',
@@ -78,7 +76,7 @@ def get(scope_name:   str  = typer.Option(..., '--scope'),
         ))
         raise typer.Exit(1)
 
-    sts    = _sts_client()
+    sts    = ctx.obj['creds_sts_client']
     caller = sts.get_caller_identity()
     sname  = f'sg-creds-{scope_name}-{secrets.token_hex(4)}'
 
@@ -97,7 +95,7 @@ def get(scope_name:   str  = typer.Option(..., '--scope'),
         'access_key_id' : creds['AccessKeyId'],
         'session_token' : creds['SessionToken'],
     }
-    _audit_log().append(log_entry)
+    ctx.obj['creds_audit_log'].append(log_entry)
 
     export_data = {
         'access_key_id'     : creds['AccessKeyId'],
@@ -133,9 +131,9 @@ def get(scope_name:   str  = typer.Option(..., '--scope'),
 # ── list-scopes ───────────────────────────────────────────────────────────────
 
 @app.command('list-scopes')
-def list_scopes(as_json: bool = typer.Option(False, '--json')):
+def list_scopes(ctx: typer.Context, as_json: bool = typer.Option(False, '--json')):
     """List all scopes in the catalogue."""
-    cat    = _catalogue()
+    cat    = ctx.obj['creds_catalogue']
     scopes = cat.scope_list()
 
     if as_json:
@@ -160,9 +158,9 @@ def list_scopes(as_json: bool = typer.Option(False, '--json')):
 # ── scope show ────────────────────────────────────────────────────────────────
 
 @scope.command('show')
-def scope_show(name: str = typer.Argument(...), as_json: bool = typer.Option(False, '--json')):
+def scope_show(ctx: typer.Context, name: str = typer.Argument(...), as_json: bool = typer.Option(False, '--json')):
     """Show scope definition."""
-    cat   = _catalogue()
+    cat   = ctx.obj['creds_catalogue']
     entry = cat.scope_get(name)
     if entry is None:
         _err.print(Panel(f'Scope [bold]{name}[/bold] not found.',
@@ -185,7 +183,8 @@ def scope_show(name: str = typer.Argument(...), as_json: bool = typer.Option(Fal
 
 @scope.command('add')
 @require_mutation_gate('SG_AWS__CREDS__ALLOW_MUTATIONS')
-def scope_add(name:    str  = typer.Option(...,   '--name'),
+def scope_add(ctx:     typer.Context,
+              name:    str  = typer.Option(...,   '--name'),
               role:    str  = typer.Option(...,   '--role'),
               max_ttl: str  = typer.Option('1h',  '--max-ttl'),
               yes:     bool = typer.Option(False, '--yes', '-y'),
@@ -195,7 +194,7 @@ def scope_add(name:    str  = typer.Option(...,   '--name'),
     if not confirm_or_abort(f'Add scope {name!r} → {role!r} (max-ttl={max_ttl})?', yes=yes, dry_run=dry_run):
         raise typer.Exit(0)
 
-    cat   = _catalogue()
+    cat   = ctx.obj['creds_catalogue']
     entry = cat.scope_add(name, role, max_ttl)
 
     if as_json:
@@ -213,14 +212,15 @@ def scope_add(name:    str  = typer.Option(...,   '--name'),
 
 @scope.command('remove')
 @require_mutation_gate('SG_AWS__CREDS__ALLOW_MUTATIONS')
-def scope_remove(name:    str  = typer.Argument(...),
+def scope_remove(ctx:     typer.Context,
+                 name:    str  = typer.Argument(...),
                  yes:     bool = typer.Option(False, '--yes', '-y'),
                  dry_run: bool = typer.Option(False, '--dry-run', help='Print action without executing.')):
     """Remove a scope from the catalogue (gated)."""
     if not confirm_or_abort(f'Remove scope {name!r}?', yes=yes, dry_run=dry_run):
         raise typer.Exit(0)
 
-    cat = _catalogue()
+    cat = ctx.obj['creds_catalogue']
     ok  = cat.scope_remove(name)
     if not ok:
         _err.print(Panel(f'Scope [bold]{name}[/bold] not found.',
@@ -234,14 +234,15 @@ def scope_remove(name:    str  = typer.Argument(...),
 
 @scope.command('update')
 @require_mutation_gate('SG_AWS__CREDS__ALLOW_MUTATIONS')
-def scope_update(name:    str  = typer.Argument(...),
+def scope_update(ctx:     typer.Context,
+                 name:    str  = typer.Argument(...),
                  role:    str  = typer.Option('', '--role'),
                  max_ttl: str  = typer.Option('', '--max-ttl'),
                  yes:     bool = typer.Option(False, '--yes', '-y'),
                  dry_run: bool = typer.Option(False, '--dry-run', help='Print action without executing.'),
                  as_json: bool = typer.Option(False, '--json')):
     """Update a scope in the catalogue (gated)."""
-    cat   = _catalogue()
+    cat   = ctx.obj['creds_catalogue']
     entry = cat.scope_get(name)
     if entry is None:
         _err.print(Panel(f'Scope [bold]{name}[/bold] not found.',
@@ -270,12 +271,13 @@ def scope_update(name:    str  = typer.Argument(...),
 # ── audit list ────────────────────────────────────────────────────────────────
 
 @audit.command('list')
-def audit_list(caller:  str  = typer.Option('', '--caller'),
+def audit_list(ctx:     typer.Context,
+               caller:  str  = typer.Option('', '--caller'),
                scope_n: str  = typer.Option('', '--scope'),
                since:   str  = typer.Option('1h', '--since'),
                as_json: bool = typer.Option(False, '--json')):
     """Tail the assumption audit log."""
-    log     = _audit_log()
+    log     = ctx.obj['creds_audit_log']
     entries = log.query(caller=caller, scope=scope_n, since=since)
 
     if as_json:
@@ -306,10 +308,11 @@ def audit_list(caller:  str  = typer.Option('', '--caller'),
 # ── audit show ────────────────────────────────────────────────────────────────
 
 @audit.command('show')
-def audit_show(assumption_id: str  = typer.Argument(...),
+def audit_show(ctx:           typer.Context,
+               assumption_id: str  = typer.Argument(...),
                as_json:       bool = typer.Option(False, '--json')):
     """Show a full assumption record."""
-    log   = _audit_log()
+    log   = ctx.obj['creds_audit_log']
     entry = log.load_entry(assumption_id)
 
     if entry is None:
