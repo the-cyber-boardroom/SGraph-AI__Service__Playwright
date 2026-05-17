@@ -32,7 +32,7 @@ How to drive the `sg aws *` command surface from a terminal. This pack is a **us
 | 09 | `09__s3.md` *(PROPOSED — Slice A)* | `sg aws s3` — S3 object and bucket management |
 | 10 | [`10__ec2.md`](10__ec2.md) | `sg aws ec2` — EC2 instance management |
 | 11 | [`11__fargate.md`](11__fargate.md) | `sg aws fargate` — ECS Fargate clusters and tasks |
-| 12 | `12__iam-graph.md` *(PROPOSED — Slice D)* | `sg aws iam graph` — IAM-as-graph discovery and cleanup |
+| 12 | [`12__iam-graph.md`](12__iam-graph.md) | `sg aws iam graph` — IAM-as-graph discovery and cleanup |
 | 13 | `13__bedrock.md` *(PROPOSED — Slice E)* | `sg aws bedrock` — Bedrock chat, agents, tools |
 | 14 | `14__cloudtrail.md` *(PROPOSED — Slice F)* | `sg aws cloudtrail` — CloudTrail events and trails (read-only) |
 | 15 | `15__creds.md` *(PROPOSED — Slice G)* | `sg aws creds` — scoped STS credential delivery |
@@ -66,7 +66,7 @@ sg aws
 ├── ec2         ← EC2 (v0.2.29 Slice B)              (list, describe, ssh-info, tags, instance-types, pricing, create, start, stop, terminate, wait)
 ├── fargate     ← ECS Fargate (v0.2.29 Slice C)      (cluster/task/task-def lifecycle)
 ├── iam
-│   └── graph   ← IAM graph (PROPOSED — Slice D)    (discover, filter, delete, stats, …)
+│   └── graph   ← IAM graph                         (discover, filter, delete, stats, …)
 ├── bedrock     ← Bedrock (PROPOSED — Slice E)       (chat, agent, tool sub-trees)
 ├── cloudtrail  ← CloudTrail (PROPOSED — Slice F)    (events, trails — read-only)
 ├── creds       ← Scoped STS (PROPOSED — Slice G)    (get, scope, audit)
