@@ -36,7 +36,7 @@ How to drive the `sg aws *` command surface from a terminal. This pack is a **us
 | 13 | `13__bedrock.md` *(PROPOSED — Slice E)* | `sg aws bedrock` — Bedrock chat, agents, tools |
 | 14 | [`13__cloudtrail.md`](13__cloudtrail.md) *(LANDED — v0.2.29 Slice F)* | `sg aws cloudtrail` — CloudTrail events and trails (read-only) |
 | 15 | `15__creds.md` *(PROPOSED — Slice G)* | `sg aws creds` — scoped STS credential delivery |
-| 16 | `16__observe.md` *(PROPOSED — Slice H)* | `sg aws observe` — unified observability REPL |
+| 16 | [`16__observe.md`](16__observe.md) *(LANDED — Slice H)* | `sg aws observe` — unified observability REPL |
 
 ---
 
