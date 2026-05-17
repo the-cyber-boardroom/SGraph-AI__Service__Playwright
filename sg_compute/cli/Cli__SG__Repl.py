@@ -307,6 +307,57 @@ def _extract_debug_flag(parts):                                     # returns (d
     return True, [p for p in parts if p not in DEBUG_FLAGS]
 
 
+def _apply_relative_navigation(parts, current_path):
+    """Process `..` / `.` / `back` segments in `parts` against `current_path`.
+
+    Splits each part on `/` first so `../agent` and `..` `agent` and
+    `../../aws/observe` all work uniformly. Each `..` pops one segment
+    from the accumulated dispatch path; if the accumulated path is empty
+    it pops from `current_path` instead. `.` is a no-op. `back` is an
+    alias of `..`.
+
+    Returns (effective_base, remaining_parts):
+      * effective_base is what `_resolve` should walk from
+      * remaining_parts is the rest of the tokens (commands / args / options)
+
+    Examples (current_path = ['aws', 'bedrock', 'chat']):
+      ['..']                       → (['aws', 'bedrock']        , [])
+      ['..', 'agent']              → (['aws', 'bedrock']        , ['agent'])
+      ['../agent']                 → (['aws', 'bedrock']        , ['agent'])
+      ['../../../aws/observe']     → ([]                         , ['aws', 'observe'])
+      ['back']                     → (['aws', 'bedrock']        , [])
+      ['.', 'chat']                → (['aws', 'bedrock', 'chat'], ['chat'])
+
+    Non-dot tokens stop the navigation walk; subsequent `..` inside them
+    are NOT interpreted (they'd be ambiguous with a real verb name).
+
+    Sibling navigation: each `..` pops exactly one level. To jump from
+    `aws/bedrock/chat` to `aws/observe`, either type `aws/observe`
+    directly (caught by absolute-dispatch) or use three `..` to climb
+    out of the 3-deep current path before walking down.
+    """                                                                          # inline
+    base = list(current_path)
+    out  = []
+    consuming_navigation = True
+
+    for token in parts:
+        for seg in str(token).split('/'):
+            if not seg:
+                continue
+            if consuming_navigation and seg in ('..', 'back'):
+                if out:
+                    out.pop()
+                elif base:
+                    base.pop()
+                # else: at root, .. is a silent no-op
+                continue
+            if consuming_navigation and seg == '.':
+                continue                                                          # no-op; still in navigation phase
+            consuming_navigation = False                                          # first non-nav segment ends the walk
+            out.append(seg)
+    return base, out
+
+
 def _maybe_absolute_dispatch(parts, current_path):
     """If the user typed an absolute command (starts with `sg`, `/`, or a
     slash-containing first token), dispatch from the root instead of the
@@ -328,6 +379,12 @@ def _maybe_absolute_dispatch(parts, current_path):
     if not parts:
         return list(current_path), list(parts)
     first = parts[0]
+    # Relative-nav tokens (`..`, `./foo`, `../agent`) must NOT be treated as
+    # absolute even though they contain `/` — let `_apply_relative_navigation`
+    # handle them. Without this guard, `../agent` from `aws/bedrock/chat`
+    # would re-base to root and lose the parent-path context.
+    if first.startswith('..') or first.startswith('./') or first in ('.', 'back'):
+        return list(current_path), list(parts)
     is_absolute = (first == 'sg'
                    or first.startswith('/')
                    or first.startswith('sg/')
@@ -473,12 +530,6 @@ def run_repl(sg_app=None, initial_path=None):
             _run_bash(parts)
             continue
 
-        if cmd in ('..', 'back'):
-            if repl.path:
-                repl.path.pop()
-            _invoke(sg_app, (repl.path + ['--help']) if repl.path else ['--help'])
-            continue
-
         if cmd in ('?', 'help', 'h'):
             _invoke(sg_app, repl.path + ['--help'])
             continue
@@ -496,6 +547,20 @@ def run_repl(sg_app=None, initial_path=None):
         # we render in error messages (`sg aws bedrock check`) and have them
         # work from anywhere in the tree.
         dispatch_base, parts_clean = _maybe_absolute_dispatch(parts_clean, repl.path)
+
+        # `..` / `back` / `.` and composite forms (`../agent`, `.. agent`,
+        # `../../aws/observe`) all normalised in one pass before _resolve.
+        dispatch_base, parts_clean = _apply_relative_navigation(parts_clean, dispatch_base)
+
+        # Pure navigation (no remaining parts after applying ..) — update REPL
+        # path and show help at the new location. Equivalent to the old
+        # `..`/`back` special case but composes with `../..` etc.
+        if not parts_clean:
+            if dispatch_base != list(repl.path):
+                repl.path[:] = dispatch_base
+            _invoke(sg_app, (repl.path + ['--help']) if repl.path else ['--help'])
+            continue
+
         resolved, trailing         = _resolve(sg_app, dispatch_base, parts_clean)
 
         if resolved is None:

@@ -43,15 +43,16 @@ def _client() -> Bedrock__Tool__AWS__Client:
 @require_mutation_gate(BEDROCK_GATE)
 @spec_cli_errors
 def browser_session_start(
-    region      : Optional[str] = typer.Option(None,  '--region', '-r', help='AWS region (default: current region).'),
-    yes         : bool          = typer.Option(False, '--yes',   '-y',  help='Skip confirmation.'),
-    json_output : bool          = typer.Option(False, '--json',         help='Output JSON.'),
+    browser_id  : Optional[str] = typer.Option(None,  '--browser-id', '-b', help='Browser identifier (default: aws.browser.v1 — AWS-managed sandbox).'),
+    region      : Optional[str] = typer.Option(None,  '--region',     '-r', help='AWS region (default: current region).'),
+    yes         : bool          = typer.Option(False, '--yes',        '-y', help='Skip confirmation.'),
+    json_output : bool          = typer.Option(False, '--json',             help='Output JSON.'),
 ):
     """Start a new AgentCore browser session. [EXPERIMENTAL]"""
     if not yes:
         typer.confirm('Start browser session?', abort=True)
     client  = _client()
-    session = client.browser_start(region=region)
+    session = client.browser_start(region=region, browser_identifier=browser_id)
     writer  = Bedrock__Capture__Writer()
     path   = writer.write_browser_action(str(session.session_id),
                                          {'action': 'start', 'region': session.region})
@@ -166,16 +167,17 @@ def browser_session_stop(
 @require_mutation_gate(BEDROCK_GATE)
 @spec_cli_errors
 def code_session_start(
-    language    : str          = typer.Option('python', '--language', '-l', help='Language: python, javascript, typescript.'),
-    region      : Optional[str]= typer.Option(None,    '--region',   '-r', help='AWS region.'),
-    yes         : bool         = typer.Option(False,   '--yes',      '-y', help='Skip confirmation.'),
-    json_output : bool         = typer.Option(False,   '--json',          help='Output JSON.'),
+    language            : str          = typer.Option('python', '--language',            '-l', help='Language hint for local capture metadata (python, javascript, typescript); not sent to AWS.'),
+    code_interpreter_id : Optional[str]= typer.Option(None,    '--code-interpreter-id', '-c', help='Code-interpreter identifier (default: aws.codeinterpreter.v1 — AWS-managed sandbox).'),
+    region              : Optional[str]= typer.Option(None,    '--region',              '-r', help='AWS region.'),
+    yes                 : bool         = typer.Option(False,   '--yes',                 '-y', help='Skip confirmation.'),
+    json_output         : bool         = typer.Option(False,   '--json',                      help='Output JSON.'),
 ):
     """Start a code-interpreter session. [EXPERIMENTAL]"""
     if not yes:
         typer.confirm(f'Start code-interpreter session (language={language})?', abort=True)
     client  = _client()
-    session = client.code_interpreter_start(language=language, region=region)
+    session = client.code_interpreter_start(language=language, region=region, code_interpreter_id=code_interpreter_id)
     writer  = Bedrock__Capture__Writer()
     path   = writer.write_code_run(str(session.session_id),
                                    {'action': 'start', 'language': language, 'region': session.region})
