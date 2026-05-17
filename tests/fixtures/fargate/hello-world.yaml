@@ -1,0 +1,17 @@
+# Sample ECS task definition for manual CLI testing.
+# Usage:
+#   SG_AWS__FARGATE__ALLOW_MUTATIONS=1 sg aws fargate task-def register \
+#     --name hello-world --image public.ecr.aws/docker/library/hello-world:latest \
+#     --cpu 256 --memory 512 --yes
+#
+# This file is documentation / acceptance test reference only.
+# The register command takes --name/--image/--cpu/--memory flags, not a --from file (future work).
+family: hello-world
+image: public.ecr.aws/docker/library/hello-world:latest
+cpu: "256"
+memory: "512"
+environment:
+  GREETING: "Hello from Fargate"
+tags:
+  sg:managed: "true"
+  sg:purpose: "fargate-unit-test"

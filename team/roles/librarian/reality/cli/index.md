@@ -23,6 +23,7 @@ The CLI surface is large; per the 300-line fractal rule it is split into focused
 | [`ec2.md`](ec2.md) | The EC2 FastAPI routes slice (`Fast_API__SP__CLI` + `Routes__Ec2__Playwright`), schemas, type-safe-validation handler, deploy slice (IAM role `sp-playwright-cli-lambda`, image, Lambda settings, CI workflow) |
 | [`observability.md`](observability.md) | The observability sub-package (Type_Safe primitives / enums / schemas / `Observability__AWS__Client` / `Observability__Service`) + `Routes__Observability` HTTP surface + the `Routes__Linux__Stack` / `Routes__Docker__Stack` / `Routes__Elastic__Stack` / `Routes__Stack__Catalog` / `Routes__Vnc__Stack` mounts |
 | [`aws-dns.md`](aws-dns.md) | The 2026-05-15 `sg aws dns` + `sg aws acm` slice — Route 53 management, ACM inventory, smart-verify, `zone check` classification |
+| [`aws-fargate.md`](aws-fargate.md) | `sg aws fargate` — ECS Fargate cluster/task-def/task lifecycle (v0.2.29 Slice C) |
 
 ---
 
@@ -46,6 +47,7 @@ This is the high-level surface; details live in the sub-files.
 | `sg aws dns ...` / `sg aws acm ...` | `aws` | [`aws-dns.md`](aws-dns.md) |
 | `sg aws billing ...` (v0.2.22) | `aws/billing` | [`sg-compute/index.md`](../sg-compute/index.md) |
 | `sg aws cf ...` / `sg aws lambda ...` (v0.2.23) | `aws` | [`sg-compute/index.md`](../sg-compute/index.md) |
+| `sg aws fargate ...` (v0.2.29 Slice C) | `aws/fargate` | [`aws-fargate.md`](aws-fargate.md) |
 | `sg vp ...` (vault-publish slug bootstrap, v0.2.23) | `vp` | [`sg-compute/index.md`](../sg-compute/index.md) |
 
 ### `Fast_API__SP__CLI` route count (at v0.1.31 freeze)
