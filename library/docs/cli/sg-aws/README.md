@@ -34,7 +34,7 @@ How to drive the `sg aws *` command surface from a terminal. This pack is a **us
 | 11 | [`11__fargate.md`](11__fargate.md) *(LANDED — v0.2.29)* | `sg aws fargate` — ECS Fargate clusters and tasks |
 | 12 | [`12__iam-graph.md`](12__iam-graph.md) *(LANDED — v0.2.29)* | `sg aws iam graph` — IAM-as-graph discovery and cleanup |
 | 13 | `13__bedrock.md` *(PROPOSED — Slice E)* | `sg aws bedrock` — Bedrock chat, agents, tools |
-| 14 | `14__cloudtrail.md` *(PROPOSED — Slice F)* | `sg aws cloudtrail` — CloudTrail events and trails (read-only) |
+| 14 | [`13__cloudtrail.md`](13__cloudtrail.md) *(LANDED — v0.2.29 Slice F)* | `sg aws cloudtrail` — CloudTrail events and trails (read-only) |
 | 15 | `15__creds.md` *(PROPOSED — Slice G)* | `sg aws creds` — scoped STS credential delivery |
 | 16 | `16__observe.md` *(PROPOSED — Slice H)* | `sg aws observe` — unified observability REPL |
 
@@ -68,7 +68,7 @@ sg aws
 ├── iam
 │   └── graph   ← IAM graph                         (discover, filter, delete, stats, …)
 ├── bedrock     ← Bedrock (PROPOSED — Slice E)       (chat, agent, tool sub-trees)
-├── cloudtrail  ← CloudTrail (PROPOSED — Slice F)    (events, trails — read-only)
+├── cloudtrail  ← CloudTrail (v0.2.29 Slice F)        (events list/show, trail list/show — read-only)
 ├── creds       ← Scoped STS (PROPOSED — Slice G)    (get, scope, audit)
 └── observe     ← Observability REPL (PROPOSED — Slice H) (tail, query, stats, agent-trace)
 ```
