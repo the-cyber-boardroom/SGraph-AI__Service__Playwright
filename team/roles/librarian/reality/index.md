@@ -64,17 +64,17 @@ The migration from version-stamped files to the domain tree is staged. See [`tea
 
 | Domain | Authoritative source while migration pending |
 |--------|------------------------------------------------|
-| Playwright service | [`v0.1.31/01__playwright-service.md`](v0.1.31/01__playwright-service.md) |
-| agent_mitmproxy | [`v0.1.31/02__agent-mitmproxy-sibling.md`](v0.1.31/02__agent-mitmproxy-sibling.md) |
-| CLI | [`v0.1.31/06__sp-cli-duality-refactor.md`](v0.1.31/06__sp-cli-duality-refactor.md), [`07`](v0.1.31/07__sp-cli-ec2-fastapi.md), [`09`](v0.1.31/09__sp-cli-observability-routes.md), [`13`](v0.1.31/13__sp-cli-linux-docker-elastic-catalog-ui.md) (catalog routes) |
-| UI | [`v0.1.31/13`](v0.1.31/13__sp-cli-linux-docker-elastic-catalog-ui.md), [`14`](v0.1.31/14__sp-cli-ui-sg-layout-vnc-wiring.md), [`15`](v0.1.31/15__sp-cli-ui-dev-agent-dashboard.md) |
-| LETS | [`v0.1.31/10`](v0.1.31/10__lets-cf-inventory.md), [`11`](v0.1.31/11__lets-cf-events.md), [`12`](v0.1.31/12__lets-cf-consolidate.md) |
-| Infra | [`v0.1.31/03__docker-and-ci.md`](v0.1.31/03__docker-and-ci.md), [`v0.1.31/08__sp-cli-lambda-deploy.md`](v0.1.31/08__sp-cli-lambda-deploy.md) |
-| QA | [`v0.1.31/04__tests.md`](v0.1.31/04__tests.md) |
+| Playwright service | [`v0.1.31/01__playwright-service.md`](_archive/v0.1.31/01__playwright-service.md) |
+| agent_mitmproxy | [`v0.1.31/02__agent-mitmproxy-sibling.md`](_archive/v0.1.31/02__agent-mitmproxy-sibling.md) |
+| CLI | [`v0.1.31/06__sp-cli-duality-refactor.md`](_archive/v0.1.31/06__sp-cli-duality-refactor.md), [`07`](_archive/v0.1.31/07__sp-cli-ec2-fastapi.md), [`09`](_archive/v0.1.31/09__sp-cli-observability-routes.md), [`13`](_archive/v0.1.31/13__sp-cli-linux-docker-elastic-catalog-ui.md) (catalog routes) |
+| UI | [`v0.1.31/13`](_archive/v0.1.31/13__sp-cli-linux-docker-elastic-catalog-ui.md), [`14`](_archive/v0.1.31/14__sp-cli-ui-sg-layout-vnc-wiring.md), [`15`](_archive/v0.1.31/15__sp-cli-ui-dev-agent-dashboard.md) |
+| LETS | [`v0.1.31/10`](_archive/v0.1.31/10__lets-cf-inventory.md), [`11`](_archive/v0.1.31/11__lets-cf-events.md), [`12`](_archive/v0.1.31/12__lets-cf-consolidate.md) |
+| Infra | [`v0.1.31/03__docker-and-ci.md`](_archive/v0.1.31/03__docker-and-ci.md), [`v0.1.31/08__sp-cli-lambda-deploy.md`](_archive/v0.1.31/08__sp-cli-lambda-deploy.md) |
+| QA | [`v0.1.31/04__tests.md`](_archive/v0.1.31/04__tests.md) |
 | Vault | (no v0.1.31 slice — seed from `sgraph_ai_service_playwright__cli/vault/` and post-fractal-UI brief 04) |
 | Security | (cross-cutting — extract from CLAUDE.md rules + `v0.1.31/01__playwright-service.md` allowlist section) |
 
-Cross-cutting proposed surface today lives in [`v0.1.31/05__proposed.md`](v0.1.31/05__proposed.md) — the migration distributes it into per-domain `proposed/index.md` files.
+Cross-cutting proposed surface today lives in [`v0.1.31/05__proposed.md`](_archive/v0.1.31/05__proposed.md) — the migration distributes it into per-domain `proposed/index.md` files.
 
 ---
 
