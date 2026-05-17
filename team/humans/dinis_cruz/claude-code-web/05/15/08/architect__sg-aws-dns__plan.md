@@ -4,22 +4,18 @@ file: architect__sg-aws-dns__plan.md
 author: Architect (Claude)
 date: 2026-05-15 (UTC hour 08)
 repo: SGraph-AI__Service__Playwright @ dev (v0.1.140 line)
-status: PLAN — no code, no commits. For human ratification before Dev picks up.
+status: "SHIPPED — P0 + P1 + P1.5 + post-P1.5 ergonomics. Reality doc: team/roles/librarian/reality/v0.1.31/16__sg-aws-dns-and-acm.md. Debriefs: team/claude/debriefs/2026-05-15__sg-aws-dns-{p0-read-only, p1-mutations-and-verify, p1.5-cache-polluting-modes, ergonomics-and-zone-health}.md."
 parent: team/humans/dinis_cruz/claude-code-web/05/15/03/architect__vault-app__cf-route53__plan.md
 revision: "rev 6 (2026-05-15 hour 14) — adds `sg aws dns instance create-record` (P1) that resolves an instance-id / stack-name / `--latest` to a public IP and creates an A record under the matching hosted zone, default TTL 60s, with idempotent same-IP handling and a verbatim cert-warning info block printed after the success table; multi-label name support documented (§3 new sub-section + permissive `Safe_Str__Record_Name` regex) and backed by a new `Route53__Zone__Resolver` that walks labels to find the deepest owning hosted zone; new `Route53__Instance__Linker` consuming the per-spec `info` helpers from `sg_compute_specs/{vault_app,playwright,elastic,neko}/cli/`; new IAM action `ec2:DescribeInstances` (and `ec2:DescribeTags` already covered by it); new risk R17 — instance public IP changes on stop/start, P2 follow-up `dns instance refresh-record` or pinned EIP; new ADDENDUM §12 capturing two PROPOSED, NOT-IN-P1 cert-issuance paths (Path A — own cert sidecar reusing `sg_compute/platforms/tls/Cert__ACME__Client`; Path B — AWS Certificate Manager) plus new open Q9 on DNS-01 vs HTTP-01 for the future cert path. `Cert__ACME__Client` is **HTTP-01 only today** (verified by reading `sg_compute/platforms/tls/Cert__ACME__Client.py` — `select_http01` hard-codes the `challenges.HTTP01` filter, `ACME__Challenge__Server` binds :80 directly, no DNS-01 challenge type referenced); DNS-01 is documented as the preferred future challenge mode and is the subject of new Q9."
 ---
 
 # Architect Briefing — sg aws dns: Route 53 DNS Management Center
 
-> **PROPOSED — does not exist yet.** Nothing in this brief is implemented today.
-> Verified: there is no `route53` / `Hosted_Zone` / `Route53__Client` reference
-> anywhere under `sg_compute_specs/`, `sg_compute/`, or
-> `sgraph_ai_service_playwright__cli/`. The `sgraph_ai_service_playwright__cli/aws/`
-> directory exists but contains only `Stack__Naming.py` — a shared helper, not
-> a CLI Typer surface. There is no `sg aws` command group registered anywhere
-> today (the top-level `sg` Typer root is at `scripts/provision_ec2.py:769` —
-> verified). There is no `sg_compute_specs/platform/` tier today either, and
-> no `sg_image_builder/` package anywhere in the repo (verified).
+> **✅ SHIPPED on `claude/add-cf-route53-support-sqeck` — 2026-05-15.** P0 + P1 + P1.5 + post-P1.5 ergonomics all live (136 unit tests passing). The reality-doc page is [`team/roles/librarian/reality/v0.1.31/16__sg-aws-dns-and-acm.md`](../../../../../roles/librarian/reality/v0.1.31/16__sg-aws-dns-and-acm.md). Per-slice debriefs live under `team/claude/debriefs/2026-05-15__sg-aws-dns-*.md`. **Open questions remaining:** Q9 (DNS-01 vs HTTP-01 for the §12 cert sidecar) — PENDING.
+>
+> **Not shipped from this brief:** §12 ADDENDUM (per-instance HTTPS cert workflow — Path A `sg playwright vault re-cert` and Path B ACM-cert issuance), `acm list --all-regions`, ACM mutations (`request` / `delete`). The bigger CF + Route 53 + ACM plan at `team/humans/dinis_cruz/claude-code-web/05/15/03/architect__vault-app__cf-route53__plan.md` was also not started — it can now consume the `Route53__AWS__Client` / `ACM__AWS__Client` / `Route53__Zone__Resolver` primitives shipped here rather than defining its own.
+>
+> The text below preserves the original plan (rev 6) for historical reference.
 
 ---
 
