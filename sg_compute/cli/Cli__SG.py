@@ -98,6 +98,11 @@ from sg_compute_specs.vault_app.cli.Cli__Vault_App import app as _vault_app_app
 app.add_typer(_vault_app_app, name='vault-app', help='Ephemeral Vault App EC2 stacks.')
 app.add_typer(_vault_app_app, name='va',        hidden=True)
 
+# ── vault-publish ─────────────────────────────────────────────────────────────
+from sg_compute_specs.vault_publish.cli.Cli__Vault_Publish import app as _vault_publish_app
+app.add_typer(_vault_publish_app, name='vault-publish', help='Subdomain-routing for vault-app stacks.')
+app.add_typer(_vault_publish_app, name='vp',            hidden=True)
+
 # ── vnc ──────────────────────────────────────────────────────────────────────
 from scripts.vnc import app as _vnc_app
 app.add_typer(_vnc_app, name='vnc',          help='Ephemeral VNC (chromium + nginx + mitmproxy) EC2 stacks.')
