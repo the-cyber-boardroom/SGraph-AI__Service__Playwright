@@ -35,14 +35,27 @@ def load_prompt(prompt: str, input_file: Optional[str]) -> str:                 
     return text.strip()
 
 
-def resolve_prompt(positional: Optional[str], option: Optional[str], input_file: Optional[str]) -> str:
-    """Resolve the prompt from positional arg, --prompt option, or --input file.
-    Positional and --prompt are equivalent — if both are given, --prompt wins
-    (explicit option beats implicit argument). Errors cleanly if nothing usable.
+def resolve_prompt(positional, option: Optional[str], input_file: Optional[str]) -> str:
+    """Resolve the prompt from positional words, --prompt option, or --input file.
+
+    `positional` may be a list/tuple of words (from a variadic Typer
+    Argument — `nova hello world` → ['hello', 'world']) OR a single string
+    (legacy form). Multi-word lists are joined back into a single prompt
+    so users can type either:
+        nova "what is your model?"     (quoted)
+        nova what is your model?        (unquoted, multi-word)
+        nova --prompt "..."             (explicit option)
+
+    If both positional and --prompt are given, --prompt wins.
+    Errors cleanly if no prompt and no --input file.
     """                                                                          # inline
-    prompt = option or positional
+    if isinstance(positional, (list, tuple)):
+        positional_str = ' '.join(positional) if positional else ''
+    else:
+        positional_str = positional or ''
+    prompt = option or positional_str
     if not prompt and not input_file:
-        _console.print('[red]Provide a prompt as a positional argument, '
+        _console.print('[red]Provide a prompt as positional words, '
                        '--prompt/-p TEXT, or --input FILE.[/]')
         raise typer.Exit(1)
     return load_prompt(prompt or '', input_file)

@@ -17,6 +17,8 @@
 #           command line so the top-level @app.callback() fires (Open-5).
 # ═══════════════════════════════════════════════════════════════════════════════
 
+import shlex
+
 import typer.main
 from rich.console                                                                   import Console
 from osbot_utils.type_safe.Type_Safe                                                import Type_Safe
@@ -197,7 +199,13 @@ def run_repl(sg_app=None):
         if not line:
             continue
 
-        parts = line.split()
+        try:
+            parts = shlex.split(line, posix=True)                       # respect quoted strings: `nova "what is your model?"` → ['nova', 'what is your model?']
+        except ValueError:                                              # mismatched quotes etc — fall back to naive split + warn
+            console.print('  [dim yellow](note: unclosed quote — falling back to naive whitespace split)[/]')
+            parts = line.split()
+        if not parts:
+            continue
         cmd   = parts[0]
 
         if cmd in repl.exit_words:

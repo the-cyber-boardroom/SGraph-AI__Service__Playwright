@@ -5,7 +5,7 @@
 # Positional PROMPT and --prompt/-p are equivalent; --prompt wins if both given.
 # ═══════════════════════════════════════════════════════════════════════════════
 
-from typing                                                                      import Optional
+from typing                                                                      import List, Optional
 
 import typer
 
@@ -16,7 +16,7 @@ def register_llama(app: typer.Typer) -> None:
 
     @app.command('llama')
     def chat_llama(
-        prompt_arg   : Optional[str]   = typer.Argument(None,                       help='Prompt text (alternative to --prompt).'),
+        prompt_arg   : Optional[List[str]] = typer.Argument(None,                   help='Prompt text — quoted or as multiple words (alternative to --prompt).'),
         prompt       : Optional[str]   = typer.Option(None,  '--prompt', '-p',     help='Prompt text.'),
         model        : str             = typer.Option('default', '--model', '-m',  help='Model alias: 3.1, 4-scout (default), 4-maverick.'),
         input_file   : Optional[str]   = typer.Option(None, '--input',             help='Path to a file whose content is appended to the prompt.'),

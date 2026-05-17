@@ -6,7 +6,7 @@
 # Positional PROMPT and --prompt/-p are equivalent; --prompt wins if both given.
 # ═══════════════════════════════════════════════════════════════════════════════
 
-from typing                                                                      import Optional
+from typing                                                                      import List, Optional
 
 import typer
 
@@ -17,7 +17,7 @@ def register_claude(app: typer.Typer) -> None:
 
     @app.command('claude')
     def chat_claude(
-        prompt_arg   : Optional[str]   = typer.Argument(None,                       help='Prompt text (alternative to --prompt).'),
+        prompt_arg   : Optional[List[str]] = typer.Argument(None,                   help='Prompt text — quoted or as multiple words (alternative to --prompt).'),
         prompt       : Optional[str]   = typer.Option(None,  '--prompt', '-p',     help='Prompt text.'),
         model        : str             = typer.Option('default', '--model', '-m',  help='Model alias: opus-4.7, sonnet-4.6, haiku-4.5, etc. Default: haiku-3.5.'),
         input_file   : Optional[str]   = typer.Option(None, '--input',             help='Path to a file whose content is appended to the prompt.'),

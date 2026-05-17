@@ -6,7 +6,7 @@
 # Positional PROMPT and --prompt/-p are equivalent; --prompt wins if both given.
 # ═══════════════════════════════════════════════════════════════════════════════
 
-from typing                                                                      import Optional
+from typing                                                                      import List, Optional
 
 import typer
 
@@ -17,7 +17,7 @@ def register_any(app: typer.Typer) -> None:
 
     @app.command('any')
     def chat_any(
-        prompt_arg   : Optional[str]   = typer.Argument(None,                       help='Prompt text (alternative to --prompt).'),
+        prompt_arg   : Optional[List[str]] = typer.Argument(None,                   help='Prompt text — quoted or as multiple words (alternative to --prompt).'),
         prompt       : Optional[str]   = typer.Option(None,  '--prompt',   '-p',   help='Prompt text.'),
         provider     : str             = typer.Option(...,   '--provider',         help='Provider key: claude, nova, llama, openai, other.'),
         model        : str             = typer.Option('default', '--model', '-m',  help='Model alias. Omit for the provider default.'),
