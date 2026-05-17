@@ -13,6 +13,7 @@ Read the latest entry at the start of every session before reading [`DAILY_RUN.m
 | Date | Version | Reviews / domain updates | Summary |
 |------|---------|--------------------------|---------|
 | 2026-05-02 | v0.1.140 | `reality/index.md` (NEW), `reality/changelog.md` (NEW), `reality/README.md` (rewritten), `reality/host-control/` (NEW domain — pilot), `DAILY_RUN.md` (NEW), this log (NEW) | Reality refactor: introduced 10-domain fractal tree, migrated `host-control/` as pilot, seeded daily-run backlog with B-001 … B-012. |
+| 2026-05-17 | v0.2.25 | `reviews/05/17/v0.2.25__ontology-and-taxonomy-proposal.md` (NEW) | Researched sgai-send + sgai-tools librarian patterns; audited reality fragmentation, brief sprawl (4 homes), and oversized docs; proposed 7-kind ontology + taxonomy with phased migration plan (M-001..M-012). Non-destructive; awaits human ratification. |
 
 ---
 
