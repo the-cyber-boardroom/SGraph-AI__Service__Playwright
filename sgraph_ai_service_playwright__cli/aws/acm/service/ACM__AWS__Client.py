@@ -26,13 +26,13 @@ from botocore.exceptions                                                        
 from osbot_utils.type_safe.Type_Safe                                                 import Type_Safe
 from osbot_utils.type_safe.type_safe_core.decorators.type_safe                       import type_safe
 
+from sgraph_ai_service_playwright__cli.aws._shared.Aws__Region__Resolver                  import Aws__Region__Resolver
 from sgraph_ai_service_playwright__cli.aws.acm.collections.List__Schema__ACM__Certificate import List__Schema__ACM__Certificate
 from sgraph_ai_service_playwright__cli.aws.acm.enums.Enum__ACM__Cert_Status               import Enum__ACM__Cert_Status
 from sgraph_ai_service_playwright__cli.aws.acm.enums.Enum__ACM__Cert_Type                 import Enum__ACM__Cert_Type
 from sgraph_ai_service_playwright__cli.aws.acm.schemas.Schema__ACM__Certificate           import Schema__ACM__Certificate
 
-FALLBACK_REGION = 'eu-west-1'                                                        # Default region when boto3 session has no configured region
-US_EAST_1       = 'us-east-1'                                                        # CloudFront certs must live here — always included in dual-region scan
+US_EAST_1 = 'us-east-1'                                                              # CloudFront certs must live here — always included in dual-region scan
 
 
 class ACM__AWS__Client(Type_Safe):                                                   # Isolated boto3 boundary for ACM read operations
@@ -40,9 +40,8 @@ class ACM__AWS__Client(Type_Safe):                                              
     def client(self, region: str = None):                                             # Single seam — tests override to return a fake client
         return boto3.client('acm', region_name=region or self.current_region())
 
-    def current_region(self) -> str:                                                  # Returns the configured boto3 region, falling back to eu-west-1
-        region = boto3.session.Session().region_name
-        return region if region else FALLBACK_REGION
+    def current_region(self) -> str:
+        return str(Aws__Region__Resolver().resolve())
 
     @type_safe
     def list_certificates(self, region: str = None) -> List__Schema__ACM__Certificate:  # Paginate ACM certs + describe each; region field filled from param

@@ -3,21 +3,16 @@
 # Sole boto3 boundary for the Bedrock control-plane API (service name 'bedrock').
 # Used for list-models only (list_foundation_models).
 #
-# Note: boto3.session.Session() is used in current_region() for config reading
-# only — no client calls bypass Sg__Aws__Session.
 # ═══════════════════════════════════════════════════════════════════════════════
-
-import boto3                                                                     # used only in current_region() for config reading
 
 from osbot_utils.type_safe.Type_Safe                                             import Type_Safe
 
+from sgraph_ai_service_playwright__cli.aws._shared.Aws__Region__Resolver               import Aws__Region__Resolver
 from sgraph_ai_service_playwright__cli.aws.bedrock.collections.List__Schema__Bedrock__Model import List__Schema__Bedrock__Model
 from sgraph_ai_service_playwright__cli.aws.bedrock.enums.Enum__Bedrock__Provider             import Enum__Bedrock__Provider
 from sgraph_ai_service_playwright__cli.aws.bedrock.primitives.Safe_Str__Bedrock__Model_Id    import Safe_Str__Bedrock__Model_Id
 from sgraph_ai_service_playwright__cli.aws.bedrock.schemas.Schema__Bedrock__Model            import Schema__Bedrock__Model
 from sgraph_ai_service_playwright__cli.credentials.service.Sg__Aws__Session                  import Sg__Aws__Session
-
-FALLBACK_REGION = 'us-east-1'
 
 
 class Bedrock__Control__AWS__Client(Type_Safe):
@@ -32,9 +27,8 @@ class Bedrock__Control__AWS__Client(Type_Safe):
         self.setup()
         return self.session.boto3_client_from_context('bedrock', region=region or self.current_region())
 
-    def current_region(self) -> str:                                             # Returns the boto3 configured region, falling back to us-east-1
-        region = boto3.session.Session().region_name
-        return region if region else FALLBACK_REGION
+    def current_region(self) -> str:
+        return str(Aws__Region__Resolver().resolve())
 
     def list_models(self, region: str = None, provider_filter: str = None) -> List__Schema__Bedrock__Model:
         effective_region = region or self.current_region()

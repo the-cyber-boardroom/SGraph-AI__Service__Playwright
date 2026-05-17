@@ -6,22 +6,17 @@
 # 'bedrock-agentcore' namespaces. When the AgentCore Python SDK stabilises,
 # replace the boto3 surface here — CLI signatures stay unchanged.
 #
-# Note: boto3.session.Session() is used in current_region() for config reading
-# only — no client calls bypass Sg__Aws__Session.
 # ═══════════════════════════════════════════════════════════════════════════════
-
-import boto3                                                                     # used only in current_region() for config reading
 
 from botocore.exceptions                                                         import ClientError
 from osbot_utils.type_safe.Type_Safe                                             import Type_Safe
 
+from sgraph_ai_service_playwright__cli.aws._shared.Aws__Region__Resolver                              import Aws__Region__Resolver
 from sgraph_ai_service_playwright__cli.aws.bedrock.collections.List__Schema__Bedrock__Tool__Session import List__Schema__Bedrock__Tool__Session
 from sgraph_ai_service_playwright__cli.aws.bedrock.enums.Enum__Bedrock__Tool__Type                  import Enum__Bedrock__Tool__Type
 from sgraph_ai_service_playwright__cli.aws.bedrock.primitives.Safe_Str__Bedrock__Session_Id         import Safe_Str__Bedrock__Session_Id
 from sgraph_ai_service_playwright__cli.aws.bedrock.schemas.Schema__Bedrock__Tool__Session           import Schema__Bedrock__Tool__Session
 from sgraph_ai_service_playwright__cli.credentials.service.Sg__Aws__Session                         import Sg__Aws__Session
-
-FALLBACK_REGION = 'us-east-1'
 
 
 class Bedrock__Tool__AWS__Client(Type_Safe):
@@ -33,8 +28,7 @@ class Bedrock__Tool__AWS__Client(Type_Safe):
         return self
 
     def current_region(self) -> str:
-        region = boto3.session.Session().region_name
-        return region if region else FALLBACK_REGION
+        return str(Aws__Region__Resolver().resolve())
 
     def agentcore_client(self, region: str = None):                              # AgentCore runtime client (browser + code-interpreter)
         self.setup()
