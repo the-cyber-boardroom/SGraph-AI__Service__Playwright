@@ -25,7 +25,10 @@ Eight new `sg aws *` Click trees, each backed by a folder under `sgraph_ai_servi
 | `bedrock` | `aws/bedrock/` | `SG_AWS__BEDROCK__ALLOW_MUTATIONS=1` (agent/tool only — `chat` is read-only) | `chat {claude,nova,llama,openai,any,list-models}`, `agent list/get/memory list`, `tool * session list/show` | `agent {create,invoke,stop,memory clear,tools add}`, `tool browser session {start,stop,navigate,click,screenshot}`, `tool code-interpreter session {start,stop,run}` |
 | `cloudtrail` | `aws/cloudtrail/` | none (read-only) | `events {list,show}`, `trail {list,show}` | — |
 | `creds` | `aws/creds/` | `SG_AWS__CREDS__ALLOW_MUTATIONS=1` (scope catalogue edits only) | `get`, `list-scopes`, `scope show`, `audit {list,show}` | `scope {add,remove,update}` (catalogue edits) |
-| `observe` | `aws/observability/` | none (read-only) | REPL: `sources`, `tail`, `query`, `stats`, `agent-trace`; one-shot equivalents | — |
+| `observe` | `aws/observe/` | none (read-only) | REPL: `sources`, `tail`, `query`, `stats`, `agent-trace`; one-shot equivalents | — |
+| `credentials` | `credentials/` (existing) → re-mounted under `sg aws credentials` by Foundation | none | `list/status/whoami/show/test/log/trace/init` | `add/set/switch/export/remove/delete` (already gated by interactive prompts) |
+
+**Note on folder name collisions (decision #14):** the new `aws/observe/` folder is deliberately named `observe` (not `observability/`) to avoid clashing with the existing top-level `__cli/observability/` package, which owns AMP / OpenSearch / Grafana **infrastructure** management — different semantics. The two packages coexist; a v0.2.30 hygiene pack absorbs the existing top-level package into a more specific name. Same coexistence rule applies to Slice B's `aws/ec2/` vs the existing top-level `__cli/ec2/`.
 
 ---
 
@@ -112,8 +115,15 @@ This is the precondition for Slice H's observability filters and for the future 
 A shared `Aws__Region__Resolver` (Foundation) applies the precedence:
 
 ```
---region <flag>  >  $AWS_REGION  >  bucket/resource region (when applicable)  >  $SG_AWS__DEFAULT_REGION  >  us-east-1
+--region <flag>
+  > $AWS_REGION
+  > active sg role's region (Sg__Aws__Context.get_current_role() → Schema__AWS__Role__Config.region)
+  > bucket/resource region (when applicable)
+  > $SG_AWS__DEFAULT_REGION
+  > us-east-1
 ```
+
+The "active sg role's region" tier is essential — `Sg__Aws__Session` already honours `Schema__AWS__Role__Config.region` when constructing the boto3 session, so the resolver must agree to avoid contradicting region between client construction and command-level region awareness.
 
 `sg aws acm list` keeps its existing "scan current + us-east-1" behaviour for CloudFront certs.
 
@@ -121,21 +131,24 @@ A shared `Aws__Region__Resolver` (Foundation) applies the precedence:
 
 ## 4. Where this slots into the reality doc
 
-The Librarian owns the reality-doc updates. Each sibling pack lists, in its `README.md` "Reality doc updates" section, the specific `team/roles/librarian/reality/<domain>/index.md` files it touches. Indicative:
+The Librarian owns the reality-doc updates. The actual reality-doc taxonomy is rooted at `team/roles/librarian/reality/`, with domains `cli/`, `security/`, `vault/`, `infra/`, etc. The new `sg aws X` surfaces live under the existing `cli/` domain (matching the precedent set by `cli/aws-dns.md` and `cli/observability.md`).
 
-| Sibling pack | Reality-doc domain(s) touched |
-|--------------|-------------------------------|
-| Foundation | `aws-and-infrastructure/`, `cli-and-orchestration/` |
-| S3 | `aws-and-infrastructure/s3.md` (NEW) |
-| EC2 | `aws-and-infrastructure/ec2.md` (NEW; supersedes the `scripts/provision_ec2.py` note) |
-| Fargate | `aws-and-infrastructure/fargate.md` (NEW) |
-| IAM graph | `aws-and-infrastructure/iam.md` (extension) |
-| Bedrock | `aws-and-infrastructure/bedrock.md` (NEW), `ai-and-models/` index extension |
-| CloudTrail | `aws-and-infrastructure/cloudtrail.md` (NEW), `security-and-audit/` index extension |
-| Scoped creds | `security-and-audit/credentials.md` (extension), `aws-and-infrastructure/iam.md` (cross-reference) |
-| Observability | `observability/` (NEW domain or extension of existing) |
+**Naming convention:** flat, one file per surface, prefixed `aws-`:
 
-Each pack updates the reality doc as part of its PR. The Librarian does the final reality-doc cross-reference sweep after the integration→dev merge.
+| Sibling pack | Reality-doc file |
+|--------------|------------------|
+| Foundation | `cli/aws.md` (NEW — overview of the `sg aws` namespace + the `_shared/` scaffold) |
+| S3 | `cli/aws-s3.md` (NEW) |
+| EC2 | `cli/aws-ec2.md` (NEW — for the `sg aws ec2` CLI surface; the existing `cli/ec2.md` continues to cover the FastAPI duality routes) |
+| Fargate | `cli/aws-fargate.md` (NEW) |
+| IAM graph | `cli/aws-iam.md` (NEW — covers the existing `aws/iam/` package + the new `graph/` sub-tree) |
+| Bedrock | `cli/aws-bedrock.md` (NEW) |
+| CloudTrail | `cli/aws-cloudtrail.md` (NEW) |
+| Scoped creds | `cli/aws-creds.md` (NEW) + cross-reference from `security/` index |
+| Credentials (re-mount) | `cli/aws-credentials.md` (NEW — supersedes any pointer that said `sg credentials`) |
+| Observability v1 | `cli/aws-observe.md` (NEW — read surface) — the existing `cli/observability.md` continues to cover the AMP/OpenSearch/Grafana infrastructure surface |
+
+Each pack updates the reality doc as part of its PR. The Librarian does the final reality-doc cross-reference sweep after the integration→dev merge. Sub-domain question (flat `cli/aws-X.md` vs sub-tree `cli/aws/X.md`) was settled on **flat** in the 2026-05-17 architect review — keeps consistency with existing `cli/aws-dns.md`.
 
 ---
 

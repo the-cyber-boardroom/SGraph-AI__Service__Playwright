@@ -9,9 +9,11 @@ parent:
   - team/humans/dinis_cruz/briefs/05/17/from__daily-briefs/
 related:
   - library/docs/cli/sg-aws/                                       # user-facing surface that exists today (v0.2.26)
-  - library/dev_packs/v0.2.28__sg-aws-lab-harness/                 # the lab harness pack this one mirrors in shape
+  - library/dev_packs/v0.2.28__sg-aws-credentials/                 # v0.2.28 mirror pack — same shape as this milestone
   - sgraph_ai_service_playwright__cli/credentials/                 # Sg__Aws__Session (the shared client seam)
-  - team/roles/librarian/reality/                                  # canonical reality doc — cross-check before describing anything below as built
+  - sgraph_ai_service_playwright__cli/ec2/                         # existing top-level ec2 pkg (FastAPI duality) — Slice B coexists with it
+  - sgraph_ai_service_playwright__cli/observability/               # existing top-level observability pkg (AMP/OS/AMG infra) — Slice H is the read surface beside it
+  - team/roles/librarian/reality/cli/                              # canonical reality-doc home for the new sg aws X surfaces (cli/aws-{s3,ec2,...}.md)
 feature_branch: claude/aws-primitives-support-uNnZY
 ---
 
@@ -131,6 +133,8 @@ These are settled. If any seems wrong, raise an Architect-review request — do 
 | 10 | **No vault-aware S3 wrappers (`s3 vault-open/sync/diff/ls`) in this milestone.** Those depend on the Vault Synchronizer Tool (13 May brief) and ship together in a v0.2.30 vault-S3 pack. | Out of scope. |
 | 11 | **No container hosts primitive (`sg-compute container-host/container`) in this milestone.** That's its own substrate work that uses the EC2 primitive Slice B delivers. Separate v0.2.30 pack. | Distinct workstream. |
 | 12 | **No instance-sizing measurement programme in this milestone.** That's a measurement programme built on top of the EC2 primitive Slice B delivers. Separate v0.2.30 pack. | Distinct workstream. |
+| 13 | **`sg credentials` re-mounts under `sg aws credentials` in the Foundation PR.** The existing top-level `sg credentials` mount stays as a **hidden alias** (no `--help` exposure) for one release; v0.2.30 drops the alias. This makes the v0.2.28 store reachable from the same namespace tree as Slice G's `sg aws creds` (scoped/temporary) so the user-guide `08__credentials.md` matches the actual command surface. | Resolves the `sg credentials` vs `sg aws credentials` vs `sg aws creds` naming confusion called out in the architect review (2026-05-17 §1.3). |
+| 14 | **Slice B (EC2) coexists with the existing top-level `__cli/ec2/` package.** That package powers the FastAPI duality (`Routes__Ec2__Playwright` on `Fast_API__SP__CLI`), supplies `default_playwright_image_uri()` / `default_sidecar_image_uri()` to Docker/Firefox specs, and owns the existing `Ec2__AWS__Client`. The new `__cli/aws/ec2/` **imports** `Ec2__AWS__Client` from the existing location rather than reinventing it. A v0.2.30 hygiene pack consolidates the two locations. Same coexistence rule applies if any other slice finds a pre-existing top-level package (e.g. Slice H vs `__cli/observability/` — different semantics, both stay). | Smallest blast radius; matches the precedent set by `aws/cf/` coexisting with `sg_compute_specs/vault_publish/`'s CF helpers. See architect review §1.1 + §1.2. |
 
 ---
 
@@ -161,7 +165,7 @@ sg aws
 
 Before any sibling pack picks up its slice:
 
-- [ ] All 12 locked decisions accepted by Dinis
+- [ ] All 14 locked decisions accepted by Dinis
 - [ ] Foundation `02__common-foundation.md` reviewed by Dev — confirms it can be one PR
 - [ ] `03__sonnet-orchestration-plan.md` reviewed — sibling pack boundaries are independent
 - [ ] Feature branch `claude/aws-primitives-support-uNnZY` is current with `dev`

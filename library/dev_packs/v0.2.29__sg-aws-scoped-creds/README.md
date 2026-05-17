@@ -14,7 +14,7 @@ feature_branch: claude/aws-primitives-support-uNnZY-creds
 
 Local scoped-credential delivery via STS AssumeRole. Each command requests the privileges it needs, gets temporary credentials, performs the action, and the credentials expire. **Phase 1 + Phase 2 only** — local service with vault-stored scope catalogue. Phase 5 (deployed service) and Phase 6 (audit dashboard) defer to v0.2.30.
 
-> **PROPOSED — does not exist yet.** Cross-check `team/roles/librarian/reality/security-and-audit/` before describing anything here as built.
+> **PROPOSED — does not exist yet.** Cross-check `team/roles/librarian/reality/security/` and `cli/aws-creds.md` before describing anything here as built.
 
 ---
 
@@ -73,6 +73,16 @@ Deferred to v0.2.30:
 ├── scopes/<scope-name>.json             # one file per scope (Schema__Scope__Definition)
 └── audit/<YYYY-MM>/assumptions.jsonl    # monthly assumption logs
 ```
+
+**Vault writer integration:** the layout above is realised via `sg_compute/vault/Vault__Spec__Writer` (the BV2.9 canonical writer) — `Creds__Catalogue__Vault__Writer` wraps it and registers `aws-creds-catalogue` as a vault namespace, then maps the on-disk layout to the writer's `(namespace, stack_id, handle, bytes)` interface. Same translation pattern as Bedrock's `Bedrock__Vault__Writer`.
+
+### API stability commitment (Phase 1 → Phase 5)
+
+The Phase 5 swap from "local service" to "deployed service" must be a server swap, not a client rewrite. To enforce that:
+
+- `sg aws creds get --scope <name>` returns `Schema__Scoped__Credentials` with fields `{access_key, secret_key, session_token, expiration, scope, role_arn, request_id}`. **This shape is frozen by this slice** — Phase 5 cannot add required fields or change types.
+- The local `Aws__Caller__Identity__Local.resolve()` returns the same `Schema__Caller__Identity` shape that Phase 5's signed-request resolver will return. Optional fields (`signed_request_id`, `request_ip`) stay empty in Phase 1.
+- A `Test__Phase_5__Stability` test fixture composes a fake remote service over the same interface to prove the client code path is reusable.
 
 Each `scopes/<scope-name>.json` carries:
 
@@ -195,7 +205,7 @@ SG_AWS__CREDS__INTEGRATION=1 pytest tests/integration/sgraph_ai_service_playwrig
 4. Initial scope catalogue seed (5 scopes minimum): `iam:read-only`, `lambda:list`, `s3:read:specific:sg-test-bucket`, `route53:read-only`, `cloudtrail:read-only`. Committed to the dev vault as part of the PR.
 5. New user-guide page `library/docs/cli/sg-aws/15__creds.md` — must clearly distinguish `sg aws creds` (this slice, scoped STS) from `sg aws credentials` (existing, long-lived keys)
 6. One row added to `library/docs/cli/sg-aws/README.md` "at-a-glance command map"
-7. Reality-doc update: extend `team/roles/librarian/reality/security-and-audit/credentials.md` + cross-reference from `aws-and-infrastructure/iam.md`
+7. Reality-doc update: new `team/roles/librarian/reality/cli/aws-creds.md` + cross-reference from `security/` index and from `cli/aws-iam.md`
 
 ---
 

@@ -14,7 +14,7 @@ feature_branch: claude/aws-primitives-support-uNnZY-s3
 
 S3 absorbed into the type-safe SG `sg aws *` surface, including the vim round-trip edit flow the recent vim-from-CLI capability unlocked.
 
-> **PROPOSED — does not exist yet.** Cross-check `team/roles/librarian/reality/aws-and-infrastructure/` before describing anything here as built.
+> **PROPOSED — does not exist yet.** Cross-check `team/roles/librarian/reality/cli/` (look for `cli/aws-*.md`) before describing anything here as built.
 
 ---
 
@@ -188,7 +188,14 @@ SG_AWS__S3__TEST_BUCKET=sg-test-bucket-<unique> \
 3. Integration tests under `tests/integration/sgraph_ai_service_playwright__cli/aws/s3/` (gated on `SG_AWS__S3__TEST_BUCKET`)
 4. New user-guide page `library/docs/cli/sg-aws/09__s3.md` (~6-7 KB, same shape as `07__lambda.md`)
 5. One row added to `library/docs/cli/sg-aws/README.md` "at-a-glance command map"
-6. Reality-doc update: new `team/roles/librarian/reality/aws-and-infrastructure/s3.md` marked `LANDED — v0.2.29`
+6. Reality-doc update: new `team/roles/librarian/reality/cli/aws-s3.md` marked `LANDED — v0.2.29`
+7. **Migration of the four existing direct-boto3 S3 callers** to the new `S3__AWS__Client`:
+   - `sgraph_ai_service_playwright__cli/elastic/lets/cf/consolidate/service/S3__Object__Writer.py`
+   - `sgraph_ai_service_playwright__cli/elastic/lets/cf/events/service/S3__Object__Fetcher.py`
+   - `sgraph_ai_service_playwright__cli/elastic/lets/cf/inventory/service/S3__Inventory__Lister.py`
+   - `sgraph_ai_service_playwright__cli/elastic/lets/cf/sg_send/service/SG_Send__File__Viewer.py`
+
+   These break CLAUDE.md rule #14 (no direct `boto3`) today. Migrate them in the same PR so the slice ships with the rule-compliant baseline; existing `elastic` tests must keep passing. If the migration is judged too risky for one PR, ship Slice A with the migration explicitly carved out and a v0.2.30 follow-up issue filed — be explicit about the deferral in the PR description.
 
 ---
 

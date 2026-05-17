@@ -14,7 +14,7 @@ feature_branch: claude/aws-primitives-support-uNnZY-iam-graph
 
 The IAM-as-graph treatment: discover all roles/policies/trust relationships into a vault-stored graph snapshot, then provide CLI filters and a bulk-delete workflow for cleanup. **Phase 1 + Phase 3 only** per the source brief — evidence-driven recommendations (Phase 4) and lockdown rollout (Phases 5-6) defer to v0.2.30.
 
-> **PROPOSED — does not exist yet.** Cross-check `team/roles/librarian/reality/aws-and-infrastructure/iam.md` before describing anything here as built.
+> **PROPOSED — does not exist yet.** Cross-check `team/roles/librarian/reality/cli/aws-iam.md` before describing anything here as built.
 
 ---
 
@@ -48,7 +48,22 @@ Explicitly deferred to v0.2.30:
 
 ## What you own
 
-**Folder:** `sgraph_ai_service_playwright__cli/aws/iam/graph/` (new sub-folder of existing `aws/iam/`; Foundation ships the skeleton)
+**Folder:** `sgraph_ai_service_playwright__cli/aws/iam/graph/` — new sub-folder of the existing `aws/iam/` package (which today has `cli/`, `service/`, `templates/`). Concrete layout:
+
+```
+aws/iam/                                         (EXISTS)
+├── cli/Cli__Iam.py                              ← existing — Foundation adds `iam_app.add_typer(graph_app, name='graph')` here
+├── service/IAM__AWS__Client.py / IAM__Policy__Auditor.py / IAM__Trust_Policy__Builder.py    ← existing
+└── graph/                                       (NEW — Foundation skeleton, this slice fills in)
+    ├── cli/Cli__Iam__Graph.py                   ← graph_app Typer group
+    ├── service/IAM__Graph__Builder.py / IAM__Graph__Walker.py / IAM__Graph__Filter.py / IAM__Graph__Cleanup.py
+    ├── schemas/                                 ← Schema__IAM__Graph__Node, ...Edge, ...Snapshot, ...Cleanup__Plan
+    ├── enums/                                   ← Enum__IAM__Node_Kind, Enum__IAM__Edge_Kind
+    ├── primitives/                              ← Safe_Str__IAM__Snapshot_Id, Safe_Str__IAM__Node_Id
+    └── collections/                             ← List__IAM__Graph__Node, Dict__IAM__Graph__Edge
+```
+
+The graph package reuses the existing `IAM__AWS__Client` for IAM reads (`list_roles`, `get_role`, `list_role_policies`, etc.) — does not reinvent it. New IAM-mutating verbs (`graph delete`) extend the existing client where needed.
 
 ### Verbs (`sg aws iam graph ...`)
 
@@ -162,7 +177,7 @@ Acceptance criterion from the source brief (§Acceptance #5): "At least 30% of A
 4. New user-guide page `library/docs/cli/sg-aws/12__iam-graph.md`
 5. Update `library/docs/cli/sg-aws/06__iam.md` with a forward-pointer to the `graph` sub-tree
 6. One row added to `library/docs/cli/sg-aws/README.md` "at-a-glance command map"
-7. Reality-doc update: extend `team/roles/librarian/reality/aws-and-infrastructure/iam.md`
+7. Reality-doc update: extend `team/roles/librarian/reality/cli/aws-iam.md`
 
 ---
 

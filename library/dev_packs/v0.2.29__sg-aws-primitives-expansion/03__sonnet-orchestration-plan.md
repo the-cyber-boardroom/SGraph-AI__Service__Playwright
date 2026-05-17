@@ -63,7 +63,7 @@ Each sibling pack owns:
 - **One per-namespace mutation-gate env var** (Foundation owns the decorator; each slice passes its env-var string)
 - **Its own subset of the CLI verb tree** — Foundation locked the top-level `add_typer` registration in `Cli__Aws.py`, so slices only add verbs to their own `Cli__<Surface>.py` skeleton
 - **One new user-guide page under `library/docs/cli/sg-aws/`**
-- **Its own reality-doc update** under `team/roles/librarian/reality/aws-and-infrastructure/`
+- **Its own reality-doc update** under `team/roles/librarian/reality/cli/` (new `cli/aws-<surface>.md`)
 
 Files no sibling slice edits:
 
@@ -147,7 +147,7 @@ Constraints (non-negotiable):
 When done:
   1. Run the acceptance sequence in your sibling pack's README
   2. Update the user-guide page (library/docs/cli/sg-aws/<NN>__<surface>.md) — required deliverable
-  3. Update the reality-doc entry under team/roles/librarian/reality/aws-and-infrastructure/
+  3. Update the reality-doc entry — create team/roles/librarian/reality/cli/aws-<surface>.md and flip the matching row in team/roles/librarian/reality/cli/aws.md (umbrella) from PROPOSED to LANDED
   4. Commit with the message template in the brief
   5. Push to claude/aws-primitives-support-uNnZY-<slice-suffix>
   6. Open a PR against claude/aws-primitives-support-uNnZY
@@ -241,6 +241,6 @@ When this milestone closes (v0.2.29 release):
 - All eight acceptance sequences from the sibling packs pass green
 - The G-Final cross-surface integration suite passes green
 - `library/docs/cli/sg-aws/` has 16 user-guide pages (1 README + `01..16__*.md`)
-- The reality doc at `team/roles/librarian/reality/aws-and-infrastructure/` lists all eight new surfaces as `LANDED — v0.2.29`
+- The reality doc at `team/roles/librarian/reality/cli/` (new `cli/aws-<surface>.md`) lists all eight new surfaces as `LANDED — v0.2.29`
 - A debrief at `team/claude/debriefs/v0.2.29__sg-aws-primitives-expansion.md` lists the good-failures and bad-failures from each slice (one bullet per slice minimum)
 - The follow-up v0.2.30 packs are scaffolded: vault-aware-S3, container-hosts, instance-sizing, Bedrock-kb/guardrail/eval, IAM-graph-phase-4, scoped-creds-Phase-5-deployment, observability-product-analytics

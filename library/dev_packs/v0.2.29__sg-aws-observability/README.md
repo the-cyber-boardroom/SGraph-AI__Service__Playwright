@@ -16,7 +16,15 @@ feature_branch: claude/aws-primitives-support-uNnZY-observability
 
 The unified-observability v1 REPL: a single interactive session that knows how to talk to S3, CloudWatch Logs, and CloudTrail uniformly via the Foundation-shipped `Source__Contract`. Plus one cross-source feature (`agent-trace`) and one-shot equivalents for scripting.
 
-> **PROPOSED — does not exist yet.** Cross-check `team/roles/librarian/reality/` before describing anything here as built.
+> **PROPOSED — does not exist yet.** Cross-check `team/roles/librarian/reality/cli/` (look for `cli/aws-observe.md`) before describing anything here as built.
+
+### Coexistence with existing `__cli/observability/` (locked decision #14)
+
+There is already a top-level package `sgraph_ai_service_playwright__cli/observability/` (~310 LOC) — different semantics: it manages the **infrastructure that stores observability data** (Amazon Managed Prometheus workspaces, OpenSearch domains, Amazon Managed Grafana workspaces) via `Observability__AWS__Client` + `Observability__Service`. Slice H is the **read surface** over the data already there.
+
+That's why this slice lives at `aws/observe/` (not `aws/observability/`) — the folder name matches the CLI verb (`sg aws observe`) and avoids the package-name clash. The existing `__cli/observability/` keeps its AMP/OpenSearch/AMG infrastructure CRUD role; the two are complementary, not competing. A v0.2.30 hygiene pack can rename the existing package to `aws/observability-infra/` once Slice H is stable.
+
+The existing `aws/logs/` package (CloudWatch Logs Insights — `Logs__AWS__Client.filter_events / tail_events / start_query`) is the **CloudWatch source** for Slice H; the adapter is `CloudWatch__Source__Adapter` wrapping that client. No new boto3 calls needed for that adapter.
 
 ---
 
@@ -39,7 +47,7 @@ Two:
 
 ## What you own
 
-**Folder:** `sgraph_ai_service_playwright__cli/aws/observability/` (Foundation ships the skeleton; you fill in the bodies)
+**Folder:** `sgraph_ai_service_playwright__cli/aws/observe/` (Foundation ships the skeleton; you fill in the bodies)
 
 ### Entry point
 
@@ -105,7 +113,7 @@ Output: a unified timeline rendered as a Rich table (or NDJSON for `--json`).
 ## Production files (indicative)
 
 ```
-aws/observability/
+aws/observe/
 ├── cli/
 │   ├── Cli__Observe.py
 │   └── verbs/
@@ -171,8 +179,8 @@ ls <vault-root>/observability/sessions/                                 # → ca
 sg aws observe replay <vault-root>/observability/sessions/<session>     # re-runs the queries
 
 # tests
-pytest tests/unit/sgraph_ai_service_playwright__cli/aws/observability/ -v
-SG_AWS__OBSERVE__INTEGRATION=1 pytest tests/integration/sgraph_ai_service_playwright__cli/aws/observability/ -v
+pytest tests/unit/sgraph_ai_service_playwright__cli/aws/observe/ -v
+SG_AWS__OBSERVE__INTEGRATION=1 pytest tests/integration/sgraph_ai_service_playwright__cli/aws/observe/ -v
 ```
 
 Acceptance criterion from the source brief: "the 'what was happening when X failed?' question is answerable in under 5 minutes." Validated against one real past incident as part of the integration acceptance — the operator runs the REPL against a known-bad time window and the report lives in the v0.2.29 debrief.
@@ -181,12 +189,12 @@ Acceptance criterion from the source brief: "the 'what was happening when X fail
 
 ## Deliverables
 
-1. All files under `aws/observability/` per the layout above
-2. Unit tests under `tests/unit/sgraph_ai_service_playwright__cli/aws/observability/` (in-memory adapters)
-3. Integration tests under `tests/integration/sgraph_ai_service_playwright__cli/aws/observability/` (gated; uses real S3 + CloudWatch + CloudTrail backends)
+1. All files under `aws/observe/` per the layout above
+2. Unit tests under `tests/unit/sgraph_ai_service_playwright__cli/aws/observe/` (in-memory adapters)
+3. Integration tests under `tests/integration/sgraph_ai_service_playwright__cli/aws/observe/` (gated; uses real S3 + CloudWatch + CloudTrail backends)
 4. New user-guide page `library/docs/cli/sg-aws/16__observe.md`
 5. One row added to `library/docs/cli/sg-aws/README.md` "at-a-glance command map"
-6. Reality-doc update: new `team/roles/librarian/reality/observability/index.md` (may need a new domain) or extend `aws-and-infrastructure/`
+6. Reality-doc update: new `team/roles/librarian/reality/cli/aws-observe.md` (the existing `cli/observability.md` continues to cover the AMP/OpenSearch/Grafana infrastructure surface)
 
 ---
 
