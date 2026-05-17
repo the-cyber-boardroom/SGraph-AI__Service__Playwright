@@ -36,16 +36,19 @@ Numbers are sequential within a prefix and **never reused**, even if a task is c
 | `M-001b` | Refresh `library/catalogue/README.md` (version, endpoint count, pointers) | ✅ DONE 2026-05-17 | Librarian | this branch |
 | `M-001c` | Create `reality/verified-by.md` | ✅ DONE 2026-05-17 | Librarian | this branch |
 | `M-001d` | Create this registry | ✅ DONE 2026-05-17 | Librarian | this branch |
-| `M-002` | Archive flat `v0.1.{12,13,24,29}__what-exists-today.md` + `v0.1.31/` to `reality/_archive/` | 🟡 IN PROGRESS | Librarian | this branch |
-| `M-003` | Create per-domain `index.md` for 9 unmigrated domains | 🟡 IN PROGRESS | Librarian | this branch |
-| `M-004` | Split `reality/sg-compute/index.md` (545 lines) into sub-files | 🟡 IN PROGRESS | Librarian | this branch |
-| `M-005` | Roll out `proposed/index.md` to all 11 domains | 🟡 IN PROGRESS | Librarian | this branch |
-| `M-006a` | Rename `library/briefing/` → `library/onboarding/`; update all inbound links | 🟡 IN PROGRESS | Librarian | this branch |
-| `M-006b` | Move `sg_compute/brief/` → `team/comms/briefs/v0.1.162__sg-compute/` | 🟡 IN PROGRESS | Librarian | this branch |
-| `M-007a` | Refresh `library/catalogue/` — 8 live shards, `_snapshots/v0.2.25/`, `_archive/` | 🟡 IN PROGRESS | Librarian | this branch |
-| `M-007b` | Split `library/docs/specs/v0.20.55__schema-catalogue-v2.md` (1,439 lines) | 🟡 IN PROGRESS | Librarian | this branch |
-| `M-007c` | Split `library/docs/specs/v0.20.55__routes-catalogue-v2.md` (1,234 lines) | 🟡 IN PROGRESS | Librarian | this branch |
-| `M-007d` | Strip `═══` H1 banner blocks from the 3 v0.20.55 catalogue specs | 🟡 IN PROGRESS | Librarian | this branch |
+| `M-002` | Archive flat `v0.1.{12,13,24,29}__what-exists-today.md` + `v0.1.31/` to `reality/_archive/` | ✅ DONE 2026-05-17 | Librarian | this branch |
+| `M-003` | Create per-domain `index.md` for 9 unmigrated domains (cli/ split into 4 subareas) | ✅ DONE 2026-05-17 | Librarian | this branch |
+| `M-004` | Split `reality/sg-compute/index.md` (545 lines) into 6 sub-files + cover sheet | ✅ DONE 2026-05-17 | Librarian | this branch |
+| `M-005` | Roll out `proposed/index.md` to all 11 domains | ✅ DONE 2026-05-17 | Librarian | this branch |
+| `M-006a` | Rename `library/briefing/` → `library/onboarding/`; update all inbound links | ✅ DONE 2026-05-17 | Librarian | this branch |
+| `M-006b` | Move `sg_compute/brief/` → `team/comms/briefs/v0.2.25__sg-compute/` | ✅ DONE 2026-05-17 | Librarian | this branch |
+| `M-007a` | Refresh `library/catalogue/` — 8 live shards, `_snapshots/v0.2.25/`, `_archive/` | ✅ DONE 2026-05-17 | Librarian | this branch |
+| `M-007b` | Split `library/docs/specs/v0.20.55__schema-catalogue-v2.md` (1,439 lines) | ✅ DONE 2026-05-17 | Librarian | this branch |
+| `M-007c` | Split `library/docs/specs/v0.20.55__routes-catalogue-v2.md` (1,234 lines) | ✅ DONE 2026-05-17 | Librarian | this branch |
+| `M-007d` | Strip `═══` H1 banner blocks from the 3 v0.20.55 catalogue specs | ✅ DONE 2026-05-17 | Librarian | this branch |
+| `M-013` | Reconcile endpoint count discrepancy (CLAUDE.md says 25, wired routes total 23) | ❌ NOT STARTED | Librarian + Architect | next session |
+| `M-014` | VERIFY markers in domain indexes — reconcile against post-BV2.11/BV2.12 deletions of `sgraph_ai_service_playwright/` and `agent_mitmproxy/` packages | ❌ NOT STARTED | Librarian | next session |
+| `M-015` | Resolve 19 broken links surfaced by Agent E in `catalogue/findings.md` | ❌ NOT STARTED | Librarian | next session |
 | `M-008` | Health scan (continuous) — broken-link walk, naming-violation report | ❌ NOT STARTED | Librarian | weekly cadence |
 | `M-009` | Pointer-log entry per code-affecting commit (continuous) | 🟢 ONGOING | Librarian | per session |
 | `M-010` | Refresh `verified-by.md` (continuous) | 🟢 ONGOING | Librarian | per session |
@@ -58,7 +61,7 @@ Numbers are sequential within a prefix and **never reused**, even if a task is c
 |---|---|---|---|
 | `INC-001` | `sg-*` security-group prefix rejected by AWS `CreateSecurityGroup` | pre-2026-05 | CLAUDE.md rule #14 (precedent: `scripts/provision_ec2.py:83`) |
 | `INC-002` | AWS Name tag double-prefix (`elastic-elastic-quiet-fermi`) | pre-2026-05 | CLAUDE.md rule #15 |
-| `INC-003` | Oversized Python files: `scripts/{provision_ec2.py (2510 LOC), elastic.py (1335), elastic_lets.py (1210)}`, `sgraph_ai_service_playwright__cli/aws/dns/cli/Cli__Dns.py (1248)`, and `sgraph_ai_service_playwright__cli/firefox/cli/__init__.py (552 — violates rule #22)` | 2026-05-17 | Surfaced in ontology-proposal §1.5; filed per Q6 ratification. Out of Librarian scope to refactor — flagged to Dev. |
+| `INC-003` | Oversized Python files: `scripts/{provision_ec2.py (2510 LOC), elastic.py (1335), elastic_lets.py (1210)}`, `sgraph_ai_service_playwright__cli/aws/dns/cli/Cli__Dns.py (1248)`. Rule #22 violations in `__init__.py`: `sgraph_ai_service_playwright__cli/firefox/cli/__init__.py (552 LOC)`, `sg_compute_specs/open_design/cli/__init__.py (228 LOC)`, `sgraph_ai_service_playwright__cli/neko/cli/__init__.py (225 LOC)`. Suspicious: `sg_compute_specs/playwright/core/fast_api/routes/Routes__Index.py (612 LOC — likely inlined HTML); `team/humans/dinis_cruz/briefs/05/17/.../sg_lab_mvp.py (851 LOC — SCRATCH-grade Python in a brief folder)`. | 2026-05-17 | Surfaced in ontology-proposal §1.5 + catalogue/findings.md; filed per Q6 ratification. Out of Librarian scope to refactor — flagged to Dev. Updated with 2 new `__init__.py` violations + 2 suspicious files surfaced by Agent E. |
 
 ### Backlog (`B-NNN`)
 

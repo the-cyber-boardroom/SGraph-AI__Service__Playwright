@@ -26,17 +26,17 @@ When code lands, the author updates the relevant domain's `index.md` in the same
 
 | Domain | Directory | What it covers | Status |
 |--------|-----------|----------------|--------|
-| **Playwright service** | [`playwright-service/`](playwright-service/index.md) | Core FastAPI service, routes, schemas, Step__Executor, Browser__Launcher, capability profiles | TBD — migrate from `v0.1.31/01__playwright-service.md` |
-| **agent_mitmproxy** | [`agent-mitmproxy/`](agent-mitmproxy/index.md) | Sibling package (mitmproxy admin FastAPI, addons, reverse-proxied UI) | TBD — migrate from `v0.1.31/02__agent-mitmproxy-sibling.md` |
-| **CLI** | [`cli/`](cli/index.md) | `sp-cli` Typer command + `Fast_API__SP__CLI` (the duality) — observability, EC2, catalog, vault, lets | TBD — migrate from `v0.1.31/06,07,09__*.md` and `v0.1.31/10,11,12__lets-cf-*.md` |
-| **Host Control Plane** | [`host-control/`](host-control/index.md) | `sgraph_ai_service_playwright__host` package — container runtime abstraction, shell executor, Routes__Host__* | DONE — pilot migration (this slice) |
-| **UI** | [`ui/`](ui/index.md) | Static-site dashboard — `sp-cli-*` web component family, plugins, fractal-UI rebuild | TBD — migrate from `v0.1.31/13,14,15__*.md` |
-| **Vault** | [`vault/`](vault/index.md) | Vault primitives, `Vault__Plugin__Writer`, per-plugin namespaced writes | TBD — seed from recent commits (post-fractal-UI brief 04) |
-| **LETS** | [`lets/`](lets/index.md) | Log Event Tracking System: CF inventory + events + consolidate slices | TBD — migrate from `v0.1.31/10,11,12__lets-cf-*.md` |
-| **Infra** | [`infra/`](infra/index.md) | Docker images, CI/CD, ECR, Lambda deploy, EC2 provisioning, observability stack | TBD — migrate from `v0.1.31/03__docker-and-ci.md`, `v0.1.31/08__sp-cli-lambda-deploy.md` |
-| **QA** | [`qa/`](qa/index.md) | Tests (unit, integration, deploy-via-pytest), smoke tests, test inventory | TBD — migrate from `v0.1.31/04__tests.md` |
-| **Security** | [`security/`](security/index.md) | JS expression allowlist, vault-key hygiene, security-group naming, AppSec rules | TBD — extract cross-cutting items from CLAUDE.md and `v0.1.31/01__playwright-service.md` |
-| **SG/Compute** | [`sg-compute/`](sg-compute/index.md) | `sg_compute` SDK + `sg_compute_specs` catalogue — ephemeral EC2 nodes, spec contract, helpers layer | PLACEHOLDER — seeded in phase-1 (B1); full content lands in phase-2 (B2) |
+| **Playwright service** | [`playwright-service/`](playwright-service/index.md) | Core FastAPI service, routes, schemas, Step__Executor, Browser__Launcher, capability profiles | ✅ MIGRATED |
+| **agent_mitmproxy** | [`agent-mitmproxy/`](agent-mitmproxy/index.md) | Sibling package (mitmproxy admin FastAPI, addons, reverse-proxied UI) | ✅ MIGRATED |
+| **CLI** | [`cli/`](cli/index.md) | `sp-cli` Typer command + `Fast_API__SP__CLI` (the duality) — observability, EC2, catalog, vault, lets | ✅ MIGRATED (split: `duality.md` / `ec2.md` / `observability.md` / `aws-dns.md`) |
+| **Host Control Plane** | [`host-control/`](host-control/index.md) | `sgraph_ai_service_playwright__host` package — container runtime abstraction, shell executor, Routes__Host__* | ✅ MIGRATED (pilot) |
+| **UI** | [`ui/`](ui/index.md) | Static-site dashboard — `sp-cli-*` web component family, plugins, fractal-UI rebuild | ✅ MIGRATED |
+| **Vault** | [`vault/`](vault/index.md) | Vault primitives, `Vault__Spec__Writer` (formerly `Vault__Plugin__Writer`), per-spec namespaced writes | ✅ MIGRATED |
+| **LETS** | [`lets/`](lets/index.md) | Log Event Tracking System: CF inventory + events + consolidate slices | ✅ MIGRATED |
+| **Infra** | [`infra/`](infra/index.md) | Docker images, CI/CD, ECR, Lambda deploy, EC2 provisioning, observability stack | ✅ MIGRATED |
+| **QA** | [`qa/`](qa/index.md) | Tests (unit, integration, deploy-via-pytest), smoke tests, test inventory | ✅ MIGRATED |
+| **Security** | [`security/`](security/index.md) | JS expression allowlist, vault-key hygiene, security-group naming, AppSec rules | ✅ MIGRATED |
+| **SG/Compute** | [`sg-compute/`](sg-compute/index.md) | `sg_compute` SDK + `sg_compute_specs` catalogue — ephemeral EC2 nodes, spec contract, helpers layer | ✅ MIGRATED |
 
 Each domain directory contains:
 
@@ -46,35 +46,16 @@ Each domain directory contains:
 
 ---
 
-## Status (as of 2026-05-02)
+## Status (as of 2026-05-17)
 
 | Metric | Value |
 |--------|-------|
-| Code version | v0.1.140 |
+| Code version | v0.2.25 |
 | Domains in master map | 11 |
-| Domains migrated to new format | 1 (`host-control/` — pilot) |
-| Domains still on v0.1.31 split | 9 |
+| Domains migrated to new format | **11 of 11** |
 | Old version-stamped monoliths archived | 4 (`v0.1.13`, `v0.1.24`, `v0.1.29`, plus `v0.1.31/` directory) |
 
-The migration from version-stamped files to the domain tree is staged. See [`team/roles/librarian/DAILY_RUN.md`](../DAILY_RUN.md) backlog for the per-domain queue. Until each domain is migrated, the corresponding `v0.1.31/NN__*.md` file remains the authoritative source for that area.
-
----
-
-## Migration shim — current sources of truth
-
-| Domain | Authoritative source while migration pending |
-|--------|------------------------------------------------|
-| Playwright service | [`v0.1.31/01__playwright-service.md`](_archive/v0.1.31/01__playwright-service.md) |
-| agent_mitmproxy | [`v0.1.31/02__agent-mitmproxy-sibling.md`](_archive/v0.1.31/02__agent-mitmproxy-sibling.md) |
-| CLI | [`v0.1.31/06__sp-cli-duality-refactor.md`](_archive/v0.1.31/06__sp-cli-duality-refactor.md), [`07`](_archive/v0.1.31/07__sp-cli-ec2-fastapi.md), [`09`](_archive/v0.1.31/09__sp-cli-observability-routes.md), [`13`](_archive/v0.1.31/13__sp-cli-linux-docker-elastic-catalog-ui.md) (catalog routes) |
-| UI | [`v0.1.31/13`](_archive/v0.1.31/13__sp-cli-linux-docker-elastic-catalog-ui.md), [`14`](_archive/v0.1.31/14__sp-cli-ui-sg-layout-vnc-wiring.md), [`15`](_archive/v0.1.31/15__sp-cli-ui-dev-agent-dashboard.md) |
-| LETS | [`v0.1.31/10`](_archive/v0.1.31/10__lets-cf-inventory.md), [`11`](_archive/v0.1.31/11__lets-cf-events.md), [`12`](_archive/v0.1.31/12__lets-cf-consolidate.md) |
-| Infra | [`v0.1.31/03__docker-and-ci.md`](_archive/v0.1.31/03__docker-and-ci.md), [`v0.1.31/08__sp-cli-lambda-deploy.md`](_archive/v0.1.31/08__sp-cli-lambda-deploy.md) |
-| QA | [`v0.1.31/04__tests.md`](_archive/v0.1.31/04__tests.md) |
-| Vault | (no v0.1.31 slice — seed from `sgraph_ai_service_playwright__cli/vault/` and post-fractal-UI brief 04) |
-| Security | (cross-cutting — extract from CLAUDE.md rules + `v0.1.31/01__playwright-service.md` allowlist section) |
-
-Cross-cutting proposed surface today lives in [`v0.1.31/05__proposed.md`](_archive/v0.1.31/05__proposed.md) — the migration distributes it into per-domain `proposed/index.md` files.
+Cross-cutting proposed items from `_archive/v0.1.31/05__proposed.md` are distributed across the per-domain `proposed/index.md` files. Each domain's `proposed/` uses `P-N` IDs scoped to that domain.
 
 ---
 
