@@ -2,7 +2,7 @@
 title: "01 — Scope and architecture"
 file: 01__scope-and-architecture.md
 author: Architect (Claude)
-date: 2026-05-17 (rev 2)
+date: 2026-05-17 (rev 3 — v0.2.29 + DNS deep-dive)
 parent: README.md
 ---
 
@@ -140,6 +140,8 @@ sgraph_ai_service_playwright__cli/aws/lab/
 
 **No `temp_clients/` folder** (rev 2). Per decision #2, the lab uses real primitives — `Route53__AWS__Client` for P0+P1; `Lambda__AWS__Client` and `CloudFront__AWS__Client` for P2+P3 once v2 vault-publish phases 2b/2a expand them.
 
+**Rev 3 — significant shrinkage from `_shared/` reuse.** The v0.2.29 `_shared/` scaffold (Mutation__Gate, Aws__Confirm, Aws__Tagger, Aws__Region__Resolver, Source__Contract, primitives, schemas, enums) means the lab does NOT need its own `Enum__Lab__Tier`, `Safe_Str__Lab__Resource_Id`, `Safe_Str__Timestamp`, or `Enum__Lab__Tag__Key` files. Those slots are filled by `_shared/`. See `02__common-foundation.md §0` for the full inheritance table.
+
 Full per-file breakdown is in `lab-brief/05 §1`, with the per-file *naming* corrected per delta `B.3` (no `E01__` numeric prefix — files are named after their classes, e.g. `Lab__Experiment__Zone_Inventory.py`). ~40 production files + ~30 test files, ~7000 total lines (~800 lower than rev 1 after dropping temp-clients).
 
 **Empty `__init__.py` everywhere.** Callers import the per-class fully-qualified path. No re-exports. (CLAUDE.md rule #22.)
@@ -176,18 +178,30 @@ Tier-2 also requires `--tier-2-confirm` (or an interactive `y/N`).
 
 ---
 
-## 8. Primitive dependencies (NOT this pack's scope)
+## 8. Primitive dependencies (NOT this pack's scope) and v0.2.29 inheritance
+
+### CF / Lambda primitive expansion — v2's job
 
 The lab harness needs capabilities `sg aws cf` and `sg aws lambda` don't have today (`distribution update`, `distribution invalidate`, `distribution origin-group`, `<name> alias`, `<name> permissions`, etc.). Per Dinis's 2026-05-17 decision (delta `B.5`), **these expansions belong to v2 vault-publish phases 2a (CF) and 2b (Lambda), NOT the lab milestone.**
 
-What this means for the lab:
-
 - **Agents A and E never need any primitive expansion.** They ship as soon as the foundation merges.
-- **Agent B (Lambda experiments) waits for v2 phase 2b** to ship `sg aws lambda` expansion verbs the experiments need (alias, permissions, deploy-from-image).
-- **Agent C (CloudFront experiments) waits for v2 phase 2a** to ship `sg aws cf` expansion verbs (update, invalidate, origin-group, tags, oac).
+- **Agent B (Lambda experiments) waits for v2 phase 2b** to ship `sg aws lambda` expansion verbs.
+- **Agent C (CloudFront experiments) waits for v2 phase 2a** to ship `sg aws cf` expansion verbs.
 - **Agent D (transition / composite) waits for A + B + C** as before.
 
-The lab also adopts the **v0.2.28 `Sg__Aws__Session` seam** for every AWS call — see decision #6 in the README. Once the per-service-client migration completes (v0.2.28 plan §3.4, ongoing), the lab transparently picks up role-aware credentials, CloudTrail-correlatable session names, and the audit-log integration.
+### v0.2.29 inheritance (LANDED — the lab uses these directly)
+
+The lab inherits a substantial scaffold from v0.2.29:
+
+- **`_shared/`** — Mutation__Gate, Aws__Confirm, Aws__Tagger, Aws__Region__Resolver, Source__Contract, plus shared primitives/schemas/enums. The lab is built ON these (per Decision #9).
+- **`sg aws ec2`** + `EC2__AWS__Client` + `EC2__Name__Resolver` — used by `Lab__Teardown__EC2` (Agent C).
+- **`sg aws creds`** (Slice G) — scoped STS used by E33's in-tree `lab_internal_caller` Lambda (Agent B).
+- **`sg aws observe`** (Slice H) — read-only lab experiments register as observe sources via `Lab__Source__Adapter` (Decision #10).
+- **`sg aws iam graph`** (Slice D) — `Iam__Graph__Cleanup` is available for IAM teardown if needed.
+
+### Credentials seam
+
+The lab also adopts the **v0.2.28 `Sg__Aws__Session` seam** indirectly: the 9 v0.2.29 clients carry HCD-1 session+setup and route through `Sg__Aws__Session`; the 7 legacy clients (R53, Lambda, CF, IAM, ACM, Logs, Cost Explorer) still use bare boto3 (migration tracked in v0.2.28 plan §3.4). The lab inherits whatever each client does today. **Platform caveat:** keyring is macOS-only — see `02 §8`.
 
 ---
 

@@ -2,9 +2,9 @@
 title: "05 — Agent B — Lambda experiments (P2)"
 file: 05__agent-B__lambda-experiments.md
 author: Architect (Claude)
-date: 2026-05-17 (rev 2)
+date: 2026-05-17 (rev 3 — sg aws creds integration)
 parent: README.md
-size: M (medium) — ~1200 prod lines, ~500 test lines, ~1.5 days
+size: M (medium) — ~1100 prod lines, ~500 test lines, ~1.5 days
 depends_on: Foundation PR + v2 vault-publish phase 2b (sg aws lambda expansion)
 mandatory_reading:
   - team/humans/dinis_cruz/claude-code-web/05/17/00/v0.2.23__plan__vault-publish-spec/03__delta-from-lab-brief.md  # §B.1 — §B.7
@@ -101,6 +101,7 @@ class Lab__Experiment__Lambda__Cold_Start(Lab__Experiment):
 - **Reserved concurrency must be set.** Every lab Lambda gets `reserved_concurrency=2` to cap blast radius if a lab Lambda recurses. Apply this via the v2-shipped `sg aws lambda <name> concurrency set` verb in `Lab__Teardown__Lambda`'s create-counterpart helper.
 - **Function URLs must be NONE auth for lab use.** That's the whole point — measure the public path. Per decision Q6 (RESOLVED via v0.2.23 plan Q8) `auth_type='NONE'` is the lab default. The lab Lambda is torn down in <1 hour so the risk is bounded.
 - **Streaming-mode requires a separate Lambda config.** E32 needs two Lambdas (BUFFERED + RESPONSE_STREAM) — don't try to toggle on one.
+- **Use `sg aws creds` for E33's internal STS call (NEW in rev 3).** `lab_internal_caller` Lambda (the in-tree Lambda that times an internal `upsert_record` call from within Lambda for E33) should fetch scoped, time-limited credentials via the v0.2.29 `sg aws creds get` flow (Slice G) rather than rely on the lab Lambda's execution role having broad Route 53 permissions. The execution role gets `sts:AssumeRole` only; the actual Route53 permissions come from the scoped session. Tighter blast radius if a lab Lambda misbehaves.
 
 ---
 

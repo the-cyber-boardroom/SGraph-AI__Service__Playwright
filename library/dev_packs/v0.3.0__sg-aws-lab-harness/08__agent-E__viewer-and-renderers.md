@@ -2,7 +2,7 @@
 title: "08 — Agent E — Viewer + diff + HTML renderers (P5)"
 file: 08__agent-E__viewer-and-renderers.md
 author: Architect (Claude)
-date: 2026-05-17 (rev 2)
+date: 2026-05-17 (rev 3 — coexist with sg aws observe)
 parent: README.md
 size: S (small) — ~700 prod lines, ~300 test lines, ~1 day
 depends_on: Foundation PR (no dependency on A/B/C/D)
@@ -55,6 +55,17 @@ The viewer reads from `.sg-lab/runs/<run-id>/result.json`. The result JSON files
 You don't care which agent produced a particular `result.json` — your viewer reads them all. You can develop and test against synthetic `result.json` files you write yourself.
 
 This means **Agent E can ship before any of A/B/C/D have written a single experiment.** Empty `.sg-lab/runs/` should render as "no runs yet" — write tests for that.
+
+---
+
+## Coexistence with `sg aws observe` (rev 3)
+
+v0.2.29 shipped `sg aws observe` — a unified observability REPL with `tail / query / stats / agent-trace / replay` verbs over arbitrary `Source__Contract` adapters. **Two boundary rules:**
+
+1. **READ-ONLY experiments are also observe sources** (per Decision #10). The foundation's `Lab__Source__Adapter` registers every read-only experiment with `sg aws observe`'s `Source__Registry`. The viewer in this slice does NOT need to also surface those — operators can `sg aws observe tail lab:resolver-latency` for live data.
+2. **The viewer's job is HISTORICAL results + diff + waterfall** — what's in `.sg-lab/runs/`. That's what `sg aws observe replay` *doesn't* do (observe replay is generic stream replay, not result-schema-walking diff). The viewer and observe-replay coexist; do not try to fold one into the other.
+
+If your `serve` command finds itself reimplementing tail-and-stats functionality, **stop** — that belongs in observe. Push read-only experiment data through `Lab__Source__Adapter` instead.
 
 ---
 
