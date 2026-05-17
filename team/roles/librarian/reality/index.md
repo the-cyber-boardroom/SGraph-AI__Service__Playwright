@@ -1,6 +1,6 @@
 # Reality — Master Index
 
-**Version:** v0.2.28 | **Last updated:** 2026-05-17 (PM sync — v0.2.29 `sg aws` slices merged into dev) | **Maintained by:** Librarian (daily run)
+**Version:** v0.2.30 (in-progress) | **Last updated:** 2026-05-17 (Open-2 — 91 raw-str schema fields → Safe_Str typed primitives, 6 AWS surfaces) | **Maintained by:** Librarian (daily run)
 **Structure:** Domain tree — each domain has its own directory with `index.md` and `proposed/`
 
 This file is the entry point. Read it to find the right domain, then go to that domain's `index.md` for EXISTS details and `proposed/index.md` for PROPOSED items.

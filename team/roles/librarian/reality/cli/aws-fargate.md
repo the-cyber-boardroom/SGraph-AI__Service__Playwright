@@ -4,7 +4,7 @@ file: aws-fargate.md
 domain: cli
 author: Dev (Claude)
 date: 2026-05-17
-status: CURRENT — shipped in v0.2.29 (Slice C)
+status: CURRENT — shipped in v0.2.29 (Slice C); updated v0.2.30 Open-2 (typed primitives)
 ---
 
 # Reality — `sg aws fargate`
@@ -37,7 +37,16 @@ sgraph_ai_service_playwright__cli/aws/fargate/
 └── primitives/
     ├── Safe_Str__ECS__Cluster__Name.py
     ├── Safe_Str__ECS__Task__ARN.py
-    └── Safe_Str__ECS__Task__Definition.py
+    ├── Safe_Str__ECS__Task__Definition.py
+    ├── Safe_Str__ECS__Cluster_Arn.py        — REPLACE, allow_empty (full cluster ARN)
+    ├── Safe_Str__ECS__Status.py             — REPLACE, allow_empty (ACTIVE/INACTIVE/…)
+    ├── Safe_Str__ECS__Task__Family.py       — REPLACE, allow_empty (task family name)
+    ├── Safe_Str__ECS__Task__Def_Arn.py      — REPLACE, allow_empty (full task-def ARN)
+    ├── Safe_Str__ECS__CPU.py                — REPLACE, allow_empty (e.g. "256")
+    ├── Safe_Str__ECS__Memory.py             — REPLACE, allow_empty (e.g. "512")
+    ├── Safe_Str__ECS__Timestamp.py          — REPLACE, allow_empty (ISO-8601 from ECS)
+    ├── Safe_Str__ECS__Stop_Reason.py        — REPLACE, allow_empty (free-form stop reason)
+    └── Safe_Str__ECS__Group.py              — REPLACE, allow_empty (task group string)
 ```
 
 ### Commands
@@ -81,6 +90,13 @@ All 35 unit tests pass (no mocks, no patches).
 ### Docs
 
 - `library/docs/cli/sg-aws/11__fargate.md` — user guide
+
+### v0.2.30 Open-2 — schema fields typed
+
+All previously raw `str` fields in Fargate schemas now use typed primitives:
+- `Schema__ECS__Cluster`: `cluster_arn → Safe_Str__ECS__Cluster_Arn`, `status → Safe_Str__ECS__Status`
+- `Schema__ECS__Task`: `last_status`, `desired_status → Safe_Str__ECS__Status`; `started_at`, `stopped_at → Safe_Str__ECS__Timestamp`; `stopped_reason → Safe_Str__ECS__Stop_Reason`; `group → Safe_Str__ECS__Group`
+- `Schema__ECS__Task__Definition`: `family → Safe_Str__ECS__Task__Family`; `task_def_arn → Safe_Str__ECS__Task__Def_Arn`; `status → Safe_Str__ECS__Status`; `cpu → Safe_Str__ECS__CPU`; `memory → Safe_Str__ECS__Memory`
 
 ## What does NOT exist
 

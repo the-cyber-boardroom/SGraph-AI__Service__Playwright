@@ -3,7 +3,7 @@ title: "Reality — cli/aws-creds"
 file: aws-creds.md
 author: Dev (Claude)
 date: 2026-05-17
-status: LIVE — implemented in v0.2.29 Slice G
+status: LIVE — implemented in v0.2.29 Slice G; updated v0.2.30 Open-2 (typed primitives)
 parent: cli/index.md
 ---
 
@@ -53,6 +53,14 @@ Registered in `Cli__Aws` as `app.add_typer(creds_app, name='creds')` (pending re
 | `schemas/Schema__Creds__Scope.py` | name, role_arn, max_ttl, created_at |
 | `schemas/Schema__Creds__Assumption.py` | assumption_id, scope_name, role_arn, caller, assumed_at, expires_at, access_key_id, session_token |
 | `schemas/Schema__Creds__Export.py` | access_key_id, secret_access_key, session_token, expiration, region |
+| `primitives/Safe_Str__Creds__Assumption_Id.py` | REPLACE, allow_empty — assumption UUID |
+| `primitives/Safe_Str__Creds__Scope_Name.py` | REPLACE, allow_empty — scope catalogue key |
+| `primitives/Safe_Str__Creds__Caller.py` | REPLACE, allow_empty — ARN from GetCallerIdentity |
+| `primitives/Safe_Str__Creds__Timestamp.py` | REPLACE, allow_empty — ISO-8601 string |
+| `primitives/Safe_Str__Creds__Access_Key_Id.py` | REPLACE, allow_empty — AWS AKIA… key |
+| `primitives/Safe_Str__Creds__Session_Token.py` | REPLACE, allow_empty — STS session token |
+| `primitives/Safe_Str__Creds__Secret_Access_Key.py` | REPLACE, allow_empty — AWS secret key |
+| `primitives/Safe_Str__Creds__Max_TTL.py` | REPLACE, allow_empty — e.g. `1h`, `30m` |
 | `collections/List__Schema__Creds__Scope.py` | Typed list of scopes |
 | `collections/List__Schema__Creds__Assumption.py` | Typed list of assumption records |
 
@@ -82,6 +90,13 @@ Total: 24 unit tests, all green.
 `tests/unit/sgraph_ai_service_playwright__cli/aws/creds/service/Creds__STS__Client__In_Memory.py`
 
 Both are real subclasses — no mocks, no patches.
+
+### v0.2.30 Open-2 — schema fields typed
+
+Previously all `str` fields in creds schemas were raw Python strings. Open-2 replaced them:
+- `Schema__Creds__Assumption`: `assumption_id`, `scope_name`, `caller`, `assumed_at`, `expires_at`, `access_key_id`, `session_token` → typed; `role_arn → Safe_Str__AWS__Role__ARN`
+- `Schema__Creds__Export`: `access_key_id`, `secret_access_key`, `session_token`, `expiration` → typed; `region → Safe_Str__AWS__Region`
+- `Schema__Creds__Scope`: `name`, `max_ttl`, `created_at` → typed; `role_arn → Safe_Str__AWS__Role__ARN`
 
 ---
 
