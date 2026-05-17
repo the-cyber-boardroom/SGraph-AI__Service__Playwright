@@ -46,17 +46,17 @@ console = Console()
 app = typer.Typer(name='ec2', help='EC2 instance management.', no_args_is_help=True)
 
 
-def _client() -> EC2__AWS__Client:
-    return EC2__AWS__Client()
+@app.callback()
+def _setup_ctx(ctx: typer.Context):
+    if ctx.obj is None:
+        ctx.obj = {}
+    ctx.obj.setdefault('ec2_client', EC2__AWS__Client())
+    ctx.obj.setdefault('ec2_resolver', EC2__Name__Resolver(ec2_client=ctx.obj['ec2_client']).setup())
 
 
-def _resolver() -> EC2__Name__Resolver:
-    return EC2__Name__Resolver(ec2_client=_client()).setup()
-
-
-def _resolve(target: str) -> str:                                              # Resolves <id-or-name> → concrete instance ID; exits 1 on error
+def _resolve(ctx: typer.Context, target: str) -> str:                          # Resolves <id-or-name> → concrete instance ID; exits 1 on error
     try:
-        return _resolver().resolve(target)
+        return ctx.obj['ec2_resolver'].resolve(target)
     except ValueError as exc:
         console.print(f'[red]{exc}[/red]')
         raise typer.Exit(1)
@@ -65,7 +65,8 @@ def _resolve(target: str) -> str:                                              #
 # ── list ──────────────────────────────────────────────────────────────────────
 
 @app.command('list')
-def ec2_list(state  : str  = typer.Option('all', '--state', '-s',
+def ec2_list(ctx    : typer.Context,
+             state  : str  = typer.Option('all', '--state', '-s',
                                            help='Filter by state: running, stopped, all.'),
              prefix : str  = typer.Option('',    '--prefix', '-p',
                                            help='Filter by Name tag prefix.'),
@@ -73,7 +74,7 @@ def ec2_list(state  : str  = typer.Option('all', '--state', '-s',
                                            help='Filter by tag K=V (repeatable).'),
              as_json: bool = typer.Option(False,  '--json', help='Output as JSON.')):
     """List EC2 instances, optionally filtered by state / name prefix / tags."""
-    client  = _client()
+    client  = ctx.obj['ec2_client']
     tf      = []
     for kv in tag:
         if '=' in kv:
@@ -110,11 +111,12 @@ def ec2_list(state  : str  = typer.Option('all', '--state', '-s',
 # ── describe ──────────────────────────────────────────────────────────────────
 
 @app.command('describe')
-def ec2_describe(target : str  = typer.Argument(..., help='Instance ID or Name tag.'),
+def ec2_describe(ctx    : typer.Context,
+                 target : str  = typer.Argument(..., help='Instance ID or Name tag.'),
                  as_json: bool = typer.Option(False, '--json', help='Output as JSON.')):
     """Show full detail for an EC2 instance."""
-    iid    = _resolve(target)
-    detail = _client().describe_instance(iid)
+    iid    = _resolve(ctx, target)
+    detail = ctx.obj['ec2_client'].describe_instance(iid)
     if detail is None:
         console.print(f'[red]Instance not found:[/red] {target}')
         raise typer.Exit(1)
@@ -173,10 +175,11 @@ def ec2_describe(target : str  = typer.Argument(..., help='Instance ID or Name t
 # ── ssh-info ──────────────────────────────────────────────────────────────────
 
 @app.command('ssh-info')
-def ec2_ssh_info(target: str = typer.Argument(..., help='Instance ID or Name tag.')):
+def ec2_ssh_info(ctx   : typer.Context,
+                 target: str = typer.Argument(..., help='Instance ID or Name tag.')):
     """Print SSH connection information (public DNS, key name, default user)."""
-    iid    = _resolve(target)
-    detail = _client().describe_instance(iid)
+    iid    = _resolve(ctx, target)
+    detail = ctx.obj['ec2_client'].describe_instance(iid)
     if detail is None:
         console.print(f'[red]Instance not found:[/red] {target}')
         raise typer.Exit(1)
@@ -200,7 +203,8 @@ def ec2_ssh_info(target: str = typer.Argument(..., help='Instance ID or Name tag
 # ── tags ──────────────────────────────────────────────────────────────────────
 
 @app.command('tags')
-def ec2_tags(target  : str       = typer.Argument(..., help='Instance ID or Name tag.'),
+def ec2_tags(ctx     : typer.Context,
+             target  : str       = typer.Argument(..., help='Instance ID or Name tag.'),
              add     : List[str] = typer.Option([], '--add',      help='Add tag K=V (repeatable, mutating).'),
              remove  : List[str] = typer.Option([], '--remove',   help='Remove tag by key (repeatable, mutating).'),
              clear   : bool      = typer.Option(False, '--clear',   help='Remove all tags (mutating).'),
@@ -215,8 +219,8 @@ def ec2_tags(target  : str       = typer.Argument(..., help='Instance ID or Name
             raise typer.Exit(1)
         if not confirm_or_abort(f'Modify tags on {target!r}?', yes=yes, dry_run=dry_run):
             raise typer.Exit(0)
-    iid    = _resolve(target)
-    client = _client()
+    iid    = _resolve(ctx, target)
+    client = ctx.obj['ec2_client']
     if clear:
         current = client.get_instance_tags(iid)
         client.remove_tags(iid, list(current.keys()))
@@ -248,11 +252,12 @@ def ec2_tags(target  : str       = typer.Argument(..., help='Instance ID or Name
 # ── instance-types ────────────────────────────────────────────────────────────
 
 @app.command('instance-types')
-def ec2_instance_types(family : str  = typer.Option('', '--family', '-f',
+def ec2_instance_types(ctx    : typer.Context,
+                       family : str  = typer.Option('', '--family', '-f',
                                                      help='Filter by family prefix, e.g. m5, t3.'),
                        as_json: bool = typer.Option(False, '--json', help='Output as JSON.')):
     """List EC2 instance types available in the current region."""
-    types = _client().list_instance_types(family=family)
+    types = ctx.obj['ec2_client'].list_instance_types(family=family)
     if as_json:
         typer.echo(json.dumps(types, indent=2))
         return
@@ -297,7 +302,8 @@ def ec2_pricing(instance_type: str  = typer.Argument(..., help='Instance type, e
 
 @app.command('create')
 @require_mutation_gate(_MUTATION_ENV)
-def ec2_create(name          : str       = typer.Option(...,   '--name',          help='Instance name (becomes Name tag).'),
+def ec2_create(ctx           : typer.Context,
+               name          : str       = typer.Option(...,   '--name',          help='Instance name (becomes Name tag).'),
                instance_type : str       = typer.Option(...,   '--instance-type', help='EC2 instance type.'),
                ami           : str       = typer.Option(...,   '--ami',           help='AMI ID or alias.'),
                key_pair      : str       = typer.Option('',    '--key-pair',      help='Key pair name.'),
@@ -339,7 +345,7 @@ def ec2_create(name          : str       = typer.Option(...,   '--name',        
         user_data        = user_data_content,
         wait_for_running = wait,
     )
-    client  = _client()
+    client  = ctx.obj['ec2_client']
     iid     = client.create_instance(request, extra_tags=sg_tags)
     if not iid:
         console.print('[red]Failed to create instance.[/red]')
@@ -359,14 +365,15 @@ def ec2_create(name          : str       = typer.Option(...,   '--name',        
 
 @app.command('start')
 @require_mutation_gate(_MUTATION_ENV)
-def ec2_start(target  : str  = typer.Argument(...,    help='Instance ID or Name tag.'),
+def ec2_start(ctx     : typer.Context,
+              target  : str  = typer.Argument(...,    help='Instance ID or Name tag.'),
               yes     : bool = typer.Option(False, '--yes',     help='Skip confirmation.'),
               dry_run : bool = typer.Option(False, '--dry-run', help='Print action without executing.')):
     """Start a stopped EC2 instance (requires SG_AWS__EC2__ALLOW_MUTATIONS=1)."""
     if not confirm_or_abort(f'Start instance {target!r}?', yes=yes, dry_run=dry_run):
         raise typer.Exit(0)
-    iid = _resolve(target)
-    _client().start_instance(iid)
+    iid = _resolve(ctx, target)
+    ctx.obj['ec2_client'].start_instance(iid)
     console.print(f'[green]Started[/green] {iid}')
 
 
@@ -374,14 +381,15 @@ def ec2_start(target  : str  = typer.Argument(...,    help='Instance ID or Name 
 
 @app.command('stop')
 @require_mutation_gate(_MUTATION_ENV)
-def ec2_stop(target  : str  = typer.Argument(...,    help='Instance ID or Name tag.'),
+def ec2_stop(ctx     : typer.Context,
+             target  : str  = typer.Argument(...,    help='Instance ID or Name tag.'),
              yes     : bool = typer.Option(False, '--yes',     help='Skip confirmation.'),
              dry_run : bool = typer.Option(False, '--dry-run', help='Print action without executing.')):
     """Stop a running EC2 instance (requires SG_AWS__EC2__ALLOW_MUTATIONS=1)."""
     if not confirm_or_abort(f'Stop instance {target!r}?', yes=yes, dry_run=dry_run):
         raise typer.Exit(0)
-    iid = _resolve(target)
-    _client().stop_instance(iid)
+    iid = _resolve(ctx, target)
+    ctx.obj['ec2_client'].stop_instance(iid)
     console.print(f'[green]Stopped[/green] {iid}')
 
 
@@ -389,33 +397,35 @@ def ec2_stop(target  : str  = typer.Argument(...,    help='Instance ID or Name t
 
 @app.command('terminate')
 @require_mutation_gate(_MUTATION_ENV)
-def ec2_terminate(target  : str  = typer.Argument(...,    help='Instance ID or Name tag.'),
+def ec2_terminate(ctx     : typer.Context,
+                  target  : str  = typer.Argument(...,    help='Instance ID or Name tag.'),
                   yes     : bool = typer.Option(False, '--yes',     help='Skip confirmation.'),
                   dry_run : bool = typer.Option(False, '--dry-run', help='Print action without executing.')):
     """Terminate an EC2 instance — irreversible (requires SG_AWS__EC2__ALLOW_MUTATIONS=1)."""
     if not confirm_or_abort(f'Terminate {target!r}? This is IRREVERSIBLE.', yes=yes, dry_run=dry_run):
         raise typer.Exit(0)
-    iid = _resolve(target)
-    _client().terminate_instance(iid)
+    iid = _resolve(ctx, target)
+    ctx.obj['ec2_client'].terminate_instance(iid)
     console.print(f'[green]Terminating[/green] {iid}')
 
 
 # ── wait ──────────────────────────────────────────────────────────────────────
 
 @app.command('wait')
-def ec2_wait(target  : str = typer.Argument(..., help='Instance ID or Name tag.'),
+def ec2_wait(ctx     : typer.Context,
+             target  : str = typer.Argument(..., help='Instance ID or Name tag.'),
              state   : str = typer.Option(...,   '--state', '-s',
                                                  help='Target state: running, stopped, terminated.'),
              timeout : int = typer.Option(300,   '--timeout', '-t',
                                                  help='Maximum seconds to wait (default: 300).')):
     """Block until an instance reaches the specified state."""
-    iid = _resolve(target)
+    iid = _resolve(ctx, target)
     try:
         target_state = Enum__EC2__Instance__State(state)
     except ValueError:
         console.print(f'[red]Unknown state:[/red] {state!r}. Use: running, stopped, terminated.')
         raise typer.Exit(1)
-    client = _client()
+    client = ctx.obj['ec2_client']
     console.print(f'Waiting for {iid} → [bold]{state}[/bold] (up to {timeout}s) …')
     waiter = EC2__Instance__Wait(ec2_client=client)
     ok     = waiter.wait(iid, target_state, timeout=timeout)
