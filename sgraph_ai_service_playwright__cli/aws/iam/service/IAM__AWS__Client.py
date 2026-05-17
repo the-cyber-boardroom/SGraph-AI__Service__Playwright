@@ -29,12 +29,20 @@ from sgraph_ai_service_playwright__cli.aws.iam.schemas.Schema__IAM__Role        
 from sgraph_ai_service_playwright__cli.aws.iam.schemas.Schema__IAM__Role__Create__Request  import Schema__IAM__Role__Create__Request
 from sgraph_ai_service_playwright__cli.aws.iam.schemas.Schema__IAM__Role__Create__Response import Schema__IAM__Role__Create__Response
 from sgraph_ai_service_playwright__cli.aws.iam.service.IAM__Trust_Policy__Builder   import IAM__Trust_Policy__Builder
+from sgraph_ai_service_playwright__cli.credentials.service.Sg__Aws__Session         import Sg__Aws__Session
 
 
 class IAM__AWS__Client(Type_Safe):
+    session : Sg__Aws__Session = None                                                # cached session — injected or lazy-init via setup()
+
+    def setup(self):                                                                 # idempotent — noop if session already set
+        if self.session is None:
+            self.session = Sg__Aws__Session.from_context()
+        return self
 
     def client(self):                                                                # Single seam — subclass overrides for in-memory tests
-        return boto3.client('iam')
+        self.setup()
+        return self.session.boto3_client_from_context('iam')
 
     # ── read ──────────────────────────────────────────────────────────────────
 
@@ -123,6 +131,16 @@ class IAM__AWS__Client(Type_Safe):
             self.client().put_role_policy(RoleName      = role_name,
                                           PolicyName    = policy_name,
                                           PolicyDocument= doc)
+            return True
+        except Exception:
+            return False
+
+    def put_raw_inline_policy(self, role_name: str, policy_name: str,
+                               policy_json: str) -> bool:
+        try:
+            self.client().put_role_policy(RoleName      = role_name,
+                                          PolicyName    = policy_name,
+                                          PolicyDocument= policy_json)
             return True
         except Exception:
             return False
