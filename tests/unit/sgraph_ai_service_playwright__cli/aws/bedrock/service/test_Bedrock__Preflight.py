@@ -181,10 +181,10 @@ class test_Bedrock__Preflight(TestCase):
         results = pf.run_all(region=FALLBACK_REGION)
         assert isinstance(results, List__Schema__Bedrock__Check__Result)
 
-    def test__run_all__has_8_results(self):
+    def test__run_all__has_11_results(self):
         pf      = self._make_preflight(_Control__WithModels())
         results = pf.run_all(region=FALLBACK_REGION)
-        assert len(results) == 8
+        assert len(results) == 11                                                # 8 original + 3 per-provider
 
     def test__run_all__each_result_is_schema(self):
         pf      = self._make_preflight(_Control__WithModels())
@@ -194,17 +194,63 @@ class test_Bedrock__Preflight(TestCase):
     def test__run_all__unsupported_region_skips_aws_checks(self):
         pf      = self._make_preflight(_Control__WithModels())
         results = pf.run_all(region='ca-west-1')
-        assert len(results) == 8
-        # check 2 must be FAIL
-        assert results[1].status == Enum__Bedrock__Check__Status.FAIL
-        # checks 3–7 must be WARN (skipped)
-        for r in results[2:7]:
+        assert len(results) == 11
+        assert results[1].status == Enum__Bedrock__Check__Status.FAIL   # check 2 must be FAIL
+        for r in results[2:10]:                                          # checks 3–10 must be WARN
             assert r.status == Enum__Bedrock__Check__Status.WARN
 
     def test__run_all__access_denied_skips_dependent_checks(self):
         pf      = self._make_preflight(_Control__AccessDenied())
         results = pf.run_all(region=FALLBACK_REGION)
-        assert len(results) == 8
+        assert len(results) == 11
         assert results[2].status == Enum__Bedrock__Check__Status.FAIL   # list-models perm
-        for r in results[3:7]:
+        for r in results[3:10]:
             assert r.status == Enum__Bedrock__Check__Status.WARN         # skipped
+
+    # ── per-provider default invokable ────────────────────────────────────────
+
+    def test__provider_default_invokable__claude_pass(self):
+        pf     = self._make_preflight(_Control__WithModels())
+        _, models  = pf.check_3__list_models_perm(FALLBACK_REGION)
+        _, enabled = pf.check_5__models_with_access(models, FALLBACK_REGION)
+        result = pf.check_provider_default_invokable('claude', FALLBACK_REGION, enabled)
+        assert result.status == Enum__Bedrock__Check__Status.PASS
+        assert 'claude default invokable' == result.check_name
+
+    def test__provider_default_invokable__nova_no_models_warns(self):
+        pf     = self._make_preflight(_Control__WithModels())
+        result = pf.check_provider_default_invokable('nova', FALLBACK_REGION, [])
+        assert result.status == Enum__Bedrock__Check__Status.WARN
+        assert 'nova default invokable' == result.check_name
+        assert 'skipped' in result.message
+
+    def test__provider_default_invokable__llama_no_models_warns(self):
+        pf     = self._make_preflight(_Control__WithModels())
+        result = pf.check_provider_default_invokable('llama', FALLBACK_REGION, [])
+        assert result.status == Enum__Bedrock__Check__Status.WARN
+        assert 'llama default invokable' == result.check_name
+
+    def test__provider_default_invokable__validation_error_fails(self):
+        class _Runtime__ValidationException(Bedrock__Runtime__AWS__Client):
+            def client(self, region=None):
+                class _Bad:
+                    def converse(self, **kw):
+                        raise Exception('ValidationException: The provided model identifier is invalid.')
+                return _Bad()
+            def current_region(self):
+                return FALLBACK_REGION
+
+        pf = self._make_preflight(_Control__WithModels(), runtime_client=_Runtime__ValidationException())
+        _, models  = pf.check_3__list_models_perm(FALLBACK_REGION)
+        _, enabled = pf.check_5__models_with_access(models, FALLBACK_REGION)
+        result = pf.check_provider_default_invokable('claude', FALLBACK_REGION, enabled)
+        assert result.status == Enum__Bedrock__Check__Status.FAIL
+        assert result.hint                                                       # actionable hint present
+
+    def test__run_all__check_names_include_per_provider(self):
+        pf      = self._make_preflight(_Control__WithModels())
+        results = pf.run_all(region=FALLBACK_REGION)
+        names   = [r.check_name for r in results]
+        assert 'claude default invokable' in names
+        assert 'nova default invokable'   in names
+        assert 'llama default invokable'  in names

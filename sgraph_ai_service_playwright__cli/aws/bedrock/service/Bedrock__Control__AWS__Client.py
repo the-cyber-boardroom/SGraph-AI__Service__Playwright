@@ -14,6 +14,8 @@ from sgraph_ai_service_playwright__cli.aws.bedrock.primitives.Safe_Str__Bedrock_
 from sgraph_ai_service_playwright__cli.aws.bedrock.schemas.Schema__Bedrock__Model            import Schema__Bedrock__Model
 from sgraph_ai_service_playwright__cli.credentials.service.Sg__Aws__Session                  import Sg__Aws__Session
 
+FALLBACK_REGION = 'us-east-1'                                                    # default for tests that need a stable region
+
 
 class Bedrock__Control__AWS__Client(Type_Safe):
     session : Sg__Aws__Session = None                                            # cached session — injected or lazy-init via setup()
