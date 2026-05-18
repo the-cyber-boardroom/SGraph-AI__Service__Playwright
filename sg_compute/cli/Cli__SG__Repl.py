@@ -19,6 +19,7 @@
 
 import shlex
 
+import click
 import typer.main
 from rich.console                                                                   import Console
 from osbot_utils.type_safe.Type_Safe                                                import Type_Safe
@@ -34,9 +35,13 @@ console = Console(highlight=False)
 def _click_node(sg_app, path):                                                  # walk the click command tree along path
     node = typer.main.get_command(sg_app)
     for segment in path:
-        if not hasattr(node, 'commands'):
+        if not hasattr(node, 'get_command'):
             return None
-        node = node.commands.get(segment)
+        try:
+            ctx  = click.Context(node)
+            node = node.get_command(ctx, segment)
+        except Exception:
+            return None
         if node is None:
             return None
     return node
@@ -44,9 +49,24 @@ def _click_node(sg_app, path):                                                  
 
 def _children(sg_app, path):                                                    # visible sub-commands at current path
     node = _click_node(sg_app, path)
-    if node and hasattr(node, 'commands'):
-        return {name for name, cmd in node.commands.items() if not cmd.hidden}
-    return set()
+    if node is None or not hasattr(node, 'list_commands'):
+        return set()
+    try:
+        ctx   = click.Context(node)
+        names = node.list_commands(ctx)
+        result = set()
+        for name in names:
+            try:
+                cmd = node.get_command(ctx, name)
+                if cmd is not None and not getattr(cmd, 'hidden', False):
+                    result.add(name)
+            except Exception:
+                result.add(name)                                                # include even if cmd lookup raises
+        return result
+    except Exception:
+        if hasattr(node, 'commands'):                                           # fallback for non-standard nodes
+            return {name for name, cmd in node.commands.items() if not cmd.hidden}
+        return set()
 
 
 def _is_group(sg_app, path):                                                    # true when the node at path has navigable sub-commands
