@@ -252,6 +252,14 @@ def _render_not_found_html(ctx: Schema__Waker__Request_Context,
             f'<pre>{html.escape(ctx.asgi_scope)}</pre>'
         )
 
+    deploy_section = ''
+    if ctx.deploy_info:
+        deploy_section = (
+            '<h2>Lambda deployment metadata <span class="muted">'
+            '(env vars baked in at deploy time by Setup__Lambda)</span></h2>'
+            f'<pre>{html.escape(ctx.deploy_info)}</pre>'
+        )
+
     return f"""<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -288,6 +296,7 @@ def _render_not_found_html(ctx: Schema__Waker__Request_Context,
 
 <h2>Waker diagnostics</h2>
 <table>{render_rows(rows_waker)}</table>
+{deploy_section}
 {proxy_section}
 {all_headers_section}
 {scope_section}
