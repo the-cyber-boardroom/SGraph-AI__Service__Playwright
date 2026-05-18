@@ -18,8 +18,5 @@ class Schema__Waker__Request_Context(Type_Safe):
     body           : bytes = b''                                                      # Request body (forwarded to vault-app when proxying)
     request_id     : str   = ''                                                       # Trace / request ID for debug headers + log correlation
     source_ip      : str   = ''                                                       # Client IP from X-Forwarded-For / request.client.host
-    proxy_headers  : str   = ''                                                       # Pre-rendered "key: value\n" lines for proxy-related headers (debug only)
-    all_headers    : str   = ''                                                       # Pre-rendered dump of EVERY header received (debug only)
-    asgi_scope     : str   = ''                                                       # Pre-rendered ASGI scope keys for debug (client, server, scheme, root_path, …)
+    asgi_scope     : str   = ''                                                       # Pre-rendered Lambda-event meta for debug (rawPath, sourceIp, requestContext.*)
     deploy_info    : str   = ''                                                       # Pre-rendered "key: value\n" lines for Lambda deploy metadata (debug only)
-    request_json   : str   = ''                                                       # Pretty-printed JSON dump of the request (method, url, headers, body) for debug
