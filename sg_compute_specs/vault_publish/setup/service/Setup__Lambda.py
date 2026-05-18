@@ -7,6 +7,35 @@
 #
 # EXPECTED_* constants mirror the values set in Vault_Publish__Service.bootstrap.
 #
+# ── WAKER_VERSION policy (agent-managed) ──────────────────────────────────────
+# sg_compute_specs/vault_publish/version (currently v0.1.6) is the canonical
+# version of the vault-publish Lambda runtime — NOT auto-bumped by CI.
+#
+#   Rule: every commit that changes the LAMBDA RUNTIME CODE must bump the
+#   rightmost component (.z) of that file in the same commit. "Lambda runtime
+#   code" = anything in sg_compute_specs/vault_publish/waker/** plus any
+#   schema referenced by Fast_API__Waker / Waker__Handler.
+#
+#   Out of scope (no bump needed):
+#     - CLI changes in sg_compute_specs/vault_publish/{cli,setup/cli}/**
+#     - Tests, docs, CI
+#     - CloudFront Function code (it has its own FUNCTION_VERSION in
+#       Setup__CF__Function.py, bumped under its own rule there)
+#     - The deployer / setup services (this file) when the change doesn't
+#       alter what gets baked into the Lambda
+#
+#   The .y bumps once the existing v0.1 series stabilises and we ship a
+#   first-cut "vault-publish v0.2" with a documented breaking change to the
+#   waker contract (renamed env var, dropped endpoint, changed X-Waker-*
+#   header semantics, etc.).
+#
+# /version (repo root, currently v0.2.29) is the CANONICAL SERVICE version —
+# bumped automatically by CI on merges to dev. Surfaced as WAKER_SERVICE_VERSION.
+#
+# Both values are baked into the Lambda env at deploy time and visible via
+# `sg vp setup lambda status`, the diagnostic 200 status page, and
+# `sg vp setup lambda invoke` (which hits /__waker__/deploy).
+#
 # Deployment metadata env vars set on every create/update:
 #   WAKER_SERVICE_VERSION — repo-root `version` (canonical service version)
 #   WAKER_VERSION         — `sg_compute_specs/vault_publish/version` (sub-package)
