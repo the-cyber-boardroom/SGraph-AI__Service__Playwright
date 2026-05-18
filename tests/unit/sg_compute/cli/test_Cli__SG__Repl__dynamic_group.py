@@ -18,7 +18,7 @@ import typer
 from typer.core import TyperGroup
 from unittest import TestCase
 
-from sg_compute.cli.Cli__SG__Repl import _click_node, _children, _is_group, _match
+from sg_compute.cli.Cli__SG__Repl import _click_node, _children, _is_group, _match, _resolve
 
 
 # ── synthetic tree with a dynamically injected command ───────────────────────
@@ -130,6 +130,90 @@ class test_match_dynamic_prefix(TestCase):
         hits, kind = _match('dynamic', kids)
         assert hits == ['dynamic']
         assert kind == 'prefix'
+
+
+# ── synthetic tree: list_commands OMITS dynamic children (exact Lambda pattern) ──
+#
+# Lambda__App__Group.list_commands() returns ['list'] only — function names are
+# intentionally hidden to keep --help clean. They are still resolvable via
+# get_command(). _resolve() must fall back to _click_node when _match() fails.
+
+class _HiddenDynCmd(click.Group):                                                # simulates Lambda__Function__Group: verbs are real children
+    def __init__(self, name):
+        super().__init__(name=name, no_args_is_help=True)
+        self.add_command(click.Command('run'), 'run')
+        self.add_command(click.Command('info'), 'info')
+
+
+class _HiddenDynGroup(TyperGroup):                                               # simulates Lambda__App__Group: list_commands hides function names
+    def list_commands(self, ctx):
+        return list(super().list_commands(ctx))                                  # only the statically-registered commands ('static')
+
+    def get_command(self, ctx, name):
+        if name in ('func-a', 'func-b'):                                         # "function names" not in list_commands
+            return _HiddenDynCmd(name)
+        return super().get_command(ctx, name)
+
+
+def _build_hidden_dyn_tree() -> typer.Typer:
+    root = typer.Typer(name='sg', no_args_is_help=True)
+    sub  = typer.Typer(name='sub', cls=_HiddenDynGroup)
+
+    @sub.command('static')
+    def _static(): pass
+
+    root.add_typer(sub, name='sub')
+    return root
+
+
+class test_resolve_dynamic_fallback(TestCase):
+    """_resolve must navigate into dynamic children not in list_commands().
+
+    This is the exact Lambda pattern: list_commands() returns ['list'] only,
+    but every function name is still a valid group via get_command().
+    Without the _click_node fallback, typing a function name at sg/aws/lambda>
+    silently does nothing instead of navigating into the function's verbs.
+    """
+
+    def setUp(self):
+        self.app = _build_hidden_dyn_tree()
+
+    def test__dynamic_child_not_in_children(self):                               # confirm our test setup mirrors Lambda
+        kids = _children(self.app, ['sub'])
+        assert 'func-a' not in kids
+        assert 'static'  in kids
+
+    def test__dynamic_child_resolves_via_click_node(self):                       # _click_node can still find it
+        node = _click_node(self.app, ['sub', 'func-a'])
+        assert node is not None
+        assert isinstance(node, _HiddenDynCmd)
+
+    def test__resolve_navigates_into_hidden_dynamic_child(self):                 # core regression: was returning trailing=['func-a'], now resolved path
+        resolved, trailing = _resolve(self.app, ['sub'], ['func-a'])
+        assert resolved == ['sub', 'func-a'], f"expected navigation into func-a, got resolved={resolved} trailing={trailing}"
+        assert trailing == []
+
+    def test__resolve_navigates_with_verb_after_dynamic_child(self):             # typing `func-a info` resolves both
+        resolved, trailing = _resolve(self.app, ['sub'], ['func-a', 'info'])
+        assert resolved == ['sub', 'func-a', 'info']
+        assert trailing == []
+
+    def test__resolve_dynamic_child_is_navigable_group(self):                   # is_group must work for the resolved path
+        assert _is_group(self.app, ['sub', 'func-a'])
+
+    def test__static_child_still_resolves(self):                                 # regression: static commands must still work
+        resolved, trailing = _resolve(self.app, ['sub'], ['static'])
+        assert resolved == ['sub', 'static']
+
+    def test__unknown_word_becomes_trailing_arg(self):                           # words that aren't static or dynamic → args
+        resolved, trailing = _resolve(self.app, ['sub'], ['no-such-func'])
+        assert resolved == ['sub']
+        assert trailing == ['no-such-func']
+
+    def test__canonical_name_used_when_node_name_differs(self):                  # node.name wins over the typed word
+        node = _click_node(self.app, ['sub', 'func-b'])
+        assert node is not None
+        assert node.name == 'func-b'                                             # in real Lambda this is the resolved full function name
 
 
 # ── real CLI: lambda at sg/aws> ───────────────────────────────────────────────

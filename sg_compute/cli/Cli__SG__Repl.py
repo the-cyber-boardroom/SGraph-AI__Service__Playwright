@@ -101,7 +101,18 @@ def _resolve(sg_app, base_path, words):
         elif len(hits) > 1:
             return None, hits                                                   # ambiguous
         else:
-            return current, list(words[i:])                                    # no match — rest are args
+            # Not in static children — try get_command directly.
+            # Handles dynamic groups whose list_commands() omits entries for
+            # cleanliness (e.g. Lambda__App__Group only lists 'list', but
+            # every function name is still resolvable via get_command()).
+            node = _click_node(sg_app, current + [word])
+            if node is not None:
+                resolved_name = getattr(node, 'name', word)                    # use the node's canonical name (handles fuzzy expansion)
+                if resolved_name != word:
+                    console.print(f"  [dim]→ matched {word!r} as {resolved_name!r} (dynamic)[/dim]")
+                current.append(resolved_name)
+            else:
+                return current, list(words[i:])                                # no match — rest are args
     return current, []
 
 def _match(prefix: str, options) -> tuple:                          # (hits, kind) — prefix first, substring fall-back
