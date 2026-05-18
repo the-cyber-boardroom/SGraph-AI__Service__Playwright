@@ -55,14 +55,25 @@ class Bedrock__Agent__AWS__Client(Type_Safe):
         agent_raw = resp.get('agent', {})
         return self.map_agent(agent_raw, tools=tools, memory=memory, region=effective_region)
 
-    def list_agents(self, region: str = None) -> List__Schema__Bedrock__Agent:
+    def list_agents(self, region: str = None, detailed: bool = False) -> List__Schema__Bedrock__Agent:
+        """List agents in the region.
+
+        `detailed=True` does N+1 GetAgent calls per row to populate the
+        `foundationModel` field — agentSummaries doesn't include it.
+        That's an N×API-call cost — only enable when the user explicitly
+        asks for it via `list --detailed`.
+        """                                                                      # inline
         effective_region = region or self.current_region()
         agentc           = self.client(effective_region)
         result    = List__Schema__Bedrock__Agent()
         paginator = agentc.get_paginator('list_agents')
         for page in paginator.paginate():
             for item in page.get('agentSummaries', []):
-                agent = self.map_agent_summary(item, effective_region)
+                if detailed:                                                      # N+1 to populate model_id (not in summary)
+                    full = agentc.get_agent(agentId=item.get('agentId',''))
+                    agent = self.map_agent(full.get('agent', {}), region=effective_region)
+                else:
+                    agent = self.map_agent_summary(item, effective_region)
                 if agent:
                     result.append(agent)
         return result
@@ -81,27 +92,49 @@ class Bedrock__Agent__AWS__Client(Type_Safe):
 
     def invoke_agent(self, agent_id: str, alias_id: str, session_id: str,
                      prompt: str, region: str = None) -> dict:
-        effective_region = region or self.current_region()
-        runtime          = self.runtime_client(effective_region)
-        resp             = runtime.invoke_agent(agentId        = agent_id  ,
-                                                agentAliasId   = alias_id  ,
-                                                sessionId      = session_id,
-                                                inputText      = prompt    )
-        completion       = resp.get('completion', {})
-        text_parts       = []
-        for event in completion:
-            chunk = event.get('chunk', {})
-            if 'bytes' in chunk:
-                text_parts.append(chunk['bytes'].decode('utf-8', errors='replace'))
+        """Buffered invoke — returns the full text once the stream completes."""
+        text_parts = []
+        for chunk in self.invoke_agent_stream(agent_id, alias_id, session_id, prompt, region=region):
+            text_parts.append(chunk)
         return {'text': ''.join(text_parts), 'session_id': session_id}
 
-    def stop_session(self, session_id: str, agent_id: str,
-                     alias_id: str, region: str = None) -> None:
+    def invoke_agent_stream(self, agent_id: str, alias_id: str, session_id: str,
+                            prompt: str, region: str = None):
+        """Generator — yields decoded text chunks as the AWS EventStream
+        delivers them. Caller is responsible for flushing/printing in real
+        time. Errors surface mid-stream as `EventStreamError`."""
         effective_region = region or self.current_region()
         runtime          = self.runtime_client(effective_region)
-        runtime.end_session(agentId      = agent_id  ,
-                            agentAliasId = alias_id  ,
-                            sessionId    = session_id)
+        resp             = runtime.invoke_agent(agentId      = agent_id  ,
+                                                agentAliasId = alias_id  ,
+                                                sessionId    = session_id,
+                                                inputText    = prompt    )
+        for event in resp.get('completion', {}):
+            chunk = event.get('chunk', {})
+            if 'bytes' in chunk:
+                yield chunk['bytes'].decode('utf-8', errors='replace')
+
+    def stop_session(self, session_id: str, agent_id: str = '',
+                     alias_id: str = '', region: str = None) -> None:
+        # `EndSession` takes ONLY `sessionIdentifier` (the session ID or ARN).
+        # `agentId`/`agentAliasId` are NOT accepted — they exist on InvokeAgent
+        # but not on EndSession. The old signature (kept for compat) ignores
+        # those positional/keyword args.
+        effective_region = region or self.current_region()
+        runtime          = self.runtime_client(effective_region)
+        runtime.end_session(sessionIdentifier=session_id)
+
+    def prepare_agent(self, agent_id: str, region: str = None) -> dict:
+        """Prepare a DRAFT agent so it becomes invokable via TSTALIASID.
+        Agents start in NOT_PREPARED state after create; PrepareAgent
+        validates + materialises the DRAFT version into a callable form."""
+        effective_region = region or self.current_region()
+        agentc           = self.client(effective_region)
+        resp             = agentc.prepare_agent(agentId=agent_id)
+        return dict(agent_id      = resp.get('agentId',      ''),
+                    agent_status  = resp.get('agentStatus',  ''),
+                    agent_version = resp.get('agentVersion', ''),
+                    prepared_at   = str(resp.get('preparedAt', '')))
 
     # ── Mapping helpers ───────────────────────────────────────────────────────
 

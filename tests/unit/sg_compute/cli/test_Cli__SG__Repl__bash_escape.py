@@ -39,6 +39,29 @@ class test_is_bash_command(TestCase):
     def test__whitelist_is_explicit_not_a_catch_all(self):                       # safety: random unknown commands need explicit `!`
         assert not _is_bash_command(['rm', '-rf', '/'])                          # rm deliberately NOT in whitelist
 
+    # ── sg-verb-wins-over-bash precedence (2026-05-17 user report) ──────────
+    # At `sg/aws/s3>`, `ls` should run `sg aws s3 ls` (S3 listing), NOT bash
+    # `ls`. Users can still force bash with explicit `!ls`.
+
+    def test__sg_verb_wins_over_bash_whitelist(self):
+        sg_children = {'ls', 'cat', 'cp', 'mv', 'rm'}                            # like `sg aws s3` exposes
+        assert not _is_bash_command(['ls'],  sg_children=sg_children)            # `ls` → sg ls
+        assert not _is_bash_command(['cat'], sg_children=sg_children)
+        assert not _is_bash_command(['cp', 'a', 'b'], sg_children=sg_children)
+
+    def test__bang_prefix_still_forces_bash_when_sg_verb_clashes(self):
+        sg_children = {'ls'}
+        assert _is_bash_command(['!ls'],  sg_children=sg_children)               # `!ls` → bash ls
+        assert _is_bash_command(['!', 'ls'], sg_children=sg_children)
+
+    def test__bash_whitelist_still_applies_when_no_sg_clash(self):
+        sg_children = {'list', 'get'}                                            # `ls` not in children
+        assert _is_bash_command(['ls'],   sg_children=sg_children)               # `ls` → bash (no clash)
+        assert _is_bash_command(['pwd'],  sg_children=sg_children)
+
+    def test__no_children_arg_preserves_legacy_behaviour(self):                  # backwards compat — call sites that don't supply children still work
+        assert _is_bash_command(['ls'])                                          # no sg_children → bash whitelist alone
+
 
 class test_normalise_bang(TestCase):
 

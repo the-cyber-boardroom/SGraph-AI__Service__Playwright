@@ -48,10 +48,18 @@ class Bedrock__Tool__AWS__Client(Type_Safe):
 
     # ── Browser sessions ──────────────────────────────────────────────────────
 
-    def browser_start(self, region: str = None, browser_identifier: str = None) -> Schema__Bedrock__Tool__Session:
+    def browser_start(self, region: str = None, browser_identifier: str = None,
+                      viewport: dict = None, session_timeout_seconds: int = None,
+                      ) -> Schema__Bedrock__Tool__Session:
         effective_region = region or self.current_region()
         client = self.agentcore_client(effective_region)
-        resp   = client.start_browser_session(browserIdentifier=browser_identifier or DEFAULT_BROWSER_ID)
+        # Only include optional kwargs when set — AWS rejects `viewPort=None`.
+        kwargs = dict(browserIdentifier=browser_identifier or DEFAULT_BROWSER_ID)
+        if viewport:
+            kwargs['viewPort']              = viewport
+        if session_timeout_seconds:
+            kwargs['sessionTimeoutSeconds'] = session_timeout_seconds
+        resp   = client.start_browser_session(**kwargs)
         sid    = resp.get('sessionId', '')
         try:
             safe_sid = Safe_Str__Bedrock__Session_Id(sid)

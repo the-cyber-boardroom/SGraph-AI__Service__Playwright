@@ -39,10 +39,24 @@ def _client() -> Bedrock__Tool__AWS__Client:
 # Browser sessions
 # ══════════════════════════════════════════════════════════════════════════════
 
+def _parse_viewport(spec: str) -> Optional[dict]:                                # `1920x1080` → {'width': 1920, 'height': 1080}
+    if not spec:
+        return None
+    if 'x' not in spec.lower():
+        raise typer.BadParameter(f'--viewport must be WIDTHxHEIGHT (e.g. 1920x1080), got {spec!r}.')
+    w, _, h = spec.lower().partition('x')
+    try:
+        return {'width': int(w), 'height': int(h)}
+    except ValueError:
+        raise typer.BadParameter(f'--viewport must be WIDTHxHEIGHT integers, got {spec!r}.')
+
+
 @browser_session_app.command('start')
 @require_mutation_gate(BEDROCK_GATE)
 @spec_cli_errors
 def browser_session_start(
+    viewport    : Optional[str] = typer.Option(None,  '--viewport',   '-v', help='Viewport size WIDTHxHEIGHT (e.g. 1920x1080). Determines what `screenshot` captures.'),
+    timeout     : Optional[int] = typer.Option(None,  '--timeout',    '-t', help='Session timeout in seconds (default: AWS default).'),
     browser_id  : Optional[str] = typer.Option(None,  '--browser-id', '-b', help='Browser identifier (default: aws.browser.v1 — AWS-managed sandbox).'),
     region      : Optional[str] = typer.Option(None,  '--region',     '-r', help='AWS region (default: current region).'),
     yes         : bool          = typer.Option(False, '--yes',        '-y', help='Skip confirmation.'),
@@ -51,8 +65,10 @@ def browser_session_start(
     """Start a new AgentCore browser session. [EXPERIMENTAL]"""
     if not yes:
         typer.confirm('Start browser session?', default=True, abort=True)
-    client  = _client()
-    session = client.browser_start(region=region, browser_identifier=browser_id)
+    client       = _client()
+    viewport_dict = _parse_viewport(viewport) if viewport else None
+    session = client.browser_start(region=region, browser_identifier=browser_id,
+                                   viewport=viewport_dict, session_timeout_seconds=timeout)
     writer  = Bedrock__Capture__Writer()
     path   = writer.write_browser_action(str(session.session_id),
                                          {'action': 'start', 'region': session.region})
@@ -139,7 +155,16 @@ def browser_session_screenshot(
     region      : Optional[str]= typer.Option(None, '--region',     '-r', help='AWS region.'),
     yes         : bool         = typer.Option(False,'--yes',        '-y', help='Skip confirmation.'),
 ):
-    """Take a screenshot from a browser session. [EXPERIMENTAL]"""
+    """Take a full-screen PNG screenshot from a browser session.
+
+    AWS `invoke_browser:screenshot` is intentionally minimal — PNG only,
+    full-viewport capture (no clip/full-page/element/format options).
+    Viewport size is set at session-start time via `start --viewport WxH`.
+
+    For full-page (scroll-and-stitch), clipped regions, element captures,
+    or non-PNG formats, you have to drive the session via CDP/Playwright
+    over the streamEndpoint URL (see `navigate` for endpoint details).
+    [EXPERIMENTAL]"""
     if not yes:
         typer.confirm(f'Screenshot session {session_id!r}?', default=True, abort=True)   # read-only op — default Y
     client     = _client()
