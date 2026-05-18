@@ -48,11 +48,20 @@ class Fast_API__Waker(Type_Safe):
         return self
 
     def app(self) -> FastAPI:
-        fast_app = FastAPI(title='Vault Waker', docs_url=None, redoc_url=None)
+        fast_app = FastAPI(title       = 'Vault Waker',
+                           description = 'Subdomain-routing waker for vault-app stacks.',
+                           version     = WAKER_VERSION,
+                           docs_url    = '/__waker__/docs',
+                           redoc_url   = None,
+                           openapi_url = '/__waker__/openapi.json')
         self._register_routes(fast_app)
         return fast_app
 
     def _register_routes(self, fast_app: FastAPI):
+
+        @fast_app.get('/__waker__/health', summary='Waker health probe (does not touch any vault).')
+        async def health():
+            return {'status': 'ok', 'service': 'vault-waker', 'version': WAKER_VERSION}
 
         @fast_app.api_route('/{path:path}',
                              methods=['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'HEAD', 'OPTIONS'])
@@ -77,7 +86,3 @@ class Fast_API__Waker(Type_Safe):
                               if k.lower() != 'content-length'},
                 media_type = result.get('headers', {}).get('Content-Type', 'text/html'),
             )
-
-        @fast_app.get('/health')
-        async def health():
-            return {'status': 'ok', 'service': 'vault-waker'}
