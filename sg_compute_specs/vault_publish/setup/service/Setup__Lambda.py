@@ -8,7 +8,8 @@
 # EXPECTED_* constants mirror the values set in Vault_Publish__Service.bootstrap.
 #
 # Deployment metadata env vars set on every create/update:
-#   WAKER_VERSION         — from sg_compute_specs/vault_publish/version
+#   WAKER_SERVICE_VERSION — repo-root `version` (canonical service version)
+#   WAKER_VERSION         — `sg_compute_specs/vault_publish/version` (sub-package)
 #   WAKER_DEPLOYED_AT     — ISO-8601 UTC timestamp of this deploy
 #   WAKER_DEPLOY_ID       — unique per-deploy ID (uuid4 hex)
 #   WAKER_DEPLOY_REGION   — region the deployer targeted
@@ -91,6 +92,14 @@ class Setup__Lambda(Type_Safe):
         for msg in drifted:
             issues.append(Schema__Setup__Issue(severity='warn', area='lambda', message=msg))
 
+        env_live = getattr(details, 'environment', {}) or {}
+        deploy_env_lines = '\n'.join(
+            f'{k}: {env_live.get(k, "(unset)")}'
+            for k in ('WAKER_SERVICE_VERSION', 'WAKER_VERSION', 'WAKER_DEPLOYED_AT',
+                       'WAKER_DEPLOY_ID', 'WAKER_DEPLOY_REGION', 'WAKER_DEPLOYED_BY',
+                       'WAKER_GIT_COMMIT')
+        )
+
         state = Enum__Setup__State.OK if not drifted else Enum__Setup__State.DRIFT
         return Schema__Setup__Lambda__Report(
             state          = state,
@@ -103,6 +112,13 @@ class Setup__Lambda(Type_Safe):
             timeout_ok     = timeout_ok,
             url_exists     = url_exists,
             function_url   = str(url_info.function_url) if url_exists else '',
+            runtime        = str(details.runtime),
+            handler        = details.handler,
+            memory_size    = int(details.memory_size or 0),
+            timeout        = int(details.timeout or 0),
+            code_size      = int(getattr(details, 'code_size', 0) or 0),
+            last_modified  = str(details.last_modified or ''),
+            deploy_env     = deploy_env_lines,
             issues         = issues,
         )
 
@@ -169,7 +185,10 @@ class Setup__Lambda(Type_Safe):
 
         lc = self._lambda_client()
         lc.ensure_function_url(WAKER_LAMBDA_NAME)
-        return self.check()
+        report = self.check()
+        # Stamp deploy-only details that check() can't know about
+        report.zip_size = int(getattr(deploy_resp, 'zip_size', 0) or 0)
+        return report
 
     def update(self) -> Schema__Setup__Lambda__Report:
         _require_mutations()
@@ -193,14 +212,16 @@ class Setup__Lambda(Type_Safe):
 def _build_deploy_env(vault_publish_dir: str) -> dict:
     """Compose the env-var dict baked into the Lambda config at deploy time."""
     from sgraph_ai_service_playwright__cli.aws._shared.Aws__Region__Resolver import Aws__Region__Resolver
-    now = datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
+    now      = datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
+    repo_root = os.path.abspath(os.path.join(vault_publish_dir, '..', '..'))
     env = {
-        'WAKER_VERSION'      : _read_version(vault_publish_dir),
-        'WAKER_DEPLOYED_AT'  : now,
-        'WAKER_DEPLOY_ID'    : uuid.uuid4().hex[:16],
-        'WAKER_DEPLOY_REGION': str(Aws__Region__Resolver().resolve()),
-        'WAKER_DEPLOYED_BY'  : _caller_identity(),
-        'WAKER_GIT_COMMIT'   : _git_commit(),
+        'WAKER_SERVICE_VERSION': _read_version(repo_root),                            # repo-root canonical version
+        'WAKER_VERSION'        : _read_version(vault_publish_dir),                    # sub-package version
+        'WAKER_DEPLOYED_AT'    : now,
+        'WAKER_DEPLOY_ID'      : uuid.uuid4().hex[:16],
+        'WAKER_DEPLOY_REGION'  : str(Aws__Region__Resolver().resolve()),
+        'WAKER_DEPLOYED_BY'    : _caller_identity(),
+        'WAKER_GIT_COMMIT'     : _git_commit(),
     }
     # Pass through the DNS zone the slug parser needs.
     zone = os.environ.get('SG_AWS__DNS__DEFAULT_ZONE', '')
@@ -209,8 +230,8 @@ def _build_deploy_env(vault_publish_dir: str) -> dict:
     return env
 
 
-def _read_version(vault_publish_dir: str) -> str:
-    path = os.path.join(vault_publish_dir, 'version')
+def _read_version(dir_path: str) -> str:
+    path = os.path.join(dir_path, 'version')
     try:
         return open(path).read().strip() or 'unknown'
     except OSError:

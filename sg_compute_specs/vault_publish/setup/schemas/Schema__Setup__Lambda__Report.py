@@ -20,4 +20,13 @@ class Schema__Setup__Lambda__Report(Type_Safe):
     timeout_ok      : bool = False
     url_exists      : bool = False
     function_url    : str  = ''
+    # Live AWS Lambda metadata + deploy result details
+    runtime         : str  = ''
+    handler         : str  = ''
+    memory_size     : int  = 0
+    timeout         : int  = 0
+    code_size       : int  = 0                                                            # bytes on AWS (deflated)
+    last_modified   : str  = ''
+    zip_size        : int  = 0                                                            # bytes uploaded by the deployer this round (0 on check, populated on create/update)
+    deploy_env      : str  = ''                                                            # pre-rendered "key: value\n" of WAKER_* env vars (populated on create/update)
     issues          : List__Schema__Setup__Issue

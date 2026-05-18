@@ -28,12 +28,13 @@ _FILE_VERSION = open(_vfile).read().strip() if os.path.isfile(_vfile) else 'unkn
 WAKER_VERSION = os.environ.get('WAKER_VERSION', _FILE_VERSION)
 
 DEPLOY_INFO = {
-    'version'      : WAKER_VERSION,
-    'deployed_at'  : os.environ.get('WAKER_DEPLOYED_AT',   ''),
-    'deploy_id'    : os.environ.get('WAKER_DEPLOY_ID',     ''),
-    'deploy_region': os.environ.get('WAKER_DEPLOY_REGION', ''),
-    'deployed_by'  : os.environ.get('WAKER_DEPLOYED_BY',   ''),
-    'git_commit'   : os.environ.get('WAKER_GIT_COMMIT',    ''),
+    'service_version': os.environ.get('WAKER_SERVICE_VERSION', ''),                    # repo-root canonical version
+    'version'        : WAKER_VERSION,                                                  # vault-publish sub-package version
+    'deployed_at'    : os.environ.get('WAKER_DEPLOYED_AT',   ''),
+    'deploy_id'      : os.environ.get('WAKER_DEPLOY_ID',     ''),
+    'deploy_region'  : os.environ.get('WAKER_DEPLOY_REGION', ''),
+    'deployed_by'    : os.environ.get('WAKER_DEPLOYED_BY',   ''),
+    'git_commit'     : os.environ.get('WAKER_GIT_COMMIT',    ''),
 }
 
 
@@ -81,6 +82,37 @@ def _render_all_headers(request: Request) -> str:
     # browser together can hide several layers of rewriting; the dump tells
     # us exactly what arrived at FastAPI.
     return '\n'.join(f'{k}: {v}' for k, v in sorted(request.headers.items()))
+
+
+def _render_request_json(request: Request, body: bytes) -> str:
+    # Pretty-printed JSON dump of what the Lambda actually received. This is
+    # the closest we can get to "the original Lambda event" — LWA translates
+    # the event into an HTTP request before our code sees it, so we capture
+    # the HTTP-level view (method, URL parts, headers, body).
+    import json as _json
+    url = request.url
+    body_repr = ''
+    if body:
+        try:
+            body_repr = body.decode('utf-8')
+            if len(body_repr) > 4096:
+                body_repr = body_repr[:4096] + f'… (truncated; total {len(body)} bytes)'
+        except UnicodeDecodeError:
+            body_repr = f'<binary, {len(body)} bytes — base64 prefix: ' \
+                        + __import__('base64').b64encode(body[:128]).decode() + '…>'
+    payload = {
+        'method'      : request.method,
+        'url'         : str(url),
+        'scheme'      : url.scheme,
+        'path'        : url.path,
+        'query'       : url.query,
+        'headers'     : dict(sorted(request.headers.items())),
+        'cookies'     : dict(request.cookies),
+        'client'      : (request.client.host + ':' + str(request.client.port)) if request.client else '',
+        'body'        : body_repr,
+        'body_bytes'  : len(body),
+    }
+    return _json.dumps(payload, indent=2, ensure_ascii=False)
 
 
 def _render_scope(request: Request) -> str:
@@ -151,6 +183,7 @@ class Fast_API__Waker(Type_Safe):
                     'all_headers'      : 'all_headers'       in Schema__Waker__Request_Context.__annotations__,
                     'asgi_scope'       : 'asgi_scope'        in Schema__Waker__Request_Context.__annotations__,
                     'deploy_info'      : 'deploy_info'       in Schema__Waker__Request_Context.__annotations__,
+                    'request_json'     : 'request_json'      in Schema__Waker__Request_Context.__annotations__,
                 },
             }
 
@@ -177,6 +210,7 @@ class Fast_API__Waker(Type_Safe):
                 proxy_headers     = _render_proxy_headers(request),
                 all_headers       = _render_all_headers(request),
                 asgi_scope        = _render_scope(request),
+                request_json      = _render_request_json(request, body),
                 deploy_info       = '\n'.join(f'{k}: {v or "(unset)"}' for k, v in DEPLOY_INFO.items()),
             )
             result = Waker__Handler(_version=WAKER_VERSION).handle(ctx)
