@@ -95,13 +95,27 @@ class Bedrock__Agent__AWS__Client(Type_Safe):
                 text_parts.append(chunk['bytes'].decode('utf-8', errors='replace'))
         return {'text': ''.join(text_parts), 'session_id': session_id}
 
-    def stop_session(self, session_id: str, agent_id: str,
-                     alias_id: str, region: str = None) -> None:
+    def stop_session(self, session_id: str, agent_id: str = '',
+                     alias_id: str = '', region: str = None) -> None:
+        # `EndSession` takes ONLY `sessionIdentifier` (the session ID or ARN).
+        # `agentId`/`agentAliasId` are NOT accepted — they exist on InvokeAgent
+        # but not on EndSession. The old signature (kept for compat) ignores
+        # those positional/keyword args.
         effective_region = region or self.current_region()
         runtime          = self.runtime_client(effective_region)
-        runtime.end_session(agentId      = agent_id  ,
-                            agentAliasId = alias_id  ,
-                            sessionId    = session_id)
+        runtime.end_session(sessionIdentifier=session_id)
+
+    def prepare_agent(self, agent_id: str, region: str = None) -> dict:
+        """Prepare a DRAFT agent so it becomes invokable via TSTALIASID.
+        Agents start in NOT_PREPARED state after create; PrepareAgent
+        validates + materialises the DRAFT version into a callable form."""
+        effective_region = region or self.current_region()
+        agentc           = self.client(effective_region)
+        resp             = agentc.prepare_agent(agentId=agent_id)
+        return dict(agent_id      = resp.get('agentId',      ''),
+                    agent_status  = resp.get('agentStatus',  ''),
+                    agent_version = resp.get('agentVersion', ''),
+                    prepared_at   = str(resp.get('preparedAt', '')))
 
     # ── Mapping helpers ───────────────────────────────────────────────────────
 

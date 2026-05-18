@@ -200,12 +200,31 @@ def agent_invoke(
     yes        : bool         = typer.Option(False, '--yes', '-y',    help='Skip confirmation.'),
     json_output: bool         = typer.Option(False, '--json',         help='Output JSON.'),
 ):
-    """Invoke an AgentCore agent. [EXPERIMENTAL]"""
+    """Invoke an agent. Requires the agent to be PREPARED — run `prepare` first
+    if `list` shows status NOT_PREPARED. [EXPERIMENTAL]"""
     if not yes:
         typer.confirm(f'Invoke agent {agent_id!r}?', default=True, abort=True)
     sid    = session_id or uuid.uuid4().hex
     client = _client()
-    result = client.invoke_agent(agent_id, alias_id, sid, prompt)
+    try:
+        result = client.invoke_agent(agent_id, alias_id, sid, prompt)
+    except ClientError as exc:
+        _render_agent_client_error(exc, action='InvokeAgent', name_or_id=agent_id)
+        raise typer.Exit(1)
+    except Exception as exc:
+        # EventStreamError on a NOT_PREPARED agent surfaces as "agent is not found".
+        if 'not found' in str(exc).lower():
+            c = Console(highlight=False, stderr=True)
+            c.print()
+            c.print(f'  [red]✗ {type(exc).__name__}[/]: {exc}')
+            c.print()
+            c.print(f'  [bold]Tip:[/] AWS returns "agent is not found" when the agent exists but is NOT_PREPARED.')
+            c.print(f'  Try:')
+            c.print(f'    [dim]sg aws bedrock agent prepare {agent_id}[/]   # then re-invoke[/]')
+            c.print(f'    [dim]sg aws bedrock agent list[/]                  # verify status is PREPARED[/]')
+            c.print()
+            raise typer.Exit(1)
+        raise
     writer = Bedrock__Capture__Writer()
     path   = writer.write_agent_session(agent_id, sid, dict(agent_id  = agent_id ,
                                                              session_id= sid      ,
@@ -222,22 +241,54 @@ def agent_invoke(
     c.print(f'\n  session={sid}  capture={path}\n')
 
 
+# ── agent prepare ─────────────────────────────────────────────────────────────
+
+@agent_app.command('prepare')
+@require_mutation_gate(BEDROCK_GATE)
+@spec_cli_errors
+def agent_prepare(
+    agent_id : str  = typer.Argument(..., help='Agent ID to prepare.'),
+    region   : Optional[str] = typer.Option(None, '--region', '-r', help='AWS region.'),
+    yes      : bool = typer.Option(False, '--yes', '-y', help='Skip confirmation.'),
+):
+    """Prepare a DRAFT agent so it becomes invokable.
+
+    Newly-created agents start in NOT_PREPARED state — `invoke` will
+    fail with "agent is not found" until you run this. PrepareAgent
+    validates configuration and materialises the DRAFT version so the
+    test alias (TSTALIASID) can route to it. [EXPERIMENTAL]"""
+    if not yes:
+        typer.confirm(f'Prepare agent {agent_id!r}?', default=True, abort=True)
+    client = _client()
+    try:
+        result = client.prepare_agent(agent_id, region=region)
+    except ClientError as exc:
+        _render_agent_client_error(exc, action='PrepareAgent', name_or_id=agent_id)
+        raise typer.Exit(1)
+    c = Console(highlight=False)
+    c.print(f'\n  Agent [bold]{agent_id}[/] preparing  status={result["agent_status"]}  version={result["agent_version"]}')
+    c.print('  [dim]Status PREPARING → PREPARED takes a few seconds. Re-check with `get`.[/]\n')
+
+
 # ── agent stop ────────────────────────────────────────────────────────────────
 
 @agent_app.command('stop')
 @require_mutation_gate(BEDROCK_GATE)
 @spec_cli_errors
 def agent_stop(
-    session_id : str  = typer.Argument(..., help='Session ID to stop.'),
-    agent_id   : str  = typer.Option(...,   '--agent',  help='Agent ID owning this session.'),
-    alias_id   : str  = typer.Option('TSTALIASID', '--alias', help='Agent alias ID.'),
+    session_id : str  = typer.Argument(..., help='Session ID (or session ARN) to stop.'),
+    region     : Optional[str] = typer.Option(None, '--region', '-r', help='AWS region.'),
     yes        : bool = typer.Option(False, '--yes', '-y', help='Skip confirmation.'),
 ):
-    """Stop an AgentCore session. [EXPERIMENTAL]"""
+    """Stop a runtime session.
+
+    Note: `EndSession` takes only the session identifier — the agent ID
+    / alias ID are NOT part of the API (despite InvokeAgent needing them).
+    [EXPERIMENTAL]"""
     if not yes:
         typer.confirm(f'Stop session {session_id!r}?', abort=True)
     client = _client()
-    client.stop_session(session_id, agent_id, alias_id)
+    client.stop_session(session_id, region=region)
     c = Console(highlight=False)
     c.print(f'\n  Session {session_id} stopped.\n')
 
