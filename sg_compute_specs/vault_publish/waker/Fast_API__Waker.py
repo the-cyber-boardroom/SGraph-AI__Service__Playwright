@@ -4,7 +4,13 @@
 # Exposes a single catch-all route that delegates every request to
 # Waker__Handler. The host header drives slug resolution; paths are forwarded
 # verbatim to the target vault-app.
+#
+# Debug context: request_id and source_ip are extracted from headers / the
+# starlette client object so Waker__Handler can stamp them into X-Waker-*
+# response headers and structured JSON logs.
 # ═══════════════════════════════════════════════════════════════════════════════
+
+import os
 
 from fastapi             import FastAPI, Request
 from fastapi.responses   import Response
@@ -14,6 +20,26 @@ from osbot_utils.type_safe.Type_Safe import Type_Safe
 from sg_compute_specs.vault_publish.waker.Slug__From_Host                       import Slug__From_Host
 from sg_compute_specs.vault_publish.waker.Waker__Handler                        import Waker__Handler
 from sg_compute_specs.vault_publish.waker.schemas.Schema__Waker__Request_Context import Schema__Waker__Request_Context
+
+_vfile = os.path.join(os.path.dirname(__file__), '..', 'version')
+WAKER_VERSION = open(_vfile).read().strip() if os.path.isfile(_vfile) else 'unknown'
+
+
+def _extract_request_id(request: Request) -> str:
+    # LWA forwards Lambda's X-Amzn-Request-Id / X-Amzn-Trace-Id; CloudFront adds X-Amz-Cf-Id
+    for hdr in ('x-amzn-request-id', 'x-amzn-trace-id', 'x-amz-cf-id', 'x-request-id'):
+        v = request.headers.get(hdr)
+        if v:
+            return v
+    return ''
+
+
+def _extract_source_ip(request: Request) -> str:
+    xff = request.headers.get('x-forwarded-for', '')
+    if xff:
+        return xff.split(',')[0].strip()
+    client = getattr(request, 'client', None)
+    return client.host if client else ''
 
 
 class Fast_API__Waker(Type_Safe):
@@ -35,13 +61,15 @@ class Fast_API__Waker(Type_Safe):
             slug = Slug__From_Host().extract(host)
             body = await request.body()
             ctx  = Schema__Waker__Request_Context(
-                host   = host,
-                slug   = str(slug) if slug else '',
-                path   = '/' + path,
-                method = request.method,
-                body   = body,
+                host       = host,
+                slug       = str(slug) if slug else '',
+                path       = '/' + path,
+                method     = request.method,
+                body       = body,
+                request_id = _extract_request_id(request),
+                source_ip  = _extract_source_ip(request),
             )
-            result = Waker__Handler().handle(ctx)
+            result = Waker__Handler(_version=WAKER_VERSION).handle(ctx)
             return Response(
                 content    = result['body'],
                 status_code= result['status_code'],

@@ -8,8 +8,10 @@ from osbot_utils.type_safe.Type_Safe import Type_Safe
 
 
 class Schema__Waker__Request_Context(Type_Safe):
-    host   : str = ''                                                             # Raw Host header value
-    slug   : str = ''                                                             # Resolved slug (empty if parse failed)
-    path   : str = '/'                                                            # Request path including leading /
-    method : str = 'GET'                                                          # HTTP method
-    body   : bytes = b''                                                          # Request body (forwarded to vault-app when proxying)
+    host       : str   = ''                                                       # Raw Host header value
+    slug       : str   = ''                                                       # Resolved slug (empty if parse failed)
+    path       : str   = '/'                                                      # Request path including leading /
+    method     : str   = 'GET'                                                    # HTTP method
+    body       : bytes = b''                                                      # Request body (forwarded to vault-app when proxying)
+    request_id : str   = ''                                                       # Trace / request ID for debug headers + log correlation
+    source_ip  : str   = ''                                                       # Client IP from X-Forwarded-For / request.client.host
