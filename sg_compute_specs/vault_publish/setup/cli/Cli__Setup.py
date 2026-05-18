@@ -541,7 +541,9 @@ def lambda_create(role_arn: str = typer.Option('', '--role-arn', help='Lambda ex
 
 
 @lambda_app.command(name='update', help='Redeploy Lambda waker function. Requires SG_AWS__VAULT_PUBLISH__SETUP__ALLOW_MUTATIONS=1.')
-def lambda_update():
+def lambda_update(
+    invoke: bool = typer.Option(False, '--invoke', help='After a successful deploy, immediately invoke /__waker__/deploy and print the JSON response so you can confirm the new version is live.'),
+):
     c   = Console(highlight=False)
     svc = _iam()
     _print_role_notice(c, svc)
@@ -557,6 +559,8 @@ def lambda_update():
     if rep.state == Enum__Setup__State.OK:
         c.print('  [green]✓[/]  Lambda waker updated')
     c.print()
+    if invoke and rep.state == Enum__Setup__State.OK:
+        _do_lambda_invoke(c, path='/__waker__/deploy', host='', method='GET', full=True)
 
 
 @lambda_app.command(name='invoke', help='Invoke the deployed waker Lambda with a synthetic event and print the JSON response. Defaults to /__waker__/deploy so you immediately see which version is live.')
@@ -566,15 +570,21 @@ def lambda_invoke(
     method: str = typer.Option('GET',               '--method', '-m'),
     full  : bool = typer.Option(False, '--full', help='Print the full response body (default: truncate to first 800 chars)'),
 ):
-    import json, uuid, boto3
-    from datetime import datetime, timezone
-    from sg_compute_specs.vault_publish.setup.service.Setup__Lambda import WAKER_LAMBDA_NAME
-
     c   = Console(highlight=False)
     svc = _iam()
     _print_role_notice(c, svc)
     if not _preflight(c, svc):
         raise typer.Exit(1)
+    _do_lambda_invoke(c, path=path, host=host, method=method, full=full)
+
+
+def _do_lambda_invoke(c: Console, *, path: str, host: str, method: str, full: bool) -> None:
+    """Shared invoke implementation — used by `lambda invoke` and by
+    `lambda update --invoke`. Pre-flight (credential check) is the caller's
+    responsibility so this helper stays a thin transport layer."""
+    import json, uuid, boto3
+    from datetime import datetime, timezone
+    from sg_compute_specs.vault_publish.setup.service.Setup__Lambda import WAKER_LAMBDA_NAME
 
     # Resolve the effective Host header — by default we mimic what AWS itself
     # would send when someone hits the Function URL directly.
