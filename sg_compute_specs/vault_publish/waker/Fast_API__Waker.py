@@ -22,7 +22,19 @@ from sg_compute_specs.vault_publish.waker.Waker__Handler                        
 from sg_compute_specs.vault_publish.waker.schemas.Schema__Waker__Request_Context import Schema__Waker__Request_Context
 
 _vfile = os.path.join(os.path.dirname(__file__), '..', 'version')
-WAKER_VERSION = open(_vfile).read().strip() if os.path.isfile(_vfile) else 'unknown'
+_FILE_VERSION = open(_vfile).read().strip() if os.path.isfile(_vfile) else 'unknown'
+# Env-var WAKER_VERSION (set by Setup__Lambda at deploy time) takes precedence —
+# it survives Lambda cold/warm starts and matches the deploy that was published.
+WAKER_VERSION = os.environ.get('WAKER_VERSION', _FILE_VERSION)
+
+DEPLOY_INFO = {
+    'version'      : WAKER_VERSION,
+    'deployed_at'  : os.environ.get('WAKER_DEPLOYED_AT',   ''),
+    'deploy_id'    : os.environ.get('WAKER_DEPLOY_ID',     ''),
+    'deploy_region': os.environ.get('WAKER_DEPLOY_REGION', ''),
+    'deployed_by'  : os.environ.get('WAKER_DEPLOYED_BY',   ''),
+    'git_commit'   : os.environ.get('WAKER_GIT_COMMIT',    ''),
+}
 
 
 def _extract_request_id(request: Request) -> str:
@@ -140,6 +152,7 @@ class Fast_API__Waker(Type_Safe):
                 proxy_headers  = _render_proxy_headers(request),
                 all_headers    = _render_all_headers(request),
                 asgi_scope     = _render_scope(request),
+                deploy_info    = '\n'.join(f'{k}: {v or "(unset)"}' for k, v in DEPLOY_INFO.items()),
             )
             result = Waker__Handler(_version=WAKER_VERSION).handle(ctx)
             return Response(
