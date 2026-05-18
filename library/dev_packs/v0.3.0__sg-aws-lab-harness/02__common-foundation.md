@@ -58,6 +58,8 @@ Production code (all under `sgraph_ai_service_playwright__cli/aws/lab/`):
 - `Lab__Timing.py` — `perf_counter` wrapper, ISO timestamps, duration helpers
 - `Lab__Phase__Not_Ready__Error.py` — exception raised by `Lab__Runner.cf()` / `lambda_()` accessors when their gating v2 phase hasn't shipped yet. One-line exception class subclassing `Exception`.
 - `Lab__Source__Adapter.py` — implements `Source__Contract` from `_shared/source_contract/`. Surfaces lab read-only experiments to `sg aws observe`. For each lab experiment with `tier == READ_ONLY`, registers a source named `lab:<experiment-name>` so `sg aws observe sources` lists them and `sg aws observe tail lab:resolver-latency` streams results. **Per Decision #10.**
+
+  **Registration MUST be lazy** — `Lab__Source__Adapter.register_all(source_registry)` is called only from two places: (a) the `sg aws lab` Typer top-level `callback()` (so listing experiments populates the registry), and (b) `sg aws observe`'s own `Source__Registry` discovery hook (so `sg aws observe sources` sees lab sources). It is NOT called at module-import time. This means an operator running e.g. `sg aws dns zones list` pays zero import-time cost for the lab's source registrations.
 - `teardown/Lab__Teardown__Dispatcher.py` — maps `Enum__Lab__Resource_Type` → teardown fn
 - `teardown/Lab__Teardown__R53.py` — full implementation (DNS is the only mutating surface in P1)
 - `teardown/Lab__Teardown__{CF,Lambda,ACM,EC2,SSM,IAM}.py` — **stub files that raise `NotImplementedError`**. Agents B/C/D fill these in for their slices.
