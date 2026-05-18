@@ -60,6 +60,25 @@ class CloudFront__AWS__Client(Type_Safe):
 
     # ── mutations ─────────────────────────────────────────────────────────────
 
+    def find_distribution_by_alias(self, alias: str) -> 'Schema__CF__Distribution | None':
+        for dist in self.list_distributions():
+            if alias in list(dist.aliases):
+                return dist
+        return None
+
+    def ensure_distribution(self, req: Schema__CF__Create__Request) -> Schema__CF__Create__Response:
+        if req.aliases:
+            first_alias = list(req.aliases)[0]
+            existing    = self.find_distribution_by_alias(first_alias)
+            if existing is not None:
+                return Schema__CF__Create__Response(
+                    distribution_id = existing.distribution_id,
+                    domain_name     = existing.domain_name,
+                    status          = existing.status,
+                    message         = 'already exists',
+                )
+        return self.create_distribution(req)
+
     def create_distribution(self, req: Schema__CF__Create__Request) -> Schema__CF__Create__Response:
         aliases = List__CF__Alias(list(req.aliases))
         builder = CloudFront__Distribution__Builder(

@@ -241,7 +241,7 @@ class Vault_Publish__Service(Type_Safe):
                 elapsed_ms = int((time.monotonic() - t0) * 1000),
             )
 
-        url_info  = self._lambda_client().create_function_url(WAKER_LAMBDA_NAME)
+        url_info  = self._lambda_client().ensure_function_url(WAKER_LAMBDA_NAME)
         waker_url = str(url_info.function_url)
 
         origin_domain = waker_url.removeprefix('https://').rstrip('/')
@@ -251,7 +251,7 @@ class Vault_Publish__Service(Type_Safe):
             aliases       = List__CF__Alias([f'*.{request.zone}']),
             comment       = f'vault-publish waker — {request.zone}',
         )
-        cf_resp = self._cf_client().create_distribution(cf_req)
+        cf_resp = self._cf_client().ensure_distribution(cf_req)
 
         return Schema__Vault_Publish__Bootstrap__Response(
             distribution_id = str(cf_resp.distribution_id),
