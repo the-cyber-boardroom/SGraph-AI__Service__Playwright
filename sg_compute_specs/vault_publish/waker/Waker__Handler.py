@@ -229,15 +229,16 @@ def _render_not_found_html(ctx: Schema__Waker__Request_Context,
         ('Request ID'         , esc(ctx.request_id)),
     ]
     rows_waker = [
-        ('Waker state' , esc(waker_state)),
-        ('Waker action', esc(waker_action)),
-        ('EC2 state'   , esc(resolution.state)),
-        ('Instance ID' , esc(resolution.instance_id)),
-        ('Vault URL'   , esc(resolution.vault_url)),
-        ('Region'      , esc(resolution.region)),
-        ('Elapsed'     , f'{elapsed_ms} ms'),
-        ('Waker version', esc(version)),
-        ('Timestamp'   , esc(now)),
+        ('Waker state'     , esc(waker_state)),
+        ('Waker action'    , esc(waker_action)),
+        ('EC2 state'       , esc(resolution.state)),
+        ('Instance ID'     , esc(resolution.instance_id)),
+        ('Vault URL'       , esc(resolution.vault_url)),
+        ('Region'          , esc(resolution.region)),
+        ('Regions scanned' , esc(resolution.regions_scanned)),
+        ('Elapsed'         , f'{elapsed_ms} ms'),
+        ('Waker version'   , esc(version)),
+        ('Timestamp'       , esc(now)),
     ]
 
     def render_rows(rows):

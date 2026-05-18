@@ -10,9 +10,10 @@ from sg_compute_specs.vault_publish.waker.schemas.Enum__Instance__State         
 
 
 class Schema__Endpoint__Resolution(Type_Safe):
-    slug        : str                     = ''
-    instance_id : str                     = ''
-    public_ip   : str                     = ''
-    vault_url   : str                     = ''
-    state       : Enum__Instance__State   = Enum__Instance__State.UNKNOWN
-    region      : str                     = ''
+    slug            : str                     = ''
+    instance_id     : str                     = ''
+    public_ip       : str                     = ''
+    vault_url       : str                     = ''
+    state           : Enum__Instance__State   = Enum__Instance__State.UNKNOWN
+    region          : str                     = ''
+    regions_scanned : str                     = ''                                   # debug — comma-separated "region=found|not_found" pairs
