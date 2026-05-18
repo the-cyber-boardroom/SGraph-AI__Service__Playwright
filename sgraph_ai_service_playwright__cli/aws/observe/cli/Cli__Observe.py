@@ -15,6 +15,7 @@ from sgraph_ai_service_playwright__cli.aws._shared.source_contract.Source__Query
 from sgraph_ai_service_playwright__cli.aws.observe.Source__Registry              import Source__Registry
 from sgraph_ai_service_playwright__cli.aws.observe.service.Observe__Agent__Tracer import Observe__Agent__Tracer
 from sgraph_ai_service_playwright__cli.aws.observe.service.Observe__Session__Writer import Observe__Session__Writer
+from sg_compute.cli.base.Spec__CLI__Errors                                  import spec_cli_errors
 
 app = typer.Typer(name='observe', help='Unified observability REPL (S3, CloudWatch, CloudTrail).', no_args_is_help=True)
 
@@ -31,6 +32,7 @@ def _get_registry() -> Source__Registry:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 @app.command('sources')
+@spec_cli_errors
 def sources(as_json: bool = typer.Option(False, '--json')):
     """List connected sources and their status."""
     reg     = _get_registry()
@@ -66,6 +68,7 @@ def sources(as_json: bool = typer.Option(False, '--json')):
 
 
 @app.command('tail')
+@spec_cli_errors
 def tail(source:  str  = typer.Option('', '--source'),
          stream:  str  = typer.Option('', '--stream'),
          since:   str  = typer.Option('1h', '--since'),
@@ -91,6 +94,7 @@ def tail(source:  str  = typer.Option('', '--source'),
 
 
 @app.command('query')
+@spec_cli_errors
 def query(query_text: str  = typer.Argument(..., help='Query string.'),
           source:     str  = typer.Option('', '--source'),
           since:      str  = typer.Option('24h', '--since'),
@@ -127,6 +131,7 @@ def query(query_text: str  = typer.Argument(..., help='Query string.'),
 
 
 @app.command('stats')
+@spec_cli_errors
 def stats(source:  str  = typer.Option(..., '--source'),
           stream:  str  = typer.Option('', '--stream'),
           by:      str  = typer.Option(..., '--by'),
@@ -157,6 +162,7 @@ def stats(source:  str  = typer.Option(..., '--source'),
 
 
 @app.command('agent-trace')
+@spec_cli_errors
 def agent_trace(session_id: str  = typer.Argument(..., help='Session correlation ID.'),
                 as_json:    bool = typer.Option(False, '--json')):
     """Pull a full cross-source trace for a session ID."""
@@ -174,6 +180,7 @@ def agent_trace(session_id: str  = typer.Argument(..., help='Session correlation
 
 
 @app.command('replay')
+@spec_cli_errors
 def replay(session_file: str = typer.Argument(..., help='Path to captured session file.')):
     """Replay a captured session."""
     writer = Observe__Session__Writer()

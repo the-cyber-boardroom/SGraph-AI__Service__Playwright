@@ -42,6 +42,7 @@ from sgraph_ai_service_playwright__cli.aws.s3.service.S3__AWS__Client           
 from sgraph_ai_service_playwright__cli.aws.s3.service.S3__Format__Detector           import S3__Format__Detector
 from sgraph_ai_service_playwright__cli.aws.s3.service.S3__Source__Adapter            import S3__Source__Adapter
 from sgraph_ai_service_playwright__cli.aws.s3.service.S3__Vim__Editor                import S3__Vim__Editor
+from sg_compute.cli.base.Spec__CLI__Errors                                  import spec_cli_errors
 
 app     = typer.Typer(name='s3', help='S3 object and bucket management.', no_args_is_help=True)
 console = Console()
@@ -74,6 +75,7 @@ def _fmt_bytes(n: int) -> str:
 # ── ls ────────────────────────────────────────────────────────────────────────
 
 @app.command('ls')
+@spec_cli_errors
 def cmd_ls(path      : str  = typer.Argument('', help='s3://bucket[/prefix] or empty to list all buckets.'),
            recursive : bool = typer.Option(False, '--recursive', '-r', help='List all objects recursively.'),
            as_json   : bool = typer.Option(False, '--json',            help='Output as JSON.')):
@@ -129,6 +131,7 @@ def cmd_ls(path      : str  = typer.Argument('', help='s3://bucket[/prefix] or e
 # ── stat ──────────────────────────────────────────────────────────────────────
 
 @app.command('stat')
+@spec_cli_errors
 def cmd_stat(path    : str  = typer.Argument(..., help='s3://bucket/key'),
              as_json : bool = typer.Option(False, '--json', help='Output as JSON.')):
     """Show S3 object metadata (size, ETag, storage class, encryption)."""
@@ -173,6 +176,7 @@ def cmd_stat(path    : str  = typer.Argument(..., help='s3://bucket/key'),
 # ── view ──────────────────────────────────────────────────────────────────────
 
 @app.command('view')
+@spec_cli_errors
 def cmd_view(path    : str  = typer.Argument(..., help='s3://bucket/key'),
              raw     : bool = typer.Option(False, '--raw',  help='Skip format detection; print raw bytes.'),
              as_json : bool = typer.Option(False, '--json', help='Output as JSON (JSON objects only).')):
@@ -245,6 +249,7 @@ def cmd_view(path    : str  = typer.Argument(..., help='s3://bucket/key'),
 # ── cat ───────────────────────────────────────────────────────────────────────
 
 @app.command('cat')
+@spec_cli_errors
 def cmd_cat(path : str = typer.Argument(..., help='s3://bucket/key')):
     """Stream object content to stdout."""
     bucket, key = _parse_s3_uri(path)
@@ -259,6 +264,7 @@ def cmd_cat(path : str = typer.Argument(..., help='s3://bucket/key')):
 # ── head ──────────────────────────────────────────────────────────────────────
 
 @app.command('head')
+@spec_cli_errors
 def cmd_head(path  : str = typer.Argument(..., help='s3://bucket/key'),
              lines : int = typer.Option(10, '--lines', '-n', help='Number of lines to show.')):
     """Print the first N lines of an object."""
@@ -275,6 +281,7 @@ def cmd_head(path  : str = typer.Argument(..., help='s3://bucket/key'),
 # ── tail ──────────────────────────────────────────────────────────────────────
 
 @app.command('tail')
+@spec_cli_errors
 def cmd_tail(path   : str  = typer.Argument(..., help='s3://bucket/key'),
              lines  : int  = typer.Option(100,  '--lines',  '-n',      help='Number of tail lines.'),
              since  : str  = typer.Option('',   '--since',  '-s',      help='Duration string e.g. 5m, 1h.'),
@@ -302,6 +309,7 @@ def cmd_tail(path   : str  = typer.Argument(..., help='s3://bucket/key'),
 # ── presign ───────────────────────────────────────────────────────────────────
 
 @app.command('presign')
+@spec_cli_errors
 def cmd_presign(path : str = typer.Argument(..., help='s3://bucket/key'),
                 ttl  : int = typer.Option(3600, '--ttl', help='Expiry in seconds (max 604800 = 7 days).')):
     """Generate a presigned download URL for an S3 object."""
@@ -321,6 +329,7 @@ def cmd_presign(path : str = typer.Argument(..., help='s3://bucket/key'),
 # ── search ────────────────────────────────────────────────────────────────────
 
 @app.command('search')
+@spec_cli_errors
 def cmd_search(path    : str  = typer.Argument(..., help='s3://bucket/prefix'),
                pattern : str  = typer.Option(..., '--pattern', '-p', help='Key pattern (glob or substring).'),
                as_json : bool = typer.Option(False, '--json', help='Output as JSON.')):
@@ -349,6 +358,7 @@ def cmd_search(path    : str  = typer.Argument(..., help='s3://bucket/prefix'),
 # ── bucket-list ───────────────────────────────────────────────────────────────
 
 @app.command('bucket-list')
+@spec_cli_errors
 def cmd_bucket_list(as_json : bool = typer.Option(False, '--json', help='Output as JSON.')):
     """List all S3 buckets in the account."""
     buckets = _client().list_buckets()
@@ -370,6 +380,7 @@ def cmd_bucket_list(as_json : bool = typer.Option(False, '--json', help='Output 
 # ── bucket-stat ───────────────────────────────────────────────────────────────
 
 @app.command('bucket-stat')
+@spec_cli_errors
 def cmd_bucket_stat(bucket  : str  = typer.Argument(..., help='Bucket name.'),
                     as_json : bool = typer.Option(False, '--json', help='Output as JSON.')):
     """Show bucket metadata: region, versioning, estimated size."""
@@ -402,6 +413,7 @@ def cmd_bucket_stat(bucket  : str  = typer.Argument(..., help='Bucket name.'),
 # ── cp ────────────────────────────────────────────────────────────────────────
 
 @app.command('cp')
+@spec_cli_errors
 @require_mutation_gate(_MUTATION_ENV)
 def cmd_cp(src     : str  = typer.Argument(..., help='Source — local path or s3://bucket/key.'),
            dst     : str  = typer.Argument(..., help='Destination — s3://bucket/key or local path.'),
@@ -442,6 +454,7 @@ def cmd_cp(src     : str  = typer.Argument(..., help='Source — local path or s
 # ── mv ────────────────────────────────────────────────────────────────────────
 
 @app.command('mv')
+@spec_cli_errors
 @require_mutation_gate(_MUTATION_ENV)
 def cmd_mv(src     : str  = typer.Argument(..., help='Source s3://bucket/key.'),
            dst     : str  = typer.Argument(..., help='Destination s3://bucket/key.'),
@@ -464,6 +477,7 @@ def cmd_mv(src     : str  = typer.Argument(..., help='Source s3://bucket/key.'),
 # ── rm ────────────────────────────────────────────────────────────────────────
 
 @app.command('rm')
+@spec_cli_errors
 @require_mutation_gate(_MUTATION_ENV)
 def cmd_rm(path    : str  = typer.Argument(..., help='s3://bucket/key'),
            yes     : bool = typer.Option(False, '--yes', '-y',   help='Skip confirmation prompt.'),
@@ -482,6 +496,7 @@ def cmd_rm(path    : str  = typer.Argument(..., help='s3://bucket/key'),
 # ── sync ──────────────────────────────────────────────────────────────────────
 
 @app.command('sync')
+@spec_cli_errors
 @require_mutation_gate(_MUTATION_ENV)
 def cmd_sync(local_dir : str  = typer.Argument(..., help='Local directory.'),
              s3_path   : str  = typer.Argument(..., help='s3://bucket/prefix destination.'),
@@ -529,6 +544,7 @@ def cmd_sync(local_dir : str  = typer.Argument(..., help='Local directory.'),
 # ── edit ──────────────────────────────────────────────────────────────────────
 
 @app.command('edit')
+@spec_cli_errors
 @require_mutation_gate(_MUTATION_ENV)
 def cmd_edit(path       : str  = typer.Argument(..., help='s3://bucket/key'),
              editor     : str  = typer.Option('',   '--editor', help='Editor binary (default $EDITOR or vim).'),
@@ -564,6 +580,7 @@ def cmd_edit(path       : str  = typer.Argument(..., help='s3://bucket/key'),
 # ── bucket-create ─────────────────────────────────────────────────────────────
 
 @app.command('bucket-create')
+@spec_cli_errors
 @require_mutation_gate(_MUTATION_ENV)
 def cmd_bucket_create(bucket  : str  = typer.Argument(..., help='Bucket name to create.'),
                       region  : str  = typer.Option('',    '--region', '-r', help='AWS region.'),

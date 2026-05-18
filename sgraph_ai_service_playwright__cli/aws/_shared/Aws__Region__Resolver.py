@@ -42,8 +42,9 @@ class Aws__Region__Resolver(Type_Safe):
         try:
             from sgraph_ai_service_playwright__cli.credentials.service.Sg__Aws__Context  import Sg__Aws__Context
             from sgraph_ai_service_playwright__cli.credentials.service.Credentials__Store import Credentials__Store
-            role_name = Sg__Aws__Context.get_current_role()
+            role_name = os.environ.get('SG_CREDENTIALS__CURRENT_ROLE', '') or Sg__Aws__Context.get_current_role()
             if role_name:
+                role_name = role_name.strip("'\"")                                # tolerate stray shell quotes from old switch-eval output
                 config = Credentials__Store().role_get(role_name)
                 if config and hasattr(config, 'region'):
                     return str(config.region) if config.region else ''

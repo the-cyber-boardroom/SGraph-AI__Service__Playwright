@@ -13,11 +13,13 @@ from rich.console                                                               
 from rich.panel                                                                  import Panel
 
 from sgraph_ai_service_playwright__cli.aws.bedrock.service.Bedrock__Setup__Renderer import Bedrock__Setup__Renderer
+from sg_compute.cli.base.Spec__CLI__Errors                                  import spec_cli_errors
 
 
 def register_setup(app: typer.Typer) -> None:
 
     @app.command('setup')
+    @spec_cli_errors
     def bedrock_setup(region       : Optional[str]  = typer.Option(None , '--region'        , help='Override active role region.'),
                       open_console : bool           = typer.Option(False, '--open-console'   , help='Open model-access console in browser.'),
                       print_policy : bool           = typer.Option(False, '--print-policy'   , help='Print minimal IAM policy JSON to stdout.'),
