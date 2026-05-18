@@ -105,7 +105,9 @@ class _Fake_Lambda_Client:
 
     def get_function_url_config(self, FunctionName, **_):
         if FunctionName not in self._url_store:
-            raise Exception(f'No URL: {FunctionName}')
+            raise ClientError(
+                {'Error': {'Code': 'ResourceNotFoundException', 'Message': f'No URL config: {FunctionName}'}},
+                'GetFunctionUrlConfig')
         return self._url_store[FunctionName]
 
     def create_function_url_config(self, FunctionName, AuthType, **_):
@@ -304,6 +306,28 @@ class TestBootstrapNoSideEffectsOnFailure:
         )
         svc.bootstrap(_req())
         assert len(cf._store) == 0
+
+
+class TestBootstrapIdempotency:
+    def test_second_run_does_not_duplicate_cf_distribution(self):
+        svc, cf, *_ = _svc_with_fakes()
+        svc.bootstrap(_req())
+        svc.bootstrap(_req())
+        assert len(cf._store) == 1                                   # ensure_distribution is idempotent
+
+    def test_second_run_does_not_duplicate_function_url(self):
+        svc, _, lc, _ = _svc_with_fakes()
+        svc.bootstrap(_req())
+        url_before = lc._url_store.get(WAKER_LAMBDA_NAME, {}).get('FunctionUrl', '')
+        svc.bootstrap(_req())
+        url_after = lc._url_store.get(WAKER_LAMBDA_NAME, {}).get('FunctionUrl', '')
+        assert url_before == url_after                               # ensure_function_url is idempotent
+
+    def test_second_run_returns_success(self):
+        svc, *_ = _svc_with_fakes()
+        svc.bootstrap(_req())
+        resp = svc.bootstrap(_req())
+        assert resp.created is True
 
 
 class TestBootstrapRequestDefaults:

@@ -170,6 +170,14 @@ class Lambda__AWS__Client(Type_Safe):
                 return Schema__Lambda__Url__Info(name=Safe_Str__Lambda__Name(name), exists=False)
             raise
 
+    def ensure_function_url(self, name: str,
+                             auth_type: Enum__Lambda__Url__Auth_Type = Enum__Lambda__Url__Auth_Type.NONE
+                             ) -> Schema__Lambda__Url__Info:
+        existing = self.get_function_url(name)
+        if existing.exists:
+            return existing
+        return self.create_function_url(name, auth_type)
+
     def create_function_url(self, name: str,
                              auth_type: Enum__Lambda__Url__Auth_Type = Enum__Lambda__Url__Auth_Type.NONE
                              ) -> Schema__Lambda__Url__Info:
