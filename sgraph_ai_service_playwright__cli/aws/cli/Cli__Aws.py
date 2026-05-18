@@ -19,6 +19,7 @@ from sgraph_ai_service_playwright__cli.aws.lambda_.cli.Lambda__Click__Group  imp
 from sgraph_ai_service_playwright__cli.credentials.cli.Cli__Credentials       import app as _credentials_app
 from sgraph_ai_service_playwright__cli.aws.s3.cli.Cli__S3                    import app as s3_app
 from sgraph_ai_service_playwright__cli.aws.ec2.cli.Cli__EC2                  import app as ec2_app
+from sgraph_ai_service_playwright__cli.aws.ecr.cli.Cli__Ecr                  import app as ecr_app
 from sgraph_ai_service_playwright__cli.aws.fargate.cli.Cli__Fargate          import app as fargate_app
 from sgraph_ai_service_playwright__cli.aws.bedrock.cli.Cli__Bedrock          import app as bedrock_app
 from sgraph_ai_service_playwright__cli.aws.cloudtrail.cli.Cli__CloudTrail    import app as cloudtrail_app
@@ -69,6 +70,7 @@ app.add_typer(_credentials_app, name='credentials', help='Manage AWS credentials
 # ── v0.2.29 new surfaces (bodies filled in by their respective sibling slices) ──
 app.add_typer(s3_app,         name='s3'         )
 app.add_typer(ec2_app,        name='ec2'        )
+app.add_typer(ecr_app,        name='ecr'        )
 app.add_typer(fargate_app,    name='fargate'    )
 app.add_typer(bedrock_app,    name='bedrock'    )
 app.add_typer(cloudtrail_app, name='cloudtrail' )
