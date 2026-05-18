@@ -96,7 +96,7 @@ class Vault_Publish__Service(Type_Safe):
                 elapsed_ms = int((time.monotonic() - t0) * 1000))
 
         registry = self._registry()
-        if registry.get(slug) is not None:
+        if registry.get(slug, region) is not None:
             return Schema__Vault_Publish__Register__Response(
                 slug      = request.slug,
                 message   = f'slug already registered: {slug}',
@@ -113,11 +113,10 @@ class Vault_Publish__Service(Type_Safe):
         create_req.tls_mode     = 'letsencrypt-hostname'
         create_resp = vault_app.create_stack(create_req)
 
-        stack_name = str(getattr(create_resp.stack_info, 'stack_name', '') or slug)
-        registry.put(slug       = slug,
-                     stack_name = stack_name,
-                     fqdn       = fqdn,
-                     region     = region)
+        stack_name  = str(getattr(create_resp.stack_info, 'stack_name', '') or slug)
+        instance_id = str(getattr(create_resp.stack_info, 'instance_id', '') or '')
+        if instance_id:
+            registry.put(slug=slug, fqdn=fqdn, region=region, instance_id=instance_id)
         return Schema__Vault_Publish__Register__Response(
             slug       = request.slug,
             fqdn       = fqdn,
@@ -139,7 +138,9 @@ class Vault_Publish__Service(Type_Safe):
         region     = str(entry.region) or DEFAULT_REGION
         vault_app  = self._vault_app()
         vault_app.delete_stack(region, stack_name)
-        registry.delete(slug)
+        # registry.delete is now a no-op — terminating the instance removes
+        # the tags. Kept for symmetry with the old SSM interface.
+        registry.delete(slug, region)
         return Schema__Vault_Publish__Unpublish__Response(
             slug       = Safe_Str__Slug(slug),
             deleted    = True,

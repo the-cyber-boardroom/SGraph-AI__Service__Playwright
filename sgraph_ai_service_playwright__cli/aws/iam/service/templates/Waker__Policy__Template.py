@@ -1,12 +1,14 @@
 # ═══════════════════════════════════════════════════════════════════════════════
 # SP CLI — Waker__Policy__Template
 # Typed policy document for the vault-publish Waker Lambda execution role.
-# Reflects the manual policy from §0.5 of the v0.2.23 test guide.
 #
 # Audit target state: max INFO (0 WARN, 0 CRITICAL).
-#   • CloudWatch logs  — wildcard resource accepted (logs: no resource-level perms)
-#   • EC2 Describe     — wildcard resource accepted (AWS limitation)
+#   • CloudWatch logs    — wildcard resource accepted (logs: no resource-level perms)
+#   • EC2 Describe       — wildcard resource accepted (AWS limitation)
 #   • EC2 StartInstances — narrow ARN + tag condition (no wildcard resource flag)
+#
+# Note: ssm:GetParameter was removed when the slug registry moved from SSM to
+# EC2 tags (commit "remove SSM from waker — tag-backed Slug__Registry").
 # ═══════════════════════════════════════════════════════════════════════════════
 
 import json
@@ -42,11 +44,6 @@ class Waker__Policy__Template(Type_Safe):
         ec2_start_resources.append(Safe_Str__Aws__Resource('arn:aws:ec2:*:*:instance/*'))
         ec2_start_condition = json.dumps({'StringEquals': {'aws:ResourceTag/StackType': 'vault-app'}})
 
-        ssm_actions   = List__Safe_Str__Aws__Action()
-        ssm_actions.append(Safe_Str__Aws__Action('ssm:GetParameter'))
-        ssm_resources = List__Safe_Str__Aws__Resource()
-        ssm_resources.append(Safe_Str__Aws__Resource('arn:aws:ssm:*:*:parameter/sg-compute/vault-publish/*'))
-
         stmts = List__Schema__IAM__Statement()
         stmts.append(Schema__IAM__Statement(
             effect                  = 'Allow',
@@ -65,10 +62,5 @@ class Waker__Policy__Template(Type_Safe):
             actions        = ec2_start_actions,
             resources      = ec2_start_resources,
             condition_json = ec2_start_condition,        # tag condition prevents unscoped StartInstances
-        ))
-        stmts.append(Schema__IAM__Statement(
-            effect    = 'Allow',
-            actions   = ssm_actions,
-            resources = ssm_resources,
         ))
         return Schema__IAM__Policy(statements=stmts)

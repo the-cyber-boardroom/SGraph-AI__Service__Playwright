@@ -1,87 +1,81 @@
 # ═══════════════════════════════════════════════════════════════════════════════
 # Tests — Vault_Publish__Service
 # register / unpublish / status / list — all against in-memory fakes.
-# No mocks, no patches, no AWS calls.
+# No mocks, no patches, no AWS calls, no SSM.
+#
+# The fakes use a SHARED ec2_store dict so the slug registry (EC2 tags) and
+# the fake vault-app stay consistent — registering a slug seeds an instance
+# in the store, and unpublish removes it.
 # ═══════════════════════════════════════════════════════════════════════════════
+
+from datetime import datetime, timezone
+from types    import SimpleNamespace
 
 from sg_compute_specs.vault_publish.schemas.Enum__Vault_Publish__State          import Enum__Vault_Publish__State
 from sg_compute_specs.vault_publish.schemas.Safe_Str__Slug                      import Safe_Str__Slug
 from sg_compute_specs.vault_publish.schemas.Safe_Str__Vault__Key                import Safe_Str__Vault__Key
 from sg_compute_specs.vault_publish.schemas.Schema__Vault_Publish__Register__Request  import Schema__Vault_Publish__Register__Request
-from sg_compute_specs.vault_publish.service.Slug__Registry                      import Slug__Registry
+from sg_compute_specs.vault_publish.service.Slug__Registry                      import (
+    Slug__Registry, TAG_STYPE, STYPE_VAL,
+)
 from sg_compute_specs.vault_publish.service.Vault_Publish__Service              import Vault_Publish__Service
+from sg_compute_specs.vault_publish.tests.test_Slug__Registry                   import _Fake_EC2
 
 
-# ── In-memory Parameter fake (reused from test_Slug__Registry) ─────────────────
-
-class _Param__In_Memory:
-    def __init__(self, store: dict, name: str = None):
-        self._store = store
-        self._name  = name
-
-    def put(self, value, **_):
-        self._store[self._name] = value
-
-    def value(self):
-        return self._store.get(self._name)
-
-    def delete(self):
-        if self._name not in self._store:
-            return False
-        del self._store[self._name]
-        return True
-
-    def list_under_prefix(self, prefix: str):
-        return [{'Name': k} for k in self._store if k.startswith(prefix + '/')]
-
-
-def _make_registry(store: dict = None) -> Slug__Registry:
-    if store is None:
-        store = {}
-    reg = Slug__Registry()
-    reg._param_factory = lambda name: _Param__In_Memory(store, name)
-    return reg
-
-
-# ── Fake vault-app stack info ─────────────────────────────────────────────────
-
-class _Fake_Stack_Info:
-    def __init__(self, state='running', public_ip='1.2.3.4', vault_url='http://1.2.3.4:8080',
-                 stack_name='sara-cv'):
-        self.state       = state
-        self.public_ip   = public_ip
-        self.vault_url   = vault_url
-        self.stack_name  = stack_name
-
-class _Fake_Create_Response:
-    class _FakeInfo:
-        stack_name = 'sara-cv'
-    stack_info = _FakeInfo()
+# ── Fake vault-app that seeds the shared EC2 store ────────────────────────────
 
 class _Fake_Vault_App:
-    def __init__(self, stack_info=None):
+    def __init__(self, ec2_store: dict,
+                 state: str = 'running', public_ip: str = '1.2.3.4'):
+        self._store     = ec2_store
+        self._state     = state
+        self._public_ip = public_ip
+        self._next_id   = 0
         self.created    = []
         self.deleted    = []
-        self._info      = stack_info or _Fake_Stack_Info()
+
+    def _new_iid(self) -> str:
+        self._next_id += 1
+        return f'i-fake{self._next_id:03d}'
 
     def create_stack(self, req):
         self.created.append(req)
-        return _Fake_Create_Response()
+        iid = self._new_iid()
+        self._store[iid] = {
+            'tags'       : {TAG_STYPE: STYPE_VAL, 'StackName': req.stack_name},
+            'state'      : self._state,
+            'public_ip'  : self._public_ip,
+            'launch_time': datetime(2026, 5, 18, 12, 0, 0, tzinfo=timezone.utc),
+        }
+        return SimpleNamespace(stack_info=SimpleNamespace(
+            stack_name=req.stack_name, instance_id=iid))
 
     def delete_stack(self, region, stack_name):
         self.deleted.append((region, stack_name))
+        for iid, inst in list(self._store.items()):
+            if inst['tags'].get('StackName') == stack_name:
+                del self._store[iid]
 
     def get_stack_info(self, region, stack_name):
-        return self._info
+        for inst in self._store.values():
+            if inst['tags'].get('StackName') == stack_name:
+                return SimpleNamespace(
+                    state      = inst['state'],
+                    public_ip  = inst['public_ip'],
+                    vault_url  = f'http://{inst["public_ip"]}:8080',
+                    stack_name = stack_name,
+                )
+        return None
 
 
 # ── Build wired service ────────────────────────────────────────────────────────
 
-def _build_svc(store: dict = None, stack_info=None):
-    store    = store or {}
-    reg      = _make_registry(store)
-    fake_va  = _Fake_Vault_App(stack_info=stack_info)
-    svc      = Vault_Publish__Service().setup()
+def _build_svc(state: str = 'running', public_ip: str = '1.2.3.4'):
+    ec2_store = {}
+    reg = Slug__Registry(region='eu-west-2')
+    reg._ec2_factory = lambda r: _Fake_EC2(ec2_store)
+    fake_va = _Fake_Vault_App(ec2_store, state=state, public_ip=public_ip)
+    svc = Vault_Publish__Service().setup()
     svc._registry_factory  = lambda: reg
     svc._vault_app_factory = lambda: fake_va
     return svc, reg, fake_va
@@ -100,7 +94,7 @@ class TestVaultPublishServiceRegister:
     def test_register_happy_path(self):
         svc, reg, va = _build_svc()
         resp = svc.register(_register_req())
-        assert str(resp.slug)  == 'sara-cv'
+        assert str(resp.slug)    == 'sara-cv'
         assert 'aws.sg-labs.app' in resp.fqdn
         assert resp.stack_name   != ''
         assert resp.message      == 'registered'
@@ -142,7 +136,7 @@ class TestVaultPublishServiceUnpublish:
         resp = svc.unpublish('sara-cv')
         assert resp.deleted     is True
         assert resp.stack_name  == 'sara-cv'
-        assert reg.get('sara-cv') is None
+        assert reg.get('sara-cv') is None              # vault-app removed the instance → tags gone
         assert len(va.deleted) == 1
 
     def test_unpublish_not_found(self):
@@ -157,7 +151,7 @@ class TestVaultPublishServiceUnpublish:
 
 class TestVaultPublishServiceStatus:
     def test_status_running(self):
-        svc, _, _ = _build_svc(stack_info=_Fake_Stack_Info(state='running'))
+        svc, _, _ = _build_svc(state='running', public_ip='1.2.3.4')
         svc.register(_register_req())
         resp = svc.status('sara-cv')
         assert resp.state     == Enum__Vault_Publish__State.RUNNING
@@ -165,7 +159,7 @@ class TestVaultPublishServiceStatus:
         assert 'sara-cv' in str(resp.slug)
 
     def test_status_stopped(self):
-        svc, _, _ = _build_svc(stack_info=_Fake_Stack_Info(state='stopped', public_ip=''))
+        svc, _, _ = _build_svc(state='stopped', public_ip='')
         svc.register(_register_req())
         resp = svc.status('sara-cv')
         assert resp.state == Enum__Vault_Publish__State.STOPPED
@@ -190,9 +184,8 @@ class TestVaultPublishServiceList:
         svc.register(_register_req(slug='slug-b', vault_key='k2'))
         resp = svc.list_slugs()
         assert resp.total == 2
-        slugs = [str(e.slug) for e in resp.entries]
-        assert 'slug-a' in slugs
-        assert 'slug-b' in slugs
+        slugs = sorted(str(e.slug) for e in resp.entries)
+        assert slugs == ['slug-a', 'slug-b']
 
     def test_list_redacts_vault_keys(self):
         svc, _, _ = _build_svc()
