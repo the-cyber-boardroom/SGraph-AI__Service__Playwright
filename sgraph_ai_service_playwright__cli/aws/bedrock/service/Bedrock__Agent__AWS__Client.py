@@ -45,15 +45,42 @@ class Bedrock__Agent__AWS__Client(Type_Safe):
     # ── Agent lifecycle ───────────────────────────────────────────────────────
 
     def create_agent(self, name: str, model_id: str, tools: str = '',
-                     memory: str = 'none', region: str = None, role_arn: str = '') -> Schema__Bedrock__Agent:
+                     memory: str = 'none', region: str = None, role_arn: str = '',
+                     instruction: str = '') -> Schema__Bedrock__Agent:
         effective_region = region or self.current_region()
         agentc           = self.client(effective_region)
         kwargs           = dict(agentName            = name                    ,
                                 foundationModel      = model_id                ,
                                 agentResourceRoleArn = role_arn                )    # AWS requires a role ARN — pass via --role-arn
+        if instruction:
+            kwargs['instruction'] = instruction                                   # optional at create; required before PrepareAgent
         resp      = agentc.create_agent(**kwargs)
         agent_raw = resp.get('agent', {})
         return self.map_agent(agent_raw, tools=tools, memory=memory, region=effective_region)
+
+    def update_agent(self, agent_id: str, model_id: str = '', instruction: str = '',
+                     role_arn: str = '', name: str = '', region: str = None) -> Schema__Bedrock__Agent:
+        """Update an existing agent. Any non-empty field replaces the current value.
+        UpdateAgent requires name + foundationModel + agentResourceRoleArn — fetch
+        current values first when the caller omits them."""
+        effective_region = region or self.current_region()
+        agentc           = self.client(effective_region)
+        if not (model_id and role_arn and name):                                  # fetch missing required fields
+            current = self.get_agent(agent_id, region=effective_region)
+            if current is None:
+                raise ValueError(f'Agent {agent_id!r} not found')
+            name     = name     or current.agent_name
+            model_id = model_id or str(current.model_id)
+            role_arn = role_arn or ''                                             # role_arn not stored in get response; caller must pass if changing
+        kwargs = dict(agentId              = agent_id,
+                      agentName            = name    ,
+                      foundationModel      = model_id,
+                      agentResourceRoleArn = role_arn)
+        if instruction:
+            kwargs['instruction'] = instruction
+        resp      = agentc.update_agent(**kwargs)
+        agent_raw = resp.get('agent', {})
+        return self.map_agent(agent_raw, region=effective_region)
 
     def list_agents(self, region: str = None, detailed: bool = False) -> List__Schema__Bedrock__Agent:
         """List agents in the region.
@@ -140,11 +167,13 @@ class Bedrock__Agent__AWS__Client(Type_Safe):
 
     def map_agent(self, raw: dict, tools: str = '', memory: str = 'none',
                   region: str = '') -> Schema__Bedrock__Agent:
-        agent_id   = raw.get('agentId',   '')
-        agent_arn  = raw.get('agentArn',  '')
-        agent_name = raw.get('agentName', '')
-        model_id   = raw.get('foundationModel', '')
-        status     = raw.get('agentStatus', 'UNKNOWN')
+        agent_id        = raw.get('agentId',   '')
+        agent_arn       = raw.get('agentArn',  '')
+        agent_name      = raw.get('agentName', '')
+        model_id        = raw.get('foundationModel', '')
+        status          = raw.get('agentStatus', 'UNKNOWN')
+        failure_reasons = raw.get('failureReasons', [])                           # populated when status=FAILED
+        instruction     = raw.get('instruction', '')                              # required before PrepareAgent
         try:
             safe_arn = Safe_Str__Bedrock__Agent_Arn(agent_arn)
         except ValueError:
@@ -153,15 +182,17 @@ class Bedrock__Agent__AWS__Client(Type_Safe):
             safe_mid = Safe_Str__Bedrock__Model_Id(model_id)
         except ValueError:
             safe_mid = Safe_Str__Bedrock__Model_Id('')
-        return Schema__Bedrock__Agent(agent_id    = agent_id   ,
-                                      agent_arn   = safe_arn   ,
-                                      agent_name  = agent_name ,
-                                      model_id    = safe_mid   ,
-                                      status      = status     ,
-                                      tools       = tools      ,
-                                      memory      = memory     ,
-                                      region      = region     ,
-                                      capture_path= ''         )
+        return Schema__Bedrock__Agent(agent_id        = agent_id        ,
+                                      agent_arn       = safe_arn        ,
+                                      agent_name      = agent_name      ,
+                                      model_id        = safe_mid        ,
+                                      status          = status          ,
+                                      failure_reasons = failure_reasons ,
+                                      instruction     = instruction     ,
+                                      tools           = tools           ,
+                                      memory          = memory          ,
+                                      region          = region          ,
+                                      capture_path    = ''              )
 
     def map_agent_summary(self, raw: dict, region: str) -> Schema__Bedrock__Agent:
         return self.map_agent(raw, region=region)

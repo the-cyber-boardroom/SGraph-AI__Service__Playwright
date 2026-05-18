@@ -84,15 +84,20 @@ def _render_agent_client_error(exc: ClientError, action: str, name_or_id: str = 
 @require_mutation_gate(BEDROCK_GATE)
 @spec_cli_errors
 def agent_create(
-    name        : str          = typer.Option(...,   '--name',     '-n', help='Agent name.'),
-    model       : str          = typer.Option(...,   '--model',    '-m', help='Model alias or model ID (e.g. claude, haiku-4.5).'),
-    role_arn    : str          = typer.Option('',    '--role-arn',       help='Agent execution role ARN (required by AWS — role must trust bedrock.amazonaws.com).'),
-    tools       : str          = typer.Option('',    '--tools',          help='Comma-separated tool names: browser, code-interpreter.'),
-    memory      : str          = typer.Option('none','--memory',         help='Memory scope: short, long, both, none.'),
-    yes         : bool         = typer.Option(False, '--yes',     '-y',  help='Skip confirmation prompt.'),
-    json_output : bool         = typer.Option(False, '--json',           help='Output JSON.'),
+    name        : str          = typer.Option(...,   '--name',        '-n', help='Agent name.'),
+    model       : str          = typer.Option(...,   '--model',       '-m', help='Model alias or model ID (e.g. claude, haiku-4.5).'),
+    role_arn    : str          = typer.Option('',    '--role-arn',         help='Agent execution role ARN (required by AWS — role must trust bedrock.amazonaws.com).'),
+    instruction : str          = typer.Option('',    '--instruction', '-i', help='Agent instruction text (required before PrepareAgent — can also be set later via `update --instruction`).'),
+    tools       : str          = typer.Option('',    '--tools',            help='Comma-separated tool names: browser, code-interpreter.'),
+    memory      : str          = typer.Option('none','--memory',           help='Memory scope: short, long, both, none.'),
+    yes         : bool         = typer.Option(False, '--yes',        '-y', help='Skip confirmation prompt.'),
+    json_output : bool         = typer.Option(False, '--json',             help='Output JSON.'),
 ):
-    """Create a Bedrock Agent (legacy `bedrock-agent` API — not AgentCore). [EXPERIMENTAL]"""
+    """Create a Bedrock Agent (legacy `bedrock-agent` API — not AgentCore). [EXPERIMENTAL]
+
+    Tip: AWS requires an instruction before PrepareAgent will succeed.
+    Either pass --instruction now or run `update --instruction` afterwards.
+    """
     if not yes:
         typer.confirm(f'Create agent {name!r}?', default=True, abort=True)
     resolver = Bedrock__Model__Resolver()
@@ -103,27 +108,32 @@ def agent_create(
     except ValueError:
         model_id = model                                                          # raw model ID passed directly
     try:
-        agent = client.create_agent(name, model_id, tools=tools, memory=memory, role_arn=role_arn)
+        agent = client.create_agent(name, model_id, tools=tools, memory=memory, role_arn=role_arn, instruction=instruction)
     except ClientError as exc:
         _render_agent_client_error(exc, action='CreateAgent', name_or_id=name)
         raise typer.Exit(1)
     writer = Bedrock__Capture__Writer()
-    path   = writer.write_agent_definition(name, {'agent_id'  : agent.agent_id  ,
-                                                   'agent_arn' : str(agent.agent_arn),
-                                                   'model_id'  : str(agent.model_id) ,
-                                                   'status'    : agent.status        ,
-                                                   'tools'     : tools               ,
-                                                   'memory'    : memory              })
+    path   = writer.write_agent_definition(name, {'agent_id'   : agent.agent_id         ,
+                                                   'agent_arn'  : str(agent.agent_arn)   ,
+                                                   'model_id'   : str(agent.model_id)    ,
+                                                   'status'     : agent.status           ,
+                                                   'instruction': instruction             ,
+                                                   'tools'      : tools                  ,
+                                                   'memory'     : memory                 })
     if json_output:
-        typer.echo(json.dumps(dict(agent_id   = agent.agent_id         ,
-                                   agent_arn  = str(agent.agent_arn)   ,
-                                   agent_name = agent.agent_name       ,
-                                   model_id   = str(agent.model_id)    ,
-                                   status     = agent.status           ,
-                                   capture    = str(path)              ), indent=2))
+        typer.echo(json.dumps(dict(agent_id    = agent.agent_id         ,
+                                   agent_arn   = str(agent.agent_arn)   ,
+                                   agent_name  = agent.agent_name       ,
+                                   model_id    = str(agent.model_id)    ,
+                                   status      = agent.status           ,
+                                   instruction = instruction             ,
+                                   capture     = str(path)              ), indent=2))
         return
     c = Console(highlight=False)
-    c.print(f'\n  Agent [bold]{name}[/] created  id={agent.agent_id}  capture={path}\n')
+    c.print(f'\n  Agent [bold]{name}[/] created  id={agent.agent_id}  capture={path}')
+    if not instruction:
+        c.print('  [yellow]Tip:[/] no --instruction supplied — run `update --instruction` before `prepare`.')
+    c.print()
 
 
 # ── agent list ────────────────────────────────────────────────────────────────
@@ -167,25 +177,39 @@ def agent_get(agent_id  : str  = typer.Argument(..., help='AgentCore agent ID.')
     client = _client()
     agent  = client.get_agent(agent_id)
     if json_output:
-        typer.echo(json.dumps(dict(agent_id  = agent.agent_id       ,
-                                   agent_arn = str(agent.agent_arn) ,
-                                   agent_name= agent.agent_name     ,
-                                   model_id  = str(agent.model_id)  ,
-                                   status    = agent.status         ,
-                                   region    = agent.region         ), indent=2))
+        typer.echo(json.dumps(dict(agent_id        = agent.agent_id         ,
+                                   agent_arn       = str(agent.agent_arn)   ,
+                                   agent_name      = agent.agent_name       ,
+                                   model_id        = str(agent.model_id)    ,
+                                   status          = agent.status           ,
+                                   region          = agent.region           ,
+                                   instruction     = agent.instruction      ,
+                                   failure_reasons = agent.failure_reasons  ), indent=2))
         return
     c = Console(highlight=False)
     c.print()
     t = Table(box=None, show_header=False, padding=(0, 2))
-    t.add_column(style='bold', min_width=12, no_wrap=True)
+    t.add_column(style='bold', min_width=14, no_wrap=True)
     t.add_column()
-    t.add_row('agent_id',  agent.agent_id)
-    t.add_row('name',      agent.agent_name)
-    t.add_row('arn',       str(agent.agent_arn))
-    t.add_row('model_id',  str(agent.model_id))
-    t.add_row('status',    agent.status)
-    t.add_row('region',    agent.region)
+    t.add_row('agent_id',    agent.agent_id)
+    t.add_row('name',        agent.agent_name)
+    t.add_row('arn',         str(agent.agent_arn))
+    t.add_row('model_id',    str(agent.model_id))
+    t.add_row('status',      agent.status)
+    t.add_row('region',      agent.region)
+    if agent.instruction:
+        t.add_row('instruction', agent.instruction[:80] + ('…' if len(agent.instruction) > 80 else ''))
+    if agent.failure_reasons:
+        for i, reason in enumerate(agent.failure_reasons):
+            label = 'failure_reason' if i == 0 else ''
+            t.add_row(label, f'[red]{reason}[/]')
     c.print(t)
+    if agent.status == 'FAILED' and not agent.failure_reasons:
+        c.print('  [dim](no failureReasons returned — re-run with --json for raw API response)[/]')
+    if agent.status in ('NOT_PREPARED', 'FAILED') and not agent.instruction:
+        c.print()
+        c.print('  [yellow]Tip:[/] agent needs an instruction before PrepareAgent will succeed.')
+        c.print('  Run:  [dim]sg aws bedrock agent update {id} --instruction "You are a helpful assistant."[/]')
     c.print()
 
 
@@ -288,6 +312,59 @@ def agent_prepare(
     c = Console(highlight=False)
     c.print(f'\n  Agent [bold]{agent_id}[/] preparing  status={result["agent_status"]}  version={result["agent_version"]}')
     c.print('  [dim]Status PREPARING → PREPARED takes a few seconds. Re-check with `get`.[/]\n')
+
+
+# ── agent update ─────────────────────────────────────────────────────────────
+
+@agent_app.command('update')
+@require_mutation_gate(BEDROCK_GATE)
+@spec_cli_errors
+def agent_update(
+    agent_id    : str          = typer.Argument(..., help='Agent ID.'),
+    instruction : str          = typer.Option('',    '--instruction', '-i', help='New instruction text (required before PrepareAgent).'),
+    model       : str          = typer.Option('',    '--model',       '-m', help='New foundation model alias or ID.'),
+    role_arn    : str          = typer.Option('',    '--role-arn',         help='New agent execution role ARN.'),
+    yes         : bool         = typer.Option(False, '--yes',        '-y', help='Skip confirmation.'),
+    json_output : bool         = typer.Option(False, '--json',             help='Output JSON.'),
+):
+    """Update an existing Bedrock Agent (instruction, model, role).
+
+    At minimum, set an instruction before running `prepare`:
+      sg aws bedrock agent update <id> --instruction "You are a helpful assistant."
+
+    AWS UpdateAgent requires name + foundationModel + agentResourceRoleArn — missing
+    values are fetched automatically from the current agent config. [EXPERIMENTAL]
+    """
+    if not instruction and not model and not role_arn:
+        Console(highlight=False, stderr=True).print('  [yellow]Nothing to update — pass at least one of: --instruction, --model, --role-arn[/]')
+        raise typer.Exit(1)
+    if not yes:
+        typer.confirm(f'Update agent {agent_id!r}?', default=True, abort=True)
+    client   = _client()
+    resolver = Bedrock__Model__Resolver()
+    model_id = ''
+    if model:
+        try:
+            model_id = resolver.resolve(model, 'default', client.current_region())
+        except ValueError:
+            model_id = model
+    try:
+        agent = client.update_agent(agent_id, model_id=model_id, instruction=instruction, role_arn=role_arn)
+    except ClientError as exc:
+        _render_agent_client_error(exc, action='UpdateAgent', name_or_id=agent_id)
+        raise typer.Exit(1)
+    if json_output:
+        typer.echo(json.dumps(dict(agent_id    = agent.agent_id         ,
+                                   agent_name  = agent.agent_name       ,
+                                   model_id    = str(agent.model_id)    ,
+                                   status      = agent.status           ,
+                                   instruction = agent.instruction      ), indent=2))
+        return
+    c = Console(highlight=False)
+    c.print(f'\n  Agent [bold]{agent_id}[/] updated  status={agent.status}')
+    if agent.instruction:
+        c.print(f'  instruction set ({len(agent.instruction)} chars) — run `prepare` to activate.')
+    c.print()
 
 
 # ── agent stop ────────────────────────────────────────────────────────────────
