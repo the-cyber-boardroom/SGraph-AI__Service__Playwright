@@ -2,16 +2,18 @@
 # SG/Compute Specs — vault-publish setup: Cli__Setup
 # Typer app for `sg vault-publish setup` sub-commands.
 #
-#   sg vault-publish setup check           — check all areas (iam+lambda+cf+acm+dns)
-#   sg vault-publish setup create          — create all resources in dependency order
-#   sg vault-publish setup update          — update/redeploy all resources
-#   sg vault-publish setup delete          — delete all resources (reverse order)
+#   sg vault-publish setup check    — check all areas (ec2+iam+lambda+cf+cf-function+acm+dns)
+#   sg vault-publish setup create   — create all resources in dependency order
+#   sg vault-publish setup update   — update/redeploy all resources
+#   sg vault-publish setup delete   — delete all resources (reverse order)
 #
-#   sg vault-publish setup iam    check/status/create/update/delete
-#   sg vault-publish setup lambda check/status/create/update
-#   sg vault-publish setup cf     check/status/create
-#   sg vault-publish setup acm    check/status/request
-#   sg vault-publish setup dns    check/status/create/delete
+#   sg vault-publish setup ec2          check/status                        (read-only)
+#   sg vault-publish setup iam          check/status/create/update/delete
+#   sg vault-publish setup lambda       check/status/create/update
+#   sg vault-publish setup cf           check/status/create
+#   sg vault-publish setup cf-function  check/status/create/update/delete   (viewer-Host shim)
+#   sg vault-publish setup acm          check/status/request
+#   sg vault-publish setup dns          check/status/create/delete
 #
 # Every command:
 #   1. Prints the auto-assume notice if iam-admin was detected.
@@ -32,31 +34,39 @@ from sg_compute_specs.vault_publish.setup.schemas.Enum__Setup__State            
 from sg_compute_specs.vault_publish.setup.service.Setup__IAM                    import Setup__IAM
 from sg_compute_specs.vault_publish.setup.service.Setup__Lambda                 import Setup__Lambda
 from sg_compute_specs.vault_publish.setup.service.Setup__CF                     import Setup__CF
+from sg_compute_specs.vault_publish.setup.service.Setup__CF__Function           import Setup__CF__Function
 from sg_compute_specs.vault_publish.setup.service.Setup__ACM                    import Setup__ACM
 from sg_compute_specs.vault_publish.setup.service.Setup__DNS                    import Setup__DNS
+from sg_compute_specs.vault_publish.setup.service.Setup__EC2                    import Setup__EC2
 from sg_compute_specs.vault_publish.schemas.Schema__Vault_Publish__Bootstrap__Request import DEFAULT_CERT_ARN, DEFAULT_ZONE
 
-app        = typer.Typer(name='setup',  help='Setup and drift-check for vault-publish AWS resources.', no_args_is_help=True)
-iam_app    = typer.Typer(name='iam',    help='IAM execution role management.',                         no_args_is_help=True)
-lambda_app = typer.Typer(name='lambda', help='Lambda waker function management.',                      no_args_is_help=True)
-cf_app     = typer.Typer(name='cf',     help='CloudFront wildcard distribution management.',           no_args_is_help=True)
-acm_app    = typer.Typer(name='acm',    help='ACM wildcard certificate management.',                   no_args_is_help=True)
-dns_app    = typer.Typer(name='dns',    help='Route 53 wildcard DNS record management.',               no_args_is_help=True)
+app             = typer.Typer(name='setup',       help='Setup and drift-check for vault-publish AWS resources.', no_args_is_help=True)
+ec2_app         = typer.Typer(name='ec2',         help='EC2 prerequisites (IAM instance profile + base AMI).',   no_args_is_help=True)
+iam_app         = typer.Typer(name='iam',         help='IAM execution role management.',                         no_args_is_help=True)
+lambda_app      = typer.Typer(name='lambda',      help='Lambda waker function management.',                      no_args_is_help=True)
+cf_app          = typer.Typer(name='cf',          help='CloudFront wildcard distribution management.',           no_args_is_help=True)
+cf_function_app = typer.Typer(name='cf-function', help='CloudFront Function — viewer Host → X-Forwarded-Host.',  no_args_is_help=True)
+acm_app         = typer.Typer(name='acm',         help='ACM wildcard certificate management.',                   no_args_is_help=True)
+dns_app         = typer.Typer(name='dns',         help='Route 53 wildcard DNS record management.',               no_args_is_help=True)
 
-app.add_typer(iam_app,    name='iam')
-app.add_typer(lambda_app, name='lambda')
-app.add_typer(cf_app,     name='cf')
-app.add_typer(acm_app,    name='acm')
-app.add_typer(dns_app,    name='dns')
+app.add_typer(ec2_app,         name='ec2')
+app.add_typer(iam_app,         name='iam')
+app.add_typer(lambda_app,      name='lambda')
+app.add_typer(cf_app,          name='cf')
+app.add_typer(cf_function_app, name='cf-function')
+app.add_typer(acm_app,         name='acm')
+app.add_typer(dns_app,         name='dns')
 
 
 # ── service constructors ─────────────────────────────────────────────────────
 
-def _iam()    -> Setup__IAM:    return Setup__IAM()
-def _lambda() -> Setup__Lambda: return Setup__Lambda()
-def _cf()     -> Setup__CF:     return Setup__CF()
-def _acm()    -> Setup__ACM:    return Setup__ACM()
-def _dns()    -> Setup__DNS:    return Setup__DNS()
+def _iam()         -> Setup__IAM:          return Setup__IAM()
+def _lambda()      -> Setup__Lambda:       return Setup__Lambda()
+def _cf()          -> Setup__CF:           return Setup__CF()
+def _cf_function() -> Setup__CF__Function: return Setup__CF__Function()
+def _acm()         -> Setup__ACM:          return Setup__ACM()
+def _dns()         -> Setup__DNS:          return Setup__DNS()
+def _ec2()         -> Setup__EC2:          return Setup__EC2()
 
 
 # ── shared pre-flight helpers ─────────────────────────────────────────────────
@@ -115,6 +125,16 @@ def setup_check(
     overall_ok = True
 
     try:
+        erep = _ec2().check()
+        _add_area_row(tbl, 'ec2', erep.state,
+                      f'profile={erep.profile_name} ami={erep.ami_id or "(none)"}')
+        if erep.state != Enum__Setup__State.OK:
+            overall_ok = False
+    except Exception as exc:
+        _add_area_row(tbl, 'ec2', Enum__Setup__State.ERROR, str(exc))
+        overall_ok = False
+
+    try:
         rep = iam.check()
         _add_area_row(tbl, 'iam', rep.state, rep.role_arn or rep.role_name)
         if rep.state != Enum__Setup__State.OK:
@@ -139,6 +159,17 @@ def setup_check(
             overall_ok = False
     except Exception as exc:
         _add_area_row(tbl, 'cf', Enum__Setup__State.ERROR, str(exc))
+        overall_ok = False
+
+    try:
+        fnrep = _cf_function().check(zone)
+        detail = (f'attached → {fnrep.distribution_id}'
+                   if fnrep.attached else fnrep.function_name)
+        _add_area_row(tbl, 'cf-function', fnrep.state, detail)
+        if fnrep.state != Enum__Setup__State.OK:
+            overall_ok = False
+    except Exception as exc:
+        _add_area_row(tbl, 'cf-function', Enum__Setup__State.ERROR, str(exc))
         overall_ok = False
 
     try:
@@ -221,7 +252,17 @@ def setup_create(
         c.print(f'  [red]✗  cf: {exc}[/]')
         exit_code = 1
 
-    # 4 — DNS (depends on CF domain)
+    # 4 — CF Function (depends on CF distribution; async ~5min for edge propagation)
+    c.print('  [yellow]→[/]  cf-function create…')
+    try:
+        fnrep = _cf_function().create(zone=zone)
+        icon = '[green]✓[/]' if fnrep.state == Enum__Setup__State.OK else '[yellow]⚠ (CF edge propagating)[/]'
+        c.print(f'  {icon}  cf-function  {fnrep.function_name}')
+    except (ClientError, RuntimeError, Exception) as exc:
+        c.print(f'  [red]✗  cf-function: {exc}[/]')
+        exit_code = 1
+
+    # 5 — DNS (depends on CF domain)
     c.print('  [yellow]→[/]  dns create…')
     try:
         drep = _dns().create(zone=zone)
@@ -282,6 +323,15 @@ def setup_update(
         c.print(f'  [red]✗  cf: {exc}[/]')
         exit_code = 1
 
+    c.print('  [yellow]→[/]  cf-function update (ensure)…')
+    try:
+        fnrep = _cf_function().update(zone=zone)
+        icon = '[green]✓[/]' if fnrep.state == Enum__Setup__State.OK else '[yellow]⚠ (CF edge propagating)[/]'
+        c.print(f'  {icon}  cf-function  {fnrep.function_name}')
+    except (ClientError, RuntimeError, Exception) as exc:
+        c.print(f'  [red]✗  cf-function: {exc}[/]')
+        exit_code = 1
+
     c.print('  [yellow]→[/]  dns update (ensure)…')
     try:
         drep = _dns().create(zone=zone)
@@ -315,10 +365,11 @@ def setup_delete(
     exit_code = 0
 
     for label, fn in [
-        ('dns',    lambda: _dns().delete(zone)),
-        ('cf',     lambda: _cf().delete(zone)),
-        ('lambda', lambda: _lambda().delete()),
-        ('iam',    lambda: iam.delete()),
+        ('dns',         lambda: _dns().delete(zone)),
+        ('cf-function', lambda: _cf_function().delete(zone)),
+        ('cf',          lambda: _cf().delete(zone)),
+        ('lambda',      lambda: _lambda().delete()),
+        ('iam',         lambda: iam.delete()),
     ]:
         c.print(f'  [yellow]→[/]  {label} delete…')
         try:
@@ -820,3 +871,173 @@ def _handle_exc(c: Console, exc: Exception) -> None:
         _print_aws_error(c, exc)
     else:
         c.print(f'  [red]✗  {exc}[/]')
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# sg vault-publish setup ec2 *
+# ═══════════════════════════════════════════════════════════════════════════════
+
+@ec2_app.command(name='check', help='Check EC2 prerequisites (IAM instance profile + base AMI).')
+def ec2_check():
+    c   = Console(highlight=False)
+    svc = _iam()
+    _print_role_notice(c, svc)
+    if not _preflight(c, svc):
+        raise typer.Exit(1)
+    try:
+        rep = _ec2().check()
+    except (ClientError, Exception) as exc:
+        _handle_exc(c, exc)
+        raise typer.Exit(1)
+    _print_ec2_report(c, rep)
+    if rep.state != Enum__Setup__State.OK:
+        raise typer.Exit(1)
+
+
+@ec2_app.command(name='status', help='Pretty-print live EC2 prerequisite state.')
+def ec2_status():
+    c   = Console(highlight=False)
+    svc = _iam()
+    _print_role_notice(c, svc)
+    if not _preflight(c, svc):
+        raise typer.Exit(1)
+    try:
+        info = _ec2().status()
+    except (ClientError, Exception) as exc:
+        _handle_exc(c, exc)
+        raise typer.Exit(1)
+    c.print()
+    for k, v in info.items():
+        c.print(f'  {k:<22}: {v}')
+    c.print()
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# sg vault-publish setup cf-function *
+# ═══════════════════════════════════════════════════════════════════════════════
+
+@cf_function_app.command(name='check', help='Check the viewer-Host CF Function: deployed, published, attached.')
+def cf_function_check(zone: str = typer.Option(DEFAULT_ZONE, '--zone', help='DNS apex zone')):
+    c   = Console(highlight=False)
+    svc = _iam()
+    _print_role_notice(c, svc)
+    if not _preflight(c, svc):
+        raise typer.Exit(1)
+    try:
+        rep = _cf_function().check(zone)
+    except (ClientError, Exception) as exc:
+        _handle_exc(c, exc)
+        raise typer.Exit(1)
+    _print_cf_function_report(c, rep)
+    if rep.state != Enum__Setup__State.OK:
+        raise typer.Exit(1)
+
+
+@cf_function_app.command(name='status', help='Pretty-print live CF Function config + attachment.')
+def cf_function_status(zone: str = typer.Option(DEFAULT_ZONE, '--zone', help='DNS apex zone')):
+    c   = Console(highlight=False)
+    svc = _iam()
+    _print_role_notice(c, svc)
+    if not _preflight(c, svc):
+        raise typer.Exit(1)
+    try:
+        info = _cf_function().status(zone)
+    except (ClientError, Exception) as exc:
+        _handle_exc(c, exc)
+        raise typer.Exit(1)
+    c.print()
+    for k, v in info.items():
+        c.print(f'  {k:<22}: {v}')
+    c.print()
+
+
+@cf_function_app.command(name='create', help='Create + publish + attach the CF Function. Requires SG_AWS__VAULT_PUBLISH__SETUP__ALLOW_MUTATIONS=1.')
+def cf_function_create(zone: str = typer.Option(DEFAULT_ZONE, '--zone', help='DNS apex zone')):
+    c   = Console(highlight=False)
+    svc = _iam()
+    _print_role_notice(c, svc)
+    if not _preflight(c, svc):
+        raise typer.Exit(1)
+    c.print(f'\n  [yellow]→[/]  Deploying CF Function for [bold]*.{zone}[/]…')
+    c.print('  [dim](CloudFront edge propagation takes ~5min; this command returns immediately.)[/]')
+    try:
+        rep = _cf_function().create(zone)
+    except (RuntimeError, ClientError, Exception) as exc:
+        _handle_exc(c, exc)
+        raise typer.Exit(1)
+    _print_cf_function_report(c, rep)
+    c.print('  [dim]Run `sg vp setup cf-function check` after a few minutes to confirm attachment.[/]')
+    c.print()
+
+
+@cf_function_app.command(name='update', help='Re-publish CF Function code + ensure attachment. Requires SG_AWS__VAULT_PUBLISH__SETUP__ALLOW_MUTATIONS=1.')
+def cf_function_update(zone: str = typer.Option(DEFAULT_ZONE, '--zone', help='DNS apex zone')):
+    c   = Console(highlight=False)
+    svc = _iam()
+    _print_role_notice(c, svc)
+    if not _preflight(c, svc):
+        raise typer.Exit(1)
+    c.print(f'\n  [yellow]→[/]  Updating CF Function for [bold]*.{zone}[/]…')
+    try:
+        rep = _cf_function().update(zone)
+    except (RuntimeError, ClientError, Exception) as exc:
+        _handle_exc(c, exc)
+        raise typer.Exit(1)
+    _print_cf_function_report(c, rep)
+    c.print()
+
+
+@cf_function_app.command(name='delete', help='Detach + delete the CF Function. Requires SG_AWS__VAULT_PUBLISH__SETUP__ALLOW_DELETES=1.')
+def cf_function_delete(
+    zone: str  = typer.Option(DEFAULT_ZONE, '--zone', help='DNS apex zone'),
+    yes : bool = typer.Option(False, '--yes', '-y', help='Skip confirmation'),
+):
+    c   = Console(highlight=False)
+    svc = _iam()
+    _print_role_notice(c, svc)
+    if not _preflight(c, svc):
+        raise typer.Exit(1)
+    if not yes:
+        typer.confirm('\n  Detach and delete the viewer-Host CF Function?', default=False, abort=True)
+    c.print('\n  [yellow]→[/]  Deleting CF Function…')
+    try:
+        ok = _cf_function().delete(zone)
+    except (RuntimeError, ClientError, Exception) as exc:
+        _handle_exc(c, exc)
+        raise typer.Exit(1)
+    if ok:
+        c.print('  [green]✓[/]  CF Function deleted')
+    else:
+        c.print('  [yellow]⚠[/]  Function still present — CF edge may still be propagating; retry in ~5min')
+    c.print()
+
+
+# ── extra render helpers ─────────────────────────────────────────────────────
+
+def _print_ec2_report(c: Console, rep) -> None:
+    c.print()
+    icon = _STATE_ICON.get(rep.state, str(rep.state))
+    c.print(f'  EC2 prereqs  {icon}')
+    c.print(f'  Region        : {rep.region}')
+    c.print(f'  Profile       : {rep.profile_name}  ({"yes" if rep.profile_exists else "no"})')
+    if rep.profile_arn:
+        c.print(f'  Profile ARN   : {rep.profile_arn}')
+    c.print(f'  AMI           : {rep.ami_id or "(not resolvable)"}')
+    for issue in rep.issues:
+        sev_colour = {'error': 'red', 'warn': 'yellow', 'info': 'dim'}.get(issue.severity, 'white')
+        c.print(f'  [{sev_colour}]{issue.severity.upper()}: {issue.message}[/]')
+
+
+def _print_cf_function_report(c: Console, rep) -> None:
+    c.print()
+    icon = _STATE_ICON.get(rep.state, str(rep.state))
+    c.print(f'  CF Function: [bold]{rep.function_name}[/]  {icon}')
+    if rep.function_arn:
+        c.print(f'  ARN          : {rep.function_arn}')
+    c.print(f'  Stage        : {rep.function_stage or "(none)"}')
+    c.print(f'  Code matches : {"yes" if rep.code_matches else "no"}')
+    c.print(f'  Attached     : {"yes" if rep.attached else "no"}'
+            + (f'  → {rep.distribution_id}' if rep.distribution_id else ''))
+    for issue in rep.issues:
+        sev_colour = {'error': 'red', 'warn': 'yellow', 'info': 'dim'}.get(issue.severity, 'white')
+        c.print(f'  [{sev_colour}]{issue.severity.upper()}: {issue.message}[/]')

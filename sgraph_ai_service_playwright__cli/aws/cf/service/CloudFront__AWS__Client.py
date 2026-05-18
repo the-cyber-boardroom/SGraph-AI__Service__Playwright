@@ -155,6 +155,47 @@ class CloudFront__AWS__Client(Type_Safe):
             message         = f'timed out after {timeout_sec}s',
         )
 
+    # ── CloudFront Functions association on the default cache behavior ───────
+
+    def get_function_associations(self, distribution_id: str, event_type: str = 'viewer-request') -> list:
+        cf          = self.client()
+        config_resp = cf.get_distribution_config(Id=distribution_id)
+        config      = config_resp.get('DistributionConfig', {})
+        assocs      = config.get('DefaultCacheBehavior', {}).get('FunctionAssociations', {})
+        items       = assocs.get('Items', []) or []
+        return [it.get('FunctionARN', '') for it in items if it.get('EventType') == event_type]
+
+    def attach_function_to_distribution(self, distribution_id: str, function_arn: str,
+                                         event_type: str = 'viewer-request') -> bool:
+        # Fire-and-forget — CloudFront edge propagation takes ~5min and is
+        # explicitly out-of-scope per the brief. Returns True when the API call
+        # succeeds; caller decides whether to poll wait_deployed().
+        cf          = self.client()
+        config_resp = cf.get_distribution_config(Id=distribution_id)
+        etag        = config_resp['ETag']
+        config      = config_resp['DistributionConfig']
+        beh         = config.setdefault('DefaultCacheBehavior', {})
+        existing    = beh.get('FunctionAssociations', {}).get('Items', []) or []
+        # Drop any prior association for this event_type, then add ours
+        kept        = [it for it in existing if it.get('EventType') != event_type]
+        kept.append({'EventType': event_type, 'FunctionARN': function_arn})
+        beh['FunctionAssociations'] = {'Quantity': len(kept), 'Items': kept}
+        cf.update_distribution(Id=distribution_id, DistributionConfig=config, IfMatch=etag)
+        return True
+
+    def detach_function_from_distribution(self, distribution_id: str,
+                                           event_type: str = 'viewer-request') -> bool:
+        cf          = self.client()
+        config_resp = cf.get_distribution_config(Id=distribution_id)
+        etag        = config_resp['ETag']
+        config      = config_resp['DistributionConfig']
+        beh         = config.setdefault('DefaultCacheBehavior', {})
+        existing    = beh.get('FunctionAssociations', {}).get('Items', []) or []
+        kept        = [it for it in existing if it.get('EventType') != event_type]
+        beh['FunctionAssociations'] = {'Quantity': len(kept), 'Items': kept}
+        cf.update_distribution(Id=distribution_id, DistributionConfig=config, IfMatch=etag)
+        return True
+
     # ── internal ──────────────────────────────────────────────────────────────
 
     def _parse_status(self, raw: str) -> Enum__CF__Distribution__Status:
