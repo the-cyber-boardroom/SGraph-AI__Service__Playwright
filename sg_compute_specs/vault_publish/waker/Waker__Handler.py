@@ -189,20 +189,30 @@ def _render_not_found_html(ctx: Schema__Waker__Request_Context,
     def esc(v) -> str:
         return html.escape(str(v)) if v else '<span class="muted">(none)</span>'
 
-    reason = ('No slug could be parsed from the Host header. The waker only routes '
-              'on <code>&lt;slug&gt;.&lt;zone&gt;</code> hostnames.') \
-              if not ctx.slug else \
-             (f'No vault registered for slug <code>{html.escape(ctx.slug)}</code>. '
-              f'Register one with <code>sg vp register {html.escape(ctx.slug)} --vault-key &lt;key&gt;</code>.')
+    if not ctx.slug:
+        if ctx.origin_host and not ctx.forwarded_host and '.lambda-url.' in ctx.origin_host:
+            reason = ('No slug parsed. The request came in via CloudFront → Lambda URL '
+                      'and the Lambda only sees the Lambda URL as <code>Host</code>. '
+                      'A CloudFront Function is required to forward the viewer\'s '
+                      'original host as <code>X-Forwarded-Host</code> — see the '
+                      '<em>Proxy headers received</em> section below.')
+        else:
+            reason = ('No slug could be parsed from the host. The waker only routes '
+                      'on <code>&lt;slug&gt;.&lt;zone&gt;</code> hostnames.')
+    else:
+        reason = (f'No vault registered for slug <code>{html.escape(ctx.slug)}</code>. '
+                  f'Register one with <code>sg vp register {html.escape(ctx.slug)} --vault-key &lt;key&gt;</code>.')
 
     now    = datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
     rows_request = [
-        ('Host'        , esc(ctx.host)),
-        ('Slug'        , esc(ctx.slug)),
-        ('Path'        , esc(ctx.path)),
-        ('Method'      , esc(ctx.method)),
-        ('Source IP'   , esc(ctx.source_ip)),
-        ('Request ID'  , esc(ctx.request_id)),
+        ('Host (viewer)'   , esc(ctx.host)),
+        ('Host (origin)'   , esc(ctx.origin_host)),
+        ('X-Forwarded-Host', esc(ctx.forwarded_host)),
+        ('Slug'            , esc(ctx.slug)),
+        ('Path'            , esc(ctx.path)),
+        ('Method'          , esc(ctx.method)),
+        ('Source IP'       , esc(ctx.source_ip)),
+        ('Request ID'      , esc(ctx.request_id)),
     ]
     rows_waker = [
         ('Waker state' , esc(waker_state)),
@@ -218,6 +228,13 @@ def _render_not_found_html(ctx: Schema__Waker__Request_Context,
 
     def render_rows(rows):
         return ''.join(f'<tr><th>{k}</th><td>{v}</td></tr>' for k, v in rows)
+
+    proxy_section = ''
+    if ctx.proxy_headers:
+        proxy_section = (
+            '<h2>Proxy headers received</h2>'
+            f'<pre>{html.escape(ctx.proxy_headers)}</pre>'
+        )
 
     return f"""<!DOCTYPE html>
 <html lang="en">
@@ -239,6 +256,9 @@ def _render_not_found_html(ctx: Schema__Waker__Request_Context,
   th {{ background: #f7f7f7; font-weight: 600; width: 160px; color: #333; }}
   code {{ background: #f0f0f0; padding: 1px 5px; border-radius: 3px;
           font-family: SFMono-Regular, Menlo, monospace; font-size: 0.88rem; }}
+  pre {{ background: #f7f7f7; padding: 0.8rem 1rem; border-radius: 4px;
+         font-family: SFMono-Regular, Menlo, monospace; font-size: 0.82rem;
+         overflow-x: auto; border: 1px solid #eee; }}
   .muted {{ color: #999; font-style: italic; }}
   footer {{ margin-top: 2rem; font-size: 0.8rem; color: #888; }}
 </style>
@@ -252,7 +272,7 @@ def _render_not_found_html(ctx: Schema__Waker__Request_Context,
 
 <h2>Waker diagnostics</h2>
 <table>{render_rows(rows_waker)}</table>
-
+{proxy_section}
 <footer>
   Served by the vault-publish waker Lambda. Same diagnostics are emitted as JSON to CloudWatch
   and as <code>X-Waker-*</code> response headers.
