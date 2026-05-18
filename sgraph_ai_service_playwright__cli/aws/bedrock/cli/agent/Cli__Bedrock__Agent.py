@@ -130,10 +130,12 @@ def agent_create(
 
 @agent_app.command('list')
 @spec_cli_errors
-def agent_list(json_output: bool = typer.Option(False, '--json', help='Output JSON.')):
-    """List AgentCore agents. [EXPERIMENTAL]"""
+def agent_list(detailed   : bool = typer.Option(False, '--detailed', '-d', help='Populate Model column (extra N×GetAgent API calls).'),
+               json_output: bool = typer.Option(False, '--json',           help='Output JSON.')):
+    """List Bedrock Agents. Default omits Model column to avoid N+1 calls;
+    pass `--detailed` to populate it. [EXPERIMENTAL]"""
     client = _client()
-    agents = client.list_agents()
+    agents = client.list_agents(detailed=detailed)
     if json_output:
         typer.echo(json.dumps([dict(agent_id  = a.agent_id        ,
                                     agent_name= a.agent_name      ,
@@ -193,10 +195,11 @@ def agent_get(agent_id  : str  = typer.Argument(..., help='AgentCore agent ID.')
 @require_mutation_gate(BEDROCK_GATE)
 @spec_cli_errors
 def agent_invoke(
-    agent_id   : str          = typer.Argument(..., help='AgentCore agent ID.'),
-    prompt     : str          = typer.Option(...,   '--prompt', '-p', help='Prompt text.'),
-    session_id : Optional[str]= typer.Option(None, '--session',      help='Session ID (omit to create new).'),
-    alias_id   : str          = typer.Option('TSTALIASID', '--alias',  help='Agent alias ID.'),
+    agent_id   : str          = typer.Argument(..., help='Agent ID.'),
+    prompt     : str          = typer.Option(...,   '--prompt',  '-p', help='Prompt text.'),
+    session_id : Optional[str]= typer.Option(None, '--session',       help='Session ID (omit to create new).'),
+    alias_id   : str          = typer.Option('TSTALIASID', '--alias', help='Agent alias ID.'),
+    stream     : bool         = typer.Option(True, '--stream/--no-stream', help='Stream chunks live as they arrive (default on; off buffers the full response).'),
     yes        : bool         = typer.Option(False, '--yes', '-y',    help='Skip confirmation.'),
     json_output: bool         = typer.Option(False, '--json',         help='Output JSON.'),
 ):
@@ -204,9 +207,26 @@ def agent_invoke(
     if `list` shows status NOT_PREPARED. [EXPERIMENTAL]"""
     if not yes:
         typer.confirm(f'Invoke agent {agent_id!r}?', default=True, abort=True)
-    sid    = session_id or uuid.uuid4().hex
-    client = _client()
+    sid     = session_id or uuid.uuid4().hex
+    client  = _client()
+    writer  = Bedrock__Capture__Writer()
+    c       = Console(highlight=False)
+    # JSON output buffers the whole response (a streamed JSON object would
+    # have to be NDJSON and the user didn't ask for that). Otherwise stream.
+    use_stream = stream and not json_output
     try:
+        if use_stream:
+            c.print()
+            text_parts = []
+            for chunk in client.invoke_agent_stream(agent_id, alias_id, sid, prompt):
+                c.file.write(chunk)                                              # raw write — preserves model formatting + flushes per chunk
+                c.file.flush()
+                text_parts.append(chunk)
+            text = ''.join(text_parts)
+            c.print()
+            path = writer.write_agent_session(agent_id, sid, dict(agent_id=agent_id, session_id=sid, prompt=prompt, result={'text': text}))
+            c.print(f'\n  session={sid}  capture={path}\n')
+            return
         result = client.invoke_agent(agent_id, alias_id, sid, prompt)
     except ClientError as exc:
         _render_agent_client_error(exc, action='InvokeAgent', name_or_id=agent_id)
@@ -214,15 +234,15 @@ def agent_invoke(
     except Exception as exc:
         # EventStreamError on a NOT_PREPARED agent surfaces as "agent is not found".
         if 'not found' in str(exc).lower():
-            c = Console(highlight=False, stderr=True)
-            c.print()
-            c.print(f'  [red]✗ {type(exc).__name__}[/]: {exc}')
-            c.print()
-            c.print(f'  [bold]Tip:[/] AWS returns "agent is not found" when the agent exists but is NOT_PREPARED.')
-            c.print(f'  Try:')
-            c.print(f'    [dim]sg aws bedrock agent prepare {agent_id}[/]   # then re-invoke[/]')
-            c.print(f'    [dim]sg aws bedrock agent list[/]                  # verify status is PREPARED[/]')
-            c.print()
+            ec = Console(highlight=False, stderr=True)
+            ec.print()
+            ec.print(f'  [red]✗ {type(exc).__name__}[/]: {exc}')
+            ec.print()
+            ec.print(f'  [bold]Tip:[/] AWS returns "agent is not found" when the agent exists but is NOT_PREPARED.')
+            ec.print(f'  Try:')
+            ec.print(f'    [dim]sg aws bedrock agent prepare {agent_id}[/]   # then re-invoke[/]')
+            ec.print(f'    [dim]sg aws bedrock agent list[/]                  # verify status is PREPARED[/]')
+            ec.print()
             raise typer.Exit(1)
         raise
     writer = Bedrock__Capture__Writer()

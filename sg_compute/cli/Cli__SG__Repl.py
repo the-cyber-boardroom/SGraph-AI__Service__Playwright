@@ -211,13 +211,22 @@ BASH_WHITELIST = {
 }
 
 
-def _is_bash_command(parts) -> bool:
-    """True if the first token is in the whitelist OR explicitly `!`-prefixed."""
+def _is_bash_command(parts, sg_children: set = None) -> bool:
+    """True if the first token is in the whitelist OR explicitly `!`-prefixed.
+
+    When `sg_children` (the set of verb names at the current REPL path)
+    is provided, sg verbs WIN over the bash whitelist for the same name.
+    Example: at `sg/aws/s3>`, `ls` should run `sg aws s3 ls` (the S3
+    listing), not bash `ls`. Users can still force the bash version
+    with explicit `!ls`.
+    """
     if not parts:
         return False
     cmd = parts[0]
     if cmd.startswith('!'):
         return True
+    if sg_children is not None and cmd in sg_children:
+        return False                                                              # sg verb wins
     return cmd in BASH_WHITELIST
 
 
@@ -535,7 +544,7 @@ def run_repl(sg_app=None, initial_path=None):
         if _handle_shell_builtin(parts):                                         # shell builtins: export / unset / cd — handled in-process; must come BEFORE bash-escape
             continue
 
-        if _is_bash_command(parts):                                              # bash escape: pwd / ls / cat / git / ... + explicit `!cmd ...`
+        if _is_bash_command(parts, sg_children=_children(sg_app, repl.path)):    # bash escape: pwd / ls / cat / ... + explicit `!cmd ...` — sg verb wins over bash for same name
             _run_bash(parts)
             continue
 
