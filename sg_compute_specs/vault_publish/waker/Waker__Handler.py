@@ -19,6 +19,7 @@
 #   RUNNING + unhealthy → return 200 warming             (state=warming,   action=returned-warming)
 # ═══════════════════════════════════════════════════════════════════════════════
 
+import html
 import json
 import time
 from datetime import datetime, timezone
@@ -36,10 +37,6 @@ from sg_compute_specs.vault_publish.waker.schemas.Enum__Waker__State            
 from sg_compute_specs.vault_publish.waker.schemas.Schema__Endpoint__Resolution   import Schema__Endpoint__Resolution
 from sg_compute_specs.vault_publish.waker.schemas.Schema__Waker__Request_Context import Schema__Waker__Request_Context
 
-_404_HTML = """\
-<!DOCTYPE html><html><head><title>404 Not Found</title></head>
-<body><h1>404 — Slug not found</h1><p>No vault registered for this subdomain.</p></body></html>
-"""
 
 
 class Waker__Handler(Type_Safe):
@@ -122,6 +119,10 @@ class Waker__Handler(Type_Safe):
                 waker_action = Enum__Waker__Action.RETURNED_WARMING
 
         elapsed_ms = int((time.time() - t0) * 1000)
+        if waker_state == Enum__Waker__State.NOT_FOUND:                              # enrich 404 body once all diagnostic info is known
+            result['body'] = _render_not_found_html(
+                ctx, resolution, waker_state, waker_action, elapsed_ms, self._version
+            ).encode()
         _inject_waker_headers(result['headers'], ctx, waker_state, waker_action,
                               resolution, elapsed_ms, self._version)
         _emit_waker_log(ctx, result, waker_state, waker_action, resolution, elapsed_ms,
@@ -141,7 +142,7 @@ class Waker__Handler(Type_Safe):
             'status_code': 404,
             'headers'    : {'Content-Type': 'text/html; charset=utf-8',
                             'Cache-Control': 'no-store'},
-            'body'       : _404_HTML.encode(),
+            'body'       : b'',                                                       # real body rendered in handle() once all diagnostics are known
         }
 
     def _health_ok(self, vault_url: str) -> bool:
@@ -175,6 +176,90 @@ def _inject_waker_headers(headers: dict, ctx: Schema__Waker__Request_Context,
         headers['X-Waker-Request-Id'] = ctx.request_id
     if version:
         headers['X-Waker-Version'] = version
+
+
+def _render_not_found_html(ctx: Schema__Waker__Request_Context,
+                            resolution: Schema__Endpoint__Resolution,
+                            waker_state: Enum__Waker__State,
+                            waker_action: Enum__Waker__Action,
+                            elapsed_ms: int,
+                            version: str) -> str:
+    # Diagnostic 404 page — mirrors the structured log so operators can debug
+    # without tailing CloudWatch. All user-controlled values are HTML-escaped.
+    def esc(v) -> str:
+        return html.escape(str(v)) if v else '<span class="muted">(none)</span>'
+
+    reason = ('No slug could be parsed from the Host header. The waker only routes '
+              'on <code>&lt;slug&gt;.&lt;zone&gt;</code> hostnames.') \
+              if not ctx.slug else \
+             (f'No vault registered for slug <code>{html.escape(ctx.slug)}</code>. '
+              f'Register one with <code>sg vp register {html.escape(ctx.slug)} --vault-key &lt;key&gt;</code>.')
+
+    now    = datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
+    rows_request = [
+        ('Host'        , esc(ctx.host)),
+        ('Slug'        , esc(ctx.slug)),
+        ('Path'        , esc(ctx.path)),
+        ('Method'      , esc(ctx.method)),
+        ('Source IP'   , esc(ctx.source_ip)),
+        ('Request ID'  , esc(ctx.request_id)),
+    ]
+    rows_waker = [
+        ('Waker state' , esc(waker_state)),
+        ('Waker action', esc(waker_action)),
+        ('EC2 state'   , esc(resolution.state)),
+        ('Instance ID' , esc(resolution.instance_id)),
+        ('Vault URL'   , esc(resolution.vault_url)),
+        ('Region'      , esc(resolution.region)),
+        ('Elapsed'     , f'{elapsed_ms} ms'),
+        ('Waker version', esc(version)),
+        ('Timestamp'   , esc(now)),
+    ]
+
+    def render_rows(rows):
+        return ''.join(f'<tr><th>{k}</th><td>{v}</td></tr>' for k, v in rows)
+
+    return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>404 — Slug not found</title>
+<style>
+  body {{ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+         max-width: 820px; margin: 2rem auto; padding: 0 1.5rem; color: #222; }}
+  h1   {{ color: #b00020; font-size: 1.8rem; margin-bottom: 0.5rem; }}
+  h2   {{ font-size: 1.1rem; margin-top: 1.8rem; color: #555;
+         border-bottom: 1px solid #eee; padding-bottom: 0.3rem; }}
+  p.reason {{ background: #fff8e1; border-left: 4px solid #ffb300;
+              padding: 0.7rem 1rem; border-radius: 3px; }}
+  table {{ width: 100%; border-collapse: collapse; margin-top: 0.5rem;
+           font-size: 0.92rem; }}
+  th, td {{ padding: 0.45rem 0.8rem; border-bottom: 1px solid #eee;
+            text-align: left; vertical-align: top; }}
+  th {{ background: #f7f7f7; font-weight: 600; width: 160px; color: #333; }}
+  code {{ background: #f0f0f0; padding: 1px 5px; border-radius: 3px;
+          font-family: SFMono-Regular, Menlo, monospace; font-size: 0.88rem; }}
+  .muted {{ color: #999; font-style: italic; }}
+  footer {{ margin-top: 2rem; font-size: 0.8rem; color: #888; }}
+</style>
+</head>
+<body>
+<h1>404 — Slug not found</h1>
+<p class="reason">{reason}</p>
+
+<h2>Request</h2>
+<table>{render_rows(rows_request)}</table>
+
+<h2>Waker diagnostics</h2>
+<table>{render_rows(rows_waker)}</table>
+
+<footer>
+  Served by the vault-publish waker Lambda. Same diagnostics are emitted as JSON to CloudWatch
+  and as <code>X-Waker-*</code> response headers.
+</footer>
+</body>
+</html>
+"""
 
 
 def _emit_waker_log(ctx: Schema__Waker__Request_Context,
