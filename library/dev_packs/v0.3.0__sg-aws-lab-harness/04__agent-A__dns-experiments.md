@@ -184,6 +184,13 @@ SG_AWS__LAB__ALLOW_MUTATIONS=1 SG_AWS__LAB__DESTROY_TEST=1 \
 - **Sequential checker calls — opt-in parallelism.** `Route53__Public_Resolver__Checker.check(...)` is sequential (no `ThreadPoolExecutor`) today. For E11 / E12 / E14 propagation-timeline experiments, the **per-poll** dig fan-out can stay sequential (we measure first-correct time per resolver, not aggregate timing) — but if a future experiment needs true-parallel fan-out, propose adding a `parallel=True` opt-in to `Route53__Public_Resolver__Checker` rather than forking the class.
 - **Don't duplicate `Smart_Verify` logic.** When E12 needs to know "is this a NEW_NAME or UPSERT?", call `Route53__Smart_Verify.decide_before_add(...)`; do not re-implement the get-record + classify pattern.
 
+### Operator-visible side effects (document in CLI `--help`)
+
+Two characteristics of "measure real AWS behaviour" that operators of other `sg aws *` commands need to know about. Surface these prominently in `sg aws lab run --help` and in each mutating experiment's `show` output:
+
+- **Public-resolver cache pollution.** Mutating experiments (E11/E12/E14) intentionally spray TEST-NET addresses (192.0.2.x, 198.51.100.x, 203.0.113.x) into the caches of the 6-8 public resolvers (Cloudflare, Google, Quad9, AdGuard, OpenDNS). Per-run record names (`lab-prop-<run-id>.<zone>`) ensure no two lab runs collide, but **a subsequent `sg aws dns records check --public-resolvers <name>` for the same record name will see the lab's poisoned cache until the TTL expires**. The lab's pre-mutation use of `Route53__Smart_Verify.decide_before_add` already documents prior-TTL skip semantics for the same reason.
+- **Route 53 rate-limit consumption.** R53 caps mutations at 5/s/zone account-wide. `Lab__Rate__Limiter__R53` throttles only lab calls — it does NOT coordinate with concurrent `sg aws dns records add/update/delete` invocations against the same zone. Operators running a lab mutating experiment AND `sg aws dns *` mutations against the same zone may both see `ThrottlingException`. Document loudly; recommend lab mutating experiments target a dedicated zone (per Q1 RESOLVED — post-v2 `lab.sg-labs.app`) or run during quiet windows pre-v2.
+
 ---
 
 ## Commit + PR
