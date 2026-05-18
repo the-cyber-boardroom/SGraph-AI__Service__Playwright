@@ -27,8 +27,10 @@ from sg_compute_specs.vault_publish.service.Vault_Publish__Service        import
 
 app = typer.Typer(name='vault-publish', help='Vault Publish — subdomain-routing for vault-app stacks.', no_args_is_help=True)
 
-from sg_compute_specs.vault_publish.setup.cli.Cli__Setup import app as setup_app
+from sg_compute_specs.vault_publish.setup.cli.Cli__Setup     import app as setup_app
+from sg_compute_specs.vault_publish.waker.cli.Cli__Waker     import app as waker_app
 app.add_typer(setup_app, name='setup')
+app.add_typer(waker_app, name='waker')
 
 
 def _svc() -> Vault_Publish__Service:
