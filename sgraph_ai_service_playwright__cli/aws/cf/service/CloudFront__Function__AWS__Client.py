@@ -47,6 +47,12 @@ class CloudFront__Function__AWS__Client(Type_Safe):
                 return ''
             raise
         raw = resp.get('FunctionCode', b'')
+        # botocore returns FunctionCode as a StreamingBody (file-like) — must
+        # .read() to get the actual bytes. Falling back to str() returned the
+        # object repr "<botocore.response.StreamingBody object at 0x…>" and
+        # silently broke every drift check.
+        if hasattr(raw, 'read'):
+            raw = raw.read()
         if isinstance(raw, (bytes, bytearray)):
             return raw.decode('utf-8', errors='replace')
         return str(raw)
