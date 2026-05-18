@@ -10,7 +10,8 @@ from osbot_utils.type_safe.Type_Safe import Type_Safe
 class Schema__Waker__Request_Context(Type_Safe):
     host           : str   = ''                                                       # Viewer host used for slug extraction (X-Forwarded-Host if present, else origin Host)
     origin_host    : str   = ''                                                       # Raw HTTP Host header — Lambda URL hostname when called via CloudFront
-    forwarded_host : str   = ''                                                       # X-Forwarded-Host (set by a CloudFront Function or reverse proxy)
+    forwarded_host : str   = ''                                                       # X-Forwarded-Host (set by the CF Function — interop signal)
+    vault_viewer_host : str = ''                                                      # X-Vault-Viewer-Host (set by the CF Function — owned routing signal, preferred)
     slug           : str   = ''                                                       # Resolved slug (empty if parse failed)
     path           : str   = '/'                                                      # Request path including leading /
     method         : str   = 'GET'                                                    # HTTP method
@@ -18,3 +19,7 @@ class Schema__Waker__Request_Context(Type_Safe):
     request_id     : str   = ''                                                       # Trace / request ID for debug headers + log correlation
     source_ip      : str   = ''                                                       # Client IP from X-Forwarded-For / request.client.host
     proxy_headers  : str   = ''                                                       # Pre-rendered "key: value\n" lines for proxy-related headers (debug only)
+    all_headers    : str   = ''                                                       # Pre-rendered dump of EVERY header received (debug only)
+    asgi_scope     : str   = ''                                                       # Pre-rendered ASGI scope keys for debug (client, server, scheme, root_path, …)
+    deploy_info    : str   = ''                                                       # Pre-rendered "key: value\n" lines for Lambda deploy metadata (debug only)
+    request_json   : str   = ''                                                       # Pretty-printed JSON dump of the request (method, url, headers, body) for debug

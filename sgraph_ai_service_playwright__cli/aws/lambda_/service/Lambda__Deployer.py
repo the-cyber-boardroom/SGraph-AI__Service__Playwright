@@ -106,6 +106,7 @@ class Lambda__Deployer(Type_Safe):
             created      = not existing,
             success      = True,
             message      = 'created' if not existing else 'updated',
+            zip_size     = len(code),
         )
 
     def _build_zip(self, folder_path: str, package_root: str = '', extra_modules: list = None) -> bytes:

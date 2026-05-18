@@ -2,13 +2,13 @@
 # Vault App Stack — docker-compose.yml
 #
 # Four containers on a shared vault-net bridge:
-#   host-plane    — control-plane FastAPI; manages containers via Docker socket
-#   sg-send-vault — vault storage + UI; the only externally-reachable surface
-#   sg-playwright — browser automation API; internal only
-#   agent-mitmproxy — passive traffic capture; internal only, no admin ports
+#   host-plane      — control-plane FastAPI; Docker Hub image (diniscruz/sg-playwright)
+#   sg-send-vault   — vault storage + UI; the only externally-reachable surface
+#   sg-playwright   — browser automation API; Docker Hub image (diniscruz/sg-playwright)
+#   agent-mitmproxy — passive traffic capture; internal only, no admin ports (ECR)
 #
 # Usage:
-#   cp .env.example .env          # fill in ECR_REGISTRY, tokens, optional seeds
+#   cp .env.example .env          # fill in ECR_REGISTRY (for agent-mitmproxy), tokens
 #   aws ecr get-login-password --region <region> \
 #     | docker login --username AWS --password-stdin <ECR_REGISTRY>
 #   docker compose pull
@@ -22,7 +22,8 @@
 services:
 
   host-plane:
-    image: ${ECR_REGISTRY}/sgraph_ai_service_playwright_host:${IMAGE_TAG:-latest}
+    image: diniscruz/sg-playwright:${IMAGE_TAG:-latest}
+    command: ["python3", "-m", "sg_compute.host_plane.fast_api.lambda_handler"]
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock     # allows host-plane to manage containers
     environment:
@@ -46,7 +47,7 @@ services:
     restart: unless-stopped
 
   sg-playwright:
-    image: ${ECR_REGISTRY}/sgraph_ai_service_playwright:${IMAGE_TAG:-latest}
+    image: diniscruz/sg-playwright:${IMAGE_TAG:-latest}
     environment:
       FAST_API__AUTH__API_KEY__NAME:           ${FAST_API__AUTH__API_KEY__NAME:-X-API-Key}
       FAST_API__AUTH__API_KEY__VALUE:          ${FAST_API__AUTH__API_KEY__VALUE:-change-me}

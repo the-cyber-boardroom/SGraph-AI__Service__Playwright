@@ -92,10 +92,10 @@ def status(slug  : str = typer.Argument(..., help='Slug to query'),
     c.print()
 
 
-@app.command(name='wake', help='Resolve a slug → start EC2 if stopped → wait for RUNNING + healthy. Mirrors the waker Lambda.')
+@app.command(name='wake', help='Resolve a slug → start EC2 if stopped → wait for RUNNING + reachable. Mirrors the waker Lambda.')
 def wake(slug    : str  = typer.Argument(..., help='Slug to wake'),
          region  : str  = typer.Option(DEFAULT_REGION, '--region', '-r'),
-         timeout : int  = typer.Option(120, '--timeout', '-t', help='Max seconds to wait for RUNNING + healthy'),
+         timeout : int  = typer.Option(300, '--timeout', '-t', help='Max total seconds to wait for RUNNING + HTTP reachable'),
          no_wait : bool = typer.Option(False, '--no-wait', help='Trigger start_instances but exit immediately'),
          no_probe: bool = typer.Option(False, '--no-probe', help='Skip HTTP health probe after RUNNING')):
     from sg_compute_specs.vault_publish.service.Slug__Registry              import Slug__Registry
@@ -115,34 +115,30 @@ def wake(slug    : str  = typer.Argument(..., help='Slug to wake'),
 
     c.print(f'  [dim]  instance: {resolution.instance_id}  state: {resolution.state}  ip: {resolution.public_ip or "(none)"}[/]')
 
-    started_now = False
     if resolution.state == Enum__Instance__State.STOPPED:
         c.print(f'  [yellow]→[/]  Instance STOPPED — calling start_instances…')
         ok = resolver.start(resolution.instance_id)
         if not ok:
             c.print(f'  [red]✗  start_instances failed (check IAM / region)[/]\n')
             raise typer.Exit(1)
-        started_now = True
         c.print(f'  [green]✓[/]  start triggered')
-        if no_wait:
-            c.print(f'\n  [dim]--no-wait: returning before EC2 is ready[/]\n')
-            return
     elif resolution.state in (Enum__Instance__State.PENDING, Enum__Instance__State.STOPPING):
         c.print(f'  [yellow]→[/]  Instance {resolution.state} — waiting for stable state…')
     elif resolution.state == Enum__Instance__State.RUNNING:
         c.print(f'  [green]✓[/]  Instance already RUNNING')
 
     if no_wait:
-        c.print()
+        c.print(f'\n  [dim]--no-wait: returning before EC2 is ready[/]\n')
         return
 
-    # ── Wait for RUNNING ─────────────────────────────────────────────────────
-    t0 = time.time()
+    t_start = time.time()
+
+    # ── Phase 1 — wait for RUNNING + public IP ───────────────────────────────
     last_state = resolution.state
     while True:
-        elapsed = time.time() - t0
+        elapsed = time.time() - t_start
         if elapsed > timeout:
-            c.print(f'  [red]✗  timed out after {timeout}s (last state: {last_state})[/]\n')
+            c.print(f'  [red]✗  timed out after {timeout}s waiting for RUNNING (last state: {last_state})[/]\n')
             raise typer.Exit(1)
         resolution = resolver.resolve(slug)
         if resolution.state != last_state:
@@ -152,29 +148,57 @@ def wake(slug    : str  = typer.Argument(..., help='Slug to wake'),
             break
         time.sleep(2)
 
-    wake_ms = int((time.time() - t0) * 1000)
-    c.print(f'  [green]✓[/]  RUNNING at {resolution.public_ip}  ({wake_ms}ms wait)')
+    run_ms = int((time.time() - t_start) * 1000)
+    c.print(f'  [green]✓[/]  RUNNING at {resolution.public_ip}  ({run_ms}ms since start)')
 
     if no_probe:
         c.print()
         return
 
-    # ── HTTP health probe (vault-app default port 8080) ──────────────────────
-    c.print(f'  [yellow]→[/]  Probing {resolution.vault_url}/ui/#!/login…')
-    try:
-        import urllib3
-        p0   = time.time()
-        resp = urllib3.PoolManager(timeout=urllib3.Timeout(connect=2, read=5)).request(
-            'GET', resolution.vault_url.rstrip('/') + '/ui/#!/login', preload_content=True)
-        probe_ms = int((time.time() - p0) * 1000)
-        if resp.status < 500:
-            c.print(f'  [green]✓[/]  HTTP {resp.status} in {probe_ms}ms  → vault-app reachable')
-        else:
-            c.print(f'  [yellow]⚠[/]  HTTP {resp.status} in {probe_ms}ms  → still warming?')
-    except Exception as exc:
-        c.print(f'  [yellow]⚠[/]  probe failed: {exc}')
-        c.print(f'  [dim]  (TCP listener may not yet be up — vault-app boot takes 30–90s after RUNNING)[/]')
-    c.print()
+    # ── Phase 2 — poll HTTP probe until reachable or overall timeout ─────────
+    probe_url = resolution.vault_url.rstrip('/') + '/ui/#!/login'
+    c.print(f'  [yellow]→[/]  Polling {probe_url} until reachable…')
+    last_err  = ''
+    delay     = 2
+    attempts  = 0
+    while True:
+        elapsed = time.time() - t_start
+        remaining = timeout - elapsed
+        if remaining <= 0:
+            c.print(f'  [red]✗  timed out after {timeout}s waiting for HTTP reachable[/]')
+            if last_err:
+                c.print(f'  [dim]   last error: {last_err}[/]')
+            c.print(f'  [dim]   (vault-app boot can take 30–90s after RUNNING; try `sg vp wake {slug} -t 600`)[/]\n')
+            raise typer.Exit(1)
+
+        attempts += 1
+        try:
+            import urllib3
+            p0   = time.time()
+            resp = urllib3.PoolManager(timeout=urllib3.Timeout(connect=2, read=5)).request(
+                'GET', probe_url, preload_content=False, retries=False)
+            probe_ms = int((time.time() - p0) * 1000)
+            if resp.status < 500:
+                total_ms = int((time.time() - t_start) * 1000)
+                c.print(f'  [green]✓[/]  HTTP {resp.status} in {probe_ms}ms  '
+                        f'[dim](after {attempts} attempt(s), {total_ms}ms total)[/]')
+                c.print()
+                return
+            last_err = f'HTTP {resp.status}'
+        except Exception as exc:
+            last_err = _short_err(exc)
+
+        # progress beep every ~10s
+        if attempts % 5 == 0:
+            c.print(f'  [dim]  {int(elapsed)}s: still waiting… ({last_err})[/]')
+        time.sleep(delay)
+        delay = min(delay + 1, 5)
+
+
+def _short_err(exc: Exception) -> str:
+    msg = str(exc)
+    # urllib3 errors are noisy; keep first line
+    return msg.splitlines()[0][:120] if msg else type(exc).__name__
 
 
 @app.command(name='dns', help='DNS diagnostics for a slug (Route 53 record + public resolver lookup).')

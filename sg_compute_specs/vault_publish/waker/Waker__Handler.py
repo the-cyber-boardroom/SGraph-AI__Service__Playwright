@@ -190,12 +190,14 @@ def _render_not_found_html(ctx: Schema__Waker__Request_Context,
         return html.escape(str(v)) if v else '<span class="muted">(none)</span>'
 
     if not ctx.slug:
-        if ctx.origin_host and not ctx.forwarded_host and '.lambda-url.' in ctx.origin_host:
+        has_viewer_signal = bool(ctx.vault_viewer_host or ctx.forwarded_host)
+        if ctx.origin_host and not has_viewer_signal and '.lambda-url.' in ctx.origin_host:
             reason = ('No slug parsed. The request came in via CloudFront → Lambda URL '
                       'and the Lambda only sees the Lambda URL as <code>Host</code>. '
-                      'A CloudFront Function is required to forward the viewer\'s '
-                      'original host as <code>X-Forwarded-Host</code> — see the '
-                      '<em>Proxy headers received</em> section below.')
+                      'The CloudFront Function (<code>vault-publish-viewer-host</code>) '
+                      'must set <code>X-Vault-Viewer-Host</code> / <code>X-Forwarded-Host</code> '
+                      'before forwarding to origin — neither header is present. '
+                      'Run <code>sg vp setup cf-function check</code>.')
         else:
             reason = ('No slug could be parsed from the host. The waker only routes '
                       'on <code>&lt;slug&gt;.&lt;zone&gt;</code> hostnames.')
@@ -205,14 +207,15 @@ def _render_not_found_html(ctx: Schema__Waker__Request_Context,
 
     now    = datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
     rows_request = [
-        ('Host (viewer)'   , esc(ctx.host)),
-        ('Host (origin)'   , esc(ctx.origin_host)),
-        ('X-Forwarded-Host', esc(ctx.forwarded_host)),
-        ('Slug'            , esc(ctx.slug)),
-        ('Path'            , esc(ctx.path)),
-        ('Method'          , esc(ctx.method)),
-        ('Source IP'       , esc(ctx.source_ip)),
-        ('Request ID'      , esc(ctx.request_id)),
+        ('Host (viewer)'      , esc(ctx.host)),
+        ('Host (origin)'      , esc(ctx.origin_host)),
+        ('X-Vault-Viewer-Host', esc(ctx.vault_viewer_host)),
+        ('X-Forwarded-Host'   , esc(ctx.forwarded_host)),
+        ('Slug'               , esc(ctx.slug)),
+        ('Path'               , esc(ctx.path)),
+        ('Method'             , esc(ctx.method)),
+        ('Source IP'          , esc(ctx.source_ip)),
+        ('Request ID'         , esc(ctx.request_id)),
     ]
     rows_waker = [
         ('Waker state' , esc(waker_state)),
@@ -234,6 +237,39 @@ def _render_not_found_html(ctx: Schema__Waker__Request_Context,
         proxy_section = (
             '<h2>Proxy headers received</h2>'
             f'<pre>{html.escape(ctx.proxy_headers)}</pre>'
+        )
+
+    all_headers_section = ''
+    if ctx.all_headers:
+        all_headers_section = (
+            '<h2>All HTTP headers received <span class="muted">'
+            '(everything FastAPI / LWA passed in)</span></h2>'
+            f'<pre>{html.escape(ctx.all_headers)}</pre>'
+        )
+
+    scope_section = ''
+    if ctx.asgi_scope:
+        scope_section = (
+            '<h2>ASGI scope <span class="muted">'
+            '(client/server addresses, scheme, raw path, query)</span></h2>'
+            f'<pre>{html.escape(ctx.asgi_scope)}</pre>'
+        )
+
+    deploy_section = ''
+    if ctx.deploy_info:
+        deploy_section = (
+            '<h2>Lambda deployment metadata <span class="muted">'
+            '(env vars baked in at deploy time by Setup__Lambda)</span></h2>'
+            f'<pre>{html.escape(ctx.deploy_info)}</pre>'
+        )
+
+    request_json_section = ''
+    if ctx.request_json:
+        request_json_section = (
+            '<h2>Lambda HTTP event (JSON) <span class="muted">'
+            '(method, URL, headers, body — the closest equivalent to the original '
+            'Function URL event after LWA translation)</span></h2>'
+            f'<pre>{html.escape(ctx.request_json)}</pre>'
         )
 
     return f"""<!DOCTYPE html>
@@ -272,7 +308,11 @@ def _render_not_found_html(ctx: Schema__Waker__Request_Context,
 
 <h2>Waker diagnostics</h2>
 <table>{render_rows(rows_waker)}</table>
+{deploy_section}
+{request_json_section}
 {proxy_section}
+{all_headers_section}
+{scope_section}
 <footer>
   Served by the vault-publish waker Lambda. Same diagnostics are emitted as JSON to CloudWatch
   and as <code>X-Waker-*</code> response headers.

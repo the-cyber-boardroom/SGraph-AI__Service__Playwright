@@ -1,6 +1,6 @@
 # ═══════════════════════════════════════════════════════════════════════════════
 # Tests — Vault_App__Compose__Template
-# Verifies the 2-vs-4 container shapes and the single published port.
+# Verifies the 1-vs-4 container shapes and the single published port.
 # ═══════════════════════════════════════════════════════════════════════════════
 
 from sg_compute_specs.vault_app.service.Vault_App__Compose__Template import (Vault_App__Compose__Template,
@@ -11,9 +11,9 @@ REGISTRY = '123456789012.dkr.ecr.eu-west-2.amazonaws.com'
 
 class TestVaultAppComposeTemplate:
 
-    def test_just_vault_has_two_services(self):
-        result = Vault_App__Compose__Template().render(ecr_registry=REGISTRY, with_playwright=False)
-        assert 'host-plane:'      in result
+    def test_just_vault_has_one_service(self):
+        result = Vault_App__Compose__Template().render(with_playwright=False)
+        assert 'host-plane:'      not in result
         assert 'sg-send-vault:'   in result
         assert 'sg-playwright:'   not in result
         assert 'agent-mitmproxy:' not in result
@@ -40,12 +40,15 @@ class TestVaultAppComposeTemplate:
         assert 'vault-net'      in result
         assert 'driver: bridge' in result
 
-    def test_ecr_registry_interpolated(self):
-        result = Vault_App__Compose__Template().render(ecr_registry=REGISTRY)
-        assert f'{REGISTRY}/sgraph_ai_service_playwright_host' in result
+    def test_ecr_registry_only_in_with_playwright(self):
+        just_vault = Vault_App__Compose__Template().render(with_playwright=False)
+        assert REGISTRY not in just_vault                                    # no ECR at all without playwright
+        with_pw = Vault_App__Compose__Template().render(ecr_registry=REGISTRY, with_playwright=True)
+        assert f'{REGISTRY}/agent_mitmproxy' in with_pw                     # agent-mitmproxy still uses ECR
 
     def test_podman_socket_path(self):
         result = Vault_App__Compose__Template().render(ecr_registry=REGISTRY,
+                                                       with_playwright=True,
                                                        docker_socket='/run/podman/podman.sock')
         assert '/run/podman/podman.sock:/var/run/docker.sock' in result
 
@@ -75,6 +78,16 @@ class TestVaultAppComposeTemplate:
         # on the wrong assumption that Routes__Web ran there. It doesn't.
         result = Vault_App__Compose__Template().render(ecr_registry=REGISTRY, with_playwright=True)
         assert 'AGENT_MITMPROXY__MITMWEB_HOST' not in result
+
+    def test_host_plane_uses_docker_hub_image(self):
+        result = Vault_App__Compose__Template().render(ecr_registry=REGISTRY, with_playwright=True)
+        assert 'image: diniscruz/sg-playwright:latest' in result            # Docker Hub, not ECR
+        assert f'{REGISTRY}/sgraph_ai_service_playwright_host' not in result
+
+    def test_cert_init_uses_docker_hub_image(self):
+        result = Vault_App__Compose__Template().render(ecr_registry=REGISTRY, with_tls_check=True)
+        assert 'diniscruz/sg-playwright' in result                          # cert-init uses Docker Hub image
+        assert f'{REGISTRY}/sgraph_ai_service_playwright_host' not in result
 
     def test_with_tls_check_wires_tls_into_sg_send_vault(self):
         result = Vault_App__Compose__Template().render(ecr_registry=REGISTRY, with_tls_check=True)
