@@ -50,6 +50,7 @@ This is the high-level surface; details live in the sub-files.
 | `sg aws cf ...` / `sg aws lambda ...` (v0.2.23) | `aws` | [`sg-compute/index.md`](../sg-compute/index.md) |
 | `sg aws fargate ...` (v0.2.29 Slice C) | `aws/fargate` | [`aws-fargate.md`](aws-fargate.md) |
 | `sg aws bedrock ...` (v0.2.29 Slice E) | `aws/bedrock` | [`aws-bedrock.md`](aws-bedrock.md) |
+| `sg aws lab ...` (v0.3.0 Foundation) | `aws/lab` | [`aws-lab.md`](aws-lab.md) |
 | `sg vp ...` (vault-publish slug bootstrap, v0.2.23) | `vp` | [`sg-compute/index.md`](../sg-compute/index.md) |
 
 ### `Fast_API__SP__CLI` route count (at v0.1.31 freeze)

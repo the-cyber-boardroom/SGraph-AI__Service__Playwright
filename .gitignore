@@ -214,3 +214,6 @@ _vaults
 _exports
 .claude/worktrees/
 .clone/
+
+# SG Lab harness
+.sg-lab/

@@ -118,6 +118,28 @@ OpenSearch and Prometheus also ship as their own ephemeral specs (`sg opensearch
 
 ---
 
+## Lab Harness — Tag-Driven Sweep
+
+The `sg aws lab` measurement harness (v0.3.0) creates temporary AWS resources during experiments and guarantees cleanup through three layers:
+
+1. **Synchronous try/finally teardown** — run via `Lab__Teardown__Dispatcher` at end of `Lab__Runner.run()`.
+2. **Signal + atexit handlers** — registered by `Lab__Runner.setup()` on SIGINT, SIGTERM, and process exit.
+3. **Tag-driven sweeper (`sg aws lab sweep`)** — scans the JSONL ledger at `~/.sg-lab/ledger.jsonl` and deletes any resource whose `expires_at` TTL has passed.
+
+All lab-created resources carry the following `sg:lab:*` tags in addition to the five canonical `sg:*` tags set by `Aws__Tagger`:
+
+| Tag | Value |
+|-----|-------|
+| `sg:lab` | `true` |
+| `sg:lab:run-id` | `<iso-ts>__<6-nonce>` |
+| `sg:lab:experiment` | experiment name (e.g. `propagation-timeline`) |
+| `sg:lab:resource` | resource type (e.g. `r53-record`) |
+| `sg:lab:expires-at` | ISO-8601 TTL (default 60 min from creation) |
+
+The sweeper requires all three of `sg:lab`, `sg:lab:run-id`, and `sg:lab:expires-at` before deleting a resource. `sg aws lab sweep --apply` performs actual deletions; default is dry-run.
+
+---
+
 ## Secrets — Where They Live
 
 | Kind | Home |

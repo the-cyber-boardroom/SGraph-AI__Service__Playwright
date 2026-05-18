@@ -56,6 +56,14 @@ The CLI is a Typer hierarchy rooted at a single entry-point class. The `sg` comm
 | `sg aws billing` | `sgraph_ai_service_playwright__cli/aws/billing/cli/Cli__Billing.py` | `last-48h`, `week`, `mtd`, `window`, `summary`, `chart` (v0.2.22) |
 | `sg aws cf` | `sgraph_ai_service_playwright__cli/aws/cf/cli/Cli__Cf.py` | CloudFront distribution CRUD (v0.2.23) |
 | `sg aws lambda` | `sgraph_ai_service_playwright__cli/aws/lambda_/cli/Cli__Lambda.py` | Lambda deploy + Function URL CRUD (v0.2.23) |
+| `sg aws s3` | `sgraph_ai_service_playwright__cli/aws/s3/cli/Cli__S3.py` | S3 object + bucket management (v0.2.29) |
+| `sg aws ec2` | `sgraph_ai_service_playwright__cli/aws/ec2/cli/Cli__EC2.py` | EC2 lifecycle + imaging (v0.2.29) |
+| `sg aws fargate` | `sgraph_ai_service_playwright__cli/aws/fargate/cli/Cli__Fargate.py` | Fargate task management (v0.2.29) |
+| `sg aws bedrock` | `sgraph_ai_service_playwright__cli/aws/bedrock/cli/Cli__Bedrock.py` | Bedrock model access (v0.2.29) |
+| `sg aws cloudtrail` | `sgraph_ai_service_playwright__cli/aws/cloudtrail/cli/Cli__CloudTrail.py` | CloudTrail event query (v0.2.29) |
+| `sg aws creds` | `sgraph_ai_service_playwright__cli/aws/creds/cli/Cli__Creds.py` | AWS credential + role management (v0.2.29) |
+| `sg aws observe` | `sgraph_ai_service_playwright__cli/aws/observe/cli/Cli__Observe.py` | Multi-source observability viewer (v0.2.29) |
+| `sg aws lab` | `sgraph_ai_service_playwright__cli/aws/lab/cli/Cli__Lab.py` | Measurement harness for AWS infrastructure experiments (v0.3.0) ✅ FOUNDATION-LANDED — experiment slices A–E pending |
 
 DNS default mode is zero-cache-pollution (authoritative-NS direct via `dig @ns +norecurse`); cache-polluting modes are opt-in behind verbatim WARNING banners. `zone check` cross-references ACM cert validation CNAMEs to identify orphaned records; `zone purge` batch-deletes in a single Route 53 ChangeBatch. See [`team/roles/librarian/reality/_archive/v0.1.31/16__sg-aws-dns-and-acm.md`](../../team/roles/librarian/reality/_archive/v0.1.31/16__sg-aws-dns-and-acm.md) for full surface.
 

@@ -24,6 +24,7 @@ from sgraph_ai_service_playwright__cli.aws.bedrock.cli.Cli__Bedrock          imp
 from sgraph_ai_service_playwright__cli.aws.cloudtrail.cli.Cli__CloudTrail    import app as cloudtrail_app
 from sgraph_ai_service_playwright__cli.aws.creds.cli.Cli__Creds              import app as creds_app
 from sgraph_ai_service_playwright__cli.aws.observe.cli.Cli__Observe          import app as observe_app
+from sgraph_ai_service_playwright__cli.aws.lab.cli.Cli__Lab                  import lab_app
 
 
 class _AwsGroup(TyperGroup):                                                       # injects dynamic Lambda__App__Group as 'lambda'
@@ -74,3 +75,6 @@ app.add_typer(bedrock_app,    name='bedrock'    )
 app.add_typer(cloudtrail_app, name='cloudtrail' )
 app.add_typer(creds_app,      name='creds'      )
 app.add_typer(observe_app,    name='observe'    )
+
+# ── v0.3.0 lab measurement harness ───────────────────────────────────────────
+app.add_typer(lab_app,        name='lab'        )
