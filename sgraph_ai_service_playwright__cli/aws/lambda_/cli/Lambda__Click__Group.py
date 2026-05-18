@@ -134,12 +134,18 @@ from sgraph_ai_service_playwright__cli.aws.lambda_.service.Lambda__AWS__Client i
 
 @click.command('list')
 @click.option('--runtime', default=None,  help='Filter by runtime (e.g. python3.12).')
+@click.option('--last-modified', '--lm', 'sort_by_lm', is_flag=True, default=False,
+              help='Sort by Last Modified (newest first) instead of by name.')
 @click.option('--json', 'as_json', is_flag=True, default=False, help='Output as JSON.')
-def cmd_list(runtime, as_json):
-    """List all Lambda functions in the account/region."""
+def cmd_list(runtime, sort_by_lm, as_json):
+    """List all Lambda functions in the account/region. Sorted by name by default."""
     fns = Lambda__AWS__Client().list_functions()
     if runtime:
         fns = [f for f in fns if str(f.runtime) == runtime]
+    if sort_by_lm:
+        fns = sorted(fns, key=lambda f: f.last_modified or '', reverse=True)      # ISO-8601 strings sort lexically; empty last
+    else:
+        fns = sorted(fns, key=lambda f: str(f.name).lower())
     if as_json:
         click.echo(json.dumps([f.json() for f in fns], indent=2))
         return
