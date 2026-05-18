@@ -57,10 +57,13 @@ def _extract_source_ip(request: Request) -> str:
 # Headers we surface on the diagnostic page so operators can see what
 # CloudFront / proxies are actually forwarding to the Lambda.
 _PROXY_HEADER_SNIFF = (
-    'x-forwarded-host', 'x-forwarded-for', 'x-forwarded-proto',
+    'x-vault-viewer-host',                                          # owned routing signal set by the CF Function (preferred)
+    'x-forwarded-host',                                             # standard proxy header (also set by the CF Function)
+    'x-forwarded-for', 'x-forwarded-proto',
     'x-amz-cf-id', 'x-amzn-trace-id', 'x-amzn-request-id',
     'cloudfront-forwarded-proto', 'cloudfront-viewer-country',
     'cloudfront-viewer-address', 'via', 'referer',
+    'x-waker-flow-id', 'x-waker-cf-timestamp', 'x-waker-cf-version', # set by our CF Function
 )
 
 
@@ -100,13 +103,16 @@ def _render_scope(request: Request) -> str:
 
 def _viewer_host(request: Request, origin_host: str) -> str:
     # CloudFront rewrites the Host header to the origin's hostname (Lambda URLs
-    # reject mismatched Host). To recover the viewer's original host, we look
-    # at X-Forwarded-Host first — this requires a CloudFront Function on the
-    # viewer-request event that copies event.request.headers.host into a
-    # custom X-Forwarded-Host header before CloudFront forwards to origin.
-    xfh = request.headers.get('x-forwarded-host', '')
-    if xfh:
-        return xfh.split(',')[0].strip()
+    # reject mismatched Host). To recover the viewer's original host, our CF
+    # Function (vault-publish-viewer-host) sets two headers on viewer-request:
+    #   x-vault-viewer-host  — our owned routing signal (preferred)
+    #   x-forwarded-host     — standard proxy header (backup / interop)
+    # We prefer the owned one to remove any ambiguity with proxies upstream of
+    # CloudFront that might also stamp x-forwarded-host.
+    for name in ('x-vault-viewer-host', 'x-forwarded-host'):
+        v = request.headers.get(name, '')
+        if v:
+            return v.split(',')[0].strip()
     return origin_host
 
 
@@ -134,25 +140,27 @@ class Fast_API__Waker(Type_Safe):
         @fast_app.api_route('/{path:path}',
                              methods=['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'HEAD', 'OPTIONS'])
         async def catch_all(request: Request, path: str):
-            origin_host    = request.headers.get('host', '')
-            forwarded_host = request.headers.get('x-forwarded-host', '')
-            viewer_host    = _viewer_host(request, origin_host)
-            slug           = Slug__From_Host().extract(viewer_host)
-            body           = await request.body()
+            origin_host       = request.headers.get('host', '')
+            forwarded_host    = request.headers.get('x-forwarded-host', '')
+            vault_viewer_host = request.headers.get('x-vault-viewer-host', '')
+            viewer_host       = _viewer_host(request, origin_host)
+            slug              = Slug__From_Host().extract(viewer_host)
+            body              = await request.body()
             ctx = Schema__Waker__Request_Context(
-                host           = viewer_host,
-                origin_host    = origin_host,
-                forwarded_host = forwarded_host,
-                slug           = str(slug) if slug else '',
-                path           = '/' + path,
-                method         = request.method,
-                body           = body,
-                request_id     = _extract_request_id(request),
-                source_ip      = _extract_source_ip(request),
-                proxy_headers  = _render_proxy_headers(request),
-                all_headers    = _render_all_headers(request),
-                asgi_scope     = _render_scope(request),
-                deploy_info    = '\n'.join(f'{k}: {v or "(unset)"}' for k, v in DEPLOY_INFO.items()),
+                host              = viewer_host,
+                origin_host       = origin_host,
+                forwarded_host    = forwarded_host,
+                vault_viewer_host = vault_viewer_host,
+                slug              = str(slug) if slug else '',
+                path              = '/' + path,
+                method            = request.method,
+                body              = body,
+                request_id        = _extract_request_id(request),
+                source_ip         = _extract_source_ip(request),
+                proxy_headers     = _render_proxy_headers(request),
+                all_headers       = _render_all_headers(request),
+                asgi_scope        = _render_scope(request),
+                deploy_info       = '\n'.join(f'{k}: {v or "(unset)"}' for k, v in DEPLOY_INFO.items()),
             )
             result = Waker__Handler(_version=WAKER_VERSION).handle(ctx)
             return Response(

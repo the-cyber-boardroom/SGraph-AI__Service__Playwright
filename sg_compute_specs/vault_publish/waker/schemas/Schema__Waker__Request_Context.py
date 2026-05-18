@@ -10,7 +10,8 @@ from osbot_utils.type_safe.Type_Safe import Type_Safe
 class Schema__Waker__Request_Context(Type_Safe):
     host           : str   = ''                                                       # Viewer host used for slug extraction (X-Forwarded-Host if present, else origin Host)
     origin_host    : str   = ''                                                       # Raw HTTP Host header — Lambda URL hostname when called via CloudFront
-    forwarded_host : str   = ''                                                       # X-Forwarded-Host (set by a CloudFront Function or reverse proxy)
+    forwarded_host : str   = ''                                                       # X-Forwarded-Host (set by the CF Function — interop signal)
+    vault_viewer_host : str = ''                                                      # X-Vault-Viewer-Host (set by the CF Function — owned routing signal, preferred)
     slug           : str   = ''                                                       # Resolved slug (empty if parse failed)
     path           : str   = '/'                                                      # Request path including leading /
     method         : str   = 'GET'                                                    # HTTP method
