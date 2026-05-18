@@ -1,0 +1,111 @@
+name: Build + Push Host Control Image to ECR
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# MANUAL workflow — extracted from ci-pipeline.yml on 2026-05-18.
+#
+# Builds the host-control Docker image (docker/host-control/Dockerfile) and
+# pushes it to ECR (sgraph_ai_service_playwright_host:latest). The workflow
+# is wofklow_dispatch only — push events no longer trigger it.
+#
+# Required repository secrets:
+#   AWS_ACCESS_KEY_ID
+#   AWS_SECRET_ACCESS_KEY
+#   AWS_DEFAULT_REGION
+#   AWS_ACCOUNT_ID
+# ═══════════════════════════════════════════════════════════════════════════════
+
+on:
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: 'Image tag to push (also pushes :latest). Defaults to the short SHA.'
+        required: false
+        type: string
+        default: ''
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-push-host-image:
+    name: "Build + Push Host Control Image to ECR"
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Resolve image tag
+        id: tag
+        run: |
+          TAG="${{ inputs.image_tag }}"
+          if [[ -z "$TAG" ]]; then
+            TAG="$(git rev-parse --short HEAD)"
+          fi
+          echo "value=$TAG" >> $GITHUB_OUTPUT
+
+      - name: Check AWS credentials present
+        run: |
+          missing=""
+          for var in AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_DEFAULT_REGION AWS_ACCOUNT_ID; do
+            v="${!var:-}"
+            if [[ -z "$v" ]]; then missing="$missing $var"; fi
+          done
+          if [[ -n "$missing" ]]; then
+            echo "::error::Missing required repository secrets:$missing"
+            exit 1
+          fi
+        env:
+          AWS_ACCESS_KEY_ID     : ${{ secrets.AWS_ACCESS_KEY_ID     }}
+          AWS_SECRET_ACCESS_KEY : ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION    : ${{ secrets.AWS_DEFAULT_REGION    }}
+          AWS_ACCOUNT_ID        : ${{ secrets.AWS_ACCOUNT_ID        }}
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id     : ${{ secrets.AWS_ACCESS_KEY_ID     }}
+          aws-secret-access-key : ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region            : ${{ secrets.AWS_DEFAULT_REGION    }}
+
+      - name: Create ECR repository (idempotent)
+        run: |
+          aws ecr create-repository \
+            --repository-name "sgraph_ai_service_playwright_host" \
+            --region "${{ secrets.AWS_DEFAULT_REGION }}" \
+          || true
+
+      - name: Authenticate Docker to ECR
+        run: |
+          aws ecr get-login-password --region "${{ secrets.AWS_DEFAULT_REGION }}" | \
+            docker login \
+              --username AWS \
+              --password-stdin \
+              "${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_DEFAULT_REGION }}.amazonaws.com"
+
+      - name: Build Docker image
+        run: |
+          REGISTRY="${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_DEFAULT_REGION }}.amazonaws.com"
+          REPO="sgraph_ai_service_playwright_host"
+          TAG="${{ steps.tag.outputs.value }}"
+          docker build \
+            -f docker/host-control/Dockerfile \
+            -t "$REGISTRY/$REPO:$TAG" \
+            -t "$REGISTRY/$REPO:latest" \
+            .
+
+      - name: Push to ECR
+        run: |
+          REGISTRY="${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_DEFAULT_REGION }}.amazonaws.com"
+          REPO="sgraph_ai_service_playwright_host"
+          TAG="${{ steps.tag.outputs.value }}"
+          docker push "$REGISTRY/$REPO:$TAG"
+          docker push "$REGISTRY/$REPO:latest"
+
+      - name: Verify image in ECR
+        run: |
+          aws ecr describe-images \
+            --repository-name "sgraph_ai_service_playwright_host" \
+            --region "${{ secrets.AWS_DEFAULT_REGION }}" \
+            --image-ids imageTag=${{ steps.tag.outputs.value }} \
+            --query 'imageDetails[0].[imagePushedAt, imageSizeInBytes]' \
+            --output table

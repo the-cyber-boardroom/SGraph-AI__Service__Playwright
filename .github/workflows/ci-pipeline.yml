@@ -5,18 +5,22 @@ name: CI Pipeline (Base)
 #
 # Jobs:
 #   1. run-unit-tests              — pytest tests/ci + tests/unit (always)
-#   2. check-aws-credentials       — gate for the host-image job
-#   3. detect-changes              — path filter: playwright-image / host-image
-#   4. increment-tag               — version bump (dev/main only)
-#   5. build-and-push-playwright-image
+#   2. increment-tag               — version bump (dev/main only)
+#   3. build-and-push-playwright-image
 #                                  — multi-arch image → Docker Hub
-#                                    (diniscruz/sg-playwright). Path-gated on
-#                                    sg_compute_specs/playwright/** + sg_compute/**.
-#   6. build-and-push-host-image   — host control image → ECR (separate concern)
+#                                    (diniscruz/sg-playwright). MANUAL ONLY —
+#                                    runs only when force_image_rebuild=true
+#                                    on workflow_dispatch. Push events no
+#                                    longer auto-build/publish the image.
 #
 # The Playwright Lambda / ECR / S3-zip jobs were retired in v0.2.11 — the
 # service now ships as a Docker Hub image only. See
 # team/roles/architect/reviews/05/14/v0.2.6__playwright-deployment-simplification.md
+#
+# The Host Control ECR image was moved to its own workflow
+# (.github/workflows/build-host-control-ecr.yml) on 2026-05-18 — also
+# manual-only. The previous in-pipeline build/push job and its
+# check-aws-credentials / detect-changes gates were removed from this file.
 # ═══════════════════════════════════════════════════════════════════════════════
 
 on:
@@ -42,15 +46,7 @@ on:
         default: false                                                                  # Set true to rebuild + push the image even when no image-relevant files changed (base-image refresh, cache bust)
     secrets:
       DOCKERHUB_TOKEN:
-        required: false                                                                 # Docker Hub PAT for the diniscruz namespace — needed to push the playwright image
-      AWS_SECRET_ACCESS_KEY:
-        required: false
-      AWS_DEFAULT_REGION:
-        required: false
-      AWS_ACCOUNT_ID:
-        required: false
-      AWS_ACCESS_KEY_ID:
-        required: false
+        required: false                                                                 # Docker Hub PAT for the diniscruz namespace — needed to push the playwright image (manual builds only)
 
 env:
   DOCKERHUB_USERNAME : 'diniscruz'
@@ -94,63 +90,7 @@ jobs:
         run: python -m pytest tests/unit/ -v --timeout=30
 
   # ════════════════════════════════════════════════════════════════════════════
-  # Job 2: Check AWS Credentials (gate for the host-control-image job only —
-  #   the Playwright image goes to Docker Hub and needs no AWS creds).
-  # ════════════════════════════════════════════════════════════════════════════
-  check-aws-credentials:
-    name: Check AWS Credentials
-    runs-on: ubuntu-latest
-    outputs:
-      has-credentials: ${{ steps.check.outputs.has-credentials }}
-    steps:
-      - name: Check if AWS credentials are configured
-        id: check
-        run: |
-          if [[ -n "${{ secrets.AWS_ACCESS_KEY_ID }}" ]] && \
-             [[ -n "${{ secrets.AWS_SECRET_ACCESS_KEY }}" ]] && \
-             [[ -n "${{ secrets.AWS_DEFAULT_REGION }}" ]] && \
-             [[ -n "${{ secrets.AWS_ACCOUNT_ID }}" ]]; then
-            echo "has-credentials=true" >> $GITHUB_OUTPUT
-          else
-            echo "has-credentials=false" >> $GITHUB_OUTPUT
-            echo "AWS credentials not configured — host-control image push skipped"
-          fi
-
-  # ════════════════════════════════════════════════════════════════════════════
-  # Job 3: Detect Image-Relevant Changes (path filter — skip image rebuilds
-  #   when no image-relevant file changed).
-  #
-  #   playwright-image : anything baked into diniscruz/sg-playwright —
-  #                      the playwright spec + the sg_compute SDK it imports.
-  #   host-image       : the separate host-control ECR image.
-  #
-  #   Each build job is gated with `if:` on its filter output (plus the
-  #   force_image_rebuild dispatch input) — this is how a single workflow
-  #   path-gates an individual job.
-  # ════════════════════════════════════════════════════════════════════════════
-  detect-changes:
-    name: Detect Image-Relevant Changes
-    runs-on: ubuntu-latest
-    outputs:
-      playwright-image-needed : ${{ steps.filter.outputs.playwright-image }}
-      host-image-needed       : ${{ steps.filter.outputs.host-image       }}
-    steps:
-      - uses: actions/checkout@v5
-
-      - name: Filter paths
-        id: filter
-        uses: dorny/paths-filter@v3
-        with:
-          filters: |
-            playwright-image:
-              - 'sg_compute_specs/playwright/**'
-              - 'sg_compute/**'
-            host-image:
-              - 'sg_compute/**'
-              - 'docker/host-control/**'
-
-  # ════════════════════════════════════════════════════════════════════════════
-  # Job 4: Increment Tag (dev bumps minor, main bumps major; skipped on prod).
+  # Job 2: Increment Tag (dev bumps minor, main bumps major; skipped on prod).
   #   Runs before the image build so the pushed image is tagged with the
   #   freshly-bumped version.
   # ════════════════════════════════════════════════════════════════════════════
@@ -187,26 +127,27 @@ jobs:
           fi
 
   # ════════════════════════════════════════════════════════════════════════════
-  # Job 5: Build Playwright Image — per-arch, on NATIVE runners (matrix)
+  # Job 3: Build Playwright Image — per-arch, on NATIVE runners (matrix)
   #   linux/amd64 builds on ubuntu-latest, linux/arm64 on ubuntu-24.04-arm.
   #   Each arch builds natively (no QEMU emulation — the slow path the single
   #   multi-arch job paid before) and pushes BY DIGEST only (no tag yet).
   #   Digests are handed to the merge job via artifacts.
   #
-  #   Path-gated: only runs when sg_compute_specs/playwright/** or sg_compute/**
-  #   changed (detect-changes), OR force_image_rebuild was set on dispatch.
-  #   Runs after increment-tag so the merge job tags with the bumped version.
+  #   MANUAL ONLY: gated on force_image_rebuild (workflow_dispatch input).
+  #   Push triggers no longer auto-build/publish — set
+  #   force_image_rebuild=true when running ci-pipeline__{dev,main,prod}.yml
+  #   from the Actions UI to release a new image.
   # ════════════════════════════════════════════════════════════════════════════
   build-playwright-image:
     name: "Build Playwright Image (${{ matrix.platform }})"
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 25
-    needs: [run-unit-tests, detect-changes, increment-tag]
+    needs: [run-unit-tests, increment-tag]
     if: |
       always() &&
       needs.run-unit-tests.result == 'success' &&
       (needs.increment-tag.result == 'success' || needs.increment-tag.result == 'skipped') &&
-      (needs.detect-changes.outputs.playwright-image-needed == 'true' || inputs.force_image_rebuild)
+      inputs.force_image_rebuild
     strategy:
       fail-fast: false
       matrix:
@@ -260,7 +201,7 @@ jobs:
           retention-days    : 1
 
   # ════════════════════════════════════════════════════════════════════════════
-  # Job 5b: Merge per-arch digests into the published manifest list
+  # Job 3b: Merge per-arch digests into the published manifest list
   #   Combines the amd64 + arm64 digests into a single multi-arch manifest and
   #   tags it. Pushes two tags:
   #     diniscruz/sg-playwright:<version>   — immutable, version-pinned
@@ -312,62 +253,3 @@ jobs:
         run: |
           docker buildx imagetools inspect ${{ env.REGISTRY_IMAGE }}:${{ steps.version.outputs.version }}
 
-  # ════════════════════════════════════════════════════════════════════════════
-  # Job 6: Build + Push Host Control Image to ECR
-  #   Separate concern — the host control plane still ships to ECR. Skipped
-  #   when no sg_compute/** or docker/host-control/** files changed AND
-  #   force_image_rebuild is false. Image name: sgraph_ai_service_playwright_host
-  # ════════════════════════════════════════════════════════════════════════════
-  build-and-push-host-image:
-    name: "Build + Push Host Control Image to ECR"
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    needs: [run-unit-tests, check-aws-credentials, detect-changes]
-    if: |
-      needs.check-aws-credentials.outputs.has-credentials == 'true' &&
-      (needs.detect-changes.outputs.host-image-needed == 'true' || inputs.force_image_rebuild)
-    steps:
-      - uses: actions/checkout@v5
-
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          aws-access-key-id     : ${{ secrets.AWS_ACCESS_KEY_ID     }}
-          aws-secret-access-key : ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region            : ${{ secrets.AWS_DEFAULT_REGION    }}
-
-      - name: Create ECR repository (idempotent)
-        run: |
-          aws ecr create-repository \
-            --repository-name "sgraph_ai_service_playwright_host" \
-            --region "${{ secrets.AWS_DEFAULT_REGION }}" \
-          || true
-
-      - name: Authenticate Docker to ECR
-        run: |
-          aws ecr get-login-password --region "${{ secrets.AWS_DEFAULT_REGION }}" | \
-            docker login \
-              --username AWS \
-              --password-stdin \
-              "${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_DEFAULT_REGION }}.amazonaws.com"
-
-      - name: Build Docker image
-        run: |
-          docker build \
-            -f docker/host-control/Dockerfile \
-            -t "${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_DEFAULT_REGION }}.amazonaws.com/sgraph_ai_service_playwright_host:latest" \
-            .
-
-      - name: Push to ECR
-        run: |
-          docker push \
-            "${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_DEFAULT_REGION }}.amazonaws.com/sgraph_ai_service_playwright_host:latest"
-
-      - name: Verify image in ECR
-        run: |
-          aws ecr describe-images \
-            --repository-name "sgraph_ai_service_playwright_host" \
-            --region "${{ secrets.AWS_DEFAULT_REGION }}" \
-            --image-ids imageTag=latest \
-            --query 'imageDetails[0].[imagePushedAt, imageSizeInBytes]' \
-            --output table
