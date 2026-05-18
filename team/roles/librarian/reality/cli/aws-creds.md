@@ -97,5 +97,5 @@ Both are real subclasses — no mocks, no patches.
 
 ## See also
 
-- User guide: [`library/docs/cli/sg-aws/15__creds.md`](../../../../library/docs/cli/sg-aws/15__creds.md)
+- User guide: [`library/docs/cli/sg-aws/15__creds.md`](../../../../../library/docs/cli/sg-aws/15__creds.md)
 - Parent: [`cli/index.md`](index.md)

@@ -93,7 +93,7 @@ Sources: `_archive/v0.1.31/09__sp-cli-observability-routes.md` (gaps), `_archive
 
 ## P-16 · CloudFront support in the bigger CF+R53 brief
 
-**What:** Main P2 deliverable of the bigger DNS plan. Partially landed in v0.2.23 (`sg aws cf` distribution CRUD — see [`sg-compute/index.md`](../sg-compute/index.md)), but the full DNS + CF integration is still pending.
+**What:** Main P2 deliverable of the bigger DNS plan. Partially landed in v0.2.23 (`sg aws cf` distribution CRUD — see [`sg-compute/index.md`](../../sg-compute/index.md)), but the full DNS + CF integration is still pending.
 
 **Source:** `16__...md` known-gaps.
 

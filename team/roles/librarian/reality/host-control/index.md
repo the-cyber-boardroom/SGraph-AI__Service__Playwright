@@ -135,7 +135,7 @@ See [`proposed/index.md`](proposed/index.md).
 
 ## Cross-references
 
-- **Source brief:** [`team/humans/dinis_cruz/briefs/05/01/v0.22.19__dev-brief__container-runtime-abstraction.md`](../../../humans/dinis_cruz/briefs/05/01/v0.22.19__dev-brief__container-runtime-abstraction.md)
+- **Source brief:** [`team/humans/dinis_cruz/briefs/05/01/v0.22.19__dev-brief__container-runtime-abstraction.md`](../../../../humans/dinis_cruz/briefs/05/01/v0.22.19__dev-brief__container-runtime-abstraction.md)
 - **Introducing commit:** `11c2a08` — `feat: add sgraph_ai_service_playwright__host — Host Control Plane (Tasks 1–6)` (2026-05-02)
 - **CLI counterpart (consumer):** [`cli/index.md`](../cli/index.md) — `Ec2__Service` populates `host_api_url` / `host_api_key_vault_path` for every EC2 instance.
 - **Infra counterpart:** [`infra/index.md`](../infra/index.md) — `docker/host-control/` Dockerfile + EC2 USER_DATA template.
