@@ -224,7 +224,7 @@ def code_session_run(
 ):
     """Run code in a code-interpreter session. [EXPERIMENTAL]"""
     if not yes:
-        typer.confirm(f'Run code in session {session_id!r}?', abort=True)
+        typer.confirm(f'Run code in session {session_id!r}?', default=True, abort=True)
     client = _client()
     result = client.code_interpreter_run(session_id, code, language=language, region=region, code_interpreter_id=code_interpreter_id)
     writer = Bedrock__Capture__Writer()

@@ -46,7 +46,7 @@ def agent_create(
 ):
     """Create an AgentCore agent. [EXPERIMENTAL]"""
     if not yes:
-        typer.confirm(f'Create agent {name!r}?', abort=True)
+        typer.confirm(f'Create agent {name!r}?', default=True, abort=True)
     resolver = Bedrock__Model__Resolver()
     client   = _client()
     region   = client.current_region()
@@ -150,7 +150,7 @@ def agent_invoke(
 ):
     """Invoke an AgentCore agent. [EXPERIMENTAL]"""
     if not yes:
-        typer.confirm(f'Invoke agent {agent_id!r}?', abort=True)
+        typer.confirm(f'Invoke agent {agent_id!r}?', default=True, abort=True)
     sid    = session_id or uuid.uuid4().hex
     client = _client()
     result = client.invoke_agent(agent_id, alias_id, sid, prompt)
