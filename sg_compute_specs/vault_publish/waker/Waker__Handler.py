@@ -236,6 +236,22 @@ def _render_not_found_html(ctx: Schema__Waker__Request_Context,
             f'<pre>{html.escape(ctx.proxy_headers)}</pre>'
         )
 
+    all_headers_section = ''
+    if ctx.all_headers:
+        all_headers_section = (
+            '<h2>All HTTP headers received <span class="muted">'
+            '(everything FastAPI / LWA passed in)</span></h2>'
+            f'<pre>{html.escape(ctx.all_headers)}</pre>'
+        )
+
+    scope_section = ''
+    if ctx.asgi_scope:
+        scope_section = (
+            '<h2>ASGI scope <span class="muted">'
+            '(client/server addresses, scheme, raw path, query)</span></h2>'
+            f'<pre>{html.escape(ctx.asgi_scope)}</pre>'
+        )
+
     return f"""<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -273,6 +289,8 @@ def _render_not_found_html(ctx: Schema__Waker__Request_Context,
 <h2>Waker diagnostics</h2>
 <table>{render_rows(rows_waker)}</table>
 {proxy_section}
+{all_headers_section}
+{scope_section}
 <footer>
   Served by the vault-publish waker Lambda. Same diagnostics are emitted as JSON to CloudWatch
   and as <code>X-Waker-*</code> response headers.

@@ -61,6 +61,31 @@ def _render_proxy_headers(request: Request) -> str:
     return '\n'.join(lines)
 
 
+def _render_all_headers(request: Request) -> str:
+    # Dump every header verbatim — Lambda Web Adapter, CloudFront, and the
+    # browser together can hide several layers of rewriting; the dump tells
+    # us exactly what arrived at FastAPI.
+    return '\n'.join(f'{k}: {v}' for k, v in sorted(request.headers.items()))
+
+
+def _render_scope(request: Request) -> str:
+    # ASGI scope reveals what uvicorn/LWA think the request looks like:
+    # the local server address, viewer client tuple, scheme, root_path,
+    # raw path, and query string.
+    scope = getattr(request, 'scope', {}) or {}
+    interesting = ('type', 'http_version', 'scheme', 'method', 'root_path',
+                   'path', 'raw_path', 'query_string', 'client', 'server')
+    lines = []
+    for k in interesting:
+        if k in scope:
+            v = scope[k]
+            if isinstance(v, (bytes, bytearray)):
+                try:    v = v.decode('utf-8', errors='replace')
+                except Exception: pass
+            lines.append(f'{k}: {v!r}')
+    return '\n'.join(lines)
+
+
 def _viewer_host(request: Request, origin_host: str) -> str:
     # CloudFront rewrites the Host header to the origin's hostname (Lambda URLs
     # reject mismatched Host). To recover the viewer's original host, we look
@@ -113,6 +138,8 @@ class Fast_API__Waker(Type_Safe):
                 request_id     = _extract_request_id(request),
                 source_ip      = _extract_source_ip(request),
                 proxy_headers  = _render_proxy_headers(request),
+                all_headers    = _render_all_headers(request),
+                asgi_scope     = _render_scope(request),
             )
             result = Waker__Handler(_version=WAKER_VERSION).handle(ctx)
             return Response(
