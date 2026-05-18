@@ -57,6 +57,32 @@ class Setup__IAM(Type_Safe):
             return f"for this action, assuming role '{self._resolved_role}'"
         return ''
 
+    def credentials_ok(self) -> dict:
+        """STS GetCallerIdentity — fast read-only check that credentials are valid.
+
+        Returns {'ok': bool, 'arn': str, 'account': str, 'error': str}.
+        """
+        self._resolve()
+        try:
+            from sgraph_ai_service_playwright__cli.credentials.service.Sg__Aws__Session import Sg__Aws__Session
+            sess = Sg__Aws__Session.from_context()
+            if self._resolved_role:
+                sts = sess.boto3_client(self._resolved_role, 'sts')
+            else:
+                sts = sess.boto3_client_from_context('sts')
+            if sts is None:
+                import boto3
+                sts = boto3.client('sts')
+            resp = sts.get_caller_identity()
+            return {
+                'ok'     : True,
+                'arn'    : resp.get('Arn', ''),
+                'account': resp.get('Account', ''),
+                'error'  : '',
+            }
+        except Exception as exc:
+            return {'ok': False, 'arn': '', 'account': '', 'error': str(exc)}
+
     def _iam(self):
         if self._iam_client_factory is not None:
             return self._iam_client_factory()

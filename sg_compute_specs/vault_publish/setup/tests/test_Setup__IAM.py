@@ -311,6 +311,31 @@ class TestSetupIAMDelete:
         assert rep.state == Enum__Setup__State.MISSING
 
 
+# ── credentials_ok ───────────────────────────────────────────────────────────
+
+class TestCredentialsOk:
+    def test_returns_dict_with_required_keys(self):
+        svc, _ = _iam_setup()
+        info = svc.credentials_ok()
+        assert 'ok'      in info
+        assert 'arn'     in info
+        assert 'account' in info
+        assert 'error'   in info
+
+    def test_returns_false_when_no_aws_creds(self):
+        # In-memory setup has no real AWS credentials → STS call fails
+        svc, _ = _iam_setup()
+        info = svc.credentials_ok()
+        assert info['ok'] is False
+        assert info['error'] != ''
+
+    def test_ok_false_gives_non_empty_error(self):
+        svc, _ = _iam_setup()
+        info = svc.credentials_ok()
+        if not info['ok']:
+            assert len(info['error']) > 0
+
+
 # ── assumed_role_notice ───────────────────────────────────────────────────────
 
 class TestAssumedRoleNotice:
