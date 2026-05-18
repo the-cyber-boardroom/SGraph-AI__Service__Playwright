@@ -18,3 +18,5 @@ class Schema__Waker__Request_Context(Type_Safe):
     request_id     : str   = ''                                                       # Trace / request ID for debug headers + log correlation
     source_ip      : str   = ''                                                       # Client IP from X-Forwarded-For / request.client.host
     proxy_headers  : str   = ''                                                       # Pre-rendered "key: value\n" lines for proxy-related headers (debug only)
+    all_headers    : str   = ''                                                       # Pre-rendered dump of EVERY header received (debug only)
+    asgi_scope     : str   = ''                                                       # Pre-rendered ASGI scope keys for debug (client, server, scheme, root_path, …)

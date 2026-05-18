@@ -199,11 +199,13 @@ class Setup__CF__Function(Type_Safe):
                 distribution_id, event_type=EVENT_TYPE)
         except Exception:
             return False
-        # The qualified ARN includes a /function/<name> suffix and may differ
-        # by version; we accept any association whose ARN starts with the
-        # function ARN base (stripping any trailing /version qualifier).
-        base = function_arn.split('/function/')[0] + '/function/' + FUNCTION_NAME
-        return any(a.startswith(base) for a in arns)
+        # CloudFront Function ARNs have the form
+        #   arn:aws:cloudfront::<acct>:function/<name>
+        # (colon-function-slash-name, NOT slash-function-slash). Match by the
+        # `:function/<name>` suffix so we tolerate any account / region
+        # variation and any version qualifier AWS may append.
+        suffix = f':function/{FUNCTION_NAME}'
+        return any(suffix in a for a in arns)
 
 
 def _normalise(code: str) -> str:

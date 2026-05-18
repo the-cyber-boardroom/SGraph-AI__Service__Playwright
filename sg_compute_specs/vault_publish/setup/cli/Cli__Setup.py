@@ -963,6 +963,52 @@ def cf_function_update(zone: str = typer.Option(DEFAULT_ZONE, '--zone', help='DN
     c.print()
 
 
+@cf_function_app.command(name='show', help='Dump the live CF Function source code (LIVE stage) and the expected source side-by-side.')
+def cf_function_show():
+    from sg_compute_specs.vault_publish.setup.service.Setup__CF__Function       import FUNCTION_NAME, FUNCTION_CODE, _normalise
+    from sgraph_ai_service_playwright__cli.aws.cf.service.CloudFront__Function__AWS__Client import CloudFront__Function__AWS__Client
+
+    c   = Console(highlight=False)
+    svc = _iam()
+    _print_role_notice(c, svc)
+    if not _preflight(c, svc):
+        raise typer.Exit(1)
+    try:
+        live_code = CloudFront__Function__AWS__Client().get_code(FUNCTION_NAME, stage='LIVE')
+    except (ClientError, Exception) as exc:
+        _handle_exc(c, exc)
+        raise typer.Exit(1)
+
+    c.print()
+    c.print(f'  [bold]Expected[/]  ({len(FUNCTION_CODE)} bytes)')
+    c.print(f'  [dim]{"─" * 60}[/]')
+    for line in FUNCTION_CODE.splitlines():
+        c.print(f'  {line}')
+
+    c.print()
+    c.print(f'  [bold]Live[/]      ({len(live_code)} bytes)')
+    c.print(f'  [dim]{"─" * 60}[/]')
+    if not live_code:
+        c.print('  [dim](function not deployed)[/]')
+    else:
+        for line in live_code.splitlines():
+            c.print(f'  {line}')
+
+    c.print()
+    match = _normalise(live_code) == _normalise(FUNCTION_CODE)
+    c.print(f'  Normalised match: {"[green]yes[/]" if match else "[red]no[/]"}')
+    if not match and live_code:
+        # Find first differing position after normalisation for a hint
+        n_live = _normalise(live_code)
+        n_exp  = _normalise(FUNCTION_CODE)
+        first_diff = next((i for i, (a, b) in enumerate(zip(n_exp, n_live)) if a != b),
+                           min(len(n_exp), len(n_live)))
+        c.print(f'  First diff at normalised char {first_diff}:')
+        c.print(f'    expected: …{n_exp[max(0, first_diff-15):first_diff+30]!r}')
+        c.print(f'    live    : …{n_live[max(0, first_diff-15):first_diff+30]!r}')
+    c.print()
+
+
 @cf_function_app.command(name='delete', help='Detach + delete the CF Function. Requires SG_AWS__VAULT_PUBLISH__SETUP__ALLOW_DELETES=1.')
 def cf_function_delete(
     zone: str  = typer.Option(DEFAULT_ZONE, '--zone', help='DNS apex zone'),
