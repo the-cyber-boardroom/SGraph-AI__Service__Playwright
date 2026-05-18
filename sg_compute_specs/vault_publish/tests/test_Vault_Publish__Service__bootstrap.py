@@ -4,6 +4,8 @@
 # No mocks, no patches, no network.
 # ═══════════════════════════════════════════════════════════════════════════════
 
+from botocore.exceptions import ClientError
+
 from sgraph_ai_service_playwright__cli.aws.cf.service.CloudFront__AWS__Client       import CloudFront__AWS__Client
 from sgraph_ai_service_playwright__cli.aws.lambda_.service.Lambda__AWS__Client      import Lambda__AWS__Client
 from sgraph_ai_service_playwright__cli.aws.lambda_.service.Lambda__Deployer         import Lambda__Deployer
@@ -81,7 +83,9 @@ class _Fake_Lambda_Client:
 
     def get_function(self, FunctionName):
         if FunctionName not in self._store:
-            raise Exception(f'Function not found: {FunctionName}')
+            raise ClientError(
+                {'Error': {'Code': 'ResourceNotFoundException', 'Message': f'Function not found: {FunctionName}'}},
+                'GetFunction')
         return {'Configuration': self._store[FunctionName]}
 
     def create_function(self, FunctionName, Runtime, Role, Handler,
@@ -133,8 +137,8 @@ class _Lambda__Deployer__In_Memory(Lambda__Deployer):
         super().__init__()
         self._lc = lc
 
-    def client(self):              return self._lc._fake
-    def _zip_folder(self, path):   return b'FAKE_ZIP'
+    def client(self):                                                  return self._lc._fake
+    def _build_zip(self, folder_path, package_root='', extra_modules=None): return b'FAKE_ZIP'
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -229,7 +233,7 @@ class TestBootstrapLambdaSideEffects:
     def test_lambda_handler_set(self):
         svc, _, lc, _ = _svc_with_fakes()
         svc.bootstrap(_req())
-        assert lc._fn_store[WAKER_LAMBDA_NAME]['Handler'] == 'lambda_entry.run'
+        assert lc._fn_store[WAKER_LAMBDA_NAME]['Handler'] == 'sg_compute_specs.vault_publish.waker.lambda_entry.handler'
 
 
 class TestBootstrapCFSideEffects:
@@ -266,7 +270,7 @@ class TestBootstrapCFSideEffects:
 class TestBootstrapNoSideEffectsOnFailure:
     def test_deploy_failure_returns_error_response(self):
         class _Bad_Deployer(Lambda__Deployer):
-            def deploy_from_folder(self, req):
+            def deploy_from_folder(self, req, **_kw):
                 from sgraph_ai_service_playwright__cli.aws.lambda_.primitives.Safe_Str__Lambda__Name import Safe_Str__Lambda__Name
                 from sgraph_ai_service_playwright__cli.aws.lambda_.schemas.Schema__Lambda__Deploy__Response import Schema__Lambda__Deploy__Response
                 return Schema__Lambda__Deploy__Response(
@@ -285,7 +289,7 @@ class TestBootstrapNoSideEffectsOnFailure:
 
     def test_deploy_failure_no_cf_distribution_created(self):
         class _Bad_Deployer(Lambda__Deployer):
-            def deploy_from_folder(self, req):
+            def deploy_from_folder(self, req, **_kw):
                 from sgraph_ai_service_playwright__cli.aws.lambda_.primitives.Safe_Str__Lambda__Name import Safe_Str__Lambda__Name
                 from sgraph_ai_service_playwright__cli.aws.lambda_.schemas.Schema__Lambda__Deploy__Response import Schema__Lambda__Deploy__Response
                 return Schema__Lambda__Deploy__Response(

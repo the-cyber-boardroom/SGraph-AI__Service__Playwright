@@ -37,7 +37,7 @@ def _default_zone() -> str:
 
 
 WAKER_LAMBDA_NAME = 'sg-compute-vault-publish-waker'
-WAKER_HANDLER     = 'lambda_entry.run'
+WAKER_HANDLER     = 'sg_compute_specs.vault_publish.waker.lambda_entry.handler'
 
 
 class Vault_Publish__Service(Type_Safe):
@@ -216,10 +216,13 @@ class Vault_Publish__Service(Type_Safe):
         from sgraph_ai_service_playwright__cli.aws.lambda_.primitives.Safe_Str__Lambda__Name import Safe_Str__Lambda__Name
         from sgraph_ai_service_playwright__cli.aws.lambda_.schemas.Schema__Lambda__Deploy__Request import Schema__Lambda__Deploy__Request
 
-        waker_folder = os.path.join(os.path.dirname(__file__), '..', 'waker')
-        deploy_req   = Schema__Lambda__Deploy__Request(
+        # vault_publish_dir = .../sg_compute_specs/vault_publish/
+        # package_root      = parent of sg_compute_specs so arc paths become sg_compute_specs/...
+        vault_publish_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+        package_root      = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../..'))
+        deploy_req        = Schema__Lambda__Deploy__Request(
             name        = Safe_Str__Lambda__Name(WAKER_LAMBDA_NAME),
-            folder_path = os.path.abspath(waker_folder),
+            folder_path = vault_publish_dir,
             handler     = WAKER_HANDLER,
             role_arn    = request.role_arn,
             runtime     = Enum__Lambda__Runtime.PYTHON_3_12,
@@ -227,7 +230,11 @@ class Vault_Publish__Service(Type_Safe):
             timeout     = 60,
             description = 'Vault Publish Waker — cold-start wake + proxy',
         )
-        deploy_resp = self._deployer().deploy_from_folder(deploy_req)
+        deploy_resp = self._deployer().deploy_from_folder(
+            deploy_req,
+            package_root  = package_root,
+            extra_modules = ['osbot_utils', 'osbot_aws'],
+        )
         if not deploy_resp.success:
             return Schema__Vault_Publish__Bootstrap__Response(
                 message    = f'lambda deploy failed: {deploy_resp.message}',
