@@ -14,7 +14,7 @@ from sgraph_ai_service_playwright__cli.aws.iam.service.templates.Waker__Policy__
 
 class Test__Waker__Policy__Template:
 
-    def test_1__builds_policy_with_three_statements(self):
+    def test_1__builds_policy_with_three_statements(self):                       # logs + ec2 describe + ec2 start (ssm:GetParameter removed when Slug__Registry moved to EC2 tags)
         policy = Waker__Policy__Template().build()
         assert len(policy.statements) == 3
 

@@ -7,8 +7,8 @@
 #   - extend  : push the auto-terminate timer out by N hours
 #
 # Create-time flags worth knowing:
-#   (default)          just-vault — 2 containers (host-plane + sg-send-vault)
-#   --with-playwright  4-container stack (+ sg-playwright + agent-mitmproxy)
+#   (default)          just-vault — 1 container (sg-send-vault)
+#   --with-playwright  4-container stack (+ host-plane + sg-playwright + agent-mitmproxy)
 #   --podman           use Podman instead of Docker as the container engine
 #   --ami <id>         boot from a baked AMI — skips engine install + image pull
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -53,7 +53,7 @@ def _render_vault_app_info(info, console: Console) -> None:
         t.add_row('playwright-url', f'[bold cyan]{playwright_url}[/]  [dim](same X-API-Key)[/]')
 
     with_playwright = getattr(info, 'with_playwright', False)
-    mode = '[green]with-playwright[/] (4 containers)' if with_playwright else '[dim]just-vault[/] (2 containers)'
+    mode = '[green]with-playwright[/] (4 containers)' if with_playwright else '[dim]just-vault[/] (1 container)'
     t.add_row('mode', mode)
     engine = str(getattr(info, 'container_engine', '') or '') or 'docker'
     t.add_row('container-engine', engine)
@@ -253,8 +253,8 @@ app = Spec__CLI__Builder(
     extra_create_options = [
         # ── stack shape ──────────────────────────────────────────────────
         ('with_playwright', bool, False,
-         'Add the sg-playwright + agent-mitmproxy pair (4-container stack). '
-         'Default: just-vault (2 containers: host-plane + sg-send-vault).'),
+         'Add the host-plane + sg-playwright + agent-mitmproxy set (4-container stack). '
+         'Default: just-vault (1 container: sg-send-vault).'),
         ('podman'         , bool, False,
          'Use Podman instead of Docker as the container engine.'),
         ('use_spot'       , bool, True,
@@ -690,7 +690,7 @@ def recreate(name  : Optional[str] = typer.Argument(None, help='Stack name; auto
     engine          = str(getattr(info, 'container_engine', '') or 'docker')
     with_tls_check  = bool(getattr(info, 'tls_enabled',      False))
 
-    shape_lbl  = '[green]with-playwright[/] (4 containers)' if with_playwright else '[dim]just-vault[/] (2 containers)'
+    shape_lbl  = '[green]with-playwright[/] (4 containers)' if with_playwright else '[dim]just-vault[/] (1 container)'
     tls_lbl    = '[green]TLS on[/]' if with_tls_check else '[dim]plain HTTP[/]'
 
     c.print()

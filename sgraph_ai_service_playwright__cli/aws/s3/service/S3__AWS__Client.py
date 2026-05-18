@@ -141,12 +141,22 @@ class S3__AWS__Client(Type_Safe):
         )
 
     def get_object_body(self, bucket: str, key: str) -> bytes:                   # full download; use stream for large objects
-        resp = self.client().get_object(Bucket=bucket, Key=key)
+        try:
+            resp = self.client().get_object(Bucket=bucket, Key=key)
+        except ClientError as exc:
+            if exc.response.get('Error', {}).get('Code', '') in _NOT_FOUND_CODES:
+                return b''
+            raise
         return resp['Body'].read()
 
     def stream_object(self, bucket: str, key: str,
                       chunk_size: int = 65536) -> Iterator[bytes]:                # streaming download — avoids full buffer
-        resp = self.client().get_object(Bucket=bucket, Key=key)
+        try:
+            resp = self.client().get_object(Bucket=bucket, Key=key)
+        except ClientError as exc:
+            if exc.response.get('Error', {}).get('Code', '') in _NOT_FOUND_CODES:
+                return
+            raise
         body = resp['Body']
         while True:
             chunk = body.read(chunk_size)
@@ -179,7 +189,7 @@ class S3__AWS__Client(Type_Safe):
 
     def put_object(self, bucket: str, key: str, body: bytes,
                    content_type: str = 'application/octet-stream',
-                   if_match_etag: str = '') -> None:
+                   if_match_etag: str = '') -> bool:                              # True on success, False on PreconditionFailed (ETag mismatch)
         kwargs = {
             'Bucket'     : bucket,
             'Key'        : key,
@@ -188,20 +198,34 @@ class S3__AWS__Client(Type_Safe):
         }
         if if_match_etag:
             kwargs['IfMatch'] = if_match_etag                                     # conditional PUT — raises 412 on ETag mismatch
-        self.client().put_object(**kwargs)
+        try:
+            self.client().put_object(**kwargs)
+            return True
+        except ClientError as exc:
+            if exc.response.get('Error', {}).get('Code', '') == 'PreconditionFailed':
+                return False
+            raise
 
     def copy_object(self, src_bucket: str, src_key: str,
-                    dst_bucket: str, dst_key: str) -> None:
-        self.client().copy_object(
-            CopySource = {'Bucket': src_bucket, 'Key': src_key},
-            Bucket     = dst_bucket,
-            Key        = dst_key,
-        )
+                    dst_bucket: str, dst_key: str) -> bool:
+        try:
+            self.client().copy_object(
+                CopySource = {'Bucket': src_bucket, 'Key': src_key},
+                Bucket     = dst_bucket,
+                Key        = dst_key,
+            )
+            return True
+        except ClientError:
+            return False
 
-    def delete_object(self, bucket: str, key: str) -> None:
-        self.client().delete_object(Bucket=bucket, Key=key)
+    def delete_object(self, bucket: str, key: str) -> bool:
+        try:
+            self.client().delete_object(Bucket=bucket, Key=key)
+            return True
+        except ClientError:
+            return False
 
-    def create_bucket(self, bucket: str, region: str = '') -> None:
+    def create_bucket(self, bucket: str, region: str = '') -> bool:
         s3     = self.client()
         kwargs = {'Bucket': bucket}
         eff_region = region or self.region or 'us-east-1'
@@ -209,20 +233,24 @@ class S3__AWS__Client(Type_Safe):
             kwargs['CreateBucketConfiguration'] = {
                 'LocationConstraint': eff_region,
             }
-        s3.create_bucket(**kwargs)
-        s3.put_public_access_block(                                               # block all public access by default
-            Bucket                         = bucket,
-            PublicAccessBlockConfiguration = {
-                'BlockPublicAcls'      : True,
-                'IgnorePublicAcls'     : True,
-                'BlockPublicPolicy'    : True,
-                'RestrictPublicBuckets': True,
-            },
-        )
-        s3.put_bucket_versioning(                                                 # enable versioning by default
-            Bucket                   = bucket,
-            VersioningConfiguration  = {'Status': 'Enabled'},
-        )
+        try:
+            s3.create_bucket(**kwargs)
+            s3.put_public_access_block(                                           # block all public access by default
+                Bucket                         = bucket,
+                PublicAccessBlockConfiguration = {
+                    'BlockPublicAcls'      : True,
+                    'IgnorePublicAcls'     : True,
+                    'BlockPublicPolicy'    : True,
+                    'RestrictPublicBuckets': True,
+                },
+            )
+            s3.put_bucket_versioning(                                             # enable versioning by default
+                Bucket                   = bucket,
+                VersioningConfiguration  = {'Status': 'Enabled'},
+            )
+            return True
+        except ClientError:
+            return False
 
     # ── bucket metadata ───────────────────────────────────────────────────────
 

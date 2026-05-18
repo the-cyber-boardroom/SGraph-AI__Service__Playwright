@@ -1,19 +1,29 @@
 # ═══════════════════════════════════════════════════════════════════════════════
 # Tests — EC2__AWS__Client__In_Memory
 # Dict-backed fake boto3 EC2 client for unit tests. No mocks. No patches.
-# Supports describe_instances, run_instances, start/stop/terminate, tags.
+# Supports describe_instances, run_instances, start/stop/terminate, tags,
+# describe_images (AMI list/show) and describe_snapshots.
 # ═══════════════════════════════════════════════════════════════════════════════
 
 import secrets
 from datetime import datetime, timezone
+
+from botocore.exceptions import ClientError
 
 from sgraph_ai_service_playwright__cli.aws.ec2.service.EC2__AWS__Client import EC2__AWS__Client
 
 
 class _Fake_EC2_Client:                                                        # Minimal boto3-alike EC2 client backed by in-memory dicts
 
-    def __init__(self, store: dict):
-        self._store = store                                                     # instance_id → raw instance dict
+    def __init__(self, store: dict, images_store: dict = None,
+                 snapshots_store: dict = None,
+                 security_groups_store: dict = None,
+                 network_interfaces_store: dict = None):
+        self._store                    = store                                  # instance_id → raw instance dict
+        self._images_store             = images_store             if images_store             is not None else {}
+        self._snapshots_store          = snapshots_store          if snapshots_store          is not None else {}
+        self._security_groups_store    = security_groups_store    if security_groups_store    is not None else {}
+        self._network_interfaces_store = network_interfaces_store if network_interfaces_store is not None else {}
 
     # ── paginator ─────────────────────────────────────────────────────────────
 
@@ -148,6 +158,170 @@ class _Fake_EC2_Client:                                                        #
                 filtered = result
         return {'InstanceTypes': filtered}
 
+    # ── describe_images (AMIs) ────────────────────────────────────────────────
+
+    def describe_images(self, ImageIds=None, Owners=None, Filters=None):
+        images = list(self._images_store.values())
+        if ImageIds:
+            matched = [i for i in images if i.get('ImageId', '') in ImageIds]
+            missing = [i for i in ImageIds if i not in self._images_store]
+            if not matched and missing:                                          # mirror real EC2: unknown ID raises ClientError
+                raise ClientError(
+                    {'Error': {'Code': 'InvalidAMIID.NotFound',
+                                'Message': f'The image id {missing} does not exist'}},
+                    'DescribeImages')
+            images = matched
+        if Owners:                                                               # Owners is matched literally; seed_ami uses 'self'/'amazon' as the owner string
+            images = [i for i in images if i.get('OwnerId', '') in Owners]
+        if Filters:
+            images = self._apply_image_filters(images, Filters)
+        return {'Images': images}
+
+    def _apply_image_filters(self, images: list, filters: list) -> list:
+        result = images
+        for f in filters:
+            name   = f.get('Name', '')
+            values = f.get('Values', [])
+            if name == 'name':
+                kept = []
+                for img in result:
+                    img_name = img.get('Name', '') or ''
+                    for v in values:
+                        if v.startswith('*') and v.endswith('*'):                 # substring match
+                            needle = v[1:-1]
+                            if needle in img_name:
+                                kept.append(img); break
+                        elif v.startswith('*'):
+                            if img_name.endswith(v[1:]):
+                                kept.append(img); break
+                        elif v.endswith('*'):
+                            if img_name.startswith(v[:-1]):
+                                kept.append(img); break
+                        else:
+                            if img_name == v:
+                                kept.append(img); break
+                result = kept
+        return result
+
+    # ── deregister_image ──────────────────────────────────────────────────────
+
+    def deregister_image(self, ImageId=''):
+        if ImageId not in self._images_store:
+            raise ClientError(
+                {'Error': {'Code': 'InvalidAMIID.NotFound',
+                            'Message': f'The image id {ImageId} does not exist'}},
+                'DeregisterImage')
+        del self._images_store[ImageId]
+        return {}
+
+    # ── delete_snapshot ───────────────────────────────────────────────────────
+
+    def delete_snapshot(self, SnapshotId=''):
+        if SnapshotId not in self._snapshots_store:
+            raise ClientError(
+                {'Error': {'Code': 'InvalidSnapshot.NotFound',
+                            'Message': f'The snapshot {SnapshotId} does not exist'}},
+                'DeleteSnapshot')
+        raw = self._snapshots_store[SnapshotId]
+        if raw.get('_InUse'):
+            raise ClientError(
+                {'Error': {'Code': 'InvalidSnapshot.InUse',
+                            'Message': f'The snapshot {SnapshotId} is currently in use'}},
+                'DeleteSnapshot')
+        del self._snapshots_store[SnapshotId]
+        return {}
+
+    # ── describe_security_groups ──────────────────────────────────────────────
+
+    def describe_security_groups(self, GroupIds=None, Filters=None):
+        groups = list(self._security_groups_store.values())
+        if GroupIds:
+            matched = [g for g in groups if g.get('GroupId', '') in GroupIds]
+            missing = [i for i in GroupIds if i not in self._security_groups_store]
+            if not matched and missing:                                          # mirror real EC2: unknown ID raises ClientError
+                raise ClientError(
+                    {'Error': {'Code': 'InvalidGroup.NotFound',
+                                'Message': f'The security group {missing} does not exist'}},
+                    'DescribeSecurityGroups')
+            groups = matched
+        if Filters:
+            groups = self._apply_sg_filters(groups, Filters)
+        return {'SecurityGroups': groups}
+
+    def _apply_sg_filters(self, groups: list, filters: list) -> list:
+        result = groups
+        for f in filters:
+            name   = f.get('Name', '')
+            values = f.get('Values', [])
+            if name == 'vpc-id':
+                result = [g for g in result if g.get('VpcId', '') in values]
+            elif name == 'group-name':
+                kept = []
+                for g in result:
+                    gname = g.get('GroupName', '') or ''
+                    for v in values:
+                        if v.startswith('*') and v.endswith('*'):                # substring match
+                            needle = v[1:-1]
+                            if needle in gname:
+                                kept.append(g); break
+                        elif v.startswith('*'):
+                            if gname.endswith(v[1:]):
+                                kept.append(g); break
+                        elif v.endswith('*'):
+                            if gname.startswith(v[:-1]):
+                                kept.append(g); break
+                        else:
+                            if gname == v:
+                                kept.append(g); break
+                result = kept
+        return result
+
+    # ── delete_security_group ─────────────────────────────────────────────────
+
+    def delete_security_group(self, GroupId='', GroupName=''):
+        target = GroupId or GroupName
+        if target not in self._security_groups_store:
+            raise ClientError(
+                {'Error': {'Code': 'InvalidGroup.NotFound',
+                            'Message': f'The security group {target} does not exist'}},
+                'DeleteSecurityGroup')
+        # mirror AWS: any ENI still using this SG → DependencyViolation
+        for eni in self._network_interfaces_store.values():
+            for g in (eni.get('Groups', []) or []):
+                if g.get('GroupId', '') == target:
+                    raise ClientError(
+                        {'Error': {'Code': 'DependencyViolation',
+                                    'Message': f'resource {target} has a dependent object'}},
+                        'DeleteSecurityGroup')
+        del self._security_groups_store[target]
+        return {}
+
+    # ── describe_network_interfaces ───────────────────────────────────────────
+
+    def describe_network_interfaces(self, Filters=None):
+        enis = list(self._network_interfaces_store.values())
+        if Filters:
+            for f in Filters:
+                name   = f.get('Name', '')
+                values = f.get('Values', [])
+                if name == 'group-id':
+                    enis = [e for e in enis
+                            if any(g.get('GroupId', '') in values
+                                   for g in (e.get('Groups', []) or []))]
+                elif name == 'vpc-id':
+                    enis = [e for e in enis if e.get('VpcId', '') in values]
+        return {'NetworkInterfaces': enis}
+
+    # ── describe_snapshots ────────────────────────────────────────────────────
+
+    def describe_snapshots(self, SnapshotIds=None, OwnerIds=None, Filters=None):
+        snaps = list(self._snapshots_store.values())
+        if SnapshotIds:
+            snaps = [s for s in snaps if s.get('SnapshotId', '') in SnapshotIds]
+        if OwnerIds:                                                             # OwnerIds matched literally; seed_snapshot uses 'self'/'amazon' as the owner string
+            snaps = [s for s in snaps if s.get('OwnerId', '') in OwnerIds]
+        return {'Snapshots': snaps}
+
     # ── internal ──────────────────────────────────────────────────────────────
 
     def _apply_filters(self, instances: list, filters: list) -> list:
@@ -178,17 +352,97 @@ class _Fake_Paginator:
             yield self._client.describe_instances(Filters=kwargs.get('Filters'))
         elif self._method == 'describe_instance_types':
             yield self._client.describe_instance_types(Filters=kwargs.get('Filters'))
+        elif self._method == 'describe_images':
+            yield self._client.describe_images(ImageIds=kwargs.get('ImageIds'),
+                                                Owners  =kwargs.get('Owners'),
+                                                Filters =kwargs.get('Filters'))
+        elif self._method == 'describe_snapshots':
+            yield self._client.describe_snapshots(SnapshotIds=kwargs.get('SnapshotIds'),
+                                                   OwnerIds   =kwargs.get('OwnerIds'),
+                                                   Filters    =kwargs.get('Filters'))
+        elif self._method == 'describe_security_groups':
+            yield self._client.describe_security_groups(GroupIds=kwargs.get('GroupIds'),
+                                                        Filters =kwargs.get('Filters'))
+        elif self._method == 'describe_network_interfaces':
+            yield self._client.describe_network_interfaces(Filters=kwargs.get('Filters'))
 
 
 class EC2__AWS__Client__In_Memory(EC2__AWS__Client):
 
     def __init__(self):
         super().__init__()
-        self._store = {}
-        self._fake  = _Fake_EC2_Client(self._store)
+        self._store                    = {}
+        self._images_store             = {}
+        self._snapshots_store          = {}
+        self._security_groups_store    = {}
+        self._network_interfaces_store = {}
+        self._fake                     = _Fake_EC2_Client(
+            self._store,
+            images_store             = self._images_store,
+            snapshots_store          = self._snapshots_store,
+            security_groups_store    = self._security_groups_store,
+            network_interfaces_store = self._network_interfaces_store,
+        )
 
     def client(self):
         return self._fake
+
+    # ── seed: AMIs ────────────────────────────────────────────────────────────
+
+    def seed_ami(self, ami_id: str = '', name: str = '',
+                 owner: str = '123456789012',
+                 created: str = '2026-04-01T00:00:00.000Z',
+                 description: str = '',
+                 architecture: str = 'x86_64',
+                 root_device_type: str = 'ebs',
+                 snapshot_ids: list = None,
+                 public: bool = False) -> str:
+        if not ami_id:
+            ami_id = f'ami-{secrets.token_hex(8)}'
+        bdms = []
+        for snap in (snapshot_ids or []):
+            bdms.append({'DeviceName': '/dev/xvda',
+                         'Ebs'       : {'SnapshotId': snap, 'VolumeSize': 8}})
+        raw = {
+            'ImageId'             : ami_id,
+            'Name'                : name,
+            'Description'         : description,
+            'OwnerId'             : owner,
+            'CreationDate'        : created,
+            'Public'              : public,
+            'Architecture'        : architecture,
+            'RootDeviceType'      : root_device_type,
+            'BlockDeviceMappings' : bdms,
+        }
+        self._images_store[ami_id] = raw
+        return ami_id
+
+    # ── seed: snapshots ───────────────────────────────────────────────────────
+
+    def seed_snapshot(self, snapshot_id: str = '',
+                      volume_id: str = '',
+                      size_gib: int = 8,
+                      description: str = '',
+                      state: str = 'completed',
+                      owner: str = '123456789012',
+                      started: str = '2026-04-01T00:00:00.000Z',
+                      in_use: bool = False) -> str:
+        if not snapshot_id:
+            snapshot_id = f'snap-{secrets.token_hex(8)}'
+        if not volume_id:
+            volume_id = f'vol-{secrets.token_hex(8)}'
+        raw = {
+            'SnapshotId'  : snapshot_id,
+            'VolumeId'    : volume_id,
+            'VolumeSize'  : size_gib,
+            'Description' : description,
+            'State'       : state,
+            'StartTime'   : started,
+            'OwnerId'     : owner,
+            '_InUse'      : in_use,                                              # in-memory only: drives delete_snapshot → InvalidSnapshot.InUse
+        }
+        self._snapshots_store[snapshot_id] = raw
+        return snapshot_id
 
     def seed_instance(self, instance_id: str = '', name: str = '',
                       state: str = 'running', instance_type: str = 't3.micro',
@@ -219,3 +473,44 @@ class EC2__AWS__Client__In_Memory(EC2__AWS__Client):
             'BlockDeviceMappings' : [],
         }
         return instance_id
+
+    # ── seed: security groups ─────────────────────────────────────────────────
+
+    def seed_security_group(self, sg_id: str = '', name: str = '',
+                            vpc_id: str = 'vpc-default',
+                            description: str = '',
+                            owner_id: str = '123456789012',
+                            ingress: list = None,
+                            egress: list = None) -> str:
+        if not sg_id:
+            sg_id = f'sg-{secrets.token_hex(8)}'
+        raw = {
+            'GroupId'            : sg_id,
+            'GroupName'          : name,
+            'VpcId'              : vpc_id,
+            'Description'        : description,
+            'OwnerId'            : owner_id,
+            'IpPermissions'      : ingress or [],
+            'IpPermissionsEgress': egress  or [],
+        }
+        self._security_groups_store[sg_id] = raw
+        return sg_id
+
+    # ── seed: network interfaces ──────────────────────────────────────────────
+
+    def seed_network_interface(self, eni_id: str = '',
+                               sg_ids: list = None,
+                               instance_id: str = '',
+                               vpc_id: str = 'vpc-default') -> str:
+        if not eni_id:
+            eni_id = f'eni-{secrets.token_hex(8)}'
+        groups = [{'GroupId': g, 'GroupName': g} for g in (sg_ids or [])]
+        raw = {
+            'NetworkInterfaceId': eni_id,
+            'VpcId'             : vpc_id,
+            'Groups'            : groups,
+        }
+        if instance_id:
+            raw['Attachment'] = {'InstanceId': instance_id}
+        self._network_interfaces_store[eni_id] = raw
+        return eni_id
