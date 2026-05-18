@@ -93,7 +93,7 @@ Six personas, one shared codebase. Pick the role that fits the task before you s
 - **Lambda Web Adapter** — HTTP translation, not Mangum
 - **lambda_handler.py** — separate file, fires up everything on import
 - **Fast_API__Playwright__Service** — pure class, importable without side effects
-- **25 endpoints** — 3 health + 5 session + 16 browser (Layer 0) + 1 sequence (Layer 3)
+- **16 direct endpoints** — 3 health + 6 browser + 2 screenshot + 1 sequence + 1 metrics + 1 index + 2 auth (set-cookie). Routes__Session removed in v0.1.24. Admin surface (`/admin/*`) from `Agentic_FastAPI` parent adds ~4 more.
 - **12 service classes** — strict responsibility separation (10 live today)
 - **Stateless client** — `register_playwright_service__in_memory()` for test composition
 

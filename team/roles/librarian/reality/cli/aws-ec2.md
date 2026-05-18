@@ -146,7 +146,7 @@ These are consumed by `Docker__Service`, `Firefox__Service`, and `scripts/doctor
 
 ## See also
 
-- User guide: [`library/docs/cli/sg-aws/10__ec2.md`](../../../../library/docs/cli/sg-aws/10__ec2.md)
-- Brief: [`library/dev_packs/v0.2.29__sg-aws-ec2/README.md`](../../../../library/dev_packs/v0.2.29__sg-aws-ec2/README.md)
+- User guide: [`library/docs/cli/sg-aws/10__ec2.md`](../../../../../library/docs/cli/sg-aws/10__ec2.md)
+- Brief: [`library/dev_packs/v0.2.29__sg-aws-ec2/README.md`](../../../../../library/dev_packs/v0.2.29__sg-aws-ec2/README.md)
 - Legacy reality doc: [`cli/ec2.md`](ec2.md) — FastAPI routes (retired on 2026-05-17) + Lambda deploy
 - Parent: [`cli/index.md`](index.md)

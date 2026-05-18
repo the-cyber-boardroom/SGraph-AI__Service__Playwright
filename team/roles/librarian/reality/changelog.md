@@ -6,6 +6,19 @@ This is a pointer log, not a content log. For full delta detail, see the master 
 
 ---
 
+## 2026-05-17 PM-late (Librarian finalisation — M-013 / M-014 / M-015 / M-016)
+
+- `.claude/CLAUDE.md` — FIX (M-013): line 96 endpoint count reconciled. Was "25 endpoints — 3 health + 5 session + 16 browser (Layer 0) + 1 sequence (Layer 3)" (stale; Routes__Session removed in v0.1.24). Now: "16 direct endpoints (3 health + 6 browser + 2 screenshot + 1 sequence + 1 metrics + 1 index + 2 auth set-cookie) + admin surface (~4 from Agentic_FastAPI parent)".
+- `reality/playwright-service/index.md` — REWRITE (M-014): VERIFY markers closed. All `sgraph_ai_service_playwright/` paths (deleted in BV2.11) updated to `sg_compute_specs/playwright/core/`. Endpoint count corrected: **16 direct + 8 admin**. Service-class count corrected from "9-10" to **11** (added Sequence__Dispatcher, Request__Watchdog, JS__Expression__Allowlist, Credentials__Loader, Capability__Detector). Image moved from Lambda/ECR to Docker Hub (`diniscruz/sg-playwright`). (208 lines, under 300-line cap.)
+- `reality/agent-mitmproxy/index.md` — REWRITE (M-014): VERIFY markers closed. Package path `agent_mitmproxy/` → `sg_compute_specs/mitmproxy/` (BV2.12). Route count corrected: 6 → **7** (added `Routes__Web` wildcard + `Prometheus_Metrics` first-class). Critical correction: `Routes__Web` accepts ALL HTTP methods (PUT/DELETE/PATCH), not GET-only as v0.1.33 reality doc claimed → INC-007 minted.
+- `reality/ui/index.md` — RESTRUCTURE (M-014): VERIFY markers closed. `api_site/components/sp-cli/` → `sgraph_ai_service_playwright__api_site/components/sg-compute/` (T3.3b). Plugin directories `api_site/plugins/` deleted; per-plugin UI moved to `sg_compute_specs/{spec}/ui/{card,detail}/v0/v0.1/v0.1.0/` (FV2.6). 8 specs with UI today (docker, podman, elastic, vnc, prometheus, opensearch, neko, firefox). Layout key bumped `sp-cli:admin:root-layout:v1` → `v3` (2-column shape, was 3-column).
+- `reality/qa/index.md` + `reality/infra/index.md` — UPDATES (M-014): agent_mitmproxy unit tests (was 34+1 in `tests/unit/agent_mitmproxy/`) rebuilt under `sg_compute_specs/mitmproxy/tests/` (12 files, 39 functions). `test_provision_mitmproxy_ec2.py` is now a single `@pytest.mark.skip` placeholder → INC-006 minted. `ci__agent_mitmproxy.yml` workflow deleted (BV2.12); mitmproxy now exercised by `ci-pipeline.yml run-unit-tests`. CI restructured: no more `deploy-code`/`provision-lambdas`/`build-and-push-image (single)`; current jobs are `run-unit-tests`, `check-aws-credentials`, `detect-changes`, `increment-tag`, `build-playwright-image` (per-arch matrix → Docker Hub), `build-and-push-host-image`. `scripts/provision_ec2.py` and repo-root `docker-compose.yml` confirmed deleted (per-launch compose via `Playwright__Compose__Template`).
+- `library/catalogue/findings.md` — REFRESH (M-016): `.md` 724→825 (+101), `.py` 2169→2701 (+532), oversized `.md` 97→108, domains migrated 7→11 ✅, broken links 19→0 ✅. `provision_ec2.py` struck from INC-003 (file removed). 4 new INCs registered (004, 005, 006, 007); 2 new M-IDs minted (M-018 plugin sub-folder verification, M-019 SIDECAR_ATTACH UI affordance gap).
+- `library/catalogue/_snapshots/v0.2.28/` — NEW (M-016): point-in-time freeze of all 8 catalogue shards against commit `759dfaa`. README pins context.
+- `reality/` (multiple fixes) — M-015: 5 depth-miscalculated relative paths fixed (`vault/proposed/`, `cli/proposed/`, `host-control/`, `cli/aws-creds.md`, `cli/aws-ec2.md`, archive `06__sp-cli-duality-refactor.md`). 12 forward refs to `infra/`/`lets/`/`qa/`/`security/` auto-resolved when M-003 landed those domains. Final broken-link count: **0**.
+
+---
+
 ## 2026-05-17 (v0.2.30 Open-2 — typed primitives hygiene pass — 91 raw-str fields replaced)
 
 91 raw `str` fields across 6 AWS service schemas replaced with `Safe_Str__*` typed primitives. Three JSON-blob escape hatches in `Schema__EC2__Instance__Detail` replaced with typed collections. Debrief: `team/claude/debriefs/2026-05-17__v0.2.30-open-2-typed-primitives.md`. Key commits: `785a71a`, `1070da0`, `03fc2f9`, `17b9bf9`.
@@ -17,6 +30,8 @@ This is a pointer log, not a content log. For full delta detail, see the master 
 - `cli/aws-s3.md` — UPDATED: 7 new S3 primitives (`Timestamp`, `Content_Type`, `Encryption`, `Version_Id`, `Versioning`, `Prefix`, `Next_Token`); schema field typing section added.
 - `cli/aws-observe.md` — UPDATED: 2 new observe primitives (`Source_Name`, `Event_Time`); schema field types updated to show typed annotations.
 - `index.md` — UPDATED: version → v0.2.30 (in-progress).
+
+---
 
 ## 2026-05-17 PM (v0.2.29 — `sg aws` primitives expansion — Foundation + 8 slices shipped to dev)
 

@@ -35,6 +35,6 @@ Sources: `sg-compute/index.md` PROPOSED section + history entries, BV2.9 follow-
 
 **What:** Referenced in the cert-warning info block printed by `sg aws dns records add`, but does not exist. **Q9 still PENDING** (DNS-01 vs HTTP-01 for the cert sidecar).
 
-Cross-references: [`cli/aws-dns.md`](../cli/aws-dns.md) known-gaps; `cli/proposed/index.md` P-15.
+Cross-references: [`cli/aws-dns.md`](../../cli/aws-dns.md) known-gaps; `cli/proposed/index.md` P-15.
 
 **Source:** `_archive/v0.1.31/16__sg-aws-dns-and-acm.md` known-gaps (§12 ADDENDUM).

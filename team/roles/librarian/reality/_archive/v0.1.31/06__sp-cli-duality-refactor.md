@@ -4,7 +4,7 @@
 Other mutation ops (create/backup/restore/dashboard-import/data-export/data-import) and CLI wrappers still PROPOSED.
 
 This file tracks what exists today for the refactor proposed in
-[`team/comms/briefs/v0.1.72__sp-cli-fastapi-duality.md`](../../../../comms/briefs/v0.1.72__sp-cli-fastapi-duality.md).
+[`team/comms/briefs/v0.1.72__sp-cli-fastapi-duality.md`](../../../../../comms/briefs/v0.1.72__sp-cli-fastapi-duality.md).
 Everything in the brief that is NOT listed below is still PROPOSED.
 
 ---
