@@ -28,6 +28,7 @@ import json
 import typer
 from botocore.exceptions import ClientError
 from rich.console        import Console
+from rich.live           import Live
 from rich.table          import Table
 
 from sg_compute_specs.vault_publish.setup.schemas.Enum__Setup__State            import Enum__Setup__State
@@ -105,7 +106,7 @@ def _print_aws_error(c: Console, exc: ClientError) -> None:
 # Global commands — operate on all areas at once
 # ═══════════════════════════════════════════════════════════════════════════════
 
-@app.command(name='check', help='Check all areas: iam + lambda + cf + acm + dns.')
+@app.command(name='check', help='Check all areas: ec2 + iam + lambda + cf + cf-function + acm + dns.')
 def setup_check(
     zone    : str = typer.Option(DEFAULT_ZONE,     '--zone',     help='DNS apex zone'),
     cert_arn: str = typer.Option(DEFAULT_CERT_ARN, '--cert-arn', help='ACM certificate ARN'),
@@ -117,80 +118,55 @@ def setup_check(
         raise typer.Exit(1)
     c.print()
 
-    tbl = Table(box=None, show_header=True, padding=(0, 2))
-    tbl.add_column('Area',   style='bold')
-    tbl.add_column('State',  style='')
-    tbl.add_column('Detail', style='dim')
+    # Each entry: (area_label, check_fn, format_detail_fn)
+    checks = [
+        ('ec2',         lambda: _ec2().check(),
+                        lambda r: f'profile={r.profile_name} ami={r.ami_id or "(none)"}'),
+        ('iam',         lambda: iam.check(),
+                        lambda r: r.role_arn or r.role_name),
+        ('lambda',      lambda: _lambda().check(),
+                        lambda r: r.function_url or r.function_name),
+        ('cf',          lambda: _cf().check(zone),
+                        lambda r: r.domain_name or f'*.{zone}'),
+        ('cf-function', lambda: _cf_function().check(zone),
+                        lambda r: (f'attached → {r.distribution_id}'
+                                    if r.attached else r.function_name)),
+        ('acm',         lambda: _acm().check(zone),
+                        lambda r: r.cert_arn or f'*.{zone}'),
+        ('dns',         lambda: _dns().check(zone),
+                        lambda r: r.record_value or f'*.{zone}'),
+    ]
+
+    # results[i] = (area_label, state_or_None, detail) — None state == pending
+    results = [(area, None, '') for area, _, _ in checks]
+
+    def _build_table() -> Table:
+        t = Table(box=None, show_header=True, padding=(0, 2))
+        t.add_column('Area',   style='bold')
+        t.add_column('State',  style='')
+        t.add_column('Detail', style='dim')
+        for area, state, detail in results:
+            if state is None:
+                t.add_row(area, '[dim]⏳ checking…[/]', '')
+            else:
+                t.add_row(area, _STATE_ICON.get(state, str(state)), detail)
+        return t
 
     overall_ok = True
+    with Live(_build_table(), console=c, refresh_per_second=8, transient=False) as live:
+        for i, (area, check_fn, format_detail) in enumerate(checks):
+            try:
+                rep    = check_fn()
+                state  = rep.state
+                detail = format_detail(rep)
+            except Exception as exc:
+                state  = Enum__Setup__State.ERROR
+                detail = str(exc)
+            results[i] = (area, state, detail)
+            live.update(_build_table())
+            if state != Enum__Setup__State.OK:
+                overall_ok = False
 
-    try:
-        erep = _ec2().check()
-        _add_area_row(tbl, 'ec2', erep.state,
-                      f'profile={erep.profile_name} ami={erep.ami_id or "(none)"}')
-        if erep.state != Enum__Setup__State.OK:
-            overall_ok = False
-    except Exception as exc:
-        _add_area_row(tbl, 'ec2', Enum__Setup__State.ERROR, str(exc))
-        overall_ok = False
-
-    try:
-        rep = iam.check()
-        _add_area_row(tbl, 'iam', rep.state, rep.role_arn or rep.role_name)
-        if rep.state != Enum__Setup__State.OK:
-            overall_ok = False
-    except Exception as exc:
-        _add_area_row(tbl, 'iam', Enum__Setup__State.ERROR, str(exc))
-        overall_ok = False
-
-    try:
-        lrep = _lambda().check()
-        _add_area_row(tbl, 'lambda', lrep.state, lrep.function_url or lrep.function_name)
-        if lrep.state != Enum__Setup__State.OK:
-            overall_ok = False
-    except Exception as exc:
-        _add_area_row(tbl, 'lambda', Enum__Setup__State.ERROR, str(exc))
-        overall_ok = False
-
-    try:
-        crep = _cf().check(zone)
-        _add_area_row(tbl, 'cf', crep.state, crep.domain_name or f'*.{zone}')
-        if crep.state != Enum__Setup__State.OK:
-            overall_ok = False
-    except Exception as exc:
-        _add_area_row(tbl, 'cf', Enum__Setup__State.ERROR, str(exc))
-        overall_ok = False
-
-    try:
-        fnrep = _cf_function().check(zone)
-        detail = (f'attached → {fnrep.distribution_id}'
-                   if fnrep.attached else fnrep.function_name)
-        _add_area_row(tbl, 'cf-function', fnrep.state, detail)
-        if fnrep.state != Enum__Setup__State.OK:
-            overall_ok = False
-    except Exception as exc:
-        _add_area_row(tbl, 'cf-function', Enum__Setup__State.ERROR, str(exc))
-        overall_ok = False
-
-    try:
-        arep = _acm().check(zone)
-        _add_area_row(tbl, 'acm', arep.state, arep.cert_arn or f'*.{zone}')
-        if arep.state != Enum__Setup__State.OK:
-            overall_ok = False
-    except Exception as exc:
-        _add_area_row(tbl, 'acm', Enum__Setup__State.ERROR, str(exc))
-        overall_ok = False
-
-    try:
-        drep = _dns().check(zone)
-        _add_area_row(tbl, 'dns', drep.state, drep.record_value or f'*.{zone}')
-        if drep.state != Enum__Setup__State.OK:
-            overall_ok = False
-    except Exception as exc:
-        _add_area_row(tbl, 'dns', Enum__Setup__State.ERROR, str(exc))
-        overall_ok = False
-
-    c.print(tbl)
     c.print()
     if not overall_ok:
         raise typer.Exit(1)
