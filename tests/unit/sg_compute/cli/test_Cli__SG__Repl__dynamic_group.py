@@ -18,7 +18,7 @@ import typer
 from typer.core import TyperGroup
 from unittest import TestCase
 
-from sg_compute.cli.Cli__SG__Repl import _click_node, _children, _is_group, _match, _resolve
+from sg_compute.cli.Cli__SG__Repl import _click_node, _children, _is_group, _match, _resolve, _completion_candidates
 
 
 # ── synthetic tree with a dynamically injected command ───────────────────────
@@ -245,3 +245,102 @@ class test_aws_lambda_navigation(TestCase):
         from sgraph_ai_service_playwright__cli.aws.lambda_.cli.Lambda__Click__Group import Lambda__App__Group
         grp = Lambda__App__Group()
         assert grp.no_args_is_help, "Lambda__App__Group must have no_args_is_help=True"
+
+    def test__lambda_has_list_completion_commands(self):                          # protocol for tab-completion extension
+        from sgraph_ai_service_playwright__cli.aws.lambda_.cli.Lambda__Click__Group import Lambda__App__Group
+        grp = Lambda__App__Group()
+        assert hasattr(grp, 'list_completion_commands'), "Lambda__App__Group must expose list_completion_commands for tab completion"
+
+
+# ── list_completion_commands protocol ─────────────────────────────────────────
+#
+# Groups that want to expose more names to tab completion than their
+# list_commands() (which drives --help) can implement list_completion_commands().
+# _children() calls it in preference to list_commands().
+
+class _CompletionExtGroup(click.Group):                                          # hides names from --help but exposes them for tab completion
+    HIDDEN_NAMES = ['fn-alpha', 'fn-beta', 'fn-gamma']
+
+    def __init__(self):
+        super().__init__(name='ext', no_args_is_help=True)
+        self.add_command(click.Command('list'), 'list')
+
+    def list_commands(self, ctx):
+        return ['list']                                                           # only 'list' in --help
+
+    def list_completion_commands(self, ctx):
+        return ['list'] + self.HIDDEN_NAMES                                      # all names for tab completion
+
+    def get_command(self, ctx, name):
+        if name == 'list':
+            return self.commands['list']
+        if name in self.HIDDEN_NAMES:
+            return click.Group(name=name, no_args_is_help=True)
+        return None
+
+
+class _ParentWithExt(TyperGroup):                                                # injects _CompletionExtGroup dynamically, mirrors _AwsGroup / lambda pattern
+    def list_commands(self, ctx):
+        base = list(super().list_commands(ctx))
+        return sorted(set(base + ['ext']))
+
+    def get_command(self, ctx, name):
+        if name == 'ext':
+            return _CompletionExtGroup()
+        return super().get_command(ctx, name)
+
+
+def _build_completion_tree() -> typer.Typer:
+    root = typer.Typer(name='sg', no_args_is_help=True)
+    sub  = typer.Typer(name='sub', cls=_ParentWithExt)
+
+    @sub.command('static')
+    def _static(): pass
+
+    root.add_typer(sub, name='sub')
+    return root
+
+
+class test_list_completion_commands_protocol(TestCase):
+
+    def setUp(self):
+        self.app = _build_completion_tree()
+
+    def test__children_uses_list_completion_commands(self):                       # _children must prefer list_completion_commands over list_commands
+        kids = _children(self.app, ['sub', 'ext'])
+        assert 'list'     in kids
+        assert 'fn-alpha' in kids
+        assert 'fn-beta'  in kids
+        assert 'fn-gamma' in kids
+
+    def test__list_commands_still_returns_only_list(self):                        # list_commands (--help) is unchanged
+        node = _click_node(self.app, ['sub', 'ext'])
+        assert node is not None
+        ctx = click.Context(node)
+        assert node.list_commands(ctx) == ['list']
+
+    def test__completion_candidates_show_hidden_names(self):                      # tab completion reveals all names when no partial word
+        candidates = _completion_candidates(self.app, ['sub', 'ext'], [], '')
+        assert 'fn-alpha' in candidates
+        assert 'fn-beta'  in candidates
+
+    def test__completion_candidates_prefix_filter(self):                          # prefix filter works
+        candidates = _completion_candidates(self.app, ['sub', 'ext'], [], 'fn-')
+        assert candidates == ['fn-alpha', 'fn-beta', 'fn-gamma']
+
+    def test__completion_candidates_substring_filter(self):                       # substring filter: 'alpha' → 'fn-alpha'
+        candidates = _completion_candidates(self.app, ['sub', 'ext'], [], 'alpha')
+        assert candidates == ['fn-alpha']
+
+    def test__completion_candidates_no_match(self):
+        candidates = _completion_candidates(self.app, ['sub', 'ext'], [], 'zzz')
+        assert candidates == []
+
+    def test__completion_match_uses_match_not_startswith(self):                   # 'beta' completes 'fn-beta' (not a prefix but a substring)
+        hits, kind = _match('beta', {'list', 'fn-alpha', 'fn-beta', 'fn-gamma'})
+        assert 'fn-beta' in hits
+        assert kind == 'substring'
+
+    def test__hidden_names_also_navigable_via_children(self):                     # completion names are also usable for REPL navigation
+        kids = _children(self.app, ['sub', 'ext'])
+        assert 'fn-alpha' in kids                                                 # _match in _resolve will find them too

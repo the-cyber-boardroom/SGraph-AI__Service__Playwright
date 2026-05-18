@@ -107,8 +107,14 @@ class Lambda__App__Group(click.Group):                                          
         self.add_command(cmd_list, 'list')
 
     def list_commands(self, ctx):
-        return ['list']                                                           # only show 'list' in help/completion; function names
-                                                                                  # are resolved on demand via get_command() below
+        return ['list']                                                           # only 'list' in --help; function names are resolved on demand
+
+    def list_completion_commands(self, ctx):                                      # optional protocol: tab completion shows function names from cache
+        try:
+            names = self._resolver.all_function_names()
+        except Exception:
+            names = []
+        return ['list'] + names
 
     def get_command(self, ctx, name):
         if name == 'list':
