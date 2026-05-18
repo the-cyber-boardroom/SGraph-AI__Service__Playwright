@@ -16,6 +16,7 @@ import json
 from typing                                                                         import Optional
 
 import boto3                                                                         # EXCEPTION — see module header
+from botocore.exceptions                                                            import ClientError
 
 from osbot_utils.type_safe.Type_Safe                                                import Type_Safe
 
@@ -29,12 +30,20 @@ from sgraph_ai_service_playwright__cli.aws.iam.schemas.Schema__IAM__Role        
 from sgraph_ai_service_playwright__cli.aws.iam.schemas.Schema__IAM__Role__Create__Request  import Schema__IAM__Role__Create__Request
 from sgraph_ai_service_playwright__cli.aws.iam.schemas.Schema__IAM__Role__Create__Response import Schema__IAM__Role__Create__Response
 from sgraph_ai_service_playwright__cli.aws.iam.service.IAM__Trust_Policy__Builder   import IAM__Trust_Policy__Builder
+from sgraph_ai_service_playwright__cli.credentials.service.Sg__Aws__Session         import Sg__Aws__Session
 
 
 class IAM__AWS__Client(Type_Safe):
+    session : Sg__Aws__Session = None                                                # cached session — injected or lazy-init via setup()
+
+    def setup(self):                                                                 # idempotent — noop if session already set
+        if self.session is None:
+            self.session = Sg__Aws__Session.from_context()
+        return self
 
     def client(self):                                                                # Single seam — subclass overrides for in-memory tests
-        return boto3.client('iam')
+        self.setup()
+        return self.session.boto3_client_from_context('iam')
 
     # ── read ──────────────────────────────────────────────────────────────────
 
@@ -61,8 +70,11 @@ class IAM__AWS__Client(Type_Safe):
             self._load_inline_policies(role, iam)
             self._load_managed_policies(role, iam)
             return role
-        except Exception:
-            return None
+        except ClientError as exc:
+            code = exc.response.get('Error', {}).get('Code', '')
+            if code == 'NoSuchEntity':
+                return None
+            raise
 
     def role_exists(self, role_name: str) -> bool:
         return self.get_role(role_name) is not None
@@ -79,18 +91,14 @@ class IAM__AWS__Client(Type_Safe):
                 Description              = request.description,
             )
             role_arn = resp['Role']['Arn']
-        except Exception as e:
-            if 'EntityAlreadyExists' in str(e):
+        except ClientError as e:
+            code = e.response.get('Error', {}).get('Code', '')
+            if code == 'EntityAlreadyExists':
                 existing = self.get_role(str(request.role_name))
                 role_arn = str(existing.role_arn) if existing else ''
                 created  = False
             else:
-                return Schema__IAM__Role__Create__Response(
-                    role_name = request.role_name,
-                    role_arn  = Safe_Str__IAM__Role_Arn(''),
-                    created   = False,
-                    message   = str(e),
-                )
+                raise
         else:
             created = True
 
@@ -104,42 +112,32 @@ class IAM__AWS__Client(Type_Safe):
             message   = 'created' if created else 'already exists',
         )
 
-    def delete_role(self, role_name: str) -> bool:
+    def delete_role(self, role_name: str) -> None:
         iam = self.client()
-        try:
-            for policy_name in self._list_inline_policy_names(role_name, iam):
-                iam.delete_role_policy(RoleName=role_name, PolicyName=policy_name)
-            for arn in self._list_attached_policy_arns(role_name, iam):
-                iam.detach_role_policy(RoleName=role_name, PolicyArn=arn)
-            iam.delete_role(RoleName=role_name)
-            return True
-        except Exception:
-            return False
+        for policy_name in self._list_inline_policy_names(role_name, iam):
+            iam.delete_role_policy(RoleName=role_name, PolicyName=policy_name)
+        for arn in self._list_attached_policy_arns(role_name, iam):
+            iam.detach_role_policy(RoleName=role_name, PolicyArn=arn)
+        iam.delete_role(RoleName=role_name)
 
     def put_inline_policy(self, role_name: str, policy_name: str,
-                           policy: Schema__IAM__Policy) -> bool:
+                           policy: Schema__IAM__Policy) -> None:
         doc = self._policy_to_json(policy)
-        try:
-            self.client().put_role_policy(RoleName      = role_name,
-                                          PolicyName    = policy_name,
-                                          PolicyDocument= doc)
-            return True
-        except Exception:
-            return False
+        self.client().put_role_policy(RoleName      = role_name,
+                                      PolicyName    = policy_name,
+                                      PolicyDocument= doc)
 
-    def attach_managed_policy(self, role_name: str, policy_arn: str) -> bool:
-        try:
-            self.client().attach_role_policy(RoleName=role_name, PolicyArn=policy_arn)
-            return True
-        except Exception:
-            return False
+    def put_raw_inline_policy(self, role_name: str, policy_name: str,
+                               policy_json: str) -> None:
+        self.client().put_role_policy(RoleName      = role_name,
+                                      PolicyName    = policy_name,
+                                      PolicyDocument= policy_json)
 
-    def detach_managed_policy(self, role_name: str, policy_arn: str) -> bool:
-        try:
-            self.client().detach_role_policy(RoleName=role_name, PolicyArn=policy_arn)
-            return True
-        except Exception:
-            return False
+    def attach_managed_policy(self, role_name: str, policy_arn: str) -> None:
+        self.client().attach_role_policy(RoleName=role_name, PolicyArn=policy_arn)
+
+    def detach_managed_policy(self, role_name: str, policy_arn: str) -> None:
+        self.client().detach_role_policy(RoleName=role_name, PolicyArn=policy_arn)
 
     # ── internal ──────────────────────────────────────────────────────────────
 
@@ -182,7 +180,7 @@ class IAM__AWS__Client(Type_Safe):
                     policy_doc = json.loads(policy_doc)
                 policy = self._parse_policy_doc(policy_doc)
                 role.inline_policies.append(policy)
-            except Exception:
+            except ClientError:
                 continue
 
     def _load_managed_policies(self, role: Schema__IAM__Role, iam) -> None:
@@ -190,7 +188,7 @@ class IAM__AWS__Client(Type_Safe):
         for arn in arns:
             try:
                 role.managed_policy_arns.append(Safe_Str__IAM__Policy_Arn(arn))
-            except Exception:
+            except ClientError:
                 continue
 
     def _list_inline_policy_names(self, role_name: str, iam) -> list:
@@ -226,15 +224,15 @@ class IAM__AWS__Client(Type_Safe):
             for a in (raw_act if isinstance(raw_act, list) else [raw_act]):
                 try:
                     actions.append(Safe_Str__Aws__Action(a))
-                except Exception:
-                    pass                                                              # Skip unparseable actions (e.g. bare "*" from pre-existing roles)
+                except Exception:                                                     # local parse guard — Safe_Str__Aws__Action rejects invalid values (e.g. bare "*")
+                    pass
             has_wildcard = False
             for r in (raw_res if isinstance(raw_res, list) else [raw_res]):
                 try:
                     resources.append(Safe_Str__Aws__Resource(r))
                     if r == '*':
                         has_wildcard = True
-                except Exception:
+                except Exception:                                                     # local parse guard — Safe_Str__Aws__Resource rejects invalid values
                     pass
             stmt = Schema__IAM__Statement(
                 effect                 = effect,

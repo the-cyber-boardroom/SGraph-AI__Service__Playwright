@@ -12,6 +12,7 @@ import typer
 from rich.console                                                                import Console
 from rich.table                                                                  import Table
 
+from sg_compute.cli.base.Spec__CLI__Errors                                       import spec_cli_errors
 from sgraph_ai_service_playwright__cli.aws._shared.Mutation__Gate               import require_mutation_gate
 from sgraph_ai_service_playwright__cli.aws.bedrock.service.Bedrock__Tool__AWS__Client import Bedrock__Tool__AWS__Client
 from sgraph_ai_service_playwright__cli.aws.bedrock.service.Bedrock__Capture__Writer   import Bedrock__Capture__Writer
@@ -38,23 +39,37 @@ def _client() -> Bedrock__Tool__AWS__Client:
 # Browser sessions
 # ══════════════════════════════════════════════════════════════════════════════
 
+def _parse_viewport(spec: str) -> Optional[dict]:                                # `1920x1080` → {'width': 1920, 'height': 1080}
+    if not spec:
+        return None
+    if 'x' not in spec.lower():
+        raise typer.BadParameter(f'--viewport must be WIDTHxHEIGHT (e.g. 1920x1080), got {spec!r}.')
+    w, _, h = spec.lower().partition('x')
+    try:
+        return {'width': int(w), 'height': int(h)}
+    except ValueError:
+        raise typer.BadParameter(f'--viewport must be WIDTHxHEIGHT integers, got {spec!r}.')
+
+
 @browser_session_app.command('start')
 @require_mutation_gate(BEDROCK_GATE)
+@spec_cli_errors
 def browser_session_start(
-    region      : Optional[str] = typer.Option(None,  '--region', '-r', help='AWS region (default: current region).'),
-    yes         : bool          = typer.Option(False, '--yes',   '-y',  help='Skip confirmation.'),
-    json_output : bool          = typer.Option(False, '--json',         help='Output JSON.'),
+    viewport    : Optional[str] = typer.Option(None,  '--viewport',   '-v', help='Viewport size WIDTHxHEIGHT (e.g. 1920x1080). Determines what `screenshot` captures.'),
+    timeout     : Optional[int] = typer.Option(None,  '--timeout',    '-t', help='Session timeout in seconds (default: AWS default).'),
+    browser_id  : Optional[str] = typer.Option(None,  '--browser-id', '-b', help='Browser identifier (default: aws.browser.v1 — AWS-managed sandbox).'),
+    region      : Optional[str] = typer.Option(None,  '--region',     '-r', help='AWS region (default: current region).'),
+    yes         : bool          = typer.Option(False, '--yes',        '-y', help='Skip confirmation.'),
+    json_output : bool          = typer.Option(False, '--json',             help='Output JSON.'),
 ):
     """Start a new AgentCore browser session. [EXPERIMENTAL]"""
     if not yes:
-        typer.confirm('Start browser session?', abort=True)
-    client = _client()
-    try:
-        session = client.browser_start(region=region)
-    except RuntimeError as exc:
-        typer.echo(str(exc), err=True)
-        raise typer.Exit(2)
-    writer = Bedrock__Capture__Writer()
+        typer.confirm('Start browser session?', default=True, abort=True)
+    client       = _client()
+    viewport_dict = _parse_viewport(viewport) if viewport else None
+    session = client.browser_start(region=region, browser_identifier=browser_id,
+                                   viewport=viewport_dict, session_timeout_seconds=timeout)
+    writer  = Bedrock__Capture__Writer()
     path   = writer.write_browser_action(str(session.session_id),
                                          {'action': 'start', 'region': session.region})
     if json_output:
@@ -69,12 +84,15 @@ def browser_session_start(
 
 
 @browser_session_app.command('list')
+@spec_cli_errors
 def browser_session_list(
-    json_output: bool = typer.Option(False, '--json', help='Output JSON.'),
+    browser_id : Optional[str] = typer.Option(None, '--browser-id', '-b', help='Browser identifier (default: aws.browser.v1).'),
+    region     : Optional[str] = typer.Option(None, '--region',     '-r', help='AWS region.'),
+    json_output: bool          = typer.Option(False,'--json',             help='Output JSON.'),
 ):
     """List active AgentCore browser sessions. [EXPERIMENTAL]"""
     client   = _client()
-    sessions = client.browser_list()
+    sessions = client.browser_list(region=region, browser_identifier=browser_id)
     if json_output:
         typer.echo(json.dumps([dict(session_id = str(s.session_id),
                                     status     = s.status         ,
@@ -94,77 +112,93 @@ def browser_session_list(
 
 @browser_session_app.command('navigate')
 @require_mutation_gate(BEDROCK_GATE)
+@spec_cli_errors
 def browser_session_navigate(
     session_id : str  = typer.Argument(..., help='Browser session ID.'),
     url        : str  = typer.Argument(..., help='URL to navigate to.'),
-    region     : Optional[str] = typer.Option(None,  '--region', '-r', help='AWS region.'),
-    yes        : bool          = typer.Option(False, '--yes',   '-y',  help='Skip confirmation.'),
+    browser_id : Optional[str] = typer.Option(None,  '--browser-id', '-b', help='Browser identifier (default: aws.browser.v1).'),
+    region     : Optional[str] = typer.Option(None,  '--region',     '-r', help='AWS region.'),
+    yes        : bool          = typer.Option(False, '--yes',        '-y', help='Skip confirmation.'),
 ):
-    """Navigate a browser session to a URL. [EXPERIMENTAL]"""
+    """Print the CDP streamEndpoint for the session so an external Playwright
+    client can navigate it. (Full in-process navigate is a follow-up — needs
+    Playwright connected over CDP to the SigV4-signed stream URL.) [EXPERIMENTAL]"""
     if not yes:
-        typer.confirm(f'Navigate session {session_id!r} to {url!r}?', abort=True)
+        typer.confirm(f'Fetch stream endpoint for session {session_id!r} (to navigate to {url!r})?', default=True, abort=True)
     client = _client()
-    try:
-        resp = client.browser_navigate(session_id, url, region=region)
-    except RuntimeError as exc:
-        typer.echo(str(exc), err=True)
-        raise typer.Exit(2)
+    resp   = client.browser_navigate(session_id, url, region=region, browser_identifier=browser_id)
     writer = Bedrock__Capture__Writer()
     writer.write_browser_action(session_id, {'action': 'navigate', 'url': url, 'response': resp})
+    endpoints = resp.get('stream_endpoints', {}) or {}
     c = Console(highlight=False)
-    c.print(f'\n  Navigated session {session_id} to {url}\n')
+    c.print()
+    c.print(f'  [yellow]Note:[/] in-process navigate not yet wired — returning CDP stream endpoints.')
+    c.print(f'  Session:       {session_id}')
+    c.print(f'  Requested URL: {url}')
+    c.print()
+    c.print(f'  [bold]automation:[/] {endpoints.get("automation", "")}')
+    c.print(f'  [bold]live_view:[/]  {endpoints.get("live_view", "")}')
+    c.print()
+    c.print('  [dim]Auth: the stream URL needs SigV4 signing with your AWS credentials[/]')
+    c.print('  [dim]      (botocore SigV4QueryAuth or a signed-WebSocket wrapper).[/]')
+    c.print('  [dim]Then: chromium.connect_over_cdp(stream_url).contexts[0].pages[0].goto(url)[/]')
+    c.print()
 
 
 @browser_session_app.command('screenshot')
 @require_mutation_gate(BEDROCK_GATE)
+@spec_cli_errors
 def browser_session_screenshot(
     session_id  : str          = typer.Argument(..., help='Browser session ID.'),
-    output_file : Optional[str]= typer.Option(None, '--output', '-o', help='Save screenshot to this path.'),
-    region      : Optional[str]= typer.Option(None, '--region', '-r', help='AWS region.'),
-    yes         : bool         = typer.Option(False,'--yes',    '-y', help='Skip confirmation.'),
+    output_file : Optional[str]= typer.Option(None, '--output',     '-o', help='Save screenshot to this path.'),
+    browser_id  : Optional[str]= typer.Option(None, '--browser-id', '-b', help='Browser identifier (default: aws.browser.v1).'),
+    region      : Optional[str]= typer.Option(None, '--region',     '-r', help='AWS region.'),
+    yes         : bool         = typer.Option(False,'--yes',        '-y', help='Skip confirmation.'),
 ):
-    """Take a screenshot from a browser session. [EXPERIMENTAL]"""
+    """Take a full-screen PNG screenshot from a browser session.
+
+    AWS `invoke_browser:screenshot` is intentionally minimal — PNG only,
+    full-viewport capture (no clip/full-page/element/format options).
+    Viewport size is set at session-start time via `start --viewport WxH`.
+
+    For full-page (scroll-and-stitch), clipped regions, element captures,
+    or non-PNG formats, you have to drive the session via CDP/Playwright
+    over the streamEndpoint URL (see `navigate` for endpoint details).
+    [EXPERIMENTAL]"""
     if not yes:
-        typer.confirm(f'Screenshot session {session_id!r}?', abort=True)
-    client = _client()
-    try:
-        image_data = client.browser_screenshot(session_id, region=region)
-    except RuntimeError as exc:
-        typer.echo(str(exc), err=True)
-        raise typer.Exit(2)
-    writer  = Bedrock__Capture__Writer()
-    folder  = writer.browser_session_path(session_id)
+        typer.confirm(f'Screenshot session {session_id!r}?', default=True, abort=True)   # read-only op — default Y
+    client     = _client()
+    image_data = client.browser_screenshot(session_id, region=region, browser_identifier=browser_id)
+    writer     = Bedrock__Capture__Writer()
+    folder     = writer.browser_session_path(session_id)
     folder.mkdir(parents=True, exist_ok=True)
     if output_file:
-        import shutil, os
         out = output_file
     else:
         import uuid
         out = str(folder / f'screenshot_{uuid.uuid4().hex[:8]}.png')
-    if image_data:
-        with open(out, 'wb') as fh:
-            fh.write(image_data)
+    with open(out, 'wb') as fh:                                                  # `browser_screenshot` raises on empty data; if we got here, write it
+        fh.write(image_data)
     c = Console(highlight=False)
-    c.print(f'\n  Screenshot saved: {out}\n')
+    c.print(f'\n  Screenshot saved: {out}  ({len(image_data):,} bytes)\n')
 
 
 @browser_session_app.command('stop')
 @require_mutation_gate(BEDROCK_GATE)
+@spec_cli_errors
 def browser_session_stop(
     session_id : str  = typer.Argument(..., help='Browser session ID.'),
-    region     : Optional[str] = typer.Option(None,  '--region', '-r', help='AWS region.'),
-    yes        : bool          = typer.Option(False, '--yes',   '-y',  help='Skip confirmation.'),
+    browser_id : Optional[str] = typer.Option(None,  '--browser-id', '-b', help='Browser identifier (default: aws.browser.v1).'),
+    region     : Optional[str] = typer.Option(None,  '--region',     '-r', help='AWS region.'),
+    yes        : bool          = typer.Option(False, '--yes',        '-y', help='Skip confirmation.'),
 ):
     """Stop a browser session. [EXPERIMENTAL]"""
     if not yes:
         typer.confirm(f'Stop browser session {session_id!r}?', abort=True)
     client = _client()
-    ok     = client.browser_stop(session_id, region=region)
-    c      = Console(highlight=False)
-    if ok:
-        c.print(f'\n  Browser session {session_id} stopped.\n')
-    else:
-        c.print(f'\n  [yellow]Could not stop session {session_id}.[/]\n')
+    client.browser_stop(session_id, region=region, browser_identifier=browser_id)
+    c = Console(highlight=False)
+    c.print(f'\n  Browser session {session_id} stopped.\n')
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -173,22 +207,20 @@ def browser_session_stop(
 
 @code_session_app.command('start')
 @require_mutation_gate(BEDROCK_GATE)
+@spec_cli_errors
 def code_session_start(
-    language    : str          = typer.Option('python', '--language', '-l', help='Language: python, javascript, typescript.'),
-    region      : Optional[str]= typer.Option(None,    '--region',   '-r', help='AWS region.'),
-    yes         : bool         = typer.Option(False,   '--yes',      '-y', help='Skip confirmation.'),
-    json_output : bool         = typer.Option(False,   '--json',          help='Output JSON.'),
+    language            : str          = typer.Option('python', '--language',            '-l', help='Language hint for local capture metadata (python, javascript, typescript); not sent to AWS.'),
+    code_interpreter_id : Optional[str]= typer.Option(None,    '--code-interpreter-id', '-c', help='Code-interpreter identifier (default: aws.codeinterpreter.v1 — AWS-managed sandbox).'),
+    region              : Optional[str]= typer.Option(None,    '--region',              '-r', help='AWS region.'),
+    yes                 : bool         = typer.Option(False,   '--yes',                 '-y', help='Skip confirmation.'),
+    json_output         : bool         = typer.Option(False,   '--json',                      help='Output JSON.'),
 ):
     """Start a code-interpreter session. [EXPERIMENTAL]"""
     if not yes:
-        typer.confirm(f'Start code-interpreter session (language={language})?', abort=True)
-    client = _client()
-    try:
-        session = client.code_interpreter_start(language=language, region=region)
-    except RuntimeError as exc:
-        typer.echo(str(exc), err=True)
-        raise typer.Exit(2)
-    writer = Bedrock__Capture__Writer()
+        typer.confirm(f'Start code-interpreter session (language={language})?', default=True, abort=True)
+    client  = _client()
+    session = client.code_interpreter_start(language=language, region=region, code_interpreter_id=code_interpreter_id)
+    writer  = Bedrock__Capture__Writer()
     path   = writer.write_code_run(str(session.session_id),
                                    {'action': 'start', 'language': language, 'region': session.region})
     if json_output:
@@ -205,22 +237,21 @@ def code_session_start(
 
 @code_session_app.command('run')
 @require_mutation_gate(BEDROCK_GATE)
+@spec_cli_errors
 def code_session_run(
-    session_id  : str          = typer.Argument(..., help='Code-interpreter session ID.'),
-    code        : str          = typer.Option(...,   '--code', '-c', help='Code to execute.'),
-    region      : Optional[str]= typer.Option(None, '--region',     help='AWS region.'),
-    yes         : bool         = typer.Option(False,'--yes',  '-y', help='Skip confirmation.'),
-    json_output : bool         = typer.Option(False,'--json',       help='Output JSON.'),
+    session_id          : str          = typer.Argument(..., help='Code-interpreter session ID.'),
+    code                : str          = typer.Option(...,   '--code',                '-c', help='Code to execute.'),
+    language            : str          = typer.Option('python', '--language',         '-l', help='Language: python, javascript, typescript.'),
+    code_interpreter_id : Optional[str]= typer.Option(None, '--code-interpreter-id',       help='Code-interpreter identifier (default: aws.codeinterpreter.v1).'),
+    region              : Optional[str]= typer.Option(None, '--region',               '-r', help='AWS region.'),
+    yes                 : bool         = typer.Option(False,'--yes',                  '-y', help='Skip confirmation.'),
+    json_output         : bool         = typer.Option(False,'--json',                       help='Output JSON.'),
 ):
     """Run code in a code-interpreter session. [EXPERIMENTAL]"""
     if not yes:
-        typer.confirm(f'Run code in session {session_id!r}?', abort=True)
+        typer.confirm(f'Run code in session {session_id!r}?', default=True, abort=True)
     client = _client()
-    try:
-        result = client.code_interpreter_run(session_id, code, region=region)
-    except RuntimeError as exc:
-        typer.echo(str(exc), err=True)
-        raise typer.Exit(2)
+    result = client.code_interpreter_run(session_id, code, language=language, region=region, code_interpreter_id=code_interpreter_id)
     writer = Bedrock__Capture__Writer()
     writer.write_code_run(session_id, {'action': 'run', 'code': code, 'result': result})
     if json_output:
@@ -234,30 +265,32 @@ def code_session_run(
 
 @code_session_app.command('stop')
 @require_mutation_gate(BEDROCK_GATE)
+@spec_cli_errors
 def code_session_stop(
-    session_id : str          = typer.Argument(..., help='Code-interpreter session ID.'),
-    region     : Optional[str]= typer.Option(None, '--region', '-r', help='AWS region.'),
-    yes        : bool         = typer.Option(False,'--yes',    '-y', help='Skip confirmation.'),
+    session_id          : str          = typer.Argument(..., help='Code-interpreter session ID.'),
+    code_interpreter_id : Optional[str]= typer.Option(None, '--code-interpreter-id',       help='Code-interpreter identifier (default: aws.codeinterpreter.v1).'),
+    region              : Optional[str]= typer.Option(None, '--region',               '-r', help='AWS region.'),
+    yes                 : bool         = typer.Option(False,'--yes',                  '-y', help='Skip confirmation.'),
 ):
     """Stop a code-interpreter session. [EXPERIMENTAL]"""
     if not yes:
         typer.confirm(f'Stop code-interpreter session {session_id!r}?', abort=True)
     client = _client()
-    ok     = client.code_interpreter_stop(session_id, region=region)
-    c      = Console(highlight=False)
-    if ok:
-        c.print(f'\n  Code-interpreter session {session_id} stopped.\n')
-    else:
-        c.print(f'\n  [yellow]Could not stop session {session_id}.[/]\n')
+    client.code_interpreter_stop(session_id, region=region, code_interpreter_id=code_interpreter_id)
+    c = Console(highlight=False)
+    c.print(f'\n  Code-interpreter session {session_id} stopped.\n')
 
 
 @code_session_app.command('list')
+@spec_cli_errors
 def code_session_list(
-    json_output: bool = typer.Option(False, '--json', help='Output JSON.'),
+    code_interpreter_id : Optional[str]= typer.Option(None, '--code-interpreter-id',       help='Code-interpreter identifier (default: aws.codeinterpreter.v1).'),
+    region              : Optional[str]= typer.Option(None, '--region',               '-r', help='AWS region.'),
+    json_output         : bool         = typer.Option(False,'--json',                       help='Output JSON.'),
 ):
     """List code-interpreter sessions. [EXPERIMENTAL]"""
     client   = _client()
-    sessions = client.code_interpreter_list()
+    sessions = client.code_interpreter_list(region=region, code_interpreter_id=code_interpreter_id)
     if json_output:
         typer.echo(json.dumps([dict(session_id = str(s.session_id),
                                     language   = s.language        ,

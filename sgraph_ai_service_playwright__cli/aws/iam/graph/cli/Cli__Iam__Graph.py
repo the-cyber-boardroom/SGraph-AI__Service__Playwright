@@ -55,22 +55,24 @@ def _make_snapshot_id() -> str:
     return f'{ts}__{nonce}'
 
 
-def _default_orchestrator() -> Iam__Discovery__Orchestrator:
-    return Iam__Discovery__Orchestrator()
-
-
-def _default_writer() -> Iam__Graph__Vault__Writer:
-    return Iam__Graph__Vault__Writer()
+@graph_app.callback()
+def _setup_ctx(ctx: typer.Context):
+    if ctx.obj is None:
+        ctx.obj = {}
+    ctx.obj.setdefault('iam_graph_orchestrator', Iam__Discovery__Orchestrator())
+    ctx.obj.setdefault('iam_graph_writer'      , Iam__Graph__Vault__Writer())
+    ctx.obj.setdefault('iam_graph_cleanup'     , Iam__Graph__Cleanup())
 
 
 # ── discover ──────────────────────────────────────────────────────────────────
 
 @graph_app.command('discover')
 @spec_cli_errors
-def discover(as_json: bool = typer.Option(False, '--json', help='Output as JSON.')):
+def discover(ctx    : typer.Context,
+             as_json: bool = typer.Option(False, '--json', help='Output as JSON.')):
     """Pull current IAM state into a local snapshot."""
-    orchestrator = _default_orchestrator()
-    writer       = _default_writer()
+    orchestrator = ctx.obj['iam_graph_orchestrator']
+    writer       = ctx.obj['iam_graph_writer']
     builder      = Iam__Graph__Builder()
 
     snapshot_id  = _make_snapshot_id()
@@ -105,10 +107,11 @@ def discover(as_json: bool = typer.Option(False, '--json', help='Output as JSON.
 
 @graph_app.command('show')
 @spec_cli_errors
-def show(snapshot_id : Optional[str] = typer.Option(None, '--snapshot', help='Snapshot ID; defaults to latest.'),
+def show(ctx         : typer.Context,
+         snapshot_id : Optional[str] = typer.Option(None, '--snapshot', help='Snapshot ID; defaults to latest.'),
          as_json     : bool           = typer.Option(False, '--json',    help='Output as JSON.')):
     """Show summary of an IAM graph snapshot."""
-    writer = _default_writer()
+    writer = ctx.obj['iam_graph_writer']
     snap   = snapshot_id or writer.latest_snapshot_id()
     if not snap:
         console.print('[red]No snapshots found. Run `sg aws iam graph discover` first.[/red]')
@@ -143,12 +146,13 @@ def show(snapshot_id : Optional[str] = typer.Option(None, '--snapshot', help='Sn
 
 @graph_app.command('walk')
 @spec_cli_errors
-def walk(root       : str  = typer.Argument(...,   help='Root node ID (ARN or role name).'),
+def walk(ctx        : typer.Context,
+         root       : str  = typer.Argument(...,   help='Root node ID (ARN or role name).'),
          depth      : int  = typer.Option(3,       '--depth', '-d', help='Max traversal depth.'),
          snapshot_id: Optional[str] = typer.Option(None, '--snapshot', help='Snapshot ID; defaults to latest.'),
          as_json    : bool = typer.Option(False, '--json', help='Output as JSON.')):
     """Transitive permission walk from a root IAM node."""
-    writer = _default_writer()
+    writer = ctx.obj['iam_graph_writer']
     snap   = snapshot_id or writer.latest_snapshot_id()
     if not snap:
         console.print('[red]No snapshots found. Run `sg aws iam graph discover` first.[/red]')
@@ -180,6 +184,7 @@ def walk(root       : str  = typer.Argument(...,   help='Root node ID (ARN or ro
 @graph_app.command('filter')
 @spec_cli_errors
 def filter_nodes(
+    ctx         : typer.Context,
     unused      : bool          = typer.Option(False, '--unused',      help='Filter roles with no recent activity.'),
     days        : int           = typer.Option(90,    '--days',        help='Inactivity threshold in days (with --unused).'),
     pattern     : Optional[str] = typer.Option(None,  '--pattern',     help='Glob pattern for role name.'),
@@ -189,7 +194,7 @@ def filter_nodes(
     as_json     : bool          = typer.Option(False, '--json',        help='Output as JSON.'),
 ):
     """Filter IAM nodes by unused / pattern / aws-default predicate."""
-    writer = _default_writer()
+    writer = ctx.obj['iam_graph_writer']
     snap   = snapshot_id or writer.latest_snapshot_id()
     if not snap:
         console.print('[red]No snapshots found. Run `sg aws iam graph discover` first.[/red]')
@@ -273,6 +278,7 @@ def filter_nodes(
 @require_mutation_gate(_IAM_MUTATIONS_ENV)
 @spec_cli_errors
 def delete_roles(
+    ctx       : typer.Context,
     from_file : str  = typer.Option(...,  '--from',     help='Path to candidate JSON file (output of filter).'),
     confirm   : bool = typer.Option(False, '--confirm',  help='Actually delete (omit for dry-run).'),
     yes       : bool = typer.Option(False, '--yes', '-y', help='Skip confirmation prompt.'),
@@ -291,7 +297,7 @@ def delete_roles(
     data = json.loads(candidates_file.read_text())
     raw_candidates = data.get('candidates', data) if isinstance(data, dict) else data
 
-    cleanup = Iam__Graph__Cleanup()
+    cleanup = ctx.obj['iam_graph_cleanup']
     plan    = cleanup.build_plan(raw_candidates)
 
     if not confirm:
@@ -336,10 +342,11 @@ def delete_roles(
 
 @graph_app.command('stats')
 @spec_cli_errors
-def stats(snapshot_id : Optional[str] = typer.Option(None, '--snapshot', help='Snapshot ID; defaults to latest.'),
+def stats(ctx         : typer.Context,
+          snapshot_id : Optional[str] = typer.Option(None, '--snapshot', help='Snapshot ID; defaults to latest.'),
           as_json     : bool           = typer.Option(False, '--json',    help='Output as JSON.')):
     """Scope-breadth histogram for an IAM graph snapshot."""
-    writer = _default_writer()
+    writer = ctx.obj['iam_graph_writer']
     snap   = snapshot_id or writer.latest_snapshot_id()
     if not snap:
         console.print('[red]No snapshots found. Run `sg aws iam graph discover` first.[/red]')
@@ -368,9 +375,10 @@ def stats(snapshot_id : Optional[str] = typer.Option(None, '--snapshot', help='S
 
 @snapshot_app.command('list')
 @spec_cli_errors
-def snapshots_list(as_json: bool = typer.Option(False, '--json', help='Output as JSON.')):
+def snapshots_list(ctx    : typer.Context,
+                   as_json: bool = typer.Option(False, '--json', help='Output as JSON.')):
     """List all IAM graph snapshots."""
-    writer = _default_writer()
+    writer = ctx.obj['iam_graph_writer']
     snaps  = writer.list_snapshots()
     if as_json:
         typer.echo(json.dumps(snaps, indent=2))
@@ -393,11 +401,12 @@ def snapshots_list(as_json: bool = typer.Option(False, '--json', help='Output as
 
 @snapshot_app.command('diff')
 @spec_cli_errors
-def snapshots_diff(snapshot_a : str  = typer.Argument(..., help='Earlier snapshot ID.'),
+def snapshots_diff(ctx        : typer.Context,
+                   snapshot_a : str  = typer.Argument(..., help='Earlier snapshot ID.'),
                    snapshot_b : str  = typer.Argument(..., help='Later snapshot ID.'),
                    as_json    : bool = typer.Option(False, '--json', help='Output as JSON.')):
     """Diff two IAM graph snapshots."""
-    writer = _default_writer()
+    writer = ctx.obj['iam_graph_writer']
     result = Iam__Graph__Snapshot__Diff(vault_writer=writer).diff(snapshot_a, snapshot_b)
     if as_json:
         typer.echo(json.dumps(result, indent=2))

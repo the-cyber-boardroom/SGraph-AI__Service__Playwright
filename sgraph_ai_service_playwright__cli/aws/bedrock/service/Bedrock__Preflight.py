@@ -11,6 +11,7 @@ from sgraph_ai_service_playwright__cli.aws.bedrock.enums.Enum__Bedrock__Check__S
 from sgraph_ai_service_playwright__cli.aws.bedrock.schemas.Schema__Bedrock__Check__Result           import Schema__Bedrock__Check__Result
 from sgraph_ai_service_playwright__cli.aws.bedrock.service.Bedrock__Capture__Writer                 import Bedrock__Capture__Writer
 from sgraph_ai_service_playwright__cli.aws.bedrock.service.Bedrock__Control__AWS__Client            import Bedrock__Control__AWS__Client
+from sgraph_ai_service_playwright__cli.aws.bedrock.service.Bedrock__Model__Resolver                 import Bedrock__Model__Resolver
 from sgraph_ai_service_playwright__cli.aws.bedrock.service.Bedrock__Region__Catalogue              import Bedrock__Region__Catalogue
 from sgraph_ai_service_playwright__cli.aws.bedrock.service.Bedrock__Runtime__AWS__Client            import Bedrock__Runtime__AWS__Client
 
@@ -28,11 +29,19 @@ def _result(check_name, status, message, hint=''):                              
                                           hint      =hint       )
 
 
+_PROVIDER_NAMESPACES = {                                                           # provider keyword → model-id prefix
+    'claude' : 'anthropic.',
+    'nova'   : 'amazon.nova',
+    'llama'  : 'meta.llama',
+}
+
+
 class Bedrock__Preflight(Type_Safe):
     control_client   : Bedrock__Control__AWS__Client                               # check 3/4/5/6
-    runtime_client   : Bedrock__Runtime__AWS__Client                               # check 7 smoke-test
+    runtime_client   : Bedrock__Runtime__AWS__Client                               # check 7 + per-provider checks
     region_catalogue : Bedrock__Region__Catalogue                                  # check 2
-    capture_writer   : Bedrock__Capture__Writer                                    # check 8
+    capture_writer   : Bedrock__Capture__Writer                                    # check 8 (now 11)
+    resolver         : Bedrock__Model__Resolver                                    # per-provider default checks
     region           : str                                                          # override region; '' = active role's default
 
     # ── individual checks ─────────────────────────────────────────────────────
@@ -124,6 +133,47 @@ class Bedrock__Preflight(Type_Safe):
             return _result(name, FAIL, f'InvokeModel denied: {exc}',
                            hint='Required: bedrock:InvokeModel. Run: sg aws bedrock setup --print-policy')
 
+    def check_provider_default_invokable(self, provider: str, effective_region: str,
+                                          enabled_models: list) -> Schema__Bedrock__Check__Result:
+        """Smoke-invoke the default alias for one provider; returns a single result row."""
+        check_name = f'{provider} default invokable'
+        namespace  = _PROVIDER_NAMESPACES.get(provider, provider)
+        enabled_in_provider = [m for m in enabled_models
+                                if namespace in str(m.model_id).lower()]
+        model_id = self.resolver.resolve(provider, 'default', effective_region)
+
+        if not enabled_in_provider:
+            return _result(check_name, WARN,
+                           f'{model_id} — skipped (no {provider} models enabled)',
+                           hint=f'Enable a {provider} model in the console and re-run check.')
+
+        try:
+            resp    = self.runtime_client.converse(model_id=model_id, prompt='ping',
+                                                   region=effective_region)
+            in_tok  = resp.get('usage', {}).get('inputTokens',  0)
+            out_tok = resp.get('usage', {}).get('outputTokens', 0)
+            return _result(check_name, PASS, f'{model_id} — OK ({in_tok}→{out_tok} tokens)')
+        except Exception as exc:
+            err      = getattr(exc, 'response', {}).get('Error', {})               # boto3 ClientError path
+            code     = err.get('Code', '')
+            err_msg  = err.get('Message', '') or str(exc)
+            if not code:                                                            # non-boto3: infer code from message
+                for token in ('ValidationException', 'AccessDeniedException', 'ResourceNotFoundException'):
+                    if token in err_msg:
+                        code = token
+                        break
+            code_hint = ''
+            if code == 'ValidationException' and 'model' in err_msg.lower():
+                code_hint = (f'Model ID invalid in {effective_region}. '
+                             f'Try: sg aws bedrock chat list-models '
+                             f'or run: sg aws bedrock setup --open-console')
+            elif code in ('AccessDeniedException', 'AccessDenied'):
+                code_hint = 'Missing bedrock:InvokeModel permission. Run: sg aws bedrock setup --print-policy'
+            elif code == 'ResourceNotFoundException':
+                code_hint = 'Model not found in this region. Try --region or check list-models.'
+            label = f'{code}: {err_msg}' if code else err_msg
+            return _result(check_name, FAIL, f'{model_id} — {label}', hint=code_hint)
+
     def check_8__capture_writer(self) -> Schema__Bedrock__Check__Result:
         name = 'capture writer'
         try:
@@ -139,7 +189,7 @@ class Bedrock__Preflight(Type_Safe):
 
     # ── orchestrator ──────────────────────────────────────────────────────────
 
-    def run_all(self, region: str = '') -> List__Schema__Bedrock__Check__Result:   # Run all 8 checks; returns ordered result list
+    def run_all(self, region: str = '') -> List__Schema__Bedrock__Check__Result:   # Run all 11 checks; returns ordered result list
         results          = List__Schema__Bedrock__Check__Result()
         effective_region = region or self.region or self.control_client.current_region()
 
@@ -151,8 +201,8 @@ class Bedrock__Preflight(Type_Safe):
 
         if r2.status == FAIL:                                                      # Region not supported — remaining AWS checks meaningless
             for name in ('list-models perm', 'models in catalogue',
-                         'models with access', 'claude available',
-                         'invoke perm'):
+                         'models with access', 'claude available', 'invoke perm',
+                         'claude default invokable', 'nova default invokable', 'llama default invokable'):
                 results.append(_result(name, WARN, 'skipped — region not supported', hint=_SKIPPED_HINT))
             results.append(self.check_8__capture_writer())
             return results
@@ -162,7 +212,8 @@ class Bedrock__Preflight(Type_Safe):
 
         if models is None:                                                         # No list-models permission — skip dependent checks
             for name in ('models in catalogue', 'models with access',
-                         'claude available', 'invoke perm'):
+                         'claude available', 'invoke perm',
+                         'claude default invokable', 'nova default invokable', 'llama default invokable'):
                 results.append(_result(name, WARN, 'skipped — list-models perm failed', hint=_SKIPPED_HINT))
             results.append(self.check_8__capture_writer())
             return results
@@ -175,6 +226,9 @@ class Bedrock__Preflight(Type_Safe):
         results.append(self.check_6__provider_available(enabled))
 
         results.append(self.check_7__invoke_perm(enabled, effective_region))
+
+        for provider in ('claude', 'nova', 'llama'):
+            results.append(self.check_provider_default_invokable(provider, effective_region, enabled))
 
         results.append(self.check_8__capture_writer())
 

@@ -14,6 +14,8 @@
 #   sp          = "sg_compute.cli.Cli__SG:app"   # legacy alias
 # ═══════════════════════════════════════════════════════════════════════════════
 
+from typing import List, Optional
+
 import typer
 
 
@@ -21,6 +23,15 @@ app = typer.Typer(name            = 'sg'                                        
                   help            = 'SG/Compute CLI — manage ephemeral EC2 stacks.'        ,
                   no_args_is_help = True                                                    ,
                   add_completion  = False                                                   )
+
+
+@app.callback()
+def _root(debug: bool = typer.Option(False, '--debug', '-D',
+                                     help='Show full Python traceback on errors.',
+                                     is_eager=True)):
+    from sg_compute.cli.base.Spec__CLI__Errors import set_debug
+    set_debug(debug)
+
 
 # ── aws ──────────────────────────────────────────────────────────────────────
 from sgraph_ai_service_playwright__cli.aws.cli.Cli__Aws import app as _aws_app
@@ -124,10 +135,28 @@ app.add_typer(_observability_app, name='ob',            hidden=True)
 # ── repl ─────────────────────────────────────────────────────────────────────
 
 @app.command()
-def repl():
-    """Interactive shell — navigate sections and run commands without the sg prefix."""
-    from sg_compute.cli.Cli__SG__Repl import run_repl
-    run_repl(app)
+def repl(path: Optional[List[str]] = typer.Argument(None,
+                help='Optional initial REPL path. Both forms work: '
+                     '`sg repl aws bedrock` or `sg repl sg/aws/bedrock/tool` '
+                     '(copy-paste from a REPL prompt).')):
+    """Interactive shell — navigate sections and run commands without the sg prefix.
+
+    With an optional positional path, the REPL starts already navigated
+    into that group. Slashes are recognised and the literal `sg` prefix
+    is stripped, so all these are equivalent:
+      sg repl aws bedrock
+      sg repl sg/aws/bedrock
+      sg repl /aws/bedrock/
+    """
+    from sg_compute.cli.Cli__SG__Repl import run_repl, normalise_initial_path
+    run_repl(app, initial_path=normalise_initial_path(path))
+
+
+@app.command(name='r', hidden=True)                                     # short alias for `sg repl`; hidden from --help
+def _repl_alias(path: Optional[List[str]] = typer.Argument(None)):
+    """Short alias for `sg repl` (accepts the same initial path forms)."""
+    from sg_compute.cli.Cli__SG__Repl import run_repl, normalise_initial_path
+    run_repl(app, initial_path=normalise_initial_path(path))
 
 
 if __name__ == '__main__':

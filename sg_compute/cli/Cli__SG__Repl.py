@@ -7,12 +7,19 @@
 # Pseudo-commands (handled before dispatch):
 #   as <role>   — pin role for the REPL session (prompt shows [role] suffix)
 #   as          — clear pinned role
+#   debug on    — flip Spec__CLI__Errors._DEBUG to True for the session
+#   debug off   — flip it back to False
 #   q / quit / exit / Ctrl-D — exit
 #   Ctrl-C      — if a role is pinned, clear it; otherwise exit
 #
 # v0.2.28 — _match() supports prefix matching with substring fall-back.
+# v0.2.30 — REPL hoists `--debug` / `-D` to the front of the assembled
+#           command line so the top-level @app.callback() fires (Open-5).
 # ═══════════════════════════════════════════════════════════════════════════════
 
+import shlex
+
+import click
 import typer.main
 from rich.console                                                                   import Console
 from osbot_utils.type_safe.Type_Safe                                                import Type_Safe
@@ -28,9 +35,13 @@ console = Console(highlight=False)
 def _click_node(sg_app, path):                                                  # walk the click command tree along path
     node = typer.main.get_command(sg_app)
     for segment in path:
-        if not hasattr(node, 'commands'):
+        if not hasattr(node, 'get_command'):
             return None
-        node = node.commands.get(segment)
+        try:
+            ctx  = click.Context(node)
+            node = node.get_command(ctx, segment)
+        except Exception:
+            return None
         if node is None:
             return None
     return node
@@ -38,9 +49,24 @@ def _click_node(sg_app, path):                                                  
 
 def _children(sg_app, path):                                                    # visible sub-commands at current path
     node = _click_node(sg_app, path)
-    if node and hasattr(node, 'commands'):
-        return {name for name, cmd in node.commands.items() if not cmd.hidden}
-    return set()
+    if node is None or not hasattr(node, 'list_commands'):
+        return set()
+    try:
+        ctx   = click.Context(node)
+        names = node.list_commands(ctx)
+        result = set()
+        for name in names:
+            try:
+                cmd = node.get_command(ctx, name)
+                if cmd is not None and not getattr(cmd, 'hidden', False):
+                    result.add(name)
+            except Exception:
+                result.add(name)                                                # include even if cmd lookup raises
+        return result
+    except Exception:
+        if hasattr(node, 'commands'):                                           # fallback for non-standard nodes
+            return {name for name, cmd in node.commands.items() if not cmd.hidden}
+        return set()
 
 
 def _is_group(sg_app, path):                                                    # true when the node at path has navigable sub-commands
@@ -85,6 +111,355 @@ def _match(prefix: str, options) -> tuple:                          # (hits, kin
     substring_hits = sorted(o for o in options if prefix in o)
     return substring_hits, 'substring'
 
+
+def normalise_initial_path(raw_segments):
+    """Normalise a positional REPL path so all these are equivalent:
+
+        ['aws', 'bedrock']                              ← typed as separate words
+        ['sg/aws/bedrock/tool/browser/session']         ← copy-pasted from a REPL prompt
+        ['aws/bedrock', 'chat']                         ← mix
+        ['/aws/bedrock/']                               ← leading/trailing slash
+        ['sg']                                          ← bare sg prefix → empty path
+
+    Returns a flat list of segments, no empty strings, no leading 'sg'.
+    Pass None or [] to get an empty list.
+    """                                                                          # inline
+    if not raw_segments:
+        return []
+    expanded = []
+    for seg in raw_segments:
+        for part in str(seg).split('/'):
+            part = part.strip()
+            if part:
+                expanded.append(part)
+    if expanded and expanded[0] == 'sg':                                         # drop the literal 'sg' root prefix if user pasted it in
+        expanded = expanded[1:]
+    return expanded
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Bash escape — allow a curated whitelist of read-only shell commands inside
+# the REPL so users don't have to leave for trivial things like `cat output.json`.
+#
+# Strict whitelist, no shell=True, no shell-feature passthrough — argv goes
+# straight to subprocess. The `!cmd` prefix is also supported as an explicit
+# escape for anything (still no shell=True; argv via shlex.split).
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Shell-builtin pseudo-commands — handled in the REPL itself because they need
+# to mutate the REPL process's env / cwd (subprocess can't help with these).
+#
+# Supported:
+#   export VAR=value         # set env var (persists across commands in the session)
+#   export VAR               # show current value (or print "not set")
+#   export                   # list SG_* / AWS_* env vars
+#   unset VAR                # remove env var
+#   cd <dir>                 # change working directory (persists in the session)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+def _handle_shell_builtin(parts) -> bool:
+    """Handle `export` / `unset` / `cd` in-process. Returns True if handled."""   # inline
+    import os
+
+    if not parts:
+        return False
+    cmd = parts[0]
+
+    if cmd == 'export':
+        if len(parts) == 1:                                                       # bare `export` — list SG_*/AWS_* env vars
+            keys = sorted(k for k in os.environ if k.startswith(('SG_', 'AWS_')))
+            if not keys:
+                console.print('  [dim](no SG_* / AWS_* env vars set)[/]')
+            for k in keys:
+                console.print(f'  {k}={os.environ[k]}')
+            return True
+        for assignment in parts[1:]:
+            if '=' in assignment:
+                k, _, v = assignment.partition('=')
+                os.environ[k] = v
+                console.print(f'  [dim]export[/] [bold]{k}[/]={v}')
+            else:
+                k = assignment
+                v = os.environ.get(k)
+                if v is None:
+                    console.print(f'  [yellow]{k}[/] is not set')
+                else:
+                    console.print(f'  {k}={v}')
+        return True
+
+    if cmd == 'unset':
+        if len(parts) == 1:
+            console.print('  [yellow]unset: requires a variable name[/]')
+            return True
+        for k in parts[1:]:
+            if k in os.environ:
+                del os.environ[k]
+                console.print(f'  [dim]unset[/] {k}')
+            else:
+                console.print(f'  [yellow]{k}[/] was not set')
+        return True
+
+    if cmd == 'cd':
+        if len(parts) == 1:                                                       # `cd` with no args → $HOME
+            target = os.path.expanduser('~')
+        else:
+            target = os.path.expanduser(parts[1])
+        try:
+            os.chdir(target)
+            console.print(f'  [dim]cwd[/] {os.getcwd()}')
+        except OSError as exc:
+            console.print(f'  [red]cd: {exc}[/]')
+        return True
+
+    return False
+
+
+BASH_WHITELIST = {
+    # navigation / inspection
+    'pwd', 'ls', 'cat', 'head', 'tail', 'less', 'more', 'file', 'wc', 'stat',
+    'tree', 'find', 'du', 'df',
+    # text
+    'grep', 'awk', 'sed', 'sort', 'uniq', 'cut', 'tr', 'diff', 'jq',
+    # time / env
+    'date', 'env', 'whoami', 'uname', 'which',
+    # open file/url in default app (macOS `open`, linux `xdg-open`)
+    'open', 'xdg-open',
+    # version control (read-only-ish; commits / pushes still possible — but matches user expectation)
+    'git',
+}
+
+
+def _is_bash_command(parts, sg_children: set = None) -> bool:
+    """True if the first token is in the whitelist OR explicitly `!`-prefixed.
+
+    When `sg_children` (the set of verb names at the current REPL path)
+    is provided, sg verbs WIN over the bash whitelist for the same name.
+    Example: at `sg/aws/s3>`, `ls` should run `sg aws s3 ls` (the S3
+    listing), not bash `ls`. Users can still force the bash version
+    with explicit `!ls`.
+    """
+    if not parts:
+        return False
+    cmd = parts[0]
+    if cmd.startswith('!'):
+        return True
+    if sg_children is not None and cmd in sg_children:
+        return False                                                              # sg verb wins
+    return cmd in BASH_WHITELIST
+
+
+def _normalise_bang(argv):
+    """Strip the leading `!` (with or without space) from an argv list.
+    Returns the cleaned argv. Returns None if the result is empty."""             # inline
+    argv = list(argv)
+    if not argv or not argv[0].startswith('!'):
+        return argv
+    rest_of_first = argv[0][1:]                                                  # `!cat foo` → 'cat'; `! cat foo` → ''
+    if rest_of_first:
+        argv[0] = rest_of_first
+    else:
+        argv = argv[1:]                                                          # `!` was its own token; drop it
+    return argv if argv and argv[0] else None
+
+
+def _run_bash(parts) -> None:
+    """Run a bash command from the REPL. argv-only — never shell=True.
+    Stdout / stderr / exit code flow through to the user's terminal naturally.
+    """                                                                          # inline
+    import subprocess
+
+    argv = _normalise_bang(parts)
+    if argv is None:
+        console.print('  [yellow]Empty `!` command — type `!<cmd> [args]`[/]')
+        return
+    try:
+        subprocess.run(argv, check=False)                                        # argv-only, no shell injection; user sees the real exit code via the next prompt
+    except FileNotFoundError:
+        console.print(f'  [red]Command not found:[/] {argv[0]}')
+    except PermissionError as exc:
+        console.print(f'  [red]Permission denied:[/] {exc}')
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# readline tab-completion — context-aware against the current REPL path
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def _completion_candidates(sg_app, base_path, words, last_word):
+    """Return the list of completion candidates for the last word of `words`.
+
+    Walks the click tree from base_path through the resolved words,
+    then returns the children at that point matching last_word (prefix
+    match for completion).
+    """                                                                          # inline
+    # Resolve the words that come BEFORE the cursor through the click tree
+    resolved_path, _trailing = _resolve(sg_app, base_path, words)
+    if resolved_path is None:                                                    # ambiguous mid-word — no completion
+        return []
+    children = _children(sg_app, resolved_path) - ({'repl'} if not resolved_path else set())
+    if not last_word:
+        return sorted(children)
+    return sorted(c for c in children if c.startswith(last_word))
+
+
+def _setup_tab_completion(sg_app, get_path, readline):
+    """Register a readline completer that walks the click tree at the current REPL path."""
+
+    def _completer(text, state):                                                 # readline contract: called with (text, state); return one match or None
+        try:
+            line   = readline.get_line_buffer()
+            words  = line.split()
+            if line.endswith(' ') or not words:
+                last_word = ''
+                prior     = words
+            else:
+                last_word = words[-1]
+                prior     = words[:-1]
+            candidates = _completion_candidates(sg_app, get_path(), prior, last_word)
+            if state < len(candidates):
+                return candidates[state]
+        except Exception:                                                        # never propagate from a completer — readline silently swallows but we'd rather no-op
+            return None
+        return None
+
+    readline.set_completer(_completer)
+    readline.parse_and_bind('tab: complete')
+    readline.set_completer_delims(' \t\n')                                       # only break on whitespace; preserve `--` and `=` in option-token completion
+
+
+DEBUG_FLAGS = ('--debug', '-D')
+
+
+def _extract_debug_flag(parts):                                     # returns (debug_present, parts_without_debug)
+    has_debug = any(p in DEBUG_FLAGS for p in parts)
+    if not has_debug:
+        return False, list(parts)
+    return True, [p for p in parts if p not in DEBUG_FLAGS]
+
+
+def _apply_relative_navigation(parts, current_path):
+    """Process `..` / `.` / `back` segments in `parts` against `current_path`.
+
+    Splits each part on `/` first so `../agent` and `..` `agent` and
+    `../../aws/observe` all work uniformly. Each `..` pops one segment
+    from the accumulated dispatch path; if the accumulated path is empty
+    it pops from `current_path` instead. `.` is a no-op. `back` is an
+    alias of `..`.
+
+    Returns (effective_base, remaining_parts):
+      * effective_base is what `_resolve` should walk from
+      * remaining_parts is the rest of the tokens (commands / args / options)
+
+    Examples (current_path = ['aws', 'bedrock', 'chat']):
+      ['..']                       → (['aws', 'bedrock']        , [])
+      ['..', 'agent']              → (['aws', 'bedrock']        , ['agent'])
+      ['../agent']                 → (['aws', 'bedrock']        , ['agent'])
+      ['../../../aws/observe']     → ([]                         , ['aws', 'observe'])
+      ['back']                     → (['aws', 'bedrock']        , [])
+      ['.', 'chat']                → (['aws', 'bedrock', 'chat'], ['chat'])
+
+    Non-dot tokens stop the navigation walk; subsequent `..` inside them
+    are NOT interpreted (they'd be ambiguous with a real verb name).
+
+    Sibling navigation: each `..` pops exactly one level. To jump from
+    `aws/bedrock/chat` to `aws/observe`, either type `aws/observe`
+    directly (caught by absolute-dispatch) or use three `..` to climb
+    out of the 3-deep current path before walking down.
+    """                                                                          # inline
+    base = list(current_path)
+    out  = []
+    consuming_navigation = True
+
+    for token in parts:
+        if not consuming_navigation:
+            # Navigation phase already ended — pass tokens through as-is.
+            # Critical: do NOT split on `/`, or URLs and other slash-containing
+            # arg values (`https://...`, `s3://...`, `path/to/file`) get
+            # shredded into separate args.
+            out.append(token)
+            continue
+        for seg in str(token).split('/'):
+            if not seg:
+                continue
+            if seg in ('..', 'back'):
+                if out:
+                    out.pop()
+                elif base:
+                    base.pop()
+                # else: at root, .. is a silent no-op
+                continue
+            if seg == '.':
+                continue                                                          # no-op; still in navigation phase
+            consuming_navigation = False                                          # first non-nav segment ends the walk
+            out.append(seg)
+    return base, out
+
+
+def _maybe_absolute_dispatch(parts, current_path):
+    """If the user typed an absolute command (starts with `sg`, `/`, or a
+    slash-containing first token), dispatch from the root instead of the
+    current REPL path. Returns (base_path, cleaned_parts).
+
+    The motivating case: hint lines printed by error renderers (e.g.
+    "Try: sg aws bedrock check") should be copy-pasteable into the REPL
+    from any depth. Without this, `sg/aws/bedrock/chat>` looking at a
+    failure with that hint tries to find `sg` as a sub-command of `chat`
+    and errors with "No such command 'sg'".
+
+    Recognised forms:
+      ['sg', 'aws', 'bedrock', 'check']          → ([], ['aws','bedrock','check'])
+      ['/aws/bedrock', 'check']                  → ([], ['aws','bedrock','check'])
+      ['sg/aws/bedrock', 'check']                → ([], ['aws','bedrock','check'])
+      ['aws', 'bedrock']                          → (current_path, ['aws','bedrock'])    (no-op)
+      []                                          → (current_path, [])                    (no-op)
+    """                                                                          # inline
+    if not parts:
+        return list(current_path), list(parts)
+    first = parts[0]
+    # Relative-nav tokens (`..`, `./foo`, `../agent`) must NOT be treated as
+    # absolute even though they contain `/` — let `_apply_relative_navigation`
+    # handle them. Without this guard, `../agent` from `aws/bedrock/chat`
+    # would re-base to root and lose the parent-path context.
+    if first.startswith('..') or first.startswith('./') or first in ('.', 'back'):
+        return list(current_path), list(parts)
+    is_absolute = (first == 'sg'
+                   or first.startswith('/')
+                   or first.startswith('sg/')
+                   or '/' in first and not first.startswith('-'))                # `aws/bedrock` first-token also treated as absolute
+    if not is_absolute:
+        return list(current_path), list(parts)
+    flattened = normalise_initial_path(parts)
+    return [], flattened
+
+
+def _assemble_args(base_path, parts, sg_app=None, resolve_fn=None):
+    """Assemble the full click argv for a REPL line.
+
+    Hoists --debug / -D to position 0 so the top-level @app.callback() fires
+    (Click rejects --debug at the verb level — it's a top-level option).
+    Returns (full_args, resolved_path, trailing_args, ambiguous_candidates).
+    When ambiguous, full_args is None and ambiguous_candidates is populated.
+    """
+    debug_present, parts_clean = _extract_debug_flag(parts)
+    if resolve_fn is None or sg_app is None:                        # caller supplied no resolver — pure hoist mode
+        full = (['--debug'] if debug_present else []) + list(parts_clean)
+        return full, None, None, None
+    resolved, trailing = resolve_fn(sg_app, base_path, parts_clean)
+    if resolved is None:
+        return None, None, list(trailing), trailing                 # ambiguous — caller handles
+    full_args = (['--debug'] if debug_present else []) + resolved + trailing
+    return full_args, resolved, trailing, None
+
+
+def _handle_debug_toggle(parts) -> bool:                            # True = handled; don't dispatch
+    if not (parts and parts[0] == 'debug' and len(parts) == 2 and parts[1] in ('on', 'off')):
+        return False
+    from sg_compute.cli.base.Spec__CLI__Errors import set_debug
+    set_debug(parts[1] == 'on')
+    console.print(f'  [dim]debug {parts[1]}[/dim]')
+    return True
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # Cli__SG__Repl — Type_Safe wrapper exposing prompt + as-handler for testability
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -122,17 +497,36 @@ class Cli__SG__Repl(Type_Safe):
 # REPL loop
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def run_repl(sg_app=None):
+def run_repl(sg_app=None, initial_path=None):
     if sg_app is None:                                                          # `sg-repl` console-script entry point
         from sg_compute.cli.Cli__SG import app as _sg_app
         sg_app = _sg_app
 
+    repl      = Cli__SG__Repl(context=Sg__Aws__Context()).setup()
+
+    if initial_path:                                                            # `sg repl aws bedrock` → start already navigated into aws/bedrock
+        for segment in initial_path:
+            if not _is_group(sg_app, repl.path):
+                console.print(f'  [yellow]Initial path stops at {repl.path}: {segment!r} is not a navigable group; ignoring rest.[/]')
+                break
+            available  = _children(sg_app, repl.path) - ({'repl'} if not repl.path else set())
+            hits, kind = _match(segment, available)
+            if len(hits) == 1:
+                repl.path.append(hits[0])
+                if kind == 'substring':
+                    console.print(f"  [dim]→ matched {segment!r} as {hits[0]!r} (substring)[/]")
+            elif len(hits) > 1:
+                console.print(f"  [yellow]Initial path: {segment!r} is ambiguous (matches {hits}); stopping at {repl.path}[/]")
+                break
+            else:
+                console.print(f"  [yellow]Initial path: {segment!r} not found under {repl.path}; stopping[/]")
+                break
+
     try:
-        import readline                                                         # arrow keys + history; stdlib on Linux/Mac
+        import readline                                                         # arrow keys + history + tab completion; stdlib on Linux/Mac
+        _setup_tab_completion(sg_app, lambda: repl.path, readline)
     except ImportError:
         pass
-
-    repl      = Cli__SG__Repl(context=Sg__Aws__Context()).setup()
     role_line = f'role: {repl.context.current_role}' if repl.context.has_role() else 'role: (none)'
 
     console.print('\n  [bold]SG/Compute shell[/bold]  —  type a section to enter it, [bold]help[/bold] to list all')
@@ -155,16 +549,23 @@ def run_repl(sg_app=None):
         if not line:
             continue
 
-        parts = line.split()
+        try:
+            parts = shlex.split(line, posix=True)                       # respect quoted strings: `nova "what is your model?"` → ['nova', 'what is your model?']
+        except ValueError:                                              # mismatched quotes etc — fall back to naive split + warn
+            console.print('  [dim yellow](note: unclosed quote — falling back to naive whitespace split)[/]')
+            parts = line.split()
+        if not parts:
+            continue
         cmd   = parts[0]
 
         if cmd in repl.exit_words:
             break
 
-        if cmd in ('..', 'back'):
-            if repl.path:
-                repl.path.pop()
-            _invoke(sg_app, (repl.path + ['--help']) if repl.path else ['--help'])
+        if _handle_shell_builtin(parts):                                         # shell builtins: export / unset / cd — handled in-process; must come BEFORE bash-escape
+            continue
+
+        if _is_bash_command(parts, sg_children=_children(sg_app, repl.path)):    # bash escape: pwd / ls / cat / ... + explicit `!cmd ...` — sg verb wins over bash for same name
+            _run_bash(parts)
             continue
 
         if cmd in ('?', 'help', 'h'):
@@ -174,12 +575,37 @@ def run_repl(sg_app=None):
         if repl._handle_as(parts):                                              # as <role> pseudo-command
             continue
 
-        resolved, trailing = _resolve(sg_app, repl.path, parts)
+        if _handle_debug_toggle(parts):                                         # debug on / debug off pseudo-command
+            continue
+
+        debug_present, parts_clean = _extract_debug_flag(parts)                 # hoist --debug / -D out before _resolve
+
+        # `sg <anything>` or `/<anything>` typed inside the REPL → dispatch
+        # from the ROOT, not from repl.path. Lets users copy-paste the help-hints
+        # we render in error messages (`sg aws bedrock check`) and have them
+        # work from anywhere in the tree.
+        dispatch_base, parts_clean = _maybe_absolute_dispatch(parts_clean, repl.path)
+
+        # `..` / `back` / `.` and composite forms (`../agent`, `.. agent`,
+        # `../../aws/observe`) all normalised in one pass before _resolve.
+        dispatch_base, parts_clean = _apply_relative_navigation(parts_clean, dispatch_base)
+
+        # Pure navigation (no remaining parts after applying ..) — update REPL
+        # path and show help at the new location. Equivalent to the old
+        # `..`/`back` special case but composes with `../..` etc.
+        if not parts_clean:
+            if dispatch_base != list(repl.path):
+                repl.path[:] = dispatch_base
+            _invoke(sg_app, (repl.path + ['--help']) if repl.path else ['--help'])
+            continue
+
+        resolved, trailing         = _resolve(sg_app, dispatch_base, parts_clean)
 
         if resolved is None:
             console.print(f'  [dim]{" ".join(trailing)}[/dim]')                # ambiguous — show candidates
-        elif len(parts) == 1 and not trailing and _is_group(sg_app, resolved) and resolved != repl.path:
+        elif len(parts_clean) == 1 and not trailing and _is_group(sg_app, resolved) and resolved != repl.path:
             repl.path[:] = resolved                                             # single word → group: navigate
             _invoke(sg_app, repl.path + ['--help'])
         else:
-            _invoke(sg_app, resolved + trailing)                               # execute without navigating
+            full_args = (['--debug'] if debug_present else []) + resolved + trailing
+            _invoke(sg_app, full_args)                                          # execute without navigating

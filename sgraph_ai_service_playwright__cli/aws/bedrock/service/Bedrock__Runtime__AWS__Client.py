@@ -3,17 +3,14 @@
 # Sole boto3 boundary for the Bedrock runtime API (service name 'bedrock-runtime').
 # Handles converse calls for all chat providers.
 #
-# Note: boto3.session.Session() is used in current_region() for config reading
-# only — no client calls bypass Sg__Aws__Session.
 # ═══════════════════════════════════════════════════════════════════════════════
-
-import boto3                                                                     # used only in current_region() for config reading
 
 from osbot_utils.type_safe.Type_Safe                                             import Type_Safe
 
+from sgraph_ai_service_playwright__cli.aws._shared.Aws__Region__Resolver         import Aws__Region__Resolver
 from sgraph_ai_service_playwright__cli.credentials.service.Sg__Aws__Session      import Sg__Aws__Session
 
-FALLBACK_REGION = 'us-east-1'
+FALLBACK_REGION = 'us-east-1'                                                    # default for tests that need a stable region
 
 
 class Bedrock__Runtime__AWS__Client(Type_Safe):
@@ -28,9 +25,8 @@ class Bedrock__Runtime__AWS__Client(Type_Safe):
         self.setup()
         return self.session.boto3_client_from_context('bedrock-runtime', region=region or self.current_region())
 
-    def current_region(self) -> str:                                             # Returns the boto3 configured region, falling back to us-east-1
-        region = boto3.session.Session().region_name
-        return region if region else FALLBACK_REGION
+    def current_region(self) -> str:
+        return str(Aws__Region__Resolver().resolve())
 
     def converse(self, model_id: str, prompt: str, region: str = None) -> dict:
         """Send a single-turn converse request; returns the raw boto3 response."""  # inline
@@ -52,14 +48,11 @@ class Bedrock__Runtime__AWS__Client(Type_Safe):
                 yield event
 
     def extract_text(self, response: dict) -> str:                               # Extract the assistant text from a converse response
-        try:
-            output   = response.get('output', {})
-            message  = output.get('message', {})
-            contents = message.get('content', [])
-            parts    = [c.get('text', '') for c in contents if c.get('text')]
-            return '\n'.join(parts)
-        except Exception:
-            return ''
+        output   = response.get('output', {})
+        message  = output.get('message', {})
+        contents = message.get('content', [])
+        parts    = [c.get('text', '') for c in contents if c.get('text')]
+        return '\n'.join(parts)
 
     def extract_usage(self, response: dict) -> tuple:                            # Returns (input_tokens, output_tokens) from a converse response
         usage = response.get('usage', {})

@@ -893,7 +893,7 @@ def records_add(arg1         : str  = typer.Argument(None,  help='FQDN (e.g. tes
             raise typer.Exit(4)
 
     if not yes:                                                                       # Always-on confirm (replaces the env gate); --yes skips it
-        confirmed = typer.confirm(f'Create {fqdn} {rtype} → {value} (TTL {ttl}s)?', default=False)
+        confirmed = typer.confirm(f'Create {fqdn} {rtype} → {value} (TTL {ttl}s)?', default=True)
         if not confirmed:
             typer.echo('Aborted.')
             raise typer.Exit(0)
@@ -997,7 +997,7 @@ def records_update(name       : str  = typer.Argument(...,  help='Record name (F
         c = Console(highlight=False)
         c.print(f'\n  old: {old_vals} (TTL {existing.ttl}s) → new: {value} (TTL {ttl}s)\n')
     if not yes:
-        confirmed = typer.confirm('Apply this update?', default=False)
+        confirmed = typer.confirm('Apply this update?', default=True)
         if not confirmed:
             typer.echo('Aborted.')
             raise typer.Exit(0)
@@ -1203,7 +1203,7 @@ def instance_create_record(
                        f'Use --force to upsert.', err=True)
             raise typer.Exit(4)
     if not yes:
-        confirmed = typer.confirm(f'Create {fqdn} → {public_ip} (TTL {ttl}s)?', default=False)
+        confirmed = typer.confirm(f'Create {fqdn} → {public_ip} (TTL {ttl}s)?', default=True)
         if not confirmed:
             typer.echo('Aborted.')
             raise typer.Exit(0)

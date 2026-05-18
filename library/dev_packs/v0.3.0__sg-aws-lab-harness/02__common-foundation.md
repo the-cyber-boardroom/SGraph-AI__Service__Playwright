@@ -2,7 +2,7 @@
 title: "02 — Common foundation (must land first)"
 file: 02__common-foundation.md
 author: Architect (Claude)
-date: 2026-05-17 (rev 2)
+date: 2026-05-17 (rev 3 — after v0.2.29 _shared/ landed)
 parent: README.md
 ---
 
@@ -10,7 +10,27 @@ parent: README.md
 
 **Everything in this file must land in a single PR before any of Sonnet Agents A-E starts.** Without it, the per-agent slices have no harness to plug into.
 
-Owner: a single dedicated "foundation" PR — call it **Agent 0** (Sonnet, Opus-reviewed). Size: ~1 day. Out of the ~7800-line total, the foundation is ~1500 lines of scaffolding that the other slices then fill in.
+Owner: a single dedicated "foundation" PR — call it **Agent 0** (Sonnet, Opus-reviewed). Size: ~0.75 day (down from rev 2's ~1 day because v0.2.29's `_shared/` provides ~30% of the plumbing). Foundation is ~1000 lines of lab-specific scaffolding on top of `_shared/`.
+
+---
+
+## 0. What the lab inherits from `sgraph_ai_service_playwright__cli/aws/_shared/` (v0.2.29)
+
+The lab is built **on top of** the shared AWS scaffold that landed in v0.2.29. Per Decision #9, do NOT reinvent any of:
+
+| `_shared/` artefact | Lab uses it for |
+|---------------------|-----------------|
+| `Mutation__Gate.py` — `@require_mutation_gate(env_var)` decorator | Every mutating `sg aws lab` verb gets `@require_mutation_gate('SG_AWS__LAB__ALLOW_MUTATIONS')` |
+| `Aws__Confirm.py` — `confirm_or_abort(msg, yes, dry_run)` | Lab's `--yes` / `--dry-run` UX; Tier-2 `--tier-2-confirm` wraps this |
+| `Aws__Tagger.py` — `tags_for(surface, verb, session_id) -> List__Schema__AWS__Tag` | Base for `Lab__Tagger` (adds `sg:lab:*` keys on top of the canonical 5 `sg:*` tags) |
+| `Aws__Region__Resolver.py` — 6-tier precedence (env / role / config / etc.) | `Lab__Runner` region resolution |
+| `source_contract/Source__Contract.py` (ABC) + companion types | `Lab__Source__Adapter` implements this so lab read-only experiments appear in `sg aws observe sources` |
+| `primitives/Safe_Str__AWS__{ARN,Region,Account_Id,Role__ARN,Tag_Key,Tag_Value}` | Reused directly in lab schemas |
+| `schemas/Schema__AWS__{Tag,ARN,Resource__Reference,Source__Event}` | Reused directly; lab schemas compose these |
+| `collections/List__Schema__AWS__{Tag,Source__Event}` | Reused directly |
+| `enums/Enum__AWS__{Surface,Mutation__Tier}` | `Enum__Lab__Tier` **aligns with** `Enum__AWS__Mutation__Tier` — same three values (READ_ONLY / MUTATING_LOW / MUTATING_HIGH). Use the shared enum; do not redeclare. |
+
+If a lab schema needs e.g. a `tag_key` field, it uses `Safe_Str__AWS__Tag_Key` from `_shared/primitives/` — not a new `Safe_Str__Lab__Tag_Key`. The lab adds new primitives ONLY for lab-specific concepts (`Safe_Str__Lab__Run_Id`, `Safe_Str__Lab__Experiment_Name`, etc.).
 
 ---
 
@@ -32,11 +52,12 @@ Production code (all under `sgraph_ai_service_playwright__cli/aws/lab/`):
   - `now_iso() / stopwatch(label) / log(...)`
   - client accessors `r53() / cf() / lambda_() / dig() / authoritative_checker() / public_resolver_checker()` — return the existing `*__AWS__Client` from `aws/<svc>/service/`. For P0+P1 only `r53()`, `dig()`, and the two resolver checkers are wired in foundation. `cf()` and `lambda_()` raise `Lab__Phase__Not_Ready__Error` until v2 vault-publish 2a/2b ship the expanded primitives — see decision #2.
 - `Lab__Ledger.py` — append-only JSONL writer/reader with file locking
-- `Lab__Sweeper.py` — tag-driven discovery + delete. R53 / CF / Lambda / ACM / EC2 / SSM / IAM resource scanners; CLI driver in `Cli__Lab.py sweep`
-- `Lab__Tagger.py` — centralised application of the five required tags (`sg:lab`, `sg:lab:run-id`, `sg:lab:experiment`, `sg:lab:expires-at`, `sg:lab:created-by`)
-- `Lab__Safety__Account_Guard.py` — refuses to run if `SG_AWS__LAB__EXPECTED_ACCOUNT_ID` is set and doesn't match `sts.get_caller_identity()`
+- `Lab__Sweeper.py` — tag-driven discovery + delete. R53 / CF / Lambda / ACM / EC2 / SSM / IAM resource scanners; CLI driver in `Cli__Lab.py sweep`. **Reuses v0.2.29 surfaces:** EC2 sweep via `EC2__AWS__Client.list_instances(tag_filters=...)`; S3 sweep (if used) via `S3__AWS__Client`; IAM role sweep can leverage `Iam__Graph__Builder` for graph-aware cleanup.
+- `Lab__Tagger.py` — **thin extension of `_shared/Aws__Tagger`**. Adds `sg:lab` + `sg:lab:run-id` + `sg:lab:experiment` + `sg:lab:expires-at` + `sg:lab:created-by` on top of the canonical 5 `sg:*` tags. Returns the same `List__Schema__AWS__Tag` type.
+- `Lab__Safety__Account_Guard.py` — refuses to run if `SG_AWS__LAB__EXPECTED_ACCOUNT_ID` is set and doesn't match `sts.get_caller_identity()`. The STS call goes through `Sg__Aws__Session.from_context()` so it inherits any role configured by the operator.
 - `Lab__Timing.py` — `perf_counter` wrapper, ISO timestamps, duration helpers
 - `Lab__Phase__Not_Ready__Error.py` — exception raised by `Lab__Runner.cf()` / `lambda_()` accessors when their gating v2 phase hasn't shipped yet. One-line exception class subclassing `Exception`.
+- `Lab__Source__Adapter.py` — implements `Source__Contract` from `_shared/source_contract/`. Surfaces lab read-only experiments to `sg aws observe`. For each lab experiment with `tier == READ_ONLY`, registers a source named `lab:<experiment-name>` so `sg aws observe sources` lists them and `sg aws observe tail lab:resolver-latency` streams results. **Per Decision #10.**
 - `teardown/Lab__Teardown__Dispatcher.py` — maps `Enum__Lab__Resource_Type` → teardown fn
 - `teardown/Lab__Teardown__R53.py` — full implementation (DNS is the only mutating surface in P1)
 - `teardown/Lab__Teardown__{CF,Lambda,ACM,EC2,SSM,IAM}.py` — **stub files that raise `NotImplementedError`**. Agents B/C/D fill these in for their slices.
@@ -45,38 +66,39 @@ Production code (all under `sgraph_ai_service_playwright__cli/aws/lab/`):
 - `renderers/Render__JSON.py` — pretty JSON dump
 - **(no `temp_clients/` folder)** — per rev 2 decision #2.
 
-### `schemas/` (per-class files)
+### `schemas/` (per-class files) — lab-specific only; reuse `_shared/schemas/` for anything AWS-generic
 
 Foundation schemas (every per-agent PR adds its own `Schema__Lab__Result__*` later):
 
-- `Schema__Lab__Ledger__Entry.py`
-- `Schema__Lab__Run__Result.py`
+- `Schema__Lab__Ledger__Entry.py` — references `_shared/Schema__AWS__Resource__Reference` for `resource_id` field
+- `Schema__Lab__Run__Result.py` — composes `_shared/Schema__AWS__Tag` for the tag list
 - `Schema__Lab__Experiment__Metadata.py`
 - `Schema__Lab__Timing__Sample.py`
 - `Schema__Lab__Sweep__Report.py`
-- `Schema__Lab__Account__Identity.py`
+- `Schema__Lab__Account__Identity.py` — references `_shared/Safe_Str__AWS__Account_Id` and `Safe_Str__AWS__ARN`
 
-### `enums/` (per-class files)
+### `enums/` (per-class files) — lab-specific only
 
-- `Enum__Lab__Resource_Type.py` — `R53_RECORD | CF_DISTRIBUTION | LAMBDA | LAMBDA_URL | ACM_CERT | EC2_INSTANCE | SG | IAM_ROLE | SSM_PARAM`. Each value carries `teardown_order` (10, 20, 30, ...).
+- `Enum__Lab__Resource_Type.py` — `R53_RECORD | CF_DISTRIBUTION | LAMBDA | LAMBDA_URL | ACM_CERT | EC2_INSTANCE | SG | IAM_ROLE | SSM_PARAM | S3_BUCKET`. Each value carries `teardown_order` (10, 20, 30, ...). (S3_BUCKET added in rev 3 since v0.2.29 ships S3 support and the lab may need S3 storage for the lab Lambda's body-size experiment.)
 - `Enum__Lab__Entry__State.py` — `PENDING | DELETED | FAILED | ABANDONED | DELETED_PENDING_CF_DISABLE`
-- `Enum__Lab__Tier.py` — `READ_ONLY | MUTATING_LOW | MUTATING_HIGH`
-- `Enum__Lab__Tag__Key.py` — the five tag keys
 - `Enum__Lab__Experiment__Status.py` — `PENDING | RUNNING | OK | FAILED | TIMEOUT | ABORTED`
+- **`Enum__Lab__Tag__Key.py` — DELETED.** The 5 canonical `sg:*` tag keys live in `_shared/primitives/Safe_Str__AWS__Tag_Key.py` already; lab adds its `sg:lab:*` keys as instances of that primitive, not a new enum.
+- **`Enum__Lab__Tier.py` — DELETED.** Use `_shared/enums/Enum__AWS__Mutation__Tier` directly (same three values).
 
-### `primitives/` (per-class files)
+### `primitives/` (per-class files) — lab-specific only
 
 - `Safe_Str__Lab__Run_Id.py` — pattern `<iso-ts-z>__<6-char-nonce>`
 - `Safe_Str__Lab__Entry_Id.py` — uuid4 hex
-- `Safe_Str__Lab__Resource_Id.py` — opaque AWS-side id
 - `Safe_Str__Lab__Experiment_Name.py` — e.g. `"propagation-timeline"`
-- `Safe_Str__Timestamp.py` — ISO 8601 UTC
 - `Safe_Int__Duration_Ms.py`
+- **`Safe_Str__Lab__Resource_Id.py` — DELETED.** Use `_shared/Safe_Str__AWS__ARN` or the existing per-service id primitives (`Safe_Str__Hosted_Zone_Id` from `dns/`, `Safe_Str__Lambda__Arn` from `lambda_/`, etc.).
+- **`Safe_Str__Timestamp.py` — DELETED.** Use `_shared/primitives/Safe_Str__Iso8601_Timestamp` if it exists; otherwise add to `_shared/` (PR against the shared package), not to lab.
 
 ### `collections/` (per-class files)
 
 - `List__Schema__Lab__Ledger__Entry.py`
 - `List__Schema__Lab__Timing__Sample.py`
+- (lab does NOT need its own `List__Schema__AWS__Tag` — use `_shared/collections/` for that.)
 
 ### Experiment registry
 
@@ -210,8 +232,13 @@ Before merging the foundation PR:
 - [ ] `Lab__Runner.create_and_register(...)` writes ledger entry *before* invoking the factory (verified by test)
 - [ ] `Lab__Sweeper` refuses to delete a resource missing any of the three required tags (verified by test)
 - [ ] `.sg-lab/` is in `.gitignore`
-- [ ] `library/catalogue/cli.md` and `library/catalogue/infra.md` mention `aws/lab/`; corresponding `team/roles/librarian/reality/cli/index.md` updated
-- [ ] **No `boto3` import in `aws/lab/`** — every AWS call goes through an existing `*__AWS__Client` (which itself routes through `Sg__Aws__Session.from_context().boto3_client_from_context()` per decision #6). The one exception is `Lab__Safety__Account_Guard` calling STS `GetCallerIdentity` directly, which uses `Sg__Aws__Session` too.
+- [ ] `library/catalogue/cli.md` and `library/catalogue/infra.md` mention `aws/lab/`; corresponding `team/roles/librarian/reality/cli/index.md` updated (per the rolling pattern set by the v0.2.29 slice debriefs)
+- [ ] **No `boto3` import in `aws/lab/`** — every AWS call goes through an existing `aws/<svc>/service/*__AWS__Client`. `Lab__Safety__Account_Guard` calls STS via `Sg__Aws__Session.from_context()`.
+- [ ] **No reinvented primitives / schemas / enums** — `_shared/` is imported where it applies. `git grep -E "Safe_Str__Lab__(Tag_Key|Resource_Id|Timestamp)" aws/lab/` returns empty.
+- [ ] `Lab__Tagger` extends `Aws__Tagger.tags_for(...)`; does not duplicate the canonical 5 `sg:*` tags
+- [ ] Every mutating `sg aws lab` verb is decorated with `@require_mutation_gate('SG_AWS__LAB__ALLOW_MUTATIONS')` from `_shared/Mutation__Gate.py`
+- [ ] Mutating experiments use `confirm_or_abort(...)` from `_shared/Aws__Confirm.py` for `--yes`/`--dry-run`; Tier-2 wraps this with the extra `--tier-2-confirm` check
+- [ ] `Lab__Source__Adapter` implements `Source__Contract` and registers every `READ_ONLY` experiment with `sg aws observe`'s `Source__Registry` (Decision #10)
 
 Once these are green, fire Agents A and E in parallel (no v2 dependency). Agents B and C wait for v2 phases 2b/2a respectively. Agent D waits for B + C.
 

@@ -12,6 +12,7 @@ import base64
 import json
 
 import boto3                                                                          # EXCEPTION — see module header
+from botocore.exceptions import ClientError
 
 from osbot_utils.type_safe.Type_Safe                                                          import Type_Safe
 
@@ -65,8 +66,11 @@ class Lambda__AWS__Client(Type_Safe):
         try:
             self.client().get_function(FunctionName=name)
             return True
-        except Exception:
-            return False
+        except ClientError as exc:
+            code = exc.response.get('Error', {}).get('Code', '')
+            if code == 'ResourceNotFoundException':
+                return False
+            raise
 
     def list_versions(self, name: str) -> list:
         lc      = self.client()
@@ -98,25 +102,14 @@ class Lambda__AWS__Client(Type_Safe):
         return results
 
     def list_tags(self, arn: str) -> dict:
-        try:
-            resp = self.client().list_tags(Resource=arn)
-            return resp.get('Tags', {})
-        except Exception:
-            return {}
+        resp = self.client().list_tags(Resource=arn)
+        return resp.get('Tags', {})
 
-    def tag_resource(self, arn: str, tags: dict) -> bool:
-        try:
-            self.client().tag_resource(Resource=arn, Tags=tags)
-            return True
-        except Exception:
-            return False
+    def tag_resource(self, arn: str, tags: dict) -> None:
+        self.client().tag_resource(Resource=arn, Tags=tags)
 
-    def untag_resource(self, arn: str, keys: list) -> bool:
-        try:
-            self.client().untag_resource(Resource=arn, TagKeys=keys)
-            return True
-        except Exception:
-            return False
+    def untag_resource(self, arn: str, keys: list) -> None:
+        self.client().untag_resource(Resource=arn, TagKeys=keys)
 
     def invoke(self, name: str, payload: bytes = b'{}',
                async_: bool = False, log_type: str = 'None') -> Schema__Lambda__Invoke__Response:
@@ -147,7 +140,7 @@ class Lambda__AWS__Client(Type_Safe):
                 success        = status_code in (200, 202, 204),
                 message        = function_error or 'ok',
             )
-        except Exception as e:
+        except ClientError as e:
             return Schema__Lambda__Invoke__Response(
                 name    = Safe_Str__Lambda__Name(name),
                 success = False,
@@ -158,19 +151,12 @@ class Lambda__AWS__Client(Type_Safe):
         allowed = {'Handler', 'Runtime', 'Timeout', 'MemorySize', 'Description', 'Environment'}
         kwargs  = {k: v for k, v in fields.items() if k in allowed}
         kwargs['FunctionName'] = name
-        try:
-            self.client().update_function_configuration(**kwargs)
-            return Schema__Lambda__Update__Response(
-                name    = Safe_Str__Lambda__Name(name),
-                success = True,
-                message = 'updated',
-            )
-        except Exception as e:
-            return Schema__Lambda__Update__Response(
-                name    = Safe_Str__Lambda__Name(name),
-                success = False,
-                message = str(e),
-            )
+        self.client().update_function_configuration(**kwargs)
+        return Schema__Lambda__Update__Response(
+            name    = Safe_Str__Lambda__Name(name),
+            success = True,
+            message = 'updated',
+        )
 
     # ── URL management ────────────────────────────────────────────────────────
 
@@ -178,8 +164,11 @@ class Lambda__AWS__Client(Type_Safe):
         try:
             resp = self.client().get_function_url_config(FunctionName=name)
             return self._parse_url_info(name, resp)
-        except Exception:
-            return Schema__Lambda__Url__Info(name=Safe_Str__Lambda__Name(name), exists=False)
+        except ClientError as exc:
+            code = exc.response.get('Error', {}).get('Code', '')
+            if code == 'ResourceNotFoundException':
+                return Schema__Lambda__Url__Info(name=Safe_Str__Lambda__Name(name), exists=False)
+            raise
 
     def create_function_url(self, name: str,
                              auth_type: Enum__Lambda__Url__Auth_Type = Enum__Lambda__Url__Auth_Type.NONE
@@ -199,34 +188,20 @@ class Lambda__AWS__Client(Type_Safe):
         return self._parse_url_info(name, resp)
 
     def delete_function_url(self, name: str) -> Schema__Lambda__Action__Response:
-        try:
-            self.client().delete_function_url_config(FunctionName=name)
-            return Schema__Lambda__Action__Response(
-                name    = Safe_Str__Lambda__Name(name),
-                success = True,
-                message = 'url deleted',
-            )
-        except Exception as e:
-            return Schema__Lambda__Action__Response(
-                name    = Safe_Str__Lambda__Name(name),
-                success = False,
-                message = str(e),
-            )
+        self.client().delete_function_url_config(FunctionName=name)
+        return Schema__Lambda__Action__Response(
+            name    = Safe_Str__Lambda__Name(name),
+            success = True,
+            message = 'url deleted',
+        )
 
     def delete_function(self, name: str) -> Schema__Lambda__Action__Response:
-        try:
-            self.client().delete_function(FunctionName=name)
-            return Schema__Lambda__Action__Response(
-                name    = Safe_Str__Lambda__Name(name),
-                success = True,
-                message = 'deleted',
-            )
-        except Exception as e:
-            return Schema__Lambda__Action__Response(
-                name    = Safe_Str__Lambda__Name(name),
-                success = False,
-                message = str(e),
-            )
+        self.client().delete_function(FunctionName=name)
+        return Schema__Lambda__Action__Response(
+            name    = Safe_Str__Lambda__Name(name),
+            success = True,
+            message = 'deleted',
+        )
 
     # ── internal ──────────────────────────────────────────────────────────────
 

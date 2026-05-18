@@ -101,7 +101,7 @@ class Lambda__App__Group(click.Group):                                          
             '  sg aws lambda <name> invocations — recent invocations\n\n'
             '<name> accepts fuzzy substrings — e.g. "waker" for "sg-compute-vault-publish-waker".'
         )
-        super().__init__(name='lambda', help=help_text, **attrs)
+        super().__init__(name='lambda', help=help_text, no_args_is_help=True, **attrs)
         self._resolver = resolver or Lambda__Name__Resolver()
         self.add_command(cmd_list, 'list')
 

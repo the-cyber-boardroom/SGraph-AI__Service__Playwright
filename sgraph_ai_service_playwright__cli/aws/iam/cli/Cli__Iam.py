@@ -25,6 +25,7 @@ from rich.table   import Table
 
 from sg_compute.cli.base.Spec__CLI__Errors                                              import spec_cli_errors
 
+from sgraph_ai_service_playwright__cli.aws._shared.Aws__Confirm                         import confirm_or_abort
 from sgraph_ai_service_playwright__cli.aws.iam.enums.Enum__IAM__Audit__Severity         import Enum__IAM__Audit__Severity
 from sgraph_ai_service_playwright__cli.aws.iam.enums.Enum__IAM__Trust__Service          import Enum__IAM__Trust__Service
 from sgraph_ai_service_playwright__cli.aws.iam.primitives.Safe_Str__IAM__Role_Name      import Safe_Str__IAM__Role_Name
@@ -44,8 +45,11 @@ iam_app.add_typer(policy_app, name='policy')
 iam_app.add_typer(graph_app,  name='graph')
 
 
-def _client() -> IAM__AWS__Client:
-    return IAM__AWS__Client()
+@iam_app.callback()
+def _setup_ctx(ctx: typer.Context):
+    if ctx.obj is None:
+        ctx.obj = {}
+    ctx.obj.setdefault('iam_client', IAM__AWS__Client())
 
 
 def _mutation_guard():
@@ -62,10 +66,11 @@ def _severity_style(severity: Enum__IAM__Audit__Severity) -> str:
 
 @role_app.command('list')
 @spec_cli_errors
-def role_list(prefix  : str  = typer.Option('',    '--prefix', '-p', help='Filter by role name prefix.'),
+def role_list(ctx     : typer.Context,
+              prefix  : str  = typer.Option('',    '--prefix', '-p', help='Filter by role name prefix.'),
               as_json : bool = typer.Option(False, '--json',          help='Output as JSON.')):
     """List IAM roles, optionally filtered by name prefix."""
-    roles = _client().list_roles(prefix=prefix)
+    roles = ctx.obj['iam_client'].list_roles(prefix=prefix)
     if as_json:
         typer.echo(json.dumps([dict(role_name  =str(r.role_name),
                                     role_arn   =str(r.role_arn),
@@ -88,10 +93,11 @@ def role_list(prefix  : str  = typer.Option('',    '--prefix', '-p', help='Filte
 
 @role_app.command('show')
 @spec_cli_errors
-def role_show(name    : str  = typer.Argument(...,  help='IAM role name.'),
+def role_show(ctx     : typer.Context,
+              name    : str  = typer.Argument(...,  help='IAM role name.'),
               as_json : bool = typer.Option(False, '--json', help='Output as JSON.')):
     """Show details and inline policies for an IAM role."""
-    role = _client().get_role(name)
+    role = ctx.obj['iam_client'].get_role(name)
     if role is None:
         console.print(f'[red]Role not found:[/red] {name}')
         raise typer.Exit(1)
@@ -123,7 +129,8 @@ def role_show(name    : str  = typer.Argument(...,  help='IAM role name.'),
 
 @role_app.command('create')
 @spec_cli_errors
-def role_create(name          : str  = typer.Argument(..., help='IAM role name.'),
+def role_create(ctx           : typer.Context,
+                name          : str  = typer.Argument(..., help='IAM role name.'),
                 trust_service : str  = typer.Option('lambda', '--trust-service', '-t',
                                                     help='Trust service: lambda, ec2, ecs-tasks, api-gateway.'),
                 description   : str  = typer.Option('',    '--description', '-d', help='Role description.'),
@@ -144,7 +151,7 @@ def role_create(name          : str  = typer.Argument(..., help='IAM role name.'
         trust_service= trust_map[trust_service],
         description  = description,
     )
-    resp = _client().create_role(req)
+    resp = ctx.obj['iam_client'].create_role(req)
     if as_json:
         typer.echo(json.dumps(dict(role_name=str(resp.role_name),
                                    role_arn =str(resp.role_arn),
@@ -160,32 +167,31 @@ def role_create(name          : str  = typer.Argument(..., help='IAM role name.'
 
 @role_app.command('delete')
 @spec_cli_errors
-def role_delete(name   : str  = typer.Argument(...,   help='IAM role name.'),
-                yes    : bool = typer.Option(False,  '--yes', '-y', help='Skip confirmation prompt.'),
-                as_json: bool = typer.Option(False,  '--json', help='Output as JSON.')):
+def role_delete(ctx     : typer.Context,
+                name    : str  = typer.Argument(...,   help='IAM role name.'),
+                yes     : bool = typer.Option(False,  '--yes', '-y', help='Skip confirmation prompt.'),
+                dry_run : bool = typer.Option(False,  '--dry-run',   help='Print what would happen; make no changes.'),
+                as_json : bool = typer.Option(False,  '--json', help='Output as JSON.')):
     """Delete an IAM role (detaches all policies first)."""
     _mutation_guard()
-    if not yes:
-        typer.confirm(f'Delete role "{name}"?', abort=True)
-    ok = _client().delete_role(name)
+    if not confirm_or_abort(f'Delete role "{name}"?', yes=yes, dry_run=dry_run):
+        raise typer.Exit(0)
+    ctx.obj['iam_client'].delete_role(name)
     if as_json:
-        typer.echo(json.dumps({'deleted': ok, 'role_name': name}))
+        typer.echo(json.dumps({'deleted': True, 'role_name': name}))
         return
-    if ok:
-        console.print(f'[green]Deleted[/green] {name}')
-    else:
-        console.print(f'[red]Failed to delete[/red] {name}')
-        raise typer.Exit(1)
+    console.print(f'[green]Deleted[/green] {name}')
 
 
 # ── role check ────────────────────────────────────────────────────────────────
 
 @role_app.command('check')
 @spec_cli_errors
-def role_check(name    : str  = typer.Argument(...,   help='IAM role name.'),
+def role_check(ctx     : typer.Context,
+               name    : str  = typer.Argument(...,   help='IAM role name.'),
                as_json : bool = typer.Option(False, '--json', help='Output as JSON.')):
     """Audit an IAM role for over-permissive grants. Exit 0=clean, 1=WARN, 2=CRITICAL."""
-    role = _client().get_role(name)
+    role = ctx.obj['iam_client'].get_role(name)
     if role is None:
         console.print(f'[red]Role not found:[/red] {name}')
         raise typer.Exit(2)
@@ -230,42 +236,80 @@ def role_check(name    : str  = typer.Argument(...,   help='IAM role name.'),
 
 @policy_app.command('attach')
 @spec_cli_errors
-def policy_attach(role    : str  = typer.Argument(..., help='IAM role name.'),
+def policy_attach(ctx     : typer.Context,
+                  role    : str  = typer.Argument(..., help='IAM role name.'),
                   arn     : str  = typer.Option(...,  '--arn', help='Managed policy ARN to attach.')):
     """Attach a managed policy to an IAM role."""
     _mutation_guard()
-    ok = _client().attach_managed_policy(role, arn)
-    if ok:
-        console.print(f'[green]Attached[/green] {arn} → {role}')
-    else:
-        console.print(f'[red]Failed[/red]')
-        raise typer.Exit(1)
+    ctx.obj['iam_client'].attach_managed_policy(role, arn)
+    console.print(f'[green]Attached[/green] {arn} → {role}')
 
 
 # ── policy detach ─────────────────────────────────────────────────────────────
 
 @policy_app.command('detach')
 @spec_cli_errors
-def policy_detach(role    : str  = typer.Argument(..., help='IAM role name.'),
+def policy_detach(ctx     : typer.Context,
+                  role    : str  = typer.Argument(..., help='IAM role name.'),
                   arn     : str  = typer.Option(...,  '--arn', help='Managed policy ARN to detach.')):
     """Detach a managed policy from an IAM role."""
     _mutation_guard()
-    ok = _client().detach_managed_policy(role, arn)
-    if ok:
-        console.print(f'[green]Detached[/green] {arn} from {role}')
+    ctx.obj['iam_client'].detach_managed_policy(role, arn)
+    console.print(f'[green]Detached[/green] {arn} from {role}')
+
+
+# ── policy put-inline ─────────────────────────────────────────────────────────
+
+@policy_app.command('put-inline')
+@spec_cli_errors
+def policy_put_inline(
+    ctx        : typer.Context,
+    role       : str  = typer.Argument(...,   help='IAM role name.'),
+    name       : str  = typer.Option(...,    '--name', '-n', help='Inline policy name.'),
+    file       : str  = typer.Option(None,  '--file', '-f', help='Path to JSON policy file (use - for stdin).'),
+    policy_json: str  = typer.Option(None,  '--json-str',   help='Inline JSON policy string (alternative to --file).'),
+    yes        : bool = typer.Option(False, '--yes',   '-y', help='Skip confirmation prompt.'),
+    dry_run    : bool = typer.Option(False, '--dry-run',    help='Print what would happen; make no changes.'),
+):
+    """Attach a raw JSON inline policy to an IAM role (e.g. from `bedrock setup --print-policy`)."""
+    _mutation_guard()
+    import sys
+    if file == '-':
+        raw = sys.stdin.read()
+    elif file:
+        import pathlib
+        p = pathlib.Path(file)
+        if not p.exists():
+            console.print(f'[red]File not found:[/red] {file}')
+            raise typer.Exit(1)
+        raw = p.read_text()
+    elif policy_json:
+        raw = policy_json
     else:
-        console.print(f'[red]Failed[/red]')
+        console.print('[red]Provide --file or --json-str.[/red]')
         raise typer.Exit(1)
+    try:
+        import json as _json
+        _json.loads(raw)                                                               # validate JSON before calling IAM
+    except ValueError as e:
+        console.print(f'[red]Invalid JSON:[/red] {e}')
+        raise typer.Exit(1)
+    msg = f'Put inline policy "{name}" on role "{role}"?'
+    if not confirm_or_abort(msg, yes=yes, dry_run=dry_run):
+        raise typer.Exit(0)
+    ctx.obj['iam_client'].put_raw_inline_policy(role, name, raw)
+    console.print(f'[green]Attached[/green] inline policy "{name}" → {role}')
 
 
 # ── policy list ───────────────────────────────────────────────────────────────
 
 @policy_app.command('list')
 @spec_cli_errors
-def policy_list(role    : str  = typer.Argument(...,   help='IAM role name.'),
+def policy_list(ctx     : typer.Context,
+                role    : str  = typer.Argument(...,   help='IAM role name.'),
                 as_json : bool = typer.Option(False, '--json', help='Output as JSON.')):
     """List inline and managed policies attached to an IAM role."""
-    r = _client().get_role(role)
+    r = ctx.obj['iam_client'].get_role(role)
     if r is None:
         console.print(f'[red]Role not found:[/red] {role}')
         raise typer.Exit(1)

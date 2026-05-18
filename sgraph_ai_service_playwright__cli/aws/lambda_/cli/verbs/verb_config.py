@@ -97,9 +97,5 @@ def cmd_config_set(ctx, memory, timeout, handler, runtime, env_pairs, yes):
             return
     with spec_cli_errors():
         client = Lambda__AWS__Client()
-        resp   = client.update_function_configuration(fn_name, **fields)
-        if resp.success:
-            console.print(f'[green]Updated[/green] {fn_name}')
-        else:
-            console.print(f'[red]Failed:[/red] {resp.message}')
-            raise SystemExit(1)
+        client.update_function_configuration(fn_name, **fields)
+        console.print(f'[green]Updated[/green] {fn_name}')

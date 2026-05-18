@@ -58,10 +58,6 @@ def cmd_deploy(ctx, code_path, handler, role_arn, runtime, memory, timeout, as_j
         if as_json:
             click.echo(json.dumps(resp.json(), indent=2))
             return
-        if resp.success:
-            verb = 'Created' if resp.created else 'Updated'
-            console.print(f'[green]{verb}[/green] {fn_name}')
-            console.print(f'  ARN: {resp.function_arn}')
-        else:
-            console.print(f'[red]Failed:[/red] {resp.message}')
-            raise SystemExit(1)
+        verb = 'Created' if resp.created else 'Updated'
+        console.print(f'[green]{verb}[/green] {fn_name}')
+        console.print(f'  ARN: {resp.function_arn}')

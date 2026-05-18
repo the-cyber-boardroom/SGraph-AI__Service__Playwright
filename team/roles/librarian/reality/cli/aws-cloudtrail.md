@@ -4,7 +4,7 @@ domain: cli
 subdomain: aws-cloudtrail
 version: v0.2.29
 slice: F
-status: LANDED
+status: LANDED; updated v0.2.30 Open-2 (typed primitives)
 date: 2026-05-17
 ---
 
@@ -43,6 +43,24 @@ Read-only CloudTrail events and trail inspection CLI surface. Landed in v0.2.29 
 |------|-------|-------------|
 | `sgraph_ai_service_playwright__cli/aws/cloudtrail/collections/List__Schema__CloudTrail__Event.py` | `List__Schema__CloudTrail__Event` | `Schema__CloudTrail__Event` |
 | `sgraph_ai_service_playwright__cli/aws/cloudtrail/collections/List__Schema__CloudTrail__Trail.py` | `List__Schema__CloudTrail__Trail` | `Schema__CloudTrail__Trail` |
+
+### Primitives (v0.2.30 Open-2)
+
+| File | Description |
+|------|-------------|
+| `primitives/Safe_Str__CloudTrail__Trail_Name.py` | REPLACE, allow_empty — trail name |
+| `primitives/Safe_Str__CloudTrail__Event_Id.py` | REPLACE, allow_empty — event UUID |
+| `primitives/Safe_Str__CloudTrail__Event_Time.py` | REPLACE, allow_empty — ISO-8601 timestamp |
+| `primitives/Safe_Str__CloudTrail__Event_Name.py` | REPLACE, allow_empty — API action name |
+| `primitives/Safe_Str__CloudTrail__Username.py` | REPLACE, allow_empty — IAM user/role name |
+| `primitives/Safe_Str__CloudTrail__IP_Address.py` | REPLACE, allow_empty — source IP |
+| `primitives/Safe_Str__CloudTrail__Error_Code.py` | REPLACE, allow_empty — AWS error code |
+| `primitives/Safe_Str__CloudTrail__Error_Message.py` | REPLACE, allow_empty — free-form error text |
+| `primitives/Safe_Str__CloudTrail__Json_Blob.py` | REPLACE, allow_empty — JSON-serialised AWS data |
+
+All previously raw `str` fields in `Schema__CloudTrail__Event` now use typed primitives.
+`aws_region → Safe_Str__AWS__Region`; `request_parameters`, `response_elements`, `resources → Safe_Str__CloudTrail__Json_Blob`.
+`Schema__CloudTrail__Trail`: `s3_bucket_name → Safe_Str__S3__Bucket`, `home_region → Safe_Str__AWS__Region`, `trail_arn → Safe_Str__AWS__ARN`.
 
 ### Tests
 

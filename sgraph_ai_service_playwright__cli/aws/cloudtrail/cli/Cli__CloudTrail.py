@@ -20,21 +20,25 @@ app.add_typer(events, name='events')
 app.add_typer(trail,  name='trail')
 
 
-def _client() -> CloudTrail__AWS__Client:                                        # injection seam — tests monkeypatch this
-    return CloudTrail__AWS__Client()
+@app.callback()
+def _setup_ctx(ctx: typer.Context):
+    if ctx.obj is None:
+        ctx.obj = {}
+    ctx.obj.setdefault('cloudtrail_client', CloudTrail__AWS__Client())
 
 
 # ── events list ───────────────────────────────────────────────────────────────
 
 @events.command('list')
-def events_list(user:    str  = typer.Option('', '--user',    help='Filter by IAM username.'),
+def events_list(ctx:     typer.Context,
+                user:    str  = typer.Option('', '--user',    help='Filter by IAM username.'),
                 service: str  = typer.Option('', '--service', help='Filter by event source (e.g. s3.amazonaws.com).'),
                 action:  str  = typer.Option('', '--action',  help='Filter by event name (e.g. PutObject).'),
                 since:   str  = typer.Option('1h', '--since', help='Time window: 30s, 5m, 2h, 1d, or ISO UTC.'),
                 limit:   int  = typer.Option(100, '--limit',  help='Maximum events to return (max 1000).'),
                 as_json: bool = typer.Option(False, '--json', help='Output JSON instead of a table.')):
     """List CloudTrail events with optional filters."""
-    client = _client()
+    client = ctx.obj['cloudtrail_client']
     try:
         ev_list = client.lookup_events(user=user, service=service,
                                         action=action, since=since, limit=limit)
@@ -78,10 +82,11 @@ def events_list(user:    str  = typer.Option('', '--user',    help='Filter by IA
 # ── events show ───────────────────────────────────────────────────────────────
 
 @events.command('show')
-def events_show(event_id: str  = typer.Argument(..., help='CloudTrail EventId (UUID).'),
+def events_show(ctx:      typer.Context,
+                event_id: str  = typer.Argument(..., help='CloudTrail EventId (UUID).'),
                 as_json:  bool = typer.Option(False, '--json', help='Output JSON.')):
     """Show full event JSON for a single EventId."""
-    client = _client()
+    client = ctx.obj['cloudtrail_client']
     try:
         event = client.get_event(event_id)
     except Exception as exc:
@@ -120,9 +125,10 @@ def events_show(event_id: str  = typer.Argument(..., help='CloudTrail EventId (U
 # ── trail list ────────────────────────────────────────────────────────────────
 
 @trail.command('list')
-def trail_list(as_json: bool = typer.Option(False, '--json', help='Output JSON instead of a table.')):
+def trail_list(ctx:     typer.Context,
+               as_json: bool = typer.Option(False, '--json', help='Output JSON instead of a table.')):
     """List all CloudTrail trails in the account."""
-    client = _client()
+    client = ctx.obj['cloudtrail_client']
     try:
         trails = client.list_trails()
     except Exception as exc:
@@ -171,10 +177,11 @@ def trail_list(as_json: bool = typer.Option(False, '--json', help='Output JSON i
 # ── trail show ────────────────────────────────────────────────────────────────
 
 @trail.command('show')
-def trail_show(name:    str  = typer.Argument(..., help='Trail name or ARN.'),
+def trail_show(ctx:     typer.Context,
+               name:    str  = typer.Argument(..., help='Trail name or ARN.'),
                as_json: bool = typer.Option(False, '--json', help='Output JSON.')):
     """Show trail configuration."""
-    client = _client()
+    client = ctx.obj['cloudtrail_client']
     try:
         tr = client.describe_trail(name)
     except Exception as exc:

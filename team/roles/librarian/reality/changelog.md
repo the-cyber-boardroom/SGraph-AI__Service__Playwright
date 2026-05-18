@@ -19,6 +19,20 @@ This is a pointer log, not a content log. For full delta detail, see the master 
 
 ---
 
+## 2026-05-17 (v0.2.30 Open-2 — typed primitives hygiene pass — 91 raw-str fields replaced)
+
+91 raw `str` fields across 6 AWS service schemas replaced with `Safe_Str__*` typed primitives. Three JSON-blob escape hatches in `Schema__EC2__Instance__Detail` replaced with typed collections. Debrief: `team/claude/debriefs/2026-05-17__v0.2.30-open-2-typed-primitives.md`. Key commits: `785a71a`, `1070da0`, `03fc2f9`, `17b9bf9`.
+
+- `cli/aws-ec2.md` — UPDATED: 20 new EC2 primitives + `Safe_Int__EC2__GiB`; new schemas `Schema__EC2__Security_Group__Ref`, `Schema__EC2__Block_Device__Mapping`; new collections `Dict__EC2__Tag`, `List__Schema__EC2__Security_Group__Ref`, `List__Schema__EC2__Block_Device__Mapping`; escape-hatch section added.
+- `cli/aws-fargate.md` — UPDATED: 9 new ECS primitives (`Cluster_Arn`, `Status`, `Task__Family`, `Task__Def_Arn`, `CPU`, `Memory`, `Timestamp`, `Stop_Reason`, `Group`); schema field typing section added.
+- `cli/aws-creds.md` — UPDATED: 8 new creds primitives (`Assumption_Id`, `Scope_Name`, `Caller`, `Timestamp`, `Access_Key_Id`, `Session_Token`, `Secret_Access_Key`, `Max_TTL`); schema field typing section added.
+- `cli/aws-cloudtrail.md` — UPDATED: 9 new CloudTrail primitives (`Trail_Name`, `Event_Id`, `Event_Time`, `Event_Name`, `Username`, `IP_Address`, `Error_Code`, `Error_Message`, `Json_Blob`); schema field typing section added.
+- `cli/aws-s3.md` — UPDATED: 7 new S3 primitives (`Timestamp`, `Content_Type`, `Encryption`, `Version_Id`, `Versioning`, `Prefix`, `Next_Token`); schema field typing section added.
+- `cli/aws-observe.md` — UPDATED: 2 new observe primitives (`Source_Name`, `Event_Time`); schema field types updated to show typed annotations.
+- `index.md` — UPDATED: version → v0.2.30 (in-progress).
+
+---
+
 ## 2026-05-17 PM (v0.2.29 — `sg aws` primitives expansion — Foundation + 8 slices shipped to dev)
 
 Single landing across ~94 commits on `origin/dev` (`ab0c380..759dfaa`). Root `version` bumped to **v0.2.28** (v0.2.29 not yet stamped despite the work-stream label). Source pack: `library/dev_packs/v0.2.29__sg-aws-primitives-expansion/`. Architect reviews under `team/roles/architect/reviews/05/17/v0.2.29__*.md`. Master Dev debrief: `team/claude/debriefs/2026-05-17__v0.2.29-sg-aws-primitives-expansion.md`.

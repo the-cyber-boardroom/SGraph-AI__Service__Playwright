@@ -48,8 +48,11 @@ app.add_typer(task_def_app, name='task-def')
 app.add_typer(task_app,     name='task'    )
 
 
-def _client() -> Fargate__AWS__Client:                                            # seam for in-memory test injection
-    return Fargate__AWS__Client()
+@app.callback()
+def _setup_ctx(ctx: typer.Context):
+    if ctx.obj is None:
+        ctx.obj = {}
+    ctx.obj.setdefault('fargate_client', Fargate__AWS__Client())
 
 
 # ════════════════════════════════════════════════════════════════════════════════
@@ -57,9 +60,10 @@ def _client() -> Fargate__AWS__Client:                                          
 # ════════════════════════════════════════════════════════════════════════════════
 
 @cluster_app.command('list')
-def cluster_list(as_json: bool = typer.Option(False, '--json', help='Output as JSON.')):
+def cluster_list(ctx    : typer.Context,
+                 as_json: bool = typer.Option(False, '--json', help='Output as JSON.')):
     """List all ECS Fargate clusters in the account/region."""
-    clusters = _client().list_clusters()
+    clusters = ctx.obj['fargate_client'].list_clusters()
     if as_json:
         typer.echo(json.dumps([dict(
             cluster_name  = str(c.cluster_name),
@@ -90,10 +94,11 @@ def cluster_list(as_json: bool = typer.Option(False, '--json', help='Output as J
 # ════════════════════════════════════════════════════════════════════════════════
 
 @cluster_app.command('describe')
-def cluster_describe(name   : str  = typer.Argument(...,   help='Cluster name.'),
+def cluster_describe(ctx    : typer.Context,
+                     name   : str  = typer.Argument(...,   help='Cluster name.'),
                      as_json: bool = typer.Option(False, '--json', help='Output as JSON.')):
     """Show details for an ECS cluster."""
-    c = _client().describe_cluster(name)
+    c = ctx.obj['fargate_client'].describe_cluster(name)
     if c is None:
         console.print(f'[red]Cluster not found:[/red] {name}')
         raise typer.Exit(1)
@@ -127,7 +132,8 @@ def cluster_describe(name   : str  = typer.Argument(...,   help='Cluster name.')
 
 @cluster_app.command('create')
 @require_mutation_gate(_MUTATION_ENV)
-def cluster_create(name    : str        = typer.Argument(...,   help='Cluster name.'),
+def cluster_create(ctx     : typer.Context,
+                   name    : str        = typer.Argument(...,   help='Cluster name.'),
                    tag     : List[str]  = typer.Option([],  '--tag',  '-t',
                                                       help='Tag as k=v (repeatable).'),
                    yes     : bool       = typer.Option(False, '--yes', '-y',   help='Skip confirmation.'),
@@ -141,7 +147,7 @@ def cluster_create(name    : str        = typer.Argument(...,   help='Cluster na
         k, _, v = t.partition('=')
         if k:
             tags[k] = v
-    c = _client().create_cluster(name, tags=tags)
+    c = ctx.obj['fargate_client'].create_cluster(name, tags=tags)
     if as_json:
         typer.echo(json.dumps(dict(cluster_name=str(c.cluster_name),
                                    cluster_arn =c.cluster_arn,
@@ -156,22 +162,19 @@ def cluster_create(name    : str        = typer.Argument(...,   help='Cluster na
 
 @cluster_app.command('delete')
 @require_mutation_gate(_MUTATION_ENV)
-def cluster_delete(name    : str  = typer.Argument(...,   help='Cluster name.'),
+def cluster_delete(ctx     : typer.Context,
+                   name    : str  = typer.Argument(...,   help='Cluster name.'),
                    yes     : bool = typer.Option(False, '--yes', '-y',   help='Skip confirmation.'),
                    dry_run : bool = typer.Option(False, '--dry-run',     help='Print action without executing.')):
     """Delete an ECS cluster (refuses if tasks are still running)."""
     if not confirm_or_abort(f'Delete cluster "{name}"?', yes=yes, dry_run=dry_run):
         raise typer.Exit(0)
     try:
-        ok = _client().delete_cluster(name)
+        ctx.obj['fargate_client'].delete_cluster(name)
     except ValueError as exc:
         console.print(f'[red]Cannot delete:[/red] {exc}')
         raise typer.Exit(1)
-    if ok:
-        console.print(f'[green]Deleted[/green] {name}')
-    else:
-        console.print(f'[red]Failed to delete[/red] {name}')
-        raise typer.Exit(1)
+    console.print(f'[green]Deleted[/green] {name}')
 
 
 # ════════════════════════════════════════════════════════════════════════════════
@@ -179,10 +182,11 @@ def cluster_delete(name    : str  = typer.Argument(...,   help='Cluster name.'),
 # ════════════════════════════════════════════════════════════════════════════════
 
 @task_def_app.command('list')
-def task_def_list(family : str  = typer.Option('',    '--family', '-f', help='Filter by family prefix.'),
+def task_def_list(ctx    : typer.Context,
+                  family : str  = typer.Option('',    '--family', '-f', help='Filter by family prefix.'),
                   as_json: bool = typer.Option(False, '--json',          help='Output as JSON.')):
     """List active ECS task definitions."""
-    tds = _client().list_task_definitions(family=family)
+    tds = ctx.obj['fargate_client'].list_task_definitions(family=family)
     if as_json:
         typer.echo(json.dumps([dict(
             family         = td.family,
@@ -211,10 +215,11 @@ def task_def_list(family : str  = typer.Option('',    '--family', '-f', help='Fi
 # ════════════════════════════════════════════════════════════════════════════════
 
 @task_def_app.command('show')
-def task_def_show(family_rev: str  = typer.Argument(...,   help='Family:revision, e.g. my-task:3.'),
+def task_def_show(ctx       : typer.Context,
+                  family_rev: str  = typer.Argument(...,   help='Family:revision, e.g. my-task:3.'),
                   as_json   : bool = typer.Option(False, '--json', help='Output as JSON.')):
     """Show details of a task definition."""
-    td = _client().describe_task_definition(family_rev)
+    td = ctx.obj['fargate_client'].describe_task_definition(family_rev)
     if td is None:
         console.print(f'[red]Task definition not found:[/red] {family_rev}')
         raise typer.Exit(1)
@@ -249,7 +254,8 @@ def task_def_show(family_rev: str  = typer.Argument(...,   help='Family:revision
 
 @task_def_app.command('register')
 @require_mutation_gate(_MUTATION_ENV)
-def task_def_register(name    : str       = typer.Option(...,  '--name',    '-n', help='Task family name.'),
+def task_def_register(ctx     : typer.Context,
+                      name    : str       = typer.Option(...,  '--name',    '-n', help='Task family name.'),
                       image   : str       = typer.Option(...,  '--image',   '-i', help='Container image URI.'),
                       cpu     : str       = typer.Option('256', '--cpu',          help='vCPU units (e.g. 256, 512).'),
                       memory  : str       = typer.Option('512', '--memory',       help='Memory in MiB (e.g. 512, 1024).'),
@@ -266,7 +272,7 @@ def task_def_register(name    : str       = typer.Option(...,  '--name',    '-n'
         k, _, v = e.partition('=')
         if k:
             env_dict[k] = v
-    td = _client().register_task_definition(name=name, image=image,
+    td = ctx.obj['fargate_client'].register_task_definition(name=name, image=image,
                                              cpu=cpu, memory=memory, env=env_dict)
     if td is None:
         console.print('[red]Failed to register task definition.[/red]')
@@ -287,11 +293,12 @@ def task_def_register(name    : str       = typer.Option(...,  '--name',    '-n'
 # ════════════════════════════════════════════════════════════════════════════════
 
 @task_app.command('list')
-def task_list(cluster: str  = typer.Option('',    '--cluster', '-c', help='Filter by cluster name.'),
+def task_list(ctx    : typer.Context,
+              cluster: str  = typer.Option('',    '--cluster', '-c', help='Filter by cluster name.'),
               family : str  = typer.Option('',    '--family',  '-f', help='Filter by task family.'),
               as_json: bool = typer.Option(False, '--json',          help='Output as JSON.')):
     """List running ECS tasks."""
-    tasks = _client().list_tasks(cluster=cluster, family=family)
+    tasks = ctx.obj['fargate_client'].list_tasks(cluster=cluster, family=family)
     if as_json:
         typer.echo(json.dumps([dict(
             task_arn       = str(t.task_arn),
@@ -322,11 +329,12 @@ def task_list(cluster: str  = typer.Option('',    '--cluster', '-c', help='Filte
 # ════════════════════════════════════════════════════════════════════════════════
 
 @task_app.command('describe')
-def task_describe(task_arn: str  = typer.Argument(...,   help='Task ARN.'),
+def task_describe(ctx     : typer.Context,
+                  task_arn: str  = typer.Argument(...,   help='Task ARN.'),
                   cluster : str  = typer.Option('',    '--cluster', '-c', help='Cluster name.'),
                   as_json : bool = typer.Option(False, '--json', help='Output as JSON.')):
     """Show details for a running or stopped ECS task."""
-    t = _client().describe_task(task_arn, cluster=cluster)
+    t = ctx.obj['fargate_client'].describe_task(task_arn, cluster=cluster)
     if t is None:
         console.print(f'[red]Task not found:[/red] {task_arn}')
         raise typer.Exit(1)
@@ -366,7 +374,8 @@ def task_describe(task_arn: str  = typer.Argument(...,   help='Task ARN.'),
 
 @task_app.command('run')
 @require_mutation_gate(_MUTATION_ENV)
-def task_run(cluster         : str       = typer.Option(...,   '--cluster',  '-c',  help='Target cluster name.'),
+def task_run(ctx             : typer.Context,
+             cluster         : str       = typer.Option(...,   '--cluster',  '-c',  help='Target cluster name.'),
              task_def        : str       = typer.Option(...,   '--task-def', '-t',  help='Task definition family:revision.'),
              count           : int       = typer.Option(1,     '--count',           help='Number of tasks to launch.'),
              subnet          : List[str] = typer.Option([],    '--subnet',          help='Subnet ID(s) (repeatable).'),
@@ -378,7 +387,7 @@ def task_run(cluster         : str       = typer.Option(...,   '--cluster',  '-c
     """Run a Fargate task (FARGATE launch type only)."""
     if not confirm_or_abort(f'Run task "{task_def}" on cluster "{cluster}"?', yes=yes, dry_run=dry_run):
         raise typer.Exit(0)
-    t = _client().run_task(cluster=cluster, task_def=task_def,
+    t = ctx.obj['fargate_client'].run_task(cluster=cluster, task_def=task_def,
                            count=count, subnets=subnet, security_groups=sg,
                            assign_public_ip=assign_public_ip)
     if t is None:
@@ -401,7 +410,8 @@ def task_run(cluster         : str       = typer.Option(...,   '--cluster',  '-c
 
 @task_app.command('stop')
 @require_mutation_gate(_MUTATION_ENV)
-def task_stop(task_arn: str  = typer.Argument(...,    help='Task ARN.'),
+def task_stop(ctx     : typer.Context,
+              task_arn: str  = typer.Argument(...,    help='Task ARN.'),
               cluster : str  = typer.Option('',     '--cluster', '-c', help='Cluster name.'),
               reason  : str  = typer.Option('',     '--reason',  '-r', help='Stop reason text.'),
               yes     : bool = typer.Option(False,  '--yes', '-y',      help='Skip confirmation.'),
@@ -409,12 +419,8 @@ def task_stop(task_arn: str  = typer.Argument(...,    help='Task ARN.'),
     """Stop a running ECS task."""
     if not confirm_or_abort(f'Stop task "{task_arn}"?', yes=yes, dry_run=dry_run):
         raise typer.Exit(0)
-    ok = _client().stop_task(task_arn, cluster=cluster, reason=reason)
-    if ok:
-        console.print(f'[green]Stopped[/green] {task_arn}')
-    else:
-        console.print(f'[red]Failed to stop[/red] {task_arn}')
-        raise typer.Exit(1)
+    ctx.obj['fargate_client'].stop_task(task_arn, cluster=cluster, reason=reason)
+    console.print(f'[green]Stopped[/green] {task_arn}')
 
 
 # ════════════════════════════════════════════════════════════════════════════════
@@ -422,18 +428,20 @@ def task_stop(task_arn: str  = typer.Argument(...,    help='Task ARN.'),
 # ════════════════════════════════════════════════════════════════════════════════
 
 @task_app.command('logs')
-def task_logs(task_arn: str  = typer.Argument(...,   help='Task ARN.'),
+def task_logs(ctx     : typer.Context,
+              task_arn: str  = typer.Argument(...,   help='Task ARN.'),
               cluster : str  = typer.Option('',    '--cluster', '-c', help='Cluster name.'),
               since   : str  = typer.Option('30m', '--since',   '-s', help='How far back (e.g. 30m, 1h, 2h).'),
               as_json : bool = typer.Option(False, '--json',          help='Output as JSON.')):
     """Fetch CloudWatch Logs for an ECS task (uses /ecs/<family> log group)."""
-    task = _client().describe_task(task_arn, cluster=cluster)
+    fargate_client = ctx.obj['fargate_client']
+    task = fargate_client.describe_task(task_arn, cluster=cluster)
     if task is None:
         console.print(f'[red]Task not found:[/red] {task_arn}')
         raise typer.Exit(1)
 
     family     = str(task.task_definition).split(':')[0]
-    log_group  = _client().log_group_for_task_def(family)
+    log_group  = fargate_client.log_group_for_task_def(family)
     task_short = str(task.task_arn).split('/')[-1] if '/' in str(task.task_arn) else str(task.task_arn)
 
     start_ms   = _parse_since(since)
