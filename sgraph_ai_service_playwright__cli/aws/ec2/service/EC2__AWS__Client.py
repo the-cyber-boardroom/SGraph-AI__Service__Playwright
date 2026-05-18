@@ -24,24 +24,33 @@ from sgraph_ai_service_playwright__cli.aws.ec2.collections.Dict__EC2__Tag       
 from sgraph_ai_service_playwright__cli.aws.ec2.collections.List__Schema__EC2__AMI                  import List__Schema__EC2__AMI
 from sgraph_ai_service_playwright__cli.aws.ec2.collections.List__Schema__EC2__Block_Device__Mapping import List__Schema__EC2__Block_Device__Mapping
 from sgraph_ai_service_playwright__cli.aws.ec2.collections.List__Schema__EC2__Instance             import List__Schema__EC2__Instance
+from sgraph_ai_service_playwright__cli.aws.ec2.collections.List__Schema__EC2__SG_Rule              import List__Schema__EC2__SG_Rule
+from sgraph_ai_service_playwright__cli.aws.ec2.collections.List__Schema__EC2__Security_Group       import List__Schema__EC2__Security_Group
 from sgraph_ai_service_playwright__cli.aws.ec2.collections.List__Schema__EC2__Security_Group__Ref  import List__Schema__EC2__Security_Group__Ref
 from sgraph_ai_service_playwright__cli.aws.ec2.collections.List__Schema__EC2__Snapshot             import List__Schema__EC2__Snapshot
 from sgraph_ai_service_playwright__cli.aws.ec2.enums.Enum__EC2__Instance__State                    import Enum__EC2__Instance__State
+from sgraph_ai_service_playwright__cli.aws.ec2.enums.Enum__EC2__SG_Rule_Direction                  import Enum__EC2__SG_Rule_Direction
 from sgraph_ai_service_playwright__cli.aws.ec2.primitives.Safe_Str__EC2__AMI_Id                    import Safe_Str__EC2__AMI_Id
+from sgraph_ai_service_playwright__cli.aws.ec2.primitives.Safe_Str__EC2__ENI_Id                    import Safe_Str__EC2__ENI_Id
 from sgraph_ai_service_playwright__cli.aws.ec2.primitives.Safe_Str__EC2__Instance_Id               import Safe_Str__EC2__Instance_Id
 from sgraph_ai_service_playwright__cli.aws.ec2.primitives.Safe_Str__EC2__Instance__Type            import Safe_Str__EC2__Instance__Type
+from sgraph_ai_service_playwright__cli.aws.ec2.primitives.Safe_Str__EC2__SG_Id                     import Safe_Str__EC2__SG_Id
 from sgraph_ai_service_playwright__cli.aws.ec2.primitives.Safe_Str__EC2__Snapshot_Id               import Safe_Str__EC2__Snapshot_Id
+from sgraph_ai_service_playwright__cli.aws.ec2.primitives.Safe_Str__EC2__VPC_Id                    import Safe_Str__EC2__VPC_Id
 from sgraph_ai_service_playwright__cli.aws.ec2.schemas.Schema__EC2__AMI                            import Schema__EC2__AMI
 from sgraph_ai_service_playwright__cli.aws.ec2.schemas.Schema__EC2__Block_Device__Mapping          import Schema__EC2__Block_Device__Mapping
 from sgraph_ai_service_playwright__cli.aws.ec2.schemas.Schema__EC2__Create__Request                import Schema__EC2__Create__Request
 from sgraph_ai_service_playwright__cli.aws.ec2.schemas.Schema__EC2__Instance                       import Schema__EC2__Instance
 from sgraph_ai_service_playwright__cli.aws.ec2.schemas.Schema__EC2__Instance__Detail               import Schema__EC2__Instance__Detail
+from sgraph_ai_service_playwright__cli.aws.ec2.schemas.Schema__EC2__SG_Rule                        import Schema__EC2__SG_Rule
+from sgraph_ai_service_playwright__cli.aws.ec2.schemas.Schema__EC2__Security_Group                 import Schema__EC2__Security_Group
 from sgraph_ai_service_playwright__cli.aws.ec2.schemas.Schema__EC2__Security_Group__Ref            import Schema__EC2__Security_Group__Ref
 from sgraph_ai_service_playwright__cli.aws.ec2.schemas.Schema__EC2__Snapshot                       import Schema__EC2__Snapshot
 from sgraph_ai_service_playwright__cli.credentials.service.Sg__Aws__Session                        import Sg__Aws__Session
 
 
 _AMI_ID_RE = re.compile(r'^ami-[0-9a-f]{8,17}$')                                # Used by describe_ami to choose ImageIds vs name filter
+_SG_ID_RE  = re.compile(r'^sg-[0-9a-f]{8,17}$')                                 # Used by describe_security_group to choose GroupIds vs group-name filter
 
 
 class EC2__AWS__Client(Type_Safe):
@@ -167,6 +176,82 @@ class EC2__AWS__Client(Type_Safe):
         for page in paginator.paginate(**kwargs):
             for raw in page.get('Snapshots', []):
                 result.append(self._parse_snapshot(raw))
+        return result
+
+    # ── read: security groups ────────────────────────────────────────────────
+
+    def list_security_groups(self, vpc_id: str = '', name_substring: str = ''
+                             ) -> List__Schema__EC2__Security_Group:
+        ec2     = self.client()
+        filters = []
+        if vpc_id:
+            filters.append({'Name': 'vpc-id', 'Values': [vpc_id]})
+        if name_substring:                                                      # 'group-name' filter supports * wildcard server-side
+            filters.append({'Name': 'group-name', 'Values': [f'*{name_substring}*']})
+        kwargs    = {'Filters': filters} if filters else {}
+        result    = List__Schema__EC2__Security_Group()
+        paginator = ec2.get_paginator('describe_security_groups')
+        for page in paginator.paginate(**kwargs):
+            for raw in page.get('SecurityGroups', []) or []:
+                result.append(self._parse_security_group(raw))                 # attached_eni_ids / attached_instance_ids left empty here (list view stays fast)
+        return result
+
+    def describe_security_group(self, sg_id_or_name: str, vpc_id: str = ''
+                                ) -> Optional[Schema__EC2__Security_Group]:
+        try:
+            ec2 = self.client()
+            if _SG_ID_RE.match(sg_id_or_name):                                  # Resolve by GroupIds
+                resp   = ec2.describe_security_groups(GroupIds=[sg_id_or_name])
+                groups = resp.get('SecurityGroups', []) or []
+            else:                                                               # Resolve by name; narrow with VpcId when given
+                filters = [{'Name': 'group-name', 'Values': [sg_id_or_name]}]
+                if vpc_id:
+                    filters.append({'Name': 'vpc-id', 'Values': [vpc_id]})
+                resp   = ec2.describe_security_groups(Filters=filters)
+                groups = resp.get('SecurityGroups', []) or []
+                if len(groups) > 1:                                             # SG names are scoped per-VPC — ambiguity is a real bug, never silently pick
+                    vpcs = ', '.join(sorted({g.get('VpcId', '') for g in groups}))
+                    raise ValueError(
+                        f'Ambiguous security-group name {sg_id_or_name!r}: matches in VPCs [{vpcs}]. '
+                        f'Re-run with --vpc to disambiguate.')
+            if not groups:
+                return None
+            sg = self._parse_security_group(groups[0])
+            # ── populate attached_eni_ids / attached_instance_ids ────────────
+            eni_records = self.list_network_interfaces(sg_id=str(sg.sg_id))
+            eni_ids       = []
+            instance_ids  = []
+            seen_eni      = set()
+            seen_instance = set()
+            for eni in eni_records:
+                eid = eni.get('NetworkInterfaceId', '') or ''
+                if eid and eid not in seen_eni:
+                    seen_eni.add(eid)
+                    eni_ids.append(Safe_Str__EC2__ENI_Id(eid))
+                iid = (eni.get('Attachment') or {}).get('InstanceId', '') or ''
+                if iid and iid not in seen_instance:
+                    seen_instance.add(iid)
+                    instance_ids.append(Safe_Str__EC2__Instance_Id(iid))
+            sg.attached_eni_ids      = eni_ids
+            sg.attached_instance_ids = instance_ids
+            return sg
+        except ClientError as exc:
+            code = exc.response.get('Error', {}).get('Code', '')
+            if code in ('InvalidGroup.NotFound', 'InvalidGroupId.Malformed'):
+                return None
+            raise
+
+    def list_network_interfaces(self, sg_id: str = '') -> list:                # Returns raw ENI dicts filtered by Groups.GroupId == sg_id
+        ec2     = self.client()
+        filters = []
+        if sg_id:
+            filters.append({'Name': 'group-id', 'Values': [sg_id]})
+        kwargs    = {'Filters': filters} if filters else {}
+        result    = []
+        paginator = ec2.get_paginator('describe_network_interfaces')
+        for page in paginator.paginate(**kwargs):
+            for raw in page.get('NetworkInterfaces', []) or []:
+                result.append(raw)
         return result
 
     # ── mutations ─────────────────────────────────────────────────────────────
@@ -333,6 +418,85 @@ class EC2__AWS__Client(Type_Safe):
             snapshot_ids          = snap_ids,
             attached_instance_ids = [],
         )
+
+    def _parse_security_group(self, raw: dict) -> Schema__EC2__Security_Group:
+        sg_id    = raw.get('GroupId', '')     or ''
+        name     = raw.get('GroupName', '')   or ''
+        vpc_id   = raw.get('VpcId', '')       or ''
+        desc     = raw.get('Description', '') or ''
+        owner_id = raw.get('OwnerId', '')     or ''
+        ingress  = self._parse_sg_rules(raw.get('IpPermissions', [])       or [],
+                                        Enum__EC2__SG_Rule_Direction.INGRESS)
+        egress   = self._parse_sg_rules(raw.get('IpPermissionsEgress', []) or [],
+                                        Enum__EC2__SG_Rule_Direction.EGRESS)
+        return Schema__EC2__Security_Group(
+            sg_id                 = Safe_Str__EC2__SG_Id(sg_id),
+            name                  = name,
+            vpc_id                = Safe_Str__EC2__VPC_Id(vpc_id),
+            description           = desc,
+            owner_id              = owner_id,
+            ingress_rules         = ingress,
+            egress_rules          = egress,
+            attached_eni_ids      = [],
+            attached_instance_ids = [],
+        )
+
+    def _parse_sg_rules(self, perms: list, direction: Enum__EC2__SG_Rule_Direction
+                        ) -> List__Schema__EC2__SG_Rule:
+        rules = List__Schema__EC2__SG_Rule()
+        for perm in perms:
+            proto     = perm.get('IpProtocol', '') or ''
+            from_port = int(perm.get('FromPort', -1)) if perm.get('FromPort') is not None else -1
+            to_port   = int(perm.get('ToPort', -1))   if perm.get('ToPort')   is not None else -1
+            # ── expand per-target rows (one row per cidr-ipv4 / cidr-ipv6 / referenced SG) ──
+            for r in perm.get('IpRanges', []) or []:
+                rules.append(Schema__EC2__SG_Rule(
+                    ip_protocol      = proto,
+                    from_port        = from_port,
+                    to_port          = to_port,
+                    direction        = direction,
+                    cidr_ipv4        = r.get('CidrIp', '')      or '',
+                    cidr_ipv6        = '',
+                    referenced_sg_id = Safe_Str__EC2__SG_Id(''),
+                    description      = r.get('Description', '') or '',
+                ))
+            for r in perm.get('Ipv6Ranges', []) or []:
+                rules.append(Schema__EC2__SG_Rule(
+                    ip_protocol      = proto,
+                    from_port        = from_port,
+                    to_port          = to_port,
+                    direction        = direction,
+                    cidr_ipv4        = '',
+                    cidr_ipv6        = r.get('CidrIpv6', '')    or '',
+                    referenced_sg_id = Safe_Str__EC2__SG_Id(''),
+                    description      = r.get('Description', '') or '',
+                ))
+            for r in perm.get('UserIdGroupPairs', []) or []:
+                ref_id = r.get('GroupId', '') or ''
+                rules.append(Schema__EC2__SG_Rule(
+                    ip_protocol      = proto,
+                    from_port        = from_port,
+                    to_port          = to_port,
+                    direction        = direction,
+                    cidr_ipv4        = '',
+                    cidr_ipv6        = '',
+                    referenced_sg_id = Safe_Str__EC2__SG_Id(ref_id),
+                    description      = r.get('Description', '') or '',
+                ))
+            # ── perm with no targets (degenerate) — still emit one row so caller sees the rule ──
+            if (not perm.get('IpRanges') and not perm.get('Ipv6Ranges')
+                    and not perm.get('UserIdGroupPairs')):
+                rules.append(Schema__EC2__SG_Rule(
+                    ip_protocol      = proto,
+                    from_port        = from_port,
+                    to_port          = to_port,
+                    direction        = direction,
+                    cidr_ipv4        = '',
+                    cidr_ipv6        = '',
+                    referenced_sg_id = Safe_Str__EC2__SG_Id(''),
+                    description      = '',
+                ))
+        return rules
 
     def _parse_snapshot(self, raw: dict) -> Schema__EC2__Snapshot:
         snap_id   = raw.get('SnapshotId', '')   or ''
