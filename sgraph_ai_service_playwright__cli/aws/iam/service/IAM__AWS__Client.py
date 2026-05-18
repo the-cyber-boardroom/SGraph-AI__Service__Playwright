@@ -117,32 +117,52 @@ class IAM__AWS__Client(Type_Safe):
             message   = 'created' if created else 'already exists',
         )
 
-    def delete_role(self, role_name: str) -> None:
+    def delete_role(self, role_name: str) -> bool:                                # True on success, False on ClientError (e.g. role missing)
         iam = self.client()
-        for policy_name in self._list_inline_policy_names(role_name, iam):
-            iam.delete_role_policy(RoleName=role_name, PolicyName=policy_name)
-        for arn in self._list_attached_policy_arns(role_name, iam):
-            iam.detach_role_policy(RoleName=role_name, PolicyArn=arn)
-        iam.delete_role(RoleName=role_name)
+        try:
+            for policy_name in self._list_inline_policy_names(role_name, iam):
+                iam.delete_role_policy(RoleName=role_name, PolicyName=policy_name)
+            for arn in self._list_attached_policy_arns(role_name, iam):
+                iam.detach_role_policy(RoleName=role_name, PolicyArn=arn)
+            iam.delete_role(RoleName=role_name)
+            return True
+        except ClientError:
+            return False
 
     def put_inline_policy(self, role_name: str, policy_name: str,
-                           policy: Schema__IAM__Policy) -> None:
+                           policy: Schema__IAM__Policy) -> bool:
         doc = self._policy_to_json(policy)
-        self.client().put_role_policy(RoleName      = role_name,
-                                      PolicyName    = policy_name,
-                                      PolicyDocument= doc)
+        try:
+            self.client().put_role_policy(RoleName      = role_name,
+                                          PolicyName    = policy_name,
+                                          PolicyDocument= doc)
+            return True
+        except ClientError:
+            return False
 
     def put_raw_inline_policy(self, role_name: str, policy_name: str,
-                               policy_json: str) -> None:
-        self.client().put_role_policy(RoleName      = role_name,
-                                      PolicyName    = policy_name,
-                                      PolicyDocument= policy_json)
+                               policy_json: str) -> bool:
+        try:
+            self.client().put_role_policy(RoleName      = role_name,
+                                          PolicyName    = policy_name,
+                                          PolicyDocument= policy_json)
+            return True
+        except ClientError:
+            return False
 
-    def attach_managed_policy(self, role_name: str, policy_arn: str) -> None:
-        self.client().attach_role_policy(RoleName=role_name, PolicyArn=policy_arn)
+    def attach_managed_policy(self, role_name: str, policy_arn: str) -> bool:
+        try:
+            self.client().attach_role_policy(RoleName=role_name, PolicyArn=policy_arn)
+            return True
+        except ClientError:
+            return False
 
-    def detach_managed_policy(self, role_name: str, policy_arn: str) -> None:
-        self.client().detach_role_policy(RoleName=role_name, PolicyArn=policy_arn)
+    def detach_managed_policy(self, role_name: str, policy_arn: str) -> bool:
+        try:
+            self.client().detach_role_policy(RoleName=role_name, PolicyArn=policy_arn)
+            return True
+        except ClientError:
+            return False
 
     def update_assume_role_policy(self, role_name: str,
                                    trust_service: Enum__IAM__Trust__Service) -> None:

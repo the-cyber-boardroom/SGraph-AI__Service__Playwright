@@ -104,11 +104,19 @@ class Lambda__AWS__Client(Type_Safe):
         resp = self.client().list_tags(Resource=arn)
         return resp.get('Tags', {})
 
-    def tag_resource(self, arn: str, tags: dict) -> None:
-        self.client().tag_resource(Resource=arn, Tags=tags)
+    def tag_resource(self, arn: str, tags: dict) -> bool:                            # True on success, False on ClientError (e.g. missing function)
+        try:
+            self.client().tag_resource(Resource=arn, Tags=tags)
+            return True
+        except ClientError:
+            return False
 
-    def untag_resource(self, arn: str, keys: list) -> None:
-        self.client().untag_resource(Resource=arn, TagKeys=keys)
+    def untag_resource(self, arn: str, keys: list) -> bool:
+        try:
+            self.client().untag_resource(Resource=arn, TagKeys=keys)
+            return True
+        except ClientError:
+            return False
 
     def invoke(self, name: str, payload: bytes = b'{}',
                async_: bool = False, log_type: str = 'None') -> Schema__Lambda__Invoke__Response:
@@ -150,12 +158,19 @@ class Lambda__AWS__Client(Type_Safe):
         allowed = {'Handler', 'Runtime', 'Timeout', 'MemorySize', 'Description', 'Environment'}
         kwargs  = {k: v for k, v in fields.items() if k in allowed}
         kwargs['FunctionName'] = name
-        self.client().update_function_configuration(**kwargs)
-        return Schema__Lambda__Update__Response(
-            name    = Safe_Str__Lambda__Name(name),
-            success = True,
-            message = 'updated',
-        )
+        try:
+            self.client().update_function_configuration(**kwargs)
+            return Schema__Lambda__Update__Response(
+                name    = Safe_Str__Lambda__Name(name),
+                success = True,
+                message = 'updated',
+            )
+        except ClientError as exc:
+            return Schema__Lambda__Update__Response(
+                name    = Safe_Str__Lambda__Name(name),
+                success = False,
+                message = str(exc),
+            )
 
     # ── URL management ────────────────────────────────────────────────────────
 
@@ -195,20 +210,34 @@ class Lambda__AWS__Client(Type_Safe):
         return self._parse_url_info(name, resp)
 
     def delete_function_url(self, name: str) -> Schema__Lambda__Action__Response:
-        self.client().delete_function_url_config(FunctionName=name)
-        return Schema__Lambda__Action__Response(
-            name    = Safe_Str__Lambda__Name(name),
-            success = True,
-            message = 'url deleted',
-        )
+        try:
+            self.client().delete_function_url_config(FunctionName=name)
+            return Schema__Lambda__Action__Response(
+                name    = Safe_Str__Lambda__Name(name),
+                success = True,
+                message = 'url deleted',
+            )
+        except ClientError as exc:
+            return Schema__Lambda__Action__Response(
+                name    = Safe_Str__Lambda__Name(name),
+                success = False,
+                message = str(exc),
+            )
 
     def delete_function(self, name: str) -> Schema__Lambda__Action__Response:
-        self.client().delete_function(FunctionName=name)
-        return Schema__Lambda__Action__Response(
-            name    = Safe_Str__Lambda__Name(name),
-            success = True,
-            message = 'deleted',
-        )
+        try:
+            self.client().delete_function(FunctionName=name)
+            return Schema__Lambda__Action__Response(
+                name    = Safe_Str__Lambda__Name(name),
+                success = True,
+                message = 'deleted',
+            )
+        except ClientError as exc:
+            return Schema__Lambda__Action__Response(
+                name    = Safe_Str__Lambda__Name(name),
+                success = False,
+                message = str(exc),
+            )
 
     # ── internal ──────────────────────────────────────────────────────────────
 
