@@ -58,11 +58,16 @@ class TestLambdaAppGroupListCommands:
         cmds    = app.list_commands(ctx)
         assert 'list' in cmds
 
-    def test_function_names_in_top_level(self):
-        app  = _app()
-        cmds = app.list_commands(None)
+    def test_function_names_in_top_level(self):                                  # function names exposed via list_completion_commands (for tab completion)
+        app  = _app()                                                            # — not in list_commands (which only shows 'list' for clean --help)
+        cmds = app.list_completion_commands(None)
         for name in _NAMES:
             assert name in cmds
+
+    def test_list_commands_returns_only_list(self):                              # --help should not be cluttered with function names
+        app  = _app()
+        cmds = app.list_commands(None)
+        assert cmds == ['list']
 
     def test_list_is_first(self):
         app  = _app()

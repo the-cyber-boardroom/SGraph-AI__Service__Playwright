@@ -57,11 +57,15 @@ class _Fake_Lambda_Client:
 
     def update_function_code(self, FunctionName: str, ZipFile: bytes, **_):
         if FunctionName not in self._store:
-            raise Exception(f'Function not found: {FunctionName}')
+            raise ClientError(
+                {'Error': {'Code': 'ResourceNotFoundException', 'Message': f'Function not found: {FunctionName}'}},
+                'UpdateFunctionCode')
 
     def update_function_configuration(self, FunctionName: str, **kwargs):
         if FunctionName not in self._store:
-            raise Exception(f'Function not found: {FunctionName}')
+            raise ClientError(
+                {'Error': {'Code': 'ResourceNotFoundException', 'Message': f'Function not found: {FunctionName}'}},
+                'UpdateFunctionConfiguration')
         mapping = {                                                                    # allow both old positional and new kwarg forms
             'Handler'    : 'Handler',
             'Runtime'    : 'Runtime',
@@ -76,7 +80,9 @@ class _Fake_Lambda_Client:
 
     def delete_function(self, FunctionName: str, **_):
         if FunctionName not in self._store:
-            raise Exception(f'Function not found: {FunctionName}')
+            raise ClientError(
+                {'Error': {'Code': 'ResourceNotFoundException', 'Message': f'Function not found: {FunctionName}'}},
+                'DeleteFunction')
         del self._store[FunctionName]
 
     # ── invoke ────────────────────────────────────────────────────────────────
@@ -84,7 +90,9 @@ class _Fake_Lambda_Client:
     def invoke(self, FunctionName: str, InvocationType: str = 'RequestResponse',
                Payload: bytes = b'{}', LogType: str = 'None', **_):
         if FunctionName not in self._store:
-            raise Exception(f'Function not found: {FunctionName}')
+            raise ClientError(
+                {'Error': {'Code': 'ResourceNotFoundException', 'Message': f'Function not found: {FunctionName}'}},
+                'Invoke')
         self._invoke_log.append((FunctionName, Payload))
         import io
         resp = {
@@ -113,7 +121,9 @@ class _Fake_Lambda_Client:
 
     def get_function_url_config(self, FunctionName: str, **_):
         if FunctionName not in self._url_store:
-            raise Exception(f'No URL for function: {FunctionName}')
+            raise ClientError(
+                {'Error': {'Code': 'ResourceNotFoundException', 'Message': f'No URL for function: {FunctionName}'}},
+                'GetFunctionUrlConfig')
         return self._url_store[FunctionName]
 
     def create_function_url_config(self, FunctionName: str, AuthType: str, **_):
@@ -126,7 +136,9 @@ class _Fake_Lambda_Client:
 
     def delete_function_url_config(self, FunctionName: str, **_):
         if FunctionName not in self._url_store:
-            raise Exception(f'No URL for function: {FunctionName}')
+            raise ClientError(
+                {'Error': {'Code': 'ResourceNotFoundException', 'Message': f'No URL for function: {FunctionName}'}},
+                'DeleteFunctionUrlConfig')
         del self._url_store[FunctionName]
 
 

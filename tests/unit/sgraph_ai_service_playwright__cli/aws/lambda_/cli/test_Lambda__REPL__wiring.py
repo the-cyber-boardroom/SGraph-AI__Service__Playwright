@@ -48,11 +48,11 @@ class TestREPLTree:
         cmds       = lambda_app.list_commands(None)
         assert 'list' in cmds
 
-    def test_function_names_in_lambda_commands(self):
-        lambda_app = _make_app_with_functions()
-        cmds       = lambda_app.list_commands(None)
+    def test_function_names_in_lambda_commands(self):                            # function names exposed via list_completion_commands (tab completion)
+        lambda_app = _make_app_with_functions()                                  # — list_commands deliberately omits them to keep --help clean
+        cmds       = lambda_app.list_completion_commands(None)
         for fn in _FUNCTIONS:
-            assert fn in cmds, f'{fn!r} missing from list_commands'
+            assert fn in cmds, f'{fn!r} missing from list_completion_commands'
 
     def test_prefix_navigation_to_function(self):
         lambda_app   = _make_app_with_functions()

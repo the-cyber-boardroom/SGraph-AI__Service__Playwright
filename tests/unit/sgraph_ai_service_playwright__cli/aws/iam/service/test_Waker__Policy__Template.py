@@ -14,9 +14,9 @@ from sgraph_ai_service_playwright__cli.aws.iam.service.templates.Waker__Policy__
 
 class Test__Waker__Policy__Template:
 
-    def test_1__builds_policy_with_three_statements(self):
+    def test_1__builds_policy_with_four_statements(self):                        # logs + ec2 describe + ec2 start + ssm get-parameter
         policy = Waker__Policy__Template().build()
-        assert len(policy.statements) == 3
+        assert len(policy.statements) == 4
 
     def test_2__all_statements_have_allow_effect(self):
         policy = Waker__Policy__Template().build()

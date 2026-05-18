@@ -10,7 +10,16 @@
 
 from datetime import datetime, timezone
 
+from botocore.exceptions import ClientError
+
 from sgraph_ai_service_playwright__cli.aws.s3.service.S3__AWS__Client import S3__AWS__Client
+
+
+def _no_such_key(bucket: str, key: str, op: str) -> ClientError:                     # boto3-shaped NoSuchKey
+    return ClientError(
+        {'Error': {'Code': 'NoSuchKey', 'Message': f'{bucket}/{key}'}, 'ResponseMetadata': {'HTTPStatusCode': 404}},
+        op,
+    )
 
 
 class _Fake_S3_Client:
@@ -38,7 +47,7 @@ class _Fake_S3_Client:
     def head_object(self, Bucket: str, Key: str):
         record = self._objects.get((Bucket, Key))
         if record is None:
-            raise Exception(f'NoSuchKey: {Bucket}/{Key}')
+            raise _no_such_key(Bucket, Key, 'HeadObject')
         body = record.get('Body', b'')
         return {
             'ContentLength'       : len(body),
@@ -55,7 +64,7 @@ class _Fake_S3_Client:
     def get_object(self, Bucket: str, Key: str):
         record = self._objects.get((Bucket, Key))
         if record is None:
-            raise Exception(f'NoSuchKey: {Bucket}/{Key}')
+            raise _no_such_key(Bucket, Key, 'GetObject')
         body = record.get('Body', b'')
         import io
         return {'Body': io.BytesIO(body), 'ContentLength': len(body)}
@@ -70,7 +79,10 @@ class _Fake_S3_Client:
             current_etag = existing.get('ETag', '').strip('"')
             check_etag   = IfMatch.strip('"')
             if current_etag != check_etag:
-                raise Exception('PreconditionFailed: ETag mismatch (412)')
+                raise ClientError(
+                    {'Error': {'Code': 'PreconditionFailed', 'Message': 'ETag mismatch'},
+                     'ResponseMetadata': {'HTTPStatusCode': 412}},
+                    'PutObject')
         import hashlib
         etag = '"' + hashlib.md5(Body).hexdigest() + '"'
         now  = datetime.now(timezone.utc).isoformat()
@@ -89,7 +101,7 @@ class _Fake_S3_Client:
         src_key    = CopySource['Key']
         record     = self._objects.get((src_bucket, src_key))
         if record is None:
-            raise Exception(f'NoSuchKey: {src_bucket}/{src_key}')
+            raise _no_such_key(src_bucket, src_key, 'CopyObject')
         import copy
         self._objects[(Bucket, Key)] = copy.deepcopy(record)
 

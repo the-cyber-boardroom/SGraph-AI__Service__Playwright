@@ -5,7 +5,13 @@
 
 import json
 
+from botocore.exceptions import ClientError
+
 from sgraph_ai_service_playwright__cli.aws.iam.service.IAM__AWS__Client import IAM__AWS__Client
+
+
+def _not_found(name: str, op: str) -> ClientError:                                   # boto3-style NoSuchEntity for IAM operations
+    return ClientError({'Error': {'Code': 'NoSuchEntity', 'Message': f'NoSuchEntity: {name}'}}, op)
 
 
 class _Fake_IAM_Client:
@@ -25,12 +31,12 @@ class _Fake_IAM_Client:
 
     def get_role(self, RoleName: str):
         if RoleName not in self._roles:
-            raise Exception(f'NoSuchEntity: {RoleName}')
+            raise _not_found(RoleName, 'GetRole')
         return {'Role': self._roles[RoleName]}
 
     def create_role(self, RoleName: str, AssumeRolePolicyDocument: str, Description: str = '', **_):
         if RoleName in self._roles:
-            raise Exception('EntityAlreadyExists')
+            raise ClientError({'Error': {'Code': 'EntityAlreadyExists', 'Message': f'Role {RoleName} already exists'}}, 'CreateRole')
         arn = f'arn:aws:iam::123456789012:role/{RoleName}'
         self._roles[RoleName] = {
             'RoleName'               : RoleName,
@@ -46,7 +52,7 @@ class _Fake_IAM_Client:
 
     def delete_role(self, RoleName: str, **_):
         if RoleName not in self._roles:
-            raise Exception(f'NoSuchEntity: {RoleName}')
+            raise _not_found(RoleName, 'DeleteRole')
         del self._roles[RoleName]
         self._inline_policies.pop(RoleName, None)
         self._managed_attachments.pop(RoleName, None)
@@ -55,14 +61,14 @@ class _Fake_IAM_Client:
 
     def put_role_policy(self, RoleName: str, PolicyName: str, PolicyDocument: str, **_):
         if RoleName not in self._roles:
-            raise Exception(f'NoSuchEntity: {RoleName}')
+            raise _not_found(RoleName, 'PutRolePolicy')
         if RoleName not in self._inline_policies:
             self._inline_policies[RoleName] = {}
         self._inline_policies[RoleName][PolicyName] = json.loads(PolicyDocument)
 
     def get_role_policy(self, RoleName: str, PolicyName: str, **_):
         if RoleName not in self._inline_policies or PolicyName not in self._inline_policies[RoleName]:
-            raise Exception(f'NoSuchEntity: {PolicyName}')
+            raise _not_found(PolicyName, 'GetRolePolicy')
         return {
             'RoleName'      : RoleName,
             'PolicyName'    : PolicyName,
@@ -77,7 +83,7 @@ class _Fake_IAM_Client:
 
     def attach_role_policy(self, RoleName: str, PolicyArn: str, **_):
         if RoleName not in self._roles:
-            raise Exception(f'NoSuchEntity: {RoleName}')
+            raise _not_found(RoleName, 'AttachRolePolicy')
         if RoleName not in self._managed_attachments:
             self._managed_attachments[RoleName] = []
         if PolicyArn not in self._managed_attachments[RoleName]:
