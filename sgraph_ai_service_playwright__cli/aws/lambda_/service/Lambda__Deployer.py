@@ -6,8 +6,11 @@
 # EXCEPTION — using boto3 directly (see Lambda__AWS__Client header for reason).
 # ═══════════════════════════════════════════════════════════════════════════════
 
+import importlib
 import io
 import os
+import shutil
+import tempfile
 import time
 import zipfile
 
@@ -43,16 +46,21 @@ class Lambda__Deployer(Type_Safe):
             delay = min(delay * 2, 8)
         raise TimeoutError(f'Lambda {name} did not finish updating within {timeout_sec}s')
 
-    def deploy_from_folder(self, req: Schema__Lambda__Deploy__Request) -> Schema__Lambda__Deploy__Response:
+    def deploy_from_folder(self, req          : Schema__Lambda__Deploy__Request,
+                           *,
+                           package_root  : str        = '',
+                           extra_modules : list        = None,
+                           layers        : list        = None,
+                           environment   : dict        = None) -> Schema__Lambda__Deploy__Response:
         name  = str(req.name)
-        code  = self._zip_folder(req.folder_path)
+        code  = self._build_zip(req.folder_path, package_root=package_root, extra_modules=extra_modules)
         lc    = self.client()
         try:
             lc.get_function(FunctionName=name)
             existing = True
         except ClientError as exc:
-            code = exc.response.get('Error', {}).get('Code', '')
-            if code == 'ResourceNotFoundException':
+            err_code = exc.response.get('Error', {}).get('Code', '')
+            if err_code == 'ResourceNotFoundException':
                 existing = False
             else:
                 raise
@@ -60,7 +68,7 @@ class Lambda__Deployer(Type_Safe):
             self._wait_for_update(lc, name)                                         # wait for any in-progress update before code upload
             lc.update_function_code(FunctionName=name, ZipFile=code)
             self._wait_for_update(lc, name)                                         # wait for code upload before config update
-            lc.update_function_configuration(
+            update_kwargs = dict(
                 FunctionName = name,
                 Handler      = req.handler,
                 Runtime      = str(req.runtime),
@@ -68,10 +76,15 @@ class Lambda__Deployer(Type_Safe):
                 MemorySize   = req.memory_size,
                 Description  = req.description,
             )
+            if layers is not None:
+                update_kwargs['Layers'] = layers
+            if environment is not None:
+                update_kwargs['Environment'] = {'Variables': environment}
+            lc.update_function_configuration(**update_kwargs)
             resp = lc.get_function(FunctionName=name)
             arn  = resp['Configuration']['FunctionArn']
         else:
-            resp = lc.create_function(
+            create_kwargs = dict(
                 FunctionName = name,
                 Runtime      = str(req.runtime),
                 Role         = req.role_arn,
@@ -81,7 +94,12 @@ class Lambda__Deployer(Type_Safe):
                 MemorySize   = req.memory_size,
                 Description  = req.description,
             )
-            arn = resp['FunctionArn']
+            if layers is not None:
+                create_kwargs['Layers'] = layers
+            if environment is not None:
+                create_kwargs['Environment'] = {'Variables': environment}
+            resp = lc.create_function(**create_kwargs)
+            arn  = resp['FunctionArn']
         return Schema__Lambda__Deploy__Response(
             name         = Safe_Str__Lambda__Name(name),
             function_arn = Safe_Str__Lambda__Arn(arn) if arn.startswith('arn:') else Safe_Str__Lambda__Arn(''),
@@ -90,12 +108,41 @@ class Lambda__Deployer(Type_Safe):
             message      = 'created' if not existing else 'updated',
         )
 
-    def _zip_folder(self, folder_path: str) -> bytes:
-        buf = io.BytesIO()
-        with zipfile.ZipFile(buf, 'w', zipfile.ZIP_DEFLATED) as zf:
-            for root, _, files in os.walk(folder_path):
-                for file in files:
-                    abs_path = os.path.join(root, file)
-                    arc_path = os.path.relpath(abs_path, folder_path)
-                    zf.write(abs_path, arc_path)
-        return buf.getvalue()
+    def _build_zip(self, folder_path: str, package_root: str = '', extra_modules: list = None) -> bytes:
+        extra_modules = extra_modules or []
+        root          = package_root if package_root else folder_path
+        with tempfile.TemporaryDirectory() as tmp:
+            for dirpath, dirnames, filenames in os.walk(folder_path):
+                dirnames[:] = [d for d in dirnames if d != '__pycache__']
+                for filename in filenames:
+                    if filename.endswith('.pyc'):
+                        continue
+                    abs_path = os.path.join(dirpath, filename)
+                    arc_path = os.path.relpath(abs_path, root)
+                    target   = os.path.join(tmp, arc_path)
+                    os.makedirs(os.path.dirname(target), exist_ok=True)
+                    shutil.copy2(abs_path, target)
+
+            for module_name in extra_modules:
+                try:
+                    module = importlib.import_module(module_name)
+                    if hasattr(module, '__path__'):
+                        src  = module.__path__[0]
+                        dest = os.path.join(tmp, os.path.basename(src))
+                        if not os.path.exists(dest):
+                            shutil.copytree(src, dest,
+                                            ignore=shutil.ignore_patterns('__pycache__', '*.pyc'))
+                except ImportError:
+                    pass
+
+            buf = io.BytesIO()
+            with zipfile.ZipFile(buf, 'w', zipfile.ZIP_DEFLATED) as zf:
+                for root_dir, dirs, files in os.walk(tmp):
+                    dirs[:] = [d for d in dirs if d != '__pycache__']
+                    for file in files:
+                        if file.endswith('.pyc'):
+                            continue
+                        abs_path = os.path.join(root_dir, file)
+                        arc_path = os.path.relpath(abs_path, tmp)
+                        zf.write(abs_path, arc_path)
+            return buf.getvalue()

@@ -4,6 +4,8 @@
 # No mocks. No patches. Dict-backed dispatch.
 # ═══════════════════════════════════════════════════════════════════════════════
 
+from botocore.exceptions import ClientError
+
 from sgraph_ai_service_playwright__cli.aws.lambda_.service.Lambda__AWS__Client import Lambda__AWS__Client
 from sgraph_ai_service_playwright__cli.aws.lambda_.service.Lambda__Deployer    import Lambda__Deployer
 
@@ -26,7 +28,9 @@ class _Fake_Lambda_Client:
 
     def get_function(self, FunctionName: str):
         if FunctionName not in self._store:
-            raise Exception(f'Function not found: {FunctionName}')
+            raise ClientError(
+                {'Error': {'Code': 'ResourceNotFoundException', 'Message': f'Function not found: {FunctionName}'}},
+                'GetFunction')
         return {'Configuration': self._store[FunctionName]}
 
     def create_function(self, FunctionName: str, Runtime: str, Role: str,
@@ -172,5 +176,5 @@ class Lambda__Deployer__In_Memory(Lambda__Deployer):
     def client(self):
         return self._aws_client._fake
 
-    def _zip_folder(self, folder_path: str) -> bytes:
+    def _build_zip(self, folder_path: str, package_root: str = '', extra_modules: list = None) -> bytes:
         return b'FAKE_ZIP'                                                             # Skip actual FS access in unit tests
