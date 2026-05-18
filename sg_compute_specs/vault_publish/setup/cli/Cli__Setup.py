@@ -25,10 +25,18 @@ from rich.console        import Console
 from sg_compute_specs.vault_publish.setup.schemas.Enum__Setup__State import Enum__Setup__State
 from sg_compute_specs.vault_publish.setup.service.Setup__IAM         import Setup__IAM
 
-app     = typer.Typer(name='setup', help='Setup and drift-check for vault-publish AWS resources.', no_args_is_help=True)
-iam_app = typer.Typer(name='iam',   help='IAM execution role management.',                         no_args_is_help=True)
+app        = typer.Typer(name='setup',  help='Setup and drift-check for vault-publish AWS resources.', no_args_is_help=True)
+iam_app    = typer.Typer(name='iam',    help='IAM execution role management.',                         no_args_is_help=True)
+lambda_app = typer.Typer(name='lambda', help='Lambda waker function management (Phase B2).',           no_args_is_help=True)
+cf_app     = typer.Typer(name='cf',     help='CloudFront distribution management (Phase B3).',         no_args_is_help=True)
+acm_app    = typer.Typer(name='acm',    help='ACM wildcard certificate management (Phase B3).',        no_args_is_help=True)
+dns_app    = typer.Typer(name='dns',    help='Route 53 DNS record management (Phase B3).',             no_args_is_help=True)
 
-app.add_typer(iam_app, name='iam')
+app.add_typer(iam_app,    name='iam')
+app.add_typer(lambda_app, name='lambda')
+app.add_typer(cf_app,     name='cf')
+app.add_typer(acm_app,    name='acm')
+app.add_typer(dns_app,    name='dns')
 
 
 def _iam() -> Setup__IAM:
@@ -210,6 +218,88 @@ def iam_delete(yes: bool = typer.Option(False, '--yes', '-y', help='Skip confirm
         raise typer.Exit(1)
     c.print('  [green]✓[/]  IAM role deleted')
     c.print()
+
+
+# ── lambda stubs (Phase B2) ───────────────────────────────────────────────────
+
+_NOT_YET_B2 = '\n  [dim]⌛  Phase B2 — not yet implemented[/]\n'
+_NOT_YET_B3 = '\n  [dim]⌛  Phase B3 — not yet implemented[/]\n'
+
+
+@lambda_app.command(name='check', help='Check Lambda waker function vs expected state.')
+def lambda_check():
+    Console(highlight=False).print(_NOT_YET_B2)
+
+
+@lambda_app.command(name='status', help='Pretty-print live Lambda function configuration.')
+def lambda_status():
+    Console(highlight=False).print(_NOT_YET_B2)
+
+
+@lambda_app.command(name='create', help='Deploy Lambda waker function (Phase B2).')
+def lambda_create():
+    Console(highlight=False).print(_NOT_YET_B2)
+
+
+@lambda_app.command(name='update', help='Redeploy / sync Lambda waker function (Phase B2).')
+def lambda_update():
+    Console(highlight=False).print(_NOT_YET_B2)
+
+
+# ── CloudFront stubs (Phase B3) ───────────────────────────────────────────────
+
+@cf_app.command(name='check', help='Check CloudFront wildcard distribution vs expected state.')
+def cf_check():
+    Console(highlight=False).print(_NOT_YET_B3)
+
+
+@cf_app.command(name='status', help='Pretty-print live CloudFront distribution.')
+def cf_status():
+    Console(highlight=False).print(_NOT_YET_B3)
+
+
+@cf_app.command(name='create', help='Create CloudFront wildcard distribution (Phase B3).')
+def cf_create():
+    Console(highlight=False).print(_NOT_YET_B3)
+
+
+@cf_app.command(name='update', help='Sync CloudFront distribution with expected config (Phase B3).')
+def cf_update():
+    Console(highlight=False).print(_NOT_YET_B3)
+
+
+# ── ACM stubs (Phase B3) ─────────────────────────────────────────────────────
+
+@acm_app.command(name='check', help='Check ACM wildcard certificate vs expected state.')
+def acm_check():
+    Console(highlight=False).print(_NOT_YET_B3)
+
+
+@acm_app.command(name='status', help='Pretty-print live ACM certificate.')
+def acm_status():
+    Console(highlight=False).print(_NOT_YET_B3)
+
+
+@acm_app.command(name='create', help='Request ACM wildcard certificate (Phase B3).')
+def acm_create():
+    Console(highlight=False).print(_NOT_YET_B3)
+
+
+# ── DNS stubs (Phase B3) ─────────────────────────────────────────────────────
+
+@dns_app.command(name='check', help='Check Route 53 wildcard DNS record vs expected state.')
+def dns_check():
+    Console(highlight=False).print(_NOT_YET_B3)
+
+
+@dns_app.command(name='status', help='Pretty-print live Route 53 DNS record.')
+def dns_status():
+    Console(highlight=False).print(_NOT_YET_B3)
+
+
+@dns_app.command(name='create', help='Create Route 53 wildcard DNS record (Phase B3).')
+def dns_create():
+    Console(highlight=False).print(_NOT_YET_B3)
 
 
 # ── internal ──────────────────────────────────────────────────────────────────
