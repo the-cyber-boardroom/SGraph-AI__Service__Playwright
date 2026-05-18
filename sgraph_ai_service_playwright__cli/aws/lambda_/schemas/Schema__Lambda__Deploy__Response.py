@@ -15,3 +15,4 @@ class Schema__Lambda__Deploy__Response(Type_Safe):
     created      : bool = False                                                           # True = new function; False = updated
     success      : bool = False
     message      : str  = ''
+    zip_size     : int  = 0                                                               # uploaded ZIP size in bytes (deflated); 0 when deployer couldn't measure

@@ -263,6 +263,15 @@ def _render_not_found_html(ctx: Schema__Waker__Request_Context,
             f'<pre>{html.escape(ctx.deploy_info)}</pre>'
         )
 
+    request_json_section = ''
+    if ctx.request_json:
+        request_json_section = (
+            '<h2>Lambda HTTP event (JSON) <span class="muted">'
+            '(method, URL, headers, body — the closest equivalent to the original '
+            'Function URL event after LWA translation)</span></h2>'
+            f'<pre>{html.escape(ctx.request_json)}</pre>'
+        )
+
     return f"""<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -300,6 +309,7 @@ def _render_not_found_html(ctx: Schema__Waker__Request_Context,
 <h2>Waker diagnostics</h2>
 <table>{render_rows(rows_waker)}</table>
 {deploy_section}
+{request_json_section}
 {proxy_section}
 {all_headers_section}
 {scope_section}
