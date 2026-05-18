@@ -3,10 +3,15 @@
 # Resolves a slug to a live EC2 endpoint by looking up the slug registry and
 # then querying EC2 by the StackName tag.
 #
+# Module-level slug cache: SSM reads are expensive (10–30ms each); the registry
+# entry changes only on register/unpublish. Cache with 60s TTL so a warm Lambda
+# invocation skips SSM entirely while still recognising unpublish within 60s.
+#
 # boto3 EXCEPTION — narrow usage for describe_instances + start_instances only.
 # All other EC2 work goes through sg_compute platform helpers.
 # ═══════════════════════════════════════════════════════════════════════════════
 
+import time
 from typing import Optional, Callable
 
 import boto3                                                                       # EXCEPTION — see module header
@@ -17,6 +22,21 @@ from sg_compute_specs.vault_publish.service.Slug__Registry                      
 from sg_compute_specs.vault_publish.waker.schemas.Enum__Instance__State           import Enum__Instance__State
 from sg_compute_specs.vault_publish.waker.schemas.Schema__Endpoint__Resolution    import Schema__Endpoint__Resolution
 from sg_compute_specs.vault_publish.waker.Endpoint__Resolver                      import Endpoint__Resolver
+
+_SLUG_CACHE : dict = {}                                                            # {slug: (entry, cached_at)}
+_CACHE_TTL  = 60                                                                   # seconds
+
+
+def _cached_get(registry: Slug__Registry, slug: str):
+    now = time.time()
+    if slug in _SLUG_CACHE:
+        entry, ts = _SLUG_CACHE[slug]
+        if now - ts < _CACHE_TTL:
+            return entry
+    entry = registry.get(slug)
+    if entry is not None:
+        _SLUG_CACHE[slug] = (entry, now)
+    return entry
 
 
 class Endpoint__Resolver__EC2(Endpoint__Resolver):
@@ -32,7 +52,7 @@ class Endpoint__Resolver__EC2(Endpoint__Resolver):
         return boto3.client('ec2', region_name=region)
 
     def resolve(self, slug: str) -> Schema__Endpoint__Resolution:
-        entry = self._registry().get(slug)
+        entry = _cached_get(self._registry(), slug)
         if not entry:
             return Schema__Endpoint__Resolution(slug=slug, state=Enum__Instance__State.UNKNOWN)
         region     = str(entry.region)

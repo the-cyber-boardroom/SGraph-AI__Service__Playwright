@@ -2,7 +2,7 @@
 # SG/Compute Specs — vault-publish: Slug__Registry
 # SSM-backed registry of published slugs. One parameter per slug at:
 #   /sg-compute/vault-publish/slugs/{slug}
-# Value is JSON of Schema__Vault_Publish__Entry fields.
+# Value is JSON of routing metadata only — no vault_key (kept in local keyring).
 # Factory seam (_param_factory) enables in-memory composition in tests.
 # ═══════════════════════════════════════════════════════════════════════════════
 
@@ -13,7 +13,6 @@ from typing   import Callable, List, Optional
 from osbot_utils.type_safe.Type_Safe import Type_Safe
 
 from sg_compute_specs.vault_publish.schemas.Safe_Str__Slug              import Safe_Str__Slug
-from sg_compute_specs.vault_publish.schemas.Safe_Str__Vault__Key        import Safe_Str__Vault__Key
 from sg_compute_specs.vault_publish.schemas.Schema__Vault_Publish__Entry import Schema__Vault_Publish__Entry
 
 SSM_PREFIX = '/sg-compute/vault-publish/slugs'
@@ -43,11 +42,9 @@ class Slug__Registry(Type_Safe):
         except Exception:
             return []
 
-    def put(self, slug: str, vault_key: str, stack_name: str,
-            fqdn: str, region: str) -> bool:
+    def put(self, slug: str, stack_name: str, fqdn: str, region: str) -> bool:
         entry = {
             'slug'      : slug,
-            'vault_key' : vault_key,
             'stack_name': stack_name,
             'fqdn'      : fqdn,
             'region'    : region,
@@ -67,7 +64,6 @@ class Slug__Registry(Type_Safe):
             data = json.loads(raw)
             return Schema__Vault_Publish__Entry(
                 slug       = Safe_Str__Slug(data.get('slug', '')),
-                vault_key  = Safe_Str__Vault__Key(data.get('vault_key', '')),
                 stack_name = data.get('stack_name', ''),
                 fqdn       = data.get('fqdn', ''),
                 region     = data.get('region', ''),

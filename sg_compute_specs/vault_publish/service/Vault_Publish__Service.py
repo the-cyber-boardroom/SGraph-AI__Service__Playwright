@@ -115,7 +115,6 @@ class Vault_Publish__Service(Type_Safe):
 
         stack_name = str(getattr(create_resp.stack_info, 'stack_name', '') or slug)
         registry.put(slug       = slug,
-                     vault_key  = str(request.vault_key),
                      stack_name = stack_name,
                      fqdn       = fqdn,
                      region     = region)
@@ -192,7 +191,6 @@ class Vault_Publish__Service(Type_Safe):
                 continue
             redacted = Schema__Vault_Publish__Entry(
                 slug       = entry.slug,
-                vault_key  = None,  # redacted in list output
                 stack_name = entry.stack_name,
                 fqdn       = entry.fqdn,
                 region     = entry.region,
