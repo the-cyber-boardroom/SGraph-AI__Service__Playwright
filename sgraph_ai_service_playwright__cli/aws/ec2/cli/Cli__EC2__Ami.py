@@ -2,10 +2,13 @@
 # SP CLI — Cli__EC2__Ami
 # Typer CLI surface for `sg aws ec2 ami *` commands.
 #
-# Command tree (P0 reads only — no deletes; AMI deletes land in Slice 5):
+# Command tree:
 #   sg aws ec2 ami list    [--owner self|amazon|all] [--name SUBSTR] [--json]
 #   sg aws ec2 ami show    <ami-id-or-name>                          [--json]
 #   sg aws ec2 ami orphans [--older 30d]                             [--json]
+#   sg aws ec2 ami delete  <ami-id> [--with-snapshots] [--yes]       [--json]
+#
+# `delete` requires SG_AWS__EC2__ALLOW_MUTATIONS=1 (same gate as ec2 terminate).
 # ═══════════════════════════════════════════════════════════════════════════════
 
 import json
@@ -16,9 +19,12 @@ import typer
 from rich.console import Console
 from rich.table   import Table
 
-from sg_compute.cli.base.Spec__CLI__Errors                            import spec_cli_errors
-from sgraph_ai_service_playwright__cli.aws.ec2.service.EC2__AWS__Client import EC2__AWS__Client
+from sg_compute.cli.base.Spec__CLI__Errors                                  import spec_cli_errors
+from sgraph_ai_service_playwright__cli.aws._shared.Mutation__Gate           import require_mutation_gate
+from sgraph_ai_service_playwright__cli.aws.ec2.service.EC2__AWS__Client     import EC2__AWS__Client
 
+
+_MUTATION_ENV = 'SG_AWS__EC2__ALLOW_MUTATIONS'
 
 console = Console()
 
@@ -198,3 +204,89 @@ def ami_orphans(ctx     : typer.Context,
         typer.echo(json.dumps([_ami_to_dict(a) for a in orphans], indent=2))
         return
     _render_ami_table(orphans, title='Orphan AMIs (self-owned, no attached instances)')
+
+
+# ── delete ────────────────────────────────────────────────────────────────────
+
+@app.command('delete')
+@spec_cli_errors
+@require_mutation_gate(_MUTATION_ENV)
+def ami_delete(ctx            : typer.Context,
+               ami_id         : str  = typer.Argument(..., help='AMI ID (ami-*) or AMI name.'),
+               with_snapshots : bool = typer.Option(False, '--with-snapshots',
+                                                    help='Also delete backing snapshots.'),
+               yes            : bool = typer.Option(False, '--yes',
+                                                    help='Skip confirmation prompt.'),
+               as_json        : bool = typer.Option(False, '--json',
+                                                    help='Output as JSON.')):
+    """Deregister an AMI (requires SG_AWS__EC2__ALLOW_MUTATIONS=1)."""
+    client = ctx.obj['ec2_client']
+    # ── pre-flight: resolve so we know the snapshot list BEFORE deregister ──
+    ami = client.describe_ami(ami_id)
+    if ami is None:
+        if as_json:
+            typer.echo(json.dumps({'ami_id'      : ami_id,
+                                   'deregistered': False,
+                                   'error'       : 'not_found',
+                                   'snapshots'   : []}, indent=2))
+        else:
+            console.print(f'[red]AMI not found:[/red] {ami_id}')
+        raise typer.Exit(1)
+    resolved_id     = str(ami.ami_id)
+    snapshot_ids    = [str(s) for s in ami.snapshot_ids]
+    # ── summary table ───────────────────────────────────────────────────────
+    if not as_json:
+        t = Table(box=None, show_header=False, padding=(0, 2))
+        t.add_column(style='bold', min_width=22)
+        t.add_column()
+        t.add_row('ami id',         resolved_id)
+        t.add_row('name',           str(ami.name)     or '—')
+        t.add_row('owner',          str(ami.owner_id) or '—')
+        t.add_row('snapshot count', str(len(snapshot_ids)))
+        console.print()
+        console.print(t)
+        console.print()
+    # ── confirm ─────────────────────────────────────────────────────────────
+    if with_snapshots:
+        prompt = 'Deregister AMI? (snapshots will be deleted)'
+    else:
+        prompt = 'Deregister AMI? (snapshots will remain — delete separately.)'
+    if not yes and not typer.confirm(prompt, default=False):
+        if as_json:
+            typer.echo(json.dumps({'ami_id'      : resolved_id,
+                                   'deregistered': False,
+                                   'aborted'     : True,
+                                   'snapshots'   : []}, indent=2))
+        else:
+            console.print('[yellow]Aborted.[/yellow]')
+        raise typer.Exit(0)
+    # ── deregister ──────────────────────────────────────────────────────────
+    deregistered = client.deregister_image(resolved_id)
+    # ── snapshots ───────────────────────────────────────────────────────────
+    snap_results = []
+    if with_snapshots and deregistered:
+        for snap_id in snapshot_ids:
+            try:
+                ok = client.delete_snapshot(snap_id)
+                snap_results.append({'id': snap_id, 'deleted': bool(ok),
+                                     'error': None})
+            except Exception as exc:                                            # noqa: BLE001 — surface AWS / boto3 reason verbatim
+                snap_results.append({'id': snap_id, 'deleted': False,
+                                     'error': str(exc)})
+    # ── output ──────────────────────────────────────────────────────────────
+    if as_json:
+        typer.echo(json.dumps({'ami_id'      : resolved_id,
+                               'deregistered': bool(deregistered),
+                               'snapshots'   : snap_results}, indent=2))
+        return
+    if deregistered:
+        console.print(f'[green]Deregistered[/green] {resolved_id}')
+    else:
+        console.print(f'[yellow]Not deregistered[/yellow] {resolved_id} (already gone?)')
+    if with_snapshots:
+        for res in snap_results:
+            if res['deleted']:
+                console.print(f'  [green]Deleted snapshot[/green] {res["id"]}')
+            else:
+                err = res['error'] or 'not deleted'
+                console.print(f'  [red]Snapshot {res["id"]} failed:[/red] {err}')
