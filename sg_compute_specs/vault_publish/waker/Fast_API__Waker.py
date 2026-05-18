@@ -137,6 +137,23 @@ class Fast_API__Waker(Type_Safe):
         async def health():
             return {'status': 'ok', 'service': 'vault-waker', 'version': WAKER_VERSION}
 
+        @fast_app.get('/__waker__/deploy', summary='Echo the Lambda deploy metadata so operators can verify which version is live.')
+        async def deploy():
+            return {
+                'service'    : 'vault-waker',
+                'deploy_info': DEPLOY_INFO,
+                'has_field'  : {
+                    # Smoke-check that the deployed Schema has the new fields.
+                    # If any of these are False, the deploy is stale.
+                    'origin_host'      : 'origin_host'       in Schema__Waker__Request_Context.__annotations__,
+                    'forwarded_host'   : 'forwarded_host'    in Schema__Waker__Request_Context.__annotations__,
+                    'vault_viewer_host': 'vault_viewer_host' in Schema__Waker__Request_Context.__annotations__,
+                    'all_headers'      : 'all_headers'       in Schema__Waker__Request_Context.__annotations__,
+                    'asgi_scope'       : 'asgi_scope'        in Schema__Waker__Request_Context.__annotations__,
+                    'deploy_info'      : 'deploy_info'       in Schema__Waker__Request_Context.__annotations__,
+                },
+            }
+
         @fast_app.api_route('/{path:path}',
                              methods=['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'HEAD', 'OPTIONS'])
         async def catch_all(request: Request, path: str):
