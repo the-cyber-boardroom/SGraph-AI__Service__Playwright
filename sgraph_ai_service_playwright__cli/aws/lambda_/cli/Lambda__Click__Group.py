@@ -64,7 +64,7 @@ VERB_ORDER = ['info', 'details', 'config', 'logs', 'invocations',
 class Lambda__Function__Group(click.Group):                                       # one function; children = verb commands
 
     def __init__(self, function_name: str, **attrs):
-        super().__init__(name=function_name, **attrs)
+        super().__init__(name=function_name, no_args_is_help=True, **attrs)
         self._function_name = function_name
         for verb, cmd in VERB_REGISTRY.items():                                   # register all verbs as real children
             self.add_command(cmd, verb)
@@ -89,7 +89,7 @@ class Lambda__Function__Group(click.Group):                                     
 
 # ── top-level group ───────────────────────────────────────────────────────────
 
-class Lambda__App__Group(click.Group):                                            # top-level; children = 'list' + function names
+class Lambda__App__Group(click.Group):                                            # top-level; 'list' + dynamic function sub-groups
 
     def __init__(self, resolver: Lambda__Name__Resolver = None, **attrs):
         help_text = (
@@ -106,11 +106,8 @@ class Lambda__App__Group(click.Group):                                          
         self.add_command(cmd_list, 'list')
 
     def list_commands(self, ctx):
-        try:
-            names = self._resolver.all_function_names()
-        except Exception:
-            names = []
-        return ['list'] + sorted(names)
+        return ['list']                                                           # only show 'list' in help/completion; function names
+                                                                                  # are resolved on demand via get_command() below
 
     def get_command(self, ctx, name):
         if name == 'list':
