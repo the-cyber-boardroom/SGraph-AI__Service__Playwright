@@ -1,19 +1,25 @@
 # ═══════════════════════════════════════════════════════════════════════════════
 # Tests — EC2__AWS__Client__In_Memory
 # Dict-backed fake boto3 EC2 client for unit tests. No mocks. No patches.
-# Supports describe_instances, run_instances, start/stop/terminate, tags.
+# Supports describe_instances, run_instances, start/stop/terminate, tags,
+# describe_images (AMI list/show) and describe_snapshots.
 # ═══════════════════════════════════════════════════════════════════════════════
 
 import secrets
 from datetime import datetime, timezone
+
+from botocore.exceptions import ClientError
 
 from sgraph_ai_service_playwright__cli.aws.ec2.service.EC2__AWS__Client import EC2__AWS__Client
 
 
 class _Fake_EC2_Client:                                                        # Minimal boto3-alike EC2 client backed by in-memory dicts
 
-    def __init__(self, store: dict):
-        self._store = store                                                     # instance_id → raw instance dict
+    def __init__(self, store: dict, images_store: dict = None,
+                 snapshots_store: dict = None):
+        self._store           = store                                           # instance_id → raw instance dict
+        self._images_store    = images_store    if images_store    is not None else {}
+        self._snapshots_store = snapshots_store if snapshots_store is not None else {}
 
     # ── paginator ─────────────────────────────────────────────────────────────
 
@@ -148,6 +154,61 @@ class _Fake_EC2_Client:                                                        #
                 filtered = result
         return {'InstanceTypes': filtered}
 
+    # ── describe_images (AMIs) ────────────────────────────────────────────────
+
+    def describe_images(self, ImageIds=None, Owners=None, Filters=None):
+        images = list(self._images_store.values())
+        if ImageIds:
+            matched = [i for i in images if i.get('ImageId', '') in ImageIds]
+            missing = [i for i in ImageIds if i not in self._images_store]
+            if not matched and missing:                                          # mirror real EC2: unknown ID raises ClientError
+                raise ClientError(
+                    {'Error': {'Code': 'InvalidAMIID.NotFound',
+                                'Message': f'The image id {missing} does not exist'}},
+                    'DescribeImages')
+            images = matched
+        if Owners:                                                               # Owners is matched literally; seed_ami uses 'self'/'amazon' as the owner string
+            images = [i for i in images if i.get('OwnerId', '') in Owners]
+        if Filters:
+            images = self._apply_image_filters(images, Filters)
+        return {'Images': images}
+
+    def _apply_image_filters(self, images: list, filters: list) -> list:
+        result = images
+        for f in filters:
+            name   = f.get('Name', '')
+            values = f.get('Values', [])
+            if name == 'name':
+                kept = []
+                for img in result:
+                    img_name = img.get('Name', '') or ''
+                    for v in values:
+                        if v.startswith('*') and v.endswith('*'):                 # substring match
+                            needle = v[1:-1]
+                            if needle in img_name:
+                                kept.append(img); break
+                        elif v.startswith('*'):
+                            if img_name.endswith(v[1:]):
+                                kept.append(img); break
+                        elif v.endswith('*'):
+                            if img_name.startswith(v[:-1]):
+                                kept.append(img); break
+                        else:
+                            if img_name == v:
+                                kept.append(img); break
+                result = kept
+        return result
+
+    # ── describe_snapshots ────────────────────────────────────────────────────
+
+    def describe_snapshots(self, SnapshotIds=None, OwnerIds=None, Filters=None):
+        snaps = list(self._snapshots_store.values())
+        if SnapshotIds:
+            snaps = [s for s in snaps if s.get('SnapshotId', '') in SnapshotIds]
+        if OwnerIds:                                                             # OwnerIds matched literally; seed_snapshot uses 'self'/'amazon' as the owner string
+            snaps = [s for s in snaps if s.get('OwnerId', '') in OwnerIds]
+        return {'Snapshots': snaps}
+
     # ── internal ──────────────────────────────────────────────────────────────
 
     def _apply_filters(self, instances: list, filters: list) -> list:
@@ -178,17 +239,84 @@ class _Fake_Paginator:
             yield self._client.describe_instances(Filters=kwargs.get('Filters'))
         elif self._method == 'describe_instance_types':
             yield self._client.describe_instance_types(Filters=kwargs.get('Filters'))
+        elif self._method == 'describe_images':
+            yield self._client.describe_images(ImageIds=kwargs.get('ImageIds'),
+                                                Owners  =kwargs.get('Owners'),
+                                                Filters =kwargs.get('Filters'))
+        elif self._method == 'describe_snapshots':
+            yield self._client.describe_snapshots(SnapshotIds=kwargs.get('SnapshotIds'),
+                                                   OwnerIds   =kwargs.get('OwnerIds'),
+                                                   Filters    =kwargs.get('Filters'))
 
 
 class EC2__AWS__Client__In_Memory(EC2__AWS__Client):
 
     def __init__(self):
         super().__init__()
-        self._store = {}
-        self._fake  = _Fake_EC2_Client(self._store)
+        self._store           = {}
+        self._images_store    = {}
+        self._snapshots_store = {}
+        self._fake            = _Fake_EC2_Client(self._store,
+                                                 images_store    = self._images_store,
+                                                 snapshots_store = self._snapshots_store)
 
     def client(self):
         return self._fake
+
+    # ── seed: AMIs ────────────────────────────────────────────────────────────
+
+    def seed_ami(self, ami_id: str = '', name: str = '',
+                 owner: str = '123456789012',
+                 created: str = '2026-04-01T00:00:00.000Z',
+                 description: str = '',
+                 architecture: str = 'x86_64',
+                 root_device_type: str = 'ebs',
+                 snapshot_ids: list = None,
+                 public: bool = False) -> str:
+        if not ami_id:
+            ami_id = f'ami-{secrets.token_hex(8)}'
+        bdms = []
+        for snap in (snapshot_ids or []):
+            bdms.append({'DeviceName': '/dev/xvda',
+                         'Ebs'       : {'SnapshotId': snap, 'VolumeSize': 8}})
+        raw = {
+            'ImageId'             : ami_id,
+            'Name'                : name,
+            'Description'         : description,
+            'OwnerId'             : owner,
+            'CreationDate'        : created,
+            'Public'              : public,
+            'Architecture'        : architecture,
+            'RootDeviceType'      : root_device_type,
+            'BlockDeviceMappings' : bdms,
+        }
+        self._images_store[ami_id] = raw
+        return ami_id
+
+    # ── seed: snapshots ───────────────────────────────────────────────────────
+
+    def seed_snapshot(self, snapshot_id: str = '',
+                      volume_id: str = '',
+                      size_gib: int = 8,
+                      description: str = '',
+                      state: str = 'completed',
+                      owner: str = '123456789012',
+                      started: str = '2026-04-01T00:00:00.000Z') -> str:
+        if not snapshot_id:
+            snapshot_id = f'snap-{secrets.token_hex(8)}'
+        if not volume_id:
+            volume_id = f'vol-{secrets.token_hex(8)}'
+        raw = {
+            'SnapshotId'  : snapshot_id,
+            'VolumeId'    : volume_id,
+            'VolumeSize'  : size_gib,
+            'Description' : description,
+            'State'       : state,
+            'StartTime'   : started,
+            'OwnerId'     : owner,
+        }
+        self._snapshots_store[snapshot_id] = raw
+        return snapshot_id
 
     def seed_instance(self, instance_id: str = '', name: str = '',
                       state: str = 'running', instance_type: str = 't3.micro',

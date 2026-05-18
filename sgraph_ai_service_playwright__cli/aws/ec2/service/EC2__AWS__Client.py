@@ -14,25 +14,34 @@
 # instance lifecycle surface. A v0.2.30 hygiene pass will consolidate.
 # ═══════════════════════════════════════════════════════════════════════════════
 
+import re
 from typing import Optional
 
 from botocore.exceptions import ClientError
 from osbot_utils.type_safe.Type_Safe import Type_Safe
 
 from sgraph_ai_service_playwright__cli.aws.ec2.collections.Dict__EC2__Tag                         import Dict__EC2__Tag
+from sgraph_ai_service_playwright__cli.aws.ec2.collections.List__Schema__EC2__AMI                  import List__Schema__EC2__AMI
 from sgraph_ai_service_playwright__cli.aws.ec2.collections.List__Schema__EC2__Block_Device__Mapping import List__Schema__EC2__Block_Device__Mapping
 from sgraph_ai_service_playwright__cli.aws.ec2.collections.List__Schema__EC2__Instance             import List__Schema__EC2__Instance
 from sgraph_ai_service_playwright__cli.aws.ec2.collections.List__Schema__EC2__Security_Group__Ref  import List__Schema__EC2__Security_Group__Ref
+from sgraph_ai_service_playwright__cli.aws.ec2.collections.List__Schema__EC2__Snapshot             import List__Schema__EC2__Snapshot
 from sgraph_ai_service_playwright__cli.aws.ec2.enums.Enum__EC2__Instance__State                    import Enum__EC2__Instance__State
 from sgraph_ai_service_playwright__cli.aws.ec2.primitives.Safe_Str__EC2__AMI_Id                    import Safe_Str__EC2__AMI_Id
 from sgraph_ai_service_playwright__cli.aws.ec2.primitives.Safe_Str__EC2__Instance_Id               import Safe_Str__EC2__Instance_Id
 from sgraph_ai_service_playwright__cli.aws.ec2.primitives.Safe_Str__EC2__Instance__Type            import Safe_Str__EC2__Instance__Type
+from sgraph_ai_service_playwright__cli.aws.ec2.primitives.Safe_Str__EC2__Snapshot_Id               import Safe_Str__EC2__Snapshot_Id
+from sgraph_ai_service_playwright__cli.aws.ec2.schemas.Schema__EC2__AMI                            import Schema__EC2__AMI
 from sgraph_ai_service_playwright__cli.aws.ec2.schemas.Schema__EC2__Block_Device__Mapping          import Schema__EC2__Block_Device__Mapping
 from sgraph_ai_service_playwright__cli.aws.ec2.schemas.Schema__EC2__Create__Request                import Schema__EC2__Create__Request
 from sgraph_ai_service_playwright__cli.aws.ec2.schemas.Schema__EC2__Instance                       import Schema__EC2__Instance
 from sgraph_ai_service_playwright__cli.aws.ec2.schemas.Schema__EC2__Instance__Detail               import Schema__EC2__Instance__Detail
 from sgraph_ai_service_playwright__cli.aws.ec2.schemas.Schema__EC2__Security_Group__Ref            import Schema__EC2__Security_Group__Ref
+from sgraph_ai_service_playwright__cli.aws.ec2.schemas.Schema__EC2__Snapshot                       import Schema__EC2__Snapshot
 from sgraph_ai_service_playwright__cli.credentials.service.Sg__Aws__Session                        import Sg__Aws__Session
+
+
+_AMI_ID_RE = re.compile(r'^ami-[0-9a-f]{8,17}$')                                # Used by describe_ami to choose ImageIds vs name filter
 
 
 class EC2__AWS__Client(Type_Safe):
@@ -104,6 +113,61 @@ class EC2__AWS__Client(Type_Safe):
             for it in page.get('InstanceTypes', []):
                 result.append(it.get('InstanceType', ''))
         return sorted(result)
+
+    # ── read: AMIs ────────────────────────────────────────────────────────────
+
+    def list_amis(self, owner: str = 'self', name_substring: str = ''
+                  ) -> List__Schema__EC2__AMI:
+        ec2     = self.client()
+        kwargs  = {}
+        if owner and owner != 'all':                                            # 'all' → omit Owners (this can be huge — caller asked for it)
+            kwargs['Owners'] = [owner]
+        filters = []
+        if name_substring:
+            filters.append({'Name': 'name', 'Values': [f'*{name_substring}*']})
+        if filters:
+            kwargs['Filters'] = filters
+        result    = List__Schema__EC2__AMI()
+        paginator = ec2.get_paginator('describe_images')
+        for page in paginator.paginate(**kwargs):
+            for raw in page.get('Images', []):
+                result.append(self._parse_ami(raw))
+        return result
+
+    def describe_ami(self, ami_id_or_name: str) -> Optional[Schema__EC2__AMI]:
+        try:
+            ec2 = self.client()
+            if _AMI_ID_RE.match(ami_id_or_name):                                # Resolve by ImageIds
+                resp   = ec2.describe_images(ImageIds=[ami_id_or_name])
+                images = resp.get('Images', []) or []
+            else:                                                                # Resolve by name; multiple → most-recent
+                resp   = ec2.describe_images(Filters=[{'Name': 'name', 'Values': [ami_id_or_name]}])
+                images = resp.get('Images', []) or []
+                if len(images) > 1:
+                    images = sorted(images, key=lambda i: i.get('CreationDate', ''),
+                                    reverse=True)
+            if not images:
+                return None
+            return self._parse_ami(images[0])
+        except ClientError as exc:
+            code = exc.response.get('Error', {}).get('Code', '')
+            if code in ('InvalidAMIID.NotFound', 'InvalidAMIID.Malformed'):
+                return None
+            raise
+
+    # ── read: snapshots ──────────────────────────────────────────────────────
+
+    def list_snapshots(self, owner: str = 'self') -> List__Schema__EC2__Snapshot:
+        ec2     = self.client()
+        kwargs  = {}
+        if owner and owner != 'all':
+            kwargs['OwnerIds'] = [owner]
+        result    = List__Schema__EC2__Snapshot()
+        paginator = ec2.get_paginator('describe_snapshots')
+        for page in paginator.paginate(**kwargs):
+            for raw in page.get('Snapshots', []):
+                result.append(self._parse_snapshot(raw))
+        return result
 
     # ── mutations ─────────────────────────────────────────────────────────────
 
@@ -240,4 +304,51 @@ class EC2__AWS__Client(Type_Safe):
             tags                 = tags_dict,
             security_groups      = sgs_list,
             block_devices        = bdm_list,
+        )
+
+    def _parse_ami(self, raw: dict) -> Schema__EC2__AMI:
+        ami_id    = raw.get('ImageId', '')            or ''
+        name      = raw.get('Name', '')               or ''
+        desc      = raw.get('Description', '')        or ''
+        owner_id  = raw.get('OwnerId', '')            or ''
+        created   = raw.get('CreationDate', '')       or ''                     # ISO-8601 string
+        public    = bool(raw.get('Public', False))
+        arch      = raw.get('Architecture', '')       or ''
+        root_type = raw.get('RootDeviceType', '')     or ''
+        snap_ids  = []
+        for bdm in raw.get('BlockDeviceMappings', []) or []:
+            ebs    = bdm.get('Ebs') or {}
+            snap_s = ebs.get('SnapshotId', '') or ''
+            if snap_s:
+                snap_ids.append(Safe_Str__EC2__Snapshot_Id(snap_s))
+        return Schema__EC2__AMI(
+            ami_id                = Safe_Str__EC2__AMI_Id(ami_id) if ami_id else Safe_Str__EC2__AMI_Id(''),
+            name                  = name,
+            description           = desc,
+            owner_id              = owner_id,
+            created_at            = created,
+            public                = public,
+            architecture          = arch,
+            root_device_type      = root_type,
+            snapshot_ids          = snap_ids,
+            attached_instance_ids = [],
+        )
+
+    def _parse_snapshot(self, raw: dict) -> Schema__EC2__Snapshot:
+        snap_id   = raw.get('SnapshotId', '')   or ''
+        vol_id    = raw.get('VolumeId', '')     or ''
+        vol_size  = int(raw.get('VolumeSize', 0) or 0)
+        desc      = raw.get('Description', '')  or ''
+        state     = raw.get('State', '')        or ''
+        started   = raw.get('StartTime', '')
+        started_s = str(started) if started else ''
+        owner_id  = raw.get('OwnerId', '')      or ''
+        return Schema__EC2__Snapshot(
+            snapshot_id     = Safe_Str__EC2__Snapshot_Id(snap_id) if snap_id else Safe_Str__EC2__Snapshot_Id(''),
+            volume_id       = vol_id,
+            volume_size_gib = vol_size,
+            description     = desc,
+            state           = state,
+            started_at      = started_s,
+            owner_id        = owner_id,
         )

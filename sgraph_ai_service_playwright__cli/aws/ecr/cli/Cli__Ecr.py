@@ -1,17 +1,20 @@
 # ═══════════════════════════════════════════════════════════════════════════════
 # SP CLI — Cli__Ecr
-# Typer CLI surface for `sg aws ecr *` commands (Slice 1, read-only).
+# Typer CLI surface for `sg aws ecr *` commands.
 #
 # Command tree:
 #   sg aws ecr repos                                           [--json]
-#   sg aws ecr repo   <name>                                   [--json]
-#   sg aws ecr images <repo> [--untagged] [--digest] [--older 30d] [--json]
-#   sg aws ecr image  <repo> <tag-or-digest>                   [--json]
-#   sg aws ecr scan   <repo> <tag-or-digest>                   [--json]
+#   sg aws ecr repo        <name>                              [--json]
+#   sg aws ecr images      <repo> [--untagged] [--digest] [--older 30d] [--json]
+#   sg aws ecr image       <repo> <tag-or-digest>              [--json]
+#   sg aws ecr scan        <repo> <tag-or-digest>              [--json]
+#   sg aws ecr prune       <repo> [--untagged] [--older 30d] [--keep-last 5]
+#                                 [--dry-run] [--yes] [--json]      (mutating)
+#   sg aws ecr delete      <repo> <tag-or-digest> [--yes] [--json]  (mutating)
+#   sg aws ecr repo-create <name>                          [--json] (mutating)
+#   sg aws ecr repo-delete <name> [--force] [--yes]        [--json] (mutating)
 #
-# All commands are read-only. Mutations (prune, delete, repo-create,
-# repo-delete) land in Slice 2 and will be gated on
-# SG_AWS__ECR__ALLOW_MUTATIONS=1.
+# Mutating commands require SG_AWS__ECR__ALLOW_MUTATIONS=1.
 # ═══════════════════════════════════════════════════════════════════════════════
 
 import json
@@ -22,8 +25,12 @@ import typer
 from rich.console import Console
 from rich.table   import Table
 
-from sg_compute.cli.base.Spec__CLI__Errors                        import spec_cli_errors
-from sgraph_ai_service_playwright__cli.aws.ecr.service.ECR__AWS__Client import ECR__AWS__Client
+from sg_compute.cli.base.Spec__CLI__Errors                                  import spec_cli_errors
+from sgraph_ai_service_playwright__cli.aws._shared.Mutation__Gate           import require_mutation_gate
+from sgraph_ai_service_playwright__cli.aws.ecr.service.ECR__AWS__Client     import ECR__AWS__Client
+from sgraph_ai_service_playwright__cli.aws.ecr.service.ECR__Prune__Planner  import ECR__Prune__Planner
+
+_MUTATION_ENV = 'SG_AWS__ECR__ALLOW_MUTATIONS'
 
 console = Console()
 
@@ -308,3 +315,167 @@ def ecr_scan(ctx           : typer.Context,
     t.add_row('UNDEFINED',     str(counts.undefined))
     console.print(t)
     console.print()
+
+
+# ── prune ─────────────────────────────────────────────────────────────────────
+
+@app.command('prune')
+@spec_cli_errors
+@require_mutation_gate(_MUTATION_ENV)
+def ecr_prune(ctx       : typer.Context,
+              repo      : str  = typer.Argument(..., help='Repository name.'),
+              untagged  : bool = typer.Option(False, '--untagged',
+                                              help='Restrict candidates to images with no tags.'),
+              older     : str  = typer.Option('',    '--older',
+                                              help='Only images pushed before TTL (e.g. 30d).'),
+              keep_last : int  = typer.Option(0,     '--keep-last',
+                                              help='Protect N most-recent tagged images.'),
+              dry_run   : bool = typer.Option(False, '--dry-run',
+                                              help='Show plan but do not delete.'),
+              yes       : bool = typer.Option(False, '--yes',
+                                              help='Skip confirmation prompt.'),
+              as_json   : bool = typer.Option(False, '--json', help='Output as JSON.')):
+    """Prune ECR images by policy (requires SG_AWS__ECR__ALLOW_MUTATIONS=1)."""
+    client = ctx.obj['ecr_client']
+    images = client.list_images(repo)
+    if images is None:
+        console.print(f'[red]Repository not found:[/red] {repo}')
+        raise typer.Exit(1)
+    older_td = _parse_older(older) if older else None
+    plan = ECR__Prune__Planner().plan(images     = images,
+                                      untagged   = untagged,
+                                      older_than = older_td,
+                                      keep_last  = keep_last,
+                                      now        = datetime.now(timezone.utc),
+                                      repo_name  = repo)
+    # ── JSON output (dry-run or not, the executed flag tracks state) ─────────
+    if as_json:
+        executed      = False
+        deleted_count = 0
+        if not dry_run:
+            if not yes and not typer.confirm(
+                f'Delete {len(plan.to_delete)} images? This cannot be undone.', default=False):
+                executed = False
+            else:
+                digests       = [str(img.digest) for img in plan.to_delete if str(img.digest)]
+                deleted_count = client.batch_delete_images(repo, digests)
+                executed      = True
+        typer.echo(json.dumps({'plan'         : plan.json(),
+                               'executed'     : executed,
+                               'deleted_count': deleted_count}, indent=2, default=str))
+        return
+    # ── table output ─────────────────────────────────────────────────────────
+    if plan.to_delete:
+        t = Table(title=f'ECR Prune Plan — {repo}')
+        t.add_column('Digest',  style='dim')
+        t.add_column('Tags',    style='cyan')
+        t.add_column('Size',    style='dim', justify='right')
+        t.add_column('Pushed',  style='dim')
+        for img in plan.to_delete:
+            digest_s = str(img.digest)
+            short    = digest_s[:19] if digest_s else '—'
+            tag_str  = ', '.join(str(x) for x in img.tags) or '(untagged)'
+            size_mb  = f'{img.size_bytes / (1024 * 1024):.1f} MiB' if img.size_bytes else '—'
+            t.add_row(short, tag_str, size_mb, str(img.pushed_at) or '—')
+        console.print(t)
+    console.print(f'[bold]{len(plan.to_delete)} to delete, {plan.kept_count} kept[/bold]; '
+                  f'policy: {plan.policy_summary}')
+    if dry_run:
+        console.print('[dim]Dry-run — no images deleted.[/dim]')
+        return
+    if not plan.to_delete:
+        console.print('Nothing to delete.')
+        return
+    if not yes and not typer.confirm(
+        f'Delete {len(plan.to_delete)} images? This cannot be undone.', default=False):
+        console.print('[yellow]Aborted.[/yellow]')
+        raise typer.Exit(0)
+    digests = [str(img.digest) for img in plan.to_delete if str(img.digest)]
+    n       = client.batch_delete_images(repo, digests)
+    console.print(f'[green]Deleted[/green] {n} image(s) from {repo}.')
+
+
+# ── delete ────────────────────────────────────────────────────────────────────
+
+@app.command('delete')
+@spec_cli_errors
+@require_mutation_gate(_MUTATION_ENV)
+def ecr_delete(ctx           : typer.Context,
+               repo          : str  = typer.Argument(..., help='Repository name.'),
+               tag_or_digest : str  = typer.Argument(..., help='Image tag or sha256: digest.'),
+               yes           : bool = typer.Option(False, '--yes',
+                                                   help='Skip confirmation prompt.'),
+               as_json       : bool = typer.Option(False, '--json', help='Output as JSON.')):
+    """Delete a single ECR image (requires SG_AWS__ECR__ALLOW_MUTATIONS=1)."""
+    if not yes and not typer.confirm(
+        f'Delete {tag_or_digest!r} from {repo!r}? This cannot be undone.', default=False):
+        if as_json:
+            typer.echo(json.dumps({'deleted': False, 'aborted': True}, indent=2))
+        else:
+            console.print('[yellow]Aborted.[/yellow]')
+        raise typer.Exit(0)
+    client  = ctx.obj['ecr_client']
+    deleted = client.delete_image(repo, tag_or_digest)
+    if as_json:
+        typer.echo(json.dumps({'deleted'      : bool(deleted),
+                               'repo'         : repo,
+                               'tag_or_digest': tag_or_digest}, indent=2))
+        return
+    if deleted:
+        console.print(f'[green]Deleted[/green] {tag_or_digest} from {repo}.')
+    else:
+        console.print(f'[yellow]Not found[/yellow] {tag_or_digest} in {repo}.')
+        raise typer.Exit(1)
+
+
+# ── repo-create ───────────────────────────────────────────────────────────────
+
+@app.command('repo-create')
+@spec_cli_errors
+@require_mutation_gate(_MUTATION_ENV)
+def ecr_repo_create(ctx     : typer.Context,
+                    name    : str  = typer.Argument(..., help='Repository name.'),
+                    as_json : bool = typer.Option(False, '--json', help='Output as JSON.')):
+    """Create an ECR repository (requires SG_AWS__ECR__ALLOW_MUTATIONS=1)."""
+    client  = ctx.obj['ecr_client']
+    created = client.create_repository(name)
+    if as_json:
+        typer.echo(json.dumps({'created': bool(created), 'name': name}, indent=2))
+        return
+    if created:
+        console.print(f'[green]Created[/green] repository {name}.')
+    else:
+        console.print(f'[yellow]Already exists:[/yellow] {name}.')
+
+
+# ── repo-delete ───────────────────────────────────────────────────────────────
+
+@app.command('repo-delete')
+@spec_cli_errors
+@require_mutation_gate(_MUTATION_ENV)
+def ecr_repo_delete(ctx     : typer.Context,
+                    name    : str  = typer.Argument(..., help='Repository name.'),
+                    force   : bool = typer.Option(False, '--force',
+                                                  help='Delete even if repository has images.'),
+                    yes     : bool = typer.Option(False, '--yes',
+                                                  help='Skip confirmation prompt.'),
+                    as_json : bool = typer.Option(False, '--json', help='Output as JSON.')):
+    """Delete an ECR repository (requires SG_AWS__ECR__ALLOW_MUTATIONS=1)."""
+    if not yes and not typer.confirm(
+        f'Delete repository {name!r}{" (with images)" if force else ""}? This cannot be undone.',
+        default=False):
+        if as_json:
+            typer.echo(json.dumps({'deleted': False, 'aborted': True}, indent=2))
+        else:
+            console.print('[yellow]Aborted.[/yellow]')
+        raise typer.Exit(0)
+    client  = ctx.obj['ecr_client']
+    deleted = client.delete_repository(name, force=force)
+    if as_json:
+        typer.echo(json.dumps({'deleted': bool(deleted), 'name': name}, indent=2))
+        return
+    if deleted:
+        console.print(f'[green]Deleted[/green] repository {name}.')
+    else:
+        console.print(f'[yellow]Not found:[/yellow] {name}.')
+        raise typer.Exit(1)
