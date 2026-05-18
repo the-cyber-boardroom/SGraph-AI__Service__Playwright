@@ -32,7 +32,8 @@ from sgraph_ai_service_playwright__cli.aws.acm.enums.Enum__ACM__Cert_Status     
 from sgraph_ai_service_playwright__cli.aws.acm.enums.Enum__ACM__Cert_Type                 import Enum__ACM__Cert_Type
 from sgraph_ai_service_playwright__cli.aws.acm.schemas.Schema__ACM__Certificate           import Schema__ACM__Certificate
 
-US_EAST_1 = 'us-east-1'                                                              # CloudFront certs must live here — always included in dual-region scan
+US_EAST_1       = 'us-east-1'                                                        # CloudFront certs must live here — always included in dual-region scan
+FALLBACK_REGION = 'eu-west-1'                                                        # default for tests that need a stable region
 
 
 class ACM__AWS__Client(Type_Safe):                                                   # Isolated boto3 boundary for ACM read operations
