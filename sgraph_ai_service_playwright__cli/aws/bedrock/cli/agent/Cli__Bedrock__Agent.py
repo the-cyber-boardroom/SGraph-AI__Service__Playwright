@@ -1,7 +1,17 @@
 # ═══════════════════════════════════════════════════════════════════════════════
 # SP CLI — Cli__Bedrock__Agent
 # Typer group for `sg aws bedrock agent *` commands.
-# EXPERIMENTAL — requires AgentCore SDK or boto3 bedrock-agent.
+#
+# IMPORTANT — which AWS product this calls:
+#   These verbs go to the LEGACY Amazon Bedrock Agents control plane
+#   (boto3 service `bedrock-agent`, IAM action prefix `bedrock:*`).
+#   They do NOT call the newer Bedrock AgentCore product (which lives at
+#   `bedrock-agentcore-control` / `bedrock-agentcore:*` and uses a
+#   different "agent runtime" concept — a deployed container/code package
+#   rather than a declarative agent + tools + instructions).
+#
+#   The browser/code-interpreter tool sessions DO use AgentCore.
+#
 # All mutating commands are gated by SG_AWS__BEDROCK__ALLOW_MUTATIONS=1.
 # ═══════════════════════════════════════════════════════════════════════════════
 
@@ -11,6 +21,7 @@ from datetime                                                                   
 from typing                                                                      import Optional
 
 import typer
+from botocore.exceptions                                                         import ClientError
 from rich.console                                                                import Console
 from rich.table                                                                  import Table
 
@@ -22,7 +33,7 @@ from sgraph_ai_service_playwright__cli.aws.bedrock.service.Bedrock__Model__Resol
 
 BEDROCK_GATE = 'SG_AWS__BEDROCK__ALLOW_MUTATIONS'
 
-agent_app  = typer.Typer(name='agent',  help='Bedrock Agents (AgentCore) — EXPERIMENTAL.', no_args_is_help=True)
+agent_app  = typer.Typer(name='agent',  help='Bedrock Agents (LEGACY `bedrock-agent` API — not AgentCore). EXPERIMENTAL.', no_args_is_help=True)
 memory_app = typer.Typer(name='memory', help='Agent memory management.',                    no_args_is_help=True)
 agent_app.add_typer(memory_app, name='memory')
 
@@ -31,20 +42,57 @@ def _client() -> Bedrock__Agent__AWS__Client:
     return Bedrock__Agent__AWS__Client()
 
 
+def _render_agent_client_error(exc: ClientError, action: str, name_or_id: str = '') -> None:
+    """Translate a boto3 ClientError from bedrock-agent into actionable hints.
+    Distinguishes legacy-Bedrock-Agents permissions from AgentCore."""               # inline
+    err   = exc.response.get('Error', {}) if hasattr(exc, 'response') else {}
+    code  = err.get('Code', type(exc).__name__)
+    msg   = err.get('Message', str(exc))
+    c     = Console(highlight=False, stderr=True)
+    c.print()
+    c.print(f'  [red]✗ {code}[/]: {msg}')
+    c.print()
+    if code in ('AccessDeniedException', 'AccessDenied'):
+        c.print(f'  [bold]Note:[/] this CLI calls the [bold]LEGACY Amazon Bedrock Agents[/] API')
+        c.print(f'  (boto3 [bold]bedrock-agent[/]:{action}, IAM action [bold]bedrock:{action}[/]),')
+        c.print(f'  NOT the newer Bedrock AgentCore (which would be [bold]bedrock-agentcore:*[/]).')
+        c.print()
+        c.print(f'  Required IAM for `agent {action.lower().replace("agent","").strip("_")}`:')
+        c.print(f'    • [bold]bedrock:{action}[/] on Resource: *')
+        c.print(f'    • [bold]iam:PassRole[/] on the agent execution role ARN')
+        c.print(f'      (must be a role with `bedrock.amazonaws.com` trust)')
+        c.print()
+        c.print('  If your IAM policy already has `bedrock:*` and you still see this,')
+        c.print('  check:')
+        c.print('    • an SCP at the org level blocking the action')
+        c.print('    • a permission boundary on the user/role')
+        c.print('    • the policy is actually attached to the IAM identity making the call')
+        c.print('    • `sg credentials whoami` to verify which identity is active')
+        c.print()
+    elif code == 'ValidationException' and 'role' in msg.lower():
+        c.print('  Agent creation requires `agentResourceRoleArn` — pass --role-arn')
+        c.print('  with a role that trusts `bedrock.amazonaws.com`.')
+        c.print()
+    elif code == 'ResourceNotFoundException':
+        c.print(f'  Agent {name_or_id!r} not found in this region.')
+        c.print()
+
+
 # ── agent create ──────────────────────────────────────────────────────────────
 
 @agent_app.command('create')
 @require_mutation_gate(BEDROCK_GATE)
 @spec_cli_errors
 def agent_create(
-    name        : str          = typer.Option(...,   '--name',   '-n', help='Agent name.'),
-    model       : str          = typer.Option(...,   '--model',  '-m', help='Model alias or model ID (e.g. claude, haiku-4.5).'),
-    tools       : str          = typer.Option('',   '--tools',        help='Comma-separated tool names: browser, code-interpreter.'),
-    memory      : str          = typer.Option('none','--memory',      help='Memory scope: short, long, both, none.'),
-    yes         : bool         = typer.Option(False, '--yes',   '-y', help='Skip confirmation prompt.'),
-    json_output : bool         = typer.Option(False, '--json',        help='Output JSON.'),
+    name        : str          = typer.Option(...,   '--name',     '-n', help='Agent name.'),
+    model       : str          = typer.Option(...,   '--model',    '-m', help='Model alias or model ID (e.g. claude, haiku-4.5).'),
+    role_arn    : str          = typer.Option('',    '--role-arn',       help='Agent execution role ARN (required by AWS — role must trust bedrock.amazonaws.com).'),
+    tools       : str          = typer.Option('',    '--tools',          help='Comma-separated tool names: browser, code-interpreter.'),
+    memory      : str          = typer.Option('none','--memory',         help='Memory scope: short, long, both, none.'),
+    yes         : bool         = typer.Option(False, '--yes',     '-y',  help='Skip confirmation prompt.'),
+    json_output : bool         = typer.Option(False, '--json',           help='Output JSON.'),
 ):
-    """Create an AgentCore agent. [EXPERIMENTAL]"""
+    """Create a Bedrock Agent (legacy `bedrock-agent` API — not AgentCore). [EXPERIMENTAL]"""
     if not yes:
         typer.confirm(f'Create agent {name!r}?', default=True, abort=True)
     resolver = Bedrock__Model__Resolver()
@@ -54,7 +102,11 @@ def agent_create(
         model_id = resolver.resolve(model if model not in ('claude','nova','llama') else model, 'default', region)
     except ValueError:
         model_id = model                                                          # raw model ID passed directly
-    agent  = client.create_agent(name, model_id, tools=tools, memory=memory)
+    try:
+        agent = client.create_agent(name, model_id, tools=tools, memory=memory, role_arn=role_arn)
+    except ClientError as exc:
+        _render_agent_client_error(exc, action='CreateAgent', name_or_id=name)
+        raise typer.Exit(1)
     writer = Bedrock__Capture__Writer()
     path   = writer.write_agent_definition(name, {'agent_id'  : agent.agent_id  ,
                                                    'agent_arn' : str(agent.agent_arn),
