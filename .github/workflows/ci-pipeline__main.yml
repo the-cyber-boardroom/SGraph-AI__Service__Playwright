@@ -20,7 +20,6 @@ on:
       - 'library/**'
       - '**/*.md'
       - 'sg_compute_specs/playwright/core/version'
-      - 'sg_compute/version'
 
 jobs:
   deploy-main:
