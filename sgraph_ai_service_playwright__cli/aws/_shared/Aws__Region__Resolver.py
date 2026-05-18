@@ -22,15 +22,21 @@ class Aws__Region__Resolver(Type_Safe):
         candidates = [
             region_flag,
             resource_hint,
-            os.environ.get('SG_AWS__REGION', ''),
+            self._env_region('SG_AWS__REGION'),
             self._role_region(),
-            os.environ.get('AWS_DEFAULT_REGION', ''),
+            self._env_region('AWS_DEFAULT_REGION'),
             'us-east-1',
         ]
         for c in candidates:
             if c:
                 return Safe_Str__AWS__Region(c)
         return Safe_Str__AWS__Region('us-east-1')
+
+    def _env_region(self, var: str) -> str:                                       # Read env var and strip surrounding shell quotes that can appear when
+        v = os.environ.get(var, '')                                               # users evaluate switch output via $() instead of eval $()
+        if len(v) >= 2 and v[0] == v[-1] and v[0] in ("'", '"'):
+            v = v[1:-1]
+        return v
 
     def _role_region(self) -> str:
         try:
