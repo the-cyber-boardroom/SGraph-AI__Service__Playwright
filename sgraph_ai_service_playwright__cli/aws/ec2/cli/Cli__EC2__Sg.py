@@ -2,22 +2,29 @@
 # SP CLI — Cli__EC2__Sg
 # Typer CLI surface for `sg aws ec2 sg *` commands.
 #
-# Command tree (P0 reads only — no deletes; SG deletes land in Slice 5):
+# Command tree:
 #   sg aws ec2 sg list    [--vpc <vpc-id>] [--name <substring>] [--json]
 #   sg aws ec2 sg show    <sg-id-or-name>                        [--json]
 #   sg aws ec2 sg rules   <sg-id-or-name>                        [--json]
 #   sg aws ec2 sg orphans [--vpc <vpc-id>]                       [--json]
+#   sg aws ec2 sg delete  <sg-id-or-name> [--yes]                [--json]
+#
+# `delete` requires SG_AWS__EC2__ALLOW_MUTATIONS=1 (same gate as ec2 terminate).
 # ═══════════════════════════════════════════════════════════════════════════════
 
 import json
 
 import typer
 from rich.console import Console
+from rich.panel   import Panel
 from rich.table   import Table
 
-from sg_compute.cli.base.Spec__CLI__Errors                            import spec_cli_errors
-from sgraph_ai_service_playwright__cli.aws.ec2.service.EC2__AWS__Client import EC2__AWS__Client
+from sg_compute.cli.base.Spec__CLI__Errors                                  import spec_cli_errors
+from sgraph_ai_service_playwright__cli.aws._shared.Mutation__Gate           import require_mutation_gate
+from sgraph_ai_service_playwright__cli.aws.ec2.service.EC2__AWS__Client     import EC2__AWS__Client
 
+
+_MUTATION_ENV = 'SG_AWS__EC2__ALLOW_MUTATIONS'
 
 console = Console()
 
@@ -240,3 +247,85 @@ def sg_orphans(ctx     : typer.Context,
     if vpc:
         title += f' — vpc={vpc}'
     _render_sg_summary_table(orphans, title=title)
+
+
+# ── delete ────────────────────────────────────────────────────────────────────
+
+@app.command('delete')
+@spec_cli_errors
+@require_mutation_gate(_MUTATION_ENV)
+def sg_delete(ctx           : typer.Context,
+              sg_id_or_name : str  = typer.Argument(..., help='SG ID (sg-*) or group name.'),
+              vpc           : str  = typer.Option('', '--vpc',
+                                                  help='Narrow name resolution to a VPC.'),
+              yes           : bool = typer.Option(False, '--yes',
+                                                  help='Skip confirmation prompt.'),
+              as_json       : bool = typer.Option(False, '--json',
+                                                  help='Output as JSON.')):
+    """Delete a security group (requires SG_AWS__EC2__ALLOW_MUTATIONS=1)."""
+    client = ctx.obj['ec2_client']
+    # ── pre-flight: resolve so we know attachments BEFORE delete ────────────
+    sg = _resolve_sg(client, sg_id_or_name, vpc_id=vpc)
+    if sg is None:
+        if as_json:
+            typer.echo(json.dumps({'sg_id'  : sg_id_or_name,
+                                   'deleted': False,
+                                   'error'  : 'not_found'}, indent=2))
+        else:
+            console.print(f'[red]Security group not found:[/red] {sg_id_or_name}')
+        raise typer.Exit(1)
+    resolved_id = str(sg.sg_id)
+    eni_ids     = [str(e) for e in sg.attached_eni_ids]
+    inst_ids    = [str(i) for i in sg.attached_instance_ids]
+    # ── summary table ───────────────────────────────────────────────────────
+    if not as_json:
+        t = Table(box=None, show_header=False, padding=(0, 2))
+        t.add_column(style='bold', min_width=22)
+        t.add_column()
+        t.add_row('sg id',                 resolved_id)
+        t.add_row('name',                  str(sg.name)   or '—')
+        t.add_row('vpc',                   str(sg.vpc_id) or '—')
+        t.add_row('attached eni count',    str(len(eni_ids)))
+        t.add_row('attached instance count', str(len(inst_ids)))
+        console.print()
+        console.print(t)
+        console.print()
+    # ── hard guard: refuse if any ENI is still attached ─────────────────────
+    # AWS will reject with DependencyViolation anyway, but failing fast here
+    # gives a cleaner message and avoids a round-trip.
+    if len(eni_ids) > 0:
+        if as_json:
+            typer.echo(json.dumps({'sg_id'           : resolved_id,
+                                   'deleted'         : False,
+                                   'error'           : 'attached',
+                                   'attached_eni_ids': eni_ids}, indent=2))
+        else:
+            console.print(Panel(
+                f'[bold]{resolved_id}[/bold] is still attached to '
+                f'{len(eni_ids)} ENI(s):\n\n  ' +
+                '\n  '.join(eni_ids) +
+                '\n\nDetach or delete those resources first.',
+                title='[red]Cannot delete[/red]',
+                border_style='red',
+            ))
+        raise typer.Exit(1)
+    # ── confirm ─────────────────────────────────────────────────────────────
+    if not yes and not typer.confirm('Delete security group?', default=False):
+        if as_json:
+            typer.echo(json.dumps({'sg_id'  : resolved_id,
+                                   'deleted': False,
+                                   'aborted': True}, indent=2))
+        else:
+            console.print('[yellow]Aborted.[/yellow]')
+        raise typer.Exit(0)
+    # ── delete ──────────────────────────────────────────────────────────────
+    deleted = client.delete_security_group(resolved_id, vpc_id=str(sg.vpc_id))
+    if as_json:
+        typer.echo(json.dumps({'sg_id'  : resolved_id,
+                               'deleted': bool(deleted)}, indent=2))
+        return
+    if deleted:
+        console.print(f'[green]Deleted[/green] {resolved_id}')
+    else:
+        console.print(f'[yellow]Not deleted[/yellow] {resolved_id} (already gone?)')
+        raise typer.Exit(1)

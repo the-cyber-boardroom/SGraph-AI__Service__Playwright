@@ -293,6 +293,50 @@ class EC2__AWS__Client(Type_Safe):
     def terminate_instance(self, instance_id: str) -> None:
         self.client().terminate_instances(InstanceIds=[instance_id])
 
+    def deregister_image(self, ami_id: str) -> bool:                           # Returns True on success; False if AMI already gone
+        try:
+            self.client().deregister_image(ImageId=ami_id)
+            return True
+        except ClientError as exc:
+            code = exc.response.get('Error', {}).get('Code', '')
+            if code in ('InvalidAMIID.NotFound', 'InvalidAMIID.Unavailable'):
+                return False
+            raise
+
+    def delete_snapshot(self, snapshot_id: str) -> bool:                       # Returns True on success; False if already gone
+        try:
+            self.client().delete_snapshot(SnapshotId=snapshot_id)
+            return True
+        except ClientError as exc:
+            code = exc.response.get('Error', {}).get('Code', '')
+            if code == 'InvalidSnapshot.NotFound':
+                return False
+            # InvalidSnapshot.InUse / others propagate so caller can show why
+            raise
+
+    def delete_security_group(self, sg_id_or_name: str, vpc_id: str = '') -> bool:
+        # Resolve to a concrete sg_id first — supports name-based input and
+        # surfaces NotFound as False before the mutation call.
+        try:
+            sg = self.describe_security_group(sg_id_or_name, vpc_id=vpc_id)
+        except ClientError as exc:
+            code = exc.response.get('Error', {}).get('Code', '')
+            if code in ('InvalidGroup.NotFound', 'InvalidGroupId.Malformed'):
+                return False
+            raise
+        if sg is None:
+            return False
+        try:
+            self.client().delete_security_group(GroupId=str(sg.sg_id))
+            return True
+        except ClientError as exc:
+            code = exc.response.get('Error', {}).get('Code', '')
+            if code in ('InvalidGroup.NotFound', 'InvalidGroupId.Malformed'):
+                return False
+            # DependencyViolation and any other ClientError re-raise so the
+            # user sees the real AWS reason via @spec_cli_errors.
+            raise
+
     def add_tags(self, instance_id: str, tags: dict) -> None:                  # tags is {Key: Value} map
         self.client().create_tags(
             Resources = [instance_id],

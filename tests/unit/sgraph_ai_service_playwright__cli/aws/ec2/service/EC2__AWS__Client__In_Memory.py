@@ -203,6 +203,34 @@ class _Fake_EC2_Client:                                                        #
                 result = kept
         return result
 
+    # ── deregister_image ──────────────────────────────────────────────────────
+
+    def deregister_image(self, ImageId=''):
+        if ImageId not in self._images_store:
+            raise ClientError(
+                {'Error': {'Code': 'InvalidAMIID.NotFound',
+                            'Message': f'The image id {ImageId} does not exist'}},
+                'DeregisterImage')
+        del self._images_store[ImageId]
+        return {}
+
+    # ── delete_snapshot ───────────────────────────────────────────────────────
+
+    def delete_snapshot(self, SnapshotId=''):
+        if SnapshotId not in self._snapshots_store:
+            raise ClientError(
+                {'Error': {'Code': 'InvalidSnapshot.NotFound',
+                            'Message': f'The snapshot {SnapshotId} does not exist'}},
+                'DeleteSnapshot')
+        raw = self._snapshots_store[SnapshotId]
+        if raw.get('_InUse'):
+            raise ClientError(
+                {'Error': {'Code': 'InvalidSnapshot.InUse',
+                            'Message': f'The snapshot {SnapshotId} is currently in use'}},
+                'DeleteSnapshot')
+        del self._snapshots_store[SnapshotId]
+        return {}
+
     # ── describe_security_groups ──────────────────────────────────────────────
 
     def describe_security_groups(self, GroupIds=None, Filters=None):
@@ -247,6 +275,26 @@ class _Fake_EC2_Client:                                                        #
                                 kept.append(g); break
                 result = kept
         return result
+
+    # ── delete_security_group ─────────────────────────────────────────────────
+
+    def delete_security_group(self, GroupId='', GroupName=''):
+        target = GroupId or GroupName
+        if target not in self._security_groups_store:
+            raise ClientError(
+                {'Error': {'Code': 'InvalidGroup.NotFound',
+                            'Message': f'The security group {target} does not exist'}},
+                'DeleteSecurityGroup')
+        # mirror AWS: any ENI still using this SG → DependencyViolation
+        for eni in self._network_interfaces_store.values():
+            for g in (eni.get('Groups', []) or []):
+                if g.get('GroupId', '') == target:
+                    raise ClientError(
+                        {'Error': {'Code': 'DependencyViolation',
+                                    'Message': f'resource {target} has a dependent object'}},
+                        'DeleteSecurityGroup')
+        del self._security_groups_store[target]
+        return {}
 
     # ── describe_network_interfaces ───────────────────────────────────────────
 
@@ -377,7 +425,8 @@ class EC2__AWS__Client__In_Memory(EC2__AWS__Client):
                       description: str = '',
                       state: str = 'completed',
                       owner: str = '123456789012',
-                      started: str = '2026-04-01T00:00:00.000Z') -> str:
+                      started: str = '2026-04-01T00:00:00.000Z',
+                      in_use: bool = False) -> str:
         if not snapshot_id:
             snapshot_id = f'snap-{secrets.token_hex(8)}'
         if not volume_id:
@@ -390,6 +439,7 @@ class EC2__AWS__Client__In_Memory(EC2__AWS__Client):
             'State'       : state,
             'StartTime'   : started,
             'OwnerId'     : owner,
+            '_InUse'      : in_use,                                              # in-memory only: drives delete_snapshot → InvalidSnapshot.InUse
         }
         self._snapshots_store[snapshot_id] = raw
         return snapshot_id
