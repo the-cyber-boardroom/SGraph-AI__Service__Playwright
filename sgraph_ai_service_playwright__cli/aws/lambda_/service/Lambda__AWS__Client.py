@@ -37,10 +37,9 @@ class Lambda__AWS__Client(Type_Safe):
     region : str = ''                                                                  # Override to target a specific region
 
     def client(self):                                                                  # Single boto3 seam — subclass overrides to inject fake
-        kwargs = {}
-        if self.region:
-            kwargs['region_name'] = self.region
-        return boto3.client('lambda', **kwargs)
+        from sgraph_ai_service_playwright__cli.aws._shared.Aws__Region__Resolver import Aws__Region__Resolver
+        region = self.region or str(Aws__Region__Resolver().resolve())            # resolver sanitises env-var values (strips stray quotes etc.)
+        return boto3.client('lambda', region_name=region)
 
     # ── read ──────────────────────────────────────────────────────────────────
 

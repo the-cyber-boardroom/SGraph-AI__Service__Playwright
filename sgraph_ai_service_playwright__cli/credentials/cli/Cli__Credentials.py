@@ -27,6 +27,7 @@
 
 import json
 import os
+import shlex
 
 import typer
 from typing import List, Optional
@@ -160,10 +161,10 @@ def switch(role: str = typer.Argument(..., help='Role name to activate for this 
         raise typer.Exit(1)
     config = store.role_get(role)
     region = str(config.region) if config else 'us-east-1'
-    typer.echo(f'export AWS_ACCESS_KEY_ID={str(creds.access_key)!r}')
-    typer.echo(f'export AWS_SECRET_ACCESS_KEY={str(creds.secret_key)!r}')
-    typer.echo(f'export AWS_DEFAULT_REGION={region!r}')
-    typer.echo(f'export {_CURRENT_ROLE_ENV}={role!r}')
+    typer.echo(f'export AWS_ACCESS_KEY_ID={shlex.quote(str(creds.access_key))}')
+    typer.echo(f'export AWS_SECRET_ACCESS_KEY={shlex.quote(str(creds.secret_key))}')
+    typer.echo(f'export AWS_DEFAULT_REGION={shlex.quote(region)}')
+    typer.echo(f'export {_CURRENT_ROLE_ENV}={shlex.quote(role)}')
     _audit().log(Enum__Audit__Action.SWITCH, role=role, command_args=f'credentials switch {role}')
 
 
