@@ -1,17 +1,9 @@
 # ═══════════════════════════════════════════════════════════════════════════════
-# SP CLI _shared — Enum__AWS__Surface
+# SP CLI aws/lab — Lab__Phase__Not_Ready__Error
+# Raised when an experiment or teardown module requires a phase that hasn't
+# shipped yet (e.g. Phase 2 Lambda before v2 vault-publish lands).
 # ═══════════════════════════════════════════════════════════════════════════════
 
-from enum import Enum
 
-
-class Enum__AWS__Surface(str, Enum):
-    S3          = 's3'
-    EC2         = 'ec2'
-    FARGATE     = 'fargate'
-    BEDROCK     = 'bedrock'
-    CLOUDTRAIL  = 'cloudtrail'
-    CREDS       = 'creds'
-    OBSERVE     = 'observe'
-    IAM_GRAPH   = 'iam-graph'
-    LAB         = 'lab'
+class Lab__Phase__Not_Ready__Error(Exception):
+    pass
