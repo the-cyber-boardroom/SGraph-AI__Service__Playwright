@@ -10,5 +10,6 @@ from sgraph_ai_service_playwright__cli.aws.iam.collections.List__Schema__IAM__St
 
 
 class Schema__IAM__Policy(Type_Safe):
+    name       : str                        = ''            # populated by _load_inline_policies when loaded from AWS
     version    : str                        = '2012-10-17'
     statements : List__Schema__IAM__Statement

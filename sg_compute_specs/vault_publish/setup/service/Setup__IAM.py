@@ -99,6 +99,7 @@ class Setup__IAM(Type_Safe):
     # ── check ─────────────────────────────────────────────────────────────────
 
     def check(self) -> Schema__Setup__IAM__Report:
+        from sgraph_ai_service_playwright__cli.aws.iam.enums.Enum__IAM__Trust__Service import Enum__IAM__Trust__Service
         iam    = self._iam()
         issues = List__Schema__Setup__Issue()
 
@@ -116,8 +117,15 @@ class Setup__IAM(Type_Safe):
                 issues      = issues,
             )
 
+        trust_ok = (role.trust_service == Enum__IAM__Trust__Service.LAMBDA)
+        if not trust_ok:
+            issues.append(Schema__Setup__Issue(
+                severity = 'error',
+                area     = 'iam',
+                message  = f'trust policy is {role.trust_service!r} — expected LAMBDA',
+            ))
+
         expected_policy = self._template_policy()
-        expected_actions = _collect_actions(expected_policy)
 
         live_policy = _find_inline_policy(role, WAKER_POLICY_NAME)
         if live_policy is None:
@@ -127,51 +135,55 @@ class Setup__IAM(Type_Safe):
                 message  = f'inline policy {WAKER_POLICY_NAME!r} missing from role — run setup iam update',
             ))
             return Schema__Setup__IAM__Report(
-                state       = Enum__Setup__State.DRIFT,
-                role_name   = WAKER_ROLE_NAME,
-                role_arn    = str(role.role_arn),
-                role_exists = True,
-                policy_name = WAKER_POLICY_NAME,
-                issues      = issues,
+                state          = Enum__Setup__State.DRIFT,
+                role_name      = WAKER_ROLE_NAME,
+                role_arn       = str(role.role_arn),
+                role_exists    = True,
+                trust_policy_ok= trust_ok,
+                policy_name    = WAKER_POLICY_NAME,
+                issues         = issues,
             )
 
-        live_actions    = _collect_actions(live_policy)
-        missing_actions = expected_actions - live_actions
-        extra_actions   = live_actions - expected_actions
+        expected_keys = {_stmt_key(s) for s in list(expected_policy.statements)}
+        live_keys     = {_stmt_key(s) for s in list(live_policy.statements)}
+        missing       = expected_keys - live_keys
+        extra         = live_keys - expected_keys
 
-        if missing_actions or extra_actions:
-            if missing_actions:
+        if missing or extra or not trust_ok:
+            if missing:
                 issues.append(Schema__Setup__Issue(
                     severity = 'error',
                     area     = 'iam',
-                    message  = f'policy missing actions: {", ".join(sorted(missing_actions))}',
+                    message  = f'policy missing {len(missing)} statement(s)',
                 ))
-            if extra_actions:
+            if extra:
                 issues.append(Schema__Setup__Issue(
                     severity = 'warn',
                     area     = 'iam',
-                    message  = f'policy has extra actions: {", ".join(sorted(extra_actions))}',
+                    message  = f'policy has {len(extra)} extra statement(s)',
                 ))
             return Schema__Setup__IAM__Report(
-                state           = Enum__Setup__State.DRIFT,
-                role_name       = WAKER_ROLE_NAME,
-                role_arn        = str(role.role_arn),
-                role_exists     = True,
-                policy_name     = WAKER_POLICY_NAME,
-                policy_matches  = False,
-                missing_actions = ', '.join(sorted(missing_actions)),
-                extra_actions   = ', '.join(sorted(extra_actions)),
-                issues          = issues,
+                state               = Enum__Setup__State.DRIFT,
+                role_name           = WAKER_ROLE_NAME,
+                role_arn            = str(role.role_arn),
+                role_exists         = True,
+                trust_policy_ok     = trust_ok,
+                policy_name         = WAKER_POLICY_NAME,
+                policy_matches      = False,
+                missing_statements  = '; '.join(_fmt_key(k) for k in sorted(missing)),
+                extra_statements    = '; '.join(_fmt_key(k) for k in sorted(extra)),
+                issues              = issues,
             )
 
         return Schema__Setup__IAM__Report(
-            state          = Enum__Setup__State.OK,
-            role_name      = WAKER_ROLE_NAME,
-            role_arn       = str(role.role_arn),
-            role_exists    = True,
-            policy_name    = WAKER_POLICY_NAME,
-            policy_matches = True,
-            issues         = issues,
+            state           = Enum__Setup__State.OK,
+            role_name       = WAKER_ROLE_NAME,
+            role_arn        = str(role.role_arn),
+            role_exists     = True,
+            trust_policy_ok = True,
+            policy_name     = WAKER_POLICY_NAME,
+            policy_matches  = True,
+            issues          = issues,
         )
 
     # ── status ────────────────────────────────────────────────────────────────
@@ -214,7 +226,12 @@ class Setup__IAM(Type_Safe):
 
     def update(self) -> Schema__Setup__IAM__Report:
         _require_mutations()
-        iam = self._iam()
+        iam  = self._iam()
+        role = iam.get_role(WAKER_ROLE_NAME)
+        if role is not None:
+            from sgraph_ai_service_playwright__cli.aws.iam.enums.Enum__IAM__Trust__Service import Enum__IAM__Trust__Service
+            if role.trust_service != Enum__IAM__Trust__Service.LAMBDA:
+                iam.update_assume_role_policy(WAKER_ROLE_NAME, Enum__IAM__Trust__Service.LAMBDA)
         iam.put_inline_policy(WAKER_ROLE_NAME, WAKER_POLICY_NAME, self._template_policy())
         return self.check()
 
@@ -281,17 +298,27 @@ def _detect_iam_role() -> tuple:
     return (current, False)              # use active role (may be '' → bare boto3)
 
 
-def _collect_actions(policy) -> set:
-    actions = set()
-    for stmt in list(policy.statements):
-        for action in list(stmt.actions):
-            actions.add(str(action))
-    return actions
+def _stmt_key(stmt) -> tuple:
+    return (
+        stmt.effect,
+        tuple(sorted(str(a) for a in list(stmt.actions))),
+        tuple(sorted(str(r) for r in list(stmt.resources))),
+        stmt.condition_json or '',
+    )
+
+
+def _fmt_key(key: tuple) -> str:
+    effect, actions, resources, cond = key
+    parts = [f'{effect} {",".join(actions)} on {",".join(resources)}']
+    if cond:
+        parts.append(f'if {cond}')
+    return ' '.join(parts)
 
 
 def _find_inline_policy(role, policy_name: str):
     for p in list(role.inline_policies):
-        return p                                                      # we own exactly one inline policy
+        if not p.name or p.name == policy_name:                                       # name populated since IAM__AWS__Client was patched
+            return p
     return None
 
 

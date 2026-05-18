@@ -91,6 +91,11 @@ class _Fake_IAM_Boto:
         lst = self._managed_attachments.get(RoleName, [])
         self._managed_attachments[RoleName] = [a for a in lst if a != PolicyArn]
 
+    def update_assume_role_policy(self, RoleName: str, PolicyDocument: str, **_):
+        if RoleName not in self._roles:
+            self._no_such_entity(RoleName)
+        self._roles[RoleName]['AssumeRolePolicyDocument'] = json.loads(PolicyDocument)
+
 
 class _FakePaginator:
     def __init__(self, client: _Fake_IAM_Boto, method: str):
@@ -204,9 +209,9 @@ class TestSetupIAMCheck_PolicyDrift:
         svc, _ = self._with_drifted_policy()
         assert svc.check().state == Enum__Setup__State.DRIFT
 
-    def test_missing_actions_not_empty(self):
+    def test_missing_statements_not_empty(self):
         svc, _ = self._with_drifted_policy()
-        assert svc.check().missing_actions != ''
+        assert svc.check().missing_statements != ''
 
     def test_has_issues(self):
         svc, _ = self._with_drifted_policy()
@@ -386,3 +391,127 @@ class TestSetupIAMStatus:
         info = svc.status()
         assert info['exists'] is True
         assert info['role'] == WAKER_ROLE_NAME
+
+
+# ── check: extra-statements drift ─────────────────────────────────────────────
+
+class TestSetupIAMCheck_ExtraStatements:
+    def _with_extra_statement(self):
+        svc, fake = _iam_setup()
+        os.environ['SG_AWS__VAULT_PUBLISH__SETUP__ALLOW_MUTATIONS'] = '1'
+        svc.create()
+        del os.environ['SG_AWS__VAULT_PUBLISH__SETUP__ALLOW_MUTATIONS']
+        # Add an extra statement the template doesn't have
+        extra_doc = json.dumps({
+            'Version'  : '2012-10-17',
+            'Statement': [
+                {'Effect': 'Allow', 'Action': ['iam:PassRole'], 'Resource': ['*']},
+            ],
+        })
+        fake._fake.put_role_policy(WAKER_ROLE_NAME, WAKER_POLICY_NAME, extra_doc)
+        return svc, fake
+
+    def test_state_is_drift(self):
+        svc, _ = self._with_extra_statement()
+        assert svc.check().state == Enum__Setup__State.DRIFT
+
+    def test_extra_statements_not_empty(self):
+        svc, _ = self._with_extra_statement()
+        assert svc.check().extra_statements != ''
+
+    def test_has_warn_issue(self):
+        svc, _ = self._with_extra_statement()
+        issues = list(svc.check().issues)
+        assert any(i.severity == 'warn' for i in issues)
+
+
+# ── check: trust policy drift ─────────────────────────────────────────────────
+
+class TestSetupIAMCheck_TrustDrift:
+    def _with_ec2_trust(self):
+        svc, fake = _iam_setup()
+        os.environ['SG_AWS__VAULT_PUBLISH__SETUP__ALLOW_MUTATIONS'] = '1'
+        svc.create()
+        del os.environ['SG_AWS__VAULT_PUBLISH__SETUP__ALLOW_MUTATIONS']
+        # Replace trust policy with EC2 trust (wrong)
+        fake._fake._roles[WAKER_ROLE_NAME]['AssumeRolePolicyDocument'] = {
+            'Version'  : '2012-10-17',
+            'Statement': [{
+                'Effect'   : 'Allow',
+                'Principal': {'Service': 'ec2.amazonaws.com'},
+                'Action'   : 'sts:AssumeRole',
+            }],
+        }
+        return svc, fake
+
+    def test_trust_drift_is_detected(self):
+        svc, _ = self._with_ec2_trust()
+        rep = svc.check()
+        assert rep.trust_policy_ok is False
+
+    def test_state_is_drift(self):
+        svc, _ = self._with_ec2_trust()
+        assert svc.check().state == Enum__Setup__State.DRIFT
+
+    def test_trust_issue_is_error(self):
+        svc, _ = self._with_ec2_trust()
+        issues = list(svc.check().issues)
+        assert any('trust' in i.message.lower() for i in issues)
+
+    def test_update_repairs_trust(self):
+        svc, fake = self._with_ec2_trust()
+        os.environ['SG_AWS__VAULT_PUBLISH__SETUP__ALLOW_MUTATIONS'] = '1'
+        rep = svc.update()
+        del os.environ['SG_AWS__VAULT_PUBLISH__SETUP__ALLOW_MUTATIONS']
+        assert rep.trust_policy_ok is True
+        assert rep.state           == Enum__Setup__State.OK
+
+
+# ── CLI smoke test ────────────────────────────────────────────────────────────
+
+_CREDS_OK = {'ok': True, 'arn': 'arn:aws:iam::123456789012:user/test', 'account': '123456789012', 'error': ''}
+
+
+class TestSetupIAMCLI:
+    def test_iam_check_missing_exits_1(self):
+        from typer.testing               import CliRunner
+        from sg_compute_specs.vault_publish.setup.cli.Cli__Setup import app
+
+        runner = CliRunner()
+        svc, fake = _iam_setup()
+        svc.credentials_ok = lambda: _CREDS_OK
+
+        def _patched_iam():
+            return svc
+
+        import sg_compute_specs.vault_publish.setup.cli.Cli__Setup as m
+        orig = m._iam
+        m._iam = _patched_iam
+        try:
+            result = runner.invoke(app, ['iam', 'check'], catch_exceptions=False)
+        finally:
+            m._iam = orig
+        assert result.exit_code == 1
+
+    def test_iam_check_ok_exits_0(self):
+        from typer.testing               import CliRunner
+        from sg_compute_specs.vault_publish.setup.cli.Cli__Setup import app
+
+        runner = CliRunner()
+        svc, fake = _iam_setup()
+        os.environ['SG_AWS__VAULT_PUBLISH__SETUP__ALLOW_MUTATIONS'] = '1'
+        svc.create()
+        del os.environ['SG_AWS__VAULT_PUBLISH__SETUP__ALLOW_MUTATIONS']
+        svc.credentials_ok = lambda: _CREDS_OK
+
+        def _patched_iam():
+            return svc
+
+        import sg_compute_specs.vault_publish.setup.cli.Cli__Setup as m
+        orig = m._iam
+        m._iam = _patched_iam
+        try:
+            result = runner.invoke(app, ['iam', 'check'], catch_exceptions=False)
+        finally:
+            m._iam = orig
+        assert result.exit_code == 0
