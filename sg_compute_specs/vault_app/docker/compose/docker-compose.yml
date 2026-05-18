@@ -2,7 +2,7 @@
 # Vault App Stack — docker-compose.yml
 #
 # Four containers on a shared vault-net bridge:
-#   host-plane      — control-plane FastAPI; Docker Hub image (diniscruz/sg-playwright)
+#   host-plane      — control-plane FastAPI; Docker Hub image (diniscruz/sg-host-control)
 #   sg-send-vault   — vault storage + UI; the only externally-reachable surface
 #   sg-playwright   — browser automation API; Docker Hub image (diniscruz/sg-playwright)
 #   agent-mitmproxy — passive traffic capture; internal only, no admin ports (ECR)
@@ -22,8 +22,7 @@
 services:
 
   host-plane:
-    image: diniscruz/sg-playwright:${IMAGE_TAG:-latest}
-    command: ["python3", "-m", "sg_compute.host_plane.fast_api.lambda_handler"]
+    image: diniscruz/sg-host-control:${IMAGE_TAG:-latest}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock     # allows host-plane to manage containers
     environment:

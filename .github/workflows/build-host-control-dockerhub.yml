@@ -1,0 +1,79 @@
+name: Build + Push Host Control Image to Docker Hub
+
+# Manual workflow — publishes the dedicated host-control image to Docker Hub
+# (diniscruz/sg-host-control). This is the small, single-purpose image consumed
+# by all host-control sites (Section__Sidecar, Playwright compose host-plane,
+# Vault_App compose host-plane + cert-init).
+#
+# Required repository secrets:
+#   DOCKERHUB_TOKEN  — Docker Hub PAT for the diniscruz namespace
+#
+# linux/amd64 only — matches the ECR sibling workflow.
+
+on:
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: 'Image tag to push (also pushes :latest). Defaults to the short SHA.'
+        required: false
+        type: string
+        default: ''
+
+env:
+  DOCKERHUB_USERNAME : 'diniscruz'
+  REGISTRY_IMAGE     : 'diniscruz/sg-host-control'
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-push-host-control-dockerhub:
+    name: "Build + Push Host Control Image to Docker Hub"
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Resolve image tag
+        id: tag
+        run: |
+          TAG="${{ inputs.image_tag }}"
+          if [[ -z "$TAG" ]]; then
+            TAG="$(git rev-parse --short HEAD)"
+          fi
+          echo "value=$TAG" >> $GITHUB_OUTPUT
+
+      - name: Check Docker Hub token present
+        run: |
+          if [[ -z "${DOCKERHUB_TOKEN:-}" ]]; then
+            echo "::error::Missing required repository secret: DOCKERHUB_TOKEN"
+            exit 1
+          fi
+        env:
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Authenticate Docker to Docker Hub
+        run: |
+          echo "${{ secrets.DOCKERHUB_TOKEN }}" | \
+            docker login \
+              --username "${{ env.DOCKERHUB_USERNAME }}" \
+              --password-stdin
+
+      - name: Build Docker image
+        run: |
+          TAG="${{ steps.tag.outputs.value }}"
+          docker build \
+            -f docker/host-control/Dockerfile \
+            -t "${{ env.REGISTRY_IMAGE }}:$TAG" \
+            -t "${{ env.REGISTRY_IMAGE }}:latest" \
+            .
+
+      - name: Push to Docker Hub
+        run: |
+          TAG="${{ steps.tag.outputs.value }}"
+          docker push "${{ env.REGISTRY_IMAGE }}:$TAG"
+          docker push "${{ env.REGISTRY_IMAGE }}:latest"
+
+      - name: Image digest
+        run: |
+          docker inspect --format='{{index .RepoDigests 0}}' "${{ env.REGISTRY_IMAGE }}:${{ steps.tag.outputs.value }}"

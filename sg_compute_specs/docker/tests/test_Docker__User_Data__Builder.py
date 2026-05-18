@@ -40,21 +40,22 @@ class test_Docker__User_Data__Builder(TestCase):
     def test_placeholders_locked(self):
         assert PLACEHOLDERS == ('stack_name', 'region', 'log_file', 'shutdown_line')
 
-    def test_render__no_sidecar_when_registry_empty(self):
+    def test_render__no_sidecar_when_ssm_path_empty(self):
         result = self.builder.render('fast-fermi', 'eu-west-2')
         assert 'sg-sidecar' not in result
         assert 'ecr'        not in result
 
-    def test_render__sidecar_included_when_registry_set(self):
+    def test_render__sidecar_included_when_ssm_path_set(self):
         result = self.builder.render('fast-fermi', 'eu-west-2',
                                      registry      = '1234.dkr.ecr.eu-west-2.amazonaws.com',
                                      api_key_ssm_path = 'secret-key')
-        assert 'sg-sidecar'   in result
-        assert '1234.dkr.ecr' in result
-        assert 'secret-key'   in result
-        assert 'X-API-Key'    in result
-        assert '19009:8000'   in result
-        assert 'rm -f /root/.docker/config.json' in result
+        assert 'sg-sidecar'               in result
+        assert 'diniscruz/sg-host-control' in result                                # Docker Hub host-control image
+        assert 'secret-key'               in result
+        assert 'X-API-Key'                in result
+        assert '19009:8000'               in result
+        assert 'aws ecr get-login-password' not in result                           # no ECR login — public Docker Hub image
+        assert '/root/.docker/config.json'  not in result                           # nothing to clean
 
     def test_render__shutdown_timer_included_when_max_hours_set(self):
         result = self.builder.render('fast-fermi', 'eu-west-2', max_hours=1)
@@ -88,6 +89,7 @@ class test_Docker__User_Data__Builder(TestCase):
 
     def test_render__enable_shell_true__injects_env_var(self):
         result = self.builder.render('fast-fermi', 'eu-west-2',
-                                     registry     = '1234.dkr.ecr.eu-west-2.amazonaws.com',
-                                     enable_shell = True)
+                                     registry         = '1234.dkr.ecr.eu-west-2.amazonaws.com',
+                                     api_key_ssm_path = 'secret-key'                          ,
+                                     enable_shell     = True                                  )
         assert 'SG_SHELL_UNRESTRICTED=1' in result

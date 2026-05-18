@@ -11,13 +11,19 @@
 # reach it with an SSM port-forward. The mitmproxy proxy port (:8080) is
 # docker-network-only — sg-playwright talks to it over sg-net.
 #
+# Image sources:
+#   host-plane      → diniscruz/sg-host-control  (Docker Hub, no ECR prefix)
+#   sg-playwright   → diniscruz/sg-playwright    (Docker Hub, no ECR prefix)
+#   agent-mitmproxy → {ECR}/agent_mitmproxy      (proprietary, ECR-only)
+#
 # All ${...} values are resolved by the compose engine from
 # /opt/sg-playwright/.env at `up` time — never interpolated here.
 # ═══════════════════════════════════════════════════════════════════════════════
 
 from osbot_utils.type_safe.Type_Safe import Type_Safe
 
-HOST_PLANE_IMAGE = 'sgraph_ai_service_playwright_host'                              # ECR repo — docker-control sidecar (proprietary, ECR-only)
+HOST_PLANE_IMAGE = 'diniscruz/sg-host-control'                                      # Docker Hub — dedicated host-control image (python:3.12-alpine + sg_compute)
+                                                                                     # Built + pushed by .github/workflows/build-host-control-dockerhub.yml
 PLAYWRIGHT_IMAGE = 'diniscruz/sg-playwright'                                        # Docker Hub repo — pulled directly, no ECR prefix
                                                                                      # → https://hub.docker.com/r/diniscruz/sg-playwright
                                                                                      # Built + pushed by .github/workflows/ci-pipeline.yml
@@ -31,7 +37,7 @@ services:
 
 _HOST_PLANE = '''
   host-plane:
-    image: {ecr_registry}/{host_plane_image}:{image_tag}
+    image: {host_plane_image}:{image_tag}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
     environment:
@@ -110,8 +116,7 @@ class Playwright__Compose__Template(Type_Safe):
         depends_on = _DEPENDS_ON if with_mitmproxy else ''
         parts = [
             _HEADER                                                                          ,
-            _HOST_PLANE.format(ecr_registry=ecr_registry, host_plane_image=host_plane_image,
-                               image_tag=image_tag)                                          ,
+            _HOST_PLANE.format(host_plane_image=host_plane_image, image_tag=image_tag)       ,
             _SG_PLAYWRIGHT.format(playwright_image=playwright_image,                          # no ecr_registry — sg-playwright is on Docker Hub
                                   image_tag=image_tag, proxy_env=proxy_env,
                                   depends_on=depends_on)                                     ,

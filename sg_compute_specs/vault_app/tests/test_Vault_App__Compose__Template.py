@@ -81,13 +81,17 @@ class TestVaultAppComposeTemplate:
 
     def test_host_plane_uses_docker_hub_image(self):
         result = Vault_App__Compose__Template().render(ecr_registry=REGISTRY, with_playwright=True)
-        assert 'image: diniscruz/sg-playwright:latest' in result            # Docker Hub, not ECR
+        assert 'image: diniscruz/sg-host-control:latest'       in result    # dedicated host-control image on Docker Hub
         assert f'{REGISTRY}/sgraph_ai_service_playwright_host' not in result
+        # host-plane no longer needs a command override — the host-control image's Dockerfile CMD is uvicorn
+        assert 'sg_compute.host_plane.fast_api.lambda_handler' not in result
 
     def test_cert_init_uses_docker_hub_image(self):
         result = Vault_App__Compose__Template().render(ecr_registry=REGISTRY, with_tls_check=True)
-        assert 'diniscruz/sg-playwright' in result                          # cert-init uses Docker Hub image
+        assert 'image: diniscruz/sg-host-control:latest'       in result    # same dedicated image — carries cert_init module
         assert f'{REGISTRY}/sgraph_ai_service_playwright_host' not in result
+        # cert-init keeps its command override (the image default CMD is uvicorn — we need the cert_init module instead)
+        assert 'sg_compute.platforms.tls.cert_init'            in result
 
     def test_with_tls_check_wires_tls_into_sg_send_vault(self):
         result = Vault_App__Compose__Template().render(ecr_registry=REGISTRY, with_tls_check=True)
