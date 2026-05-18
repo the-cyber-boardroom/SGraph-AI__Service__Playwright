@@ -38,8 +38,9 @@ class Setup__Lambda(Type_Safe):
     def _deployer(self):
         if self._deployer_factory:
             return self._deployer_factory()
+        from sgraph_ai_service_playwright__cli.aws._shared.Aws__Region__Resolver   import Aws__Region__Resolver
         from sgraph_ai_service_playwright__cli.aws.lambda_.service.Lambda__Deployer import Lambda__Deployer
-        return Lambda__Deployer()
+        return Lambda__Deployer(region=str(Aws__Region__Resolver().resolve()))      # must match Lambda__AWS__Client region
 
     # ── read ─────────────────────────────────────────────────────────────────
 
@@ -151,7 +152,9 @@ class Setup__Lambda(Type_Safe):
 
     def update(self) -> Schema__Setup__Lambda__Report:
         _require_mutations()
-        return self.create()
+        lc      = self._lambda_client()
+        details = lc.get_function_details(WAKER_LAMBDA_NAME)
+        return self.create(role_arn=details.role_arn)                               # carry live role so deployer can fall back to create if needed
 
     def delete(self) -> bool:
         _require_deletes()
