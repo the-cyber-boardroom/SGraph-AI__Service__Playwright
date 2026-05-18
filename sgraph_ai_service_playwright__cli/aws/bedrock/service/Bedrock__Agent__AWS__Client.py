@@ -45,12 +45,12 @@ class Bedrock__Agent__AWS__Client(Type_Safe):
     # ── Agent lifecycle ───────────────────────────────────────────────────────
 
     def create_agent(self, name: str, model_id: str, tools: str = '',
-                     memory: str = 'none', region: str = None) -> Schema__Bedrock__Agent:
+                     memory: str = 'none', region: str = None, role_arn: str = '') -> Schema__Bedrock__Agent:
         effective_region = region or self.current_region()
         agentc           = self.client(effective_region)
         kwargs           = dict(agentName            = name                    ,
                                 foundationModel      = model_id                ,
-                                agentResourceRoleArn = ''                      )    # Role ARN managed externally
+                                agentResourceRoleArn = role_arn                )    # AWS requires a role ARN — pass via --role-arn
         resp      = agentc.create_agent(**kwargs)
         agent_raw = resp.get('agent', {})
         return self.map_agent(agent_raw, tools=tools, memory=memory, region=effective_region)
