@@ -13,6 +13,7 @@
 #   - boto3_client_from_context() falls through to bare boto3 when no role set
 # ═══════════════════════════════════════════════════════════════════════════════
 
+import re
 import time
 import uuid
 
@@ -23,6 +24,11 @@ from osbot_utils.type_safe.Type_Safe                                            
 from sgraph_ai_service_playwright__cli.credentials.schemas.Schema__AWS__Credentials            import Schema__AWS__Credentials
 from sgraph_ai_service_playwright__cli.credentials.schemas.Schema__AWS__Role__Config           import Schema__AWS__Role__Config
 from sgraph_ai_service_playwright__cli.credentials.service.Credentials__Store                  import Credentials__Store
+
+
+def _clean_region(raw: str) -> str:                                 # strip any garbage the keyring may add; IAM is global so region matters less
+    cleaned = re.sub(r'[^a-z0-9-]', '', raw.lower().strip())
+    return cleaned or 'us-east-1'
 
 
 def _session_name(role_name: str) -> str:                           # sg-<role>-<ts>-<8hex>
@@ -69,7 +75,7 @@ class Sg__Aws__Session(Type_Safe):
         creds = self.store.aws_credentials_get(role_name)
         if creds is None:
             return None
-        region       = str(config.region) or 'us-east-1'
+        region       = _clean_region(str(config.region))
         base_session = self._make_base_session(creds, region)
         if str(config.assume_role_arn):
             return self._assume_role(base_session, config)

@@ -8,18 +8,19 @@
 #   sg vault-publish setup iam update   — sync policy with template (mutation-gated)
 #   sg vault-publish setup iam delete   — delete role (delete-gated)
 #
-# Role auto-detection:
-#   IAM commands automatically use 'iam-admin' credentials when that role is
-#   registered in the local store and the caller is not already in it.
-#   A notice is printed: "for this action, assuming role 'iam-admin'".
+# Every command:
+#   1. Prints the auto-assume notice if iam-admin was detected.
+#   2. Runs a credential pre-flight (STS GetCallerIdentity) and exits cleanly
+#      on failure — no tracebacks.
+#   3. Wraps the service call in a broad except so ClientError and RuntimeError
+#      are rendered as readable messages, not Python tracebacks.
 # ═══════════════════════════════════════════════════════════════════════════════
 
 import json
-import sys
 
 import typer
-from rich.console import Console
-from rich.table   import Table
+from botocore.exceptions import ClientError
+from rich.console        import Console
 
 from sg_compute_specs.vault_publish.setup.schemas.Enum__Setup__State import Enum__Setup__State
 from sg_compute_specs.vault_publish.setup.service.Setup__IAM         import Setup__IAM
@@ -34,10 +35,37 @@ def _iam() -> Setup__IAM:
     return Setup__IAM()
 
 
+# ── shared pre-flight helpers ─────────────────────────────────────────────────
+
 def _print_role_notice(c: Console, svc: Setup__IAM) -> None:
     notice = svc.assumed_role_notice()
     if notice:
         c.print(f'  [dim]ℹ  {notice}[/]')
+
+
+def _preflight(c: Console, svc: Setup__IAM) -> bool:
+    """Validate credentials via STS GetCallerIdentity. Returns True if OK."""
+    info = svc.credentials_ok()
+    if info['ok']:
+        c.print(f"  [dim]✓  identity: {info['arn']}[/]")
+        return True
+    c.print(f'\n  [red]✗  credential check failed[/]')
+    c.print(f"  [red]   {info['error']}[/]")
+    err = info['error']
+    role = svc._resolved_role or 'your-role'
+    if 'InvalidClientTokenId' in err or 'ExpiredToken' in err or 'ExpiredTokenException' in err:
+        c.print(f'\n  [dim]   Hint: credentials for {role!r} are stale or missing a session token.[/]')
+        c.print(f'  [dim]   Run:  eval $(sg credentials switch {role})[/]')
+    elif 'NoCredentialProviders' in err or 'Unable to locate credentials' in err:
+        c.print(f'\n  [dim]   Hint: no AWS credentials found.[/]')
+        c.print(f'  [dim]   Run:  eval $(sg credentials switch {role})[/]')
+    return False
+
+
+def _print_aws_error(c: Console, exc: ClientError) -> None:
+    code = exc.response.get('Error', {}).get('Code', 'Unknown')
+    msg  = exc.response.get('Error', {}).get('Message', str(exc))
+    c.print(f'  [red]✗  AWS error ({code}): {msg}[/]')
 
 
 # ── sg vault-publish setup iam check ─────────────────────────────────────────
@@ -47,7 +75,16 @@ def iam_check(output_json: bool = typer.Option(False, '--json', help='Machine-re
     c   = Console(highlight=False)
     svc = _iam()
     _print_role_notice(c, svc)
-    rep = svc.check()
+    if not _preflight(c, svc):
+        raise typer.Exit(1)
+    try:
+        rep = svc.check()
+    except ClientError as exc:
+        _print_aws_error(c, exc)
+        raise typer.Exit(1)
+    except Exception as exc:
+        c.print(f'  [red]✗  {exc}[/]')
+        raise typer.Exit(1)
 
     if output_json:
         c.print(json.dumps({
@@ -78,7 +115,16 @@ def iam_status():
     c   = Console(highlight=False)
     svc = _iam()
     _print_role_notice(c, svc)
-    info = svc.status()
+    if not _preflight(c, svc):
+        raise typer.Exit(1)
+    try:
+        info = svc.status()
+    except ClientError as exc:
+        _print_aws_error(c, exc)
+        raise typer.Exit(1)
+    except Exception as exc:
+        c.print(f'  [red]✗  {exc}[/]')
+        raise typer.Exit(1)
     c.print()
     for k, v in info.items():
         c.print(f'  {k:<22}: {v}')
@@ -92,10 +138,18 @@ def iam_create():
     c   = Console(highlight=False)
     svc = _iam()
     _print_role_notice(c, svc)
+    if not _preflight(c, svc):
+        raise typer.Exit(1)
     c.print('\n  [yellow]→[/]  Creating IAM role…')
     try:
         rep = svc.create()
     except RuntimeError as exc:
+        c.print(f'  [red]✗  {exc}[/]')
+        raise typer.Exit(1)
+    except ClientError as exc:
+        _print_aws_error(c, exc)
+        raise typer.Exit(1)
+    except Exception as exc:
         c.print(f'  [red]✗  {exc}[/]')
         raise typer.Exit(1)
     _print_iam_report(c, rep)
@@ -111,10 +165,18 @@ def iam_update():
     c   = Console(highlight=False)
     svc = _iam()
     _print_role_notice(c, svc)
+    if not _preflight(c, svc):
+        raise typer.Exit(1)
     c.print('\n  [yellow]→[/]  Updating IAM inline policy…')
     try:
         rep = svc.update()
     except RuntimeError as exc:
+        c.print(f'  [red]✗  {exc}[/]')
+        raise typer.Exit(1)
+    except ClientError as exc:
+        _print_aws_error(c, exc)
+        raise typer.Exit(1)
+    except Exception as exc:
         c.print(f'  [red]✗  {exc}[/]')
         raise typer.Exit(1)
     _print_iam_report(c, rep)
@@ -130,12 +192,20 @@ def iam_delete(yes: bool = typer.Option(False, '--yes', '-y', help='Skip confirm
     c   = Console(highlight=False)
     svc = _iam()
     _print_role_notice(c, svc)
+    if not _preflight(c, svc):
+        raise typer.Exit(1)
     if not yes:
         typer.confirm('\n  Delete waker IAM role? This cannot be undone.', default=False, abort=True)
     c.print('\n  [yellow]→[/]  Deleting IAM role…')
     try:
-        rep = svc.delete()
+        svc.delete()
     except RuntimeError as exc:
+        c.print(f'  [red]✗  {exc}[/]')
+        raise typer.Exit(1)
+    except ClientError as exc:
+        _print_aws_error(c, exc)
+        raise typer.Exit(1)
+    except Exception as exc:
         c.print(f'  [red]✗  {exc}[/]')
         raise typer.Exit(1)
     c.print('  [green]✓[/]  IAM role deleted')
