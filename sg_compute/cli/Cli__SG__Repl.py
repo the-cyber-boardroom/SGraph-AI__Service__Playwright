@@ -52,7 +52,16 @@ def _children(sg_app, path):                                                    
     if node is None or not hasattr(node, 'list_commands'):
         return set()
     try:
-        ctx   = click.Context(node)
+        ctx = click.Context(node)
+        # list_completion_commands is an optional protocol for groups that hide
+        # entries from list_commands() to keep --help clean (e.g. Lambda__App__Group
+        # omits function names there but exposes them here for tab completion and
+        # prefix navigation).
+        if hasattr(node, 'list_completion_commands'):
+            try:
+                return set(node.list_completion_commands(ctx))
+            except Exception:
+                pass
         names = node.list_commands(ctx)
         result = set()
         for name in names:
@@ -301,17 +310,18 @@ def _completion_candidates(sg_app, base_path, words, last_word):
     """Return the list of completion candidates for the last word of `words`.
 
     Walks the click tree from base_path through the resolved words,
-    then returns the children at that point matching last_word (prefix
-    match for completion).
+    then returns the children at that point matching last_word using
+    the same prefix→substring logic as _match (so 'waker' completes
+    to 'sg-compute-vault-publish-waker', for example).
     """                                                                          # inline
-    # Resolve the words that come BEFORE the cursor through the click tree
     resolved_path, _trailing = _resolve(sg_app, base_path, words)
     if resolved_path is None:                                                    # ambiguous mid-word — no completion
         return []
     children = _children(sg_app, resolved_path) - ({'repl'} if not resolved_path else set())
     if not last_word:
         return sorted(children)
-    return sorted(c for c in children if c.startswith(last_word))
+    hits, _ = _match(last_word, children)
+    return sorted(hits)
 
 
 def _setup_tab_completion(sg_app, get_path, readline):
