@@ -141,8 +141,9 @@ class Setup__Lambda(Type_Safe):
             'function_url'  : str(url_info.function_url) if url_info.exists else '(none)',
         }
         # Surface deploy-metadata env vars (set by Setup__Lambda at deploy time)
-        for k in ('WAKER_VERSION', 'WAKER_DEPLOYED_AT', 'WAKER_DEPLOY_ID',
-                   'WAKER_DEPLOY_REGION', 'WAKER_DEPLOYED_BY', 'WAKER_GIT_COMMIT'):
+        for k in ('WAKER_SERVICE_VERSION', 'WAKER_VERSION', 'WAKER_DEPLOYED_AT',
+                   'WAKER_DEPLOY_ID', 'WAKER_DEPLOY_REGION', 'WAKER_DEPLOYED_BY',
+                   'WAKER_GIT_COMMIT'):
             out[f'env.{k}'] = str(env.get(k, '(unset)'))
         return out
 

@@ -559,6 +559,89 @@ def lambda_update():
     c.print()
 
 
+@lambda_app.command(name='invoke', help='Invoke the deployed waker Lambda with a synthetic event and print the JSON response. Defaults to /__waker__/deploy so you immediately see which version is live.')
+def lambda_invoke(
+    path  : str = typer.Option('/__waker__/deploy', '--path', '-p', help='Request path on the Lambda'),
+    host  : str = typer.Option('',                  '--host', '-H', help='Override the synthetic Host header (defaults to the Lambda URL hostname)'),
+    method: str = typer.Option('GET',               '--method', '-m'),
+    full  : bool = typer.Option(False, '--full', help='Print the full response body (default: truncate to first 800 chars)'),
+):
+    import json, uuid, boto3
+    from datetime import datetime, timezone
+    from sg_compute_specs.vault_publish.setup.service.Setup__Lambda import WAKER_LAMBDA_NAME
+
+    c   = Console(highlight=False)
+    svc = _iam()
+    _print_role_notice(c, svc)
+    if not _preflight(c, svc):
+        raise typer.Exit(1)
+
+    # Resolve the effective Host header — by default we mimic what AWS itself
+    # would send when someone hits the Function URL directly.
+    if not host:
+        try:
+            from sgraph_ai_service_playwright__cli.aws.lambda_.service.Lambda__AWS__Client import Lambda__AWS__Client
+            url_info = Lambda__AWS__Client().get_function_url(WAKER_LAMBDA_NAME)
+            host = str(url_info.function_url).removeprefix('https://').rstrip('/')
+        except Exception:
+            host = WAKER_LAMBDA_NAME
+
+    now   = datetime.now(timezone.utc)
+    event = {
+        'version'       : '2.0',
+        'rawPath'       : path,
+        'rawQueryString': '',
+        'headers'       : {'host': host, 'user-agent': 'sg-vp-setup-lambda-invoke/0.1'},
+        'requestContext': {
+            'http'     : {'method': method, 'path': path, 'sourceIp': '127.0.0.1'},
+            'requestId': f'sg-invoke-{uuid.uuid4().hex[:8]}',
+            'time'     : now.strftime('%d/%b/%Y:%H:%M:%S +0000'),
+        },
+        'body'           : None,
+        'isBase64Encoded': False,
+    }
+
+    c.print(f'\n  [yellow]→[/]  invoke [bold]{WAKER_LAMBDA_NAME}[/]  path={path}  host={host}')
+    try:
+        from sgraph_ai_service_playwright__cli.aws._shared.Aws__Region__Resolver import Aws__Region__Resolver
+        lam     = boto3.client('lambda', region_name=str(Aws__Region__Resolver().resolve()))
+        resp    = lam.invoke(
+            FunctionName   = WAKER_LAMBDA_NAME,
+            InvocationType = 'RequestResponse',
+            Payload        = json.dumps(event).encode(),
+        )
+        payload = json.loads(resp['Payload'].read())
+    except (ClientError, Exception) as exc:
+        _handle_exc(c, exc)
+        raise typer.Exit(1)
+
+    status = payload.get('statusCode', 0)
+    hdrs   = payload.get('headers', {})
+    body   = payload.get('body', '')
+
+    c.print()
+    c.print(f'  status: [bold]{status}[/]')
+    c.print('  X-Waker headers:')
+    for k, v in sorted(hdrs.items()):
+        if k.lower().startswith('x-waker'):
+            c.print(f'    [dim]{k}[/]: {v}')
+
+    # If body looks like JSON, pretty-print it; otherwise show as text
+    try:
+        parsed = json.loads(body)
+        pretty = json.dumps(parsed, indent=2)
+        if full or len(pretty) <= 800:
+            c.print(f'  body (json):\n{pretty}')
+        else:
+            c.print(f'  body (json, truncated to 800 chars):\n{pretty[:800]}\n  [dim]…(pass --full for the rest)[/]')
+    except (ValueError, TypeError):
+        if full or len(body) <= 800:
+            c.print(f'  body: {body}')
+        else:
+            c.print(f'  body size: {len(body)} chars  [dim](pass --full to see body)[/]')
+    c.print()
+
+
 # Ordered list of phases the Lambda deployer emits (label, description).
 # Some phases (create-function vs the update path) are mutually exclusive;
 # unused ones stay 'pending' and are hidden from the final table.
