@@ -3,8 +3,8 @@
 # Renders the docker-compose.yml the EC2 host writes to /opt/vault-app/.
 #
 # Two shapes, selected by `with_playwright`:
-#   just-vault     (default)  — host-plane + sg-send-vault            (2 containers)
-#   with-playwright           — + sg-playwright + agent-mitmproxy     (4 containers)
+#   just-vault     (default)  — sg-send-vault only                    (1 container)
+#   with-playwright           — + host-plane + sg-playwright + agent-mitmproxy (4 containers)
 #
 # Only sg-send-vault publishes a host port (8080). Every other service stays on
 # the internal vault-net bridge — reach them with an SSM port-forward.
@@ -25,7 +25,8 @@ services:
 
 _HOST_PLANE = '''
   host-plane:
-    image: {ecr_registry}/sgraph_ai_service_playwright_host:{image_tag}
+    image: {sg_playwright_image}
+    command: ["python3", "-m", "sg_compute.host_plane.fast_api.lambda_handler"]
     ports:
       - "127.0.0.1:19009:8000"   # localhost-only on the EC2 host; reachable via SSM port-forward only
     volumes:
@@ -118,15 +119,15 @@ _AGENT_MITMPROXY = '''
     restart: unless-stopped
 '''
 
-# One-shot cert sidecar — runs the host image (it already carries sg_compute),
-# writes /certs/{cert,key}.pem, and exits 0. self-signed mode is offline;
-# letsencrypt-ip mode runs an http-01 ACME challenge on :80 (hence the published
-# port — harmless in self-signed mode, nothing listens after the sidecar exits).
-# See the v0.2.6 TLS architecture doc §8.1.
+# One-shot cert sidecar — runs the sg-playwright Docker Hub image (it already
+# carries sg_compute), writes /certs/{cert,key}.pem, and exits 0. self-signed
+# mode is offline; letsencrypt-ip mode runs an http-01 ACME challenge on :80
+# (hence the published port — harmless in self-signed mode, nothing listens
+# after the sidecar exits). See the v0.2.6 TLS architecture doc §8.1.
 _CERT_INIT = '''
   cert-init:
-    image: {ecr_registry}/sgraph_ai_service_playwright_host:{image_tag}
-    command: ["python", "-m", "sg_compute.platforms.tls.cert_init"]
+    image: {sg_playwright_image}
+    command: ["python3", "-m", "sg_compute.platforms.tls.cert_init"]
     environment:
       SG__CERT_INIT__MODE:                  ${{SG__CERT_INIT__MODE:-self-signed}}
       SG__CERT_INIT__COMMON_NAME:           ${{SG__CERT_INIT__COMMON_NAME:-}}
@@ -159,7 +160,7 @@ volumes:
 
 class Vault_App__Compose__Template(Type_Safe):
 
-    def render(self, ecr_registry        : str  ,
+    def render(self, ecr_registry        : str  = ''                          ,
                      with_playwright     : bool = False                       ,
                      image_tag           : str  = 'latest'                    ,
                      sg_send_vault_image : str  = SG_SEND_VAULT_IMAGE          ,
@@ -168,17 +169,16 @@ class Vault_App__Compose__Template(Type_Safe):
                      with_tls_check      : bool = False                        ) -> str:
         vault_block = (_SG_SEND_VAULT_TLS if with_tls_check else _SG_SEND_VAULT)
         parts = [
-            _HEADER                                                                          ,
-            _HOST_PLANE.format(ecr_registry  = ecr_registry  ,
-                               image_tag     = image_tag     ,
-                               docker_socket = docker_socket),
-            vault_block.format(sg_send_vault_image=sg_send_vault_image)                       ,
+            _HEADER                                                           ,
+            vault_block.format(sg_send_vault_image=sg_send_vault_image)       ,
         ]
         if with_playwright:
+            parts.append(_HOST_PLANE.format(sg_playwright_image=sg_playwright_image,
+                                            docker_socket=docker_socket))
             parts.append(_SG_PLAYWRIGHT.format(sg_playwright_image=sg_playwright_image))
             parts.append(_AGENT_MITMPROXY.format(ecr_registry=ecr_registry, image_tag=image_tag))
         if with_tls_check:
-            parts.append(_CERT_INIT.format(ecr_registry=ecr_registry, image_tag=image_tag))
+            parts.append(_CERT_INIT.format(sg_playwright_image=sg_playwright_image))
         parts.append(_NETWORKS)
         if with_tls_check:
             parts.append(_VOLUMES)

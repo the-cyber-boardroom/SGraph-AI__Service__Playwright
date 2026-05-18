@@ -58,7 +58,6 @@ _STACK_TEMPLATE = '''
 mkdir -p /opt/vault-app/data
 
 cat > /opt/vault-app/.env <<'ENVEOF'
-ECR_REGISTRY={ecr_registry}
 IMAGE_TAG={image_tag}
 FAST_API__AUTH__API_KEY__NAME=X-API-Key
 FAST_API__AUTH__API_KEY__VALUE={access_token}
@@ -66,7 +65,7 @@ SGRAPH_SEND__ACCESS_TOKEN={access_token}
 SEND__STORAGE_MODE={storage_mode}
 VAULT_DATA_PATH=/opt/vault-app/data
 SG_VAULT_APP__SEED_VAULT_KEYS={seed_vault_keys}
-{tls_env_lines}ENVEOF
+{ecr_env_line}{tls_env_lines}ENVEOF
 chmod 600 /opt/vault-app/.env
 
 cat > /opt/vault-app/docker-compose.yml <<'COMPOSEEOF'
@@ -74,11 +73,8 @@ cat > /opt/vault-app/docker-compose.yml <<'COMPOSEEOF'
 COMPOSEEOF
 
 cd /opt/vault-app
-aws ecr get-login-password --region "{region}" | \\
-  {engine} login --username AWS --password-stdin "{ecr_registry}"
-{compose_cmd} --env-file /opt/vault-app/.env up -d
-{engine} logout "{ecr_registry}" 2>/dev/null || true
-echo "[vault-app] stack started ({mode}, engine={engine})"
+{ecr_login}{compose_cmd} --env-file /opt/vault-app/.env up -d
+{ecr_logout}echo "[vault-app] stack started ({mode}, engine={engine})"
 '''
 
 
@@ -122,16 +118,28 @@ class Vault_App__User_Data__Builder(Type_Safe):
             docker_socket   = docker_socket   ,
             with_tls_check  = with_tls_check  )
 
+        # ECR login is only needed when with_playwright=True (agent-mitmproxy still uses ECR)
+        if with_playwright:
+            ecr_login  = (f'aws ecr get-login-password --region "{region}" | \\\n'
+                          f'  {engine} login --username AWS --password-stdin "{ecr_registry}"\n')
+            ecr_logout = f'{engine} logout "{ecr_registry}" 2>/dev/null || true\n'
+            ecr_env_line = f'ECR_REGISTRY={ecr_registry}\n'
+        else:
+            ecr_login    = ''
+            ecr_logout   = ''
+            ecr_env_line = ''
+
         stack_block = _STACK_TEMPLATE.format(
             mode            = mode            ,
             engine          = engine          ,
             compose_cmd     = compose_cmd     ,
-            ecr_registry    = ecr_registry    ,
+            ecr_env_line    = ecr_env_line    ,
             image_tag       = image_tag       ,
             access_token    = access_token    ,
             storage_mode    = storage_mode    ,
             seed_vault_keys = seed_vault_keys ,
-            region          = region          ,
+            ecr_login       = ecr_login       ,
+            ecr_logout      = ecr_logout      ,
             tls_env_lines   = tls_env_lines   ,
             compose_yaml    = compose_yaml    )
 
