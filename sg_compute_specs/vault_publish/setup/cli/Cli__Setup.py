@@ -7,6 +7,11 @@
 #   sg vault-publish setup iam create   — create role + policy (mutation-gated)
 #   sg vault-publish setup iam update   — sync policy with template (mutation-gated)
 #   sg vault-publish setup iam delete   — delete role (delete-gated)
+#
+# Role auto-detection:
+#   IAM commands automatically use 'iam-admin' credentials when that role is
+#   registered in the local store and the caller is not already in it.
+#   A notice is printed: "for this action, assuming role 'iam-admin'".
 # ═══════════════════════════════════════════════════════════════════════════════
 
 import json
@@ -29,12 +34,20 @@ def _iam() -> Setup__IAM:
     return Setup__IAM()
 
 
+def _print_role_notice(c: Console, svc: Setup__IAM) -> None:
+    notice = svc.assumed_role_notice()
+    if notice:
+        c.print(f'  [dim]ℹ  {notice}[/]')
+
+
 # ── sg vault-publish setup iam check ─────────────────────────────────────────
 
 @iam_app.command(name='check', help='Check live IAM role vs Waker__Policy__Template.')
 def iam_check(output_json: bool = typer.Option(False, '--json', help='Machine-readable JSON output')):
-    c    = Console(highlight=False)
-    rep  = _iam().check()
+    c   = Console(highlight=False)
+    svc = _iam()
+    _print_role_notice(c, svc)
+    rep = svc.check()
 
     if output_json:
         c.print(json.dumps({
@@ -62,8 +75,10 @@ def iam_check(output_json: bool = typer.Option(False, '--json', help='Machine-re
 
 @iam_app.command(name='status', help='Pretty-print live IAM role configuration.')
 def iam_status():
-    c    = Console(highlight=False)
-    info = _iam().status()
+    c   = Console(highlight=False)
+    svc = _iam()
+    _print_role_notice(c, svc)
+    info = svc.status()
     c.print()
     for k, v in info.items():
         c.print(f'  {k:<22}: {v}')
@@ -74,10 +89,12 @@ def iam_status():
 
 @iam_app.command(name='create', help='Create waker IAM role + policy. Requires SG_AWS__VAULT_PUBLISH__SETUP__ALLOW_MUTATIONS=1.')
 def iam_create():
-    c = Console(highlight=False)
+    c   = Console(highlight=False)
+    svc = _iam()
+    _print_role_notice(c, svc)
     c.print('\n  [yellow]→[/]  Creating IAM role…')
     try:
-        rep = _iam().create()
+        rep = svc.create()
     except RuntimeError as exc:
         c.print(f'  [red]✗  {exc}[/]')
         raise typer.Exit(1)
@@ -91,10 +108,12 @@ def iam_create():
 
 @iam_app.command(name='update', help='Sync inline policy with Waker__Policy__Template. Requires SG_AWS__VAULT_PUBLISH__SETUP__ALLOW_MUTATIONS=1.')
 def iam_update():
-    c = Console(highlight=False)
+    c   = Console(highlight=False)
+    svc = _iam()
+    _print_role_notice(c, svc)
     c.print('\n  [yellow]→[/]  Updating IAM inline policy…')
     try:
-        rep = _iam().update()
+        rep = svc.update()
     except RuntimeError as exc:
         c.print(f'  [red]✗  {exc}[/]')
         raise typer.Exit(1)
@@ -108,12 +127,14 @@ def iam_update():
 
 @iam_app.command(name='delete', help='Delete waker IAM role. Requires SG_AWS__VAULT_PUBLISH__SETUP__ALLOW_DELETES=1.')
 def iam_delete(yes: bool = typer.Option(False, '--yes', '-y', help='Skip confirmation')):
-    c = Console(highlight=False)
+    c   = Console(highlight=False)
+    svc = _iam()
+    _print_role_notice(c, svc)
     if not yes:
         typer.confirm('\n  Delete waker IAM role? This cannot be undone.', default=False, abort=True)
     c.print('\n  [yellow]→[/]  Deleting IAM role…')
     try:
-        rep = _iam().delete()
+        rep = svc.delete()
     except RuntimeError as exc:
         c.print(f'  [red]✗  {exc}[/]')
         raise typer.Exit(1)

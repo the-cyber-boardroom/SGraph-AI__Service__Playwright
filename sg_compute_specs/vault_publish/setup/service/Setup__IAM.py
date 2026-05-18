@@ -11,6 +11,12 @@
 #
 # Mutation gate: SG_AWS__VAULT_PUBLISH__SETUP__ALLOW_MUTATIONS=1
 # Delete gate:   SG_AWS__VAULT_PUBLISH__SETUP__ALLOW_DELETES=1
+#
+# Role auto-detection:
+#   IAM mutations require elevated privileges.  If the 'iam-admin' role is
+#   registered in the credentials store and the caller is not already using it,
+#   Setup__IAM automatically uses it and prints a notice to the operator.
+#   Pass _iam_client_factory to bypass this logic in tests.
 # ═══════════════════════════════════════════════════════════════════════════════
 
 import json
@@ -26,15 +32,38 @@ from sg_compute_specs.vault_publish.setup.schemas.Schema__Setup__IAM__Report    
 
 WAKER_ROLE_NAME   = 'sg-compute-vault-publish-waker-role'
 WAKER_POLICY_NAME = 'WakerExecutionPolicy'
+IAM_ADMIN_ROLE    = 'iam-admin'
+_CURRENT_ROLE_ENV = 'SG_CREDENTIALS__CURRENT_ROLE'
 
 
 class Setup__IAM(Type_Safe):
     _iam_client_factory : Optional[Callable] = None  # seam: () -> IAM__AWS__Client
+    _resolved_role      : str                = ''    # set once by _resolve()
+    _role_auto_assumed  : bool               = False
+    _resolved           : bool               = False
+
+    def _resolve(self) -> None:
+        if self._resolved:
+            return
+        role, auto = _detect_iam_role()
+        self._resolved_role     = role
+        self._role_auto_assumed = auto
+        self._resolved          = True
+
+    def assumed_role_notice(self) -> str:
+        """Returns a human-readable notice when we auto-assumed a role; empty otherwise."""
+        self._resolve()
+        if self._role_auto_assumed:
+            return f"for this action, assuming role '{self._resolved_role}'"
+        return ''
 
     def _iam(self):
         if self._iam_client_factory is not None:
             return self._iam_client_factory()
+        self._resolve()
         from sgraph_ai_service_playwright__cli.aws.iam.service.IAM__AWS__Client import IAM__AWS__Client
+        if self._resolved_role:
+            return IAM__AWS__Client(role_name=self._resolved_role)
         return IAM__AWS__Client()
 
     def _template_policy(self):
@@ -151,7 +180,7 @@ class Setup__IAM(Type_Safe):
             trust_service = Enum__IAM__Trust__Service.LAMBDA,
             description   = 'Execution role for the vault-publish waker Lambda',
         )
-        create_resp = iam.create_role(req)
+        iam.create_role(req)
         iam.put_inline_policy(WAKER_ROLE_NAME, WAKER_POLICY_NAME, self._template_policy())
         return self.check()
 
@@ -193,6 +222,38 @@ class Setup__IAM(Type_Safe):
 
 
 # ── helpers ───────────────────────────────────────────────────────────────────
+
+def _detect_iam_role() -> tuple:
+    """Returns (role_name, auto_assumed).
+
+    Checks whether we should auto-assume the 'iam-admin' role:
+    - If already in iam-admin (env var or context) → use it, no notice
+    - If iam-admin is in the credentials store → use it, print notice
+    - Otherwise → empty string, use whatever context is active
+    """
+    current = os.environ.get(_CURRENT_ROLE_ENV, '')
+    if not current:
+        try:
+            from sgraph_ai_service_playwright__cli.credentials.service.Sg__Aws__Context import Sg__Aws__Context
+            current = Sg__Aws__Context.get_current_role()
+        except Exception:
+            pass
+
+    if current == IAM_ADMIN_ROLE:
+        return (IAM_ADMIN_ROLE, False)   # already in iam-admin — use it silently
+
+    # Check if iam-admin is registered in the local credentials store
+    try:
+        from sgraph_ai_service_playwright__cli.credentials.service.Credentials__Store import Credentials__Store
+        from sgraph_ai_service_playwright__cli.osx.keyring.service.Keyring__Mac__OS   import Keyring__Mac__OS
+        store = Credentials__Store(keyring=Keyring__Mac__OS())
+        if store.aws_credentials_get(IAM_ADMIN_ROLE) is not None:
+            return (IAM_ADMIN_ROLE, True)  # auto-switch with notice
+    except Exception:
+        pass
+
+    return (current, False)              # use active role (may be '' → bare boto3)
+
 
 def _collect_actions(policy) -> set:
     actions = set()
