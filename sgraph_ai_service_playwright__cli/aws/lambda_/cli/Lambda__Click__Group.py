@@ -94,6 +94,7 @@ class Lambda__App__Group(click.Group):                                          
     def __init__(self, resolver: Lambda__Name__Resolver = None, **attrs):
         help_text = (
             'Lambda function management.\n\n'
+            '\b\n'                                                                # \b tells Click: do not reflow the block below
             'Usage:\n'
             '  sg aws lambda list               — list all functions\n'
             '  sg aws lambda <name> info        — function summary\n'
