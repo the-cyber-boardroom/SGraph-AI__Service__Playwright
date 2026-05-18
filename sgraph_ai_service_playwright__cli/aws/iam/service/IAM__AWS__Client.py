@@ -34,7 +34,8 @@ from sgraph_ai_service_playwright__cli.credentials.service.Sg__Aws__Session     
 
 
 class IAM__AWS__Client(Type_Safe):
-    session : Sg__Aws__Session = None                                                # cached session — injected or lazy-init via setup()
+    session   : Sg__Aws__Session = None                                              # cached session — injected or lazy-init via setup()
+    role_name : str              = ''                                                # if set, use this role explicitly instead of context
 
     def setup(self):                                                                 # idempotent — noop if session already set
         if self.session is None:
@@ -43,6 +44,10 @@ class IAM__AWS__Client(Type_Safe):
 
     def client(self):                                                                # Single seam — subclass overrides for in-memory tests
         self.setup()
+        if self.role_name:
+            c = self.session.boto3_client(self.role_name, 'iam')
+            if c is not None:
+                return c
         return self.session.boto3_client_from_context('iam')
 
     # ── read ──────────────────────────────────────────────────────────────────

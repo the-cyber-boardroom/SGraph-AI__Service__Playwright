@@ -311,6 +311,40 @@ class TestSetupIAMDelete:
         assert rep.state == Enum__Setup__State.MISSING
 
 
+# ── assumed_role_notice ───────────────────────────────────────────────────────
+
+class TestAssumedRoleNotice:
+    def test_no_notice_when_factory_set(self):
+        svc, _ = _iam_setup()                            # factory seam bypasses detection
+        assert svc.assumed_role_notice() == ''
+
+    def test_no_notice_when_already_iam_admin_via_env(self):
+        svc = Setup__IAM()
+        os.environ['SG_CREDENTIALS__CURRENT_ROLE'] = 'iam-admin'
+        try:
+            notice = svc.assumed_role_notice()
+        finally:
+            del os.environ['SG_CREDENTIALS__CURRENT_ROLE']
+        assert notice == ''                              # already in iam-admin — no notice
+
+    def test_no_notice_when_no_iam_admin_in_store(self):
+        svc = Setup__IAM()
+        env_bak = os.environ.pop('SG_CREDENTIALS__CURRENT_ROLE', None)
+        try:
+            notice = svc.assumed_role_notice()
+        finally:
+            if env_bak is not None:
+                os.environ['SG_CREDENTIALS__CURRENT_ROLE'] = env_bak
+        # On Linux there is no macOS keyring → iam-admin not found → no notice
+        assert notice == ''
+
+    def test_resolve_is_idempotent(self):
+        svc, _ = _iam_setup()
+        n1 = svc.assumed_role_notice()
+        n2 = svc.assumed_role_notice()
+        assert n1 == n2
+
+
 # ── status ────────────────────────────────────────────────────────────────────
 
 class TestSetupIAMStatus:
