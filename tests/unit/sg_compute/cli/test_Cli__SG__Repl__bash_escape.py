@@ -17,7 +17,7 @@ from sg_compute.cli.Cli__SG__Repl import _is_bash_command, _normalise_bang, BASH
 class test_is_bash_command(TestCase):
 
     def test__whitelist_member_is_bash(self):
-        for cmd in ('cat', 'ls', 'pwd', 'grep', 'git'):
+        for cmd in ('cat', 'ls', 'pwd', 'grep', 'git', 'open', 'xdg-open'):
             assert _is_bash_command([cmd]), f'{cmd!r} should be whitelisted'
 
     def test__whitelist_member_with_args(self):

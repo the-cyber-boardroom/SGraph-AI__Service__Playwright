@@ -109,11 +109,19 @@ class Bedrock__Tool__AWS__Client(Type_Safe):
         resp   = client.invoke_browser(browserIdentifier=browser_identifier or DEFAULT_BROWSER_ID,
                                        sessionId        =session_id                              ,
                                        action           =dict(screenshot=dict(format='PNG'))     )
-        # The screenshot result lives under action result → screenshot → bytes.
-        # Shape (per AWS docs): {'result': {'screenshot': {'bytes': b'...'}}}
-        result = resp.get('result', {}) or {}
+        # AWS shape (verified against boto3 InvokeBrowser output_shape):
+        #   {'result': {'screenshot': {'status': 'SUCCESS', 'data': b'...', 'error': '...'}}, 'sessionId': '...'}
+        # Field is `data` (blob), NOT `bytes`. Also surface AWS-side errors
+        # instead of silently returning empty bytes (caller used to print
+        # "Screenshot saved" even when nothing was captured).
+        result             = resp.get('result',     {}) or {}
         screenshot_payload = result.get('screenshot', {}) or {}
-        return screenshot_payload.get('bytes', b'')
+        status             = screenshot_payload.get('status', '')
+        error              = screenshot_payload.get('error',  '')
+        data               = screenshot_payload.get('data',   b'')
+        if not data:
+            raise RuntimeError(f'Screenshot returned no data (status={status!r}, error={error!r}).')
+        return data
 
     def browser_stop(self, session_id: str, region: str = None, browser_identifier: str = None) -> None:
         effective_region = region or self.current_region()
