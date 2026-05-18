@@ -16,10 +16,14 @@ from sgraph_ai_service_playwright__cli.aws.ec2.service.EC2__AWS__Client import E
 class _Fake_EC2_Client:                                                        # Minimal boto3-alike EC2 client backed by in-memory dicts
 
     def __init__(self, store: dict, images_store: dict = None,
-                 snapshots_store: dict = None):
-        self._store           = store                                           # instance_id → raw instance dict
-        self._images_store    = images_store    if images_store    is not None else {}
-        self._snapshots_store = snapshots_store if snapshots_store is not None else {}
+                 snapshots_store: dict = None,
+                 security_groups_store: dict = None,
+                 network_interfaces_store: dict = None):
+        self._store                    = store                                  # instance_id → raw instance dict
+        self._images_store             = images_store             if images_store             is not None else {}
+        self._snapshots_store          = snapshots_store          if snapshots_store          is not None else {}
+        self._security_groups_store    = security_groups_store    if security_groups_store    is not None else {}
+        self._network_interfaces_store = network_interfaces_store if network_interfaces_store is not None else {}
 
     # ── paginator ─────────────────────────────────────────────────────────────
 
@@ -199,6 +203,67 @@ class _Fake_EC2_Client:                                                        #
                 result = kept
         return result
 
+    # ── describe_security_groups ──────────────────────────────────────────────
+
+    def describe_security_groups(self, GroupIds=None, Filters=None):
+        groups = list(self._security_groups_store.values())
+        if GroupIds:
+            matched = [g for g in groups if g.get('GroupId', '') in GroupIds]
+            missing = [i for i in GroupIds if i not in self._security_groups_store]
+            if not matched and missing:                                          # mirror real EC2: unknown ID raises ClientError
+                raise ClientError(
+                    {'Error': {'Code': 'InvalidGroup.NotFound',
+                                'Message': f'The security group {missing} does not exist'}},
+                    'DescribeSecurityGroups')
+            groups = matched
+        if Filters:
+            groups = self._apply_sg_filters(groups, Filters)
+        return {'SecurityGroups': groups}
+
+    def _apply_sg_filters(self, groups: list, filters: list) -> list:
+        result = groups
+        for f in filters:
+            name   = f.get('Name', '')
+            values = f.get('Values', [])
+            if name == 'vpc-id':
+                result = [g for g in result if g.get('VpcId', '') in values]
+            elif name == 'group-name':
+                kept = []
+                for g in result:
+                    gname = g.get('GroupName', '') or ''
+                    for v in values:
+                        if v.startswith('*') and v.endswith('*'):                # substring match
+                            needle = v[1:-1]
+                            if needle in gname:
+                                kept.append(g); break
+                        elif v.startswith('*'):
+                            if gname.endswith(v[1:]):
+                                kept.append(g); break
+                        elif v.endswith('*'):
+                            if gname.startswith(v[:-1]):
+                                kept.append(g); break
+                        else:
+                            if gname == v:
+                                kept.append(g); break
+                result = kept
+        return result
+
+    # ── describe_network_interfaces ───────────────────────────────────────────
+
+    def describe_network_interfaces(self, Filters=None):
+        enis = list(self._network_interfaces_store.values())
+        if Filters:
+            for f in Filters:
+                name   = f.get('Name', '')
+                values = f.get('Values', [])
+                if name == 'group-id':
+                    enis = [e for e in enis
+                            if any(g.get('GroupId', '') in values
+                                   for g in (e.get('Groups', []) or []))]
+                elif name == 'vpc-id':
+                    enis = [e for e in enis if e.get('VpcId', '') in values]
+        return {'NetworkInterfaces': enis}
+
     # ── describe_snapshots ────────────────────────────────────────────────────
 
     def describe_snapshots(self, SnapshotIds=None, OwnerIds=None, Filters=None):
@@ -247,18 +312,29 @@ class _Fake_Paginator:
             yield self._client.describe_snapshots(SnapshotIds=kwargs.get('SnapshotIds'),
                                                    OwnerIds   =kwargs.get('OwnerIds'),
                                                    Filters    =kwargs.get('Filters'))
+        elif self._method == 'describe_security_groups':
+            yield self._client.describe_security_groups(GroupIds=kwargs.get('GroupIds'),
+                                                        Filters =kwargs.get('Filters'))
+        elif self._method == 'describe_network_interfaces':
+            yield self._client.describe_network_interfaces(Filters=kwargs.get('Filters'))
 
 
 class EC2__AWS__Client__In_Memory(EC2__AWS__Client):
 
     def __init__(self):
         super().__init__()
-        self._store           = {}
-        self._images_store    = {}
-        self._snapshots_store = {}
-        self._fake            = _Fake_EC2_Client(self._store,
-                                                 images_store    = self._images_store,
-                                                 snapshots_store = self._snapshots_store)
+        self._store                    = {}
+        self._images_store             = {}
+        self._snapshots_store          = {}
+        self._security_groups_store    = {}
+        self._network_interfaces_store = {}
+        self._fake                     = _Fake_EC2_Client(
+            self._store,
+            images_store             = self._images_store,
+            snapshots_store          = self._snapshots_store,
+            security_groups_store    = self._security_groups_store,
+            network_interfaces_store = self._network_interfaces_store,
+        )
 
     def client(self):
         return self._fake
@@ -347,3 +423,44 @@ class EC2__AWS__Client__In_Memory(EC2__AWS__Client):
             'BlockDeviceMappings' : [],
         }
         return instance_id
+
+    # ── seed: security groups ─────────────────────────────────────────────────
+
+    def seed_security_group(self, sg_id: str = '', name: str = '',
+                            vpc_id: str = 'vpc-default',
+                            description: str = '',
+                            owner_id: str = '123456789012',
+                            ingress: list = None,
+                            egress: list = None) -> str:
+        if not sg_id:
+            sg_id = f'sg-{secrets.token_hex(8)}'
+        raw = {
+            'GroupId'            : sg_id,
+            'GroupName'          : name,
+            'VpcId'              : vpc_id,
+            'Description'        : description,
+            'OwnerId'            : owner_id,
+            'IpPermissions'      : ingress or [],
+            'IpPermissionsEgress': egress  or [],
+        }
+        self._security_groups_store[sg_id] = raw
+        return sg_id
+
+    # ── seed: network interfaces ──────────────────────────────────────────────
+
+    def seed_network_interface(self, eni_id: str = '',
+                               sg_ids: list = None,
+                               instance_id: str = '',
+                               vpc_id: str = 'vpc-default') -> str:
+        if not eni_id:
+            eni_id = f'eni-{secrets.token_hex(8)}'
+        groups = [{'GroupId': g, 'GroupName': g} for g in (sg_ids or [])]
+        raw = {
+            'NetworkInterfaceId': eni_id,
+            'VpcId'             : vpc_id,
+            'Groups'            : groups,
+        }
+        if instance_id:
+            raw['Attachment'] = {'InstanceId': instance_id}
+        self._network_interfaces_store[eni_id] = raw
+        return eni_id
