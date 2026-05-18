@@ -27,7 +27,9 @@ from sgraph_ai_service_playwright__cli.aws.bedrock.service.Bedrock__Tool__AWS__C
 
 # ── In-memory stub agentcore client ───────────────────────────────────────────
 
-_VALID_START_BROWSER_KWARGS          = {'browserIdentifier', 'name', 'sessionTimeoutSeconds', 'clientToken'}
+_VALID_START_BROWSER_KWARGS          = {'browserIdentifier', 'name', 'sessionTimeoutSeconds', 'clientToken',
+                                        'viewPort', 'extensions', 'profileConfiguration', 'proxyConfiguration',
+                                        'enterprisePolicies', 'certificates', 'traceId', 'traceParent'}
 _VALID_START_CODE_INTERPRETER_KWARGS = {'codeInterpreterIdentifier', 'name', 'sessionTimeoutSeconds', 'clientToken', 'traceId', 'traceParent', 'certificates'}
 _VALID_INVOKE_BROWSER_KWARGS         = {'browserIdentifier', 'sessionId', 'action'}
 _VALID_BROWSER_ACTION_KEYS           = {'mouseClick', 'mouseMove', 'mouseDrag', 'mouseScroll', 'keyType', 'keyPress', 'keyShortcut', 'screenshot'}
@@ -206,6 +208,26 @@ class test_browser_start(TestCase):
         self.client.browser_start(region='eu-west-1')
         _api, kwargs = self.client._fake_agentcore.calls[-1]
         assert 'region' not in kwargs
+
+    def test__viewport_passed_through_when_provided(self):
+        self.client.browser_start(viewport={'width': 1920, 'height': 1080})
+        _api, kwargs = self.client._fake_agentcore.calls[-1]
+        assert kwargs['viewPort'] == {'width': 1920, 'height': 1080}             # AWS field is `viewPort`, not `viewport`
+
+    def test__viewport_omitted_when_none(self):                                  # AWS rejects viewPort=None
+        self.client.browser_start()
+        _api, kwargs = self.client._fake_agentcore.calls[-1]
+        assert 'viewPort' not in kwargs
+
+    def test__session_timeout_passed_through_when_provided(self):
+        self.client.browser_start(session_timeout_seconds=3600)
+        _api, kwargs = self.client._fake_agentcore.calls[-1]
+        assert kwargs['sessionTimeoutSeconds'] == 3600
+
+    def test__session_timeout_omitted_when_none(self):
+        self.client.browser_start()
+        _api, kwargs = self.client._fake_agentcore.calls[-1]
+        assert 'sessionTimeoutSeconds' not in kwargs
 
 
 # ── Tests — browser_screenshot ───────────────────────────────────────────────
