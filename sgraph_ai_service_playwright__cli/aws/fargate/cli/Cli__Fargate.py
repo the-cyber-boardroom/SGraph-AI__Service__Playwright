@@ -33,6 +33,7 @@ from rich.table   import Table
 from sgraph_ai_service_playwright__cli.aws._shared.Aws__Confirm                import confirm_or_abort
 from sgraph_ai_service_playwright__cli.aws._shared.Mutation__Gate              import require_mutation_gate
 from sgraph_ai_service_playwright__cli.aws.fargate.service.Fargate__AWS__Client import Fargate__AWS__Client
+from sg_compute.cli.base.Spec__CLI__Errors                                  import spec_cli_errors
 
 console = Console()
 
@@ -60,6 +61,7 @@ def _setup_ctx(ctx: typer.Context):
 # ════════════════════════════════════════════════════════════════════════════════
 
 @cluster_app.command('list')
+@spec_cli_errors
 def cluster_list(ctx    : typer.Context,
                  as_json: bool = typer.Option(False, '--json', help='Output as JSON.')):
     """List all ECS Fargate clusters in the account/region."""
@@ -94,6 +96,7 @@ def cluster_list(ctx    : typer.Context,
 # ════════════════════════════════════════════════════════════════════════════════
 
 @cluster_app.command('describe')
+@spec_cli_errors
 def cluster_describe(ctx    : typer.Context,
                      name   : str  = typer.Argument(...,   help='Cluster name.'),
                      as_json: bool = typer.Option(False, '--json', help='Output as JSON.')):
@@ -131,6 +134,7 @@ def cluster_describe(ctx    : typer.Context,
 # ════════════════════════════════════════════════════════════════════════════════
 
 @cluster_app.command('create')
+@spec_cli_errors
 @require_mutation_gate(_MUTATION_ENV)
 def cluster_create(ctx     : typer.Context,
                    name    : str        = typer.Argument(...,   help='Cluster name.'),
@@ -161,6 +165,7 @@ def cluster_create(ctx     : typer.Context,
 # ════════════════════════════════════════════════════════════════════════════════
 
 @cluster_app.command('delete')
+@spec_cli_errors
 @require_mutation_gate(_MUTATION_ENV)
 def cluster_delete(ctx     : typer.Context,
                    name    : str  = typer.Argument(...,   help='Cluster name.'),
@@ -182,6 +187,7 @@ def cluster_delete(ctx     : typer.Context,
 # ════════════════════════════════════════════════════════════════════════════════
 
 @task_def_app.command('list')
+@spec_cli_errors
 def task_def_list(ctx    : typer.Context,
                   family : str  = typer.Option('',    '--family', '-f', help='Filter by family prefix.'),
                   as_json: bool = typer.Option(False, '--json',          help='Output as JSON.')):
@@ -215,6 +221,7 @@ def task_def_list(ctx    : typer.Context,
 # ════════════════════════════════════════════════════════════════════════════════
 
 @task_def_app.command('show')
+@spec_cli_errors
 def task_def_show(ctx       : typer.Context,
                   family_rev: str  = typer.Argument(...,   help='Family:revision, e.g. my-task:3.'),
                   as_json   : bool = typer.Option(False, '--json', help='Output as JSON.')):
@@ -253,6 +260,7 @@ def task_def_show(ctx       : typer.Context,
 # ════════════════════════════════════════════════════════════════════════════════
 
 @task_def_app.command('register')
+@spec_cli_errors
 @require_mutation_gate(_MUTATION_ENV)
 def task_def_register(ctx     : typer.Context,
                       name    : str       = typer.Option(...,  '--name',    '-n', help='Task family name.'),
@@ -293,6 +301,7 @@ def task_def_register(ctx     : typer.Context,
 # ════════════════════════════════════════════════════════════════════════════════
 
 @task_app.command('list')
+@spec_cli_errors
 def task_list(ctx    : typer.Context,
               cluster: str  = typer.Option('',    '--cluster', '-c', help='Filter by cluster name.'),
               family : str  = typer.Option('',    '--family',  '-f', help='Filter by task family.'),
@@ -329,6 +338,7 @@ def task_list(ctx    : typer.Context,
 # ════════════════════════════════════════════════════════════════════════════════
 
 @task_app.command('describe')
+@spec_cli_errors
 def task_describe(ctx     : typer.Context,
                   task_arn: str  = typer.Argument(...,   help='Task ARN.'),
                   cluster : str  = typer.Option('',    '--cluster', '-c', help='Cluster name.'),
@@ -373,6 +383,7 @@ def task_describe(ctx     : typer.Context,
 # ════════════════════════════════════════════════════════════════════════════════
 
 @task_app.command('run')
+@spec_cli_errors
 @require_mutation_gate(_MUTATION_ENV)
 def task_run(ctx             : typer.Context,
              cluster         : str       = typer.Option(...,   '--cluster',  '-c',  help='Target cluster name.'),
@@ -409,6 +420,7 @@ def task_run(ctx             : typer.Context,
 # ════════════════════════════════════════════════════════════════════════════════
 
 @task_app.command('stop')
+@spec_cli_errors
 @require_mutation_gate(_MUTATION_ENV)
 def task_stop(ctx     : typer.Context,
               task_arn: str  = typer.Argument(...,    help='Task ARN.'),
@@ -428,6 +440,7 @@ def task_stop(ctx     : typer.Context,
 # ════════════════════════════════════════════════════════════════════════════════
 
 @task_app.command('logs')
+@spec_cli_errors
 def task_logs(ctx     : typer.Context,
               task_arn: str  = typer.Argument(...,   help='Task ARN.'),
               cluster : str  = typer.Option('',    '--cluster', '-c', help='Cluster name.'),

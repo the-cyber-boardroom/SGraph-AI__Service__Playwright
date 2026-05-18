@@ -11,6 +11,7 @@ from rich.console import Console
 from rich.table   import Table
 
 from sgraph_ai_service_playwright__cli.aws.cloudtrail.service.CloudTrail__AWS__Client import CloudTrail__AWS__Client
+from sg_compute.cli.base.Spec__CLI__Errors                                  import spec_cli_errors
 
 app    = typer.Typer(name='cloudtrail', help='CloudTrail events and trail management (read-only).', no_args_is_help=True)
 events = typer.Typer(name='events',     help='Query CloudTrail events.',                            no_args_is_help=True)
@@ -30,6 +31,7 @@ def _setup_ctx(ctx: typer.Context):
 # ── events list ───────────────────────────────────────────────────────────────
 
 @events.command('list')
+@spec_cli_errors
 def events_list(ctx:     typer.Context,
                 user:    str  = typer.Option('', '--user',    help='Filter by IAM username.'),
                 service: str  = typer.Option('', '--service', help='Filter by event source (e.g. s3.amazonaws.com).'),
@@ -82,6 +84,7 @@ def events_list(ctx:     typer.Context,
 # ── events show ───────────────────────────────────────────────────────────────
 
 @events.command('show')
+@spec_cli_errors
 def events_show(ctx:      typer.Context,
                 event_id: str  = typer.Argument(..., help='CloudTrail EventId (UUID).'),
                 as_json:  bool = typer.Option(False, '--json', help='Output JSON.')):
@@ -125,6 +128,7 @@ def events_show(ctx:      typer.Context,
 # ── trail list ────────────────────────────────────────────────────────────────
 
 @trail.command('list')
+@spec_cli_errors
 def trail_list(ctx:     typer.Context,
                as_json: bool = typer.Option(False, '--json', help='Output JSON instead of a table.')):
     """List all CloudTrail trails in the account."""
@@ -177,6 +181,7 @@ def trail_list(ctx:     typer.Context,
 # ── trail show ────────────────────────────────────────────────────────────────
 
 @trail.command('show')
+@spec_cli_errors
 def trail_show(ctx:     typer.Context,
                name:    str  = typer.Argument(..., help='Trail name or ARN.'),
                as_json: bool = typer.Option(False, '--json', help='Output JSON.')):

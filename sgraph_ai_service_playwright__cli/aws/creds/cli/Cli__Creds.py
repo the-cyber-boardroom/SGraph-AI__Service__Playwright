@@ -20,6 +20,7 @@ from sgraph_ai_service_playwright__cli.aws.creds.service.Creds__Audit__Log      
 from sgraph_ai_service_playwright__cli.aws.creds.service.Creds__Scope__Catalogue import Creds__Scope__Catalogue
 from sgraph_ai_service_playwright__cli.aws.creds.service.Creds__STS__Client      import Creds__STS__Client
 from sgraph_ai_service_playwright__cli.aws.creds.service.Creds__TTL__Parser      import Creds__TTL__Parser
+from sg_compute.cli.base.Spec__CLI__Errors                                  import spec_cli_errors
 
 app   = typer.Typer(name='creds', help='Scoped STS credential delivery (per-command temporary creds).', no_args_is_help=True)
 scope = typer.Typer(name='scope', help='Scope catalogue management.',                                    no_args_is_help=True)
@@ -44,6 +45,7 @@ def _setup_ctx(ctx: typer.Context):
 # ── get ───────────────────────────────────────────────────────────────────────
 
 @app.command('get')
+@spec_cli_errors
 def get(ctx:          typer.Context,
         scope_name:   str  = typer.Option(..., '--scope'),
         role_hint:    str  = typer.Option('', '--role-hint'),
@@ -131,6 +133,7 @@ def get(ctx:          typer.Context,
 # ── list-scopes ───────────────────────────────────────────────────────────────
 
 @app.command('list-scopes')
+@spec_cli_errors
 def list_scopes(ctx: typer.Context, as_json: bool = typer.Option(False, '--json')):
     """List all scopes in the catalogue."""
     cat    = ctx.obj['creds_catalogue']
@@ -158,6 +161,7 @@ def list_scopes(ctx: typer.Context, as_json: bool = typer.Option(False, '--json'
 # ── scope show ────────────────────────────────────────────────────────────────
 
 @scope.command('show')
+@spec_cli_errors
 def scope_show(ctx: typer.Context, name: str = typer.Argument(...), as_json: bool = typer.Option(False, '--json')):
     """Show scope definition."""
     cat   = ctx.obj['creds_catalogue']
@@ -182,6 +186,7 @@ def scope_show(ctx: typer.Context, name: str = typer.Argument(...), as_json: boo
 # ── scope add ─────────────────────────────────────────────────────────────────
 
 @scope.command('add')
+@spec_cli_errors
 @require_mutation_gate('SG_AWS__CREDS__ALLOW_MUTATIONS')
 def scope_add(ctx:     typer.Context,
               name:    str  = typer.Option(...,   '--name'),
@@ -211,6 +216,7 @@ def scope_add(ctx:     typer.Context,
 # ── scope remove ──────────────────────────────────────────────────────────────
 
 @scope.command('remove')
+@spec_cli_errors
 @require_mutation_gate('SG_AWS__CREDS__ALLOW_MUTATIONS')
 def scope_remove(ctx:     typer.Context,
                  name:    str  = typer.Argument(...),
@@ -233,6 +239,7 @@ def scope_remove(ctx:     typer.Context,
 # ── scope update ──────────────────────────────────────────────────────────────
 
 @scope.command('update')
+@spec_cli_errors
 @require_mutation_gate('SG_AWS__CREDS__ALLOW_MUTATIONS')
 def scope_update(ctx:     typer.Context,
                  name:    str  = typer.Argument(...),
@@ -271,6 +278,7 @@ def scope_update(ctx:     typer.Context,
 # ── audit list ────────────────────────────────────────────────────────────────
 
 @audit.command('list')
+@spec_cli_errors
 def audit_list(ctx:     typer.Context,
                caller:  str  = typer.Option('', '--caller'),
                scope_n: str  = typer.Option('', '--scope'),
@@ -308,6 +316,7 @@ def audit_list(ctx:     typer.Context,
 # ── audit show ────────────────────────────────────────────────────────────────
 
 @audit.command('show')
+@spec_cli_errors
 def audit_show(ctx:           typer.Context,
                assumption_id: str  = typer.Argument(...),
                as_json:       bool = typer.Option(False, '--json')):

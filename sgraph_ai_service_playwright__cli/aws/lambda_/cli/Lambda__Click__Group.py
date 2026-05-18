@@ -133,6 +133,8 @@ class Lambda__App__Group(click.Group):                                          
 import json
 
 from rich.table import Table
+from sg_compute.cli.base.Spec__CLI__Errors                                  import spec_cli_errors
+from sgraph_ai_service_playwright__cli.aws._shared.Aws__Context__Banner    import Aws__Context__Banner
 from sgraph_ai_service_playwright__cli.aws.lambda_.service.Lambda__AWS__Client import Lambda__AWS__Client
 
 
@@ -141,6 +143,7 @@ from sgraph_ai_service_playwright__cli.aws.lambda_.service.Lambda__AWS__Client i
 @click.option('--last-modified', '--lm', 'sort_by_lm', is_flag=True, default=False,
               help='Sort by Last Modified (newest first) instead of by name.')
 @click.option('--json', 'as_json', is_flag=True, default=False, help='Output as JSON.')
+@spec_cli_errors
 def cmd_list(runtime, sort_by_lm, as_json):
     """List all Lambda functions in the account/region. Sorted by name by default."""
     fns = Lambda__AWS__Client().list_functions()
@@ -153,6 +156,7 @@ def cmd_list(runtime, sort_by_lm, as_json):
     if as_json:
         click.echo(json.dumps([f.json() for f in fns], indent=2))
         return
+    console.print(Aws__Context__Banner().render())
     if not fns:
         console.print('[dim]No Lambda functions found.[/dim]')
         return

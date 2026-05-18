@@ -38,6 +38,7 @@ from sgraph_ai_service_playwright__cli.aws.ec2.service.EC2__AWS__Client         
 from sgraph_ai_service_playwright__cli.aws.ec2.service.EC2__Instance__Wait      import EC2__Instance__Wait
 from sgraph_ai_service_playwright__cli.aws.ec2.service.EC2__Name__Resolver      import EC2__Name__Resolver
 from sgraph_ai_service_playwright__cli.aws.ec2.service.EC2__Pricing__Client     import EC2__Pricing__Client
+from sg_compute.cli.base.Spec__CLI__Errors                                  import spec_cli_errors
 
 _MUTATION_ENV = 'SG_AWS__EC2__ALLOW_MUTATIONS'
 
@@ -65,6 +66,7 @@ def _resolve(ctx: typer.Context, target: str) -> str:                          #
 # ── list ──────────────────────────────────────────────────────────────────────
 
 @app.command('list')
+@spec_cli_errors
 def ec2_list(ctx    : typer.Context,
              state  : str  = typer.Option('all', '--state', '-s',
                                            help='Filter by state: running, stopped, all.'),
@@ -111,6 +113,7 @@ def ec2_list(ctx    : typer.Context,
 # ── describe ──────────────────────────────────────────────────────────────────
 
 @app.command('describe')
+@spec_cli_errors
 def ec2_describe(ctx    : typer.Context,
                  target : str  = typer.Argument(..., help='Instance ID or Name tag.'),
                  as_json: bool = typer.Option(False, '--json', help='Output as JSON.')):
@@ -174,6 +177,7 @@ def ec2_describe(ctx    : typer.Context,
 # ── ssh-info ──────────────────────────────────────────────────────────────────
 
 @app.command('ssh-info')
+@spec_cli_errors
 def ec2_ssh_info(ctx   : typer.Context,
                  target: str = typer.Argument(..., help='Instance ID or Name tag.')):
     """Print SSH connection information (public DNS, key name, default user)."""
@@ -202,6 +206,7 @@ def ec2_ssh_info(ctx   : typer.Context,
 # ── tags ──────────────────────────────────────────────────────────────────────
 
 @app.command('tags')
+@spec_cli_errors
 def ec2_tags(ctx     : typer.Context,
              target  : str       = typer.Argument(..., help='Instance ID or Name tag.'),
              add     : List[str] = typer.Option([], '--add',      help='Add tag K=V (repeatable, mutating).'),
@@ -251,6 +256,7 @@ def ec2_tags(ctx     : typer.Context,
 # ── instance-types ────────────────────────────────────────────────────────────
 
 @app.command('instance-types')
+@spec_cli_errors
 def ec2_instance_types(ctx    : typer.Context,
                        family : str  = typer.Option('', '--family', '-f',
                                                      help='Filter by family prefix, e.g. m5, t3.'),
@@ -273,6 +279,7 @@ def ec2_instance_types(ctx    : typer.Context,
 # ── pricing ───────────────────────────────────────────────────────────────────
 
 @app.command('pricing')
+@spec_cli_errors
 def ec2_pricing(instance_type: str  = typer.Argument(..., help='Instance type, e.g. t3.micro.'),
                 region       : str  = typer.Option('us-east-1', '--region', '-r',
                                                    help='AWS region (default: us-east-1).'),
@@ -300,6 +307,7 @@ def ec2_pricing(instance_type: str  = typer.Argument(..., help='Instance type, e
 # ── create ────────────────────────────────────────────────────────────────────
 
 @app.command('create')
+@spec_cli_errors
 @require_mutation_gate(_MUTATION_ENV)
 def ec2_create(ctx           : typer.Context,
                name          : str       = typer.Option(...,   '--name',          help='Instance name (becomes Name tag).'),
@@ -363,6 +371,7 @@ def ec2_create(ctx           : typer.Context,
 # ── start ─────────────────────────────────────────────────────────────────────
 
 @app.command('start')
+@spec_cli_errors
 @require_mutation_gate(_MUTATION_ENV)
 def ec2_start(ctx     : typer.Context,
               target  : str  = typer.Argument(...,    help='Instance ID or Name tag.'),
@@ -379,6 +388,7 @@ def ec2_start(ctx     : typer.Context,
 # ── stop ──────────────────────────────────────────────────────────────────────
 
 @app.command('stop')
+@spec_cli_errors
 @require_mutation_gate(_MUTATION_ENV)
 def ec2_stop(ctx     : typer.Context,
              target  : str  = typer.Argument(...,    help='Instance ID or Name tag.'),
@@ -395,6 +405,7 @@ def ec2_stop(ctx     : typer.Context,
 # ── terminate ─────────────────────────────────────────────────────────────────
 
 @app.command('terminate')
+@spec_cli_errors
 @require_mutation_gate(_MUTATION_ENV)
 def ec2_terminate(ctx     : typer.Context,
                   target  : str  = typer.Argument(...,    help='Instance ID or Name tag.'),
@@ -411,6 +422,7 @@ def ec2_terminate(ctx     : typer.Context,
 # ── wait ──────────────────────────────────────────────────────────────────────
 
 @app.command('wait')
+@spec_cli_errors
 def ec2_wait(ctx     : typer.Context,
              target  : str = typer.Argument(..., help='Instance ID or Name tag.'),
              state   : str = typer.Option(...,   '--state', '-s',

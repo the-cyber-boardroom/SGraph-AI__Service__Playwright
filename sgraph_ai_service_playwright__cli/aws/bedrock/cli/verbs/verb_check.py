@@ -13,6 +13,7 @@ from rich.console                                                               
 
 from sgraph_ai_service_playwright__cli.aws.bedrock.enums.Enum__Bedrock__Check__Status import Enum__Bedrock__Check__Status
 from sgraph_ai_service_playwright__cli.aws.bedrock.service.Bedrock__Preflight          import Bedrock__Preflight
+from sg_compute.cli.base.Spec__CLI__Errors                                  import spec_cli_errors
 
 _ICON = {                                                                          # Status → display icon
     Enum__Bedrock__Check__Status.PASS: '[✓]',
@@ -30,6 +31,7 @@ _STYLE = {                                                                      
 def register_check(app: typer.Typer) -> None:
 
     @app.command('check')
+    @spec_cli_errors
     def bedrock_check(region     : Optional[str] = typer.Option(None , '--region', help='Override active role region.'),
                       json_output: bool          = typer.Option(False, '--json'  , help='Output JSON list of check results.')):
         """Run Bedrock preflight checks — IAM permissions, region support, model access, capture writer."""
