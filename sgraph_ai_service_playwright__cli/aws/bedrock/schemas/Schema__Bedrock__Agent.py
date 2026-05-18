@@ -16,6 +16,8 @@ class Schema__Bedrock__Agent(Type_Safe):
     agent_name       : str                                                            # Human-readable name (supplied at create)
     model_id         : Safe_Str__Bedrock__Model_Id                                   # Foundation model powering the agent
     status           : str                                                            # Agent status (CREATING, PREPARED, …)
+    failure_reasons  : list                                                           # Non-empty when status=FAILED; strings from AWS
+    instruction      : str                                                            # Agent instruction text (required before PrepareAgent)
     tools            : str                                                            # Comma-separated enabled tool names
     memory           : str                                                            # Memory scope (short / long / both / none)
     region           : str                                                            # AWS region
