@@ -7,9 +7,12 @@
 #   - describe_image(repo, ref) → one Schema__ECR__Image (ref = tag or digest)
 #   - get_image_scan_findings   → most-recent severity counts
 #
-# Mutation methods (delete_image, batch_delete_image, put_lifecycle_policy,
-# create_repository, delete_repository) intentionally NOT implemented in
-# Slice 1 — gated by SG_AWS__ECR__ALLOW_MUTATIONS in a follow-up slice.
+# Mutation methods (Slice 2 — gated at the CLI layer by
+# SG_AWS__ECR__ALLOW_MUTATIONS):
+#   - delete_image(repo, tag_or_digest)
+#   - batch_delete_images(repo, digests)
+#   - create_repository(name)
+#   - delete_repository(name, force=False)
 # ═══════════════════════════════════════════════════════════════════════════════
 
 from typing import Optional
@@ -161,6 +164,65 @@ class ECR__AWS__Client(Type_Safe):
                         'ImageNotFoundException',
                         'ScanNotFoundException'):
                 return None
+            raise
+
+    # ── mutate: images ───────────────────────────────────────────────────────
+
+    def delete_image(self, repo_name: str, tag_or_digest: str) -> bool:
+        try:
+            ecr   = self.client()
+            ident = self._image_identifier(tag_or_digest)
+            resp  = ecr.batch_delete_image(repositoryName=repo_name, imageIds=[ident])
+            deleted  = resp.get('imageIds', []) or []
+            failures = resp.get('failures',  []) or []
+            if not deleted and failures:
+                code = failures[0].get('failureCode', '')
+                if code in ('ImageNotFound', 'ImageReferencedByManifestList'):
+                    return False
+            return bool(deleted)
+        except ClientError as exc:
+            code = exc.response.get('Error', {}).get('Code', '')
+            if code in ('RepositoryNotFoundException', 'ImageNotFoundException'):
+                return False
+            raise
+
+    def batch_delete_images(self, repo_name: str, digests: list) -> int:
+        if not digests:
+            return 0
+        try:
+            ecr        = self.client()
+            image_ids  = [{'imageDigest': d} for d in digests]
+            resp       = ecr.batch_delete_image(repositoryName=repo_name, imageIds=image_ids)
+            return len(resp.get('imageIds', []) or [])
+        except ClientError as exc:
+            code = exc.response.get('Error', {}).get('Code', '')
+            if code == 'RepositoryNotFoundException':
+                return 0
+            raise
+
+    # ── mutate: repositories ─────────────────────────────────────────────────
+
+    def create_repository(self, name: str) -> bool:
+        try:
+            ecr = self.client()
+            ecr.create_repository(repositoryName             = name,
+                                  imageScanningConfiguration = {'scanOnPush': True})
+            return True
+        except ClientError as exc:
+            code = exc.response.get('Error', {}).get('Code', '')
+            if code == 'RepositoryAlreadyExistsException':
+                return False
+            raise
+
+    def delete_repository(self, name: str, force: bool = False) -> bool:
+        try:
+            ecr = self.client()
+            ecr.delete_repository(repositoryName=name, force=force)
+            return True
+        except ClientError as exc:
+            code = exc.response.get('Error', {}).get('Code', '')
+            if code == 'RepositoryNotFoundException':
+                return False
             raise
 
     # ── internal ─────────────────────────────────────────────────────────────

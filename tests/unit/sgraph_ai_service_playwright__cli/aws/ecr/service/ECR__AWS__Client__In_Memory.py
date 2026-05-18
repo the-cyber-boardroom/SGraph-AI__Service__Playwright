@@ -147,6 +147,81 @@ class _Fake_ECR_Client:                                                         
             },
         }
 
+    # ── batch_delete_image ────────────────────────────────────────────────────
+
+    def batch_delete_image(self, repositoryName='', imageIds=None, **_):
+        if repositoryName not in self._store:
+            raise ClientError(
+                {'Error': {'Code'   : 'RepositoryNotFoundException',
+                           'Message': f'Repository not found: {repositoryName}'}},
+                'BatchDeleteImage',
+            )
+        images   = self._store[repositoryName]['images']
+        deleted  = []
+        failures = []
+        for ident in (imageIds or []):
+            digest = ident.get('imageDigest')
+            tag    = ident.get('imageTag')
+            match_digest = None
+            if digest and digest in images:
+                match_digest = digest
+            elif tag:
+                for d, img in images.items():
+                    if tag in img.get('tags', []):
+                        match_digest = d
+                        break
+            if match_digest is None:
+                failures.append({'imageId'     : dict(ident),
+                                 'failureCode' : 'ImageNotFound',
+                                 'failureReason': 'Image not found'})
+                continue
+            tags_before = list(images[match_digest].get('tags', []))
+            del images[match_digest]
+            deleted.append({'imageDigest': match_digest,
+                            'imageTag'   : tags_before[0] if tags_before else ''})
+        return {'imageIds': deleted, 'failures': failures}
+
+    # ── create_repository / delete_repository ─────────────────────────────────
+
+    def create_repository(self, repositoryName='', imageScanningConfiguration=None, **_):
+        if repositoryName in self._store:
+            raise ClientError(
+                {'Error': {'Code'   : 'RepositoryAlreadyExistsException',
+                           'Message': f'Repository already exists: {repositoryName}'}},
+                'CreateRepository',
+            )
+        scan_cfg = imageScanningConfiguration or {'scanOnPush': False}
+        self._store[repositoryName] = {
+            'repo': {
+                'repositoryName'             : repositoryName,
+                'repositoryArn'              : f'arn:aws:ecr:eu-west-2:123456789012:repository/{repositoryName}',
+                'registryId'                 : '123456789012',
+                'repositoryUri'              : f'123456789012.dkr.ecr.eu-west-2.amazonaws.com/{repositoryName}',
+                'createdAt'                  : datetime.now(timezone.utc),
+                'imageTagMutability'         : 'MUTABLE',
+                'imageScanningConfiguration' : scan_cfg,
+            },
+            'images'          : {},
+            'lifecycle_policy': '',
+        }
+        return {'repository': self._store[repositoryName]['repo']}
+
+    def delete_repository(self, repositoryName='', force=False, **_):
+        if repositoryName not in self._store:
+            raise ClientError(
+                {'Error': {'Code'   : 'RepositoryNotFoundException',
+                           'Message': f'Repository not found: {repositoryName}'}},
+                'DeleteRepository',
+            )
+        if self._store[repositoryName]['images'] and not force:
+            raise ClientError(
+                {'Error': {'Code'   : 'RepositoryNotEmptyException',
+                           'Message': f'Repository not empty: {repositoryName}'}},
+                'DeleteRepository',
+            )
+        removed = self._store.pop(repositoryName)
+        return {'repository': removed['repo']}
+
     # ── internal ──────────────────────────────────────────────────────────────
 
     def _to_image_detail(self, digest: str, img: dict) -> dict:
