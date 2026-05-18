@@ -528,9 +528,9 @@ def lambda_create(role_arn: str = typer.Option('', '--role-arn', help='Lambda ex
     _print_role_notice(c, svc)
     if not _preflight(c, svc):
         raise typer.Exit(1)
-    c.print('\n  [yellow]→[/]  Deploying Lambda waker…')
+    c.print('\n  [yellow]→[/]  Deploying Lambda waker…\n')
     try:
-        rep = _lambda().create(role_arn=role_arn)
+        rep = _run_with_lambda_progress(c, lambda cb: _lambda().create(role_arn=role_arn, progress=cb))
     except (RuntimeError, ClientError, Exception) as exc:
         _handle_exc(c, exc)
         raise typer.Exit(1)
@@ -547,9 +547,9 @@ def lambda_update():
     _print_role_notice(c, svc)
     if not _preflight(c, svc):
         raise typer.Exit(1)
-    c.print('\n  [yellow]→[/]  Redeploying Lambda waker…')
+    c.print('\n  [yellow]→[/]  Redeploying Lambda waker…\n')
     try:
-        rep = _lambda().update()
+        rep = _run_with_lambda_progress(c, lambda cb: _lambda().update(progress=cb))
     except (RuntimeError, ClientError, Exception) as exc:
         _handle_exc(c, exc)
         raise typer.Exit(1)
@@ -557,6 +557,69 @@ def lambda_update():
     if rep.state == Enum__Setup__State.OK:
         c.print('  [green]✓[/]  Lambda waker updated')
     c.print()
+
+
+# Ordered list of phases the Lambda deployer emits (label, description).
+# Some phases (create-function vs the update path) are mutually exclusive;
+# unused ones stay 'pending' and are hidden from the final table.
+_LAMBDA_DEPLOY_PHASES = [
+    ('build-env'        , 'Compose deploy env vars (version, commit, caller, region)'),
+    ('build-zip'        , 'Build deployment ZIP (vault_publish + osbot_utils + osbot_aws)'),
+    ('detect-function'  , 'Check whether the function already exists'),
+    ('wait-prior-update', 'Wait for any in-flight update on the existing function'),
+    ('upload-code'      , 'Upload code to AWS Lambda (update_function_code)'),
+    ('wait-upload'      , 'Wait for code upload to settle'),
+    ('update-config'    , 'Update function configuration (handler/runtime/memory/env)'),
+    ('create-function'  , 'Create new function (first-time deploy)'),
+    ('refresh'          , 'Re-read function details for the post-deploy report'),
+    ('ensure-url'       , 'Ensure the function URL exists'),
+    ('check'            , 'Refresh full report (config + URL + env vars)'),
+]
+
+
+def _run_with_lambda_progress(c: Console, do_deploy):
+    """Run a deployer call with a live phase-progress table."""
+    import time as _t
+    state    = {label: {'status': 'pending', 'started_at': None, 'elapsed': 0.0}
+                 for label, _desc in _LAMBDA_DEPLOY_PHASES}
+    descs    = dict(_LAMBDA_DEPLOY_PHASES)
+
+    def _build_table() -> Table:
+        t = Table(box=None, show_header=True, padding=(0, 2))
+        t.add_column('Step',    style='bold')
+        t.add_column('Status',  style='')
+        t.add_column('Elapsed', style='dim', justify='right')
+        t.add_column('Description', style='dim')
+        for label, desc in _LAMBDA_DEPLOY_PHASES:
+            s = state[label]
+            if s['status'] == 'pending':
+                continue                                                              # hide untouched phases (some paths skip a subset)
+            if s['status'] == 'running':
+                icon  = '[yellow]⏳ running…[/]'
+                elapsed_s = _t.time() - (s['started_at'] or _t.time())
+            else:                                                                     # 'done'
+                icon  = '[green]✓ done[/]'
+                elapsed_s = s['elapsed']
+            t.add_row(label, icon, f'{elapsed_s:.1f}s', desc)
+        return t
+
+    with Live(_build_table(), console=c, refresh_per_second=4, transient=False) as live:
+        def cb(phase: str, status: str) -> None:
+            if phase not in state:
+                # Unknown phase — surface it so we don't lose visibility
+                state[phase] = {'status': 'pending', 'started_at': None, 'elapsed': 0.0}
+                _LAMBDA_DEPLOY_PHASES.append((phase, '(deployer phase)'))
+            entry = state[phase]
+            now   = _t.time()
+            if status == 'start':
+                entry['status']     = 'running'
+                entry['started_at'] = now
+            elif status == 'done':
+                entry['status']     = 'done'
+                if entry['started_at']:
+                    entry['elapsed'] = now - entry['started_at']
+            live.update(_build_table())
+        return do_deploy(cb)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

@@ -148,7 +148,7 @@ class Setup__Lambda(Type_Safe):
 
     # ── mutations ─────────────────────────────────────────────────────────────
 
-    def create(self, role_arn: str = '') -> Schema__Setup__Lambda__Report:
+    def create(self, role_arn: str = '', progress: Optional[Callable] = None) -> Schema__Setup__Lambda__Report:
         _require_mutations()
         from sgraph_ai_service_playwright__cli.aws.lambda_.enums.Enum__Lambda__Runtime       import Enum__Lambda__Runtime
         from sgraph_ai_service_playwright__cli.aws.lambda_.primitives.Safe_Str__Lambda__Name import Safe_Str__Lambda__Name
@@ -156,7 +156,10 @@ class Setup__Lambda(Type_Safe):
 
         vault_publish_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../..'))
         package_root      = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../../..'))
-        env               = _build_deploy_env(vault_publish_dir)
+
+        if progress: progress('build-env', 'start')
+        env = _build_deploy_env(vault_publish_dir)
+        if progress: progress('build-env', 'done')
 
         deploy_req = Schema__Lambda__Deploy__Request(
             name        = Safe_Str__Lambda__Name(WAKER_LAMBDA_NAME),
@@ -174,6 +177,7 @@ class Setup__Lambda(Type_Safe):
             package_root  = package_root,
             extra_modules = ['osbot_utils', 'osbot_aws'],
             environment   = env,
+            progress      = progress,
         )
         if not deploy_resp.success:
             issues = List__Schema__Setup__Issue()
@@ -184,17 +188,22 @@ class Setup__Lambda(Type_Safe):
                 state=Enum__Setup__State.ERROR, function_name=WAKER_LAMBDA_NAME, issues=issues)
 
         lc = self._lambda_client()
+        if progress: progress('ensure-url', 'start')
         lc.ensure_function_url(WAKER_LAMBDA_NAME)
+        if progress: progress('ensure-url', 'done')
+
+        if progress: progress('check', 'start')
         report = self.check()
+        if progress: progress('check', 'done')
         # Stamp deploy-only details that check() can't know about
         report.zip_size = int(getattr(deploy_resp, 'zip_size', 0) or 0)
         return report
 
-    def update(self) -> Schema__Setup__Lambda__Report:
+    def update(self, progress: Optional[Callable] = None) -> Schema__Setup__Lambda__Report:
         _require_mutations()
         lc      = self._lambda_client()
         details = lc.get_function_details(WAKER_LAMBDA_NAME)
-        return self.create(role_arn=details.role_arn)                               # carry live role so deployer can fall back to create if needed
+        return self.create(role_arn=details.role_arn, progress=progress)               # carry live role so deployer can fall back to create if needed
 
     def delete(self) -> bool:
         _require_deletes()
