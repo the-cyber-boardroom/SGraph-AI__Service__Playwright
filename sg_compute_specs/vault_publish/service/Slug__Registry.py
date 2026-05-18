@@ -57,7 +57,7 @@ class Slug__Registry(Type_Safe):
             return False
 
     def get(self, slug: str) -> Optional[Schema__Vault_Publish__Entry]:
-        raw = self._param(slug).value()
+        raw = self._read_value(self._param(slug))
         if raw is None:
             return None
         try:
@@ -71,6 +71,17 @@ class Slug__Registry(Type_Safe):
             )
         except Exception:
             return None
+
+    def _read_value(self, param):
+        # Bypass osbot_aws.Parameter.value() which calls the removed
+        # osbot_utils.Misc.get_value. In-memory fakes still expose value();
+        # real Parameter.get() returns the SSM dict with a 'Value' key.
+        if self._param_factory is not None:
+            return param.value()
+        raw_dict = param.get()
+        if not raw_dict:
+            return None
+        return raw_dict.get('Value')
 
     def delete(self, slug: str) -> bool:
         return self._param(slug).delete()

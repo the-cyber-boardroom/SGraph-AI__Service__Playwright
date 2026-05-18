@@ -129,7 +129,7 @@ class Route53__AWS__Client(Type_Safe):                                          
         return records
 
     def map_record(self, rrs: dict) -> Schema__Route53__Record:                      # Map a raw ResourceRecordSet dict to Schema__Route53__Record
-        name           = str(rrs.get('Name', ''))
+        name           = str(rrs.get('Name', '')).replace('\\052', '*')              # Route 53 returns wildcard labels as \052 (octal for *)
         rtype          = str(rrs.get('Type', 'A'))
         ttl            = int(rrs.get('TTL', 0))
         set_identifier = str(rrs.get('SetIdentifier', ''))
