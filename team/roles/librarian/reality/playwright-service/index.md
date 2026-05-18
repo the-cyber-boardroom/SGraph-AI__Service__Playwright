@@ -1,91 +1,151 @@
 # playwright-service — Reality Index
 
-**Domain:** `playwright-service/` | **Last updated:** 2026-05-17 | **Maintained by:** Librarian
-**Code-source basis:** migrated from `_archive/v0.1.31/01__playwright-service.md` (v0.1.31 / v0.1.33).
+**Domain:** `playwright-service/` | **Last updated:** 2026-05-18 | **Maintained by:** Librarian
+**Code-source basis:** verified against `sg_compute_specs/playwright/` at v0.2.28 (post-BV2.11 / post-FV2.6).
 
-The core FastAPI service: browser automation routes, the Type_Safe schema tree, the `Step__Executor` (sole owner of `page.*`), `Browser__Launcher`, `Sequence__Runner`, and the `Agentic_*` admin / boot scaffolding layered on top.
+The core FastAPI service: browser automation routes, the Type_Safe schema tree, the `Step__Executor` (sole owner of `page.*`), `Browser__Launcher`, `Sequence__Runner`, and the agentic admin / boot scaffolding layered on top.
 
-**Canonical package:** `sgraph_ai_service_playwright/`. Image base: `mcr.microsoft.com/playwright/python:v1.58.0-noble` (Lambda Web Adapter 1.0.0). Lambda handler: `sgraph_ai_service_playwright/fast_api/lambda_handler.py`.
+**Canonical package:** `sg_compute_specs/playwright/core/`. Image base: `mcr.microsoft.com/playwright/python:v1.58.0-noble`. Image ships as **`diniscruz/sg-playwright`** on Docker Hub (post-v0.2.11 — the Lambda / ECR / S3-zip route was retired). Lambda handler stub (kept for parity, not in the live deployment path): `sg_compute_specs/playwright/core/fast_api/lambda_handler.py`.
 
-> **Post-v0.1.31 note:** as of BV2.11 (2026-05-05), the Playwright Lambda packaging moved to `sg_compute_specs.playwright.core`. The `sgraph_ai_service_playwright/` package itself was deleted in that change. The route surface described below was authoritative at v0.1.33; verify against `sg_compute_specs/playwright/` before quoting it as current behaviour. **VERIFY**: route count and admin surface against the post-BV2.11 tree.
+The orphan `sgraph_ai_service_playwright/` package was **deleted in BV2.11 (2026-05-05)** and is not coming back. All paths below resolve to `sg_compute_specs/playwright/` (and `sg_compute_specs/playwright/core/` for runtime modules) only.
 
 ---
 
-## EXISTS (code-verified at v0.1.33; partial-VERIFY since BV2.11)
+## EXISTS (code-verified at v0.2.28)
 
-### API surface — 19 endpoints (v0.1.33)
+### API surface — 16 direct endpoints
 
-#### Public (10) — `/health/*` + `/browser/*` + `/sequence/*`
+Wired by `Fast_API__Playwright__Service.setup_routes()` (`sg_compute_specs/playwright/core/fast_api/Fast_API__Playwright__Service.py:88-96`). Six in-repo route classes plus `Routes__Set_Cookie` imported from `osbot_fast_api.api.routes.Routes__Set_Cookie`.
+
+#### Health (3) — `Routes__Health`
 
 | Method | Path | Notes |
 |--------|------|-------|
-| GET  | `/health/info` | Service identity |
-| GET  | `/health/status` | Liveness |
-| GET  | `/health/capabilities` | Declared capabilities |
+| GET | `/health/info` | Service identity (`Schema__Service__Info`) |
+| GET | `/health/status` | Liveness (`Schema__Health`) |
+| GET | `/health/capabilities` | Declared capabilities (`Schema__Service__Capabilities`) |
+
+Source: `sg_compute_specs/playwright/core/fast_api/routes/Routes__Health.py:31-43`.
+
+#### Browser one-shot (6) — `Routes__Browser`
+
+| Method | Path | Notes |
+|--------|------|-------|
 | POST | `/browser/navigate` | Page navigation step |
 | POST | `/browser/click` | Click step |
 | POST | `/browser/fill` | Fill input step |
-| POST | `/browser/screenshot` | Capture screenshot, write to sink |
-| POST | `/browser/get-content` | Extract page HTML / text |
+| POST | `/browser/get-content` | Extract page HTML / text (osbot-fast-api maps `_` → `-` in paths) |
 | POST | `/browser/get-url` | Current URL |
-| POST | `/sequence/execute` | Layer-3 multi-step sequence |
+| POST | `/browser/screenshot` | Raw PNG `Response` — bypasses JSON serialisation |
 
-#### Metrics (1) — added v0.1.46
+Source: `sg_compute_specs/playwright/core/fast_api/routes/Routes__Browser.py:51-82`. Each launches fresh Chromium, runs a tiny sequence, tears down.
 
-- `GET /metrics` — Prometheus text exposition (`text/plain`). API-key-gated. Module-level `CollectorRegistry` in `metrics/Metrics__Collector.py`. Populated by `Playwright__Service.run_one_shot()` and `browser_screenshot()`.
+#### Screenshot (2) — `Routes__Screenshot` (mounted at root, prefix `/`)
 
-#### Admin (8) — landed v0.1.29, unauthenticated read-only
+| Method | Path | Notes |
+|--------|------|-------|
+| POST | `/screenshot` | Single screenshot (`Schema__Screenshot__Request` → `dict`) |
+| POST | `/screenshot/batch` | Batch screenshots (`Schema__Screenshot__Batch__Request` → `dict`) |
 
-| Path | What it returns |
-|------|-----------------|
-| `GET /admin/health` | `{status, code_source}`; flips `loaded → degraded` when `set_last_error(…)` fires |
-| `GET /admin/info` | app name / stage / version / image_version / code_source / python_version |
-| `GET /admin/env` | `{agentic_vars}` filtered to `AGENTIC_*` prefix only (no AWS / `SG_PLAYWRIGHT` leakage) |
-| `GET /admin/boot-log` | Ring-buffer of boot lines (max 200) |
-| `GET /admin/error` | `{has_error, error}` last-error holder |
-| `GET /admin/manifest` | Points at `/openapi.json`, `/admin/capabilities`, per-SKILL file URLs |
-| `GET /admin/capabilities` | `capabilities.json` (axioms + declared_narrowing) |
-| `GET /admin/skills/{name}` | Markdown SKILL content for `{human, browser, agent}`; 404 on unknown name |
+Source: `sg_compute_specs/playwright/core/fast_api/routes/Routes__Screenshot.py:25-42`. OpenAPI examples injected by `attach_screenshot_examples()` in `Fast_API__Playwright__Service`.
 
-Plus osbot-fast-api's `/auth/set-cookie-form` HTML UI + `/auth/set-auth-cookie` POST.
+#### Sequence (1) — `Routes__Sequence`
+
+| Method | Path | Notes |
+|--------|------|-------|
+| POST | `/sequence/execute` | Layer-3 multi-step declarative sequence |
+
+Source: `sg_compute_specs/playwright/core/fast_api/routes/Routes__Sequence.py:27-31`.
+
+#### Metrics (1) — `Routes__Metrics` (mounted at root, prefix `/`)
+
+| Method | Path | Notes |
+|--------|------|-------|
+| GET | `/metrics` | Prometheus text exposition (`text/plain`). Module-level `_REGISTRY` in `metrics/Metrics__Collector.py`. |
+
+Source: `sg_compute_specs/playwright/core/fast_api/routes/Routes__Metrics.py:24-33`.
+
+#### Index (1) — `Routes__Index` (mounted at root, prefix `/`)
+
+| Method | Path | Notes |
+|--------|------|-------|
+| GET | `/` | Static "Try it out" mini-site (HTML) |
+
+Source: `sg_compute_specs/playwright/core/fast_api/routes/Routes__Index.py:601-612`.
+
+#### Set-Cookie (2) — `osbot_fast_api.api.routes.Routes__Set_Cookie`
+
+| Method | Path | Notes |
+|--------|------|-------|
+| GET | `/auth/set-cookie-form` | HTML UI for setting the auth cookie |
+| POST | `/auth/set-auth-cookie` | Cookie write |
+
+Both paths sit in `AUTH__EXCLUDED_PATHS` so they bypass the API-key middleware.
+
+### Admin surface (8) — `Agentic_Admin_API` (mounted by `Agentic_FastAPI.setup_routes()` super-call)
+
+Unauthenticated read-only (paths appended to `AUTH__EXCLUDED_PATHS` in `Agentic_FastAPI.setup()`).
+
+| Path | What it returns | Source |
+|------|-----------------|--------|
+| `GET /admin/health` | `{status, code_source}`; flips `loaded → degraded` when `set_last_error(...)` fires | `Agentic_Admin_API.health` |
+| `GET /admin/info` | app name / stage / version / image_version / code_source / python_version | `.info` |
+| `GET /admin/env` | `{agentic_vars}` filtered to `AGENTIC_*` prefix only (no AWS / `SG_PLAYWRIGHT` leakage) | `.env` |
+| `GET /admin/boot-log` | Ring-buffer of boot lines (max 200) | `.boot_log` |
+| `GET /admin/error` | `{has_error, error}` last-error holder | `.error` |
+| `GET /admin/skills/{name}` | Markdown SKILL content (`human` / `browser` / `agent`); 404 on unknown name | `.skills__name` |
+| `GET /admin/manifest` | Points at `/openapi.json`, `/admin/capabilities`, per-SKILL file URLs | `.manifest` |
+| `GET /admin/capabilities` | `capabilities.json` (axioms + declared_narrowing) | `.capabilities` |
+
+Source: `sg_compute_specs/playwright/core/agentic_fastapi/Agentic_Admin_API.py:64-130`.
+
+> **Historical:** `Routes__Session` and `Routes__Quick` were removed in v0.1.24 — sessions are no longer a wire-visible resource, and `/quick/*` was absorbed into the stateless `/browser/*` surface. The comment block in `Fast_API__Playwright__Service.py:18-20` preserves this fact.
 
 ---
 
-### Service classes — 9 of 10 live (post v0.1.33)
+### Service classes — 11 live (`sg_compute_specs/playwright/core/service/`)
 
 | Class | File | Notes |
 |-------|------|-------|
-| `Browser__Launcher` | `service/Browser__Launcher.py` | `build_proxy_dict()` reads `SG_PLAYWRIGHT__DEFAULT_PROXY_URL`. Carve-out: also touches `page.*` for process lifecycle. |
-| `Sequence__Runner` | `service/Sequence__Runner.py` | `get_or_create_page()` reads `SG_PLAYWRIGHT__IGNORE_HTTPS_ERRORS` env var. |
-| `Playwright__Service` | `service/Playwright__Service.py` | `proxy_auth_binder` field removed in v0.1.33. |
-| `Step__Executor` | `service/Step__Executor.py` | Only class allowed to call `page.*`. |
-| `Artefact__Writer` | `service/Artefact__Writer.py` | Only class allowed to write to sinks. |
-| `Request__Validator` | `service/Request__Validator.py` | Cross-schema validation. |
-| (others) | `service/*.py` | 9 surviving classes total. Unchanged from v0.1.24. |
-| ~~`Proxy__Auth__Binder`~~ | (deleted) | CDP Fetch dance — replaced by `agent_mitmproxy` sidecar in v0.1.33. |
+| `Browser__Launcher` | `Browser__Launcher.py` | Reads `SG_PLAYWRIGHT__DEFAULT_PROXY_URL` for boot-time proxy. Carve-out: also touches `page.*` for process lifecycle. |
+| `Sequence__Runner` | `Sequence__Runner.py` | `get_or_create_page()` reads `SG_PLAYWRIGHT__IGNORE_HTTPS_ERRORS`. |
+| `Sequence__Dispatcher` | `Sequence__Dispatcher.py` | Step dispatch into `Step__Executor`. |
+| `Playwright__Service` | `Playwright__Service.py` | Service composition root. (`proxy_auth_binder` field removed in v0.1.33.) |
+| `Step__Executor` | `Step__Executor.py` | **Only class allowed to call `page.*`.** |
+| `Artefact__Writer` | `Artefact__Writer.py` | **Only class allowed to write to sinks.** |
+| `Request__Validator` | `Request__Validator.py` | Cross-schema validation. |
+| `Request__Watchdog` | `Request__Watchdog.py` | Background thread; fires `os._exit(2)` when a request exceeds the hard cap. |
+| `JS__Expression__Allowlist` | `JS__Expression__Allowlist.py` | Deny-all default for the `evaluate` action. |
+| `Credentials__Loader` | `Credentials__Loader.py` | Vault-side credentials hydration. |
+| `Capability__Detector` | `Capability__Detector.py` | Primed in `Fast_API__Playwright__Service.setup()`. |
+
+(`Proxy__Auth__Binder` was deleted in v0.1.33 — replaced by the `agent_mitmproxy` sidecar pattern; the sidecar lives under `sg_compute_specs/mitmproxy/` post-BV2.12.)
+
+There is **no separate `sg_compute_specs/playwright/service/` "core" duplicate** — the higher-level `service/` folder at `sg_compute_specs/playwright/service/` is the *spec orchestration* layer (`Playwright__Service`, `Playwright__Compose__Template`, `Playwright__User_Data__Builder`, `Playwright__AMI__Helper`, `Playwright__AWS__Client`, `Playwright__Stack__Mapper`) consumed by `sg-compute spec playwright create`. See [`sg-compute/index.md`](../sg-compute/index.md) for that surface.
 
 ---
 
-### FastAPI app classes
+### FastAPI app classes (`sg_compute_specs/playwright/core/agentic_fastapi/` + `core/fast_api/`)
 
-- `agentic_fastapi/Agentic_FastAPI` — base. `setup()` extends `AUTH__EXCLUDED_PATHS` with the 8 admin paths. `setup_routes()` chains `super().setup_routes()` then mounts `Agentic_Admin_API`. `resolve_capabilities_path()` prefers `/var/task/capabilities.json` (baked into Lambda) over the repo-root stub.
+- `agentic_fastapi/Agentic_FastAPI` — base. `setup()` extends `AUTH__EXCLUDED_PATHS` with the 8 admin paths (including the per-SKILL `/admin/skills/{name}` paths). `setup_routes()` mounts `Agentic_Admin_API`. `resolve_capabilities_path()` prefers `/var/task/capabilities.json` over the repo-root stub.
 - `agentic_fastapi/Agentic_Admin_API` — `Fast_API__Routes` subclass for the 8 admin routes.
 - `agentic_fastapi/Agentic_Boot_State` — module-level ring buffer (`BOOT_LOG_MAX_LINES = 200`) + `_last_error`. `get_boot_log()` returns a copy.
-- `agentic_fastapi_aws/Agentic_Boot_Shim` — writes boot-state on each stage; pins `set_last_error(CRITICAL ERROR: …)` on failure inside Lambda, re-raises outside.
-- `fast_api/Fast_API__Playwright__Service` — extends `Agentic_FastAPI`; `setup_routes()` starts with `super().setup_routes()` so the admin surface always lands.
-- `fast_api/lambda_handler.run()` — fires everything on import.
+- `fast_api/Fast_API__Playwright__Service` — extends `Agentic_FastAPI`; `setup()` runs `service.setup()` + `watchdog.setup().start()` + middleware + screenshot OpenAPI examples; `setup_routes()` chains `super().setup_routes()` so the admin surface always lands.
+- `fast_api/lambda_handler.py` — Lambda-parity stub (the service deploys as a Docker Hub image now, not Lambda; the handler is kept for local-test parity).
 
 ---
 
 ### Schemas
 
-All `Type_Safe`, one class per file, no Pydantic, no Literals.
+All `Type_Safe`, one class per file, no Pydantic, no Literals. Sub-trees under `sg_compute_specs/playwright/core/schemas/`:
 
-#### L1 admin schemas (`agentic_fastapi/schemas/`, new v0.1.29)
+`sequence/`, `browser/`, `screenshot/`, `session/`, `service/`, `results/`, `artefact/`, `steps/`, `enums/`, `collections/`, `core/`, `capture/`, `primitives/{text,auth,browser,vault,identifiers,host,s3,numeric}/`.
+
+#### L1 admin schemas (`agentic_fastapi/schemas/` under `core/`)
 
 | Schema | Fields |
 |--------|--------|
-| `Schema__Agentic__Health` | `status: Safe_Str__Text`, `code_source: Safe_Str__Text__Dangerous` |
+| `Schema__Agentic__Health` | `status`, `code_source` |
 | `Schema__Agentic__Info` | `app_name`, `app_stage`, `app_version`, `image_version`, `code_source`, `python_version` |
 | `Schema__Agentic__Env` | `agentic_vars: Dict[Safe_Str__Text, Safe_Str__Text__Dangerous]` |
 | `Schema__Agentic__Boot_Log` | `lines: List[Safe_Str__Text__Dangerous]` |
@@ -94,38 +154,42 @@ All `Type_Safe`, one class per file, no Pydantic, no Literals.
 | `Schema__Agentic__Skill` | `name`, `content: Safe_Str__Markdown` |
 | `Schema__Agentic__Capabilities` | `app`, `version`, `axioms / declared_narrowing: List[Safe_Str__Text]` |
 
-#### Deletions (v0.1.33 P2 proxy cleanup)
+#### Deletions (v0.1.33 P2 proxy cleanup, still in force)
 
-- `schemas/browser/Schema__Proxy__Config.py` — proxy is now boot-time infrastructure, not per-request.
-- `schemas/browser/Schema__Proxy__Auth__Basic.py` — same reason.
-- `Schema__Browser__Config.proxy` and `Schema__Browser__Launch__Result.proxy` fields removed.
-
-Other schema folders unchanged from v0.1.24.
+- `schemas/browser/Schema__Proxy__Config.py` — gone.
+- `schemas/browser/Schema__Proxy__Auth__Basic.py` — gone.
+- `Schema__Browser__Config.proxy` and `Schema__Browser__Launch__Result.proxy` fields removed. Proxy is now boot-time infrastructure.
 
 ---
 
-### Consts
+### Consts (`sg_compute_specs/playwright/core/consts/`)
 
-- `consts/env_vars.py` — `SG_PLAYWRIGHT__*` boot-loader constants removed in v0.1.29; `ENV_VAR__AGENTIC_*` added. Unrelated `SG_PLAYWRIGHT__*` constants (proxy creds, vault refs, sink config) preserved.
+- `env_vars.py` — two namespaces: framework-level `AGENTIC_*` (boot loader: `APP_NAME`, `APP_STAGE`, `APP_VERSION`, `CODE_LOCAL_PATH`, `CODE_SOURCE`, `CODE_SOURCE_S3_BUCKET`, `CODE_SOURCE_S3_KEY`, `IMAGE_VERSION`, `ADMIN_MODE`) + app-specific `SG_PLAYWRIGHT__*` (auth tokens, vault, browser defaults including `DEFAULT_HEADLESS` / `DEFAULT_PROXY_URL` / `IGNORE_HTTPS_ERRORS`, watchdog, sink config).
+- `version.py` — `version__sgraph_ai_service_playwright` (reads `core/version`).
+- `image_version.py` — `image_version` constant.
 
 ### Packaging
 
-- `pyproject.toml` (Poetry, Python ^3.12) — unchanged from v0.1.24.
-- `requirements.txt` at repo root mirrors runtime deps.
+- `sg_compute_specs/pyproject.toml` (Poetry, Python ^3.12) — top-level spec package.
+- `requirements.txt` at repo root mirrors runtime deps for the FastAPI image.
 
 ### Public endpoint
 
-- **Dev:** `https://dev.playwright.sgraph.ai/` — CloudFront in front of Lambda Function URL. `/admin/*` reachable alongside the 10 public endpoints.
+- **Dev:** `https://dev.playwright.sgraph.ai/` — CloudFront in front of the Docker Hub image (post v0.2.11 the Lambda Function URL is gone). `/admin/*` reachable alongside the 16 direct public endpoints.
 
 ---
 
-### EC2 two-container stack (v0.1.33)
+### EC2 stack (current — `sg-compute spec playwright create`)
 
-- `docker-compose.yml` (repo root) — Playwright + `agent_mitmproxy` on shared `sg-net` bridge. Playwright on host `:8000`; sidecar admin API on host `:8001`; sidecar proxy `:8080` Docker-network-only. Env wiring: `SG_PLAYWRIGHT__DEFAULT_PROXY_URL=http://agent-mitmproxy:8080` + `SG_PLAYWRIGHT__IGNORE_HTTPS_ERRORS=true`.
-- `.env.example` — template for ECR registry, API key, optional upstream forwarding vars.
-- `scripts/provision_ec2.py` — unified EC2 provisioner. t3.large AL2023; IAM role `sg-playwright-ec2` + SSM access; SG `playwright-ec2` opens `:8000` + `:8001`. UserData installs `docker docker-compose-plugin`, logs into ECR, pulls both images, writes inline `/opt/sg-playwright/docker-compose.yml`, runs `docker compose up -d`. `--terminate` tears down by `Name=sg-playwright-ec2` tag.
-- **Deleted:** `scripts/provision_mitmproxy_ec2.py` + `tests/unit/scripts/test_provision_mitmproxy_ec2.py` — replaced by the unified script.
-- Tests: `tests/unit/scripts/test_provision_ec2.py` (19 tests).
+The standalone repo-root `docker-compose.yml` was retired. The compose file is now **generated per-launch** by `sg_compute_specs/playwright/service/Playwright__Compose__Template.py` and written to `/opt/sg-playwright/docker-compose.yml` on the launched EC2.
+
+- **Default shape (2 containers):** host-plane + `diniscruz/sg-playwright` (Docker Hub pull).
+- **`--with-mitmproxy` shape (3 containers):** + `agent_mitmproxy` (ECR pull).
+- Published host ports: `:8000` (Playwright), `:8001` (mitmproxy admin, only with `--with-mitmproxy`). Host-plane stays on the internal `sg-net` bridge; reach it via SSM port-forward.
+- IAM profile `playwright-ec2` grants SSM + ECR access.
+- Stack lifecycle owned by `sg_compute_specs/playwright/service/Playwright__Service.py` (extends `Spec__Service__Base`).
+
+(`scripts/provision_ec2.py` and `scripts/provision_mitmproxy_ec2.py` no longer exist at the repo root — both spike scripts were removed when the spec service took over. `tests/unit/scripts/test_provision_mitmproxy_ec2.py` survives as a `@pytest.mark.skip` placeholder.)
 
 ---
 
@@ -137,9 +201,8 @@ See [`proposed/index.md`](proposed/index.md).
 
 ## See also
 
-- Source: [`_archive/v0.1.31/01__playwright-service.md`](../_archive/v0.1.31/01__playwright-service.md)
-- Sibling: [`agent-mitmproxy/index.md`](../agent-mitmproxy/index.md) — the upstream-proxy companion
+- Sibling (sidecar): [`agent-mitmproxy/index.md`](../agent-mitmproxy/index.md)
 - Security: [`security/index.md`](../security/index.md) — JS expression allowlist + AppSec rules cited by `Step__Executor`
-- Infra: [`infra/index.md`](../infra/index.md) — Docker image + CI pipeline
+- Infra: [`infra/index.md`](../infra/index.md) — Docker Hub image build + CI pipeline
 - QA: [`qa/index.md`](../qa/index.md) — test inventory
-- SG/Compute: [`sg-compute/index.md`](../sg-compute/index.md) — current home of the Playwright Lambda after BV2.11
+- SG/Compute: [`sg-compute/index.md`](../sg-compute/index.md) — spec orchestration around the runtime

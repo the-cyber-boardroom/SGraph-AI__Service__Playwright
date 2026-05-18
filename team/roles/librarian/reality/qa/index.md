@@ -21,37 +21,40 @@ Test strategy, test inventory, deploy-via-pytest, smoke tests. Headline rule: **
 | `tests/unit/agentic_fastapi_aws/test_Agentic_Boot_Shim.py` | 10 tests — `read_image_version` file / missing; boot happy path + env-var writes; error-pinned inside Lambda; re-raise outside; 3 boot-state-writes gap tests |
 | Older folders | Unchanged from v0.1.24 |
 
-#### Unit — EC2 spike (v0.1.31)
+#### Unit — agentic plumbing (current)
 
-- `tests/unit/scripts/test_provision_ec2.py` — 19 tests. Module surface; constants (t3.large, AL2023 pattern, `:8000`, SG name); user-data rendering (docker install, ECR login, run command, API-key env, 120 s watchdog); `--terminate` short-circuit; argparse safety (terminate off by default).
+- `tests/unit/agentic_fastapi/test_Agentic_FastAPI.py` — 2 tests on the base class.
 
-#### Integration + deploy — unchanged from v0.1.24
+#### Integration + deploy — Docker-Hub-only post v0.2.11
 
-Deploy-via-pytest tests still point at the 10 public endpoints; smoke tests don't yet assert `/admin/*`.
+Deploy-via-pytest tests still target the now-16-direct public endpoints; smoke tests cover `/admin/health`. The Lambda / ECR / S3-zip deploy path was retired in v0.2.11 (CI now builds a multi-arch `diniscruz/sg-playwright` image directly).
+
+The earlier `tests/unit/scripts/test_provision_ec2.py` (19 tests against the spike provisioner) **no longer exists** — both `scripts/provision_ec2.py` and its test file were removed when `sg-compute spec playwright create` took over EC2 lifecycle.
 
 ---
 
-### agent_mitmproxy tests (v0.1.32)
+### mitmproxy tests (`sg_compute_specs/mitmproxy/tests/`)
 
-#### Unit — 34 passing + 1 skipped
+Post-BV2.12 (2026-05-05) the old `tests/unit/agent_mitmproxy/` tree (9 files) was deleted; tests now live alongside the source under `sg_compute_specs/mitmproxy/tests/`. **12 files, 39 test functions** total.
 
-| File | What it covers |
-|------|----------------|
-| `tests/unit/agent_mitmproxy/test_package.py` | 4 tests — `path` attribute, version file presence, `version__agent_mitmproxy` matches file contents |
-| `tests/unit/agent_mitmproxy/test_default_interceptor.py` | request-id shape (12-char hex), ts stamp, elapsed-ms calculation, response header round-trip |
-| `tests/unit/agent_mitmproxy/test_audit_log_addon.py` | NDJSON shape, Basic `Proxy-Authorization` decode, stdout flush |
-| `tests/unit/agent_mitmproxy/test_addon_registry.py` | Registry concatenates interceptor + audit addons in expected order |
-| `tests/unit/agent_mitmproxy/test_Routes__Health.py` | `/health/info` returns `Schema__Agent_Mitmproxy__Info`; `/health/status` runs CA + interceptor file checks; env-var override path |
-| `tests/unit/agent_mitmproxy/test_Routes__CA.py` | `/ca/cert` returns PEM bytes + 503 when absent; `/ca/info` SHA-256 fingerprint matches `cryptography.x509` |
-| `tests/unit/agent_mitmproxy/test_Routes__Config.py` | `/config/interceptor` round-trips script source via `Safe_Str__Text__Dangerous` |
-| `tests/unit/agent_mitmproxy/test_Routes__Web.py` | Real `http.server.HTTPServer` on a free port; asserts the UI reverse-proxy strips `X-API-Key` + hop-by-hop headers |
-| `tests/unit/agent_mitmproxy/test_Docker__Agent_Mitmproxy__Base.py` | `IMAGE_NAME` constant; `agent_mitmproxy.path` is a dir; dockerfile exists. One test gated `@skipUnless(osbot_docker available)` |
+| File | Test count | What it covers |
+|------|-----------:|----------------|
+| `test_package.py` | 4 | `path` attribute, version file presence, `version__agent_mitmproxy` matches file contents |
+| `test_default_interceptor.py` | 4 | request-id shape (12-char hex), ts stamp, elapsed-ms calculation, response header round-trip |
+| `test_audit_log_addon.py` | 3 | NDJSON shape, Basic `Proxy-Authorization` decode, stdout flush |
+| `test_addon_registry.py` | 1 | Registry concatenates interceptor + audit + metrics addons |
+| `test_env_vars.py` | 4 | Env-var constant names + defaults |
+| `test_Fast_API__Agent_Mitmproxy.py` | 2 | App composition + route mounting |
+| `test_Routes__Health.py` | 5 | `/health/info` returns `Schema__Agent_Mitmproxy__Info`; `/health/status` runs CA + interceptor file checks; env-var override path |
+| `test_Routes__CA.py` | 3 | `/ca/cert` returns PEM bytes + 503 when absent; `/ca/info` SHA-256 fingerprint matches `cryptography.x509` |
+| `test_Routes__Config.py` | 2 | `/config/interceptor` round-trips script source via `Safe_Str__Text__Dangerous` |
+| `test_Routes__Metrics.py` | 4 | Prometheus exposition from `MITMPROXY_REGISTRY` |
+| `test_Routes__Web.py` | 3 | Reverse-proxy strips `X-API-Key` + hop-by-hop headers |
+| `test_Docker__Agent_Mitmproxy__Base.py` | 4 | `IMAGE_NAME` constant; `sg_compute_specs/mitmproxy/` path is a dir; dockerfile exists; gated test when `osbot_docker` available |
 
-#### Unit — EC2 spin-up (v0.1.32, pre-unification)
+#### EC2 spin-up placeholder
 
-- `tests/unit/scripts/test_provision_mitmproxy_ec2.py` — 5 tests. Module surface; constants (t3.small, `:8080` + `:8000`, SG name, role name); user-data rendering; `--terminate` short-circuit; argparse safety.
-
-> **Post-v0.1.31 note:** BV2.12 (2026-05-05) deleted `tests/unit/agent_mitmproxy/` (12 files) along with the source package. **VERIFY** before quoting current counts.
+- `tests/unit/scripts/test_provision_mitmproxy_ec2.py` — **1 skipped test**. The script itself does not exist; the file is a `@pytest.mark.skip` placeholder noting that the planned standalone provisioner is PROPOSED (the combined stack ships via `Playwright__Compose__Template` + `sg-compute spec playwright create --with-mitmproxy`).
 
 ---
 

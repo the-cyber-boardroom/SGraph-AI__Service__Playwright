@@ -11,10 +11,9 @@ Docker images, CI/CD pipelines, ECR, Lambda deploy machinery, EC2 provisioning. 
 
 ### Playwright service image
 
-- Dockerfile bakes `capabilities.json` into `/var/task/` and writes an `image_version` file (since v0.1.29). Base: `mcr.microsoft.com/playwright/python:v1.58.0-noble`; Lambda Web Adapter 1.0.0.
-- Build + push via pytest: `tests/docker/test_Build__Docker__SGraph-AI__Service__Playwright.py` + `tests/docker/test_ECR__Docker__SGraph-AI__Service__Playwright.py`.
-- `Build__Docker__SGraph_AI__Service__Playwright.build_docker_image()` stages the build context in a tempdir and calls the Docker SDK directly (bypasses the `@catch`-wrapped `Docker_Image.build` so real failures surface).
-- Phase-A step-2 refactor (see [`cli/duality.md`](../cli/duality.md)) shifted build orchestration into the shared `Image__Build__Service`; the Playwright Build class now composes 3 stage items (`lambda_entry.py`, `image_version`, `sgraph_ai_service_playwright`).
+- Dockerfile bakes `capabilities.json` into `/var/task/` and writes an `image_version` file (since v0.1.29). Base: `mcr.microsoft.com/playwright/python:v1.58.0-noble`. Lambda Web Adapter was dropped post v0.2.11 — the service now ships as a Docker Hub image (`diniscruz/sg-playwright`) consumed by EC2, not Lambda.
+- Build path: `ci-pipeline.yml` builds the image per-architecture on native GitHub runners (`linux/amd64` on `ubuntu-latest`, `linux/arm64` on `ubuntu-24.04-arm`), pushes BY DIGEST, then a merge job publishes the multi-arch tag. No QEMU emulation.
+- Path-gated on `sg_compute_specs/playwright/**` + `sg_compute/**` so unrelated changes skip the rebuild.
 
 ### Playwright CI pipeline
 
@@ -24,42 +23,35 @@ Active jobs:
 
 | Job | What it does |
 |-----|--------------|
-| `run-unit-tests` | `tests/unit/`, Python 3.12 |
-| `check-aws-credentials` | Gates every AWS-touching job |
-| `detect-changes` | `dorny/paths-filter@v3` narrowed to `Dockerfile`, `requirements.txt`, `lambda_entry.py`, `sgraph_ai_service_playwright/docker/images/**`. Changes under `sgraph_ai_service_playwright/docker/*.py` (deploy-time helpers) no longer force a rebuild. |
-| `build-and-push-image` | Single job, no tar save/reload. Gated on `detect-changes.image-rebuild-needed == 'true' || inputs.force_image_rebuild` |
-| `increment-tag` | `dev` bumps minor, `main` bumps major, `prod` skipped |
-| `deploy-code` | S3 zip upload via `scripts/deploy_code.py` |
-| `provision-lambdas` | v0.1.31 — upserts `sg-playwright-baseline-<stage>` + `sg-playwright-<stage>` via `scripts/provision_lambdas.py --mode=<full\|code-only>`. Mode = `full` when image was just rebuilt; `code-only` when reusing existing ECR image (saves ~30–60 s on image-pull wait) |
+| `run-unit-tests` | `pytest tests/ci/` (CI guards) + `pytest tests/unit/`, Python 3.12 |
+| `check-aws-credentials` | Gates only the `host-control` ECR push job — the Playwright image goes to Docker Hub and doesn't need AWS creds |
+| `detect-changes` | `dorny/paths-filter@v3` with two filters: `playwright-image` (`sg_compute_specs/playwright/**`, `sg_compute/**`) and `host-image` (`sg_compute/**`, `docker/host-control/**`) |
+| `increment-tag` | `dev` bumps minor, `main` bumps major, `prod` skipped; syncs the bumped version into `sg_compute/version` + `sg_compute/pyproject.toml` |
+| `build-playwright-image` | Matrix per-arch native build → Docker Hub by digest; merge job tags the multi-arch manifest |
+| `build-and-push-host-image` | Builds the host-control image to ECR (separate concern from the Playwright image) |
 
-Disabled jobs (`if: false`): `run-integration-tests`, `deploy-lambda`, `smoke-test` — superseded by the S3-zip + `/admin/health` smoke inside `deploy_code.py`.
+The Playwright Lambda / ECR / S3-zip jobs were **retired in v0.2.11** — see `team/roles/architect/reviews/05/14/v0.2.6__playwright-deployment-simplification.md`.
 
 ---
 
-### agent_mitmproxy image (v0.1.32)
+### agent_mitmproxy image (package v0.1.33; post-BV2.12 location)
 
-- `agent_mitmproxy/docker/images/agent_mitmproxy/dockerfile` — `python:3.12-slim` + supervisor + ca-certificates + curl. `EXPOSE 8080 8000`. `CMD ["/app/entrypoint.sh"]`.
-- Build context is the **repo root** (`docker build -f agent_mitmproxy/docker/images/agent_mitmproxy/dockerfile .`). All COPY paths rooted there.
+- `sg_compute_specs/mitmproxy/docker/images/agent_mitmproxy/dockerfile` — `python:3.12-slim` + supervisor + ca-certificates + curl. `EXPOSE 8080 8000`. `CMD ["/app/entrypoint.sh"]`.
+- Build context is the **repo root** (`docker build -f sg_compute_specs/mitmproxy/docker/images/agent_mitmproxy/dockerfile .`). All COPY paths rooted there.
 - `entrypoint.sh` seeds `/app/current_interceptor.py` from baked default if absent, then `exec supervisord`.
 - `supervisord.conf` runs `mitmweb` + `uvicorn` as siblings; both `autorestart=true`; logs to container stdout/stderr.
-- Helper classes: `agent_mitmproxy/docker/Docker__Agent_Mitmproxy__Base.py` (wires `Create_Image_ECR`), `ECR__Docker__Agent_Mitmproxy.py` (push + Docker Desktop `credsStore: desktop` workaround).
+- Helper classes: `sg_compute_specs/mitmproxy/docker/Docker__Agent_Mitmproxy__Base.py` (wires `Create_Image_ECR`), `ECR__Docker__Agent_Mitmproxy.py` (push + Docker Desktop `credsStore: desktop` workaround).
 
 ### agent_mitmproxy CI
 
-`.github/workflows/ci__agent_mitmproxy.yml` — **separate from the Playwright pipeline**. Paths-filter scopes every trigger (`push` to `dev`/`main`, `pull_request`, `workflow_dispatch`) to `agent_mitmproxy/**`, `scripts/provision_mitmproxy_ec2.py`, `tests/unit/agent_mitmproxy/**`, `tests/unit/scripts/test_provision_mitmproxy_ec2.py`, and the workflow file itself.
+The standalone `.github/workflows/ci__agent_mitmproxy.yml` was **deleted in BV2.12 (2026-05-05)** along with the orphan `agent_mitmproxy/` package and `scripts/provision_mitmproxy_ec2.py`. Confirmed by `ls .github/workflows/`: only `bake-ami.yml`, `ci-pipeline.yml`, `ci-pipeline__{dev,main,prod}.yml`, and `ci__host_control.yml` remain.
 
-Jobs:
+Today the mitmproxy package is exercised by:
 
-| Job | What it does |
-|-----|--------------|
-| `run-unit-tests` | pytest against `tests/unit/agent_mitmproxy/` + `tests/unit/scripts/test_provision_mitmproxy_ec2.py`, Python 3.12 |
-| `check-aws-credentials` | Gate for image-push |
-| `detect-changes` | Image rebuild filter scoped to `agent_mitmproxy/{requirements.txt, addons, consts, fast_api, schemas, docker/images, version, __init__.py}` |
-| `build-and-push-image` | `docker build` with repo-root context, then `ECR__Docker__Agent_Mitmproxy().setup().ecr_setup() + .publish_docker_image()` via `python -c` |
+- `ci-pipeline.yml` → `run-unit-tests` job — `pytest tests/unit/` picks up the in-package `sg_compute_specs/mitmproxy/tests/` suite via the repo-level editable install (12 files / 39 tests — see [`qa/index.md`](../qa/index.md)).
+- No dedicated CI job rebuilds the mitmproxy image. The image lives in ECR as `agent_mitmproxy` and is pushed on-demand via `ECR__Docker__Agent_Mitmproxy().setup().publish_docker_image()`. Pulled at EC2 launch time when `sg-compute spec playwright create --with-mitmproxy` is used.
 
-EC2 deploy intentionally **not** wired into CI. Runs on-demand via `python scripts/provision_mitmproxy_ec2.py`.
-
-> **Post-v0.1.31 note:** BV2.12 (2026-05-05) deleted `ci__agent_mitmproxy.yml` along with the package. **VERIFY** before quoting as current.
+EC2 deploy intentionally **not** wired into CI — the sidecar lands as part of `Playwright__Compose__Template`'s 3-container shape.
 
 ---
 
@@ -86,26 +78,24 @@ See [`host-control/index.md`](../host-control/index.md). Summary:
 
 ---
 
-### EC2 provisioning — unified
+### EC2 provisioning — spec-driven (current)
 
-`scripts/provision_ec2.py` (v0.1.33 unified) — replaces the two earlier spike scripts.
+The unified `scripts/provision_ec2.py` and the earlier `scripts/provision_mitmproxy_ec2.py` were **both removed** when EC2 lifecycle moved into the spec service layer. Today launches are driven by `sg-compute spec playwright create [--with-mitmproxy]`:
 
-- **Instance type:** t3.large.
-- **AMI:** AL2023 (latest, via SSM param).
-- **IAM role:** `sg-playwright-ec2` (attaches `AmazonEC2ContainerRegistryReadOnly` + `AmazonSSMManagedInstanceCore`).
-- **SG:** `playwright-ec2` — opens `:8000` (Playwright) + `:8001` (agent_mitmproxy admin). Sidecar proxy `:8080` stays internal to docker-network.
-- **UserData:** installs `docker docker-compose-plugin`, logs into ECR, pulls both images, writes `/opt/sg-playwright/docker-compose.yml` inline, runs `docker compose up -d`. 120 s watchdog.
-- **`--terminate`:** tears down by `Name=sg-playwright-ec2` tag.
+- **Instance type:** `t3.medium` default (set in `sg_compute_specs/playwright/service/Playwright__Service.py` — `DEFAULT_INSTANCE_TYPE`).
+- **IAM profile:** `playwright-ec2` (SSM + ECR read).
+- **AMI / SG:** resolved per-launch by `Playwright__AMI__Helper` + `Playwright__AWS__Client`.
+- **UserData:** built by `Playwright__User_Data__Builder`; installs Docker, logs into ECR (for host-plane + optional mitmproxy), writes `/opt/sg-playwright/docker-compose.yml` (rendered by `Playwright__Compose__Template`), runs `docker compose up -d`.
+- **Published host ports:** `:8000` (sg-playwright) always; `:8001` (mitmproxy admin) only with `--with-mitmproxy`. Host-plane sidecar stays on the internal `sg-net` bridge; mitmproxy proxy `:8080` is docker-network-only.
+- **Terminate:** `sg-compute spec playwright delete <stack>`; stacks tagged via `Playwright__Stack__Mapper` (`STACK_TYPE`, `TAG_API_KEY`, `TAG_TERMINATE_AT`, `TAG_WITH_MITMPROXY`).
 
-Sister sections (`sp os`, `sp prom`, `sp vnc`) each have their own SG/AMI/UserData via their `{Section}__SG__Helper`, `{Section}__AMI__Helper`, `{Section}__User_Data__Builder` — see [`cli/duality.md`](../cli/duality.md).
-
-Tests: `tests/unit/scripts/test_provision_ec2.py` (19 tests).
+Sister specs (`docker`, `podman`, `prometheus`, `opensearch`, `vnc`, `elastic`, `firefox`, `neko`) follow the same pattern under their own `sg_compute_specs/<spec>/service/`.
 
 ---
 
 ### Repository compose / .env
 
-- `docker-compose.yml` (repo root) — brings up Playwright + agent_mitmproxy on shared `sg-net` bridge. Playwright on host `:8000`, sidecar admin API on host `:8001`, sidecar proxy `:8080` Docker-network-only. Env: `SG_PLAYWRIGHT__DEFAULT_PROXY_URL=http://agent-mitmproxy:8080` + `SG_PLAYWRIGHT__IGNORE_HTTPS_ERRORS=true`.
+- The repo-root `docker-compose.yml` was retired alongside the spike provisioners — compose files are now generated per-launch by `Playwright__Compose__Template` and written to the EC2 host's `/opt/sg-playwright/`. (Compose files still live under `docker/local-claude/` and `sg_compute_specs/vault_app/docker/compose/` for unrelated subsystems.)
 - `.env.example` (repo root) — template for ECR registry, API key, optional upstream forwarding vars. **No AWS credentials**, **no vault keys** (CLAUDE.md rules 12-13).
 
 ---
