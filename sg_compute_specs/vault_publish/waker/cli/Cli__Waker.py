@@ -127,9 +127,8 @@ def invoke(
 
 @app.command(name='inspect', help='Full diagnostic of one registered slug (SSM + EC2 + health probe).')
 def inspect(
-    slug     : str  = typer.Argument(..., help='Slug to inspect'),
-    region   : str  = typer.Option('eu-west-2', '--region', '-r'),
-    no_health: bool = typer.Option(False, '--no-health', help='Skip vault-app health probe'),
+    slug      : str  = typer.Argument(..., help='Slug to inspect'),
+    no_health : bool = typer.Option(False, '--no-health', help='Skip vault-app health probe'),
     output_json: bool = typer.Option(False, '--json', help='Machine-readable JSON output'),
 ):
     from sg_compute_specs.vault_publish.waker.Endpoint__Resolver__EC2         import Endpoint__Resolver__EC2
@@ -141,8 +140,9 @@ def inspect(
         c.print(f'  [red]✗  resolve failed: {exc}[/]')
         raise typer.Exit(1)
 
-    health_ok   = None
+    health_ok     = None
     health_status = None
+    health_error  = ''
     if (not no_health and resolution.vault_url
             and resolution.state == Enum__Instance__State.RUNNING):
         try:
@@ -153,19 +153,20 @@ def inspect(
                       preload_content=True)
             health_ok     = resp.status < 500
             health_status = resp.status
-        except Exception:
-            health_ok     = False
-            health_status = None
+        except Exception as exc:
+            health_ok    = False
+            health_error = str(exc)
 
     if output_json:
         out = {
-            'slug'       : slug,
-            'state'      : str(resolution.state),
-            'instance_id': resolution.instance_id,
-            'public_ip'  : resolution.public_ip,
-            'vault_url'  : resolution.vault_url,
-            'region'     : resolution.region,
-            'health_ok'  : health_ok,
+            'slug'        : slug,
+            'state'       : str(resolution.state),
+            'instance_id' : resolution.instance_id,
+            'public_ip'   : resolution.public_ip,
+            'vault_url'   : resolution.vault_url,
+            'region'      : resolution.region,
+            'health_ok'   : health_ok,
+            'health_status': health_status,
         }
         print(json.dumps(out, indent=2))
         if resolution.state == Enum__Instance__State.UNKNOWN:
@@ -186,13 +187,16 @@ def inspect(
     c.print(f'    VaultURL    {resolution.vault_url or "(none)"}')
     c.print(f'    Region      {resolution.region}')
 
-    if health_ok is not None:
+    if health_ok is not None or health_error:
         c.print()
         c.print('  Vault-app health probe:')
-        sym = '[green]✓ healthy[/]' if health_ok else '[red]✗ unhealthy[/]'
-        c.print(f'    Status      {health_status}  {sym}')
+        if health_error:
+            c.print(f'    [red]✗  probe failed: {health_error}[/]')
+        else:
+            sym = '[green]✓ healthy[/]' if health_ok else '[red]✗ unhealthy[/]'
+            c.print(f'    Status      {health_status}  {sym}')
 
-    is_healthy = (resolution.state == Enum__Instance__State.RUNNING and health_ok is not False)
+    is_healthy = (resolution.state == Enum__Instance__State.RUNNING and health_ok is True)
     overall    = '[green]HEALTHY ✓[/]' if is_healthy else f'[yellow]{resolution.state}[/]'
     c.print(f'\n  Overall: {overall}\n')
 

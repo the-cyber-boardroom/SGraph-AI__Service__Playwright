@@ -12,7 +12,7 @@ class Enum__Waker__Action(str, Enum):
     PROXIED          = 'proxied'           # forwarded request to vault-app
     RETURNED_WARMING = 'returned-warming'  # returned warming page without mutating
     RETURNED_404     = 'returned-404'      # returned 404 — slug unknown
-    RETURNED_502     = 'returned-502'      # proxy returned 5xx or threw
+    PROXY_ERROR      = 'proxy-error'       # proxy returned 5xx or threw
 
     def __str__(self) -> str:
         return self.value

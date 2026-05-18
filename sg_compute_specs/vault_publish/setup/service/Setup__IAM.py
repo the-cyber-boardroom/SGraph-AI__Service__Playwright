@@ -317,7 +317,7 @@ def _fmt_key(key: tuple) -> str:
 
 def _find_inline_policy(role, policy_name: str):
     for p in list(role.inline_policies):
-        if not p.name or p.name == policy_name:                                       # name populated since IAM__AWS__Client was patched
+        if p.name == policy_name:
             return p
     return None
 

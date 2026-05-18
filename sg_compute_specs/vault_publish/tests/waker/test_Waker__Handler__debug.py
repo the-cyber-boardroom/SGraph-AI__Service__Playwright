@@ -130,11 +130,11 @@ class TestWakerHeaders__StateAction:
         assert result['headers']['X-Waker-State']  == 'not_found'
         assert result['headers']['X-Waker-Action'] == 'returned-404'
 
-    def test_stopped_state_started(self):
+    def test_stopped_state_warming_action_started_ec2(self):
         h, _, _ = _handler(Enum__Instance__State.STOPPED)
         result  = h.handle(_ctx())
-        assert result['headers']['X-Waker-State']  == 'started'
-        assert result['headers']['X-Waker-Action'] == 'started-ec2'
+        assert result['headers']['X-Waker-State']  == 'warming'    # user sees warming page
+        assert result['headers']['X-Waker-Action'] == 'started-ec2'  # Lambda called start_instances
 
     def test_pending_state_warming(self):
         h, _, _ = _handler(Enum__Instance__State.PENDING)
@@ -168,7 +168,7 @@ class TestWakerHeaders__StateAction:
         h._health_ok = lambda url: True
         result = h.handle(_ctx())
         assert result['headers']['X-Waker-State']  == 'error'
-        assert result['headers']['X-Waker-Action'] == 'returned-502'
+        assert result['headers']['X-Waker-Action'] == 'proxy-error'
 
 
 # ── Layer 1: slug, host, instance-id, ec2-state values ───────────────────────

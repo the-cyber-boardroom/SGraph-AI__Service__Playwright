@@ -71,7 +71,8 @@ class Waker__Handler(Type_Safe):
             waker_action = Enum__Waker__Action.RETURNED_404
             resolution   = empty_res
         else:
-            resolution = self._resolver().resolve(slug)
+            resolver   = self._resolver()
+            resolution = resolver.resolve(slug)
             state      = resolution.state
 
             if state == Enum__Instance__State.UNKNOWN:
@@ -80,12 +81,11 @@ class Waker__Handler(Type_Safe):
                 waker_action = Enum__Waker__Action.RETURNED_404
 
             elif state == Enum__Instance__State.STOPPED:
+                waker_state = Enum__Waker__State.WARMING
                 if resolution.instance_id:
-                    self._resolver().start(resolution.instance_id)
-                    waker_state  = Enum__Waker__State.STARTED
+                    resolver.start(resolution.instance_id)
                     waker_action = Enum__Waker__Action.STARTED_EC2
                 else:
-                    waker_state  = Enum__Waker__State.WARMING
                     waker_action = Enum__Waker__Action.RETURNED_WARMING
                 result = self._warming(slug, 202)
 
@@ -105,7 +105,7 @@ class Waker__Handler(Type_Safe):
                     )
                     if result['status_code'] >= 500:
                         waker_state  = Enum__Waker__State.ERROR
-                        waker_action = Enum__Waker__Action.RETURNED_502
+                        waker_action = Enum__Waker__Action.PROXY_ERROR
                     else:
                         waker_state  = Enum__Waker__State.PROXIED
                         waker_action = Enum__Waker__Action.PROXIED
@@ -182,9 +182,9 @@ def _emit_waker_log(ctx: Schema__Waker__Request_Context,
                      resolution: Schema__Endpoint__Resolution,
                      elapsed_ms: int,
                      version: str) -> None:
+    _now = datetime.now(timezone.utc)
     record = {
-        'ts'         : datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%S.') +
-                       f'{datetime.now(timezone.utc).microsecond // 1000:03d}Z',
+        'ts'         : f'{_now.strftime("%Y-%m-%dT%H:%M:%S")}.{_now.microsecond // 1000:03d}Z',
         'request_id' : ctx.request_id,
         'host'       : ctx.host,
         'slug'       : ctx.slug,
