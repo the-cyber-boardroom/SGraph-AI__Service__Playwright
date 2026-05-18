@@ -96,16 +96,17 @@ def iam_check(output_json: bool = typer.Option(False, '--json', help='Machine-re
 
     if output_json:
         c.print(json.dumps({
-            'state'          : str(rep.state),
-            'role_name'      : rep.role_name,
-            'role_arn'       : rep.role_arn,
-            'role_exists'    : rep.role_exists,
-            'policy_name'    : rep.policy_name,
-            'policy_matches' : rep.policy_matches,
-            'missing_actions': rep.missing_actions,
-            'extra_actions'  : rep.extra_actions,
-            'issues'         : [{'severity': i.severity, 'area': i.area, 'message': i.message}
-                                 for i in rep.issues],
+            'state'              : str(rep.state),
+            'role_name'          : rep.role_name,
+            'role_arn'           : rep.role_arn,
+            'role_exists'        : rep.role_exists,
+            'policy_name'        : rep.policy_name,
+            'policy_matches'     : rep.policy_matches,
+            'trust_policy_ok'    : rep.trust_policy_ok,
+            'missing_statements' : rep.missing_statements,
+            'extra_statements'   : rep.extra_statements,
+            'issues'             : [{'severity': i.severity, 'area': i.area, 'message': i.message}
+                                     for i in rep.issues],
         }, indent=2))
         if rep.state != Enum__Setup__State.OK:
             raise typer.Exit(1)
@@ -319,10 +320,10 @@ def _print_iam_report(c: Console, rep) -> None:
     c.print(f'  IAM role: [bold]{rep.role_name}[/]  {icon}')
     if rep.role_arn:
         c.print(f'  ARN     : {rep.role_arn}')
-    if rep.missing_actions:
-        c.print(f'  [red]Missing actions : {rep.missing_actions}[/]')
-    if rep.extra_actions:
-        c.print(f'  [yellow]Extra actions   : {rep.extra_actions}[/]')
+    if rep.missing_statements:
+        c.print(f'  [red]Missing : {rep.missing_statements}[/]')
+    if rep.extra_statements:
+        c.print(f'  [yellow]Extra   : {rep.extra_statements}[/]')
     for issue in rep.issues:
         sev_colour = {'error': 'red', 'warn': 'yellow', 'info': 'dim'}.get(issue.severity, 'white')
         c.print(f'  [{sev_colour}]{issue.severity.upper()}: {issue.message}[/]')

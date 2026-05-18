@@ -144,6 +144,12 @@ class IAM__AWS__Client(Type_Safe):
     def detach_managed_policy(self, role_name: str, policy_arn: str) -> None:
         self.client().detach_role_policy(RoleName=role_name, PolicyArn=policy_arn)
 
+    def update_assume_role_policy(self, role_name: str,
+                                   trust_service: Enum__IAM__Trust__Service) -> None:
+        trust_doc = IAM__Trust_Policy__Builder().build(trust_service)
+        self.client().update_assume_role_policy(RoleName       = role_name,
+                                                PolicyDocument = trust_doc)
+
     # ── internal ──────────────────────────────────────────────────────────────
 
     def _parse_role_summary(self, raw: dict) -> Schema__IAM__Role:
@@ -183,7 +189,8 @@ class IAM__AWS__Client(Type_Safe):
                 policy_doc = doc.get('PolicyDocument', {})
                 if isinstance(policy_doc, str):
                     policy_doc = json.loads(policy_doc)
-                policy = self._parse_policy_doc(policy_doc)
+                policy      = self._parse_policy_doc(policy_doc)
+                policy.name = name                                                       # needed so Setup__IAM._find_inline_policy can match by name
                 role.inline_policies.append(policy)
             except ClientError:
                 continue
