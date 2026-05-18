@@ -190,12 +190,14 @@ def _render_not_found_html(ctx: Schema__Waker__Request_Context,
         return html.escape(str(v)) if v else '<span class="muted">(none)</span>'
 
     if not ctx.slug:
-        if ctx.origin_host and not ctx.forwarded_host and '.lambda-url.' in ctx.origin_host:
+        has_viewer_signal = bool(ctx.vault_viewer_host or ctx.forwarded_host)
+        if ctx.origin_host and not has_viewer_signal and '.lambda-url.' in ctx.origin_host:
             reason = ('No slug parsed. The request came in via CloudFront → Lambda URL '
                       'and the Lambda only sees the Lambda URL as <code>Host</code>. '
-                      'A CloudFront Function is required to forward the viewer\'s '
-                      'original host as <code>X-Forwarded-Host</code> — see the '
-                      '<em>Proxy headers received</em> section below.')
+                      'The CloudFront Function (<code>vault-publish-viewer-host</code>) '
+                      'must set <code>X-Vault-Viewer-Host</code> / <code>X-Forwarded-Host</code> '
+                      'before forwarding to origin — neither header is present. '
+                      'Run <code>sg vp setup cf-function check</code>.')
         else:
             reason = ('No slug could be parsed from the host. The waker only routes '
                       'on <code>&lt;slug&gt;.&lt;zone&gt;</code> hostnames.')
@@ -205,14 +207,15 @@ def _render_not_found_html(ctx: Schema__Waker__Request_Context,
 
     now    = datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
     rows_request = [
-        ('Host (viewer)'   , esc(ctx.host)),
-        ('Host (origin)'   , esc(ctx.origin_host)),
-        ('X-Forwarded-Host', esc(ctx.forwarded_host)),
-        ('Slug'            , esc(ctx.slug)),
-        ('Path'            , esc(ctx.path)),
-        ('Method'          , esc(ctx.method)),
-        ('Source IP'       , esc(ctx.source_ip)),
-        ('Request ID'      , esc(ctx.request_id)),
+        ('Host (viewer)'      , esc(ctx.host)),
+        ('Host (origin)'      , esc(ctx.origin_host)),
+        ('X-Vault-Viewer-Host', esc(ctx.vault_viewer_host)),
+        ('X-Forwarded-Host'   , esc(ctx.forwarded_host)),
+        ('Slug'               , esc(ctx.slug)),
+        ('Path'               , esc(ctx.path)),
+        ('Method'             , esc(ctx.method)),
+        ('Source IP'          , esc(ctx.source_ip)),
+        ('Request ID'         , esc(ctx.request_id)),
     ]
     rows_waker = [
         ('Waker state' , esc(waker_state)),
