@@ -355,7 +355,7 @@ Add --follow / -f to poll for new lines every few seconds (Ctrl-C to stop).
 ''')
 @spec_cli_errors
 def logs(name  : str  = typer.Argument(None, help='Stack name; auto-selected when only one exists.'),
-         tail  : int  = typer.Option(300,   '--tail', '-n',   help='Number of log lines to fetch.'),
+         tail  : int  = typer.Option(30,    '--tail', '-n',   help='Number of log lines to fetch.'),
          follow: bool = typer.Option(False, '--follow', '-f', help='Poll for new lines every few seconds (Ctrl-C to stop).'),
          source: str  = typer.Option('',    '--source', '-s',
                                      help='boot | cloud-init | journal | cert-init | vault. Omit to be prompted.'),
@@ -977,6 +977,54 @@ def open_target(target: Optional[str] = typer.Argument(None,
         '--parameters',    parameters,
         '--region',        region,
     ])
+
+
+# ── `sg va delete-all` — bulk-delete every vault-app stack in the region ─────
+
+@app.command(name='delete-all', help='''Terminate ALL vault-app stacks in the region.
+
+\b
+Deletes every stack whose Type tag matches vault-app — including their
+security groups and DNS A records.  This is a destructive bulk action:
+runs a confirmation prompt unless --yes is set.
+''')
+@spec_cli_errors
+def delete_all(region: str  = typer.Option(DEFAULT_REGION, '--region', '-r'),
+               yes   : bool = typer.Option(False, '--yes', '-y', help='Skip confirmation prompt.')):
+    """Terminate all vault-app stacks in the region."""
+    c   = Console(highlight=False)
+    svc = Vault_App__Service().setup()
+    lst = svc.list_stacks(region)
+    stacks = getattr(lst, 'stacks', [])
+    if not stacks:
+        c.print(f'\n  [dim]No vault-app stacks found in {region}.[/]\n')
+        return
+    c.print(f'\n  Found [bold]{len(stacks)}[/] stack(s) in [cyan]{region}[/]:')
+    for s in stacks:
+        c.print(f'    • [bold]{getattr(s, "stack_name", "?")}[/]  '
+                f'[dim]{getattr(s, "instance_id", "")}  {getattr(s, "state", "")}[/]')
+    c.print()
+    if not yes:
+        typer.confirm(f'  Delete all {len(stacks)} stack(s) in {region}?', default=False, abort=True)
+    failed = []
+    for s in stacks:
+        name = str(getattr(s, 'stack_name', '') or '')
+        c.print(f'  [yellow]→[/]  Deleting [bold]{name}[/]…', end=' ')
+        try:
+            result = svc.delete_stack(region, name)
+            if getattr(result, 'deleted', False):
+                c.print('[green]✓[/]')
+            else:
+                c.print('[red]✗[/]')
+                failed.append(name)
+        except Exception as exc:
+            c.print(f'[red]✗  {str(exc)[:80]}[/]')
+            failed.append(name)
+    c.print()
+    if failed:
+        c.print(f'  [red]Failed to delete: {", ".join(failed)}[/]')
+        raise typer.Exit(1)
+    c.print(f'  [green]✓  All {len(stacks)} stack(s) deleted.[/]\n')
 
 
 # ── `sp vault-app recreate` — delete + create-same-shape + wait + info ───────
