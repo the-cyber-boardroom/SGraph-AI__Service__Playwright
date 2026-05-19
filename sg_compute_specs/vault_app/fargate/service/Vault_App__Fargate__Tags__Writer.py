@@ -17,7 +17,7 @@ class Vault_App__Fargate__Tags__Writer(Type_Safe):
                           task_role_arn: str = '', dns_zone: str = '') -> dict:  # full tag dict for Fargate client
         tags = {
             'Stack'                     : 'sg-vault-app-fargate',
-            'VaultApp__Subnets'         : subnets,
+            'VaultApp__Subnets'         : subnets.replace(',', ' '),              # AWS tag values disallow commas; encode CSV → space-separated
             'VaultApp__SecurityGroup'   : security_group,
             'VaultApp__ExecutionRoleArn': execution_role_arn,
             'VaultApp__LogGroup'        : log_group,

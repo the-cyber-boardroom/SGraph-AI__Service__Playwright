@@ -20,9 +20,11 @@ class Vault_App__Fargate__Tags__Reader(Type_Safe):
         if cluster is None:
             return Schema__VAF__Cluster__Config(cluster_name=cluster_name)
         tags = cluster.tags or {}
+        subnets_raw = tags.get('VaultApp__Subnets', '')                          # space-separated in tag (AWS commas disallowed)
+        subnets_csv = ','.join(s for s in subnets_raw.replace(',', ' ').split() if s)
         return Schema__VAF__Cluster__Config(
             cluster_name       = cluster_name,
-            subnets            = tags.get('VaultApp__Subnets',          ''),
+            subnets            = subnets_csv,                                    # canonical CSV for downstream consumers
             security_group     = tags.get('VaultApp__SecurityGroup',    ''),
             dns_zone           = tags.get('VaultApp__DnsZone',          ''),
             execution_role_arn = tags.get('VaultApp__ExecutionRoleArn', ''),
