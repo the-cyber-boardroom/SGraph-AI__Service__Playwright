@@ -15,7 +15,7 @@ class Schema__VAF__Start__Request(Type_Safe):
     with_tls        : bool = True
     with_aws_dns    : bool = False
     public_ip       : bool = True    # assign public IP to task
-    launch_type     : str  = 'FARGATE'
+    launch_type     : str  = 'FARGATE_SPOT'   # spot by default — ~70% cheaper; interruptible with 2-min notice
     cpu             : str  = ''      # uses spec default if empty
     memory          : str  = ''      # uses spec default if empty
     tags            : dict = None    # extra task tags (VaultApp__Slug added automatically)
