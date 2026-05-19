@@ -101,6 +101,8 @@ def register(slug                  : str  = typer.Argument(..., help='DNS slug (
     c.print(f'      Stack     : {resp.stack_name}')
     c.print(f'      Region    : {region}')
     c.print(f'      elapsed   : {resp.elapsed_ms}ms')
+    viewer_url = f'https://{resp.fqdn}/'
+    c.print(f'      Viewer URL: [link={viewer_url}]{viewer_url}[/link]  [dim](via CloudFront wildcard)[/]')
     c.print()
 
     if wait:
@@ -191,6 +193,11 @@ def _run_post_register_wait(c: Console, *, slug: str, region: str, timeout: int,
             if resp.status < 500:
                 total = int((time.time() - t_start) * 1000)
                 c.print(f'  [green]✓[/]  HTTP {resp.status} in {ms}ms  [dim](after {attempts} attempts, {total}ms total)[/]')
+                viewer_url = f'https://{fqdn}/' if fqdn else ''
+                direct_url = probe_url.rstrip('/ui/')
+                if viewer_url:
+                    c.print(f'  [dim]   Viewer URL : [link={viewer_url}]{viewer_url}[/link]  (via CloudFront)[/]')
+                c.print(f'  [dim]   Direct URL : [link={direct_url}/ui/]{direct_url}/ui/[/link]  (EC2 IP, ops only)[/]')
                 break
             last_err = f'HTTP {resp.status}'
         except Exception as exc:
