@@ -159,12 +159,84 @@ Tests: `tests/unit/sgraph_ai_service_playwright__cli/aws/ec2/eni/`
 
 ---
 
+## v0.2.34 additions (VPC stack Slice 1 of 3) — read-only `vpc`, `subnet`, `igw`, `route-table`
+
+Slice 1 — read-only foundation. **Write operations (create/delete) and the
+composite `vpc-stack` provisioning command land in Slices 2 and 3.**
+
+New sub-command trees under `sg aws ec2`:
+
+| Command | What it does |
+|---------|-------------|
+| `sg aws ec2 vpc list [--vpc-substring TEXT] [--json]` | List VPCs (client-side id substring filter) |
+| `sg aws ec2 vpc show <vpc-id> [--json]` | Describe one VPC by ID |
+| `sg aws ec2 subnet list [--vpc <vpc-id>] [--az <az>] [--json]` | List subnets filtered by VPC and/or AZ |
+| `sg aws ec2 subnet show <subnet-id> [--json]` | Describe one subnet by ID |
+| `sg aws ec2 igw list [--vpc <vpc-id>] [--json]` | List Internet Gateways filtered by attached VPC |
+| `sg aws ec2 igw show <igw-id> [--json]` | Describe one IGW by ID |
+| `sg aws ec2 route-table list [--vpc <vpc-id>] [--json]` | List Route Tables filtered by VPC |
+| `sg aws ec2 route-table show <rtb-id> [--json]` | Describe one Route Table (routes + associations) |
+
+All 8 commands are read-only — no mutation gate required.
+
+New files:
+
+| File | Role |
+|------|------|
+| `aws/ec2/cli/Cli__EC2__Vpc.py` | Typer sub-app: `list`, `show` |
+| `aws/ec2/cli/Cli__EC2__Subnet.py` | Typer sub-app: `list`, `show` |
+| `aws/ec2/cli/Cli__EC2__Igw.py` | Typer sub-app: `list`, `show` |
+| `aws/ec2/cli/Cli__EC2__Route_Table.py` | Typer sub-app: `list`, `show` (renders routes + associations sub-tables) |
+| `aws/ec2/schemas/Schema__EC2__VPC.py` | `vpc_id`, `cidr_block`, `is_default`, `state`, `dhcp_options_id`, `instance_tenancy`, `tags` |
+| `aws/ec2/schemas/Schema__EC2__Subnet.py` | `subnet_id`, `vpc_id`, `cidr_block`, `availability_zone`, `availability_zone_id`, `available_ip_count`, `map_public_ip_on_launch`, `state`, `tags` |
+| `aws/ec2/schemas/Schema__EC2__Internet_Gateway.py` | `igw_id`, `vpc_id`, `state`, `tags` |
+| `aws/ec2/schemas/Schema__EC2__Route.py` | `destination_cidr`, `gateway_id`, `state`, `origin` |
+| `aws/ec2/schemas/Schema__EC2__Route_Table.py` | `route_table_id`, `vpc_id`, `routes`, `associations`, `tags` |
+| `aws/ec2/schemas/Schema__EC2__Route_Table_Association.py` | `association_id`, `route_table_id`, `subnet_id`, `main` |
+| `aws/ec2/primitives/Safe_Str__EC2__IGW_Id.py` | MATCH — `^igw-[a-f0-9]+$` |
+| `aws/ec2/primitives/Safe_Str__EC2__Route_Table_Id.py` | MATCH — `^rtb-[a-f0-9]+$` |
+| `aws/ec2/primitives/Safe_Str__EC2__CIDR.py` | MATCH — IPv4 dotted-quad/prefix |
+| `aws/ec2/primitives/Safe_Str__EC2__AZ.py` | MATCH — `^[a-z]{2}-[a-z]+-\d[a-z]?$` |
+| `aws/ec2/collections/List__Schema__EC2__VPC.py` | Typed list |
+| `aws/ec2/collections/List__Schema__EC2__Subnet.py` | Typed list |
+| `aws/ec2/collections/List__Schema__EC2__Internet_Gateway.py` | Typed list |
+| `aws/ec2/collections/List__Schema__EC2__Route_Table.py` | Typed list |
+| `aws/ec2/collections/List__Schema__EC2__Route.py` | Typed list (routes inside a route table) |
+| `aws/ec2/collections/List__Schema__EC2__Route_Table_Association.py` | Typed list |
+
+`EC2__AWS__Client` gained 8 read-only methods: `list_vpcs`, `describe_vpc`,
+`list_subnets`, `describe_subnet`, `list_internet_gateways`,
+`describe_internet_gateway`, `list_route_tables`, `describe_route_table`. Each
+uses the boto3 paginator pattern + `ClientError` → `None` fall-through for the
+relevant `InvalidXID.NotFound` codes.
+
+`EC2__AWS__Client__In_Memory` extended with `seed_vpc`, `seed_subnet`,
+`seed_igw`, `seed_route_table`. The fake boto3 client now serves
+`describe_vpcs / describe_subnets / describe_internet_gateways /
+describe_route_tables` with filter support (`vpc-id`, `availability-zone`,
+`attachment.vpc-id`, `tag:*`).
+
+Tests:
+
+- `tests/unit/sgraph_ai_service_playwright__cli/aws/ec2/vpc/` — service + CLI
+- `tests/unit/sgraph_ai_service_playwright__cli/aws/ec2/subnet/` — service + CLI
+- `tests/unit/sgraph_ai_service_playwright__cli/aws/ec2/igw/` — service + CLI
+- `tests/unit/sgraph_ai_service_playwright__cli/aws/ec2/route_table/` — service + CLI
+- `tests/unit/sgraph_ai_service_playwright__cli/aws/ec2/primitives/test_EC2__Primitives__Network.py`
+- `tests/unit/sgraph_ai_service_playwright__cli/aws/ec2/schemas/test_EC2__Schemas__Network.py`
+
+Total: 112 new tests added.
+
+---
+
 ## NOT implemented in this slice
 
 - `EC2__Ami__Resolver` (alias → AMI ID resolution) — `create` currently accepts a raw AMI ID or alias string passed directly to the API
 - Integration tests requiring live AWS credentials (gated on `SG_AWS__EC2__INTEGRATION=1`)
 - `scripts/provision_ec2.py` thin-wrapper refactor (the script was deleted ahead of Slice B per the dev pack note)
 - Promotion of `Elastic__AWS__Client` EC2-shaped helpers (security-group naming) — those remain in `elastic/service/` and will be promoted in v0.2.30
+- **VPC stack Slice 2** — write operations (`vpc create / delete`, `subnet create / delete`, `igw create / attach / detach / delete`, `route-table create / delete / create-route / associate / disassociate`) — PROPOSED, does not exist yet
+- **VPC stack Slice 3** — composite `sg aws ec2 vpc-stack create / delete` orchestration — PROPOSED, does not exist yet
 
 ---
 
