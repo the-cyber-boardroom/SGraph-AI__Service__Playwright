@@ -242,6 +242,7 @@ class Fargate__AWS__Client(Type_Safe):
                  security_groups: list = None,
                  assign_public_ip: bool = False,
                  launch_type: str = 'FARGATE',
+                 enable_execute_command: bool = False,
                  tags: dict = None,
                  env: dict = None) -> Optional[Schema__ECS__Task]:
         vpc_config = {
@@ -258,10 +259,17 @@ class Fargate__AWS__Client(Type_Safe):
             cluster              = cluster,
             taskDefinition       = task_def,
             count                = count,
-            launchType           = launch_type,
             networkConfiguration = vpc_config,
             tags                 = tag_list,
         )
+        if launch_type == 'FARGATE_SPOT':                                         # SPOT requires capacityProviderStrategy, not launchType
+            run_kwargs['capacityProviderStrategy'] = [
+                {'capacityProvider': 'FARGATE_SPOT', 'weight': 1}
+            ]
+        else:
+            run_kwargs['launchType'] = launch_type
+        if enable_execute_command:                                                 # ECS Exec (SSM shell access)
+            run_kwargs['enableExecuteCommand'] = True
         if env:                                                                    # override env via containerOverrides
             run_kwargs['overrides'] = {
                 'containerOverrides': [{

@@ -19,3 +19,5 @@ class Schema__VAF__Start__Request(Type_Safe):
     cpu             : str  = ''      # uses spec default if empty
     memory          : str  = ''      # uses spec default if empty
     tags            : dict = None    # extra task tags (VaultApp__Slug added automatically)
+    enable_exec     : bool = True    # enable ECS Exec (SSM) for shell access
+    dns_zone        : str  = ''      # Route53 zone; when set, enables DNS upsert + TLS

@@ -147,6 +147,14 @@ class _Fake_ECS_Client:
         cluster_arn = f'arn:aws:ecs:us-east-1:123456789012:cluster/{cluster}'
         td_arn      = f'arn:aws:ecs:us-east-1:123456789012:task-definition/{taskDefinition}'
         tag_list    = kwargs.get('tags', [])                                       # list of {key, value} dicts
+        # resolve launch type from launchType kwarg or capacityProviderStrategy
+        if 'launchType' in kwargs:
+            resolved_launch_type = kwargs['launchType']
+        elif 'capacityProviderStrategy' in kwargs:
+            strategy = kwargs['capacityProviderStrategy']
+            resolved_launch_type = strategy[0]['capacityProvider'] if strategy else 'FARGATE'
+        else:
+            resolved_launch_type = 'FARGATE'
         raw = {
             'taskArn'           : task_arn,
             'clusterArn'        : cluster_arn,
@@ -157,7 +165,7 @@ class _Fake_ECS_Client:
             'stoppedAt'         : None,
             'stoppedReason'     : '',
             'group'             : '',
-            'launchType'        : kwargs.get('launchType', 'FARGATE'),
+            'launchType'        : resolved_launch_type,
             'tags'              : tag_list,
             'attachments'       : [],                                               # populated after run_task via set_task_eni helper
         }

@@ -22,7 +22,8 @@ class Vault_App__Fargate__Spec(Type_Safe):
     default_task_def_family: str = 'vault-app'                                 # task-def family — shared across clusters
 
     def env_for_run(self, access_token: str,
-                    seed_vault_keys: str = '', with_tls: bool = True) -> dict:  # env-var dict the vault container expects
+                    seed_vault_keys: str = '', with_tls: bool = True,
+                    domain: str = '') -> dict:                                    # env-var dict the vault container expects
         # SEND__STORAGE_MODE is ALWAYS 'memory' — Q1/Q6 decision, no flag
         env = {
             'SEND__STORAGE_MODE': 'memory',
@@ -32,6 +33,8 @@ class Vault_App__Fargate__Spec(Type_Safe):
             env['SEND__SEED_VAULT_KEYS'] = seed_vault_keys
         if with_tls:
             env['SEND__TLS_ENABLED'] = 'true'
+        if domain:
+            env['SEND__DOMAIN'] = domain
         return env
 
     def port_mappings(self) -> list:                                            # list of dicts for task-def register
