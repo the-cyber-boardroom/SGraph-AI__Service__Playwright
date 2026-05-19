@@ -175,7 +175,7 @@ class Setup__Admin__IAM(Type_Safe):
         req = Schema__IAM__Role__Create__Request(
             role_name     = Safe_Str__IAM__Role_Name(ADMIN_ROLE_NAME),
             trust_service = Enum__IAM__Trust__Service.LAMBDA,
-            description   = 'Execution role for the vault-publish admin Lambda — broader perms than waker',
+            description   = 'Execution role for the vault-publish admin Lambda - broader perms than waker',
         )
         iam.create_role(req)
         iam.put_inline_policy(ADMIN_ROLE_NAME, ADMIN_POLICY_NAME, self._template_policy())

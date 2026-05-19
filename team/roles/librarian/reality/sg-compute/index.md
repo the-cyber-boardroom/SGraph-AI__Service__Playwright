@@ -1,7 +1,7 @@
 # Reality — SG/Compute Domain
 
-**Status:** ACTIVE — seeded in phase-1 (B1), foundations added in phase-2 (B2), pod management in BV2.3, CLI builder in v0.2.6, billing CLI in v0.2.22, vault-publish spec in v0.2.23.
-**Last updated:** 2026-05-17 | **Phase:** v0.2.23 (vault-publish spec — subdomain routing cold path)
+**Status:** ACTIVE — seeded in phase-1 (B1), foundations added in phase-2 (B2), pod management in BV2.3, CLI builder in v0.2.6, billing CLI in v0.2.22, vault-publish spec in v0.2.23, admin Lambda split in v0.1.16.
+**Last updated:** 2026-05-19 | **Phase:** v0.1.16 (vault-publish admin Lambda split — `lambdas/{waker,admin}/` + dedicated `vp-admin.aws.sg-labs.app` distribution)
 
 This is the cover sheet for the SG/Compute reality domain. Detailed per-subarea inventories live in the sub-files linked below. If a fact is not listed in one of those sub-files, it does not exist.
 
@@ -119,6 +119,7 @@ See [`proposed/index.md`](proposed/index.md).
 
 | Date | Change |
 |------|--------|
+| 2026-05-19 | v0.1.16 vault-publish admin Lambda split: `sg_compute_specs/vault_publish/waker/` and `sg_compute_specs/vault_publish/admin/` moved under `sg_compute_specs/vault_publish/lambdas/{waker,admin}/` (deployment-unit grouping). New admin Lambda `sg-compute-vault-publish-admin` with own IAM role + CloudFront distribution + single-host ACM cert at `vp-admin.aws.sg-labs.app` — defeats H2 connection coalescing for the warming-page status probe. Setup pieces: `Setup__Admin__IAM`, `Setup__Admin__Lambda`, `Setup__Admin__CF` (includes cert provisioning + wildcard-cert guard), `Setup__Admin__DNS`. New CLI sub-apps `sg vp setup admin-iam/lambda/cf/dns *`. `setup create / update` reorder admin BEFORE waker so the warming page's probe target is always live. `Fast_API__Waker.py` deleted (dead code post-split). Warming page polls `https://vp-admin.aws.sg-labs.app/api/v1/status` by default. 16 warming-page tests passing. |
 | 2026-05-17 | v0.2.23: vault-publish spec — full cold path: slug registry (SSM), `Vault_Publish__Service` (register/unpublish/status/list/bootstrap), `sg_compute_specs/vault_publish/waker/` (Waker Lambda with FastAPI + LWA), `sgraph_ai_service_playwright__cli/aws/cf/` (CloudFront CRUD), `sgraph_ai_service_playwright__cli/aws/lambda_/` (Lambda deploy + URL CRUD). 5 commits (a5de0b1 P1a → 432ba5d P2d). 149 waker+vault-publish tests + 52 CF/Lambda tests — all passing. |
 | 2026-05-16 | v0.2.22: `sg aws billing` CLI sub-package — 6 commands, 4 primitives, 4 enums, 4 schemas, 3 collections, 3 service classes, `Cli__Billing.py`. `Cli__Aws.py` updated to register `billing_app`. 6 commits on `claude/plan-billing-view-u0NFG`. |
 | 2026-05-05 | T3.3b: `components/sp-cli/` → `components/sg-compute/` directory rename; 28 api_site/ string refs + 45 sg_compute_specs/*/ui/detail/ absolute imports updated; snapshot test COMPONENT_DIR paths corrected; 32/33 CI green |

@@ -181,7 +181,7 @@ class Setup__Admin__Lambda(Type_Safe):
             runtime     = Enum__Lambda__Runtime.PYTHON_3_12,
             memory_size = EXPECTED_MEMORY,
             timeout     = EXPECTED_TIMEOUT,
-            description = f'Vault Publish Admin — {env.get("ADMIN_VERSION", "?")} '
+            description = f'Vault Publish Admin - {env.get("ADMIN_VERSION", "?")} '
                           f'deployed {env.get("ADMIN_DEPLOYED_AT", "?")}',
         )
         # Admin Lambda needs fastapi + starlette + anyio for the FastAPI app.

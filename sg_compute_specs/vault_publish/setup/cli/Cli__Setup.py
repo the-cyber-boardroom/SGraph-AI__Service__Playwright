@@ -229,8 +229,53 @@ def setup_create(
         c.print(f'  [red]✗  iam: {exc}[/]')
         exit_code = 1
 
-    # 2 — Lambda
-    c.print('  [yellow]→[/]  lambda create…')
+    # Admin stack first — the waker's warming page polls vp-admin.<zone>, so
+    # the admin Lambda + CF + DNS MUST be live before the waker is deployed
+    # or the warming page falls into a probe-failure loop until admin comes
+    # up. Cert provisioning (admin-cf step) is the slow part (~5-30 min).
+
+    # 2 — admin IAM (independent of waker IAM)
+    c.print('  [yellow]→[/]  admin-iam create…')
+    try:
+        airep = _admin_iam().create()
+        icon = '[green]✓[/]' if airep.state == Enum__Setup__State.OK else '[yellow]⚠[/]'
+        c.print(f'  {icon}  admin-iam  {airep.role_arn or airep.role_name}')
+        if airep.state not in (Enum__Setup__State.OK,): exit_code = 1
+    except (ClientError, RuntimeError, Exception) as exc:
+        c.print(f'  [red]✗  admin-iam: {exc}[/]'); exit_code = 1
+
+    # 3 — admin Lambda (depends on admin-iam)
+    c.print('  [yellow]→[/]  admin-lambda create…')
+    try:
+        alrep = _admin_lambda().create()
+        icon = '[green]✓[/]' if alrep.state == Enum__Setup__State.OK else '[yellow]⚠[/]'
+        c.print(f'  {icon}  admin-lambda  {alrep.function_url or alrep.function_name}')
+        if alrep.state not in (Enum__Setup__State.OK,): exit_code = 1
+    except (ClientError, RuntimeError, Exception) as exc:
+        c.print(f'  [red]✗  admin-lambda: {exc}[/]'); exit_code = 1
+
+    # 4 — admin CF + single-host ACM cert (slow: cert validation 5-30 min)
+    c.print('  [yellow]→[/]  admin-cf create (provisions single-host ACM cert, may take 5-30 min)…')
+    try:
+        acfrep = _admin_cf().create(zone)
+        icon = '[green]✓[/]' if acfrep.state == Enum__Setup__State.OK else '[yellow]⚠[/]'
+        c.print(f'  {icon}  admin-cf  {acfrep.domain_name or acfrep.distribution_id}')
+        if acfrep.state not in (Enum__Setup__State.OK,): exit_code = 1
+    except (ClientError, RuntimeError, Exception) as exc:
+        c.print(f'  [red]✗  admin-cf: {exc}[/]'); exit_code = 1
+
+    # 5 — admin DNS (depends on admin CF)
+    c.print('  [yellow]→[/]  admin-dns create…')
+    try:
+        adrep = _admin_dns().create(zone)
+        icon = '[green]✓[/]' if adrep.state == Enum__Setup__State.OK else '[yellow]⚠[/]'
+        c.print(f'  {icon}  admin-dns  {adrep.record_value or adrep.record_name}')
+        if adrep.state not in (Enum__Setup__State.OK,): exit_code = 1
+    except (ClientError, RuntimeError, Exception) as exc:
+        c.print(f'  [red]✗  admin-dns: {exc}[/]'); exit_code = 1
+
+    # 6 — Lambda (waker; warming-page probe target is now live above)
+    c.print('  [yellow]→[/]  lambda create (waker)…')
     try:
         lrep = _lambda().create(role_arn=role_arn)
         icon = '[green]✓[/]' if lrep.state == Enum__Setup__State.OK else '[yellow]⚠[/]'
@@ -241,8 +286,8 @@ def setup_create(
         c.print(f'  [red]✗  lambda: {exc}[/]')
         exit_code = 1
 
-    # 3 — CF (depends on Lambda URL)
-    c.print('  [yellow]→[/]  cf create…')
+    # 7 — CF (depends on Lambda URL)
+    c.print('  [yellow]→[/]  cf create (waker)…')
     try:
         crep = _cf().create(zone=zone, cert_arn=cert_arn)
         icon = '[green]✓[/]' if crep.state == Enum__Setup__State.OK else '[yellow]⚠[/]'
@@ -253,7 +298,7 @@ def setup_create(
         c.print(f'  [red]✗  cf: {exc}[/]')
         exit_code = 1
 
-    # 4 — CF Function (depends on CF distribution; async ~5min for edge propagation)
+    # 8 — CF Function (depends on CF distribution; async ~5min for edge propagation)
     c.print('  [yellow]→[/]  cf-function create…')
     try:
         fnrep = _cf_function().create(zone=zone)
@@ -263,7 +308,7 @@ def setup_create(
         c.print(f'  [red]✗  cf-function: {exc}[/]')
         exit_code = 1
 
-    # 5 — DNS (depends on CF domain)
+    # 9 — DNS (depends on CF domain)
     c.print('  [yellow]→[/]  dns create…')
     try:
         drep = _dns().create(zone=zone)
@@ -274,46 +319,6 @@ def setup_create(
     except (ClientError, RuntimeError, Exception) as exc:
         c.print(f'  [red]✗  dns: {exc}[/]')
         exit_code = 1
-
-    # 6 — admin IAM (independent of waker IAM)
-    c.print('  [yellow]→[/]  admin-iam create…')
-    try:
-        airep = _admin_iam().create()
-        icon = '[green]✓[/]' if airep.state == Enum__Setup__State.OK else '[yellow]⚠[/]'
-        c.print(f'  {icon}  admin-iam  {airep.role_arn or airep.role_name}')
-        if airep.state not in (Enum__Setup__State.OK,): exit_code = 1
-    except (ClientError, RuntimeError, Exception) as exc:
-        c.print(f'  [red]✗  admin-iam: {exc}[/]'); exit_code = 1
-
-    # 7 — admin Lambda (depends on admin-iam)
-    c.print('  [yellow]→[/]  admin-lambda create…')
-    try:
-        alrep = _admin_lambda().create()
-        icon = '[green]✓[/]' if alrep.state == Enum__Setup__State.OK else '[yellow]⚠[/]'
-        c.print(f'  {icon}  admin-lambda  {alrep.function_url or alrep.function_name}')
-        if alrep.state not in (Enum__Setup__State.OK,): exit_code = 1
-    except (ClientError, RuntimeError, Exception) as exc:
-        c.print(f'  [red]✗  admin-lambda: {exc}[/]'); exit_code = 1
-
-    # 8 — admin CF + ACM cert (depends on admin Lambda URL; slow — cert validation ~5-30 min)
-    c.print('  [yellow]→[/]  admin-cf create (provisions single-host ACM cert — may take 5-30 min)…')
-    try:
-        acfrep = _admin_cf().create(zone)
-        icon = '[green]✓[/]' if acfrep.state == Enum__Setup__State.OK else '[yellow]⚠[/]'
-        c.print(f'  {icon}  admin-cf  {acfrep.domain_name or acfrep.distribution_id}')
-        if acfrep.state not in (Enum__Setup__State.OK,): exit_code = 1
-    except (ClientError, RuntimeError, Exception) as exc:
-        c.print(f'  [red]✗  admin-cf: {exc}[/]'); exit_code = 1
-
-    # 9 — admin DNS (depends on admin CF)
-    c.print('  [yellow]→[/]  admin-dns create…')
-    try:
-        adrep = _admin_dns().create(zone)
-        icon = '[green]✓[/]' if adrep.state == Enum__Setup__State.OK else '[yellow]⚠[/]'
-        c.print(f'  {icon}  admin-dns  {adrep.record_value or adrep.record_name}')
-        if adrep.state not in (Enum__Setup__State.OK,): exit_code = 1
-    except (ClientError, RuntimeError, Exception) as exc:
-        c.print(f'  [red]✗  admin-dns: {exc}[/]'); exit_code = 1
 
     c.print()
     if exit_code:
@@ -346,41 +351,9 @@ def setup_update(
         c.print(f'  [red]✗  iam: {exc}[/]')
         exit_code = 1
 
-    c.print('  [yellow]→[/]  lambda update…')
-    try:
-        lrep = _lambda().update()
-        icon = '[green]✓[/]' if lrep.state == Enum__Setup__State.OK else '[yellow]⚠[/]'
-        c.print(f'  {icon}  lambda  {lrep.function_url or lrep.function_name}')
-    except (ClientError, RuntimeError, Exception) as exc:
-        c.print(f'  [red]✗  lambda: {exc}[/]')
-        exit_code = 1
-
-    c.print('  [yellow]→[/]  cf update (ensure)…')
-    try:
-        crep = _cf().create(zone=zone, cert_arn=cert_arn)
-        icon = '[green]✓[/]' if crep.state == Enum__Setup__State.OK else '[yellow]⚠[/]'
-        c.print(f'  {icon}  cf  {crep.domain_name or crep.distribution_id}')
-    except (ClientError, RuntimeError, Exception) as exc:
-        c.print(f'  [red]✗  cf: {exc}[/]')
-        exit_code = 1
-
-    c.print('  [yellow]→[/]  cf-function update (ensure)…')
-    try:
-        fnrep = _cf_function().update(zone=zone)
-        icon = '[green]✓[/]' if fnrep.state == Enum__Setup__State.OK else '[yellow]⚠ (CF edge propagating)[/]'
-        c.print(f'  {icon}  cf-function  {fnrep.function_name}')
-    except (ClientError, RuntimeError, Exception) as exc:
-        c.print(f'  [red]✗  cf-function: {exc}[/]')
-        exit_code = 1
-
-    c.print('  [yellow]→[/]  dns update (ensure)…')
-    try:
-        drep = _dns().create(zone=zone)
-        icon = '[green]✓[/]' if drep.state == Enum__Setup__State.OK else '[yellow]⚠[/]'
-        c.print(f'  {icon}  dns  {drep.record_value or drep.record_name}')
-    except (ClientError, RuntimeError, Exception) as exc:
-        c.print(f'  [red]✗  dns: {exc}[/]')
-        exit_code = 1
+    # Admin stack first (same ordering reason as setup create — the waker's
+    # warming page polls vp-admin so admin must be live before the waker is
+    # re-deployed).
 
     c.print('  [yellow]→[/]  admin-iam update…')
     try:
@@ -413,6 +386,44 @@ def setup_update(
         c.print(f'  {icon}  admin-dns  {adrep.record_value or adrep.record_name}')
     except (ClientError, RuntimeError, Exception) as exc:
         c.print(f'  [red]✗  admin-dns: {exc}[/]'); exit_code = 1
+
+    # Waker pieces last — by now the warming page's probe target is live.
+
+    c.print('  [yellow]→[/]  lambda update (waker)…')
+    try:
+        lrep = _lambda().update()
+        icon = '[green]✓[/]' if lrep.state == Enum__Setup__State.OK else '[yellow]⚠[/]'
+        c.print(f'  {icon}  lambda  {lrep.function_url or lrep.function_name}')
+    except (ClientError, RuntimeError, Exception) as exc:
+        c.print(f'  [red]✗  lambda: {exc}[/]')
+        exit_code = 1
+
+    c.print('  [yellow]→[/]  cf update (ensure, waker)…')
+    try:
+        crep = _cf().create(zone=zone, cert_arn=cert_arn)
+        icon = '[green]✓[/]' if crep.state == Enum__Setup__State.OK else '[yellow]⚠[/]'
+        c.print(f'  {icon}  cf  {crep.domain_name or crep.distribution_id}')
+    except (ClientError, RuntimeError, Exception) as exc:
+        c.print(f'  [red]✗  cf: {exc}[/]')
+        exit_code = 1
+
+    c.print('  [yellow]→[/]  cf-function update (ensure)…')
+    try:
+        fnrep = _cf_function().update(zone=zone)
+        icon = '[green]✓[/]' if fnrep.state == Enum__Setup__State.OK else '[yellow]⚠ (CF edge propagating)[/]'
+        c.print(f'  {icon}  cf-function  {fnrep.function_name}')
+    except (ClientError, RuntimeError, Exception) as exc:
+        c.print(f'  [red]✗  cf-function: {exc}[/]')
+        exit_code = 1
+
+    c.print('  [yellow]→[/]  dns update (ensure, waker)…')
+    try:
+        drep = _dns().create(zone=zone)
+        icon = '[green]✓[/]' if drep.state == Enum__Setup__State.OK else '[yellow]⚠[/]'
+        c.print(f'  {icon}  dns  {drep.record_value or drep.record_name}')
+    except (ClientError, RuntimeError, Exception) as exc:
+        c.print(f'  [red]✗  dns: {exc}[/]')
+        exit_code = 1
 
     c.print()
     if exit_code:

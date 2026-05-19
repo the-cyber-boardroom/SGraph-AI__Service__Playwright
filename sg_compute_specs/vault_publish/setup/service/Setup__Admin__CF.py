@@ -171,7 +171,7 @@ class Setup__Admin__CF(Type_Safe):
             origin_domain = Safe_Str__CF__Domain_Name(origin_domain),
             cert_arn      = Safe_Str__Cert__Arn(cert_arn),
             aliases       = List__CF__Alias([host]),
-            comment       = f'vault-publish admin — {host}',
+            comment       = f'vault-publish admin - {host}',
         )
         self._cf_client().ensure_distribution(cf_req)
         if progress: progress('ensure-cf', 'done')
