@@ -123,17 +123,27 @@ class Vault_Publish__Service(Type_Safe):
         if with_tls:
             create_req.tls_hostname = fqdn
             create_req.tls_mode     = 'letsencrypt-hostname'
+        # vault_key from the register request becomes the vault-app's
+        # access_token (the actual API key the vault accepts in
+        # x-sgraph-access-token / X-API-Key). Without this pass-through the
+        # vault generated a random token and --vault-key was silently
+        # ignored — see "Invalid API key value" symptom from tls-test-1.
+        vault_key = str(getattr(request, 'vault_key', '') or '').strip()
+        if vault_key:
+            create_req.access_token = vault_key
         create_resp = vault_app.create_stack(create_req)
 
-        stack_name  = str(getattr(create_resp.stack_info, 'stack_name', '') or slug)
-        instance_id = str(getattr(create_resp.stack_info, 'instance_id', '') or '')
+        stack_name   = str(getattr(create_resp.stack_info, 'stack_name', '') or slug)
+        instance_id  = str(getattr(create_resp.stack_info, 'instance_id', '') or '')
+        access_token = str(getattr(create_resp, 'access_token', '') or '')
         if instance_id:
             registry.put(slug=slug, fqdn=fqdn, region=region, instance_id=instance_id)
         return Schema__Vault_Publish__Register__Response(
-            slug       = request.slug,
-            fqdn       = fqdn,
-            stack_name = stack_name,
-            message    = 'registered',
+            slug         = request.slug,
+            fqdn         = fqdn,
+            stack_name   = stack_name,
+            access_token = access_token,
+            message      = 'registered',
             elapsed_ms = int((time.monotonic() - t0) * 1000))
 
     def unpublish(self, slug: str) -> Schema__Vault_Publish__Unpublish__Response:

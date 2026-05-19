@@ -119,12 +119,22 @@ def register(slug                  : str  = typer.Argument(..., help='DNS slug (
         c.print(f'  [red]✗  {resp.message}[/]')
         raise typer.Exit(1)
     c.print(f'  [green]✓[/]  Registered [bold]{slug}[/]')
-    c.print(f'      FQDN      : {resp.fqdn}')
-    c.print(f'      Stack     : {resp.stack_name}')
-    c.print(f'      Region    : {region}')
-    c.print(f'      elapsed   : {resp.elapsed_ms}ms')
-    viewer_url = f'https://{resp.fqdn}/'
-    c.print(f'      Viewer URL: [link={viewer_url}]{viewer_url}[/link]  [dim](via CloudFront wildcard)[/]')
+    c.print(f'      FQDN        : {resp.fqdn}')
+    c.print(f'      Stack       : {resp.stack_name}')
+    c.print(f'      Region      : {region}')
+    c.print(f'      elapsed     : {resp.elapsed_ms}ms')
+    viewer_url     = f'https://{resp.fqdn}/'
+    set_cookie_url = f'https://{resp.fqdn}/auth/set-cookie-form'
+    access_token   = str(getattr(resp, 'access_token', '') or '')
+    c.print(f'      Viewer URL  : [link={viewer_url}]{viewer_url}[/link]  [dim](via CloudFront wildcard)[/]')
+    c.print(f'      Set-cookie  : [link={set_cookie_url}]{set_cookie_url}[/link]')
+    if access_token:
+        match = (' [dim](= --vault-key)[/]' if access_token == vault_key
+                 else ' [yellow](auto-generated — --vault-key was empty/invalid)[/]')
+        c.print(f'      Access token: [bold]{access_token}[/]{match}')
+        c.print(f'                    [dim]paste into x-sgraph-access-token cookie OR X-API-Key header[/]')
+    else:
+        c.print(f'      [yellow]Access token: (not returned — vault-app create response had no access_token field)[/]')
     c.print()
 
     # Per-slug A record (matches `sg va create --with-aws-dns`). Skipped in
