@@ -22,6 +22,11 @@ documents:
 
 # `sg vault-app fargate` — Plan Overview
 
+> **Executing agent? START AT [`08__handover.md`](./08__handover.md), not
+> here.** That doc contains the reading order, pre-flight checklist, slice
+> workflow, and subagent-delegation template you need before writing any
+> code. This file is one of the docs it tells you to read.
+
 ## North star
 
 > Make `sg vault-app fargate start` produce a healthy, reachable vault on Fargate
@@ -143,6 +148,10 @@ public-facing UX has real data behind it.
 7. [`07__decisions.md`](./07__decisions.md) — final decisions log;
    overrides any conflicting earlier section. Read after `00__` for the
    current state of the plan.
+
+8. [`08__handover.md`](./08__handover.md) — **executing agent's entry
+   point.** Reading order, pre-flight, slice workflow, subagent template,
+   contradiction-handling protocol.
 
 ## Reading order
 
