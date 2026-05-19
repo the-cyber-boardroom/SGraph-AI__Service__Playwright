@@ -170,10 +170,19 @@ def _run_auto_dns(c: Console, *, region: str, slug: str, fqdn: str,
     def _progress(stage, detail):
         c.print(f'  [dim]   auto-dns: {stage}  {detail}[/]')
     result = Vault_App__Auto_DNS().run(fqdn=fqdn, public_ip=public_ip, on_progress=_progress)
-    if result.error:
+    # Partial NS agreement (e.g. 3/4) is normal during Route 53 propagation —
+    # AWS sub-NSs converge over 30-120s after INSYNC. The record IS created;
+    # the wait loop downstream gives the remaining NSs time to catch up. Only
+    # hard-fail when the upsert itself or the INSYNC step didn't complete.
+    insync_ok = bool(getattr(result, 'insync', False))
+    if result.error and not insync_ok:
         c.print(f'  [red]✗[/]  auto-dns failed: {result.error}')
         c.print(f'  [dim]   add manually: sg aws dns records add --name {fqdn} --type A --value {public_ip}[/]')
         return False
+    if result.error and insync_ok:
+        c.print(f'  [yellow]⚠[/]  auto-dns: {result.error}')
+        c.print(f'  [dim]   (record IS created; remaining NSs typically converge within 30-60s)[/]')
+        return True
     c.print(f'  [green]✓[/]  auto-dns: {fqdn} → {public_ip}  '
             f'(INSYNC + authoritative, {result.elapsed_ms}ms)')
     return True
@@ -217,12 +226,24 @@ def _run_post_register_wait(c: Console, *, slug: str, region: str, timeout: int,
 
     c.print(f'  [green]✓[/]  RUNNING at {resolution.public_ip}  ({int((time.time() - t_start) * 1000)}ms)')
 
-    # Phase 2 — poll HTTP probe until vault-app responds
-    probe_url = resolution.vault_url.rstrip('/') + '/ui/'
+    # Phase 2 — poll the viewer URL until vault-app responds.
+    # When with_tls=True, we poll https://{fqdn}/ui/ with cert validation. The
+    # cert validates whether the request lands on the EC2 directly (LE-hostname
+    # cert) OR on CloudFront (wildcard cert) — both cover {fqdn}. The previous
+    # IP-based poll always failed verification because the EC2 cert is bound
+    # to the FQDN, not its IP.
+    # When with_tls=False, no per-slug A record exists and the EC2 has no cert,
+    # so we poll http://{ip}:8080/ui/ directly to bypass CF and confirm the
+    # vault itself is up (rather than just the warming page).
+    if with_tls and fqdn:
+        probe_url = f'https://{fqdn}/ui/'
+    else:
+        probe_url = resolution.vault_url.rstrip('/') + '/ui/'
     c.print(f'  [yellow]→[/]  Polling {probe_url} until reachable…')
-    delay    = 3
-    attempts = 0
-    last_err = ''
+    delay        = 3
+    attempts     = 0
+    last_err     = ''
+    final_resp   = None
     while True:
         elapsed = time.time() - t_start
         if elapsed > timeout:
@@ -240,12 +261,27 @@ def _run_post_register_wait(c: Console, *, slug: str, region: str, timeout: int,
             ms   = int((time.time() - p0) * 1000)
             if resp.status < 500:
                 total = int((time.time() - t_start) * 1000)
+                final_resp = resp
+                # X-Waker-State header is injected by Waker__Handler on every
+                # response served via Lambda. Its absence means the request
+                # reached the EC2 vault directly (per-slug A record propagated).
+                via_proxy = bool(resp.headers.get('X-Waker-State'))
+                path_lbl  = ('[yellow]via CloudFront → Lambda → EC2[/]   (per-slug DNS still propagating)'
+                             if via_proxy
+                             else '[green]direct to EC2[/]   (per-slug DNS converged)')
                 c.print(f'  [green]✓[/]  HTTP {resp.status} in {ms}ms  [dim](after {attempts} attempts, {total}ms total)[/]')
-                viewer_url = f'https://{fqdn}/' if fqdn else ''
-                direct_url = probe_url.rstrip('/ui/')
-                if viewer_url:
-                    c.print(f'  [dim]   Viewer URL : [link={viewer_url}]{viewer_url}[/link]  (via CloudFront)[/]')
-                c.print(f'  [dim]   Direct URL : [link={direct_url}/ui/]{direct_url}/ui/[/link]  (EC2 IP, ops only)[/]')
+                c.print(f'  [dim]   Path       :[/] {path_lbl}')
+                if with_tls and fqdn:
+                    direct_ip_url = f'https://{resolution.public_ip}/ui/'
+                    c.print(f'  [dim]   Viewer URL : [link={probe_url}]{probe_url}[/link]  '
+                            f'(cert validates for {fqdn})[/]')
+                    c.print(f'  [dim]   Direct (IP): {direct_ip_url}  '
+                            f'(SSL verify fails by design — cert is for FQDN, not IP)[/]')
+                else:
+                    viewer_url = f'https://{fqdn}/' if fqdn else ''
+                    if viewer_url:
+                        c.print(f'  [dim]   Viewer URL : [link={viewer_url}]{viewer_url}[/link]  (via CloudFront wildcard)[/]')
+                    c.print(f'  [dim]   Direct URL : [link={probe_url}]{probe_url}[/link]  (EC2 IP :8080)[/]')
                 break
             last_err = f'HTTP {resp.status}'
         except Exception as exc:
