@@ -117,16 +117,14 @@ _HTML_TEMPLATE = """<!DOCTYPE html>
     let startMs     = Date.now();
     let pollAttempt = 0;
 
-    // Backoff schedule: poll fast for the first ~30s (in case vault boots
-    // quickly), then back off to 60s intervals. The 60s gap is critical —
-    // Chrome's HTTP/1.1 keep-alive idle timeout is ~60-90s, so 60s with no
-    // requests is what lets the kept-alive socket to CloudFront actually
-    // close. Polling every 5s forever would keep the socket warm forever
-    // and the eventual redirect would always go via Lambda.
-    function nextPollDelayMs() {
-      if (pollAttempt < CFG.poll_fast_count) return CFG.poll_fast_ms;
-      return CFG.poll_slow_ms;
-    }
+    // Polling schedule:
+    //   - Wait `initial_wait_ms` (30s default) before the first probe — vault
+    //     boot is rarely faster than 30s, so polling earlier just wastes
+    //     requests + keeps the socket warm.
+    //   - Then probe every `poll_fast_ms` (5s) until we see state=proxied.
+    //   - On proxied → redirect immediately, no settle countdown (the cross
+    //     -origin probe target doesn't pollute the slug FQDN socket pool,
+    //     so the redirect can go straight away).
 
     function elapsedSec() { return Math.round((Date.now() - startMs) / 1000); }
     function setMsg(title, msg, detail) {
@@ -197,15 +195,13 @@ _HTML_TEMPLATE = """<!DOCTYPE html>
       try { r = await probe(); }
       catch (e) {
         setMsg(null, 'Network error: ' + e.message, '');
-        pollT = setTimeout(bootTick, nextPollDelayMs());
+        pollT = setTimeout(bootTick, CFG.poll_fast_ms);
         return;
       }
-      // Path display: when we're polling cross-origin via Lambda, we can't
-      // detect direct vs proxy from the probe response (it's always Lambda).
-      // Show the cross-origin polling target instead.
+      // Path display: when polling cross-origin via Lambda, every probe is by
+      // definition via Lambda — show the cross-origin polling target instead.
       if (r.direct_check) {
         setPath(r.via_lambda);
-        // No X-Waker-State header → response came direct from EC2
         if (!r.via_lambda) {
           gotoNow('Direct routing detected — redirecting…');
           return;
@@ -227,42 +223,37 @@ _HTML_TEMPLATE = """<!DOCTYPE html>
         return;
       }
       if (r.waker_state === 'proxied') {
-        // Vault is up — switch to settle countdown
-        startSettleCountdown();
+        // Vault is up — redirect immediately. The cross-origin probe target
+        // doesn't share a socket pool slot with the slug FQDN (different
+        // origin in the browser's connection pool), so the slug FQDN's
+        // socket has been idle since page load and can drain naturally.
+        gotoNow('Vault is ready — redirecting…');
         return;
       }
-      // Still warming — schedule the next check with backoff cadence
-      const ec2     = r.ec2_state || 'unknown';
-      const nextSec = Math.round(nextPollDelayMs() / 1000);
+      // Still warming — schedule the next check
+      const ec2 = r.ec2_state || 'unknown';
       setMsg(null,
              'EC2 ' + ec2 + ' — vault still booting (elapsed: ' + elapsedSec() + 's)',
-             'Next check in ' + nextSec + 's. Typical first-time boot is 30-90s.');
-      pollT = setTimeout(bootTick, nextPollDelayMs());
+             'Next check in ' + Math.round(CFG.poll_fast_ms/1000) + 's. Typical first-time boot is 30-90s.');
+      pollT = setTimeout(bootTick, CFG.poll_fast_ms);
     }
 
-    function startSettleCountdown() {
-      // Vault is reachable via Lambda. Wait `settle_ms` with NO network
-      // activity so the browser's keep-alive socket to CloudFront idles out
-      // and the Route-53 DNS cache (TTL 60s) expires. Then trigger a fresh
-      // navigation that has a chance to hit the EC2 directly.
-      //
-      // The "Open in new tab" button is the most reliable shortcut — a new
-      // tab gets its own socket pool slot and triggers fresh DNS regardless
-      // of what this tab has pinned.
-      $('new-tab-btn').style.display = 'inline-block';
-      $('enter-btn').style.display   = 'inline-block';
-      setMsg('Vault is ready',
-             'Reachable via CloudFront → Lambda → EC2.',
-             '');
-      const settleSec = Math.round(CFG.settle_ms / 1000);
-      let remaining = settleSec;
+    function startInitialWait() {
+      // Vault boot is rarely faster than 30s — wait silently before the first
+      // probe to avoid wasted requests + keep the slug FQDN socket completely
+      // cold during this window. The probe target (waker.<zone> or Lambda
+      // URL) is a different origin, so probes don't touch the slug socket
+      // either way, but a quiet initial period also keeps the "Vault is
+      // warming up" page calm (no flicker, no fast updates).
+      const initSec = Math.round(CFG.initial_wait_ms / 1000);
+      let remaining = initSec;
+      setMsg(null, 'Waiting ' + initSec + 's before first probe (vault boot is rarely faster than 30s)…', '');
       function tick() {
         if (cancelled) return;
-        if (remaining <= 0) { enterPage(); return; }
-        $('detail').textContent =
-          'Silently waiting ' + remaining + 's so the keep-alive socket to CloudFront idles out — ' +
-          'then this tab will try a direct navigation. Or click "Open in new tab" now to skip the wait ' +
-          '(new tab → fresh socket → fresh DNS lookup → direct to EC2).';
+        if (remaining <= 0) { bootTick(); return; }
+        setMsg(null,
+               'Waiting ' + remaining + 's before first probe (vault boot is rarely faster than 30s)…',
+               'Then will probe every ' + Math.round(CFG.poll_fast_ms/1000) + 's until ready.');
         remaining -= 1;
         countT = setTimeout(tick, 1000);
       }
@@ -317,7 +308,7 @@ _HTML_TEMPLATE = """<!DOCTYPE html>
              'or "Enter (this tab)" to navigate in place.');
     }
 
-    bootTick();
+    startInitialWait();
   </script>
 </body>
 </html>
@@ -325,10 +316,11 @@ _HTML_TEMPLATE = """<!DOCTYPE html>
 
 
 class Warming__Page(Type_Safe):
-    poll_fast_ms    : int = 5000                                                      # fast cadence — first few polls while we expect a quick boot
-    poll_fast_count : int = 6                                                         # number of fast polls before backing off (6 × 5s = 30s of fast polling)
-    poll_slow_ms    : int = 60000                                                     # slow cadence — every 60s. The 60s gap is what lets Chrome's HTTP/1.1 keep-alive idle timeout fire on the kept-alive socket to CloudFront.
-    settle_ms       : int = 90000                                                     # silent wait after vault is up — no network activity so the kept-alive socket drains before we navigate
+    initial_wait_ms : int = 30000                                                     # silent wait before first probe — vault boot is rarely faster than 30s
+    poll_fast_ms    : int = 5000                                                      # poll cadence after the initial wait, until state=proxied
+    poll_fast_count : int = 6                                                         # kept for backwards-compat; not used after the cross-origin polling refactor
+    poll_slow_ms    : int = 60000                                                     # kept for backwards-compat; not used after the cross-origin polling refactor
+    settle_ms       : int = 0                                                         # post-ready settle countdown — set to 0 since cross-origin probes don't pollute the slug FQDN socket pool, redirect can fire immediately on state=proxied
 
     def render(self, slug: str) -> str:
         # probe_base — preferred cross-origin target. Order:
@@ -347,6 +339,7 @@ class Warming__Page(Type_Safe):
             'lambda_url'      : probe_base,                                          # JS still calls this field "lambda_url" but it now points at probe_base (waker.<zone> or Lambda URL)
             'probe_target'    : 'waker-host' if WAKER_PROBE_HOST else
                                 ('lambda-url' if WAKER_LAMBDA_FUNCTION_URL else 'slug-fqdn'),
+            'initial_wait_ms' : self.initial_wait_ms,
             'poll_fast_ms'    : self.poll_fast_ms,
             'poll_fast_count' : self.poll_fast_count,
             'poll_slow_ms'    : self.poll_slow_ms,
