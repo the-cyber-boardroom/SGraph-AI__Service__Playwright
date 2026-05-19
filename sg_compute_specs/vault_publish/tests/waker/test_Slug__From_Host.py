@@ -3,7 +3,7 @@
 # Pure parse tests — no AWS, no network, no mocks.
 # ═══════════════════════════════════════════════════════════════════════════════
 
-from sg_compute_specs.vault_publish.waker.Slug__From_Host import Slug__From_Host
+from sg_compute_specs.vault_publish.lambdas.waker.Slug__From_Host import Slug__From_Host
 
 
 class TestSlugFromHost:

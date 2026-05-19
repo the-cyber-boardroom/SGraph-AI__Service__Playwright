@@ -32,7 +32,7 @@ from sg_compute_specs.vault_publish.service.Vault_Publish__Service        import
 app = typer.Typer(name='vault-publish', help='Vault Publish — subdomain-routing for vault-app stacks.', no_args_is_help=True)
 
 from sg_compute_specs.vault_publish.setup.cli.Cli__Setup import app as setup_app
-from sg_compute_specs.vault_publish.waker.cli.Cli__Waker import app as waker_app
+from sg_compute_specs.vault_publish.lambdas.waker.cli.Cli__Waker import app as waker_app
 app.add_typer(setup_app, name='setup')
 app.add_typer(waker_app, name='waker')
 
@@ -310,8 +310,8 @@ def _run_post_register_wait(c: Console, *, slug: str, region: str, timeout: int,
     auto-dns is running in parallel (the register flow passes one). Defaults
     to c.print when None — same behaviour as before."""
     from sg_compute_specs.vault_publish.service.Slug__Registry              import Slug__Registry
-    from sg_compute_specs.vault_publish.waker.Endpoint__Resolver__EC2       import Endpoint__Resolver__EC2
-    from sg_compute_specs.vault_publish.waker.schemas.Enum__Instance__State import Enum__Instance__State
+    from sg_compute_specs.vault_publish.lambdas.waker.Endpoint__Resolver__EC2       import Endpoint__Resolver__EC2
+    from sg_compute_specs.vault_publish.lambdas.waker.schemas.Enum__Instance__State import Enum__Instance__State
 
     p = print_fn or c.print                                                          # noqa — `p` is the thread-safe printer
     registry  = Slug__Registry(region=region)
@@ -766,8 +766,8 @@ def wake(slug    : str  = typer.Argument(..., help='Slug to wake'),
          no_wait : bool = typer.Option(False, '--no-wait', help='Trigger start_instances but exit immediately'),
          no_probe: bool = typer.Option(False, '--no-probe', help='Skip HTTP health probe after RUNNING')):
     from sg_compute_specs.vault_publish.service.Slug__Registry              import Slug__Registry
-    from sg_compute_specs.vault_publish.waker.Endpoint__Resolver__EC2       import Endpoint__Resolver__EC2
-    from sg_compute_specs.vault_publish.waker.schemas.Enum__Instance__State import Enum__Instance__State
+    from sg_compute_specs.vault_publish.lambdas.waker.Endpoint__Resolver__EC2       import Endpoint__Resolver__EC2
+    from sg_compute_specs.vault_publish.lambdas.waker.schemas.Enum__Instance__State import Enum__Instance__State
 
     c        = Console(highlight=False)
     registry = Slug__Registry(region=region)
@@ -939,8 +939,8 @@ def eval_(slug    : str  = typer.Argument(..., help='Slug to evaluate'),
           no_wake : bool = typer.Option(False, '--no-wake', help='Skip start-if-stopped step (probe in-place state only)')):
     import os, socket, time as _t
     from sg_compute_specs.vault_publish.service.Slug__Registry              import Slug__Registry
-    from sg_compute_specs.vault_publish.waker.Endpoint__Resolver__EC2       import Endpoint__Resolver__EC2
-    from sg_compute_specs.vault_publish.waker.schemas.Enum__Instance__State import Enum__Instance__State
+    from sg_compute_specs.vault_publish.lambdas.waker.Endpoint__Resolver__EC2       import Endpoint__Resolver__EC2
+    from sg_compute_specs.vault_publish.lambdas.waker.schemas.Enum__Instance__State import Enum__Instance__State
 
     c             = Console(highlight=False)
     resolved_zone = zone or os.environ.get('SG_AWS__DNS__DEFAULT_ZONE', 'aws.sg-labs.app')

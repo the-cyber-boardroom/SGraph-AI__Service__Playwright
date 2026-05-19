@@ -6,7 +6,7 @@
 
 from osbot_utils.type_safe.Type_Safe                                              import Type_Safe
 
-from sg_compute_specs.vault_publish.waker.schemas.Enum__Instance__State           import Enum__Instance__State
+from sg_compute_specs.vault_publish.lambdas.waker.schemas.Enum__Instance__State           import Enum__Instance__State
 
 
 class Schema__Endpoint__Resolution(Type_Safe):

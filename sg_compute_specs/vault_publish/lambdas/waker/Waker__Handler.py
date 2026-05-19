@@ -28,15 +28,15 @@ from typing   import Optional, Callable
 
 from osbot_utils.type_safe.Type_Safe import Type_Safe
 
-from sg_compute_specs.vault_publish.waker.Endpoint__Proxy                        import Endpoint__Proxy
-from sg_compute_specs.vault_publish.waker.Endpoint__Resolver                     import Endpoint__Resolver
-from sg_compute_specs.vault_publish.waker.Endpoint__Resolver__EC2                import Endpoint__Resolver__EC2
-from sg_compute_specs.vault_publish.waker.Warming__Page                          import Warming__Page
-from sg_compute_specs.vault_publish.waker.schemas.Enum__Instance__State          import Enum__Instance__State
-from sg_compute_specs.vault_publish.waker.schemas.Enum__Waker__Action            import Enum__Waker__Action
-from sg_compute_specs.vault_publish.waker.schemas.Enum__Waker__State             import Enum__Waker__State
-from sg_compute_specs.vault_publish.waker.schemas.Schema__Endpoint__Resolution   import Schema__Endpoint__Resolution
-from sg_compute_specs.vault_publish.waker.schemas.Schema__Waker__Request_Context import Schema__Waker__Request_Context
+from sg_compute_specs.vault_publish.lambdas.waker.Endpoint__Proxy                        import Endpoint__Proxy
+from sg_compute_specs.vault_publish.lambdas.waker.Endpoint__Resolver                     import Endpoint__Resolver
+from sg_compute_specs.vault_publish.lambdas.waker.Endpoint__Resolver__EC2                import Endpoint__Resolver__EC2
+from sg_compute_specs.vault_publish.lambdas.waker.Warming__Page                          import Warming__Page
+from sg_compute_specs.vault_publish.lambdas.waker.schemas.Enum__Instance__State          import Enum__Instance__State
+from sg_compute_specs.vault_publish.lambdas.waker.schemas.Enum__Waker__Action            import Enum__Waker__Action
+from sg_compute_specs.vault_publish.lambdas.waker.schemas.Enum__Waker__State             import Enum__Waker__State
+from sg_compute_specs.vault_publish.lambdas.waker.schemas.Schema__Endpoint__Resolution   import Schema__Endpoint__Resolution
+from sg_compute_specs.vault_publish.lambdas.waker.schemas.Schema__Waker__Request_Context import Schema__Waker__Request_Context
 
 
 

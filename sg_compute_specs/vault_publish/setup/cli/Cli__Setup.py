@@ -40,35 +40,51 @@ from sg_compute_specs.vault_publish.setup.service.Setup__CF__Function           
 from sg_compute_specs.vault_publish.setup.service.Setup__ACM                    import Setup__ACM
 from sg_compute_specs.vault_publish.setup.service.Setup__DNS                    import Setup__DNS
 from sg_compute_specs.vault_publish.setup.service.Setup__EC2                    import Setup__EC2
+from sg_compute_specs.vault_publish.setup.service.Setup__Admin__IAM             import Setup__Admin__IAM
+from sg_compute_specs.vault_publish.setup.service.Setup__Admin__Lambda          import Setup__Admin__Lambda
+from sg_compute_specs.vault_publish.setup.service.Setup__Admin__CF              import Setup__Admin__CF
+from sg_compute_specs.vault_publish.setup.service.Setup__Admin__DNS             import Setup__Admin__DNS
 from sg_compute_specs.vault_publish.schemas.Schema__Vault_Publish__Bootstrap__Request import DEFAULT_CERT_ARN, DEFAULT_ZONE
 
-app             = typer.Typer(name='setup',       help='Setup and drift-check for vault-publish AWS resources.', no_args_is_help=True)
-ec2_app         = typer.Typer(name='ec2',         help='EC2 prerequisites (IAM instance profile + base AMI).',   no_args_is_help=True)
-iam_app         = typer.Typer(name='iam',         help='IAM execution role management.',                         no_args_is_help=True)
-lambda_app      = typer.Typer(name='lambda',      help='Lambda waker function management.',                      no_args_is_help=True)
-cf_app          = typer.Typer(name='cf',          help='CloudFront wildcard distribution management.',           no_args_is_help=True)
-cf_function_app = typer.Typer(name='cf-function', help='CloudFront Function — viewer Host → X-Forwarded-Host.',  no_args_is_help=True)
-acm_app         = typer.Typer(name='acm',         help='ACM wildcard certificate management.',                   no_args_is_help=True)
-dns_app         = typer.Typer(name='dns',         help='Route 53 wildcard DNS record management.',               no_args_is_help=True)
+app              = typer.Typer(name='setup',        help='Setup and drift-check for vault-publish AWS resources.', no_args_is_help=True)
+ec2_app          = typer.Typer(name='ec2',          help='EC2 prerequisites (IAM instance profile + base AMI).',   no_args_is_help=True)
+iam_app          = typer.Typer(name='iam',          help='IAM execution role management.',                         no_args_is_help=True)
+lambda_app       = typer.Typer(name='lambda',       help='Lambda waker function management.',                      no_args_is_help=True)
+cf_app           = typer.Typer(name='cf',           help='CloudFront wildcard distribution management.',           no_args_is_help=True)
+cf_function_app  = typer.Typer(name='cf-function',  help='CloudFront Function — viewer Host → X-Forwarded-Host.',  no_args_is_help=True)
+acm_app          = typer.Typer(name='acm',          help='ACM wildcard certificate management.',                   no_args_is_help=True)
+dns_app          = typer.Typer(name='dns',          help='Route 53 wildcard DNS record management.',               no_args_is_help=True)
+admin_iam_app    = typer.Typer(name='admin-iam',    help='Admin Lambda IAM execution role.',                       no_args_is_help=True)
+admin_lambda_app = typer.Typer(name='admin-lambda', help='Admin Lambda (vp-admin) function management.',           no_args_is_help=True)
+admin_cf_app     = typer.Typer(name='admin-cf',     help='Admin CloudFront distribution + single-host ACM cert.',  no_args_is_help=True)
+admin_dns_app    = typer.Typer(name='admin-dns',    help='Route 53 record for vp-admin.<zone>.',                   no_args_is_help=True)
 
-app.add_typer(ec2_app,         name='ec2')
-app.add_typer(iam_app,         name='iam')
-app.add_typer(lambda_app,      name='lambda')
-app.add_typer(cf_app,          name='cf')
-app.add_typer(cf_function_app, name='cf-function')
-app.add_typer(acm_app,         name='acm')
-app.add_typer(dns_app,         name='dns')
+app.add_typer(ec2_app,          name='ec2')
+app.add_typer(iam_app,          name='iam')
+app.add_typer(lambda_app,       name='lambda')
+app.add_typer(cf_app,           name='cf')
+app.add_typer(cf_function_app,  name='cf-function')
+app.add_typer(acm_app,          name='acm')
+app.add_typer(dns_app,          name='dns')
+app.add_typer(admin_iam_app,    name='admin-iam')
+app.add_typer(admin_lambda_app, name='admin-lambda')
+app.add_typer(admin_cf_app,     name='admin-cf')
+app.add_typer(admin_dns_app,    name='admin-dns')
 
 
 # ── service constructors ─────────────────────────────────────────────────────
 
-def _iam()         -> Setup__IAM:          return Setup__IAM()
-def _lambda()      -> Setup__Lambda:       return Setup__Lambda()
-def _cf()          -> Setup__CF:           return Setup__CF()
-def _cf_function() -> Setup__CF__Function: return Setup__CF__Function()
-def _acm()         -> Setup__ACM:          return Setup__ACM()
-def _dns()         -> Setup__DNS:          return Setup__DNS()
-def _ec2()         -> Setup__EC2:          return Setup__EC2()
+def _iam()          -> Setup__IAM:           return Setup__IAM()
+def _lambda()       -> Setup__Lambda:        return Setup__Lambda()
+def _cf()           -> Setup__CF:            return Setup__CF()
+def _cf_function()  -> Setup__CF__Function:  return Setup__CF__Function()
+def _acm()          -> Setup__ACM:           return Setup__ACM()
+def _dns()          -> Setup__DNS:           return Setup__DNS()
+def _ec2()          -> Setup__EC2:           return Setup__EC2()
+def _admin_iam()    -> Setup__Admin__IAM:    return Setup__Admin__IAM()
+def _admin_lambda() -> Setup__Admin__Lambda: return Setup__Admin__Lambda()
+def _admin_cf()     -> Setup__Admin__CF:     return Setup__Admin__CF()
+def _admin_dns()    -> Setup__Admin__DNS:    return Setup__Admin__DNS()
 
 
 # ── shared pre-flight helpers ─────────────────────────────────────────────────
@@ -107,7 +123,7 @@ def _print_aws_error(c: Console, exc: ClientError) -> None:
 # Global commands — operate on all areas at once
 # ═══════════════════════════════════════════════════════════════════════════════
 
-@app.command(name='check', help='Check all areas: ec2 + iam + lambda + cf + cf-function + acm + dns.')
+@app.command(name='check', help='Check all areas: ec2 + iam + lambda + cf + cf-function + acm + dns + admin (4 sub-pieces).')
 def setup_check(
     zone    : str = typer.Option(DEFAULT_ZONE,     '--zone',     help='DNS apex zone'),
     cert_arn: str = typer.Option(DEFAULT_CERT_ARN, '--cert-arn', help='ACM certificate ARN'),
@@ -121,21 +137,29 @@ def setup_check(
 
     # Each entry: (area_label, check_fn, format_detail_fn)
     checks = [
-        ('ec2',         lambda: _ec2().check(),
-                        lambda r: f'profile={r.profile_name} ami={r.ami_id or "(none)"}'),
-        ('iam',         lambda: iam.check(),
-                        lambda r: r.role_arn or r.role_name),
-        ('lambda',      lambda: _lambda().check(),
-                        lambda r: r.function_url or r.function_name),
-        ('cf',          lambda: _cf().check(zone),
-                        lambda r: r.domain_name or f'*.{zone}'),
-        ('cf-function', lambda: _cf_function().check(zone),
-                        lambda r: (f'attached → {r.distribution_id}'
-                                    if r.attached else r.function_name)),
-        ('acm',         lambda: _acm().check(zone),
-                        lambda r: r.cert_arn or f'*.{zone}'),
-        ('dns',         lambda: _dns().check(zone),
-                        lambda r: r.record_value or f'*.{zone}'),
+        ('ec2',          lambda: _ec2().check(),
+                         lambda r: f'profile={r.profile_name} ami={r.ami_id or "(none)"}'),
+        ('iam',          lambda: iam.check(),
+                         lambda r: r.role_arn or r.role_name),
+        ('lambda',       lambda: _lambda().check(),
+                         lambda r: r.function_url or r.function_name),
+        ('cf',           lambda: _cf().check(zone),
+                         lambda r: r.domain_name or f'*.{zone}'),
+        ('cf-function',  lambda: _cf_function().check(zone),
+                         lambda r: (f'attached → {r.distribution_id}'
+                                     if r.attached else r.function_name)),
+        ('acm',          lambda: _acm().check(zone),
+                         lambda r: r.cert_arn or f'*.{zone}'),
+        ('dns',          lambda: _dns().check(zone),
+                         lambda r: r.record_value or f'*.{zone}'),
+        ('admin-iam',    lambda: _admin_iam().check(),
+                         lambda r: r.role_arn or r.role_name),
+        ('admin-lambda', lambda: _admin_lambda().check(),
+                         lambda r: r.function_url or r.function_name),
+        ('admin-cf',     lambda: _admin_cf().check(zone),
+                         lambda r: r.domain_name or f'vp-admin.{zone}'),
+        ('admin-dns',    lambda: _admin_dns().check(zone),
+                         lambda r: r.record_value or f'vp-admin.{zone}'),
     ]
 
     # results[i] = (area_label, state_or_None, detail) — None state == pending
@@ -251,6 +275,46 @@ def setup_create(
         c.print(f'  [red]✗  dns: {exc}[/]')
         exit_code = 1
 
+    # 6 — admin IAM (independent of waker IAM)
+    c.print('  [yellow]→[/]  admin-iam create…')
+    try:
+        airep = _admin_iam().create()
+        icon = '[green]✓[/]' if airep.state == Enum__Setup__State.OK else '[yellow]⚠[/]'
+        c.print(f'  {icon}  admin-iam  {airep.role_arn or airep.role_name}')
+        if airep.state not in (Enum__Setup__State.OK,): exit_code = 1
+    except (ClientError, RuntimeError, Exception) as exc:
+        c.print(f'  [red]✗  admin-iam: {exc}[/]'); exit_code = 1
+
+    # 7 — admin Lambda (depends on admin-iam)
+    c.print('  [yellow]→[/]  admin-lambda create…')
+    try:
+        alrep = _admin_lambda().create()
+        icon = '[green]✓[/]' if alrep.state == Enum__Setup__State.OK else '[yellow]⚠[/]'
+        c.print(f'  {icon}  admin-lambda  {alrep.function_url or alrep.function_name}')
+        if alrep.state not in (Enum__Setup__State.OK,): exit_code = 1
+    except (ClientError, RuntimeError, Exception) as exc:
+        c.print(f'  [red]✗  admin-lambda: {exc}[/]'); exit_code = 1
+
+    # 8 — admin CF + ACM cert (depends on admin Lambda URL; slow — cert validation ~5-30 min)
+    c.print('  [yellow]→[/]  admin-cf create (provisions single-host ACM cert — may take 5-30 min)…')
+    try:
+        acfrep = _admin_cf().create(zone)
+        icon = '[green]✓[/]' if acfrep.state == Enum__Setup__State.OK else '[yellow]⚠[/]'
+        c.print(f'  {icon}  admin-cf  {acfrep.domain_name or acfrep.distribution_id}')
+        if acfrep.state not in (Enum__Setup__State.OK,): exit_code = 1
+    except (ClientError, RuntimeError, Exception) as exc:
+        c.print(f'  [red]✗  admin-cf: {exc}[/]'); exit_code = 1
+
+    # 9 — admin DNS (depends on admin CF)
+    c.print('  [yellow]→[/]  admin-dns create…')
+    try:
+        adrep = _admin_dns().create(zone)
+        icon = '[green]✓[/]' if adrep.state == Enum__Setup__State.OK else '[yellow]⚠[/]'
+        c.print(f'  {icon}  admin-dns  {adrep.record_value or adrep.record_name}')
+        if adrep.state not in (Enum__Setup__State.OK,): exit_code = 1
+    except (ClientError, RuntimeError, Exception) as exc:
+        c.print(f'  [red]✗  admin-dns: {exc}[/]'); exit_code = 1
+
     c.print()
     if exit_code:
         raise typer.Exit(exit_code)
@@ -318,6 +382,38 @@ def setup_update(
         c.print(f'  [red]✗  dns: {exc}[/]')
         exit_code = 1
 
+    c.print('  [yellow]→[/]  admin-iam update…')
+    try:
+        airep = _admin_iam().update()
+        icon = '[green]✓[/]' if airep.state == Enum__Setup__State.OK else '[yellow]⚠[/]'
+        c.print(f'  {icon}  admin-iam')
+    except (ClientError, RuntimeError, Exception) as exc:
+        c.print(f'  [red]✗  admin-iam: {exc}[/]'); exit_code = 1
+
+    c.print('  [yellow]→[/]  admin-lambda update…')
+    try:
+        alrep = _admin_lambda().update()
+        icon = '[green]✓[/]' if alrep.state == Enum__Setup__State.OK else '[yellow]⚠[/]'
+        c.print(f'  {icon}  admin-lambda  {alrep.function_url or alrep.function_name}')
+    except (ClientError, RuntimeError, Exception) as exc:
+        c.print(f'  [red]✗  admin-lambda: {exc}[/]'); exit_code = 1
+
+    c.print('  [yellow]→[/]  admin-cf update (ensure)…')
+    try:
+        acfrep = _admin_cf().update(zone)
+        icon = '[green]✓[/]' if acfrep.state == Enum__Setup__State.OK else '[yellow]⚠[/]'
+        c.print(f'  {icon}  admin-cf  {acfrep.domain_name or acfrep.distribution_id}')
+    except (ClientError, RuntimeError, Exception) as exc:
+        c.print(f'  [red]✗  admin-cf: {exc}[/]'); exit_code = 1
+
+    c.print('  [yellow]→[/]  admin-dns update (ensure)…')
+    try:
+        adrep = _admin_dns().create(zone)
+        icon = '[green]✓[/]' if adrep.state == Enum__Setup__State.OK else '[yellow]⚠[/]'
+        c.print(f'  {icon}  admin-dns  {adrep.record_value or adrep.record_name}')
+    except (ClientError, RuntimeError, Exception) as exc:
+        c.print(f'  [red]✗  admin-dns: {exc}[/]'); exit_code = 1
+
     c.print()
     if exit_code:
         raise typer.Exit(exit_code)
@@ -342,11 +438,15 @@ def setup_delete(
     exit_code = 0
 
     for label, fn in [
-        ('dns',         lambda: _dns().delete(zone)),
-        ('cf-function', lambda: _cf_function().delete(zone)),
-        ('cf',          lambda: _cf().delete(zone)),
-        ('lambda',      lambda: _lambda().delete()),
-        ('iam',         lambda: iam.delete()),
+        ('admin-dns',    lambda: _admin_dns().delete(zone)),
+        ('admin-cf',     lambda: _admin_cf().delete(zone)),
+        ('admin-lambda', lambda: _admin_lambda().delete()),
+        ('admin-iam',    lambda: _admin_iam().delete()),
+        ('dns',          lambda: _dns().delete(zone)),
+        ('cf-function',  lambda: _cf_function().delete(zone)),
+        ('cf',           lambda: _cf().delete(zone)),
+        ('lambda',       lambda: _lambda().delete()),
+        ('iam',          lambda: iam.delete()),
     ]:
         c.print(f'  [yellow]→[/]  {label} delete…')
         try:
@@ -1315,3 +1415,305 @@ def _print_cf_function_report(c: Console, rep) -> None:
     for issue in rep.issues:
         sev_colour = {'error': 'red', 'warn': 'yellow', 'info': 'dim'}.get(issue.severity, 'white')
         c.print(f'  [{sev_colour}]{issue.severity.upper()}: {issue.message}[/]')
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# sg vault-publish setup admin-iam *
+# ═══════════════════════════════════════════════════════════════════════════════
+
+@admin_iam_app.command(name='check', help='Check live admin IAM role vs Admin__Policy__Template.')
+def admin_iam_check(output_json: bool = typer.Option(False, '--json')):
+    c   = Console(highlight=False)
+    svc = _admin_iam()
+    _print_role_notice(c, svc)
+    if not _preflight(c, _iam()):       # share preflight with the waker IAM setup
+        raise typer.Exit(1)
+    try:
+        rep = svc.check()
+    except (ClientError, Exception) as exc:
+        _handle_exc(c, exc); raise typer.Exit(1)
+    if output_json:
+        c.print(json.dumps({'state': str(rep.state), 'role_name': rep.role_name,
+                            'role_exists': rep.role_exists, 'policy_matches': rep.policy_matches}, indent=2))
+        if rep.state != Enum__Setup__State.OK: raise typer.Exit(1)
+        return
+    _print_iam_report(c, rep)
+    if rep.state != Enum__Setup__State.OK: raise typer.Exit(1)
+
+
+@admin_iam_app.command(name='status', help='Pretty-print live admin IAM role config.')
+def admin_iam_status():
+    c   = Console(highlight=False)
+    svc = _admin_iam()
+    _print_role_notice(c, svc)
+    if not _preflight(c, _iam()): raise typer.Exit(1)
+    info = svc.status()
+    c.print()
+    for k, v in info.items():
+        c.print(f'  {k:<22}: {v}')
+    c.print()
+
+
+@admin_iam_app.command(name='create', help='Create admin IAM role + policy.')
+def admin_iam_create():
+    c   = Console(highlight=False)
+    svc = _admin_iam()
+    _print_role_notice(c, svc)
+    if not _preflight(c, _iam()): raise typer.Exit(1)
+    c.print('\n  [yellow]→[/]  Creating admin IAM role…')
+    try:
+        rep = svc.create()
+    except (RuntimeError, ClientError, Exception) as exc:
+        _handle_exc(c, exc); raise typer.Exit(1)
+    _print_iam_report(c, rep)
+    if rep.state == Enum__Setup__State.OK:
+        c.print('  [green]✓[/]  Admin IAM role ready')
+    c.print()
+
+
+@admin_iam_app.command(name='update', help='Sync admin inline policy with Admin__Policy__Template.')
+def admin_iam_update():
+    c   = Console(highlight=False)
+    svc = _admin_iam()
+    _print_role_notice(c, svc)
+    if not _preflight(c, _iam()): raise typer.Exit(1)
+    c.print('\n  [yellow]→[/]  Updating admin IAM inline policy…')
+    try:
+        rep = svc.update()
+    except (RuntimeError, ClientError, Exception) as exc:
+        _handle_exc(c, exc); raise typer.Exit(1)
+    _print_iam_report(c, rep)
+    if rep.state == Enum__Setup__State.OK:
+        c.print('  [green]✓[/]  Admin policy updated')
+    c.print()
+
+
+@admin_iam_app.command(name='delete', help='Delete admin IAM role.')
+def admin_iam_delete(yes: bool = typer.Option(False, '--yes', '-y')):
+    c   = Console(highlight=False)
+    svc = _admin_iam()
+    _print_role_notice(c, svc)
+    if not _preflight(c, _iam()): raise typer.Exit(1)
+    if not yes:
+        if not typer.confirm('  Delete admin IAM role?'):
+            raise typer.Exit(0)
+    try:
+        rep = svc.delete()
+    except (RuntimeError, ClientError, Exception) as exc:
+        _handle_exc(c, exc); raise typer.Exit(1)
+    _print_iam_report(c, rep)
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# sg vault-publish setup admin-lambda *
+# ═══════════════════════════════════════════════════════════════════════════════
+
+@admin_lambda_app.command(name='check', help='Check live admin Lambda config.')
+def admin_lambda_check():
+    c   = Console(highlight=False)
+    svc = _admin_lambda()
+    if not _preflight(c, _iam()): raise typer.Exit(1)
+    try:
+        rep = svc.check()
+    except (ClientError, Exception) as exc:
+        _handle_exc(c, exc); raise typer.Exit(1)
+    _print_lambda_report(c, rep)
+    if rep.state != Enum__Setup__State.OK: raise typer.Exit(1)
+
+
+@admin_lambda_app.command(name='status', help='Pretty-print live admin Lambda config.')
+def admin_lambda_status():
+    c   = Console(highlight=False)
+    svc = _admin_lambda()
+    if not _preflight(c, _iam()): raise typer.Exit(1)
+    info = svc.status()
+    c.print()
+    for k, v in info.items():
+        c.print(f'  {k:<26}: {v}')
+    c.print()
+
+
+@admin_lambda_app.command(name='create', help='Deploy the admin Lambda.')
+def admin_lambda_create(role_arn: str = typer.Option('', '--role-arn')):
+    c   = Console(highlight=False)
+    svc = _admin_lambda()
+    if not _preflight(c, _iam()): raise typer.Exit(1)
+    c.print('\n  [yellow]→[/]  Deploying admin Lambda…')
+    try:
+        rep = svc.create(role_arn=role_arn)
+    except (RuntimeError, ClientError, Exception) as exc:
+        _handle_exc(c, exc); raise typer.Exit(1)
+    _print_lambda_report(c, rep)
+
+
+@admin_lambda_app.command(name='update', help='Redeploy the admin Lambda.')
+def admin_lambda_update():
+    c   = Console(highlight=False)
+    svc = _admin_lambda()
+    if not _preflight(c, _iam()): raise typer.Exit(1)
+    c.print('\n  [yellow]→[/]  Redeploying admin Lambda…')
+    try:
+        rep = svc.update()
+    except (RuntimeError, ClientError, Exception) as exc:
+        _handle_exc(c, exc); raise typer.Exit(1)
+    _print_lambda_report(c, rep)
+
+
+@admin_lambda_app.command(name='delete', help='Delete the admin Lambda.')
+def admin_lambda_delete(yes: bool = typer.Option(False, '--yes', '-y')):
+    c   = Console(highlight=False)
+    svc = _admin_lambda()
+    if not _preflight(c, _iam()): raise typer.Exit(1)
+    if not yes:
+        if not typer.confirm('  Delete admin Lambda?'):
+            raise typer.Exit(0)
+    try:
+        ok = svc.delete()
+    except (RuntimeError, ClientError, Exception) as exc:
+        _handle_exc(c, exc); raise typer.Exit(1)
+    c.print(f'  {"[green]✓[/]  admin Lambda deleted" if ok else "[red]✗[/]  delete failed"}')
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# sg vault-publish setup admin-cf *  (ACM cert + CF distribution combined)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+@admin_cf_app.command(name='check', help='Check admin CF distribution + verify cert is single-host (NOT wildcard).')
+def admin_cf_check(zone: str = typer.Option(DEFAULT_ZONE, '--zone')):
+    c   = Console(highlight=False)
+    svc = _admin_cf()
+    if not _preflight(c, _iam()): raise typer.Exit(1)
+    try:
+        rep = svc.check(zone)
+    except (ClientError, Exception) as exc:
+        _handle_exc(c, exc); raise typer.Exit(1)
+    _print_cf_report(c, rep)
+    if rep.state != Enum__Setup__State.OK: raise typer.Exit(1)
+
+
+@admin_cf_app.command(name='status', help='Pretty-print admin CF distribution config.')
+def admin_cf_status(zone: str = typer.Option(DEFAULT_ZONE, '--zone')):
+    c   = Console(highlight=False)
+    svc = _admin_cf()
+    if not _preflight(c, _iam()): raise typer.Exit(1)
+    info = svc.status(zone)
+    c.print()
+    for k, v in info.items():
+        c.print(f'  {k:<18}: {v}')
+    c.print()
+
+
+@admin_cf_app.command(name='create', help='Provision admin CF + single-host ACM cert (waits for DNS validation, up to 30 min).')
+def admin_cf_create(
+    zone               : str = typer.Option(DEFAULT_ZONE, '--zone'),
+    cert_wait_timeout  : int = typer.Option(1800, '--cert-wait-timeout',
+                                              help='Max seconds to wait for ACM DNS validation (default 30 min).'),
+):
+    c   = Console(highlight=False)
+    svc = _admin_cf()
+    if not _preflight(c, _iam()): raise typer.Exit(1)
+
+    def _prog(stage, detail):
+        c.print(f'  [dim]   {stage}  {detail}[/]')
+
+    c.print(f'\n  [yellow]→[/]  Provisioning admin CF distribution + ACM cert for vp-admin.{zone}…')
+    try:
+        rep = svc.create(zone, cert_wait_timeout_sec=cert_wait_timeout, progress=_prog)
+    except (RuntimeError, ClientError, Exception) as exc:
+        _handle_exc(c, exc); raise typer.Exit(1)
+    _print_cf_report(c, rep)
+
+
+@admin_cf_app.command(name='update', help='Re-ensure admin CF distribution + cert.')
+def admin_cf_update(zone: str = typer.Option(DEFAULT_ZONE, '--zone')):
+    c   = Console(highlight=False)
+    svc = _admin_cf()
+    if not _preflight(c, _iam()): raise typer.Exit(1)
+
+    def _prog(stage, detail):
+        c.print(f'  [dim]   {stage}  {detail}[/]')
+
+    c.print(f'\n  [yellow]→[/]  Updating admin CF distribution…')
+    try:
+        rep = svc.update(zone, progress=_prog)
+    except (RuntimeError, ClientError, Exception) as exc:
+        _handle_exc(c, exc); raise typer.Exit(1)
+    _print_cf_report(c, rep)
+
+
+@admin_cf_app.command(name='delete', help='Delete admin CF distribution.')
+def admin_cf_delete(
+    zone : str  = typer.Option(DEFAULT_ZONE, '--zone'),
+    yes  : bool = typer.Option(False, '--yes', '-y'),
+):
+    c   = Console(highlight=False)
+    svc = _admin_cf()
+    if not _preflight(c, _iam()): raise typer.Exit(1)
+    if not yes:
+        if not typer.confirm(f'  Delete admin CF distribution for vp-admin.{zone}?'):
+            raise typer.Exit(0)
+    try:
+        ok = svc.delete(zone)
+    except (RuntimeError, ClientError, Exception) as exc:
+        _handle_exc(c, exc); raise typer.Exit(1)
+    c.print(f'  {"[green]✓[/]  admin CF deleted" if ok else "[red]✗[/]  delete failed (already gone?)"}')
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# sg vault-publish setup admin-dns *
+# ═══════════════════════════════════════════════════════════════════════════════
+
+@admin_dns_app.command(name='check', help='Check Route 53 record for vp-admin.<zone>.')
+def admin_dns_check(zone: str = typer.Option(DEFAULT_ZONE, '--zone')):
+    c   = Console(highlight=False)
+    svc = _admin_dns()
+    if not _preflight(c, _iam()): raise typer.Exit(1)
+    try:
+        rep = svc.check(zone)
+    except (ClientError, Exception) as exc:
+        _handle_exc(c, exc); raise typer.Exit(1)
+    _print_dns_report(c, rep)
+    if rep.state != Enum__Setup__State.OK: raise typer.Exit(1)
+
+
+@admin_dns_app.command(name='status', help='Pretty-print admin DNS record.')
+def admin_dns_status(zone: str = typer.Option(DEFAULT_ZONE, '--zone')):
+    c   = Console(highlight=False)
+    svc = _admin_dns()
+    if not _preflight(c, _iam()): raise typer.Exit(1)
+    info = svc.status(zone)
+    c.print()
+    for k, v in info.items():
+        c.print(f'  {k:<12}: {v}')
+    c.print()
+
+
+@admin_dns_app.command(name='create', help='Create CNAME vp-admin.<zone> → admin CF distribution.')
+def admin_dns_create(zone: str = typer.Option(DEFAULT_ZONE, '--zone')):
+    c   = Console(highlight=False)
+    svc = _admin_dns()
+    if not _preflight(c, _iam()): raise typer.Exit(1)
+    c.print(f'\n  [yellow]→[/]  Upserting Route 53 record for vp-admin.{zone}…')
+    try:
+        rep = svc.create(zone)
+    except (RuntimeError, ClientError, Exception) as exc:
+        _handle_exc(c, exc); raise typer.Exit(1)
+    _print_dns_report(c, rep)
+
+
+@admin_dns_app.command(name='delete', help='Delete admin DNS record.')
+def admin_dns_delete(
+    zone : str  = typer.Option(DEFAULT_ZONE, '--zone'),
+    yes  : bool = typer.Option(False, '--yes', '-y'),
+):
+    c   = Console(highlight=False)
+    svc = _admin_dns()
+    if not _preflight(c, _iam()): raise typer.Exit(1)
+    if not yes:
+        if not typer.confirm(f'  Delete admin DNS record vp-admin.{zone}?'):
+            raise typer.Exit(0)
+    try:
+        ok = svc.delete(zone)
+    except (RuntimeError, ClientError, Exception) as exc:
+        _handle_exc(c, exc); raise typer.Exit(1)
+    c.print(f'  {"[green]✓[/]  admin DNS record deleted" if ok else "[red]✗[/]  delete failed"}')

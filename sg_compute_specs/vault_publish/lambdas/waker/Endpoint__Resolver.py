@@ -7,7 +7,7 @@
 
 from osbot_utils.type_safe.Type_Safe import Type_Safe
 
-from sg_compute_specs.vault_publish.waker.schemas.Schema__Endpoint__Resolution import Schema__Endpoint__Resolution
+from sg_compute_specs.vault_publish.lambdas.waker.schemas.Schema__Endpoint__Resolution import Schema__Endpoint__Resolution
 
 
 class Endpoint__Resolver(Type_Safe):

@@ -67,7 +67,7 @@ form.login button { margin-top: 1.2rem; }
 def _header(active: str = '') -> str:
     def link(slug, label):
         cls = ' style="font-weight:600"' if slug == active else ''
-        return f'<a href="/__admin__/{slug}"{cls}>{label}</a>'
+        return f'<a href="/{slug}"{cls}>{label}</a>'
     return f"""
 <header>
   <h1>SG/Vault — admin</h1>
@@ -75,7 +75,7 @@ def _header(active: str = '') -> str:
     {link('', 'Inventory')}
     {link('setup/', 'Setup')}
     <a href="/__waker__/console" target="_blank">Console</a>
-    <a href="/__admin__/logout">Logout</a>
+    <a href="/logout">Logout</a>
   </nav>
 </header>
 """
@@ -94,7 +94,7 @@ def render_login(flash: str = '', flash_kind: str = '') -> str:
   <style>{_CSS}</style>
 </head>
 <body>
-<form class="login" method="POST" action="/__admin__/login">
+<form class="login" method="POST" action="/login">
   <h1 style="text-align:center;">SG/Vault admin</h1>
   <p class="muted" style="text-align:center;">Paste your admin API key to continue.</p>
   {flash_html}
@@ -128,7 +128,7 @@ def render_inventory(entries: list, zone: str) -> str:
                     'stopped': 'idle', 'unknown': 'err'}.get(st, 'err')
             rows.append(
                 f'<tr>'
-                f'<td><a href="/__admin__/slug/{slug}/"><code>{slug}</code></a></td>'
+                f'<td><a href="/slug/{slug}/"><code>{slug}</code></a></td>'
                 f'<td><a href="https://{fqdn}/" target="_blank" class="mono">{fqdn}</a></td>'
                 f'<td><span class="dot {cls}"></span>{html_lib.escape(st)}</td>'
                 f'<td class="mono">{iid}</td>'
@@ -152,7 +152,7 @@ def render_inventory(entries: list, zone: str) -> str:
 <script>
   async function refresh() {{
     try {{
-      const resp = await fetch('/__admin__/api/v1/list', {{ cache: 'no-store', credentials: 'include' }});
+      const resp = await fetch('/api/v1/list', {{ cache: 'no-store', credentials: 'include' }});
       if (!resp.ok) return;
       const data = await resp.json();
       // Re-render rows in place; full page swap would lose scroll position.
@@ -164,7 +164,7 @@ def render_inventory(entries: list, zone: str) -> str:
       tbody.innerHTML = data.entries.map(e => {{
         const cls = ({{running:'ok',pending:'warn',stopping:'warn',stopped:'idle',unknown:'err'}})[e.state] || 'err';
         return `<tr>
-          <td><a href="/__admin__/slug/${{e.slug}}/"><code>${{e.slug}}</code></a></td>
+          <td><a href="/slug/${{e.slug}}/"><code>${{e.slug}}</code></a></td>
           <td><a href="https://${{e.fqdn}}/" target="_blank" class="mono">${{e.fqdn}}</a></td>
           <td><span class="dot ${{cls}}"></span>${{e.state}}</td>
           <td class="mono">${{e.instance_id || '—'}}</td>
@@ -206,7 +206,7 @@ def render_slug(slug: str, eval_steps: list, status: dict) -> str:
 </head>
 <body>
 {_header()}
-<p><a href="/__admin__/" class="muted">← back to inventory</a></p>
+<p><a href="/" class="muted">← back to inventory</a></p>
 <h2 style="margin-top:0.5rem;">{html_lib.escape(slug)}</h2>
 
 <h3 style="font-size:1rem;color:#555;">Status</h3>
@@ -217,7 +217,7 @@ def render_slug(slug: str, eval_steps: list, status: dict) -> str:
 
 <p style="margin-top:2rem;">
   <a class="btn primary" href="https://{html_lib.escape(status.get('fqdn', ''))}/" target="_blank">Open vault</a>
-  <a class="btn" href="/__admin__/api/v1/eval?slug={html_lib.escape(slug)}" target="_blank">Raw JSON</a>
+  <a class="btn" href="/api/v1/eval?slug={html_lib.escape(slug)}" target="_blank">Raw JSON</a>
 </p>
 </body>
 </html>

@@ -13,7 +13,7 @@
 #
 #   Rule: every commit that changes the LAMBDA RUNTIME CODE must bump the
 #   rightmost component (.z) of that file in the same commit. "Lambda runtime
-#   code" = anything in sg_compute_specs/vault_publish/waker/** plus any
+#   code" = anything in sg_compute_specs/vault_publish/lambdas/waker/** plus any
 #   schema referenced by Fast_API__Waker / Waker__Handler.
 #
 #   Out of scope (no bump needed):
@@ -61,7 +61,7 @@ from sg_compute_specs.vault_publish.setup.schemas.Schema__Setup__Issue          
 from sg_compute_specs.vault_publish.setup.schemas.Schema__Setup__Lambda__Report    import Schema__Setup__Lambda__Report
 
 WAKER_LAMBDA_NAME = 'sg-compute-vault-publish-waker'
-WAKER_HANDLER     = 'sg_compute_specs.vault_publish.waker.lambda_entry.handler'
+WAKER_HANDLER     = 'sg_compute_specs.vault_publish.lambdas.waker.lambda_entry.handler'
 EXPECTED_RUNTIME  = 'python3.12'
 EXPECTED_MEMORY   = 512
 EXPECTED_TIMEOUT  = 60
@@ -284,7 +284,7 @@ def _build_deploy_env(vault_publish_dir: str) -> dict:
     # reading the existing env var from the live Lambda config. The operator
     # sees the value in the deploy report so they can paste it into the
     # browser login form.
-    from sg_compute_specs.vault_publish.admin.Admin__Auth import (
+    from sg_compute_specs.vault_publish.lambdas.admin.Admin__Auth import (
         DEFAULT_NAME as ADMIN_KEY_DEFAULT_NAME, generate_key_value)
     existing_env = {}
     try:
@@ -302,33 +302,10 @@ def _build_deploy_env(vault_publish_dir: str) -> dict:
         existing_env.get('SG_VAULT_PUBLISH__ADMIN__API_KEY_VALUE') or
         os.environ.get('SG_VAULT_PUBLISH__ADMIN__API_KEY_VALUE') or
         generate_key_value())
-    # Lambda's own Function URL. Used by Warming__Page to poll cross-origin
-    # from the slug FQDN (different origin → different IPs → different socket
-    # pool slot in the browser → no DNS pinning on the slug FQDN socket).
-    # NOT using a same-zone subdomain like waker.aws.sg-labs.app for this
-    # because HTTP/2 connection coalescing kicks in: the * wildcard cert
-    # covers both subdomains and CloudFront serves both from overlapping IPs,
-    # so Chrome reuses the same H2 connection — defeating the whole point.
-    # The Lambda Function URL has its own IPs + its own cert → no coalescing.
-    #
-    # Discovered best-effort here; on first create the URL doesn't exist yet
-    # so this is empty — a second `sg vp setup lambda update` after the URL
-    # is provisioned will pick it up and bake it in.
-    try:
-        from sgraph_ai_service_playwright__cli.aws.lambda_.service.Lambda__AWS__Client import Lambda__AWS__Client
-        url_info = Lambda__AWS__Client().get_function_url(WAKER_LAMBDA_NAME)
-        if getattr(url_info, 'exists', False) and getattr(url_info, 'function_url', ''):
-            env['WAKER_LAMBDA_FUNCTION_URL'] = str(url_info.function_url).rstrip('/')
-        else:
-            import sys
-            print(f'[_build_deploy_env] WAKER_LAMBDA_FUNCTION_URL not baked — '
-                  f'function URL does not exist yet (exists={getattr(url_info, "exists", None)}, '
-                  f'url={getattr(url_info, "function_url", None)!r}). Re-run after ensure-url '
-                  f'has provisioned the URL.', file=sys.stderr)
-    except Exception as e:
-        import sys
-        print(f'[_build_deploy_env] WAKER_LAMBDA_FUNCTION_URL discovery failed: '
-              f'{type(e).__name__}: {e}', file=sys.stderr)
+    # WAKER_LAMBDA_FUNCTION_URL was baked here pre-v0.1.16 when the warming
+    # page polled the waker's own Function URL. The admin Lambda split
+    # (v0.1.16) moved status polling to vp-admin.<zone> — see Warming__Page —
+    # so we no longer need this env var on the waker. Removed.
     return env
 
 

@@ -8,7 +8,7 @@ import json
 
 from typer.testing import CliRunner
 
-from sg_compute_specs.vault_publish.waker.cli.Cli__Waker import app
+from sg_compute_specs.vault_publish.lambdas.waker.cli.Cli__Waker import app
 
 
 class TestCli__Waker__FakeEvent:
