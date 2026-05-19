@@ -48,24 +48,45 @@ def register(slug                  : str  = typer.Argument(..., help='DNS slug (
              wait                  : bool = typer.Option(False, '--wait', '-w', help='After register, poll the EC2 until it is RUNNING + reachable. Same shape as `sg vp wake`.'),
              timeout               : int  = typer.Option(600, '--timeout', '-t', help='Max seconds to wait when --wait is set (covers EC2 launch + vault-app boot + LE cert init).'),
              no_tls                : bool = typer.Option(False, '--no-tls', help='Provision the EC2 WITHOUT cert-init / WITHOUT TLS on :443. Vault listens on :8080 HTTP only. Viewers still get HTTPS via the CloudFront wildcard cert (CF → Lambda → EC2 chain), but direct https://<ip>/ access from the operator will not work. Useful to validate the full routing chain without the cert dependency — issue the cert later with `sg va cert-renew`.'),
+             ami                   : str  = typer.Option('', '--ami', help='AMI id to launch from. Empty (default) = auto-detect the latest baked vault-app AMI (`sg va ami list`); falls back to Amazon Linux 2023 if no baked AMI exists. Baked AMIs shave ~40-60s off boot by skipping dnf install + ECR pull.'),
+             no_ami                : bool = typer.Option(False, '--no-ami', help='Skip baked-AMI auto-detection and force-launch from Amazon Linux 2023 (cold-start path). Useful when you want to verify the dnf-install / ECR-pull flow works against a fresh OS.'),
              force_region_mismatch : bool = typer.Option(False, '--force-region-mismatch', help='Proceed even when --region differs from the waker Lambda\'s deploy region. Routing still works (waker scans multiple regions) but Lambda → EC2 calls cross AZ boundaries — measurably slower.')):
     import os
-    from sg_compute_specs.vault_publish.service.Vault_Publish__Service import _default_zone
+    from sg_compute_specs.vault_publish.service.Vault_Publish__Service import _default_zone, _resolve_latest_baked_ami
     c = Console(highlight=False)
 
     fqdn  = f'{slug}.{_default_zone()}'
     waker_region = os.environ.get('WAKER_DEPLOY_REGION', '') or _detect_waker_region()
+
+    # Resolve AMI before the summary so the operator can see what'll be used.
+    # --ami overrides everything; --no-ami forces empty (= AL2023 default);
+    # default resolves to latest baked vault-app AMI in this region.
+    if no_ami:
+        ami_resolved = ''
+        ami_source   = 'forced AL2023 (--no-ami)'
+    elif ami:
+        ami_resolved = ami
+        ami_source   = 'explicit --ami'
+    else:
+        ami_resolved = _resolve_latest_baked_ami(region)
+        ami_source   = 'auto-detected baked vault-app AMI' if ami_resolved else 'no baked AMI found → AL2023 default'
 
     # Up-front summary so the operator sees the exact call shape BEFORE it runs.
     c.print()
     tls_marker = '[yellow](no TLS — pure HTTP)[/]' if no_tls else '[green](TLS via LE)[/]'
     c.print(f'  [bold]sg vp register[/]  slug=[cyan]{slug}[/]  region=[cyan]{region}[/]  {tls_marker}')
     c.print(f'  [dim]→ FQDN              : {fqdn}[/]')
+    if ami_resolved:
+        c.print(f'  [dim]→ AMI               : [/][cyan]{ami_resolved}[/]  [dim]({ami_source})[/]')
+    else:
+        c.print(f'  [dim]→ AMI               : Amazon Linux 2023 (latest, via SSM param)  ({ami_source})[/]')
     c.print(f'  [dim]→ Underlying VA call: Vault_App__Service.create_stack([/]')
     c.print(f'  [dim]    stack_name      = {slug!r},[/]')
     c.print(f'  [dim]    region          = {region!r},[/]')
     c.print(f'  [dim]    with_aws_dns    = True,[/]')
     c.print(f'  [dim]    with_tls_check  = {(not no_tls)!r},[/]')
+    if ami_resolved:
+        c.print(f'  [dim]    from_ami        = {ami_resolved!r},[/]')
     if not no_tls:
         c.print(f'  [dim]    tls_hostname    = {fqdn!r},[/]')
         c.print(f'  [dim]    tls_mode        = "letsencrypt-hostname",[/]')
@@ -91,7 +112,8 @@ def register(slug                  : str  = typer.Argument(..., help='DNS slug (
         slug      = Safe_Str__Slug(slug),
         vault_key = Safe_Str__Vault__Key(vault_key),
         region    = region,
-        with_tls  = not no_tls)
+        with_tls  = not no_tls,
+        from_ami  = ami_resolved)
     resp = _svc().register(req)
     if not str(getattr(resp, 'fqdn', '')):
         c.print(f'  [red]✗  {resp.message}[/]')

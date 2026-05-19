@@ -111,6 +111,15 @@ class Vault_Publish__Service(Type_Safe):
         create_req.region        = region
         create_req.with_aws_dns  = True
         create_req.with_tls_check= with_tls
+        # AMI: explicit override (request.from_ami) > auto-detect latest baked
+        # vault-app AMI > default (Amazon Linux 2023 resolved by AMI__Helper
+        # inside create_stack). Baked AMIs skip dnf install + ECR pull at
+        # boot, shaving ~40-60s off the cold-start path.
+        from_ami = str(getattr(request, 'from_ami', '') or '').strip()
+        if not from_ami:
+            from_ami = _resolve_latest_baked_ami(region)
+        if from_ami:
+            create_req.from_ami = from_ami
         if with_tls:
             create_req.tls_hostname = fqdn
             create_req.tls_mode     = 'letsencrypt-hostname'
@@ -265,6 +274,21 @@ class Vault_Publish__Service(Type_Safe):
             message         = 'bootstrapped',
             elapsed_ms      = int((time.monotonic() - t0) * 1000),
         )
+
+
+def _resolve_latest_baked_ami(region: str) -> str:
+    # Look for a baked vault-app AMI in this region; return the newest
+    # available one or '' on any failure. Never raises — the create path
+    # falls through to the Amazon Linux 2023 default if we return empty.
+    try:
+        from sg_compute.core.ami.service.AMI__Lister import AMI__Lister
+        resp = AMI__Lister(region=region or DEFAULT_REGION).list_amis('vault-app')
+        for ami in resp.amis:
+            if str(ami.state) == 'available':
+                return str(ami.ami_id)
+    except Exception:
+        pass
+    return ''
 
 
 def _map_state(state_raw: str) -> Enum__Vault_Publish__State:
