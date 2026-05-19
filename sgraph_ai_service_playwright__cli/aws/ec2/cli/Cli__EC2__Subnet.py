@@ -3,10 +3,15 @@
 # Typer CLI surface for `sg aws ec2 subnet *` commands.
 #
 # Command tree:
-#   sg aws ec2 subnet list  [--vpc <vpc-id>] [--az <az>] [--json]
-#   sg aws ec2 subnet show  <subnet-id>                  [--json]
+#   sg aws ec2 subnet list        [--vpc <vpc-id>] [--az <az>]            [--json]
+#   sg aws ec2 subnet show        <subnet-id>                              [--json]
+#   sg aws ec2 subnet create      --vpc <vpc-id> --cidr <cidr>
+#                                 [--az <az>] [--name <tag>] [--public]
+#                                 [--yes] [--json]
+#   sg aws ec2 subnet delete      <subnet-id> [--yes] [--json]
+#   sg aws ec2 subnet modify-attr <subnet-id> [--public/--no-public] [--json]
 #
-# Read-only commands — no mutation gate required (Slice 1 of 3).
+# Mutations require SG_AWS__EC2__ALLOW_MUTATIONS=1.
 # ═══════════════════════════════════════════════════════════════════════════════
 
 import json
@@ -16,12 +21,15 @@ from rich.console import Console
 from rich.table   import Table
 
 from sg_compute.cli.base.Spec__CLI__Errors                                  import spec_cli_errors
+from sgraph_ai_service_playwright__cli.aws._shared.Mutation__Gate           import require_mutation_gate
 from sgraph_ai_service_playwright__cli.aws.ec2.service.EC2__AWS__Client     import EC2__AWS__Client
 
 
+_MUTATION_ENV = 'SG_AWS__EC2__ALLOW_MUTATIONS'
+
 console = Console()
 
-app = typer.Typer(name='subnet', help='EC2 Subnet inspection (read-only).',
+app = typer.Typer(name='subnet', help='EC2 Subnet inspection and mutation.',
                   no_args_is_help=True)
 
 
@@ -120,3 +128,92 @@ def subnet_show(ctx       : typer.Context,
     console.print()
     console.print(t)
     console.print()
+
+
+# ── create ────────────────────────────────────────────────────────────────────
+
+@app.command('create')
+@spec_cli_errors
+@require_mutation_gate(_MUTATION_ENV)
+def subnet_create(ctx     : typer.Context,
+                  vpc     : str  = typer.Option(...,  '--vpc',    help='VPC ID (vpc-*).'),
+                  cidr    : str  = typer.Option(...,  '--cidr',   help='IPv4 CIDR for the subnet.'),
+                  az      : str  = typer.Option('',   '--az',     help='Availability zone (optional).'),
+                  name    : str  = typer.Option('',   '--name',   help='Optional Name tag.'),
+                  public  : bool = typer.Option(False,'--public', help='Set MapPublicIpOnLaunch after create.'),
+                  yes     : bool = typer.Option(False,'--yes',    help='Skip confirmation prompt.'),
+                  as_json : bool = typer.Option(False,'--json',   help='Output as JSON.')):
+    """Create a new subnet inside a VPC (requires SG_AWS__EC2__ALLOW_MUTATIONS=1)."""
+    client = ctx.obj['ec2_client']
+    if not yes and not typer.confirm(f'Create subnet {cidr} in {vpc}?', default=False):
+        if as_json:
+            typer.echo(json.dumps({'ok': False, 'aborted': True}, indent=2))
+        else:
+            console.print('[yellow]Aborted.[/yellow]')
+        raise typer.Exit(0)
+    tags   = {'Name': name} if name else None
+    subnet = client.create_subnet(vpc_id=vpc, cidr=cidr,
+                                   availability_zone=az, tags=tags)
+    if public:
+        client.modify_subnet_attribute(str(subnet.subnet_id),
+                                        map_public_ip_on_launch=True)
+    if as_json:
+        typer.echo(json.dumps({'ok'        : True,
+                                'subnet_id' : str(subnet.subnet_id),
+                                'vpc_id'    : str(subnet.vpc_id),
+                                'cidr_block': str(subnet.cidr_block),
+                                'public'    : bool(public)}, indent=2))
+        return
+    console.print(f'[green]Created[/green] {subnet.subnet_id} ({subnet.cidr_block})')
+
+
+# ── delete ────────────────────────────────────────────────────────────────────
+
+@app.command('delete')
+@spec_cli_errors
+@require_mutation_gate(_MUTATION_ENV)
+def subnet_delete(ctx       : typer.Context,
+                  subnet_id : str  = typer.Argument(..., help='Subnet ID (subnet-*).'),
+                  yes       : bool = typer.Option(False, '--yes',  help='Skip confirmation prompt.'),
+                  as_json   : bool = typer.Option(False, '--json', help='Output as JSON.')):
+    """Delete a subnet (requires SG_AWS__EC2__ALLOW_MUTATIONS=1)."""
+    client = ctx.obj['ec2_client']
+    if not yes and not typer.confirm(f'Delete subnet {subnet_id}?', default=False):
+        if as_json:
+            typer.echo(json.dumps({'ok': False, 'aborted': True, 'subnet_id': subnet_id}, indent=2))
+        else:
+            console.print('[yellow]Aborted.[/yellow]')
+        raise typer.Exit(0)
+    deleted = client.delete_subnet(subnet_id)
+    if as_json:
+        typer.echo(json.dumps({'ok': bool(deleted), 'subnet_id': subnet_id,
+                                'deleted': bool(deleted)}, indent=2))
+        return
+    if deleted:
+        console.print(f'[green]Deleted[/green] {subnet_id}')
+    else:
+        console.print(f'[yellow]Not deleted[/yellow] {subnet_id} (already gone?)')
+        raise typer.Exit(1)
+
+
+# ── modify-attr ───────────────────────────────────────────────────────────────
+
+@app.command('modify-attr')
+@spec_cli_errors
+@require_mutation_gate(_MUTATION_ENV)
+def subnet_modify_attr(ctx       : typer.Context,
+                       subnet_id : str  = typer.Argument(..., help='Subnet ID (subnet-*).'),
+                       public    : bool = typer.Option(None, '--public/--no-public',
+                                                        help='Set MapPublicIpOnLaunch.'),
+                       as_json   : bool = typer.Option(False, '--json', help='Output as JSON.')):
+    """Modify a subnet's attributes (requires SG_AWS__EC2__ALLOW_MUTATIONS=1)."""
+    if public is None:
+        console.print('[red]Nothing to change.[/red] Use --public / --no-public.')
+        raise typer.Exit(1)
+    client = ctx.obj['ec2_client']
+    client.modify_subnet_attribute(subnet_id, map_public_ip_on_launch=public)
+    if as_json:
+        typer.echo(json.dumps({'ok': True, 'subnet_id': subnet_id,
+                                'map_public_ip_on_launch': bool(public)}, indent=2))
+        return
+    console.print(f'[green]Modified[/green] {subnet_id}')

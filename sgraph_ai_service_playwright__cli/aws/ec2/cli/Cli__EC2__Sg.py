@@ -8,8 +8,13 @@
 #   sg aws ec2 sg rules   <sg-id-or-name>                        [--json]
 #   sg aws ec2 sg orphans [--vpc <vpc-id>]                       [--json]
 #   sg aws ec2 sg delete  <sg-id-or-name> [--yes]                [--json]
+#   sg aws ec2 sg create  --name <name> --vpc <vpc-id> --description <d> [--json]
+#   sg aws ec2 sg add-ingress    <sg-id> --protocol P --from N --to N [--cidr C | --source-sg S] [--json]
+#   sg aws ec2 sg add-egress     <sg-id> --protocol P --from N --to N [--cidr C | --source-sg S] [--json]
+#   sg aws ec2 sg remove-ingress <sg-id> --protocol P --from N --to N [--cidr C] [--yes] [--json]
+#   sg aws ec2 sg remove-egress  <sg-id> --protocol P --from N --to N [--cidr C] [--yes] [--json]
 #
-# `delete` requires SG_AWS__EC2__ALLOW_MUTATIONS=1 (same gate as ec2 terminate).
+# All mutations require SG_AWS__EC2__ALLOW_MUTATIONS=1 (same gate as ec2 terminate).
 # ═══════════════════════════════════════════════════════════════════════════════
 
 import json
@@ -329,3 +334,169 @@ def sg_delete(ctx           : typer.Context,
     else:
         console.print(f'[yellow]Not deleted[/yellow] {resolved_id} (already gone?)')
         raise typer.Exit(1)
+
+
+# ── create ────────────────────────────────────────────────────────────────────
+
+@app.command('create')
+@spec_cli_errors
+@require_mutation_gate(_MUTATION_ENV)
+def sg_create(ctx        : typer.Context,
+              group_name : str  = typer.Option(..., '--name',        help='Security group name.'),
+              vpc        : str  = typer.Option(..., '--vpc',         help='Owning VPC ID.'),
+              description: str  = typer.Option(..., '--description', help='Required description.'),
+              as_json    : bool = typer.Option(False, '--json',      help='Output as JSON.')):
+    """Create a new security group (requires SG_AWS__EC2__ALLOW_MUTATIONS=1)."""
+    client = ctx.obj['ec2_client']
+    sg     = client.create_security_group(group_name=group_name,
+                                           description=description,
+                                           vpc_id=vpc)
+    if as_json:
+        typer.echo(json.dumps({'ok'   : True,
+                                'sg_id': str(sg.sg_id),
+                                'name' : str(sg.name),
+                                'vpc_id': str(sg.vpc_id)}, indent=2))
+        return
+    console.print(f'[green]Created[/green] {sg.sg_id} ({sg.name})')
+
+
+# ── rule helpers ──────────────────────────────────────────────────────────────
+
+def _add_rule(ctx, direction: str, sg_id: str, protocol: str,
+              from_port: int, to_port: int, cidr: str, source_sg: str,
+              as_json: bool):
+    if cidr and source_sg:
+        console.print('[red]Specify either --cidr or --source-sg, not both.[/red]')
+        raise typer.Exit(1)
+    if not cidr and not source_sg:
+        console.print('[red]Missing target:[/red] use --cidr or --source-sg.')
+        raise typer.Exit(1)
+    client      = ctx.obj['ec2_client']
+    cidr_list   = [cidr]      if cidr      else None
+    source_list = [source_sg] if source_sg else None
+    if direction == 'ingress':
+        added = client.authorize_security_group_ingress(sg_id, protocol,
+                                                          from_port, to_port,
+                                                          cidr_blocks=cidr_list,
+                                                          source_sg_ids=source_list)
+    else:
+        added = client.authorize_security_group_egress(sg_id, protocol,
+                                                         from_port, to_port,
+                                                         cidr_blocks=cidr_list,
+                                                         source_sg_ids=source_list)
+    if as_json:
+        typer.echo(json.dumps({'ok'       : True,
+                                'sg_id'    : sg_id,
+                                'direction': direction,
+                                'added'    : bool(added)}, indent=2))
+        return
+    if added:
+        console.print(f'[green]Added {direction} rule[/green] {protocol} {from_port}-{to_port} on {sg_id}')
+    else:
+        console.print(f'[yellow]Rule already exists[/yellow] on {sg_id}')
+
+
+def _remove_rule(ctx, direction: str, sg_id: str, protocol: str,
+                 from_port: int, to_port: int, cidr: str,
+                 yes: bool, as_json: bool):
+    if not yes and not typer.confirm(
+            f'Remove {direction} rule {protocol} {from_port}-{to_port} from {sg_id}?',
+            default=False):
+        if as_json:
+            typer.echo(json.dumps({'ok': False, 'aborted': True}, indent=2))
+        else:
+            console.print('[yellow]Aborted.[/yellow]')
+        raise typer.Exit(0)
+    client    = ctx.obj['ec2_client']
+    cidr_list = [cidr] if cidr else None
+    if direction == 'ingress':
+        removed = client.revoke_security_group_ingress(sg_id, protocol,
+                                                         from_port, to_port,
+                                                         cidr_blocks=cidr_list)
+    else:
+        removed = client.revoke_security_group_egress(sg_id, protocol,
+                                                        from_port, to_port,
+                                                        cidr_blocks=cidr_list)
+    if as_json:
+        typer.echo(json.dumps({'ok'       : bool(removed),
+                                'sg_id'    : sg_id,
+                                'direction': direction,
+                                'removed'  : bool(removed)}, indent=2))
+        return
+    if removed:
+        console.print(f'[green]Removed {direction} rule[/green] {protocol} {from_port}-{to_port} from {sg_id}')
+    else:
+        console.print(f'[yellow]Rule not found[/yellow] on {sg_id}')
+        raise typer.Exit(1)
+
+
+# ── add-ingress ───────────────────────────────────────────────────────────────
+
+@app.command('add-ingress')
+@spec_cli_errors
+@require_mutation_gate(_MUTATION_ENV)
+def sg_add_ingress(ctx       : typer.Context,
+                   sg_id     : str  = typer.Argument(..., help='Security group ID (sg-*).'),
+                   protocol  : str  = typer.Option(..., '--protocol', help='tcp / udp / -1 (all).'),
+                   from_port : int  = typer.Option(..., '--from',     help='Lower port (inclusive).'),
+                   to_port   : int  = typer.Option(..., '--to',       help='Upper port (inclusive).'),
+                   cidr      : str  = typer.Option('',  '--cidr',     help='Source CIDR.'),
+                   source_sg : str  = typer.Option('',  '--source-sg',help='Source SG ID.'),
+                   as_json   : bool = typer.Option(False,'--json',    help='Output as JSON.')):
+    """Authorise an ingress rule (requires SG_AWS__EC2__ALLOW_MUTATIONS=1)."""
+    _add_rule(ctx, 'ingress', sg_id, protocol, from_port, to_port,
+              cidr, source_sg, as_json)
+
+
+# ── add-egress ────────────────────────────────────────────────────────────────
+
+@app.command('add-egress')
+@spec_cli_errors
+@require_mutation_gate(_MUTATION_ENV)
+def sg_add_egress(ctx       : typer.Context,
+                  sg_id     : str  = typer.Argument(..., help='Security group ID (sg-*).'),
+                  protocol  : str  = typer.Option(..., '--protocol', help='tcp / udp / -1 (all).'),
+                  from_port : int  = typer.Option(..., '--from',     help='Lower port (inclusive).'),
+                  to_port   : int  = typer.Option(..., '--to',       help='Upper port (inclusive).'),
+                  cidr      : str  = typer.Option('',  '--cidr',     help='Destination CIDR.'),
+                  source_sg : str  = typer.Option('',  '--source-sg',help='Destination SG ID.'),
+                  as_json   : bool = typer.Option(False,'--json',    help='Output as JSON.')):
+    """Authorise an egress rule (requires SG_AWS__EC2__ALLOW_MUTATIONS=1)."""
+    _add_rule(ctx, 'egress', sg_id, protocol, from_port, to_port,
+              cidr, source_sg, as_json)
+
+
+# ── remove-ingress ────────────────────────────────────────────────────────────
+
+@app.command('remove-ingress')
+@spec_cli_errors
+@require_mutation_gate(_MUTATION_ENV)
+def sg_remove_ingress(ctx       : typer.Context,
+                      sg_id     : str  = typer.Argument(..., help='Security group ID (sg-*).'),
+                      protocol  : str  = typer.Option(..., '--protocol'),
+                      from_port : int  = typer.Option(..., '--from'),
+                      to_port   : int  = typer.Option(..., '--to'),
+                      cidr      : str  = typer.Option('',  '--cidr', help='Source CIDR to revoke.'),
+                      yes       : bool = typer.Option(False, '--yes',  help='Skip confirmation.'),
+                      as_json   : bool = typer.Option(False, '--json', help='Output as JSON.')):
+    """Revoke an ingress rule (requires SG_AWS__EC2__ALLOW_MUTATIONS=1)."""
+    _remove_rule(ctx, 'ingress', sg_id, protocol, from_port, to_port,
+                 cidr, yes, as_json)
+
+
+# ── remove-egress ─────────────────────────────────────────────────────────────
+
+@app.command('remove-egress')
+@spec_cli_errors
+@require_mutation_gate(_MUTATION_ENV)
+def sg_remove_egress(ctx       : typer.Context,
+                     sg_id     : str  = typer.Argument(..., help='Security group ID (sg-*).'),
+                     protocol  : str  = typer.Option(..., '--protocol'),
+                     from_port : int  = typer.Option(..., '--from'),
+                     to_port   : int  = typer.Option(..., '--to'),
+                     cidr      : str  = typer.Option('',  '--cidr', help='Destination CIDR to revoke.'),
+                     yes       : bool = typer.Option(False, '--yes',  help='Skip confirmation.'),
+                     as_json   : bool = typer.Option(False, '--json', help='Output as JSON.')):
+    """Revoke an egress rule (requires SG_AWS__EC2__ALLOW_MUTATIONS=1)."""
+    _remove_rule(ctx, 'egress', sg_id, protocol, from_port, to_port,
+                 cidr, yes, as_json)

@@ -506,6 +506,319 @@ class EC2__AWS__Client(Type_Safe):
             # user sees the real AWS reason via @spec_cli_errors.
             raise
 
+    # ── mutations: VPC ────────────────────────────────────────────────────────
+
+    def create_vpc(self, cidr: str, tags: dict = None) -> Schema__EC2__VPC:
+        ec2    = self.client()
+        kwargs = {'CidrBlock': cidr}
+        if tags:
+            kwargs['TagSpecifications'] = [{
+                'ResourceType': 'vpc',
+                'Tags'        : [{'Key': k, 'Value': v} for k, v in tags.items()],
+            }]
+        resp = ec2.create_vpc(**kwargs)
+        return self._parse_vpc(resp.get('Vpc', {}) or {})
+
+    def delete_vpc(self, vpc_id: str) -> bool:
+        try:
+            self.client().delete_vpc(VpcId=vpc_id)
+            return True
+        except ClientError as exc:
+            code = exc.response.get('Error', {}).get('Code', '')
+            if code == 'InvalidVpcID.NotFound':
+                return False
+            raise
+
+    def modify_vpc_attribute(self, vpc_id: str,
+                             enable_dns_support  : bool = None,
+                             enable_dns_hostnames: bool = None) -> None:
+        ec2 = self.client()
+        # AWS exposes one attribute per call — issue both when both are set.
+        if enable_dns_support is not None:
+            ec2.modify_vpc_attribute(VpcId             = vpc_id,
+                                     EnableDnsSupport  = {'Value': bool(enable_dns_support)})
+        if enable_dns_hostnames is not None:
+            ec2.modify_vpc_attribute(VpcId                = vpc_id,
+                                     EnableDnsHostnames   = {'Value': bool(enable_dns_hostnames)})
+
+    # ── mutations: Subnet ─────────────────────────────────────────────────────
+
+    def create_subnet(self, vpc_id: str, cidr: str,
+                      availability_zone: str = '',
+                      tags: dict = None) -> Schema__EC2__Subnet:
+        ec2    = self.client()
+        kwargs = {'VpcId': vpc_id, 'CidrBlock': cidr}
+        if availability_zone:
+            kwargs['AvailabilityZone'] = availability_zone
+        if tags:
+            kwargs['TagSpecifications'] = [{
+                'ResourceType': 'subnet',
+                'Tags'        : [{'Key': k, 'Value': v} for k, v in tags.items()],
+            }]
+        resp = ec2.create_subnet(**kwargs)
+        return self._parse_subnet(resp.get('Subnet', {}) or {})
+
+    def delete_subnet(self, subnet_id: str) -> bool:
+        try:
+            self.client().delete_subnet(SubnetId=subnet_id)
+            return True
+        except ClientError as exc:
+            code = exc.response.get('Error', {}).get('Code', '')
+            if code == 'InvalidSubnetID.NotFound':
+                return False
+            raise
+
+    def modify_subnet_attribute(self, subnet_id: str,
+                                map_public_ip_on_launch: bool = None) -> None:
+        if map_public_ip_on_launch is not None:
+            self.client().modify_subnet_attribute(
+                SubnetId             = subnet_id,
+                MapPublicIpOnLaunch  = {'Value': bool(map_public_ip_on_launch)})
+
+    # ── mutations: Internet Gateway ───────────────────────────────────────────
+
+    def create_internet_gateway(self, tags: dict = None
+                                 ) -> Schema__EC2__Internet_Gateway:
+        ec2    = self.client()
+        kwargs = {}
+        if tags:
+            kwargs['TagSpecifications'] = [{
+                'ResourceType': 'internet-gateway',
+                'Tags'        : [{'Key': k, 'Value': v} for k, v in tags.items()],
+            }]
+        resp = ec2.create_internet_gateway(**kwargs)
+        return self._parse_internet_gateway(resp.get('InternetGateway', {}) or {})
+
+    def delete_internet_gateway(self, igw_id: str) -> bool:
+        try:
+            self.client().delete_internet_gateway(InternetGatewayId=igw_id)
+            return True
+        except ClientError as exc:
+            code = exc.response.get('Error', {}).get('Code', '')
+            if code == 'InvalidInternetGatewayID.NotFound':
+                return False
+            raise
+
+    def attach_internet_gateway(self, igw_id: str, vpc_id: str) -> None:
+        try:
+            self.client().attach_internet_gateway(InternetGatewayId=igw_id,
+                                                   VpcId             =vpc_id)
+        except ClientError as exc:
+            code = exc.response.get('Error', {}).get('Code', '')
+            # Already attached — no-op to keep idempotency for stack provisioner.
+            if code == 'Resource.AlreadyAssociated':
+                return
+            raise
+
+    def detach_internet_gateway(self, igw_id: str, vpc_id: str) -> bool:
+        try:
+            self.client().detach_internet_gateway(InternetGatewayId=igw_id,
+                                                   VpcId             =vpc_id)
+            return True
+        except ClientError as exc:
+            code = exc.response.get('Error', {}).get('Code', '')
+            # Gateway.NotAttached → already detached; surface as False, not raise.
+            if code in ('Gateway.NotAttached',
+                         'InvalidInternetGatewayID.NotFound'):
+                return False
+            raise
+
+    # ── mutations: Route Table ────────────────────────────────────────────────
+
+    def create_route_table(self, vpc_id: str, tags: dict = None
+                            ) -> Schema__EC2__Route_Table:
+        ec2    = self.client()
+        kwargs = {'VpcId': vpc_id}
+        if tags:
+            kwargs['TagSpecifications'] = [{
+                'ResourceType': 'route-table',
+                'Tags'        : [{'Key': k, 'Value': v} for k, v in tags.items()],
+            }]
+        resp = ec2.create_route_table(**kwargs)
+        return self._parse_route_table(resp.get('RouteTable', {}) or {})
+
+    def delete_route_table(self, rtb_id: str) -> bool:
+        try:
+            self.client().delete_route_table(RouteTableId=rtb_id)
+            return True
+        except ClientError as exc:
+            code = exc.response.get('Error', {}).get('Code', '')
+            if code == 'InvalidRouteTableID.NotFound':
+                return False
+            raise
+
+    def associate_route_table(self, rtb_id: str, subnet_id: str) -> str:
+        resp = self.client().associate_route_table(RouteTableId=rtb_id,
+                                                    SubnetId     =subnet_id)
+        return resp.get('AssociationId', '') or ''
+
+    def disassociate_route_table(self, association_id: str) -> bool:
+        try:
+            self.client().disassociate_route_table(AssociationId=association_id)
+            return True
+        except ClientError as exc:
+            code = exc.response.get('Error', {}).get('Code', '')
+            if code in ('InvalidAssociationID.NotFound',
+                         'InvalidRouteTableAssociationID.NotFound'):
+                return False
+            raise
+
+    def create_route(self, rtb_id: str, destination_cidr: str,
+                     gateway_id           : str = '',
+                     nat_gateway_id       : str = '',
+                     network_interface_id : str = '') -> bool:
+        # Exactly-one-target — anything else is a programmer bug, not an AWS error.
+        targets = [t for t in (gateway_id, nat_gateway_id, network_interface_id) if t]
+        if len(targets) != 1:
+            raise ValueError('create_route requires exactly one target '
+                             '(gateway_id, nat_gateway_id, or network_interface_id).')
+        kwargs = {'RouteTableId': rtb_id, 'DestinationCidrBlock': destination_cidr}
+        if gateway_id:
+            kwargs['GatewayId'] = gateway_id
+        elif nat_gateway_id:
+            kwargs['NatGatewayId'] = nat_gateway_id
+        else:
+            kwargs['NetworkInterfaceId'] = network_interface_id
+        resp = self.client().create_route(**kwargs)
+        return bool(resp.get('Return', True))
+
+    def delete_route(self, rtb_id: str, destination_cidr: str) -> bool:
+        try:
+            self.client().delete_route(RouteTableId         = rtb_id,
+                                        DestinationCidrBlock = destination_cidr)
+            return True
+        except ClientError as exc:
+            code = exc.response.get('Error', {}).get('Code', '')
+            if code in ('InvalidRoute.NotFound',
+                         'InvalidRouteTableID.NotFound'):
+                return False
+            raise
+
+    # ── mutations: Security Group ─────────────────────────────────────────────
+
+    def create_security_group(self, group_name: str, description: str,
+                              vpc_id: str, tags: dict = None
+                              ) -> Schema__EC2__Security_Group:
+        ec2    = self.client()
+        kwargs = dict(GroupName=group_name, Description=description, VpcId=vpc_id)
+        if tags:
+            kwargs['TagSpecifications'] = [{
+                'ResourceType': 'security-group',
+                'Tags'        : [{'Key': k, 'Value': v} for k, v in tags.items()],
+            }]
+        resp = ec2.create_security_group(**kwargs)
+        sg_id = resp.get('GroupId', '') or ''
+        # CreateSecurityGroup returns only GroupId; re-describe to surface the
+        # full schema with rules / owner_id populated.
+        detail = self.describe_security_group(sg_id) if sg_id else None
+        if detail is not None:
+            return detail
+        # Fallback shape if describe failed (in-memory test seam may not seed it)
+        return Schema__EC2__Security_Group(
+            sg_id                 = Safe_Str__EC2__SG_Id(sg_id),
+            name                  = group_name,
+            vpc_id                = Safe_Str__EC2__VPC_Id(vpc_id),
+            description           = description,
+            owner_id              = '',
+            ingress_rules         = List__Schema__EC2__SG_Rule(),
+            egress_rules          = List__Schema__EC2__SG_Rule(),
+            attached_eni_ids      = [],
+            attached_instance_ids = [],
+        )
+
+    def authorize_security_group_ingress(self, sg_id: str, ip_protocol: str,
+                                          from_port: int, to_port: int,
+                                          cidr_blocks   : list = None,
+                                          source_sg_ids : list = None) -> bool:
+        return self._authorize_sg(direction='ingress', sg_id=sg_id,
+                                   ip_protocol=ip_protocol,
+                                   from_port=from_port, to_port=to_port,
+                                   cidr_blocks=cidr_blocks,
+                                   source_sg_ids=source_sg_ids)
+
+    def authorize_security_group_egress(self, sg_id: str, ip_protocol: str,
+                                         from_port: int, to_port: int,
+                                         cidr_blocks   : list = None,
+                                         source_sg_ids : list = None) -> bool:
+        return self._authorize_sg(direction='egress', sg_id=sg_id,
+                                   ip_protocol=ip_protocol,
+                                   from_port=from_port, to_port=to_port,
+                                   cidr_blocks=cidr_blocks,
+                                   source_sg_ids=source_sg_ids)
+
+    def revoke_security_group_ingress(self, sg_id: str, ip_protocol: str,
+                                       from_port: int, to_port: int,
+                                       cidr_blocks: list = None) -> bool:
+        return self._revoke_sg(direction='ingress', sg_id=sg_id,
+                                ip_protocol=ip_protocol,
+                                from_port=from_port, to_port=to_port,
+                                cidr_blocks=cidr_blocks)
+
+    def revoke_security_group_egress(self, sg_id: str, ip_protocol: str,
+                                      from_port: int, to_port: int,
+                                      cidr_blocks: list = None) -> bool:
+        return self._revoke_sg(direction='egress', sg_id=sg_id,
+                                ip_protocol=ip_protocol,
+                                from_port=from_port, to_port=to_port,
+                                cidr_blocks=cidr_blocks)
+
+    def _authorize_sg(self, direction: str, sg_id: str, ip_protocol: str,
+                      from_port: int, to_port: int,
+                      cidr_blocks: list = None,
+                      source_sg_ids: list = None) -> bool:
+        # Build the IpPermissions list — boto3 lets us mix CIDRs and source-SG
+        # refs in a single permission entry. We keep them in one entry so that
+        # AWS treats duplicate detection at the rule-tuple level.
+        perm = {
+            'IpProtocol': ip_protocol,
+            'FromPort'  : int(from_port),
+            'ToPort'    : int(to_port),
+        }
+        if cidr_blocks:
+            perm['IpRanges'] = [{'CidrIp': c} for c in cidr_blocks]
+        if source_sg_ids:
+            perm['UserIdGroupPairs'] = [{'GroupId': s} for s in source_sg_ids]
+        kwargs = {'GroupId': sg_id, 'IpPermissions': [perm]}
+        try:
+            if direction == 'ingress':
+                self.client().authorize_security_group_ingress(**kwargs)
+            else:
+                self.client().authorize_security_group_egress(**kwargs)
+            return True
+        except ClientError as exc:
+            code = exc.response.get('Error', {}).get('Code', '')
+            # Duplicate → already-applied earlier; treat as no-op success path
+            # but return False so the CLI can distinguish "added now" vs.
+            # "already there".
+            if code == 'InvalidPermission.Duplicate':
+                return False
+            raise
+
+    def _revoke_sg(self, direction: str, sg_id: str, ip_protocol: str,
+                   from_port: int, to_port: int,
+                   cidr_blocks: list = None) -> bool:
+        perm = {
+            'IpProtocol': ip_protocol,
+            'FromPort'  : int(from_port),
+            'ToPort'    : int(to_port),
+        }
+        if cidr_blocks:
+            perm['IpRanges'] = [{'CidrIp': c} for c in cidr_blocks]
+        kwargs = {'GroupId': sg_id, 'IpPermissions': [perm]}
+        try:
+            if direction == 'ingress':
+                self.client().revoke_security_group_ingress(**kwargs)
+            else:
+                self.client().revoke_security_group_egress(**kwargs)
+            return True
+        except ClientError as exc:
+            code = exc.response.get('Error', {}).get('Code', '')
+            # NotFound → already gone; surface as False not raise.
+            if code in ('InvalidPermission.NotFound',
+                         'InvalidGroup.NotFound'):
+                return False
+            raise
+
     def add_tags(self, instance_id: str, tags: dict) -> None:                  # tags is {Key: Value} map
         self.client().create_tags(
             Resources = [instance_id],
