@@ -147,13 +147,14 @@ _CERT_INIT = '''
       SG__CERT_INIT__ACME_PROD:             ${{SG__CERT_INIT__ACME_PROD:-false}}
       SG__CERT_INIT__ACME_EMAIL:            ${{SG__CERT_INIT__ACME_EMAIL:-}}
       SG__CERT_INIT__TLS_HOSTNAME:          ${{SG__CERT_INIT__TLS_HOSTNAME:-}}            # FQDN for letsencrypt-hostname mode; ignored for the other modes
-      SG__CERT_INIT__DNS_WAIT_TIMEOUT_SEC:  ${{SG__CERT_INIT__DNS_WAIT_TIMEOUT_SEC:-900}}  # letsencrypt-hostname: max seconds cert-init waits for FQDN → my IP convergence before failing
+      SG__CERT_INIT__DNS_WAIT_TIMEOUT_SEC:  ${{SG__CERT_INIT__DNS_WAIT_TIMEOUT_SEC:-180}}  # letsencrypt-hostname: max seconds cert-init waits for FQDN → my IP convergence before failing (was 900s; v0.1.14 brief)
       FAST_API__TLS__CERT_FILE:   /certs/cert.pem
       FAST_API__TLS__KEY_FILE:    /certs/key.pem
     ports:
       - "80:80"
     volumes:
       - certs:/certs
+      - /var/lib/sg-compute:/var/lib/sg-compute                                            # host-shared stage file (cert-init.stage) — sg va check reads it via SSM
     networks:
       - vault-net
     restart: "no"

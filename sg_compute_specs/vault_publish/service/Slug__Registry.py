@@ -113,19 +113,26 @@ class Slug__Registry(Type_Safe):
     # ── internal ─────────────────────────────────────────────────────────────
 
     def _find_instance(self, slug: str, region: str = '') -> Optional[dict]:
+        # Primary lookup: tag:sg:slug — set by `sg vp register` / `sg vp adopt`.
+        # Fallback   : tag:StackName — covers instances created via `sg va create`
+        # directly (without going through the vault-publish flow). The fallback
+        # makes the system more forgiving but the operator should still run
+        # `sg vp adopt <slug>` (or the tag-slug RPC) to add the explicit
+        # sg:slug tag for consistency with the rest of the toolchain.
         ec2 = self._ec2(region)
-        try:
-            resp = ec2.describe_instances(Filters=[
-                {'Name': f'tag:{TAG_SLUG}',         'Values': [slug]},
-                {'Name': f'tag:{TAG_STYPE}',        'Values': [STYPE_VAL]},
-                {'Name': 'instance-state-name',     'Values': ['running', 'stopped', 'pending', 'stopping']},
-            ])
-        except ClientError:
-            return None
-        for reservation in resp.get('Reservations', []):
-            instances = reservation.get('Instances', [])
-            if instances:
-                return instances[0]
+        for tag_key in (TAG_SLUG, 'StackName'):
+            try:
+                resp = ec2.describe_instances(Filters=[
+                    {'Name': f'tag:{tag_key}',          'Values': [slug]},
+                    {'Name': f'tag:{TAG_STYPE}',        'Values': [STYPE_VAL]},
+                    {'Name': 'instance-state-name',     'Values': ['running', 'stopped', 'pending', 'stopping']},
+                ])
+            except ClientError:
+                continue
+            for reservation in resp.get('Reservations', []):
+                instances = reservation.get('Instances', [])
+                if instances:
+                    return instances[0]
         return None
 
     def _to_entry(self, slug: str, instance: dict, region: str) -> Schema__Vault_Publish__Entry:

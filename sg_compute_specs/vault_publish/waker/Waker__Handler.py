@@ -150,15 +150,34 @@ class Waker__Handler(Type_Safe):
         }
 
     def _health_ok(self, vault_url: str) -> bool:
-        import urllib3
-        try:
-            resp = urllib3.PoolManager(timeout=urllib3.Timeout(connect=1, read=2)).request(
-                'GET', vault_url.rstrip('/') + '/ui/#!/login',
-                preload_content=True,
-            )
-            return resp.status < 500
-        except Exception:
-            return False
+        return health_probe(vault_url)
+
+
+def health_probe(vault_url: str,
+                 connect_timeout : float = 1,
+                 read_timeout    : float = 2) -> bool:
+    # Module-level helper so both Waker__Handler and the /__waker__/probe
+    # endpoint can reuse the same probe. vault_url is https://{ip}/ (TLS on)
+    # or http://{ip}:8080 (TLS off). The LE cert is bound to the FQDN, so
+    # cert validation against the IP would always fail — we explicitly
+    # disable it. Trust is provided by the AWS-internal describe_instances
+    # lookup that produced this IP.
+    if not vault_url:
+        return False
+    import urllib3
+    import warnings
+    try:
+        warnings.filterwarnings('ignore', category=urllib3.exceptions.InsecureRequestWarning)
+        pool = urllib3.PoolManager(
+            cert_reqs       = 'CERT_NONE',
+            assert_hostname = False,
+            timeout         = urllib3.Timeout(connect=connect_timeout, read=read_timeout),
+        )
+        resp = pool.request('GET', vault_url.rstrip('/') + '/ui/#!/login',
+                            preload_content=True)
+        return resp.status < 500
+    except Exception:
+        return False
 
 
 # ── helpers ───────────────────────────────────────────────────────────────────

@@ -2,6 +2,8 @@
 # SG/Compute Specs — vault-publish: Cli__Vault_Publish
 # Typer app for `sg vp` / `sg vault-publish` commands.
 #   register  : publish a vault-app stack under a slug + FQDN
+#   adopt     : take ownership of an existing EC2 — tag it + create DNS A record
+#               (recovery path for instances created via `sg va create`)
 #   unpublish : remove slug, stack, and DNS record
 #   status    : show EC2 state + FQDN for a slug
 #   list      : list all registered slugs (vault keys redacted)
@@ -40,11 +42,13 @@ def _svc() -> Vault_Publish__Service:
 
 
 @app.command(name='register', help='Publish a vault-app stack at <slug>.aws.sg-labs.app.')
-def register(slug     : str  = typer.Argument(..., help='DNS slug (e.g. sara-cv)'),
-             vault_key: str  = typer.Option(..., '--vault-key', '-k', help='Vault key identifier'),
-             region   : str  = typer.Option(DEFAULT_REGION, '--region', '-r'),
-             wait     : bool = typer.Option(False, '--wait', '-w', help='After register, poll the EC2 until it is RUNNING + reachable. Same shape as `sg vp wake`.'),
-             timeout  : int  = typer.Option(600, '--timeout', '-t', help='Max seconds to wait when --wait is set (covers EC2 launch + vault-app boot + LE cert init).')):
+def register(slug                  : str  = typer.Argument(..., help='DNS slug (e.g. sara-cv)'),
+             vault_key             : str  = typer.Option(..., '--vault-key', '-k', help='Vault key identifier'),
+             region                : str  = typer.Option(DEFAULT_REGION, '--region', '-r'),
+             wait                  : bool = typer.Option(False, '--wait', '-w', help='After register, poll the EC2 until it is RUNNING + reachable. Same shape as `sg vp wake`.'),
+             timeout               : int  = typer.Option(600, '--timeout', '-t', help='Max seconds to wait when --wait is set (covers EC2 launch + vault-app boot + LE cert init).'),
+             no_tls                : bool = typer.Option(False, '--no-tls', help='Provision the EC2 WITHOUT cert-init / WITHOUT TLS on :443. Vault listens on :8080 HTTP only. Viewers still get HTTPS via the CloudFront wildcard cert (CF → Lambda → EC2 chain), but direct https://<ip>/ access from the operator will not work. Useful to validate the full routing chain without the cert dependency — issue the cert later with `sg va cert-renew`.'),
+             force_region_mismatch : bool = typer.Option(False, '--force-region-mismatch', help='Proceed even when --region differs from the waker Lambda\'s deploy region. Routing still works (waker scans multiple regions) but Lambda → EC2 calls cross AZ boundaries — measurably slower.')):
     import os
     from sg_compute_specs.vault_publish.service.Vault_Publish__Service import _default_zone
     c = Console(highlight=False)
@@ -54,30 +58,40 @@ def register(slug     : str  = typer.Argument(..., help='DNS slug (e.g. sara-cv)
 
     # Up-front summary so the operator sees the exact call shape BEFORE it runs.
     c.print()
-    c.print(f'  [bold]sg vp register[/]  slug=[cyan]{slug}[/]  region=[cyan]{region}[/]')
+    tls_marker = '[yellow](no TLS — pure HTTP)[/]' if no_tls else '[green](TLS via LE)[/]'
+    c.print(f'  [bold]sg vp register[/]  slug=[cyan]{slug}[/]  region=[cyan]{region}[/]  {tls_marker}')
     c.print(f'  [dim]→ FQDN              : {fqdn}[/]')
     c.print(f'  [dim]→ Underlying VA call: Vault_App__Service.create_stack([/]')
-    c.print(f'  [dim]    stack_name   = {slug!r},[/]')
-    c.print(f'  [dim]    region       = {region!r},[/]')
-    c.print(f'  [dim]    with_aws_dns = True,[/]')
-    c.print(f'  [dim]    tls_hostname = {fqdn!r},[/]')
-    c.print(f'  [dim]    tls_mode     = "letsencrypt-hostname",[/]')
+    c.print(f'  [dim]    stack_name      = {slug!r},[/]')
+    c.print(f'  [dim]    region          = {region!r},[/]')
+    c.print(f'  [dim]    with_aws_dns    = True,[/]')
+    c.print(f'  [dim]    with_tls_check  = {(not no_tls)!r},[/]')
+    if not no_tls:
+        c.print(f'  [dim]    tls_hostname    = {fqdn!r},[/]')
+        c.print(f'  [dim]    tls_mode        = "letsencrypt-hostname",[/]')
     c.print(f'  [dim]  )[/]')
 
     if waker_region and waker_region != region:
         c.print()
-        c.print(f'  [yellow]⚠[/]  Region mismatch — waker Lambda runs in [bold]{waker_region}[/], '
-                f'this EC2 will land in [bold]{region}[/].')
-        c.print(f'  [dim]   The waker now scans multiple regions (WAKER_SCAN_REGIONS) so routing[/]')
-        c.print(f'  [dim]   still works, but co-locating reduces cross-region latency. Override with[/]')
-        c.print(f'  [dim]   --region {waker_region} (or set AWS_DEFAULT_REGION={waker_region}).[/]')
+        c.print(f'  [red]✗  Region mismatch[/] — waker Lambda runs in [bold]{waker_region}[/], '
+                f'this EC2 would land in [bold]{region}[/].')
+        if not force_region_mismatch:
+            c.print(f'  [dim]   Routing would still work (waker scans multiple regions) but every[/]')
+            c.print(f'  [dim]   Lambda → EC2 describe_instances / start_instances call would cross[/]')
+            c.print(f'  [dim]   region boundaries (measurably slower).[/]\n')
+            c.print(f'  Either re-run with [cyan]--region {waker_region}[/] '
+                    f'(or [cyan]AWS_DEFAULT_REGION={waker_region}[/]),')
+            c.print(f'  or pass [cyan]--force-region-mismatch[/] to proceed anyway.\n')
+            raise typer.Exit(2)
+        c.print(f'  [yellow]   --force-region-mismatch set — proceeding anyway.[/]')
 
     c.print()
     c.print(f'  [yellow]→[/]  Registering [bold]{slug}[/]…')
     req = Schema__Vault_Publish__Register__Request(
         slug      = Safe_Str__Slug(slug),
         vault_key = Safe_Str__Vault__Key(vault_key),
-        region    = region)
+        region    = region,
+        with_tls  = not no_tls)
     resp = _svc().register(req)
     if not str(getattr(resp, 'fqdn', '')):
         c.print(f'  [red]✗  {resp.message}[/]')
@@ -87,11 +101,25 @@ def register(slug     : str  = typer.Argument(..., help='DNS slug (e.g. sara-cv)
     c.print(f'      Stack     : {resp.stack_name}')
     c.print(f'      Region    : {region}')
     c.print(f'      elapsed   : {resp.elapsed_ms}ms')
+    viewer_url = f'https://{resp.fqdn}/'
+    c.print(f'      Viewer URL: [link={viewer_url}]{viewer_url}[/link]  [dim](via CloudFront wildcard)[/]')
     c.print()
+
+    # Per-slug A record (matches `sg va create --with-aws-dns`). Skipped in
+    # --no-tls mode: a per-slug record pointing at the EC2 IP would override
+    # the CF wildcard and break HTTPS-to-viewers (no cert on the EC2). With
+    # TLS on, the LE HTTP-01 challenge needs the FQDN→EC2 mapping anyway,
+    # and the wildcard remains as a propagation bridge until the specific
+    # record converges.
+    if not no_tls:
+        c.print(f'  [yellow]→[/]  Upserting per-slug DNS A record (matches `sg va create --with-aws-dns`)…')
+        _run_auto_dns(c, region=region, slug=slug, fqdn=str(resp.fqdn))
+        c.print()
 
     if wait:
         c.print(f'  [yellow]→[/]  Waiting (up to {timeout}s) for EC2 to be RUNNING + reachable…')
-        _run_post_register_wait(c, slug=slug, region=region, timeout=timeout)
+        _run_post_register_wait(c, slug=slug, region=region, timeout=timeout,
+                                fqdn=resp.fqdn, with_tls=not no_tls)
 
 
 def _detect_waker_region() -> str:
@@ -114,10 +142,65 @@ def _detect_waker_region() -> str:
     return ''
 
 
-def _run_post_register_wait(c: Console, *, slug: str, region: str, timeout: int) -> None:
+def _run_auto_dns(c: Console, *, region: str, slug: str, fqdn: str,
+                  ip_wait_timeout: int = 60) -> bool:
+    # Mirrors `sg va create --with-aws-dns`'s post-launch worker: poll the
+    # fresh EC2 for its public IP (allocated ~5-10s after run_instance),
+    # then upsert the per-slug A record + wait INSYNC + run an authoritative
+    # cross-NS check. Synchronous — total budget ~30-40s typical, 120s ceiling.
+    from sg_compute_specs.vault_app.service.Vault_App__Service  import Vault_App__Service
+    from sg_compute_specs.vault_app.service.Vault_App__Auto_DNS import Vault_App__Auto_DNS
+
+    vault_app = Vault_App__Service().setup()
+    deadline  = time.time() + ip_wait_timeout
+    public_ip = ''
+    while time.time() < deadline:
+        info = vault_app.get_stack_info(region, slug)
+        ip   = str(getattr(info, 'public_ip', '') or '') if info is not None else ''
+        if ip:
+            public_ip = ip
+            break
+        time.sleep(2)
+    if not public_ip:
+        c.print(f'  [yellow]⚠[/]  auto-dns: gave up waiting for public IP after {ip_wait_timeout}s — '
+                f'skipping Route 53 work')
+        c.print(f'  [dim]   add manually: sg aws dns records add --name {fqdn} --type A --value <ip>[/]')
+        return False
+
+    def _progress(stage, detail):
+        c.print(f'  [dim]   auto-dns: {stage}  {detail}[/]')
+    result = Vault_App__Auto_DNS().run(fqdn=fqdn, public_ip=public_ip, on_progress=_progress)
+    # Partial NS agreement (e.g. 3/4) is normal during Route 53 propagation —
+    # AWS sub-NSs converge over 30-120s after INSYNC. The record IS created;
+    # the wait loop downstream gives the remaining NSs time to catch up. Only
+    # hard-fail when the upsert itself or the INSYNC step didn't complete.
+    insync_ok = bool(getattr(result, 'insync', False))
+    if result.error and not insync_ok:
+        c.print(f'  [red]✗[/]  auto-dns failed: {result.error}')
+        c.print(f'  [dim]   add manually: sg aws dns records add --name {fqdn} --type A --value {public_ip}[/]')
+        return False
+    if result.error and insync_ok:
+        c.print(f'  [yellow]⚠[/]  auto-dns: {result.error}')
+        c.print(f'  [dim]   (record IS created; remaining NSs typically converge within 30-60s)[/]')
+        return True
+    c.print(f'  [green]✓[/]  auto-dns: {fqdn} → {public_ip}  '
+            f'(INSYNC + authoritative, {result.elapsed_ms}ms)')
+    return True
+
+
+def _run_post_register_wait(c: Console, *, slug: str, region: str, timeout: int,
+                              fqdn: str = '', with_tls: bool = True) -> None:
     """Poll the just-created EC2 until it is RUNNING and the vault-app HTTP
     listener responds. Mirrors `sg vp wake` but skips start_instances since
-    we just created the instance and it's already pending → running."""
+    we just created the instance and it's already pending → running.
+
+    When with_tls is True, also do a Phase 3 external HTTPS cert-validation
+    probe of https://{fqdn}/ and (when that fails) auto-trigger cert-renew.
+
+    When with_tls is False, the stack has no cert-init and no :443 listener.
+    Polling targets http://{ip}:8080/ instead, and Phase 3 is skipped (viewers
+    get HTTPS via CloudFront wildcard cert, but direct https://<ip>/ isn't
+    expected to work)."""
     from sg_compute_specs.vault_publish.service.Slug__Registry              import Slug__Registry
     from sg_compute_specs.vault_publish.waker.Endpoint__Resolver__EC2       import Endpoint__Resolver__EC2
     from sg_compute_specs.vault_publish.waker.schemas.Enum__Instance__State import Enum__Instance__State
@@ -143,12 +226,24 @@ def _run_post_register_wait(c: Console, *, slug: str, region: str, timeout: int)
 
     c.print(f'  [green]✓[/]  RUNNING at {resolution.public_ip}  ({int((time.time() - t_start) * 1000)}ms)')
 
-    # Phase 2 — poll HTTP probe until vault-app responds
-    probe_url = resolution.vault_url.rstrip('/') + '/ui/'
+    # Phase 2 — poll the viewer URL until vault-app responds.
+    # When with_tls=True, we poll https://{fqdn}/ui/ with cert validation. The
+    # cert validates whether the request lands on the EC2 directly (LE-hostname
+    # cert) OR on CloudFront (wildcard cert) — both cover {fqdn}. The previous
+    # IP-based poll always failed verification because the EC2 cert is bound
+    # to the FQDN, not its IP.
+    # When with_tls=False, no per-slug A record exists and the EC2 has no cert,
+    # so we poll http://{ip}:8080/ui/ directly to bypass CF and confirm the
+    # vault itself is up (rather than just the warming page).
+    if with_tls and fqdn:
+        probe_url = f'https://{fqdn}/ui/'
+    else:
+        probe_url = resolution.vault_url.rstrip('/') + '/ui/'
     c.print(f'  [yellow]→[/]  Polling {probe_url} until reachable…')
-    delay    = 3
-    attempts = 0
-    last_err = ''
+    delay        = 3
+    attempts     = 0
+    last_err     = ''
+    final_resp   = None
     while True:
         elapsed = time.time() - t_start
         if elapsed > timeout:
@@ -166,8 +261,28 @@ def _run_post_register_wait(c: Console, *, slug: str, region: str, timeout: int)
             ms   = int((time.time() - p0) * 1000)
             if resp.status < 500:
                 total = int((time.time() - t_start) * 1000)
-                c.print(f'  [green]✓[/]  HTTP {resp.status} in {ms}ms  [dim](after {attempts} attempts, {total}ms total)[/]\n')
-                return
+                final_resp = resp
+                # X-Waker-State header is injected by Waker__Handler on every
+                # response served via Lambda. Its absence means the request
+                # reached the EC2 vault directly (per-slug A record propagated).
+                via_proxy = bool(resp.headers.get('X-Waker-State'))
+                path_lbl  = ('[yellow]via CloudFront → Lambda → EC2[/]   (per-slug DNS still propagating)'
+                             if via_proxy
+                             else '[green]direct to EC2[/]   (per-slug DNS converged)')
+                c.print(f'  [green]✓[/]  HTTP {resp.status} in {ms}ms  [dim](after {attempts} attempts, {total}ms total)[/]')
+                c.print(f'  [dim]   Path       :[/] {path_lbl}')
+                if with_tls and fqdn:
+                    direct_ip_url = f'https://{resolution.public_ip}/ui/'
+                    c.print(f'  [dim]   Viewer URL : [link={probe_url}]{probe_url}[/link]  '
+                            f'(cert validates for {fqdn})[/]')
+                    c.print(f'  [dim]   Direct (IP): {direct_ip_url}  '
+                            f'(SSL verify fails by design — cert is for FQDN, not IP)[/]')
+                else:
+                    viewer_url = f'https://{fqdn}/' if fqdn else ''
+                    if viewer_url:
+                        c.print(f'  [dim]   Viewer URL : [link={viewer_url}]{viewer_url}[/link]  (via CloudFront wildcard)[/]')
+                    c.print(f'  [dim]   Direct URL : [link={probe_url}]{probe_url}[/link]  (EC2 IP :8080)[/]')
+                break
             last_err = f'HTTP {resp.status}'
         except Exception as exc:
             last_err = str(exc).splitlines()[0][:120]
@@ -175,6 +290,321 @@ def _run_post_register_wait(c: Console, *, slug: str, region: str, timeout: int)
             c.print(f'  [dim]  {int(elapsed)}s: still waiting… ({last_err})[/]')
         time.sleep(delay)
         delay = min(delay + 1, 6)
+    else:
+        return
+
+    # Phase 3 — external HTTPS probe of the FQDN to confirm the cert was issued
+    # for the hostname (not the IP). For .app TLDs the browser refuses any
+    # cert mismatch (HSTS preload), so we must validate hostname matching here.
+    # Skipped when --no-tls: no cert-init ran, no :443 listener exists, and
+    # viewers will route through CloudFront's wildcard cert anyway.
+    if not fqdn:
+        c.print()
+        return
+    if not with_tls:
+        c.print(f'\n  [dim]·  Skipping Phase 3 HTTPS cert probe (--no-tls).[/]')
+        c.print(f'  [dim]   Viewers will see HTTPS via CloudFront wildcard. '
+                f'Run [cyan]sg va cert-renew {slug} --mode letsencrypt-hostname '
+                f'--hostname {fqdn}[/dim][dim] later to enable direct HTTPS to the EC2.[/]')
+        c.print()
+        return
+    https_url = f'https://{fqdn}/'
+    c.print(f'  [yellow]→[/]  Probing {https_url} (with cert validation) to confirm LE issued '
+            f'a hostname-bound cert…')
+    cert_ok, detail = _probe_https_with_cert(https_url)
+    if cert_ok:
+        c.print(f'  [green]✓[/]  HTTPS handshake passed — cert is valid for {fqdn}\n')
+        return
+    c.print(f'  [yellow]⚠[/]  {detail}')
+    c.print(f'  [yellow]→[/]  Auto-running `sg va cert-renew {slug} --mode letsencrypt-hostname '
+            f'--hostname {fqdn}` to fix it…')
+    try:
+        from sg_compute_specs.vault_app.service.Vault_App__Service import Vault_App__Service
+        from sg_compute_specs.vault_publish.service.Slug__Registry import Slug__Registry
+        svc = Vault_App__Service().setup()
+        # Resolve via registry (already cached from phase 1)
+        entry = Slug__Registry(region=region).get(slug, region)
+        stack_name = str(entry.stack_name) if entry else slug
+        # Detect engine from the live tags
+        import boto3
+        ec2 = boto3.client('ec2', region_name=region)
+        info = ec2.describe_instances(Filters=[
+            {'Name': f'tag:StackName', 'Values': [stack_name]},
+            {'Name': 'tag:StackType',   'Values': ['vault-app']},
+        ])
+        engine = 'docker'
+        for res in info.get('Reservations', []):
+            for inst in res.get('Instances', []):
+                for t in inst.get('Tags', []):
+                    if t.get('Key') == 'StackEngine':
+                        engine = (t.get('Value') or 'docker').lower()
+        compose = 'podman-compose' if engine == 'podman' else 'docker compose'
+        ssm = (
+            f'set -e; '
+            f'ENV=/opt/vault-app/.env; touch "$ENV"; '
+            f'update_kv(){{ if grep -q "^$1=" "$ENV" 2>/dev/null; then '
+            f'  sed -i "s|^$1=.*|$1=$2|" "$ENV"; else echo "$1=$2" >> "$ENV"; fi; }}; '
+            f'update_kv SG__CERT_INIT__MODE letsencrypt-hostname; '
+            f'update_kv SG__CERT_INIT__TLS_HOSTNAME {fqdn}; '
+            # `up -d --force-recreate` (NOT restart) — compose only re-reads
+            # .env and re-resolves ${VAR} placeholders on a fresh container.
+            f'cd /opt/vault-app && {compose} up -d --force-recreate --no-deps cert-init 2>&1 | tail -20'
+        )
+        svc.exec(region, stack_name, ssm, timeout_sec=60)
+        c.print(f'  [green]✓[/]  cert-renew triggered — re-probe in ~60s with '
+                f'`sg vp eval {slug}`\n')
+    except Exception as exc:
+        c.print(f'  [red]✗  cert-renew failed: {exc}[/]')
+        c.print(f'  [dim]   run manually: sg va cert-renew {slug} '
+                f'--mode letsencrypt-hostname --hostname {fqdn}[/]\n')
+
+
+def _probe_https_with_cert(url: str) -> tuple:
+    """HTTPS GET that verifies the server cert against the URL's hostname.
+    Returns (ok, human_readable_detail)."""
+    try:
+        import urllib3
+        pm = urllib3.PoolManager(cert_reqs='CERT_REQUIRED',
+                                 timeout=urllib3.Timeout(connect=3, read=5))
+        resp = pm.request('GET', url, preload_content=False, retries=False)
+        return True, f'HTTP {resp.status}'
+    except Exception as exc:
+        msg = str(exc).splitlines()[0][:200]
+        return False, f'cert validation failed: {msg}'
+
+
+@app.command(name='adopt', help='Adopt an existing EC2 (created via `sg va create`) into vault-publish: add sg:slug/sg:fqdn/sg:zone tags, create the per-slug Route 53 A record pointing at the EC2 IP, trigger LE cert renewal, and invalidate the waker cache. Counterpart to register for instances that already exist.')
+def adopt(slug         : str  = typer.Argument(..., help='Slug to adopt (must match the EC2\'s StackName tag, or the existing sg:slug tag).'),
+          zone         : str  = typer.Option('', '--zone', '-z', help='DNS apex (defaults to $SG_AWS__DNS__DEFAULT_ZONE).'),
+          skip_dns     : bool = typer.Option(False, '--skip-dns', help='Tag the EC2 but do NOT create the Route 53 A record.'),
+          skip_cert    : bool = typer.Option(False, '--skip-cert', help='Do not trigger LE cert renewal (cert-init restart on the EC2).'),
+          skip_cache   : bool = typer.Option(False, '--skip-cache-clear', help='Do not invalidate the live waker cache after tagging.'),
+          cert_timeout : int  = typer.Option(180, '--cert-timeout', help='Max seconds to wait for cert-init when --skip-cert is not set (LE issuance can take 20-90s after DNS lands).')):
+    import os, boto3
+    c = Console(highlight=False)
+    resolved_zone = zone or os.environ.get('SG_AWS__DNS__DEFAULT_ZONE', 'aws.sg-labs.app')
+    fqdn          = f'{slug}.{resolved_zone}'
+
+    c.print()
+    c.print(f'  [bold]sg vp adopt[/]  slug=[cyan]{slug}[/]  fqdn=[cyan]{fqdn}[/]')
+    c.print(f'  [dim]→ scan regions for an EC2 with tag:sg:slug or tag:StackName = {slug}[/]')
+
+    # 1. Find the EC2 across regions (same multi-region scan the resolver uses)
+    instance, region = _find_existing_ec2(slug)
+    if not instance:
+        c.print(f'\n  [red]✗  no EC2 with sg:slug={slug} OR StackName={slug} '
+                f'(StackType=vault-app) found in any scanned region.[/]')
+        c.print(f'  [dim]   If the instance exists in a region we don\'t scan, set '
+                f'WAKER_SCAN_REGIONS=… and re-run.[/]\n')
+        raise typer.Exit(1)
+
+    iid       = instance.get('InstanceId', '')
+    public_ip = instance.get('PublicIpAddress', '')
+    state     = instance.get('State', {}).get('Name', '')
+    tags      = {t.get('Key',''): t.get('Value','') for t in instance.get('Tags', [])}
+    stack_name = tags.get('StackName', slug)
+    tls_on    = str(tags.get('StackTLS', '')).lower() in ('true', '1', 'yes')
+    c.print(f'  [green]✓[/]  Found EC2 [bold]{iid}[/] in {region}  '
+            f'(state={state}, public_ip={public_ip or "(none)"}, '
+            f'StackName={stack_name}, StackTLS={tls_on})')
+
+    # 2. Tag the instance
+    c.print(f'  [yellow]→[/]  Tagging with sg:slug / sg:fqdn / sg:zone…')
+    try:
+        boto3.client('ec2', region_name=region).create_tags(
+            Resources=[iid],
+            Tags=[
+                {'Key': 'sg:slug', 'Value': slug},
+                {'Key': 'sg:fqdn', 'Value': fqdn},
+                {'Key': 'sg:zone', 'Value': resolved_zone},
+            ],
+        )
+        c.print(f'  [green]✓[/]  Tagged')
+    except Exception as exc:
+        c.print(f'  [red]✗  create_tags failed: {exc}[/]\n')
+        raise typer.Exit(1)
+
+    # 3. Create per-slug Route 53 A record
+    dns_ok = False
+    if skip_dns:
+        c.print(f'  [dim]·  Skipping DNS (--skip-dns)[/]')
+    elif not public_ip:
+        c.print(f'  [yellow]⚠[/]  No public IP — skipping DNS (start the instance first)')
+    else:
+        c.print(f'  [yellow]→[/]  Upserting Route 53 A record {fqdn} → {public_ip}…')
+        try:
+            from sg_compute_specs.vault_app.service.Vault_App__Auto_DNS import Vault_App__Auto_DNS
+            result = Vault_App__Auto_DNS().run(
+                fqdn        = fqdn,
+                public_ip   = public_ip,
+                on_progress = lambda stage, detail: c.print(f'  [dim]   {stage}: {detail}[/]'),
+            )
+            dns_ok = bool(getattr(result, 'change_id', '') or getattr(result, 'completed', False))
+            icon = '[green]✓[/]' if dns_ok else '[yellow]⚠[/]'
+            c.print(f'  {icon}  DNS record upserted')
+        except Exception as exc:
+            c.print(f'  [yellow]⚠  DNS upsert failed: {exc}  (proceeding anyway)[/]')
+
+    # 4. Trigger LE cert renewal — only meaningful when TLS was enabled at create
+    #    AND DNS is now in place (LE HTTP-01 needs the FQDN to resolve to this IP).
+    if skip_cert:
+        c.print(f'  [dim]·  Skipping cert renewal (--skip-cert)[/]')
+    elif not tls_on:
+        c.print(f'  [dim]·  Skipping cert renewal (instance not created with --with-tls-check)[/]')
+    elif not dns_ok and not skip_dns:
+        c.print(f'  [yellow]⚠  Skipping cert renewal — DNS upsert was not confirmed; '
+                f'run `sg va cert-renew {stack_name}` manually after DNS settles.[/]')
+    else:
+        c.print(f'  [yellow]→[/]  Triggering Let\'s Encrypt cert renewal '
+                f'(recreate cert-init container on EC2 to pick up new .env, '
+                f'wait up to {cert_timeout}s)…')
+        try:
+            from sg_compute_specs.vault_app.service.Vault_App__Service import Vault_App__Service
+            svc = Vault_App__Service().setup()
+            engine = (tags.get('StackEngine', '') or 'docker').lower()
+            compose = 'podman-compose' if engine == 'podman' else 'docker compose'
+            # Always force letsencrypt-hostname mode targeting this slug's FQDN —
+            # the EC2 may have been originally provisioned with letsencrypt-ip
+            # (the default for plain `sg va create`), which issues a cert for
+            # the IP, not the hostname. .app TLDs are HSTS-preloaded so the
+            # browser refuses the IP-CN cert.
+            ssm = (
+                f'set -e; '
+                f'ENV=/opt/vault-app/.env; touch "$ENV"; '
+                f'update_kv(){{ if grep -q "^$1=" "$ENV" 2>/dev/null; then '
+                f'  sed -i "s|^$1=.*|$1=$2|" "$ENV"; else echo "$1=$2" >> "$ENV"; fi; }}; '
+                f'update_kv SG__CERT_INIT__MODE letsencrypt-hostname; '
+                f'update_kv SG__CERT_INIT__TLS_HOSTNAME {fqdn}; '
+                # `up -d --force-recreate` (NOT restart) — compose only re-reads
+            # .env and re-resolves ${VAR} placeholders on a fresh container.
+            f'cd /opt/vault-app && {compose} up -d --force-recreate --no-deps cert-init 2>&1 | tail -20'
+            )
+            svc.exec(region, stack_name, ssm, timeout_sec=60)
+            # Poll for success
+            import time as _t
+            container = 'vault-app-cert-init-1'
+            ps_cmd = (f'{"docker" if engine != "podman" else "podman"} ps -a '
+                       f'--filter name={container} --format "{{{{.Status}}}}"')
+            t0 = _t.time()
+            last_status = ''
+            while True:
+                elapsed = _t.time() - t0
+                if elapsed > cert_timeout:
+                    c.print(f'  [yellow]⚠  cert-init timed out after {cert_timeout}s '
+                            f'(last status: {last_status!r}) — inspect with '
+                            f'`sg va logs {stack_name} --source cert-init`[/]')
+                    break
+                r = svc.exec(region, stack_name, ps_cmd, timeout_sec=30)            # SSM SendCommand minimum is 30s
+                status = str(getattr(r, 'stdout', '') or '').strip().splitlines()
+                status = status[0] if status else ''
+                if status != last_status:
+                    c.print(f'  [dim]   {int(elapsed)}s: {status or "(no container yet)"}[/]')
+                    last_status = status
+                if 'Exited (0)' in status:
+                    c.print(f'  [green]✓[/]  cert-init succeeded')
+                    # Show what cert-init actually issued (now that logs are complete)
+                    docker = 'docker' if engine != 'podman' else 'podman'
+                    logs_r = svc.exec(region, stack_name,
+                                       f'{docker} logs vault-app-cert-init-1 2>&1 | tail -20',
+                                       timeout_sec=30)
+                    logs = str(getattr(logs_r, 'stdout', '') or '').strip()
+                    if logs:
+                        for line in logs.splitlines()[-10:]:
+                            c.print(f'  [dim]    {line}[/]')
+                    # Restart vault to pick up the new cert (replaced /certs/cert.pem
+                    # doesn't reload — vault reads it at process startup only).
+                    c.print(f'  [yellow]→[/]  Restarting sg-send-vault to load the new cert…')
+                    svc.exec(region, stack_name,
+                             f'cd /opt/vault-app && {compose} restart --no-deps sg-send-vault '
+                             f'2>&1 | tail -5',
+                             timeout_sec=60)
+                    c.print(f'  [green]✓[/]  Vault restarted (HTTPS should be valid in ~5s)')
+                    break
+                if 'Exited' in status and '(0)' not in status:
+                    c.print(f'  [red]✗  cert-init exited non-zero: {status}[/]')
+                    c.print(f'  [dim]   Inspect: sg va logs {stack_name} --source cert-init[/]')
+                    break
+                _t.sleep(3)
+        except Exception as exc:
+            c.print(f'  [yellow]⚠  cert-renew failed: {exc}[/]')
+            c.print(f'  [dim]   Run manually: sg va cert-renew {stack_name}[/]')
+
+    # 5. Clear the waker's slug cache so the next request picks up the new tags
+    if skip_cache:
+        c.print(f'  [dim]·  Skipping cache-clear (--skip-cache-clear)[/]')
+    else:
+        c.print(f'  [yellow]→[/]  Invalidating waker cache for slug={slug}…')
+        try:
+            _waker_cmd_cache_clear(slug)
+            c.print(f'  [green]✓[/]  Cache cleared')
+        except Exception as exc:
+            c.print(f'  [yellow]⚠  cache-clear via Lambda RPC failed: {exc}'
+                    f'  (the entry will expire naturally within ~60s)[/]')
+
+    c.print()
+    c.print(f'  [green]✓[/]  Adopted [bold]{slug}[/] — try [cyan]https://{fqdn}/[/]\n')
+
+
+def _find_existing_ec2(slug: str):
+    """Scan the same regions the waker resolver scans, looking for an EC2 with
+    sg:slug OR StackName matching the slug. Returns (instance_dict, region) or
+    (None, '')."""
+    import os, boto3
+    raw = os.environ.get('WAKER_SCAN_REGIONS', '')
+    if raw:
+        regions = [r.strip() for r in raw.split(',') if r.strip()]
+    else:
+        seed = (os.environ.get('AWS_REGION', '') or
+                os.environ.get('AWS_DEFAULT_REGION', '') or 'eu-west-2')
+        regions = [seed, 'eu-west-2', 'us-east-1', 'us-west-2', 'eu-west-1']
+    seen = set()
+    regions = [r for r in regions if not (r in seen or seen.add(r))]
+    states = ['running', 'stopped', 'pending', 'stopping']
+    for r in regions:
+        try:
+            ec2 = boto3.client('ec2', region_name=r)
+            for tag_key in ('sg:slug', 'StackName'):
+                resp = ec2.describe_instances(Filters=[
+                    {'Name': f'tag:{tag_key}',         'Values': [slug]},
+                    {'Name': 'tag:StackType',          'Values': ['vault-app']},
+                    {'Name': 'instance-state-name',    'Values': states},
+                ])
+                for res in resp.get('Reservations', []):
+                    for inst in res.get('Instances', []):
+                        return inst, r
+        except Exception:
+            continue
+    return None, ''
+
+
+def _waker_cmd_cache_clear(slug: str):
+    """Call the live Lambda's /__waker__/cmd?name=cache-clear&slug=<slug> via
+    boto3.invoke — no HTTPS / CloudFront propagation involved. Raises on
+    error so the caller can surface it."""
+    import json, uuid, boto3, urllib.parse
+    from datetime import datetime, timezone
+    from sg_compute_specs.vault_publish.setup.service.Setup__Lambda import WAKER_LAMBDA_NAME
+    from sgraph_ai_service_playwright__cli.aws._shared.Aws__Region__Resolver import Aws__Region__Resolver
+    qs = urllib.parse.urlencode([('name', 'cache-clear'), ('slug', slug)])
+    event = {
+        'version'       : '2.0',
+        'rawPath'       : '/__waker__/cmd',
+        'rawQueryString': qs,
+        'headers'       : {'host': 'localhost', 'user-agent': 'sg-vp-adopt/0.1'},
+        'requestContext': {
+            'http'     : {'method': 'GET', 'path': '/__waker__/cmd', 'sourceIp': '127.0.0.1'},
+            'requestId': f'sg-adopt-{uuid.uuid4().hex[:8]}',
+            'time'     : datetime.now(timezone.utc).strftime('%d/%b/%Y:%H:%M:%S +0000'),
+        },
+        'body'           : None,
+        'isBase64Encoded': False,
+    }
+    lam = boto3.client('lambda', region_name=str(Aws__Region__Resolver().resolve()))
+    resp = lam.invoke(FunctionName=WAKER_LAMBDA_NAME, InvocationType='RequestResponse',
+                      Payload=json.dumps(event).encode())
+    payload = json.loads(resp['Payload'].read())
+    if payload.get('statusCode', 0) >= 400:
+        raise RuntimeError(f'cache-clear returned status {payload.get("statusCode")}: {payload.get("body")}')
 
 
 @app.command(name='unpublish', help='Remove a slug, its stack, and its DNS record.')
@@ -440,29 +870,34 @@ def eval_(slug    : str  = typer.Argument(..., help='Slug to evaluate'),
         _step(c, 3, 'direct IP reachable', False, 'skipped — instance not RUNNING with public IP')
         failures += 1
 
-    # 4 — Per-slug Route 53 A record (set by Vault_App__Auto_DNS on register)
-    r53_per_slug_ok = False
-    try:
-        from sgraph_ai_service_playwright__cli.aws.dns.service.Route53__AWS__Client    import Route53__AWS__Client
-        from sgraph_ai_service_playwright__cli.aws.dns.enums.Enum__Route53__Record_Type import Enum__Route53__Record_Type
-        r53      = Route53__AWS__Client()
-        zone_obj = r53.find_hosted_zone_by_name(resolved_zone)
-        if zone_obj:
-            rec = r53.get_record(str(zone_obj.zone_id), fqdn, Enum__Route53__Record_Type.A)
-            if rec:
-                vals = ', '.join(list(rec.values)) if rec.values else (rec.alias_target or '(alias)')
-                _step(c, 4, 'per-slug DNS record', True, f'A {fqdn} → {vals}')
-                r53_per_slug_ok = True
+    # 4 — Per-slug Route 53 A record (set by Vault_App__Auto_DNS on register).
+    # Only created when TLS is on — in --no-tls mode the wildcard catches the
+    # FQDN and a specific A record would override CF and break HTTPS-to-viewers.
+    instance_tls = _instance_has_tls_tag(resolution.instance_id, resolution.region)
+    if not instance_tls:
+        _step(c, 4, 'per-slug DNS record', True,
+              f'skipped — StackTLS=false (record would override CF wildcard)')
+    else:
+        try:
+            from sgraph_ai_service_playwright__cli.aws.dns.service.Route53__AWS__Client    import Route53__AWS__Client
+            from sgraph_ai_service_playwright__cli.aws.dns.enums.Enum__Route53__Record_Type import Enum__Route53__Record_Type
+            r53      = Route53__AWS__Client()
+            zone_obj = r53.find_hosted_zone_by_name(resolved_zone)
+            if zone_obj:
+                rec = r53.get_record(str(zone_obj.zone_id), fqdn, Enum__Route53__Record_Type.A)
+                if rec:
+                    vals = ', '.join(list(rec.values)) if rec.values else (rec.alias_target or '(alias)')
+                    _step(c, 4, 'per-slug DNS record', True, f'A {fqdn} → {vals}')
+                else:
+                    _step(c, 4, 'per-slug DNS record', False,
+                          f'no A record for {fqdn} — register may not have run with TLS, or DNS was deleted')
+                    failures += 1
             else:
-                _step(c, 4, 'per-slug DNS record', False,
-                      f'no A record for {fqdn} — register may not have run with TLS, or DNS was deleted')
+                _step(c, 4, 'per-slug DNS record', False, f'hosted zone {resolved_zone!r} not found')
                 failures += 1
-        else:
-            _step(c, 4, 'per-slug DNS record', False, f'hosted zone {resolved_zone!r} not found')
+        except Exception as exc:
+            _step(c, 4, 'per-slug DNS record', False, f'Route 53 lookup failed: {exc}')
             failures += 1
-    except Exception as exc:
-        _step(c, 4, 'per-slug DNS record', False, f'Route 53 lookup failed: {exc}')
-        failures += 1
 
     # 5 — Public DNS resolution
     try:
@@ -498,6 +933,26 @@ def eval_(slug    : str  = typer.Argument(..., help='Slug to evaluate'),
         c.print(f'  [red]✗  {failures} step(s) failed[/]\n')
         raise typer.Exit(1)
     c.print(f'  [green]✓  all {7} steps passed[/]\n')
+
+
+def _instance_has_tls_tag(instance_id: str, region: str) -> bool:
+    # Best-effort StackTLS read. Returns True only when the tag is unambiguously
+    # 'true' — any failure / missing tag / 'false' value yields False so eval
+    # treats no-TLS instances as the "wildcard-only" routing case.
+    if not instance_id or not region:
+        return False
+    try:
+        import boto3
+        ec2 = boto3.client('ec2', region_name=region)
+        resp = ec2.describe_instances(InstanceIds=[instance_id])
+        for res in resp.get('Reservations', []):
+            for inst in res.get('Instances', []):
+                for t in inst.get('Tags', []) or []:
+                    if t.get('Key') == 'StackTLS':
+                        return str(t.get('Value', '')).lower() in ('true', '1', 'yes')
+    except Exception:
+        return False
+    return False
 
 
 def _step(c: Console, n: int, label: str, ok: bool, detail: str = '') -> None:

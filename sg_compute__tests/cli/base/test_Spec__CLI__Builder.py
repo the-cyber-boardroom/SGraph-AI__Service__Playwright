@@ -126,7 +126,8 @@ class _FakeService:
 
 # ── builder factory helpers ───────────────────────────────────────────────────
 
-def _build_app(names=None, extra_create_options=None, extra_create_field_setters=None):
+def _build_app(names=None, extra_create_options=None, extra_create_field_setters=None,
+               skip_default_commands=None):
     svc_instance = _FakeService(names)
 
     spec = Schema__Spec__CLI__Spec(
@@ -137,7 +138,8 @@ def _build_app(names=None, extra_create_options=None, extra_create_field_setters
         service_factory       = lambda: svc_instance,
         extra_create_field_setters = extra_create_field_setters,
     )
-    builder = Spec__CLI__Builder(spec, extra_create_options=extra_create_options)
+    builder = Spec__CLI__Builder(spec, extra_create_options=extra_create_options,
+                                       skip_default_commands=skip_default_commands)
     return builder.build(), svc_instance
 
 
@@ -154,6 +156,19 @@ class test_Spec__CLI__Builder(TestCase):
         assert result.exit_code == 0
         for verb in ('list', 'info', 'create', 'wait', 'health', 'connect', 'exec', 'delete'):
             assert verb in result.output, f'missing verb: {verb}'
+
+    def test_build__skip_default_commands_suppresses_named_verbs(self):
+        # Specs (e.g. vault-app) replace the auto-registered `wait` / `health` /
+        # `delete` with richer equivalents (diagnose-based wait/check, delete
+        # with --all bulk-cleanup) — they pass skip_default_commands to opt out
+        # of the defaults.
+        app, _ = _build_app(skip_default_commands=['wait', 'health', 'delete'])
+        assert self.runner.invoke(app, ['wait'  , '--help']).exit_code != 0
+        assert self.runner.invoke(app, ['health', '--help']).exit_code != 0
+        assert self.runner.invoke(app, ['delete', '--help']).exit_code != 0
+        # other verbs still register
+        for verb in ('list', 'info', 'create', 'connect', 'exec'):
+            assert self.runner.invoke(app, [verb, '--help']).exit_code == 0, f'{verb} broken'
 
     def test_list__help_mentions_region(self):
         app, _ = _build_app()
