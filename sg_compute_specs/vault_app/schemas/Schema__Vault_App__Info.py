@@ -23,6 +23,7 @@ class Schema__Vault_App__Info(Type_Safe):
     ssm_forward         : str = ''    # ready-to-paste `aws ssm start-session ...` for host-plane (:19009)
     mitmweb_ssm_forward : str = ''    # ready-to-paste `aws ssm start-session ...` for the mitmweb admin (:19081)
     tls_enabled        : bool = False # from StackTLS tag — drives the vault_url scheme
+    tls_hostname       : str  = ''    # FQDN the LE cert was issued for; '' for IP-cert or self-signed stacks
     access_token       : str  = ''    # from AccessToken tag — vault API key + access token (same value, two headers)
     with_playwright    : bool = False # from StackWithPlaywright tag
     container_engine   : str  = ''    # from StackEngine tag — docker | podman

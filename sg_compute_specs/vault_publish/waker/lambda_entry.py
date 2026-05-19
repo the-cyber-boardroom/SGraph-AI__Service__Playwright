@@ -208,7 +208,89 @@ def _route_status_page(slug_arg: str, headers: dict, event: dict, raw_body: byte
     }
 
 
+def _build_cors_headers(request_headers: dict) -> dict:
+    # Echoes the request Origin back as Access-Control-Allow-Origin iff the
+    # Origin matches the configured zone (any subdomain). Same-zone-only is
+    # tighter than '*' and required for allow_credentials=true. Cross-zone
+    # origins get 'null' which fails the browser's CORS check (intentional).
+    import re
+    origin = _h(request_headers, 'origin', '')
+    zone   = os.environ.get('SG_AWS__DNS__DEFAULT_ZONE', 'aws.sg-labs.app')
+    pattern = rf'^https?://(?:[a-z0-9-]+\.)*{re.escape(zone)}(?::\d+)?$'
+    allow_origin = origin if (origin and re.match(pattern, origin)) else 'null'
+    return {
+        'Access-Control-Allow-Origin'     : allow_origin,
+        'Access-Control-Allow-Credentials': 'true',
+        'Access-Control-Allow-Methods'    : 'GET, OPTIONS',
+        'Access-Control-Allow-Headers'    : 'content-type, x-vault-warming-probe',
+        'Access-Control-Max-Age'          : '86400',
+        'Vary'                            : 'Origin',
+    }
+
+
+def _route_probe(qs_args: dict, request_headers: dict, method: str) -> dict:
+    # /__waker__/probe?slug=X — JSON status probe used by the warming page
+    # cross-origin. Returns {slug, waker_state, ec2_state, instance_id,
+    # public_ip, region}. NO slug resolution / wake / proxy — just a snapshot.
+    cors = _build_cors_headers(request_headers)
+    if method.upper() == 'OPTIONS':
+        return {'statusCode': 204, 'headers': cors, 'body': '', 'isBase64Encoded': False}
+
+    slug = qs_args.get('slug', '') if isinstance(qs_args, dict) else ''
+    response_headers = {**cors,
+                        'Content-Type'   : 'application/json',
+                        'Cache-Control'  : 'no-store',
+                        'X-Waker-Version': WAKER_VERSION}
+    if not slug:
+        return {'statusCode': 400,
+                'headers'   : response_headers,
+                'body'      : json.dumps({'error': 'slug query param required'}),
+                'isBase64Encoded': False}
+
+    from sg_compute_specs.vault_publish.waker.Endpoint__Resolver__EC2       import Endpoint__Resolver__EC2
+    from sg_compute_specs.vault_publish.waker.schemas.Enum__Instance__State import Enum__Instance__State
+    from sg_compute_specs.vault_publish.waker.Waker__Handler                import health_probe
+
+    resolution = Endpoint__Resolver__EC2().resolve(slug)
+    state      = resolution.state
+    if state == Enum__Instance__State.UNKNOWN:
+        waker_state = 'not_found'
+    elif (state == Enum__Instance__State.RUNNING
+          and resolution.vault_url
+          and health_probe(resolution.vault_url)):
+        waker_state = 'proxied'
+    else:
+        waker_state = 'warming'
+
+    payload = {
+        'slug'        : slug,
+        'waker_state' : waker_state,
+        'ec2_state'   : str(state),
+        'instance_id' : resolution.instance_id,
+        'public_ip'   : resolution.public_ip,
+        'region'      : resolution.region,
+    }
+    return {'statusCode': 200, 'headers': response_headers,
+            'body': json.dumps(payload), 'isBase64Encoded': False}
+
+
 # ── Entry point ──────────────────────────────────────────────────────────────
+
+# FastAPI app cache. Built lazily on first hit + reused across warm Lambda
+# invocations. Module-level so cold start cost (~150ms for FastAPI init +
+# route registration + admin mount) is paid once per container.
+_FAST_API_APP = None
+_LAMBDA_TO_ASGI = None
+
+def _get_asgi_dispatcher():
+    global _FAST_API_APP, _LAMBDA_TO_ASGI
+    if _LAMBDA_TO_ASGI is None:
+        from sg_compute_specs.vault_publish.waker.Fast_API__Waker import Fast_API__Waker
+        from sg_compute_specs.vault_publish.waker.Lambda_To_ASGI  import Lambda_To_ASGI
+        _FAST_API_APP   = Fast_API__Waker().setup().app()
+        _LAMBDA_TO_ASGI = Lambda_To_ASGI(_FAST_API_APP)
+    return _LAMBDA_TO_ASGI
+
 
 def handler(event, context):                                                       # Lambda entry point
     headers     = event.get('headers') or {}
@@ -223,6 +305,18 @@ def handler(event, context):                                                    
         import urllib.parse
         qs_args = dict(urllib.parse.parse_qsl(raw_qs, keep_blank_values=True))
         return _route_special(path, qs_args)
+    if path == '/__waker__/probe':
+        import urllib.parse
+        qs_args = dict(urllib.parse.parse_qsl(raw_qs, keep_blank_values=True))
+        method  = (event.get('requestContext') or {}).get('http', {}).get('method', 'GET')
+        return _route_probe(qs_args, headers, method)
+
+    # Admin UI — dispatch /__admin__/* through the ASGI adapter to the FastAPI
+    # sub-app mounted on Fast_API__Waker. This is the first step in moving
+    # all waker routes to FastAPI; today only /__admin__/* uses this path,
+    # but the dispatcher is general-purpose.
+    if path == '/__admin__' or path.startswith('/__admin__/'):
+        return _get_asgi_dispatcher()(event)
     if path == '/__waker__/status':
         import urllib.parse
         qs_args = dict(urllib.parse.parse_qsl(raw_qs, keep_blank_values=True))

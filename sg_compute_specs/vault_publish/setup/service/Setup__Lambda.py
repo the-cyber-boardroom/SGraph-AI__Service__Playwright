@@ -128,7 +128,9 @@ class Setup__Lambda(Type_Safe):
                        'WAKER_DEPLOY_ID', 'WAKER_DEPLOY_REGION', 'WAKER_DEPLOYED_BY',
                        'WAKER_GIT_COMMIT', 'WAKER_LAMBDA_FUNCTION_URL',
                        'WAKER_CMD_ENABLED', 'WAKER_CMD_MUTATIONS_ENABLED',
-                       'SG_AWS__DNS__DEFAULT_ZONE')
+                       'SG_AWS__DNS__DEFAULT_ZONE',
+                       'SG_VAULT_PUBLISH__ADMIN__API_KEY_NAME',
+                       'SG_VAULT_PUBLISH__ADMIN__API_KEY_VALUE')
         )
 
         state = Enum__Setup__State.OK if not drifted else Enum__Setup__State.DRIFT
@@ -176,7 +178,9 @@ class Setup__Lambda(Type_Safe):
                    'WAKER_DEPLOY_ID', 'WAKER_DEPLOY_REGION', 'WAKER_DEPLOYED_BY',
                    'WAKER_GIT_COMMIT', 'WAKER_LAMBDA_FUNCTION_URL',
                    'WAKER_CMD_ENABLED', 'WAKER_CMD_MUTATIONS_ENABLED',
-                   'SG_AWS__DNS__DEFAULT_ZONE'):
+                   'SG_AWS__DNS__DEFAULT_ZONE',
+                   'SG_VAULT_PUBLISH__ADMIN__API_KEY_NAME',
+                   'SG_VAULT_PUBLISH__ADMIN__API_KEY_VALUE'):
             out[f'env.{k}'] = str(env.get(k, '(unset)'))
         return out
 
@@ -274,6 +278,30 @@ def _build_deploy_env(vault_publish_dir: str) -> dict:
     # on the function config manually to disable in production.
     env['WAKER_CMD_ENABLED']           = os.environ.get('WAKER_CMD_ENABLED',           '1')
     env['WAKER_CMD_MUTATIONS_ENABLED'] = os.environ.get('WAKER_CMD_MUTATIONS_ENABLED', '1')
+    # Admin API key (name + value). Used by the /__admin__/ surface to gate
+    # the admin UI behind a single shared secret. Generated on first create
+    # (random 24-byte URL-safe token), then PRESERVED across updates by
+    # reading the existing env var from the live Lambda config. The operator
+    # sees the value in the deploy report so they can paste it into the
+    # browser login form.
+    from sg_compute_specs.vault_publish.admin.Admin__Auth import (
+        DEFAULT_NAME as ADMIN_KEY_DEFAULT_NAME, generate_key_value)
+    existing_env = {}
+    try:
+        from sgraph_ai_service_playwright__cli.aws.lambda_.service.Lambda__AWS__Client import Lambda__AWS__Client
+        lc = Lambda__AWS__Client()
+        if lc.exists(WAKER_LAMBDA_NAME):
+            details = lc.get_function_details(WAKER_LAMBDA_NAME)
+            existing_env = getattr(details, 'environment', {}) or {}
+    except Exception:
+        pass
+    env['SG_VAULT_PUBLISH__ADMIN__API_KEY_NAME'] = (
+        existing_env.get('SG_VAULT_PUBLISH__ADMIN__API_KEY_NAME') or
+        os.environ.get('SG_VAULT_PUBLISH__ADMIN__API_KEY_NAME', ADMIN_KEY_DEFAULT_NAME))
+    env['SG_VAULT_PUBLISH__ADMIN__API_KEY_VALUE'] = (
+        existing_env.get('SG_VAULT_PUBLISH__ADMIN__API_KEY_VALUE') or
+        os.environ.get('SG_VAULT_PUBLISH__ADMIN__API_KEY_VALUE') or
+        generate_key_value())
     # Lambda's own Function URL. Used by Warming__Page to poll cross-origin
     # from the slug FQDN (different origin → different IPs → different socket
     # pool slot in the browser → no DNS pinning on the slug FQDN socket).
