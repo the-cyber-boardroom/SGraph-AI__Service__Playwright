@@ -156,7 +156,8 @@ class Fargate__AWS__Client(Type_Safe):
                                   log_group: str = '') -> Schema__ECS__Task__Definition:
         env_list    = [{'name': k, 'value': v} for k, v in (env or {}).items()]
         mapped_ports = port_mappings or []
-        active_log_group = log_group or f'/ecs/{name}'
+        active_log_group  = log_group or f'/ecs/{name}'
+        active_log_region = self.current_region() or 'us-east-1'                   # self.region may be '' even when session targets eu-west-2
         container_def = {
             'name'       : name,
             'image'      : image,
@@ -166,7 +167,7 @@ class Fargate__AWS__Client(Type_Safe):
                 'logDriver': 'awslogs',
                 'options'  : {
                     'awslogs-group'        : active_log_group,
-                    'awslogs-region'       : self.region or 'us-east-1',
+                    'awslogs-region'       : active_log_region,
                     'awslogs-stream-prefix': 'ecs',
                 },
             },
