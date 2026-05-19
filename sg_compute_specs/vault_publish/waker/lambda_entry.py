@@ -276,6 +276,22 @@ def _route_probe(qs_args: dict, request_headers: dict, method: str) -> dict:
 
 # ── Entry point ──────────────────────────────────────────────────────────────
 
+# FastAPI app cache. Built lazily on first hit + reused across warm Lambda
+# invocations. Module-level so cold start cost (~150ms for FastAPI init +
+# route registration + admin mount) is paid once per container.
+_FAST_API_APP = None
+_LAMBDA_TO_ASGI = None
+
+def _get_asgi_dispatcher():
+    global _FAST_API_APP, _LAMBDA_TO_ASGI
+    if _LAMBDA_TO_ASGI is None:
+        from sg_compute_specs.vault_publish.waker.Fast_API__Waker import Fast_API__Waker
+        from sg_compute_specs.vault_publish.waker.Lambda_To_ASGI  import Lambda_To_ASGI
+        _FAST_API_APP   = Fast_API__Waker().setup().app()
+        _LAMBDA_TO_ASGI = Lambda_To_ASGI(_FAST_API_APP)
+    return _LAMBDA_TO_ASGI
+
+
 def handler(event, context):                                                       # Lambda entry point
     headers     = event.get('headers') or {}
     origin_host = _h(headers, 'host', '')
@@ -294,6 +310,13 @@ def handler(event, context):                                                    
         qs_args = dict(urllib.parse.parse_qsl(raw_qs, keep_blank_values=True))
         method  = (event.get('requestContext') or {}).get('http', {}).get('method', 'GET')
         return _route_probe(qs_args, headers, method)
+
+    # Admin UI — dispatch /__admin__/* through the ASGI adapter to the FastAPI
+    # sub-app mounted on Fast_API__Waker. This is the first step in moving
+    # all waker routes to FastAPI; today only /__admin__/* uses this path,
+    # but the dispatcher is general-purpose.
+    if path == '/__admin__' or path.startswith('/__admin__/'):
+        return _get_asgi_dispatcher()(event)
     if path == '/__waker__/status':
         import urllib.parse
         qs_args = dict(urllib.parse.parse_qsl(raw_qs, keep_blank_values=True))
