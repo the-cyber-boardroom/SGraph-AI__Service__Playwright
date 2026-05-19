@@ -50,20 +50,24 @@ class _Fake_R53_Client:                                                         
 
     def change_resource_record_sets(self, HostedZoneId: str, ChangeBatch: dict):
         records = self._records.setdefault(HostedZoneId, [])
+
+        def _norm(s: str) -> str:                                                    # Route 53 treats foo.example.com and foo.example.com. identically
+            return str(s).rstrip('.')
+
         for change in ChangeBatch.get('Changes', []):
             action = change.get('Action', '')
             rrset  = change.get('ResourceRecordSet', {})
             name   = rrset.get('Name', '')
             rtype  = rrset.get('Type', '')
-            if action == 'DELETE':                                                  # remove first match by name + type
+            if action == 'DELETE':                                                  # remove first match by name + type (ignore trailing dot)
                 for idx, existing in enumerate(records):
-                    if existing.get('Name', '') == name and existing.get('Type', '') == rtype:
+                    if _norm(existing.get('Name', '')) == _norm(name) and existing.get('Type', '') == rtype:
                         records.pop(idx)
                         break
             elif action in ('CREATE', 'UPSERT'):                                    # replace existing or append
                 replaced = False
                 for idx, existing in enumerate(records):
-                    if existing.get('Name', '') == name and existing.get('Type', '') == rtype:
+                    if _norm(existing.get('Name', '')) == _norm(name) and existing.get('Type', '') == rtype:
                         records[idx] = dict(rrset)
                         replaced = True
                         break

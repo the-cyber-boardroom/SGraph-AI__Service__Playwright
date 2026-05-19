@@ -6,6 +6,7 @@
 
 import typer
 
+from sg_compute_specs.vault_app.fargate.cli.Cli__Vault_App__Fargate__Dns   import app as dns_app
 from sg_compute_specs.vault_app.fargate.cli.Cli__Vault_App__Fargate__Setup import app as setup_app
 from sg_compute_specs.vault_app.fargate.cli.Cli__Vault_App__Fargate__Start import (
     fargate_start,
@@ -24,6 +25,7 @@ from sg_compute_specs.vault_app.fargate.cli.Cli__Vault_App__Fargate__Start impor
 app = typer.Typer(name='fargate', help='Vault-App on Fargate.', no_args_is_help=True)
 
 app.add_typer(setup_app, name='setup')
+app.add_typer(dns_app,   name='dns'  )
 
 # ── task-level commands mounted directly on the fargate app ──────────────────
 
