@@ -256,7 +256,7 @@ _cli_spec = Schema__Spec__CLI__Spec(
 
 app = Spec__CLI__Builder(
     cli_spec              = _cli_spec,
-    skip_default_commands = ['wait', 'health'],                       # replaced by `check` + diagnose-based `wait` below
+    skip_default_commands = ['wait', 'health', 'delete'],             # replaced by `check`, diagnose-based `wait`, and `delete` w/ --all below
     extra_create_options  = [
         # ── stack shape ──────────────────────────────────────────────────
         ('with_playwright', bool, False,
@@ -979,23 +979,43 @@ def open_target(target: Optional[str] = typer.Argument(None,
     ])
 
 
-# ── `sg va delete-all` — bulk-delete every vault-app stack in the region ─────
+# ── `sg va delete` — single stack or --all ───────────────────────────────────
+# Replaces the builder's default delete to add the --all flag for bulk cleanup
+# (useful after benchmarks or when wiping a region).
 
-@app.command(name='delete-all', help='''Terminate ALL vault-app stacks in the region.
+@app.command(name='delete', help='''Terminate a vault-app stack (or every stack in the region).
 
 \b
-Deletes every stack whose Type tag matches vault-app — including their
-security groups and DNS A records.  This is a destructive bulk action:
-runs a confirmation prompt unless --yes is set.
+  sg va delete <name>     terminate one stack (auto-picks if only one exists)
+  sg va delete --all      terminate every vault-app stack in the region
+
+\b
+Deletes the EC2 instance + its security group, and removes the per-slug DNS
+A record when one exists.  Confirmation prompt unless --yes is set.
 ''')
 @spec_cli_errors
-def delete_all(region: str  = typer.Option(DEFAULT_REGION, '--region', '-r'),
-               yes   : bool = typer.Option(False, '--yes', '-y', help='Skip confirmation prompt.')):
-    """Terminate all vault-app stacks in the region."""
+def delete(name  : Optional[str] = typer.Argument(None, help='Stack name; auto-selected when only one exists.  Ignored with --all.'),
+           region: str           = typer.Option(DEFAULT_REGION, '--region', '-r'),
+           all_  : bool          = typer.Option(False, '--all',          help='Terminate every vault-app stack in the region.'),
+           yes   : bool          = typer.Option(False, '--yes', '-y',    help='Skip confirmation prompt.')):
+    """Terminate one vault-app stack, or all of them with --all."""
+    from sg_compute.cli.base.Spec__CLI__Renderers__Base import render_delete
+
     c   = Console(highlight=False)
     svc = Vault_App__Service().setup()
-    lst = svc.list_stacks(region)
-    stacks = getattr(lst, 'stacks', [])
+
+    if not all_:
+        name = Spec__CLI__Builder(_cli_spec).resolver.resolve(svc, name, region, 'vault-app')
+        if not yes:
+            typer.confirm(f'Delete vault-app stack {name!r} in {region}?', default=True, abort=True)
+        result = svc.delete_stack(region, name)
+        render_delete(name, getattr(result, 'deleted', False), Console(highlight=False, width=200))
+        if not getattr(result, 'deleted', False):
+            raise typer.Exit(1)
+        return
+
+    # --all path
+    stacks = getattr(svc.list_stacks(region), 'stacks', [])
     if not stacks:
         c.print(f'\n  [dim]No vault-app stacks found in {region}.[/]\n')
         return
@@ -1008,18 +1028,18 @@ def delete_all(region: str  = typer.Option(DEFAULT_REGION, '--region', '-r'),
         typer.confirm(f'  Delete all {len(stacks)} stack(s) in {region}?', default=False, abort=True)
     failed = []
     for s in stacks:
-        name = str(getattr(s, 'stack_name', '') or '')
-        c.print(f'  [yellow]→[/]  Deleting [bold]{name}[/]…', end=' ')
+        sname = str(getattr(s, 'stack_name', '') or '')
+        c.print(f'  [yellow]→[/]  Deleting [bold]{sname}[/]…', end=' ')
         try:
-            result = svc.delete_stack(region, name)
+            result = svc.delete_stack(region, sname)
             if getattr(result, 'deleted', False):
                 c.print('[green]✓[/]')
             else:
                 c.print('[red]✗[/]')
-                failed.append(name)
+                failed.append(sname)
         except Exception as exc:
             c.print(f'[red]✗  {str(exc)[:80]}[/]')
-            failed.append(name)
+            failed.append(sname)
     c.print()
     if failed:
         c.print(f'  [red]Failed to delete: {", ".join(failed)}[/]')
