@@ -479,6 +479,108 @@ _DIAG_HINTS = {
 }
 
 
+@app.command(name='cert-renew')
+@spec_cli_errors
+def cert_renew(name    : str  = typer.Argument(None, help='Stack name; auto-selected when only one exists.'),
+               region  : str  = typer.Option(DEFAULT_REGION, '--region', '-r'),
+               wait    : bool = typer.Option(True, '--wait/--no-wait',
+                                              help='Wait for the cert-init container to finish before returning.'),
+               timeout : int  = typer.Option(120, '--timeout', '-t',
+                                              help='Max seconds to wait for cert-init to complete (LE issuance can take 20-90s).')):
+    """Re-trigger Let's Encrypt cert issuance on a vault-app stack.
+
+    \b
+    Restarts the one-shot `cert-init` Docker/podman container on the EC2 via
+    SSM. cert-init re-reads SG__CERT_INIT__* env vars from /opt/vault-app/.env
+    and runs ACME HTTP-01 against the current DNS, then writes the cert+key
+    to the shared /certs volume. The vault container picks up the new cert
+    immediately (it mounts /certs).
+
+    Use this when:
+      • DNS was added/changed AFTER `sg va create` (HTTP-01 needs DNS
+        pointing at the EC2 IP before issuance).
+      • An existing cert expired and the auto-renew window slipped.
+      • You ran `sg vp adopt <slug>` and now need the cert.
+
+    Requires StackTLS=true on the instance.
+    """
+    import time as _t
+
+    c    = Console(highlight=False)
+    svc  = Vault_App__Service().setup()
+    name = Spec__CLI__Builder(_cli_spec).resolver.resolve(svc, name, region, 'vault-app')
+    info = svc.get_stack_info(region, name)
+    if info is None:
+        c.print(f'  [red]✗  No vault-app stack matched {name!r}[/]')
+        raise typer.Exit(1)
+
+    if not bool(getattr(info, 'tls_enabled', False)):
+        c.print(f'  [red]✗  Stack {name!r} was not created with TLS enabled (StackTLS!=true)[/]')
+        c.print(f'  [dim]   cert-renew has nothing to do. Recreate the stack with --with-tls-check.[/]')
+        raise typer.Exit(1)
+
+    engine = str(getattr(info, 'engine', '') or 'docker').lower()
+    compose_bin = 'podman-compose' if engine == 'podman' else 'docker compose'
+
+    # Restart cert-init. The container is one-shot (exit 0 on success) and the
+    # vault container declares depends_on:cert-init:service_completed_successfully,
+    # so a fresh cert-init also implicitly restarts the vault when it succeeds.
+    ssm_cmd = (
+        f'cd /opt/vault-app && '
+        f'{compose_bin} restart cert-init 2>&1 | tail -40; '
+        f'echo "---cert-init logs---"; '
+        f'({"docker" if engine != "podman" else "podman"} logs vault-app-cert-init-1 '
+        f'2>&1 | tail -30 || true)'
+    )
+    c.print()
+    c.print(f'  [bold]sg va cert-renew[/]  stack=[cyan]{name}[/]  region=[cyan]{region}[/]  '
+            f'engine=[cyan]{engine}[/]')
+    c.print(f'  [dim]via SSM:[/] [cyan]{compose_bin} restart cert-init[/]\n')
+
+    result = svc.exec(region, name, ssm_cmd, timeout_sec=60)
+    stdout = str(getattr(result, 'stdout', '') or '').strip()
+    stderr = str(getattr(result, 'stderr', '') or '').strip()
+    if stdout:
+        c.print('  [dim]' + '\n  '.join(stdout.splitlines()[-30:]) + '[/]')
+    if stderr:
+        c.print(f'  [yellow]stderr:[/] {stderr[:400]}')
+
+    if not wait:
+        c.print()
+        c.print(f'  [green]✓[/]  cert-init restart triggered (returning without waiting)')
+        return
+
+    # Poll the cert-init container state until it shows Exited (0) — success
+    c.print(f'\n  [yellow]→[/]  Waiting up to {timeout}s for cert-init to finish…')
+    container = 'vault-app-cert-init-1'
+    ps_cmd = (f'{"docker" if engine != "podman" else "podman"} '
+              f'ps -a --filter name={container} --format "{{{{.Status}}}}"')
+    t0 = _t.time()
+    last_status = ''
+    while True:
+        elapsed = _t.time() - t0
+        if elapsed > timeout:
+            c.print(f'\n  [red]✗  timed out after {timeout}s — cert-init last status: {last_status!r}[/]')
+            c.print(f'  [dim]   inspect the container logs with: sg va logs {name} --source cert-init[/]\n')
+            raise typer.Exit(1)
+        r = svc.exec(region, name, ps_cmd, timeout_sec=15)
+        status = str(getattr(r, 'stdout', '') or '').strip().splitlines()
+        status = status[0] if status else ''
+        if status != last_status:
+            c.print(f'  [dim]  {int(elapsed)}s: {status or "(no container yet)"}[/]')
+            last_status = status
+        # Healthy success markers
+        if 'Exited (0)' in status:
+            c.print(f'\n  [green]✓[/]  cert-init succeeded — new cert is on /certs')
+            c.print(f'  [dim]   The vault container picks it up immediately. Try the FQDN now.[/]\n')
+            return
+        if 'Exited' in status and '(0)' not in status:
+            c.print(f'\n  [red]✗  cert-init exited non-zero: {status}[/]')
+            c.print(f'  [dim]   Inspect with: sg va logs {name} --source cert-init[/]\n')
+            raise typer.Exit(1)
+        _t.sleep(3)
+
+
 @app.command()
 @spec_cli_errors
 def diag(name  : str = typer.Argument(None, help='Stack name; auto-selected when only one exists.'),

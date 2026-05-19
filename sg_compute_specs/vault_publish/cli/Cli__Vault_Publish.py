@@ -186,11 +186,13 @@ def _run_post_register_wait(c: Console, *, slug: str, region: str, timeout: int)
         delay = min(delay + 1, 6)
 
 
-@app.command(name='adopt', help='Adopt an existing EC2 (created via `sg va create`) into vault-publish: add sg:slug/sg:fqdn/sg:zone tags, create the per-slug Route 53 A record pointing at the EC2 IP, and invalidate the waker cache. Counterpart to register for instances that already exist.')
+@app.command(name='adopt', help='Adopt an existing EC2 (created via `sg va create`) into vault-publish: add sg:slug/sg:fqdn/sg:zone tags, create the per-slug Route 53 A record pointing at the EC2 IP, trigger LE cert renewal, and invalidate the waker cache. Counterpart to register for instances that already exist.')
 def adopt(slug         : str  = typer.Argument(..., help='Slug to adopt (must match the EC2\'s StackName tag, or the existing sg:slug tag).'),
           zone         : str  = typer.Option('', '--zone', '-z', help='DNS apex (defaults to $SG_AWS__DNS__DEFAULT_ZONE).'),
           skip_dns     : bool = typer.Option(False, '--skip-dns', help='Tag the EC2 but do NOT create the Route 53 A record.'),
-          skip_cache   : bool = typer.Option(False, '--skip-cache-clear', help='Do not invalidate the live waker cache after tagging.')):
+          skip_cert    : bool = typer.Option(False, '--skip-cert', help='Do not trigger LE cert renewal (cert-init restart on the EC2).'),
+          skip_cache   : bool = typer.Option(False, '--skip-cache-clear', help='Do not invalidate the live waker cache after tagging.'),
+          cert_timeout : int  = typer.Option(180, '--cert-timeout', help='Max seconds to wait for cert-init when --skip-cert is not set (LE issuance can take 20-90s after DNS lands).')):
     import os, boto3
     c = Console(highlight=False)
     resolved_zone = zone or os.environ.get('SG_AWS__DNS__DEFAULT_ZONE', 'aws.sg-labs.app')
@@ -212,8 +214,12 @@ def adopt(slug         : str  = typer.Argument(..., help='Slug to adopt (must ma
     iid       = instance.get('InstanceId', '')
     public_ip = instance.get('PublicIpAddress', '')
     state     = instance.get('State', {}).get('Name', '')
+    tags      = {t.get('Key',''): t.get('Value','') for t in instance.get('Tags', [])}
+    stack_name = tags.get('StackName', slug)
+    tls_on    = str(tags.get('StackTLS', '')).lower() in ('true', '1', 'yes')
     c.print(f'  [green]✓[/]  Found EC2 [bold]{iid}[/] in {region}  '
-            f'(state={state}, public_ip={public_ip or "(none)"})')
+            f'(state={state}, public_ip={public_ip or "(none)"}, '
+            f'StackName={stack_name}, StackTLS={tls_on})')
 
     # 2. Tag the instance
     c.print(f'  [yellow]→[/]  Tagging with sg:slug / sg:fqdn / sg:zone…')
@@ -232,6 +238,7 @@ def adopt(slug         : str  = typer.Argument(..., help='Slug to adopt (must ma
         raise typer.Exit(1)
 
     # 3. Create per-slug Route 53 A record
+    dns_ok = False
     if skip_dns:
         c.print(f'  [dim]·  Skipping DNS (--skip-dns)[/]')
     elif not public_ip:
@@ -245,13 +252,64 @@ def adopt(slug         : str  = typer.Argument(..., help='Slug to adopt (must ma
                 public_ip   = public_ip,
                 on_progress = lambda stage, detail: c.print(f'  [dim]   {stage}: {detail}[/]'),
             )
-            ok = bool(getattr(result, 'change_id', '') or getattr(result, 'completed', False))
-            icon = '[green]✓[/]' if ok else '[yellow]⚠[/]'
+            dns_ok = bool(getattr(result, 'change_id', '') or getattr(result, 'completed', False))
+            icon = '[green]✓[/]' if dns_ok else '[yellow]⚠[/]'
             c.print(f'  {icon}  DNS record upserted')
         except Exception as exc:
             c.print(f'  [yellow]⚠  DNS upsert failed: {exc}  (proceeding anyway)[/]')
 
-    # 4. Clear the waker's slug cache so the next request picks up the new tags
+    # 4. Trigger LE cert renewal — only meaningful when TLS was enabled at create
+    #    AND DNS is now in place (LE HTTP-01 needs the FQDN to resolve to this IP).
+    if skip_cert:
+        c.print(f'  [dim]·  Skipping cert renewal (--skip-cert)[/]')
+    elif not tls_on:
+        c.print(f'  [dim]·  Skipping cert renewal (instance not created with --with-tls-check)[/]')
+    elif not dns_ok and not skip_dns:
+        c.print(f'  [yellow]⚠  Skipping cert renewal — DNS upsert was not confirmed; '
+                f'run `sg va cert-renew {stack_name}` manually after DNS settles.[/]')
+    else:
+        c.print(f'  [yellow]→[/]  Triggering Let\'s Encrypt cert renewal '
+                f'(restart cert-init container on EC2, wait up to {cert_timeout}s)…')
+        try:
+            from sg_compute_specs.vault_app.service.Vault_App__Service import Vault_App__Service
+            svc = Vault_App__Service().setup()
+            engine = (tags.get('StackEngine', '') or 'docker').lower()
+            compose = 'podman-compose' if engine == 'podman' else 'docker compose'
+            ssm = f'cd /opt/vault-app && {compose} restart cert-init 2>&1 | tail -20'
+            svc.exec(region, stack_name, ssm, timeout_sec=60)
+            # Poll for success
+            import time as _t
+            container = 'vault-app-cert-init-1'
+            ps_cmd = (f'{"docker" if engine != "podman" else "podman"} ps -a '
+                       f'--filter name={container} --format "{{{{.Status}}}}"')
+            t0 = _t.time()
+            last_status = ''
+            while True:
+                elapsed = _t.time() - t0
+                if elapsed > cert_timeout:
+                    c.print(f'  [yellow]⚠  cert-init timed out after {cert_timeout}s '
+                            f'(last status: {last_status!r}) — inspect with '
+                            f'`sg va logs {stack_name} --source cert-init`[/]')
+                    break
+                r = svc.exec(region, stack_name, ps_cmd, timeout_sec=15)
+                status = str(getattr(r, 'stdout', '') or '').strip().splitlines()
+                status = status[0] if status else ''
+                if status != last_status:
+                    c.print(f'  [dim]   {int(elapsed)}s: {status or "(no container yet)"}[/]')
+                    last_status = status
+                if 'Exited (0)' in status:
+                    c.print(f'  [green]✓[/]  cert-init succeeded — vault has a fresh LE cert')
+                    break
+                if 'Exited' in status and '(0)' not in status:
+                    c.print(f'  [red]✗  cert-init exited non-zero: {status}[/]')
+                    c.print(f'  [dim]   Inspect: sg va logs {stack_name} --source cert-init[/]')
+                    break
+                _t.sleep(3)
+        except Exception as exc:
+            c.print(f'  [yellow]⚠  cert-renew failed: {exc}[/]')
+            c.print(f'  [dim]   Run manually: sg va cert-renew {stack_name}[/]')
+
+    # 5. Clear the waker's slug cache so the next request picks up the new tags
     if skip_cache:
         c.print(f'  [dim]·  Skipping cache-clear (--skip-cache-clear)[/]')
     else:
