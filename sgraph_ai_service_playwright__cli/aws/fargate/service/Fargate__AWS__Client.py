@@ -243,6 +243,7 @@ class Fargate__AWS__Client(Type_Safe):
                  assign_public_ip: bool = False,
                  launch_type: str = 'FARGATE',
                  enable_execute_command: bool = False,
+                 task_role_arn: str = '',
                  tags: dict = None,
                  env: dict = None) -> Optional[Schema__ECS__Task]:
         vpc_config = {
@@ -270,13 +271,16 @@ class Fargate__AWS__Client(Type_Safe):
             run_kwargs['launchType'] = launch_type
         if enable_execute_command:                                                 # ECS Exec (SSM shell access)
             run_kwargs['enableExecuteCommand'] = True
-        if env:                                                                    # override env via containerOverrides
-            run_kwargs['overrides'] = {
-                'containerOverrides': [{
+        if env or task_role_arn:                                                   # override env / task role at run-task time
+            overrides = {}
+            if env:
+                overrides['containerOverrides'] = [{
                     'name'       : task_def.split(':')[0],                         # use family name as container name
                     'environment': [{'name': k, 'value': v} for k, v in env.items()],
                 }]
-            }
+            if task_role_arn:                                                      # ECS Exec requires a task role with ssmmessages:* — override even if TD lacks one
+                overrides['taskRoleArn'] = task_role_arn
+            run_kwargs['overrides'] = overrides
         resp  = self.client().run_task(**run_kwargs)
         tasks = resp.get('tasks', [])
         if not tasks:

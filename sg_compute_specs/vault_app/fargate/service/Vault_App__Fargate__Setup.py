@@ -310,6 +310,8 @@ class Vault_App__Fargate__Setup(Type_Safe):
                     network_tags['VaultApp__Subnets'] = request.subnets.replace(',', ' ')   # AWS tag values disallow commas
                 if request.security_group:
                     network_tags['VaultApp__SecurityGroup'] = request.security_group
+                if ctx.get('task_role_arn'):                                                # propagate task role so starter can override at run-task time
+                    network_tags['VaultApp__TaskRoleArn'] = ctx['task_role_arn']
                 if network_tags:
                     self.fargate_client.tag_cluster(cluster_name, network_tags)
                     result.detail = 'retagged network config'
@@ -328,7 +330,7 @@ class Vault_App__Fargate__Setup(Type_Safe):
                     log_group          = log_group,
                     ecr_repo_name      = ecr_repo_name,
                     region             = ctx['region'],
-                    task_role_arn      = request.task_role_name,
+                    task_role_arn      = ctx.get('task_role_arn') or request.task_role_name,
                     dns_zone           = request.dns_zone,
                 )
                 self.fargate_client.create_cluster(cluster_name, tags=tags)
