@@ -125,9 +125,9 @@ class Route53__AWS__Client__In_Memory(Route53__AWS__Client):
         zone_id = self._zone_id_for_name(zone_name)
         if zone_id is None:
             return False
-        fqdn = name if name.endswith('.') else f'{name}.'
+        target = name.rstrip('.')                                                    # compare both names after stripping trailing dot
         for r in self._records.get(zone_id, []):
-            if r.get('Name', '') == fqdn and r.get('Type', '') == record_type:
+            if str(r.get('Name', '')).rstrip('.') == target and r.get('Type', '') == record_type:
                 return True
         return False
 
