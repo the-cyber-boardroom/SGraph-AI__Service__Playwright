@@ -270,6 +270,19 @@ def _build_deploy_env(vault_publish_dir: str) -> dict:
     # on the function config manually to disable in production.
     env['WAKER_CMD_ENABLED']           = os.environ.get('WAKER_CMD_ENABLED',           '1')
     env['WAKER_CMD_MUTATIONS_ENABLED'] = os.environ.get('WAKER_CMD_MUTATIONS_ENABLED', '1')
+    # Lambda's own Function URL. Used by Warming__Page to poll cross-origin
+    # from the slug FQDN (different origin → different socket pool slot in
+    # the browser → no DNS pinning on the slug FQDN socket). Discovered
+    # best-effort here; on first create the URL doesn't exist yet so this
+    # is empty — `sg vp setup lambda update` after the URL is provisioned
+    # will pick it up and bake it in.
+    try:
+        from sgraph_ai_service_playwright__cli.aws.lambda_.service.Lambda__AWS__Client import Lambda__AWS__Client
+        url_info = Lambda__AWS__Client().get_function_url(WAKER_LAMBDA_NAME)
+        if getattr(url_info, 'exists', False) and getattr(url_info, 'function_url', ''):
+            env['WAKER_LAMBDA_FUNCTION_URL'] = str(url_info.function_url).rstrip('/')
+    except Exception:
+        pass                                                                            # silent — handled by the warming page falling back to slug polling
     return env
 
 

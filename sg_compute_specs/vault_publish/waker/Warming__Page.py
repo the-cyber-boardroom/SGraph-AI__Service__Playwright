@@ -23,8 +23,17 @@
 
 import html as html_lib
 import json
+import os
 
 from osbot_utils.type_safe.Type_Safe import Type_Safe
+
+# Lambda Function URL — used by the warming-page JS to poll cross-origin
+# instead of polling the slug FQDN (which keeps the slug FQDN's keep-alive
+# socket warm and prevents DNS un-pinning). Set by Setup__Lambda at deploy
+# time once the Function URL exists. Empty until the second `sg vp setup
+# lambda update` after the URL is provisioned, in which case the JS falls
+# back to polling the slug URL (legacy behaviour).
+WAKER_LAMBDA_FUNCTION_URL = os.environ.get('WAKER_LAMBDA_FUNCTION_URL', '').rstrip('/')
 
 NO_CACHE_HEADERS = {
     'Cache-Control': 'no-store, no-cache, must-revalidate',
@@ -130,10 +139,33 @@ _HTML_TEMPLATE = """<!DOCTYPE html>
     }
 
     async function probe() {
-      // Fetch the same URL the user originally navigated to. Lambda returns
-      // either the warming page (state=warming) or proxies to the vault
-      // (state=proxied). When DNS converges, the same fetch goes direct to
-      // EC2 and the X-Waker-State header is absent.
+      // Default: poll the Lambda Function URL cross-origin so the slug
+      // FQDN's socket pool slot stays idle and can drain. Only when
+      // CFG.lambda_url is unset (legacy deploy without the env var) do we
+      // fall back to polling the slug FQDN — at the cost of pinning the
+      // socket, but functional.
+      if (CFG.lambda_url) {
+        const url = CFG.lambda_url + '/__waker__/probe?slug=' +
+                    encodeURIComponent(CFG.slug) + '&t=' + Date.now();
+        const resp = await fetch(url, {
+          cache       : 'no-store',
+          credentials : 'omit',
+          mode        : 'cors',
+          headers     : { 'X-Vault-Warming-Probe': '1' },
+          redirect    : 'manual',
+        });
+        const json = await resp.json();
+        return {
+          status      : resp.status,
+          waker_state : json.waker_state || '',
+          ec2_state   : json.ec2_state   || '',
+          via_lambda  : true,                                                   // cross-origin probe is always to Lambda; we never get "direct" detection this way
+          direct_check: false,
+        };
+      }
+      // Legacy fallback: probe the slug URL. Sets keep-alive socket so this
+      // is the polling we are trying to avoid — only used when lambda_url
+      // is unset.
       const url = window.location.pathname + '?_probe=' + Date.now();
       const resp = await fetch(url, {
         cache       : 'no-store',
@@ -146,6 +178,7 @@ _HTML_TEMPLATE = """<!DOCTYPE html>
         waker_state : resp.headers.get('x-waker-state'),
         ec2_state   : resp.headers.get('x-waker-ec2-state'),
         via_lambda  : !!resp.headers.get('x-waker-state'),
+        direct_check: true,                                                     // this poll can detect direct routing
       };
     }
 
@@ -159,12 +192,18 @@ _HTML_TEMPLATE = """<!DOCTYPE html>
         pollT = setTimeout(bootTick, nextPollDelayMs());
         return;
       }
-      setPath(r.via_lambda);
-
-      // No X-Waker-State header → response came direct from EC2
-      if (!r.via_lambda) {
-        gotoNow('Direct routing detected — redirecting…');
-        return;
+      // Path display: when we're polling cross-origin via Lambda, we can't
+      // detect direct vs proxy from the probe response (it's always Lambda).
+      // Show the cross-origin polling target instead.
+      if (r.direct_check) {
+        setPath(r.via_lambda);
+        // No X-Waker-State header → response came direct from EC2
+        if (!r.via_lambda) {
+          gotoNow('Direct routing detected — redirecting…');
+          return;
+        }
+      } else {
+        $('path-line').textContent = 'Status polled cross-origin via Lambda Function URL';
       }
       if (r.waker_state === 'not_found' || r.waker_state === 'error') {
         setMsg('Vault not found',
@@ -282,6 +321,7 @@ class Warming__Page(Type_Safe):
     def render(self, slug: str) -> str:
         cfg = {
             'slug'            : slug,
+            'lambda_url'      : WAKER_LAMBDA_FUNCTION_URL,
             'poll_fast_ms'    : self.poll_fast_ms,
             'poll_fast_count' : self.poll_fast_count,
             'poll_slow_ms'    : self.poll_slow_ms,
