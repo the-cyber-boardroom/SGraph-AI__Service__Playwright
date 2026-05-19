@@ -13,3 +13,4 @@ class Schema__Vault_Publish__Register__Request(Type_Safe):
     slug      : Safe_Str__Slug       = None
     vault_key : Safe_Str__Vault__Key = None
     region    : str                  = ''
+    with_tls  : bool                 = True                                              # False → provision without cert-init, vault on :8080 HTTP only; viewer-facing TLS still works through the CF wildcard cert

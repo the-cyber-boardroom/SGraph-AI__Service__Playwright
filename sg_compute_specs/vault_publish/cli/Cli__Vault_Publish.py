@@ -47,6 +47,7 @@ def register(slug                  : str  = typer.Argument(..., help='DNS slug (
              region                : str  = typer.Option(DEFAULT_REGION, '--region', '-r'),
              wait                  : bool = typer.Option(False, '--wait', '-w', help='After register, poll the EC2 until it is RUNNING + reachable. Same shape as `sg vp wake`.'),
              timeout               : int  = typer.Option(600, '--timeout', '-t', help='Max seconds to wait when --wait is set (covers EC2 launch + vault-app boot + LE cert init).'),
+             no_tls                : bool = typer.Option(False, '--no-tls', help='Provision the EC2 WITHOUT cert-init / WITHOUT TLS on :443. Vault listens on :8080 HTTP only. Viewers still get HTTPS via the CloudFront wildcard cert (CF → Lambda → EC2 chain), but direct https://<ip>/ access from the operator will not work. Useful to validate the full routing chain without the cert dependency — issue the cert later with `sg va cert-renew`.'),
              force_region_mismatch : bool = typer.Option(False, '--force-region-mismatch', help='Proceed even when --region differs from the waker Lambda\'s deploy region. Routing still works (waker scans multiple regions) but Lambda → EC2 calls cross AZ boundaries — measurably slower.')):
     import os
     from sg_compute_specs.vault_publish.service.Vault_Publish__Service import _default_zone
@@ -57,14 +58,17 @@ def register(slug                  : str  = typer.Argument(..., help='DNS slug (
 
     # Up-front summary so the operator sees the exact call shape BEFORE it runs.
     c.print()
-    c.print(f'  [bold]sg vp register[/]  slug=[cyan]{slug}[/]  region=[cyan]{region}[/]')
+    tls_marker = '[yellow](no TLS — pure HTTP)[/]' if no_tls else '[green](TLS via LE)[/]'
+    c.print(f'  [bold]sg vp register[/]  slug=[cyan]{slug}[/]  region=[cyan]{region}[/]  {tls_marker}')
     c.print(f'  [dim]→ FQDN              : {fqdn}[/]')
     c.print(f'  [dim]→ Underlying VA call: Vault_App__Service.create_stack([/]')
-    c.print(f'  [dim]    stack_name   = {slug!r},[/]')
-    c.print(f'  [dim]    region       = {region!r},[/]')
-    c.print(f'  [dim]    with_aws_dns = True,[/]')
-    c.print(f'  [dim]    tls_hostname = {fqdn!r},[/]')
-    c.print(f'  [dim]    tls_mode     = "letsencrypt-hostname",[/]')
+    c.print(f'  [dim]    stack_name      = {slug!r},[/]')
+    c.print(f'  [dim]    region          = {region!r},[/]')
+    c.print(f'  [dim]    with_aws_dns    = True,[/]')
+    c.print(f'  [dim]    with_tls_check  = {(not no_tls)!r},[/]')
+    if not no_tls:
+        c.print(f'  [dim]    tls_hostname    = {fqdn!r},[/]')
+        c.print(f'  [dim]    tls_mode        = "letsencrypt-hostname",[/]')
     c.print(f'  [dim]  )[/]')
 
     if waker_region and waker_region != region:
@@ -86,7 +90,8 @@ def register(slug                  : str  = typer.Argument(..., help='DNS slug (
     req = Schema__Vault_Publish__Register__Request(
         slug      = Safe_Str__Slug(slug),
         vault_key = Safe_Str__Vault__Key(vault_key),
-        region    = region)
+        region    = region,
+        with_tls  = not no_tls)
     resp = _svc().register(req)
     if not str(getattr(resp, 'fqdn', '')):
         c.print(f'  [red]✗  {resp.message}[/]')
@@ -100,7 +105,8 @@ def register(slug                  : str  = typer.Argument(..., help='DNS slug (
 
     if wait:
         c.print(f'  [yellow]→[/]  Waiting (up to {timeout}s) for EC2 to be RUNNING + reachable…')
-        _run_post_register_wait(c, slug=slug, region=region, timeout=timeout, fqdn=resp.fqdn)
+        _run_post_register_wait(c, slug=slug, region=region, timeout=timeout,
+                                fqdn=resp.fqdn, with_tls=not no_tls)
 
 
 def _detect_waker_region() -> str:
@@ -123,14 +129,19 @@ def _detect_waker_region() -> str:
     return ''
 
 
-def _run_post_register_wait(c: Console, *, slug: str, region: str, timeout: int, fqdn: str = '') -> None:
+def _run_post_register_wait(c: Console, *, slug: str, region: str, timeout: int,
+                              fqdn: str = '', with_tls: bool = True) -> None:
     """Poll the just-created EC2 until it is RUNNING and the vault-app HTTP
     listener responds. Mirrors `sg vp wake` but skips start_instances since
     we just created the instance and it's already pending → running.
 
-    After the in-VPC HTTP probe succeeds, also do an external HTTPS probe of
-    https://{fqdn}/ and (when that fails with a cert error) auto-trigger
-    `cert-renew --mode letsencrypt-hostname --hostname={fqdn}` to recover."""
+    When with_tls is True, also do a Phase 3 external HTTPS cert-validation
+    probe of https://{fqdn}/ and (when that fails) auto-trigger cert-renew.
+
+    When with_tls is False, the stack has no cert-init and no :443 listener.
+    Polling targets http://{ip}:8080/ instead, and Phase 3 is skipped (viewers
+    get HTTPS via CloudFront wildcard cert, but direct https://<ip>/ isn't
+    expected to work)."""
     from sg_compute_specs.vault_publish.service.Slug__Registry              import Slug__Registry
     from sg_compute_specs.vault_publish.waker.Endpoint__Resolver__EC2       import Endpoint__Resolver__EC2
     from sg_compute_specs.vault_publish.waker.schemas.Enum__Instance__State import Enum__Instance__State
@@ -194,7 +205,16 @@ def _run_post_register_wait(c: Console, *, slug: str, region: str, timeout: int,
     # Phase 3 — external HTTPS probe of the FQDN to confirm the cert was issued
     # for the hostname (not the IP). For .app TLDs the browser refuses any
     # cert mismatch (HSTS preload), so we must validate hostname matching here.
+    # Skipped when --no-tls: no cert-init ran, no :443 listener exists, and
+    # viewers will route through CloudFront's wildcard cert anyway.
     if not fqdn:
+        c.print()
+        return
+    if not with_tls:
+        c.print(f'\n  [dim]·  Skipping Phase 3 HTTPS cert probe (--no-tls).[/]')
+        c.print(f'  [dim]   Viewers will see HTTPS via CloudFront wildcard. '
+                f'Run [cyan]sg va cert-renew {slug} --mode letsencrypt-hostname '
+                f'--hostname {fqdn}[/dim][dim] later to enable direct HTTPS to the EC2.[/]')
         c.print()
         return
     https_url = f'https://{fqdn}/'
