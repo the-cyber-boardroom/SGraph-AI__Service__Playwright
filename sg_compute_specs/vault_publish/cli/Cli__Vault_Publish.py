@@ -390,7 +390,24 @@ def adopt(slug         : str  = typer.Argument(..., help='Slug to adopt (must ma
                     c.print(f'  [dim]   {int(elapsed)}s: {status or "(no container yet)"}[/]')
                     last_status = status
                 if 'Exited (0)' in status:
-                    c.print(f'  [green]✓[/]  cert-init succeeded — vault has a fresh LE cert')
+                    c.print(f'  [green]✓[/]  cert-init succeeded')
+                    # Show what cert-init actually issued (now that logs are complete)
+                    docker = 'docker' if engine != 'podman' else 'podman'
+                    logs_r = svc.exec(region, stack_name,
+                                       f'{docker} logs vault-app-cert-init-1 2>&1 | tail -20',
+                                       timeout_sec=30)
+                    logs = str(getattr(logs_r, 'stdout', '') or '').strip()
+                    if logs:
+                        for line in logs.splitlines()[-10:]:
+                            c.print(f'  [dim]    {line}[/]')
+                    # Restart vault to pick up the new cert (replaced /certs/cert.pem
+                    # doesn't reload — vault reads it at process startup only).
+                    c.print(f'  [yellow]→[/]  Restarting sg-send-vault to load the new cert…')
+                    svc.exec(region, stack_name,
+                             f'cd /opt/vault-app && {compose} restart --no-deps sg-send-vault '
+                             f'2>&1 | tail -5',
+                             timeout_sec=60)
+                    c.print(f'  [green]✓[/]  Vault restarted (HTTPS should be valid in ~5s)')
                     break
                 if 'Exited' in status and '(0)' not in status:
                     c.print(f'  [red]✗  cert-init exited non-zero: {status}[/]')

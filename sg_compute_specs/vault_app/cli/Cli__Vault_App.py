@@ -605,8 +605,51 @@ def cert_renew(name     : str  = typer.Argument(None, help='Stack name; auto-sel
             last_status = status
         # Healthy success markers
         if 'Exited (0)' in status:
-            c.print(f'\n  [green]✓[/]  cert-init succeeded — new cert is on /certs')
-            c.print(f'  [dim]   The vault container picks it up immediately. Try the FQDN now.[/]\n')
+            c.print(f'  [green]✓[/]  cert-init succeeded')
+            # 1) Show what cert-init actually did — logs are now complete since
+            #    the container exited. Without this we have no way to verify
+            #    the cert is for the right CN/SAN.
+            docker = 'docker' if engine != 'podman' else 'podman'
+            logs_r = svc.exec(region, name,
+                               f'{docker} logs vault-app-cert-init-1 2>&1 | tail -40',
+                               timeout_sec=30)
+            logs = str(getattr(logs_r, 'stdout', '') or '').strip()
+            if logs:
+                c.print('  [dim]cert-init logs:[/]')
+                for line in logs.splitlines():
+                    c.print(f'  [dim]   {line}[/]')
+
+            # 2) Restart the vault container so it picks up the new cert.
+            #    The vault reads /certs/cert.pem at startup — replacing the
+            #    file on disk doesn't reload it. `compose restart sg-send-vault`
+            #    is enough (no env changes; same container restart suffices)
+            #    and --no-deps stops compose from touching cert-init again.
+            c.print(f'  [yellow]→[/]  Restarting [bold]sg-send-vault[/] to pick up the new cert…')
+            restart_r = svc.exec(region, name,
+                                  f'cd /opt/vault-app && {compose_bin} restart '
+                                  f'--no-deps sg-send-vault 2>&1 | tail -10',
+                                  timeout_sec=60)
+            rstdout = str(getattr(restart_r, 'stdout', '') or '').strip()
+            if rstdout:
+                for line in rstdout.splitlines():
+                    c.print(f'  [dim]   {line}[/]')
+
+            # 3) Quick liveness check — vault should be back on :443 in a few seconds.
+            _t.sleep(3)
+            ps_r = svc.exec(region, name,
+                             f'{docker} ps --filter name=vault-app-sg-send-vault-1 '
+                             f'--format "{{{{.Status}}}}"',
+                             timeout_sec=30)
+            vault_status = str(getattr(ps_r, 'stdout', '') or '').strip().splitlines()
+            vault_status = vault_status[0] if vault_status else '(missing)'
+            if 'Up' in vault_status:
+                c.print(f'  [green]✓[/]  sg-send-vault: {vault_status}')
+            else:
+                c.print(f'  [yellow]⚠[/]  sg-send-vault: {vault_status}  '
+                        f'(it may still be coming up — give it ~10s)')
+
+            c.print(f'\n  [green]✓[/]  Done. Try the FQDN now: '
+                    f'[cyan]curl -sI https://{hostname or "<fqdn>"}/[/]\n')
             return
         if 'Exited' in status and '(0)' not in status:
             c.print(f'\n  [red]✗  cert-init exited non-zero: {status}[/]')
