@@ -124,6 +124,40 @@ class Test__Cli__Fargate__TaskDef:
         assert data['family']   == 'my-task'
         assert data['revision'] == 1
 
+    def test_6__task_def_register_with_port_mappings_json(self, monkeypatch):
+        client = Fargate__AWS__Client__In_Memory()
+        monkeypatch.setenv(_MUTATION_ENV, '1')
+        result = runner.invoke(app, [
+            'task-def', 'register',
+            '--name', 'vault-app', '--image', 'img:latest',
+            '--port-mapping', '8080/tcp',
+            '--port-mapping', '443/tcp',
+            '--yes', '--json',
+        ], obj={'fargate_client': client})
+        assert result.exit_code == 0, result.output
+        data = json.loads(result.output)
+        assert data['family']   == 'vault-app'
+        assert len(data['port_mappings']) == 2
+        assert data['port_mappings'][0]['containerPort'] == 8080
+        assert data['port_mappings'][1]['containerPort'] == 443
+
+    def test_7__task_def_register_with_roles_and_log_group(self, monkeypatch):
+        client = Fargate__AWS__Client__In_Memory()
+        monkeypatch.setenv(_MUTATION_ENV, '1')
+        result = runner.invoke(app, [
+            'task-def', 'register',
+            '--name', 'vault-app', '--image', 'img:latest',
+            '--execution-role-arn', 'arn:aws:iam::123456789012:role/ecsTaskExecutionRole',
+            '--task-role-arn',      'arn:aws:iam::123456789012:role/myTaskRole',
+            '--log-group',          '/ecs/vault',
+            '--yes', '--json',
+        ], obj={'fargate_client': client})
+        assert result.exit_code == 0, result.output
+        data = json.loads(result.output)
+        assert data['execution_role_arn'] == 'arn:aws:iam::123456789012:role/ecsTaskExecutionRole'
+        assert data['task_role_arn']      == 'arn:aws:iam::123456789012:role/myTaskRole'
+        assert data['log_group']          == '/ecs/vault'
+
 
 class Test__Cli__Fargate__Task:
 
@@ -180,3 +214,44 @@ class Test__Cli__Fargate__Task:
         result = runner.invoke(app, ['task', 'stop', task_arn, '--yes'], obj={'fargate_client': client})
         assert result.exit_code == 0
         assert 'Stopped' in result.output
+
+    def test_8__task_run_with_launch_type_spot_json(self, monkeypatch):
+        client = _seed_client(Fargate__AWS__Client__In_Memory())
+        monkeypatch.setenv(_MUTATION_ENV, '1')
+        result = runner.invoke(app, [
+            'task', 'run',
+            '--cluster', 'sg-test-cluster', '--task-def', 'hello-world:1',
+            '--launch-type', 'FARGATE_SPOT',
+            '--yes', '--json',
+        ], obj={'fargate_client': client})
+        assert result.exit_code == 0, result.output
+        data = json.loads(result.output)
+        assert 'arn:aws:ecs' in data['task_arn']
+        assert data['launch_type'] == 'FARGATE_SPOT'
+
+    def test_9__task_run_with_tags_json(self, monkeypatch):
+        client = _seed_client(Fargate__AWS__Client__In_Memory())
+        monkeypatch.setenv(_MUTATION_ENV, '1')
+        result = runner.invoke(app, [
+            'task', 'run',
+            '--cluster', 'sg-test-cluster', '--task-def', 'hello-world:1',
+            '--tag', 'env=prod',
+            '--tag', 'owner=platform',
+            '--yes', '--json',
+        ], obj={'fargate_client': client})
+        assert result.exit_code == 0, result.output
+        data = json.loads(result.output)
+        assert data['tags']['env']   == 'prod'
+        assert data['tags']['owner'] == 'platform'
+
+    def test_10__task_run_default_launch_type_in_json(self, monkeypatch):
+        client = _seed_client(Fargate__AWS__Client__In_Memory())
+        monkeypatch.setenv(_MUTATION_ENV, '1')
+        result = runner.invoke(app, [
+            'task', 'run',
+            '--cluster', 'sg-test-cluster', '--task-def', 'hello-world:1',
+            '--yes', '--json',
+        ], obj={'fargate_client': client})
+        assert result.exit_code == 0, result.output
+        data = json.loads(result.output)
+        assert data['launch_type'] == 'FARGATE'

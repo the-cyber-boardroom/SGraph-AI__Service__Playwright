@@ -5,6 +5,7 @@
 
 from osbot_utils.type_safe.Type_Safe                                                          import Type_Safe
 
+from sgraph_ai_service_playwright__cli.aws.fargate.collections.List__Schema__ECS__Port_Mapping import List__Schema__ECS__Port_Mapping
 from sgraph_ai_service_playwright__cli.aws.fargate.enums.Enum__ECS__Launch__Type              import Enum__ECS__Launch__Type
 from sgraph_ai_service_playwright__cli.aws.fargate.primitives.Safe_Str__ECS__CPU              import Safe_Str__ECS__CPU
 from sgraph_ai_service_playwright__cli.aws.fargate.primitives.Safe_Str__ECS__Memory           import Safe_Str__ECS__Memory
@@ -23,3 +24,7 @@ class Schema__ECS__Task__Definition(Type_Safe):
     memory          : Safe_Str__ECS__Memory                    # string from ECS API, e.g. "512"
     launch_type     : Enum__ECS__Launch__Type     = Enum__ECS__Launch__Type.FARGATE
     family_revision : Safe_Str__ECS__Task__Definition          # e.g. "my-task:3"
+    port_mappings   : List__Schema__ECS__Port_Mapping          # container port mappings (empty by default)
+    execution_role_arn : str = ''                              # IAM role ARN for ECS task execution
+    task_role_arn      : str = ''                              # IAM task role ARN (optional)
+    log_group          : str = ''                              # CloudWatch log group name

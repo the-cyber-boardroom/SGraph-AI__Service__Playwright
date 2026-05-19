@@ -85,6 +85,8 @@ class _Fake_ECS_Client:
             'status'           : 'ACTIVE',
             'cpu'              : cpu,
             'memory'           : memory,
+            'executionRoleArn' : kwargs.get('executionRoleArn', ''),
+            'taskRoleArn'      : kwargs.get('taskRoleArn', ''),
         }
         self._task_defs[arn] = raw
         self._td_by_family_rev[f'{family}:{rev}'] = raw
@@ -132,6 +134,7 @@ class _Fake_ECS_Client:
             'stoppedAt'         : None,
             'stoppedReason'     : '',
             'group'             : '',
+            'launchType'        : kwargs.get('launchType', 'FARGATE'),
         }
         self._tasks[task_arn] = raw
         return {'tasks': [raw], 'failures': []}

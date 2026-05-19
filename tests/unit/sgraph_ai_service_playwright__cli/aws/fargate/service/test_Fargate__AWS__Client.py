@@ -128,3 +128,65 @@ class Test__Fargate__AWS__Client:
         c.stop_task(arn)
         desc = c.describe_task(arn)
         assert str(desc.status) == 'STOPPED'
+
+    # ── new-field round-trips ─────────────────────────────────────────────────
+
+    def test_16__register_task_def_with_port_mappings(self):
+        c  = _client()
+        td = c.register_task_definition(
+            name='vault-app', image='123.dkr.ecr.us-east-1.amazonaws.com/vault:latest',
+            port_mappings=[{'containerPort': 8080, 'protocol': 'tcp'},
+                           {'containerPort': 443,  'protocol': 'tcp'}])
+        assert td is not None
+        pms = list(td.port_mappings)
+        assert len(pms) == 2
+        assert pms[0].container_port == 8080
+        assert pms[0].protocol       == 'tcp'
+        assert pms[1].container_port == 443
+
+    def test_17__register_task_def_with_execution_role(self):
+        c  = _client()
+        td = c.register_task_definition(
+            name='vault-app', image='hello:latest',
+            execution_role_arn='arn:aws:iam::123456789012:role/ecsTaskExecutionRole',
+            task_role_arn='arn:aws:iam::123456789012:role/myTaskRole')
+        assert td.execution_role_arn == 'arn:aws:iam::123456789012:role/ecsTaskExecutionRole'
+        assert td.task_role_arn      == 'arn:aws:iam::123456789012:role/myTaskRole'
+
+    def test_18__register_task_def_with_log_group(self):
+        c  = _client()
+        td = c.register_task_definition(
+            name='vault-app', image='hello:latest',
+            log_group='/ecs/vault')
+        assert td.log_group == '/ecs/vault'
+
+    def test_19__register_task_def_default_log_group(self):
+        c  = _client()
+        td = c.register_task_definition(name='my-task', image='hello:latest')
+        assert td.log_group == '/ecs/my-task'                                     # convention: /ecs/<family>
+
+    def test_20__run_task_with_launch_type(self):
+        c = _client()
+        c.create_cluster('sg-cluster')
+        c.register_task_definition('hello-world', 'hello:latest')
+        task = c.run_task(cluster='sg-cluster', task_def='hello-world:1',
+                          launch_type='FARGATE_SPOT')
+        assert task is not None
+        assert task.launch_type == 'FARGATE_SPOT'
+
+    def test_21__run_task_with_tags(self):
+        c = _client()
+        c.create_cluster('sg-cluster')
+        c.register_task_definition('hello-world', 'hello:latest')
+        task = c.run_task(cluster='sg-cluster', task_def='hello-world:1',
+                          tags={'env': 'prod', 'owner': 'platform'})
+        assert task is not None
+        assert task.tags.get('env')   == 'prod'
+        assert task.tags.get('owner') == 'platform'
+
+    def test_22__run_task_default_launch_type_is_fargate(self):
+        c = _client()
+        c.create_cluster('sg-cluster')
+        c.register_task_definition('hello-world', 'hello:latest')
+        task = c.run_task(cluster='sg-cluster', task_def='hello-world:1')
+        assert task.launch_type == 'FARGATE'

@@ -133,31 +133,52 @@ class Fargate__AWS__Client(Type_Safe):
 
     def register_task_definition(self, name: str, image: str,
                                   cpu: str = '256', memory: str = '512',
-                                  env: dict = None) -> Schema__ECS__Task__Definition:
-        env_list = [{'name': k, 'value': v} for k, v in (env or {}).items()]
-        resp = self.client().register_task_definition(
-            family               = name,
-            networkMode          = 'awsvpc',
-            requiresCompatibilities = ['FARGATE'],
-            cpu                  = cpu,
-            memory               = memory,
-            executionRoleArn     = '',           # caller must pre-create if needed
-            containerDefinitions = [{
-                'name'       : name,
-                'image'      : image,
-                'essential'  : True,
-                'environment': env_list,
-                'logConfiguration': {
-                    'logDriver': 'awslogs',
-                    'options'  : {
-                        'awslogs-group'        : f'/ecs/{name}',
-                        'awslogs-region'       : self.region or 'us-east-1',
-                        'awslogs-stream-prefix': 'ecs',
-                    },
+                                  env: dict = None,
+                                  port_mappings: list = None,
+                                  execution_role_arn: str = '',
+                                  task_role_arn: str = '',
+                                  log_group: str = '') -> Schema__ECS__Task__Definition:
+        env_list    = [{'name': k, 'value': v} for k, v in (env or {}).items()]
+        mapped_ports = port_mappings or []
+        active_log_group = log_group or f'/ecs/{name}'
+        container_def = {
+            'name'       : name,
+            'image'      : image,
+            'essential'  : True,
+            'environment': env_list,
+            'logConfiguration': {
+                'logDriver': 'awslogs',
+                'options'  : {
+                    'awslogs-group'        : active_log_group,
+                    'awslogs-region'       : self.region or 'us-east-1',
+                    'awslogs-stream-prefix': 'ecs',
                 },
-            }],
+            },
+        }
+        if mapped_ports:
+            container_def['portMappings'] = [
+                {'containerPort': int(p.get('containerPort', 0)),
+                 'protocol'     : p.get('protocol', 'tcp')}
+                for p in mapped_ports
+            ]
+        kwargs = dict(
+            family                  = name,
+            networkMode             = 'awsvpc',
+            requiresCompatibilities = ['FARGATE'],
+            cpu                     = cpu,
+            memory                  = memory,
+            containerDefinitions    = [container_def],
         )
-        return self._parse_task_def_full(resp.get('taskDefinition', {}))
+        if execution_role_arn:
+            kwargs['executionRoleArn'] = execution_role_arn
+        if task_role_arn:
+            kwargs['taskRoleArn'] = task_role_arn
+        resp = self.client().register_task_definition(**kwargs)
+        return self._parse_task_def_full(resp.get('taskDefinition', {}),
+                                         port_mappings=mapped_ports,
+                                         execution_role_arn=execution_role_arn,
+                                         task_role_arn=task_role_arn,
+                                         log_group=active_log_group)
 
     # ── task read ─────────────────────────────────────────────────────────────
 
@@ -202,7 +223,9 @@ class Fargate__AWS__Client(Type_Safe):
     def run_task(self, cluster: str, task_def: str,
                  count: int = 1, subnets: list = None,
                  security_groups: list = None,
-                 assign_public_ip: bool = False) -> Optional[Schema__ECS__Task]:
+                 assign_public_ip: bool = False,
+                 launch_type: str = 'FARGATE',
+                 tags: dict = None) -> Optional[Schema__ECS__Task]:
         vpc_config = {
             'awsvpcConfiguration': {
                 'subnets'        : subnets or [],
@@ -210,18 +233,21 @@ class Fargate__AWS__Client(Type_Safe):
                 'assignPublicIp' : 'ENABLED' if assign_public_ip else 'DISABLED',
             }
         }
+        tag_list = [{'key': 'sg:managed', 'value': 'true'}]
+        if tags:
+            tag_list.extend([{'key': k, 'value': v} for k, v in tags.items()])
         resp  = self.client().run_task(
             cluster              = cluster,
             taskDefinition       = task_def,
             count                = count,
-            launchType           = 'FARGATE',
+            launchType           = launch_type,
             networkConfiguration = vpc_config,
-            tags                 = [{'key': 'sg:managed', 'value': 'true'}],
+            tags                 = tag_list,
         )
         tasks = resp.get('tasks', [])
         if not tasks:
             return None
-        return self._parse_task(tasks[0])
+        return self._parse_task(tasks[0], launch_type=launch_type, tags=tags)
 
     def stop_task(self, task_arn: str, cluster: str = '', reason: str = '') -> None:
         kwargs = {'task': task_arn}
@@ -266,21 +292,39 @@ class Fargate__AWS__Client(Type_Safe):
         except (ValueError, IndexError):
             return None
 
-    def _parse_task_def_full(self, raw: dict) -> Schema__ECS__Task__Definition:
-        family = raw.get('family', '')
-        rev    = raw.get('revision', 0)
+    def _parse_task_def_full(self, raw: dict,
+                              port_mappings: list = None,
+                              execution_role_arn: str = '',
+                              task_role_arn: str = '',
+                              log_group: str = '') -> Schema__ECS__Task__Definition:
+        from sgraph_ai_service_playwright__cli.aws.fargate.collections.List__Schema__ECS__Port_Mapping import List__Schema__ECS__Port_Mapping
+        from sgraph_ai_service_playwright__cli.aws.fargate.schemas.Schema__ECS__Port_Mapping           import Schema__ECS__Port_Mapping
+        family  = raw.get('family', '')
+        rev     = raw.get('revision', 0)
+        pm_list = List__Schema__ECS__Port_Mapping()
+        for pm in (port_mappings or []):
+            pm_list.append(Schema__ECS__Port_Mapping(
+                container_port = int(pm.get('containerPort', 0)),
+                protocol       = pm.get('protocol', 'tcp'),
+            ))
         return Schema__ECS__Task__Definition(
-            family          = family,
-            revision        = rev,
-            task_def_arn    = raw.get('taskDefinitionArn', ''),
-            status          = raw.get('status', ''),
-            cpu             = str(raw.get('cpu', '')),
-            memory          = str(raw.get('memory', '')),
-            launch_type     = Enum__ECS__Launch__Type.FARGATE,
-            family_revision = Safe_Str__ECS__Task__Definition(f'{family}:{rev}' if family else ''),
+            family             = family,
+            revision           = rev,
+            task_def_arn       = raw.get('taskDefinitionArn', ''),
+            status             = raw.get('status', ''),
+            cpu                = str(raw.get('cpu', '')),
+            memory             = str(raw.get('memory', '')),
+            launch_type        = Enum__ECS__Launch__Type.FARGATE,
+            family_revision    = Safe_Str__ECS__Task__Definition(f'{family}:{rev}' if family else ''),
+            port_mappings      = pm_list,
+            execution_role_arn = execution_role_arn or raw.get('executionRoleArn', ''),
+            task_role_arn      = task_role_arn      or raw.get('taskRoleArn', ''),
+            log_group          = log_group,
         )
 
-    def _parse_task(self, raw: dict) -> Schema__ECS__Task:
+    def _parse_task(self, raw: dict,
+                    launch_type: str = '',
+                    tags: dict = None) -> Schema__ECS__Task:
         task_arn   = raw.get('taskArn', '')
         cluster_arn= raw.get('clusterArn', '')
         cluster_name = cluster_arn.split('/')[-1] if '/' in cluster_arn else cluster_arn
@@ -291,6 +335,8 @@ class Fargate__AWS__Client(Type_Safe):
             status = Enum__ECS__Task__Status(raw_status)
         except ValueError:
             status = Enum__ECS__Task__Status.UNKNOWN
+        resolved_launch_type = launch_type or raw.get('launchType', '')
+        resolved_tags        = tags if tags is not None else {}
         return Schema__ECS__Task(
             task_arn        = Safe_Str__ECS__Task__ARN(task_arn) if task_arn.startswith('arn:') else Safe_Str__ECS__Task__ARN(''),
             cluster_name    = Safe_Str__ECS__Cluster__Name(cluster_name) if cluster_name else Safe_Str__ECS__Cluster__Name(''),
@@ -302,4 +348,6 @@ class Fargate__AWS__Client(Type_Safe):
             stopped_at      = str(raw.get('stoppedAt', ''))  if raw.get('stoppedAt')  else '',
             stopped_reason  = raw.get('stoppedReason', ''),
             group           = raw.get('group', ''),
+            launch_type     = resolved_launch_type,
+            tags            = resolved_tags,
         )
