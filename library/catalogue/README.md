@@ -15,7 +15,7 @@ hosts a CLI/HTTP control plane for ephemeral cloud stacks (EC2, Elastic/Kibana,
 OpenSearch, Prometheus) and a LETS pipeline that indexes CloudFront logs into Elasticsearch.
 It runs identically on laptop, CI, Claude Web, Fargate, and AWS Lambda.
 
-**Current version:** `v0.2.28` (root `version`)
+**Current version:** `v0.2.33` (root `version`)
 **Master shard:** [`index.md`](index.md) — start here.
 **Reality docs:** [`team/roles/librarian/reality/index.md`](../../team/roles/librarian/reality/index.md) — master domain map (11 domains)
 
@@ -59,6 +59,17 @@ Frontmatter on every shard declares `as_of:` so readers see currency at a glance
 ---
 
 ## Key Cross-Links
+
+## Notable Additions (v0.2.33)
+
+| Package path | Description |
+|-------------|-------------|
+| `sg_compute_specs/vault_app/fargate/` | NEW — `sg vault-app fargate` sub-app: Fargate-based vault container lifecycle. `cli/` (3 files), `service/` (12 files), `schemas/` (8 files), `enums/` (3 files), `primitives/` (2 files). 410 unit tests. |
+| `sgraph_ai_service_playwright__cli/aws/logs/` | NEW — `sg aws logs` CloudWatch log group management and tailing (Slice 0c). |
+| `sgraph_ai_service_playwright__cli/aws/ec2/eni/` | NEW — `sg aws ec2 eni` network interface list/show (Slice 0b). |
+| `sgraph_ai_service_playwright__cli/aws/fargate/` | EXTENDED — `task-def register` gains `--port-mapping`, `--execution-role-arn`, `--task-role-arn`, `--log-group`; `task run` gains `--launch-type`, `--tag`, `--env`; `cluster create` gains `--tag` (Slice 0a). |
+
+---
 
 | Destination | Path |
 |-------------|------|

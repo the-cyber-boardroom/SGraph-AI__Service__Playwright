@@ -1,7 +1,7 @@
 # Reality — SG/Compute Domain
 
-**Status:** ACTIVE — seeded in phase-1 (B1), foundations added in phase-2 (B2), pod management in BV2.3, CLI builder in v0.2.6, billing CLI in v0.2.22, vault-publish spec in v0.2.23.
-**Last updated:** 2026-05-17 | **Phase:** v0.2.23 (vault-publish spec — subdomain routing cold path)
+**Status:** ACTIVE — seeded in phase-1 (B1), foundations added in phase-2 (B2), pod management in BV2.3, CLI builder in v0.2.6, billing CLI in v0.2.22, vault-publish spec in v0.2.23, vault-app fargate in v0.2.33.
+**Last updated:** 2026-05-19 | **Phase:** v0.2.33 (vault-app fargate — Fargate-based vault container lifecycle)
 
 This is the cover sheet for the SG/Compute reality domain. Detailed per-subarea inventories live in the sub-files linked below. If a fact is not listed in one of those sub-files, it does not exist.
 
@@ -109,6 +109,52 @@ JSONL file at `~/.sg/audit.jsonl`. One event per line: `{timestamp, action, role
 
 ---
 
+## vault-app fargate (v0.2.33)
+
+`sg vault-app fargate` — Fargate-based vault container lifecycle.
+
+Setup commands (cluster-level, one-time):
+
+```
+setup check / status / create / update / delete / plan / show
+```
+
+Task-level commands (per vault session):
+
+```
+start / stop / restart / health / url / open / logs / list / info / timings
+```
+
+File layout: `sg_compute_specs/vault_app/fargate/`
+
+```
+cli/      — Cli__Vault_App__Fargate.py, __Setup.py, __Start.py
+service/  — Vault_App__Fargate__Setup, Vault_App__Fargate__Starter,
+             Vault_App__Fargate__Spec, Vault_App__Fargate__Tags__Reader/Writer,
+             Vault_App__Fargate__Cluster__Resolver, Vault_App__Fargate__Slug__Resolver,
+             Vault_App__Fargate__Health, Vault_App__Fargate__Image__Mirror,
+             Vault_App__Fargate__Timings__Store, Phase__Timer,
+             Phase__Progress__Renderer, Mutation__Gate__Scope
+schemas/  — Schema__VAF__Cluster__Config, Schema__VAF__Start__Request/Report,
+             Schema__VAF__Setup__Request/Report, Schema__Phase__Result,
+             Schema__VAF__Timings__Record, Schema__VAF__Health__Result
+enums/    — Enum__VAF__Phase__Status, Enum__VAF__Setup__Phase, Enum__VAF__Start__Phase
+primitives/ — Safe_Str__VAF__Slug, Safe_Str__VAF__Cluster
+```
+
+Mutation gate: `SG_VAULT_APP__FARGATE__ALLOW_MUTATIONS=1`
+
+AWS resources managed: ECS cluster, task definition, ECR repo, IAM execution role,
+CloudWatch log group.
+
+Tests: `tests/unit/sg_compute_specs/vault_app/fargate/` — 410 tests.
+
+Spec doc: [`library/docs/specs/v0.2.33__vault-app-fargate.md`](../../../../../library/docs/specs/v0.2.33__vault-app-fargate.md)
+
+Onboarding guide: [`library/onboarding/v0.2.33__vault-app-fargate.md`](../../../../../library/onboarding/v0.2.33__vault-app-fargate.md)
+
+---
+
 ## PROPOSED — does not exist yet
 
 See [`proposed/index.md`](proposed/index.md).
@@ -119,6 +165,7 @@ See [`proposed/index.md`](proposed/index.md).
 
 | Date | Change |
 |------|--------|
+| 2026-05-19 | v0.2.33: vault-app fargate — `sg vault-app fargate` sub-app (setup/start), `Phase__Timer`, `Phase__Progress__Renderer`, `Mutation__Gate__Scope`, 12 service classes, 7 schemas, 3 enums, 2 primitives under `sg_compute_specs/vault_app/fargate/`. Pre-work: `sg aws fargate` Slice 0a (task-def/task-run essential flags), `sg aws ec2 eni` Slice 0b, `sg aws logs` Slice 0c. 410 fargate unit tests. Branch: `claude/review-vault-publish-spec-FT9hq`. |
 | 2026-05-17 | v0.2.23: vault-publish spec — full cold path: slug registry (SSM), `Vault_Publish__Service` (register/unpublish/status/list/bootstrap), `sg_compute_specs/vault_publish/waker/` (Waker Lambda with FastAPI + LWA), `sgraph_ai_service_playwright__cli/aws/cf/` (CloudFront CRUD), `sgraph_ai_service_playwright__cli/aws/lambda_/` (Lambda deploy + URL CRUD). 5 commits (a5de0b1 P1a → 432ba5d P2d). 149 waker+vault-publish tests + 52 CF/Lambda tests — all passing. |
 | 2026-05-16 | v0.2.22: `sg aws billing` CLI sub-package — 6 commands, 4 primitives, 4 enums, 4 schemas, 3 collections, 3 service classes, `Cli__Billing.py`. `Cli__Aws.py` updated to register `billing_app`. 6 commits on `claude/plan-billing-view-u0NFG`. |
 | 2026-05-05 | T3.3b: `components/sp-cli/` → `components/sg-compute/` directory rename; 28 api_site/ string refs + 45 sg_compute_specs/*/ui/detail/ absolute imports updated; snapshot test COMPONENT_DIR paths corrected; 32/33 CI green |

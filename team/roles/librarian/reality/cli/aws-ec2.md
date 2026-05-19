@@ -135,6 +135,30 @@ These are consumed by `Docker__Service`, `Firefox__Service`, and `scripts/doctor
 
 ---
 
+## v0.2.33 additions (Slice 0b) — `sg aws ec2 eni`
+
+New sub-command tree under `sg aws ec2`:
+
+| Command | What it does |
+|---------|-------------|
+| `sg aws ec2 eni list [--sg sg-xxx] [--vpc vpc-yyy] [--json]` | List network interfaces, optionally filtered by security group or VPC |
+| `sg aws ec2 eni show <eni-id> [--json]` | Describe one ENI by ID |
+
+New files:
+
+| File | Role |
+|------|------|
+| `aws/ec2/cli/Cli__EC2__Eni.py` | Typer sub-app with `list` and `show` commands |
+| `aws/ec2/schemas/Schema__EC2__ENI.py` | `eni_id`, `subnet_id`, `vpc_id`, `public_ip`, `private_ip`, `attachment_instance_id`, `attachment_status`, `security_group_ids` |
+| `aws/ec2/primitives/Safe_Str__EC2__ENI_Id.py` | ENI ID primitive |
+
+Used by `Vault_App__Fargate__Starter` to resolve the public IP after `run_task`
+returns an ENI attachment.
+
+Tests: `tests/unit/sgraph_ai_service_playwright__cli/aws/ec2/eni/`
+
+---
+
 ## NOT implemented in this slice
 
 - `EC2__Ami__Resolver` (alias → AMI ID resolution) — `create` currently accepts a raw AMI ID or alias string passed directly to the API

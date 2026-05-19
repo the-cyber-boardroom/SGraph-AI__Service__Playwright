@@ -6,6 +6,23 @@ This is a pointer log, not a content log. For full delta detail, see the master 
 
 ---
 
+## 2026-05-19 (v0.2.33 — vault-app fargate: sg vault-app fargate sub-app)
+
+2026-05-19 | sg-compute, cli | v0.2.33 vault-app fargate: `sg vault-app fargate` sub-app
+  (setup/start), `Phase__Timer`, `sg aws fargate` essential flags (Slice 0a),
+  `sg aws ec2 eni` (Slice 0b), `sg aws logs` (Slice 0c); 410 fargate tests.
+
+- `sg-compute/index.md` — UPDATED: `vault-app fargate` section added. File layout, service classes, schemas, enums, primitives, mutation gate, test count, spec + onboarding doc links.
+- `cli/aws-fargate.md` — UPDATED: v0.2.33 Slice 0a additions — `task-def register` gains `--port-mapping`, `--execution-role-arn`, `--task-role-arn`, `--log-group`; `task run` gains `--launch-type`, `--tag`, `--env`; `cluster create` gains `--tag`; `Schema__ECS__Port_Mapping` added; `Schema__ECS__Task` and `Schema__ECS__Task__Definition` extended.
+- `cli/aws-ec2.md` — UPDATED: v0.2.33 Slice 0b additions — `sg aws ec2 eni list/show`, `Schema__EC2__ENI`, `Safe_Str__EC2__ENI_Id`, `Cli__EC2__Eni.py`.
+- `cli/aws-logs.md` — NEW: `sg aws logs` — CloudWatch log group management + tailing (Slice 0c). 5 commands, 2 primitives, 5 schemas, 3 service classes. Mutation gate `SG_AWS__LOGS__ALLOW_MUTATIONS`.
+- `cli/index.md` — UPDATED: rows for `aws-logs.md`, `sg aws ec2 eni`, `sg vault-app fargate`.
+- `library/docs/specs/v0.2.33__vault-app-fargate.md` — NEW: contract spec (two-mode shape, command tree, tag schema, setup/start phases, JSON envelope, mutation gate, v1 exclusions).
+- `library/onboarding/v0.2.33__vault-app-fargate.md` — NEW: "3 commands to run a vault on Fargate" quick-start guide.
+- `library/catalogue/README.md` — UPDATED: version bumped to v0.2.33; v0.2.33 notable additions table.
+
+---
+
 ## 2026-05-17 PM-late (Librarian finalisation — M-013 / M-014 / M-015 / M-016)
 
 - `.claude/CLAUDE.md` — FIX (M-013): line 96 endpoint count reconciled. Was "25 endpoints — 3 health + 5 session + 16 browser (Layer 0) + 1 sequence (Layer 3)" (stale; Routes__Session removed in v0.1.24). Now: "16 direct endpoints (3 health + 6 browser + 2 screenshot + 1 sequence + 1 metrics + 1 index + 2 auth set-cookie) + admin surface (~4 from Agentic_FastAPI parent)".
