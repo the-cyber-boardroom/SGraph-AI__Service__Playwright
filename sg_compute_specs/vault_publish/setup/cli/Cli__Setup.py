@@ -123,7 +123,7 @@ def _print_aws_error(c: Console, exc: ClientError) -> None:
 # Global commands — operate on all areas at once
 # ═══════════════════════════════════════════════════════════════════════════════
 
-@app.command(name='check', help='Check all areas: ec2 + iam + lambda + cf + cf-function + acm + dns.')
+@app.command(name='check', help='Check all areas: ec2 + iam + lambda + cf + cf-function + acm + dns + admin (4 sub-pieces).')
 def setup_check(
     zone    : str = typer.Option(DEFAULT_ZONE,     '--zone',     help='DNS apex zone'),
     cert_arn: str = typer.Option(DEFAULT_CERT_ARN, '--cert-arn', help='ACM certificate ARN'),
@@ -137,21 +137,29 @@ def setup_check(
 
     # Each entry: (area_label, check_fn, format_detail_fn)
     checks = [
-        ('ec2',         lambda: _ec2().check(),
-                        lambda r: f'profile={r.profile_name} ami={r.ami_id or "(none)"}'),
-        ('iam',         lambda: iam.check(),
-                        lambda r: r.role_arn or r.role_name),
-        ('lambda',      lambda: _lambda().check(),
-                        lambda r: r.function_url or r.function_name),
-        ('cf',          lambda: _cf().check(zone),
-                        lambda r: r.domain_name or f'*.{zone}'),
-        ('cf-function', lambda: _cf_function().check(zone),
-                        lambda r: (f'attached → {r.distribution_id}'
-                                    if r.attached else r.function_name)),
-        ('acm',         lambda: _acm().check(zone),
-                        lambda r: r.cert_arn or f'*.{zone}'),
-        ('dns',         lambda: _dns().check(zone),
-                        lambda r: r.record_value or f'*.{zone}'),
+        ('ec2',          lambda: _ec2().check(),
+                         lambda r: f'profile={r.profile_name} ami={r.ami_id or "(none)"}'),
+        ('iam',          lambda: iam.check(),
+                         lambda r: r.role_arn or r.role_name),
+        ('lambda',       lambda: _lambda().check(),
+                         lambda r: r.function_url or r.function_name),
+        ('cf',           lambda: _cf().check(zone),
+                         lambda r: r.domain_name or f'*.{zone}'),
+        ('cf-function',  lambda: _cf_function().check(zone),
+                         lambda r: (f'attached → {r.distribution_id}'
+                                     if r.attached else r.function_name)),
+        ('acm',          lambda: _acm().check(zone),
+                         lambda r: r.cert_arn or f'*.{zone}'),
+        ('dns',          lambda: _dns().check(zone),
+                         lambda r: r.record_value or f'*.{zone}'),
+        ('admin-iam',    lambda: _admin_iam().check(),
+                         lambda r: r.role_arn or r.role_name),
+        ('admin-lambda', lambda: _admin_lambda().check(),
+                         lambda r: r.function_url or r.function_name),
+        ('admin-cf',     lambda: _admin_cf().check(zone),
+                         lambda r: r.domain_name or f'vp-admin.{zone}'),
+        ('admin-dns',    lambda: _admin_dns().check(zone),
+                         lambda r: r.record_value or f'vp-admin.{zone}'),
     ]
 
     # results[i] = (area_label, state_or_None, detail) — None state == pending
@@ -267,6 +275,46 @@ def setup_create(
         c.print(f'  [red]✗  dns: {exc}[/]')
         exit_code = 1
 
+    # 6 — admin IAM (independent of waker IAM)
+    c.print('  [yellow]→[/]  admin-iam create…')
+    try:
+        airep = _admin_iam().create()
+        icon = '[green]✓[/]' if airep.state == Enum__Setup__State.OK else '[yellow]⚠[/]'
+        c.print(f'  {icon}  admin-iam  {airep.role_arn or airep.role_name}')
+        if airep.state not in (Enum__Setup__State.OK,): exit_code = 1
+    except (ClientError, RuntimeError, Exception) as exc:
+        c.print(f'  [red]✗  admin-iam: {exc}[/]'); exit_code = 1
+
+    # 7 — admin Lambda (depends on admin-iam)
+    c.print('  [yellow]→[/]  admin-lambda create…')
+    try:
+        alrep = _admin_lambda().create()
+        icon = '[green]✓[/]' if alrep.state == Enum__Setup__State.OK else '[yellow]⚠[/]'
+        c.print(f'  {icon}  admin-lambda  {alrep.function_url or alrep.function_name}')
+        if alrep.state not in (Enum__Setup__State.OK,): exit_code = 1
+    except (ClientError, RuntimeError, Exception) as exc:
+        c.print(f'  [red]✗  admin-lambda: {exc}[/]'); exit_code = 1
+
+    # 8 — admin CF + ACM cert (depends on admin Lambda URL; slow — cert validation ~5-30 min)
+    c.print('  [yellow]→[/]  admin-cf create (provisions single-host ACM cert — may take 5-30 min)…')
+    try:
+        acfrep = _admin_cf().create(zone)
+        icon = '[green]✓[/]' if acfrep.state == Enum__Setup__State.OK else '[yellow]⚠[/]'
+        c.print(f'  {icon}  admin-cf  {acfrep.domain_name or acfrep.distribution_id}')
+        if acfrep.state not in (Enum__Setup__State.OK,): exit_code = 1
+    except (ClientError, RuntimeError, Exception) as exc:
+        c.print(f'  [red]✗  admin-cf: {exc}[/]'); exit_code = 1
+
+    # 9 — admin DNS (depends on admin CF)
+    c.print('  [yellow]→[/]  admin-dns create…')
+    try:
+        adrep = _admin_dns().create(zone)
+        icon = '[green]✓[/]' if adrep.state == Enum__Setup__State.OK else '[yellow]⚠[/]'
+        c.print(f'  {icon}  admin-dns  {adrep.record_value or adrep.record_name}')
+        if adrep.state not in (Enum__Setup__State.OK,): exit_code = 1
+    except (ClientError, RuntimeError, Exception) as exc:
+        c.print(f'  [red]✗  admin-dns: {exc}[/]'); exit_code = 1
+
     c.print()
     if exit_code:
         raise typer.Exit(exit_code)
@@ -334,6 +382,38 @@ def setup_update(
         c.print(f'  [red]✗  dns: {exc}[/]')
         exit_code = 1
 
+    c.print('  [yellow]→[/]  admin-iam update…')
+    try:
+        airep = _admin_iam().update()
+        icon = '[green]✓[/]' if airep.state == Enum__Setup__State.OK else '[yellow]⚠[/]'
+        c.print(f'  {icon}  admin-iam')
+    except (ClientError, RuntimeError, Exception) as exc:
+        c.print(f'  [red]✗  admin-iam: {exc}[/]'); exit_code = 1
+
+    c.print('  [yellow]→[/]  admin-lambda update…')
+    try:
+        alrep = _admin_lambda().update()
+        icon = '[green]✓[/]' if alrep.state == Enum__Setup__State.OK else '[yellow]⚠[/]'
+        c.print(f'  {icon}  admin-lambda  {alrep.function_url or alrep.function_name}')
+    except (ClientError, RuntimeError, Exception) as exc:
+        c.print(f'  [red]✗  admin-lambda: {exc}[/]'); exit_code = 1
+
+    c.print('  [yellow]→[/]  admin-cf update (ensure)…')
+    try:
+        acfrep = _admin_cf().update(zone)
+        icon = '[green]✓[/]' if acfrep.state == Enum__Setup__State.OK else '[yellow]⚠[/]'
+        c.print(f'  {icon}  admin-cf  {acfrep.domain_name or acfrep.distribution_id}')
+    except (ClientError, RuntimeError, Exception) as exc:
+        c.print(f'  [red]✗  admin-cf: {exc}[/]'); exit_code = 1
+
+    c.print('  [yellow]→[/]  admin-dns update (ensure)…')
+    try:
+        adrep = _admin_dns().create(zone)
+        icon = '[green]✓[/]' if adrep.state == Enum__Setup__State.OK else '[yellow]⚠[/]'
+        c.print(f'  {icon}  admin-dns  {adrep.record_value or adrep.record_name}')
+    except (ClientError, RuntimeError, Exception) as exc:
+        c.print(f'  [red]✗  admin-dns: {exc}[/]'); exit_code = 1
+
     c.print()
     if exit_code:
         raise typer.Exit(exit_code)
@@ -358,11 +438,15 @@ def setup_delete(
     exit_code = 0
 
     for label, fn in [
-        ('dns',         lambda: _dns().delete(zone)),
-        ('cf-function', lambda: _cf_function().delete(zone)),
-        ('cf',          lambda: _cf().delete(zone)),
-        ('lambda',      lambda: _lambda().delete()),
-        ('iam',         lambda: iam.delete()),
+        ('admin-dns',    lambda: _admin_dns().delete(zone)),
+        ('admin-cf',     lambda: _admin_cf().delete(zone)),
+        ('admin-lambda', lambda: _admin_lambda().delete()),
+        ('admin-iam',    lambda: _admin_iam().delete()),
+        ('dns',          lambda: _dns().delete(zone)),
+        ('cf-function',  lambda: _cf_function().delete(zone)),
+        ('cf',           lambda: _cf().delete(zone)),
+        ('lambda',       lambda: _lambda().delete()),
+        ('iam',          lambda: iam.delete()),
     ]:
         c.print(f'  [yellow]→[/]  {label} delete…')
         try:
