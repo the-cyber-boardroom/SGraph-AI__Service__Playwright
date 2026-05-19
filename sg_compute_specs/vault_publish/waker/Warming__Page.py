@@ -110,12 +110,20 @@ _HTML_TEMPLATE = """<!DOCTYPE html>
   <script>
     const CFG  = JSON.parse(document.getElementById('waker-cfg').textContent);
     const $    = (id) => document.getElementById(id);
+    const log  = (...args) => console.log('[waker:' + CFG.slug + ']', ...args);
 
     let pollT       = null;
     let countT      = null;
     let cancelled   = false;
     let startMs     = Date.now();
     let pollAttempt = 0;
+
+    log('page loaded', {
+      probe_target  : CFG.probe_target,
+      probe_url     : CFG.lambda_url || '(fallback: slug FQDN)',
+      initial_wait_s: Math.round(CFG.initial_wait_ms/1000),
+      poll_every_s  : Math.round(CFG.poll_fast_ms/1000),
+    });
 
     // Polling schedule:
     //   - Wait `initial_wait_ms` (30s default) before the first probe — vault
@@ -194,10 +202,13 @@ _HTML_TEMPLATE = """<!DOCTYPE html>
       let r;
       try { r = await probe(); }
       catch (e) {
+        log('probe #' + pollAttempt + ' FAILED at ' + elapsedSec() + 's:', e.message);
         setMsg(null, 'Network error: ' + e.message, '');
         pollT = setTimeout(bootTick, CFG.poll_fast_ms);
         return;
       }
+      log('probe #' + pollAttempt + ' at ' + elapsedSec() + 's:',
+          'waker_state=' + r.waker_state, 'ec2=' + r.ec2_state);
       // Path display: when polling cross-origin via Lambda, every probe is by
       // definition via Lambda — show the cross-origin polling target instead.
       if (r.direct_check) {
@@ -227,6 +238,7 @@ _HTML_TEMPLATE = """<!DOCTYPE html>
         // doesn't share a socket pool slot with the slug FQDN (different
         // origin in the browser's connection pool), so the slug FQDN's
         // socket has been idle since page load and can drain naturally.
+        log('READY at ' + elapsedSec() + 's — redirecting (' + pollAttempt + ' probes total)');
         gotoNow('Vault is ready — redirecting…');
         return;
       }
@@ -247,10 +259,16 @@ _HTML_TEMPLATE = """<!DOCTYPE html>
       // warming up" page calm (no flicker, no fast updates).
       const initSec = Math.round(CFG.initial_wait_ms / 1000);
       let remaining = initSec;
+      log('initial wait starting — ' + initSec + 's of silence, then probing every '
+          + Math.round(CFG.poll_fast_ms/1000) + 's');
       setMsg(null, 'Waiting ' + initSec + 's before first probe (vault boot is rarely faster than 30s)…', '');
       function tick() {
         if (cancelled) return;
-        if (remaining <= 0) { bootTick(); return; }
+        if (remaining <= 0) {
+          log('initial wait complete after ' + initSec + 's — starting probes');
+          bootTick();
+          return;
+        }
         setMsg(null,
                'Waiting ' + remaining + 's before first probe (vault boot is rarely faster than 30s)…',
                'Then will probe every ' + Math.round(CFG.poll_fast_ms/1000) + 's until ready.');
@@ -264,13 +282,21 @@ _HTML_TEMPLATE = """<!DOCTYPE html>
       cancelled = true;
       clearTimeout(pollT); clearTimeout(countT);
       setMsg(null, reason, '');
-      window.location.replace(window.location.pathname + '?_t=' + Date.now());
+      const url = window.location.pathname + '?_t=' + Date.now();
+      log('window.location.replace(' + url + ') — reason:', reason);
+      log('NOTE: first response may still be via Lambda (X-Waker-* headers present) — '
+          + 'browser may take 30-90s to refresh its DNS cache / drain HTTP/2 connection '
+          + 'and then go direct to EC2. This is transparent UX-wise (vault works on both '
+          + 'paths) but visible in DevTools Network → X-Waker-State response header.');
+      window.location.replace(url);
     }
 
     function enterPage() {
       cancelled = true;
       clearTimeout(pollT); clearTimeout(countT);
-      window.location.replace(window.location.pathname + '?_t=' + Date.now());
+      const url = window.location.pathname + '?_t=' + Date.now();
+      log('Enter clicked — window.location.replace(' + url + ')');
+      window.location.replace(url);
     }
 
     function openInNewTab() {
@@ -280,6 +306,7 @@ _HTML_TEMPLATE = """<!DOCTYPE html>
       cancelled = true;
       clearTimeout(pollT); clearTimeout(countT);
       const url = window.location.pathname + '?_t=' + Date.now();
+      log('Open in new tab — window.open(' + url + ', "_blank")');
       const w = window.open(url, '_blank');
       if (w) {
         setMsg('Vault is ready (opened in new tab)',
@@ -296,6 +323,7 @@ _HTML_TEMPLATE = """<!DOCTYPE html>
     function forceEnter() { enterPage(); }
 
     function cancelAll() {
+      log('cancelled by user at ' + elapsedSec() + 's (' + pollAttempt + ' probes total)');
       cancelled = true;
       clearTimeout(pollT); clearTimeout(countT);
       $('spinner').classList.add('paused');
