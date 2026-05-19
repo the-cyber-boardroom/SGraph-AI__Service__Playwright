@@ -149,6 +149,7 @@ class _Fake_ECS_Client:
             'group'             : '',
             'launchType'        : kwargs.get('launchType', 'FARGATE'),
             'tags'              : tag_list,
+            'attachments'       : [],                                               # populated after run_task via set_task_eni helper
         }
         self._tasks[task_arn] = raw
         return {'tasks': [raw], 'failures': []}
@@ -188,12 +189,19 @@ class Fargate__AWS__Client__In_Memory(Fargate__AWS__Client):
             'tags'               : tag_list,
         }
 
-    def seed_task_with_tags(self, cluster_name: str, tags: dict) -> str:        # create a RUNNING task with given tag dict
+    def seed_task_with_tags(self, cluster_name: str, tags: dict,
+                             eni_id: str = '') -> str:                           # create a RUNNING task with given tag dict
         import uuid
         task_id     = str(uuid.uuid4())
         task_arn    = f'arn:aws:ecs:us-east-1:123456789012:task/{cluster_name}/{task_id}'
         cluster_arn = f'arn:aws:ecs:us-east-1:123456789012:cluster/{cluster_name}'
         tag_list    = [{'key': k, 'value': v} for k, v in tags.items()]
+        attachments = []
+        if eni_id:
+            attachments = [{
+                'type'   : 'ElasticNetworkInterface',
+                'details': [{'name': 'networkInterfaceId', 'value': eni_id}],
+            }]
         self._tasks[task_arn] = {
             'taskArn'           : task_arn,
             'clusterArn'        : cluster_arn,
@@ -206,5 +214,20 @@ class Fargate__AWS__Client__In_Memory(Fargate__AWS__Client):
             'group'             : '',
             'launchType'        : 'FARGATE',
             'tags'              : tag_list,
+            'attachments'       : attachments,
         }
         return task_arn
+
+    def set_task_eni(self, task_arn: str, eni_id: str) -> None:                  # attach an ENI ID to a seeded task's attachments
+        raw = self._tasks.get(task_arn)
+        if raw is None:
+            return
+        raw['attachments'] = [{
+            'type'   : 'ElasticNetworkInterface',
+            'details': [{'name': 'networkInterfaceId', 'value': eni_id}],
+        }]
+
+    def set_task_status(self, task_arn: str, status: str) -> None:               # override lastStatus of a seeded task
+        raw = self._tasks.get(task_arn)
+        if raw is not None:
+            raw['lastStatus'] = status

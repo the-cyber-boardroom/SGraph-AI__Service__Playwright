@@ -28,3 +28,4 @@ class Schema__ECS__Task(Type_Safe):
     group            : Safe_Str__ECS__Group                    # task group (e.g. service:<name>)
     launch_type      : str = ''                                # FARGATE | FARGATE_SPOT
     tags             : dict                                    # task tags as {key: value}
+    eni_id           : str = ''                                # ENI ID from ElasticNetworkInterface attachment

@@ -225,7 +225,8 @@ class Fargate__AWS__Client(Type_Safe):
                  security_groups: list = None,
                  assign_public_ip: bool = False,
                  launch_type: str = 'FARGATE',
-                 tags: dict = None) -> Optional[Schema__ECS__Task]:
+                 tags: dict = None,
+                 env: dict = None) -> Optional[Schema__ECS__Task]:
         vpc_config = {
             'awsvpcConfiguration': {
                 'subnets'        : subnets or [],
@@ -236,7 +237,7 @@ class Fargate__AWS__Client(Type_Safe):
         tag_list = [{'key': 'sg:managed', 'value': 'true'}]
         if tags:
             tag_list.extend([{'key': k, 'value': v} for k, v in tags.items()])
-        resp  = self.client().run_task(
+        run_kwargs = dict(
             cluster              = cluster,
             taskDefinition       = task_def,
             count                = count,
@@ -244,6 +245,14 @@ class Fargate__AWS__Client(Type_Safe):
             networkConfiguration = vpc_config,
             tags                 = tag_list,
         )
+        if env:                                                                    # override env via containerOverrides
+            run_kwargs['overrides'] = {
+                'containerOverrides': [{
+                    'name'       : task_def.split(':')[0],                         # use family name as container name
+                    'environment': [{'name': k, 'value': v} for k, v in env.items()],
+                }]
+            }
+        resp  = self.client().run_task(**run_kwargs)
         tasks = resp.get('tasks', [])
         if not tasks:
             return None
@@ -344,6 +353,15 @@ class Fargate__AWS__Client(Type_Safe):
         else:                                                                      # fall back to raw list e.g. from describe_tasks
             raw_tags      = raw.get('tags', [])
             resolved_tags = {t['key']: t['value'] for t in raw_tags if 'key' in t}
+        eni_id = ''                                                                # extract ENI ID from ElasticNetworkInterface attachment
+        for att in (raw.get('attachments') or []):
+            if att.get('type') == 'ElasticNetworkInterface':
+                for detail in (att.get('details') or []):
+                    if detail.get('name') == 'networkInterfaceId':
+                        eni_id = detail.get('value', '')
+                        break
+                if eni_id:
+                    break
         return Schema__ECS__Task(
             task_arn        = Safe_Str__ECS__Task__ARN(task_arn) if task_arn.startswith('arn:') else Safe_Str__ECS__Task__ARN(''),
             cluster_name    = Safe_Str__ECS__Cluster__Name(cluster_name) if cluster_name else Safe_Str__ECS__Cluster__Name(''),
@@ -357,4 +375,5 @@ class Fargate__AWS__Client(Type_Safe):
             group           = raw.get('group', ''),
             launch_type     = resolved_launch_type,
             tags            = resolved_tags,
+            eni_id          = eni_id,
         )
