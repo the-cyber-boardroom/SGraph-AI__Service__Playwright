@@ -35,6 +35,14 @@ from osbot_utils.type_safe.Type_Safe import Type_Safe
 # back to polling the slug URL (legacy behaviour).
 WAKER_LAMBDA_FUNCTION_URL = os.environ.get('WAKER_LAMBDA_FUNCTION_URL', '').rstrip('/')
 
+# Same-zone admin/probe host — alternative cross-origin target. Defaults to
+# `waker.<zone>`. Empirically may or may not defeat H2 connection coalescing
+# (see library/docs/research/v0.1.14__http2-connection-coalescing.md);
+# Lambda Function URL is the guaranteed-no-coalescing fallback. When BOTH
+# are set, the JS prefers WAKER_PROBE_HOST so we can A/B test in production.
+_DEFAULT_ZONE = os.environ.get('SG_AWS__DNS__DEFAULT_ZONE', 'aws.sg-labs.app')
+WAKER_PROBE_HOST = os.environ.get('WAKER_PROBE_HOST', f'waker.{_DEFAULT_ZONE}').rstrip('/')
+
 NO_CACHE_HEADERS = {
     'Cache-Control': 'no-store, no-cache, must-revalidate',
     'Pragma'       : 'no-cache',
@@ -203,7 +211,11 @@ _HTML_TEMPLATE = """<!DOCTYPE html>
           return;
         }
       } else {
-        $('path-line').textContent = 'Status polled cross-origin via Lambda Function URL';
+        const target = CFG.probe_target || 'unknown';
+        const label  = target === 'waker-host'  ? 'waker.<zone> (testing H2 coalescing)'
+                    :  target === 'lambda-url'  ? 'Lambda Function URL (guaranteed no coalescing)'
+                    :                              'slug FQDN (fallback — keeps socket warm)';
+        $('path-line').textContent = 'Probe target: ' + label;
       }
       if (r.waker_state === 'not_found' || r.waker_state === 'error') {
         setMsg('Vault not found',
@@ -319,9 +331,22 @@ class Warming__Page(Type_Safe):
     settle_ms       : int = 90000                                                     # silent wait after vault is up — no network activity so the kept-alive socket drains before we navigate
 
     def render(self, slug: str) -> str:
+        # probe_base — preferred cross-origin target. Order:
+        #   1. WAKER_PROBE_HOST (e.g. https://waker.<zone>) — same-zone subdomain
+        #      to test whether H2 coalescing actually defeats the trick
+        #   2. WAKER_LAMBDA_FUNCTION_URL — guaranteed-no-coalescing fallback
+        #   3. empty — JS falls back to polling the slug URL (legacy)
+        probe_base = ''
+        if WAKER_PROBE_HOST:
+            probe_base = (WAKER_PROBE_HOST if WAKER_PROBE_HOST.startswith(('http://', 'https://'))
+                          else f'https://{WAKER_PROBE_HOST}')
+        elif WAKER_LAMBDA_FUNCTION_URL:
+            probe_base = WAKER_LAMBDA_FUNCTION_URL
         cfg = {
             'slug'            : slug,
-            'lambda_url'      : WAKER_LAMBDA_FUNCTION_URL,
+            'lambda_url'      : probe_base,                                          # JS still calls this field "lambda_url" but it now points at probe_base (waker.<zone> or Lambda URL)
+            'probe_target'    : 'waker-host' if WAKER_PROBE_HOST else
+                                ('lambda-url' if WAKER_LAMBDA_FUNCTION_URL else 'slug-fqdn'),
             'poll_fast_ms'    : self.poll_fast_ms,
             'poll_fast_count' : self.poll_fast_count,
             'poll_slow_ms'    : self.poll_slow_ms,

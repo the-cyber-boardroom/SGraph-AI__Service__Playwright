@@ -186,11 +186,13 @@ class Fast_API__Waker(Type_Safe):
                                    'x-waker-version'],
             max_age            = 86400,
         )
-        self._register_routes(fast_app)
-        # Mount admin UI at /__admin__/ on the same Lambda. Sub-app has its
-        # own auth middleware (Admin__Auth — API-key cookie/header gate).
+        # Mount admin UI at /__admin__/ on the same Lambda. MUST be mounted
+        # BEFORE _register_routes so the parent's `/{path:path}` catch-all
+        # doesn't intercept /__admin__/* — Starlette matches routes in
+        # registration order, first hit wins.
         from sg_compute_specs.vault_publish.admin.Fast_API__Admin import Fast_API__Admin
         fast_app.mount('/__admin__', Fast_API__Admin().app())
+        self._register_routes(fast_app)
         return fast_app
 
     def _register_routes(self, fast_app: FastAPI):
@@ -266,7 +268,11 @@ class Fast_API__Waker(Type_Safe):
             viewer_host       = _viewer_host(request, origin_host)
             slug              = Slug__From_Host().extract(viewer_host)
             body              = await request.body()
-            ctx = Schema__Waker__Request_Context(
+            # Build context with only fields the schema declares. The catch-all
+            # is a dev/local FastAPI fallback (production uses lambda_entry's
+            # plain-handler architecture directly); keep this resilient to
+            # schema changes by passing only well-known fields.
+            ctx_kwargs = dict(
                 host              = viewer_host,
                 origin_host       = origin_host,
                 forwarded_host    = forwarded_host,
@@ -277,12 +283,13 @@ class Fast_API__Waker(Type_Safe):
                 body              = body,
                 request_id        = _extract_request_id(request),
                 source_ip         = _extract_source_ip(request),
-                proxy_headers     = _render_proxy_headers(request),
                 all_headers       = _render_all_headers(request),
                 asgi_scope        = _render_scope(request),
                 request_json      = _render_request_json(request, body),
                 deploy_info       = '\n'.join(f'{k}: {v or "(unset)"}' for k, v in DEPLOY_INFO.items()),
             )
+            schema_fields = set(Schema__Waker__Request_Context.__annotations__.keys())
+            ctx = Schema__Waker__Request_Context(**{k: v for k, v in ctx_kwargs.items() if k in schema_fields})
             result = Waker__Handler(_version=WAKER_VERSION).handle(ctx)
             return Response(
                 content    = result['body'],
