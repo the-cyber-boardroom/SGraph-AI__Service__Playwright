@@ -788,3 +788,9 @@ def start_stack(name  : Optional[str] = typer.Argument(None, help='Stack name; a
         parts.append(f'  DNS A → {result.public_ip}  ({result.fqdn})')
     c.print('\n'.join(parts))
     c.print()
+
+
+# ── fargate sub-app ───────────────────────────────────────────────────────────
+
+from sg_compute_specs.vault_app.fargate.cli.Cli__Vault_App__Fargate import app as fargate_app  # noqa: E402
+app.add_typer(fargate_app, name='fargate')
