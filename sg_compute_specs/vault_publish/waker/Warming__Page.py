@@ -58,8 +58,11 @@ _HTML_TEMPLATE = """<!DOCTYPE html>
            padding: .45rem .9rem; border-radius: 4px; text-decoration: none; }
     .btn:hover { background: #f0f0f0; border-color: #aaa; }
     .btn.primary { background: #2e7d32; color: #fff; border-color: #2e7d32;
-                   font-weight: 500; display: none; }
+                   font-weight: 500; }
     .btn.primary:hover { background: #1b5e20; border-color: #1b5e20; }
+    .btn.primary[disabled] { display: none; }
+    #new-tab-btn { display: none; }
+    #enter-btn { display: none; }
     .btn.danger { color: #b00020; border-color: #e0a0a0; }
     .btn.danger:hover { background: #fff0f0; }
     .btn:disabled { color: #999; cursor: not-allowed; background: #f7f7f7; }
@@ -78,7 +81,8 @@ _HTML_TEMPLATE = """<!DOCTYPE html>
   <p id="path-line" class="path"></p>
 
   <div class="actions">
-    <button class="btn primary" id="enter-btn" onclick="forceEnter()">Enter now</button>
+    <button class="btn primary" id="new-tab-btn" onclick="openInNewTab()">Open in new tab</button>
+    <button class="btn" id="enter-btn" onclick="forceEnter()">Enter (this tab)</button>
     <button class="btn danger" id="cancel-btn" onclick="cancelAll()">Cancel</button>
     <a class="btn" href="/__waker__/status?slug=__SLUG_TEXT__">View diagnostics</a>
     <a class="btn" href="/__waker__/console">Console</a>
@@ -90,10 +94,22 @@ _HTML_TEMPLATE = """<!DOCTYPE html>
     const CFG  = JSON.parse(document.getElementById('waker-cfg').textContent);
     const $    = (id) => document.getElementById(id);
 
-    let pollT     = null;
-    let countT    = null;
-    let cancelled = false;
-    let startMs   = Date.now();
+    let pollT       = null;
+    let countT      = null;
+    let cancelled   = false;
+    let startMs     = Date.now();
+    let pollAttempt = 0;
+
+    // Backoff schedule: poll fast for the first ~30s (in case vault boots
+    // quickly), then back off to 60s intervals. The 60s gap is critical —
+    // Chrome's HTTP/1.1 keep-alive idle timeout is ~60-90s, so 60s with no
+    // requests is what lets the kept-alive socket to CloudFront actually
+    // close. Polling every 5s forever would keep the socket warm forever
+    // and the eventual redirect would always go via Lambda.
+    function nextPollDelayMs() {
+      if (pollAttempt < CFG.poll_fast_count) return CFG.poll_fast_ms;
+      return CFG.poll_slow_ms;
+    }
 
     function elapsedSec() { return Math.round((Date.now() - startMs) / 1000); }
     function setMsg(title, msg, detail) {
@@ -135,11 +151,12 @@ _HTML_TEMPLATE = """<!DOCTYPE html>
 
     async function bootTick() {
       if (cancelled) return;
+      pollAttempt += 1;
       let r;
       try { r = await probe(); }
       catch (e) {
         setMsg(null, 'Network error: ' + e.message, '');
-        pollT = setTimeout(bootTick, CFG.poll_ms);
+        pollT = setTimeout(bootTick, nextPollDelayMs());
         return;
       }
       setPath(r.via_lambda);
@@ -163,29 +180,38 @@ _HTML_TEMPLATE = """<!DOCTYPE html>
         startSettleCountdown();
         return;
       }
-      // Still warming
-      const ec2 = r.ec2_state || 'unknown';
+      // Still warming — schedule the next check with backoff cadence
+      const ec2     = r.ec2_state || 'unknown';
+      const nextSec = Math.round(nextPollDelayMs() / 1000);
       setMsg(null,
              'EC2 ' + ec2 + ' — vault still booting (elapsed: ' + elapsedSec() + 's)',
-             'Lambda is checking every ' + (CFG.poll_ms/1000) + 's. Typical boot: 30-90s.');
-      pollT = setTimeout(bootTick, CFG.poll_ms);
+             'Next check in ' + nextSec + 's. Typical first-time boot is 30-90s.');
+      pollT = setTimeout(bootTick, nextPollDelayMs());
     }
 
     function startSettleCountdown() {
-      // Vault is reachable via Lambda. Wait `settle_ms` with no network
+      // Vault is reachable via Lambda. Wait `settle_ms` with NO network
       // activity so the browser's keep-alive socket to CloudFront idles out
       // and the Route-53 DNS cache (TTL 60s) expires. Then trigger a fresh
       // navigation that has a chance to hit the EC2 directly.
-      $('enter-btn').style.display = 'inline-block';
+      //
+      // The "Open in new tab" button is the most reliable shortcut — a new
+      // tab gets its own socket pool slot and triggers fresh DNS regardless
+      // of what this tab has pinned.
+      $('new-tab-btn').style.display = 'inline-block';
+      $('enter-btn').style.display   = 'inline-block';
       setMsg('Vault is ready',
-             'Reachable now via CloudFront → Lambda → EC2.',
+             'Reachable via CloudFront → Lambda → EC2.',
              '');
       const settleSec = Math.round(CFG.settle_ms / 1000);
       let remaining = settleSec;
       function tick() {
         if (cancelled) return;
         if (remaining <= 0) { enterPage(); return; }
-        $('detail').textContent = 'Waiting ' + remaining + 's for browser DNS cache + socket pool to drain so the next navigation can go direct to EC2 (or click Enter now to use Lambda).';
+        $('detail').textContent =
+          'Silently waiting ' + remaining + 's so the keep-alive socket to CloudFront idles out — ' +
+          'then this tab will try a direct navigation. Or click "Open in new tab" now to skip the wait ' +
+          '(new tab → fresh socket → fresh DNS lookup → direct to EC2).';
         remaining -= 1;
         countT = setTimeout(tick, 1000);
       }
@@ -205,6 +231,26 @@ _HTML_TEMPLATE = """<!DOCTYPE html>
       window.location.replace(window.location.pathname + '?_t=' + Date.now());
     }
 
+    function openInNewTab() {
+      // A new tab uses a fresh entry in the browser's socket pool, so it
+      // performs a fresh TCP connect → fresh DNS lookup. This is the most
+      // reliable JS-accessible way to escape socket pinning to CloudFront.
+      cancelled = true;
+      clearTimeout(pollT); clearTimeout(countT);
+      const url = window.location.pathname + '?_t=' + Date.now();
+      const w = window.open(url, '_blank');
+      if (w) {
+        setMsg('Vault is ready (opened in new tab)',
+               'A new tab should now be loading the vault directly.',
+               'You can close this tab.');
+      } else {
+        setMsg('Popup blocked',
+               'Your browser blocked the new tab. Click "Enter (this tab)" instead, ' +
+               'or shift+click "Open in new tab" to bypass the popup blocker.',
+               '');
+      }
+    }
+
     function forceEnter() { enterPage(); }
 
     function cancelAll() {
@@ -213,9 +259,11 @@ _HTML_TEMPLATE = """<!DOCTYPE html>
       $('spinner').classList.add('paused');
       $('cancel-btn').textContent = 'Cancelled';
       $('cancel-btn').disabled = true;
-      $('enter-btn').style.display = 'inline-block';
+      $('new-tab-btn').style.display = 'inline-block';
+      $('enter-btn').style.display   = 'inline-block';
       setMsg(null, 'Polling stopped.',
-             'Reload manually, or click Enter now to navigate via current path.');
+             'Click "Open in new tab" (most reliable — fresh socket pool), ' +
+             'or "Enter (this tab)" to navigate in place.');
     }
 
     bootTick();
@@ -226,14 +274,18 @@ _HTML_TEMPLATE = """<!DOCTYPE html>
 
 
 class Warming__Page(Type_Safe):
-    poll_ms   : int = 5000                                                            # active poll cadence while EC2 is booting (5s)
-    settle_ms : int = 60000                                                           # silent wait after vault is up so the keep-alive socket can idle out + DNS cache expires (60s)
+    poll_fast_ms    : int = 5000                                                      # fast cadence — first few polls while we expect a quick boot
+    poll_fast_count : int = 6                                                         # number of fast polls before backing off (6 × 5s = 30s of fast polling)
+    poll_slow_ms    : int = 60000                                                     # slow cadence — every 60s. The 60s gap is what lets Chrome's HTTP/1.1 keep-alive idle timeout fire on the kept-alive socket to CloudFront.
+    settle_ms       : int = 90000                                                     # silent wait after vault is up — no network activity so the kept-alive socket drains before we navigate
 
     def render(self, slug: str) -> str:
         cfg = {
-            'slug'      : slug,
-            'poll_ms'   : self.poll_ms,
-            'settle_ms' : self.settle_ms,
+            'slug'            : slug,
+            'poll_fast_ms'    : self.poll_fast_ms,
+            'poll_fast_count' : self.poll_fast_count,
+            'poll_slow_ms'    : self.poll_slow_ms,
+            'settle_ms'       : self.settle_ms,
         }
         out = _HTML_TEMPLATE
         out = out.replace('__SLUG_TEXT__'   , html_lib.escape(slug))

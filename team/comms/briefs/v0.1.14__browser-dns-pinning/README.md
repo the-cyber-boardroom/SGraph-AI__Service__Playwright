@@ -109,36 +109,50 @@ also broken (Cause 1), the result is the warming page rendering forever.
 
 ### Fix
 
-`Warming__Page` is now JS-driven:
+`Warming__Page` is now JS-driven with a **backoff polling schedule** specifically designed
+to give the kept-alive socket idle gaps long enough to expire:
 
-1. **Active phase (state=warming)** — poll the same URL every `poll_ms` (5s default). The
-   socket stays alive intentionally — every poll goes through Lambda and that's fine. The
-   JS reads `X-Waker-State` + `X-Waker-Ec2-State` from each response to show boot progress.
+1. **Active phase (state=warming)** — poll with backoff:
+   - First `poll_fast_count` polls (6 default) at `poll_fast_ms` (5s) — catches fast boots
+   - All subsequent polls at `poll_slow_ms` (60s) — and this 60s gap is the critical part.
+     Chrome's HTTP/1.1 keep-alive idle timeout is ~60-90s. A 60s no-activity gap lets the
+     socket close, so the very next poll opens a new socket and does a fresh DNS lookup.
+     If that fresh lookup returns the per-slug A record, the poll lands DIRECTLY on the
+     EC2 instead of going through Lambda — and we redirect immediately (see point 4).
+   - Earlier versions polled every 5s indefinitely, which kept the socket warm and
+     prevented the kept-alive timer from ever firing — even after 90s of "silent settle"
+     the socket was still warm because the polls leading up to settle had reset the timer.
 
 2. **Settle phase (state=proxied)** — once Lambda starts proxying (vault is healthy), the
-   JS switches to a **silent countdown** of `settle_ms` (60s default). **No fetches happen
+   JS switches to a **silent countdown** of `settle_ms` (90s default). **No fetches happen
    during this countdown.** This lets:
    - the browser's keep-alive socket pool drain (idle timeout fires)
    - the OS DNS cache expire (TTL 60s on Route 53)
    - the next navigation perform a fresh DNS lookup + open a fresh socket
 
 3. **Redirect** — after `settle_ms`, JS triggers `window.location.replace(... + '?_t=N')`.
-   The fresh navigation:
-   - opens a new TCP connection (socket pool was drained)
-   - re-resolves DNS (cache was expired)
-   - more-specific A record wins over the `*` wildcard → resolves to EC2 IP
-   - browser connects direct to EC2 with the LE cert that validates for the FQDN ✓
+   The fresh navigation has a fair chance to open a new socket and resolve DNS fresh.
 
 4. **Detection that we're already direct** — every probe response is inspected for the
    `X-Waker-State` header. Its **absence** means the response did not go through Lambda
    (which always injects it) — i.e. the request landed directly on the EC2. In that case,
-   we redirect immediately, skipping the settle countdown.
+   we redirect immediately, skipping the settle countdown. With the 60s slow-poll cadence,
+   this detection actually triggers naturally: every 60s of silence is enough socket-idle
+   for a fresh DNS lookup on the next probe.
 
-5. **Escape hatch** — there's an "Enter now" button that bypasses the countdown and
-   navigates immediately via whatever path is currently live (proxy or direct). For the
-   user who doesn't want to wait the full 60s and is fine with the Lambda hop.
+5. **"Open in new tab" button** (primary escape hatch) — calls `window.open(url, '_blank')`.
+   A new tab gets its own socket pool slot, forcing a fresh TCP connect and fresh DNS
+   lookup regardless of what the current tab has pinned. **This is the most reliable
+   JS-accessible way to defeat socket pinning**, and it's the recommended UX path. The
+   downside is it requires a user gesture (browsers block window.open from being
+   auto-called without user interaction).
 
-Files: `Warming__Page.py:20` (template), `Warming__Page.py:142` (config injected into the JS).
+6. **"Enter (this tab)" button** (secondary) — same as the auto-redirect, navigates in
+   place via whatever socket the tab has pooled. Useful if the user is fine taking the
+   Lambda hop and doesn't want to deal with a new tab.
+
+Files: `Warming__Page.py:20` (template), `Warming__Page.py` Type_Safe attrs at the bottom
+(config injected into the JS via `__CONFIG_JSON__`).
 
 ---
 
