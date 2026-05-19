@@ -235,7 +235,9 @@ def _run_post_register_wait(c: Console, *, slug: str, region: str, timeout: int,
             f'  sed -i "s|^$1=.*|$1=$2|" "$ENV"; else echo "$1=$2" >> "$ENV"; fi; }}; '
             f'update_kv SG__CERT_INIT__MODE letsencrypt-hostname; '
             f'update_kv SG__CERT_INIT__TLS_HOSTNAME {fqdn}; '
-            f'cd /opt/vault-app && {compose} restart cert-init 2>&1 | tail -20'
+            # `up -d --force-recreate` (NOT restart) — compose only re-reads
+            # .env and re-resolves ${VAR} placeholders on a fresh container.
+            f'cd /opt/vault-app && {compose} up -d --force-recreate --no-deps cert-init 2>&1 | tail -20'
         )
         svc.exec(region, stack_name, ssm, timeout_sec=60)
         c.print(f'  [green]✓[/]  cert-renew triggered — re-probe in ~60s with '
@@ -343,7 +345,8 @@ def adopt(slug         : str  = typer.Argument(..., help='Slug to adopt (must ma
                 f'run `sg va cert-renew {stack_name}` manually after DNS settles.[/]')
     else:
         c.print(f'  [yellow]→[/]  Triggering Let\'s Encrypt cert renewal '
-                f'(restart cert-init container on EC2, wait up to {cert_timeout}s)…')
+                f'(recreate cert-init container on EC2 to pick up new .env, '
+                f'wait up to {cert_timeout}s)…')
         try:
             from sg_compute_specs.vault_app.service.Vault_App__Service import Vault_App__Service
             svc = Vault_App__Service().setup()
@@ -361,7 +364,9 @@ def adopt(slug         : str  = typer.Argument(..., help='Slug to adopt (must ma
                 f'  sed -i "s|^$1=.*|$1=$2|" "$ENV"; else echo "$1=$2" >> "$ENV"; fi; }}; '
                 f'update_kv SG__CERT_INIT__MODE letsencrypt-hostname; '
                 f'update_kv SG__CERT_INIT__TLS_HOSTNAME {fqdn}; '
-                f'cd /opt/vault-app && {compose} restart cert-init 2>&1 | tail -20'
+                # `up -d --force-recreate` (NOT restart) — compose only re-reads
+            # .env and re-resolves ${VAR} placeholders on a fresh container.
+            f'cd /opt/vault-app && {compose} up -d --force-recreate --no-deps cert-init 2>&1 | tail -20'
             )
             svc.exec(region, stack_name, ssm, timeout_sec=60)
             # Poll for success

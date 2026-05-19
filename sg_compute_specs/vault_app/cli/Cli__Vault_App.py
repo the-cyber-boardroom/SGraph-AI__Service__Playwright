@@ -530,9 +530,10 @@ def cert_renew(name     : str  = typer.Argument(None, help='Stack name; auto-sel
     compose_bin = 'podman-compose' if engine == 'podman' else 'docker compose'
 
     # If the operator asked us to switch mode or change hostname, patch
-    # /opt/vault-app/.env IN PLACE before restarting. cert-init reads its
-    # config exclusively from that file — re-running it with stale .env
-    # would just reissue the same wrong cert.
+    # /opt/vault-app/.env IN PLACE before recreating. The compose template
+    # uses ${VAR:-default} substitution which is resolved at parse time
+    # (compose up), so `restart` would re-use the old values — only
+    # `up -d --force-recreate` re-reads .env and re-substitutes.
     env_patch = ''
     if mode or hostname:
         c.print(f'  [yellow]→[/]  Patching /opt/vault-app/.env  '
@@ -551,13 +552,16 @@ def cert_renew(name     : str  = typer.Argument(None, help='Stack name; auto-sel
             + '; '.join(f'grep "^{k}=" "$ENV"' for k, _v in kvs) + '; '
         )
 
-    # Restart cert-init. The container is one-shot (exit 0 on success) and the
-    # vault container declares depends_on:cert-init:service_completed_successfully,
-    # so a fresh cert-init also implicitly restarts the vault when it succeeds.
+    # `up -d --force-recreate` (NOT restart) is required so compose re-parses
+    # the template, re-reads .env, and re-substitutes ${VAR} placeholders.
+    # `restart` reuses the existing container's env — would silently re-run
+    # cert-init with the OLD mode no matter what we wrote to .env. cert-init
+    # is one-shot (exit 0 on success); the vault container's
+    # depends_on:cert-init:service_completed_successfully waits for it.
     ssm_cmd = (
         f'{env_patch}'
         f'cd /opt/vault-app && '
-        f'{compose_bin} restart cert-init 2>&1 | tail -40; '
+        f'{compose_bin} up -d --force-recreate --no-deps cert-init 2>&1 | tail -40; '
         f'echo "---cert-init logs---"; '
         f'({"docker" if engine != "podman" else "podman"} logs vault-app-cert-init-1 '
         f'2>&1 | tail -30 || true)'
