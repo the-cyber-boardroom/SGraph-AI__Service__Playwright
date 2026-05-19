@@ -57,6 +57,7 @@ echo "[vault-app] Podman ready"
 _STACK_TEMPLATE = '''
 # ── vault-app stack ({mode}, engine={engine}) ───────────────────────────────
 mkdir -p /opt/vault-app/data
+mkdir -p /var/lib/sg-compute                                                  # bind-mount source for cert-init's stage file; sg va check reads it via SSM
 
 cat > /opt/vault-app/.env <<'ENVEOF'
 IMAGE_TAG={image_tag}

@@ -506,6 +506,7 @@ _DIAG_STATE_LABEL = {
 # of growing top-down as each generator yield arrives.
 _CHECK_ORDER = ('ec2-state', 'ssm-reachable', 'boot-failed', 'container-engine',
                 'images-pulled', 'containers-up', 'vault-http', 'boot-ok',
+                'cert-init',                                                # TLS stacks only — surfaces cert_init.py's stage file
                 'external-http')
 
 # per-check log source to suggest when a check fails / warns
@@ -517,6 +518,7 @@ _DIAG_HINTS = {
     'containers-up'    : [('boot'      , 'compose up output')],
     'vault-http'       : [('vault'     , 'sg-send-vault container output'), ('boot', 'container start markers')],
     'boot-ok'          : [('boot'      , 'watch boot progress')],
+    'cert-init'        : [('cert-init' , 'full cert-init container output (DNS wait / ACME challenge)')],
     'external-http'    : [('vault'     , 'sg-send-vault container output')],
 }
 
@@ -629,6 +631,8 @@ def check(name  : str = typer.Argument(None, help='Stack name; auto-selected whe
       containers-up     compose containers are running
       vault-http        :8080/info/health responds from inside the host
       boot-ok           /var/lib/sg-compute-boot-ok is present
+      cert-init         TLS stacks only — current stage from /var/lib/sg-compute/cert-init.stage
+                        (start → waiting-for-dns → dns-converged → requesting-cert → cert-issued)
       external-http     /info/health responds from the operator's machine
 
     \b

@@ -164,8 +164,12 @@ class TestVaultAppServiceCliSurface:
     def test_user_data_without_tls_check_omits_cert_sidecar(self):
         builder   = Vault_App__User_Data__Builder()
         user_data = builder.render(stack_name='test-stack', access_token='tok')
-        assert 'cert-init'           not in user_data
-        assert 'SG__CERT_INIT__MODE' not in user_data
+        # Only assert on the compose-service definition and the env knob — a stray
+        # "cert-init" substring in a comment (e.g. /var/lib/sg-compute mkdir, which is
+        # written for ALL stack shapes so cert-init can bind-mount its stage file when
+        # TLS is on) is not the sidecar.
+        assert 'cert-init:'           not in user_data                                # no compose service
+        assert 'SG__CERT_INIT__MODE'  not in user_data                                # no env knob
 
     def test_user_data_default_shutdown_behavior_uses_halt(self):
         builder   = Vault_App__User_Data__Builder()
