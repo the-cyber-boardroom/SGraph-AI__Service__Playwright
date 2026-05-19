@@ -105,6 +105,13 @@ class Fargate__AWS__Client(Type_Safe):
             raise ValueError(f'Cluster "{name}" has {cluster.running_tasks} running tasks — stop them first.')
         self.client().delete_cluster(cluster=name)
 
+    def tag_cluster(self, name: str, tags: dict) -> None:                          # merge tags onto an existing cluster
+        cluster = self.describe_cluster(name)
+        if cluster is None:
+            return
+        tag_list = [{'key': k, 'value': v} for k, v in tags.items()]
+        self.client().tag_resource(resourceArn=str(cluster.cluster_arn), tags=tag_list)
+
     # ── task-def read ─────────────────────────────────────────────────────────
 
     def list_task_definitions(self, family: str = '') -> List__Schema__ECS__Task__Definition:

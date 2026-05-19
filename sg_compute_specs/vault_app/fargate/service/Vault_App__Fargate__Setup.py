@@ -288,8 +288,18 @@ class Vault_App__Fargate__Setup(Type_Safe):
         elif op == 'create':
             existing = self.fargate_client.describe_cluster(cluster_name)
             if existing:
-                result.detail = 'already exists'
-                result.status = Enum__VAF__Phase__Status.SKIPPED
+                network_tags = {}
+                if request.subnets:
+                    network_tags['VaultApp__Subnets'] = request.subnets
+                if request.security_group:
+                    network_tags['VaultApp__SecurityGroup'] = request.security_group
+                if network_tags:
+                    self.fargate_client.tag_cluster(cluster_name, network_tags)
+                    result.detail = 'retagged network config'
+                    result.status = Enum__VAF__Phase__Status.OK
+                else:
+                    result.detail = 'already exists'
+                    result.status = Enum__VAF__Phase__Status.SKIPPED
             else:
                 log_group      = request.log_group       or self.spec.default_log_group
                 ecr_repo_name  = request.ecr_repo_name   or self.spec.image_repo_name
@@ -308,10 +318,19 @@ class Vault_App__Fargate__Setup(Type_Safe):
                 result.detail = f'created {cluster_name}'
                 result.status = Enum__VAF__Phase__Status.OK
 
-        elif op == 'update':                                                      # re-tag cluster in place
+        elif op == 'update':                                                      # retag cluster with whatever the request carries
             existing = self.fargate_client.describe_cluster(cluster_name)
             if existing:
-                result.detail = 'exists (re-tag not supported in v1)'
+                network_tags = {}
+                if request.subnets:
+                    network_tags['VaultApp__Subnets'] = request.subnets
+                if request.security_group:
+                    network_tags['VaultApp__SecurityGroup'] = request.security_group
+                if network_tags:
+                    self.fargate_client.tag_cluster(cluster_name, network_tags)
+                    result.detail = 'retagged network config'
+                else:
+                    result.detail = 'exists'
                 result.status = Enum__VAF__Phase__Status.OK
             else:
                 result.detail = 'missing'

@@ -53,6 +53,16 @@ class _Fake_ECS_Client:
         self._clusters.pop(cluster, None)
         return {'cluster': {}}
 
+    def tag_resource(self, resourceArn: str, tags: list, **kwargs):                # merge {key,value} list onto cluster by ARN
+        for raw in self._clusters.values():
+            if raw.get('clusterArn') == resourceArn:
+                existing = {t['key']: t for t in raw.get('tags', [])}
+                for tag in tags:
+                    existing[tag['key']] = tag
+                raw['tags'] = list(existing.values())
+                return {}
+        return {}
+
     # ── task definitions ──────────────────────────────────────────────────────
 
     def list_task_definitions(self, **kwargs):
