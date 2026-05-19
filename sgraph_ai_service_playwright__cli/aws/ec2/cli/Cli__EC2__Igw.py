@@ -3,10 +3,14 @@
 # Typer CLI surface for `sg aws ec2 igw *` commands.
 #
 # Command tree:
-#   sg aws ec2 igw list  [--vpc <vpc-id>] [--json]
-#   sg aws ec2 igw show  <igw-id>         [--json]
+#   sg aws ec2 igw list   [--vpc <vpc-id>] [--json]
+#   sg aws ec2 igw show   <igw-id>         [--json]
+#   sg aws ec2 igw create [--name <tag>] [--yes] [--json]
+#   sg aws ec2 igw delete <igw-id> [--yes] [--json]
+#   sg aws ec2 igw attach <igw-id> --vpc <vpc-id> [--json]
+#   sg aws ec2 igw detach <igw-id> --vpc <vpc-id> [--yes] [--json]
 #
-# Read-only commands — no mutation gate required (Slice 1 of 3).
+# Mutations require SG_AWS__EC2__ALLOW_MUTATIONS=1.
 # ═══════════════════════════════════════════════════════════════════════════════
 
 import json
@@ -16,12 +20,15 @@ from rich.console import Console
 from rich.table   import Table
 
 from sg_compute.cli.base.Spec__CLI__Errors                                  import spec_cli_errors
+from sgraph_ai_service_playwright__cli.aws._shared.Mutation__Gate           import require_mutation_gate
 from sgraph_ai_service_playwright__cli.aws.ec2.service.EC2__AWS__Client     import EC2__AWS__Client
 
 
+_MUTATION_ENV = 'SG_AWS__EC2__ALLOW_MUTATIONS'
+
 console = Console()
 
-app = typer.Typer(name='igw', help='EC2 Internet Gateway inspection (read-only).',
+app = typer.Typer(name='igw', help='EC2 Internet Gateway inspection and mutation.',
                   no_args_is_help=True)
 
 
@@ -104,3 +111,106 @@ def igw_show(ctx     : typer.Context,
     console.print()
     console.print(t)
     console.print()
+
+
+# ── create ────────────────────────────────────────────────────────────────────
+
+@app.command('create')
+@spec_cli_errors
+@require_mutation_gate(_MUTATION_ENV)
+def igw_create(ctx     : typer.Context,
+               name    : str  = typer.Option('',   '--name', help='Optional Name tag.'),
+               yes     : bool = typer.Option(False,'--yes',  help='Skip confirmation prompt.'),
+               as_json : bool = typer.Option(False,'--json', help='Output as JSON.')):
+    """Create a new Internet Gateway (requires SG_AWS__EC2__ALLOW_MUTATIONS=1)."""
+    client = ctx.obj['ec2_client']
+    if not yes and not typer.confirm('Create internet gateway?', default=False):
+        if as_json:
+            typer.echo(json.dumps({'ok': False, 'aborted': True}, indent=2))
+        else:
+            console.print('[yellow]Aborted.[/yellow]')
+        raise typer.Exit(0)
+    tags = {'Name': name} if name else None
+    igw  = client.create_internet_gateway(tags=tags)
+    if as_json:
+        typer.echo(json.dumps({'ok': True, 'igw_id': str(igw.igw_id)}, indent=2))
+        return
+    console.print(f'[green]Created[/green] {igw.igw_id}')
+
+
+# ── delete ────────────────────────────────────────────────────────────────────
+
+@app.command('delete')
+@spec_cli_errors
+@require_mutation_gate(_MUTATION_ENV)
+def igw_delete(ctx     : typer.Context,
+               igw_id  : str  = typer.Argument(..., help='Internet Gateway ID (igw-*).'),
+               yes     : bool = typer.Option(False, '--yes',  help='Skip confirmation prompt.'),
+               as_json : bool = typer.Option(False, '--json', help='Output as JSON.')):
+    """Delete an Internet Gateway (requires SG_AWS__EC2__ALLOW_MUTATIONS=1)."""
+    client = ctx.obj['ec2_client']
+    if not yes and not typer.confirm(f'Delete internet gateway {igw_id}?', default=False):
+        if as_json:
+            typer.echo(json.dumps({'ok': False, 'aborted': True, 'igw_id': igw_id}, indent=2))
+        else:
+            console.print('[yellow]Aborted.[/yellow]')
+        raise typer.Exit(0)
+    deleted = client.delete_internet_gateway(igw_id)
+    if as_json:
+        typer.echo(json.dumps({'ok': bool(deleted), 'igw_id': igw_id,
+                                'deleted': bool(deleted)}, indent=2))
+        return
+    if deleted:
+        console.print(f'[green]Deleted[/green] {igw_id}')
+    else:
+        console.print(f'[yellow]Not deleted[/yellow] {igw_id} (already gone?)')
+        raise typer.Exit(1)
+
+
+# ── attach ────────────────────────────────────────────────────────────────────
+
+@app.command('attach')
+@spec_cli_errors
+@require_mutation_gate(_MUTATION_ENV)
+def igw_attach(ctx     : typer.Context,
+               igw_id  : str  = typer.Argument(..., help='Internet Gateway ID (igw-*).'),
+               vpc     : str  = typer.Option(..., '--vpc',  help='Target VPC ID (vpc-*).'),
+               as_json : bool = typer.Option(False, '--json', help='Output as JSON.')):
+    """Attach an IGW to a VPC (requires SG_AWS__EC2__ALLOW_MUTATIONS=1)."""
+    client = ctx.obj['ec2_client']
+    client.attach_internet_gateway(igw_id, vpc)
+    if as_json:
+        typer.echo(json.dumps({'ok': True, 'igw_id': igw_id, 'vpc_id': vpc}, indent=2))
+        return
+    console.print(f'[green]Attached[/green] {igw_id} → {vpc}')
+
+
+# ── detach ────────────────────────────────────────────────────────────────────
+
+@app.command('detach')
+@spec_cli_errors
+@require_mutation_gate(_MUTATION_ENV)
+def igw_detach(ctx     : typer.Context,
+               igw_id  : str  = typer.Argument(..., help='Internet Gateway ID (igw-*).'),
+               vpc     : str  = typer.Option(..., '--vpc',  help='Currently-attached VPC ID.'),
+               yes     : bool = typer.Option(False, '--yes',  help='Skip confirmation prompt.'),
+               as_json : bool = typer.Option(False, '--json', help='Output as JSON.')):
+    """Detach an IGW from a VPC (requires SG_AWS__EC2__ALLOW_MUTATIONS=1)."""
+    client = ctx.obj['ec2_client']
+    if not yes and not typer.confirm(f'Detach {igw_id} from {vpc}?', default=False):
+        if as_json:
+            typer.echo(json.dumps({'ok': False, 'aborted': True,
+                                    'igw_id': igw_id, 'vpc_id': vpc}, indent=2))
+        else:
+            console.print('[yellow]Aborted.[/yellow]')
+        raise typer.Exit(0)
+    detached = client.detach_internet_gateway(igw_id, vpc)
+    if as_json:
+        typer.echo(json.dumps({'ok': bool(detached), 'igw_id': igw_id,
+                                'vpc_id': vpc, 'detached': bool(detached)}, indent=2))
+        return
+    if detached:
+        console.print(f'[green]Detached[/green] {igw_id} from {vpc}')
+    else:
+        console.print(f'[yellow]Not detached[/yellow] {igw_id} (already detached?)')
+        raise typer.Exit(1)

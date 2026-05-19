@@ -22,7 +22,8 @@ class _Fake_EC2_Client:                                                        #
                  vpcs_store: dict = None,
                  subnets_store: dict = None,
                  internet_gateways_store: dict = None,
-                 route_tables_store: dict = None):
+                 route_tables_store: dict = None,
+                 counters: dict = None):
         self._store                    = store                                  # instance_id → raw instance dict
         self._images_store             = images_store             if images_store             is not None else {}
         self._snapshots_store          = snapshots_store          if snapshots_store          is not None else {}
@@ -32,6 +33,7 @@ class _Fake_EC2_Client:                                                        #
         self._subnets_store            = subnets_store            if subnets_store            is not None else {}
         self._internet_gateways_store  = internet_gateways_store  if internet_gateways_store  is not None else {}
         self._route_tables_store       = route_tables_store       if route_tables_store       is not None else {}
+        self._counters                 = counters                 if counters                 is not None else {}
 
     # ── paginator ─────────────────────────────────────────────────────────────
 
@@ -436,7 +438,360 @@ class _Fake_EC2_Client:                                                        #
                     rtbs = self._apply_tag_filters(rtbs, [f])
         return {'RouteTables': rtbs}
 
+    # ── mutations: VPC ────────────────────────────────────────────────────────
+
+    def create_vpc(self, CidrBlock='', TagSpecifications=None, **_):
+        vpc_id   = self._next_id('vpc')
+        raw_tags = self._tags_from_specs(TagSpecifications, 'vpc')
+        raw = {
+            'VpcId'           : vpc_id,
+            'CidrBlock'       : CidrBlock,
+            'IsDefault'       : False,
+            'State'           : 'available',
+            'DhcpOptionsId'   : 'dopt-default',
+            'InstanceTenancy' : 'default',
+            'Tags'            : raw_tags,
+        }
+        self._vpcs_store[vpc_id] = raw
+        return {'Vpc': raw}
+
+    def delete_vpc(self, VpcId=''):
+        if VpcId not in self._vpcs_store:
+            raise ClientError(
+                {'Error': {'Code': 'InvalidVpcID.NotFound',
+                            'Message': f'The vpc id {VpcId} does not exist'}},
+                'DeleteVpc')
+        del self._vpcs_store[VpcId]
+        # Cascade: any subnets / IGWs / route tables that pointed here keep
+        # their refs; AWS would have rejected deletion of a non-empty VPC, but
+        # the in-memory fake mirrors the trusting interface so the unit tests
+        # for the *client* can exercise both happy / sad paths independently.
+        for igw in self._internet_gateways_store.values():
+            igw['Attachments'] = [a for a in (igw.get('Attachments') or [])
+                                   if a.get('VpcId') != VpcId]
+        return {}
+
+    def modify_vpc_attribute(self, VpcId='', EnableDnsSupport=None,
+                              EnableDnsHostnames=None, **_):
+        vpc = self._vpcs_store.get(VpcId)
+        if vpc is None:
+            raise ClientError(
+                {'Error': {'Code': 'InvalidVpcID.NotFound',
+                            'Message': f'The vpc id {VpcId} does not exist'}},
+                'ModifyVpcAttribute')
+        if EnableDnsSupport is not None:
+            vpc['EnableDnsSupport']   = bool(EnableDnsSupport.get('Value', False))
+        if EnableDnsHostnames is not None:
+            vpc['EnableDnsHostnames'] = bool(EnableDnsHostnames.get('Value', False))
+        return {}
+
+    # ── mutations: Subnet ─────────────────────────────────────────────────────
+
+    def create_subnet(self, VpcId='', CidrBlock='', AvailabilityZone='',
+                      TagSpecifications=None, **_):
+        if VpcId not in self._vpcs_store:
+            raise ClientError(
+                {'Error': {'Code': 'InvalidVpcID.NotFound',
+                            'Message': f'The vpc id {VpcId} does not exist'}},
+                'CreateSubnet')
+        subnet_id = self._next_id('subnet')
+        raw_tags  = self._tags_from_specs(TagSpecifications, 'subnet')
+        raw = {
+            'SubnetId'                : subnet_id,
+            'VpcId'                   : VpcId,
+            'CidrBlock'               : CidrBlock,
+            'AvailabilityZone'        : AvailabilityZone or 'eu-west-2a',
+            'AvailabilityZoneId'      : '',
+            'AvailableIpAddressCount' : 251,
+            'MapPublicIpOnLaunch'     : False,
+            'State'                   : 'available',
+            'Tags'                    : raw_tags,
+        }
+        self._subnets_store[subnet_id] = raw
+        return {'Subnet': raw}
+
+    def delete_subnet(self, SubnetId=''):
+        if SubnetId not in self._subnets_store:
+            raise ClientError(
+                {'Error': {'Code': 'InvalidSubnetID.NotFound',
+                            'Message': f'The subnet id {SubnetId} does not exist'}},
+                'DeleteSubnet')
+        del self._subnets_store[SubnetId]
+        return {}
+
+    def modify_subnet_attribute(self, SubnetId='', MapPublicIpOnLaunch=None, **_):
+        sub = self._subnets_store.get(SubnetId)
+        if sub is None:
+            raise ClientError(
+                {'Error': {'Code': 'InvalidSubnetID.NotFound',
+                            'Message': f'The subnet id {SubnetId} does not exist'}},
+                'ModifySubnetAttribute')
+        if MapPublicIpOnLaunch is not None:
+            sub['MapPublicIpOnLaunch'] = bool(MapPublicIpOnLaunch.get('Value', False))
+        return {}
+
+    # ── mutations: Internet Gateway ───────────────────────────────────────────
+
+    def create_internet_gateway(self, TagSpecifications=None, **_):
+        igw_id   = self._next_id('igw')
+        raw_tags = self._tags_from_specs(TagSpecifications, 'internet-gateway')
+        raw = {
+            'InternetGatewayId' : igw_id,
+            'Attachments'       : [],
+            'Tags'              : raw_tags,
+        }
+        self._internet_gateways_store[igw_id] = raw
+        return {'InternetGateway': raw}
+
+    def delete_internet_gateway(self, InternetGatewayId=''):
+        if InternetGatewayId not in self._internet_gateways_store:
+            raise ClientError(
+                {'Error': {'Code': 'InvalidInternetGatewayID.NotFound',
+                            'Message': f'The igw id {InternetGatewayId} does not exist'}},
+                'DeleteInternetGateway')
+        del self._internet_gateways_store[InternetGatewayId]
+        return {}
+
+    def attach_internet_gateway(self, InternetGatewayId='', VpcId=''):
+        igw = self._internet_gateways_store.get(InternetGatewayId)
+        if igw is None:
+            raise ClientError(
+                {'Error': {'Code': 'InvalidInternetGatewayID.NotFound',
+                            'Message': f'The igw id {InternetGatewayId} does not exist'}},
+                'AttachInternetGateway')
+        for a in (igw.get('Attachments') or []):
+            if a.get('VpcId') == VpcId:
+                raise ClientError(
+                    {'Error': {'Code': 'Resource.AlreadyAssociated',
+                                'Message': 'already attached'}},
+                    'AttachInternetGateway')
+        igw.setdefault('Attachments', []).append({'VpcId': VpcId, 'State': 'available'})
+        return {}
+
+    def detach_internet_gateway(self, InternetGatewayId='', VpcId=''):
+        igw = self._internet_gateways_store.get(InternetGatewayId)
+        if igw is None:
+            raise ClientError(
+                {'Error': {'Code': 'InvalidInternetGatewayID.NotFound',
+                            'Message': f'The igw id {InternetGatewayId} does not exist'}},
+                'DetachInternetGateway')
+        attached = [a for a in (igw.get('Attachments') or []) if a.get('VpcId') == VpcId]
+        if not attached:
+            raise ClientError(
+                {'Error': {'Code': 'Gateway.NotAttached',
+                            'Message': 'not attached'}},
+                'DetachInternetGateway')
+        igw['Attachments'] = [a for a in (igw.get('Attachments') or [])
+                               if a.get('VpcId') != VpcId]
+        return {}
+
+    # ── mutations: Route Table ────────────────────────────────────────────────
+
+    def create_route_table(self, VpcId='', TagSpecifications=None, **_):
+        if VpcId not in self._vpcs_store:
+            raise ClientError(
+                {'Error': {'Code': 'InvalidVpcID.NotFound',
+                            'Message': f'The vpc id {VpcId} does not exist'}},
+                'CreateRouteTable')
+        rtb_id   = self._next_id('rtb')
+        raw_tags = self._tags_from_specs(TagSpecifications, 'route-table')
+        raw = {
+            'RouteTableId' : rtb_id,
+            'VpcId'        : VpcId,
+            'Routes'       : [],
+            'Associations' : [],
+            'Tags'         : raw_tags,
+        }
+        self._route_tables_store[rtb_id] = raw
+        return {'RouteTable': raw}
+
+    def delete_route_table(self, RouteTableId=''):
+        if RouteTableId not in self._route_tables_store:
+            raise ClientError(
+                {'Error': {'Code': 'InvalidRouteTableID.NotFound',
+                            'Message': f'The route table id {RouteTableId} does not exist'}},
+                'DeleteRouteTable')
+        del self._route_tables_store[RouteTableId]
+        return {}
+
+    def associate_route_table(self, RouteTableId='', SubnetId=''):
+        rtb = self._route_tables_store.get(RouteTableId)
+        if rtb is None:
+            raise ClientError(
+                {'Error': {'Code': 'InvalidRouteTableID.NotFound',
+                            'Message': f'The route table id {RouteTableId} does not exist'}},
+                'AssociateRouteTable')
+        assoc_id = self._next_id('rtbassoc')
+        rtb.setdefault('Associations', []).append({
+            'RouteTableAssociationId': assoc_id,
+            'RouteTableId'           : RouteTableId,
+            'SubnetId'               : SubnetId,
+            'Main'                   : False,
+        })
+        return {'AssociationId': assoc_id}
+
+    def disassociate_route_table(self, AssociationId=''):
+        for rtb in self._route_tables_store.values():
+            assocs = rtb.get('Associations', []) or []
+            kept   = [a for a in assocs
+                      if a.get('RouteTableAssociationId') != AssociationId]
+            if len(kept) != len(assocs):
+                rtb['Associations'] = kept
+                return {}
+        raise ClientError(
+            {'Error': {'Code': 'InvalidAssociationID.NotFound',
+                        'Message': f'The association {AssociationId} does not exist'}},
+            'DisassociateRouteTable')
+
+    def create_route(self, RouteTableId='', DestinationCidrBlock='',
+                     GatewayId='', NatGatewayId='', NetworkInterfaceId='', **_):
+        rtb = self._route_tables_store.get(RouteTableId)
+        if rtb is None:
+            raise ClientError(
+                {'Error': {'Code': 'InvalidRouteTableID.NotFound',
+                            'Message': f'The route table id {RouteTableId} does not exist'}},
+                'CreateRoute')
+        # Build the route row matching the boto3 shape the parser expects
+        row = {'State': 'active', 'Origin': 'CreateRoute',
+               'DestinationCidrBlock': DestinationCidrBlock}
+        if GatewayId:
+            row['GatewayId'] = GatewayId
+        elif NatGatewayId:
+            row['NatGatewayId'] = NatGatewayId
+        elif NetworkInterfaceId:
+            row['NetworkInterfaceId'] = NetworkInterfaceId
+        rtb.setdefault('Routes', []).append(row)
+        return {'Return': True}
+
+    def delete_route(self, RouteTableId='', DestinationCidrBlock=''):
+        rtb = self._route_tables_store.get(RouteTableId)
+        if rtb is None:
+            raise ClientError(
+                {'Error': {'Code': 'InvalidRouteTableID.NotFound',
+                            'Message': f'The route table id {RouteTableId} does not exist'}},
+                'DeleteRoute')
+        routes = rtb.get('Routes', []) or []
+        kept   = [r for r in routes
+                  if r.get('DestinationCidrBlock') != DestinationCidrBlock]
+        if len(kept) == len(routes):
+            raise ClientError(
+                {'Error': {'Code': 'InvalidRoute.NotFound',
+                            'Message': f'No route for {DestinationCidrBlock}'}},
+                'DeleteRoute')
+        rtb['Routes'] = kept
+        return {}
+
+    # ── mutations: Security Group ─────────────────────────────────────────────
+
+    def create_security_group(self, GroupName='', Description='', VpcId='',
+                              TagSpecifications=None, **_):
+        sg_id    = self._next_id('sg')
+        raw_tags = self._tags_from_specs(TagSpecifications, 'security-group')
+        raw = {
+            'GroupId'            : sg_id,
+            'GroupName'          : GroupName,
+            'VpcId'              : VpcId,
+            'Description'        : Description,
+            'OwnerId'            : '123456789012',
+            'IpPermissions'      : [],
+            'IpPermissionsEgress': [],
+            'Tags'               : raw_tags,
+        }
+        self._security_groups_store[sg_id] = raw
+        return {'GroupId': sg_id, 'Tags': raw_tags}
+
+    def authorize_security_group_ingress(self, GroupId='', IpPermissions=None, **_):
+        return self._authorize_sg_perm(GroupId, IpPermissions, key='IpPermissions',
+                                        op='AuthorizeSecurityGroupIngress')
+
+    def authorize_security_group_egress(self, GroupId='', IpPermissions=None, **_):
+        return self._authorize_sg_perm(GroupId, IpPermissions, key='IpPermissionsEgress',
+                                        op='AuthorizeSecurityGroupEgress')
+
+    def revoke_security_group_ingress(self, GroupId='', IpPermissions=None, **_):
+        return self._revoke_sg_perm(GroupId, IpPermissions, key='IpPermissions',
+                                     op='RevokeSecurityGroupIngress')
+
+    def revoke_security_group_egress(self, GroupId='', IpPermissions=None, **_):
+        return self._revoke_sg_perm(GroupId, IpPermissions, key='IpPermissionsEgress',
+                                     op='RevokeSecurityGroupEgress')
+
+    def _authorize_sg_perm(self, sg_id: str, perms: list, key: str, op: str):
+        sg = self._security_groups_store.get(sg_id)
+        if sg is None:
+            raise ClientError(
+                {'Error': {'Code': 'InvalidGroup.NotFound',
+                            'Message': f'The security group {sg_id} does not exist'}},
+                op)
+        existing = sg.get(key, []) or []
+        for new in (perms or []):
+            if self._perm_exists(existing, new):
+                raise ClientError(
+                    {'Error': {'Code': 'InvalidPermission.Duplicate',
+                                'Message': 'rule already exists'}},
+                    op)
+            existing.append(new)
+        sg[key] = existing
+        return {}
+
+    def _revoke_sg_perm(self, sg_id: str, perms: list, key: str, op: str):
+        sg = self._security_groups_store.get(sg_id)
+        if sg is None:
+            raise ClientError(
+                {'Error': {'Code': 'InvalidGroup.NotFound',
+                            'Message': f'The security group {sg_id} does not exist'}},
+                op)
+        existing = sg.get(key, []) or []
+        removed_any = False
+        for new in (perms or []):
+            for i, e in enumerate(list(existing)):
+                if self._perm_matches(e, new):
+                    existing.pop(i)
+                    removed_any = True
+                    break
+        if not removed_any:
+            raise ClientError(
+                {'Error': {'Code': 'InvalidPermission.NotFound',
+                            'Message': 'rule does not exist'}},
+                op)
+        sg[key] = existing
+        return {}
+
+    def _perm_exists(self, existing: list, new: dict) -> bool:
+        for e in existing:
+            if self._perm_matches(e, new):
+                return True
+        return False
+
+    def _perm_matches(self, a: dict, b: dict) -> bool:
+        if a.get('IpProtocol') != b.get('IpProtocol'): return False
+        if a.get('FromPort')   != b.get('FromPort'):   return False
+        if a.get('ToPort')     != b.get('ToPort'):     return False
+        a_cidrs = sorted([r.get('CidrIp', '') for r in (a.get('IpRanges') or [])])
+        b_cidrs = sorted([r.get('CidrIp', '') for r in (b.get('IpRanges') or [])])
+        if a_cidrs != b_cidrs:
+            return False
+        a_sgs = sorted([r.get('GroupId', '') for r in (a.get('UserIdGroupPairs') or [])])
+        b_sgs = sorted([r.get('GroupId', '') for r in (b.get('UserIdGroupPairs') or [])])
+        if a_sgs != b_sgs:
+            return False
+        return True
+
     # ── internal ──────────────────────────────────────────────────────────────
+
+    def _next_id(self, prefix: str) -> str:                                     # Deterministic counters per prefix; tests can assert on the produced IDs
+        n = self._counters.get(prefix, 0) + 1
+        self._counters[prefix] = n
+        return f'{prefix}-{n:08x}'
+
+    def _tags_from_specs(self, specs, resource_type: str) -> list:              # boto3 TagSpecifications → flat [{Key,Value},…]
+        out = []
+        for ts in (specs or []):
+            if ts.get('ResourceType') != resource_type:
+                continue
+            for t in (ts.get('Tags') or []):
+                out.append({'Key': t.get('Key', ''), 'Value': t.get('Value', '')})
+        return out
 
     def _apply_tag_filters(self, resources: list, filters: list) -> list:      # Generic tag:K=V filter — used by vpc/subnet/igw/route-table
         result = resources
@@ -525,6 +880,7 @@ class EC2__AWS__Client__In_Memory(EC2__AWS__Client):
         self._subnets_store            = {}
         self._internet_gateways_store  = {}
         self._route_tables_store       = {}
+        self._counters                 = {}
         self._fake                     = _Fake_EC2_Client(
             self._store,
             images_store             = self._images_store,
@@ -535,6 +891,7 @@ class EC2__AWS__Client__In_Memory(EC2__AWS__Client):
             subnets_store            = self._subnets_store,
             internet_gateways_store  = self._internet_gateways_store,
             route_tables_store       = self._route_tables_store,
+            counters                 = self._counters,
         )
 
     def client(self):

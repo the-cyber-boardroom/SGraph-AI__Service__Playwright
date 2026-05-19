@@ -161,8 +161,8 @@ Tests: `tests/unit/sgraph_ai_service_playwright__cli/aws/ec2/eni/`
 
 ## v0.2.34 additions (VPC stack Slice 1 of 3) — read-only `vpc`, `subnet`, `igw`, `route-table`
 
-Slice 1 — read-only foundation. **Write operations (create/delete) and the
-composite `vpc-stack` provisioning command land in Slices 2 and 3.**
+Slice 1 — read-only foundation. Mutations landed in Slice 2 (below);
+the composite `vpc create-stack` provisioning command lands in Slice 3.
 
 New sub-command trees under `sg aws ec2`:
 
@@ -229,14 +229,78 @@ Total: 112 new tests added.
 
 ---
 
+## v0.2.34 additions (VPC stack Slice 2 of 3) — mutation surface
+
+Slice 2 — create / delete / modify CLI commands and client methods for each
+EC2 networking domain, plus relational operations (IGW attach/detach,
+route-table associate/disassociate, route add/remove). All mutations gated
+behind `SG_AWS__EC2__ALLOW_MUTATIONS=1`. **No composite stack provisioner
+yet — that's Slice 3.**
+
+### CLI surface (new mutations)
+
+| Command | Mutating | Gate |
+|---------|----------|------|
+| `sg aws ec2 vpc create [--cidr 10.0.0.0/16] [--name] [--enable-dns] [--enable-dns-hostnames] [--yes] [--json]` | yes | `SG_AWS__EC2__ALLOW_MUTATIONS=1` |
+| `sg aws ec2 vpc delete <vpc-id> [--yes] [--json]` | yes | same |
+| `sg aws ec2 vpc modify-attr <vpc-id> [--enable-dns/--no-enable-dns] [--enable-dns-hostnames/--no-enable-dns-hostnames] [--json]` | yes | same |
+| `sg aws ec2 subnet create --vpc <vpc-id> --cidr <cidr> [--az] [--name] [--public] [--yes] [--json]` | yes | same |
+| `sg aws ec2 subnet delete <subnet-id> [--yes] [--json]` | yes | same |
+| `sg aws ec2 subnet modify-attr <subnet-id> [--public/--no-public] [--json]` | yes | same |
+| `sg aws ec2 igw create [--name] [--yes] [--json]` | yes | same |
+| `sg aws ec2 igw delete <igw-id> [--yes] [--json]` | yes | same |
+| `sg aws ec2 igw attach <igw-id> --vpc <vpc-id> [--json]` | yes | same |
+| `sg aws ec2 igw detach <igw-id> --vpc <vpc-id> [--yes] [--json]` | yes | same |
+| `sg aws ec2 route-table create --vpc <vpc-id> [--name] [--yes] [--json]` | yes | same |
+| `sg aws ec2 route-table delete <rtb-id> [--yes] [--json]` | yes | same |
+| `sg aws ec2 route-table add-route <rtb-id> --cidr <cidr> [--igw \| --nat \| --eni] [--json]` | yes | same |
+| `sg aws ec2 route-table remove-route <rtb-id> --cidr <cidr> [--yes] [--json]` | yes | same |
+| `sg aws ec2 route-table associate <rtb-id> --subnet <subnet-id> [--json]` | yes | same |
+| `sg aws ec2 route-table disassociate <association-id> [--yes] [--json]` | yes | same |
+| `sg aws ec2 sg create --name --vpc --description [--json]` | yes | same |
+| `sg aws ec2 sg add-ingress <sg-id> --protocol --from --to [--cidr \| --source-sg] [--json]` | yes | same |
+| `sg aws ec2 sg add-egress <sg-id> --protocol --from --to [--cidr \| --source-sg] [--json]` | yes | same |
+| `sg aws ec2 sg remove-ingress <sg-id> --protocol --from --to [--cidr] [--yes] [--json]` | yes | same |
+| `sg aws ec2 sg remove-egress <sg-id> --protocol --from --to [--cidr] [--yes] [--json]` | yes | same |
+
+### Client mutation methods (new on `EC2__AWS__Client`)
+
+- VPC: `create_vpc`, `delete_vpc`, `modify_vpc_attribute`
+- Subnet: `create_subnet`, `delete_subnet`, `modify_subnet_attribute`
+- IGW: `create_internet_gateway`, `delete_internet_gateway`, `attach_internet_gateway`, `detach_internet_gateway`
+- Route Table: `create_route_table`, `delete_route_table`, `associate_route_table`, `disassociate_route_table`, `create_route`, `delete_route`
+- SG: `create_security_group`, `authorize_security_group_ingress` / `authorize_security_group_egress`, `revoke_security_group_ingress` / `revoke_security_group_egress`
+
+All are idempotent-friendly: not-found / already-applied → `False`; ClientError reasons (`InvalidVpcID.NotFound`, `Resource.AlreadyAssociated`, `Gateway.NotAttached`, `InvalidPermission.Duplicate`, `InvalidPermission.NotFound`, etc.) are translated to bool returns rather than raised. `create_route` raises `ValueError` when zero or multiple targets are specified — programmer-bug detection, not an AWS error.
+
+### In-memory client extensions
+
+`EC2__AWS__Client__In_Memory` (the test seam) extended with fake-boto3 methods for every mutation above. IDs are produced from a deterministic per-prefix counter (`vpc-00000001`, `subnet-00000001`, …), enabling stable assertions in tests. Boto3-style `TagSpecifications` are parsed into the same `tags` dict the seed helpers accept.
+
+### Tests added in this slice (Slice 2)
+
+- `tests/unit/sgraph_ai_service_playwright__cli/aws/ec2/vpc/service/test_EC2__AWS__Client__VPC__mutations.py`
+- `tests/unit/sgraph_ai_service_playwright__cli/aws/ec2/vpc/cli/test_Cli__EC2__Vpc__mutations.py`
+- `tests/unit/sgraph_ai_service_playwright__cli/aws/ec2/subnet/service/test_EC2__AWS__Client__Subnet__mutations.py`
+- `tests/unit/sgraph_ai_service_playwright__cli/aws/ec2/subnet/cli/test_Cli__EC2__Subnet__mutations.py`
+- `tests/unit/sgraph_ai_service_playwright__cli/aws/ec2/igw/service/test_EC2__AWS__Client__IGW__mutations.py`
+- `tests/unit/sgraph_ai_service_playwright__cli/aws/ec2/igw/cli/test_Cli__EC2__Igw__mutations.py`
+- `tests/unit/sgraph_ai_service_playwright__cli/aws/ec2/route_table/service/test_EC2__AWS__Client__Route_Table__mutations.py`
+- `tests/unit/sgraph_ai_service_playwright__cli/aws/ec2/route_table/cli/test_Cli__EC2__Route_Table__mutations.py`
+- `tests/unit/sgraph_ai_service_playwright__cli/aws/ec2/sg/service/test_EC2__AWS__Client__SG__mutations.py`
+- `tests/unit/sgraph_ai_service_playwright__cli/aws/ec2/sg/cli/test_Cli__EC2__Sg__slice2.py`
+
+Total: 143 new tests added in Slice 2.
+
+---
+
 ## NOT implemented in this slice
 
 - `EC2__Ami__Resolver` (alias → AMI ID resolution) — `create` currently accepts a raw AMI ID or alias string passed directly to the API
 - Integration tests requiring live AWS credentials (gated on `SG_AWS__EC2__INTEGRATION=1`)
 - `scripts/provision_ec2.py` thin-wrapper refactor (the script was deleted ahead of Slice B per the dev pack note)
 - Promotion of `Elastic__AWS__Client` EC2-shaped helpers (security-group naming) — those remain in `elastic/service/` and will be promoted in v0.2.30
-- **VPC stack Slice 2** — write operations (`vpc create / delete`, `subnet create / delete`, `igw create / attach / detach / delete`, `route-table create / delete / create-route / associate / disassociate`) — PROPOSED, does not exist yet
-- **VPC stack Slice 3** — composite `sg aws ec2 vpc-stack create / delete` orchestration — PROPOSED, does not exist yet
+- **VPC stack Slice 3** — composite `sg aws ec2 vpc create-stack / delete-stack` orchestration and vault-app auto-resolve — PROPOSED, does not exist yet
 
 ---
 
