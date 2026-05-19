@@ -2,6 +2,8 @@
 # SG/Compute Specs — vault-publish: Cli__Vault_Publish
 # Typer app for `sg vp` / `sg vault-publish` commands.
 #   register  : publish a vault-app stack under a slug + FQDN
+#   adopt     : take ownership of an existing EC2 — tag it + create DNS A record
+#               (recovery path for instances created via `sg va create`)
 #   unpublish : remove slug, stack, and DNS record
 #   status    : show EC2 state + FQDN for a slug
 #   list      : list all registered slugs (vault keys redacted)
@@ -40,11 +42,12 @@ def _svc() -> Vault_Publish__Service:
 
 
 @app.command(name='register', help='Publish a vault-app stack at <slug>.aws.sg-labs.app.')
-def register(slug     : str  = typer.Argument(..., help='DNS slug (e.g. sara-cv)'),
-             vault_key: str  = typer.Option(..., '--vault-key', '-k', help='Vault key identifier'),
-             region   : str  = typer.Option(DEFAULT_REGION, '--region', '-r'),
-             wait     : bool = typer.Option(False, '--wait', '-w', help='After register, poll the EC2 until it is RUNNING + reachable. Same shape as `sg vp wake`.'),
-             timeout  : int  = typer.Option(600, '--timeout', '-t', help='Max seconds to wait when --wait is set (covers EC2 launch + vault-app boot + LE cert init).')):
+def register(slug                  : str  = typer.Argument(..., help='DNS slug (e.g. sara-cv)'),
+             vault_key             : str  = typer.Option(..., '--vault-key', '-k', help='Vault key identifier'),
+             region                : str  = typer.Option(DEFAULT_REGION, '--region', '-r'),
+             wait                  : bool = typer.Option(False, '--wait', '-w', help='After register, poll the EC2 until it is RUNNING + reachable. Same shape as `sg vp wake`.'),
+             timeout               : int  = typer.Option(600, '--timeout', '-t', help='Max seconds to wait when --wait is set (covers EC2 launch + vault-app boot + LE cert init).'),
+             force_region_mismatch : bool = typer.Option(False, '--force-region-mismatch', help='Proceed even when --region differs from the waker Lambda\'s deploy region. Routing still works (waker scans multiple regions) but Lambda → EC2 calls cross AZ boundaries — measurably slower.')):
     import os
     from sg_compute_specs.vault_publish.service.Vault_Publish__Service import _default_zone
     c = Console(highlight=False)
@@ -66,11 +69,17 @@ def register(slug     : str  = typer.Argument(..., help='DNS slug (e.g. sara-cv)
 
     if waker_region and waker_region != region:
         c.print()
-        c.print(f'  [yellow]⚠[/]  Region mismatch — waker Lambda runs in [bold]{waker_region}[/], '
-                f'this EC2 will land in [bold]{region}[/].')
-        c.print(f'  [dim]   The waker now scans multiple regions (WAKER_SCAN_REGIONS) so routing[/]')
-        c.print(f'  [dim]   still works, but co-locating reduces cross-region latency. Override with[/]')
-        c.print(f'  [dim]   --region {waker_region} (or set AWS_DEFAULT_REGION={waker_region}).[/]')
+        c.print(f'  [red]✗  Region mismatch[/] — waker Lambda runs in [bold]{waker_region}[/], '
+                f'this EC2 would land in [bold]{region}[/].')
+        if not force_region_mismatch:
+            c.print(f'  [dim]   Routing would still work (waker scans multiple regions) but every[/]')
+            c.print(f'  [dim]   Lambda → EC2 describe_instances / start_instances call would cross[/]')
+            c.print(f'  [dim]   region boundaries (measurably slower).[/]\n')
+            c.print(f'  Either re-run with [cyan]--region {waker_region}[/] '
+                    f'(or [cyan]AWS_DEFAULT_REGION={waker_region}[/]),')
+            c.print(f'  or pass [cyan]--force-region-mismatch[/] to proceed anyway.\n')
+            raise typer.Exit(2)
+        c.print(f'  [yellow]   --force-region-mismatch set — proceeding anyway.[/]')
 
     c.print()
     c.print(f'  [yellow]→[/]  Registering [bold]{slug}[/]…')
@@ -175,6 +184,149 @@ def _run_post_register_wait(c: Console, *, slug: str, region: str, timeout: int)
             c.print(f'  [dim]  {int(elapsed)}s: still waiting… ({last_err})[/]')
         time.sleep(delay)
         delay = min(delay + 1, 6)
+
+
+@app.command(name='adopt', help='Adopt an existing EC2 (created via `sg va create`) into vault-publish: add sg:slug/sg:fqdn/sg:zone tags, create the per-slug Route 53 A record pointing at the EC2 IP, and invalidate the waker cache. Counterpart to register for instances that already exist.')
+def adopt(slug         : str  = typer.Argument(..., help='Slug to adopt (must match the EC2\'s StackName tag, or the existing sg:slug tag).'),
+          zone         : str  = typer.Option('', '--zone', '-z', help='DNS apex (defaults to $SG_AWS__DNS__DEFAULT_ZONE).'),
+          skip_dns     : bool = typer.Option(False, '--skip-dns', help='Tag the EC2 but do NOT create the Route 53 A record.'),
+          skip_cache   : bool = typer.Option(False, '--skip-cache-clear', help='Do not invalidate the live waker cache after tagging.')):
+    import os, boto3
+    c = Console(highlight=False)
+    resolved_zone = zone or os.environ.get('SG_AWS__DNS__DEFAULT_ZONE', 'aws.sg-labs.app')
+    fqdn          = f'{slug}.{resolved_zone}'
+
+    c.print()
+    c.print(f'  [bold]sg vp adopt[/]  slug=[cyan]{slug}[/]  fqdn=[cyan]{fqdn}[/]')
+    c.print(f'  [dim]→ scan regions for an EC2 with tag:sg:slug or tag:StackName = {slug}[/]')
+
+    # 1. Find the EC2 across regions (same multi-region scan the resolver uses)
+    instance, region = _find_existing_ec2(slug)
+    if not instance:
+        c.print(f'\n  [red]✗  no EC2 with sg:slug={slug} OR StackName={slug} '
+                f'(StackType=vault-app) found in any scanned region.[/]')
+        c.print(f'  [dim]   If the instance exists in a region we don\'t scan, set '
+                f'WAKER_SCAN_REGIONS=… and re-run.[/]\n')
+        raise typer.Exit(1)
+
+    iid       = instance.get('InstanceId', '')
+    public_ip = instance.get('PublicIpAddress', '')
+    state     = instance.get('State', {}).get('Name', '')
+    c.print(f'  [green]✓[/]  Found EC2 [bold]{iid}[/] in {region}  '
+            f'(state={state}, public_ip={public_ip or "(none)"})')
+
+    # 2. Tag the instance
+    c.print(f'  [yellow]→[/]  Tagging with sg:slug / sg:fqdn / sg:zone…')
+    try:
+        boto3.client('ec2', region_name=region).create_tags(
+            Resources=[iid],
+            Tags=[
+                {'Key': 'sg:slug', 'Value': slug},
+                {'Key': 'sg:fqdn', 'Value': fqdn},
+                {'Key': 'sg:zone', 'Value': resolved_zone},
+            ],
+        )
+        c.print(f'  [green]✓[/]  Tagged')
+    except Exception as exc:
+        c.print(f'  [red]✗  create_tags failed: {exc}[/]\n')
+        raise typer.Exit(1)
+
+    # 3. Create per-slug Route 53 A record
+    if skip_dns:
+        c.print(f'  [dim]·  Skipping DNS (--skip-dns)[/]')
+    elif not public_ip:
+        c.print(f'  [yellow]⚠[/]  No public IP — skipping DNS (start the instance first)')
+    else:
+        c.print(f'  [yellow]→[/]  Upserting Route 53 A record {fqdn} → {public_ip}…')
+        try:
+            from sg_compute_specs.vault_app.service.Vault_App__Auto_DNS import Vault_App__Auto_DNS
+            result = Vault_App__Auto_DNS().run(
+                fqdn        = fqdn,
+                public_ip   = public_ip,
+                on_progress = lambda stage, detail: c.print(f'  [dim]   {stage}: {detail}[/]'),
+            )
+            ok = bool(getattr(result, 'change_id', '') or getattr(result, 'completed', False))
+            icon = '[green]✓[/]' if ok else '[yellow]⚠[/]'
+            c.print(f'  {icon}  DNS record upserted')
+        except Exception as exc:
+            c.print(f'  [yellow]⚠  DNS upsert failed: {exc}  (proceeding anyway)[/]')
+
+    # 4. Clear the waker's slug cache so the next request picks up the new tags
+    if skip_cache:
+        c.print(f'  [dim]·  Skipping cache-clear (--skip-cache-clear)[/]')
+    else:
+        c.print(f'  [yellow]→[/]  Invalidating waker cache for slug={slug}…')
+        try:
+            _waker_cmd_cache_clear(slug)
+            c.print(f'  [green]✓[/]  Cache cleared')
+        except Exception as exc:
+            c.print(f'  [yellow]⚠  cache-clear via Lambda RPC failed: {exc}'
+                    f'  (the entry will expire naturally within ~60s)[/]')
+
+    c.print()
+    c.print(f'  [green]✓[/]  Adopted [bold]{slug}[/] — try [cyan]https://{fqdn}/[/]\n')
+
+
+def _find_existing_ec2(slug: str):
+    """Scan the same regions the waker resolver scans, looking for an EC2 with
+    sg:slug OR StackName matching the slug. Returns (instance_dict, region) or
+    (None, '')."""
+    import os, boto3
+    raw = os.environ.get('WAKER_SCAN_REGIONS', '')
+    if raw:
+        regions = [r.strip() for r in raw.split(',') if r.strip()]
+    else:
+        seed = (os.environ.get('AWS_REGION', '') or
+                os.environ.get('AWS_DEFAULT_REGION', '') or 'eu-west-2')
+        regions = [seed, 'eu-west-2', 'us-east-1', 'us-west-2', 'eu-west-1']
+    seen = set()
+    regions = [r for r in regions if not (r in seen or seen.add(r))]
+    states = ['running', 'stopped', 'pending', 'stopping']
+    for r in regions:
+        try:
+            ec2 = boto3.client('ec2', region_name=r)
+            for tag_key in ('sg:slug', 'StackName'):
+                resp = ec2.describe_instances(Filters=[
+                    {'Name': f'tag:{tag_key}',         'Values': [slug]},
+                    {'Name': 'tag:StackType',          'Values': ['vault-app']},
+                    {'Name': 'instance-state-name',    'Values': states},
+                ])
+                for res in resp.get('Reservations', []):
+                    for inst in res.get('Instances', []):
+                        return inst, r
+        except Exception:
+            continue
+    return None, ''
+
+
+def _waker_cmd_cache_clear(slug: str):
+    """Call the live Lambda's /__waker__/cmd?name=cache-clear&slug=<slug> via
+    boto3.invoke — no HTTPS / CloudFront propagation involved. Raises on
+    error so the caller can surface it."""
+    import json, uuid, boto3, urllib.parse
+    from datetime import datetime, timezone
+    from sg_compute_specs.vault_publish.setup.service.Setup__Lambda import WAKER_LAMBDA_NAME
+    from sgraph_ai_service_playwright__cli.aws._shared.Aws__Region__Resolver import Aws__Region__Resolver
+    qs = urllib.parse.urlencode([('name', 'cache-clear'), ('slug', slug)])
+    event = {
+        'version'       : '2.0',
+        'rawPath'       : '/__waker__/cmd',
+        'rawQueryString': qs,
+        'headers'       : {'host': 'localhost', 'user-agent': 'sg-vp-adopt/0.1'},
+        'requestContext': {
+            'http'     : {'method': 'GET', 'path': '/__waker__/cmd', 'sourceIp': '127.0.0.1'},
+            'requestId': f'sg-adopt-{uuid.uuid4().hex[:8]}',
+            'time'     : datetime.now(timezone.utc).strftime('%d/%b/%Y:%H:%M:%S +0000'),
+        },
+        'body'           : None,
+        'isBase64Encoded': False,
+    }
+    lam = boto3.client('lambda', region_name=str(Aws__Region__Resolver().resolve()))
+    resp = lam.invoke(FunctionName=WAKER_LAMBDA_NAME, InvocationType='RequestResponse',
+                      Payload=json.dumps(event).encode())
+    payload = json.loads(resp['Payload'].read())
+    if payload.get('statusCode', 0) >= 400:
+        raise RuntimeError(f'cache-clear returned status {payload.get("statusCode")}: {payload.get("body")}')
 
 
 @app.command(name='unpublish', help='Remove a slug, its stack, and its DNS record.')

@@ -153,12 +153,18 @@ def _cmd_cache(args):
     return {'entries': entries, 'count': len(entries), 'ttl_sec': _CACHE_TTL}
 
 
-@cmd('cache-clear', 'Clear the in-process slug cache (forces a fresh scan on next request).', mutates=True)
+@cmd('cache-clear', 'Clear the in-process slug cache. Pass slug=<slug> to clear just one entry; omit to clear all.', mutates=True)
 def _cmd_cache_clear(args):
     from sg_compute_specs.vault_publish.waker.Endpoint__Resolver__EC2 import _SLUG_CACHE
+    slug = args.get('slug', '')
+    if slug:
+        existed = slug in _SLUG_CACHE
+        _SLUG_CACHE.pop(slug, None)
+        return {'cleared': 1 if existed else 0, 'slug': slug,
+                'note': 'entry not in cache' if not existed else 'cleared'}
     n = len(_SLUG_CACHE)
     _SLUG_CACHE.clear()
-    return {'cleared': n}
+    return {'cleared': n, 'scope': 'all'}
 
 
 # ── EC2 lookups ──────────────────────────────────────────────────────────────
@@ -377,7 +383,12 @@ def _cmd_tag_slug(args):
                     {'Key': 'sg:zone', 'Value': zone},
                 ],
             )
-            return {'tagged': iid, 'region': r, 'sg:slug': slug, 'sg:fqdn': fqdn, 'sg:zone': zone}
+            # Invalidate any cached entry for this slug so the next request
+            # re-scans and picks up the new tags immediately.
+            from sg_compute_specs.vault_publish.waker.Endpoint__Resolver__EC2 import _SLUG_CACHE
+            _SLUG_CACHE.pop(slug, None)
+            return {'tagged': iid, 'region': r, 'sg:slug': slug, 'sg:fqdn': fqdn,
+                    'sg:zone': zone, 'cache_invalidated': True}
         except Exception:
             continue
     return {'error': f'instance {iid!r} not found in regions {regions}'}
