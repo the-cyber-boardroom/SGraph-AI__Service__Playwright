@@ -161,17 +161,36 @@ class Lambda__Deployer(Type_Safe):
                     os.makedirs(os.path.dirname(target), exist_ok=True)
                     shutil.copy2(abs_path, target)
 
+            missing_modules = []
             for module_name in extra_modules:
                 try:
                     module = importlib.import_module(module_name)
-                    if hasattr(module, '__path__'):
-                        src  = module.__path__[0]
-                        dest = os.path.join(tmp, os.path.basename(src))
-                        if not os.path.exists(dest):
-                            shutil.copytree(src, dest,
-                                            ignore=shutil.ignore_patterns('__pycache__', '*.pyc'))
                 except ImportError:
-                    pass
+                    # Loud: missing extra_modules cause runtime "ModuleNotFoundError"
+                    # in the Lambda. Surfacing it at build time saves a deploy +
+                    # cold-start cycle (~5 min) of debugging.
+                    missing_modules.append(module_name)
+                    continue
+                if hasattr(module, '__path__'):
+                    # Package — copy the whole directory.
+                    src  = module.__path__[0]
+                    dest = os.path.join(tmp, os.path.basename(src))
+                    if not os.path.exists(dest):
+                        shutil.copytree(src, dest,
+                                        ignore=shutil.ignore_patterns('__pycache__', '*.pyc'))
+                elif hasattr(module, '__file__') and module.__file__:
+                    # Single-file module — copy the .py file. Required for
+                    # things like typing_extensions which are not packages.
+                    src  = module.__file__
+                    dest = os.path.join(tmp, os.path.basename(src))
+                    if not os.path.exists(dest):
+                        shutil.copy2(src, dest)
+            if missing_modules:
+                raise RuntimeError(
+                    f'extra_modules not importable in the build environment: '
+                    f'{missing_modules!r}. Install them via `pip install <module>` '
+                    f'before deploying, OR remove from extra_modules if the import '
+                    f'name is wrong (e.g. python-multipart imports as python_multipart).')
 
             buf = io.BytesIO()
             with zipfile.ZipFile(buf, 'w', zipfile.ZIP_DEFLATED) as zf:

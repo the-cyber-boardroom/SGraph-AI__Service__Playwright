@@ -184,15 +184,24 @@ class Setup__Admin__Lambda(Type_Safe):
             description = f'Vault Publish Admin - {env.get("ADMIN_VERSION", "?")} '
                           f'deployed {env.get("ADMIN_DEPLOYED_AT", "?")}',
         )
-        # Admin Lambda needs fastapi + starlette + anyio for the FastAPI app.
-        # Waker doesn't, so its deploy lists only osbot_utils / osbot_aws.
+        # Admin Lambda needs FastAPI + its transitive deps. Waker doesn't,
+        # so the waker deploy only lists osbot_utils / osbot_aws.
+        #
+        # FastAPI 0.115+ requires `annotated_doc` (separate package from
+        # `annotated_types`); FastAPI 0.136+ confirmed dependency tree via
+        # `pip show fastapi`: annotated-doc, pydantic, starlette,
+        # typing-extensions, typing-inspection. Plus transitive:
+        # anyio (via starlette), idna (via anyio), python-multipart
+        # (Form handling), pydantic-core (pydantic compiled core).
         deploy_resp = self._deployer().deploy_from_folder(
             deploy_req,
             package_root  = package_root,
-            extra_modules = ['osbot_utils', 'osbot_aws', 'fastapi', 'starlette', 'anyio',
-                              'pydantic', 'pydantic_core', 'typing_extensions',
-                              'annotated_types', 'typing_inspection',
-                              'sniffio', 'idna', 'python_multipart'],
+            extra_modules = ['osbot_utils', 'osbot_aws',
+                              'fastapi', 'starlette', 'anyio',
+                              'pydantic', 'pydantic_core',
+                              'typing_extensions', 'typing_inspection',
+                              'annotated_types', 'annotated_doc',
+                              'idna', 'python_multipart'],
             environment   = env,
             progress      = progress,
         )
