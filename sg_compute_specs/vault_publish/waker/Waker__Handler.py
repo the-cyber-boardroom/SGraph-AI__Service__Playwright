@@ -21,6 +21,7 @@
 
 import html
 import json
+import os
 import time
 from datetime import datetime, timezone
 from typing   import Optional, Callable
@@ -214,6 +215,16 @@ def _render_not_found_html(ctx: Schema__Waker__Request_Context,
     def esc(v) -> str:
         return html.escape(str(v)) if v else '<span class="muted">(none)</span>'
 
+    # Reserved slugs (waker, admin, www, api, ...) are control-plane / admin
+    # hosts — they can never have an EC2 backing them and the "register one
+    # with sg vp register …" hint would be actively wrong. Show a tailored
+    # message for those.
+    try:
+        from sg_compute_specs.vault_publish.service.reserved.Reserved__Slugs import RESERVED_SLUGS
+    except Exception:
+        RESERVED_SLUGS = frozenset()
+    is_reserved = bool(ctx.slug) and ctx.slug in RESERVED_SLUGS
+
     if not ctx.slug:
         has_viewer_signal = bool(ctx.vault_viewer_host or ctx.forwarded_host)
         if ctx.origin_host and not has_viewer_signal and '.lambda-url.' in ctx.origin_host:
@@ -229,11 +240,32 @@ def _render_not_found_html(ctx: Schema__Waker__Request_Context,
             reason  = ('The host does not match <code>&lt;slug&gt;.&lt;zone&gt;</code>. '
                        'This is the bare waker landing — there is no specific slug to '
                        'wake. See the diagnostic sections below for the full request.')
+    elif is_reserved:
+        heading = f'Reserved slug: {html.escape(ctx.slug)}'
+        reason  = (f'<code>{html.escape(ctx.slug)}</code> is a reserved name — it cannot be '
+                   f'backed by an EC2 vault. It is held for waker admin / control-plane '
+                   f'surfaces. Use the debug links above to explore the waker control plane '
+                   f'(probe, deploy, health, console).')
     else:
         heading = f'Slug not registered: {html.escape(ctx.slug)}'
         reason  = (f'No vault is registered for slug <code>{html.escape(ctx.slug)}</code>. '
                    f'Register one with <code>sg vp register {html.escape(ctx.slug)} '
                    '--vault-key &lt;key&gt;</code>.')
+
+    # Debug links — same surfaces operators reach via the warming page.
+    # Lambda Function URL preferred for the probe so JS testing matches what
+    # the warming page does (cross-origin from the slug FQDN).
+    lambda_url = os.environ.get('WAKER_LAMBDA_FUNCTION_URL', '').rstrip('/')
+    slug_q     = html.escape(ctx.slug) if ctx.slug else ''
+    debug_link_rows = [
+        ('JSON status probe (cross-origin)',
+         f'{lambda_url}/__waker__/probe?slug={slug_q}' if lambda_url else
+         f'/__waker__/probe?slug={slug_q}'),
+        ('Waker health'         , '/__waker__/health'),
+        ('Deploy metadata'      , '/__waker__/deploy'),
+        ('Debug console'        , '/__waker__/console'),
+        ('Full diagnostic page' , f'/__waker__/status?slug={slug_q}' if slug_q else '/__waker__/status'),
+    ]
 
     now    = datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
     rows_request = [
@@ -262,6 +294,15 @@ def _render_not_found_html(ctx: Schema__Waker__Request_Context,
 
     def render_rows(rows):
         return ''.join(f'<tr><th>{k}</th><td>{v}</td></tr>' for k, v in rows)
+
+    def render_link_rows(rows):
+        # Each row: (label, url). Render label + clickable URL.
+        out = []
+        for label, url in rows:
+            esc_url = html.escape(url)
+            out.append(f'<tr><th>{html.escape(label)}</th>'
+                       f'<td><a href="{esc_url}" target="_blank" rel="noopener">{esc_url}</a></td></tr>')
+        return ''.join(out)
 
     scope_section = ''
     if ctx.asgi_scope:
@@ -313,6 +354,9 @@ def _render_not_found_html(ctx: Schema__Waker__Request_Context,
 <h1>Vault Waker <span class="badge">200 OK</span></h1>
 <p style="color:#555;margin-top:-0.3rem;">{heading}</p>
 <p class="reason">{reason}</p>
+
+<h2>Debug links <span class="muted">(waker control plane)</span></h2>
+<table>{render_link_rows(debug_link_rows)}</table>
 
 <h2>Request</h2>
 <table>{render_rows(rows_request)}</table>
