@@ -110,7 +110,7 @@ def _json_response(payload: dict, status: int = 200) -> dict:
     }
 
 
-def _route_special(path: str) -> dict:
+def _route_special(path: str, qs_args: dict) -> dict:
     if path == '/__waker__/health':
         return _json_response({
             'status'         : 'ok',
@@ -133,6 +133,15 @@ def _route_special(path: str) -> dict:
                 'deploy_info'      : 'deploy_info'       in Schema__Waker__Request_Context.__annotations__,
             },
         })
+    if path == '/__waker__/cmd':
+        if os.environ.get('WAKER_CMD_ENABLED', '1') not in ('1', 'true', 'yes'):
+            return _json_response(
+                {'error': 'WAKER_CMD_ENABLED is not set on this Lambda — debug RPC channel disabled'},
+                status=403,
+            )
+        from sg_compute_specs.vault_publish.waker.Waker__Commands import dispatch
+        cmd_name = qs_args.pop('name', '') if isinstance(qs_args, dict) else ''
+        return _json_response(dispatch(cmd_name, qs_args or {}))
     return None
 
 
@@ -142,11 +151,14 @@ def handler(event, context):                                                    
     headers     = event.get('headers') or {}
     origin_host = _h(headers, 'host', '')
     path        = event.get('rawPath', '/')
+    raw_qs      = event.get('rawQueryString', '') or ''
 
     # Short-circuit reserved diagnostic paths so they don't go through slug
     # resolution. Useful for `setup lambda invoke` and external monitors.
-    if path in ('/__waker__/health', '/__waker__/deploy'):
-        return _route_special(path)
+    if path in ('/__waker__/health', '/__waker__/deploy', '/__waker__/cmd'):
+        import urllib.parse
+        qs_args = dict(urllib.parse.parse_qsl(raw_qs, keep_blank_values=True))
+        return _route_special(path, qs_args)
 
     forwarded_host    = _h(headers, 'x-forwarded-host', '')
     vault_viewer_host = _h(headers, 'x-vault-viewer-host', '')

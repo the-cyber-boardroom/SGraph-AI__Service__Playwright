@@ -24,6 +24,7 @@
 # ═══════════════════════════════════════════════════════════════════════════════
 
 import json
+from typing import List
 
 import typer
 from botocore.exceptions import ClientError
@@ -563,6 +564,31 @@ def lambda_update(
         _do_lambda_invoke(c, path='/__waker__/deploy', host='', method='GET', full=True)
 
 
+@lambda_app.command(name='cmd', help='Invoke a Waker debug RPC command (dev-only). Use `cmd help` to list commands. Args as key=value pairs.')
+def lambda_cmd(
+    name: str = typer.Argument(..., help='Command name (e.g. health, env, find-slug, describe-instance, regions, cache).'),
+    args: List[str] = typer.Argument(None, help='Optional key=value args (e.g. slug=aaaaa iid=i-0123).'),
+    full: bool = typer.Option(True, '--full/--no-full', help='Print full JSON response (default true).'),
+):
+    import urllib.parse
+    c   = Console(highlight=False)
+    svc = _iam()
+    _print_role_notice(c, svc)
+    if not _preflight(c, svc):
+        raise typer.Exit(1)
+    # Build the query string. urlencode handles the escaping (spaces, =, &).
+    qs_pairs = [('name', name)]
+    for kv in (args or []):
+        if '=' not in kv:
+            c.print(f'  [yellow]⚠[/]  ignoring arg {kv!r} — must be key=value')
+            continue
+        k, v = kv.split('=', 1)
+        qs_pairs.append((k, v))
+    qs   = urllib.parse.urlencode(qs_pairs)
+    path = f'/__waker__/cmd?{qs}'
+    _do_lambda_invoke(c, path=path, host='', method='GET', full=full)
+
+
 @lambda_app.command(name='invoke', help='Invoke the deployed waker Lambda with a synthetic event and print the JSON response. Defaults to /__waker__/deploy so you immediately see which version is live.')
 def lambda_invoke(
     path  : str = typer.Option('/__waker__/deploy', '--path', '-p', help='Request path on the Lambda'),
@@ -596,14 +622,22 @@ def _do_lambda_invoke(c: Console, *, path: str, host: str, method: str, full: bo
         except Exception:
             host = WAKER_LAMBDA_NAME
 
+    # Split path into rawPath + rawQueryString so the Lambda event mirrors
+    # what AWS Function URLs actually send (and so command args land in the
+    # right field for /__waker__/cmd query parsing).
+    if '?' in path:
+        raw_path, raw_qs = path.split('?', 1)
+    else:
+        raw_path, raw_qs = path, ''
+
     now   = datetime.now(timezone.utc)
     event = {
         'version'       : '2.0',
-        'rawPath'       : path,
-        'rawQueryString': '',
+        'rawPath'       : raw_path,
+        'rawQueryString': raw_qs,
         'headers'       : {'host': host, 'user-agent': 'sg-vp-setup-lambda-invoke/0.1'},
         'requestContext': {
-            'http'     : {'method': method, 'path': path, 'sourceIp': '127.0.0.1'},
+            'http'     : {'method': method, 'path': raw_path, 'sourceIp': '127.0.0.1'},
             'requestId': f'sg-invoke-{uuid.uuid4().hex[:8]}',
             'time'     : now.strftime('%d/%b/%Y:%H:%M:%S +0000'),
         },
