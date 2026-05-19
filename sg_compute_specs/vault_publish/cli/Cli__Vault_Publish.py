@@ -100,7 +100,7 @@ def register(slug                  : str  = typer.Argument(..., help='DNS slug (
 
     if wait:
         c.print(f'  [yellow]→[/]  Waiting (up to {timeout}s) for EC2 to be RUNNING + reachable…')
-        _run_post_register_wait(c, slug=slug, region=region, timeout=timeout)
+        _run_post_register_wait(c, slug=slug, region=region, timeout=timeout, fqdn=resp.fqdn)
 
 
 def _detect_waker_region() -> str:
@@ -123,10 +123,14 @@ def _detect_waker_region() -> str:
     return ''
 
 
-def _run_post_register_wait(c: Console, *, slug: str, region: str, timeout: int) -> None:
+def _run_post_register_wait(c: Console, *, slug: str, region: str, timeout: int, fqdn: str = '') -> None:
     """Poll the just-created EC2 until it is RUNNING and the vault-app HTTP
     listener responds. Mirrors `sg vp wake` but skips start_instances since
-    we just created the instance and it's already pending → running."""
+    we just created the instance and it's already pending → running.
+
+    After the in-VPC HTTP probe succeeds, also do an external HTTPS probe of
+    https://{fqdn}/ and (when that fails with a cert error) auto-trigger
+    `cert-renew --mode letsencrypt-hostname --hostname={fqdn}` to recover."""
     from sg_compute_specs.vault_publish.service.Slug__Registry              import Slug__Registry
     from sg_compute_specs.vault_publish.waker.Endpoint__Resolver__EC2       import Endpoint__Resolver__EC2
     from sg_compute_specs.vault_publish.waker.schemas.Enum__Instance__State import Enum__Instance__State
@@ -175,8 +179,8 @@ def _run_post_register_wait(c: Console, *, slug: str, region: str, timeout: int)
             ms   = int((time.time() - p0) * 1000)
             if resp.status < 500:
                 total = int((time.time() - t_start) * 1000)
-                c.print(f'  [green]✓[/]  HTTP {resp.status} in {ms}ms  [dim](after {attempts} attempts, {total}ms total)[/]\n')
-                return
+                c.print(f'  [green]✓[/]  HTTP {resp.status} in {ms}ms  [dim](after {attempts} attempts, {total}ms total)[/]')
+                break
             last_err = f'HTTP {resp.status}'
         except Exception as exc:
             last_err = str(exc).splitlines()[0][:120]
@@ -184,6 +188,76 @@ def _run_post_register_wait(c: Console, *, slug: str, region: str, timeout: int)
             c.print(f'  [dim]  {int(elapsed)}s: still waiting… ({last_err})[/]')
         time.sleep(delay)
         delay = min(delay + 1, 6)
+    else:
+        return
+
+    # Phase 3 — external HTTPS probe of the FQDN to confirm the cert was issued
+    # for the hostname (not the IP). For .app TLDs the browser refuses any
+    # cert mismatch (HSTS preload), so we must validate hostname matching here.
+    if not fqdn:
+        c.print()
+        return
+    https_url = f'https://{fqdn}/'
+    c.print(f'  [yellow]→[/]  Probing {https_url} (with cert validation) to confirm LE issued '
+            f'a hostname-bound cert…')
+    cert_ok, detail = _probe_https_with_cert(https_url)
+    if cert_ok:
+        c.print(f'  [green]✓[/]  HTTPS handshake passed — cert is valid for {fqdn}\n')
+        return
+    c.print(f'  [yellow]⚠[/]  {detail}')
+    c.print(f'  [yellow]→[/]  Auto-running `sg va cert-renew {slug} --mode letsencrypt-hostname '
+            f'--hostname {fqdn}` to fix it…')
+    try:
+        from sg_compute_specs.vault_app.service.Vault_App__Service import Vault_App__Service
+        from sg_compute_specs.vault_publish.service.Slug__Registry import Slug__Registry
+        svc = Vault_App__Service().setup()
+        # Resolve via registry (already cached from phase 1)
+        entry = Slug__Registry(region=region).get(slug, region)
+        stack_name = str(entry.stack_name) if entry else slug
+        # Detect engine from the live tags
+        import boto3
+        ec2 = boto3.client('ec2', region_name=region)
+        info = ec2.describe_instances(Filters=[
+            {'Name': f'tag:StackName', 'Values': [stack_name]},
+            {'Name': 'tag:StackType',   'Values': ['vault-app']},
+        ])
+        engine = 'docker'
+        for res in info.get('Reservations', []):
+            for inst in res.get('Instances', []):
+                for t in inst.get('Tags', []):
+                    if t.get('Key') == 'StackEngine':
+                        engine = (t.get('Value') or 'docker').lower()
+        compose = 'podman-compose' if engine == 'podman' else 'docker compose'
+        ssm = (
+            f'set -e; '
+            f'ENV=/opt/vault-app/.env; touch "$ENV"; '
+            f'update_kv(){{ if grep -q "^$1=" "$ENV" 2>/dev/null; then '
+            f'  sed -i "s|^$1=.*|$1=$2|" "$ENV"; else echo "$1=$2" >> "$ENV"; fi; }}; '
+            f'update_kv SG__CERT_INIT__MODE letsencrypt-hostname; '
+            f'update_kv SG__CERT_INIT__TLS_HOSTNAME {fqdn}; '
+            f'cd /opt/vault-app && {compose} restart cert-init 2>&1 | tail -20'
+        )
+        svc.exec(region, stack_name, ssm, timeout_sec=60)
+        c.print(f'  [green]✓[/]  cert-renew triggered — re-probe in ~60s with '
+                f'`sg vp eval {slug}`\n')
+    except Exception as exc:
+        c.print(f'  [red]✗  cert-renew failed: {exc}[/]')
+        c.print(f'  [dim]   run manually: sg va cert-renew {slug} '
+                f'--mode letsencrypt-hostname --hostname {fqdn}[/]\n')
+
+
+def _probe_https_with_cert(url: str) -> tuple:
+    """HTTPS GET that verifies the server cert against the URL's hostname.
+    Returns (ok, human_readable_detail)."""
+    try:
+        import urllib3
+        pm = urllib3.PoolManager(cert_reqs='CERT_REQUIRED',
+                                 timeout=urllib3.Timeout(connect=3, read=5))
+        resp = pm.request('GET', url, preload_content=False, retries=False)
+        return True, f'HTTP {resp.status}'
+    except Exception as exc:
+        msg = str(exc).splitlines()[0][:200]
+        return False, f'cert validation failed: {msg}'
 
 
 @app.command(name='adopt', help='Adopt an existing EC2 (created via `sg va create`) into vault-publish: add sg:slug/sg:fqdn/sg:zone tags, create the per-slug Route 53 A record pointing at the EC2 IP, trigger LE cert renewal, and invalidate the waker cache. Counterpart to register for instances that already exist.')
@@ -275,7 +349,20 @@ def adopt(slug         : str  = typer.Argument(..., help='Slug to adopt (must ma
             svc = Vault_App__Service().setup()
             engine = (tags.get('StackEngine', '') or 'docker').lower()
             compose = 'podman-compose' if engine == 'podman' else 'docker compose'
-            ssm = f'cd /opt/vault-app && {compose} restart cert-init 2>&1 | tail -20'
+            # Always force letsencrypt-hostname mode targeting this slug's FQDN —
+            # the EC2 may have been originally provisioned with letsencrypt-ip
+            # (the default for plain `sg va create`), which issues a cert for
+            # the IP, not the hostname. .app TLDs are HSTS-preloaded so the
+            # browser refuses the IP-CN cert.
+            ssm = (
+                f'set -e; '
+                f'ENV=/opt/vault-app/.env; touch "$ENV"; '
+                f'update_kv(){{ if grep -q "^$1=" "$ENV" 2>/dev/null; then '
+                f'  sed -i "s|^$1=.*|$1=$2|" "$ENV"; else echo "$1=$2" >> "$ENV"; fi; }}; '
+                f'update_kv SG__CERT_INIT__MODE letsencrypt-hostname; '
+                f'update_kv SG__CERT_INIT__TLS_HOSTNAME {fqdn}; '
+                f'cd /opt/vault-app && {compose} restart cert-init 2>&1 | tail -20'
+            )
             svc.exec(region, stack_name, ssm, timeout_sec=60)
             # Poll for success
             import time as _t
@@ -291,7 +378,7 @@ def adopt(slug         : str  = typer.Argument(..., help='Slug to adopt (must ma
                             f'(last status: {last_status!r}) — inspect with '
                             f'`sg va logs {stack_name} --source cert-init`[/]')
                     break
-                r = svc.exec(region, stack_name, ps_cmd, timeout_sec=15)
+                r = svc.exec(region, stack_name, ps_cmd, timeout_sec=30)            # SSM SendCommand minimum is 30s
                 status = str(getattr(r, 'stdout', '') or '').strip().splitlines()
                 status = status[0] if status else ''
                 if status != last_status:
