@@ -61,8 +61,15 @@ def _get_logs_client(ctx: typer.Context):
 
 
 def _get_ec2_client(ctx: typer.Context):
-    obj = ctx.obj or {}
-    return obj.get('ec2_client')                                                  # None = no ENI resolution in tests
+    obj    = ctx.obj or {}
+    client = obj.get('ec2_client')
+    if client is not None:
+        return client
+    try:
+        from sgraph_ai_service_playwright__cli.aws.ec2.service.EC2__AWS__Client import EC2__AWS__Client
+        return EC2__AWS__Client()
+    except Exception:                                                              # noqa: BLE001 — ENI resolution is best-effort
+        return None
 
 
 def _resolve_cluster(fargate_client, cluster_flag: str) -> str:
@@ -195,6 +202,7 @@ def fargate_start(ctx          : typer.Context,
                   launch_type  : str  = typer.Option('FARGATE', '--launch-type',     help='FARGATE or FARGATE_SPOT.'),
                   seed_vault_keys: str = typer.Option('',       '--seed-vault-keys', help='Comma-separated vault keys to seed.'),
                   access_token : str  = typer.Option('',        '--access-token',    help='Vault access token.'),
+                  tls          : bool = typer.Option(False,     '--tls/--no-tls',    help='Enable TLS (port 443); omit for direct-IP HTTP (port 8080, default).'),
                   public_ip    : bool = typer.Option(True,      '--public-ip/--no-public-ip', help='Assign public IP.'),
                   time_        : bool = typer.Option(False,     '--time',            help='Print phase timings table.'),
                   as_json      : bool = typer.Option(False,     '--json',            help='Machine-readable output.'),
@@ -213,6 +221,7 @@ def fargate_start(ctx          : typer.Context,
         slug            = slug,
         access_token    = access_token,
         seed_vault_keys = seed_vault_keys,
+        with_tls        = tls,
         public_ip       = public_ip,
         launch_type     = launch_type,
         cpu             = cpu,
