@@ -32,6 +32,7 @@ class Vault_App__Fargate__Image__Mirror(Type_Safe):
     registry   : str    = ''                                                      # e.g. '123.dkr.ecr.eu-west-2.amazonaws.com'; required for ecr login
     ecr_client : object = None                                                    # if set, used for idempotency check (describe_image latest)
     force      : bool   = False                                                   # bypass idempotency check, always re-push
+    platform   : str    = 'linux/amd64'                                           # docker --platform; Fargate task-def runtimePlatform defaults to X86_64
 
     # ── public entry point ────────────────────────────────────────────────────
 
@@ -46,7 +47,11 @@ class Vault_App__Fargate__Image__Mirror(Type_Safe):
                 return {'ok': False, 'sha': '', 'steps': steps, 'skipped': False}
 
         # ── step 1: docker pull source ────────────────────────────────────────
-        if not self._step(steps, 'pull', ['docker', 'pull', source_image]):
+        pull_cmd = ['docker', 'pull']
+        if self.platform:                                                          # pin arch to avoid pulling Mac-native ARM64 → push to ECR → x86_64 Fargate exec-format-error
+            pull_cmd += ['--platform', self.platform]
+        pull_cmd.append(source_image)
+        if not self._step(steps, 'pull', pull_cmd):
             return {'ok': False, 'sha': '', 'steps': steps, 'skipped': False}
 
         # ── step 1.5: idempotency check ───────────────────────────────────────
@@ -86,9 +91,11 @@ class Vault_App__Fargate__Image__Mirror(Type_Safe):
         # Compare local source's config digest vs what ECR has by pulling the
         # ECR tag locally — if all layers are already present (we just pulled
         # source), this is near-instant. Then compare image .Id (config digest).
-        rc, ecr_local_id, _ = self._run_capture(
-            ['docker', 'pull', ecr_tagged]
-        )
+        ecr_pull_cmd = ['docker', 'pull']
+        if self.platform:
+            ecr_pull_cmd += ['--platform', self.platform]
+        ecr_pull_cmd.append(ecr_tagged)
+        rc, ecr_local_id, _ = self._run_capture(ecr_pull_cmd)
         if rc != 0:                                                                # ECR pull failed (auth/network) — fall through to push
             return False
 
