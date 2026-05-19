@@ -105,6 +105,17 @@ def register(slug                  : str  = typer.Argument(..., help='DNS slug (
     c.print(f'      Viewer URL: [link={viewer_url}]{viewer_url}[/link]  [dim](via CloudFront wildcard)[/]')
     c.print()
 
+    # Per-slug A record (matches `sg va create --with-aws-dns`). Skipped in
+    # --no-tls mode: a per-slug record pointing at the EC2 IP would override
+    # the CF wildcard and break HTTPS-to-viewers (no cert on the EC2). With
+    # TLS on, the LE HTTP-01 challenge needs the FQDN→EC2 mapping anyway,
+    # and the wildcard remains as a propagation bridge until the specific
+    # record converges.
+    if not no_tls:
+        c.print(f'  [yellow]→[/]  Upserting per-slug DNS A record (matches `sg va create --with-aws-dns`)…')
+        _run_auto_dns(c, region=region, slug=slug, fqdn=str(resp.fqdn))
+        c.print()
+
     if wait:
         c.print(f'  [yellow]→[/]  Waiting (up to {timeout}s) for EC2 to be RUNNING + reachable…')
         _run_post_register_wait(c, slug=slug, region=region, timeout=timeout,
@@ -129,6 +140,43 @@ def _detect_waker_region() -> str:
     except Exception:
         pass
     return ''
+
+
+def _run_auto_dns(c: Console, *, region: str, slug: str, fqdn: str,
+                  ip_wait_timeout: int = 60) -> bool:
+    # Mirrors `sg va create --with-aws-dns`'s post-launch worker: poll the
+    # fresh EC2 for its public IP (allocated ~5-10s after run_instance),
+    # then upsert the per-slug A record + wait INSYNC + run an authoritative
+    # cross-NS check. Synchronous — total budget ~30-40s typical, 120s ceiling.
+    from sg_compute_specs.vault_app.service.Vault_App__Service  import Vault_App__Service
+    from sg_compute_specs.vault_app.service.Vault_App__Auto_DNS import Vault_App__Auto_DNS
+
+    vault_app = Vault_App__Service().setup()
+    deadline  = time.time() + ip_wait_timeout
+    public_ip = ''
+    while time.time() < deadline:
+        info = vault_app.get_stack_info(region, slug)
+        ip   = str(getattr(info, 'public_ip', '') or '') if info is not None else ''
+        if ip:
+            public_ip = ip
+            break
+        time.sleep(2)
+    if not public_ip:
+        c.print(f'  [yellow]⚠[/]  auto-dns: gave up waiting for public IP after {ip_wait_timeout}s — '
+                f'skipping Route 53 work')
+        c.print(f'  [dim]   add manually: sg aws dns records add --name {fqdn} --type A --value <ip>[/]')
+        return False
+
+    def _progress(stage, detail):
+        c.print(f'  [dim]   auto-dns: {stage}  {detail}[/]')
+    result = Vault_App__Auto_DNS().run(fqdn=fqdn, public_ip=public_ip, on_progress=_progress)
+    if result.error:
+        c.print(f'  [red]✗[/]  auto-dns failed: {result.error}')
+        c.print(f'  [dim]   add manually: sg aws dns records add --name {fqdn} --type A --value {public_ip}[/]')
+        return False
+    c.print(f'  [green]✓[/]  auto-dns: {fqdn} → {public_ip}  '
+            f'(INSYNC + authoritative, {result.elapsed_ms}ms)')
+    return True
 
 
 def _run_post_register_wait(c: Console, *, slug: str, region: str, timeout: int,
@@ -786,29 +834,34 @@ def eval_(slug    : str  = typer.Argument(..., help='Slug to evaluate'),
         _step(c, 3, 'direct IP reachable', False, 'skipped — instance not RUNNING with public IP')
         failures += 1
 
-    # 4 — Per-slug Route 53 A record (set by Vault_App__Auto_DNS on register)
-    r53_per_slug_ok = False
-    try:
-        from sgraph_ai_service_playwright__cli.aws.dns.service.Route53__AWS__Client    import Route53__AWS__Client
-        from sgraph_ai_service_playwright__cli.aws.dns.enums.Enum__Route53__Record_Type import Enum__Route53__Record_Type
-        r53      = Route53__AWS__Client()
-        zone_obj = r53.find_hosted_zone_by_name(resolved_zone)
-        if zone_obj:
-            rec = r53.get_record(str(zone_obj.zone_id), fqdn, Enum__Route53__Record_Type.A)
-            if rec:
-                vals = ', '.join(list(rec.values)) if rec.values else (rec.alias_target or '(alias)')
-                _step(c, 4, 'per-slug DNS record', True, f'A {fqdn} → {vals}')
-                r53_per_slug_ok = True
+    # 4 — Per-slug Route 53 A record (set by Vault_App__Auto_DNS on register).
+    # Only created when TLS is on — in --no-tls mode the wildcard catches the
+    # FQDN and a specific A record would override CF and break HTTPS-to-viewers.
+    instance_tls = _instance_has_tls_tag(resolution.instance_id, resolution.region)
+    if not instance_tls:
+        _step(c, 4, 'per-slug DNS record', True,
+              f'skipped — StackTLS=false (record would override CF wildcard)')
+    else:
+        try:
+            from sgraph_ai_service_playwright__cli.aws.dns.service.Route53__AWS__Client    import Route53__AWS__Client
+            from sgraph_ai_service_playwright__cli.aws.dns.enums.Enum__Route53__Record_Type import Enum__Route53__Record_Type
+            r53      = Route53__AWS__Client()
+            zone_obj = r53.find_hosted_zone_by_name(resolved_zone)
+            if zone_obj:
+                rec = r53.get_record(str(zone_obj.zone_id), fqdn, Enum__Route53__Record_Type.A)
+                if rec:
+                    vals = ', '.join(list(rec.values)) if rec.values else (rec.alias_target or '(alias)')
+                    _step(c, 4, 'per-slug DNS record', True, f'A {fqdn} → {vals}')
+                else:
+                    _step(c, 4, 'per-slug DNS record', False,
+                          f'no A record for {fqdn} — register may not have run with TLS, or DNS was deleted')
+                    failures += 1
             else:
-                _step(c, 4, 'per-slug DNS record', False,
-                      f'no A record for {fqdn} — register may not have run with TLS, or DNS was deleted')
+                _step(c, 4, 'per-slug DNS record', False, f'hosted zone {resolved_zone!r} not found')
                 failures += 1
-        else:
-            _step(c, 4, 'per-slug DNS record', False, f'hosted zone {resolved_zone!r} not found')
+        except Exception as exc:
+            _step(c, 4, 'per-slug DNS record', False, f'Route 53 lookup failed: {exc}')
             failures += 1
-    except Exception as exc:
-        _step(c, 4, 'per-slug DNS record', False, f'Route 53 lookup failed: {exc}')
-        failures += 1
 
     # 5 — Public DNS resolution
     try:
@@ -844,6 +897,26 @@ def eval_(slug    : str  = typer.Argument(..., help='Slug to evaluate'),
         c.print(f'  [red]✗  {failures} step(s) failed[/]\n')
         raise typer.Exit(1)
     c.print(f'  [green]✓  all {7} steps passed[/]\n')
+
+
+def _instance_has_tls_tag(instance_id: str, region: str) -> bool:
+    # Best-effort StackTLS read. Returns True only when the tag is unambiguously
+    # 'true' — any failure / missing tag / 'false' value yields False so eval
+    # treats no-TLS instances as the "wildcard-only" routing case.
+    if not instance_id or not region:
+        return False
+    try:
+        import boto3
+        ec2 = boto3.client('ec2', region_name=region)
+        resp = ec2.describe_instances(InstanceIds=[instance_id])
+        for res in resp.get('Reservations', []):
+            for inst in res.get('Instances', []):
+                for t in inst.get('Tags', []) or []:
+                    if t.get('Key') == 'StackTLS':
+                        return str(t.get('Value', '')).lower() in ('true', '1', 'yes')
+    except Exception:
+        return False
+    return False
 
 
 def _step(c: Console, n: int, label: str, ok: bool, detail: str = '') -> None:
