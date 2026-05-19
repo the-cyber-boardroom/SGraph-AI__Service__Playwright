@@ -2,8 +2,15 @@
 title: vp-admin Lambda split — separate CF distribution, own ACM cert, own Lambda
 date: 2026-05-19
 authors: [vault-publish team]
-status: approved / ready to implement
-target_version: v0.1.16
+status: implemented
+target_version: v0.1.16  (sg_compute_specs/vault_publish/version bumped from v0.1.14 → v0.1.15)
+implementation_commits:
+  - Phase 1a  — move waker + admin under lambdas/
+  - Phase 1b  — admin lambda_entry + Lambda_To_ASGI relocated
+  - Phase 2-3 — Setup__Admin__IAM + Setup__Admin__Lambda + Admin__Policy__Template
+  - Phase 4-5 — Setup__Admin__CF (with cert+wildcard guard) + Setup__Admin__DNS + CLI wiring
+  - Phase 6-7 — warming page → vp-admin host, waker dead-code cleanup
+  - Phase 8   — top-level sg vp setup commands include admin pieces (ordering: admin BEFORE waker)
 companion:
   - team/comms/plans/v0.1.15__vault-admin-ui/README.md  (Phase 1-4 admin UI work — superseded by this plan's structural change)
   - library/docs/research/v0.1.14__http2-connection-coalescing.md  (the underlying constraint)
