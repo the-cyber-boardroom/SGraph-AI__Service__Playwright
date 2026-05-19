@@ -205,14 +205,22 @@ Thin CLI wrapping slice 5: `start`, `stop`, `restart`, `health`, `url`,
 
 ~300 LOC of markdown, no tests.
 
-### Slice 8 (P2, post-V1) — Secrets Manager + EFS
+### Slice 8 (P2, post-V1) — EFS only
 
-DROPPED FROM V1 per Q1. Will revisit when we host vault secrets in one of
-our own vaults (the eventual replacement for AWS Secrets Manager in this
-stack). At that point this slice becomes a different shape (not
-"integrate AWS Secrets Manager" but "fetch from peer vault at start").
+AWS Secrets Manager is permanently out of scope (Q1 update). When secrets
+need to leave plaintext `--env`, the path is "fetch from a peer vault at
+container start" — a separate plan, not this one.
 
-~3000 LOC original estimate becomes obsolete.
+What remains for an eventual slice 8:
+
+- `sg aws efs` sub-package (C1 in extensions)
+- `--efs-volume` flag on `task-def register` (A5 in extensions)
+- `vault-app fargate setup efs` phase (idempotent fs + mount target)
+- `start --storage-mode disk` actually mounts EFS
+
+Lands when persistent vault state on Fargate becomes a real requirement.
+Roughly ~1500 LOC / 2 dev-days (vs the ~3000 LOC original estimate that
+bundled Secrets in).
 
 ---
 

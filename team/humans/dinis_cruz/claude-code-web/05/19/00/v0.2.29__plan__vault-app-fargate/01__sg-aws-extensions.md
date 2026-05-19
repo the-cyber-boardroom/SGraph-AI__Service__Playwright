@@ -57,18 +57,12 @@ task to assume a role with S3 access.
 
 Add: `--task-role-arn arn:...`. Optional.
 
-### A4. `task-def register --secret name=arn` (P1)
+### A4. ~~`task-def register --secret name=arn`~~ **DROPPED**
 
-Current state: env vars are passed plaintext via `--env`. The access token is
-sensitive — it should live in Secrets Manager and be injected via
-`containerDefinitions[0].secrets[]`.
-
-Add: `--secret SGRAPH_SEND__ACCESS_TOKEN=arn:aws:secretsmanager:...`
-(repeatable). Requires the execution role to have
-`secretsmanager:GetSecretValue` on the referenced ARN.
-
-P1 because we can ship V1 with the token in `--env` (matches `sg vault-app`
-current behaviour, which puts it in cloud-init), then upgrade.
+Per user decision: we will not use AWS Secrets Manager at all. The
+eventual plan is to host secrets in one of our own vaults, fetched at
+container start. Access tokens stay in `--env` until the in-vault fetch
+path lands. There is no AWS Secrets Manager integration in this plan.
 
 ### A5. `task-def register --efs-volume` (P1)
 
@@ -176,29 +170,20 @@ Schemas: `Schema__EFS__File_System`, `Schema__EFS__Mount_Target`. Same shape
 as ECR / EC2 ami / sg sub-packages. **Skip in v1 of vault-app fargate** —
 ship with ephemeral storage, add EFS support as the storage-mode upgrade.
 
-### C2. `sg aws elbv2` (P2 — only when we want ALB-fronted vault)
+### ~~C2. `sg aws elbv2`~~ **DROPPED**
 
-```
-sg aws elbv2 lb list / show / create / delete
-sg aws elbv2 target-group list / show / create / delete
-sg aws elbv2 listener list / show / create / delete
-sg aws elbv2 target register / deregister
-```
+Per user decision: we may not need ALB at all — alternative ingress
+patterns are being explored. The proposal is removed from this plan;
+add it back as a fresh proposal if/when an ALB-shaped requirement
+actually materialises. V1 + foreseeable future use the per-task public
+IP + Route 53 A-record upsert pattern from `sg vault-app` today.
 
-Needed only if we move beyond per-session public-IP dev stacks. **Skip in
-v1.** For dev, use `--assign-public-ip` and Route 53 A-record upsert.
+### ~~C3. `sg aws secrets`~~ **DROPPED**
 
-### C3. `sg aws secrets` (P1 — pairs with A4)
-
-```
-sg aws secrets list                                              [--json]
-sg aws secrets show <arn-or-name>                                [--json]
-sg aws secrets create <name> --value V                           [SG_AWS__SECRETS__ALLOW_MUTATIONS]
-sg aws secrets put <name> --value V                              [SG_AWS__SECRETS__ALLOW_MUTATIONS]
-sg aws secrets delete <name>                                     [SG_AWS__SECRETS__ALLOW_MUTATIONS]
-```
-
-P1: pair with A4. Skip for v1.
+Per user decision: we will not use AWS Secrets Manager at all. The
+project will host secrets in its own vaults; building a wrapper around a
+service we'll never use is dead work. No `sg aws secrets` sub-package
+will be created.
 
 ## D. Cross-cutting: `sg aws ec2 eni` sub-app (P1)
 
@@ -227,10 +212,10 @@ vault-app fargate slice 1**.
 | **P1** | A3 `--task-role-arn` | 1 flag + tests |
 | **P1** | A6 `--log-group` | 1 flag + tests |
 | **P1** | A8 `task run --tag` | 1 flag + tests |
-| **P1** | A4 `--secret` + C3 `sg aws secrets` | 1 flag + new sub-app |
+| ~~P1~~ | ~~A4 `--secret` + C3 `sg aws secrets`~~ | **DROPPED — no AWS Secrets Manager, ever** |
 | **P1** | A5 `--efs-volume` + C1 `sg aws efs` | 1 flag + new sub-app |
 | **P2** | A10 `sg aws fargate service` | new commands |
-| **P2** | C2 `sg aws elbv2` | new sub-app |
+| ~~P2~~ | ~~C2 `sg aws elbv2`~~ | **DROPPED — alternative ingress patterns being explored** |
 
 **P0 alone is ~3–4 slices of work.** That's the gate before any
 `vault-app fargate setup all` invocation can succeed end-to-end. Everything

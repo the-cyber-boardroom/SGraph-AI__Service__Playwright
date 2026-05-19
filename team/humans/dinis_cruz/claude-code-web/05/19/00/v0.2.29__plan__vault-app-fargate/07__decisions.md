@@ -17,15 +17,20 @@ they conflict with `02__cli-design.md` or `03__orchestrator-design.md` the
 decision here wins. Affected paragraphs in those docs have been edited
 in-place; this doc is the canonical answer log.
 
-## Q1 — Scope of V1 → **env-only access token, no Secrets Manager, no EFS**
+## Q1 — Scope of V1 → **env-only access token, no AWS Secrets Manager ever, no EFS in V1**
 
 Rationale (your words): the eventual plan is to use one of our own vaults
-to host these secrets. Building a Secrets Manager integration now is work
-we'd throw away.
+to host these secrets.
 
-**Implementation effect:** slice 8 (Secrets + EFS) drops to "P2, after we
-have customer vaults running." Pre-work `sg aws secrets` and `sg aws efs`
-sub-packages also drop.
+**Implementation effect:**
+- AWS Secrets Manager integration is **dropped permanently** from this
+  plan. The replacement is "fetch from a peer vault at start time" —
+  scoped, designed, and planned separately. Not in this document set.
+  - Drops `--secret name=arn` flag on `task-def register` (was A4)
+  - Drops `sg aws secrets` sub-package proposal (was C3)
+- EFS support is **deferred** (not dropped). The "ephemeral disk per
+  task" default is fine for V1; persistent storage can land later as a
+  separable slice if/when needed.
 
 ## Q2 — Mutation gate → **`SG_VAULT_APP__FARGATE__ALLOW_MUTATIONS=1`**
 
@@ -174,10 +179,13 @@ Disk and S3 modes accepted as flags but don't trigger EFS provisioning
 (per Q1). Picking `s3` requires `--task-role-arn` to have been set during
 setup; the start command validates and errors clearly if it wasn't.
 
-## Q7 — Networking → **A: public IP, Route 53 upsert per start**
+## Q7 — Networking → **A: public IP, Route 53 upsert per start (ALB dropped entirely)**
 
-No ALB in V1. `sg aws elbv2` drops from the plan entirely until we hit a
-case that needs it.
+Public-IP + Route 53. Per user follow-up: `sg aws elbv2` drops from the
+plan **permanently** — there are alternative ingress patterns being
+explored that may not need an ALB at all. If an ALB-shaped requirement
+later materialises it'll be a fresh proposal, not a resurrection of
+this one.
 
 Start phase order stays: `RUN_TASK → WAIT_RUNNING → RESOLVE_ENI → DNS_UPSERT
 (optional) → WAIT_HEALTH`.
@@ -255,18 +263,23 @@ those files can adopt it then.
 
 ## Plan delta — what changes in the implementation slices
 
-### Dropped from V1
+### Dropped permanently from the plan (not just V1)
 
-- `sg aws secrets` sub-package (Q1)
-- `sg aws efs` sub-package (Q1)
-- `sg aws elbv2` sub-package (Q7)
+- `sg aws secrets` sub-package (Q1 — we will never use AWS Secrets Manager)
 - `--secret` flag on `task-def register` (A4 in extensions)
-- `--efs-volume` flag on `task-def register` (A5 in extensions)
+- `sg aws elbv2` sub-package (post-Q7 update — alternative ingress
+  patterns are being explored; if an ALB-shaped requirement does land,
+  it'll be a fresh proposal, not a resurrection of this one)
 - Persistent config file at `~/.config/sg/` (Q3)
 - `Vault_App__Fargate__Config` class (Q3)
 - `Schema__VAF__Config` schema (Q3)
 - `sg vault-app fargate config show/set/unset` commands (Q3)
 - `Cli__Vault_App__Fargate__Config.py` (Q3)
+
+### Deferred (still in the plan, just not V1)
+
+- `sg aws efs` sub-package (Q1)
+- `--efs-volume` flag on `task-def register` (A5 in extensions)
 
 ### Added to V1
 
