@@ -4,7 +4,7 @@
 # No mocks, no network.
 # ═══════════════════════════════════════════════════════════════════════════════
 
-from sg_compute_specs.vault_publish.waker.Warming__Page import Warming__Page, NO_CACHE_HEADERS
+from sg_compute_specs.vault_publish.lambdas.waker.Warming__Page import Warming__Page, NO_CACHE_HEADERS
 
 
 class TestWarmingPage:

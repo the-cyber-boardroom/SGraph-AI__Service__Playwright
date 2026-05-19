@@ -131,8 +131,8 @@ def inspect(
     no_health : bool = typer.Option(False, '--no-health', help='Skip vault-app health probe'),
     output_json: bool = typer.Option(False, '--json', help='Machine-readable JSON output'),
 ):
-    from sg_compute_specs.vault_publish.waker.Endpoint__Resolver__EC2         import Endpoint__Resolver__EC2
-    from sg_compute_specs.vault_publish.waker.schemas.Enum__Instance__State   import Enum__Instance__State
+    from sg_compute_specs.vault_publish.lambdas.waker.Endpoint__Resolver__EC2         import Endpoint__Resolver__EC2
+    from sg_compute_specs.vault_publish.lambdas.waker.schemas.Enum__Instance__State   import Enum__Instance__State
     c = Console(highlight=False)
     try:
         resolution = Endpoint__Resolver__EC2().resolve(slug)

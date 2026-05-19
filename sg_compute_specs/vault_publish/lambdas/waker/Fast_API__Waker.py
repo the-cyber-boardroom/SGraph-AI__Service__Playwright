@@ -18,9 +18,9 @@ from fastapi.responses             import Response
 
 from osbot_utils.type_safe.Type_Safe import Type_Safe
 
-from sg_compute_specs.vault_publish.waker.Slug__From_Host                       import Slug__From_Host
-from sg_compute_specs.vault_publish.waker.Waker__Handler                        import Waker__Handler
-from sg_compute_specs.vault_publish.waker.schemas.Schema__Waker__Request_Context import Schema__Waker__Request_Context
+from sg_compute_specs.vault_publish.lambdas.waker.Slug__From_Host                       import Slug__From_Host
+from sg_compute_specs.vault_publish.lambdas.waker.Waker__Handler                        import Waker__Handler
+from sg_compute_specs.vault_publish.lambdas.waker.schemas.Schema__Waker__Request_Context import Schema__Waker__Request_Context
 
 _vfile = os.path.join(os.path.dirname(__file__), '..', 'version')
 _FILE_VERSION = open(_vfile).read().strip() if os.path.isfile(_vfile) else 'unknown'
@@ -190,7 +190,7 @@ class Fast_API__Waker(Type_Safe):
         # BEFORE _register_routes so the parent's `/{path:path}` catch-all
         # doesn't intercept /__admin__/* — Starlette matches routes in
         # registration order, first hit wins.
-        from sg_compute_specs.vault_publish.admin.Fast_API__Admin import Fast_API__Admin
+        from sg_compute_specs.vault_publish.lambdas.admin.Fast_API__Admin import Fast_API__Admin
         fast_app.mount('/__admin__', Fast_API__Admin().app())
         self._register_routes(fast_app)
         return fast_app
@@ -223,9 +223,9 @@ class Fast_API__Waker(Type_Safe):
                        summary='JSON status probe (CORS-enabled). The warming page polls this cross-origin from the Lambda Function URL instead of polling the slug FQDN, so the slug FQDN keep-alive socket can idle out and the next navigation gets a fresh DNS lookup.')
         async def probe(slug: str = ''):
             import json as _json
-            from sg_compute_specs.vault_publish.waker.Endpoint__Resolver__EC2 import Endpoint__Resolver__EC2
-            from sg_compute_specs.vault_publish.waker.schemas.Enum__Instance__State import Enum__Instance__State
-            from sg_compute_specs.vault_publish.waker.Waker__Handler import health_probe
+            from sg_compute_specs.vault_publish.lambdas.waker.Endpoint__Resolver__EC2 import Endpoint__Resolver__EC2
+            from sg_compute_specs.vault_publish.lambdas.waker.schemas.Enum__Instance__State import Enum__Instance__State
+            from sg_compute_specs.vault_publish.lambdas.waker.Waker__Handler import health_probe
 
             # CORS Allow-Origin / preflight handled by CORSMiddleware on the
             # FastAPI app. We only need to set non-CORS response headers here.

@@ -27,9 +27,9 @@ from typing import Optional, Callable
 import boto3                                                                       # EXCEPTION — see module header
 
 from sg_compute_specs.vault_publish.service.Slug__Registry                        import Slug__Registry
-from sg_compute_specs.vault_publish.waker.schemas.Enum__Instance__State           import Enum__Instance__State
-from sg_compute_specs.vault_publish.waker.schemas.Schema__Endpoint__Resolution    import Schema__Endpoint__Resolution
-from sg_compute_specs.vault_publish.waker.Endpoint__Resolver                      import Endpoint__Resolver
+from sg_compute_specs.vault_publish.lambdas.waker.schemas.Enum__Instance__State           import Enum__Instance__State
+from sg_compute_specs.vault_publish.lambdas.waker.schemas.Schema__Endpoint__Resolution    import Schema__Endpoint__Resolution
+from sg_compute_specs.vault_publish.lambdas.waker.Endpoint__Resolver                      import Endpoint__Resolver
 
 _SLUG_CACHE : dict = {}                                                            # {slug: (instance_dict, region, cached_at)}
 _CACHE_TTL  = 60                                                                   # seconds

@@ -28,9 +28,9 @@ from fastapi.responses   import HTMLResponse, RedirectResponse, JSONResponse, Re
 
 from osbot_utils.type_safe.Type_Safe import Type_Safe
 
-from sg_compute_specs.vault_publish.admin.Admin__Auth  import (
+from sg_compute_specs.vault_publish.lambdas.admin.Admin__Auth  import (
     Admin__Auth, configured_key_name, is_configured)
-from sg_compute_specs.vault_publish.admin.Admin__Pages import (
+from sg_compute_specs.vault_publish.lambdas.admin.Admin__Pages import (
     render_login, render_inventory, render_slug)
 
 
@@ -75,7 +75,7 @@ class Fast_API__Admin(Type_Safe):
 
         @sub.post('/login')
         async def login_post(api_key: str = Form(...)):
-            from sg_compute_specs.vault_publish.admin.Admin__Auth import (
+            from sg_compute_specs.vault_publish.lambdas.admin.Admin__Auth import (
                 configured_key_value, _consteq)
             expected = configured_key_value()
             if not expected:
@@ -146,7 +146,7 @@ class Fast_API__Admin(Type_Safe):
 
 def _list_entries() -> list:
     from sg_compute_specs.vault_publish.service.Slug__Registry        import Slug__Registry
-    from sg_compute_specs.vault_publish.waker.Endpoint__Resolver__EC2 import Endpoint__Resolver__EC2
+    from sg_compute_specs.vault_publish.lambdas.waker.Endpoint__Resolver__EC2 import Endpoint__Resolver__EC2
 
     registry = Slug__Registry()
     resolver = Endpoint__Resolver__EC2(_registry_factory=lambda: registry)
@@ -170,7 +170,7 @@ def _list_entries() -> list:
 
 def _status(slug: str) -> dict:
     from sg_compute_specs.vault_publish.service.Slug__Registry        import Slug__Registry
-    from sg_compute_specs.vault_publish.waker.Endpoint__Resolver__EC2 import Endpoint__Resolver__EC2
+    from sg_compute_specs.vault_publish.lambdas.waker.Endpoint__Resolver__EC2 import Endpoint__Resolver__EC2
 
     entry      = Slug__Registry().get(slug)
     resolution = Endpoint__Resolver__EC2().resolve(slug)
@@ -189,9 +189,9 @@ def _status(slug: str) -> dict:
 def _eval(slug: str) -> list:
     # Mirrors sg vp eval's 7 steps. Each step: {n, label, ok, detail}.
     from sg_compute_specs.vault_publish.service.Slug__Registry        import Slug__Registry
-    from sg_compute_specs.vault_publish.waker.Endpoint__Resolver__EC2 import Endpoint__Resolver__EC2
-    from sg_compute_specs.vault_publish.waker.schemas.Enum__Instance__State import Enum__Instance__State
-    from sg_compute_specs.vault_publish.waker.Waker__Handler          import health_probe
+    from sg_compute_specs.vault_publish.lambdas.waker.Endpoint__Resolver__EC2 import Endpoint__Resolver__EC2
+    from sg_compute_specs.vault_publish.lambdas.waker.schemas.Enum__Instance__State import Enum__Instance__State
+    from sg_compute_specs.vault_publish.lambdas.waker.Waker__Handler          import health_probe
 
     steps    = []
     fqdn     = f'{slug}.{_zone()}'

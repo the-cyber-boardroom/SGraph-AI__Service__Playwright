@@ -5,11 +5,11 @@
 # No mocks, no patches.
 # ═══════════════════════════════════════════════════════════════════════════════
 
-from sg_compute_specs.vault_publish.waker.Endpoint__Resolver                     import Endpoint__Resolver
-from sg_compute_specs.vault_publish.waker.Waker__Handler                         import Waker__Handler
-from sg_compute_specs.vault_publish.waker.schemas.Enum__Instance__State          import Enum__Instance__State
-from sg_compute_specs.vault_publish.waker.schemas.Schema__Endpoint__Resolution   import Schema__Endpoint__Resolution
-from sg_compute_specs.vault_publish.waker.schemas.Schema__Waker__Request_Context import Schema__Waker__Request_Context
+from sg_compute_specs.vault_publish.lambdas.waker.Endpoint__Resolver                     import Endpoint__Resolver
+from sg_compute_specs.vault_publish.lambdas.waker.Waker__Handler                         import Waker__Handler
+from sg_compute_specs.vault_publish.lambdas.waker.schemas.Enum__Instance__State          import Enum__Instance__State
+from sg_compute_specs.vault_publish.lambdas.waker.schemas.Schema__Endpoint__Resolution   import Schema__Endpoint__Resolution
+from sg_compute_specs.vault_publish.lambdas.waker.schemas.Schema__Waker__Request_Context import Schema__Waker__Request_Context
 
 
 # ── In-memory fakes ───────────────────────────────────────────────────────────

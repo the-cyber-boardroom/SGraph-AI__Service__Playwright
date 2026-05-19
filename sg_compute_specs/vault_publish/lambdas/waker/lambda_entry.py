@@ -18,9 +18,9 @@ import base64
 import json
 import os
 
-from sg_compute_specs.vault_publish.waker.Slug__From_Host                        import Slug__From_Host
-from sg_compute_specs.vault_publish.waker.Waker__Handler                         import Waker__Handler
-from sg_compute_specs.vault_publish.waker.schemas.Schema__Waker__Request_Context import Schema__Waker__Request_Context
+from sg_compute_specs.vault_publish.lambdas.waker.Slug__From_Host                        import Slug__From_Host
+from sg_compute_specs.vault_publish.lambdas.waker.Waker__Handler                         import Waker__Handler
+from sg_compute_specs.vault_publish.lambdas.waker.schemas.Schema__Waker__Request_Context import Schema__Waker__Request_Context
 
 
 # ── Module-level deploy metadata (read once on cold start) ───────────────────
@@ -139,7 +139,7 @@ def _route_special(path: str, qs_args: dict) -> dict:
                 {'error': 'WAKER_CMD_ENABLED is not set on this Lambda — debug RPC channel disabled'},
                 status=403,
             )
-        from sg_compute_specs.vault_publish.waker.Waker__Commands import dispatch
+        from sg_compute_specs.vault_publish.lambdas.waker.Waker__Commands import dispatch
         cmd_name = qs_args.pop('name', '') if isinstance(qs_args, dict) else ''
         return _json_response(dispatch(cmd_name, qs_args or {}))
     if path == '/__waker__/console':
@@ -150,7 +150,7 @@ def _route_special(path: str, qs_args: dict) -> dict:
                 'body'           : '<h1>Console disabled</h1><p>Set WAKER_CMD_ENABLED=1 on the function env.</p>',
                 'isBase64Encoded': False,
             }
-        from sg_compute_specs.vault_publish.waker.Waker__Console import CONSOLE_HTML
+        from sg_compute_specs.vault_publish.lambdas.waker.Waker__Console import CONSOLE_HTML
         return {
             'statusCode'     : 200,
             'headers'        : {'Content-Type'  : 'text/html; charset=utf-8',
@@ -184,13 +184,13 @@ def _route_status_page(slug_arg: str, headers: dict, event: dict, raw_body: byte
         deploy_info       = _render_kv_block(DEPLOY_INFO.items()),
     )
     # Resolve to get current state for the chosen slug (without start/proxy).
-    from sg_compute_specs.vault_publish.waker.Endpoint__Resolver__EC2 import Endpoint__Resolver__EC2
-    from sg_compute_specs.vault_publish.waker.schemas.Enum__Waker__State  import Enum__Waker__State
-    from sg_compute_specs.vault_publish.waker.schemas.Enum__Waker__Action import Enum__Waker__Action
-    from sg_compute_specs.vault_publish.waker.Waker__Handler              import _render_not_found_html, _inject_waker_headers
+    from sg_compute_specs.vault_publish.lambdas.waker.Endpoint__Resolver__EC2 import Endpoint__Resolver__EC2
+    from sg_compute_specs.vault_publish.lambdas.waker.schemas.Enum__Waker__State  import Enum__Waker__State
+    from sg_compute_specs.vault_publish.lambdas.waker.schemas.Enum__Waker__Action import Enum__Waker__Action
+    from sg_compute_specs.vault_publish.lambdas.waker.Waker__Handler              import _render_not_found_html, _inject_waker_headers
     resolution = Endpoint__Resolver__EC2().resolve(slug_arg) if slug_arg else None
     if resolution is None:
-        from sg_compute_specs.vault_publish.waker.schemas.Schema__Endpoint__Resolution import Schema__Endpoint__Resolution
+        from sg_compute_specs.vault_publish.lambdas.waker.schemas.Schema__Endpoint__Resolution import Schema__Endpoint__Resolution
         resolution = Schema__Endpoint__Resolution()
     body = _render_not_found_html(
         ctx, resolution,
@@ -247,9 +247,9 @@ def _route_probe(qs_args: dict, request_headers: dict, method: str) -> dict:
                 'body'      : json.dumps({'error': 'slug query param required'}),
                 'isBase64Encoded': False}
 
-    from sg_compute_specs.vault_publish.waker.Endpoint__Resolver__EC2       import Endpoint__Resolver__EC2
-    from sg_compute_specs.vault_publish.waker.schemas.Enum__Instance__State import Enum__Instance__State
-    from sg_compute_specs.vault_publish.waker.Waker__Handler                import health_probe
+    from sg_compute_specs.vault_publish.lambdas.waker.Endpoint__Resolver__EC2       import Endpoint__Resolver__EC2
+    from sg_compute_specs.vault_publish.lambdas.waker.schemas.Enum__Instance__State import Enum__Instance__State
+    from sg_compute_specs.vault_publish.lambdas.waker.Waker__Handler                import health_probe
 
     resolution = Endpoint__Resolver__EC2().resolve(slug)
     state      = resolution.state
@@ -285,8 +285,8 @@ _LAMBDA_TO_ASGI = None
 def _get_asgi_dispatcher():
     global _FAST_API_APP, _LAMBDA_TO_ASGI
     if _LAMBDA_TO_ASGI is None:
-        from sg_compute_specs.vault_publish.waker.Fast_API__Waker import Fast_API__Waker
-        from sg_compute_specs.vault_publish.waker.Lambda_To_ASGI  import Lambda_To_ASGI
+        from sg_compute_specs.vault_publish.lambdas.waker.Fast_API__Waker import Fast_API__Waker
+        from sg_compute_specs.vault_publish.lambdas.waker.Lambda_To_ASGI  import Lambda_To_ASGI
         _FAST_API_APP   = Fast_API__Waker().setup().app()
         _LAMBDA_TO_ASGI = Lambda_To_ASGI(_FAST_API_APP)
     return _LAMBDA_TO_ASGI
