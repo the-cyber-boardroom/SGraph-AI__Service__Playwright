@@ -142,7 +142,70 @@ def _route_special(path: str, qs_args: dict) -> dict:
         from sg_compute_specs.vault_publish.waker.Waker__Commands import dispatch
         cmd_name = qs_args.pop('name', '') if isinstance(qs_args, dict) else ''
         return _json_response(dispatch(cmd_name, qs_args or {}))
+    if path == '/__waker__/console':
+        if os.environ.get('WAKER_CMD_ENABLED', '1') not in ('1', 'true', 'yes'):
+            return {
+                'statusCode'     : 403,
+                'headers'        : {'Content-Type': 'text/html; charset=utf-8'},
+                'body'           : '<h1>Console disabled</h1><p>Set WAKER_CMD_ENABLED=1 on the function env.</p>',
+                'isBase64Encoded': False,
+            }
+        from sg_compute_specs.vault_publish.waker.Waker__Console import CONSOLE_HTML
+        return {
+            'statusCode'     : 200,
+            'headers'        : {'Content-Type'  : 'text/html; charset=utf-8',
+                                'Cache-Control' : 'no-store'},
+            'body'           : CONSOLE_HTML,
+            'isBase64Encoded': False,
+        }
     return None
+
+
+def _route_status_page(slug_arg: str, headers: dict, event: dict, raw_body: bytes,
+                       full_path: str, method: str, vault_viewer_host: str,
+                       forwarded_host: str, origin_host: str) -> dict:
+    """/__waker__/status?slug=<slug>: render the diagnostic page for a slug
+    WITHOUT triggering resolve/wake. Used by the "View diagnostics" link on
+    the warming page (and as a general "what does the waker see for this
+    slug right now?" inspector)."""
+    viewer_host = vault_viewer_host or forwarded_host or origin_host
+    ctx = Schema__Waker__Request_Context(
+        host              = viewer_host,
+        origin_host       = origin_host,
+        forwarded_host    = forwarded_host,
+        vault_viewer_host = vault_viewer_host,
+        slug              = slug_arg,
+        path              = full_path,
+        method            = method,
+        body              = raw_body,
+        request_id        = _request_id(headers, event),
+        source_ip         = _source_ip(headers, (event.get('requestContext') or {}).get('http', {})),
+        asgi_scope        = _render_event_meta(event),
+        deploy_info       = _render_kv_block(DEPLOY_INFO.items()),
+    )
+    # Resolve to get current state for the chosen slug (without start/proxy).
+    from sg_compute_specs.vault_publish.waker.Endpoint__Resolver__EC2 import Endpoint__Resolver__EC2
+    from sg_compute_specs.vault_publish.waker.schemas.Enum__Waker__State  import Enum__Waker__State
+    from sg_compute_specs.vault_publish.waker.schemas.Enum__Waker__Action import Enum__Waker__Action
+    from sg_compute_specs.vault_publish.waker.Waker__Handler              import _render_not_found_html, _inject_waker_headers
+    resolution = Endpoint__Resolver__EC2().resolve(slug_arg) if slug_arg else None
+    if resolution is None:
+        from sg_compute_specs.vault_publish.waker.schemas.Schema__Endpoint__Resolution import Schema__Endpoint__Resolution
+        resolution = Schema__Endpoint__Resolution()
+    body = _render_not_found_html(
+        ctx, resolution,
+        Enum__Waker__State.NOT_FOUND, Enum__Waker__Action.RETURNED_404,
+        0, WAKER_VERSION,
+    )
+    headers_out = {'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store'}
+    _inject_waker_headers(headers_out, ctx, Enum__Waker__State.NOT_FOUND,
+                          Enum__Waker__Action.RETURNED_404, resolution, 0, WAKER_VERSION)
+    return {
+        'statusCode'     : 200,
+        'headers'        : {k: v for k, v in headers_out.items() if k.lower() != 'content-length'},
+        'body'           : body,
+        'isBase64Encoded': False,
+    }
 
 
 # ── Entry point ──────────────────────────────────────────────────────────────
@@ -154,11 +217,32 @@ def handler(event, context):                                                    
     raw_qs      = event.get('rawQueryString', '') or ''
 
     # Short-circuit reserved diagnostic paths so they don't go through slug
-    # resolution. Useful for `setup lambda invoke` and external monitors.
-    if path in ('/__waker__/health', '/__waker__/deploy', '/__waker__/cmd'):
+    # resolution. Useful for `setup lambda invoke`, external monitors, and
+    # the browser console (which calls /__waker__/cmd via fetch).
+    if path in ('/__waker__/health', '/__waker__/deploy', '/__waker__/cmd', '/__waker__/console'):
         import urllib.parse
         qs_args = dict(urllib.parse.parse_qsl(raw_qs, keep_blank_values=True))
         return _route_special(path, qs_args)
+    if path == '/__waker__/status':
+        import urllib.parse
+        qs_args = dict(urllib.parse.parse_qsl(raw_qs, keep_blank_values=True))
+        slug_arg = qs_args.get('slug', '')
+        http_ctx_status = (event.get('requestContext') or {}).get('http', {}) or {}
+        raw_body_status = event.get('body') or b''
+        if isinstance(raw_body_status, str):
+            raw_body_status = base64.b64decode(raw_body_status) if event.get('isBase64Encoded') \
+                else raw_body_status.encode()
+        return _route_status_page(
+            slug_arg          = slug_arg,
+            headers           = headers,
+            event             = event,
+            raw_body          = raw_body_status,
+            full_path         = path + ('?' + raw_qs if raw_qs else ''),
+            method            = http_ctx_status.get('method', 'GET'),
+            vault_viewer_host = _h(headers, 'x-vault-viewer-host', ''),
+            forwarded_host    = _h(headers, 'x-forwarded-host', ''),
+            origin_host       = origin_host,
+        )
 
     forwarded_host    = _h(headers, 'x-forwarded-host', '')
     vault_viewer_host = _h(headers, 'x-vault-viewer-host', '')
