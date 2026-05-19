@@ -229,40 +229,26 @@ def _render_not_found_html(ctx: Schema__Waker__Request_Context,
         ('Request ID'         , esc(ctx.request_id)),
     ]
     rows_waker = [
-        ('Waker state' , esc(waker_state)),
-        ('Waker action', esc(waker_action)),
-        ('EC2 state'   , esc(resolution.state)),
-        ('Instance ID' , esc(resolution.instance_id)),
-        ('Vault URL'   , esc(resolution.vault_url)),
-        ('Region'      , esc(resolution.region)),
-        ('Elapsed'     , f'{elapsed_ms} ms'),
-        ('Waker version', esc(version)),
-        ('Timestamp'   , esc(now)),
+        ('Waker state'     , esc(waker_state)),
+        ('Waker action'    , esc(waker_action)),
+        ('EC2 state'       , esc(resolution.state)),
+        ('Instance ID'     , esc(resolution.instance_id)),
+        ('Vault URL'       , esc(resolution.vault_url)),
+        ('Region'          , esc(resolution.region)),
+        ('Regions scanned' , esc(resolution.regions_scanned)),
+        ('Elapsed'         , f'{elapsed_ms} ms'),
+        ('Waker version'   , esc(version)),
+        ('Timestamp'       , esc(now)),
     ]
 
     def render_rows(rows):
         return ''.join(f'<tr><th>{k}</th><td>{v}</td></tr>' for k, v in rows)
 
-    proxy_section = ''
-    if ctx.proxy_headers:
-        proxy_section = (
-            '<h2>Proxy headers received</h2>'
-            f'<pre>{html.escape(ctx.proxy_headers)}</pre>'
-        )
-
-    all_headers_section = ''
-    if ctx.all_headers:
-        all_headers_section = (
-            '<h2>All HTTP headers received <span class="muted">'
-            '(everything FastAPI / LWA passed in)</span></h2>'
-            f'<pre>{html.escape(ctx.all_headers)}</pre>'
-        )
-
     scope_section = ''
     if ctx.asgi_scope:
         scope_section = (
-            '<h2>ASGI scope <span class="muted">'
-            '(client/server addresses, scheme, raw path, query)</span></h2>'
+            '<h2>Lambda event meta <span class="muted">'
+            '(raw path, source IP, requestContext.*)</span></h2>'
             f'<pre>{html.escape(ctx.asgi_scope)}</pre>'
         )
 
@@ -272,15 +258,6 @@ def _render_not_found_html(ctx: Schema__Waker__Request_Context,
             '<h2>Lambda deployment metadata <span class="muted">'
             '(env vars baked in at deploy time by Setup__Lambda)</span></h2>'
             f'<pre>{html.escape(ctx.deploy_info)}</pre>'
-        )
-
-    request_json_section = ''
-    if ctx.request_json:
-        request_json_section = (
-            '<h2>Lambda HTTP event (JSON) <span class="muted">'
-            '(method, URL, headers, body — the closest equivalent to the original '
-            'Function URL event after LWA translation)</span></h2>'
-            f'<pre>{html.escape(ctx.request_json)}</pre>'
         )
 
     return f"""<!DOCTYPE html>
@@ -324,9 +301,6 @@ def _render_not_found_html(ctx: Schema__Waker__Request_Context,
 <h2>Waker diagnostics</h2>
 <table>{render_rows(rows_waker)}</table>
 {deploy_section}
-{request_json_section}
-{proxy_section}
-{all_headers_section}
 {scope_section}
 <footer>
   Served by the vault-publish waker Lambda. Same diagnostics are emitted as JSON to CloudWatch

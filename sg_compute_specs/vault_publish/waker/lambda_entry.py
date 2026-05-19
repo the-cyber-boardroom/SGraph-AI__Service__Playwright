@@ -39,18 +39,6 @@ DEPLOY_INFO = {
     'git_commit'     : os.environ.get('WAKER_GIT_COMMIT',    ''),
 }
 
-# Headers we surface on the diagnostic page so operators can see exactly
-# what CloudFront / proxies are actually forwarding.
-_PROXY_HEADER_SNIFF = (
-    'x-vault-viewer-host',
-    'x-forwarded-host', 'x-forwarded-for', 'x-forwarded-proto',
-    'x-amz-cf-id', 'x-amzn-trace-id', 'x-amzn-request-id',
-    'cloudfront-forwarded-proto', 'cloudfront-viewer-country',
-    'cloudfront-viewer-address', 'via', 'referer',
-    'x-waker-flow-id', 'x-waker-cf-timestamp', 'x-waker-cf-version',
-)
-
-
 # ── Header / event helpers (case-insensitive on event headers) ───────────────
 
 def _h(headers: dict, name: str, default: str = '') -> str:
@@ -90,21 +78,6 @@ def _render_kv_block(items, default_missing: str = '(unset)') -> str:
     return '\n'.join(f'{k}: {v or default_missing}' for k, v in items)
 
 
-def _render_proxy_headers(headers: dict) -> str:
-    lines = []
-    for name in _PROXY_HEADER_SNIFF:
-        v = _h(headers, name, '')
-        if v:
-            lines.append(f'{name}: {v}')
-    return '\n'.join(lines)
-
-
-def _render_all_headers(headers: dict) -> str:
-    items = [(k, v if isinstance(v, str) else str(v)) for k, v in (headers or {}).items()]
-    items.sort(key=lambda kv: kv[0].lower())
-    return '\n'.join(f'{k}: {v}' for k, v in items)
-
-
 def _render_event_meta(event: dict) -> str:
     # Lambda-event-equivalent of the ASGI scope: the bits that aren't headers
     # but tell you where the request came from at the AWS layer.
@@ -124,31 +97,6 @@ def _render_event_meta(event: dict) -> str:
         ('requestContext.time'     , ctx.get('time', '')),
     ]
     return '\n'.join(f'{k}: {v}' for k, v in lines if v)
-
-
-def _render_request_json(event: dict, body: bytes) -> str:
-    body_repr = ''
-    if body:
-        try:
-            body_repr = body.decode('utf-8')
-            if len(body_repr) > 4096:
-                body_repr = body_repr[:4096] + f'… (truncated; total {len(body)} bytes)'
-        except UnicodeDecodeError:
-            body_repr = (f'<binary, {len(body)} bytes — base64 prefix: '
-                          + base64.b64encode(body[:128]).decode() + '…>')
-    headers = event.get('headers') or {}
-    http_ctx = (event.get('requestContext') or {}).get('http', {})
-    payload = {
-        'method'      : http_ctx.get('method', 'GET'),
-        'rawPath'     : event.get('rawPath', '/'),
-        'rawQuery'    : event.get('rawQueryString', ''),
-        'headers'     : dict(sorted({k.lower(): v for k, v in headers.items()}.items())),
-        'cookies'     : event.get('cookies') or [],
-        'sourceIp'    : http_ctx.get('sourceIp', ''),
-        'body'        : body_repr,
-        'body_bytes'  : len(body),
-    }
-    return json.dumps(payload, indent=2, ensure_ascii=False)
 
 
 # ── Special routes (handled BEFORE slug resolution) ──────────────────────────
@@ -181,10 +129,8 @@ def _route_special(path: str) -> dict:
                 'origin_host'      : 'origin_host'       in Schema__Waker__Request_Context.__annotations__,
                 'forwarded_host'   : 'forwarded_host'    in Schema__Waker__Request_Context.__annotations__,
                 'vault_viewer_host': 'vault_viewer_host' in Schema__Waker__Request_Context.__annotations__,
-                'all_headers'      : 'all_headers'       in Schema__Waker__Request_Context.__annotations__,
                 'asgi_scope'       : 'asgi_scope'        in Schema__Waker__Request_Context.__annotations__,
                 'deploy_info'      : 'deploy_info'       in Schema__Waker__Request_Context.__annotations__,
-                'request_json'     : 'request_json'      in Schema__Waker__Request_Context.__annotations__,
             },
         })
     return None
@@ -225,10 +171,7 @@ def handler(event, context):                                                    
         body              = raw_body if isinstance(raw_body, bytes) else raw_body.encode(),
         request_id        = _request_id(headers, event),
         source_ip         = _source_ip(headers, http_ctx),
-        proxy_headers     = _render_proxy_headers(headers),
-        all_headers       = _render_all_headers(headers),
         asgi_scope        = _render_event_meta(event),                              # Lambda event meta in place of an ASGI scope
-        request_json      = _render_request_json(event, raw_body),
         deploy_info       = _render_kv_block(DEPLOY_INFO.items()),
     )
     result = Waker__Handler(_version=WAKER_VERSION).handle(ctx)

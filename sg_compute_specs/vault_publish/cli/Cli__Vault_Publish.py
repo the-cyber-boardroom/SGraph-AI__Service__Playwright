@@ -40,15 +40,44 @@ def _svc() -> Vault_Publish__Service:
 
 
 @app.command(name='register', help='Publish a vault-app stack at <slug>.aws.sg-labs.app.')
-def register(slug     : str = typer.Argument(..., help='DNS slug (e.g. sara-cv)'),
-             vault_key: str = typer.Option(..., '--vault-key', '-k', help='Vault key identifier'),
-             region   : str = typer.Option(DEFAULT_REGION, '--region', '-r')):
-    c   = Console(highlight=False)
+def register(slug     : str  = typer.Argument(..., help='DNS slug (e.g. sara-cv)'),
+             vault_key: str  = typer.Option(..., '--vault-key', '-k', help='Vault key identifier'),
+             region   : str  = typer.Option(DEFAULT_REGION, '--region', '-r'),
+             wait     : bool = typer.Option(False, '--wait', '-w', help='After register, poll the EC2 until it is RUNNING + reachable. Same shape as `sg vp wake`.'),
+             timeout  : int  = typer.Option(600, '--timeout', '-t', help='Max seconds to wait when --wait is set (covers EC2 launch + vault-app boot + LE cert init).')):
+    import os
+    from sg_compute_specs.vault_publish.service.Vault_Publish__Service import _default_zone
+    c = Console(highlight=False)
+
+    fqdn  = f'{slug}.{_default_zone()}'
+    waker_region = os.environ.get('WAKER_DEPLOY_REGION', '') or _detect_waker_region()
+
+    # Up-front summary so the operator sees the exact call shape BEFORE it runs.
+    c.print()
+    c.print(f'  [bold]sg vp register[/]  slug=[cyan]{slug}[/]  region=[cyan]{region}[/]')
+    c.print(f'  [dim]→ FQDN              : {fqdn}[/]')
+    c.print(f'  [dim]→ Underlying VA call: Vault_App__Service.create_stack([/]')
+    c.print(f'  [dim]    stack_name   = {slug!r},[/]')
+    c.print(f'  [dim]    region       = {region!r},[/]')
+    c.print(f'  [dim]    with_aws_dns = True,[/]')
+    c.print(f'  [dim]    tls_hostname = {fqdn!r},[/]')
+    c.print(f'  [dim]    tls_mode     = "letsencrypt-hostname",[/]')
+    c.print(f'  [dim]  )[/]')
+
+    if waker_region and waker_region != region:
+        c.print()
+        c.print(f'  [yellow]⚠[/]  Region mismatch — waker Lambda runs in [bold]{waker_region}[/], '
+                f'this EC2 will land in [bold]{region}[/].')
+        c.print(f'  [dim]   The waker now scans multiple regions (WAKER_SCAN_REGIONS) so routing[/]')
+        c.print(f'  [dim]   still works, but co-locating reduces cross-region latency. Override with[/]')
+        c.print(f'  [dim]   --region {waker_region} (or set AWS_DEFAULT_REGION={waker_region}).[/]')
+
+    c.print()
+    c.print(f'  [yellow]→[/]  Registering [bold]{slug}[/]…')
     req = Schema__Vault_Publish__Register__Request(
         slug      = Safe_Str__Slug(slug),
         vault_key = Safe_Str__Vault__Key(vault_key),
         region    = region)
-    c.print(f'\n  [yellow]→[/]  Registering [bold]{slug}[/]…')
     resp = _svc().register(req)
     if not str(getattr(resp, 'fqdn', '')):
         c.print(f'  [red]✗  {resp.message}[/]')
@@ -56,8 +85,96 @@ def register(slug     : str = typer.Argument(..., help='DNS slug (e.g. sara-cv)'
     c.print(f'  [green]✓[/]  Registered [bold]{slug}[/]')
     c.print(f'      FQDN      : {resp.fqdn}')
     c.print(f'      Stack     : {resp.stack_name}')
+    c.print(f'      Region    : {region}')
     c.print(f'      elapsed   : {resp.elapsed_ms}ms')
     c.print()
+
+    if wait:
+        c.print(f'  [yellow]→[/]  Waiting (up to {timeout}s) for EC2 to be RUNNING + reachable…')
+        _run_post_register_wait(c, slug=slug, region=region, timeout=timeout)
+
+
+def _detect_waker_region() -> str:
+    """Best-effort: ask the live Lambda for its deploy region. Returns '' on
+    any failure so the warning path silently degrades to 'no comparison'."""
+    try:
+        import boto3
+        from sg_compute_specs.vault_publish.setup.service.Setup__Lambda import WAKER_LAMBDA_NAME
+        # Probe in the same region as our default for the CLI; if the Lambda
+        # lives elsewhere we'll get ResourceNotFound and silently return ''.
+        for region in (DEFAULT_REGION, 'eu-west-2', 'us-east-1'):
+            try:
+                resp = boto3.client('lambda', region_name=region).get_function(FunctionName=WAKER_LAMBDA_NAME)
+                env  = (resp.get('Configuration', {}).get('Environment', {}) or {}).get('Variables', {}) or {}
+                return env.get('WAKER_DEPLOY_REGION', '') or region
+            except Exception:
+                continue
+    except Exception:
+        pass
+    return ''
+
+
+def _run_post_register_wait(c: Console, *, slug: str, region: str, timeout: int) -> None:
+    """Poll the just-created EC2 until it is RUNNING and the vault-app HTTP
+    listener responds. Mirrors `sg vp wake` but skips start_instances since
+    we just created the instance and it's already pending → running."""
+    from sg_compute_specs.vault_publish.service.Slug__Registry              import Slug__Registry
+    from sg_compute_specs.vault_publish.waker.Endpoint__Resolver__EC2       import Endpoint__Resolver__EC2
+    from sg_compute_specs.vault_publish.waker.schemas.Enum__Instance__State import Enum__Instance__State
+
+    registry  = Slug__Registry(region=region)
+    resolver  = Endpoint__Resolver__EC2(_registry_factory=lambda: registry)
+    t_start   = time.time()
+    last_state = ''
+
+    # Phase 1 — wait for RUNNING + IP
+    while True:
+        elapsed = time.time() - t_start
+        if elapsed > timeout:
+            c.print(f'  [red]✗  timed out after {timeout}s waiting for RUNNING (last state: {last_state})[/]\n')
+            raise typer.Exit(1)
+        resolution = resolver.resolve(slug)
+        if str(resolution.state) != last_state:
+            c.print(f'  [dim]  {int(elapsed)}s: state {last_state or "(unknown)"} → {resolution.state}[/]')
+            last_state = str(resolution.state)
+        if resolution.state == Enum__Instance__State.RUNNING and resolution.public_ip:
+            break
+        time.sleep(3)
+
+    c.print(f'  [green]✓[/]  RUNNING at {resolution.public_ip}  ({int((time.time() - t_start) * 1000)}ms)')
+
+    # Phase 2 — poll HTTP probe until vault-app responds
+    probe_url = resolution.vault_url.rstrip('/') + '/ui/'
+    c.print(f'  [yellow]→[/]  Polling {probe_url} until reachable…')
+    delay    = 3
+    attempts = 0
+    last_err = ''
+    while True:
+        elapsed = time.time() - t_start
+        if elapsed > timeout:
+            c.print(f'  [red]✗  timed out after {timeout}s waiting for HTTP reachable[/]')
+            if last_err:
+                c.print(f'  [dim]   last error: {last_err}[/]')
+            c.print(f'  [dim]   (vault-app + LE init can take 60–180s — retry with --timeout 900)[/]\n')
+            raise typer.Exit(1)
+        attempts += 1
+        try:
+            import urllib3
+            p0   = time.time()
+            resp = urllib3.PoolManager(timeout=urllib3.Timeout(connect=2, read=5)).request(
+                'GET', probe_url, preload_content=False, retries=False)
+            ms   = int((time.time() - p0) * 1000)
+            if resp.status < 500:
+                total = int((time.time() - t_start) * 1000)
+                c.print(f'  [green]✓[/]  HTTP {resp.status} in {ms}ms  [dim](after {attempts} attempts, {total}ms total)[/]\n')
+                return
+            last_err = f'HTTP {resp.status}'
+        except Exception as exc:
+            last_err = str(exc).splitlines()[0][:120]
+        if attempts % 5 == 0:
+            c.print(f'  [dim]  {int(elapsed)}s: still waiting… ({last_err})[/]')
+        time.sleep(delay)
+        delay = min(delay + 1, 6)
 
 
 @app.command(name='unpublish', help='Remove a slug, its stack, and its DNS record.')
