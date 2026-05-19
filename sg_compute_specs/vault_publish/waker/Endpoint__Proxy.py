@@ -8,12 +8,22 @@
 # ═══════════════════════════════════════════════════════════════════════════════
 
 import urllib3
+import warnings
 
 from osbot_utils.type_safe.Type_Safe import Type_Safe
 
 MAX_RESPONSE_BYTES = 5 * 1024 * 1024                                              # 5 MB safety margin below Lambda's 6 MB buffered cap
 
-_pool = urllib3.PoolManager(timeout=urllib3.Timeout(connect=2, read=30))
+# vault_url is the EC2's public IP (https://{ip}/ or http://{ip}:8080). The
+# LE cert is bound to the FQDN, not the IP, so cert validation against the
+# IP would always fail. Trust comes from the AWS-internal describe_instances
+# lookup that produced this IP — not from the cert.
+warnings.filterwarnings('ignore', category=urllib3.exceptions.InsecureRequestWarning)
+_pool = urllib3.PoolManager(
+    cert_reqs       = 'CERT_NONE',
+    assert_hostname = False,
+    timeout         = urllib3.Timeout(connect=2, read=30),
+)
 
 
 class Endpoint__Proxy(Type_Safe):
