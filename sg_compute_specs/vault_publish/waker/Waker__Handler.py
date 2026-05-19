@@ -138,8 +138,12 @@ class Waker__Handler(Type_Safe):
         }
 
     def _not_found(self, slug: str) -> dict:
+        # 200 OK with a status page — this surface is informational ("the waker
+        # is alive, here's what it observed"), not an error. A real 404 framing
+        # for unrouted slugs misled operators into thinking the Lambda was
+        # broken. Real fatal errors (e.g. upstream proxy 5xx) still return ≥500.
         return {
-            'status_code': 404,
+            'status_code': 200,
             'headers'    : {'Content-Type': 'text/html; charset=utf-8',
                             'Cache-Control': 'no-store'},
             'body'       : b'',                                                       # real body rendered in handle() once all diagnostics are known
@@ -184,26 +188,33 @@ def _render_not_found_html(ctx: Schema__Waker__Request_Context,
                             waker_action: Enum__Waker__Action,
                             elapsed_ms: int,
                             version: str) -> str:
-    # Diagnostic 404 page — mirrors the structured log so operators can debug
-    # without tailing CloudWatch. All user-controlled values are HTML-escaped.
+    # Vault Waker status page — mirrors the structured log so operators can
+    # debug without tailing CloudWatch. Served as 200 OK because the page is
+    # informational ("here's what the waker saw"), not an error response.
+    # All user-controlled values are HTML-escaped.
     def esc(v) -> str:
         return html.escape(str(v)) if v else '<span class="muted">(none)</span>'
 
     if not ctx.slug:
         has_viewer_signal = bool(ctx.vault_viewer_host or ctx.forwarded_host)
         if ctx.origin_host and not has_viewer_signal and '.lambda-url.' in ctx.origin_host:
-            reason = ('No slug parsed. The request came in via CloudFront → Lambda URL '
-                      'and the Lambda only sees the Lambda URL as <code>Host</code>. '
-                      'The CloudFront Function (<code>vault-publish-viewer-host</code>) '
-                      'must set <code>X-Vault-Viewer-Host</code> / <code>X-Forwarded-Host</code> '
-                      'before forwarding to origin — neither header is present. '
-                      'Run <code>sg vp setup cf-function check</code>.')
+            heading = 'No slug to route'
+            reason  = ('Request arrived at the Lambda Function URL directly (or via '
+                       'CloudFront without the viewer-Host shim). The waker only routes '
+                       'requests whose viewer host matches <code>&lt;slug&gt;.&lt;zone&gt;</code>. '
+                       'For CloudFront-fronted requests, ensure '
+                       '<code>vault-publish-viewer-host</code> is published and attached — '
+                       'run <code>sg vp setup cf-function check</code>.')
         else:
-            reason = ('No slug could be parsed from the host. The waker only routes '
-                      'on <code>&lt;slug&gt;.&lt;zone&gt;</code> hostnames.')
+            heading = 'No slug to route'
+            reason  = ('The host does not match <code>&lt;slug&gt;.&lt;zone&gt;</code>. '
+                       'This is the bare waker landing — there is no specific slug to '
+                       'wake. See the diagnostic sections below for the full request.')
     else:
-        reason = (f'No vault registered for slug <code>{html.escape(ctx.slug)}</code>. '
-                  f'Register one with <code>sg vp register {html.escape(ctx.slug)} --vault-key &lt;key&gt;</code>.')
+        heading = f'Slug not registered: {html.escape(ctx.slug)}'
+        reason  = (f'No vault is registered for slug <code>{html.escape(ctx.slug)}</code>. '
+                   f'Register one with <code>sg vp register {html.escape(ctx.slug)} '
+                   '--vault-key &lt;key&gt;</code>.')
 
     now    = datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
     rows_request = [
@@ -276,11 +287,14 @@ def _render_not_found_html(ctx: Schema__Waker__Request_Context,
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>404 — Slug not found</title>
+<title>Vault Waker — {heading}</title>
 <style>
   body {{ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
          max-width: 820px; margin: 2rem auto; padding: 0 1.5rem; color: #222; }}
-  h1   {{ color: #b00020; font-size: 1.8rem; margin-bottom: 0.5rem; }}
+  h1   {{ color: #333; font-size: 1.8rem; margin-bottom: 0.5rem; }}
+  h1 .badge {{ background: #e8f5e9; color: #2e7d32; font-size: 0.7rem;
+               padding: 2px 8px; border-radius: 10px; vertical-align: middle;
+               margin-left: 0.5rem; font-weight: normal; }}
   h2   {{ font-size: 1.1rem; margin-top: 1.8rem; color: #555;
          border-bottom: 1px solid #eee; padding-bottom: 0.3rem; }}
   p.reason {{ background: #fff8e1; border-left: 4px solid #ffb300;
@@ -300,7 +314,8 @@ def _render_not_found_html(ctx: Schema__Waker__Request_Context,
 </style>
 </head>
 <body>
-<h1>404 — Slug not found</h1>
+<h1>Vault Waker <span class="badge">200 OK</span></h1>
+<p style="color:#555;margin-top:-0.3rem;">{heading}</p>
 <p class="reason">{reason}</p>
 
 <h2>Request</h2>

@@ -7,6 +7,35 @@
 #
 # EXPECTED_* constants mirror the values set in Vault_Publish__Service.bootstrap.
 #
+# ── WAKER_VERSION policy (agent-managed) ──────────────────────────────────────
+# sg_compute_specs/vault_publish/version (currently v0.1.6) is the canonical
+# version of the vault-publish Lambda runtime — NOT auto-bumped by CI.
+#
+#   Rule: every commit that changes the LAMBDA RUNTIME CODE must bump the
+#   rightmost component (.z) of that file in the same commit. "Lambda runtime
+#   code" = anything in sg_compute_specs/vault_publish/waker/** plus any
+#   schema referenced by Fast_API__Waker / Waker__Handler.
+#
+#   Out of scope (no bump needed):
+#     - CLI changes in sg_compute_specs/vault_publish/{cli,setup/cli}/**
+#     - Tests, docs, CI
+#     - CloudFront Function code (it has its own FUNCTION_VERSION in
+#       Setup__CF__Function.py, bumped under its own rule there)
+#     - The deployer / setup services (this file) when the change doesn't
+#       alter what gets baked into the Lambda
+#
+#   The .y bumps once the existing v0.1 series stabilises and we ship a
+#   first-cut "vault-publish v0.2" with a documented breaking change to the
+#   waker contract (renamed env var, dropped endpoint, changed X-Waker-*
+#   header semantics, etc.).
+#
+# /version (repo root, currently v0.2.29) is the CANONICAL SERVICE version —
+# bumped automatically by CI on merges to dev. Surfaced as WAKER_SERVICE_VERSION.
+#
+# Both values are baked into the Lambda env at deploy time and visible via
+# `sg vp setup lambda status`, the diagnostic 200 status page, and
+# `sg vp setup lambda invoke` (which hits /__waker__/deploy).
+#
 # Deployment metadata env vars set on every create/update:
 #   WAKER_SERVICE_VERSION — repo-root `version` (canonical service version)
 #   WAKER_VERSION         — `sg_compute_specs/vault_publish/version` (sub-package)
@@ -141,14 +170,15 @@ class Setup__Lambda(Type_Safe):
             'function_url'  : str(url_info.function_url) if url_info.exists else '(none)',
         }
         # Surface deploy-metadata env vars (set by Setup__Lambda at deploy time)
-        for k in ('WAKER_VERSION', 'WAKER_DEPLOYED_AT', 'WAKER_DEPLOY_ID',
-                   'WAKER_DEPLOY_REGION', 'WAKER_DEPLOYED_BY', 'WAKER_GIT_COMMIT'):
+        for k in ('WAKER_SERVICE_VERSION', 'WAKER_VERSION', 'WAKER_DEPLOYED_AT',
+                   'WAKER_DEPLOY_ID', 'WAKER_DEPLOY_REGION', 'WAKER_DEPLOYED_BY',
+                   'WAKER_GIT_COMMIT'):
             out[f'env.{k}'] = str(env.get(k, '(unset)'))
         return out
 
     # ── mutations ─────────────────────────────────────────────────────────────
 
-    def create(self, role_arn: str = '') -> Schema__Setup__Lambda__Report:
+    def create(self, role_arn: str = '', progress: Optional[Callable] = None) -> Schema__Setup__Lambda__Report:
         _require_mutations()
         from sgraph_ai_service_playwright__cli.aws.lambda_.enums.Enum__Lambda__Runtime       import Enum__Lambda__Runtime
         from sgraph_ai_service_playwright__cli.aws.lambda_.primitives.Safe_Str__Lambda__Name import Safe_Str__Lambda__Name
@@ -156,7 +186,10 @@ class Setup__Lambda(Type_Safe):
 
         vault_publish_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../..'))
         package_root      = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../../..'))
-        env               = _build_deploy_env(vault_publish_dir)
+
+        if progress: progress('build-env', 'start')
+        env = _build_deploy_env(vault_publish_dir)
+        if progress: progress('build-env', 'done')
 
         deploy_req = Schema__Lambda__Deploy__Request(
             name        = Safe_Str__Lambda__Name(WAKER_LAMBDA_NAME),
@@ -174,6 +207,7 @@ class Setup__Lambda(Type_Safe):
             package_root  = package_root,
             extra_modules = ['osbot_utils', 'osbot_aws'],
             environment   = env,
+            progress      = progress,
         )
         if not deploy_resp.success:
             issues = List__Schema__Setup__Issue()
@@ -184,17 +218,22 @@ class Setup__Lambda(Type_Safe):
                 state=Enum__Setup__State.ERROR, function_name=WAKER_LAMBDA_NAME, issues=issues)
 
         lc = self._lambda_client()
+        if progress: progress('ensure-url', 'start')
         lc.ensure_function_url(WAKER_LAMBDA_NAME)
+        if progress: progress('ensure-url', 'done')
+
+        if progress: progress('check', 'start')
         report = self.check()
+        if progress: progress('check', 'done')
         # Stamp deploy-only details that check() can't know about
         report.zip_size = int(getattr(deploy_resp, 'zip_size', 0) or 0)
         return report
 
-    def update(self) -> Schema__Setup__Lambda__Report:
+    def update(self, progress: Optional[Callable] = None) -> Schema__Setup__Lambda__Report:
         _require_mutations()
         lc      = self._lambda_client()
         details = lc.get_function_details(WAKER_LAMBDA_NAME)
-        return self.create(role_arn=details.role_arn)                               # carry live role so deployer can fall back to create if needed
+        return self.create(role_arn=details.role_arn, progress=progress)               # carry live role so deployer can fall back to create if needed
 
     def delete(self) -> bool:
         _require_deletes()

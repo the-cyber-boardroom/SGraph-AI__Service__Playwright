@@ -75,21 +75,28 @@ def _ctx(slug='sara-cv', path='/') -> Schema__Waker__Request_Context:
 # ── Tests ─────────────────────────────────────────────────────────────────────
 
 class TestHandlerUnknownSlug:
-    def test_empty_slug_returns_404(self):
+    # The "no slug / unknown slug" surface is a 200 status page, NOT a 404.
+    # The body still surfaces the diagnostic detail; the response code is
+    # informational because the Lambda itself is healthy.
+
+    def test_empty_slug_returns_200_status_page(self):
         h, _, _ = _handler(Enum__Instance__State.UNKNOWN)
         ctx = Schema__Waker__Request_Context(host='', slug='', path='/')
         result = h.handle(ctx)
-        assert result['status_code'] == 404
+        assert result['status_code'] == 200
+        assert result['headers']['X-Waker-State'] == 'not_found'                       # state machine still records the truth
 
-    def test_unknown_slug_returns_404(self):
+    def test_unknown_slug_returns_200_status_page(self):
         h, _, _ = _handler(Enum__Instance__State.UNKNOWN)
         result  = h.handle(_ctx())
-        assert result['status_code'] == 404
+        assert result['status_code'] == 200
+        assert result['headers']['X-Waker-State'] == 'not_found'
 
-    def test_404_body_mentions_slug(self):
+    def test_status_body_mentions_slug(self):
         h, _, _ = _handler(Enum__Instance__State.UNKNOWN)
         result  = h.handle(_ctx())
-        assert b'404' in result['body'] or b'not found' in result['body'].lower()
+        body    = result['body'].lower()
+        assert b'vault waker' in body or b'slug' in body
 
 
 class TestHandlerStopped:

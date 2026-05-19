@@ -110,21 +110,6 @@ jobs:
         with:
           release_type: ${{ inputs.release_type }}
 
-      - name: Sync sg_compute version
-        run: |
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git config user.name  "github-actions[bot]"
-          git pull --rebase
-          NEW_VERSION=$(cat sg_compute_specs/playwright/core/version)
-          echo "$NEW_VERSION" > sg_compute/version
-          sed -i "s/^version = \"[^\"]*\"/version = \"${NEW_VERSION}\"/" sg_compute/pyproject.toml
-          git add sg_compute/version sg_compute/pyproject.toml
-          if git diff --cached --quiet; then
-            echo "sg_compute already at ${NEW_VERSION} — no commit needed"
-          else
-            git commit -m "chore: sync sg_compute version to ${NEW_VERSION} [skip ci]"
-            git push
-          fi
 
   # ════════════════════════════════════════════════════════════════════════════
   # Job 3: Build Playwright Image — per-arch, on NATIVE runners (matrix)

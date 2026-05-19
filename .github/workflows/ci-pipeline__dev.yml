@@ -23,7 +23,6 @@ on:
       # bump commit does not re-trigger a second CI run (belt-and-suspenders
       # alongside the [skip ci] tag in the commit message)
       - 'sg_compute_specs/playwright/core/version'
-      - 'sg_compute/version'
 
 jobs:
   deploy-dev:

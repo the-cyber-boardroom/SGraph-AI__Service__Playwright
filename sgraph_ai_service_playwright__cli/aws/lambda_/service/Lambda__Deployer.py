@@ -13,6 +13,7 @@ import shutil
 import tempfile
 import time
 import zipfile
+from typing import Callable, Optional
 
 import boto3                                                                          # EXCEPTION — see module header
 from botocore.exceptions import ClientError
@@ -51,10 +52,27 @@ class Lambda__Deployer(Type_Safe):
                            package_root  : str        = '',
                            extra_modules : list        = None,
                            layers        : list        = None,
-                           environment   : dict        = None) -> Schema__Lambda__Deploy__Response:
-        name  = str(req.name)
-        code  = self._build_zip(req.folder_path, package_root=package_root, extra_modules=extra_modules)
-        lc    = self.client()
+                           environment   : dict        = None,
+                           progress      : 'Optional[Callable[[str, str], None]]' = None,
+                           ) -> Schema__Lambda__Deploy__Response:
+        # progress(phase, status) is called at every observable phase boundary
+        # so a CLI can render a live progress table. Phases (in order):
+        #   build-zip / detect-function / upload-code / wait-upload /
+        #   update-config / create-function / refresh
+        # status is one of: 'start', 'done'. No-op when progress is None.
+        def _p(phase: str, status: str) -> None:
+            if progress:
+                try: progress(phase, status)
+                except Exception: pass
+
+        name = str(req.name)
+
+        _p('build-zip', 'start')
+        code = self._build_zip(req.folder_path, package_root=package_root, extra_modules=extra_modules)
+        _p('build-zip', 'done')
+
+        lc = self.client()
+        _p('detect-function', 'start')
         try:
             lc.get_function(FunctionName=name)
             existing = True
@@ -64,10 +82,22 @@ class Lambda__Deployer(Type_Safe):
                 existing = False
             else:
                 raise
+        _p('detect-function', 'done')
+
         if existing:
+            _p('wait-prior-update', 'start')
             self._wait_for_update(lc, name)                                         # wait for any in-progress update before code upload
+            _p('wait-prior-update', 'done')
+
+            _p('upload-code', 'start')
             lc.update_function_code(FunctionName=name, ZipFile=code)
+            _p('upload-code', 'done')
+
+            _p('wait-upload', 'start')
             self._wait_for_update(lc, name)                                         # wait for code upload before config update
+            _p('wait-upload', 'done')
+
+            _p('update-config', 'start')
             update_kwargs = dict(
                 FunctionName = name,
                 Handler      = req.handler,
@@ -81,9 +111,14 @@ class Lambda__Deployer(Type_Safe):
             if environment is not None:
                 update_kwargs['Environment'] = {'Variables': environment}
             lc.update_function_configuration(**update_kwargs)
+            _p('update-config', 'done')
+
+            _p('refresh', 'start')
             resp = lc.get_function(FunctionName=name)
             arn  = resp['Configuration']['FunctionArn']
+            _p('refresh', 'done')
         else:
+            _p('create-function', 'start')
             create_kwargs = dict(
                 FunctionName = name,
                 Runtime      = str(req.runtime),
@@ -100,6 +135,8 @@ class Lambda__Deployer(Type_Safe):
                 create_kwargs['Environment'] = {'Variables': environment}
             resp = lc.create_function(**create_kwargs)
             arn  = resp['FunctionArn']
+            _p('create-function', 'done')
+
         return Schema__Lambda__Deploy__Response(
             name         = Safe_Str__Lambda__Name(name),
             function_arn = Safe_Str__Lambda__Arn(arn) if arn.startswith('arn:') else Safe_Str__Lambda__Arn(''),

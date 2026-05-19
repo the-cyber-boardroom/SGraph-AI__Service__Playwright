@@ -528,9 +528,9 @@ def lambda_create(role_arn: str = typer.Option('', '--role-arn', help='Lambda ex
     _print_role_notice(c, svc)
     if not _preflight(c, svc):
         raise typer.Exit(1)
-    c.print('\n  [yellow]→[/]  Deploying Lambda waker…')
+    c.print('\n  [yellow]→[/]  Deploying Lambda waker…\n')
     try:
-        rep = _lambda().create(role_arn=role_arn)
+        rep = _run_with_lambda_progress(c, lambda cb: _lambda().create(role_arn=role_arn, progress=cb))
     except (RuntimeError, ClientError, Exception) as exc:
         _handle_exc(c, exc)
         raise typer.Exit(1)
@@ -541,15 +541,17 @@ def lambda_create(role_arn: str = typer.Option('', '--role-arn', help='Lambda ex
 
 
 @lambda_app.command(name='update', help='Redeploy Lambda waker function. Requires SG_AWS__VAULT_PUBLISH__SETUP__ALLOW_MUTATIONS=1.')
-def lambda_update():
+def lambda_update(
+    invoke: bool = typer.Option(False, '--invoke', help='After a successful deploy, immediately invoke /__waker__/deploy and print the JSON response so you can confirm the new version is live.'),
+):
     c   = Console(highlight=False)
     svc = _iam()
     _print_role_notice(c, svc)
     if not _preflight(c, svc):
         raise typer.Exit(1)
-    c.print('\n  [yellow]→[/]  Redeploying Lambda waker…')
+    c.print('\n  [yellow]→[/]  Redeploying Lambda waker…\n')
     try:
-        rep = _lambda().update()
+        rep = _run_with_lambda_progress(c, lambda cb: _lambda().update(progress=cb))
     except (RuntimeError, ClientError, Exception) as exc:
         _handle_exc(c, exc)
         raise typer.Exit(1)
@@ -557,6 +559,160 @@ def lambda_update():
     if rep.state == Enum__Setup__State.OK:
         c.print('  [green]✓[/]  Lambda waker updated')
     c.print()
+    if invoke and rep.state == Enum__Setup__State.OK:
+        _do_lambda_invoke(c, path='/__waker__/deploy', host='', method='GET', full=True)
+
+
+@lambda_app.command(name='invoke', help='Invoke the deployed waker Lambda with a synthetic event and print the JSON response. Defaults to /__waker__/deploy so you immediately see which version is live.')
+def lambda_invoke(
+    path  : str = typer.Option('/__waker__/deploy', '--path', '-p', help='Request path on the Lambda'),
+    host  : str = typer.Option('',                  '--host', '-H', help='Override the synthetic Host header (defaults to the Lambda URL hostname)'),
+    method: str = typer.Option('GET',               '--method', '-m'),
+    full  : bool = typer.Option(False, '--full', help='Print the full response body (default: truncate to first 800 chars)'),
+):
+    c   = Console(highlight=False)
+    svc = _iam()
+    _print_role_notice(c, svc)
+    if not _preflight(c, svc):
+        raise typer.Exit(1)
+    _do_lambda_invoke(c, path=path, host=host, method=method, full=full)
+
+
+def _do_lambda_invoke(c: Console, *, path: str, host: str, method: str, full: bool) -> None:
+    """Shared invoke implementation — used by `lambda invoke` and by
+    `lambda update --invoke`. Pre-flight (credential check) is the caller's
+    responsibility so this helper stays a thin transport layer."""
+    import json, uuid, boto3
+    from datetime import datetime, timezone
+    from sg_compute_specs.vault_publish.setup.service.Setup__Lambda import WAKER_LAMBDA_NAME
+
+    # Resolve the effective Host header — by default we mimic what AWS itself
+    # would send when someone hits the Function URL directly.
+    if not host:
+        try:
+            from sgraph_ai_service_playwright__cli.aws.lambda_.service.Lambda__AWS__Client import Lambda__AWS__Client
+            url_info = Lambda__AWS__Client().get_function_url(WAKER_LAMBDA_NAME)
+            host = str(url_info.function_url).removeprefix('https://').rstrip('/')
+        except Exception:
+            host = WAKER_LAMBDA_NAME
+
+    now   = datetime.now(timezone.utc)
+    event = {
+        'version'       : '2.0',
+        'rawPath'       : path,
+        'rawQueryString': '',
+        'headers'       : {'host': host, 'user-agent': 'sg-vp-setup-lambda-invoke/0.1'},
+        'requestContext': {
+            'http'     : {'method': method, 'path': path, 'sourceIp': '127.0.0.1'},
+            'requestId': f'sg-invoke-{uuid.uuid4().hex[:8]}',
+            'time'     : now.strftime('%d/%b/%Y:%H:%M:%S +0000'),
+        },
+        'body'           : None,
+        'isBase64Encoded': False,
+    }
+
+    c.print(f'\n  [yellow]→[/]  invoke [bold]{WAKER_LAMBDA_NAME}[/]  path={path}  host={host}')
+    try:
+        from sgraph_ai_service_playwright__cli.aws._shared.Aws__Region__Resolver import Aws__Region__Resolver
+        lam     = boto3.client('lambda', region_name=str(Aws__Region__Resolver().resolve()))
+        resp    = lam.invoke(
+            FunctionName   = WAKER_LAMBDA_NAME,
+            InvocationType = 'RequestResponse',
+            Payload        = json.dumps(event).encode(),
+        )
+        payload = json.loads(resp['Payload'].read())
+    except (ClientError, Exception) as exc:
+        _handle_exc(c, exc)
+        raise typer.Exit(1)
+
+    status = payload.get('statusCode', 0)
+    hdrs   = payload.get('headers', {})
+    body   = payload.get('body', '')
+
+    c.print()
+    c.print(f'  status: [bold]{status}[/]')
+    c.print('  X-Waker headers:')
+    for k, v in sorted(hdrs.items()):
+        if k.lower().startswith('x-waker'):
+            c.print(f'    [dim]{k}[/]: {v}')
+
+    # If body looks like JSON, pretty-print it; otherwise show as text
+    try:
+        parsed = json.loads(body)
+        pretty = json.dumps(parsed, indent=2)
+        if full or len(pretty) <= 800:
+            c.print(f'  body (json):\n{pretty}')
+        else:
+            c.print(f'  body (json, truncated to 800 chars):\n{pretty[:800]}\n  [dim]…(pass --full for the rest)[/]')
+    except (ValueError, TypeError):
+        if full or len(body) <= 800:
+            c.print(f'  body: {body}')
+        else:
+            c.print(f'  body size: {len(body)} chars  [dim](pass --full to see body)[/]')
+    c.print()
+
+
+# Ordered list of phases the Lambda deployer emits (label, description).
+# Some phases (create-function vs the update path) are mutually exclusive;
+# unused ones stay 'pending' and are hidden from the final table.
+_LAMBDA_DEPLOY_PHASES = [
+    ('build-env'        , 'Compose deploy env vars (version, commit, caller, region)'),
+    ('build-zip'        , 'Build deployment ZIP (vault_publish + osbot_utils + osbot_aws)'),
+    ('detect-function'  , 'Check whether the function already exists'),
+    ('wait-prior-update', 'Wait for any in-flight update on the existing function'),
+    ('upload-code'      , 'Upload code to AWS Lambda (update_function_code)'),
+    ('wait-upload'      , 'Wait for code upload to settle'),
+    ('update-config'    , 'Update function configuration (handler/runtime/memory/env)'),
+    ('create-function'  , 'Create new function (first-time deploy)'),
+    ('refresh'          , 'Re-read function details for the post-deploy report'),
+    ('ensure-url'       , 'Ensure the function URL exists'),
+    ('check'            , 'Refresh full report (config + URL + env vars)'),
+]
+
+
+def _run_with_lambda_progress(c: Console, do_deploy):
+    """Run a deployer call with a live phase-progress table."""
+    import time as _t
+    state    = {label: {'status': 'pending', 'started_at': None, 'elapsed': 0.0}
+                 for label, _desc in _LAMBDA_DEPLOY_PHASES}
+    descs    = dict(_LAMBDA_DEPLOY_PHASES)
+
+    def _build_table() -> Table:
+        t = Table(box=None, show_header=True, padding=(0, 2))
+        t.add_column('Step',    style='bold')
+        t.add_column('Status',  style='')
+        t.add_column('Elapsed', style='dim', justify='right')
+        t.add_column('Description', style='dim')
+        for label, desc in _LAMBDA_DEPLOY_PHASES:
+            s = state[label]
+            if s['status'] == 'pending':
+                continue                                                              # hide untouched phases (some paths skip a subset)
+            if s['status'] == 'running':
+                icon  = '[yellow]⏳ running…[/]'
+                elapsed_s = _t.time() - (s['started_at'] or _t.time())
+            else:                                                                     # 'done'
+                icon  = '[green]✓ done[/]'
+                elapsed_s = s['elapsed']
+            t.add_row(label, icon, f'{elapsed_s:.1f}s', desc)
+        return t
+
+    with Live(_build_table(), console=c, refresh_per_second=4, transient=False) as live:
+        def cb(phase: str, status: str) -> None:
+            if phase not in state:
+                # Unknown phase — surface it so we don't lose visibility
+                state[phase] = {'status': 'pending', 'started_at': None, 'elapsed': 0.0}
+                _LAMBDA_DEPLOY_PHASES.append((phase, '(deployer phase)'))
+            entry = state[phase]
+            now   = _t.time()
+            if status == 'start':
+                entry['status']     = 'running'
+                entry['started_at'] = now
+            elif status == 'done':
+                entry['status']     = 'done'
+                if entry['started_at']:
+                    entry['elapsed'] = now - entry['started_at']
+            live.update(_build_table())
+        return do_deploy(cb)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
