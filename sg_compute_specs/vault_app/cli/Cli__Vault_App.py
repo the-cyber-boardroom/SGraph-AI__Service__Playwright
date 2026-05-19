@@ -481,12 +481,19 @@ _DIAG_HINTS = {
 
 @app.command(name='cert-renew')
 @spec_cli_errors
-def cert_renew(name    : str  = typer.Argument(None, help='Stack name; auto-selected when only one exists.'),
-               region  : str  = typer.Option(DEFAULT_REGION, '--region', '-r'),
-               wait    : bool = typer.Option(True, '--wait/--no-wait',
-                                              help='Wait for the cert-init container to finish before returning.'),
-               timeout : int  = typer.Option(120, '--timeout', '-t',
-                                              help='Max seconds to wait for cert-init to complete (LE issuance can take 20-90s).')):
+def cert_renew(name     : str  = typer.Argument(None, help='Stack name; auto-selected when only one exists.'),
+               region   : str  = typer.Option(DEFAULT_REGION, '--region', '-r'),
+               mode     : str  = typer.Option('', '--mode',
+                                               help='Override SG__CERT_INIT__MODE on /opt/vault-app/.env before restart. '
+                                                    'One of: letsencrypt-hostname, letsencrypt-ip, self-signed. '
+                                                    'Empty = re-use whatever\'s already in .env.'),
+               hostname : str  = typer.Option('', '--hostname',
+                                               help='Override SG__CERT_INIT__TLS_HOSTNAME on /opt/vault-app/.env '
+                                                    '(the FQDN to validate when mode=letsencrypt-hostname).'),
+               wait     : bool = typer.Option(True, '--wait/--no-wait',
+                                               help='Wait for the cert-init container to finish before returning.'),
+               timeout  : int  = typer.Option(120, '--timeout', '-t',
+                                               help='Max seconds to wait for cert-init to complete (LE issuance can take 20-90s).')):
     """Re-trigger Let's Encrypt cert issuance on a vault-app stack.
 
     \b
@@ -522,10 +529,33 @@ def cert_renew(name    : str  = typer.Argument(None, help='Stack name; auto-sele
     engine = str(getattr(info, 'engine', '') or 'docker').lower()
     compose_bin = 'podman-compose' if engine == 'podman' else 'docker compose'
 
+    # If the operator asked us to switch mode or change hostname, patch
+    # /opt/vault-app/.env IN PLACE before restarting. cert-init reads its
+    # config exclusively from that file — re-running it with stale .env
+    # would just reissue the same wrong cert.
+    env_patch = ''
+    if mode or hostname:
+        c.print(f'  [yellow]→[/]  Patching /opt/vault-app/.env  '
+                f'mode={mode or "(unchanged)"}  hostname={hostname or "(unchanged)"}')
+        kvs = []
+        if mode:     kvs.append(('SG__CERT_INIT__MODE'        , mode))
+        if hostname: kvs.append(('SG__CERT_INIT__TLS_HOSTNAME', hostname))
+        env_patch = (
+            'set -e; '
+            'ENV=/opt/vault-app/.env; '
+            'touch "$ENV"; '
+            'update_kv(){ if grep -q "^$1=" "$ENV" 2>/dev/null; then '
+            '  sed -i "s|^$1=.*|$1=$2|" "$ENV"; else echo "$1=$2" >> "$ENV"; fi; }; '
+            + '; '.join(f'update_kv {k!r} {v!r}' for k, v in kvs)
+            + '; echo "[env-patch] updated $ENV:"; '
+            + '; '.join(f'grep "^{k}=" "$ENV"' for k, _v in kvs) + '; '
+        )
+
     # Restart cert-init. The container is one-shot (exit 0 on success) and the
     # vault container declares depends_on:cert-init:service_completed_successfully,
     # so a fresh cert-init also implicitly restarts the vault when it succeeds.
     ssm_cmd = (
+        f'{env_patch}'
         f'cd /opt/vault-app && '
         f'{compose_bin} restart cert-init 2>&1 | tail -40; '
         f'echo "---cert-init logs---"; '
@@ -563,7 +593,7 @@ def cert_renew(name    : str  = typer.Argument(None, help='Stack name; auto-sele
             c.print(f'\n  [red]✗  timed out after {timeout}s — cert-init last status: {last_status!r}[/]')
             c.print(f'  [dim]   inspect the container logs with: sg va logs {name} --source cert-init[/]\n')
             raise typer.Exit(1)
-        r = svc.exec(region, name, ps_cmd, timeout_sec=15)
+        r = svc.exec(region, name, ps_cmd, timeout_sec=30)                          # SSM SendCommand minimum is 30s
         status = str(getattr(r, 'stdout', '') or '').strip().splitlines()
         status = status[0] if status else ''
         if status != last_status:
