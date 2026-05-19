@@ -290,7 +290,7 @@ class Vault_App__Fargate__Setup(Type_Safe):
             if existing:
                 network_tags = {}
                 if request.subnets:
-                    network_tags['VaultApp__Subnets'] = request.subnets
+                    network_tags['VaultApp__Subnets'] = request.subnets.replace(',', ' ')   # AWS tag values disallow commas
                 if request.security_group:
                     network_tags['VaultApp__SecurityGroup'] = request.security_group
                 if network_tags:
@@ -323,7 +323,7 @@ class Vault_App__Fargate__Setup(Type_Safe):
             if existing:
                 network_tags = {}
                 if request.subnets:
-                    network_tags['VaultApp__Subnets'] = request.subnets
+                    network_tags['VaultApp__Subnets'] = request.subnets.replace(',', ' ')   # AWS tag values disallow commas
                 if request.security_group:
                     network_tags['VaultApp__SecurityGroup'] = request.security_group
                 if network_tags:

@@ -38,7 +38,7 @@ class test_Vault_App__Fargate__Tags__Writer(TestCase):
 
     def test_subnets_tag_present(self):
         tags = self._base_tags()
-        assert tags['VaultApp__Subnets'] == 'subnet-aaa,subnet-bbb'
+        assert tags['VaultApp__Subnets'] == 'subnet-aaa subnet-bbb'              # CSV → space-separated (AWS tag values disallow commas)
 
     def test_security_group_tag_present(self):
         tags = self._base_tags()

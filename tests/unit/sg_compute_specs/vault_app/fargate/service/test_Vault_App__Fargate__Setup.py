@@ -469,7 +469,7 @@ class Test__VAF__Setup__CLUSTER(TestCase):
         req     = _base_request(phases=[Enum__VAF__Setup__Phase.CLUSTER], subnets='subnet-new,subnet-other', security_group='sg-new')
         setup.create(req)
         cluster = fargate.describe_cluster('test-cluster')
-        assert cluster.tags.get('VaultApp__Subnets')       == 'subnet-new,subnet-other'
+        assert cluster.tags.get('VaultApp__Subnets')       == 'subnet-new subnet-other'   # encoded as space-separated (AWS bans commas)
         assert cluster.tags.get('VaultApp__SecurityGroup') == 'sg-new'
 
     # ── delete ────────────────────────────────────────────────────────────────
