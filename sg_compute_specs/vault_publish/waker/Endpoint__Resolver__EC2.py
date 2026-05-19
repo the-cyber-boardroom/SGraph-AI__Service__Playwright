@@ -35,6 +35,21 @@ _SLUG_CACHE : dict = {}                                                         
 _CACHE_TTL  = 60                                                                   # seconds
 
 
+def _instance_has_tls(instance: dict) -> bool:
+    for t in instance.get('Tags', []) or []:
+        if t.get('Key') == 'StackTLS' and str(t.get('Value', '')).lower() in ('true', '1', 'yes'):
+            return True
+    return False
+
+
+def _build_vault_url(public_ip: str, *, tls: bool) -> str:
+    if not public_ip:
+        return ''
+    if tls:
+        return f'https://{public_ip}/'                                                # vault-app on :443 when TLS configured
+    return f'http://{public_ip}:8080'                                                  # plain HTTP fallback
+
+
 def _scan_regions() -> list:
     # Caller-supplied override wins; otherwise waker's deploy region first,
     # then the most common alternatives. Deduplicated while preserving order.
@@ -97,7 +112,12 @@ class Endpoint__Resolver__EC2(Endpoint__Resolver):
         iid       = instance.get('InstanceId', '')
         raw_state = instance.get('State', {}).get('Name', 'unknown')
         public_ip = instance.get('PublicIpAddress', '')
-        vault_url = f'http://{public_ip}:8080' if public_ip else ''
+        # Detect StackTLS tag — vault-app on HTTPS:443 when TLS is configured,
+        # plain HTTP:8080 when not. The HTTPS URL points at the IP, so the
+        # proxy must skip cert validation (Endpoint__Proxy__HTTP handles
+        # that — the upstream cert is for the FQDN, not the IP).
+        tls       = _instance_has_tls(instance)
+        vault_url = _build_vault_url(public_ip, tls=tls)
         return Schema__Endpoint__Resolution(
             slug            = slug,
             instance_id     = iid,

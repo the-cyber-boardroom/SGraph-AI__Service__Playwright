@@ -194,6 +194,131 @@ def _cmd_find_slug(args):
     return {'slug': slug, 'scan': findings}
 
 
+@cmd('check-slug', 'End-to-end per-slug diagnostic: finds the EC2 (by sg:slug then StackName), reads tags, computes the expected vault URL based on StackTLS, probes it from inside the Lambda, resolves DNS for slug.zone and compares to the EC2 IP. Required arg: slug=…  Optional: zone=aws.sg-labs.app')
+def _cmd_check_slug(args):
+    slug = args.get('slug', '')
+    if not slug:
+        return {'error': 'arg "slug" required'}
+    zone = args.get('zone', 'aws.sg-labs.app')
+    fqdn = f'{slug}.{zone}'
+    import boto3, socket, urllib3
+    from sg_compute_specs.vault_publish.waker.Endpoint__Resolver__EC2 import (
+        _scan_regions, _instance_has_tls, _build_vault_url,
+    )
+
+    checks = []
+    instance = None
+    region   = ''
+    # 1. Locate the EC2 — sg:slug first, then StackName fallback
+    for r in _scan_regions():
+        try:
+            ec2 = boto3.client('ec2', region_name=r)
+            by_slug = ec2.describe_instances(Filters=[
+                {'Name': 'tag:sg:slug',         'Values': [slug]},
+                {'Name': 'instance-state-name', 'Values': ['running', 'pending']},
+            ])
+            for res in by_slug.get('Reservations', []):
+                for inst in res.get('Instances', []):
+                    instance = inst; region = r
+                    checks.append({'step': 'find-ec2', 'pass': True,
+                                   'detail': f'matched tag:sg:slug={slug} in {r}',
+                                   'iid': inst.get('InstanceId', '')})
+                    break
+                if instance: break
+            if instance: break
+            by_name = ec2.describe_instances(Filters=[
+                {'Name': 'tag:StackName',       'Values': [slug]},
+                {'Name': 'instance-state-name', 'Values': ['running', 'pending']},
+            ])
+            for res in by_name.get('Reservations', []):
+                for inst in res.get('Instances', []):
+                    instance = inst; region = r
+                    checks.append({'step': 'find-ec2', 'pass': True,
+                                   'detail': f'matched tag:StackName={slug} in {r} '
+                                              f'(sg:slug tag missing — was this created via `sg va create`? '
+                                              f'Run `tag-slug iid={inst.get("InstanceId","")} slug={slug}` to fix)',
+                                   'iid': inst.get('InstanceId', '')})
+                    break
+                if instance: break
+            if instance: break
+        except Exception as exc:
+            checks.append({'step': 'find-ec2', 'pass': False, 'detail': f'{r}: {exc}'})
+    if not instance:
+        checks.append({'step': 'find-ec2', 'pass': False,
+                       'detail': f'no EC2 with sg:slug or StackName = {slug} in any scanned region'})
+        return {'slug': slug, 'fqdn': fqdn, 'checks': checks}
+
+    tags = {t.get('Key',''): t.get('Value','') for t in instance.get('Tags', [])}
+    pub_ip = instance.get('PublicIpAddress', '')
+    state  = instance.get('State', {}).get('Name', '')
+    tls    = _instance_has_tls(instance)
+    vault_url = _build_vault_url(pub_ip, tls=tls)
+
+    checks.append({'step': 'ec2-state', 'pass': state == 'running',
+                   'detail': f'state={state} public_ip={pub_ip or "(none)"}'})
+    checks.append({'step': 'ec2-tags', 'pass': bool(tags.get('sg:slug')),
+                   'detail': f'sg:slug={tags.get("sg:slug","(missing)")} '
+                              f'sg:fqdn={tags.get("sg:fqdn","(missing)")} '
+                              f'StackTLS={tags.get("StackTLS","(missing)")}'})
+    checks.append({'step': 'expected-vault-url', 'pass': bool(vault_url),
+                   'detail': f'{vault_url}   (StackTLS={"on" if tls else "off"})'})
+
+    # 2. Probe vault URL from inside the Lambda
+    if vault_url:
+        try:
+            t0 = __import__('time').time()
+            http = urllib3.PoolManager(cert_reqs='CERT_NONE',
+                                       assert_hostname=False,
+                                       timeout=urllib3.Timeout(connect=2, read=5))
+            import warnings; warnings.filterwarnings('ignore')
+            resp = http.request('GET', vault_url, preload_content=False, retries=False)
+            ms = int((__import__('time').time() - t0) * 1000)
+            checks.append({'step': 'probe-vault-url', 'pass': resp.status < 500,
+                           'detail': f'HTTP {resp.status} in {ms}ms'})
+        except Exception as exc:
+            checks.append({'step': 'probe-vault-url', 'pass': False, 'detail': str(exc)[:160]})
+
+    # 3. DNS lookup of slug.zone — compare to EC2 IP
+    try:
+        infos = socket.getaddrinfo(fqdn, None)
+        dns_ips = sorted({a[4][0] for a in infos})
+        is_ec2 = pub_ip in dns_ips if pub_ip else False
+        is_cf  = any(ip.startswith('18.154.') or ip.startswith('99.86.') or
+                     ip.startswith('13.224.') or ip.startswith('52.84.')
+                     for ip in dns_ips)
+        if is_ec2:
+            detail = f'{fqdn} → {dns_ips} — matches EC2 IP ✓'
+            ok = True
+        elif is_cf:
+            detail = (f'{fqdn} → {dns_ips} — resolves to CloudFront wildcard, '
+                       f'no per-slug A record pointing at {pub_ip}. '
+                       f'For direct HTTPS / Let\'s Encrypt validation, create an A record: '
+                       f'`sg vp dns {slug}` to inspect, or re-run `sg vp register {slug}` '
+                       f'(which creates the per-slug A record).')
+            ok = False
+        else:
+            detail = f'{fqdn} → {dns_ips} — does NOT match EC2 IP {pub_ip}'
+            ok = False
+        checks.append({'step': 'dns-resolution', 'pass': ok, 'detail': detail})
+    except Exception as exc:
+        checks.append({'step': 'dns-resolution', 'pass': False, 'detail': str(exc)})
+
+    all_pass = all(c.get('pass') for c in checks)
+    return {
+        'slug'        : slug,
+        'fqdn'        : fqdn,
+        'region'      : region,
+        'instance_id' : instance.get('InstanceId', ''),
+        'public_ip'   : pub_ip,
+        'state'       : state,
+        'tls'         : tls,
+        'vault_url'   : vault_url,
+        'tags'        : tags,
+        'all_pass'    : all_pass,
+        'checks'      : checks,
+    }
+
+
 @cmd('describe-instance', 'Describe a specific EC2 by InstanceId. Required arg: iid=i-xxxx. Optional: region=eu-west-2 (otherwise scans).')
 def _cmd_describe_instance(args):
     iid = args.get('iid', '') or args.get('instance_id', '')
