@@ -11,10 +11,11 @@ class _Fake_ECS_Client:
     """Minimal boto3-alike ECS client backed by in-memory dicts."""
 
     def __init__(self, clusters: dict, task_defs: dict, tasks: dict):
-        self._clusters  = clusters   # cluster_name → raw cluster dict
-        self._task_defs = task_defs  # task_def_arn → raw task definition dict
-        self._tasks     = tasks      # task_arn → raw task dict
-        self._td_by_family_rev = {}  # "family:rev" → task_def_arn
+        self._clusters       = clusters   # cluster_name → raw cluster dict
+        self._task_defs      = task_defs  # task_def_arn → raw task definition dict
+        self._tasks          = tasks      # task_arn → raw task dict
+        self._td_by_family_rev = {}       # "family:rev" → task_def_arn
+        self.last_run_kwargs = {}         # kwargs captured from the most recent run_task call
 
     # ── cluster ───────────────────────────────────────────────────────────────
 
@@ -142,6 +143,7 @@ class _Fake_ECS_Client:
     def run_task(self, cluster: str, taskDefinition: str,
                  count: int = 1, **kwargs):
         import uuid
+        self.last_run_kwargs = dict(kwargs)                                        # capture for test assertions
         task_id     = str(uuid.uuid4())
         task_arn    = f'arn:aws:ecs:us-east-1:123456789012:task/{cluster}/{task_id}'
         cluster_arn = f'arn:aws:ecs:us-east-1:123456789012:cluster/{cluster}'

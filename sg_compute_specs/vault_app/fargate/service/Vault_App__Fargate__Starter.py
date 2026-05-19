@@ -1,8 +1,8 @@
 # ═══════════════════════════════════════════════════════════════════════════════
 # sg_compute_specs vault_app/fargate — Vault_App__Fargate__Starter
 # Fast-path orchestrator: RESOLVE_CONFIG → RUN_TASK → WAIT_RUNNING →
-# RESOLVE_ENI → WAIT_HEALTH.  All AWS calls via injected clients.
-# DNS_UPSERT is a no-op stub in v1 (with_aws_dns not implemented).
+# RESOLVE_ENI → DNS_UPSERT → WAIT_HEALTH.  All AWS calls via injected clients.
+# DNS_UPSERT creates/updates an A record when request.dns_zone is set.
 # progress_cb fires (name, status, detail='') on phase enter+exit.
 # ═══════════════════════════════════════════════════════════════════════════════
 
@@ -33,6 +33,7 @@ class Vault_App__Fargate__Starter(Type_Safe):
 
     fargate_client : object = None                                                # Fargate__AWS__Client — injected
     ec2_client     : object = None                                                # EC2__AWS__Client — injected
+    route53_client : object = None                                                # Route53__AWS__Client — injected; None = DNS skipped
 
     progress_cb    : object = None                                                # callable(name, status, detail='') or None
 
@@ -47,6 +48,12 @@ class Vault_App__Fargate__Starter(Type_Safe):
             self.slug_resolver = Vault_App__Fargate__Slug__Resolver(fargate_client=self.fargate_client)
         if not self.timings_store:
             self.timings_store = Vault_App__Fargate__Timings__Store()
+        if self.route53_client is None:                                           # best-effort; DNS phases gracefully skip when None
+            try:
+                from sgraph_ai_service_playwright__cli.aws.dns.service.Route53__AWS__Client import Route53__AWS__Client
+                self.route53_client = Route53__AWS__Client()
+            except Exception:
+                pass
 
     # ── main entry point ──────────────────────────────────────────────────────
 
@@ -73,24 +80,28 @@ class Vault_App__Fargate__Starter(Type_Safe):
 
             # ── Phase 2: RUN_TASK ─────────────────────────────────────────────
             slug = request.slug or Stack__Name__Generator().generate()
+            fqdn = f'{slug}.{request.dns_zone}' if request.dns_zone else ''       # fully-qualified domain when dns_zone set
             task = None
             with timer.phase(Enum__VAF__Start__Phase.RUN_TASK.value) as result:
                 self.slug_resolver.check_unique(cluster_cfg.cluster_name, slug)
                 task_tags = dict(request.tags or {})
                 task_tags['VaultApp__Slug'] = slug
                 subnets = [s.strip() for s in cluster_cfg.subnets.split(',') if s.strip()]
+                with_tls_effective = request.with_tls or bool(request.dns_zone)   # dns_zone forces TLS
                 task = self.fargate_client.run_task(
-                    cluster          = cluster_cfg.cluster_name,
-                    task_def         = self.spec.default_task_def_family,
-                    subnets          = subnets,
-                    security_groups  = [cluster_cfg.security_group] if cluster_cfg.security_group else [],
-                    assign_public_ip = request.public_ip,
-                    launch_type      = request.launch_type,
-                    tags             = task_tags,
-                    env              = self.spec.env_for_run(
+                    cluster                = cluster_cfg.cluster_name,
+                    task_def               = self.spec.default_task_def_family,
+                    subnets                = subnets,
+                    security_groups        = [cluster_cfg.security_group] if cluster_cfg.security_group else [],
+                    assign_public_ip       = request.public_ip,
+                    launch_type            = request.launch_type,
+                    enable_execute_command = request.enable_exec,
+                    tags                   = task_tags,
+                    env                    = self.spec.env_for_run(
                         access_token    = request.access_token,
                         seed_vault_keys = request.seed_vault_keys,
-                        with_tls        = request.with_tls,
+                        with_tls        = with_tls_effective,
+                        domain          = fqdn,
                     ),
                 )
                 report.task_arn     = str(task.task_arn) if task else ''
@@ -128,14 +139,34 @@ class Vault_App__Fargate__Starter(Type_Safe):
                     report.private_ip = str(eni.private_ip) if eni else ''
                 result.detail = f'ip={report.public_ip or "none"}'
 
-            # ── Phase 5: DNS_UPSERT — v1 stub ─────────────────────────────────
-            # with_aws_dns is not implemented in v1; skip the phase entirely
+            # ── Phase 5: DNS_UPSERT ───────────────────────────────────────────
+            with timer.phase(Enum__VAF__Start__Phase.DNS_UPSERT.value) as result:
+                if request.dns_zone and fqdn and report.public_ip and self.route53_client:
+                    from sgraph_ai_service_playwright__cli.aws.dns.enums.Enum__Route53__Record_Type import Enum__Route53__Record_Type
+                    self.route53_client.upsert_record(
+                        zone_id_or_name = request.dns_zone,
+                        name            = fqdn,
+                        record_type     = Enum__Route53__Record_Type.A,
+                        values          = [report.public_ip],
+                        ttl             = 60,
+                    )
+                    result.detail = f'{fqdn} → {report.public_ip}'
+                else:
+                    from sg_compute_specs.vault_app.fargate.enums.Enum__VAF__Phase__Status import Enum__VAF__Phase__Status
+                    result.status = Enum__VAF__Phase__Status.SKIPPED
+                    result.detail = 'no dns_zone'
 
             # ── Phase 6: WAIT_HEALTH ──────────────────────────────────────────
-            port      = self.spec.https_port if request.with_tls else self.spec.http_port
-            scheme    = 'https' if request.with_tls else 'http'
-            host      = report.public_ip or report.private_ip
-            vault_url = f'{scheme}://{host}:{port}'
+            with_tls_eff = request.with_tls or bool(request.dns_zone)
+            port         = self.spec.https_port if with_tls_eff else self.spec.http_port
+            scheme       = 'https' if with_tls_eff else 'http'
+            if fqdn:                                                               # prefer FQDN URL when dns_zone is set
+                vault_url      = f'{scheme}://{fqdn}'
+                health_timeout = 120                                               # allow ACME cert acquisition time
+            else:
+                host      = report.public_ip or report.private_ip
+                vault_url = f'{scheme}://{host}:{port}'
+                health_timeout = 30
             report.vault_url    = vault_url
             report.access_token = request.access_token
             with timer.phase(Enum__VAF__Start__Phase.WAIT_HEALTH.value) as result:

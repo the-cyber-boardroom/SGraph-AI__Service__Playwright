@@ -18,6 +18,7 @@ from sg_compute_specs.vault_app.fargate.cli.Cli__Vault_App__Fargate__Start impor
     fargate_list,
     fargate_info,
     fargate_timings,
+    fargate_exec,
 )
 
 app = typer.Typer(name='fargate', help='Vault-App on Fargate.', no_args_is_help=True)
@@ -36,3 +37,4 @@ app.command('logs'   )(fargate_logs    )
 app.command('list'   )(fargate_list    )
 app.command('info'   )(fargate_info    )
 app.command('timings')(fargate_timings )
+app.command('exec'   )(fargate_exec    )
