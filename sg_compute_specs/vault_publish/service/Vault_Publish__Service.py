@@ -105,12 +105,15 @@ class Vault_Publish__Service(Type_Safe):
         fqdn       = f'{slug}.{_default_zone()}'
         vault_app  = self._vault_app()
         from sg_compute_specs.vault_app.schemas.Schema__Vault_App__Create__Request import Schema__Vault_App__Create__Request
+        with_tls = bool(getattr(request, 'with_tls', True))
         create_req           = Schema__Vault_App__Create__Request()
-        create_req.stack_name  = slug
-        create_req.region      = region
-        create_req.with_aws_dns = True
-        create_req.tls_hostname = fqdn
-        create_req.tls_mode     = 'letsencrypt-hostname'
+        create_req.stack_name    = slug
+        create_req.region        = region
+        create_req.with_aws_dns  = True
+        create_req.with_tls_check= with_tls
+        if with_tls:
+            create_req.tls_hostname = fqdn
+            create_req.tls_mode     = 'letsencrypt-hostname'
         create_resp = vault_app.create_stack(create_req)
 
         stack_name  = str(getattr(create_resp.stack_info, 'stack_name', '') or slug)
