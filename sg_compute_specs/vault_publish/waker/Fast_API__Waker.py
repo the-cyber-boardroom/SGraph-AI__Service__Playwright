@@ -187,6 +187,58 @@ class Fast_API__Waker(Type_Safe):
                 },
             }
 
+        @fast_app.get('/__waker__/probe',
+                       summary='JSON status probe (CORS-enabled). The warming page polls this cross-origin from the Lambda Function URL instead of polling the slug FQDN, so the slug FQDN keep-alive socket can idle out and the next navigation gets a fresh DNS lookup.')
+        async def probe(slug: str = ''):
+            import json as _json
+            from sg_compute_specs.vault_publish.waker.Endpoint__Resolver__EC2 import Endpoint__Resolver__EC2
+            from sg_compute_specs.vault_publish.waker.schemas.Enum__Instance__State import Enum__Instance__State
+            from sg_compute_specs.vault_publish.waker.Waker__Handler import health_probe
+
+            cors_headers = {
+                'Access-Control-Allow-Origin'  : '*',
+                'Access-Control-Allow-Methods' : 'GET, OPTIONS',
+                'Access-Control-Allow-Headers' : 'content-type, x-vault-warming-probe',
+                'Access-Control-Expose-Headers': 'x-waker-version',
+                'Cache-Control'                : 'no-store',
+                'X-Waker-Version'              : WAKER_VERSION,
+                'Content-Type'                 : 'application/json',
+            }
+            if not slug:
+                return Response(content=_json.dumps({'error': 'slug query param required'}),
+                                status_code=400, headers=cors_headers)
+
+            resolution = Endpoint__Resolver__EC2().resolve(slug)
+            state      = resolution.state
+            if state == Enum__Instance__State.UNKNOWN:
+                waker_state = 'not_found'
+            elif (state == Enum__Instance__State.RUNNING
+                  and resolution.vault_url
+                  and health_probe(resolution.vault_url)):
+                waker_state = 'proxied'
+            else:
+                waker_state = 'warming'
+
+            payload = {
+                'slug'        : slug,
+                'waker_state' : waker_state,
+                'ec2_state'   : str(state),
+                'instance_id' : resolution.instance_id,
+                'public_ip'   : resolution.public_ip,
+                'region'      : resolution.region,
+            }
+            return Response(content=_json.dumps(payload), status_code=200, headers=cors_headers)
+
+        @fast_app.options('/__waker__/probe',
+                           summary='CORS preflight for /__waker__/probe.')
+        async def probe_options():
+            return Response(status_code=204, headers={
+                'Access-Control-Allow-Origin'  : '*',
+                'Access-Control-Allow-Methods' : 'GET, OPTIONS',
+                'Access-Control-Allow-Headers' : 'content-type, x-vault-warming-probe',
+                'Access-Control-Max-Age'       : '86400',
+            })
+
         @fast_app.api_route('/{path:path}',
                              methods=['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'HEAD', 'OPTIONS'])
         async def catch_all(request: Request, path: str):
