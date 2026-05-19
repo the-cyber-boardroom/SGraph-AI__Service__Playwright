@@ -187,6 +187,10 @@ class Fast_API__Waker(Type_Safe):
             max_age            = 86400,
         )
         self._register_routes(fast_app)
+        # Mount admin UI at /__admin__/ on the same Lambda. Sub-app has its
+        # own auth middleware (Admin__Auth — API-key cookie/header gate).
+        from sg_compute_specs.vault_publish.admin.Fast_API__Admin import Fast_API__Admin
+        fast_app.mount('/__admin__', Fast_API__Admin().app())
         return fast_app
 
     def _register_routes(self, fast_app: FastAPI):
