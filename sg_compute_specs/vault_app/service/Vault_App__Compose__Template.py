@@ -9,11 +9,11 @@
 # Only sg-send-vault publishes a host port (8080). Every other service stays on
 # the internal vault-net bridge — reach them with an SSM port-forward.
 #
-# Image sources:
+# Image sources (all Docker Hub — no ECR):
 #   sg-send-vault   → diniscruz/sg-send-vault     (Docker Hub)
 #   host-plane      → diniscruz/sg-host-control   (Docker Hub — dedicated small image)
 #   sg-playwright   → diniscruz/sg-playwright     (Docker Hub)
-#   agent-mitmproxy → {ECR}/agent_mitmproxy       (proprietary, ECR-only)
+#   agent-mitmproxy → mitmproxy/mitmproxy:latest  (Docker Hub OSS)
 #   cert-init       → diniscruz/sg-host-control   (Docker Hub — same image, CMD override)
 #
 # All ${...} values are resolved by the compose engine from /opt/vault-app/.env
@@ -117,12 +117,15 @@ _SG_PLAYWRIGHT = '''
 
 _AGENT_MITMPROXY = '''
   agent-mitmproxy:
-    image: {ecr_registry}/agent_mitmproxy:{image_tag}
-    ports:
-      - "127.0.0.1:19081:8000"   # admin FastAPI (incl. Routes__Web /web/* → mitmweb:8081); SSM-only
-    environment:
-      FAST_API__AUTH__API_KEY__NAME:  ${{FAST_API__AUTH__API_KEY__NAME:-X-API-Key}}
-      FAST_API__AUTH__API_KEY__VALUE: ${{FAST_API__AUTH__API_KEY__VALUE}}
+    image: mitmproxy/mitmproxy:latest
+    command:
+      - mitmweb
+      - --web-host=127.0.0.1
+      - --web-port=8081
+      - --listen-host=0.0.0.0
+      - --listen-port=8080
+      - --set
+      - block_global=false
     networks:
       - vault-net
     restart: unless-stopped
@@ -170,8 +173,7 @@ volumes:
 
 class Vault_App__Compose__Template(Type_Safe):
 
-    def render(self, ecr_registry        : str  = ''                          ,
-                     with_playwright     : bool = False                       ,
+    def render(self, with_playwright     : bool = False                       ,
                      image_tag           : str  = 'latest'                    ,
                      sg_send_vault_image : str  = SG_SEND_VAULT_IMAGE          ,
                      sg_playwright_image : str  = SG_PLAYWRIGHT_IMAGE          ,
@@ -188,7 +190,7 @@ class Vault_App__Compose__Template(Type_Safe):
                                             image_tag=image_tag,
                                             docker_socket=docker_socket))
             parts.append(_SG_PLAYWRIGHT.format(sg_playwright_image=sg_playwright_image))
-            parts.append(_AGENT_MITMPROXY.format(ecr_registry=ecr_registry, image_tag=image_tag))
+            parts.append(_AGENT_MITMPROXY)
         if with_tls_check:
             parts.append(_CERT_INIT.format(host_control_image=host_control_image,
                                            image_tag=image_tag))

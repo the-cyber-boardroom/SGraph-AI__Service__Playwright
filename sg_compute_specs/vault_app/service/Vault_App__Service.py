@@ -28,7 +28,7 @@ from sg_compute_specs.vault_app.schemas.Schema__Vault_App__Start__Response  impo
 from sg_compute_specs.vault_app.schemas.Schema__Vault_App__Stop__Request    import Schema__Vault_App__Stop__Request
 from sg_compute_specs.vault_app.schemas.Schema__Vault_App__Stop__Response   import Schema__Vault_App__Stop__Response
 from sg_compute_specs.vault_app.service.Vault_App__AMI__Helper              import Vault_App__AMI__Helper
-from sg_compute_specs.vault_app.service.Vault_App__AWS__Client              import Vault_App__AWS__Client, ecr_registry_host
+from sg_compute_specs.vault_app.service.Vault_App__AWS__Client              import Vault_App__AWS__Client
 from sg_compute_specs.vault_app.service.Vault_App__Stack__Mapper            import (Vault_App__Stack__Mapper ,
                                                                                     STACK_TYPE               ,
                                                                                     PLAYWRIGHT_EXTERNAL_PORT ,
@@ -105,8 +105,6 @@ class Vault_App__Service(Spec__Service__Base):
         itype        = str(request.instance_type) or DEFAULT_INSTANCE_TYPE
         engine       = str(request.container_engine) or 'docker'
         access_token = str(request.access_token) or secrets.token_urlsafe(24)
-        ecr_registry = ecr_registry_host(region)
-
         # SG layout:
         #   :8080  always — vault UI on plain HTTP for non-TLS / SSM-forward use; caller-/32 only.
         #   :443   --with-tls-check — HTTPS vault. World-open (token-gated; LE validates from unpredictable IPs).
@@ -144,8 +142,6 @@ class Vault_App__Service(Spec__Service__Base):
 
         user_data = self.user_data_builder.render(
             stack_name       = stack_name              ,
-            region           = region                  ,
-            ecr_registry     = ecr_registry            ,
             access_token     = access_token            ,
             with_playwright  = bool(request.with_playwright) ,
             container_engine = engine                   ,

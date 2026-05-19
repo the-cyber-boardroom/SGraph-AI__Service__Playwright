@@ -23,7 +23,7 @@ from sg_compute_specs.playwright.schemas.Schema__Playwright__Create__Response im
 from sg_compute_specs.playwright.schemas.Schema__Playwright__Delete__Response import Schema__Playwright__Delete__Response
 from sg_compute_specs.playwright.schemas.Schema__Playwright__List             import Schema__Playwright__List
 from sg_compute_specs.playwright.service.Playwright__AMI__Helper              import Playwright__AMI__Helper
-from sg_compute_specs.playwright.service.Playwright__AWS__Client              import Playwright__AWS__Client, ecr_registry_host
+from sg_compute_specs.playwright.service.Playwright__AWS__Client              import Playwright__AWS__Client
 from sg_compute_specs.playwright.service.Playwright__Stack__Mapper            import (Playwright__Stack__Mapper,
                                                                                        STACK_TYPE               ,
                                                                                        TAG_API_KEY              ,
@@ -35,7 +35,6 @@ DEFAULT_REGION        = os.environ.get('AWS_DEFAULT_REGION', 'eu-west-2')
 DEFAULT_INSTANCE_TYPE = 't3.medium'
 PROFILE_NAME          = 'playwright-ec2'             # IAM profile granting SSM + ECR access
 PLAYWRIGHT_PORT       = 8000                         # sg-playwright FastAPI — the public surface
-SIDECAR_ADMIN_PORT    = 8001                         # agent-mitmproxy admin API — published only with --with-mitmproxy
 
 
 class Playwright__Service(Spec__Service__Base):
@@ -81,13 +80,9 @@ class Playwright__Service(Spec__Service__Base):
         ami_id       = str(request.from_ami)      or self.ami_helper.resolve(region)
         itype        = str(request.instance_type) or DEFAULT_INSTANCE_TYPE
         api_key      = str(request.api_key)       or secrets.token_urlsafe(24)
-        ecr_registry = ecr_registry_host(region)
-
-        # sg-playwright (:8000) is always published; agent-mitmproxy's admin API
-        # (:8001) only when --with-mitmproxy. host-plane stays internal.
+        # sg-playwright (:8000) is always published. agent-mitmproxy stays on the
+        # internal docker network (no host port). host-plane stays internal.
         inbound_ports = [PLAYWRIGHT_PORT]
-        if bool(request.with_mitmproxy):
-            inbound_ports.append(SIDECAR_ADMIN_PORT)
         sg_id = self.aws_client.sg.ensure_security_group(
             region, stack_name, caller_ip,
             inbound_ports=inbound_ports,
@@ -102,8 +97,6 @@ class Playwright__Service(Spec__Service__Base):
 
         user_data = self.user_data_builder.render(
             stack_name       = stack_name                    ,
-            region           = region                        ,
-            ecr_registry     = ecr_registry                  ,
             api_key          = api_key                        ,
             with_mitmproxy   = bool(request.with_mitmproxy)   ,
             intercept_script = str(request.intercept_script)  ,

@@ -3,9 +3,10 @@
 # Composes the cloud-init bash script for a playwright EC2 host.
 #
 # Order: Section__Base (incl. auto-terminate timer) → Docker CE install →
-#        write .env + (optional) interceptor + docker-compose.yml → ECR login →
+#        write .env + (optional) interceptor + docker-compose.yml →
 #        compose up → footer
 #
+# All images pull from Docker Hub — no ECR login required.
 # The auto-terminate timer is inside Section__Base and fires even if a later
 # dnf install or image pull aborts the script.
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -49,7 +50,6 @@ _STACK_TEMPLATE = '''
 mkdir -p /opt/sg-playwright
 {interceptor_block}
 cat > /opt/sg-playwright/.env <<'ENVEOF'
-ECR_REGISTRY={ecr_registry}
 IMAGE_TAG={image_tag}
 FAST_API__AUTH__API_KEY__NAME=X-API-Key
 FAST_API__AUTH__API_KEY__VALUE={api_key}
@@ -61,10 +61,7 @@ cat > /opt/sg-playwright/docker-compose.yml <<'COMPOSEEOF'
 COMPOSEEOF
 
 cd /opt/sg-playwright
-aws ecr get-login-password --region "{region}" | \\
-  docker login --username AWS --password-stdin "{ecr_registry}"
 docker compose --env-file /opt/sg-playwright/.env up -d
-docker logout "{ecr_registry}" 2>/dev/null || true
 echo "[playwright] stack started ({mode})"
 '''
 
@@ -72,8 +69,6 @@ echo "[playwright] stack started ({mode})"
 class Playwright__User_Data__Builder(Type_Safe):
 
     def render(self, stack_name       : str   ,
-                     region           : str   ,
-                     ecr_registry     : str   ,
                      api_key          : str   ,
                      with_mitmproxy   : bool  = False        ,
                      intercept_script : str   = ''           ,
@@ -83,7 +78,6 @@ class Playwright__User_Data__Builder(Type_Safe):
         mode           = 'with-mitmproxy' if with_mitmproxy else 'default'
 
         compose_yaml = Playwright__Compose__Template().render(
-            ecr_registry   = ecr_registry   ,
             with_mitmproxy = with_mitmproxy ,
             with_intercept = with_intercept ,
             image_tag      = image_tag      )
@@ -95,10 +89,8 @@ class Playwright__User_Data__Builder(Type_Safe):
         stack_block = _STACK_TEMPLATE.format(
             mode              = mode              ,
             interceptor_block = interceptor_block ,
-            ecr_registry      = ecr_registry      ,
             image_tag         = image_tag         ,
             api_key           = api_key           ,
-            region            = region            ,
             compose_yaml      = compose_yaml      )
 
         parts = [
