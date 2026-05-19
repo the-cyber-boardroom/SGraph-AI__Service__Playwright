@@ -41,24 +41,23 @@ heading" view for the polling-architecture refactor.
 ## URL layout
 
 ```
-https://admin.aws.sg-labs.app/                       — admin home (inventory)
-https://admin.aws.sg-labs.app/slug/<slug>/           — per-slug page (status, diag, actions)
-https://admin.aws.sg-labs.app/setup/                 — setup pieces (CF function, Lambda, R53 zone)
-https://admin.aws.sg-labs.app/api/v1/list             — JSON: equivalent of `sg vp list`
-https://admin.aws.sg-labs.app/api/v1/status?slug=X    — JSON: equivalent of `sg vp status`
-https://admin.aws.sg-labs.app/api/v1/eval?slug=X      — JSON: equivalent of `sg vp eval` (per-step)
-https://admin.aws.sg-labs.app/api/v1/dns?slug=X       — JSON: equivalent of `sg vp dns`
-https://admin.aws.sg-labs.app/api/v1/register         — POST: mutation, gated
-https://admin.aws.sg-labs.app/api/v1/unpublish        — POST: mutation, gated
-https://admin.aws.sg-labs.app/api/v1/setup/<piece>    — GET: each setup-piece check
+https://waker.aws.sg-labs.app/                       — admin home (inventory)
+https://waker.aws.sg-labs.app/slug/<slug>/           — per-slug page (status, diag, actions)
+https://waker.aws.sg-labs.app/setup/                 — setup pieces (CF function, Lambda, R53 zone)
+https://waker.aws.sg-labs.app/api/v1/list             — JSON: equivalent of `sg vp list`
+https://waker.aws.sg-labs.app/api/v1/status?slug=X    — JSON: equivalent of `sg vp status`
+https://waker.aws.sg-labs.app/api/v1/eval?slug=X      — JSON: equivalent of `sg vp eval` (per-step)
+https://waker.aws.sg-labs.app/api/v1/dns?slug=X       — JSON: equivalent of `sg vp dns`
+https://waker.aws.sg-labs.app/api/v1/register         — POST: mutation, gated
+https://waker.aws.sg-labs.app/api/v1/unpublish        — POST: mutation, gated
+https://waker.aws.sg-labs.app/api/v1/setup/<piece>    — GET: each setup-piece check
 ```
 
-`admin.aws.sg-labs.app` is covered by the existing `*.aws.sg-labs.app` CF wildcard. We
-reserve the slug `admin` in the waker — when `Slug__From_Host` extracts `admin`, the
-waker routes the request to the admin app instead of looking up an EC2.
-
-(Same trick will work for the cross-origin polling endpoint — see § Cross-origin status
-endpoint below.)
+`waker.aws.sg-labs.app` is covered by the existing `*.aws.sg-labs.app` CF wildcard. We
+reserve the slug `waker` in `Reserved__Slugs` — when `Slug__From_Host` extracts `waker`,
+the waker routes the request to the admin app instead of looking up an EC2. `admin` is
+left registerable by users (per 2026-05-19 decision — operators may want their own
+vault at `admin.<their-zone>`, and the control plane already lives under its own name).
 
 ## Inventory page (`/`)
 
@@ -164,27 +163,40 @@ exactly the URL whose DNS we're trying to let the browser un-pin. Every probe re
 HTTP/1.1 keep-alive idle timer on the kept-alive socket to CloudFront, so the socket
 never closes and the in-tab navigation always lands via Lambda.
 
-The admin-UI work above gives us the right plumbing to fix this:
+We fix this by polling a **different origin** from the warming page. CORS headers on
+the probe endpoint allow the slug-FQDN origin to read the response.
 
-1. Add `GET /api/v1/status?slug=X` on the **admin** subdomain (or any `*.aws.sg-labs.app`
-   subdomain that is NOT the slug in question) — different host → different socket pool
-   slot in the browser. Polling it does not touch the slug FQDN's keep-alive socket.
+## Why we use the Lambda Function URL, not `waker.aws.sg-labs.app`
 
-2. The warming page polls that cross-origin endpoint instead of the current URL. CORS
-   headers from the Lambda allow the slug-FQDN origin to read the response.
+The intuitive choice would be to point the warming page at `waker.aws.sg-labs.app/probe`
+— same parent zone, served by the same Lambda via the CF wildcard. **But this doesn't
+defeat connection pinning.** Browsers (Chromium, Firefox, Safari) implement HTTP/2
+**connection coalescing**: when two hostnames share a wildcard cert and resolve to
+overlapping IPs, they reuse the same H2 connection. CloudFront serves both
+`<slug>.aws.sg-labs.app` and `waker.aws.sg-labs.app` from the same edges with the same
+`*.aws.sg-labs.app` cert — so Chrome would route the "cross-origin" probe down the
+existing slug-FQDN H2 connection. We'd be polling the very connection we're trying to
+let idle out.
 
-3. Once the cross-origin status endpoint reports `state=proxied`, we know the vault is
-   healthy. **We do NOT probe the slug URL anymore** — we just wait long enough for the
-   already-warmed slug-FQDN socket to idle out, and trigger the redirect.
+The Lambda Function URL (`https://<uuid>.lambda-url.<region>.on.aws/`) has:
+- A different IP block (AWS-managed Lambda endpoints, not CloudFront edges)
+- A different cert (AWS-issued, scoped to `*.lambda-url.<region>.on.aws`)
+- Therefore: no H2 coalescing with the slug FQDN connection.
 
-This is the cleanest fix. The two pieces share the same JSON-status endpoint, so the
-admin UI's `/api/v1/status` IS the polling target for warming pages.
+That's the only browser-side mechanism that actually gives us an independent socket
+pool slot. So the cross-origin polling target is and stays the Lambda Function URL,
+discovered at deploy time and baked into the warming page via env var
+`WAKER_LAMBDA_FUNCTION_URL`.
 
-A small wrinkle: until we have an `admin.aws.sg-labs.app` deployed, we can use the Lambda
-Function URL itself (`https://<uuid>.lambda-url.eu-west-2.on.aws/`) as the cross-origin
-target. The Lambda Function URL is a different origin from the slug FQDN, so it doesn't
-pin the slug-FQDN socket pool. The warming page can be configured at deploy time with
-the Lambda Function URL via env var `WAKER_LAMBDA_FUNCTION_URL`.
+## What `waker.aws.sg-labs.app` IS for, then
+
+It's the **admin/console** surface. Operators and humans visit it to view inventory,
+poke at individual slugs, run setup checks. It does NOT carry the warming-page polling
+traffic. Its routes are listed in the API surface table above.
+
+When `Slug__From_Host` extracts `waker` from the host, the request bypasses the
+slug-resolver state machine and goes to the admin app's routes instead. `waker` is
+reserved in `Reserved__Slugs` so no user can register a vault under that name.
 
 ---
 
@@ -204,7 +216,9 @@ That's the immediate fix. Smallest change, fixes the user-visible symptom.
 
 ## Phase 2 — admin subdomain + inventory page
 
-- Reserve slug `admin` in `Slug__From_Host` (return None, fall through to admin app).
+- Reserve slug `waker` in `Reserved__Slugs` (DONE). Then update `Slug__From_Host` so
+  that when the extracted slug is `waker`, the resolver short-circuits and the request
+  is routed to the admin app routes instead of running the wake state machine.
 - Add admin app routes to `Fast_API__Waker`:
   `GET /api/v1/list`, `GET /api/v1/status?slug=X`, `GET /api/v1/eval?slug=X`,
   `GET /` (HTML inventory).

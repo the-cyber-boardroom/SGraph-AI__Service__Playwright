@@ -6,4 +6,5 @@
 
 RESERVED_SLUGS: frozenset = frozenset({
     'www', 'api', 'admin', 'status', 'mail', 'cdn', 'auth',
+    'waker',                                                                              # admin / control-plane surface (see team/comms/plans/v0.1.15__vault-admin-ui)
 })
