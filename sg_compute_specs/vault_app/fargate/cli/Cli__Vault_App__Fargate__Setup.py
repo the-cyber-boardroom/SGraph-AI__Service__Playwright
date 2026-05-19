@@ -122,6 +122,40 @@ def _build_request(cluster: str, phase_strs: List[str], **kwargs) -> Schema__VAF
     return req
 
 
+# ── auto-resolve from VPC stack ───────────────────────────────────────────────
+
+_AUTO_RESOLVE_STACK_TAG = 'sg-vault-app-fargate-network'                          # default Stack tag value for vault-app fargate networking
+
+
+def _auto_resolve_network(ec2_client) -> tuple:
+    # Discover subnets + security group from a VPC tagged Stack=<tag>.
+    # Returns (subnets_csv, security_group_id). Empty strings on no match.
+    if ec2_client is None:
+        return ('', '')
+    try:
+        from sgraph_ai_service_playwright__cli.aws.ec2.service.VPC__Stack__Provisioner import VPC__Stack__Provisioner
+        detail = VPC__Stack__Provisioner(ec2_client=ec2_client).describe_stack(_AUTO_RESOLVE_STACK_TAG)
+    except Exception:                                                              # noqa: BLE001 — auto-resolve is best-effort
+        return ('', '')
+    if detail is None:
+        return ('', '')
+    subnets_csv = ','.join(str(s) for s in (detail.subnet_ids or []))
+    sg_id       = str(detail.security_group_id or '')
+    return (subnets_csv, sg_id)
+
+
+def _get_ec2_client(ctx: typer.Context):
+    obj    = ctx.obj or {}
+    client = obj.get('ec2_client')
+    if client is not None:
+        return client
+    try:
+        from sgraph_ai_service_playwright__cli.aws.ec2.service.EC2__AWS__Client import EC2__AWS__Client
+        return EC2__AWS__Client()
+    except Exception:                                                              # noqa: BLE001
+        return None
+
+
 # ── report rendering ──────────────────────────────────────────────────────────
 
 def _render_report_table(report, title: str) -> None:
@@ -234,17 +268,19 @@ def setup_status(ctx    : typer.Context,
 
 @app.command('create')
 @spec_cli_errors
-def setup_create(ctx      : typer.Context,
-                 cluster  : str       = typer.Option('', '--cluster',            help='Cluster name (auto-generated if omitted).'),
-                 subnets  : str       = typer.Option('', '--subnets',            help='Comma-separated subnet IDs.'),
-                 sg_id    : str       = typer.Option('', '--sg',                 help='Security group ID.'),
-                 exec_role: str       = typer.Option('', '--execution-role-name', help='IAM execution role name.'),
-                 log_group: str       = typer.Option('', '--log-group',           help='CloudWatch log group name.'),
-                 src_image: str       = typer.Option('', '--source-image',        help='Docker image to mirror to ECR.'),
-                 phase    : List[str] = typer.Option([], '--phase',              help='Limit to phase(s): ecr|iam|logs|cluster|image-mirror|task-def|all.'),
-                 yes      : bool      = typer.Option(False, '--yes',             help='Skip confirmation prompt.'),
-                 time_    : bool      = typer.Option(False, '--time',            help='Print phase timings table.'),
-                 as_json  : bool      = typer.Option(False, '--json',            help='Machine-readable output.')):
+def setup_create(ctx       : typer.Context,
+                 cluster   : str       = typer.Option('', '--cluster',            help='Cluster name (auto-generated if omitted).'),
+                 subnets   : str       = typer.Option('', '--subnets',            help='Comma-separated subnet IDs.'),
+                 sg_id     : str       = typer.Option('', '--sg',                 help='Security group ID.'),
+                 exec_role : str       = typer.Option('', '--execution-role-name', help='IAM execution role name.'),
+                 log_group : str       = typer.Option('', '--log-group',           help='CloudWatch log group name.'),
+                 src_image : str       = typer.Option('', '--source-image',        help='Docker image to mirror to ECR.'),
+                 phase     : List[str] = typer.Option([], '--phase',              help='Limit to phase(s): ecr|iam|logs|cluster|image-mirror|task-def|all.'),
+                 auto_network: bool    = typer.Option(True, '--auto-network/--no-auto-network',
+                                                       help='When --subnets/--sg are both omitted, auto-resolve from a VPC tagged Stack=sg-vault-app-fargate-network.'),
+                 yes       : bool      = typer.Option(False, '--yes',             help='Skip confirmation prompt.'),
+                 time_     : bool      = typer.Option(False, '--time',            help='Print phase timings table.'),
+                 as_json   : bool      = typer.Option(False, '--json',            help='Machine-readable output.')):
     """Provision all cluster-level AWS resources (one-time setup)."""
     if os.environ.get(_GATE_ENV) != '1':
         console.print(Panel(
@@ -255,6 +291,18 @@ def setup_create(ctx      : typer.Context,
             border_style='red',
         ))
         raise typer.Exit(1)
+
+    # Auto-resolve subnets + SG from a tagged VPC stack when both are omitted.
+    # Skipped if the user disabled it or supplied either flag explicitly.
+    if auto_network and not subnets and not sg_id:
+        resolved_subnets, resolved_sg = _auto_resolve_network(_get_ec2_client(ctx))
+        if resolved_subnets and resolved_sg:
+            subnets = resolved_subnets
+            sg_id   = resolved_sg
+            if not as_json:
+                console.print(
+                    f'[dim]auto-resolved from VPC stack '
+                    f'{_AUTO_RESOLVE_STACK_TAG!r}: subnets={subnets} sg={sg_id}[/dim]')
 
     cluster_name = cluster                                                        # empty = auto-generated by orchestrator
     request = _build_request(

@@ -121,15 +121,27 @@ class _Fake_EC2_Client:                                                        #
         return {'Tags': tags}
 
     def create_tags(self, Resources=None, Tags=None):
+        # Resource → store fallback chain. Lets create_tags target VPCs,
+        # subnets, IGWs and route tables in addition to instances. Silent
+        # no-op for ids that don't resolve (mirrors boto3, which would have
+        # raised; tests asserting on the missing tag is the desired signal).
         for iid in (Resources or []):
-            if iid in self._store:
-                existing = {t['Key']: i for i, t in enumerate(self._store[iid].get('Tags', []))}
-                for tag in (Tags or []):
-                    k, v = tag.get('Key', ''), tag.get('Value', '')
-                    if k in existing:
-                        self._store[iid]['Tags'][existing[k]] = {'Key': k, 'Value': v}
-                    else:
-                        self._store[iid].setdefault('Tags', []).append({'Key': k, 'Value': v})
+            bucket = None
+            if iid in self._store:                       bucket = self._store[iid]
+            elif iid in self._vpcs_store:                bucket = self._vpcs_store[iid]
+            elif iid in self._subnets_store:             bucket = self._subnets_store[iid]
+            elif iid in self._internet_gateways_store:   bucket = self._internet_gateways_store[iid]
+            elif iid in self._route_tables_store:        bucket = self._route_tables_store[iid]
+            elif iid in self._security_groups_store:     bucket = self._security_groups_store[iid]
+            if bucket is None:
+                continue
+            existing = {t['Key']: i for i, t in enumerate(bucket.get('Tags', []))}
+            for tag in (Tags or []):
+                k, v = tag.get('Key', ''), tag.get('Value', '')
+                if k in existing:
+                    bucket['Tags'][existing[k]] = {'Key': k, 'Value': v}
+                else:
+                    bucket.setdefault('Tags', []).append({'Key': k, 'Value': v})
 
     def delete_tags(self, Resources=None, Tags=None):
         keys = {t.get('Key') for t in (Tags or [])}
@@ -1170,3 +1182,47 @@ class EC2__AWS__Client__In_Memory(EC2__AWS__Client):
         }
         self._route_tables_store[rtb_id] = raw
         return rtb_id
+
+    # ── seed: complete VPC stack ──────────────────────────────────────────────
+
+    def seed_stack(self, stack_name: str = 'sg-vault-app-fargate-network',
+                   cidr: str = '10.0.0.0/16',
+                   azs: list = None,
+                   ingress_ports: list = None) -> dict:                            # returns {vpc_id, igw_id, rtb_id, sg_id, subnet_ids: [...]}
+        # Helper for tests that need a fully provisioned, tag-discoverable stack.
+        # Uses the same tag conventions as VPC__Stack__Provisioner so describe_stack
+        # / auto-resolve will find this stack.
+        azs           = azs           or ['eu-west-2a', 'eu-west-2b']
+        ingress_ports = ingress_ports or [80, 443, 8080]
+        vpc_id = self.seed_vpc(cidr=cidr,
+                                tags={'Stack': stack_name, 'Name': f'{stack_name}-vpc'})
+        igw_id = self.seed_igw(vpc_id=vpc_id,
+                                tags={'Stack': stack_name, 'Name': f'{stack_name}-igw'})
+        rtb_id = self.seed_route_table(
+            vpc_id       = vpc_id,
+            routes       = [{'destination_cidr': '0.0.0.0/0', 'gateway_id': igw_id}],
+            tags         = {'Stack': stack_name, 'Name': f'{stack_name}-rtb'})
+        subnet_ids = []
+        for i, az in enumerate(azs):
+            tags = {'Stack': stack_name, 'Name': f'{stack_name}-subnet',
+                    'Subnet__Type': 'public', 'Subnet__Index': str(i)}
+            sid  = self.seed_subnet(vpc_id=vpc_id, cidr=f'10.0.{i * 16}.0/20',
+                                     az=az, public=True, tags=tags)
+            subnet_ids.append(sid)
+        sg_id = self.seed_security_group(
+            name        = f'{stack_name}-sg',
+            vpc_id      = vpc_id,
+            description = f'Default SG for stack {stack_name}',
+            ingress     = [{'IpProtocol': 'tcp', 'FromPort': p, 'ToPort': p,
+                            'IpRanges': [{'CidrIp': '0.0.0.0/0'}]}
+                            for p in ingress_ports])
+        # tag the SG so the provisioner's tag-based lookup hits it
+        self._security_groups_store[sg_id].setdefault('Tags', [])
+        self._security_groups_store[sg_id]['Tags'].append({'Key': 'Stack', 'Value': stack_name})
+        return {
+            'vpc_id'    : vpc_id,
+            'igw_id'    : igw_id,
+            'rtb_id'    : rtb_id,
+            'sg_id'     : sg_id,
+            'subnet_ids': subnet_ids,
+        }

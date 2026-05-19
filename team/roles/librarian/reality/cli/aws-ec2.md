@@ -294,13 +294,88 @@ Total: 143 new tests added in Slice 2.
 
 ---
 
-## NOT implemented in this slice
+## Slice 3 (v0.2.34) — VPC stack provisioner
+
+### New CLI verbs (mounted on `Cli__EC2__Vpc.py`)
+
+| Verb | Mutating | Gate required |
+|------|----------|---------------|
+| `sg aws ec2 vpc create-stack --name <stack> [--cidr 10.0.0.0/16] [--az AZ ...] [--ingress PORTS] [--yes] [--time] [--json]` | yes | `SG_AWS__EC2__ALLOW_MUTATIONS=1` |
+| `sg aws ec2 vpc delete-stack <stack> [--yes] [--json]` | yes | same |
+| `sg aws ec2 vpc show-stack <stack> [--json]` | no | — |
+
+`create-stack` composes the Slice 1/2 primitives into a single end-to-end network: VPC → IGW → attach → RT → route(0.0.0.0/0 → IGW) → 2 public subnets (one per AZ) → public-IP-on-launch → associate-RT → SG with default ingress rules (80/443/8080 TCP from 0.0.0.0/0) → propagate `Stack__Provisioned_At` tag onto the VPC. Idempotent: re-runs find existing resources by the `Stack=<stack_name>` tag and SKIP phases that already match. Best-effort rollback on the first phase ERROR; rollback failures are recorded in `report.rollback_errors` rather than raised.
+
+The `--ingress` flag accepts `PORT[/PROTO][@CIDR]`, comma-separated (e.g. `22/tcp@10.0.0.0/8`).
+
+`delete-stack` discovers resources by tag, then deletes in reverse order. Missing resources → SKIPPED (idempotent).
+
+`show-stack` is read-only — surfaces vpc/igw/rtb/sg/subnet ids for a tagged stack.
+
+### Production files (Slice 3)
+
+| File | Role |
+|------|------|
+| `service/VPC__Stack__Provisioner.py` | Orchestrator — 12 phases, idempotent, best-effort rollback |
+| `enums/Enum__VPC__Stack__Phase.py` | Ordered phase enum (VPC, VPC_ATTRIBUTES, INTERNET_GATEWAY, IGW_ATTACH, ROUTE_TABLE, ROUTE_TO_IGW, SUBNETS, SUBNET_ATTRIBUTES, SUBNET_ASSOCIATIONS, SECURITY_GROUP, SG_INGRESS_RULES, TAG_PROPAGATION) |
+| `schemas/Schema__VPC__Stack__Request.py` | stack_name, cidr, availability_zones, ingress_rules |
+| `schemas/Schema__VPC__Stack__Ingress_Rule.py` | protocol, from_port, to_port, cidr_block |
+| `schemas/Schema__VPC__Stack__Detail.py` | vpc_id, subnet_ids, security_group_id, internet_gateway_id, route_table_id, stack_name |
+| `schemas/Schema__VPC__Stack__Report.py` | operation, stack_name, ok, total_ms, phases, vpc_id, subnet_ids, security_group_id, route_table_id, internet_gateway_id, error, rollback_errors |
+| `collections/List__Schema__VPC__Stack__Ingress_Rule.py` | typed list |
+| `aws/_shared/Phase__Timer.py` | aws/* canonical phase-timer (separate from vault_app/fargate copy) |
+| `aws/_shared/Phase__Progress__Renderer.py` | aws/* canonical live-rich phase renderer |
+| `aws/_shared/enums/Enum__AWS__Phase__Status.py` | PENDING / RUNNING / OK / SKIPPED / WARN / ERROR |
+| `aws/_shared/schemas/Schema__AWS__Phase__Result.py` | single timed-phase record |
+| `aws/_shared/collections/List__Schema__AWS__Phase__Result.py` | typed list |
+| `aws/_shared/collections/List__Str.py` | typed list of plain strings |
+
+### Schema surface change
+
+`Schema__EC2__Security_Group` gained a `tags: Dict__EC2__Tag` field so the provisioner can match SGs by the `Stack=<name>` tag during idempotency checks. Populated by `_parse_security_group` from the boto3 `Tags` field.
+
+### Vault-app auto-resolve
+
+`sg_compute_specs/vault_app/fargate/cli/Cli__Vault_App__Fargate__Setup.py` extended:
+
+- New helper `_auto_resolve_network(ec2_client)` → `(subnets_csv, security_group_id)` discovered from `VPC__Stack__Provisioner.describe_stack('sg-vault-app-fargate-network')`.
+- New helper `_get_ec2_client(ctx)` — looks up `ctx.obj['ec2_client']`, falls back to a real `EC2__AWS__Client()`.
+- `setup create` now auto-resolves subnets + SG from the tagged VPC when both `--subnets` and `--sg` are omitted. A `[dim]auto-resolved from VPC stack ...[/dim]` line is printed (suppressed in `--json` mode).
+- New flag `--auto-network/--no-auto-network` (default True) lets users disable auto-resolve.
+
+### Tests added in this slice (Slice 3)
+
+- `tests/unit/sgraph_ai_service_playwright__cli/aws/ec2/vpc/stack/test_VPC__Stack__Provisioner.py` — 42 tests (happy path, idempotent, rollback, delete, describe, CIDR derivation, SG naming)
+- `tests/unit/sgraph_ai_service_playwright__cli/aws/ec2/vpc/stack/test_Cli__EC2__Vpc__stack.py` — 20 tests (create-stack / delete-stack / show-stack via CliRunner)
+- `tests/unit/sg_compute_specs/vault_app/fargate/cli/test_Cli__Vault_App__Fargate__Setup__auto_resolve.py` — 8 tests (auto-resolve fires / no-op cases / disable flag)
+
+Total: 70 new tests added in Slice 3. Combined surface: 936 unit tests pass under `tests/unit/sgraph_ai_service_playwright__cli/aws/ec2/ + tests/unit/sg_compute_specs/vault_app/fargate/`.
+
+### End-to-end example (zero-config Fargate)
+
+```bash
+export SG_AWS__EC2__ALLOW_MUTATIONS=1
+export SG_VAULT_APP__FARGATE__ALLOW_MUTATIONS=1
+
+# 1. Provision the VPC stack (idempotent)
+sg aws ec2 vpc create-stack --name sg-vault-app-fargate-network --yes
+
+# 2. Provision the Fargate cluster — auto-resolves subnets + SG from step 1
+sg vault-app fargate setup create --yes
+
+# 3. Start a vault
+sg vault-app fargate start --access-token my-token --yes
+```
+
+---
+
+## NOT implemented (Slice 3 carve-outs)
 
 - `EC2__Ami__Resolver` (alias → AMI ID resolution) — `create` currently accepts a raw AMI ID or alias string passed directly to the API
 - Integration tests requiring live AWS credentials (gated on `SG_AWS__EC2__INTEGRATION=1`)
 - `scripts/provision_ec2.py` thin-wrapper refactor (the script was deleted ahead of Slice B per the dev pack note)
-- Promotion of `Elastic__AWS__Client` EC2-shaped helpers (security-group naming) — those remain in `elastic/service/` and will be promoted in v0.2.30
-- **VPC stack Slice 3** — composite `sg aws ec2 vpc create-stack / delete-stack` orchestration and vault-app auto-resolve — PROPOSED, does not exist yet
+- Promotion of `Elastic__AWS__Client` EC2-shaped helpers (security-group naming) — those remain in `elastic/service/` and will be promoted in a later pass
+- Deduplication of `Phase__Timer` / `Phase__Progress__Renderer` copies between `aws/_shared/` and `sg_compute_specs/vault_app/fargate/service/` — left as a Librarian follow-up
 
 ---
 

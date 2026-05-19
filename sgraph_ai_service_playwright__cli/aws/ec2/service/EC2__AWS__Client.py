@@ -724,6 +724,7 @@ class EC2__AWS__Client(Type_Safe):
             egress_rules          = List__Schema__EC2__SG_Rule(),
             attached_eni_ids      = [],
             attached_instance_ids = [],
+            tags                  = self._tags_dict([{'Key': k, 'Value': v} for k, v in (tags or {}).items()]),
         )
 
     def authorize_security_group_ingress(self, sg_id: str, ip_protocol: str,
@@ -1000,6 +1001,7 @@ class EC2__AWS__Client(Type_Safe):
             egress_rules          = egress,
             attached_eni_ids      = [],
             attached_instance_ids = [],
+            tags                  = self._tags_dict(raw.get('Tags', [])),
         )
 
     def _parse_sg_rules(self, perms: list, direction: Enum__EC2__SG_Rule_Direction
