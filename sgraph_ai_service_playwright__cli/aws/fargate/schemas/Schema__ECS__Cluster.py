@@ -17,3 +17,4 @@ class Schema__ECS__Cluster(Type_Safe):
     running_tasks     : int                 = 0
     pending_tasks     : int                 = 0
     active_services   : int                 = 0
+    tags              : dict                                # raw {key: value} tag map

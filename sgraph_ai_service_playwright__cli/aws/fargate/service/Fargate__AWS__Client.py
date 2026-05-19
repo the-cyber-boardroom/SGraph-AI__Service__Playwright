@@ -55,7 +55,7 @@ class Fargate__AWS__Client(Type_Safe):
             kwargs['nextToken'] = next_token
         if not arns:
             return List__Schema__ECS__Cluster()
-        desc = ecs.describe_clusters(clusters=arns, include=['SETTINGS', 'STATISTICS'])
+        desc = ecs.describe_clusters(clusters=arns, include=['SETTINGS', 'STATISTICS', 'TAGS'])
         result = List__Schema__ECS__Cluster()
         for raw in desc.get('clusters', []):
             result.append(self._parse_cluster(raw))
@@ -63,7 +63,7 @@ class Fargate__AWS__Client(Type_Safe):
 
     def describe_cluster(self, name: str) -> Optional[Schema__ECS__Cluster]:
         try:
-            resp     = self.client().describe_clusters(clusters=[name], include=['SETTINGS', 'STATISTICS'])
+            resp     = self.client().describe_clusters(clusters=[name], include=['SETTINGS', 'STATISTICS', 'TAGS'])
             clusters = resp.get('clusters', [])
             if not clusters:
                 return None
@@ -265,7 +265,9 @@ class Fargate__AWS__Client(Type_Safe):
     # ── internal ──────────────────────────────────────────────────────────────
 
     def _parse_cluster(self, raw: dict) -> Schema__ECS__Cluster:
-        name = raw.get('clusterName', '')
+        name     = raw.get('clusterName', '')
+        raw_tags = raw.get('tags', [])                                             # AWS returns [{key, value}, ...]
+        tags     = {t['key']: t['value'] for t in raw_tags if 'key' in t}         # normalise to plain dict
         return Schema__ECS__Cluster(
             cluster_name    = Safe_Str__ECS__Cluster__Name(name) if name else Safe_Str__ECS__Cluster__Name(''),
             cluster_arn     = raw.get('clusterArn', ''),
@@ -273,6 +275,7 @@ class Fargate__AWS__Client(Type_Safe):
             running_tasks   = raw.get('runningTasksCount', 0),
             pending_tasks   = raw.get('pendingTasksCount', 0),
             active_services = raw.get('activeServicesCount', 0),
+            tags            = tags,
         )
 
     def _parse_task_def_from_arn(self, arn: str) -> Optional[Schema__ECS__Task__Definition]:
@@ -336,7 +339,11 @@ class Fargate__AWS__Client(Type_Safe):
         except ValueError:
             status = Enum__ECS__Task__Status.UNKNOWN
         resolved_launch_type = launch_type or raw.get('launchType', '')
-        resolved_tags        = tags if tags is not None else {}
+        if tags is not None:                                                       # caller-supplied dict takes priority
+            resolved_tags = tags
+        else:                                                                      # fall back to raw list e.g. from describe_tasks
+            raw_tags      = raw.get('tags', [])
+            resolved_tags = {t['key']: t['value'] for t in raw_tags if 'key' in t}
         return Schema__ECS__Task(
             task_arn        = Safe_Str__ECS__Task__ARN(task_arn) if task_arn.startswith('arn:') else Safe_Str__ECS__Task__ARN(''),
             cluster_name    = Safe_Str__ECS__Cluster__Name(cluster_name) if cluster_name else Safe_Str__ECS__Cluster__Name(''),

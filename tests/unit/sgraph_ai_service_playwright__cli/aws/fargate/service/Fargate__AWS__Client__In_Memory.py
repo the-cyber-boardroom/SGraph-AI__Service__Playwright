@@ -35,7 +35,8 @@ class _Fake_ECS_Client:
         return {'clusters': result, 'failures': []}
 
     def create_cluster(self, clusterName: str, **kwargs):
-        arn = f'arn:aws:ecs:us-east-1:123456789012:cluster/{clusterName}'
+        arn      = f'arn:aws:ecs:us-east-1:123456789012:cluster/{clusterName}'
+        tag_list = kwargs.get('tags', [])                                          # list of {key, value} dicts
         raw = {
             'clusterName'       : clusterName,
             'clusterArn'        : arn,
@@ -43,6 +44,7 @@ class _Fake_ECS_Client:
             'runningTasksCount' : 0,
             'pendingTasksCount' : 0,
             'activeServicesCount': 0,
+            'tags'              : tag_list,
         }
         self._clusters[clusterName] = raw
         return {'cluster': raw}
@@ -120,10 +122,11 @@ class _Fake_ECS_Client:
     def run_task(self, cluster: str, taskDefinition: str,
                  count: int = 1, **kwargs):
         import uuid
-        task_id  = str(uuid.uuid4())
-        task_arn = f'arn:aws:ecs:us-east-1:123456789012:task/{cluster}/{task_id}'
+        task_id     = str(uuid.uuid4())
+        task_arn    = f'arn:aws:ecs:us-east-1:123456789012:task/{cluster}/{task_id}'
         cluster_arn = f'arn:aws:ecs:us-east-1:123456789012:cluster/{cluster}'
-        td_arn   = f'arn:aws:ecs:us-east-1:123456789012:task-definition/{taskDefinition}'
+        td_arn      = f'arn:aws:ecs:us-east-1:123456789012:task-definition/{taskDefinition}'
+        tag_list    = kwargs.get('tags', [])                                       # list of {key, value} dicts
         raw = {
             'taskArn'           : task_arn,
             'clusterArn'        : cluster_arn,
@@ -135,6 +138,7 @@ class _Fake_ECS_Client:
             'stoppedReason'     : '',
             'group'             : '',
             'launchType'        : kwargs.get('launchType', 'FARGATE'),
+            'tags'              : tag_list,
         }
         self._tasks[task_arn] = raw
         return {'tasks': [raw], 'failures': []}
@@ -158,3 +162,39 @@ class Fargate__AWS__Client__In_Memory(Fargate__AWS__Client):
 
     def client(self):
         return self._fake
+
+    # ── test helpers ──────────────────────────────────────────────────────────
+
+    def seed_cluster_with_tags(self, cluster_name: str, tags: dict) -> None:    # create/overwrite a cluster with a tag dict
+        arn      = f'arn:aws:ecs:us-east-1:123456789012:cluster/{cluster_name}'
+        tag_list = [{'key': k, 'value': v} for k, v in tags.items()]
+        self._clusters[cluster_name] = {
+            'clusterName'        : cluster_name,
+            'clusterArn'         : arn,
+            'status'             : 'ACTIVE',
+            'runningTasksCount'  : 0,
+            'pendingTasksCount'  : 0,
+            'activeServicesCount': 0,
+            'tags'               : tag_list,
+        }
+
+    def seed_task_with_tags(self, cluster_name: str, tags: dict) -> str:        # create a RUNNING task with given tag dict
+        import uuid
+        task_id     = str(uuid.uuid4())
+        task_arn    = f'arn:aws:ecs:us-east-1:123456789012:task/{cluster_name}/{task_id}'
+        cluster_arn = f'arn:aws:ecs:us-east-1:123456789012:cluster/{cluster_name}'
+        tag_list    = [{'key': k, 'value': v} for k, v in tags.items()]
+        self._tasks[task_arn] = {
+            'taskArn'           : task_arn,
+            'clusterArn'        : cluster_arn,
+            'taskDefinitionArn' : f'arn:aws:ecs:us-east-1:123456789012:task-definition/vault-app:1',
+            'lastStatus'        : 'RUNNING',
+            'desiredStatus'     : 'RUNNING',
+            'startedAt'         : '2026-05-19T00:00:00',
+            'stoppedAt'         : None,
+            'stoppedReason'     : '',
+            'group'             : '',
+            'launchType'        : 'FARGATE',
+            'tags'              : tag_list,
+        }
+        return task_arn
