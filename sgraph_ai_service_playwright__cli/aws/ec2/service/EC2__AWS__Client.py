@@ -45,6 +45,7 @@ from sgraph_ai_service_playwright__cli.aws.ec2.schemas.Schema__EC2__Instance__De
 from sgraph_ai_service_playwright__cli.aws.ec2.schemas.Schema__EC2__SG_Rule                        import Schema__EC2__SG_Rule
 from sgraph_ai_service_playwright__cli.aws.ec2.schemas.Schema__EC2__Security_Group                 import Schema__EC2__Security_Group
 from sgraph_ai_service_playwright__cli.aws.ec2.schemas.Schema__EC2__Security_Group__Ref            import Schema__EC2__Security_Group__Ref
+from sgraph_ai_service_playwright__cli.aws.ec2.schemas.Schema__EC2__ENI                            import Schema__EC2__ENI
 from sgraph_ai_service_playwright__cli.aws.ec2.schemas.Schema__EC2__Snapshot                       import Schema__EC2__Snapshot
 from sgraph_ai_service_playwright__cli.credentials.service.Sg__Aws__Session                        import Sg__Aws__Session
 
@@ -254,6 +255,35 @@ class EC2__AWS__Client(Type_Safe):
                 result.append(raw)
         return result
 
+    def list_enis(self, sg_id: str = '', vpc_id: str = '') -> list:            # Returns List[Schema__EC2__ENI] filtered by sg_id and/or vpc_id
+        ec2     = self.client()
+        filters = []
+        if sg_id:
+            filters.append({'Name': 'group-id', 'Values': [sg_id]})
+        if vpc_id:
+            filters.append({'Name': 'vpc-id', 'Values': [vpc_id]})
+        kwargs    = {'Filters': filters} if filters else {}
+        result    = []
+        paginator = ec2.get_paginator('describe_network_interfaces')
+        for page in paginator.paginate(**kwargs):
+            for raw in page.get('NetworkInterfaces', []) or []:
+                result.append(self._parse_eni(raw))
+        return result
+
+    def describe_network_interface(self, eni_id: str) -> Optional[Schema__EC2__ENI]:
+        try:
+            ec2   = self.client()
+            resp  = ec2.describe_network_interfaces(NetworkInterfaceIds=[eni_id])
+            items = resp.get('NetworkInterfaces', []) or []
+            if not items:
+                return None
+            return self._parse_eni(items[0])
+        except ClientError as exc:
+            code = exc.response.get('Error', {}).get('Code', '')
+            if code == 'InvalidNetworkInterfaceID.NotFound':
+                return None
+            raise
+
     # ── mutations ─────────────────────────────────────────────────────────────
 
     def create_instance(self, request: Schema__EC2__Create__Request,
@@ -350,6 +380,41 @@ class EC2__AWS__Client(Type_Safe):
         )
 
     # ── internal ──────────────────────────────────────────────────────────────
+
+    def _parse_eni(self, raw: dict) -> Schema__EC2__ENI:
+        eni_id      = raw.get('NetworkInterfaceId', '') or ''
+        subnet_id   = raw.get('SubnetId', '')           or ''
+        vpc_id      = raw.get('VpcId', '')              or ''
+        description = raw.get('Description', '')        or ''
+        status      = raw.get('Status', '')             or ''
+        # ── public IP from Association block ────────────────────────────────
+        association = raw.get('Association') or {}
+        public_ip   = association.get('PublicIp', '')   or ''
+        # ── private IP from PrivateIpAddresses[0] ───────────────────────────
+        priv_list   = raw.get('PrivateIpAddresses', []) or []
+        private_ip  = ''
+        if priv_list:
+            primary = next((p for p in priv_list if p.get('Primary')), priv_list[0])
+            private_ip = primary.get('PrivateIpAddress', '') or ''
+        # ── attachment ───────────────────────────────────────────────────────
+        attachment           = raw.get('Attachment') or {}
+        attachment_instance  = attachment.get('InstanceId', '')     or ''
+        attachment_status    = attachment.get('Status', '')         or ''
+        # ── security group IDs ───────────────────────────────────────────────
+        sg_ids = [g.get('GroupId', '') for g in (raw.get('Groups', []) or [])
+                  if g.get('GroupId')]
+        return Schema__EC2__ENI(
+            eni_id                 = eni_id,
+            subnet_id              = subnet_id,
+            vpc_id                 = vpc_id,
+            public_ip              = public_ip,
+            private_ip             = private_ip,
+            attachment_instance_id = attachment_instance,
+            attachment_status      = attachment_status,
+            security_group_ids     = sg_ids,
+            description            = description,
+            status                 = status,
+        )
 
     def _parse_summary(self, raw: dict) -> Schema__EC2__Instance:
         tags      = {t['Key']: t['Value'] for t in raw.get('Tags', [])}

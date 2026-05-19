@@ -298,8 +298,19 @@ class _Fake_EC2_Client:                                                        #
 
     # ── describe_network_interfaces ───────────────────────────────────────────
 
-    def describe_network_interfaces(self, Filters=None):
+    def describe_network_interfaces(self, NetworkInterfaceIds=None, Filters=None):
         enis = list(self._network_interfaces_store.values())
+        if NetworkInterfaceIds:
+            matched = [e for e in enis
+                       if e.get('NetworkInterfaceId', '') in NetworkInterfaceIds]
+            missing = [i for i in NetworkInterfaceIds
+                       if i not in self._network_interfaces_store]
+            if not matched and missing:
+                raise ClientError(
+                    {'Error': {'Code': 'InvalidNetworkInterfaceID.NotFound',
+                                'Message': f'The network interface {missing} does not exist'}},
+                    'DescribeNetworkInterfaces')
+            enis = matched
         if Filters:
             for f in Filters:
                 name   = f.get('Name', '')
@@ -512,5 +523,33 @@ class EC2__AWS__Client__In_Memory(EC2__AWS__Client):
         }
         if instance_id:
             raw['Attachment'] = {'InstanceId': instance_id}
+        self._network_interfaces_store[eni_id] = raw
+        return eni_id
+
+    def seed_eni(self, eni_id: str = '', subnet_id: str = 'subnet-default',
+                 vpc_id: str = 'vpc-default', public_ip: str = '',
+                 private_ip: str = '10.0.0.1', sg_ids: list = None,
+                 instance_id: str = '', attachment_status: str = 'attached',
+                 status: str = 'in-use', description: str = '') -> str:
+        if not eni_id:
+            eni_id = f'eni-{secrets.token_hex(8)}'
+        groups     = [{'GroupId': g, 'GroupName': g} for g in (sg_ids or [])]
+        association = {'PublicIp': public_ip} if public_ip else {}
+        attachment  = {}
+        if instance_id:
+            attachment = {'InstanceId': instance_id, 'Status': attachment_status}
+        elif attachment_status:
+            attachment = {'Status': attachment_status}
+        raw = {
+            'NetworkInterfaceId' : eni_id,
+            'SubnetId'           : subnet_id,
+            'VpcId'              : vpc_id,
+            'Description'        : description,
+            'Status'             : status,
+            'Groups'             : groups,
+            'Association'        : association,
+            'Attachment'         : attachment,
+            'PrivateIpAddresses' : [{'PrivateIpAddress': private_ip, 'Primary': True}],
+        }
         self._network_interfaces_store[eni_id] = raw
         return eni_id
