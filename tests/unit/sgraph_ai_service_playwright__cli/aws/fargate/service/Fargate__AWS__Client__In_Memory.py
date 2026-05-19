@@ -64,11 +64,21 @@ class _Fake_ECS_Client:
         return {'taskDefinitionArns': arns}
 
     def describe_task_definition(self, taskDefinition: str, **kwargs):
+        from botocore.exceptions import ClientError
         raw = self._task_defs.get(taskDefinition)
         if raw is None:
             raw = self._td_by_family_rev.get(taskDefinition)
-            if raw is None:
-                raise Exception(f'ClientError: task definition not found: {taskDefinition}')
+        if raw is None:                                                          # try family-only: return latest revision
+            candidates = [r for r in self._task_defs.values()
+                          if r.get('family') == taskDefinition]
+            if candidates:
+                raw = max(candidates, key=lambda r: r.get('revision', 0))
+        if raw is None:
+            raise ClientError(                                                   # mirrors real ECS ClientException
+                {'Error': {'Code': 'ClientException',
+                           'Message': f'task definition not found: {taskDefinition}'}},
+                'DescribeTaskDefinition',
+            )
         return {'taskDefinition': raw}
 
     def register_task_definition(self, family: str, cpu: str = '256',

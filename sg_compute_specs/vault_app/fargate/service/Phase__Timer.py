@@ -36,7 +36,8 @@ class _Phase__CM:                                                               
     def __exit__(self, exc_type, exc, tb):
         duration_ms = int((time.monotonic() - self._t0) * 1000)
         if exc_type is None:
-            self._result.status      = Enum__VAF__Phase__Status.OK
+            if self._result.status == Enum__VAF__Phase__Status.RUNNING:           # phase method didn't set a final status → default to OK
+                self._result.status  = Enum__VAF__Phase__Status.OK
             self._result.duration_ms = duration_ms
         else:
             self._result.status      = Enum__VAF__Phase__Status.ERROR
