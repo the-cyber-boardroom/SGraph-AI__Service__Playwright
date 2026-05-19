@@ -42,11 +42,12 @@ def _svc() -> Vault_Publish__Service:
 
 
 @app.command(name='register', help='Publish a vault-app stack at <slug>.aws.sg-labs.app.')
-def register(slug     : str  = typer.Argument(..., help='DNS slug (e.g. sara-cv)'),
-             vault_key: str  = typer.Option(..., '--vault-key', '-k', help='Vault key identifier'),
-             region   : str  = typer.Option(DEFAULT_REGION, '--region', '-r'),
-             wait     : bool = typer.Option(False, '--wait', '-w', help='After register, poll the EC2 until it is RUNNING + reachable. Same shape as `sg vp wake`.'),
-             timeout  : int  = typer.Option(600, '--timeout', '-t', help='Max seconds to wait when --wait is set (covers EC2 launch + vault-app boot + LE cert init).')):
+def register(slug                  : str  = typer.Argument(..., help='DNS slug (e.g. sara-cv)'),
+             vault_key             : str  = typer.Option(..., '--vault-key', '-k', help='Vault key identifier'),
+             region                : str  = typer.Option(DEFAULT_REGION, '--region', '-r'),
+             wait                  : bool = typer.Option(False, '--wait', '-w', help='After register, poll the EC2 until it is RUNNING + reachable. Same shape as `sg vp wake`.'),
+             timeout               : int  = typer.Option(600, '--timeout', '-t', help='Max seconds to wait when --wait is set (covers EC2 launch + vault-app boot + LE cert init).'),
+             force_region_mismatch : bool = typer.Option(False, '--force-region-mismatch', help='Proceed even when --region differs from the waker Lambda\'s deploy region. Routing still works (waker scans multiple regions) but Lambda → EC2 calls cross AZ boundaries — measurably slower.')):
     import os
     from sg_compute_specs.vault_publish.service.Vault_Publish__Service import _default_zone
     c = Console(highlight=False)
@@ -68,11 +69,17 @@ def register(slug     : str  = typer.Argument(..., help='DNS slug (e.g. sara-cv)
 
     if waker_region and waker_region != region:
         c.print()
-        c.print(f'  [yellow]⚠[/]  Region mismatch — waker Lambda runs in [bold]{waker_region}[/], '
-                f'this EC2 will land in [bold]{region}[/].')
-        c.print(f'  [dim]   The waker now scans multiple regions (WAKER_SCAN_REGIONS) so routing[/]')
-        c.print(f'  [dim]   still works, but co-locating reduces cross-region latency. Override with[/]')
-        c.print(f'  [dim]   --region {waker_region} (or set AWS_DEFAULT_REGION={waker_region}).[/]')
+        c.print(f'  [red]✗  Region mismatch[/] — waker Lambda runs in [bold]{waker_region}[/], '
+                f'this EC2 would land in [bold]{region}[/].')
+        if not force_region_mismatch:
+            c.print(f'  [dim]   Routing would still work (waker scans multiple regions) but every[/]')
+            c.print(f'  [dim]   Lambda → EC2 describe_instances / start_instances call would cross[/]')
+            c.print(f'  [dim]   region boundaries (measurably slower).[/]\n')
+            c.print(f'  Either re-run with [cyan]--region {waker_region}[/] '
+                    f'(or [cyan]AWS_DEFAULT_REGION={waker_region}[/]),')
+            c.print(f'  or pass [cyan]--force-region-mismatch[/] to proceed anyway.\n')
+            raise typer.Exit(2)
+        c.print(f'  [yellow]   --force-region-mismatch set — proceeding anyway.[/]')
 
     c.print()
     c.print(f'  [yellow]→[/]  Registering [bold]{slug}[/]…')
