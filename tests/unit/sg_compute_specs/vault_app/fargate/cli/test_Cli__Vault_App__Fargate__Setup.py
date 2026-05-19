@@ -185,6 +185,7 @@ class Test__Setup__Create:
             'fargate_client': fargate,
             'iam_client'    : iam,
             'logs_client'   : logs,
+            'image_mirror'  : mirror,
         }
         result = _run(['create', '--cluster', 'test-cluster', '--yes', '--json'], obj=obj)
         assert result.exit_code == 0, result.output

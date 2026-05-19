@@ -96,6 +96,78 @@ class test_Vault_App__Fargate__Image__Mirror(TestCase):
         result = mirror.mirror(_SOURCE, _ECR_URI)
         assert len(result['steps']) == 1                                        # only pull was run
 
+    # ── new fields on result ─────────────────────────────────────────────────
+
+    def test_mirror_result_has_skipped_false_on_normal_push(self):
+        result = self.mirror.mirror(_SOURCE, _ECR_URI)
+        assert result['skipped'] is False
+
+    def test_mirror_result_includes_per_step_duration(self):
+        result = self.mirror.mirror(_SOURCE, _ECR_URI)
+        for step in result['steps']:
+            assert 'duration_ms' in step
+            assert isinstance(step['duration_ms'], int)
+
+    def test_mirror_step_cb_fires_for_each_step(self):                          # step_cb gets (step_name, line) per stdout/stderr line
+        events = []
+        def cb(step_name, line):
+            events.append((step_name, line))
+        # _success_runner returns SHA on inspect, empty otherwise → only inspect emits
+        mirror = Vault_App__Fargate__Image__Mirror(_runner=_success_runner, step_cb=cb)
+        mirror.mirror(_SOURCE, _ECR_URI)
+        # The inspect step's stdout is captured; cb should fire at least once
+        inspect_events = [e for e in events if e[0] == 'inspect']
+        assert len(inspect_events) >= 1
+
+    # ── idempotency (skip when ECR already has matching content) ─────────────
+
+    def test_mirror_skipped_when_ecr_matches_local_source(self):
+        from osbot_utils.type_safe.Type_Safe import Type_Safe
+
+        class _FakeImage(Type_Safe):
+            digest: str = 'sha256:cached123'
+
+        class _FakeEcrClient:
+            def describe_image(self, repo, tag):
+                return _FakeImage()
+
+        # runner returns identical image .Id for both `docker inspect .Id`
+        # calls (source + ecr_tagged) → idempotency check passes → skipped.
+        def runner(cmd):
+            if 'inspect' in cmd and '--format={{.Id}}' in cmd:
+                return (0, 'sha256:same-id-for-both\n', '')
+            if 'inspect' in cmd:                                                 # final inspect for SHA (not reached when skipped)
+                return (0, _SHA + '\n', '')
+            return (0, '', '')                                                   # pull, push, ecr-pull all OK
+
+        mirror = Vault_App__Fargate__Image__Mirror(
+            _runner=runner, ecr_client=_FakeEcrClient())
+        result = mirror.mirror(_SOURCE, _ECR_URI)
+        assert result['ok']      is True
+        assert result['skipped'] is True
+
+    def test_mirror_not_skipped_when_force_true(self):
+        from osbot_utils.type_safe.Type_Safe import Type_Safe
+
+        class _FakeImage(Type_Safe):
+            digest: str = 'sha256:cached123'
+
+        class _FakeEcrClient:
+            def describe_image(self, repo, tag):
+                return _FakeImage()
+
+        def runner(cmd):
+            if 'inspect' in cmd and '--format={{.Id}}' in cmd:
+                return (0, 'sha256:same-id-for-both\n', '')
+            if 'inspect' in cmd:
+                return (0, _SHA + '\n', '')
+            return (0, '', '')
+
+        mirror = Vault_App__Fargate__Image__Mirror(
+            _runner=runner, ecr_client=_FakeEcrClient(), force=True)
+        result = mirror.mirror(_SOURCE, _ECR_URI)
+        assert result['skipped'] is False                                        # forced re-push, not skipped
+
     # ── push failure ─────────────────────────────────────────────────────────
 
     def test_mirror_not_ok_when_push_fails(self):
