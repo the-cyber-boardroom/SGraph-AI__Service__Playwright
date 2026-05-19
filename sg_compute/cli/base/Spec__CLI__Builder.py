@@ -70,10 +70,17 @@ def render_cert_info(info, console: Console) -> None:                           
 class Spec__CLI__Builder:
 
     def __init__(self, cli_spec: Schema__Spec__CLI__Spec,
-                       extra_create_options: Optional[List[Tuple[str, type, Any, str]]] = None):
-        self.cli_spec             = cli_spec
-        self.extra_create_options = extra_create_options or []
-        self.resolver             = Spec__CLI__Resolver()
+                       extra_create_options : Optional[List[Tuple[str, type, Any, str]]] = None,
+                       skip_default_commands: Optional[List[str]]                         = None):
+        # skip_default_commands lets a spec opt out of the auto-registered verbs (e.g.
+        # vault-app replaces `wait` and `health` with a diagnose-based `check`).
+        # NOTE: this only suppresses the CLI commands. The svc.health() method and
+        # builder._wait_healthy helper remain available — they are used internally
+        # by `create --wait`, FastAPI routes, scratch scripts, and Auto_DNS.
+        self.cli_spec              = cli_spec
+        self.extra_create_options  = extra_create_options  or []
+        self.skip_default_commands = set(skip_default_commands or [])
+        self.resolver              = Spec__CLI__Resolver()
 
     def build(self) -> typer.Typer:
         app = typer.Typer(no_args_is_help  = True                                       ,
@@ -88,8 +95,8 @@ class Spec__CLI__Builder:
         self._register_list   (app)
         self._register_info   (app)
         self._register_create (app)
-        self._register_wait   (app)
-        self._register_health (app)
+        if 'wait'   not in self.skip_default_commands: self._register_wait   (app)
+        if 'health' not in self.skip_default_commands: self._register_health (app)
         self._register_connect(app)
         self._register_exec   (app)
         self._register_delete (app)

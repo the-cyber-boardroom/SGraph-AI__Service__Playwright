@@ -460,20 +460,31 @@ class Vault_App__Service(Spec__Service__Base):
             yield ('container-engine', 'warn', 'could not check')
 
         # ── check 5: images-pulled ─────────────────────────────────────────────
+        # Image names match the Docker Hub repos rendered by Vault_App__Compose__Template:
+        #   just-vault       → diniscruz/sg-send-vault
+        #   with-playwright  → + diniscruz/sg-host-control + diniscruz/sg-playwright + mitmproxy/mitmproxy
+        with_playwright = bool(getattr(info, 'with_playwright', False))
         yield ('images-pulled', 'checking', '')
         images_ok = False
         try:
             out        = ssm(f'sudo {engine} images --format "{{{{.Repository}}}}" 2>/dev/null || true')
             have_vault = 'sg-send-vault' in out
-            have_host  = 'sgraph_ai_service_playwright_host' in out
-            if have_vault and have_host:
+            have_host  = (not with_playwright) or ('sg-host-control' in out)
+            have_pw    = (not with_playwright) or ('sg-playwright'   in out)
+            have_mitm  = (not with_playwright) or ('mitmproxy'       in out)
+            if have_vault and have_host and have_pw and have_mitm:
                 images_ok = True
-                yield ('images-pulled', 'ok', 'sg-send-vault + host-plane present')
+                yield ('images-pulled', 'ok',
+                       'sg-send-vault + playwright stack present' if with_playwright else 'sg-send-vault present')
             elif not engine_ok:
                 yield ('images-pulled', 'warn', 'not yet — container engine not ready')
             else:
-                missing = [n for n, ok in (('sg-send-vault', have_vault),
-                                            ('host-plane', have_host)) if not ok]
+                expected = [('sg-send-vault', have_vault)]
+                if with_playwright:
+                    expected += [('sg-host-control', have_host),
+                                 ('sg-playwright' , have_pw  ),
+                                 ('mitmproxy'     , have_mitm)]
+                missing = [n for n, ok in expected if not ok]
                 yield ('images-pulled', 'warn', f'pulling… still missing: {", ".join(missing)}')
         except Exception:
             yield ('images-pulled', 'warn', 'could not check')

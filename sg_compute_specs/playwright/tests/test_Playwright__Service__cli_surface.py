@@ -8,9 +8,6 @@ from sg_compute_specs.playwright.service.Playwright__Service              import
 from sg_compute_specs.playwright.service.Playwright__User_Data__Builder   import Playwright__User_Data__Builder
 
 
-ECR = '123456789012.dkr.ecr.eu-west-2.amazonaws.com'
-
-
 class TestPlaywrightServiceCliSurface:
 
     def test_cli_spec_shape(self):
@@ -88,7 +85,7 @@ class TestPlaywrightServiceCliSurface:
 
     def test_user_data_timer_before_dnf(self):
         user_data = Playwright__User_Data__Builder().render(
-            stack_name='pw-test', region='eu-west-2', ecr_registry=ECR, api_key='k', max_hours=1)
+            stack_name='pw-test', api_key='k', max_hours=1)
         lines   = user_data.splitlines()
         timer_i = next(i for i, l in enumerate(lines) if 'systemd-run' in l)
         dnf_i   = next(i for i, l in enumerate(lines) if l.strip().startswith('dnf install'))
@@ -96,25 +93,25 @@ class TestPlaywrightServiceCliSurface:
 
     def test_user_data_key_sections(self):
         user_data = Playwright__User_Data__Builder().render(
-            stack_name='pw-test', region='eu-west-2', ecr_registry=ECR, api_key='secret-key')
+            stack_name='pw-test', api_key='secret-key')
         assert 'dnf install -y docker'                in user_data
         assert 'docker compose'                       in user_data
         assert '/opt/sg-playwright/docker-compose.yml' in user_data
         assert '/opt/sg-playwright/.env'              in user_data
         assert 'FAST_API__AUTH__API_KEY__VALUE=secret-key' in user_data
-        assert 'aws ecr get-login-password'           in user_data
+        assert 'aws ecr get-login-password'           not in user_data        # all images on Docker Hub — no ECR login
         assert 'host-plane'                           in user_data
         assert 'sg-playwright'                        in user_data
 
     def test_user_data_default_no_mitmproxy(self):
         user_data = Playwright__User_Data__Builder().render(
-            stack_name='pw-test', region='eu-west-2', ecr_registry=ECR, api_key='k')
+            stack_name='pw-test', api_key='k')
         assert 'agent-mitmproxy'      not in user_data
         assert 'interceptors/active'  not in user_data
 
     def test_user_data_with_mitmproxy_and_interceptor(self):
         user_data = Playwright__User_Data__Builder().render(
-            stack_name='pw-test', region='eu-west-2', ecr_registry=ECR, api_key='k',
+            stack_name='pw-test', api_key='k',
             with_mitmproxy=True, intercept_script='def request(flow):\n    pass')
         assert 'agent-mitmproxy'                            in user_data
         assert '/opt/sg-playwright/interceptors/active.py'  in user_data
@@ -122,5 +119,5 @@ class TestPlaywrightServiceCliSurface:
 
     def test_user_data_no_shutdown_when_max_hours_zero(self):
         user_data = Playwright__User_Data__Builder().render(
-            stack_name='pw-test', region='eu-west-2', ecr_registry=ECR, api_key='k', max_hours=0)
+            stack_name='pw-test', api_key='k', max_hours=0)
         assert 'systemd-run' not in user_data
