@@ -4,13 +4,16 @@
 # uvicorn, no LWA. Lambda Function URL passes the HTTP event directly; we
 # parse it, route it, and return a Function-URL v2.0 response dict.
 #
-# (Fast_API__Waker.py exists in this package for completeness — it can be
-# served locally via uvicorn for non-Lambda testing — but is NOT what runs
-# in AWS. Any change to runtime behaviour must be made here.)
+# (Fast_API__Waker + the admin sub-app mount were removed in v0.1.16 — admin
+# moved to its own Lambda. See team/comms/plans/v0.1.16__admin-lambda-split.)
 #
 # Special routes handled directly (no slug resolution):
-#   GET /__waker__/health  → plain JSON liveness check
-#   GET /__waker__/deploy  → plain JSON dump of deploy metadata + schema fields
+#   GET /__waker__/health   → JSON liveness check
+#   GET /__waker__/deploy   → JSON dump of deploy metadata + schema fields
+#   GET /__waker__/cmd      → debug RPC channel (gated by WAKER_CMD_ENABLED)
+#   GET /__waker__/console  → debug console HTML (gated by WAKER_CMD_ENABLED)
+#   GET /__waker__/probe    → JSON status probe (CORS-enabled; used by warming page)
+#   GET /__waker__/status   → diagnostic HTML page for a slug
 # Every other path goes through Waker__Handler.handle().
 # ═══════════════════════════════════════════════════════════════════════════════
 
@@ -276,22 +279,6 @@ def _route_probe(qs_args: dict, request_headers: dict, method: str) -> dict:
 
 # ── Entry point ──────────────────────────────────────────────────────────────
 
-# FastAPI app cache. Built lazily on first hit + reused across warm Lambda
-# invocations. Module-level so cold start cost (~150ms for FastAPI init +
-# route registration + admin mount) is paid once per container.
-_FAST_API_APP = None
-_LAMBDA_TO_ASGI = None
-
-def _get_asgi_dispatcher():
-    global _FAST_API_APP, _LAMBDA_TO_ASGI
-    if _LAMBDA_TO_ASGI is None:
-        from sg_compute_specs.vault_publish.lambdas.waker.Fast_API__Waker import Fast_API__Waker
-        from sg_compute_specs.vault_publish.lambdas.admin.Lambda_To_ASGI  import Lambda_To_ASGI
-        _FAST_API_APP   = Fast_API__Waker().setup().app()
-        _LAMBDA_TO_ASGI = Lambda_To_ASGI(_FAST_API_APP)
-    return _LAMBDA_TO_ASGI
-
-
 def handler(event, context):                                                       # Lambda entry point
     headers     = event.get('headers') or {}
     origin_host = _h(headers, 'host', '')
@@ -311,12 +298,12 @@ def handler(event, context):                                                    
         method  = (event.get('requestContext') or {}).get('http', {}).get('method', 'GET')
         return _route_probe(qs_args, headers, method)
 
-    # Admin UI — dispatch /__admin__/* through the ASGI adapter to the FastAPI
-    # sub-app mounted on Fast_API__Waker. This is the first step in moving
-    # all waker routes to FastAPI; today only /__admin__/* uses this path,
-    # but the dispatcher is general-purpose.
-    if path == '/__admin__' or path.startswith('/__admin__/'):
-        return _get_asgi_dispatcher()(event)
+    # Admin UI was previously served by the waker via an ASGI dispatcher to a
+    # FastAPI sub-app mount. That code path moved to its own Lambda (sg-compute
+    # -vault-publish-admin) in v0.1.16 — see plans/v0.1.16__admin-lambda-split.
+    # Requests to /__admin__/* now fall through to the slug-routing path below,
+    # which renders the diagnostic page (admin is no longer reachable on the
+    # waker host).
     if path == '/__waker__/status':
         import urllib.parse
         qs_args = dict(urllib.parse.parse_qsl(raw_qs, keep_blank_values=True))

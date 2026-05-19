@@ -35,13 +35,18 @@ from osbot_utils.type_safe.Type_Safe import Type_Safe
 # back to polling the slug URL (legacy behaviour).
 WAKER_LAMBDA_FUNCTION_URL = os.environ.get('WAKER_LAMBDA_FUNCTION_URL', '').rstrip('/')
 
-# Same-zone admin/probe host — alternative cross-origin target. Defaults to
-# `waker.<zone>`. Empirically may or may not defeat H2 connection coalescing
-# (see library/docs/research/v0.1.14__http2-connection-coalescing.md);
-# Lambda Function URL is the guaranteed-no-coalescing fallback. When BOTH
-# are set, the JS prefers WAKER_PROBE_HOST so we can A/B test in production.
-_DEFAULT_ZONE = os.environ.get('SG_AWS__DNS__DEFAULT_ZONE', 'aws.sg-labs.app')
-WAKER_PROBE_HOST = os.environ.get('WAKER_PROBE_HOST', f'waker.{_DEFAULT_ZONE}').rstrip('/')
+# Admin/probe host — the cross-origin target for status polling. Defaults to
+# `vp-admin.<zone>` which is served by the dedicated admin Lambda + CF
+# distribution (see team/comms/plans/v0.1.16__admin-lambda-split). The admin
+# distribution uses a SINGLE-HOST ACM cert (not the wildcard) so H2 connection
+# coalescing with the slug FQDN is impossible by construction — see the cert
+# constraint section in the plan.
+#
+# Override with WAKER_PROBE_HOST / WAKER_PROBE_PATH if running an A/B test
+# or pointing at a staging environment.
+_DEFAULT_ZONE     = os.environ.get('SG_AWS__DNS__DEFAULT_ZONE', 'aws.sg-labs.app')
+WAKER_PROBE_HOST  = os.environ.get('WAKER_PROBE_HOST', f'vp-admin.{_DEFAULT_ZONE}').rstrip('/')
+WAKER_PROBE_PATH  = os.environ.get('WAKER_PROBE_PATH', '/api/v1/status')
 
 NO_CACHE_HEADERS = {
     'Cache-Control': 'no-store, no-cache, must-revalidate',
@@ -120,7 +125,7 @@ _HTML_TEMPLATE = """<!DOCTYPE html>
 
     log('page loaded', {
       probe_target  : CFG.probe_target,
-      probe_url     : CFG.lambda_url || '(fallback: slug FQDN)',
+      probe_url     : CFG.probe_url || '(fallback: slug FQDN)',
       initial_wait_s: Math.round(CFG.initial_wait_ms/1000),
       poll_every_s  : Math.round(CFG.poll_fast_ms/1000),
     });
@@ -153,13 +158,14 @@ _HTML_TEMPLATE = """<!DOCTYPE html>
     }
 
     async function probe() {
-      // Default: poll the Lambda Function URL cross-origin so the slug
-      // FQDN's socket pool slot stays idle and can drain. Only when
-      // CFG.lambda_url is unset (legacy deploy without the env var) do we
-      // fall back to polling the slug FQDN — at the cost of pinning the
-      // socket, but functional.
-      if (CFG.lambda_url) {
-        const url = CFG.lambda_url + '/__waker__/probe?slug=' +
+      // Poll the cross-origin probe URL (vp-admin.<zone>/api/v1/status by
+      // default) — separate CloudFront distribution + single-host cert means
+      // H2 connection coalescing with the slug FQDN is impossible. The slug
+      // FQDN's socket pool slot stays idle through this entire flow.
+      // Fallback to polling the slug URL only when CFG.probe_url is empty
+      // (legacy deploys without the WAKER_PROBE_HOST env var).
+      if (CFG.probe_url) {
+        const url = CFG.probe_url + '?slug=' +
                     encodeURIComponent(CFG.slug) + '&t=' + Date.now();
         const resp = await fetch(url, {
           cache       : 'no-store',
@@ -173,7 +179,7 @@ _HTML_TEMPLATE = """<!DOCTYPE html>
           status      : resp.status,
           waker_state : json.waker_state || '',
           ec2_state   : json.ec2_state   || '',
-          via_lambda  : true,                                                   // cross-origin probe is always to Lambda; we never get "direct" detection this way
+          via_lambda  : true,                                                   // cross-origin probe is always to admin Lambda; we never get "direct" detection this way
           direct_check: false,
         };
       }
@@ -219,7 +225,7 @@ _HTML_TEMPLATE = """<!DOCTYPE html>
         }
       } else {
         const target = CFG.probe_target || 'unknown';
-        const label  = target === 'waker-host'  ? 'waker.<zone> (testing H2 coalescing)'
+        const label  = target === 'admin-host'  ? 'vp-admin.<zone> (single-host cert — no coalescing)'
                     :  target === 'lambda-url'  ? 'Lambda Function URL (guaranteed no coalescing)'
                     :                              'slug FQDN (fallback — keeps socket warm)';
         $('path-line').textContent = 'Probe target: ' + label;
@@ -351,22 +357,29 @@ class Warming__Page(Type_Safe):
     settle_ms       : int = 0                                                         # post-ready settle countdown — set to 0 since cross-origin probes don't pollute the slug FQDN socket pool, redirect can fire immediately on state=proxied
 
     def render(self, slug: str) -> str:
-        # probe_base — preferred cross-origin target. Order:
-        #   1. WAKER_PROBE_HOST (e.g. https://waker.<zone>) — same-zone subdomain
-        #      to test whether H2 coalescing actually defeats the trick
-        #   2. WAKER_LAMBDA_FUNCTION_URL — guaranteed-no-coalescing fallback
-        #   3. empty — JS falls back to polling the slug URL (legacy)
-        probe_base = ''
+        # probe_url — fully-qualified cross-origin status endpoint. Order:
+        #   1. WAKER_PROBE_HOST + WAKER_PROBE_PATH — admin host (default
+        #      `vp-admin.<zone>/api/v1/status`). Single-host cert + separate
+        #      CF distribution preclude H2 connection coalescing by design.
+        #   2. WAKER_LAMBDA_FUNCTION_URL + /__waker__/probe — legacy fallback
+        #      (deploy without admin host yet). Different IP set + different
+        #      cert mean coalescing is also impossible here.
+        #   3. empty — JS falls back to polling the slug URL (last-resort,
+        #      keeps the socket warm).
+        probe_url = ''
+        target    = 'slug-fqdn'
         if WAKER_PROBE_HOST:
-            probe_base = (WAKER_PROBE_HOST if WAKER_PROBE_HOST.startswith(('http://', 'https://'))
-                          else f'https://{WAKER_PROBE_HOST}')
+            base = (WAKER_PROBE_HOST if WAKER_PROBE_HOST.startswith(('http://', 'https://'))
+                    else f'https://{WAKER_PROBE_HOST}')
+            probe_url = base + WAKER_PROBE_PATH
+            target    = 'admin-host'
         elif WAKER_LAMBDA_FUNCTION_URL:
-            probe_base = WAKER_LAMBDA_FUNCTION_URL
+            probe_url = WAKER_LAMBDA_FUNCTION_URL + '/__waker__/probe'
+            target    = 'lambda-url'
         cfg = {
             'slug'            : slug,
-            'lambda_url'      : probe_base,                                          # JS still calls this field "lambda_url" but it now points at probe_base (waker.<zone> or Lambda URL)
-            'probe_target'    : 'waker-host' if WAKER_PROBE_HOST else
-                                ('lambda-url' if WAKER_LAMBDA_FUNCTION_URL else 'slug-fqdn'),
+            'probe_url'       : probe_url,
+            'probe_target'    : target,
             'initial_wait_ms' : self.initial_wait_ms,
             'poll_fast_ms'    : self.poll_fast_ms,
             'poll_fast_count' : self.poll_fast_count,
