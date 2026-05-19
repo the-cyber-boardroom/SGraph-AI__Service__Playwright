@@ -158,14 +158,16 @@ class test_Spec__CLI__Builder(TestCase):
             assert verb in result.output, f'missing verb: {verb}'
 
     def test_build__skip_default_commands_suppresses_named_verbs(self):
-        # Specs (e.g. vault-app) replace the auto-registered `wait` and `health`
-        # with richer diagnose-based equivalents — they pass skip_default_commands
-        # to opt out of the defaults.
-        app, _ = _build_app(skip_default_commands=['wait', 'health'])
+        # Specs (e.g. vault-app) replace the auto-registered `wait` / `health` /
+        # `delete` with richer equivalents (diagnose-based wait/check, delete
+        # with --all bulk-cleanup) — they pass skip_default_commands to opt out
+        # of the defaults.
+        app, _ = _build_app(skip_default_commands=['wait', 'health', 'delete'])
         assert self.runner.invoke(app, ['wait'  , '--help']).exit_code != 0
         assert self.runner.invoke(app, ['health', '--help']).exit_code != 0
+        assert self.runner.invoke(app, ['delete', '--help']).exit_code != 0
         # other verbs still register
-        for verb in ('list', 'info', 'create', 'connect', 'exec', 'delete'):
+        for verb in ('list', 'info', 'create', 'connect', 'exec'):
             assert self.runner.invoke(app, [verb, '--help']).exit_code == 0, f'{verb} broken'
 
     def test_list__help_mentions_region(self):

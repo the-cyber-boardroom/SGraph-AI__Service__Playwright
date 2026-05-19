@@ -99,7 +99,7 @@ class Spec__CLI__Builder:
         if 'health' not in self.skip_default_commands: self._register_health (app)
         self._register_connect(app)
         self._register_exec   (app)
-        self._register_delete (app)
+        if 'delete' not in self.skip_default_commands: self._register_delete (app)
         self._register_ami    (app)
         self._register_cert   (app)
         return app
