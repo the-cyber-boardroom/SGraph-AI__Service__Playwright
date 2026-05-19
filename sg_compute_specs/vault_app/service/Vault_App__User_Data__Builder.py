@@ -3,15 +3,16 @@
 # Composes the cloud-init bash script for a vault-app EC2 host.
 #
 # Order: Section__Base (incl. auto-terminate timer) → container-engine install
-#      → write .env + docker-compose.yml → ECR login → compose up → footer
+#      → write .env + docker-compose.yml → compose up → footer
 #
+# All images pull from Docker Hub — no ECR login required.
 # The auto-terminate timer is inside Section__Base and fires even if a later
 # dnf install or image pull aborts the script (L9 lesson).
 #
-# Boot-time note: the slow steps are the engine install (including GitHub compose
-# download) and the ECR image pull. Bake an AMI from a warm stack so a re-launch
-# skips both — see the AMI__Helper header. When booting from a baked AMI the
-# engine is already present and `compose up` re-uses the local image layers.
+# Boot-time note: the slow step is the engine install (including GitHub compose
+# download). Bake an AMI from a warm stack so a re-launch skips it — see the
+# AMI__Helper header. When booting from a baked AMI the engine is already
+# present and `compose up` re-uses the local image layers.
 # ═══════════════════════════════════════════════════════════════════════════════
 
 from osbot_utils.type_safe.Type_Safe import Type_Safe
@@ -56,6 +57,7 @@ echo "[vault-app] Podman ready"
 _STACK_TEMPLATE = '''
 # ── vault-app stack ({mode}, engine={engine}) ───────────────────────────────
 mkdir -p /opt/vault-app/data
+mkdir -p /var/lib/sg-compute                                                  # bind-mount source for cert-init's stage file; sg va check reads it via SSM
 
 cat > /opt/vault-app/.env <<'ENVEOF'
 IMAGE_TAG={image_tag}
@@ -65,7 +67,7 @@ SGRAPH_SEND__ACCESS_TOKEN={access_token}
 SEND__STORAGE_MODE={storage_mode}
 VAULT_DATA_PATH=/opt/vault-app/data
 SG_VAULT_APP__SEED_VAULT_KEYS={seed_vault_keys}
-{ecr_env_line}{tls_env_lines}ENVEOF
+{tls_env_lines}ENVEOF
 chmod 600 /opt/vault-app/.env
 
 cat > /opt/vault-app/docker-compose.yml <<'COMPOSEEOF'
@@ -73,16 +75,14 @@ cat > /opt/vault-app/docker-compose.yml <<'COMPOSEEOF'
 COMPOSEEOF
 
 cd /opt/vault-app
-{ecr_login}{compose_cmd} --env-file /opt/vault-app/.env up -d
-{ecr_logout}echo "[vault-app] stack started ({mode}, engine={engine})"
+{compose_cmd} --env-file /opt/vault-app/.env up -d
+echo "[vault-app] stack started ({mode}, engine={engine})"
 '''
 
 
 class Vault_App__User_Data__Builder(Type_Safe):
 
     def render(self, stack_name         : str   ,
-                     region             : str   ,
-                     ecr_registry       : str   ,
                      access_token       : str   ,
                      with_playwright    : bool  = False        ,
                      container_engine   : str   = 'docker'     ,
@@ -112,34 +112,19 @@ class Vault_App__User_Data__Builder(Type_Safe):
                 tls_env_lines += f'SG__CERT_INIT__TLS_HOSTNAME={tls_hostname}\n'
 
         compose_yaml  = Vault_App__Compose__Template().render(
-            ecr_registry    = ecr_registry    ,
             with_playwright = with_playwright ,
             image_tag       = image_tag       ,
             docker_socket   = docker_socket   ,
             with_tls_check  = with_tls_check  )
 
-        # ECR login is only needed when with_playwright=True (agent-mitmproxy still uses ECR)
-        if with_playwright:
-            ecr_login  = (f'aws ecr get-login-password --region "{region}" | \\\n'
-                          f'  {engine} login --username AWS --password-stdin "{ecr_registry}"\n')
-            ecr_logout = f'{engine} logout "{ecr_registry}" 2>/dev/null || true\n'
-            ecr_env_line = f'ECR_REGISTRY={ecr_registry}\n'
-        else:
-            ecr_login    = ''
-            ecr_logout   = ''
-            ecr_env_line = ''
-
         stack_block = _STACK_TEMPLATE.format(
             mode            = mode            ,
             engine          = engine          ,
             compose_cmd     = compose_cmd     ,
-            ecr_env_line    = ecr_env_line    ,
             image_tag       = image_tag       ,
             access_token    = access_token    ,
             storage_mode    = storage_mode    ,
             seed_vault_keys = seed_vault_keys ,
-            ecr_login       = ecr_login       ,
-            ecr_logout      = ecr_logout      ,
             tls_env_lines   = tls_env_lines   ,
             compose_yaml    = compose_yaml    )
 

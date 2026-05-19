@@ -28,7 +28,7 @@ from sg_compute_specs.vault_app.schemas.Schema__Vault_App__Start__Response  impo
 from sg_compute_specs.vault_app.schemas.Schema__Vault_App__Stop__Request    import Schema__Vault_App__Stop__Request
 from sg_compute_specs.vault_app.schemas.Schema__Vault_App__Stop__Response   import Schema__Vault_App__Stop__Response
 from sg_compute_specs.vault_app.service.Vault_App__AMI__Helper              import Vault_App__AMI__Helper
-from sg_compute_specs.vault_app.service.Vault_App__AWS__Client              import Vault_App__AWS__Client, ecr_registry_host
+from sg_compute_specs.vault_app.service.Vault_App__AWS__Client              import Vault_App__AWS__Client
 from sg_compute_specs.vault_app.service.Vault_App__Stack__Mapper            import (Vault_App__Stack__Mapper ,
                                                                                     STACK_TYPE               ,
                                                                                     PLAYWRIGHT_EXTERNAL_PORT ,
@@ -49,6 +49,15 @@ DEFAULT_AWS_DNS_ZONE_FALLBACK = 'sg-compute.sgraph.ai'       # same default as s
 
 def _default_aws_dns_zone() -> str:
     return os.environ.get('SG_AWS__DNS__DEFAULT_ZONE', DEFAULT_AWS_DNS_ZONE_FALLBACK)
+
+
+def _elapsed_since_iso(iso_ts: str) -> int:
+    """Seconds elapsed from `iso_ts` (UTC, '%Y-%m-%dT%H:%M:%SZ') to now. -1 on parse error."""
+    try:
+        then = datetime.strptime(iso_ts, '%Y-%m-%dT%H:%M:%SZ').replace(tzinfo=timezone.utc)
+        return max(0, int((datetime.now(timezone.utc) - then).total_seconds()))
+    except (ValueError, TypeError):
+        return -1
 
 
 class Vault_App__Service(Spec__Service__Base):
@@ -105,8 +114,6 @@ class Vault_App__Service(Spec__Service__Base):
         itype        = str(request.instance_type) or DEFAULT_INSTANCE_TYPE
         engine       = str(request.container_engine) or 'docker'
         access_token = str(request.access_token) or secrets.token_urlsafe(24)
-        ecr_registry = ecr_registry_host(region)
-
         # SG layout:
         #   :8080  always — vault UI on plain HTTP for non-TLS / SSM-forward use; caller-/32 only.
         #   :443   --with-tls-check — HTTPS vault. World-open (token-gated; LE validates from unpredictable IPs).
@@ -144,8 +151,6 @@ class Vault_App__Service(Spec__Service__Base):
 
         user_data = self.user_data_builder.render(
             stack_name       = stack_name              ,
-            region           = region                  ,
-            ecr_registry     = ecr_registry            ,
             access_token     = access_token            ,
             with_playwright  = bool(request.with_playwright) ,
             container_engine = engine                   ,
@@ -464,20 +469,31 @@ class Vault_App__Service(Spec__Service__Base):
             yield ('container-engine', 'warn', 'could not check')
 
         # ── check 5: images-pulled ─────────────────────────────────────────────
+        # Image names match the Docker Hub repos rendered by Vault_App__Compose__Template:
+        #   just-vault       → diniscruz/sg-send-vault
+        #   with-playwright  → + diniscruz/sg-host-control + diniscruz/sg-playwright + mitmproxy/mitmproxy
+        with_playwright = bool(getattr(info, 'with_playwright', False))
         yield ('images-pulled', 'checking', '')
         images_ok = False
         try:
             out        = ssm(f'sudo {engine} images --format "{{{{.Repository}}}}" 2>/dev/null || true')
             have_vault = 'sg-send-vault' in out
-            have_host  = 'sgraph_ai_service_playwright_host' in out
-            if have_vault and have_host:
+            have_host  = (not with_playwright) or ('sg-host-control' in out)
+            have_pw    = (not with_playwright) or ('sg-playwright'   in out)
+            have_mitm  = (not with_playwright) or ('mitmproxy'       in out)
+            if have_vault and have_host and have_pw and have_mitm:
                 images_ok = True
-                yield ('images-pulled', 'ok', 'sg-send-vault + host-plane present')
+                yield ('images-pulled', 'ok',
+                       'sg-send-vault + playwright stack present' if with_playwright else 'sg-send-vault present')
             elif not engine_ok:
                 yield ('images-pulled', 'warn', 'not yet — container engine not ready')
             else:
-                missing = [n for n, ok in (('sg-send-vault', have_vault),
-                                            ('host-plane', have_host)) if not ok]
+                expected = [('sg-send-vault', have_vault)]
+                if with_playwright:
+                    expected += [('sg-host-control', have_host),
+                                 ('sg-playwright' , have_pw  ),
+                                 ('mitmproxy'     , have_mitm)]
+                missing = [n for n, ok in expected if not ok]
                 yield ('images-pulled', 'warn', f'pulling… still missing: {", ".join(missing)}')
         except Exception:
             yield ('images-pulled', 'warn', 'could not check')
@@ -531,6 +547,33 @@ class Vault_App__Service(Spec__Service__Base):
                 yield ('boot-ok', 'warn', f'not yet — current stage: {stage[:160]}' if stage else 'not yet')
         except Exception:
             yield ('boot-ok', 'warn', 'could not check')
+
+        # ── check 9: cert-init (TLS stacks only) ───────────────────────────────
+        # Reads the stage file written by sg_compute.platforms.tls.cert_init —
+        # bind-mounted at /var/lib/sg-compute/cert-init.stage on the EC2 host.
+        # Brief: team/comms/briefs/v0.1.14__sg-va-cert-init-observability/.
+        if bool(getattr(info, 'tls_enabled', False)):
+            yield ('cert-init', 'checking', '')
+            try:
+                # tail of stage file = current stage. Format per line: iso_ts\tstage\tdetail
+                last = ssm('sudo tail -n 1 /var/lib/sg-compute/cert-init.stage 2>/dev/null || true')
+                parts = (last.split('\t', 2) + ['', '', ''])[:3]
+                ts, stage, detail = parts
+                if not stage:
+                    # cert-init may not have started yet (compose still pulling host-control image)
+                    yield ('cert-init', 'warn', 'not yet — stage file empty (cert-init has not started)')
+                elif stage == 'cert-issued':
+                    yield ('cert-init', 'ok', f'{stage}  {detail}')
+                elif stage == 'failed':
+                    yield ('cert-init', 'fail', f'failed at {ts} — {detail}')
+                else:
+                    # in-flight stage — surface elapsed since the stage transition so the operator
+                    # can tell "stuck in waiting-for-dns for 5min" from "just started 2s ago"
+                    elapsed = _elapsed_since_iso(ts)
+                    suffix  = f'  (in stage for ~{elapsed}s)' if elapsed >= 0 else ''
+                    yield ('cert-init', 'warn', f'{stage}  {detail}{suffix}')
+            except Exception as exc:
+                yield ('cert-init', 'warn', f'could not check: {str(exc)[:120]}')
 
     def _r53_client(self):
         if self._r53_client_factory is not None:

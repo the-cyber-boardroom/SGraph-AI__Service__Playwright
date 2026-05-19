@@ -26,9 +26,18 @@ class TestCliVaultApp:
         assert 'vault' in result.output.lower() or 'manage' in result.output.lower()
 
     def test_standard_verbs_exist(self):
-        for verb in ('list', 'info', 'create', 'wait', 'health', 'connect', 'exec', 'delete'):
+        # vault-app opts out of the auto-registered `health` and `wait` in favour
+        # of `check` (sequential checklist + external probe) and a diagnose-based
+        # `wait`. See library/guides/v0.2.31__setup_cli_pattern.md.
+        for verb in ('list', 'info', 'create', 'check', 'wait', 'connect', 'exec', 'delete'):
             result = runner.invoke(app, [verb, '--help'])
             assert result.exit_code == 0, f'{verb} --help failed'
+
+    def test_health_and_diag_no_longer_registered(self):
+        # Replaced by `check`. svc.health() the *method* is still present —
+        # used internally by `create --wait`, FastAPI routes, scratch scripts.
+        assert runner.invoke(app, ['health', '--help']).exit_code != 0
+        assert runner.invoke(app, ['diag'  , '--help']).exit_code != 0
 
     def test_create_extra_options_present(self):
         result = runner.invoke(app, ['create', '--help'])
@@ -114,11 +123,12 @@ class TestCliVaultApp:
         assert result.exit_code == 0
         assert '--add-hours' in result.output
 
-    def test_diag_subcommand_exists(self):
-        result = runner.invoke(app, ['diag', '--help'])
+    def test_check_subcommand_exists(self):
+        result = runner.invoke(app, ['check', '--help'])
         assert result.exit_code == 0
         for step in ('ec2-state', 'ssm-reachable', 'container-engine',
-                     'images-pulled', 'containers-up', 'vault-http', 'boot-ok'):
+                     'images-pulled', 'containers-up', 'vault-http', 'boot-ok',
+                     'external-http'):
             assert step in result.output
 
     def test_render_vault_app_info_shows_vault_url(self):

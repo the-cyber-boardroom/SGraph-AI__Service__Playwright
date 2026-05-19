@@ -1,9 +1,15 @@
 # ═══════════════════════════════════════════════════════════════════════════════
 # SG/Compute Specs — vault-app: Cli__Vault_App
-# Builder-driven CLI. The 8 standard verbs (list/info/create/wait/health/
-# connect/exec/delete) plus the `ami` sub-typer (list/bake/wait/delete) come
-# from Spec__CLI__Builder. Spec-specific extras:
-#   - logs    : stream boot / cloud-init / journal logs from the host
+# Builder-driven CLI. The standard verbs (list/info/create/connect/exec/delete)
+# plus the `ami` sub-typer (list/bake/wait/delete) come from Spec__CLI__Builder.
+# Vault-app opts out of the default `wait` and `health` commands and replaces
+# them with `check` and a diagnose-based `wait` — see the Setup-CLI Pattern
+# guide (library/guides/v0.2.31__setup_cli_pattern.md).
+#
+# Spec-specific extras:
+#   - check   : sequential boot checklist + external HTTP probe (was: diag + health)
+#   - wait    : live boot-stage progress, polls until all checks pass
+#   - logs    : stream boot / cloud-init / journal / container logs from the host
 #   - extend  : push the auto-terminate timer out by N hours
 #
 # Create-time flags worth knowing:
@@ -249,8 +255,9 @@ _cli_spec = Schema__Spec__CLI__Spec(
 
 
 app = Spec__CLI__Builder(
-    cli_spec             = _cli_spec,
-    extra_create_options = [
+    cli_spec              = _cli_spec,
+    skip_default_commands = ['wait', 'health', 'delete'],             # replaced by `check`, diagnose-based `wait`, and `delete` w/ --all below
+    extra_create_options  = [
         # ── stack shape ──────────────────────────────────────────────────
         ('with_playwright', bool, False,
          'Add the host-plane + sg-playwright + agent-mitmproxy set (4-container stack). '
@@ -348,7 +355,7 @@ Add --follow / -f to poll for new lines every few seconds (Ctrl-C to stop).
 ''')
 @spec_cli_errors
 def logs(name  : str  = typer.Argument(None, help='Stack name; auto-selected when only one exists.'),
-         tail  : int  = typer.Option(300,   '--tail', '-n',   help='Number of log lines to fetch.'),
+         tail  : int  = typer.Option(30,    '--tail', '-n',   help='Number of log lines to fetch.'),
          follow: bool = typer.Option(False, '--follow', '-f', help='Poll for new lines every few seconds (Ctrl-C to stop).'),
          source: str  = typer.Option('',    '--source', '-s',
                                      help='boot | cloud-init | journal | cert-init | vault. Omit to be prompted.'),
@@ -356,6 +363,18 @@ def logs(name  : str  = typer.Argument(None, help='Stack name; auto-selected whe
     """Stream logs from the stack host via SSM."""
     import time
     c = Console(highlight=False)
+
+    # If the positional arg is a digit in range, treat it as a source index
+    # ('sg va logs 4' → 'cert-init') instead of a stack name. This matches
+    # the same numbering the interactive prompt shows.
+    if name and name.isdigit():
+        keys = list(_LOG_SOURCES)
+        idx  = int(name)
+        if 1 <= idx <= len(keys):
+            if not source:
+                source = keys[idx - 1]
+            name = None                                                # fall through to auto-resolve below
+
     if not source:
         source = _prompt_for_source(c)
     if source not in _LOG_SOURCES:
@@ -458,25 +477,231 @@ def extend(name     : str   = typer.Argument(None, help='Stack name; auto-select
     c.print()
 
 
-# ── diag: sequential boot checklist ──────────────────────────────────────────
+# ── check / wait: unified boot checklist + external HTTP probe ───────────────
+# Both commands drive the same diagnose generator and render into the same
+# rich.Live table. `check` runs once; `wait` re-runs every poll-interval until
+# every row is OK or the timeout expires. Replaces the old `health` and `diag`
+# commands (see Setup-CLI Pattern guide, library/guides/v0.2.31__setup_cli_pattern.md).
 
 _DIAG_ICONS = {
-    'ok'  : '[green]✓[/]',
-    'fail': '[red]✗[/]',
-    'warn': '[yellow]⚠[/]',
-    'skip': '[dim]⊘[/]',
+    'ok'      : '[green]✓[/]',
+    'fail'    : '[red]✗[/]',
+    'warn'    : '[yellow]⚠[/]',
+    'skip'    : '[dim]⊘[/]',
+    'checking': '[dim]…[/]',
+    'pending' : '[dim]·[/]',
 }
+
+_DIAG_STATE_LABEL = {
+    'ok'      : '[green]OK[/]',
+    'fail'    : '[red]FAIL[/]',
+    'warn'    : '[yellow]WARN[/]',
+    'skip'    : '[dim]SKIP[/]',
+    'checking': '[dim]…[/]',
+    'pending' : '[dim]·[/]',
+}
+
+# Pre-known check order — matches Vault_App__Service.diagnose() yield order.
+# Used so the Live table can show all rows up-front in 'pending' state instead
+# of growing top-down as each generator yield arrives.
+_CHECK_ORDER = ('ec2-state', 'ssm-reachable', 'boot-failed', 'container-engine',
+                'images-pulled', 'containers-up', 'vault-http', 'boot-ok',
+                'cert-init',                                                # TLS stacks only — surfaces cert_init.py's stage file
+                'external-http')
 
 # per-check log source to suggest when a check fails / warns
 _DIAG_HINTS = {
     'ssm-reachable'    : [('boot'      , 'see if boot completed at all')],
     'boot-failed'      : [('boot'      , 'full boot log with the error')],
     'container-engine' : [('boot'      , 'engine install stage'), ('journal', 'systemd unit errors')],
-    'images-pulled'    : [('boot'      , 'ECR login + image pull is the long step')],
+    'images-pulled'    : [('boot'      , 'image pull is the long step')],
     'containers-up'    : [('boot'      , 'compose up output')],
-    'vault-http'       : [('boot'      , 'container start markers')],
+    'vault-http'       : [('vault'     , 'sg-send-vault container output'), ('boot', 'container start markers')],
     'boot-ok'          : [('boot'      , 'watch boot progress')],
+    'cert-init'        : [('cert-init' , 'full cert-init container output (DNS wait / ACME challenge)')],
+    'external-http'    : [('vault'     , 'sg-send-vault container output')],
 }
+
+
+def _build_check_table(rows, *, header_extra: str = '') -> Table:
+    t = Table(box=None, show_header=True, header_style='bold', padding=(0, 2), pad_edge=False)
+    t.add_column('Check' , no_wrap=True, min_width=18)
+    t.add_column('State' , no_wrap=True, min_width=6 )
+    t.add_column('Detail' + (f'  [dim]{header_extra}[/]' if header_extra else ''))
+    for name, status, detail in rows:
+        icon  = _DIAG_ICONS      .get(status, '[dim]?[/]')
+        label = _DIAG_STATE_LABEL.get(status, '[dim]?[/]')
+        first_line, *_ = (detail or '').split('\n', 1)
+        t.add_row(name, f'{icon} {label}', f'[dim]{first_line}[/]')
+    return t
+
+
+def _probe_external_http(svc, region: str, name: str) -> tuple:
+    """Return (status, detail) for an external svc.health() probe."""
+    try:
+        result   = svc.health(region, name, timeout_sec=0)
+        healthy  = bool(getattr(result, 'healthy'   , False))
+        url      = str (getattr(result, 'url'       , '') or '')
+        code     = int (getattr(result, 'http_code' , 0)) or 0
+        latency  = int (getattr(result, 'latency_ms', 0)) or 0
+        err      = str (getattr(result, 'error'     , '') or '')
+        if healthy:
+            return ('ok', f'HTTP {code} in {latency}ms — {url}' if url else f'HTTP {code} in {latency}ms')
+        if code:
+            return ('warn', f'HTTP {code} in {latency}ms — {url or err}')
+        return ('fail', err or 'no response')
+    except Exception as exc:
+        return ('fail', str(exc)[:160])
+
+
+def _run_checks(svc, region: str, name: str, *, live, rows: list, header_extra: str = '') -> list:
+    """Drive svc.diagnose() + the external probe, updating `rows` (and the
+    Live table) in place. Returns the final rows list."""
+    by_name = {n: i for i, (n, _, _) in enumerate(rows)}
+
+    def _set(check_name: str, status: str, detail: str):
+        if check_name in by_name:
+            rows[by_name[check_name]] = (check_name, status, detail)
+        else:
+            rows.append((check_name, status, detail))
+            by_name[check_name] = len(rows) - 1
+        live.update(_build_check_table(rows, header_extra=header_extra))
+
+    for check_name, status, detail in svc.diagnose(region, name):
+        _set(check_name, status, detail)
+
+    _set('external-http', 'checking', '')
+    status, detail = _probe_external_http(svc, region, name)
+    _set('external-http', status, detail)
+    return rows
+
+
+def _initial_rows() -> list:
+    return [(n, 'pending', '') for n in _CHECK_ORDER]
+
+
+def _suggestions_for(rows, name: str) -> list:
+    """De-duplicated `sg va logs` suggestions for any warn/fail rows."""
+    seen, out = set(), []
+    for check_name, status, _ in rows:
+        if status not in ('fail', 'warn'):
+            continue
+        for source, reason in _DIAG_HINTS.get(check_name, []):
+            if source not in seen:
+                seen.add(source)
+                out.append((source, reason, check_name))
+    return out
+
+
+def _print_summary(c: Console, rows: list, name: str) -> None:
+    c.print()
+    failed = [n for n, s, _ in rows if s == 'fail']
+    warned = [n for n, s, _ in rows if s == 'warn']
+    if not failed and not warned:
+        c.print('  [green]✓  all checks passed[/]')
+        c.print()
+        return
+    parts = []
+    if failed: parts.append(f'[red]{len(failed)} failed[/]')
+    if warned: parts.append(f'[yellow]{len(warned)} warnings[/]')
+    c.print(f'  {", ".join(parts)}')
+    suggested = _suggestions_for(rows, name)
+    if suggested:
+        c.print()
+        c.print('  [bold]Suggested next steps:[/]')
+        for source, reason, origin in suggested:
+            c.print(f'    [cyan]sg va logs {name} --source {source:<10}[/]'
+                    f'  [dim]# {reason}  ({origin})[/]')
+    c.print()
+
+
+@app.command()
+@spec_cli_errors
+def check(name  : str = typer.Argument(None, help='Stack name; auto-selected when only one exists.'),
+          region: str = typer.Option(DEFAULT_REGION, '--region', '-r')):
+    """Run the full stack health checklist and show one row per check.
+
+    \b
+    Checks (in order):
+      ec2-state         EC2 instance is in running state
+      ssm-reachable     SSM exec can reach the instance
+      boot-failed       /var/lib/sg-compute-boot-failed is absent
+      container-engine  docker (or podman.socket) service is active
+      images-pulled     all Docker Hub images for this stack shape are present
+      containers-up     compose containers are running
+      vault-http        :8080/info/health responds from inside the host
+      boot-ok           /var/lib/sg-compute-boot-ok is present
+      cert-init         TLS stacks only — current stage from /var/lib/sg-compute/cert-init.stage
+                        (start → waiting-for-dns → dns-converged → requesting-cert → cert-issued)
+      external-http     /info/health responds from the operator's machine
+
+    \b
+    Replaces the old `health` (external probe only) and `diag` (internal
+    checklist only) commands — same diagnose generator drives both surfaces.
+    """
+    from rich.live import Live
+
+    c    = Console(highlight=False)
+    svc  = Vault_App__Service().setup()
+    name = Spec__CLI__Builder(_cli_spec).resolver.resolve(svc, name, region, 'vault-app')
+    c.print()
+    c.print(f'  [bold]Checks[/]  ·  [cyan]{name}[/]  [dim]{region}[/]')
+    c.print()
+
+    rows = _initial_rows()
+    with Live(_build_check_table(rows), console=c, refresh_per_second=8, transient=False) as live:
+        _run_checks(svc, region, name, live=live, rows=rows)
+
+    _print_summary(c, rows, name)
+    if any(s == 'fail' for _, s, _ in rows):
+        raise typer.Exit(1)
+
+
+@app.command()
+@spec_cli_errors
+def wait(name   : str = typer.Argument(None, help='Stack name; auto-selected when only one exists.'),
+         region : str = typer.Option(DEFAULT_REGION, '--region', '-r'),
+         timeout: int = typer.Option(600, '--timeout', '-t',
+                                     help='Max seconds to wait before giving up.'),
+         poll   : int = typer.Option(15, '--poll', '-p',
+                                     help='Seconds between re-runs of the full checklist.')):
+    """Re-run the check table on a loop until every row is OK (or timeout).
+
+    \b
+    The same diagnose generator that powers `check` runs in a loop, updating
+    the Live table in place. Lets the operator watch boot progress through
+    each stage (engine install → image pull → container start → vault HTTP)
+    instead of waiting on a silent external HTTP probe.
+    """
+    import time
+    from rich.live import Live
+
+    c    = Console(highlight=False)
+    svc  = Vault_App__Service().setup()
+    name = Spec__CLI__Builder(_cli_spec).resolver.resolve(svc, name, region, 'vault-app')
+    c.print()
+    c.print(f'  [bold]Waiting[/]  ·  [cyan]{name}[/]  [dim]{region}[/]  '
+            f'[dim](timeout={timeout}s, poll={poll}s)[/]')
+    c.print()
+
+    rows     = _initial_rows()
+    started  = time.monotonic()
+    attempt  = 0
+    all_ok   = False
+    with Live(_build_check_table(rows), console=c, refresh_per_second=8, transient=False) as live:
+        while True:
+            attempt += 1
+            elapsed  = int(time.monotonic() - started)
+            header   = f'attempt={attempt}  elapsed={elapsed}s'
+            _run_checks(svc, region, name, live=live, rows=rows, header_extra=header)
+            all_ok = all(s == 'ok' for _, s, _ in rows)
+            if all_ok or time.monotonic() - started >= timeout:
+                break
+            time.sleep(poll)
+
+    _print_summary(c, rows, name)
+    if not all_ok:
+        raise typer.Exit(1)
 
 
 @app.command(name='cert-renew')
@@ -658,83 +883,6 @@ def cert_renew(name     : str  = typer.Argument(None, help='Stack name; auto-sel
         _t.sleep(3)
 
 
-@app.command()
-@spec_cli_errors
-def diag(name  : str = typer.Argument(None, help='Stack name; auto-selected when only one exists.'),
-         region: str = typer.Option(DEFAULT_REGION, '--region', '-r')):
-    """Run the sequential 8-step boot checklist and show which steps passed/failed.
-
-    \b
-    Steps checked in order:
-      ec2-state         EC2 instance is in running state
-      ssm-reachable     SSM exec can reach the instance
-      boot-failed       /var/lib/sg-compute-boot-failed is absent
-      container-engine  docker (or podman.socket) service is active
-      images-pulled     sg-send-vault + host-plane images present
-      containers-up     both compose containers are running
-      vault-http        :8080/info/health responds from inside the host
-      boot-ok           /var/lib/sg-compute-boot-ok is present
-    """
-    import sys
-
-    c    = Console(highlight=False)
-    svc  = Vault_App__Service().setup()
-    name = Spec__CLI__Builder(_cli_spec).resolver.resolve(svc, name, region, 'vault-app')
-    c.print()
-    c.print(f'  [bold]Diagnostics[/]  ·  [cyan]{name}[/]  [dim]{region}[/]')
-    c.print()
-
-    is_tty  = sys.stdout.isatty()
-    results = []
-
-    for check_name, status, detail in svc.diagnose(region, name):
-        if status == 'checking':
-            if is_tty:
-                sys.stdout.write(f'  ···  {check_name:<20} checking…\r')
-                sys.stdout.flush()
-            continue
-
-        if is_tty:
-            sys.stdout.write('\r\033[K')
-            sys.stdout.flush()
-
-        icon = _DIAG_ICONS.get(status, '[dim]?[/]')
-        results.append((check_name, status, detail))
-
-        first_line, *rest = detail.split('\n')
-        c.print(f'  {icon}  {check_name:18} [dim]{first_line}[/]')
-        for extra in rest:
-            if extra.strip():
-                c.print(f'       [dim]{extra}[/]')
-
-    c.print()
-    failed = [n for n, s, _ in results if s == 'fail']
-    warned = [n for n, s, _ in results if s == 'warn']
-    if not failed and not warned:
-        c.print('  [green]✓  all checks passed[/]')
-    else:
-        parts = []
-        if failed: parts.append(f'[red]{len(failed)} failed[/]')
-        if warned: parts.append(f'[yellow]{len(warned)} warnings[/]')
-        c.print(f'  {", ".join(parts)}')
-        seen_sources   = set()
-        suggested_cmds = []
-        for check_name, status, _ in results:
-            if status not in ('fail', 'warn'):
-                continue
-            for source, reason in _DIAG_HINTS.get(check_name, []):
-                if source not in seen_sources:
-                    seen_sources.add(source)
-                    suggested_cmds.append((source, reason, check_name))
-        if suggested_cmds:
-            c.print()
-            c.print('  [bold]Suggested next steps:[/]')
-            for source, reason, origin in suggested_cmds:
-                c.print(f'    [cyan]sp vault-app logs {name} --source {source:<10}[/]'
-                        f'  [dim]# {reason}  ({origin})[/]')
-    c.print()
-
-
 # ── `sp vault-app open <target>` — SSM port-forward to an internal sidecar ───
 # A target registry maps a friendly name to (local port, post-forward URL, cookie-
 # form URL, description, with-playwright requirement). Adding a new internal
@@ -829,6 +977,74 @@ def open_target(target: Optional[str] = typer.Argument(None,
         '--parameters',    parameters,
         '--region',        region,
     ])
+
+
+# ── `sg va delete` — single stack or --all ───────────────────────────────────
+# Replaces the builder's default delete to add the --all flag for bulk cleanup
+# (useful after benchmarks or when wiping a region).
+
+@app.command(name='delete', help='''Terminate a vault-app stack (or every stack in the region).
+
+\b
+  sg va delete <name>     terminate one stack (auto-picks if only one exists)
+  sg va delete --all      terminate every vault-app stack in the region
+
+\b
+Deletes the EC2 instance + its security group, and removes the per-slug DNS
+A record when one exists.  Confirmation prompt unless --yes is set.
+''')
+@spec_cli_errors
+def delete(name  : Optional[str] = typer.Argument(None, help='Stack name; auto-selected when only one exists.  Ignored with --all.'),
+           region: str           = typer.Option(DEFAULT_REGION, '--region', '-r'),
+           all_  : bool          = typer.Option(False, '--all',          help='Terminate every vault-app stack in the region.'),
+           yes   : bool          = typer.Option(False, '--yes', '-y',    help='Skip confirmation prompt.')):
+    """Terminate one vault-app stack, or all of them with --all."""
+    from sg_compute.cli.base.Spec__CLI__Renderers__Base import render_delete
+
+    c   = Console(highlight=False)
+    svc = Vault_App__Service().setup()
+
+    if not all_:
+        name = Spec__CLI__Builder(_cli_spec).resolver.resolve(svc, name, region, 'vault-app')
+        if not yes:
+            typer.confirm(f'Delete vault-app stack {name!r} in {region}?', default=True, abort=True)
+        result = svc.delete_stack(region, name)
+        render_delete(name, getattr(result, 'deleted', False), Console(highlight=False, width=200))
+        if not getattr(result, 'deleted', False):
+            raise typer.Exit(1)
+        return
+
+    # --all path
+    stacks = getattr(svc.list_stacks(region), 'stacks', [])
+    if not stacks:
+        c.print(f'\n  [dim]No vault-app stacks found in {region}.[/]\n')
+        return
+    c.print(f'\n  Found [bold]{len(stacks)}[/] stack(s) in [cyan]{region}[/]:')
+    for s in stacks:
+        c.print(f'    • [bold]{getattr(s, "stack_name", "?")}[/]  '
+                f'[dim]{getattr(s, "instance_id", "")}  {getattr(s, "state", "")}[/]')
+    c.print()
+    if not yes:
+        typer.confirm(f'  Delete all {len(stacks)} stack(s) in {region}?', default=False, abort=True)
+    failed = []
+    for s in stacks:
+        sname = str(getattr(s, 'stack_name', '') or '')
+        c.print(f'  [yellow]→[/]  Deleting [bold]{sname}[/]…', end=' ')
+        try:
+            result = svc.delete_stack(region, sname)
+            if getattr(result, 'deleted', False):
+                c.print('[green]✓[/]')
+            else:
+                c.print('[red]✗[/]')
+                failed.append(sname)
+        except Exception as exc:
+            c.print(f'[red]✗  {str(exc)[:80]}[/]')
+            failed.append(sname)
+    c.print()
+    if failed:
+        c.print(f'  [red]Failed to delete: {", ".join(failed)}[/]')
+        raise typer.Exit(1)
+    c.print(f'  [green]✓  All {len(stacks)} stack(s) deleted.[/]\n')
 
 
 # ── `sp vault-app recreate` — delete + create-same-shape + wait + info ───────

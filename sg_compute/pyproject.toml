@@ -31,9 +31,6 @@ where   = [".."]
 include = ["sg_compute*"]
 exclude = ["sg_compute*tests*", "sg_compute*__pycache__*"]
 
-[tool.setuptools.package-data]
-sg_compute = ["version"]
-
 [build-system]
 requires      = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"

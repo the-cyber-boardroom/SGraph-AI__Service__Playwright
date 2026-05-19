@@ -149,3 +149,83 @@ class TestCertInit:
         # returns a sentinel string so the polling loop keeps going.
         sentinel = cert_init._resolve_hostname('definitely-not-a-real-domain-' + 'x' * 40 + '.invalid')
         assert sentinel.startswith('<resolution failed:')
+
+
+# ── stage-file observability (v0.1.14 brief) ──────────────────────────────────
+
+class TestCertInitStageFile:
+
+    def test_record_stage_writes_line_in_iso_ts_tab_stage_tab_detail_format(self, tmp_path):
+        stage_file = tmp_path / 'cert-init.stage'
+        cert_init.record_stage('start', 'mode=self-signed', stage_file=str(stage_file))
+        line = stage_file.read_text().splitlines()[0]
+        ts, stage, detail = line.split('\t')
+        assert stage  == 'start'
+        assert detail == 'mode=self-signed'
+        assert ts.endswith('Z') and len(ts) == 20                                  # ISO UTC: YYYY-MM-DDTHH:MM:SSZ
+
+    def test_record_stage_appends_each_call_does_not_overwrite(self, tmp_path):
+        stage_file = tmp_path / 'cert-init.stage'
+        cert_init.record_stage('start'         , 'mode=letsencrypt-hostname', stage_file=str(stage_file))
+        cert_init.record_stage('waiting-for-dns', 'fqdn=x target=1.2.3.4'    , stage_file=str(stage_file))
+        cert_init.record_stage('dns-converged' , 'x -> 1.2.3.4'              , stage_file=str(stage_file))
+        lines = stage_file.read_text().splitlines()
+        assert len(lines) == 3
+        assert lines[0].split('\t')[1] == 'start'
+        assert lines[2].split('\t')[1] == 'dns-converged'                          # last line = current stage
+
+    def test_record_stage_creates_parent_directory_if_missing(self, tmp_path):
+        # In production /var/lib/sg-compute is created by user-data, but the helper
+        # must be robust to a missing parent (test runners, alternative mounts).
+        stage_file = tmp_path / 'nested' / 'dirs' / 'cert-init.stage'
+        cert_init.record_stage('start', 'mode=self-signed', stage_file=str(stage_file))
+        assert stage_file.exists()
+
+    def test_record_stage_swallows_io_errors_so_cert_issuance_never_blocks(self, tmp_path, capsys):
+        # Pass a path under a real file (not a directory) so the write fails.
+        blocker = tmp_path / 'blocker'
+        blocker.write_text('not a directory')
+        # No exception — observability is best-effort.
+        cert_init.record_stage('start', 'mode=self-signed', stage_file=str(blocker / 'cert-init.stage'))
+        assert 'stage-file write failed' in capsys.readouterr().err
+
+    def test_main_self_signed_records_start_generating_and_cert_issued(self, tmp_path, monkeypatch):
+        stage_file = tmp_path / 'cert-init.stage'
+        monkeypatch.setenv(cert_init.ENV__STAGE_FILE, str(stage_file))
+        monkeypatch.setenv(cert_init.ENV__MODE,        cert_init.MODE__SELF_SIGNED)
+        monkeypatch.setenv(cert_init.ENV__CERT_FILE,  str(tmp_path / 'cert.pem'))
+        monkeypatch.setenv(cert_init.ENV__KEY_FILE ,  str(tmp_path / 'key.pem'))
+        monkeypatch.setenv(cert_init.ENV__COMMON_NAME, 'test.local')
+        cert_init.main()
+        stages = [ln.split('\t')[1] for ln in stage_file.read_text().splitlines()]
+        assert stages == ['start', 'generating', 'cert-issued']
+
+    def test_main_records_failed_on_exception_then_reraises(self, tmp_path, monkeypatch):
+        stage_file = tmp_path / 'cert-init.stage'
+        monkeypatch.setenv(cert_init.ENV__STAGE_FILE, str(stage_file))
+        monkeypatch.setenv(cert_init.ENV__MODE,        cert_init.MODE__LETSENCRYPT_HOSTNAME)
+        # No TLS_HOSTNAME set → resolve_tls_hostname raises RuntimeError before any network call
+        with pytest.raises(RuntimeError, match='needs SG__CERT_INIT__TLS_HOSTNAME'):
+            cert_init.main()
+        stages = [ln.split('\t')[1] for ln in stage_file.read_text().splitlines()]
+        assert stages[0]  == 'start'
+        assert stages[-1] == 'failed'
+        last_detail = stage_file.read_text().splitlines()[-1].split('\t')[2]
+        assert 'RuntimeError' in last_detail and 'SG__CERT_INIT__TLS_HOSTNAME' in last_detail
+
+    def test_dns_wait_default_is_180_not_900(self):
+        # v0.1.14 brief: 900s was too generous; misconfigured DNS sits there for 15min
+        # before failing. 180s is enough when --with-aws-dns runs the INSYNC poll in
+        # parallel during the EC2 boot window.
+        assert cert_init.DEFAULT__DNS_WAIT_TIMEOUT_SEC == 180
+
+    def test_stage_constants_match_documented_set(self):
+        # Sanity: the stage labels exposed to readers (sg va check's diagnose row)
+        # are exactly the set documented at the top of cert_init.py.
+        assert cert_init.STAGE__START           == 'start'
+        assert cert_init.STAGE__GENERATING      == 'generating'
+        assert cert_init.STAGE__WAITING_FOR_DNS == 'waiting-for-dns'
+        assert cert_init.STAGE__DNS_CONVERGED   == 'dns-converged'
+        assert cert_init.STAGE__REQUESTING_CERT == 'requesting-cert'
+        assert cert_init.STAGE__CERT_ISSUED     == 'cert-issued'
+        assert cert_init.STAGE__FAILED          == 'failed'

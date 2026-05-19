@@ -22,6 +22,32 @@
 # public IPv4 → 'localhost' (self-signed only; letsencrypt-ip fails loud if it
 # cannot resolve a real public IP). letsencrypt-hostname uses
 # SG__CERT_INIT__TLS_HOSTNAME directly — no IMDS lookup.
+#
+# ── observability ───────────────────────────────────────────────────────────
+# Each stage transition is appended to STAGE_FILE (default
+# /var/lib/sg-compute/cert-init.stage) so `sg va check` can surface the
+# current stage without tailing docker logs. Format per line:
+#   {iso_ts}\t{stage}\t{detail}
+# The last line is the current stage. Stages:
+#   start             — main() entered, mode resolved
+#   generating        — self-signed: building cert in-process
+#   waiting-for-dns   — letsencrypt-hostname: polling for FQDN → my IP
+#   dns-converged     — letsencrypt-hostname: FQDN resolves to my IP
+#   requesting-cert   — letsencrypt-*: ACME HTTP-01 challenge in flight
+#   cert-issued       — success: cert+key written to /certs
+#   failed            — exception caught at top of main(); detail = error
+#
+# ── timing budget (letsencrypt-hostname mode, the slow path) ────────────────
+#   container start              2-5s     30s worst case
+#   waiting-for-dns              5-60s    180s default (was 900s)
+#   ACME HTTP-01 challenge       5-20s    60s (LE retries internally)
+#   write cert to /certs        <1s      n/a
+#   ────────────────────────────────────────────────────────────────────────
+#   total: typical               30-90s   total: worst case  ≤ 5 min
+#
+# `sg vp register --wait` and `sg va wait` should size their timeouts above
+# the worst-case row above (~300s + a margin) — the DNS default cap is what
+# the sidecar itself enforces; the CLI poll never aborts cert-init.
 # ═══════════════════════════════════════════════════════════════════════════════
 
 import ipaddress
@@ -30,6 +56,7 @@ import socket
 import sys
 import time
 import urllib.request
+from datetime import datetime, timezone
 
 from sg_compute.platforms.tls.Cert__Generator import Cert__Generator
 
@@ -42,9 +69,27 @@ ENV__TLS_HOSTNAME          = 'SG__CERT_INIT__TLS_HOSTNAME'
 ENV__DNS_WAIT_TIMEOUT_SEC  = 'SG__CERT_INIT__DNS_WAIT_TIMEOUT_SEC'
 ENV__CERT_FILE             = 'FAST_API__TLS__CERT_FILE'
 ENV__KEY_FILE              = 'FAST_API__TLS__KEY_FILE'
+ENV__STAGE_FILE            = 'SG__CERT_INIT__STAGE_FILE'                       # override for tests
 
-DEFAULT__DNS_WAIT_TIMEOUT_SEC = 900                                            # 15 minutes — generous; usually returns on first poll if --with-aws-dns ran in parallel
+# DNS-wait default was 900s. v0.1.14 cert-init-observability brief: 180s is enough when
+# --with-aws-dns runs the Route 53 INSYNC poll in parallel during the EC2 boot window;
+# DNS that hasn't converged in 3 minutes is almost certainly a misconfigured A record
+# (operator error), not a propagation race. Caller can still override via env.
+DEFAULT__DNS_WAIT_TIMEOUT_SEC = 180
 DNS_WAIT_POLL_SEC             = 5
+
+# Stage file — bind-mounted into the cert-init container via the compose template.
+# Readable from the EC2 host: sudo cat /var/lib/sg-compute/cert-init.stage
+STAGE_FILE = '/var/lib/sg-compute/cert-init.stage'
+
+# Stage labels (single source of truth — tests + diagnose() both import these)
+STAGE__START            = 'start'
+STAGE__GENERATING       = 'generating'
+STAGE__WAITING_FOR_DNS  = 'waiting-for-dns'
+STAGE__DNS_CONVERGED    = 'dns-converged'
+STAGE__REQUESTING_CERT  = 'requesting-cert'
+STAGE__CERT_ISSUED      = 'cert-issued'
+STAGE__FAILED           = 'failed'
 
 MODE__SELF_SIGNED          = 'self-signed'
 MODE__LETSENCRYPT_IP       = 'letsencrypt-ip'
@@ -56,6 +101,23 @@ DEFAULT__COMMON_NAME = 'localhost'
 
 _TRUTHY    = {'1', 'true', 'yes', 'on'}
 _IMDS_BASE = 'http://169.254.169.254/latest'
+
+
+def record_stage(stage: str, detail: str = '', stage_file: str = '') -> None:
+    """Append a stage line to STAGE_FILE for `sg va check` to surface.
+
+    Format: {iso_utc_ts}\\t{stage}\\t{detail}\\n. Append-only — the file
+    captures the full progression; readers take the last line. Failures
+    to write are swallowed (best-effort observability — never block cert
+    issuance on a stage-file write)."""
+    path = stage_file or os.environ.get(ENV__STAGE_FILE, '') or STAGE_FILE
+    line = f'{datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")}\t{stage}\t{detail}\n'
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, 'a', encoding='utf-8') as fh:
+            fh.write(line)
+    except Exception as exc:                                                   # /var/lib/sg-compute not mounted, permissions, disk full
+        print(f'[cert-init] stage-file write failed ({path}): {exc}', file=sys.stderr)
 
 
 def _imds_public_ipv4() -> str:                                              # best-effort IMDSv2 lookup; '' on any failure
@@ -142,11 +204,13 @@ def resolve_tls_hostname() -> str:                                           # F
 def _run_self_signed(cert_path: str, key_path: str) -> None:
     common_name = resolve_common_name()
     sans        = [s.strip() for s in os.environ.get(ENV__SANS, '').split(',') if s.strip()]
+    record_stage(STAGE__GENERATING, f'cn={common_name} sans={sans}')
     Cert__Generator().generate_to_files(cert_path   = cert_path   ,
                                         key_path    = key_path    ,
                                         common_name = common_name ,
                                         sans        = sans        )
     print(f'[cert-init] mode=self-signed  cn={common_name!r}  cert={cert_path}  key={key_path}  sans={sans}')
+    record_stage(STAGE__CERT_ISSUED, f'cert={cert_path}')
 
 
 def _run_letsencrypt_ip(cert_path: str, key_path: str) -> None:
@@ -159,8 +223,10 @@ def _run_letsencrypt_ip(cert_path: str, key_path: str) -> None:
     config    = client.config(prod=prod, contact_email=email)
     print(f'[cert-init] mode=letsencrypt-ip  ip={public_ip}  '
           f'directory={"prod" if prod else "staging"}  profile={config.profile}')
+    record_stage(STAGE__REQUESTING_CERT, f'ip={public_ip} prod={prod}')
     client.issue(ip=public_ip, cert_path=cert_path, key_path=key_path, config=config)
     print(f'[cert-init] letsencrypt-ip cert issued  cert={cert_path}  key={key_path}')
+    record_stage(STAGE__CERT_ISSUED, f'cert={cert_path} ip={public_ip}')
 
 
 def _run_letsencrypt_hostname(cert_path: str, key_path: str) -> None:
@@ -169,33 +235,45 @@ def _run_letsencrypt_hostname(cert_path: str, key_path: str) -> None:
     hostname = resolve_tls_hostname()
     my_ip    = resolve_public_ip()                                           # ACME validates from the IP this box answers on — fail loud if no public IP
     timeout  = int(os.environ.get(ENV__DNS_WAIT_TIMEOUT_SEC, '').strip() or DEFAULT__DNS_WAIT_TIMEOUT_SEC)
+    record_stage(STAGE__WAITING_FOR_DNS, f'fqdn={hostname} target={my_ip} timeout={timeout}s')
     wait_for_dns_to_match(hostname=hostname, my_ip=my_ip, timeout_sec=timeout)
+    record_stage(STAGE__DNS_CONVERGED, f'{hostname} -> {my_ip}')
     prod     = os.environ.get(ENV__ACME_PROD, '').strip().lower() in _TRUTHY
     email    = os.environ.get(ENV__ACME_EMAIL, '').strip()
     client   = Cert__ACME__Client()
     config   = client.config(prod=prod, contact_email=email, for_hostname=True)
     print(f'[cert-init] mode=letsencrypt-hostname  hostname={hostname}  '
           f'directory={"prod" if prod else "staging"}')
+    record_stage(STAGE__REQUESTING_CERT, f'hostname={hostname} prod={prod}')
     client.issue(hostname=hostname, cert_path=cert_path, key_path=key_path, config=config)
     print(f'[cert-init] letsencrypt-hostname cert issued  cert={cert_path}  key={key_path}')
+    record_stage(STAGE__CERT_ISSUED, f'cert={cert_path} hostname={hostname}')
 
 
 def main() -> None:
     cert_path = os.environ.get(ENV__CERT_FILE) or DEFAULT__CERT_FILE
     key_path  = os.environ.get(ENV__KEY_FILE)  or DEFAULT__KEY_FILE
     mode      = (os.environ.get(ENV__MODE, '').strip() or MODE__SELF_SIGNED).lower()
+    record_stage(STAGE__START, f'mode={mode}')
 
-    if mode == MODE__LETSENCRYPT_IP:
-        _run_letsencrypt_ip(cert_path, key_path)
-    elif mode == MODE__LETSENCRYPT_HOSTNAME:
-        _run_letsencrypt_hostname(cert_path, key_path)
-    elif mode == MODE__SELF_SIGNED:
-        _run_self_signed(cert_path, key_path)
-    else:
-        print(f'[cert-init] unknown {ENV__MODE}={mode!r} — expected one of '
-              f'{MODE__SELF_SIGNED!r} / {MODE__LETSENCRYPT_IP!r} / {MODE__LETSENCRYPT_HOSTNAME!r}',
-              file=sys.stderr)
-        sys.exit(2)
+    try:
+        if mode == MODE__LETSENCRYPT_IP:
+            _run_letsencrypt_ip(cert_path, key_path)
+        elif mode == MODE__LETSENCRYPT_HOSTNAME:
+            _run_letsencrypt_hostname(cert_path, key_path)
+        elif mode == MODE__SELF_SIGNED:
+            _run_self_signed(cert_path, key_path)
+        else:
+            err = (f'unknown {ENV__MODE}={mode!r} — expected one of '
+                   f'{MODE__SELF_SIGNED!r} / {MODE__LETSENCRYPT_IP!r} / {MODE__LETSENCRYPT_HOSTNAME!r}')
+            print(f'[cert-init] {err}', file=sys.stderr)
+            record_stage(STAGE__FAILED, err)
+            sys.exit(2)
+    except SystemExit:
+        raise
+    except BaseException as exc:                                               # also catches KeyboardInterrupt / timeouts so `failed` is recorded
+        record_stage(STAGE__FAILED, f'{type(exc).__name__}: {exc}'[:240])
+        raise
 
 
 if __name__ == '__main__':
