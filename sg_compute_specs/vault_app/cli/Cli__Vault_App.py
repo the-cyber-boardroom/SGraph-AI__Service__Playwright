@@ -1010,6 +1010,10 @@ def delete(name  : Optional[str] = typer.Argument(None, help='Stack name; auto-s
             typer.confirm(f'Delete vault-app stack {name!r} in {region}?', default=True, abort=True)
         result = svc.delete_stack(region, name)
         render_delete(name, getattr(result, 'deleted', False), Console(highlight=False, width=200))
+        fqdn = str(getattr(result, 'fqdn', '') or '')
+        if fqdn:
+            dns_ok = getattr(result, 'dns_deleted', False)
+            c.print(f'  [dim]dns:[/] {fqdn}  {"[green]✓ deleted[/]" if dns_ok else "[yellow]⚠ not deleted (no record or Route53 error)[/]"}')
         if not getattr(result, 'deleted', False):
             raise typer.Exit(1)
         return
@@ -1021,8 +1025,10 @@ def delete(name  : Optional[str] = typer.Argument(None, help='Stack name; auto-s
         return
     c.print(f'\n  Found [bold]{len(stacks)}[/] stack(s) in [cyan]{region}[/]:')
     for s in stacks:
+        fqdn_tag = str(getattr(s, 'tls_hostname', '') or '')
+        dns_hint = f'  [dim]{fqdn_tag}[/]' if fqdn_tag else ''
         c.print(f'    • [bold]{getattr(s, "stack_name", "?")}[/]  '
-                f'[dim]{getattr(s, "instance_id", "")}  {getattr(s, "state", "")}[/]')
+                f'[dim]{getattr(s, "instance_id", "")}  {getattr(s, "state", "")}[/]{dns_hint}')
     c.print()
     if not yes:
         typer.confirm(f'  Delete all {len(stacks)} stack(s) in {region}?', default=False, abort=True)
@@ -1033,7 +1039,12 @@ def delete(name  : Optional[str] = typer.Argument(None, help='Stack name; auto-s
         try:
             result = svc.delete_stack(region, sname)
             if getattr(result, 'deleted', False):
-                c.print('[green]✓[/]')
+                fqdn = str(getattr(result, 'fqdn', '') or '')
+                dns_note = ''
+                if fqdn:
+                    dns_ok   = getattr(result, 'dns_deleted', False)
+                    dns_note = f'  [dim]dns: {fqdn} {"✓" if dns_ok else "⚠ not deleted"}[/]'
+                c.print(f'[green]✓[/]{dns_note}')
             else:
                 c.print('[red]✗[/]')
                 failed.append(sname)
