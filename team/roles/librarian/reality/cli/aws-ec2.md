@@ -135,12 +135,247 @@ These are consumed by `Docker__Service`, `Firefox__Service`, and `scripts/doctor
 
 ---
 
-## NOT implemented in this slice
+## v0.2.33 additions (Slice 0b) — `sg aws ec2 eni`
+
+New sub-command tree under `sg aws ec2`:
+
+| Command | What it does |
+|---------|-------------|
+| `sg aws ec2 eni list [--sg sg-xxx] [--vpc vpc-yyy] [--json]` | List network interfaces, optionally filtered by security group or VPC |
+| `sg aws ec2 eni show <eni-id> [--json]` | Describe one ENI by ID |
+
+New files:
+
+| File | Role |
+|------|------|
+| `aws/ec2/cli/Cli__EC2__Eni.py` | Typer sub-app with `list` and `show` commands |
+| `aws/ec2/schemas/Schema__EC2__ENI.py` | `eni_id`, `subnet_id`, `vpc_id`, `public_ip`, `private_ip`, `attachment_instance_id`, `attachment_status`, `security_group_ids` |
+| `aws/ec2/primitives/Safe_Str__EC2__ENI_Id.py` | ENI ID primitive |
+
+Used by `Vault_App__Fargate__Starter` to resolve the public IP after `run_task`
+returns an ENI attachment.
+
+Tests: `tests/unit/sgraph_ai_service_playwright__cli/aws/ec2/eni/`
+
+---
+
+## v0.2.34 additions (VPC stack Slice 1 of 3) — read-only `vpc`, `subnet`, `igw`, `route-table`
+
+Slice 1 — read-only foundation. Mutations landed in Slice 2 (below);
+the composite `vpc create-stack` provisioning command lands in Slice 3.
+
+New sub-command trees under `sg aws ec2`:
+
+| Command | What it does |
+|---------|-------------|
+| `sg aws ec2 vpc list [--vpc-substring TEXT] [--json]` | List VPCs (client-side id substring filter) |
+| `sg aws ec2 vpc show <vpc-id> [--json]` | Describe one VPC by ID |
+| `sg aws ec2 subnet list [--vpc <vpc-id>] [--az <az>] [--json]` | List subnets filtered by VPC and/or AZ |
+| `sg aws ec2 subnet show <subnet-id> [--json]` | Describe one subnet by ID |
+| `sg aws ec2 igw list [--vpc <vpc-id>] [--json]` | List Internet Gateways filtered by attached VPC |
+| `sg aws ec2 igw show <igw-id> [--json]` | Describe one IGW by ID |
+| `sg aws ec2 route-table list [--vpc <vpc-id>] [--json]` | List Route Tables filtered by VPC |
+| `sg aws ec2 route-table show <rtb-id> [--json]` | Describe one Route Table (routes + associations) |
+
+All 8 commands are read-only — no mutation gate required.
+
+New files:
+
+| File | Role |
+|------|------|
+| `aws/ec2/cli/Cli__EC2__Vpc.py` | Typer sub-app: `list`, `show` |
+| `aws/ec2/cli/Cli__EC2__Subnet.py` | Typer sub-app: `list`, `show` |
+| `aws/ec2/cli/Cli__EC2__Igw.py` | Typer sub-app: `list`, `show` |
+| `aws/ec2/cli/Cli__EC2__Route_Table.py` | Typer sub-app: `list`, `show` (renders routes + associations sub-tables) |
+| `aws/ec2/schemas/Schema__EC2__VPC.py` | `vpc_id`, `cidr_block`, `is_default`, `state`, `dhcp_options_id`, `instance_tenancy`, `tags` |
+| `aws/ec2/schemas/Schema__EC2__Subnet.py` | `subnet_id`, `vpc_id`, `cidr_block`, `availability_zone`, `availability_zone_id`, `available_ip_count`, `map_public_ip_on_launch`, `state`, `tags` |
+| `aws/ec2/schemas/Schema__EC2__Internet_Gateway.py` | `igw_id`, `vpc_id`, `state`, `tags` |
+| `aws/ec2/schemas/Schema__EC2__Route.py` | `destination_cidr`, `gateway_id`, `state`, `origin` |
+| `aws/ec2/schemas/Schema__EC2__Route_Table.py` | `route_table_id`, `vpc_id`, `routes`, `associations`, `tags` |
+| `aws/ec2/schemas/Schema__EC2__Route_Table_Association.py` | `association_id`, `route_table_id`, `subnet_id`, `main` |
+| `aws/ec2/primitives/Safe_Str__EC2__IGW_Id.py` | MATCH — `^igw-[a-f0-9]+$` |
+| `aws/ec2/primitives/Safe_Str__EC2__Route_Table_Id.py` | MATCH — `^rtb-[a-f0-9]+$` |
+| `aws/ec2/primitives/Safe_Str__EC2__CIDR.py` | MATCH — IPv4 dotted-quad/prefix |
+| `aws/ec2/primitives/Safe_Str__EC2__AZ.py` | MATCH — `^[a-z]{2}-[a-z]+-\d[a-z]?$` |
+| `aws/ec2/collections/List__Schema__EC2__VPC.py` | Typed list |
+| `aws/ec2/collections/List__Schema__EC2__Subnet.py` | Typed list |
+| `aws/ec2/collections/List__Schema__EC2__Internet_Gateway.py` | Typed list |
+| `aws/ec2/collections/List__Schema__EC2__Route_Table.py` | Typed list |
+| `aws/ec2/collections/List__Schema__EC2__Route.py` | Typed list (routes inside a route table) |
+| `aws/ec2/collections/List__Schema__EC2__Route_Table_Association.py` | Typed list |
+
+`EC2__AWS__Client` gained 8 read-only methods: `list_vpcs`, `describe_vpc`,
+`list_subnets`, `describe_subnet`, `list_internet_gateways`,
+`describe_internet_gateway`, `list_route_tables`, `describe_route_table`. Each
+uses the boto3 paginator pattern + `ClientError` → `None` fall-through for the
+relevant `InvalidXID.NotFound` codes.
+
+`EC2__AWS__Client__In_Memory` extended with `seed_vpc`, `seed_subnet`,
+`seed_igw`, `seed_route_table`. The fake boto3 client now serves
+`describe_vpcs / describe_subnets / describe_internet_gateways /
+describe_route_tables` with filter support (`vpc-id`, `availability-zone`,
+`attachment.vpc-id`, `tag:*`).
+
+Tests:
+
+- `tests/unit/sgraph_ai_service_playwright__cli/aws/ec2/vpc/` — service + CLI
+- `tests/unit/sgraph_ai_service_playwright__cli/aws/ec2/subnet/` — service + CLI
+- `tests/unit/sgraph_ai_service_playwright__cli/aws/ec2/igw/` — service + CLI
+- `tests/unit/sgraph_ai_service_playwright__cli/aws/ec2/route_table/` — service + CLI
+- `tests/unit/sgraph_ai_service_playwright__cli/aws/ec2/primitives/test_EC2__Primitives__Network.py`
+- `tests/unit/sgraph_ai_service_playwright__cli/aws/ec2/schemas/test_EC2__Schemas__Network.py`
+
+Total: 112 new tests added.
+
+---
+
+## v0.2.34 additions (VPC stack Slice 2 of 3) — mutation surface
+
+Slice 2 — create / delete / modify CLI commands and client methods for each
+EC2 networking domain, plus relational operations (IGW attach/detach,
+route-table associate/disassociate, route add/remove). All mutations gated
+behind `SG_AWS__EC2__ALLOW_MUTATIONS=1`. **No composite stack provisioner
+yet — that's Slice 3.**
+
+### CLI surface (new mutations)
+
+| Command | Mutating | Gate |
+|---------|----------|------|
+| `sg aws ec2 vpc create [--cidr 10.0.0.0/16] [--name] [--enable-dns] [--enable-dns-hostnames] [--yes] [--json]` | yes | `SG_AWS__EC2__ALLOW_MUTATIONS=1` |
+| `sg aws ec2 vpc delete <vpc-id> [--yes] [--json]` | yes | same |
+| `sg aws ec2 vpc modify-attr <vpc-id> [--enable-dns/--no-enable-dns] [--enable-dns-hostnames/--no-enable-dns-hostnames] [--json]` | yes | same |
+| `sg aws ec2 subnet create --vpc <vpc-id> --cidr <cidr> [--az] [--name] [--public] [--yes] [--json]` | yes | same |
+| `sg aws ec2 subnet delete <subnet-id> [--yes] [--json]` | yes | same |
+| `sg aws ec2 subnet modify-attr <subnet-id> [--public/--no-public] [--json]` | yes | same |
+| `sg aws ec2 igw create [--name] [--yes] [--json]` | yes | same |
+| `sg aws ec2 igw delete <igw-id> [--yes] [--json]` | yes | same |
+| `sg aws ec2 igw attach <igw-id> --vpc <vpc-id> [--json]` | yes | same |
+| `sg aws ec2 igw detach <igw-id> --vpc <vpc-id> [--yes] [--json]` | yes | same |
+| `sg aws ec2 route-table create --vpc <vpc-id> [--name] [--yes] [--json]` | yes | same |
+| `sg aws ec2 route-table delete <rtb-id> [--yes] [--json]` | yes | same |
+| `sg aws ec2 route-table add-route <rtb-id> --cidr <cidr> [--igw \| --nat \| --eni] [--json]` | yes | same |
+| `sg aws ec2 route-table remove-route <rtb-id> --cidr <cidr> [--yes] [--json]` | yes | same |
+| `sg aws ec2 route-table associate <rtb-id> --subnet <subnet-id> [--json]` | yes | same |
+| `sg aws ec2 route-table disassociate <association-id> [--yes] [--json]` | yes | same |
+| `sg aws ec2 sg create --name --vpc --description [--json]` | yes | same |
+| `sg aws ec2 sg add-ingress <sg-id> --protocol --from --to [--cidr \| --source-sg] [--json]` | yes | same |
+| `sg aws ec2 sg add-egress <sg-id> --protocol --from --to [--cidr \| --source-sg] [--json]` | yes | same |
+| `sg aws ec2 sg remove-ingress <sg-id> --protocol --from --to [--cidr] [--yes] [--json]` | yes | same |
+| `sg aws ec2 sg remove-egress <sg-id> --protocol --from --to [--cidr] [--yes] [--json]` | yes | same |
+
+### Client mutation methods (new on `EC2__AWS__Client`)
+
+- VPC: `create_vpc`, `delete_vpc`, `modify_vpc_attribute`
+- Subnet: `create_subnet`, `delete_subnet`, `modify_subnet_attribute`
+- IGW: `create_internet_gateway`, `delete_internet_gateway`, `attach_internet_gateway`, `detach_internet_gateway`
+- Route Table: `create_route_table`, `delete_route_table`, `associate_route_table`, `disassociate_route_table`, `create_route`, `delete_route`
+- SG: `create_security_group`, `authorize_security_group_ingress` / `authorize_security_group_egress`, `revoke_security_group_ingress` / `revoke_security_group_egress`
+
+All are idempotent-friendly: not-found / already-applied → `False`; ClientError reasons (`InvalidVpcID.NotFound`, `Resource.AlreadyAssociated`, `Gateway.NotAttached`, `InvalidPermission.Duplicate`, `InvalidPermission.NotFound`, etc.) are translated to bool returns rather than raised. `create_route` raises `ValueError` when zero or multiple targets are specified — programmer-bug detection, not an AWS error.
+
+### In-memory client extensions
+
+`EC2__AWS__Client__In_Memory` (the test seam) extended with fake-boto3 methods for every mutation above. IDs are produced from a deterministic per-prefix counter (`vpc-00000001`, `subnet-00000001`, …), enabling stable assertions in tests. Boto3-style `TagSpecifications` are parsed into the same `tags` dict the seed helpers accept.
+
+### Tests added in this slice (Slice 2)
+
+- `tests/unit/sgraph_ai_service_playwright__cli/aws/ec2/vpc/service/test_EC2__AWS__Client__VPC__mutations.py`
+- `tests/unit/sgraph_ai_service_playwright__cli/aws/ec2/vpc/cli/test_Cli__EC2__Vpc__mutations.py`
+- `tests/unit/sgraph_ai_service_playwright__cli/aws/ec2/subnet/service/test_EC2__AWS__Client__Subnet__mutations.py`
+- `tests/unit/sgraph_ai_service_playwright__cli/aws/ec2/subnet/cli/test_Cli__EC2__Subnet__mutations.py`
+- `tests/unit/sgraph_ai_service_playwright__cli/aws/ec2/igw/service/test_EC2__AWS__Client__IGW__mutations.py`
+- `tests/unit/sgraph_ai_service_playwright__cli/aws/ec2/igw/cli/test_Cli__EC2__Igw__mutations.py`
+- `tests/unit/sgraph_ai_service_playwright__cli/aws/ec2/route_table/service/test_EC2__AWS__Client__Route_Table__mutations.py`
+- `tests/unit/sgraph_ai_service_playwright__cli/aws/ec2/route_table/cli/test_Cli__EC2__Route_Table__mutations.py`
+- `tests/unit/sgraph_ai_service_playwright__cli/aws/ec2/sg/service/test_EC2__AWS__Client__SG__mutations.py`
+- `tests/unit/sgraph_ai_service_playwright__cli/aws/ec2/sg/cli/test_Cli__EC2__Sg__slice2.py`
+
+Total: 143 new tests added in Slice 2.
+
+---
+
+## Slice 3 (v0.2.34) — VPC stack provisioner
+
+### New CLI verbs (mounted on `Cli__EC2__Vpc.py`)
+
+| Verb | Mutating | Gate required |
+|------|----------|---------------|
+| `sg aws ec2 vpc create-stack --name <stack> [--cidr 10.0.0.0/16] [--az AZ ...] [--ingress PORTS] [--yes] [--time] [--json]` | yes | `SG_AWS__EC2__ALLOW_MUTATIONS=1` |
+| `sg aws ec2 vpc delete-stack <stack> [--yes] [--json]` | yes | same |
+| `sg aws ec2 vpc show-stack <stack> [--json]` | no | — |
+
+`create-stack` composes the Slice 1/2 primitives into a single end-to-end network: VPC → IGW → attach → RT → route(0.0.0.0/0 → IGW) → 2 public subnets (one per AZ) → public-IP-on-launch → associate-RT → SG with default ingress rules (80/443/8080 TCP from 0.0.0.0/0) → propagate `Stack__Provisioned_At` tag onto the VPC. Idempotent: re-runs find existing resources by the `Stack=<stack_name>` tag and SKIP phases that already match. Best-effort rollback on the first phase ERROR; rollback failures are recorded in `report.rollback_errors` rather than raised.
+
+The `--ingress` flag accepts `PORT[/PROTO][@CIDR]`, comma-separated (e.g. `22/tcp@10.0.0.0/8`).
+
+`delete-stack` discovers resources by tag, then deletes in reverse order. Missing resources → SKIPPED (idempotent).
+
+`show-stack` is read-only — surfaces vpc/igw/rtb/sg/subnet ids for a tagged stack.
+
+### Production files (Slice 3)
+
+| File | Role |
+|------|------|
+| `service/VPC__Stack__Provisioner.py` | Orchestrator — 12 phases, idempotent, best-effort rollback |
+| `enums/Enum__VPC__Stack__Phase.py` | Ordered phase enum (VPC, VPC_ATTRIBUTES, INTERNET_GATEWAY, IGW_ATTACH, ROUTE_TABLE, ROUTE_TO_IGW, SUBNETS, SUBNET_ATTRIBUTES, SUBNET_ASSOCIATIONS, SECURITY_GROUP, SG_INGRESS_RULES, TAG_PROPAGATION) |
+| `schemas/Schema__VPC__Stack__Request.py` | stack_name, cidr, availability_zones, ingress_rules |
+| `schemas/Schema__VPC__Stack__Ingress_Rule.py` | protocol, from_port, to_port, cidr_block |
+| `schemas/Schema__VPC__Stack__Detail.py` | vpc_id, subnet_ids, security_group_id, internet_gateway_id, route_table_id, stack_name |
+| `schemas/Schema__VPC__Stack__Report.py` | operation, stack_name, ok, total_ms, phases, vpc_id, subnet_ids, security_group_id, route_table_id, internet_gateway_id, error, rollback_errors |
+| `collections/List__Schema__VPC__Stack__Ingress_Rule.py` | typed list |
+| `aws/_shared/Phase__Timer.py` | aws/* canonical phase-timer (separate from vault_app/fargate copy) |
+| `aws/_shared/Phase__Progress__Renderer.py` | aws/* canonical live-rich phase renderer |
+| `aws/_shared/enums/Enum__AWS__Phase__Status.py` | PENDING / RUNNING / OK / SKIPPED / WARN / ERROR |
+| `aws/_shared/schemas/Schema__AWS__Phase__Result.py` | single timed-phase record |
+| `aws/_shared/collections/List__Schema__AWS__Phase__Result.py` | typed list |
+| `aws/_shared/collections/List__Str.py` | typed list of plain strings |
+
+### Schema surface change
+
+`Schema__EC2__Security_Group` gained a `tags: Dict__EC2__Tag` field so the provisioner can match SGs by the `Stack=<name>` tag during idempotency checks. Populated by `_parse_security_group` from the boto3 `Tags` field.
+
+### Vault-app auto-resolve
+
+`sg_compute_specs/vault_app/fargate/cli/Cli__Vault_App__Fargate__Setup.py` extended:
+
+- New helper `_auto_resolve_network(ec2_client)` → `(subnets_csv, security_group_id)` discovered from `VPC__Stack__Provisioner.describe_stack('sg-vault-app-fargate-network')`.
+- New helper `_get_ec2_client(ctx)` — looks up `ctx.obj['ec2_client']`, falls back to a real `EC2__AWS__Client()`.
+- `setup create` now auto-resolves subnets + SG from the tagged VPC when both `--subnets` and `--sg` are omitted. A `[dim]auto-resolved from VPC stack ...[/dim]` line is printed (suppressed in `--json` mode).
+- New flag `--auto-network/--no-auto-network` (default True) lets users disable auto-resolve.
+
+### Tests added in this slice (Slice 3)
+
+- `tests/unit/sgraph_ai_service_playwright__cli/aws/ec2/vpc/stack/test_VPC__Stack__Provisioner.py` — 42 tests (happy path, idempotent, rollback, delete, describe, CIDR derivation, SG naming)
+- `tests/unit/sgraph_ai_service_playwright__cli/aws/ec2/vpc/stack/test_Cli__EC2__Vpc__stack.py` — 20 tests (create-stack / delete-stack / show-stack via CliRunner)
+- `tests/unit/sg_compute_specs/vault_app/fargate/cli/test_Cli__Vault_App__Fargate__Setup__auto_resolve.py` — 8 tests (auto-resolve fires / no-op cases / disable flag)
+
+Total: 70 new tests added in Slice 3. Combined surface: 936 unit tests pass under `tests/unit/sgraph_ai_service_playwright__cli/aws/ec2/ + tests/unit/sg_compute_specs/vault_app/fargate/`.
+
+### End-to-end example (zero-config Fargate)
+
+```bash
+export SG_AWS__EC2__ALLOW_MUTATIONS=1
+export SG_VAULT_APP__FARGATE__ALLOW_MUTATIONS=1
+
+# 1. Provision the VPC stack (idempotent)
+sg aws ec2 vpc create-stack --name sg-vault-app-fargate-network --yes
+
+# 2. Provision the Fargate cluster — auto-resolves subnets + SG from step 1
+sg vault-app fargate setup create --yes
+
+# 3. Start a vault
+sg vault-app fargate start --access-token my-token --yes
+```
+
+---
+
+## NOT implemented (Slice 3 carve-outs)
 
 - `EC2__Ami__Resolver` (alias → AMI ID resolution) — `create` currently accepts a raw AMI ID or alias string passed directly to the API
 - Integration tests requiring live AWS credentials (gated on `SG_AWS__EC2__INTEGRATION=1`)
 - `scripts/provision_ec2.py` thin-wrapper refactor (the script was deleted ahead of Slice B per the dev pack note)
-- Promotion of `Elastic__AWS__Client` EC2-shaped helpers (security-group naming) — those remain in `elastic/service/` and will be promoted in v0.2.30
+- Promotion of `Elastic__AWS__Client` EC2-shaped helpers (security-group naming) — those remain in `elastic/service/` and will be promoted in a later pass
+- Deduplication of `Phase__Timer` / `Phase__Progress__Renderer` copies between `aws/_shared/` and `sg_compute_specs/vault_app/fargate/service/` — left as a Librarian follow-up
 
 ---
 

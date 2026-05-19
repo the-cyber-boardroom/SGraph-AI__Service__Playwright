@@ -25,6 +25,7 @@ The CLI surface is large; per the 300-line fractal rule it is split into focused
 | [`aws-dns.md`](aws-dns.md) | The 2026-05-15 `sg aws dns` + `sg aws acm` slice — Route 53 management, ACM inventory, smart-verify, `zone check` classification |
 | [`aws-fargate.md`](aws-fargate.md) | `sg aws fargate` — ECS Fargate cluster/task-def/task lifecycle (v0.2.29 Slice C) |
 | [`aws-bedrock.md`](aws-bedrock.md) | The 2026-05-17 `sg aws bedrock` Slice E — chat, agent, tool sub-trees with local-file capture |
+| [`aws-logs.md`](aws-logs.md) | `sg aws logs` — CloudWatch log group management and tailing (v0.2.33 Slice 0c) |
 
 ---
 
@@ -50,6 +51,9 @@ This is the high-level surface; details live in the sub-files.
 | `sg aws cf ...` / `sg aws lambda ...` (v0.2.23) | `aws` | [`sg-compute/index.md`](../sg-compute/index.md) |
 | `sg aws fargate ...` (v0.2.29 Slice C) | `aws/fargate` | [`aws-fargate.md`](aws-fargate.md) |
 | `sg aws bedrock ...` (v0.2.29 Slice E) | `aws/bedrock` | [`aws-bedrock.md`](aws-bedrock.md) |
+| `sg aws logs ...` (v0.2.33 Slice 0c) | `aws/logs` | [`aws-logs.md`](aws-logs.md) |
+| `sg aws ec2 eni ...` (v0.2.33 Slice 0b) | `aws/ec2/eni` | [`aws-ec2.md`](aws-ec2.md) |
+| `sg vault-app fargate ...` (v0.2.33 Slices 1–6) | `vault-app/fargate` | [`../sg-compute/index.md`](../sg-compute/index.md) |
 | `sg vp ...` (vault-publish slug bootstrap, v0.2.23) | `vp` | [`sg-compute/index.md`](../sg-compute/index.md) |
 
 ### `Fast_API__SP__CLI` route count (at v0.1.31 freeze)

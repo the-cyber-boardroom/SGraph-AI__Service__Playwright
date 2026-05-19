@@ -31,7 +31,12 @@ from rich.table   import Table
 from sgraph_ai_service_playwright__cli.aws._shared.Aws__Confirm                import confirm_or_abort
 from sgraph_ai_service_playwright__cli.aws._shared.Mutation__Gate              import require_mutation_gate
 from sgraph_ai_service_playwright__cli.aws.ec2.cli.Cli__EC2__Ami               import app as ami_app
+from sgraph_ai_service_playwright__cli.aws.ec2.cli.Cli__EC2__Eni               import app as eni_app
+from sgraph_ai_service_playwright__cli.aws.ec2.cli.Cli__EC2__Igw               import app as igw_app
+from sgraph_ai_service_playwright__cli.aws.ec2.cli.Cli__EC2__Route_Table       import app as route_table_app
 from sgraph_ai_service_playwright__cli.aws.ec2.cli.Cli__EC2__Sg                import app as sg_app
+from sgraph_ai_service_playwright__cli.aws.ec2.cli.Cli__EC2__Subnet            import app as subnet_app
+from sgraph_ai_service_playwright__cli.aws.ec2.cli.Cli__EC2__Vpc               import app as vpc_app
 from sgraph_ai_service_playwright__cli.aws.ec2.enums.Enum__EC2__Instance__State import Enum__EC2__Instance__State
 from sgraph_ai_service_playwright__cli.aws.ec2.primitives.Safe_Str__EC2__AMI_Id          import Safe_Str__EC2__AMI_Id
 from sgraph_ai_service_playwright__cli.aws.ec2.primitives.Safe_Str__EC2__Instance__Type  import Safe_Str__EC2__Instance__Type
@@ -48,8 +53,13 @@ console = Console()
 
 app = typer.Typer(name='ec2', help='EC2 instance management.', no_args_is_help=True)
 
-app.add_typer(ami_app, name='ami')
-app.add_typer(sg_app,  name='sg')
+app.add_typer(ami_app,         name='ami')
+app.add_typer(eni_app,         name='eni')
+app.add_typer(igw_app,         name='igw')
+app.add_typer(route_table_app, name='route-table')
+app.add_typer(sg_app,          name='sg')
+app.add_typer(subnet_app,      name='subnet')
+app.add_typer(vpc_app,         name='vpc')
 
 
 @app.callback()

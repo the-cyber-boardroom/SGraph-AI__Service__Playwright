@@ -26,3 +26,6 @@ class Schema__ECS__Task(Type_Safe):
     stopped_at       : Safe_Str__ECS__Timestamp                # ISO-8601; empty = still running
     stopped_reason   : Safe_Str__ECS__Stop_Reason
     group            : Safe_Str__ECS__Group                    # task group (e.g. service:<name>)
+    launch_type      : str = ''                                # FARGATE | FARGATE_SPOT
+    tags             : dict                                    # task tags as {key: value}
+    eni_id           : str = ''                                # ENI ID from ElasticNetworkInterface attachment

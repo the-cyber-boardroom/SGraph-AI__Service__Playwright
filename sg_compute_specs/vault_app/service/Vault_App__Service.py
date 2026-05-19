@@ -605,17 +605,20 @@ class Vault_App__Service(Spec__Service__Base):
                 stack_name = stack_name       ,
                 message    = 'stack not found',
                 elapsed_ms = int((time.monotonic() - t0) * 1000))
-        iid   = details.get('InstanceId', '')
-        sg_id = (details.get('SecurityGroups') or [{}])[0].get('GroupId', '')
-        self.delete_per_slug_a_record(region, details)
-        ok    = self.aws_client.instance.terminate(region, iid)
+        iid         = details.get('InstanceId', '')
+        sg_id       = (details.get('SecurityGroups') or [{}])[0].get('GroupId', '')
+        fqdn        = self.tls_hostname_from_details(details)
+        dns_deleted = self.delete_per_slug_a_record(region, details)
+        ok          = self.aws_client.instance.terminate(region, iid)
         if ok and sg_id:
             self.aws_client.sg.delete_security_group(region, sg_id)
         return Schema__Vault_App__Delete__Response(
-            stack_name = stack_name                                         ,
-            deleted    = ok                                                 ,
-            message    = f'terminated {iid}' if ok else 'terminate failed' ,
-            elapsed_ms = int((time.monotonic() - t0) * 1000)               ,
+            stack_name  = stack_name                                        ,
+            deleted     = ok                                                ,
+            dns_deleted = dns_deleted                                       ,
+            fqdn        = fqdn                                              ,
+            message     = f'terminated {iid}' if ok else 'terminate failed',
+            elapsed_ms  = int((time.monotonic() - t0) * 1000)              ,
         )
 
     def stop_stack(self, region: str, stack_name: str) -> Schema__Vault_App__Stop__Response:

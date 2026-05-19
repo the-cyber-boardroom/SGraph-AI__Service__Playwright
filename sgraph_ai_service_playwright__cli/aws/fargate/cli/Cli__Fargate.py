@@ -10,11 +10,17 @@
 #   sg aws fargate task-def list           [--family F] [--json]
 #   sg aws fargate task-def show   <fam:rev> [--json]
 #   sg aws fargate task-def register --name NAME --image IMG [--cpu 256]
-#                                    [--memory 512] [--env k=v] [--yes]
+#                                    [--memory 512] [--env k=v]
+#                                    [--port-mapping 8080/tcp]
+#                                    [--execution-role-arn ARN]
+#                                    [--task-role-arn ARN] [--log-group G]
+#                                    [--yes]
 #   sg aws fargate task list               [--cluster C] [--family F] [--json]
 #   sg aws fargate task describe <arn>     [--cluster C] [--json]
 #   sg aws fargate task run   --cluster C --task-def F:R [--count 1]
-#                              [--subnet S] [--sg G] [--yes]
+#                              [--subnet S] [--sg G]
+#                              [--launch-type FARGATE|FARGATE_SPOT]
+#                              [--tag k=v] [--yes]
 #   sg aws fargate task stop  <arn>        [--cluster C] [--reason R] [--yes]
 #   sg aws fargate task logs  <arn>        [--cluster C] [--since 30m] [--json]
 #
@@ -262,16 +268,24 @@ def task_def_show(ctx       : typer.Context,
 @task_def_app.command('register')
 @spec_cli_errors
 @require_mutation_gate(_MUTATION_ENV)
-def task_def_register(ctx     : typer.Context,
-                      name    : str       = typer.Option(...,  '--name',    '-n', help='Task family name.'),
-                      image   : str       = typer.Option(...,  '--image',   '-i', help='Container image URI.'),
-                      cpu     : str       = typer.Option('256', '--cpu',          help='vCPU units (e.g. 256, 512).'),
-                      memory  : str       = typer.Option('512', '--memory',       help='Memory in MiB (e.g. 512, 1024).'),
-                      env     : List[str] = typer.Option([],    '--env',    '-e',
-                                                         help='Env var as K=V (repeatable).'),
-                      yes     : bool      = typer.Option(False, '--yes', '-y',    help='Skip confirmation.'),
-                      dry_run : bool      = typer.Option(False, '--dry-run',      help='Print action without executing.'),
-                      as_json : bool      = typer.Option(False, '--json',         help='Output as JSON.')):
+def task_def_register(ctx               : typer.Context,
+                      name              : str       = typer.Option(...,  '--name',    '-n', help='Task family name.'),
+                      image             : str       = typer.Option(...,  '--image',   '-i', help='Container image URI.'),
+                      cpu               : str       = typer.Option('256', '--cpu',          help='vCPU units (e.g. 256, 512).'),
+                      memory            : str       = typer.Option('512', '--memory',       help='Memory in MiB (e.g. 512, 1024).'),
+                      env               : List[str] = typer.Option([],    '--env',    '-e',
+                                                                   help='Env var as K=V (repeatable).'),
+                      port_mapping      : List[str] = typer.Option([],    '--port-mapping',
+                                                                   help='Port mapping as <port>/<proto> e.g. 8080/tcp (repeatable).'),
+                      execution_role_arn: str       = typer.Option('',    '--execution-role-arn',
+                                                                   help='IAM role ARN for ECS task execution.'),
+                      task_role_arn     : str       = typer.Option('',    '--task-role-arn',
+                                                                   help='IAM task role ARN (optional).'),
+                      log_group         : str       = typer.Option('',    '--log-group',
+                                                                   help='CloudWatch log group name.'),
+                      yes               : bool      = typer.Option(False, '--yes', '-y',    help='Skip confirmation.'),
+                      dry_run           : bool      = typer.Option(False, '--dry-run',      help='Print action without executing.'),
+                      as_json           : bool      = typer.Option(False, '--json',         help='Output as JSON.')):
     """Register a new ECS task definition revision."""
     if not confirm_or_abort(f'Register task definition "{name}" with image "{image}"?', yes=yes, dry_run=dry_run):
         raise typer.Exit(0)
@@ -280,16 +294,33 @@ def task_def_register(ctx     : typer.Context,
         k, _, v = e.partition('=')
         if k:
             env_dict[k] = v
-    td = ctx.obj['fargate_client'].register_task_definition(name=name, image=image,
-                                             cpu=cpu, memory=memory, env=env_dict)
+    port_mappings = []
+    for pm in port_mapping:
+        if '/' in pm:
+            port_str, _, proto = pm.partition('/')
+            port_mappings.append({'containerPort': int(port_str), 'protocol': proto})
+        else:
+            port_mappings.append({'containerPort': int(pm), 'protocol': 'tcp'})
+    td = ctx.obj['fargate_client'].register_task_definition(
+        name=name, image=image, cpu=cpu, memory=memory, env=env_dict,
+        port_mappings=port_mappings if port_mappings else None,
+        execution_role_arn=execution_role_arn,
+        task_role_arn=task_role_arn,
+        log_group=log_group)
     if td is None:
         console.print('[red]Failed to register task definition.[/red]')
         raise typer.Exit(1)
     if as_json:
         typer.echo(json.dumps(dict(
-            family         = td.family,
-            revision       = td.revision,
-            task_def_arn   = td.task_def_arn,
+            family             = td.family,
+            revision           = td.revision,
+            task_def_arn       = str(td.task_def_arn),
+            port_mappings      = [{'containerPort': pm.container_port,
+                                   'protocol'     : pm.protocol}
+                                  for pm in td.port_mappings],
+            execution_role_arn = td.execution_role_arn,
+            task_role_arn      = td.task_role_arn,
+            log_group          = td.log_group,
         ), indent=2))
         return
     console.print(f'[green]Registered[/green] {td.family}:{td.revision}')
@@ -387,20 +418,29 @@ def task_describe(ctx     : typer.Context,
 @require_mutation_gate(_MUTATION_ENV)
 def task_run(ctx             : typer.Context,
              cluster         : str       = typer.Option(...,   '--cluster',  '-c',  help='Target cluster name.'),
-             task_def        : str       = typer.Option(...,   '--task-def', '-t',  help='Task definition family:revision.'),
+             task_def        : str       = typer.Option(...,   '--task-def',        help='Task definition family:revision.'),
              count           : int       = typer.Option(1,     '--count',           help='Number of tasks to launch.'),
              subnet          : List[str] = typer.Option([],    '--subnet',          help='Subnet ID(s) (repeatable).'),
              sg              : List[str] = typer.Option([],    '--sg',              help='Security group ID(s) (repeatable).'),
              assign_public_ip: bool      = typer.Option(False, '--assign-public-ip', help='Assign public IP.'),
+             launch_type     : str       = typer.Option('FARGATE', '--launch-type', help='FARGATE or FARGATE_SPOT.'),
+             tag             : List[str] = typer.Option([],    '--tag',        '-t', help='Tag as k=v (repeatable).'),
              yes             : bool      = typer.Option(False, '--yes', '-y',        help='Skip confirmation.'),
              dry_run         : bool      = typer.Option(False, '--dry-run',          help='Print action without executing.'),
              as_json         : bool      = typer.Option(False, '--json',             help='Output as JSON.')):
-    """Run a Fargate task (FARGATE launch type only)."""
+    """Run a Fargate task."""
     if not confirm_or_abort(f'Run task "{task_def}" on cluster "{cluster}"?', yes=yes, dry_run=dry_run):
         raise typer.Exit(0)
+    tags_dict = {}
+    for t in tag:
+        k, _, v = t.partition('=')
+        if k:
+            tags_dict[k] = v
     t = ctx.obj['fargate_client'].run_task(cluster=cluster, task_def=task_def,
                            count=count, subnets=subnet, security_groups=sg,
-                           assign_public_ip=assign_public_ip)
+                           assign_public_ip=assign_public_ip,
+                           launch_type=launch_type,
+                           tags=tags_dict if tags_dict else None)
     if t is None:
         console.print('[red]Failed to start task.[/red]')
         raise typer.Exit(1)
@@ -409,6 +449,8 @@ def task_run(ctx             : typer.Context,
             task_arn     = str(t.task_arn),
             cluster_name = str(t.cluster_name),
             status       = str(t.status),
+            launch_type  = t.launch_type,
+            tags         = t.tags,
         ), indent=2))
         return
     console.print(f'[green]Started[/green] {t.task_arn}')

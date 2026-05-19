@@ -20,14 +20,20 @@ from typing import Optional
 from botocore.exceptions import ClientError
 from osbot_utils.type_safe.Type_Safe import Type_Safe
 
-from sgraph_ai_service_playwright__cli.aws.ec2.collections.Dict__EC2__Tag                         import Dict__EC2__Tag
-from sgraph_ai_service_playwright__cli.aws.ec2.collections.List__Schema__EC2__AMI                  import List__Schema__EC2__AMI
-from sgraph_ai_service_playwright__cli.aws.ec2.collections.List__Schema__EC2__Block_Device__Mapping import List__Schema__EC2__Block_Device__Mapping
-from sgraph_ai_service_playwright__cli.aws.ec2.collections.List__Schema__EC2__Instance             import List__Schema__EC2__Instance
-from sgraph_ai_service_playwright__cli.aws.ec2.collections.List__Schema__EC2__SG_Rule              import List__Schema__EC2__SG_Rule
-from sgraph_ai_service_playwright__cli.aws.ec2.collections.List__Schema__EC2__Security_Group       import List__Schema__EC2__Security_Group
-from sgraph_ai_service_playwright__cli.aws.ec2.collections.List__Schema__EC2__Security_Group__Ref  import List__Schema__EC2__Security_Group__Ref
-from sgraph_ai_service_playwright__cli.aws.ec2.collections.List__Schema__EC2__Snapshot             import List__Schema__EC2__Snapshot
+from sgraph_ai_service_playwright__cli.aws.ec2.collections.Dict__EC2__Tag                                  import Dict__EC2__Tag
+from sgraph_ai_service_playwright__cli.aws.ec2.collections.List__Schema__EC2__AMI                            import List__Schema__EC2__AMI
+from sgraph_ai_service_playwright__cli.aws.ec2.collections.List__Schema__EC2__Block_Device__Mapping          import List__Schema__EC2__Block_Device__Mapping
+from sgraph_ai_service_playwright__cli.aws.ec2.collections.List__Schema__EC2__Instance                       import List__Schema__EC2__Instance
+from sgraph_ai_service_playwright__cli.aws.ec2.collections.List__Schema__EC2__Internet_Gateway               import List__Schema__EC2__Internet_Gateway
+from sgraph_ai_service_playwright__cli.aws.ec2.collections.List__Schema__EC2__Route                          import List__Schema__EC2__Route
+from sgraph_ai_service_playwright__cli.aws.ec2.collections.List__Schema__EC2__Route_Table                    import List__Schema__EC2__Route_Table
+from sgraph_ai_service_playwright__cli.aws.ec2.collections.List__Schema__EC2__Route_Table_Association        import List__Schema__EC2__Route_Table_Association
+from sgraph_ai_service_playwright__cli.aws.ec2.collections.List__Schema__EC2__SG_Rule                        import List__Schema__EC2__SG_Rule
+from sgraph_ai_service_playwright__cli.aws.ec2.collections.List__Schema__EC2__Security_Group                 import List__Schema__EC2__Security_Group
+from sgraph_ai_service_playwright__cli.aws.ec2.collections.List__Schema__EC2__Security_Group__Ref            import List__Schema__EC2__Security_Group__Ref
+from sgraph_ai_service_playwright__cli.aws.ec2.collections.List__Schema__EC2__Snapshot                       import List__Schema__EC2__Snapshot
+from sgraph_ai_service_playwright__cli.aws.ec2.collections.List__Schema__EC2__Subnet                          import List__Schema__EC2__Subnet
+from sgraph_ai_service_playwright__cli.aws.ec2.collections.List__Schema__EC2__VPC                             import List__Schema__EC2__VPC
 from sgraph_ai_service_playwright__cli.aws.ec2.enums.Enum__EC2__Instance__State                    import Enum__EC2__Instance__State
 from sgraph_ai_service_playwright__cli.aws.ec2.enums.Enum__EC2__SG_Rule_Direction                  import Enum__EC2__SG_Rule_Direction
 from sgraph_ai_service_playwright__cli.aws.ec2.primitives.Safe_Str__EC2__AMI_Id                    import Safe_Str__EC2__AMI_Id
@@ -45,7 +51,14 @@ from sgraph_ai_service_playwright__cli.aws.ec2.schemas.Schema__EC2__Instance__De
 from sgraph_ai_service_playwright__cli.aws.ec2.schemas.Schema__EC2__SG_Rule                        import Schema__EC2__SG_Rule
 from sgraph_ai_service_playwright__cli.aws.ec2.schemas.Schema__EC2__Security_Group                 import Schema__EC2__Security_Group
 from sgraph_ai_service_playwright__cli.aws.ec2.schemas.Schema__EC2__Security_Group__Ref            import Schema__EC2__Security_Group__Ref
-from sgraph_ai_service_playwright__cli.aws.ec2.schemas.Schema__EC2__Snapshot                       import Schema__EC2__Snapshot
+from sgraph_ai_service_playwright__cli.aws.ec2.schemas.Schema__EC2__ENI                            import Schema__EC2__ENI
+from sgraph_ai_service_playwright__cli.aws.ec2.schemas.Schema__EC2__Internet_Gateway                import Schema__EC2__Internet_Gateway
+from sgraph_ai_service_playwright__cli.aws.ec2.schemas.Schema__EC2__Route                           import Schema__EC2__Route
+from sgraph_ai_service_playwright__cli.aws.ec2.schemas.Schema__EC2__Route_Table                     import Schema__EC2__Route_Table
+from sgraph_ai_service_playwright__cli.aws.ec2.schemas.Schema__EC2__Route_Table_Association         import Schema__EC2__Route_Table_Association
+from sgraph_ai_service_playwright__cli.aws.ec2.schemas.Schema__EC2__Snapshot                        import Schema__EC2__Snapshot
+from sgraph_ai_service_playwright__cli.aws.ec2.schemas.Schema__EC2__Subnet                          import Schema__EC2__Subnet
+from sgraph_ai_service_playwright__cli.aws.ec2.schemas.Schema__EC2__VPC                             import Schema__EC2__VPC
 from sgraph_ai_service_playwright__cli.credentials.service.Sg__Aws__Session                        import Sg__Aws__Session
 
 
@@ -254,6 +267,162 @@ class EC2__AWS__Client(Type_Safe):
                 result.append(raw)
         return result
 
+    def list_enis(self, sg_id: str = '', vpc_id: str = '') -> list:            # Returns List[Schema__EC2__ENI] filtered by sg_id and/or vpc_id
+        ec2     = self.client()
+        filters = []
+        if sg_id:
+            filters.append({'Name': 'group-id', 'Values': [sg_id]})
+        if vpc_id:
+            filters.append({'Name': 'vpc-id', 'Values': [vpc_id]})
+        kwargs    = {'Filters': filters} if filters else {}
+        result    = []
+        paginator = ec2.get_paginator('describe_network_interfaces')
+        for page in paginator.paginate(**kwargs):
+            for raw in page.get('NetworkInterfaces', []) or []:
+                result.append(self._parse_eni(raw))
+        return result
+
+    def describe_network_interface(self, eni_id: str) -> Optional[Schema__EC2__ENI]:
+        try:
+            ec2   = self.client()
+            resp  = ec2.describe_network_interfaces(NetworkInterfaceIds=[eni_id])
+            items = resp.get('NetworkInterfaces', []) or []
+            if not items:
+                return None
+            return self._parse_eni(items[0])
+        except ClientError as exc:
+            code = exc.response.get('Error', {}).get('Code', '')
+            if code == 'InvalidNetworkInterfaceID.NotFound':
+                return None
+            raise
+
+    # ── read: VPCs ────────────────────────────────────────────────────────────
+
+    def list_vpcs(self, vpc_id_substring: str = '',
+                  tag_filter: Optional[list] = None) -> List__Schema__EC2__VPC:
+        ec2     = self.client()
+        filters = []
+        if tag_filter:
+            filters.extend(tag_filter)
+        kwargs    = {'Filters': filters} if filters else {}
+        result    = List__Schema__EC2__VPC()
+        paginator = ec2.get_paginator('describe_vpcs')
+        for page in paginator.paginate(**kwargs):
+            for raw in page.get('Vpcs', []) or []:
+                vpc_id = raw.get('VpcId', '') or ''
+                # client-side substring filter — AWS describe_vpcs has no native
+                # vpc-id substring filter, so we trim post-paginate.
+                if vpc_id_substring and vpc_id_substring not in vpc_id:
+                    continue
+                result.append(self._parse_vpc(raw))
+        return result
+
+    def describe_vpc(self, vpc_id: str) -> Optional[Schema__EC2__VPC]:
+        try:
+            ec2   = self.client()
+            resp  = ec2.describe_vpcs(VpcIds=[vpc_id])
+            items = resp.get('Vpcs', []) or []
+            if not items:
+                return None
+            return self._parse_vpc(items[0])
+        except ClientError as exc:
+            code = exc.response.get('Error', {}).get('Code', '')
+            if code == 'InvalidVpcID.NotFound':
+                return None
+            raise
+
+    # ── read: Subnets ─────────────────────────────────────────────────────────
+
+    def list_subnets(self, vpc_id: str = '', az: str = '') -> List__Schema__EC2__Subnet:
+        ec2     = self.client()
+        filters = []
+        if vpc_id:
+            filters.append({'Name': 'vpc-id', 'Values': [vpc_id]})
+        if az:
+            filters.append({'Name': 'availability-zone', 'Values': [az]})
+        kwargs    = {'Filters': filters} if filters else {}
+        result    = List__Schema__EC2__Subnet()
+        paginator = ec2.get_paginator('describe_subnets')
+        for page in paginator.paginate(**kwargs):
+            for raw in page.get('Subnets', []) or []:
+                result.append(self._parse_subnet(raw))
+        return result
+
+    def describe_subnet(self, subnet_id: str) -> Optional[Schema__EC2__Subnet]:
+        try:
+            ec2   = self.client()
+            resp  = ec2.describe_subnets(SubnetIds=[subnet_id])
+            items = resp.get('Subnets', []) or []
+            if not items:
+                return None
+            return self._parse_subnet(items[0])
+        except ClientError as exc:
+            code = exc.response.get('Error', {}).get('Code', '')
+            if code == 'InvalidSubnetID.NotFound':
+                return None
+            raise
+
+    # ── read: Internet Gateways ───────────────────────────────────────────────
+
+    def list_internet_gateways(self, vpc_id: str = ''
+                               ) -> List__Schema__EC2__Internet_Gateway:
+        ec2     = self.client()
+        filters = []
+        if vpc_id:
+            filters.append({'Name': 'attachment.vpc-id', 'Values': [vpc_id]})
+        kwargs    = {'Filters': filters} if filters else {}
+        result    = List__Schema__EC2__Internet_Gateway()
+        paginator = ec2.get_paginator('describe_internet_gateways')
+        for page in paginator.paginate(**kwargs):
+            for raw in page.get('InternetGateways', []) or []:
+                result.append(self._parse_internet_gateway(raw))
+        return result
+
+    def describe_internet_gateway(self, igw_id: str
+                                  ) -> Optional[Schema__EC2__Internet_Gateway]:
+        try:
+            ec2   = self.client()
+            resp  = ec2.describe_internet_gateways(InternetGatewayIds=[igw_id])
+            items = resp.get('InternetGateways', []) or []
+            if not items:
+                return None
+            return self._parse_internet_gateway(items[0])
+        except ClientError as exc:
+            code = exc.response.get('Error', {}).get('Code', '')
+            if code == 'InvalidInternetGatewayID.NotFound':
+                return None
+            raise
+
+    # ── read: Route Tables ────────────────────────────────────────────────────
+
+    def list_route_tables(self, vpc_id: str = '') -> List__Schema__EC2__Route_Table:
+        ec2     = self.client()
+        filters = []
+        if vpc_id:
+            filters.append({'Name': 'vpc-id', 'Values': [vpc_id]})
+        kwargs    = {'Filters': filters} if filters else {}
+        result    = List__Schema__EC2__Route_Table()
+        paginator = ec2.get_paginator('describe_route_tables')
+        for page in paginator.paginate(**kwargs):
+            for raw in page.get('RouteTables', []) or []:
+                result.append(self._parse_route_table(raw))
+        return result
+
+    def describe_route_table(self, rtb_id: str
+                             ) -> Optional[Schema__EC2__Route_Table]:
+        try:
+            ec2   = self.client()
+            resp  = ec2.describe_route_tables(RouteTableIds=[rtb_id])
+            items = resp.get('RouteTables', []) or []
+            if not items:
+                return None
+            return self._parse_route_table(items[0])
+        except ClientError as exc:
+            code = exc.response.get('Error', {}).get('Code', '')
+            if code == 'InvalidRouteTableID.NotFound':
+                return None
+            raise
+
     # ── mutations ─────────────────────────────────────────────────────────────
 
     def create_instance(self, request: Schema__EC2__Create__Request,
@@ -337,6 +506,320 @@ class EC2__AWS__Client(Type_Safe):
             # user sees the real AWS reason via @spec_cli_errors.
             raise
 
+    # ── mutations: VPC ────────────────────────────────────────────────────────
+
+    def create_vpc(self, cidr: str, tags: dict = None) -> Schema__EC2__VPC:
+        ec2    = self.client()
+        kwargs = {'CidrBlock': cidr}
+        if tags:
+            kwargs['TagSpecifications'] = [{
+                'ResourceType': 'vpc',
+                'Tags'        : [{'Key': k, 'Value': v} for k, v in tags.items()],
+            }]
+        resp = ec2.create_vpc(**kwargs)
+        return self._parse_vpc(resp.get('Vpc', {}) or {})
+
+    def delete_vpc(self, vpc_id: str) -> bool:
+        try:
+            self.client().delete_vpc(VpcId=vpc_id)
+            return True
+        except ClientError as exc:
+            code = exc.response.get('Error', {}).get('Code', '')
+            if code == 'InvalidVpcID.NotFound':
+                return False
+            raise
+
+    def modify_vpc_attribute(self, vpc_id: str,
+                             enable_dns_support  : bool = None,
+                             enable_dns_hostnames: bool = None) -> None:
+        ec2 = self.client()
+        # AWS exposes one attribute per call — issue both when both are set.
+        if enable_dns_support is not None:
+            ec2.modify_vpc_attribute(VpcId             = vpc_id,
+                                     EnableDnsSupport  = {'Value': bool(enable_dns_support)})
+        if enable_dns_hostnames is not None:
+            ec2.modify_vpc_attribute(VpcId                = vpc_id,
+                                     EnableDnsHostnames   = {'Value': bool(enable_dns_hostnames)})
+
+    # ── mutations: Subnet ─────────────────────────────────────────────────────
+
+    def create_subnet(self, vpc_id: str, cidr: str,
+                      availability_zone: str = '',
+                      tags: dict = None) -> Schema__EC2__Subnet:
+        ec2    = self.client()
+        kwargs = {'VpcId': vpc_id, 'CidrBlock': cidr}
+        if availability_zone:
+            kwargs['AvailabilityZone'] = availability_zone
+        if tags:
+            kwargs['TagSpecifications'] = [{
+                'ResourceType': 'subnet',
+                'Tags'        : [{'Key': k, 'Value': v} for k, v in tags.items()],
+            }]
+        resp = ec2.create_subnet(**kwargs)
+        return self._parse_subnet(resp.get('Subnet', {}) or {})
+
+    def delete_subnet(self, subnet_id: str) -> bool:
+        try:
+            self.client().delete_subnet(SubnetId=subnet_id)
+            return True
+        except ClientError as exc:
+            code = exc.response.get('Error', {}).get('Code', '')
+            if code == 'InvalidSubnetID.NotFound':
+                return False
+            raise
+
+    def modify_subnet_attribute(self, subnet_id: str,
+                                map_public_ip_on_launch: bool = None) -> None:
+        if map_public_ip_on_launch is not None:
+            self.client().modify_subnet_attribute(
+                SubnetId             = subnet_id,
+                MapPublicIpOnLaunch  = {'Value': bool(map_public_ip_on_launch)})
+
+    # ── mutations: Internet Gateway ───────────────────────────────────────────
+
+    def create_internet_gateway(self, tags: dict = None
+                                 ) -> Schema__EC2__Internet_Gateway:
+        ec2    = self.client()
+        kwargs = {}
+        if tags:
+            kwargs['TagSpecifications'] = [{
+                'ResourceType': 'internet-gateway',
+                'Tags'        : [{'Key': k, 'Value': v} for k, v in tags.items()],
+            }]
+        resp = ec2.create_internet_gateway(**kwargs)
+        return self._parse_internet_gateway(resp.get('InternetGateway', {}) or {})
+
+    def delete_internet_gateway(self, igw_id: str) -> bool:
+        try:
+            self.client().delete_internet_gateway(InternetGatewayId=igw_id)
+            return True
+        except ClientError as exc:
+            code = exc.response.get('Error', {}).get('Code', '')
+            if code == 'InvalidInternetGatewayID.NotFound':
+                return False
+            raise
+
+    def attach_internet_gateway(self, igw_id: str, vpc_id: str) -> None:
+        try:
+            self.client().attach_internet_gateway(InternetGatewayId=igw_id,
+                                                   VpcId             =vpc_id)
+        except ClientError as exc:
+            code = exc.response.get('Error', {}).get('Code', '')
+            # Already attached — no-op to keep idempotency for stack provisioner.
+            if code == 'Resource.AlreadyAssociated':
+                return
+            raise
+
+    def detach_internet_gateway(self, igw_id: str, vpc_id: str) -> bool:
+        try:
+            self.client().detach_internet_gateway(InternetGatewayId=igw_id,
+                                                   VpcId             =vpc_id)
+            return True
+        except ClientError as exc:
+            code = exc.response.get('Error', {}).get('Code', '')
+            # Gateway.NotAttached → already detached; surface as False, not raise.
+            if code in ('Gateway.NotAttached',
+                         'InvalidInternetGatewayID.NotFound'):
+                return False
+            raise
+
+    # ── mutations: Route Table ────────────────────────────────────────────────
+
+    def create_route_table(self, vpc_id: str, tags: dict = None
+                            ) -> Schema__EC2__Route_Table:
+        ec2    = self.client()
+        kwargs = {'VpcId': vpc_id}
+        if tags:
+            kwargs['TagSpecifications'] = [{
+                'ResourceType': 'route-table',
+                'Tags'        : [{'Key': k, 'Value': v} for k, v in tags.items()],
+            }]
+        resp = ec2.create_route_table(**kwargs)
+        return self._parse_route_table(resp.get('RouteTable', {}) or {})
+
+    def delete_route_table(self, rtb_id: str) -> bool:
+        try:
+            self.client().delete_route_table(RouteTableId=rtb_id)
+            return True
+        except ClientError as exc:
+            code = exc.response.get('Error', {}).get('Code', '')
+            if code == 'InvalidRouteTableID.NotFound':
+                return False
+            raise
+
+    def associate_route_table(self, rtb_id: str, subnet_id: str) -> str:
+        resp = self.client().associate_route_table(RouteTableId=rtb_id,
+                                                    SubnetId     =subnet_id)
+        return resp.get('AssociationId', '') or ''
+
+    def disassociate_route_table(self, association_id: str) -> bool:
+        try:
+            self.client().disassociate_route_table(AssociationId=association_id)
+            return True
+        except ClientError as exc:
+            code = exc.response.get('Error', {}).get('Code', '')
+            if code in ('InvalidAssociationID.NotFound',
+                         'InvalidRouteTableAssociationID.NotFound'):
+                return False
+            raise
+
+    def create_route(self, rtb_id: str, destination_cidr: str,
+                     gateway_id           : str = '',
+                     nat_gateway_id       : str = '',
+                     network_interface_id : str = '') -> bool:
+        # Exactly-one-target — anything else is a programmer bug, not an AWS error.
+        targets = [t for t in (gateway_id, nat_gateway_id, network_interface_id) if t]
+        if len(targets) != 1:
+            raise ValueError('create_route requires exactly one target '
+                             '(gateway_id, nat_gateway_id, or network_interface_id).')
+        kwargs = {'RouteTableId': rtb_id, 'DestinationCidrBlock': destination_cidr}
+        if gateway_id:
+            kwargs['GatewayId'] = gateway_id
+        elif nat_gateway_id:
+            kwargs['NatGatewayId'] = nat_gateway_id
+        else:
+            kwargs['NetworkInterfaceId'] = network_interface_id
+        resp = self.client().create_route(**kwargs)
+        return bool(resp.get('Return', True))
+
+    def delete_route(self, rtb_id: str, destination_cidr: str) -> bool:
+        try:
+            self.client().delete_route(RouteTableId         = rtb_id,
+                                        DestinationCidrBlock = destination_cidr)
+            return True
+        except ClientError as exc:
+            code = exc.response.get('Error', {}).get('Code', '')
+            if code in ('InvalidRoute.NotFound',
+                         'InvalidRouteTableID.NotFound'):
+                return False
+            raise
+
+    # ── mutations: Security Group ─────────────────────────────────────────────
+
+    def create_security_group(self, group_name: str, description: str,
+                              vpc_id: str, tags: dict = None
+                              ) -> Schema__EC2__Security_Group:
+        ec2    = self.client()
+        kwargs = dict(GroupName=group_name, Description=description, VpcId=vpc_id)
+        if tags:
+            kwargs['TagSpecifications'] = [{
+                'ResourceType': 'security-group',
+                'Tags'        : [{'Key': k, 'Value': v} for k, v in tags.items()],
+            }]
+        resp = ec2.create_security_group(**kwargs)
+        sg_id = resp.get('GroupId', '') or ''
+        # CreateSecurityGroup returns only GroupId; re-describe to surface the
+        # full schema with rules / owner_id populated.
+        detail = self.describe_security_group(sg_id) if sg_id else None
+        if detail is not None:
+            return detail
+        # Fallback shape if describe failed (in-memory test seam may not seed it)
+        return Schema__EC2__Security_Group(
+            sg_id                 = Safe_Str__EC2__SG_Id(sg_id),
+            name                  = group_name,
+            vpc_id                = Safe_Str__EC2__VPC_Id(vpc_id),
+            description           = description,
+            owner_id              = '',
+            ingress_rules         = List__Schema__EC2__SG_Rule(),
+            egress_rules          = List__Schema__EC2__SG_Rule(),
+            attached_eni_ids      = [],
+            attached_instance_ids = [],
+            tags                  = self._tags_dict([{'Key': k, 'Value': v} for k, v in (tags or {}).items()]),
+        )
+
+    def authorize_security_group_ingress(self, sg_id: str, ip_protocol: str,
+                                          from_port: int, to_port: int,
+                                          cidr_blocks   : list = None,
+                                          source_sg_ids : list = None) -> bool:
+        return self._authorize_sg(direction='ingress', sg_id=sg_id,
+                                   ip_protocol=ip_protocol,
+                                   from_port=from_port, to_port=to_port,
+                                   cidr_blocks=cidr_blocks,
+                                   source_sg_ids=source_sg_ids)
+
+    def authorize_security_group_egress(self, sg_id: str, ip_protocol: str,
+                                         from_port: int, to_port: int,
+                                         cidr_blocks   : list = None,
+                                         source_sg_ids : list = None) -> bool:
+        return self._authorize_sg(direction='egress', sg_id=sg_id,
+                                   ip_protocol=ip_protocol,
+                                   from_port=from_port, to_port=to_port,
+                                   cidr_blocks=cidr_blocks,
+                                   source_sg_ids=source_sg_ids)
+
+    def revoke_security_group_ingress(self, sg_id: str, ip_protocol: str,
+                                       from_port: int, to_port: int,
+                                       cidr_blocks: list = None) -> bool:
+        return self._revoke_sg(direction='ingress', sg_id=sg_id,
+                                ip_protocol=ip_protocol,
+                                from_port=from_port, to_port=to_port,
+                                cidr_blocks=cidr_blocks)
+
+    def revoke_security_group_egress(self, sg_id: str, ip_protocol: str,
+                                      from_port: int, to_port: int,
+                                      cidr_blocks: list = None) -> bool:
+        return self._revoke_sg(direction='egress', sg_id=sg_id,
+                                ip_protocol=ip_protocol,
+                                from_port=from_port, to_port=to_port,
+                                cidr_blocks=cidr_blocks)
+
+    def _authorize_sg(self, direction: str, sg_id: str, ip_protocol: str,
+                      from_port: int, to_port: int,
+                      cidr_blocks: list = None,
+                      source_sg_ids: list = None) -> bool:
+        # Build the IpPermissions list — boto3 lets us mix CIDRs and source-SG
+        # refs in a single permission entry. We keep them in one entry so that
+        # AWS treats duplicate detection at the rule-tuple level.
+        perm = {
+            'IpProtocol': ip_protocol,
+            'FromPort'  : int(from_port),
+            'ToPort'    : int(to_port),
+        }
+        if cidr_blocks:
+            perm['IpRanges'] = [{'CidrIp': c} for c in cidr_blocks]
+        if source_sg_ids:
+            perm['UserIdGroupPairs'] = [{'GroupId': s} for s in source_sg_ids]
+        kwargs = {'GroupId': sg_id, 'IpPermissions': [perm]}
+        try:
+            if direction == 'ingress':
+                self.client().authorize_security_group_ingress(**kwargs)
+            else:
+                self.client().authorize_security_group_egress(**kwargs)
+            return True
+        except ClientError as exc:
+            code = exc.response.get('Error', {}).get('Code', '')
+            # Duplicate → already-applied earlier; treat as no-op success path
+            # but return False so the CLI can distinguish "added now" vs.
+            # "already there".
+            if code == 'InvalidPermission.Duplicate':
+                return False
+            raise
+
+    def _revoke_sg(self, direction: str, sg_id: str, ip_protocol: str,
+                   from_port: int, to_port: int,
+                   cidr_blocks: list = None) -> bool:
+        perm = {
+            'IpProtocol': ip_protocol,
+            'FromPort'  : int(from_port),
+            'ToPort'    : int(to_port),
+        }
+        if cidr_blocks:
+            perm['IpRanges'] = [{'CidrIp': c} for c in cidr_blocks]
+        kwargs = {'GroupId': sg_id, 'IpPermissions': [perm]}
+        try:
+            if direction == 'ingress':
+                self.client().revoke_security_group_ingress(**kwargs)
+            else:
+                self.client().revoke_security_group_egress(**kwargs)
+            return True
+        except ClientError as exc:
+            code = exc.response.get('Error', {}).get('Code', '')
+            # NotFound → already gone; surface as False not raise.
+            if code in ('InvalidPermission.NotFound',
+                         'InvalidGroup.NotFound'):
+                return False
+            raise
+
     def add_tags(self, instance_id: str, tags: dict) -> None:                  # tags is {Key: Value} map
         self.client().create_tags(
             Resources = [instance_id],
@@ -350,6 +833,41 @@ class EC2__AWS__Client(Type_Safe):
         )
 
     # ── internal ──────────────────────────────────────────────────────────────
+
+    def _parse_eni(self, raw: dict) -> Schema__EC2__ENI:
+        eni_id      = raw.get('NetworkInterfaceId', '') or ''
+        subnet_id   = raw.get('SubnetId', '')           or ''
+        vpc_id      = raw.get('VpcId', '')              or ''
+        description = raw.get('Description', '')        or ''
+        status      = raw.get('Status', '')             or ''
+        # ── public IP from Association block ────────────────────────────────
+        association = raw.get('Association') or {}
+        public_ip   = association.get('PublicIp', '')   or ''
+        # ── private IP from PrivateIpAddresses[0] ───────────────────────────
+        priv_list   = raw.get('PrivateIpAddresses', []) or []
+        private_ip  = ''
+        if priv_list:
+            primary = next((p for p in priv_list if p.get('Primary')), priv_list[0])
+            private_ip = primary.get('PrivateIpAddress', '') or ''
+        # ── attachment ───────────────────────────────────────────────────────
+        attachment           = raw.get('Attachment') or {}
+        attachment_instance  = attachment.get('InstanceId', '')     or ''
+        attachment_status    = attachment.get('Status', '')         or ''
+        # ── security group IDs ───────────────────────────────────────────────
+        sg_ids = [g.get('GroupId', '') for g in (raw.get('Groups', []) or [])
+                  if g.get('GroupId')]
+        return Schema__EC2__ENI(
+            eni_id                 = eni_id,
+            subnet_id              = subnet_id,
+            vpc_id                 = vpc_id,
+            public_ip              = public_ip,
+            private_ip             = private_ip,
+            attachment_instance_id = attachment_instance,
+            attachment_status      = attachment_status,
+            security_group_ids     = sg_ids,
+            description            = description,
+            status                 = status,
+        )
 
     def _parse_summary(self, raw: dict) -> Schema__EC2__Instance:
         tags      = {t['Key']: t['Value'] for t in raw.get('Tags', [])}
@@ -483,6 +1001,7 @@ class EC2__AWS__Client(Type_Safe):
             egress_rules          = egress,
             attached_eni_ids      = [],
             attached_instance_ids = [],
+            tags                  = self._tags_dict(raw.get('Tags', [])),
         )
 
     def _parse_sg_rules(self, perms: list, direction: Enum__EC2__SG_Rule_Direction
@@ -541,6 +1060,117 @@ class EC2__AWS__Client(Type_Safe):
                     description      = '',
                 ))
         return rules
+
+    def _tags_dict(self, raw_tags: list) -> Dict__EC2__Tag:                    # AWS tags list ([{Key, Value}, …]) → Dict__EC2__Tag
+        d = Dict__EC2__Tag()
+        for t in (raw_tags or []):
+            k = t.get('Key', '')
+            v = t.get('Value', '')
+            if k:
+                d[k] = v
+        return d
+
+    def _parse_vpc(self, raw: dict) -> Schema__EC2__VPC:
+        vpc_id     = raw.get('VpcId', '')             or ''
+        cidr       = raw.get('CidrBlock', '')         or ''
+        is_default = bool(raw.get('IsDefault', False))
+        state      = raw.get('State', '')             or ''
+        dhcp_id    = raw.get('DhcpOptionsId', '')     or ''
+        tenancy    = raw.get('InstanceTenancy', '')   or ''
+        return Schema__EC2__VPC(
+            vpc_id           = vpc_id,
+            cidr_block       = cidr,
+            is_default       = is_default,
+            state            = state,
+            dhcp_options_id  = dhcp_id,
+            instance_tenancy = tenancy,
+            tags             = self._tags_dict(raw.get('Tags', [])),
+        )
+
+    def _parse_subnet(self, raw: dict) -> Schema__EC2__Subnet:
+        subnet_id   = raw.get('SubnetId', '')                or ''
+        vpc_id      = raw.get('VpcId', '')                   or ''
+        cidr        = raw.get('CidrBlock', '')               or ''
+        az          = raw.get('AvailabilityZone', '')        or ''
+        az_id       = raw.get('AvailabilityZoneId', '')      or ''
+        avail_ips   = int(raw.get('AvailableIpAddressCount', 0) or 0)
+        public_map  = bool(raw.get('MapPublicIpOnLaunch', False))
+        state       = raw.get('State', '')                   or ''
+        return Schema__EC2__Subnet(
+            subnet_id               = subnet_id,
+            vpc_id                  = vpc_id,
+            cidr_block              = cidr,
+            availability_zone       = az,
+            availability_zone_id    = az_id,
+            available_ip_count      = avail_ips,
+            map_public_ip_on_launch = public_map,
+            state                   = state,
+            tags                    = self._tags_dict(raw.get('Tags', [])),
+        )
+
+    def _parse_internet_gateway(self, raw: dict) -> Schema__EC2__Internet_Gateway:
+        igw_id      = raw.get('InternetGatewayId', '') or ''
+        # ── first attachment wins; AWS only allows one VPC per IGW ──────────
+        attachments = raw.get('Attachments', []) or []
+        vpc_id      = ''
+        state       = ''
+        if attachments:
+            vpc_id = attachments[0].get('VpcId', '') or ''
+            state  = attachments[0].get('State', '') or ''
+        return Schema__EC2__Internet_Gateway(
+            igw_id = igw_id,
+            vpc_id = vpc_id,
+            state  = state,
+            tags   = self._tags_dict(raw.get('Tags', [])),
+        )
+
+    def _parse_route(self, raw: dict) -> Schema__EC2__Route:
+        dest = (raw.get('DestinationCidrBlock', '')
+                or raw.get('DestinationIpv6CidrBlock', '')
+                or raw.get('DestinationPrefixListId', '')
+                or '')
+        # AWS returns the target under one of several keys depending on route
+        # type. We surface them all under gateway_id (most-common first).
+        gw   = (raw.get('GatewayId', '')
+                or raw.get('NatGatewayId', '')
+                or raw.get('TransitGatewayId', '')
+                or raw.get('VpcPeeringConnectionId', '')
+                or raw.get('EgressOnlyInternetGatewayId', '')
+                or raw.get('NetworkInterfaceId', '')
+                or raw.get('InstanceId', '')
+                or '')
+        return Schema__EC2__Route(
+            destination_cidr = dest,
+            gateway_id       = gw,
+            state            = raw.get('State', '')  or '',
+            origin           = raw.get('Origin', '') or '',
+        )
+
+    def _parse_route_table(self, raw: dict) -> Schema__EC2__Route_Table:
+        rtb_id = raw.get('RouteTableId', '') or ''
+        vpc_id = raw.get('VpcId', '')        or ''
+        routes = List__Schema__EC2__Route()
+        for r in raw.get('Routes', []) or []:
+            routes.append(self._parse_route(r))
+        associations = List__Schema__EC2__Route_Table_Association()
+        for a in raw.get('Associations', []) or []:
+            assoc_id  = a.get('RouteTableAssociationId', '') or ''
+            assoc_rtb = a.get('RouteTableId', '')            or rtb_id
+            subnet_id = a.get('SubnetId', '')                or ''
+            main      = bool(a.get('Main', False))
+            associations.append(Schema__EC2__Route_Table_Association(
+                association_id = assoc_id,
+                route_table_id = assoc_rtb,
+                subnet_id      = subnet_id,
+                main           = main,
+            ))
+        return Schema__EC2__Route_Table(
+            route_table_id = rtb_id,
+            vpc_id         = vpc_id,
+            routes         = routes,
+            associations   = associations,
+            tags           = self._tags_dict(raw.get('Tags', [])),
+        )
 
     def _parse_snapshot(self, raw: dict) -> Schema__EC2__Snapshot:
         snap_id   = raw.get('SnapshotId', '')   or ''

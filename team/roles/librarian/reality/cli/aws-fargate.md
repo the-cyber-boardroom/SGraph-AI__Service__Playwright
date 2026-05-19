@@ -4,7 +4,7 @@ file: aws-fargate.md
 domain: cli
 author: Dev (Claude)
 date: 2026-05-17
-status: CURRENT — shipped in v0.2.29 (Slice C); updated v0.2.30 Open-2 (typed primitives)
+status: CURRENT — shipped in v0.2.29 (Slice C); updated v0.2.30 Open-2 (typed primitives); updated v0.2.33 (Slice 0a — task-def/task-run essential flags)
 ---
 
 # Reality — `sg aws fargate`
@@ -97,6 +97,48 @@ All previously raw `str` fields in Fargate schemas now use typed primitives:
 - `Schema__ECS__Cluster`: `cluster_arn → Safe_Str__ECS__Cluster_Arn`, `status → Safe_Str__ECS__Status`
 - `Schema__ECS__Task`: `last_status`, `desired_status → Safe_Str__ECS__Status`; `started_at`, `stopped_at → Safe_Str__ECS__Timestamp`; `stopped_reason → Safe_Str__ECS__Stop_Reason`; `group → Safe_Str__ECS__Group`
 - `Schema__ECS__Task__Definition`: `family → Safe_Str__ECS__Task__Family`; `task_def_arn → Safe_Str__ECS__Task__Def_Arn`; `status → Safe_Str__ECS__Status`; `cpu → Safe_Str__ECS__CPU`; `memory → Safe_Str__ECS__Memory`
+
+## v0.2.33 additions (Slice 0a)
+
+`task-def register` gains:
+
+| New flag | Effect |
+|----------|--------|
+| `--port-mapping <port>/<proto>` (repeatable) | e.g. `8080/tcp` — appended to `containerDefinitions[0].portMappings` |
+| `--execution-role-arn <arn>` | Wired to `executionRoleArn` on the task definition |
+| `--task-role-arn <arn>` | Optional; wired to `taskRoleArn` |
+| `--log-group <name>` | Auto-wires `awslogs` log driver with group + region |
+
+`task run` gains:
+
+| New flag | Effect |
+|----------|--------|
+| `--launch-type FARGATE\|FARGATE_SPOT` | Default: `FARGATE` |
+| `--tag k=v` (repeatable) | Resource tags applied to the task |
+| `--env k=v` (repeatable) | Container overrides passed in `containerOverrides` |
+
+`cluster create` gains:
+
+| New flag | Effect |
+|----------|--------|
+| `--tag k=v` (repeatable) | Resource tags applied to the cluster — enables `VaultApp__*` tag schema |
+
+Schema additions:
+
+| Schema / field | Description |
+|----------------|-------------|
+| `Schema__ECS__Port_Mapping` | New: `container_port: int`, `protocol: str` |
+| `Schema__ECS__Task.launch_type` | New: `Enum__ECS__Launch__Type` |
+| `Schema__ECS__Task.tags` | New: `dict` — AWS resource tags on the task |
+| `Schema__ECS__Task.eni_id` | New: `Safe_Str__ECS__Task__ARN` (reused type) — ENI ID for IP resolution |
+| `Schema__ECS__Task__Definition.port_mappings` | New: `List__Schema__ECS__Port_Mapping` |
+| `Schema__ECS__Task__Definition.execution_role_arn` | New: `str` |
+| `Schema__ECS__Task__Definition.task_role_arn` | New: `str` |
+| `Schema__ECS__Task__Definition.log_group` | New: `str` |
+
+Collection addition: `List__Schema__ECS__Port_Mapping`
+
+---
 
 ## What does NOT exist
 
