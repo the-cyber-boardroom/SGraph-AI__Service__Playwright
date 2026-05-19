@@ -576,7 +576,6 @@ def lambda_cmd(
     _print_role_notice(c, svc)
     if not _preflight(c, svc):
         raise typer.Exit(1)
-    # Build the query string. urlencode handles the escaping (spaces, =, &).
     qs_pairs = [('name', name)]
     for kv in (args or []):
         if '=' not in kv:
@@ -586,7 +585,34 @@ def lambda_cmd(
         qs_pairs.append((k, v))
     qs   = urllib.parse.urlencode(qs_pairs)
     path = f'/__waker__/cmd?{qs}'
-    _do_lambda_invoke(c, path=path, host='', method='GET', full=full)
+    # Custom renderer for `cmd help` — show a Rich table instead of raw JSON
+    if name == 'help':
+        _do_lambda_invoke(c, path=path, host='', method='GET', full=full,
+                          body_renderer=_render_cmd_help_table)
+    else:
+        _do_lambda_invoke(c, path=path, host='', method='GET', full=full)
+
+
+def _render_cmd_help_table(c: Console, body_json: dict) -> None:
+    """Render the `cmd help` response as a Rich table."""
+    rows = body_json.get('result', []) if isinstance(body_json, dict) else []
+    if not rows:
+        c.print('  [yellow]no commands returned[/]')
+        return
+    tbl = Table(box=None, show_header=True, padding=(0, 2))
+    tbl.add_column('Command',     style='bold cyan')
+    tbl.add_column('Mutates',     style='', justify='center')
+    tbl.add_column('Description', style='dim')
+    for row in rows:
+        mutates = row.get('mutates', False)
+        flag    = '[red]●[/]' if mutates else '[dim]·[/]'
+        tbl.add_row(row.get('name', '?'), flag, row.get('description', ''))
+    c.print()
+    c.print(tbl)
+    c.print()
+    c.print('  [dim]Mutating commands ([red]●[/dim][dim]) require '
+            'WAKER_CMD_MUTATIONS_ENABLED=1 on the Lambda env.[/]')
+    c.print()
 
 
 @lambda_app.command(name='invoke', help='Invoke the deployed waker Lambda with a synthetic event and print the JSON response. Defaults to /__waker__/deploy so you immediately see which version is live.')
@@ -604,10 +630,17 @@ def lambda_invoke(
     _do_lambda_invoke(c, path=path, host=host, method=method, full=full)
 
 
-def _do_lambda_invoke(c: Console, *, path: str, host: str, method: str, full: bool) -> None:
-    """Shared invoke implementation — used by `lambda invoke` and by
-    `lambda update --invoke`. Pre-flight (credential check) is the caller's
-    responsibility so this helper stays a thin transport layer."""
+def _do_lambda_invoke(c: Console, *, path: str, host: str, method: str, full: bool,
+                       body_renderer=None) -> None:
+    """Shared invoke implementation — used by `lambda invoke`, `lambda cmd`,
+    and `lambda update --invoke`. Pre-flight (credential check) is the
+    caller's responsibility so this helper stays a thin transport layer.
+
+    body_renderer(c, body_json) — optional callable that takes the parsed
+    JSON body and renders it however it likes. When set, replaces the
+    default pretty-printed JSON. Falls back to the default if the body
+    isn't valid JSON.
+    """
     import json, uuid, boto3
     from datetime import datetime, timezone
     from sg_compute_specs.vault_publish.setup.service.Setup__Lambda import WAKER_LAMBDA_NAME
@@ -670,14 +703,18 @@ def _do_lambda_invoke(c: Console, *, path: str, host: str, method: str, full: bo
         if k.lower().startswith('x-waker'):
             c.print(f'    [dim]{k}[/]: {v}')
 
-    # If body looks like JSON, pretty-print it; otherwise show as text
+    # If body looks like JSON, pretty-print it (or hand off to body_renderer);
+    # otherwise show as text.
     try:
         parsed = json.loads(body)
-        pretty = json.dumps(parsed, indent=2)
-        if full or len(pretty) <= 800:
-            c.print(f'  body (json):\n{pretty}')
+        if body_renderer:
+            body_renderer(c, parsed)
         else:
-            c.print(f'  body (json, truncated to 800 chars):\n{pretty[:800]}\n  [dim]…(pass --full for the rest)[/]')
+            pretty = json.dumps(parsed, indent=2)
+            if full or len(pretty) <= 800:
+                c.print(f'  body (json):\n{pretty}')
+            else:
+                c.print(f'  body (json, truncated to 800 chars):\n{pretty[:800]}\n  [dim]…(pass --full for the rest)[/]')
     except (ValueError, TypeError):
         if full or len(body) <= 800:
             c.print(f'  body: {body}')
