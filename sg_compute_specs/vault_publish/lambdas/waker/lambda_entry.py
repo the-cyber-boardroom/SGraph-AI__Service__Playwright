@@ -286,7 +286,7 @@ def _get_asgi_dispatcher():
     global _FAST_API_APP, _LAMBDA_TO_ASGI
     if _LAMBDA_TO_ASGI is None:
         from sg_compute_specs.vault_publish.lambdas.waker.Fast_API__Waker import Fast_API__Waker
-        from sg_compute_specs.vault_publish.lambdas.waker.Lambda_To_ASGI  import Lambda_To_ASGI
+        from sg_compute_specs.vault_publish.lambdas.admin.Lambda_To_ASGI  import Lambda_To_ASGI
         _FAST_API_APP   = Fast_API__Waker().setup().app()
         _LAMBDA_TO_ASGI = Lambda_To_ASGI(_FAST_API_APP)
     return _LAMBDA_TO_ASGI

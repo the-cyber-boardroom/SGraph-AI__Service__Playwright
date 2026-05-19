@@ -1,10 +1,10 @@
 # ═══════════════════════════════════════════════════════════════════════════════
 # Admin — Fast_API__Admin
 # Browser-side admin surface for vault-publish. Mounted into the existing
-# waker FastAPI app at /__admin__/. Same Lambda, two app surfaces (waker for
+# waker FastAPI app at /. Same Lambda, two app surfaces (waker for
 # slug routing, admin for control plane).
 #
-# Routes (all under /__admin__/ when mounted):
+# Routes (all under / when mounted):
 #   GET  /              → inventory HTML (lists registered slugs)
 #   GET  /login         → login form
 #   POST /login         → set API-key cookie, redirect to /
@@ -65,7 +65,7 @@ class Fast_API__Admin(Type_Safe):
                                  'and re-deploy — see `sg vp setup lambda status`.',
                     flash_kind = 'error'), status_code=503)
             if not auth.check(headers=dict(request.headers), cookies=dict(request.cookies)):
-                return RedirectResponse(url='/__admin__/login', status_code=302)
+                return RedirectResponse(url='/login', status_code=302)
             return await call_next(request)
 
         # ── login / logout ──────────────────────────────────────────────────
@@ -86,7 +86,7 @@ class Fast_API__Admin(Type_Safe):
                 return HTMLResponse(render_login(
                     flash      = 'Invalid API key.',
                     flash_kind = 'error'), status_code=401)
-            resp = RedirectResponse(url='/__admin__/', status_code=302)
+            resp = RedirectResponse(url='/', status_code=302)
             # Cookie scoped to .<zone> so a single sign-in carries across all
             # subdomains. SameSite=Lax so cross-subdomain top-level navigation
             # carries it; cross-origin XHR with credentials=include also gets
@@ -105,7 +105,7 @@ class Fast_API__Admin(Type_Safe):
 
         @sub.get('/logout')
         async def logout():
-            resp = RedirectResponse(url='/__admin__/login', status_code=302)
+            resp = RedirectResponse(url='/login', status_code=302)
             resp.delete_cookie(configured_key_name(), domain='.' + _zone(), path='/')
             return resp
 
