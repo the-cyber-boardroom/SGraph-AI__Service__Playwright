@@ -24,13 +24,18 @@ Adds to `Cli__Fargate.py` + `Fargate__AWS__Client.register_task_definition`:
 
 - `--port-mapping <port>/<proto>` (repeatable)         [A1]
 - `--execution-role-arn <arn>`                         [A2]
-- `--task-role-arn <arn>`                              [A3]
+- `--task-role-arn <arn>` (optional)                   [A3]
 - `--log-group <name>`                                 [A6]
 
 And to `Fargate__AWS__Client.run_task` + `Cli__Fargate.task_run`:
 
 - `--launch-type FARGATE|FARGATE_SPOT`                 [A7]
 - `--tag k=v` (repeatable)                             [A8]
+
+Per Q1: `--secret` (A4) and `--efs-volume` (A5) DROPPED from V1.
+Per Q5 / Q4: `cluster create --tag k=v` is critical for setup writing the
+VaultApp__* tag set; ensure it's exposed (A8 covers this too if `create`
+gains the same `--tag` shape; if not, add it to `cluster create` too).
 
 Schemas:
 - `Schema__ECS__Port_Mapping` (container_port, protocol)
@@ -103,22 +108,32 @@ Tests cover:
 
 ~600 LOC, ~30 tests.
 
-### Slice 2 — `Vault_App__Fargate__Spec` + Config + Slug + Health (Small)
+### Slice 2 — Spec + Tags__{Reader,Writer} + Slug + Health + Image__Mirror + Mutation__Gate (Medium)
 
-Constants + on-disk config + slug resolver + the HTTP-probe loop.
+Per Q3, the config classes are dropped and replaced with tag read/write
+helpers. Per Q5, the image-mirror helper lives here. Per Q2, the unified
+mutation-gate scope lives here.
 
 Production code:
-- `Vault_App__Fargate__Spec.py` (constants, env-var builder)
-- `Schema__VAF__Config.py`, `Vault_App__Fargate__Config.py` (load/save)
-- `Safe_Str__VAF__Slug.py`
-- `Vault_App__Fargate__Slug__Resolver.py` (slug → task arn)
-- `Vault_App__Fargate__Health.py` (HTTP poll, extracted from `sg vp wake`)
+- `Vault_App__Fargate__Spec.py`             constants + env-var builder
+- `Schema__VAF__Cluster__Config.py`         in-memory shape from tags (Q3)
+- `Vault_App__Fargate__Tags__Reader.py`     describe_cluster → Schema__VAF__Cluster__Config
+- `Vault_App__Fargate__Tags__Writer.py`     produce the VaultApp__* tag dict for setup
+- `Safe_Str__VAF__Slug.py`                  regex + ECS cluster-name compatibility
+- `Vault_App__Fargate__Slug__Resolver.py`   slug → cluster (one describe_cluster); missing-slug auto-resolve
+- `Vault_App__Fargate__Health.py`           HTTP poll (extracted from sg vp wake)
+- `Vault_App__Fargate__Image__Mirror.py`    docker pull/tag/push to ECR (Q5)
+- `Mutation__Gate__Scope.py`                env-var scope for `SG_VAULT_APP__FARGATE__ALLOW_MUTATIONS` (Q2)
 
-Tests: in-memory `Fargate__AWS__Client` for slug-resolver; HTTP fixture
-(httpx mocking, NOT boto3 mocking — the project's no-mock rule is about
-AWS, not HTTP) for `Health`.
+Slug auto-generator: locate the helper that `sg vault-app create` uses
+for EC2 stack name auto-generation and depend on it directly (do NOT
+duplicate the word lists per Q4).
 
-~700 LOC, ~35 tests.
+Tests: in-memory `Fargate__AWS__Client` for tags + slug-resolver; HTTP
+fixture (httpx, the no-mock rule is about AWS not HTTP) for `Health`;
+image-mirror gets a stub subprocess runner.
+
+~900 LOC, ~45 tests.
 
 ### Slice 3 — `Vault_App__Fargate__Setup` orchestrator (Large)
 
@@ -147,10 +162,10 @@ Thin CLI wrapping slice 3. Mounts the live-progress renderer (slice 1) into
 the orchestrator (slice 3). Commands: `check`, `status`, `plan`, `create`,
 `update`, `delete`, `show`.
 
-`config show / set / unset` ride along here for now (small enough not to
-need their own slice).
+Per Q3: NO `config` sub-commands. `setup show` displays the resolved
+cluster-tag + task-def view, which is the live equivalent.
 
-~700 LOC, ~40 tests.
+~600 LOC, ~35 tests.
 
 ### Slice 5 — `Vault_App__Fargate__Starter` (Medium)
 
@@ -190,17 +205,14 @@ Thin CLI wrapping slice 5: `start`, `stop`, `restart`, `health`, `url`,
 
 ~300 LOC of markdown, no tests.
 
-### Slice 8 (P1 follow-up, separable) — Secrets Manager + EFS
+### Slice 8 (P2, post-V1) — Secrets Manager + EFS
 
-Lands after V1 ships and we have real users wanting:
-- `sg aws secrets` sub-app (C3)
-- `--secret name=arn` on `task-def register` (A4)
-- `sg aws efs` sub-app (C1)
-- `--efs-volume` on `task-def register` (A5)
-- `vault-app fargate setup efs` phase (idempotent fs + mount target)
-- `start --storage-mode disk` actually does something now (mounts EFS)
+DROPPED FROM V1 per Q1. Will revisit when we host vault secrets in one of
+our own vaults (the eventual replacement for AWS Secrets Manager in this
+stack). At that point this slice becomes a different shape (not
+"integrate AWS Secrets Manager" but "fetch from peer vault at start").
 
-~3000 LOC across two sub-apps + integration. Probably 3–4 sub-slices.
+~3000 LOC original estimate becomes obsolete.
 
 ---
 
@@ -235,18 +247,18 @@ self-contained.
 
 | Slice | Size | LOC | Tests | Days (single dev) |
 |------:|------|----:|------:|------------------:|
-| 0a    | Med  | 1200 |  40 | 1 |
+| 0a    | Med  |  800 |  30 | 0.7  (-0.3 after Q1 drops --secret/--efs-volume) |
 | 0b    | Sm   |  400 |  15 | 0.5 |
 | 0c    | Med  | 1500 |  50 | 1 |
 | 1     | Med  |  600 |  30 | 1 |
-| 2     | Sm   |  700 |  35 | 0.5 |
+| 2     | Med  |  900 |  45 | 1   (+0.5 for image-mirror + Mutation__Gate__Scope) |
 | 3     | Lg   | 1500 |  60 | 2 |
-| 4     | Med  |  700 |  40 | 1 |
+| 4     | Med  |  600 |  35 | 0.8  (-0.2 after dropping config commands) |
 | 5     | Med  | 1200 |  50 | 1.5 |
 | 6     | Med  |  700 |  40 | 1 |
 | 7     | Sm   |  300 |   0 | 0.3 |
-| **V1 total** | | **~8800** | **~360** | **~10 dev-days** |
-| 8     | (split)| ~3000 | ~120 | 4–5 |
+| **V1 total** | | **~8500** | **~355** | **~9.8 dev-days** |
+| 8     | DROPPED FROM V1 (Q1) | — | — | — |
 
 Comparable in scope to the ECR + EC2 work that just shipped (~5700 LOC,
 234 tests) but ~1.5× larger because of the cross-cutting orchestration and

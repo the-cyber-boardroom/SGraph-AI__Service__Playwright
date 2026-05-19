@@ -21,18 +21,21 @@ sg_compute_specs/vault_app/fargate/
 │   └── Cli__Vault_App__Fargate__Info.py     list/info/timings
 ├── service/
 │   ├── Vault_App__Fargate__Spec.py          vault constants (image, ports, env contract)
-│   ├── Vault_App__Fargate__Config.py        load/save config file
+│   ├── Vault_App__Fargate__Tags__Reader.py  cluster tags → Schema__VAF__Cluster__Config (Q3)
+│   ├── Vault_App__Fargate__Tags__Writer.py  builds the VaultApp__* tag set during setup (Q3)
 │   ├── Vault_App__Fargate__Setup.py         per-phase setup/check/teardown orchestrator
 │   ├── Vault_App__Fargate__Starter.py       the fast-path orchestrator
 │   ├── Vault_App__Fargate__Health.py        HTTP polling (extract from Cli__Vault_Publish wake pattern)
 │   ├── Vault_App__Fargate__Timings__Store.py persist last N start timings to ~/.cache/sg/
-│   └── Vault_App__Fargate__Slug__Resolver.py slug → task arn (queries tags via fargate client)
+│   ├── Vault_App__Fargate__Slug__Resolver.py slug → cluster (one call, since slug == cluster name)
+│   ├── Vault_App__Fargate__Image__Mirror.py shells docker pull/tag/push for Q5
+│   └── Mutation__Gate__Scope.py             env-var scope for the single ALLOW_MUTATIONS gate (Q2)
 ├── schemas/
-│   ├── Schema__VAF__Config.py               persisted config (the JSON above)
+│   ├── Schema__VAF__Cluster__Config.py      resolved-from-tags view (replaces ___Config per Q3)
 │   ├── Schema__VAF__Setup__Report.py        per-phase setup report
 │   ├── Schema__VAF__Start__Report.py        start command output envelope (JSON)
 │   ├── Schema__VAF__Phase__Result.py        single-phase result (name, status, duration_ms, error?)
-│   └── Schema__VAF__Timings__Record.py      persisted historical timing
+│   └── Schema__VAF__Timings__Record.py      persisted historical timing (~/.cache/sg/, NOT config)
 ├── collections/
 │   ├── List__Schema__VAF__Phase__Result.py
 │   └── List__Schema__VAF__Timings__Record.py
@@ -75,8 +78,10 @@ No methods that touch AWS. Pure config.
 
 ```python
 class Vault_App__Fargate__Setup(Type_Safe):
-    spec   : Vault_App__Fargate__Spec    = None
-    config : Vault_App__Fargate__Config  = None
+    spec          : Vault_App__Fargate__Spec          = None
+    tags_writer   : Vault_App__Fargate__Tags__Writer  = None      # Q3: tags replace persisted config
+    tags_reader   : Vault_App__Fargate__Tags__Reader  = None      # used by `check` and `update`
+    image_mirror  : Vault_App__Fargate__Image__Mirror = None      # Q5: ECR mirror phase
 
     # Dependency-injected clients — never imported boto3 directly
     ecr_client     : ECR__AWS__Client      = None
@@ -118,8 +123,13 @@ transitions in the live progress table:
 
 ```python
 class Vault_App__Fargate__Starter(Type_Safe):
-    spec   : Vault_App__Fargate__Spec    = None
-    config : Vault_App__Fargate__Config  = None   # loaded from disk — no AWS calls
+    spec        : Vault_App__Fargate__Spec         = None
+    tags_reader : Vault_App__Fargate__Tags__Reader = None   # Q3: reads cluster tags at start time
+    # Cluster config (subnets, SGs, role ARNs, log group, image URI, port mappings)
+    # is resolved in-memory at start via:
+    #   describe_cluster(slug)            → cluster tags → Schema__VAF__Cluster__Config (network + roles)
+    #   describe_task_definition(family)  → image / port mappings / log config
+    # Both calls fire in parallel — ~50 ms combined, no disk I/O.
 
     fargate_client : Fargate__AWS__Client = None
     ec2_client     : EC2__AWS__Client     = None
@@ -129,13 +139,14 @@ class Vault_App__Fargate__Starter(Type_Safe):
 
     def start(self, request: Schema__VAF__Start__Request) -> Schema__VAF__Start__Report:
         timer = Phase__Timer()
-        with timer.phase(Enum__VAF__Start__Phase.RESOLVE_TASK_DEF): ...
+        with timer.phase(Enum__VAF__Start__Phase.RESOLVE_CONFIG):    # Q3: parallel describes
+            cluster_cfg, task_def = self._parallel_resolve(request.slug)
         with timer.phase(Enum__VAF__Start__Phase.RUN_TASK):          ...
-        with timer.phase(Enum__VAF__Start__Phase.WAIT_RUNNING):      ...
+        with timer.phase(Enum__VAF__Start__Phase.WAIT_RUNNING):      ...   # Q9: live state in detail
         with timer.phase(Enum__VAF__Start__Phase.RESOLVE_ENI):       ...
-        if request.with_aws_dns:
+        if request.with_aws_dns and cluster_cfg.dns_zone:
             with timer.phase(Enum__VAF__Start__Phase.DNS_UPSERT):    ...
-        with timer.phase(Enum__VAF__Start__Phase.WAIT_HEALTH):       ...
+        with timer.phase(Enum__VAF__Start__Phase.WAIT_HEALTH):       ...   # Q9: attempt N/M in detail
         return Schema__VAF__Start__Report(
             slug=..., task_arn=..., public_ip=..., vault_url=...,
             phases=timer.results(),

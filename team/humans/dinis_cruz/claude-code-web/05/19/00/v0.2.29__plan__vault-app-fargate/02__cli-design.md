@@ -54,22 +54,29 @@ sg vault-app fargate                                        (no-arg shows help)
   info     [--slug NAME]                                    rich task description + last timings
   timings  [--slug NAME] [--last 10] [--json]               historical timings table
 
-  config
-    show                                                    resolved config
-    set    <key> <value>                                    persist override (in $HOME or repo)
-    unset  <key>
+  # NOTE: `config` subcommand removed per decision Q3 (07__decisions.md).
+  # Resolved config lives on AWS tags + the active task definition.
+  # `sg vault-app fargate setup show` prints the live resolved config.
 ```
 
 ### Slug semantics
 
-A vault instance on Fargate is identified by a **slug** — a short name like
-`dinis-laptop-tue` or `customer-acme-prod`. Slug → ECS task tag
-`Vault-App-Slug=<slug>`. `start --slug` is optional; missing → auto-generated
-(matches `sg vault-app create` stack naming).
+Per decision Q4 (`07__decisions.md`): **slug == cluster name** in V1.
 
-The slug is the bridge between `start` and `stop / logs / health / url`. No
-slug means "default — there should be exactly one running vault" (error if
-more than one).
+A vault deployment on Fargate is identified by a **slug** that is *also*
+the ECS cluster name — e.g. `demo-tuesday`, `customer-acme-prod`. Setup
+creates the cluster under that name; start runs a task on the cluster of
+that name.
+
+`--slug` is optional everywhere:
+- `setup create` without `--slug` auto-generates a Heroku-style name using
+  the same helper `sg vault-app create` uses for EC2 stack names (TBD —
+  find and re-use, don't duplicate).
+- `start / stop / logs / …` without `--slug` requires exactly one cluster
+  tagged `Stack=sg-vault-app-fargate` to exist; errors clearly otherwise.
+
+Validation: `Safe_Str__VAF__Slug` regex `^[a-z0-9][a-z0-9-]{1,40}$` (also
+satisfies ECS cluster-name rules).
 
 ## Output format
 
@@ -158,13 +165,13 @@ Each phase is a separately runnable check / create / update / delete.
 
 | Phase | Wraps | What it ensures exists |
 |-------|-------|------------------------|
-| `ecr` | `sg aws ecr repo-create`, `sg aws ec2 docker-push` (none — use docker CLI) | ECR repo `sg-send-vault` exists; latest tag mirrored from Docker Hub if asked |
-| `iam` | `sg aws iam role create`, `sg aws iam policy attach` | `vault-app-fargate-execution` role (with `AmazonECSTaskExecutionRolePolicy` + Secrets Manager read), `vault-app-fargate-task` role (with `s3:*` on the vault bucket, optional) |
-| `logs` | `sg aws logs group create` (B1 from extensions) | `/ecs/vault-app` log group, 7-day retention |
-| `cluster` | `sg aws fargate cluster create` | Cluster named `vault-app` |
-| `task-def` | `sg aws fargate task-def register` (with extensions A1, A2, A3, A6, A7) | Task definition `vault-app:N` with port mappings (8080/tcp, 443/tcp), execution role, log group, current image SHA |
-| `efs` (P1) | `sg aws efs create`, `sg aws efs mount-target create` | Persistent storage if `--storage-mode disk` requested |
-| `dns` (optional) | `sg aws dns` (already exists) | Empty A record skeleton in target zone for future starts |
+| `ecr` | `sg aws ecr repo-create` | ECR repo `sg-send-vault` exists in this account/region |
+| `iam` | `sg aws iam role create`, `sg aws iam policy attach` | `vault-app-fargate-execution` role with `AmazonECSTaskExecutionRolePolicy` attached; `vault-app-fargate-task` role only if `--task-role-arn` requested (no Secrets Manager extras per Q1) |
+| `logs` | `sg aws logs group create` (B1 from extensions) | `/ecs/<slug>` log group, 7-day retention |
+| `cluster` | `sg aws fargate cluster create` (with `--tag` flag from A8) | Cluster named `<slug>` with the VaultApp__* tag set described above |
+| `image-mirror` | local `docker pull/tag/push` (NOT an `sg aws *` call) | `diniscruz/sg-send-vault:latest` mirrored to ECR, captured by SHA — added per Q5 |
+| `task-def` | `sg aws fargate task-def register` (extensions A1, A2, A3, A6, A7) | Task definition `<slug>:N` with port mappings (8080/tcp, 443/tcp), execution role, log group, ECR image URI pinned to SHA from `image-mirror` |
+| `dns` (optional, P1) | `sg aws dns` (already exists) | Cluster tag `VaultApp__DnsZone` recorded; no record created until start |
 
 `setup create` runs them in order, stopping at first failure. `setup delete`
 runs them in **reverse**. `setup check` runs all in parallel (read-only).
@@ -180,36 +187,56 @@ runs them in **reverse**. `setup check` runs all in parallel (read-only).
 | `dns-upsert`       | 200–500 ms | `sg aws dns ...` if `--with-aws-dns` |
 | `wait-http-health` | 2–15 s    | poll `https://<ip>:443/info/health` (or `:8080`) with adaptive backoff |
 
-**Critical optimization:** subnet IDs, SG IDs, cluster name, task-def family
-all live in a config file (`$HOME/.config/sg/vault-app-fargate.json`)
-populated by `setup create`. The `start` command never makes a `describe` call
-to discover them. Goal: 0 AWS calls during start besides `run-task`,
-`describe-tasks` (poll), `describe-network-interfaces` (once), `dns change-resource-record-sets` (optional).
+**Critical optimization (revised per Q3):** subnet IDs, SG IDs, role ARNs,
+log group, DNS zone all live as tags on the ECS cluster, written by `setup
+create`. Image URI + port mappings + role ARNs additionally live on the
+task definition. The start command fires `describe_cluster` and
+`describe_task_definition` **in parallel** before `run_task` (~50 ms
+combined). After that: `run_task` + `describe_tasks` (poll) +
+`describe_network_interfaces` (once) + `change_resource_record_sets`
+(optional).
 
-## Config file shape
+## Resolved-config shape (lives on AWS tags + task definition, NOT on disk)
 
-Persisted at `$HOME/.config/sg/vault-app-fargate.json` (or repo-local
-override via `--config`):
+Per decision Q3 (`07__decisions.md`): no persisted config file. The same
+field set lives on AWS tags + the latest active task-definition revision.
 
-```json
-{
-  "cluster": "vault-app",
-  "task_def_family": "vault-app",
-  "subnets": ["subnet-aaa", "subnet-bbb"],
-  "security_groups": ["sg-ccc"],
-  "execution_role_arn": "arn:aws:iam::123:role/vault-app-fargate-execution",
-  "task_role_arn":      "arn:aws:iam::123:role/vault-app-fargate-task",
-  "log_group": "/ecs/vault-app",
-  "image_uri": "123.dkr.ecr.eu-west-2.amazonaws.com/sg-send-vault:latest",
-  "dns_zone": "sg-compute.sgraph.ai",
-  "default_storage_mode": "memory",
-  "default_launch_type":  "FARGATE_SPOT",
-  "region": "eu-west-2"
-}
+### Tags written to the ECS cluster during `setup create`
+
+```
+Stack                       = sg-vault-app-fargate
+VaultApp__Subnets           = subnet-aaa,subnet-bbb
+VaultApp__SecurityGroup     = sg-ccc
+VaultApp__DnsZone           = sg-compute.sgraph.ai             (optional)
+VaultApp__ExecutionRoleArn  = arn:aws:iam::123:role/vault-app-fargate-execution
+VaultApp__TaskRoleArn       = arn:aws:iam::123:role/vault-app-fargate-task  (optional)
+VaultApp__LogGroup          = /ecs/sg-vault-app-fargate
+VaultApp__EcrRepoName       = sg-send-vault
+VaultApp__Region            = eu-west-2
+VaultApp__CreatedAt         = 2026-05-19T00:00:00Z
 ```
 
-`sg vault-app fargate config show` prints this. `setup create` writes it.
-`start` reads it. `setup delete` removes it.
+### Fields carried by the task definition (set during `setup task-def create`)
+
+- `containerDefinitions[0].image`            — pinned ECR URI by SHA
+- `containerDefinitions[0].portMappings`     — `[8080/tcp, 443/tcp]`
+- `containerDefinitions[0].logConfiguration` — points at the log group above
+- `executionRoleArn`                         — from cluster tag
+- `taskRoleArn` (optional)                   — from cluster tag
+
+### Discovery cost at start time
+
+Start makes **two parallel describe calls** before `run_task`:
+
+1. `fargate_client.describe_cluster(slug)`           — returns cluster tags
+2. `fargate_client.describe_task_definition(family)` — returns latest revision
+
+Both ~50 ms. They populate an in-memory `Schema__VAF__Cluster__Config` for
+the duration of the command. No disk I/O on the start hot path.
+
+`sg vault-app fargate setup show` prints the resolved view (cluster tags +
+task-def details) so users have a single command to see "what would start
+use right now". No config show / set / unset commands.
 
 ## Commands intentionally NOT in v1
 
