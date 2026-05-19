@@ -18,12 +18,20 @@ class _Fake_EC2_Client:                                                        #
     def __init__(self, store: dict, images_store: dict = None,
                  snapshots_store: dict = None,
                  security_groups_store: dict = None,
-                 network_interfaces_store: dict = None):
+                 network_interfaces_store: dict = None,
+                 vpcs_store: dict = None,
+                 subnets_store: dict = None,
+                 internet_gateways_store: dict = None,
+                 route_tables_store: dict = None):
         self._store                    = store                                  # instance_id → raw instance dict
         self._images_store             = images_store             if images_store             is not None else {}
         self._snapshots_store          = snapshots_store          if snapshots_store          is not None else {}
         self._security_groups_store    = security_groups_store    if security_groups_store    is not None else {}
         self._network_interfaces_store = network_interfaces_store if network_interfaces_store is not None else {}
+        self._vpcs_store               = vpcs_store               if vpcs_store               is not None else {}
+        self._subnets_store            = subnets_store            if subnets_store            is not None else {}
+        self._internet_gateways_store  = internet_gateways_store  if internet_gateways_store  is not None else {}
+        self._route_tables_store       = route_tables_store       if route_tables_store       is not None else {}
 
     # ── paginator ─────────────────────────────────────────────────────────────
 
@@ -333,7 +341,119 @@ class _Fake_EC2_Client:                                                        #
             snaps = [s for s in snaps if s.get('OwnerId', '') in OwnerIds]
         return {'Snapshots': snaps}
 
+    # ── describe_vpcs ─────────────────────────────────────────────────────────
+
+    def describe_vpcs(self, VpcIds=None, Filters=None):
+        vpcs = list(self._vpcs_store.values())
+        if VpcIds:
+            matched = [v for v in vpcs if v.get('VpcId', '') in VpcIds]
+            missing = [i for i in VpcIds if i not in self._vpcs_store]
+            if not matched and missing:
+                raise ClientError(
+                    {'Error': {'Code': 'InvalidVpcID.NotFound',
+                                'Message': f'The vpc id {missing} does not exist'}},
+                    'DescribeVpcs')
+            vpcs = matched
+        if Filters:
+            vpcs = self._apply_tag_filters(vpcs, Filters)
+        return {'Vpcs': vpcs}
+
+    # ── describe_subnets ──────────────────────────────────────────────────────
+
+    def describe_subnets(self, SubnetIds=None, Filters=None):
+        subs = list(self._subnets_store.values())
+        if SubnetIds:
+            matched = [s for s in subs if s.get('SubnetId', '') in SubnetIds]
+            missing = [i for i in SubnetIds if i not in self._subnets_store]
+            if not matched and missing:
+                raise ClientError(
+                    {'Error': {'Code': 'InvalidSubnetID.NotFound',
+                                'Message': f'The subnet id {missing} does not exist'}},
+                    'DescribeSubnets')
+            subs = matched
+        if Filters:
+            for f in Filters:
+                name   = f.get('Name', '')
+                values = f.get('Values', [])
+                if name == 'vpc-id':
+                    subs = [s for s in subs if s.get('VpcId', '') in values]
+                elif name == 'availability-zone':
+                    subs = [s for s in subs
+                            if s.get('AvailabilityZone', '') in values]
+                elif name.startswith('tag:'):
+                    subs = self._apply_tag_filters(subs, [f])
+        return {'Subnets': subs}
+
+    # ── describe_internet_gateways ────────────────────────────────────────────
+
+    def describe_internet_gateways(self, InternetGatewayIds=None, Filters=None):
+        igws = list(self._internet_gateways_store.values())
+        if InternetGatewayIds:
+            matched = [i for i in igws
+                       if i.get('InternetGatewayId', '') in InternetGatewayIds]
+            missing = [x for x in InternetGatewayIds
+                       if x not in self._internet_gateways_store]
+            if not matched and missing:
+                raise ClientError(
+                    {'Error': {'Code': 'InvalidInternetGatewayID.NotFound',
+                                'Message': f'The igw id {missing} does not exist'}},
+                    'DescribeInternetGateways')
+            igws = matched
+        if Filters:
+            for f in Filters:
+                name   = f.get('Name', '')
+                values = f.get('Values', [])
+                if name == 'attachment.vpc-id':
+                    igws = [i for i in igws
+                            if any(a.get('VpcId', '') in values
+                                   for a in (i.get('Attachments', []) or []))]
+                elif name.startswith('tag:'):
+                    igws = self._apply_tag_filters(igws, [f])
+        return {'InternetGateways': igws}
+
+    # ── describe_route_tables ─────────────────────────────────────────────────
+
+    def describe_route_tables(self, RouteTableIds=None, Filters=None):
+        rtbs = list(self._route_tables_store.values())
+        if RouteTableIds:
+            matched = [r for r in rtbs
+                       if r.get('RouteTableId', '') in RouteTableIds]
+            missing = [x for x in RouteTableIds
+                       if x not in self._route_tables_store]
+            if not matched and missing:
+                raise ClientError(
+                    {'Error': {'Code': 'InvalidRouteTableID.NotFound',
+                                'Message': f'The route table id {missing} does not exist'}},
+                    'DescribeRouteTables')
+            rtbs = matched
+        if Filters:
+            for f in Filters:
+                name   = f.get('Name', '')
+                values = f.get('Values', [])
+                if name == 'vpc-id':
+                    rtbs = [r for r in rtbs if r.get('VpcId', '') in values]
+                elif name.startswith('tag:'):
+                    rtbs = self._apply_tag_filters(rtbs, [f])
+        return {'RouteTables': rtbs}
+
     # ── internal ──────────────────────────────────────────────────────────────
+
+    def _apply_tag_filters(self, resources: list, filters: list) -> list:      # Generic tag:K=V filter — used by vpc/subnet/igw/route-table
+        result = resources
+        for f in filters:
+            name   = f.get('Name', '')
+            values = f.get('Values', [])
+            if not name.startswith('tag:'):
+                continue
+            key  = name[4:]
+            kept = []
+            for r in result:
+                tags = {t.get('Key', ''): t.get('Value', '')
+                        for t in (r.get('Tags', []) or [])}
+                if key in tags and tags[key] in values:
+                    kept.append(r)
+            result = kept
+        return result
 
     def _apply_filters(self, instances: list, filters: list) -> list:
         result = instances
@@ -376,6 +496,20 @@ class _Fake_Paginator:
                                                         Filters =kwargs.get('Filters'))
         elif self._method == 'describe_network_interfaces':
             yield self._client.describe_network_interfaces(Filters=kwargs.get('Filters'))
+        elif self._method == 'describe_vpcs':
+            yield self._client.describe_vpcs(VpcIds=kwargs.get('VpcIds'),
+                                              Filters=kwargs.get('Filters'))
+        elif self._method == 'describe_subnets':
+            yield self._client.describe_subnets(SubnetIds=kwargs.get('SubnetIds'),
+                                                 Filters=kwargs.get('Filters'))
+        elif self._method == 'describe_internet_gateways':
+            yield self._client.describe_internet_gateways(
+                InternetGatewayIds=kwargs.get('InternetGatewayIds'),
+                Filters=kwargs.get('Filters'))
+        elif self._method == 'describe_route_tables':
+            yield self._client.describe_route_tables(
+                RouteTableIds=kwargs.get('RouteTableIds'),
+                Filters=kwargs.get('Filters'))
 
 
 class EC2__AWS__Client__In_Memory(EC2__AWS__Client):
@@ -387,12 +521,20 @@ class EC2__AWS__Client__In_Memory(EC2__AWS__Client):
         self._snapshots_store          = {}
         self._security_groups_store    = {}
         self._network_interfaces_store = {}
+        self._vpcs_store               = {}
+        self._subnets_store            = {}
+        self._internet_gateways_store  = {}
+        self._route_tables_store       = {}
         self._fake                     = _Fake_EC2_Client(
             self._store,
             images_store             = self._images_store,
             snapshots_store          = self._snapshots_store,
             security_groups_store    = self._security_groups_store,
             network_interfaces_store = self._network_interfaces_store,
+            vpcs_store               = self._vpcs_store,
+            subnets_store            = self._subnets_store,
+            internet_gateways_store  = self._internet_gateways_store,
+            route_tables_store       = self._route_tables_store,
         )
 
     def client(self):
@@ -553,3 +695,121 @@ class EC2__AWS__Client__In_Memory(EC2__AWS__Client):
         }
         self._network_interfaces_store[eni_id] = raw
         return eni_id
+
+    # ── seed: VPCs ────────────────────────────────────────────────────────────
+
+    def seed_vpc(self, vpc_id: str = '', cidr: str = '10.0.0.0/16',
+                 is_default: bool = False, state: str = 'available',
+                 dhcp_options_id: str = 'dopt-default',
+                 instance_tenancy: str = 'default',
+                 tags: dict = None) -> str:
+        if not vpc_id:
+            vpc_id = f'vpc-{secrets.token_hex(8)}'
+        raw_tags = [{'Key': k, 'Value': v} for k, v in (tags or {}).items()]
+        raw = {
+            'VpcId'           : vpc_id,
+            'CidrBlock'       : cidr,
+            'IsDefault'       : is_default,
+            'State'           : state,
+            'DhcpOptionsId'   : dhcp_options_id,
+            'InstanceTenancy' : instance_tenancy,
+            'Tags'            : raw_tags,
+        }
+        self._vpcs_store[vpc_id] = raw
+        return vpc_id
+
+    # ── seed: Subnets ─────────────────────────────────────────────────────────
+
+    def seed_subnet(self, subnet_id: str = '', vpc_id: str = 'vpc-default',
+                    cidr: str = '10.0.1.0/24', az: str = 'eu-west-2a',
+                    az_id: str = '', available_ip_count: int = 251,
+                    public: bool = False, state: str = 'available',
+                    tags: dict = None) -> str:
+        if not subnet_id:
+            subnet_id = f'subnet-{secrets.token_hex(8)}'
+        raw_tags = [{'Key': k, 'Value': v} for k, v in (tags or {}).items()]
+        raw = {
+            'SubnetId'                : subnet_id,
+            'VpcId'                   : vpc_id,
+            'CidrBlock'               : cidr,
+            'AvailabilityZone'        : az,
+            'AvailabilityZoneId'      : az_id,
+            'AvailableIpAddressCount' : available_ip_count,
+            'MapPublicIpOnLaunch'     : public,
+            'State'                   : state,
+            'Tags'                    : raw_tags,
+        }
+        self._subnets_store[subnet_id] = raw
+        return subnet_id
+
+    # ── seed: Internet Gateways ───────────────────────────────────────────────
+
+    def seed_igw(self, igw_id: str = '', vpc_id: str = '',
+                 state: str = 'available', tags: dict = None) -> str:
+        if not igw_id:
+            igw_id = f'igw-{secrets.token_hex(8)}'
+        raw_tags    = [{'Key': k, 'Value': v} for k, v in (tags or {}).items()]
+        attachments = []
+        if vpc_id:
+            attachments.append({'VpcId': vpc_id, 'State': state or 'available'})
+        raw = {
+            'InternetGatewayId' : igw_id,
+            'Attachments'       : attachments,
+            'Tags'              : raw_tags,
+        }
+        self._internet_gateways_store[igw_id] = raw
+        return igw_id
+
+    # ── seed: Route Tables ────────────────────────────────────────────────────
+
+    def seed_route_table(self, rtb_id: str = '', vpc_id: str = 'vpc-default',
+                         routes: list = None, associations: list = None,
+                         tags: dict = None) -> str:
+        if not rtb_id:
+            rtb_id = f'rtb-{secrets.token_hex(8)}'
+        raw_tags    = [{'Key': k, 'Value': v} for k, v in (tags or {}).items()]
+        # `routes` is a list of dicts (destination_cidr=…, gateway_id=…, …)
+        # we map them into the boto3 shape the parser expects
+        raw_routes = []
+        for r in (routes or []):
+            row = {
+                'State'  : r.get('state',  'active'),
+                'Origin' : r.get('origin', 'CreateRoute'),
+            }
+            dest = r.get('destination_cidr', '')
+            if dest.startswith('pl-'):
+                row['DestinationPrefixListId'] = dest
+            elif ':' in dest:
+                row['DestinationIpv6CidrBlock'] = dest
+            else:
+                row['DestinationCidrBlock'] = dest
+            gw = r.get('gateway_id', '')
+            if gw.startswith('igw-') or gw == 'local':
+                row['GatewayId'] = gw
+            elif gw.startswith('nat-'):
+                row['NatGatewayId'] = gw
+            elif gw.startswith('tgw-'):
+                row['TransitGatewayId'] = gw
+            elif gw.startswith('pcx-'):
+                row['VpcPeeringConnectionId'] = gw
+            elif gw:
+                row['GatewayId'] = gw                                            # fallback so unknown prefixes still surface
+            raw_routes.append(row)
+        raw_assocs = []
+        for a in (associations or []):
+            raw_assocs.append({
+                'RouteTableAssociationId' : a.get('association_id',
+                                                  f'rtbassoc-{secrets.token_hex(8)}'),
+                'RouteTableId'            : rtb_id,
+                'SubnetId'                : a.get('subnet_id', ''),
+                'Main'                    : bool(a.get('main', False)),
+            })
+        raw = {
+            'RouteTableId' : rtb_id,
+            'VpcId'        : vpc_id,
+            'Routes'       : raw_routes,
+            'Associations' : raw_assocs,
+            'Tags'         : raw_tags,
+        }
+        self._route_tables_store[rtb_id] = raw
+        return rtb_id
