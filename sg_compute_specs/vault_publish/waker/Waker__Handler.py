@@ -151,11 +151,21 @@ class Waker__Handler(Type_Safe):
 
     def _health_ok(self, vault_url: str) -> bool:
         import urllib3
+        import warnings
+        # vault_url is https://{public-ip}/ (TLS on) or http://{public-ip}:8080
+        # (TLS off). The LE cert is bound to the FQDN, so any cert validation
+        # against the IP would always fail. urllib3 v2 defaults to CERT_REQUIRED;
+        # we disable it explicitly here — trust is provided by the AWS-internal
+        # ec2:describe_instances lookup that produced this IP.
         try:
-            resp = urllib3.PoolManager(timeout=urllib3.Timeout(connect=1, read=2)).request(
-                'GET', vault_url.rstrip('/') + '/ui/#!/login',
-                preload_content=True,
+            warnings.filterwarnings('ignore', category=urllib3.exceptions.InsecureRequestWarning)
+            pool = urllib3.PoolManager(
+                cert_reqs       = 'CERT_NONE',
+                assert_hostname = False,
+                timeout         = urllib3.Timeout(connect=1, read=2),
             )
+            resp = pool.request('GET', vault_url.rstrip('/') + '/ui/#!/login',
+                                preload_content=True)
             return resp.status < 500
         except Exception:
             return False
