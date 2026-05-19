@@ -333,6 +333,7 @@ class Vault_App__Fargate__Setup(Type_Safe):
         repo_name = request.ecr_repo_name or self.spec.image_repo_name
         region    = ctx['region']
         ecr_uri   = ''
+        registry  = ''
 
         if op == 'delete':                                                        # images deleted with the ECR repo
             result.detail = 'skipped (ECR repo deletion handles images)'
@@ -342,7 +343,8 @@ class Vault_App__Fargate__Setup(Type_Safe):
         if self.ecr_client and region:
             repo = self.ecr_client.describe_repository(repo_name)
             if repo:
-                ecr_uri = f'{repo.registry_id}.dkr.ecr.{region}.amazonaws.com/{repo_name}'
+                registry = f'{repo.registry_id}.dkr.ecr.{region}.amazonaws.com'
+                ecr_uri  = f'{registry}/{repo_name}'
 
         if op == 'check':
             if not self.ecr_client:
@@ -363,15 +365,39 @@ class Vault_App__Fargate__Setup(Type_Safe):
             result.status = Enum__VAF__Phase__Status.ERROR
             return
 
+        # wire live progress: stream docker output into the phase Detail column
+        phase_name = Enum__VAF__Setup__Phase.IMAGE_MIRROR.value
+        progress_cb = self.progress_cb
+
+        def step_cb(step_name: str, line: str) -> None:
+            if not progress_cb:
+                return
+            short = line if len(line) <= 70 else line[:67] + '...'
+            progress_cb(phase_name, Enum__VAF__Phase__Status.RUNNING,
+                        f'{step_name}: {short}')
+
+        self.image_mirror.step_cb  = step_cb
+        self.image_mirror.region   = region
+        self.image_mirror.registry = registry
+        self.image_mirror.ecr_client = self.ecr_client
+
         mirror_result = self.image_mirror.mirror(request.source_image, ecr_uri)
         if mirror_result.get('ok'):
-            result.detail = f'sha={mirror_result.get("sha", "")}'
-            result.status = Enum__VAF__Phase__Status.OK
+            sha     = mirror_result.get('sha', '')
+            skipped = mirror_result.get('skipped', False)
+            if skipped:
+                result.detail = f'already in ECR ({sha[:23]}...)' if sha else 'already in ECR'
+                result.status = Enum__VAF__Phase__Status.SKIPPED
+            else:
+                result.detail = f'sha={sha}'
+                result.status = Enum__VAF__Phase__Status.OK
         else:
             steps  = mirror_result.get('steps', [])
             last   = steps[-1] if steps else {}
-            stderr = last.get('stderr', 'unknown error')
-            result.detail = f'mirror failed: {stderr}'
+            stderr = (last.get('stderr') or last.get('stdout') or 'unknown error')
+            # Trim multi-line errors to first non-empty line for the Detail column
+            first_line = next((l for l in stderr.splitlines() if l.strip()), stderr)
+            result.detail = f'mirror failed: {first_line[:120]}'
             result.status = Enum__VAF__Phase__Status.ERROR
 
     # ── phase: TASK_DEF ───────────────────────────────────────────────────────

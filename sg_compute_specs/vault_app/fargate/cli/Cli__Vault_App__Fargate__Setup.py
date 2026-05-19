@@ -79,6 +79,7 @@ def _make_setup(ctx: typer.Context) -> Vault_App__Fargate__Setup:
     ecr_client     = obj.get('ecr_client')
     logs_client    = obj.get('logs_client')
     iam_client     = obj.get('iam_client')
+    image_mirror   = obj.get('image_mirror')                                       # injectable for tests; None → default real-shell mirror
 
     if fargate_client is None:
         from sgraph_ai_service_playwright__cli.aws.fargate.service.Fargate__AWS__Client import Fargate__AWS__Client
@@ -98,6 +99,7 @@ def _make_setup(ctx: typer.Context) -> Vault_App__Fargate__Setup:
         fargate_client = fargate_client,
         logs_client    = logs_client,
         iam_client     = iam_client,
+        image_mirror   = image_mirror,                                             # passed through; setup() fills default if None
     )
 
 

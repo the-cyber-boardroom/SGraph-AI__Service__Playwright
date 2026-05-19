@@ -57,9 +57,12 @@ class Phase__Progress__Renderer(Type_Safe):
         entry = self._state[name]
         now   = time.monotonic()
         if status == Enum__VAF__Phase__Status.RUNNING:
-            entry['status']     = status
-            entry['started_at'] = now
-            entry['detail']     = detail
+            entry['status'] = status
+            entry['detail'] = detail
+            if entry['started_at'] is None:                                       # first RUNNING — start clock; subsequent updates keep it running
+                entry['started_at'] = now
+            else:
+                entry['elapsed_ms'] = int((now - entry['started_at']) * 1000)
         else:
             entry['status']  = status
             entry['detail']  = detail
