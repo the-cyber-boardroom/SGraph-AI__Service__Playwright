@@ -40,7 +40,7 @@ sg_compute_specs/vault_app/fargate/
 │   ├── List__Schema__VAF__Phase__Result.py
 │   └── List__Schema__VAF__Timings__Record.py
 ├── enums/
-│   ├── Enum__VAF__Setup__Phase.py           ECR / IAM / LOGS / CLUSTER / TASK_DEF / EFS / DNS
+│   ├── Enum__VAF__Setup__Phase.py           ECR / IAM / LOGS / CLUSTER / IMAGE_MIRROR / TASK_DEF / DNS
 │   ├── Enum__VAF__Start__Phase.py           RESOLVE_TASK_DEF / RUN_TASK / WAIT_RUNNING / RESOLVE_ENI / DNS_UPSERT / WAIT_HEALTH
 │   ├── Enum__VAF__Phase__Status.py          PENDING / RUNNING / OK / SKIPPED / WARN / ERROR
 │   └── Enum__VAF__Storage__Mode.py          MEMORY / DISK / S3
@@ -67,9 +67,11 @@ class Vault_App__Fargate__Spec(Type_Safe):
     default_cluster   : str                     = 'vault-app'
     default_task_def_family : str               = 'vault-app'
 
-    def env_for_run(self, access_token: str, storage_mode: str,
+    def env_for_run(self, access_token: str,
                     seed_vault_keys: str = '', with_tls: bool = True) -> dict:
         # returns the exact env-var map vault expects (mirrors Vault_App__Compose__Template)
+        # SEND__STORAGE_MODE is hard-coded to 'memory' per Q1 update — peer
+        # vaults handle any persistence concern. No flag, no parameter.
 ```
 
 No methods that touch AWS. Pure config.

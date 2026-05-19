@@ -33,7 +33,7 @@ documents:
 
 | Mode | Frequency | Latency budget | Reversible by |
 |------|-----------|---------------:|---------------|
-| **Setup** (cluster, IAM, log group, ECR repo, task definition, optional EFS/ALB) | Once per account/region/environment | Minutes (one-time) | `sg vault-app fargate teardown` |
+| **Setup** (cluster, IAM, log group, ECR repo + image mirror, task definition) | Once per account/region/environment | Minutes (one-time) | `sg vault-app fargate teardown` |
 | **Start** (run a task, wait for RUNNING, wait for `/info/health`, optional DNS upsert) | Every vault session | **< 30 s warm path** | `sg vault-app fargate stop` |
 
 The cost of putting things in the wrong column is high: anything in the start
@@ -67,10 +67,9 @@ path that doesn't strictly need to happen per-session belongs in setup.
         ├─ update-all               ├─ health                   ├─ delete-log-group
         ├─ ecr ……→ sg aws ecr       ├─ logs                     ├─ delete-iam-roles
         ├─ iam ……→ sg aws iam       ├─ url                      ├─ delete-ecr-repo
-        ├─ logs ……→ aws/logs        └─ open                     └─ delete-all
-        ├─ task-def …→ sg aws fargate task-def register
-        ├─ efs ……→ aws/efs (NEW)
-        └─ alb ……→ aws/elbv2 (NEW, optional)
+        ├─ logs ……→ aws/logs (NEW)  └─ open                     └─ delete-all
+        ├─ image-mirror …→ docker pull/tag/push to ECR
+        └─ task-def …→ sg aws fargate task-def register
 ```
 
 Every leaf node is either (a) a wrapper around an existing `sg aws *`
@@ -112,11 +111,11 @@ public-facing UX has real data behind it.
 ## Documents in this plan
 
 1. [`01__sg-aws-extensions.md`](./01__sg-aws-extensions.md) — what blocks us:
-   the four flags `sg aws fargate task-def register` needs (`--port-mapping`,
-   `--execution-role-arn`, `--task-role-arn`, `--secret`), a `--launch-type`
-   on `task run`, and the new sub-packages (`aws/logs` CLI, `aws/elbv2`,
-   `aws/efs`, `aws/secrets`) — each scored P0 / P1 / P2 against the start-fast
-   goal.
+   the flags `sg aws fargate task-def register` needs (`--port-mapping`,
+   `--execution-role-arn`, `--task-role-arn`, `--log-group`), `--launch-type`
+   and `--tag` on `task run`, and the one new sub-package (`sg aws logs`
+   CLI). All other extension proposals (Secrets, EFS, ALB) have been
+   dropped from the plan per user decisions; see `07__decisions.md`.
 2. [`02__cli-design.md`](./02__cli-design.md) — the full `sg vault-app
    fargate` command tree: every command, every flag, the JSON envelope, the
    Rich table output, the `--time` flag for verbose timing.
@@ -129,9 +128,13 @@ public-facing UX has real data behind it.
    timing envelope, optional CloudWatch metric publication.
 5. [`05__implementation-slices.md`](./05__implementation-slices.md) — eight
    slices ordered by dependency, each commit-shaped, each shippable.
-6. [`06__open-questions.md`](./06__open-questions.md) — decisions I need from
-   you before slice 1: do we add ALB and EFS to P0, do we publish to
-   CloudWatch metrics, do we want a `--profile` fast/slow toggle.
+6. [`06__open-questions.md`](./06__open-questions.md) — the original
+   12-question list. **All answered**; see `07__decisions.md` for the
+   authoritative answers and the cascading plan edits.
+
+7. [`07__decisions.md`](./07__decisions.md) — final decisions log;
+   overrides any conflicting earlier section. Read after `00__` for the
+   current state of the plan.
 
 ## Reading order
 

@@ -17,20 +17,24 @@ they conflict with `02__cli-design.md` or `03__orchestrator-design.md` the
 decision here wins. Affected paragraphs in those docs have been edited
 in-place; this doc is the canonical answer log.
 
-## Q1 — Scope of V1 → **env-only access token, no AWS Secrets Manager ever, no EFS in V1**
+## Q1 — Scope of V1 → **env-only access token, no AWS Secrets Manager ever, no AWS EFS ever**
 
-Rationale (your words): the eventual plan is to use one of our own vaults
-to host these secrets.
+Rationale: any data that needs to outlive a task — secrets, vault state,
+anything — will live in a peer SG vault and be fetched at container
+start. We are not building AWS-side persistence into this plan.
 
-**Implementation effect:**
-- AWS Secrets Manager integration is **dropped permanently** from this
-  plan. The replacement is "fetch from a peer vault at start time" —
-  scoped, designed, and planned separately. Not in this document set.
+**Implementation effect (all permanent drops, not deferrals):**
+- AWS Secrets Manager integration **dropped permanently**.
   - Drops `--secret name=arn` flag on `task-def register` (was A4)
   - Drops `sg aws secrets` sub-package proposal (was C3)
-- EFS support is **deferred** (not dropped). The "ephemeral disk per
-  task" default is fine for V1; persistent storage can land later as a
-  separable slice if/when needed.
+- AWS EFS integration **dropped permanently**.
+  - Drops `--efs-volume` flag on `task-def register` (was A5)
+  - Drops `sg aws efs` sub-package proposal (was C1)
+  - Drops the `efs` setup phase from `Vault_App__Fargate__Setup`
+
+The container's `SEND__STORAGE_MODE` is set to `memory` unconditionally
+by `start`. There is no `--storage-mode` flag on the Fargate start
+command (a corresponding edit landed in `02__cli-design.md`).
 
 ## Q2 — Mutation gate → **`SG_VAULT_APP__FARGATE__ALLOW_MUTATIONS=1`**
 
@@ -172,12 +176,12 @@ ecr → iam → logs → cluster → image-mirror → task-def
 (image-mirror requires the ECR repo to exist and runs before task-def
 because the task-def references the immutable image SHA.)
 
-## Q6 — Default storage mode → **A: memory**
+## Q6 — Default storage mode → **A: memory (and only memory in V1)**
 
-`SEND__STORAGE_MODE=memory` is the default `--storage-mode` for `start`.
-Disk and S3 modes accepted as flags but don't trigger EFS provisioning
-(per Q1). Picking `s3` requires `--task-role-arn` to have been set during
-setup; the start command validates and errors clearly if it wasn't.
+Per the Q1 update (no EFS, no AWS persistence at all),
+`SEND__STORAGE_MODE=memory` is set unconditionally by `start` — there is
+no `--storage-mode` flag, no disk option, no s3 option. Persistence is
+the peer-vault story, which is not in this plan.
 
 ## Q7 — Networking → **A: public IP, Route 53 upsert per start (ALB dropped entirely)**
 
@@ -263,23 +267,25 @@ those files can adopt it then.
 
 ## Plan delta — what changes in the implementation slices
 
-### Dropped permanently from the plan (not just V1)
+### Dropped permanently from the plan
 
-- `sg aws secrets` sub-package (Q1 — we will never use AWS Secrets Manager)
-- `--secret` flag on `task-def register` (A4 in extensions)
+- `sg aws secrets` sub-package (Q1 — peer vaults, not AWS Secrets Manager)
+- `--secret` flag on `task-def register` (A4)
+- `sg aws efs` sub-package (Q1 update — peer vaults, not AWS EFS)
+- `--efs-volume` flag on `task-def register` (A5)
 - `sg aws elbv2` sub-package (post-Q7 update — alternative ingress
-  patterns are being explored; if an ALB-shaped requirement does land,
-  it'll be a fresh proposal, not a resurrection of this one)
+  patterns being explored)
+- `efs` setup phase in `Vault_App__Fargate__Setup`
+- `--storage-mode` flag on the Fargate start command (Q6 update)
 - Persistent config file at `~/.config/sg/` (Q3)
 - `Vault_App__Fargate__Config` class (Q3)
 - `Schema__VAF__Config` schema (Q3)
 - `sg vault-app fargate config show/set/unset` commands (Q3)
 - `Cli__Vault_App__Fargate__Config.py` (Q3)
 
-### Deferred (still in the plan, just not V1)
+### Deferred (still possible later, not in V1, separable from this plan)
 
-- `sg aws efs` sub-package (Q1)
-- `--efs-volume` flag on `task-def register` (A5 in extensions)
+- `sg aws fargate service` sub-commands (A10)
 
 ### Added to V1
 
@@ -299,18 +305,18 @@ those files can adopt it then.
 
 | Slice | Before | After |
 |------:|-------|-------|
-| 0a (fargate flags) | drop --secret, --efs-volume, --task-role-arn-optional | smaller (~800 LOC, ~30 tests) |
+| 0a (fargate flags) | drop --secret, --efs-volume | smaller (~700 LOC, ~28 tests) |
 | 0c (logs CLI) | unchanged | unchanged |
 | 2 (Spec/Config/Slug/Health) | Config class | drop Config; add Tags__Reader / Tags__Writer; net same size |
 | 3 (Setup orchestrator) | + image-mirror phase | slightly larger; ~1700 LOC, ~70 tests |
 | 5 (Starter) | unchanged | unchanged |
-| 8 (Secrets + EFS) | V1 follow-up | move to "P2, after customer vaults live" |
+| 8 (Secrets + EFS) | V1 follow-up | **DROPPED ENTIRELY — peer vaults handle both** |
 
 ### Total V1 effort revised
 
 | Original | Revised |
 |----------|---------|
-| ~10 dev-days | **~8 dev-days** (-2 from dropping secrets/efs surface area) |
+| ~10 dev-days | **~9.5 dev-days for V1** (-2 from dropped surface; slice 8 removed entirely) |
 | ~8800 LOC  | **~7500 LOC** |
 | ~360 tests | **~310 tests** |
 

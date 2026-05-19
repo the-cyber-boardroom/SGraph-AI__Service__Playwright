@@ -32,10 +32,12 @@ And to `Fargate__AWS__Client.run_task` + `Cli__Fargate.task_run`:
 - `--launch-type FARGATE|FARGATE_SPOT`                 [A7]
 - `--tag k=v` (repeatable)                             [A8]
 
-Per Q1: `--secret` (A4) and `--efs-volume` (A5) DROPPED from V1.
-Per Q5 / Q4: `cluster create --tag k=v` is critical for setup writing the
-VaultApp__* tag set; ensure it's exposed (A8 covers this too if `create`
-gains the same `--tag` shape; if not, add it to `cluster create` too).
+Per Q1 (and its follow-up updates): `--secret` (A4) and `--efs-volume`
+(A5) are DROPPED PERMANENTLY (peer vaults, not AWS Secrets/EFS).
+Per Q5 / Q4: `cluster create --tag k=v` is critical for setup writing
+the VaultApp__* tag set; ensure it's exposed (A8 covers this too if
+`create` gains the same `--tag` shape; if not, add it to `cluster
+create` too).
 
 Schemas:
 - `Schema__ECS__Port_Mapping` (container_port, protocol)
@@ -205,22 +207,13 @@ Thin CLI wrapping slice 5: `start`, `stop`, `restart`, `health`, `url`,
 
 ~300 LOC of markdown, no tests.
 
-### Slice 8 (P2, post-V1) — EFS only
+### Slice 8 — **REMOVED**
 
-AWS Secrets Manager is permanently out of scope (Q1 update). When secrets
-need to leave plaintext `--env`, the path is "fetch from a peer vault at
-container start" — a separate plan, not this one.
+Originally bundled Secrets Manager + EFS. Both AWS surfaces are dropped
+from the plan permanently (07__decisions.md): peer SG vaults are the
+persistence and secrets path. There is no slice 8.
 
-What remains for an eventual slice 8:
-
-- `sg aws efs` sub-package (C1 in extensions)
-- `--efs-volume` flag on `task-def register` (A5 in extensions)
-- `vault-app fargate setup efs` phase (idempotent fs + mount target)
-- `start --storage-mode disk` actually mounts EFS
-
-Lands when persistent vault state on Fargate becomes a real requirement.
-Roughly ~1500 LOC / 2 dev-days (vs the ~3000 LOC original estimate that
-bundled Secrets in).
+Total V1 = slices 0a + 0b + 0c + 1 + 2 + 3 + 4 + 5 + 6 + 7. End of plan.
 
 ---
 
@@ -255,7 +248,7 @@ self-contained.
 
 | Slice | Size | LOC | Tests | Days (single dev) |
 |------:|------|----:|------:|------------------:|
-| 0a    | Med  |  800 |  30 | 0.7  (-0.3 after Q1 drops --secret/--efs-volume) |
+| 0a    | Sm   |  700 |  28 | 0.7  (after Q1 drops --secret/--efs-volume permanently) |
 | 0b    | Sm   |  400 |  15 | 0.5 |
 | 0c    | Med  | 1500 |  50 | 1 |
 | 1     | Med  |  600 |  30 | 1 |
@@ -265,8 +258,8 @@ self-contained.
 | 5     | Med  | 1200 |  50 | 1.5 |
 | 6     | Med  |  700 |  40 | 1 |
 | 7     | Sm   |  300 |   0 | 0.3 |
-| **V1 total** | | **~8500** | **~355** | **~9.8 dev-days** |
-| 8     | DROPPED FROM V1 (Q1) | — | — | — |
+| **V1 total** | | **~8400** | **~353** | **~9.7 dev-days** |
+| 8     | REMOVED — no peer-AWS persistence at all (Q1 update) | — | — | — |
 
 Comparable in scope to the ECR + EC2 work that just shipped (~5700 LOC,
 234 tests) but ~1.5× larger because of the cross-cutting orchestration and

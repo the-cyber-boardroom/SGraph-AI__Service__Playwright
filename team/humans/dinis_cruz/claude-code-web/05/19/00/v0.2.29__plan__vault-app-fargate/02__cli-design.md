@@ -39,11 +39,14 @@ sg vault-app fargate                                        (no-arg shows help)
     show                                                    show resolved config (image, role arns, log group, …)
 
   start                                                     THE FAST PATH
-           [--storage-mode memory|disk|s3] [--cpu 512]
-           [--memory 1024] [--with-aws-dns] [--public-ip|--no-public-ip]
+           [--cpu 512] [--memory 1024]
+           [--with-aws-dns] [--public-ip|--no-public-ip]
            [--launch-type FARGATE_SPOT|FARGATE]
            [--seed-vault-keys K1,K2] [--access-token T]
            [--time] [--json] [--yes]
+           # NOTE: storage is always ephemeral / in-memory per the
+           # peer-vaults-for-persistence decision. No --storage-mode flag.
+           # Container env SEND__STORAGE_MODE=memory is set unconditionally.
   stop     [--task-arn ARN | --slug NAME] [--yes] [--time] [--json]
   restart  [--slug NAME] [--time] [--json]                  stop+start with same task-def
   health   [--slug NAME] [--timeout 30]                     poll /info/health

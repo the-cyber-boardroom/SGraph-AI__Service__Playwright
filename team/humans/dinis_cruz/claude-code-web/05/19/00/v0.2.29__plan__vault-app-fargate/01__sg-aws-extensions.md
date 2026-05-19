@@ -50,12 +50,13 @@ Add: `--execution-role-arn arn:aws:iam::...` (required when image is from ECR
 convention name `ecsTaskExecutionRole` resolved via `sg aws iam role show`
 (if it exists in this account).
 
-### A3. `task-def register --task-role-arn` (P0 for vault s3 mode, P1 otherwise)
+### A3. `task-def register --task-role-arn` (P1, optional)
 
-Current state: not threaded through. Vault `SEND__STORAGE_MODE=s3` needs the
-task to assume a role with S3 access.
-
-Add: `--task-role-arn arn:...`. Optional.
+Current state: not threaded through. Useful when the container needs to
+assume an AWS role (e.g. for CloudWatch metric publication, S3 reads —
+case-by-case). NOT used by the vault for persistence (peer-vault path)
+nor for secrets (peer-vault path). Optional flag, kept for future
+use-cases that genuinely need an AWS-side identity.
 
 ### A4. ~~`task-def register --secret name=arn`~~ **DROPPED**
 
@@ -64,15 +65,13 @@ eventual plan is to host secrets in one of our own vaults, fetched at
 container start. Access tokens stay in `--env` until the in-vault fetch
 path lands. There is no AWS Secrets Manager integration in this plan.
 
-### A5. `task-def register --efs-volume` (P1)
+### ~~A5. `task-def register --efs-volume`~~ **DROPPED**
 
-Current state: no `volumes` or `mountPoints` support.
-
-Add: `--efs-volume name=vault-data,fs=fs-xxx,path=/data` (single occurrence
-for v1). Creates one volume + one mountPoint inside `containerDefinitions[0]`.
-
-P1 because vault state can be ephemeral for dev (matches EC2-root behaviour
-today; you lose state on instance terminate either way).
+Per user decision: all data persistence will use peer SG vaults, not
+EFS. Fargate tasks remain ephemeral (no `volumes`, no `mountPoints`,
+no EBS). When state needs to survive a task stop, the container will
+fetch from a peer vault at start and (optionally) push to it on
+shutdown — outside the scope of this plan.
 
 ### A6. `task-def register --log-group <name>` (P1)
 
@@ -153,22 +152,12 @@ pollute `sg aws iam` with use-case-specific shortcuts.
 These are bigger than the in-place changes above. Each is sized as "1 slice"
 of the ECR-style effort (~10–20 production files + tests).
 
-### C1. `sg aws efs` (P1 — needed for persistent vault state on Fargate)
+### ~~C1. `sg aws efs`~~ **DROPPED**
 
-```
-sg aws efs list                                                  [--json]
-sg aws efs show <fs-id>                                          [--json]
-sg aws efs create [--name N] [--encrypted] [--performance-mode generalPurpose]
-                                                                 [SG_AWS__EFS__ALLOW_MUTATIONS]
-sg aws efs delete <fs-id>                                        [SG_AWS__EFS__ALLOW_MUTATIONS]
-sg aws efs mount-target create <fs-id> --subnet S --sg G         [SG_AWS__EFS__ALLOW_MUTATIONS]
-sg aws efs mount-target delete <mt-id>                           [SG_AWS__EFS__ALLOW_MUTATIONS]
-sg aws efs orphans                                               [--json]
-```
-
-Schemas: `Schema__EFS__File_System`, `Schema__EFS__Mount_Target`. Same shape
-as ECR / EC2 ami / sg sub-packages. **Skip in v1 of vault-app fargate** —
-ship with ephemeral storage, add EFS support as the storage-mode upgrade.
+Per user decision: data persistence will use peer SG vaults, not EFS.
+The `sg aws efs` sub-package proposal is removed from this plan
+permanently. If we ever do need to manage EFS for an unrelated reason
+in the future it'll be a fresh proposal, not a resurrection of this.
 
 ### ~~C2. `sg aws elbv2`~~ **DROPPED**
 
@@ -209,11 +198,11 @@ vault-app fargate slice 1**.
 | **P0** | A7 `--launch-type FARGATE_SPOT` | 1 flag + tests |
 | **P0** | B1 `sg aws logs` CLI (groups + tail) | new sub-app, ECR-sized slice |
 | **P0** | D `sg aws ec2 eni` CLI | thin wrapper, ~50 LOC + tests |
-| **P1** | A3 `--task-role-arn` | 1 flag + tests |
+| **P1** | A3 `--task-role-arn` (optional, for non-vault AWS-identity needs) | 1 flag + tests |
 | **P1** | A6 `--log-group` | 1 flag + tests |
 | **P1** | A8 `task run --tag` | 1 flag + tests |
-| ~~P1~~ | ~~A4 `--secret` + C3 `sg aws secrets`~~ | **DROPPED — no AWS Secrets Manager, ever** |
-| **P1** | A5 `--efs-volume` + C1 `sg aws efs` | 1 flag + new sub-app |
+| ~~P1~~ | ~~A4 `--secret` + C3 `sg aws secrets`~~ | **DROPPED — peer vaults, not AWS Secrets Manager** |
+| ~~P1~~ | ~~A5 `--efs-volume` + C1 `sg aws efs`~~ | **DROPPED — peer vaults, not EFS** |
 | **P2** | A10 `sg aws fargate service` | new commands |
 | ~~P2~~ | ~~C2 `sg aws elbv2`~~ | **DROPPED — alternative ingress patterns being explored** |
 
