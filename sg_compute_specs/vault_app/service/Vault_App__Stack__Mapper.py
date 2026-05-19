@@ -98,6 +98,7 @@ class Vault_App__Stack__Mapper(Type_Safe):
             ssm_forward         = ssm_forward                                         ,
             mitmweb_ssm_forward = mitmweb_ssm_forward                                 ,
             tls_enabled        = tls_on                                               ,
+            tls_hostname       = tls_hostname                                         ,
             with_playwright    = with_playwright                                      ,
             container_engine   = tag_value(details, TAG_ENGINE)                      ,
             access_token       = tag_value(details, TAG_ACCESS_TOKEN)                 ,
