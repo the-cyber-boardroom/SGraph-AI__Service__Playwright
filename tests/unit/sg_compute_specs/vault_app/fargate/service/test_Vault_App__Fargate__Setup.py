@@ -189,7 +189,7 @@ class Test__VAF__Setup__IAM(TestCase):
         setup  = _make_setup(iam=iam)
         req    = _base_request(phases=[Enum__VAF__Setup__Phase.IAM])
         report = setup.check(req)
-        assert report.phases[0].detail == 'exists'
+        assert report.phases[0].detail.startswith('exists')                          # detail now includes the resolved ARN
 
     def test_check_status_ok(self):
         setup  = _make_setup()
@@ -582,9 +582,14 @@ class Test__VAF__Setup__TASK_DEF(TestCase):
         report = setup.check(req)
         assert report.phases[0].detail == 'missing'
 
+    def _seeded_ecr(self) -> ECR__AWS__Client__In_Memory:                        # ECR repo must exist for task-def to resolve image uri
+        ecr = ECR__AWS__Client__In_Memory()
+        ecr.seed_repo('sg-send-vault')
+        return ecr
+
     def test_check_existing_task_def_detail_has_revision(self):
         fargate = Fargate__AWS__Client__In_Memory()
-        setup   = _make_setup(fargate=fargate)
+        setup   = _make_setup(fargate=fargate, ecr=self._seeded_ecr())
         req     = _base_request(phases=[Enum__VAF__Setup__Phase.TASK_DEF])
         setup.create(req)                                                        # register task def first
         report  = setup.check(req)
@@ -599,48 +604,53 @@ class Test__VAF__Setup__TASK_DEF(TestCase):
     # ── create ────────────────────────────────────────────────────────────────
 
     def test_create_task_def_status_ok(self):
-        setup  = _make_setup()
+        setup  = _make_setup(ecr=self._seeded_ecr())
         req    = _base_request(phases=[Enum__VAF__Setup__Phase.TASK_DEF])
         report = setup.create(req)
         assert report.phases[0].status == Enum__VAF__Phase__Status.OK
 
     def test_create_task_def_detail_has_revision(self):
-        setup  = _make_setup()
+        setup  = _make_setup(ecr=self._seeded_ecr())
         req    = _base_request(phases=[Enum__VAF__Setup__Phase.TASK_DEF])
         report = setup.create(req)
         assert 'revision' in report.phases[0].detail
 
     def test_create_task_def_exists_after_create(self):
         fargate = Fargate__AWS__Client__In_Memory()
-        setup   = _make_setup(fargate=fargate)
+        setup   = _make_setup(fargate=fargate, ecr=self._seeded_ecr())
         req     = _base_request(phases=[Enum__VAF__Setup__Phase.TASK_DEF])
         setup.create(req)
-        td = fargate.describe_task_definition('test-cluster')
+        td = fargate.describe_task_definition('vault-app')                       # task-def family is spec default, NOT cluster name
         assert td is not None
 
     def test_create_task_def_uses_spec_ports(self):
         fargate = Fargate__AWS__Client__In_Memory()
-        ecr     = ECR__AWS__Client__In_Memory()
-        ecr.seed_repo('sg-send-vault')
-        setup   = _make_setup(fargate=fargate, ecr=ecr)
+        setup   = _make_setup(fargate=fargate, ecr=self._seeded_ecr())
         req     = _base_request(phases=[Enum__VAF__Setup__Phase.TASK_DEF])
         setup.create(req)
-        td = fargate.describe_task_definition('test-cluster')
+        td = fargate.describe_task_definition('vault-app')                       # task-def family is spec default, NOT cluster name
         assert td.port_mappings is not None
+
+    def test_create_without_ecr_repo_returns_error(self):
+        setup  = _make_setup()                                                    # ECR client has NO seeded repo
+        req    = _base_request(phases=[Enum__VAF__Setup__Phase.TASK_DEF])
+        report = setup.create(req)
+        assert report.phases[0].status == Enum__VAF__Phase__Status.ERROR
+        assert 'image uri' in report.phases[0].detail
 
     # ── create idempotent (registers new revision) ────────────────────────────
 
     def test_create_second_call_registers_new_revision(self):
         fargate = Fargate__AWS__Client__In_Memory()
-        setup   = _make_setup(fargate=fargate)
+        setup   = _make_setup(fargate=fargate, ecr=self._seeded_ecr())
         req     = _base_request(phases=[Enum__VAF__Setup__Phase.TASK_DEF])
         setup.create(req)
         setup.create(req)
-        all_tds = fargate.list_task_definitions(family='test-cluster')
+        all_tds = fargate.list_task_definitions(family='vault-app')              # task-def family is spec default, NOT cluster name
         assert len(all_tds) == 2
 
     def test_create_second_call_status_ok(self):
-        setup = _make_setup()
+        setup = _make_setup(ecr=self._seeded_ecr())
         req   = _base_request(phases=[Enum__VAF__Setup__Phase.TASK_DEF])
         setup.create(req)
         report = setup.create(req)
@@ -826,4 +836,4 @@ class Test__VAF__Setup__Full(TestCase):
         setup  = self._full_setup()
         req    = self._full_request(cluster_name='')
         report = setup.create(req)
-        assert report.cluster_name == 'vault-app'                                # spec.default_cluster
+        assert report.cluster_name == 'sg-vault-app-fargate'                     # spec.default_cluster

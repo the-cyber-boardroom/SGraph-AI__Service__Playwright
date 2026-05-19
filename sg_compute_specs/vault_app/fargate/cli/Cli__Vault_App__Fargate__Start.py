@@ -86,6 +86,16 @@ def _resolve_task_arn(fargate_client, cluster_name: str, slug: str) -> str:     
     return ''
 
 
+def _resolve_public_ip(task, ec2_client) -> tuple:                                # (public_ip, private_ip) via ENI; same pattern as Starter
+    eni_id = str(getattr(task, 'eni_id', '') or '')
+    if not eni_id or ec2_client is None:
+        return '', ''
+    eni = ec2_client.describe_network_interface(eni_id)
+    if eni is None:
+        return '', ''
+    return str(eni.public_ip or ''), str(eni.private_ip or '')
+
+
 def _gate_check():                                                                # print gate error and exit(1) if gate not set
     if os.environ.get(_GATE_ENV) != '1':
         console.print(Panel(
@@ -274,7 +284,7 @@ def fargate_stop(ctx    : typer.Context,
 
 @spec_cli_errors
 def fargate_restart(ctx    : typer.Context,
-                    slug   : str  = typer.Option('',    '--slug',    help='Task slug (auto-resolved if one running task).'),
+                    slug   : str  = typer.Option('',    '--slug',    help='Task slug (required if previous task already stopped).'),
                     cluster: str  = typer.Option('',    '--cluster', help='Cluster name (auto-resolved if omitted).'),
                     as_json: bool = typer.Option(False,  '--json',    help='Machine-readable output.')):
     """Stop then re-start a vault-app container (keeps same slug + cluster)."""
@@ -282,8 +292,17 @@ def fargate_restart(ctx    : typer.Context,
 
     fargate_client = _get_fargate_client(ctx)
     cluster_name   = _resolve_cluster(fargate_client, cluster)
-    slug_name      = _resolve_slug(fargate_client, cluster_name, slug)
-    task_arn       = _resolve_task_arn(fargate_client, cluster_name, slug_name)
+
+    # Try to resolve slug from a running task; if none exists, fall back to --slug.
+    slug_name = slug
+    task_arn  = ''
+    try:
+        slug_name = _resolve_slug(fargate_client, cluster_name, slug)
+        task_arn  = _resolve_task_arn(fargate_client, cluster_name, slug_name)
+    except ValueError:
+        if not slug:                                                              # no running task and no explicit slug → can't restart
+            console.print('  [red]✗[/]  No running task to restart; pass --slug to start a fresh task.')
+            raise typer.Exit(1)
 
     # ── stop ─────────────────────────────────────────────────────────────────
     with Mutation__Gate__Scope():
@@ -333,18 +352,18 @@ def fargate_health(ctx    : typer.Context,
         console.print(f'  [red]✗[/]  Task not found: {task_arn}')
         raise typer.Exit(1)
 
-    obj           = ctx.obj or {}
-    health        = obj.get('health') or Vault_App__Fargate__Health(timeout_seconds=timeout)
-    public_ip     = str(task.public_ip) if hasattr(task, 'public_ip') and task.public_ip else ''
+    obj                    = ctx.obj or {}
+    health                 = obj.get('health') or Vault_App__Fargate__Health(timeout_seconds=timeout)
+    ec2_client             = _get_ec2_client(ctx)
+    public_ip, private_ip  = _resolve_public_ip(task, ec2_client)
+    host                   = public_ip or private_ip
 
-    if not public_ip:                                                              # try to read from task private_ip fallback
-        public_ip = str(task.private_ip) if hasattr(task, 'private_ip') and task.private_ip else ''
+    if not host:
+        console.print(f'  [red]✗[/]  No IP resolved for task [bold]{task_arn}[/] '
+                      f'(eni_id={task.eni_id or "(none)"})')
+        raise typer.Exit(1)
 
-    if not public_ip:
-        console.print(f'  [yellow]⚠[/]  No IP resolved for task [bold]{task_arn}[/]; trying 0.0.0.0')
-        public_ip = '0.0.0.0'
-
-    vault_url     = f'http://{public_ip}:8080'
+    vault_url     = f'https://{host}:443'
     result        = health.wait_for(vault_url + '/info/health')
 
     if result.ok:
@@ -377,15 +396,15 @@ def fargate_url(ctx    : typer.Context,
         console.print(f'  [red]✗[/]  Task not found: {task_arn}')
         raise typer.Exit(1)
 
-    public_ip = str(task.public_ip) if hasattr(task, 'public_ip') and task.public_ip else ''
-    if not public_ip:
-        public_ip = str(task.private_ip) if hasattr(task, 'private_ip') and task.private_ip else ''
-
-    if not public_ip:
-        console.print('  [red]✗[/]  No IP available for task.')
+    ec2_client            = _get_ec2_client(ctx)
+    public_ip, private_ip = _resolve_public_ip(task, ec2_client)
+    host                  = public_ip or private_ip
+    if not host:
+        console.print('  [red]✗[/]  No IP available for task '
+                      f'(eni_id={task.eni_id or "(none)"}).')
         raise typer.Exit(1)
 
-    vault_url = f'https://{public_ip}:443'
+    vault_url = f'https://{host}:443'
     typer.echo(vault_url)
 
 
@@ -412,15 +431,15 @@ def fargate_open(ctx    : typer.Context,
         console.print(f'  [red]✗[/]  Task not found: {task_arn}')
         raise typer.Exit(1)
 
-    public_ip = str(task.public_ip) if hasattr(task, 'public_ip') and task.public_ip else ''
-    if not public_ip:
-        public_ip = str(task.private_ip) if hasattr(task, 'private_ip') and task.private_ip else ''
-
-    if not public_ip:
-        console.print('  [red]✗[/]  No IP available for task.')
+    ec2_client            = _get_ec2_client(ctx)
+    public_ip, private_ip = _resolve_public_ip(task, ec2_client)
+    host                  = public_ip or private_ip
+    if not host:
+        console.print('  [red]✗[/]  No IP available for task '
+                      f'(eni_id={task.eni_id or "(none)"}).')
         raise typer.Exit(1)
 
-    vault_url = f'https://{public_ip}:443'
+    vault_url = f'https://{host}:443'
     typer.launch(vault_url)
 
 

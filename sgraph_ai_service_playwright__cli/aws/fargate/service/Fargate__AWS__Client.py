@@ -40,6 +40,15 @@ class Fargate__AWS__Client(Type_Safe):
         self.setup()
         return self.session.boto3_client_from_context('ecs', region=self.region)
 
+    def current_region(self) -> str:                                              # resolved region (explicit override → boto3 client meta)
+        if self.region:
+            return self.region
+        try:
+            meta = getattr(self.client(), 'meta', None)
+            return getattr(meta, 'region_name', '') or ''
+        except Exception:
+            return ''
+
     # ── cluster read ──────────────────────────────────────────────────────────
 
     def list_clusters(self) -> List__Schema__ECS__Cluster:

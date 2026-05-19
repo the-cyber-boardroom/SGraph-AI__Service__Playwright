@@ -170,9 +170,13 @@ class Fargate__AWS__Client__In_Memory(Fargate__AWS__Client):
         self._task_defs = {}
         self._tasks     = {}
         self._fake      = _Fake_ECS_Client(self._clusters, self._task_defs, self._tasks)
+        self._region    = 'us-east-1'                                                # default test region; tests can override
 
     def client(self):
         return self._fake
+
+    def current_region(self) -> str:                                                 # bypass boto3 meta lookup in tests
+        return self._region
 
     # ── test helpers ──────────────────────────────────────────────────────────
 

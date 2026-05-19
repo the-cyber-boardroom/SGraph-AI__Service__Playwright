@@ -18,8 +18,8 @@ class Vault_App__Fargate__Spec(Type_Safe):
     default_cpu            : str = '512'
     default_memory         : str = '1024'
     default_log_group      : str = '/ecs/vault-app'
-    default_cluster        : str = 'vault-app'
-    default_task_def_family: str = 'vault-app'
+    default_cluster        : str = 'sg-vault-app-fargate'                      # cluster name — distinct from task-def family
+    default_task_def_family: str = 'vault-app'                                 # task-def family — shared across clusters
 
     def env_for_run(self, access_token: str,
                     seed_vault_keys: str = '', with_tls: bool = True) -> dict:  # env-var dict the vault container expects

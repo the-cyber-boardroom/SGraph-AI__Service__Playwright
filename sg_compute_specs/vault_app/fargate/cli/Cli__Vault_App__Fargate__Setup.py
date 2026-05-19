@@ -392,8 +392,11 @@ def setup_plan(ctx    : typer.Context,
     t.add_column('State',   style='')
     t.add_column('Action',  style='cyan')
     t.add_column('Detail',  style='dim')
+    # Action is derived from the check phase's detail: 'missing' → would create,
+    # anything else (exists / active / revision :N) → would skip. This is the
+    # one place the wording matters because check returns OK status either way.
     for p in (report.phases or []):
-        action = '[dim]skip (exists)[/dim]' if 'exists' in p.detail or 'active' in p.detail else '[cyan]create[/cyan]'
+        action = '[cyan]create[/cyan]' if p.detail == 'missing' else '[dim]skip (exists)[/dim]'
         t.add_row(p.name, str(p.status) if p.status else '', action, p.detail)
     console.print()
     console.print(t)

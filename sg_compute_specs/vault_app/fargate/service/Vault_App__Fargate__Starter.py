@@ -6,12 +6,12 @@
 # progress_cb fires (name, status, detail='') on phase enter+exit.
 # ═══════════════════════════════════════════════════════════════════════════════
 
-import secrets
 import time as _time
 from datetime import datetime, timezone
 
 from osbot_utils.type_safe.Type_Safe import Type_Safe
 
+from sg_compute.platforms.ec2.networking.Stack__Name__Generator                    import Stack__Name__Generator
 from sg_compute_specs.vault_app.fargate.enums.Enum__VAF__Start__Phase              import Enum__VAF__Start__Phase
 from sg_compute_specs.vault_app.fargate.schemas.Schema__VAF__Start__Report         import Schema__VAF__Start__Report
 from sg_compute_specs.vault_app.fargate.schemas.Schema__VAF__Start__Request        import Schema__VAF__Start__Request
@@ -22,18 +22,6 @@ from sg_compute_specs.vault_app.fargate.service.Vault_App__Fargate__Slug__Resolv
 from sg_compute_specs.vault_app.fargate.service.Vault_App__Fargate__Spec           import Vault_App__Fargate__Spec
 from sg_compute_specs.vault_app.fargate.service.Vault_App__Fargate__Tags__Reader   import Vault_App__Fargate__Tags__Reader
 from sg_compute_specs.vault_app.fargate.service.Vault_App__Fargate__Timings__Store import Vault_App__Fargate__Timings__Store
-
-_ADJECTIVES = ['bold','bright','calm','clever','cool','daring','deep','eager',
-               'fast','fierce','fresh','grand','happy','keen','light','lucky',
-               'mellow','neat','quick','quiet','sharp','sleek','smart','swift','witty']
-_SCIENTISTS = ['bohr','curie','darwin','dirac','einstein','euler','faraday',
-               'fermi','feynman','galileo','gauss','hopper','hubble','lovelace',
-               'maxwell','newton','noether','pascal','planck','turing','tesla',
-               'volta','watt','wien','zeno']
-
-
-def _generate_slug() -> str:                                                      # adjective-scientist slug; matches heroku-style convention
-    return f'{secrets.choice(_ADJECTIVES)}-{secrets.choice(_SCIENTISTS)}'
 
 
 class Vault_App__Fargate__Starter(Type_Safe):
@@ -71,15 +59,20 @@ class Vault_App__Fargate__Starter(Type_Safe):
 
         try:
             # ── Phase 1: RESOLVE_CONFIG ───────────────────────────────────────
+            # Two AWS describes in parallel — ~50ms vs ~100ms sequential.
             cluster_cfg = None
             with timer.phase(Enum__VAF__Start__Phase.RESOLVE_CONFIG.value) as result:
-                cluster_cfg = self.tags_reader.read(request.cluster_name)
-                self.fargate_client.describe_task_definition(              # validate task-def exists; result not used in v1
-                    self.spec.default_task_def_family)
+                from concurrent.futures import ThreadPoolExecutor
+                with ThreadPoolExecutor(max_workers=2) as ex:
+                    fut_cfg = ex.submit(self.tags_reader.read, request.cluster_name)
+                    fut_td  = ex.submit(self.fargate_client.describe_task_definition,
+                                        self.spec.default_task_def_family)
+                    cluster_cfg = fut_cfg.result()
+                    fut_td.result()                                          # validate task-def exists; result not used in v1
                 result.detail = f'cluster={cluster_cfg.cluster_name}'
 
             # ── Phase 2: RUN_TASK ─────────────────────────────────────────────
-            slug = request.slug or _generate_slug()
+            slug = request.slug or Stack__Name__Generator().generate()
             task = None
             with timer.phase(Enum__VAF__Start__Phase.RUN_TASK.value) as result:
                 self.slug_resolver.check_unique(cluster_cfg.cluster_name, slug)

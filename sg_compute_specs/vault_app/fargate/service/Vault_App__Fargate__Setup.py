@@ -73,10 +73,15 @@ class Vault_App__Fargate__Setup(Type_Safe):
             phases = list(reversed(phases))
 
         cluster_name = request.cluster_name or self.spec.default_cluster
+        ctx = {                                                                    # threaded across phases so IAM ARN reaches CLUSTER/TASK_DEF
+            'cluster_name'       : cluster_name,
+            'region'             : self._resolve_region(request),
+            'execution_role_arn' : '',                                             # populated by _phase_iam create/check
+        }
 
         for phase_enum in phases:
             with timer.phase(phase_enum.value) as result:
-                self._dispatch_phase(op, phase_enum, request, result)
+                self._dispatch_phase(op, phase_enum, request, result, ctx)
             last = timer.results[-1]
             is_error = last.status == Enum__VAF__Phase__Status.ERROR
             if is_error and op != 'check' and not request.continue_on_error:
@@ -94,24 +99,31 @@ class Vault_App__Fargate__Setup(Type_Safe):
             ok           = all_ok,
         )
 
+    def _resolve_region(self, request: Schema__VAF__Setup__Request) -> str:        # explicit → client → empty (caller error)
+        if request.region:
+            return request.region
+        if self.fargate_client and hasattr(self.fargate_client, 'current_region'):
+            return self.fargate_client.current_region() or ''
+        return ''
+
     def _dispatch_phase(self, op: str, phase: Enum__VAF__Setup__Phase,
-                        request: Schema__VAF__Setup__Request, result) -> None:
+                        request: Schema__VAF__Setup__Request, result, ctx: dict) -> None:
         if phase == Enum__VAF__Setup__Phase.ECR:
-            self._phase_ecr(op, request, result)
+            self._phase_ecr(op, request, result, ctx)
         elif phase == Enum__VAF__Setup__Phase.IAM:
-            self._phase_iam(op, request, result)
+            self._phase_iam(op, request, result, ctx)
         elif phase == Enum__VAF__Setup__Phase.LOGS:
-            self._phase_logs(op, request, result)
+            self._phase_logs(op, request, result, ctx)
         elif phase == Enum__VAF__Setup__Phase.CLUSTER:
-            self._phase_cluster(op, request, result)
+            self._phase_cluster(op, request, result, ctx)
         elif phase == Enum__VAF__Setup__Phase.IMAGE_MIRROR:
-            self._phase_image_mirror(op, request, result)
+            self._phase_image_mirror(op, request, result, ctx)
         elif phase == Enum__VAF__Setup__Phase.TASK_DEF:
-            self._phase_task_def(op, request, result)
+            self._phase_task_def(op, request, result, ctx)
 
     # ── phase: ECR ────────────────────────────────────────────────────────────
 
-    def _phase_ecr(self, op: str, request: Schema__VAF__Setup__Request, result) -> None:
+    def _phase_ecr(self, op: str, request: Schema__VAF__Setup__Request, result, ctx: dict) -> None:
         repo_name = request.ecr_repo_name or self.spec.image_repo_name
         if not self.ecr_client:
             result.status = Enum__VAF__Phase__Status.SKIPPED
@@ -148,7 +160,7 @@ class Vault_App__Fargate__Setup(Type_Safe):
 
     # ── phase: IAM ────────────────────────────────────────────────────────────
 
-    def _phase_iam(self, op: str, request: Schema__VAF__Setup__Request, result) -> None:
+    def _phase_iam(self, op: str, request: Schema__VAF__Setup__Request, result, ctx: dict) -> None:
         if not self.iam_client:
             result.status = Enum__VAF__Phase__Status.SKIPPED
             result.detail = 'iam_client not provided'
@@ -157,8 +169,12 @@ class Vault_App__Fargate__Setup(Type_Safe):
         role_name = request.execution_role_name
 
         if op == 'check':
-            exists = self.iam_client.role_exists(role_name)
-            result.detail = 'exists' if exists else 'missing'
+            role = self._read_iam_role(role_name)
+            if role:
+                ctx['execution_role_arn'] = role
+                result.detail = f'exists ({role})'
+            else:
+                result.detail = 'missing'
             result.status = Enum__VAF__Phase__Status.OK
 
         elif op == 'create':
@@ -171,6 +187,7 @@ class Vault_App__Fargate__Setup(Type_Safe):
             )
             resp = self.iam_client.create_role(req)
             self.iam_client.attach_managed_policy(role_name, _ECS_TASK_EXECUTION_POLICY)
+            ctx['execution_role_arn'] = str(resp.role_arn or '')                  # thread ARN to later phases
             if resp.created:
                 result.detail = f'created role {role_name}'
                 result.status = Enum__VAF__Phase__Status.OK
@@ -182,6 +199,7 @@ class Vault_App__Fargate__Setup(Type_Safe):
             exists = self.iam_client.role_exists(role_name)
             if exists:
                 self.iam_client.attach_managed_policy(role_name, _ECS_TASK_EXECUTION_POLICY)
+                ctx['execution_role_arn'] = self._read_iam_role(role_name)
                 result.detail = 'policy ensured'
                 result.status = Enum__VAF__Phase__Status.OK
             else:
@@ -197,9 +215,24 @@ class Vault_App__Fargate__Setup(Type_Safe):
                 result.detail = 'not found'
                 result.status = Enum__VAF__Phase__Status.SKIPPED
 
+    def _read_iam_role(self, role_name: str) -> str:                              # tolerate clients that don't expose describe
+        for method in ('describe_role', 'get_role'):
+            fn = getattr(self.iam_client, method, None)
+            if fn is None:
+                continue
+            try:
+                role = fn(role_name)
+                if role is None:
+                    return ''
+                arn = getattr(role, 'role_arn', '') or getattr(role, 'arn', '')
+                return str(arn or '')
+            except Exception:
+                return ''
+        return ''
+
     # ── phase: LOGS ───────────────────────────────────────────────────────────
 
-    def _phase_logs(self, op: str, request: Schema__VAF__Setup__Request, result) -> None:
+    def _phase_logs(self, op: str, request: Schema__VAF__Setup__Request, result, ctx: dict) -> None:
         log_group = request.log_group or self.spec.default_log_group
         if not self.logs_client:
             result.status = Enum__VAF__Phase__Status.SKIPPED
@@ -222,15 +255,12 @@ class Vault_App__Fargate__Setup(Type_Safe):
                 result.status = Enum__VAF__Phase__Status.OK
 
         elif op == 'update':
-            group = self.logs_client.describe_log_group(log_group)
-            if group:
-                self.logs_client.client().put_retention_policy(
-                    logGroupName=log_group, retentionInDays=7)
+            updated = self.logs_client.update_retention(log_group, days=7)        # via service-layer method, not raw boto3
+            if updated:
                 result.detail = 'retention updated'
-                result.status = Enum__VAF__Phase__Status.OK
             else:
                 result.detail = 'missing'
-                result.status = Enum__VAF__Phase__Status.OK
+            result.status = Enum__VAF__Phase__Status.OK
 
         elif op == 'delete':
             deleted = self.logs_client.delete_log_group(log_group)
@@ -243,8 +273,8 @@ class Vault_App__Fargate__Setup(Type_Safe):
 
     # ── phase: CLUSTER ────────────────────────────────────────────────────────
 
-    def _phase_cluster(self, op: str, request: Schema__VAF__Setup__Request, result) -> None:
-        cluster_name = request.cluster_name or self.spec.default_cluster
+    def _phase_cluster(self, op: str, request: Schema__VAF__Setup__Request, result, ctx: dict) -> None:
+        cluster_name = ctx['cluster_name']
         if not self.fargate_client:
             result.status = Enum__VAF__Phase__Status.SKIPPED
             result.detail = 'fargate_client not provided'
@@ -263,15 +293,14 @@ class Vault_App__Fargate__Setup(Type_Safe):
             else:
                 log_group      = request.log_group       or self.spec.default_log_group
                 ecr_repo_name  = request.ecr_repo_name   or self.spec.image_repo_name
-                region         = request.region          or 'us-east-1'
                 tags = self.tags_writer.tags_for_cluster(
                     cluster_name       = cluster_name,
                     subnets            = request.subnets,
                     security_group     = request.security_group,
-                    execution_role_arn = '',                                      # ARN resolved after IAM phase
+                    execution_role_arn = ctx['execution_role_arn'],                # populated by _phase_iam (runs first)
                     log_group          = log_group,
                     ecr_repo_name      = ecr_repo_name,
-                    region             = region,
+                    region             = ctx['region'],
                     task_role_arn      = request.task_role_name,
                     dns_zone           = request.dns_zone,
                 )
@@ -300,8 +329,9 @@ class Vault_App__Fargate__Setup(Type_Safe):
 
     # ── phase: IMAGE_MIRROR ───────────────────────────────────────────────────
 
-    def _phase_image_mirror(self, op: str, request: Schema__VAF__Setup__Request, result) -> None:
+    def _phase_image_mirror(self, op: str, request: Schema__VAF__Setup__Request, result, ctx: dict) -> None:
         repo_name = request.ecr_repo_name or self.spec.image_repo_name
+        region    = ctx['region']
         ecr_uri   = ''
 
         if op == 'delete':                                                        # images deleted with the ECR repo
@@ -309,10 +339,10 @@ class Vault_App__Fargate__Setup(Type_Safe):
             result.status = Enum__VAF__Phase__Status.SKIPPED
             return
 
-        if self.ecr_client:
+        if self.ecr_client and region:
             repo = self.ecr_client.describe_repository(repo_name)
             if repo:
-                ecr_uri = f'{repo.registry_id}.dkr.ecr.{request.region or "us-east-1"}.amazonaws.com/{repo_name}'
+                ecr_uri = f'{repo.registry_id}.dkr.ecr.{region}.amazonaws.com/{repo_name}'
 
         if op == 'check':
             if not self.ecr_client:
@@ -326,7 +356,10 @@ class Vault_App__Fargate__Setup(Type_Safe):
             return
 
         if not ecr_uri:
-            result.detail = 'ecr_uri could not be resolved — run ECR phase first'
+            if not region:
+                result.detail = 'region could not be resolved — pass --region or configure session'
+            else:
+                result.detail = 'ecr_uri could not be resolved — run ECR phase first'
             result.status = Enum__VAF__Phase__Status.ERROR
             return
 
@@ -343,8 +376,8 @@ class Vault_App__Fargate__Setup(Type_Safe):
 
     # ── phase: TASK_DEF ───────────────────────────────────────────────────────
 
-    def _phase_task_def(self, op: str, request: Schema__VAF__Setup__Request, result) -> None:
-        family       = request.cluster_name or self.spec.default_task_def_family
+    def _phase_task_def(self, op: str, request: Schema__VAF__Setup__Request, result, ctx: dict) -> None:
+        family = self.spec.default_task_def_family                                # always the spec family, NOT cluster name
         if not self.fargate_client:
             result.status = Enum__VAF__Phase__Status.SKIPPED
             result.detail = 'fargate_client not provided'
@@ -361,12 +394,18 @@ class Vault_App__Fargate__Setup(Type_Safe):
 
         elif op in ('create', 'update'):                                          # registers a new revision
             repo_name = request.ecr_repo_name or self.spec.image_repo_name
-            region    = request.region        or 'us-east-1'
-            image_uri = f'123456789012.dkr.ecr.{region}.amazonaws.com/{repo_name}:latest'
+            region    = ctx['region']
+            image_uri = ''
             if self.ecr_client:
                 repo = self.ecr_client.describe_repository(repo_name)
-                if repo:
+                if repo and region:
                     image_uri = f'{repo.registry_id}.dkr.ecr.{region}.amazonaws.com/{repo_name}:latest'
+
+            if not image_uri:
+                result.detail = ('image uri could not be resolved — '
+                                 'ensure ECR repo exists and region is set')
+                result.status = Enum__VAF__Phase__Status.ERROR
+                return
 
             log_group = request.log_group or self.spec.default_log_group
             td = self.fargate_client.register_task_definition(
@@ -375,7 +414,7 @@ class Vault_App__Fargate__Setup(Type_Safe):
                 cpu                = request.cpu   or self.spec.default_cpu,
                 memory             = request.memory or self.spec.default_memory,
                 port_mappings      = self.spec.port_mappings(),
-                execution_role_arn = '',                                          # filled after IAM phase in a real run
+                execution_role_arn = ctx['execution_role_arn'],                   # populated by _phase_iam (runs first)
                 log_group          = log_group,
             )
             result.detail = f'revision :{td.revision}'

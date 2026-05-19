@@ -76,6 +76,16 @@ class Logs__AWS__Client(Type_Safe):
                 pass
         return True
 
+    def update_retention(self, name: str, days: int) -> bool:                    # suppresses ResourceNotFoundException → False
+        try:
+            self.client().put_retention_policy(logGroupName=name, retentionInDays=days)
+            return True
+        except ClientError as exc:
+            code = exc.response.get('Error', {}).get('Code', '')
+            if code == 'ResourceNotFoundException':
+                return False
+            raise
+
     def delete_log_group(self, name: str) -> bool:                               # suppresses ResourceNotFoundException → False
         try:
             self.client().delete_log_group(logGroupName=name)

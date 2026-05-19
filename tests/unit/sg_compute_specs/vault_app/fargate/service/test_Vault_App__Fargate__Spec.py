@@ -46,7 +46,7 @@ class test_Vault_App__Fargate__Spec(TestCase):
         assert self.spec.default_log_group == '/ecs/vault-app'
 
     def test_default_cluster(self):
-        assert self.spec.default_cluster == 'vault-app'
+        assert self.spec.default_cluster == 'sg-vault-app-fargate'
 
     def test_default_task_def_family(self):
         assert self.spec.default_task_def_family == 'vault-app'

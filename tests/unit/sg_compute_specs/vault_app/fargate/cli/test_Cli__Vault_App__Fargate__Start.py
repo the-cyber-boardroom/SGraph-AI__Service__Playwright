@@ -17,6 +17,7 @@ from sg_compute_specs.vault_app.fargate.schemas.Schema__VAF__Timings__Record imp
 from sg_compute_specs.vault_app.fargate.service.Vault_App__Fargate__Health  import Vault_App__Fargate__Health
 from sg_compute_specs.vault_app.fargate.service.Vault_App__Fargate__Timings__Store import Vault_App__Fargate__Timings__Store
 
+from tests.unit.sgraph_ai_service_playwright__cli.aws.ec2.service.EC2__AWS__Client__In_Memory        import EC2__AWS__Client__In_Memory
 from tests.unit.sgraph_ai_service_playwright__cli.aws.fargate.service.Fargate__AWS__Client__In_Memory import Fargate__AWS__Client__In_Memory
 from tests.unit.sgraph_ai_service_playwright__cli.aws.logs.service.Logs__AWS__Client__In_Memory      import Logs__AWS__Client__In_Memory
 
@@ -49,18 +50,28 @@ def _default_fargate() -> Fargate__AWS__Client__In_Memory:
     return fargate
 
 
-def _default_obj(fargate=None, health=None, timings_store=None, logs=None):
+def _default_obj(fargate=None, health=None, timings_store=None, logs=None, ec2=None):
     return {
         'fargate_client': fargate      or _default_fargate(),
         'logs_client'   : logs         or Logs__AWS__Client__In_Memory(),
+        'ec2_client'    : ec2          or _default_ec2(),
         'health'        : health       or Vault_App__Fargate__Health(_http_get=_healthy_http, timeout_seconds=1),
         'timings_store' : timings_store,                                          # None = default path (not used in start tests)
     }
 
 
-def _fargate_with_running_task(slug: str = 'test-slug') -> Fargate__AWS__Client__In_Memory:
+def _default_ec2() -> EC2__AWS__Client__In_Memory:                                # seeded ENI for the standard test slug
+    ec2 = EC2__AWS__Client__In_Memory()
+    ec2.seed_eni(eni_id='eni-vault-test', public_ip='18.130.45.12',
+                 private_ip='10.0.1.15')
+    return ec2
+
+
+def _fargate_with_running_task(slug: str = 'test-slug',
+                                eni_id: str = 'eni-vault-test') -> Fargate__AWS__Client__In_Memory:
     fargate = _default_fargate()
-    fargate.seed_task_with_tags('test-cluster', {'VaultApp__Slug': slug})
+    fargate.seed_task_with_tags('test-cluster', {'VaultApp__Slug': slug},
+                                eni_id=eni_id)
     return fargate
 
 
@@ -252,12 +263,20 @@ class Test__Restart:
 class Test__Health:
 
     def test_1__health_healthy_task_prints_healthy(self):
+        probed_urls = []                                                            # capture URLs the stub is asked to GET
+        def _capturing_http(url, headers):
+            probed_urls.append(url)
+            return 200, True
         fargate = _fargate_with_running_task('healthy-vault')
-        health  = Vault_App__Fargate__Health(_http_get=_healthy_http, timeout_seconds=1)
+        health  = Vault_App__Fargate__Health(_http_get=_capturing_http, timeout_seconds=1)
         result  = _run(['health', '--slug', 'healthy-vault', '--cluster', 'test-cluster'],
                        obj=_default_obj(fargate=fargate, health=health))
         assert result.exit_code == 0, result.output
         assert 'healthy' in result.output
+        # Must hit the ENI-resolved IP, NOT a 0.0.0.0 fallback.
+        assert probed_urls, 'health stub was never called'
+        assert '18.130.45.12' in probed_urls[0]
+        assert '0.0.0.0' not in probed_urls[0]
 
     def test_2__health_unhealthy_task_exits_nonzero(self):
         fargate = _fargate_with_running_task('sick-vault')
@@ -287,21 +306,28 @@ class Test__Url:
                        obj=_default_obj(fargate=fargate))
         assert result.exit_code != 0
 
-    def test_2__url_resolves_task_arn_required(self):
-        # Task exists but has no ENI → no IP → exits nonzero with "No IP" message
+    def test_2__url_resolves_through_eni(self):
+        # Happy path: task has eni_id → ec2 client resolves public_ip → URL printed
         fargate = _fargate_with_running_task('url-vault')
         result  = _run(['url', '--slug', 'url-vault', '--cluster', 'test-cluster'],
                        obj=_default_obj(fargate=fargate))
-        # exits nonzero because no IP is available in in-memory task
-        assert result.exit_code != 0
+        assert result.exit_code == 0, result.output
+        assert 'https://18.130.45.12:443' in result.output
 
     def test_3__url_auto_resolves_sole_task(self):
-        # Single running task, no --slug needed — exits nonzero due to no IP but resolves slug
         fargate = _fargate_with_running_task('sole-vault')
         result  = _run(['url', '--cluster', 'test-cluster'],
                        obj=_default_obj(fargate=fargate))
-        # Any exit is fine here; we test that no "ambiguous slug" error fires
-        assert 'No running task' not in result.output
+        assert result.exit_code == 0, result.output
+        assert 'https://18.130.45.12:443' in result.output
+
+    def test_4__url_no_eni_exits_nonzero(self):
+        # Task exists but has NO ENI → cannot resolve IP → exit 1 with diagnostic
+        fargate = _fargate_with_running_task('no-eni-vault', eni_id='')
+        result  = _run(['url', '--slug', 'no-eni-vault', '--cluster', 'test-cluster'],
+                       obj=_default_obj(fargate=fargate))
+        assert result.exit_code != 0
+        assert 'No IP available' in result.output
 
 
 # ════════════════════════════════════════════════════════════════════════════════
