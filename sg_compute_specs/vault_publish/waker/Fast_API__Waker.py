@@ -12,8 +12,9 @@
 
 import os
 
-from fastapi             import FastAPI, Request
-from fastapi.responses   import Response
+from fastapi                       import FastAPI, Request
+from fastapi.middleware.cors       import CORSMiddleware
+from fastapi.responses             import Response
 
 from osbot_utils.type_safe.Type_Safe import Type_Safe
 
@@ -160,6 +161,31 @@ class Fast_API__Waker(Type_Safe):
                            docs_url    = '/__waker__/docs',
                            redoc_url   = None,
                            openapi_url = '/__waker__/openapi.json')
+        # CORS allows the warming page (served from <slug>.aws.sg-labs.app) to
+        # poll the Lambda Function URL cross-origin. Scope to the public zone
+        # via regex so any subdomain of the configured zone is allowed but no
+        # other origin can read the JSON status (which exposes slug + EC2 IP).
+        # allow_credentials=True is needed because the admin UI carries an
+        # API-key cookie scoped to *.<zone>. Origin-regex + credentials=True
+        # requires explicit list (not '*'), so we use the regex form.
+        # Middleware also auto-handles OPTIONS preflights — replaces the
+        # manual /__waker__/probe OPTIONS handler we had.
+        zone = os.environ.get('SG_AWS__DNS__DEFAULT_ZONE', 'aws.sg-labs.app')
+        # Escape dots in zone for regex; allow http+https against any subdomain.
+        zone_re = zone.replace('.', r'\.')
+        fast_app.add_middleware(
+            CORSMiddleware,
+            allow_origin_regex = rf'https?://([a-z0-9-]+\.)*{zone_re}(:\d+)?',
+            allow_credentials  = True,
+            allow_methods      = ['GET', 'POST', 'OPTIONS'],
+            allow_headers      = ['*'],
+            expose_headers     = ['x-waker-state', 'x-waker-ec2-state',
+                                   'x-waker-action', 'x-waker-elapsed-ms',
+                                   'x-waker-host', 'x-waker-slug',
+                                   'x-waker-instance-id', 'x-waker-request-id',
+                                   'x-waker-version'],
+            max_age            = 86400,
+        )
         self._register_routes(fast_app)
         return fast_app
 
@@ -195,18 +221,16 @@ class Fast_API__Waker(Type_Safe):
             from sg_compute_specs.vault_publish.waker.schemas.Enum__Instance__State import Enum__Instance__State
             from sg_compute_specs.vault_publish.waker.Waker__Handler import health_probe
 
-            cors_headers = {
-                'Access-Control-Allow-Origin'  : '*',
-                'Access-Control-Allow-Methods' : 'GET, OPTIONS',
-                'Access-Control-Allow-Headers' : 'content-type, x-vault-warming-probe',
-                'Access-Control-Expose-Headers': 'x-waker-version',
-                'Cache-Control'                : 'no-store',
-                'X-Waker-Version'              : WAKER_VERSION,
-                'Content-Type'                 : 'application/json',
+            # CORS Allow-Origin / preflight handled by CORSMiddleware on the
+            # FastAPI app. We only need to set non-CORS response headers here.
+            response_headers = {
+                'Cache-Control'   : 'no-store',
+                'X-Waker-Version' : WAKER_VERSION,
+                'Content-Type'    : 'application/json',
             }
             if not slug:
                 return Response(content=_json.dumps({'error': 'slug query param required'}),
-                                status_code=400, headers=cors_headers)
+                                status_code=400, headers=response_headers)
 
             resolution = Endpoint__Resolver__EC2().resolve(slug)
             state      = resolution.state
@@ -227,17 +251,7 @@ class Fast_API__Waker(Type_Safe):
                 'public_ip'   : resolution.public_ip,
                 'region'      : resolution.region,
             }
-            return Response(content=_json.dumps(payload), status_code=200, headers=cors_headers)
-
-        @fast_app.options('/__waker__/probe',
-                           summary='CORS preflight for /__waker__/probe.')
-        async def probe_options():
-            return Response(status_code=204, headers={
-                'Access-Control-Allow-Origin'  : '*',
-                'Access-Control-Allow-Methods' : 'GET, OPTIONS',
-                'Access-Control-Allow-Headers' : 'content-type, x-vault-warming-probe',
-                'Access-Control-Max-Age'       : '86400',
-            })
+            return Response(content=_json.dumps(payload), status_code=200, headers=response_headers)
 
         @fast_app.api_route('/{path:path}',
                              methods=['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'HEAD', 'OPTIONS'])
