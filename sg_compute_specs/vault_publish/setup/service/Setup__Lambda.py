@@ -266,6 +266,10 @@ def _build_deploy_env(vault_publish_dir: str) -> dict:
     zone = os.environ.get('SG_AWS__DNS__DEFAULT_ZONE', '')
     if zone:
         env['SG_AWS__DNS__DEFAULT_ZONE'] = zone
+    # Dev RPC channel (/__waker__/cmd) — defaults to ON for dev. Set to '0'
+    # on the function config manually to disable in production.
+    env['WAKER_CMD_ENABLED']           = os.environ.get('WAKER_CMD_ENABLED',           '1')
+    env['WAKER_CMD_MUTATIONS_ENABLED'] = os.environ.get('WAKER_CMD_MUTATIONS_ENABLED', '1')
     return env
 
 
