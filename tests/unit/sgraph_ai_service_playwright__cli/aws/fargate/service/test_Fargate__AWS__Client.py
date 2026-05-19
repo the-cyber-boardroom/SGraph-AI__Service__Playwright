@@ -190,3 +190,46 @@ class Test__Fargate__AWS__Client:
         c.register_task_definition('hello-world', 'hello:latest')
         task = c.run_task(cluster='sg-cluster', task_def='hello-world:1')
         assert task.launch_type == 'FARGATE'
+
+    # ── FARGATE_SPOT — capacityProviderStrategy ───────────────────────────────
+
+    def test_run_task_spot_uses_capacity_provider_strategy(self):
+        c = _client()
+        c.create_cluster('sg-cluster')
+        c.register_task_definition('hello-world', 'hello:latest')
+        c.run_task(cluster='sg-cluster', task_def='hello-world:1',
+                   launch_type='FARGATE_SPOT')
+        kwargs = c._fake.last_run_kwargs
+        assert 'capacityProviderStrategy' in kwargs
+        assert 'launchType' not in kwargs
+        strategy = kwargs['capacityProviderStrategy']
+        assert strategy[0]['capacityProvider'] == 'FARGATE_SPOT'
+
+    def test_run_task_fargate_uses_launch_type(self):
+        c = _client()
+        c.create_cluster('sg-cluster')
+        c.register_task_definition('hello-world', 'hello:latest')
+        c.run_task(cluster='sg-cluster', task_def='hello-world:1',
+                   launch_type='FARGATE')
+        kwargs = c._fake.last_run_kwargs
+        assert 'launchType' in kwargs
+        assert kwargs['launchType'] == 'FARGATE'
+        assert 'capacityProviderStrategy' not in kwargs
+
+    # ── ECS Exec ──────────────────────────────────────────────────────────────
+
+    def test_run_task_exec_enabled_passes_flag(self):
+        c = _client()
+        c.create_cluster('sg-cluster')
+        c.register_task_definition('hello-world', 'hello:latest')
+        c.run_task(cluster='sg-cluster', task_def='hello-world:1',
+                   enable_execute_command=True)
+        assert c._fake.last_run_kwargs.get('enableExecuteCommand') is True
+
+    def test_run_task_exec_disabled_omits_flag(self):
+        c = _client()
+        c.create_cluster('sg-cluster')
+        c.register_task_definition('hello-world', 'hello:latest')
+        c.run_task(cluster='sg-cluster', task_def='hello-world:1',
+                   enable_execute_command=False)
+        assert 'enableExecuteCommand' not in c._fake.last_run_kwargs

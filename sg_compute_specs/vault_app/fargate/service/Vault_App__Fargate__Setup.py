@@ -22,6 +22,9 @@ from sg_compute_specs.vault_app.fargate.service.Vault_App__Fargate__Tags__Writer
 
 
 _ECS_TASK_EXECUTION_POLICY = 'arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy'
+_TASK_ROLE_NAME            = 'vault-app-fargate-task'
+_SSM_POLICY_NAME           = 'ssm-exec'
+_SSM_POLICY_DOC            = '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["ssmmessages:CreateControlChannel","ssmmessages:CreateDataChannel","ssmmessages:OpenControlChannel","ssmmessages:OpenDataChannel"],"Resource":"*"}]}'
 
 
 class Vault_App__Fargate__Setup(Type_Safe):
@@ -77,6 +80,7 @@ class Vault_App__Fargate__Setup(Type_Safe):
             'cluster_name'       : cluster_name,
             'region'             : self._resolve_region(request),
             'execution_role_arn' : '',                                             # populated by _phase_iam create/check
+            'task_role_arn'      : '',                                             # populated by _phase_iam create
         }
 
         for phase_enum in phases:
@@ -175,6 +179,9 @@ class Vault_App__Fargate__Setup(Type_Safe):
                 result.detail = f'exists ({role})'
             else:
                 result.detail = 'missing'
+            task_role = self._read_iam_role(_TASK_ROLE_NAME)
+            if task_role:
+                ctx['task_role_arn'] = task_role
             result.status = Enum__VAF__Phase__Status.OK
 
         elif op == 'create':
@@ -188,6 +195,16 @@ class Vault_App__Fargate__Setup(Type_Safe):
             resp = self.iam_client.create_role(req)
             self.iam_client.attach_managed_policy(role_name, _ECS_TASK_EXECUTION_POLICY)
             ctx['execution_role_arn'] = str(resp.role_arn or '')                  # thread ARN to later phases
+
+            task_req = Schema__IAM__Role__Create__Request(                        # task role with SSM Exec inline policy
+                role_name     = _TASK_ROLE_NAME,
+                trust_service = Enum__IAM__Trust__Service.ECS_TASKS,
+                description   = 'Vault App Fargate task role (ECS Exec / SSM)',
+            )
+            task_resp = self.iam_client.create_role(task_req)
+            self.iam_client.put_raw_inline_policy(_TASK_ROLE_NAME, _SSM_POLICY_NAME, _SSM_POLICY_DOC)
+            ctx['task_role_arn'] = str(task_resp.role_arn or '')                  # thread to TASK_DEF phase
+
             if resp.created:
                 result.detail = f'created role {role_name}'
                 result.status = Enum__VAF__Phase__Status.OK
@@ -452,7 +469,8 @@ class Vault_App__Fargate__Setup(Type_Safe):
                 result.status = Enum__VAF__Phase__Status.ERROR
                 return
 
-            log_group = request.log_group or self.spec.default_log_group
+            log_group    = request.log_group or self.spec.default_log_group
+            task_role    = ctx.get('task_role_arn') or request.task_role_name
             td = self.fargate_client.register_task_definition(
                 name               = family,
                 image              = image_uri,
@@ -460,6 +478,7 @@ class Vault_App__Fargate__Setup(Type_Safe):
                 memory             = request.memory or self.spec.default_memory,
                 port_mappings      = self.spec.port_mappings(),
                 execution_role_arn = ctx['execution_role_arn'],                   # populated by _phase_iam (runs first)
+                task_role_arn      = task_role,
                 log_group          = log_group,
             )
             result.detail = f'revision :{td.revision}'

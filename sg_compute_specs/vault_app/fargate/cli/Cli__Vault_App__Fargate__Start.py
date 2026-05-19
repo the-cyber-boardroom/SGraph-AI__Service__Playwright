@@ -3,7 +3,8 @@
 # Typer CLI surface for task-level commands:
 #   sg vault-app fargate start   [--slug] [--cluster] [--cpu] [--memory]
 #                                [--launch-type] [--seed-vault-keys] [--access-token]
-#                                [--no-public-ip] [--time] [--json] [--yes]
+#                                [--no-public-ip] [--exec/--no-exec] [--dns-zone]
+#                                [--time] [--json] [--yes]
 #   sg vault-app fargate stop    [--slug] [--cluster] [--yes] [--json]
 #   sg vault-app fargate restart [--slug] [--cluster] [--json]
 #   sg vault-app fargate health  [--slug] [--cluster] [--timeout]
@@ -13,12 +14,14 @@
 #   sg vault-app fargate list    [--cluster] [--clusters] [--json]
 #   sg vault-app fargate info    [--slug] [--cluster]
 #   sg vault-app fargate timings [--slug] [--cluster] [--last] [--json]
+#   sg vault-app fargate exec    [--slug] [--cluster] [--command] [--container]
 #
 # Mutation gate: SG_VAULT_APP__FARGATE__ALLOW_MUTATIONS=1 for start/stop/restart.
 # ═══════════════════════════════════════════════════════════════════════════════
 
 import json
 import os
+import subprocess
 
 import typer
 from rich.console import Console
@@ -199,11 +202,13 @@ def fargate_start(ctx          : typer.Context,
                   cluster      : str  = typer.Option('',        '--cluster',         help='Cluster name (auto-resolved if omitted).'),
                   cpu          : str  = typer.Option('',        '--cpu',             help='CPU units (e.g. 512).'),
                   memory       : str  = typer.Option('',        '--memory',          help='Memory in MiB (e.g. 1024).'),
-                  launch_type  : str  = typer.Option('FARGATE', '--launch-type',     help='FARGATE or FARGATE_SPOT.'),
+                  launch_type  : str  = typer.Option('FARGATE_SPOT', '--launch-type', help='FARGATE_SPOT (default, ~70%% cheaper, interruptible) or FARGATE.'),
                   seed_vault_keys: str = typer.Option('',       '--seed-vault-keys', help='Comma-separated vault keys to seed.'),
                   access_token : str  = typer.Option('',        '--access-token',    help='Vault access token.'),
                   tls          : bool = typer.Option(False,     '--tls/--no-tls',    help='Enable TLS (port 443); omit for direct-IP HTTP (port 8080, default).'),
                   public_ip    : bool = typer.Option(True,      '--public-ip/--no-public-ip', help='Assign public IP.'),
+                  enable_exec  : bool = typer.Option(True,      '--exec/--no-exec',  help='Enable ECS Exec (SSM shell access).'),
+                  dns_zone     : str  = typer.Option('',        '--dns-zone',        help='Route53 zone for DNS upsert + TLS (e.g. sg-compute.sgraph.ai).'),
                   time_        : bool = typer.Option(False,     '--time',            help='Print phase timings table.'),
                   as_json      : bool = typer.Option(False,     '--json',            help='Machine-readable output.'),
                   yes          : bool = typer.Option(False,     '--yes',             help='Skip confirmation prompt.')):
@@ -216,16 +221,19 @@ def fargate_start(ctx          : typer.Context,
     if not yes and not as_json:
         typer.confirm(f'Start vault on cluster {cluster_name or "(auto)"}?', default=True, abort=True)
 
+    with_tls_eff = tls or bool(dns_zone)                                          # dns_zone forces TLS
     request = Schema__VAF__Start__Request(
         cluster_name    = cluster_name,
         slug            = slug,
         access_token    = access_token,
         seed_vault_keys = seed_vault_keys,
-        with_tls        = tls,
+        with_tls        = with_tls_eff,
         public_ip       = public_ip,
         launch_type     = launch_type,
         cpu             = cpu,
         memory          = memory,
+        enable_exec     = enable_exec,
+        dns_zone        = dns_zone,
     )
 
     starter = _get_starter(ctx)
@@ -235,7 +243,7 @@ def fargate_start(ctx          : typer.Context,
             report = starter.start(request)
         else:
             phase_names = ['resolve-config', 'run-task', 'wait-running',
-                           'resolve-eni', 'wait-health']
+                           'resolve-eni', 'dns-upsert', 'wait-health']
             with Phase__Progress__Renderer(title='Start — vault-app', phases=phase_names) as renderer:
                 starter.progress_cb = renderer.as_progress_cb()
                 report = starter.start(request)
@@ -628,6 +636,38 @@ def fargate_info(ctx    : typer.Context,
         console.print(f'\n  [dim]No timing records for slug {slug_name!r}.[/dim]')
 
     console.print()
+
+
+# ════════════════════════════════════════════════════════════════════════════════
+# exec
+# ════════════════════════════════════════════════════════════════════════════════
+
+@spec_cli_errors
+def fargate_exec(ctx      : typer.Context,
+                 slug     : str = typer.Option('',          '--slug',      help='Task slug (auto-resolved if one running task).'),
+                 cluster  : str = typer.Option('',          '--cluster',   help='Cluster name (auto-resolved if omitted).'),
+                 command  : str = typer.Option('/bin/sh',   '--command',   help='Command to execute inside the container.'),
+                 container: str = typer.Option('vault-app', '--container', help='Container name.')):
+    """Open an interactive shell in a running vault-app container via ECS Exec."""
+    fargate_client = _get_fargate_client(ctx)
+    cluster_name   = _resolve_cluster(fargate_client, cluster)
+    slug_name      = _resolve_slug(fargate_client, cluster_name, slug)
+    task_arn       = _resolve_task_arn(fargate_client, cluster_name, slug_name)
+
+    if not task_arn:
+        console.print(f'  [red]✗[/]  No running task for slug [bold]{slug_name}[/]')
+        raise typer.Exit(1)
+
+    task_id = task_arn.split('/')[-1] if '/' in task_arn else task_arn
+    aws_cmd = [
+        'aws', 'ecs', 'execute-command',
+        '--cluster',   cluster_name,
+        '--task',      task_id,
+        '--container', container,
+        '--command',   command,
+        '--interactive',
+    ]
+    subprocess.execvp('aws', aws_cmd)                                             # replace process for terminal attach
 
 
 # ════════════════════════════════════════════════════════════════════════════════
