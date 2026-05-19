@@ -75,6 +75,18 @@ def _get_ec2_client(ctx: typer.Context):
         return None
 
 
+def _get_route53_client(ctx: typer.Context):                                       # sibling of _get_ec2_client — DNS cleanup is best-effort
+    obj    = ctx.obj or {}
+    client = obj.get('route53_client')
+    if client is not None:
+        return client
+    try:
+        from sgraph_ai_service_playwright__cli.aws.dns.service.Route53__AWS__Client import Route53__AWS__Client
+        return Route53__AWS__Client()
+    except Exception:                                                              # noqa: BLE001 — DNS cleanup is best-effort
+        return None
+
+
 def _resolve_cluster(fargate_client, cluster_flag: str) -> str:
     return Vault_App__Fargate__Cluster__Resolver(
         fargate_client=fargate_client).resolve(cluster_flag)
@@ -86,14 +98,19 @@ def _resolve_slug(fargate_client, cluster_name: str, slug_flag: str) -> str:
 
 
 def _resolve_task_arn(fargate_client, cluster_name: str, slug: str) -> str:     # find task_arn for a slug in the cluster
+    arn, _tags = _resolve_task_arn_and_tags(fargate_client, cluster_name, slug)
+    return arn
+
+
+def _resolve_task_arn_and_tags(fargate_client, cluster_name: str, slug: str):   # (task_arn, tags_dict) — tags needed for DNS cleanup
     tasks = fargate_client.list_tasks(cluster=cluster_name)
     for task in tasks:
         tags = task.tags or {}
         if isinstance(tags, list):                                                # handle raw [{key,value}] format
             tags = {t['key']: t['value'] for t in tags if 'key' in t}
         if tags.get('VaultApp__Slug') == slug:
-            return str(task.task_arn)
-    return ''
+            return str(task.task_arn), dict(tags)
+    return '', {}
 
 
 def _resolve_public_ip(task, ec2_client) -> tuple:                                # (public_ip, private_ip) via ENI; same pattern as Starter
@@ -273,10 +290,10 @@ def fargate_stop(ctx    : typer.Context,
     """Stop a running vault-app container."""
     _gate_check()
 
-    fargate_client = _get_fargate_client(ctx)
-    cluster_name   = _resolve_cluster(fargate_client, cluster)
-    slug_name      = _resolve_slug(fargate_client, cluster_name, slug)
-    task_arn       = _resolve_task_arn(fargate_client, cluster_name, slug_name)
+    fargate_client      = _get_fargate_client(ctx)
+    cluster_name        = _resolve_cluster(fargate_client, cluster)
+    slug_name           = _resolve_slug(fargate_client, cluster_name, slug)
+    task_arn, task_tags = _resolve_task_arn_and_tags(fargate_client, cluster_name, slug_name)
 
     if not task_arn:
         console.print(f'  [red]✗[/]  No task ARN found for slug [bold]{slug_name}[/] in cluster [bold]{cluster_name}[/]')
@@ -288,11 +305,51 @@ def fargate_stop(ctx    : typer.Context,
     with Mutation__Gate__Scope():
         fargate_client.stop_task(task_arn, cluster=cluster_name)
 
+    # ── DNS cleanup (best-effort) ────────────────────────────────────────────
+    # Read VaultApp__DnsFqdn tag set by the Starter; if present, delete the A
+    # record.  zone is derived from the FQDN (drop the leftmost label).  Any
+    # failure is logged but does not fail the stop.
+    fqdn       = (task_tags or {}).get('VaultApp__DnsFqdn', '')
+    dns_status = 'no DNS record'
+    if fqdn:
+        dns_status = _delete_dns_record(ctx, fqdn)
+
     if as_json:
-        typer.echo(json.dumps({'slug': slug_name, 'task_arn': task_arn, 'stopped': True}, indent=2))
+        typer.echo(json.dumps({
+            'slug'      : slug_name,
+            'task_arn'  : task_arn,
+            'stopped'   : True,
+            'dns_fqdn'  : fqdn,
+            'dns_status': dns_status,
+        }, indent=2))
         return
 
     console.print(f'[green]Stopped[/green] {slug_name}')
+    if fqdn:
+        console.print(f'{dns_status} {fqdn}')
+    else:
+        console.print(f'{dns_status}')
+
+
+def _delete_dns_record(ctx: typer.Context, fqdn: str) -> str:                       # best-effort delete; returns human-readable status
+    from sgraph_ai_service_playwright__cli.aws.dns.enums.Enum__Route53__Record_Type import Enum__Route53__Record_Type
+    if '.' not in fqdn:                                                              # FQDN must have at least one dot to derive a zone
+        return 'DNS skipped (invalid fqdn)'
+    zone = fqdn.split('.', 1)[1]                                                    # everything after the first '.' is the zone
+    route53_client = _get_route53_client(ctx)
+    if route53_client is None:
+        return 'DNS skipped (no client)'
+    try:
+        route53_client.delete_record(
+            zone_id_or_name = zone,
+            name            = fqdn,
+            record_type     = Enum__Route53__Record_Type.A,
+        )
+        return 'Deleted DNS record'
+    except ValueError:                                                               # record already gone — idempotent semantics
+        return 'DNS record already absent'
+    except Exception as exc:                                                         # noqa: BLE001 — DNS cleanup is best-effort
+        return f'DNS delete failed: {exc}'
 
 
 # ════════════════════════════════════════════════════════════════════════════════
@@ -532,7 +589,8 @@ def fargate_list(ctx         : typer.Context,
         return
 
     # ── list tasks ────────────────────────────────────────────────────────────
-    tasks = fargate_client.list_tasks(cluster=cluster)
+    cluster_name = _resolve_cluster(fargate_client, cluster)                       # auto-resolve so empty --cluster doesn't hit boto3's 'default' fallback
+    tasks = fargate_client.list_tasks(cluster=cluster_name)
     if as_json:
         rows = []
         for task in tasks:

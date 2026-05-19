@@ -86,6 +86,8 @@ class Vault_App__Fargate__Starter(Type_Safe):
                 self.slug_resolver.check_unique(cluster_cfg.cluster_name, slug)
                 task_tags = dict(request.tags or {})
                 task_tags['VaultApp__Slug'] = slug
+                if request.dns_zone and fqdn:                                          # record FQDN at run-task time so stop can find the DNS record later (Option A — pre-DNS_UPSERT; idempotent because delete_record is best-effort)
+                    task_tags['VaultApp__DnsFqdn'] = fqdn
                 subnets = [s.strip() for s in cluster_cfg.subnets.split(',') if s.strip()]
                 with_tls_effective = request.with_tls or bool(request.dns_zone)   # dns_zone forces TLS
                 task = self.fargate_client.run_task(
@@ -96,6 +98,7 @@ class Vault_App__Fargate__Starter(Type_Safe):
                     assign_public_ip       = request.public_ip,
                     launch_type            = request.launch_type,
                     enable_execute_command = request.enable_exec,
+                    task_role_arn          = cluster_cfg.task_role_arn if request.enable_exec else '',   # override TD role for ECS Exec
                     tags                   = task_tags,
                     env                    = self.spec.env_for_run(
                         access_token    = request.access_token,

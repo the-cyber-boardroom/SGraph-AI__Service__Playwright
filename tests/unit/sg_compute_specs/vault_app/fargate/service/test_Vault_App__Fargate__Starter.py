@@ -257,6 +257,26 @@ class test_Vault_App__Fargate__Starter(TestCase):
         assert report.phases is not None
         assert len(report.phases) > 0
 
+    # ── VaultApp__DnsFqdn tag (Deliverable 1) ─────────────────────────────────
+
+    def test_dns_zone_sets_dns_fqdn_tag_on_task(self):
+        # When dns_zone is set, the RUN_TASK phase stamps VaultApp__DnsFqdn so
+        # `stop` can later find the DNS record without the user re-passing --dns-zone.
+        fargate = _make_fargate()
+        starter = _make_starter(fargate=fargate)
+        starter.start(_make_request(slug='dns-vault', dns_zone='sg-compute.sgraph.ai'))
+        tag_list  = fargate._fake.last_run_kwargs.get('tags', [])
+        tag_dict  = {t['key']: t['value'] for t in tag_list if 'key' in t}
+        assert tag_dict.get('VaultApp__DnsFqdn') == 'dns-vault.sg-compute.sgraph.ai'
+
+    def test_no_dns_zone_omits_dns_fqdn_tag(self):
+        fargate = _make_fargate()
+        starter = _make_starter(fargate=fargate)
+        starter.start(_make_request(slug='plain-vault'))                              # no dns_zone
+        tag_list = fargate._fake.last_run_kwargs.get('tags', [])
+        tag_dict = {t['key']: t['value'] for t in tag_list if 'key' in t}
+        assert 'VaultApp__DnsFqdn' not in tag_dict
+
     def test_phases_includes_resolve_config(self):
         starter = _make_starter()
         report  = starter.start(_make_request())
