@@ -28,58 +28,101 @@ this branch — `cli/`, `service/`, `schemas/`, `collections/`, `enums/`,
 ```
 sg vault-app fargate                                        (no-arg shows help)
 
-  setup
-    check    [--phase ecr|iam|logs|task-def|all] [--json]   read-only drift detection
-    status   [--json]                                       what's currently in place
-    create   [--phase ecr|iam|logs|task-def|all]            mutation-gated, default all
-             [--yes] [--time] [--json]
-    update   [--phase ...] [--yes] [--time] [--json]        re-apply (for image bumps)
-    delete   [--phase ...] [--yes] [--time] [--json]        teardown, reverse order
-    plan     [--phase ...] [--json]                         print what would happen, no calls
-    show                                                    show resolved config (image, role arns, log group, …)
+  # Cluster-level commands take --cluster <name>. Auto-generated on
+  # `setup create` if omitted. Auto-resolved on task-level commands
+  # (start/stop/etc.) — see "Slug + cluster semantics" below.
 
-  start                                                     THE FAST PATH
+  setup                                                     CLUSTER-LEVEL
+    check    [--cluster C] [--phase ecr|iam|logs|cluster|image-mirror|task-def|all] [--json]
+    status   [--cluster C] [--json]                            what's currently in place
+    create   [--cluster C] [--phase ...] [--yes] [--time] [--json]   auto-generates cluster name if --cluster omitted
+    update   [--cluster C] [--phase ...] [--yes] [--time] [--json]   re-apply (e.g. image bump)
+    delete   [--cluster C] [--phase ...] [--yes] [--time] [--json]   teardown, reverse order
+    plan     [--cluster C] [--phase ...] [--json]                    dry-run
+    show     [--cluster C]                                           resolved cluster config (tags + active task-def)
+
+  start                                                     TASK-LEVEL — THE FAST PATH
+           [--slug S] [--cluster C]
            [--cpu 512] [--memory 1024]
            [--with-aws-dns] [--public-ip|--no-public-ip]
            [--launch-type FARGATE_SPOT|FARGATE]
            [--seed-vault-keys K1,K2] [--access-token T]
            [--time] [--json] [--yes]
-           # NOTE: storage is always ephemeral / in-memory per the
-           # peer-vaults-for-persistence decision. No --storage-mode flag.
-           # Container env SEND__STORAGE_MODE=memory is set unconditionally.
-  stop     [--task-arn ARN | --slug NAME] [--yes] [--time] [--json]
-  restart  [--slug NAME] [--time] [--json]                  stop+start with same task-def
-  health   [--slug NAME] [--timeout 30]                     poll /info/health
-  logs     [--slug NAME] [--since 30m] [--follow] [--source vault|ecs]
-  url      [--slug NAME]                                    print the reachable URL
-  open     [--slug NAME]                                    open the URL in browser
-  list                                                      tasks + status, like `sg vault-app list`
-  info     [--slug NAME]                                    rich task description + last timings
-  timings  [--slug NAME] [--last 10] [--json]               historical timings table
+           # Slug auto-generated if omitted. Cluster auto-resolved if omitted.
+           # Slug must be unique within the cluster (collision check at start).
+           # Container env SEND__STORAGE_MODE=memory is hard-coded (Q1/Q6).
+  stop     [--slug S] [--cluster C] [--yes] [--time] [--json]
+  restart  [--slug S] [--cluster C] [--time] [--json]
+  health   [--slug S] [--cluster C] [--timeout 30]
+  logs     [--slug S] [--cluster C] [--since 30m] [--follow] [--source vault|ecs]
+  url      [--slug S] [--cluster C]                                  print the reachable URL
+  open     [--slug S] [--cluster C]                                  open URL in browser
+  info     [--slug S] [--cluster C]                                  rich task description + last timings
+
+  list                                                      LIST QUERIES
+           [--cluster C]                                              list tasks; default = all our clusters
+           [--clusters]                                               list clusters themselves (no tasks)
+           [--json]
+  timings  [--slug S] [--cluster C] [--last 10] [--json]              historical timings
 
   # NOTE: `config` subcommand removed per decision Q3 (07__decisions.md).
   # Resolved config lives on AWS tags + the active task definition.
-  # `sg vault-app fargate setup show` prints the live resolved config.
+  # `sg vault-app fargate setup show --cluster C` prints the live resolved config.
 ```
 
-### Slug semantics
+### Slug + cluster semantics
 
-Per decision Q4 (`07__decisions.md`): **slug == cluster name** in V1.
+Per the revised Q4 (`07__decisions.md`): **slug ≠ cluster**. The two
+identifiers map onto different things:
 
-A vault deployment on Fargate is identified by a **slug** that is *also*
-the ECS cluster name — e.g. `demo-tuesday`, `customer-acme-prod`. Setup
-creates the cluster under that name; start runs a task on the cluster of
-that name.
+- **Cluster name** — tenancy / use-case grouping; one cluster per
+  customer or per use-case. Carries the shared infrastructure (subnets,
+  SG, IAM roles, log group, ECR repo, DNS zone). Created by `setup
+  create`. Long-lived.
+- **Slug** — identifier of one running vault container (one ECS task).
+  Lives only while the task runs. Multiple slugs co-exist in one
+  cluster.
 
-`--slug` is optional everywhere:
-- `setup create` without `--slug` auto-generates a Heroku-style name using
-  the same helper `sg vault-app create` uses for EC2 stack names (TBD —
-  find and re-use, don't duplicate).
-- `start / stop / logs / …` without `--slug` requires exactly one cluster
-  tagged `Stack=sg-vault-app-fargate` to exist; errors clearly otherwise.
+Relationship: **1 cluster : N slugs**.
 
-Validation: `Safe_Str__VAF__Slug` regex `^[a-z0-9][a-z0-9-]{1,40}$` (also
-satisfies ECS cluster-name rules).
+#### `--cluster` and `--slug` flags
+
+`setup create / update / delete / check / status / show / plan` operate
+on a **cluster** and take `--cluster`. Auto-generated if omitted.
+
+`start / stop / restart / health / logs / url / open / info` operate on a
+**task** identified by `--slug` within a `--cluster`.
+
+#### Cluster identification when `--cluster` is omitted on task-level commands
+
+1. `--cluster <name>` (explicit) → use it.
+2. `$SG_VAULT_APP__FARGATE__CLUSTER` env-var → use it.
+3. Exactly one cluster tagged `Stack=sg-vault-app-fargate` in the
+   current region → use it (typical dev case).
+4. Otherwise: `typer.BadParameter` listing candidate cluster names.
+
+#### Slug identification when `--slug` is omitted on task-level commands
+
+1. `--slug <name>` (explicit) → use it.
+2. Exactly one RUNNING task in the resolved cluster → use it (typical
+   single-vault dev case).
+3. Otherwise: `typer.BadParameter` listing candidate slug names.
+
+#### Validation primitives
+
+- `Safe_Str__VAF__Slug`    — regex `^[a-z0-9][a-z0-9-]{1,40}$`
+- `Safe_Str__VAF__Cluster` — regex `^[a-z0-9][a-z0-9-]{1,64}$`
+
+Auto-generation uses the same Heroku-style word-list helper that
+`sg vault-app create` uses for EC2 stack naming (locate during slice 2;
+do NOT duplicate the word lists).
+
+#### `list` semantics
+
+- `list` (no `--cluster`)         — lists tasks across **all** clusters
+                                    tagged `Stack=sg-vault-app-fargate`.
+- `list --cluster X`              — lists tasks in cluster X only.
+- `list --clusters`               — lists clusters themselves (no tasks).
 
 ## Output format
 
@@ -91,26 +134,32 @@ Live-progress table during setup/start (see `04__timing-instrumentation.md`).
 Final summary panel:
 
 ```
-╭─ vault-app on Fargate ────────────────────────────────╮
-│ slug          : dinis-tue                             │
-│ task arn      : arn:aws:ecs:eu-west-2:…:task/vault/abc│
-│ public ip     : 18.130.45.12                          │
-│ vault url     : https://dinis-tue.sg-compute.sgraph.ai│
-│ access token  : sg_abc…xyz  (shown ONCE)              │
-│ task ready    :  4.2 s  (RunTask → RUNNING)           │
-│ vault ready   :  9.7 s  (RunTask → 200 /info/health)  │
-│ total         : 11.1 s                                │
-╰───────────────────────────────────────────────────────╯
+╭─ vault-app on Fargate ────────────────────────────────────╮
+│ slug          : dinis-tue                                 │
+│ cluster       : acme-prod                                 │
+│ task arn      : arn:aws:ecs:eu-west-2:…:task/acme-prod/abc│
+│ public ip     : 18.130.45.12                              │
+│ vault url     : https://dinis-tue.sg-compute.sgraph.ai    │
+│ access token  : sg_abc…xyz  (shown ONCE)                  │
+│ task ready    :  4.2 s  (RunTask → RUNNING)               │
+│ vault ready   :  9.7 s  (RunTask → 200 /info/health)      │
+│ total         : 11.1 s                                    │
+╰───────────────────────────────────────────────────────────╯
 ```
+
+The DNS pattern is `<slug>.<cluster-dns-zone>`. The zone comes from the
+cluster's `VaultApp__DnsZone` tag set during `setup create`. If two
+clusters share a DNS zone, they also share the slug namespace within
+that zone — give each cluster its own zone to avoid collisions.
 
 ### `--json` (machine-readable)
 
 ```json
 {
   "slug": "dinis-tue",
+  "cluster": "acme-prod",
   "task_arn": "...",
-  "task_definition": "vault-app:7",
-  "cluster": "vault-app",
+  "task_definition": "acme-prod:7",
   "public_ip": "18.130.45.12",
   "private_ip": "10.0.1.15",
   "vault_url": "https://dinis-tue.sg-compute.sgraph.ai",

@@ -27,7 +27,8 @@ sg_compute_specs/vault_app/fargate/
 │   ├── Vault_App__Fargate__Starter.py       the fast-path orchestrator
 │   ├── Vault_App__Fargate__Health.py        HTTP polling (extract from Cli__Vault_Publish wake pattern)
 │   ├── Vault_App__Fargate__Timings__Store.py persist last N start timings to ~/.cache/sg/
-│   ├── Vault_App__Fargate__Slug__Resolver.py slug → cluster (one call, since slug == cluster name)
+│   ├── Vault_App__Fargate__Cluster__Resolver.py  --cluster | env | sole-tagged-cluster (Q4 revision)
+│   ├── Vault_App__Fargate__Slug__Resolver.py     --slug | sole-running-task-in-cluster → task arn (Q4 revision)
 │   ├── Vault_App__Fargate__Image__Mirror.py shells docker pull/tag/push for Q5
 │   └── Mutation__Gate__Scope.py             env-var scope for the single ALLOW_MUTATIONS gate (Q2)
 ├── schemas/
@@ -129,7 +130,7 @@ class Vault_App__Fargate__Starter(Type_Safe):
     tags_reader : Vault_App__Fargate__Tags__Reader = None   # Q3: reads cluster tags at start time
     # Cluster config (subnets, SGs, role ARNs, log group, image URI, port mappings)
     # is resolved in-memory at start via:
-    #   describe_cluster(slug)            → cluster tags → Schema__VAF__Cluster__Config (network + roles)
+    #   describe_cluster(cluster_name)    → cluster tags → Schema__VAF__Cluster__Config (network + roles)
     #   describe_task_definition(family)  → image / port mappings / log config
     # Both calls fire in parallel — ~50 ms combined, no disk I/O.
 
@@ -142,7 +143,7 @@ class Vault_App__Fargate__Starter(Type_Safe):
     def start(self, request: Schema__VAF__Start__Request) -> Schema__VAF__Start__Report:
         timer = Phase__Timer()
         with timer.phase(Enum__VAF__Start__Phase.RESOLVE_CONFIG):    # Q3: parallel describes
-            cluster_cfg, task_def = self._parallel_resolve(request.slug)
+            cluster_cfg, task_def = self._parallel_resolve(request.cluster_name)
         with timer.phase(Enum__VAF__Start__Phase.RUN_TASK):          ...
         with timer.phase(Enum__VAF__Start__Phase.WAIT_RUNNING):      ...   # Q9: live state in detail
         with timer.phase(Enum__VAF__Start__Phase.RESOLVE_ENI):       ...
@@ -182,22 +183,45 @@ class Vault_App__Fargate__Health(Type_Safe):
         # returns (ok: bool, status_code: int, attempts: int, duration_ms: int, last_error: str)
 ```
 
-### `Vault_App__Fargate__Slug__Resolver`
+### `Vault_App__Fargate__Cluster__Resolver` + `Vault_App__Fargate__Slug__Resolver`
 
-Slug → task ARN, using the `Vault-App-Slug=<slug>` tag:
+Two resolvers, separated per Q4-revision (slug ≠ cluster). Both used by
+every task-level command (`stop / health / logs / url / open / restart /
+info`) in this order: cluster first, then slug within that cluster.
 
 ```python
+class Vault_App__Fargate__Cluster__Resolver(Type_Safe):
+    fargate_client : Fargate__AWS__Client = None
+    env_var        : str = 'SG_VAULT_APP__FARGATE__CLUSTER'
+
+    def resolve(self, cluster_flag: str = '') -> str:
+        # 1. cluster_flag if set
+        # 2. os.environ.get(self.env_var) if set
+        # 3. list_clusters() filtered to tag Stack=sg-vault-app-fargate; if
+        #    exactly one → use it
+        # 4. raise typer.BadParameter listing candidates
+
+
 class Vault_App__Fargate__Slug__Resolver(Type_Safe):
     fargate_client : Fargate__AWS__Client = None
-    cluster        : str = ''
 
-    def resolve(self, slug: str = '') -> Optional[str]:
-        # if slug == '': require exactly one running tagged task, else None
-        # else: filter list_tasks by family, then describe_tasks, then match tag
+    def resolve(self, cluster_name: str, slug: str = '') -> str:
+        # 1. slug if set; verify a RUNNING task exists in cluster with
+        #    tag VaultApp__Slug=<slug>; raise if not
+        # 2. otherwise: list RUNNING tasks in cluster; if exactly one →
+        #    return its VaultApp__Slug tag value
+        # 3. otherwise: raise typer.BadParameter listing candidate slugs
+
+    def to_task_arn(self, cluster_name: str, slug: str) -> str:
+        # cheap helper used after resolve() — one list_tasks + filter
+
+    def check_unique(self, cluster_name: str, slug: str) -> None:
+        # used by `start` before run_task to fail fast on collision
+        # raises ClusterSlugCollision if a RUNNING task already has the slug
 ```
 
-This is the only AWS call in `stop / health / logs / url / open` — they all
-go: slug → arn → action.
+Together these are the only AWS calls in the task-level commands' name
+resolution: cluster + slug → task arn → action.
 
 ### `Vault_App__Fargate__Timings__Store`
 

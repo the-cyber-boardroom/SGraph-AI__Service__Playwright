@@ -107,43 +107,84 @@ keeps AWS as the single source of truth. Worth the 45 ms.
 The slug *is* the cluster name (see Q4). No mapping needed. `start --slug
 dinis-tue` finds cluster `dinis-tue`, reads its tags, runs a task on it.
 
-## Q4 — Slug naming → **A, with: slug == cluster name; both auto-generated when omitted**
+## Q4 — Slug naming → **REVISED: slug = container (task); cluster = separate grouping; both auto-generatable**
 
-Refined: a *slug* and a *cluster name* are the same string in V1. The
-cluster IS the slug.
+Earlier wording said "slug == cluster name". That was wrong. The correct
+mapping:
 
-### Cluster name conventions
+- **Cluster name** = a tenancy / use-case grouping. Examples:
+  `acme-prod`, `internal-dev`, `red-team-sandbox`, `customer-globex`.
+  One cluster carries one set of shared infrastructure (subnets, SG,
+  IAM roles, log group, ECR repo, DNS zone). A cluster lives across
+  many vault sessions.
+- **Slug** = identifier of one running vault container (one ECS task).
+  Examples: `dinis-tue`, `vault-mouse-1`, `acme-demo-30s`. Lives as
+  long as the task does. Multiple slugs can co-exist in the same
+  cluster.
 
-- User-supplied: `sg vault-app fargate setup create --slug demo-tuesday`
-  → cluster name `demo-tuesday`.
-- Auto-generated: `sg vault-app fargate setup create` → cluster name
-  derived from the same generator that `sg vault-app create` uses for
-  EC2 stack names (look at `Vault_App__Service.create_stack` and reuse
-  the helper). Pattern: `va-fg-<adjective>-<animal>` or similar
-  Heroku-style — match whatever pattern `sg vault-app` uses today so
-  the user sees consistent naming across both deployment surfaces.
+Relationship: **1 cluster : N slugs**.
 
-### Why slug == cluster
+### Auto-generation (both must be auto-generatable for fast setup + testing)
 
-- One cluster per "thing the user thinks of as a vault deployment" maps
-  cleanly to AWS quotas and IAM trust.
-- Eliminates the slug-registry problem (no separate lookup; the cluster
-  list IS the deployment list).
-- `sg vault-app fargate list` becomes `sg aws fargate cluster list
-  --tag Stack=sg-vault-app-fargate` plumbed through.
-- When Q8 evolves (multi-tenant, one-cluster-per-tenant), the slug ==
-  cluster equivalence still holds.
+Both names auto-generate from the same Heroku-style helper `sg vault-app
+create` uses today for EC2 stack names — locate it during slice 2 and
+re-use. No duplicate word lists.
 
-### Constraint
+- `sg vault-app fargate setup create` (no `--cluster`) → auto-generated
+  cluster name like `vault-app-tuesday-fox`.
+- `sg vault-app fargate start` (no `--slug`) → auto-generated slug like
+  `vault-mouse-1`.
 
-Validate: slug must satisfy both `^[a-z0-9][a-z0-9-]{1,40}$` AND ECS's
-cluster-name rules (alphanumeric + hyphen, 1-255 chars). The 40-char cap
-keeps tag values short.
+Both can be supplied explicitly:
+- `sg vault-app fargate setup create --cluster acme-prod`
+- `sg vault-app fargate start --slug dinis-tue --cluster acme-prod`
 
-### Validation primitive
+### Cluster identification when `--cluster` is omitted
 
-`Safe_Str__VAF__Slug` — regex `^[a-z0-9][a-z0-9-]{1,40}$`. Same name in V1,
-but with the dual meaning called out in the docstring.
+Used by `start`, `stop`, `restart`, `health`, `logs`, `url`, `open`,
+`info`, `list --cluster`:
+
+1. If `--cluster <name>` is supplied → use it.
+2. If `$SG_VAULT_APP__FARGATE__CLUSTER` env-var is set → use it.
+3. If exactly **one** cluster in the current region is tagged
+   `Stack=sg-vault-app-fargate` → use it (the typical dev case).
+4. Otherwise: `typer.BadParameter` listing the candidate cluster names
+   so the user can pick.
+
+`sg vault-app fargate list` (with no `--cluster`) lists tasks across
+**all** our clusters in the current region; `--cluster X` narrows it.
+
+### Slug identification
+
+Slug must be unique **within a cluster** (not globally — two clusters
+can each have `dinis-tue`). Validated at `start` by checking existing
+RUNNING tasks in the cluster for a colliding `VaultApp__Slug` tag.
+
+Slug → DNS name (when `--with-aws-dns`): `<slug>.<cluster-dns-zone>`
+where `cluster-dns-zone` comes from the cluster tag `VaultApp__DnsZone`
+(if set during setup; otherwise no DNS).
+
+### Tagging scheme (replaces the earlier "slug → cluster tag" wording)
+
+| AWS resource | Tag | Purpose |
+|--------------|-----|---------|
+| ECS cluster  | `Stack=sg-vault-app-fargate` | discovery filter |
+| ECS cluster  | `VaultApp__Cluster=<name>` | mirror the cluster name (redundant with `clusterName` but uniform with task tagging) |
+| ECS cluster  | `VaultApp__Subnets=…`, `VaultApp__SecurityGroup=…`, `VaultApp__ExecutionRoleArn=…`, `VaultApp__LogGroup=…`, `VaultApp__EcrRepoName=…`, `VaultApp__DnsZone=…`, etc. | shared config (see 02__cli-design.md) |
+| ECS task     | `Stack=sg-vault-app-fargate` | filter |
+| ECS task     | `VaultApp__Cluster=<name>` | the cluster the task belongs to (also queryable from `task.clusterArn` but tag is faster) |
+| ECS task     | `VaultApp__Slug=<slug>` | the slug |
+| ECS task     | `VaultApp__StartedAt=…`, `VaultApp__StartedBy=…`, `VaultApp__TerminateAt=…` (future) | per-task metadata |
+
+### Validation primitives
+
+- `Safe_Str__VAF__Slug` — regex `^[a-z0-9][a-z0-9-]{1,40}$`. Validates
+  task slug.
+- `Safe_Str__VAF__Cluster` — regex `^[a-z0-9][a-z0-9-]{1,64}$`. Validates
+  cluster name. Also satisfies ECS `clusterName` rules (alphanumeric +
+  hyphen, ≤ 255 chars; we cap at 64 to keep tag values short).
+
+Two separate primitives in separate files (one-class-per-file rule).
 
 ## Q5 — Image source → **A: ECR mirror step in setup**
 

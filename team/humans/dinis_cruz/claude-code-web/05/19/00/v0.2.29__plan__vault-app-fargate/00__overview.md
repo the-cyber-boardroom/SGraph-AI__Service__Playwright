@@ -59,7 +59,8 @@ path that doesn't strictly need to happen per-session belongs in setup.
                                     │
         ┌───────────────────────────┼───────────────────────────┐
         │                           │                           │
-      setup                       start                       teardown
+   setup (cluster-level)       start (task-level)        teardown (cluster-level)
+   [--cluster C]               [--slug S] [--cluster C]  [--cluster C]
         │                           │                           │
         ├─ check (read-only)        ├─ start (default)          ├─ delete-task
         ├─ status                   ├─ stop                     ├─ delete-task-def
@@ -71,6 +72,13 @@ path that doesn't strictly need to happen per-session belongs in setup.
         ├─ image-mirror …→ docker pull/tag/push to ECR
         └─ task-def …→ sg aws fargate task-def register
 ```
+
+**Cluster vs slug.** A cluster is a tenancy / use-case grouping
+(per-customer, per-use-case) that carries the shared infrastructure. A
+slug identifies one running vault container (one ECS task) inside a
+cluster. Relationship: **1 cluster : N slugs**. Both names
+auto-generate when omitted — see `02__cli-design.md` for the resolution
+rules.
 
 Every leaf node is either (a) a wrapper around an existing `sg aws *`
 command/client or (b) a clearly-scoped new sub-package under `aws/` that gets
