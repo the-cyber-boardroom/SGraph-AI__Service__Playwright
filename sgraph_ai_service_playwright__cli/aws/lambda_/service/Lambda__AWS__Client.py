@@ -189,6 +189,14 @@ class Lambda__AWS__Client(Type_Safe):
                              ) -> Schema__Lambda__Url__Info:
         existing = self.get_function_url(name)
         if existing.exists:
+            # Per AWS (2026 change): Function URLs with AuthType=NONE require
+            # an explicit resource-based policy granting lambda:InvokeFunctionUrl
+            # to Principal:*. The permission may be missing if the URL was
+            # created in a way that bypassed the create_function_url path
+            # (manual aws CLI, partial failure, etc.) — re-ensuring on every
+            # call is idempotent and cheap.
+            if str(auth_type) == 'NONE':
+                self.ensure_public_invoke_permission(name)
             return existing
         return self.create_function_url(name, auth_type)
 
@@ -200,14 +208,53 @@ class Lambda__AWS__Client(Type_Safe):
             AuthType     = str(auth_type),
         )
         if str(auth_type) == 'NONE':
+            self.ensure_public_invoke_permission(name)
+        return self._parse_url_info(name, resp)
+
+    def ensure_public_invoke_permission(self, name: str) -> dict:
+        # Public-access policy for a Function URL with AuthType=NONE.
+        #
+        # Starting October 2025 AWS requires TWO resource-policy statements;
+        # one alone gets a "Forbidden" response. Console/SAM-created URLs auto
+        # -add both; CLI/SDK/CloudFormation callers (us) must add both manually.
+        #
+        # Statement 1 — InvokeFunctionUrl bound to NONE auth type:
+        #   Action='lambda:InvokeFunctionUrl', FunctionUrlAuthType='NONE'
+        # Statement 2 — InvokeFunction gated by the InvokedViaFunctionUrl
+        # condition (acknowledges the request reached the Lambda via its URL):
+        #   Action='lambda:InvokeFunction', InvokedViaFunctionUrl=True
+        #
+        # Both are idempotent — existing statements raise ResourceConflictException
+        # which we swallow. Returns a dict {added_invoke_url, added_invoke_fn}
+        # so callers can tell what the call actually did.
+        #
+        # Ref: docs.aws.amazon.com/lambda/latest/dg/urls-auth.html
+        out = {'added_invoke_url': False, 'added_invoke_function': False}
+        try:
+            self.client().add_permission(
+                FunctionName        = name,
+                StatementId         = 'FunctionURLAllowPublicAccess',
+                Action              = 'lambda:InvokeFunctionUrl',
+                Principal           = '*',
+                FunctionUrlAuthType = 'NONE',
+            )
+            out['added_invoke_url'] = True
+        except ClientError as exc:
+            if exc.response.get('Error', {}).get('Code', '') != 'ResourceConflictException':
+                raise
+        try:
             self.client().add_permission(
                 FunctionName           = name,
-                StatementId            = 'FunctionURLAllowPublicAccess',
-                Action                 = 'lambda:InvokeFunctionUrl',
+                StatementId            = 'FunctionURLInvokeAllowPublicAccess',
+                Action                 = 'lambda:InvokeFunction',
                 Principal              = '*',
-                FunctionUrlAuthType    = 'NONE',
+                InvokedViaFunctionUrl  = True,
             )
-        return self._parse_url_info(name, resp)
+            out['added_invoke_function'] = True
+        except ClientError as exc:
+            if exc.response.get('Error', {}).get('Code', '') != 'ResourceConflictException':
+                raise
+        return out
 
     def delete_function_url(self, name: str) -> Schema__Lambda__Action__Response:
         try:
