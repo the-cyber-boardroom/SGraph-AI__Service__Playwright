@@ -101,13 +101,17 @@ class Vault_App__Fargate__Starter(Type_Safe):
             # ── Phase 3: WAIT_RUNNING ─────────────────────────────────────────
             with timer.phase(Enum__VAF__Start__Phase.WAIT_RUNNING.value) as result:
                 for attempt in range(30):
-                    task   = self.fargate_client.describe_task(report.task_arn, cluster_cfg.cluster_name)
-                    status = str(task.status) if task else 'MISSING'
+                    task        = self.fargate_client.describe_task(report.task_arn, cluster_cfg.cluster_name)
+                    status      = str(task.status) if task else 'MISSING'
+                    stop_reason = str(task.stopped_reason) if task and task.stopped_reason else ''
                     result.detail = f'state: {status} (attempt {attempt + 1})'
                     if status == 'RUNNING':
                         break
                     if status in ('STOPPED', 'DEPROVISIONING'):
-                        raise RuntimeError(f'Task stopped unexpectedly: {status}')
+                        msg = f'Task stopped unexpectedly: {status}'
+                        if stop_reason:
+                            msg = f'{msg} — {stop_reason}'
+                        raise RuntimeError(msg)
                     _time.sleep(1)
                 else:
                     raise RuntimeError('Task did not reach RUNNING within 30s')
