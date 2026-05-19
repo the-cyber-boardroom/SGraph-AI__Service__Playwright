@@ -432,23 +432,45 @@ class Test__VAF__Setup__CLUSTER(TestCase):
         cluster = fargate.describe_cluster('test-cluster')
         assert cluster.tags.get('Stack') == 'sg-vault-app-fargate'
 
-    # ── create idempotent ─────────────────────────────────────────────────────
+    # ── create idempotent — no network config in request ─────────────────────
 
-    def test_create_idempotent_second_call_status_skipped(self):
+    def test_create_idempotent_no_network_status_skipped(self):
         fargate = Fargate__AWS__Client__In_Memory()
         setup   = _make_setup(fargate=fargate)
-        req     = _base_request(phases=[Enum__VAF__Setup__Phase.CLUSTER])
-        setup.create(req)
-        report  = setup.create(req)
+        req1    = _base_request(phases=[Enum__VAF__Setup__Phase.CLUSTER])
+        setup.create(req1)
+        req2    = _base_request(phases=[Enum__VAF__Setup__Phase.CLUSTER], subnets='', security_group='')
+        report  = setup.create(req2)
         assert report.phases[0].status == Enum__VAF__Phase__Status.SKIPPED
 
-    def test_create_idempotent_second_call_detail_already_exists(self):
+    def test_create_idempotent_no_network_detail_already_exists(self):
         fargate = Fargate__AWS__Client__In_Memory()
         setup   = _make_setup(fargate=fargate)
-        req     = _base_request(phases=[Enum__VAF__Setup__Phase.CLUSTER])
-        setup.create(req)
-        report  = setup.create(req)
+        req1    = _base_request(phases=[Enum__VAF__Setup__Phase.CLUSTER])
+        setup.create(req1)
+        req2    = _base_request(phases=[Enum__VAF__Setup__Phase.CLUSTER], subnets='', security_group='')
+        report  = setup.create(req2)
         assert report.phases[0].detail == 'already exists'
+
+    # ── create idempotent — network config present → retag ────────────────────
+
+    def test_create_existing_cluster_with_subnets_status_ok(self):
+        fargate = Fargate__AWS__Client__In_Memory()
+        fargate.seed_cluster_with_tags('test-cluster', {'VaultApp__Subnets': 'subnet-old'})
+        setup   = _make_setup(fargate=fargate)
+        req     = _base_request(phases=[Enum__VAF__Setup__Phase.CLUSTER], subnets='subnet-new', security_group='')
+        report  = setup.create(req)
+        assert report.phases[0].status == Enum__VAF__Phase__Status.OK
+
+    def test_create_existing_cluster_with_subnets_retags_cluster(self):
+        fargate = Fargate__AWS__Client__In_Memory()
+        fargate.seed_cluster_with_tags('test-cluster', {'VaultApp__Subnets': 'subnet-old'})
+        setup   = _make_setup(fargate=fargate)
+        req     = _base_request(phases=[Enum__VAF__Setup__Phase.CLUSTER], subnets='subnet-new,subnet-other', security_group='sg-new')
+        setup.create(req)
+        cluster = fargate.describe_cluster('test-cluster')
+        assert cluster.tags.get('VaultApp__Subnets')       == 'subnet-new,subnet-other'
+        assert cluster.tags.get('VaultApp__SecurityGroup') == 'sg-new'
 
     # ── delete ────────────────────────────────────────────────────────────────
 
