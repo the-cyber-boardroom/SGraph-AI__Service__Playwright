@@ -1,12 +1,14 @@
 ---
-title: "SG/Edge TUI — MVP implementation plan (codebase-grounded)"
+title: "SG/Edge TUI — exploration MVP plan (five screens, codebase-grounded)"
 version: v0.2.38
 date: 2026-05-20
 status: PLAN — no code yet. For human ratification before Dev picks up.
 role: Dev / Architect
 audience: implementing engineer (or next Claude thread) building the SG/Edge TUI
 branch: claude/review-brief-tui-No5Rg
-source-brief: v0.27.55__devbrief__sgedgerichtuiexperiments.md (Human, 17 May 2026)
+source-briefs:
+  - v0.27.55__devbrief__sgedgerichtuiexperiments.md       (framing — framework, deployment chain)
+  - v0.27.55__devbrief__sgedgetuifirstfivescreens.md      (this plan's concrete subject — five first screens)
 related:
   - sg_compute_specs/sg_edge/README.md
   - sg_compute_specs/sg_edge/local/Local__Edge__Stack.py
@@ -15,13 +17,18 @@ related:
   - team/comms/plans/v0.2.37__sg-edge/README.md
   - team/claude/debriefs/2026-05-20__v0.2.37-sg-edge-cli-and-local-deployment.md
 decisions-confirmed:
-  - "Data source: Local + stubbed AWS view (AWS reads real DNS; cost/rps/instance panes show a labelled pending state)"
+  - "Approach: explore-first — five standalone exploratory screens over a shared data layer; the single composite dashboard is the deferred 'canonical' target (sixth conversation decides what gets promoted)"
+  - "Data source: Local + stubbed AWS (AWS reads real DNS; cost/rps/instance panes show a labelled pending state)"
   - "Module home: sg_compute_specs/sg_edge/tui/ sub-package"
   - "Sparklines/feed: real polling deltas only — no fabricated rps/cost"
   - "Framework: Textual + Rich"
+  - "AWS target zone: edge.sg-labs.app (the hard-coded edge parent)"
+  - "Card export: file + OSC-52 clipboard (survives the SSH/SSM chain)"
+  - "User guide: new file library/guides/v0.2.38__sg-edge-tui-guide.md"
+  - "Theme: dark default, ship a light-mode toggle in MVP"
 ---
 
-# SG/Edge TUI — MVP implementation plan
+# SG/Edge TUI — exploration MVP plan (five screens)
 
 > **PROPOSED — does not exist yet.** Nothing under `sg_compute_specs/sg_edge/tui/`
 > exists at the time of writing. This plan describes what to build. Cross-check
@@ -29,134 +36,118 @@ decisions-confirmed:
 
 ---
 
-## 1. Why this plan exists (and what it deliberately is not)
+## 1. Why this plan exists (and what changed)
 
-The 17-May dev brief proposes a visually-rich Textual TUI for SG/Edge: topology,
-slug inventory, detail drill-in, live activity feed, sparklines, keyboard
-actions, help overlay, ASCII export. The brief is an **aspiration written against
-the full vision** of SG/Edge — live EC2 proxies, real request throughput, cost
-per instance, wake events streaming in real time.
+Two dev briefs from 17 May frame this work:
 
-This plan re-grounds that vision on **what SG/Edge can actually produce today**,
-because the project's non-negotiable rule is **no mocks, no fabrication**. A TUI
-that draws a `$0.0012 cumulative` cost meter or a `12 rps` sparkline against data
-that does not exist would be dishonest tooling. So the MVP renders only real,
-queryable state, makes it feel alive through honest polling deltas, and leaves
-clearly-labelled seams where the live-AWS data (Slice 5 of the v0.2.37 plan) will
-slot in later without rework.
+- The **framing brief** picked the framework (Textual + Rich), the de-commoditising
+  rationale, and the SSH/SSM + `docker exec` deployment chain.
+- The **five-screens brief** is this plan's concrete subject. It deliberately
+  re-frames the work as **exploration, not production**: build five standalone
+  exploratory screens, learn which visual idioms work, *then* a sixth conversation
+  decides which patterns get promoted into a canonical SG/Edge dashboard. It is
+  explicit: "these are explorations; the canonical TUI comes after."
 
-### The reality gap (what the brief mockup shows vs. what exists)
+So the build order inverts from a first reading: **explore (5 screens) → decide →
+build canonical.** The single composite dashboard sketched in the framing brief
+becomes the *deferred* target (§12), not the immediate one.
 
-| Brief mockup element | Backing data today | MVP decision |
-|---|---|---|
-| Topology (browser → wildcard → fleet → slugs) | ✅ `Local__Edge__Stack.status()` / `SG_Edge__DNS__Helper` | **Build it** — this is the `sg edge local check` diagram, made live |
-| Slug inventory + per-slug state | ✅ `Schema__Local__Edge__Slug` (`has_a`, `has_txt`, backend ip:port) | **Build it** |
-| Checks / deviations panel | ✅ `Local__Edge__Stack.check()` issues | **Build it** |
-| Proxy fleet membership | ✅ `proxies.<parent>` A record | **Build it** |
-| Teardown counter (`zero_streak`) | ✅ `_state.<parent>` TXT | **Build it** |
-| Live activity feed | ⚠ no event log exists — derive from polling deltas | **Build (honest)** — state-transition events only |
-| Sparklines | ⚠ no time-series exists — derive from polling deltas | **Build (honest)** — slug/live counts over time, not rps |
-| Cost (`$/min`, cumulative) | ❌ needs live EC2 + pricing — Slice 5 | **Defer** — labelled "pending Slice 5" pane |
-| Request throughput / rps | ❌ needs proxy `slug_seen`/stats — Slice 5/6 | **Defer** — labelled pending pane |
-| Instance id / uptime | ❌ needs EC2 launcher — Slice 5 | **Defer** — labelled pending pane |
-| Wake-event history | ❌ needs Vault Waker (Phase 2) | **Defer** — labelled pending pane |
-| Live actions: wake / terminate | ❌ needs EC2 wiring — Slice 5 | **Defer** — disabled keys with "pending" hint |
-
-**Honest MVP scorecard: 8 of the 12 brief acceptance criteria genuinely met;
-4 explicitly deferred behind labelled seams.** See §7.
+The project's non-negotiable rule still governs everything: **no mocks, no
+fabrication.** Both briefs' mockups are dense with data that does not exist yet
+(instance IDs, uptime, `$/min` cost, rps/latency sparklines, a live request feed).
+A screen that draws those against absent data would be dishonest tooling. The MVP
+renders only real, queryable state and leaves clearly-labelled seams where the
+live-AWS data (Slice 5 of the v0.2.37 plan) and the observability event source
+will slot in later. Per the five-screens brief, **documenting what we tried and
+rejected — the negative results — is an explicit deliverable.**
 
 ---
 
-## 2. Confirmed decisions (from the kickoff conversation)
+## 2. Confirmed decisions
 
-1. **Data source = Local + stubbed AWS.** The TUI targets either the local stack
-   (`edge.sg-labs.local`) or the live AWS edge (`edge.sg-labs.app`). The AWS
-   source is **not empty** — the DNS registry (`proxies` / `_state` / `_sg.*`) is
-   readable today via `SG_Edge__DNS__Helper` over `sg aws dns`. Only the
-   cost/rps/instance/uptime panes carry no data on the AWS source yet; those
-   render a **labelled pending state**, never fabricated numbers.
-2. **Module home = `sg_compute_specs/sg_edge/tui/`** — a sub-package, separate
-   from the primitives (which it must not modify) but co-located so it shares
-   schemas, the test rig, and CI. Mirrors how `local/` and `cli/` already sit.
-3. **Sparklines / activity feed = real polling deltas only.** The TUI observes
-   successive snapshots and emits events on genuine state transitions; sparklines
-   plot counts the TUI itself measured over time. No synthetic rps/cost.
-4. **Framework = Textual + Rich.** The brief's pick; widget library (DataTable,
-   Tree, Sparkline, RichLog), a real keyboard/focus model, and an async
-   `run_test()` pilot harness that lets us test **without mocks**.
+1. **Explore-first, five screens.** Standalone commands over a shared data layer;
+   canonical composite app deferred (§12).
+2. **Data source = Local + stubbed AWS.** Target the local stack
+   (`edge.sg-labs.local`) or the live AWS edge (`edge.sg-labs.app`). The AWS source
+   is **not empty** — the DNS registry (`proxies` / `_state` / `_sg.*`) is readable
+   today via `SG_Edge__DNS__Helper`. Only cost/rps/instance/uptime carry no data
+   yet; those render a **labelled pending state**, never fabricated numbers.
+3. **Module home = `sg_compute_specs/sg_edge/tui/`** — a sub-package, separate from
+   the primitives (which it must not modify) but co-located. Mirrors `local/`, `cli/`.
+4. **Sparklines / activity feed = real polling deltas only.** Series are counts the
+   TUI itself measured over successive snapshots; events are genuine state
+   transitions. No synthetic rps/cost.
+5. **Framework = Textual + Rich.**
+6. **AWS target zone = `edge.sg-labs.app`** (the hard-coded edge parent).
+7. **Card export = file + OSC-52 clipboard** (OSC-52 survives the SSH/SSM chain).
+8. **User guide = new file** `library/guides/v0.2.38__sg-edge-tui-guide.md`.
+9. **Theme = dark default + light-mode toggle (`t`)** shipped in MVP.
 
 ---
 
-## 3. The key architectural idea: a normalised snapshot the TUI renders
+## 3. The shared foundation: one normalised snapshot the screens render
 
-The single most important design choice is to **keep the TUI thin over the
-primitives** (brief AC#12; Risk #3 mitigation). We do that with one normalised
-snapshot schema and a small data-source seam, exactly mirroring the existing
+The most important design choice: **all five screens read from one shared data
+layer**, so the TUI stays thin over the primitives (framing-brief AC#12; Risk #3
+mitigation) and the same layer feeds the eventual canonical app. We use a single
+snapshot schema plus a small data-source seam, mirroring the existing
 `_stack_factory` / `_dns_factory` injection pattern in the CLI.
 
 ```
-                      ┌─────────────────────────────┐
-   render-only        │   SG_Edge__TUI__App         │  Textual App (view layer)
-   (Textual widgets)  │   widgets + key bindings    │
-                      └──────────────┬──────────────┘
-                                     │ reads
-                      ┌──────────────▼──────────────┐
-   pure data          │  Schema__SG_Edge__TUI__      │  one normalised snapshot
-   (Type_Safe)        │  Snapshot                    │  (source-independent)
-                      └──────────────▲──────────────┘
-                                     │ produces
-            ┌────────────────────────┴────────────────────────┐
-            │                                                  │
- ┌──────────▼───────────┐                          ┌───────────▼──────────┐
- │ …__Local_Source      │                          │ …__AWS_Source        │
- │ wraps Local__Edge__   │                          │ wraps SG_Edge__DNS__  │
- │ Stack (file DNS)     │                          │ Helper (sg aws dns)  │
- └──────────────────────┘                          └──────────────────────┘
+   five screen apps (view layer, Textual)
+        │  each reads
+        ▼
+   Schema__SG_Edge__TUI__Snapshot         one normalised snapshot (source-independent)
+        ▲  produced by
+        │
+   ┌────┴─────────────┐         ┌──────────────────────┐
+   │ …__Local_Source  │         │ …__AWS_Source        │
+   │ Local__Edge__Stack│         │ SG_Edge__DNS__Helper │
+   │ (file DNS)       │         │ (sg aws dns)         │
+   └──────────────────┘         └──────────────────────┘
 ```
 
 - **`Schema__SG_Edge__TUI__Snapshot`** (Type_Safe, pure data) — parent zone,
-  deployed/zone/wildcard flags, fleet IPs, `zero_streak`, a list of normalised
-  slugs (`slug`, `fqdn`, `state` enum, backend ip:port), the check issues, a
-  capture timestamp, and a **`capabilities`** field per source (which panes have
-  real data vs. pending).
-- **`SG_Edge__TUI__Data_Source`** (interface) with `snapshot()` and the action
-  methods (`register`, `unregister`, `request`, `teardown`). Two implementations:
-  - `SG_Edge__TUI__Local_Source` — delegates straight to `Local__Edge__Stack`.
-  - `SG_Edge__TUI__AWS_Source` — reads via `SG_Edge__DNS__Helper`; actions that
-    need live EC2 (Slice 5) raise a typed `not-yet-wired` result the UI renders
-    as a disabled hint rather than an error.
-- **`SG_Edge__TUI__Differ`** (pure) — given previous and current snapshots, emits
-  `Schema__SG_Edge__TUI__Event`s (slug registered / went-live / went-dormant /
-  removed; fleet grew/shrank; issue appeared/cleared). Drives the activity feed.
-- **`SG_Edge__TUI__Metrics`** (pure) — small in-memory ring buffers (deques) of
+  deployed/zone/wildcard flags, fleet IPs, `zero_streak`, normalised slugs
+  (`slug`, `fqdn`, `state` enum, backend ip:port), check issues, a capture
+  timestamp, and a **`capabilities`** field (which panes have real data vs pending).
+- **`SG_Edge__TUI__Data_Source`** (interface) — `snapshot()` plus action methods
+  (`register`, `unregister`, `request`, `teardown`). Two implementations:
+  - `…__Local_Source` — delegates to `Local__Edge__Stack`.
+  - `…__AWS_Source` — reads via `SG_Edge__DNS__Helper`; actions needing live EC2
+    (Slice 5) return a typed `not-yet-wired` result the UI renders as a disabled
+    hint, not an error.
+- **`SG_Edge__TUI__Differ`** (pure) — `(prev, curr)` → `Schema__SG_Edge__TUI__Event`s
+  (slug registered / went-live / went-dormant / removed; fleet grew/shrank; issue
+  appeared/cleared). Drives the **event stream** (Screen 5) honestly.
+- **`SG_Edge__TUI__Metrics`** (pure) — small ring buffers (deques) of
   `(timestamp, value)` for honest series: total slugs, live slugs, fleet size.
-  Sparklines render these. **No rps/cost** — those are not measurable here.
+  Sparklines render these. **No rps/cost** — not measurable here.
+- **`SG_Edge__TUI__Comparison`** (pure) — diffs a local snapshot against an AWS
+  snapshot for **Screen 3** (per-row in-sync / local-only / edge-only). Honest
+  *two-way*; the version-drift matrix is out of `sg_edge`'s data reach (see §6).
 
-Why this matters: when Slice 5 lands real EC2/cost data, we add fields to the
-snapshot and fill them in `…__AWS_Source` only. The view layer and the local
-source are untouched. The "pending" panes light up automatically.
+Why this matters: when Slice 5 lands real EC2/cost data, we add snapshot fields
+and fill them in `…__AWS_Source` only. The screens and the local source are
+untouched; the "pending" panes light up automatically.
 
 ---
 
 ## 4. Convention boundary: Type_Safe data vs. Textual view classes
 
-CLAUDE.md rule #1 ("all classes extend `Type_Safe`") governs **our domain
-layer**. Framework-mandated base classes are the documented carve-out — exactly
-as routes subclass `Fast_API__Routes` and `Cli__SG_Edge__Local.serve` subclasses
+CLAUDE.md rule #1 ("all classes extend `Type_Safe`") governs the **domain layer**.
+Framework-mandated base classes are the documented carve-out — as routes subclass
+`Fast_API__Routes` and `Cli__SG_Edge__Local.serve` subclasses
 `http.server.BaseHTTPRequestHandler`. For the TUI:
 
-- **Data / schema / enum / source / differ / metrics layer** → `Type_Safe`,
-  zero raw-primitive attributes, `Enum__*` for fixed sets, one class per file,
-  empty `__init__.py`, 80-char headers, no docstrings. **This is where the logic
-  and the tests live.**
-- **View layer** (`SG_Edge__TUI__App` and widgets) → subclasses Textual's `App`,
-  `Widget`, `Static`, `DataTable`, etc. Framework carve-out. **Routes-have-no-
-  logic discipline applies**: widgets render the snapshot and dispatch key
-  presses to the data source; they hold no business logic.
-
-This split is also what makes the no-mocks testing work: the testable logic is
-all in the Type_Safe layer, and the thin view layer is exercised through
-Textual's pilot.
+- **Data / schema / enum / source / differ / metrics / comparison / card layer** →
+  `Type_Safe`, zero raw-primitive attributes, `Enum__*` for fixed sets, one class
+  per file, empty `__init__.py`, 80-char headers, no docstrings. **All logic and
+  tests live here.**
+- **View layer** (the five screen apps + widgets) → subclasses Textual's `App`,
+  `Widget`, `Static`, `DataTable`, etc. Framework carve-out. The
+  routes-have-no-logic discipline applies: widgets render the snapshot and dispatch
+  key presses to the data source; they hold no business logic.
 
 ---
 
@@ -164,19 +155,21 @@ Textual's pilot.
 
 ```
 sg_compute_specs/sg_edge/tui/
-  sg_edge_tui__config.py        refresh interval, default target, theme, ring-buffer size
+  sg_edge_tui__config.py        refresh interval, default target, theme, ring-buffer size, OSC-52 toggle
   enums/
     Enum__SG_Edge__TUI__Target          (LOCAL / AWS)
     Enum__SG_Edge__TUI__Slug_State      (LIVE / DORMANT / ORPHAN_BACKEND)
     Enum__SG_Edge__TUI__Event_Kind      (SLUG_REGISTERED / WENT_LIVE / WENT_DORMANT / REMOVED / FLEET_CHANGED / ISSUE / CLEARED)
-    Enum__SG_Edge__TUI__Capability      (TOPOLOGY / SLUGS / CHECKS / FLEET / COST / THROUGHPUT / INSTANCES)  # last 3 = pending
+    Enum__SG_Edge__TUI__Capability      (TOPOLOGY / SLUGS / CHECKS / FLEET / COST / THROUGHPUT / INSTANCES)  # last 3 pending
+    Enum__SG_Edge__TUI__Sync_State      (IN_SYNC / LOCAL_ONLY / EDGE_ONLY)            # Screen 3
   schemas/
     Schema__SG_Edge__TUI__Slug          (slug, fqdn, state, backend_ip, backend_port)
     Schema__SG_Edge__TUI__Event         (kind, slug, detail, ts)
     Schema__SG_Edge__TUI__Series_Point  (ts, value)
     Schema__SG_Edge__TUI__Snapshot      (parent, deployed, zone_exists, wildcard, fleet_ips,
                                          zero_streak, slugs, issues, capabilities, captured_at)
-    List__SG_Edge__TUI__{Slug,Event,Series_Point}
+    Schema__SG_Edge__TUI__Comparison_Row(name, local_present, edge_present, sync_state)   # Screen 3
+    List__SG_Edge__TUI__{Slug,Event,Series_Point,Comparison_Row}
   source/
     SG_Edge__TUI__Data_Source           interface (snapshot + actions)
     SG_Edge__TUI__Local_Source          wraps Local__Edge__Stack
@@ -184,138 +177,175 @@ sg_compute_specs/sg_edge/tui/
   service/
     SG_Edge__TUI__Differ                pure: (prev, curr) → events
     SG_Edge__TUI__Metrics               pure: ring buffers → series for sparklines
+    SG_Edge__TUI__Comparison            pure: (local, aws) snapshots → comparison rows
     SG_Edge__TUI__Card                  pure: snapshot → ASCII export string (reuses check layout)
-  app/
-    SG_Edge__TUI__App                   textual.App — bindings, timer refresh, layout
-    widgets/                            Topology, SlugTable, Detail, ActivityFeed, Sparklines, Checks
-    screens/                            Help (ModalScreen)
+  screens/                              one Textual App per exploratory screen
+    SG_Edge__TUI__Screen__Deployment    Screen 1
+    SG_Edge__TUI__Screen__Topology      Screen 2
+    SG_Edge__TUI__Screen__Compare       Screen 3
+    SG_Edge__TUI__Screen__Slug_Detail   Screen 4
+    SG_Edge__TUI__Screen__Events        Screen 5
+    widgets/                            shared: StatusGlyph, Sparkline, KeyBar, Help (ModalScreen)
   cli/
-    Cli__SG_Edge__Tui                   `sg edge tui` typer sub-app (run / diagnose / export)
+    Cli__SG_Edge__Tui                   `sg edge tui {deployment|topology|compare|slug|events}` + diagnose + export
   tests/                               co-located, no mocks (pilot + in-memory sources)
 ```
 
 One external touch, same minimal pattern as the rest of SG/Edge: a single
-`add_typer(tui, …)` line in `cli/Cli__SG_Edge.py`. Nothing else imports `tui`.
+`add_typer(tui, …)` line in `cli/Cli__SG_Edge.py`. Nothing else imports `tui`. The
+five screens are independent commands → runnable side-by-side in tmux (five-screens
+brief open-Q), which falls out for free.
 
 ---
 
-## 6. Slice sequence (MVP)
+## 6. The five exploratory screens — reality-grounded
+
+What each screen can show **truthfully today** vs. what is a labelled-pending seam:
+
+| Screen | Real today | Pending (Slice 5 / Phase 2 / observability) | Verdict |
+|---|---|---|---|
+| **1. Deployment Reality** | wildcard, fleet IPs, DNS record counts, registered slugs + state | proxy EC2 rows (`i-…`, AZ, uptime), vault-srv instances + "vaults loaded", live CF/Lambda ARNs | **Buildable** — real infra + slug rows; instance rows seamed |
+| **2. Topology** | the layered shape (browser → wildcard → fleet → slugs) = the `check` diagram, interactive | per-proxy instances, vault-server grouping, "active flows" sparkline | **Buildable** — honest topology; richer nodes seamed |
+| **3. Local vs Edge** | local zone vs AWS edge zone: slug / fleet / wildcard / record presence — fully comparable via the two sources | a distinct "Deployed" 3rd column; component **version** drift (lives in other services, not `sg_edge`) | **Sweet spot** — honest *two-way* drift; three-way version matrix out of reach |
+| **4. Slug Detail** | slug, fqdn, A/TXT state, backend ip:port, the DNS A/TXT records | instance (id/type/AZ/IP/health), cost, rps/error/latency sparklines, source/article/working vault bindings | **Honest skeleton** — State + DNS real; rest seamed |
+| **5. Live Event Stream** | state-transition events from polling deltas (registered / went-live / removed / fleet / issue) — the Differ already produces these | per-request events + latencies + wake events (needs the observability session / Slice 5/6) | **Honest trickle**, not a fast request stream |
+
+Two callouts:
+
+- **Screen 3 is the happy alignment.** The five-screens brief names it the most
+  operationally valuable, and it is one of the *most* honestly buildable — because
+  local and edge are both real sources right now. Invest here. The only
+  out-of-reach part is the per-component version matrix (that data is not in
+  `sg_edge`); the slug/fleet/config presence comparison is fully real.
+- **Screens 1/2/3 are rich with real data and exercise the three most distinct
+  idioms** (grouped list / topology art / comparison table). **4 and 5 are thinner
+  today** — but building them as honest skeletons is itself a valuable exploration
+  result: it visibly shows the gap Slice 5 / observability will fill.
+
+**Sequence by real-data-richness (fastest learning first): 1 → 3 → 2 → 4 → 5.**
+
+The sketches in the brief are starting points, not specifications — the brief is
+explicit that the agent may deviate, and that "explore the art of the possible" is
+the actual brief. Each screen ships with a short *what worked / what I'd reject*
+note.
+
+---
+
+## 7. Slice sequence (MVP)
 
 | Slice | Scope | Textual? | Runs on 3.11? |
 |---|---|---|---|
-| **T1 — data layer** | snapshot schema + enums; `Local_Source` (over `Local__Edge__Stack`) + `AWS_Source` (over `SG_Edge__DNS__Helper`, `Route53__AWS__Client__In_Memory` in tests); `Differ` + `Metrics`, both pure. Full unit coverage, no Textual. | no | **yes** |
-| **T2 — static app shell** | `SG_Edge__TUI__App` + layout: Topology, SlugTable (DataTable), Detail, Checks. Renders one snapshot. Keyboard nav (`Tab` panes, arrows in table, `Enter`/selection → Detail). Tested via `run_test()` pilot. | yes | no (gated) |
-| **T3 — live + feed + sparklines** | timer poll at config interval (default 4 Hz; see §8); `Differ`-driven ActivityFeed (RichLog); honest Sparklines from `Metrics`. Diff highlight on changed rows. | yes | no (gated) |
-| **T4 — actions** | wire `r`egister / `u`nregister / `x` request-simulate / `R`efresh / `D`estroy(teardown, confirmed) to the source. AWS-only live actions (wake/terminate) render as disabled keys with a "pending Slice 5" hint. | yes | partial |
-| **T5 — help + export + theme** | `?` Help overlay (context-aware bindings); `c` export ASCII card (reuses `SG_Edge__TUI__Card`, writes to file + clipboard-if-available); dark theme default, `t` toggles. | yes | no (gated) |
-| **T6 — deployment chain + docs** | `sg edge tui diagnose` ($TERM/$LANG/colors/unicode/truecolor checks from the brief addendum); Dockerfile `ENV LANG/LC_ALL/TERM` + `ncurses-term locales`; graceful degradation (no-TTY → single static `check`-style render); user-guide section + reality-doc update. | yes | no (gated) |
+| **T1 — shared data layer** | snapshot schema + enums; `Local_Source` + `AWS_Source` (tests inject `Route53__AWS__Client__In_Memory`); `Differ`, `Metrics`, `Comparison`, `Card` — all pure. Full unit coverage, no Textual. **Land + review on its own.** | no | **yes** |
+| **S1 — Deployment Reality** | grouped panes (edge infra / fleet / slugs); status glyphs; periodic refresh; instance rows render labelled-pending. | yes | no (gated) |
+| **S3 — Local vs Edge** | two-source comparison table via `Comparison`; per-row sync glyph; drift summary line; version matrix shown as explicit "out of scope (other services)". | yes | no (gated) |
+| **S2 — Topology** | ASCII-art layered graph (the `check` diagram, interactive); keyboard focus between nodes; `Enter` on a slug node → opens S4. | yes | no (gated) |
+| **S4 — Slug Detail** | drill-in; State + DNS sections real; Instance / Cost / Activity / Vault-binding sections labelled-pending; `Esc` back. | yes | no (gated) |
+| **S5 — Live Event Stream** | `Differ`-driven feed (RichLog), newest-on-top; filter shortcuts; `Space` pause; honest sparklines from `Metrics`. | yes | no (gated) |
+| **T-chain — deployment chain + docs** | `sg edge tui diagnose`; Dockerfile `ENV LANG/LC_ALL/TERM` + `ncurses-term locales`; no-TTY fallback (one-shot static render); `<100ms` first frame; resize re-layout; `library/guides/v0.2.38__sg-edge-tui-guide.md`; reality-doc update. | yes | no (gated) |
 
-**Note on key choices.** The brief assigns `r` to "export card". We have more
-actions than the brief mockup (register/unregister/request), so this plan uses
-`c` for the card export and frees `r` for `r`egister, with the full map shown in
-the `?` overlay. Final bindings are a polish-time call; the Help overlay is the
-source of truth either way.
+Shared widgets (StatusGlyph, Sparkline, KeyBar, Help overlay, theme toggle, OSC-52
+card export) are built alongside S1 and reused across S2–S5.
 
 ---
 
-## 7. Acceptance-criteria mapping (brief §Acceptance Criteria)
+## 8. Acceptance-criteria mapping (five-screens brief §Acceptance Criteria)
 
-| # | Brief criterion | MVP status |
+| # | Criterion | MVP status |
 |---|---|---|
-| 1 | Framework selected (Textual + Rich) | ✅ confirmed §2 |
-| 2 | New dedicated module | ✅ `sg_compute_specs/sg_edge/tui/` |
-| 3 | Topology view, live component status | ✅ T2/T3 |
-| 4 | Slug inventory, real, updates live | ✅ T2/T3 |
-| 5 | Detail view (instance, vault, cost) | 🟡 **partial** — vault/backend ✅; instance/cost = pending Slice 5 |
-| 6 | Live activity feed (wake/request/error) | 🟡 **honest subset** — state-transition events ✅; wake/request events need Slice 5/Phase 2 |
-| 7 | Sparkline panels (throughput trends) | 🟡 **honest subset** — slug/live/fleet counts ✅; throughput = pending Slice 6 |
-| 8 | Keyboard navigation, no mouse required | ✅ T2/T4 |
-| 9 | Help overlay (`?`), context-aware | ✅ T5 |
-| 10 | ASCII export (shareable card) | ✅ T5 |
-| 11 | Graceful degradation, ≥3 terminals | ✅ T6 (no-TTY fallback + diagnose); manual terminal matrix |
-| 12 | Sits on primitives without modifying them | ✅ — snapshot seam; only touch is one `add_typer` line |
+| 1 | Five screens buildable and runnable | ✅ S1–S5 as `sg edge tui *` commands |
+| 2 | Screen 1 shows current state at a glance | ✅ real infra + slugs; instance rows seamed |
+| 3 | Screen 2 topology readable | ✅ |
+| 4 | Screen 3 surfaces drift | 🟡 honest **two-way** (local vs edge); version matrix out of `sg_edge`'s reach |
+| 5 | Screen 4 drill-in via keyboard | 🟡 skeleton — State+DNS real; Instance/Cost/Activity seamed |
+| 6 | Screen 5 updates in real time | 🟡 honest state-transition trickle; request stream pending observability/Slice 5/6 |
+| 7 | Run cleanly over SSM + docker exec | ✅ T-chain slice (manual verify in real chain) |
+| 8 | First frame < 100ms | ✅ render empty/cached snapshot immediately; first poll async |
+| 9 | Notes per screen on what worked / did not | ✅ debrief per screen (good-failure convention) |
+| 10 | Retrospective after ~1 week of use | process item — the "sixth conversation" → §12 |
 
-Deferred-but-seamed (light up when v0.2.37 Slice 5/6 land): cost, throughput,
-instance id/uptime, wake-event history, live wake/terminate actions.
+Deferred-but-seamed (light up when v0.2.37 Slice 5/6 + observability land): cost,
+throughput, instance id/uptime, wake/request event feed, live wake/terminate, the
+"Deployed" third environment + version matrix.
 
 ---
 
-## 8. Deployment-chain notes (brief addendum — folded in, not bolted on)
+## 9. Deployment-chain notes (framing-brief addendum — folded in)
 
-The TUI is reached through laptop → SSH/SSM → `docker exec -it` → container. Two
-cheap, durable wins from the addendum belong in this MVP:
+Reached through laptop → SSH/SSM → `docker exec -it` → container. Build into MVP:
 
 - **`sg edge tui diagnose`** — prints `$TERM`, `$LANG`, `tput colors`, a unicode
-  block-render test, and a truecolor probe, so an operator can self-check before
-  reporting "the box-drawing looks broken".
-- **Dockerfile env** — `ENV LANG=C.UTF-8 LC_ALL=C.UTF-8 TERM=xterm-256color` and
-  `RUN apt-get install -y ncurses-term locales && locale-gen C.UTF-8`. Set once,
-  pays off every session. (Coordinate with DevOps on the service image.)
+  block-render test, a truecolor probe. Operator self-check before reporting
+  broken box-drawing.
+- **Dockerfile env** — `ENV LANG=C.UTF-8 LC_ALL=C.UTF-8 TERM=xterm-256color` +
+  `RUN apt-get install -y ncurses-term locales && locale-gen C.UTF-8`. Coordinate
+  with DevOps on the service image.
 
-Two design constraints follow:
+Design constraints that follow:
 
-- **Throttle refresh to ~4 Hz** (config-driven). Every redraw is bytes over the
-  SSH stream; 60 FPS is pointless for DNS-grounded operational data and unkind to
-  flaky links. Textual diffs partial redraws, but the *poll* cadence is ours.
-- **Graceful degradation** — if stdout is not a TTY or `$TERM=dumb`, do not start
-  the full app; fall back to a one-shot static `check`-style render and exit
-  cleanly (this also keeps `sg edge tui` safe to pipe / run in CI).
+- **Throttle refresh to 5–10 Hz** (config-driven; default ~4 Hz). Every redraw is
+  bytes over SSH; 60 FPS is pointless for DNS-grounded data and unkind to flaky links.
+- **First frame < 100ms** — render an empty/cached snapshot immediately, run the
+  first poll async, fill in when it returns.
+- **Reset on resize** — re-layout cleanly; no broken frames.
+- **No mouse required** — every action reachable via keyboard.
+- **Graceful degradation** — non-TTY / `$TERM=dumb` → one-shot static `check`-style
+  render and clean exit (keeps `sg edge tui` safe to pipe / run in CI).
 
 ---
 
-## 9. Testing (no mocks, no patches)
+## 10. Testing (no mocks, no patches)
 
-- **Data layer (T1)** — `Local_Source` tested against a real `Local__Edge__Stack`
-  in an isolated temp `state_dir` (the local-stack tests already prove this is
-  fast and deterministic). `AWS_Source` tested against
-  `Route53__AWS__Client__In_Memory` injected into `SG_Edge__DNS__Helper`. `Differ`
-  and `Metrics` are pure — fed hand-built snapshot sequences, asserted on emitted
-  events / series. All of this runs on **3.11**.
-- **View layer (T2–T5)** — Textual's async `App.run_test()` pilot: push keys
+- **Data layer (T1)** — `Local_Source` against a real `Local__Edge__Stack` in an
+  isolated temp `state_dir`; `AWS_Source` against `Route53__AWS__Client__In_Memory`
+  injected into `SG_Edge__DNS__Helper`. `Differ` / `Metrics` / `Comparison` / `Card`
+  are pure — fed hand-built snapshot sequences, asserted on outputs. Runs on **3.11**.
+- **View layer (S1–S5)** — Textual's async `App.run_test()` pilot: push keys
   (`pilot.press("tab", "down", "enter")`), assert on widget/DOM state and on the
-  source the app was constructed with. **Sources are real in-memory
-  implementations**, not mocks — same philosophy as the `_stack_factory` seam.
+  real in-memory source the app was built with. **No mocks** — same philosophy as
+  the `_stack_factory` seam.
 - **Gating** — Textual is **not installed in this container** (neither are
   typer/rich today). The view-layer suite `@skipUnless` Textual is importable,
-  exactly as the CLI suite gates on typer. The T1 data-layer suite has no Textual
-  dependency and always runs.
+  exactly as the CLI suite gates on typer. The T1 data-layer suite always runs.
 
 ---
 
-## 10. Risks & mitigations
+## 11. Risks & mitigations
 
 | Risk | Mitigation |
 |---|---|
-| **Fabrication creep** — pressure to fill empty AWS panes with plausible numbers | The `capabilities` field makes "no data yet" a first-class, rendered state. Code review rule: a sparkline/metric must trace to a `Metrics` series the TUI measured, or a snapshot field a source actually read. |
-| **Type_Safe vs. Textual base classes** | Explicit carve-out (§4) with in-package precedent (`serve` subclasses `BaseHTTPRequestHandler`). Logic stays in the Type_Safe layer; widgets stay thin. |
-| **New heavy dependency (Textual)** | Confined to the view layer + gated tests. The data layer (the valuable, reusable part) has zero Textual dependency and runs on 3.11. |
-| **TUI drifts from primitives (brief Risk #3)** | The snapshot seam *is* the subscription-to-primitive-output the brief asks for. The TUI holds no parallel state; every frame is re-derived from a source read. |
-| **Terminal compatibility (brief Risk #2)** | `diagnose` subcommand + no-TTY fallback + a manual 3-terminal check (iTerm2 / Wezterm / Windows Terminal) in T6. |
+| **Fabrication creep** — filling empty AWS/instance/cost panes with plausible numbers | The `capabilities` field makes "no data yet" a first-class rendered state. Review rule: every metric must trace to a `Metrics` series or a snapshot field a source actually read. |
+| **Type_Safe vs. Textual base classes** | Explicit carve-out (§4) with in-package precedent. Logic in the Type_Safe layer; widgets thin. |
+| **New heavy dependency (Textual)** | Confined to the view layer + gated tests. The valuable, reusable data layer (T1) has zero Textual dependency and runs on 3.11. |
+| **TUI drifts from primitives (framing-brief Risk #3)** | The snapshot seam *is* the subscription-to-primitive-output the brief asks for. No parallel state; every frame is re-derived from a source read. |
+| **Terminal compatibility (framing-brief Risk #2)** | `diagnose` + no-TTY fallback + a manual 3-terminal check (iTerm2 / Wezterm / Windows Terminal). |
+| **Exploration churn** | By design — the five-screens brief expects some screens discarded. Bounded effort per screen; negative results are a deliverable, not a failure. |
 
 ---
 
-## 11. Effort & sequencing
+## 12. Effort, sequencing, and the deferred canonical app
 
-The brief estimates 2–3 weeks for the full v1 (delight included). This **MVP**
-(slices T1–T5, with T6 as a fast follow) is a smaller, honest cut: a real,
-demoable, keyboard-driven dashboard over the local + DNS-grounded AWS state,
-with the live-AWS panes seamed for later. T1 is the foundation and is worth
-landing and reviewing on its own (pure, 3.11, no new deps) before any Textual
-code is written.
+- **T1** ~1–2 days (pure, 3.11, no new deps) — land and review **first**.
+- **Five screens** ~5–7 days total per the brief (1–2 days each, bounded), built
+  in the order **1 → 3 → 2 → 4 → 5**, one commit/small-PR + debrief per screen.
+- **T-chain + docs** — fast follow.
 
-Suggested order: **T1 → T2 → T3 → T4 → T5 → T6**, one commit (or small PR) per
-slice, each with its debrief under `team/claude/debriefs/` per CLAUDE.md §26.
+**Deferred to the "sixth conversation" (post-exploration):** the single composite
+dashboard from the framing brief (topology + slug table + detail + activity in one
+app — what an earlier draft of this plan called T2–T5). After ~1 week of using the
+five screens, we decide which patterns get promoted: tabs of one app, a reduced
+set, or a redesign absorbing the best of each. T1 already feeds whatever wins.
 
 ---
 
-## 12. Open questions for the human
+## 13. Open questions for the human
 
-1. **AWS target default zone** — confirm `edge.sg-labs.app` (the hard-coded edge
-   parent) is the right read-only target for the AWS source pre-Slice-5.
-2. **Card export destination** — file only, or also attempt clipboard
-   (`pbcopy`/`wl-copy`/OSC-52) when available? OSC-52 survives SSH and is the
-   most chain-friendly; proposed default.
-3. **Where the user guide lives** — extend `library/guides/v0.2.36__sg-edge-local-user-guide.md`
-   with a TUI section, or a new `v0.2.38__sg-edge-tui-guide.md`? Proposed: new file.
-4. **Theme** — dark default confirmed by the brief; ship light as `t`-toggle in
-   MVP or defer? Proposed: ship the toggle, it's cheap with Textual.
+1. **Screen 5 event source** — for the MVP it's the T1 `Differ` (honest
+   state-transition trickle). The brief suggests the unified observability session
+   as the eventual source. Confirm: MVP stays on the Differ, observability is a
+   later swap?
+2. **Screen 3 "Deployed" column** — MVP does **local vs edge** only (the two real
+   sources). Is a third "Deployed" column meaningful for `sg_edge` specifically, or
+   is that a cross-service concern that belongs to the labs/admin UI instead?
+3. **Command surface** — `sg edge tui <screen>` subcommands (proposed) vs. the
+   brief's flat `sg-edge-tui-<name>`. Subcommands keep the `sg edge` tree tidy and
+   still run side-by-side in tmux. Confirm subcommands?
