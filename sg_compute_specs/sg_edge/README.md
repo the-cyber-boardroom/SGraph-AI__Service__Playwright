@@ -25,6 +25,8 @@ sibling to `vault_app` / `vault_publish`.
 | CLI | `cli/Cli__SG_Edge*` | `sg edge` umbrella: `status`, `idle-check`, `dns *`, `proxy *`, `bench`, `waker` (+ `boot`/`reconcile`/`drain` Slice-5 stubs) |
 | Local deploy | `local/Local__Edge__Stack` + `Local__Route53__Client` + `Local__Edge__Proxy` | file-backed in-process local edge: setup / register / request / check / teardown — no AWS, no docker |
 | Bench (Slice 6 local) | `bench/Edge_Bench__Suite` + `bench/scenarios/Edge_Bench__Scenarios` | 8 runnable LOCAL doc-05 scenarios (P-03/07/12, F-01/06/08, X-07/12) over the local edge via `sg edge bench`; 8 aws-bench scenarios registered + skipped |
+| TUI data layer | `tui/source/*` + `tui/service/*` + `tui/schemas/*` | shared snapshot seam for the SG/Edge TUI (T1): one normalised `Schema__SG_Edge__TUI__Snapshot` from a local or AWS-DNS source, plus pure `Differ` / `Metrics` / `Comparison` / `Card` |
+| TUI screen S1 | `tui/screens/SG_Edge__TUI__Screen__Deployment` + `tui/cli/Cli__SG_Edge__Tui` | `sg edge tui deployment` — Deployment Reality (Textual; gated/lazy; no-TTY → static card) |
 
 State model (all in DNS, nothing else): `proxies.<parent>` A (fleet membership),
 `_state.<parent>` TXT (zero_streak teardown counter), `_sg.<slug>.<parent>` TXT
@@ -63,6 +65,39 @@ sg edge local usecase all              # run them all, one by one
 with ✓/●/✗ per layer and a Checks panel listing any deviations (orphan backend,
 dormant slug, missing wildcard/fleet, records-without-a-stack-marker).
 
+## SG/Edge TUI — `tui/` (data layer landed; screens pending)
+
+A visually-rich Textual TUI is planned (see `team/comms/plans/v0.2.38__sg-edge-tui/`).
+**Slice T1 — the shared data layer — exists today** and is pure (no Textual, runs
+on 3.11):
+
+- `tui/schemas/Schema__SG_Edge__TUI__Snapshot` — one normalised, source-independent
+  snapshot (zone / wildcard / fleet / slug-state / issues / `capabilities`).
+- `tui/source/SG_Edge__TUI__{Local,AWS}_Source` over `SG_Edge__TUI__Data_Source` —
+  Local wraps `Local__Edge__Stack`; AWS reads the live `edge.sg-labs.app` DNS
+  registry read-only (mutations raise until Slice 5; `can_act()` is False).
+- `tui/service/` — `Snapshot__Builder` (shared by both sources), `Differ`
+  (state-transition events), `Metrics` (honest sparkline ring buffers), `Comparison`
+  (local-vs-edge), `Card` (ASCII export). All pure.
+
+`capabilities` makes "no data yet" first-class: cost / throughput / instance panes
+are deliberately absent (pending Slice 5), never fabricated.
+
+**Slice S1 — the Deployment Reality screen — also exists today**: a Textual app
+(`tui/screens/SG_Edge__TUI__Screen__Deployment`) showing edge infrastructure /
+proxy fleet / slugs / checks at a glance, with a pure render module
+(`…Deployment__Render`, testable on 3.11) and shared glyph helpers. Run it via:
+
+```bash
+sg edge tui deployment                 # local edge (Textual; q quit, r refresh)
+sg edge tui deployment --target aws     # live edge.sg-labs.app DNS (read-only)
+sg edge tui deployment | cat            # no TTY → static ASCII card fallback
+```
+
+Textual is a lazy/gated dependency: registering `sg edge tui` never imports it, and
+the screen falls back to a static card when stdout is not a terminal. The remaining
+screens (S2 Topology, S3 Compare, S4 Slug detail, S5 Events) are later slices.
+
 ## Not built yet (deferred — see plans)
 
 - **EC2 launcher/terminator** wiring the reconciler's `_launcher`/`_terminator`
@@ -92,6 +127,7 @@ non-zero on any non-skipped FAIL — drop `sg edge bench full` into CI as a no-A
 ```bash
 python3   -m pytest sg_compute_specs/sg_edge/tests/   # 3.11: 104 pass, 68 skip (typer + FastAPI)
 python3.12 -m pytest sg_compute_specs/sg_edge/tests/  # 3.12: 172 pass (CLI + bench + FastAPI)
+python3.12 -m pytest sg_compute_specs/sg_edge/tui/tests/  # TUI (T1+S1): 3.12 → 32 pass; 3.11 → 27 pass + 5 gated-skip (textual/typer)
 ```
 
 The CLI tests need `typer`, and the `test_Fast_API__Edge_Waker` tests need

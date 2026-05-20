@@ -29,12 +29,14 @@ from sg_compute_specs.sg_edge.cli.Cli__SG_Edge__Proxy     import app as _proxy_a
 from sg_compute_specs.sg_edge.cli.Cli__SG_Edge__Bench     import app as _bench_app
 from sg_compute_specs.sg_edge.cli.Cli__SG_Edge__Waker     import app as _waker_app
 from sg_compute_specs.sg_edge.local.cli.Cli__SG_Edge__Local import app as _local_app
+from sg_compute_specs.sg_edge.tui.cli.Cli__SG_Edge__Tui    import app as _tui_app
 
 app.add_typer(_local_app, name='local', help='Local deployment (setup / usage / teardown — no AWS).')
 app.add_typer(_dns_app,   name='dns',   help='DNS-as-registry diagnostics (read-only).')
 app.add_typer(_proxy_app, name='proxy', help='Proxy-asset helpers (pure, no AWS).')
 app.add_typer(_bench_app, name='bench', help='SG/Edge bench harness (doc-05).')
 app.add_typer(_waker_app, name='waker', help='Edge Waker debug and diagnostic verbs.')
+app.add_typer(_tui_app,   name='tui',   help='Exploratory TUI screens (Textual; lazy import).')
 
 _reconciler_factory = None                                                       # tests assign a callable(parent) → SG_Edge__Fleet__Reconciler
 
