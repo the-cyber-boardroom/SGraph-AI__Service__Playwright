@@ -57,3 +57,24 @@ def deployment(target: str = typer.Option('local', '--target', '-t', help='Data 
         return
     from sg_compute_specs.sg_edge.tui.screens.SG_Edge__TUI__Screen__Deployment import SG_Edge__TUI__Screen__Deployment
     SG_Edge__TUI__Screen__Deployment(source=source).run()
+
+
+_compare_sources_factory = None                                                      # tests assign a callable(local_parent, aws_parent) → (local_source, aws_source)
+
+
+def _compare_sources(local_parent : str, aws_parent : str):
+    if _compare_sources_factory is not None:
+        return _compare_sources_factory(local_parent, aws_parent)
+    return _source('local', local_parent), _source('aws', aws_parent)
+
+
+@app.command(name='compare', help='Screen 3 — Local vs Edge: what differs between the local and AWS edge.')
+def compare(local_parent: str = typer.Option('', '--local-parent', help='Local edge zone (default edge.sg-labs.local)'),
+            aws_parent  : str = typer.Option('', '--aws-parent',   help='AWS edge zone (default edge.sg-labs.app)')):
+    local_source, aws_source = _compare_sources(local_parent, aws_parent)
+    if not sys.stdout.isatty():                                                      # piped / CI / no real terminal → plain text diff
+        from sg_compute_specs.sg_edge.tui.screens.SG_Edge__TUI__Compare__Render import compare_plain
+        print(compare_plain(local_source.snapshot(), aws_source.snapshot()))
+        return
+    from sg_compute_specs.sg_edge.tui.screens.SG_Edge__TUI__Screen__Compare import SG_Edge__TUI__Screen__Compare
+    SG_Edge__TUI__Screen__Compare(local_source=local_source, aws_source=aws_source).run()

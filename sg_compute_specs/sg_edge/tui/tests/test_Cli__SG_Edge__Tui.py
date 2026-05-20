@@ -46,7 +46,26 @@ class test_Cli__SG_Edge__Tui(TestCase):
         assert 'alice'   in result.output
         assert 'pending' in result.output                                            # honest pending panes survive into the card
 
-    def test_help_lists_deployment(self):
+    def test_help_lists_commands(self):
         result = self.runner.invoke(self.mod.app, ['--help'])
         assert result.exit_code == 0
         assert 'deployment' in result.output
+        assert 'compare'    in result.output
+
+    def test_compare__no_tty_falls_back_to_plain_diff(self):
+        from tests.unit.sgraph_ai_service_playwright__cli.aws.dns.service.Route53__AWS__Client__In_Memory import Route53__AWS__Client__In_Memory
+        from sg_compute_specs.sg_edge.service.SG_Edge__DNS__Helper             import SG_Edge__DNS__Helper
+        from sg_compute_specs.sg_edge.tui.source.SG_Edge__TUI__AWS_Source      import SG_Edge__TUI__AWS_Source
+        r53    = Route53__AWS__Client__In_Memory()
+        r53.seed_zone('edge.sg-labs.app')
+        aws    = SG_Edge__TUI__AWS_Source(dns=SG_Edge__DNS__Helper(route53=r53), parent_zone='edge.sg-labs.app')
+        self.mod._compare_sources_factory = lambda lp, ap: (self.source, aws)        # local has alice; aws empty
+        try:
+            result = self.runner.invoke(self.mod.app, ['compare'], catch_exceptions=False)
+        finally:
+            self.mod._compare_sources_factory = None
+        assert result.exit_code == 0
+        assert 'Local vs Edge' in result.output
+        assert 'slug:alice'    in result.output                                      # alice present locally, absent on edge
+        assert 'local only'    in result.output
+        assert '[green]'       not in result.output                                  # plain (no markup) in the no-TTY path
