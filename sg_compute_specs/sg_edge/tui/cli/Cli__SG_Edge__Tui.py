@@ -67,7 +67,26 @@ def topology(target: str = typer.Option('local', '--target', '-t', help='Data so
         _render_static(source)
         return
     from sg_compute_specs.sg_edge.tui.screens.SG_Edge__TUI__Screen__Topology import SG_Edge__TUI__Screen__Topology
-    SG_Edge__TUI__Screen__Topology(source=source).run()
+    topo = SG_Edge__TUI__Screen__Topology(source=source)
+    topo.run()
+    if topo.opened_slug:                                                             # Enter drilled in → open the Slug-detail screen for that slug
+        from sg_compute_specs.sg_edge.tui.screens.SG_Edge__TUI__Screen__Slug_Detail import SG_Edge__TUI__Screen__Slug_Detail
+        SG_Edge__TUI__Screen__Slug_Detail(source=source, slug=topo.opened_slug).run()
+
+
+@app.command(name='slug', help='Screen 4 — Slug detail: deep-dive one slug (↑/↓ to switch).')
+def slug(name  : str = typer.Argument('', help='Slug to focus (default: first registered)'),
+         target: str = typer.Option('local', '--target', '-t', help='Data source: local | aws'),
+         parent: str = typer.Option('',      '--parent', '-p', help='Edge parent zone (defaults per target)')):
+    source = _source(target, parent)
+    if not sys.stdout.isatty():                                                      # piped / CI / no real terminal → plain text detail
+        from sg_compute_specs.sg_edge.tui.screens.SG_Edge__TUI__Slug_Detail__Render import slug_detail_plain
+        snap   = source.snapshot()
+        target_slug = name or (snap.slugs[0].slug if snap.slugs else '')
+        print(slug_detail_plain(snap, target_slug))
+        return
+    from sg_compute_specs.sg_edge.tui.screens.SG_Edge__TUI__Screen__Slug_Detail import SG_Edge__TUI__Screen__Slug_Detail
+    SG_Edge__TUI__Screen__Slug_Detail(source=source, slug=name).run()
 
 
 _compare_sources_factory = None                                                      # tests assign a callable(local_parent, aws_parent) → (local_source, aws_source)

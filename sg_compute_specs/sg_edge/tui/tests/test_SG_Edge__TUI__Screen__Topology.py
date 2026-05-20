@@ -56,6 +56,18 @@ class test_SG_Edge__TUI__Screen__Topology(TestCase):
             await pilot.press('up')                                                  # clamp at the first slug
             assert app.selected_index == 0
 
+    def test_enter_drills_into_selected_slug(self):
+        asyncio.run(self.scenario_drill())
+
+    async def scenario_drill(self):
+        app = self.screen()
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            await pilot.press('down')                                                # select the 2nd slug
+            await pilot.press('enter')
+            await pilot.pause()
+        assert app.opened_slug == app.snapshot.slugs[1].slug                         # recorded for the CLI to open Slug detail
+
     def test_refresh_and_quit(self):
         asyncio.run(self.scenario_refresh_quit())
 

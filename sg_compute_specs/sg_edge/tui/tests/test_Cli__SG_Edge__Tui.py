@@ -49,7 +49,7 @@ class test_Cli__SG_Edge__Tui(TestCase):
     def test_help_lists_commands(self):
         result = self.runner.invoke(self.mod.app, ['--help'])
         assert result.exit_code == 0
-        for cmd in ('deployment', 'topology', 'compare'):
+        for cmd in ('deployment', 'topology', 'compare', 'slug'):
             assert cmd in result.output, cmd
 
     def test_topology__no_tty_falls_back_to_card(self):
@@ -57,6 +57,13 @@ class test_Cli__SG_Edge__Tui(TestCase):
         assert result.exit_code == 0
         assert 'SG/Edge' in result.output
         assert 'alice'   in result.output
+
+    def test_slug__no_tty_falls_back_to_plain_detail(self):
+        result = self.runner.invoke(self.mod.app, ['slug', 'alice'], catch_exceptions=False)
+        assert result.exit_code == 0
+        assert 'SLUG: alice'    in result.output
+        assert 'pending Slice 5' in result.output                                    # honest pending panes in the plain detail
+        assert '[bold]'         not in result.output                                 # plain (no markup)
 
     def test_compare__no_tty_falls_back_to_plain_diff(self):
         from tests.unit.sgraph_ai_service_playwright__cli.aws.dns.service.Route53__AWS__Client__In_Memory import Route53__AWS__Client__In_Memory

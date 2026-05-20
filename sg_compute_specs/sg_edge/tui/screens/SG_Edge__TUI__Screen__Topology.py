@@ -23,7 +23,8 @@ class SG_Edge__TUI__Screen__Topology(App):
                 ('down', 'select_next', 'Down'),
                 ('j',    'select_next', 'Down'),
                 ('up',   'select_prev', 'Up'),
-                ('k',    'select_prev', 'Up')]
+                ('k',    'select_prev', 'Up'),
+                ('enter', 'drill',      'Detail')]
 
     def __init__(self, source, refresh_seconds : float = TUI_REFRESH_SECONDS):
         super().__init__()
@@ -32,6 +33,7 @@ class SG_Edge__TUI__Screen__Topology(App):
         self.snapshot        = None
         self.selected_index  = 0
         self.exited          = False
+        self.opened_slug     = ''                                                    # set on Enter → CLI relaunches the Slug-detail screen
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -69,6 +71,11 @@ class SG_Edge__TUI__Screen__Topology(App):
         if count:
             self.selected_index = max(self.selected_index - 1, 0)
             self.redraw()
+
+    def action_drill(self) -> None:                                                  # Enter on a slug → record it + exit; the CLI opens Slug detail
+        if self.snapshot and 0 <= self.selected_index < len(self.snapshot.slugs):
+            self.opened_slug = self.snapshot.slugs[self.selected_index].slug
+            self.exit()
 
     def action_refresh(self) -> None:
         self.refresh_snapshot()
