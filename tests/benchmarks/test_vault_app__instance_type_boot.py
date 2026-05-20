@@ -120,17 +120,28 @@ def _launch_one(svc, itype: str, ami_id: str, caller_ip: str) -> _BootResult:
     t0     = time.monotonic()
 
     try:
+        # req = Schema__Vault_App__Create__Request(
+        #     region        = REGION                       ,
+        #     instance_type = itype                        ,
+        #     from_ami      = ami_id                       ,
+        #     caller_ip     = caller_ip                    ,
+        #     max_hours     = MAX_HOURS                    ,
+        #     with_tls_check= True                         ,
+        #     tls_mode      = 'letsencrypt-ip'             ,
+        #     acme_prod     = True                         ,
+        #     use_spot      = True                         ,
+        #     stack_name    = f'bench-{itype.replace(".", "-")}-{secrets.token_hex(3)}',
+        # )
         req = Schema__Vault_App__Create__Request(
-            region        = REGION                       ,
-            instance_type = itype                        ,
-            from_ami      = ami_id                       ,
-            caller_ip     = caller_ip                    ,
-            max_hours     = MAX_HOURS                    ,
-            with_tls_check= True                         ,
-            tls_mode      = 'letsencrypt-ip'             ,
-            acme_prod     = True                         ,
-            use_spot      = True                         ,
-            stack_name    = f'bench-{itype.replace(".", "-")}-{secrets.token_hex(3)}',
+            region=REGION,
+            instance_type=itype,
+            from_ami=ami_id,
+            caller_ip=caller_ip,
+            max_hours=MAX_HOURS,
+            with_tls_check=False,  # ← was True
+            # tls_mode + acme_prod become irrelevant — drop them.
+            use_spot=True,
+            stack_name=f'bench-{itype.replace(".", "-")}-{secrets.token_hex(3)}',
         )
         resp         = svc.create_stack(req, creator='bench')
         result.iid   = str(getattr(resp.stack_info, 'instance_id', '') or '')
@@ -285,3 +296,108 @@ class Test__Vault_App__Instance_Type_Boot:
             f'No instance type became healthy within {TIMEOUT_SEC}s.\n'
             f'Results: {results}'
         )
+
+
+
+# test_vault_app__instance_type_boot.py::Test__Vault_App__Instance_Type_Boot::test_requires_ami_id PASSED
+# test_vault_app__instance_type_boot.py::Test__Vault_App__Instance_Type_Boot::test_creds_available PASSED
+# test_vault_app__instance_type_boot.py::Test__Vault_App__Instance_Type_Boot::test_boot_all_types
+#   AMI: ami-076ba06f91d7ea338  |  region: eu-west-2  |  timeout: 240s  |  types: 6
+#   Launching 6 instances in parallel...
+#
+#   [c5.large    ]  done — 27s
+#   [c6i.large   ]  done — 27s
+#   [t3a.medium  ]  done — 34s
+#   [t3.medium   ]  done — 34s
+#   [m5.large    ]  done — 35s
+#   [m6i.large   ]  done — 46s
+#
+#   Deleting 6 instances...
+#   All instances deleted.
+#
+#
+#   ┌──────────────────────────────────┐
+#   │  INSTANCE TYPE   BOOT TIME  STATUS│
+#   │---------------------------------│
+#   │  c5.large         27s  ✓  (baseline)
+#   │  c6i.large        27s  ✓  (baseline)
+#   │  t3a.medium       34s  ✓  (+7s)
+#   │  t3.medium        34s  ✓  (+7s)
+#   │  m5.large         35s  ✓  (+8s)
+#   │  m6i.large        46s  ✓  (+19s)
+#   └──────────────────────────────────┘
+#
+#   fastest: c5.large (27s)  |  slowest: m6i.large (46s)  |  spread: 19s
+
+# more runs
+
+#   ┌──────────────────────────────────┐
+#   │  INSTANCE TYPE   BOOT TIME  STATUS│
+#   │---------------------------------│
+#   │  t3.medium        33s  ✓  (baseline)
+#   │  c5.large         33s  ✓  (baseline)
+#   │  c6i.large        35s  ✓  (+2s)
+#   │  m5.large         39s  ✓  (+6s)
+#   │  t3a.medium       42s  ✓  (+9s)
+#   │  m6i.large        45s  ✓  (+12s)
+#   └──────────────────────────────────┘
+#
+#   fastest: t3.medium (33s)  |  slowest: m6i.large (45s)  |  spread: 12s
+
+#  ┌──────────────────────────────────┐
+#   │  INSTANCE TYPE   BOOT TIME  STATUS│
+#   │---------------------------------│
+#   │  t3.medium        33s  ✓  (baseline)
+#   │  c5.large         34s  ✓  (+1s)
+#   │  t3a.medium       35s  ✓  (+2s)
+#   │  m5.large         39s  ✓  (+6s)
+#   │  c6i.large        41s  ✓  (+8s)
+#   │  m6i.large        51s  ✓  (+18s)
+#   └──────────────────────────────────┘
+#
+#   fastest: t3.medium (33s)  |  slowest: m6i.large (51s)  |  spread: 18s
+
+#   ┌──────────────────────────────────┐
+#   │  INSTANCE TYPE   BOOT TIME  STATUS│
+#   │---------------------------------│
+#   │  c6i.large        31s  ✓  (baseline)
+#   │  m5.large         31s  ✓  (baseline)
+#   │  c5.large         33s  ✓  (+2s)
+#   │  t3a.medium       33s  ✓  (+2s)
+#   │  t3.medium        40s  ✓  (+9s)
+#   │  m6i.large        52s  ✓  (+21s)
+#   └──────────────────────────────────┘
+#
+#   fastest: c6i.large (31s)  |  slowest: m6i.large (52s)  |  spread: 21s
+
+# ----- the next ones were started with not tls
+
+#   ┌──────────────────────────────────┐
+#   │  INSTANCE TYPE   BOOT TIME  STATUS│
+#   │---------------------------------│
+#   │  t3.medium        30s  ✓  (baseline)
+#   │  m5.large         36s  ✓  (+6s)
+#   │  t3a.medium       36s  ✓  (+6s)
+#   │  c6i.large        36s  ✓  (+6s)
+#   │  m6i.large        40s  ✓  (+10s)
+#   │  c5.large         48s  ✓  (+18s)
+#   └──────────────────────────────────┘
+
+#   ┌──────────────────────────────────┐
+#   │  INSTANCE TYPE   BOOT TIME  STATUS│
+#   │---------------------------------│
+#   │  t3.medium        36s  ✓  (baseline)
+#   │  c6i.large        36s  ✓  (baseline)
+#   │  m6i.large        37s  ✓  (+1s)
+#   │  c5.large         37s  ✓  (+1s)
+#   │  t3a.medium       37s  ✓  (+1s)
+#   │  m5.large         37s  ✓  (+1s)
+#   └──────────────────────────────────┘
+# for reference
+
+#     't3.medium' ,   # current baseline
+#     't3a.medium',   # AMD Zen 2 — same RAM/vCPU tier, EPYC
+#     'm5.large'  ,   # Skylake general purpose — 8 GiB RAM
+#     'm6i.large' ,   # Ice Lake general purpose — 8 GiB RAM
+#     'c5.large'  ,   # Skylake compute optimised — 4 GiB RAM
+#     'c6i.large' ,   # Ice Lake compute optimised — 4 GiB RAM
