@@ -50,6 +50,13 @@ from scripts.docker_stack import app as _docker_app
 app.add_typer(_docker_app, name='docker',    help='Ephemeral Docker EC2 stacks (AL2023 + Docker CE).')
 app.add_typer(_docker_app, name='dk',        hidden=True)
 
+# ── edge ──────────────────────────────────────────────────────────────────────
+from sg_compute_specs.sg_edge.cli.Cli__SG_Edge       import app as _sg_edge_app
+from sg_compute_specs.sg_edge.cli.Cli__SG_Edge__Bench import app as _sg_edge_bench_app
+app.add_typer(_sg_edge_app,       name='edge',       help='SG/Edge — central edge tier (proxy fleet + Edge Waker).')
+app.add_typer(_sg_edge_app,       name='ed',         hidden=True)               # short alias
+app.add_typer(_sg_edge_bench_app, name='edge_bench', hidden=True)               # brief-05 alias → sg edge bench
+
 # ── doctor ───────────────────────────────────────────────────────────────────
 from scripts.doctor import app as _doctor_app
 app.add_typer(_doctor_app, name='doctor',    help='Preflight checks — AWS account / region / ECR / IAM.')

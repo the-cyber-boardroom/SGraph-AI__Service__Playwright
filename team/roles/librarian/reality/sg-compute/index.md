@@ -173,8 +173,17 @@ Onboarding guide: [`library/onboarding/v0.2.33__vault-app-fargate.md`](../../../
 | `Schema__SG_Edge__State__Record` | `sg_edge/schemas/` | Typed form of the `_state.<parent>` TXT (zero_streak + updated) |
 | `SG_Edge__TXT__Builder` | `sg_edge/service/` | Composes/parses the v=1 routing TXT; shared by Vault Waker + Reaper |
 | `SG_Edge__State__Builder` | `sg_edge/service/` | Composes/parses the `_state.<parent>` TXT counter |
+| `SG_Edge__DNS__Helper` | `sg_edge/service/` | Edge control-plane DNS surface over `sg aws dns`: `proxies.<parent>` A membership (list/add/remove/count), `_state.<parent>` TXT read/write, `_sg.*` active-slug count + routing read (Slice 2) |
+| `Schema__SG_Edge__Proxy` | `sg_edge/schemas/` | A launched, health-green proxy (instance_id + ip) returned by the launcher seam (Slice 3) |
+| `SG_Edge__Fleet__Reconciler` | `sg_edge/service/` | Convergent control loop — `ensure_booting` (cold-cold), `reconcile` (scale check), `idle_check` (zero_streak teardown); AWS work behind launcher/terminator/clock seams (Slice 3) |
+| `Fast_API__Edge_Waker` + `Routes__Edge_Waker` + `Loading__Page` + `lambda_entry` + `edge_waker__config` | `sg_edge/lambdas/edge_waker/` | The Edge Waker as a `Serverless__Fast_API` Lambda (same pattern as `vault_publish/lambdas/waker/` + combined-deps loader). Routes: `/__edge__/health|status|reconcile|idle-check` + cold-cold loading-page catch-all (Slice 3) |
+| `proxy/nginx.conf` + `SG_Edge__Proxy__User_Data` | `sg_edge/proxy/`, `sg_edge/service/` | Phase 1 OpenResty static-diagnostic rig (`:80`, `/_edge/health|stats|version|slug_seen`, IP-redacted access log) + the EC2 cloud-init user-data builder that runs it (Slice 4) |
+| `cloudfront_function/viewer_request.js` + `SG_Edge__CloudFront__Function` | `sg_edge/cloudfront_function/`, `sg_edge/service/` | CloudFront viewer-request function (Host preserve + slug → `X-SG-Slug`/`X-SG-Host`) + its loader (Slice 4) |
+| `Edge_Bench__Runner` + `Edge_Bench__Stats` + `Schema__Edge_Bench__Metric` + `Enum__Edge_Bench__Verdict` | `sg_edge/bench/` | The doc-05 measurement core: percentiles (nearest-rank) + acceptance-threshold verdicts (PASS/WARN/FAIL on target vs hard_fail) over repeated scenario runs (Slice 6 core) |
 
-Tests: `sg_compute_specs/sg_edge/tests/` — 32 unit tests (both builders: build/parse/round-trip/rejection; schema defaults + json round-trip; enum coverage). No mocks. Purely additive — nothing outside `sg_edge/` imports it; the `sg` CLI surface is unchanged.
+Tests: `sg_compute_specs/sg_edge/tests/` — 72 unit tests + 6 FastAPI route tests (skipped off Python 3.12). Logic (builders, DNS helper, reconciler, proxy user-data, bench runner) is fully covered against the real in-memory fakes; the FastAPI surface is TestClient-tested in CI. No mocks. Purely additive — nothing outside `sg_edge/` imports it; the `sg` CLI surface is unchanged.
+
+**Phase 1 status:** Slices 1–4 (typed foundation, DNS helper, Edge Waker FastAPI Lambda + reconciler, proxy rig + CF function) and the Slice 6 bench measurement core are landed and tested. Remaining Phase 1 work is **live-environment-bound** (not buildable/verifiable in the CI container): the EC2-backed proxy launcher/terminator wiring + the CF/ACM/IAM/Lambda Setup orchestration (deploy-via-pytest against real AWS), and the `sg edge_bench` docker-compose local stack + live scenario bodies (P-*/F-*/X-*).
 
 ---
 

@@ -137,7 +137,7 @@ vault target in the loop). 90% runs locally via the doc-05 docker-compose stack.
 | **1 — typed foundation** | primitives, enums, `Schema__SG_Edge__TXT__Record` + `Schema__SG_Edge__State__Record`, `SG_Edge__TXT__Builder` + `SG_Edge__State__Builder`; 32 unit tests | none | **done** |
 | 2 — DNS helper | `SG_Edge__DNS__Helper` over `sg aws dns`: write/read/delete `proxies.<parent>` A, upsert/read `_state.<parent>` TXT, read `_sg.<slug>` TXT; in-memory-fake tests | DNS (seam) | next |
 | 3 — Edge Waker (FastAPI Lambda) | `lambdas/edge_waker/` — `Serverless__Fast_API` app + `Fast_API__Routes` + combined-deps loader; convergent reconciliation; parallel-fork to Vault Waker; HTTP readiness probe; loading page | Lambda/EC2 (seam) | |
-| 4 — proxy rig + CF Function | OpenResty static-diagnostic user-data (`listen 80`, `/_edge/health|stats|version|slug_seen`), CF viewer-request JS | none (assets) | |
+| 4 — proxy rig + CF Function | OpenResty static-diagnostic user-data (`:80` public static short-circuit + `:8089` VPC-private `/_edge/health\|stats\|version\|slug_seen` mgmt surface, per brief 02), CF viewer-request JS | none (assets) | **done** |
 | 5 — wiring + setup | `Setup__*`: IAM roles, CF distribution + origin group + ACM wildcard, Edge Waker deploy via `sg aws lambda`, `proxies.<parent>` zone; deploy-via-pytest | live AWS | |
 | 6 — `sg edge_bench` harness | the doc-05 CLI: primitive/flow/failure scenarios, structured JSON, local + aws-bench targets, acceptance thresholds | local + AWS | |
 
