@@ -56,7 +56,7 @@ class SG_Edge__Fleet__Reconciler(Type_Safe):
             return None                                                              # already up (or booting via a racing invocation) — no-op
         return self._launch_and_register()
 
-    def reconcile(self) -> dict:                                                      # scheduled scale check — converge toward desired_target
+    def reconcile(self) -> dict:                                                      # scheduled scale check — scale UP toward desired_target; scale-DOWN is idle_check()'s job
         current  = self.dns.proxy_count(self.parent)
         target   = self.desired_target()
         launched = []
