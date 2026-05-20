@@ -177,6 +177,8 @@ Onboarding guide: [`library/onboarding/v0.2.33__vault-app-fargate.md`](../../../
 | `Schema__SG_Edge__Proxy` | `sg_edge/schemas/` | A launched, health-green proxy (instance_id + ip) returned by the launcher seam (Slice 3) |
 | `SG_Edge__Fleet__Reconciler` | `sg_edge/service/` | Convergent control loop — `ensure_booting` (cold-cold), `reconcile` (scale check), `idle_check` (zero_streak teardown); AWS work behind launcher/terminator/clock seams (Slice 3) |
 | `Fast_API__Edge_Waker` + `Routes__Edge_Waker` + `Loading__Page` + `lambda_entry` + `edge_waker__config` | `sg_edge/lambdas/edge_waker/` | The Edge Waker as a `Serverless__Fast_API` Lambda (same pattern as `vault_publish/lambdas/waker/` + combined-deps loader). Routes: `/__edge__/health|status|reconcile|idle-check` + cold-cold loading-page catch-all (Slice 3) |
+| `proxy/nginx.conf` + `SG_Edge__Proxy__User_Data` | `sg_edge/proxy/`, `sg_edge/service/` | Phase 1 OpenResty static-diagnostic rig (`:80`, `/_edge/health|stats|version|slug_seen`, IP-redacted access log) + the EC2 cloud-init user-data builder that runs it (Slice 4) |
+| `cloudfront_function/viewer_request.js` + `SG_Edge__CloudFront__Function` | `sg_edge/cloudfront_function/`, `sg_edge/service/` | CloudFront viewer-request function (Host preserve + slug → `X-SG-Slug`/`X-SG-Host`) + its loader (Slice 4) |
 
 Tests: `sg_compute_specs/sg_edge/tests/` — 58 unit tests + 6 FastAPI route tests (skipped off Python 3.12). Logic (builders, DNS helper, reconciler) is fully covered against the real `Route53__AWS__Client__In_Memory` fake; the FastAPI surface is TestClient-tested in CI. No mocks. Purely additive — nothing outside `sg_edge/` imports it; the `sg` CLI surface is unchanged.
 
