@@ -1,55 +1,41 @@
 # ═══════════════════════════════════════════════════════════════════════════════
 # vault-publish admin — lambda_entry
-# Canonical Lambda handler for the sg-compute-vault-publish-admin Lambda.
-# Every request (HTML pages at /, /slug/<slug>/, /setup/; JSON under
-# /api/v1/; the public /api/v1/status probe used by warming pages) is
-# dispatched through the FastAPI app via Lambda_To_ASGI.
+# Canonical handler for the sg-compute-vault-publish-admin Lambda.
 #
-# Architecturally distinct from the waker Lambda:
-#   - Waker  (lambdas/waker/lambda_entry.py) — plain-handler, slug routing,
-#                                              warming-page state machine.
-#   - Admin  (this file)                     — full FastAPI app, no slug
-#                                              routing, all paths via ASGI.
+# Cold-start sequence (the standard osbot serverless shape):
+#   1. If inside Lambda (AWS_REGION set): load the combined dependency zip from
+#      S3 onto sys.path BEFORE importing the app (so fastapi/pydantic/etc.
+#      resolve against the platform-correct wheels, not the build host's).
+#   2. Build the Serverless__Fast_API app, capture handler() (Mangum) + app().
+#   3. run(event, context) is the AWS entry point.
 #
-# Both Lambdas live in the same package + share the service-level code
-# (Vault_App__Service, Slug__Registry, Vault_App__Auto_DNS, schemas) — only
-# the entry points differ.
+# Local (no AWS_REGION): the dep load no-ops and imports resolve from the venv.
+# A broken cold start inside Lambda is captured into `error` and returned as a
+# readable string instead of an opaque 502; locally it re-raises.
 # ═══════════════════════════════════════════════════════════════════════════════
 
 import os
 
-# FastAPI app cache — built once per warm container. Cold-start cost
-# (~150ms for FastAPI init + route registration) is paid once.
-_FAST_API_APP   = None
-_LAMBDA_TO_ASGI = None
+if os.getenv('AWS_REGION'):                                                          # only inside Lambda
+    from sg_compute._for_osbot_aws.Lambda__Dependencies__Loader        import load_combined_dependency
+    from sg_compute_specs.vault_publish.lambdas.admin.admin__config    import (
+        ADMIN__DEPS_BASE_NAME, ADMIN__LAMBDA_DEPENDENCIES)
+    load_combined_dependency(ADMIN__DEPS_BASE_NAME, ADMIN__LAMBDA_DEPENDENCIES)
+
+error = None; handler = None; app = None
+try:
+    from sg_compute_specs.vault_publish.lambdas.admin.Fast_API__Admin import Fast_API__Admin
+    with Fast_API__Admin() as _:
+        _.setup()
+        handler = _.handler()
+        app     = _.app()
+except Exception as exc:
+    if os.getenv('AWS_LAMBDA_FUNCTION_NAME') is None:                                # re-raise locally
+        raise
+    error = f'CRITICAL ERROR: Failed to start admin service with:\n\n{type(exc).__name__}: {exc}'
 
 
-def _get_dispatcher():
-    global _FAST_API_APP, _LAMBDA_TO_ASGI
-    if _LAMBDA_TO_ASGI is None:
-        from sg_compute_specs.vault_publish.lambdas.admin.Fast_API__Admin  import Fast_API__Admin
-        from sg_compute_specs.vault_publish.lambdas.admin.Lambda_To_ASGI   import Lambda_To_ASGI
-        _FAST_API_APP   = Fast_API__Admin().app()
-        _LAMBDA_TO_ASGI = Lambda_To_ASGI(_FAST_API_APP)
-    return _LAMBDA_TO_ASGI
-
-
-def handler(event, context):
-    # Lambda Function URL passes Function-URL v2.0 events; Lambda_To_ASGI
-    # translates the event into an ASGI scope, runs the FastAPI app, and
-    # returns a Function-URL v2.0 response dict.
-    return _get_dispatcher()(event)
-
-
-# Diagnostic env exposed at import-time (matches the waker's DEPLOY_INFO
-# shape so `sg vp setup admin-lambda invoke` can hit a /health-style route
-# and see what's actually deployed).
-DEPLOY_INFO = {
-    'service_version' : os.environ.get('ADMIN_SERVICE_VERSION', ''),
-    'version'         : os.environ.get('ADMIN_VERSION', 'unknown'),
-    'deployed_at'     : os.environ.get('ADMIN_DEPLOYED_AT',   ''),
-    'deploy_id'       : os.environ.get('ADMIN_DEPLOY_ID',     ''),
-    'deploy_region'   : os.environ.get('ADMIN_DEPLOY_REGION', ''),
-    'deployed_by'     : os.environ.get('ADMIN_DEPLOYED_BY',   ''),
-    'git_commit'      : os.environ.get('ADMIN_GIT_COMMIT',    ''),
-}
+def run(event, context=None):                                                        # AWS Lambda entry point
+    if error:
+        return error
+    return handler(event, context)

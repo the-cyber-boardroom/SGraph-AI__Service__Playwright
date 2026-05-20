@@ -3,7 +3,7 @@
 # Drift-check + deploy for the sg-compute-vault-publish-admin Lambda.
 #
 # Mirrors Setup__Lambda (waker) but with a different handler / role / env vars:
-#   handler  = sg_compute_specs.vault_publish.lambdas.admin.lambda_entry.handler
+#   handler  = sg_compute_specs.vault_publish.lambdas.admin.lambda_entry.run
 #   role     = sg-compute-vault-publish-admin-role  (broader perms; managed by Setup__Admin__IAM)
 #   env vars = ADMIN_SERVICE_VERSION, ADMIN_VERSION, etc. + the API-key pair
 #              SG_VAULT_PUBLISH__ADMIN__API_KEY_NAME / _VALUE (auto-generated
@@ -30,7 +30,7 @@ from sg_compute_specs.vault_publish.setup.schemas.Schema__Setup__Lambda__Report 
 from sg_compute_specs.vault_publish.setup.service.Setup__Lambda                  import _read_version, _git_commit, _caller_identity
 
 ADMIN_LAMBDA_NAME = 'sg-compute-vault-publish-admin'
-ADMIN_HANDLER     = 'sg_compute_specs.vault_publish.lambdas.admin.lambda_entry.handler'
+ADMIN_HANDLER     = 'sg_compute_specs.vault_publish.lambdas.admin.lambda_entry.run'
 EXPECTED_RUNTIME  = 'python3.12'
 EXPECTED_MEMORY   = 768                                                                # admin does longer work than waker; modest bump
 EXPECTED_TIMEOUT  = 300                                                                # 5 min — register w/ --wait can take up to 90s, head-room for retries
