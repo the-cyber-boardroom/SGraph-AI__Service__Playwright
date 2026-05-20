@@ -13,6 +13,7 @@ Framework guides — read these before writing code against the corresponding li
 | [`v0.34.0__unified_service_client.md`](v0.34.0__unified_service_client.md) | 0.34.0 | When wiring the stateless client or service registry for tests |
 | [`v0.2.15__markdown_doc_style.md`](v0.2.15__markdown_doc_style.md)   | 0.2.15 | When writing any Markdown brief / plan / debrief / review — YAML frontmatter, not `═══` heading blocks |
 | [`v0.2.31__setup_cli_pattern.md`](v0.2.31__setup_cli_pattern.md)     | 0.2.31 | When building any CLI / API surface that manages > 1 connected resource — areas, five verbs, drift-first vocabulary, mutation gates, self-verification loop |
+| [`v0.2.36__sg-edge-local-user-guide.md`](v0.2.36__sg-edge-local-user-guide.md) | 0.2.36 | When operating, testing, or demoing the SG/Edge local edge (`sg edge local`) — setup/usage/teardown, the A+TXT model, reading `check`, use-cases, serving over HTTP |
 
 ---
 
