@@ -155,6 +155,27 @@ Onboarding guide: [`library/onboarding/v0.2.33__vault-app-fargate.md`](../../../
 
 ---
 
+## edge — Phase 1 foundation (v0.2.37)
+
+`sg_compute_specs/edge/` — typed foundation for the SG/Edge central edge tier (Slice 1 of the Phase 1 plan). AWS-call-free; pure Type_Safe data + the shared TXT composer/parser. The wider SG/Edge build (Edge Waker, proxy fleet, CloudFront wiring) is PROPOSED — see [`proposed/index.md`](proposed/index.md) P-7 and the plan at `team/comms/plans/v0.2.37__sg-edge/`.
+
+| Class / File | Path | Description |
+|--------------|------|-------------|
+| `Safe_Str__Edge__Parent_Domain` | `edge/primitives/` | Parent domain that defines one edge (e.g. `cv.sgraph.ai`) |
+| `Safe_Int__Edge__Unix_Ts` | `edge/primitives/` | Unix timestamp (TXT `launched`, fleet `updated_at`); 0 = unset |
+| `Safe_Int__Edge__TXT_Version` | `edge/primitives/` | TXT schema `v=` field; defaults to 1, only v=1 valid today |
+| `Safe_Int__Edge__Cycle_Count` | `edge/primitives/` | Non-negative scheduled-check counter (fleet `zero_streak`) |
+| `Enum__Edge__Backend__Type` | `edge/enums/` | `ec2` / `fargate` — the TXT `type=` token |
+| `Enum__Edge__Fleet__State` | `edge/enums/` | Fleet state machine: `zero`/`booting`/`active`/`scaling`/`draining` |
+| `Schema__Edge__TXT__Record` | `edge/schemas/` | Typed form of the `_sg.<slug>` routing TXT record |
+| `Schema__Edge__Fleet__State` | `edge/schemas/` | Contents of the single S3 boot-lock object per edge |
+| `List__Safe_Str__IP__Address` | `edge/collections/` | Proxy-fleet membership mirror (pure type def) |
+| `SG_Edge__TXT__Builder` | `edge/service/` | Composes/parses the v=1 TXT wire string; shared by Vault Waker + Reaper |
+
+Tests: `sg_compute_specs/edge/tests/` — 27 unit tests (TXT build/parse/round-trip, schema defaults + json round-trip, enum coverage). No mocks.
+
+---
+
 ## PROPOSED — does not exist yet
 
 See [`proposed/index.md`](proposed/index.md).
@@ -165,6 +186,7 @@ See [`proposed/index.md`](proposed/index.md).
 
 | Date | Change |
 |------|--------|
+| 2026-05-20 | v0.2.37 SG/Edge Slice 1 (typed foundation): new `sg_compute_specs/edge/` spec — 4 primitives, 2 enums, 2 schemas (`Schema__Edge__TXT__Record`, `Schema__Edge__Fleet__State`), 1 collection, `SG_Edge__TXT__Builder` (v=1 TXT composer/parser). 27 unit tests, no AWS calls. Plan: `team/comms/plans/v0.2.37__sg-edge/`. Re-grounds the 05/20 briefs onto existing `sg aws *` modules. Branch: `claude/implement-sg-edge-agent-c2jEp`. |
 | 2026-05-19 | v0.1.16 vault-publish admin Lambda split: `sg_compute_specs/vault_publish/waker/` and `sg_compute_specs/vault_publish/admin/` moved under `sg_compute_specs/vault_publish/lambdas/{waker,admin}/` (deployment-unit grouping). New admin Lambda `sg-compute-vault-publish-admin` with own IAM role + CloudFront distribution + single-host ACM cert at `vp-admin.aws.sg-labs.app` — defeats H2 connection coalescing for the warming-page status probe. Setup pieces: `Setup__Admin__IAM`, `Setup__Admin__Lambda`, `Setup__Admin__CF` (includes cert provisioning + wildcard-cert guard), `Setup__Admin__DNS`. New CLI sub-apps `sg vp setup admin-iam/lambda/cf/dns *`. `setup create / update` reorder admin BEFORE waker so the warming page's probe target is always live. `Fast_API__Waker.py` deleted (dead code post-split). Warming page polls `https://vp-admin.aws.sg-labs.app/api/v1/status` by default. 16 warming-page tests passing. Branch: `claude/waker-debug-clean-bRIbm`. |
 | 2026-05-19 | v0.2.33: vault-app fargate — `sg vault-app fargate` sub-app (setup/start), `Phase__Timer`, `Phase__Progress__Renderer`, `Mutation__Gate__Scope`, 12 service classes, 7 schemas, 3 enums, 2 primitives under `sg_compute_specs/vault_app/fargate/`. Pre-work: `sg aws fargate` Slice 0a (task-def/task-run essential flags), `sg aws ec2 eni` Slice 0b, `sg aws logs` Slice 0c. 410 fargate unit tests. Branch: `claude/review-vault-publish-spec-FT9hq`. |
 | 2026-05-17 | v0.2.23: vault-publish spec — full cold path: slug registry (SSM), `Vault_Publish__Service` (register/unpublish/status/list/bootstrap), `sg_compute_specs/vault_publish/waker/` (Waker Lambda with FastAPI + LWA), `sgraph_ai_service_playwright__cli/aws/cf/` (CloudFront CRUD), `sgraph_ai_service_playwright__cli/aws/lambda_/` (Lambda deploy + URL CRUD). 5 commits (a5de0b1 P1a → 432ba5d P2d). 149 waker+vault-publish tests + 52 CF/Lambda tests — all passing. |

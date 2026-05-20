@@ -34,6 +34,14 @@ Last updated: 2026-05-17 | Domain: `sg-compute/`
 
 **What:** `Vault__Spec__Writer` currently uses an in-memory dict with `vault_attached=True`. Persistent vault wiring is deferred to v0.3.
 
+## P-7 · SG/Edge — central edge tier (v0.2.37)
+
+**What:** A central edge that terminates TLS once (CloudFront + wildcard ACM), routes by slug to ephemeral vault targets via an OpenResty proxy fleet, and scales to zero. DNS-as-registry (no DynamoDB): `_sg.<slug>` TXT records carry routing metadata, `proxies.<parent>` A records carry fleet membership, and a single S3 `If-None-Match` object is the boot lock. Coordinated by an Edge Waker Lambda (cold-cold bootstrap of the proxy fleet) kept separate from the existing Vault Waker.
+
+**Design:** [`team/humans/dinis_cruz/briefs/05/20/sg-edge__01..04`](../../../../../humans/dinis_cruz/briefs/05/20/) (4 briefs). **Plan:** [`team/comms/plans/v0.2.37__sg-edge/README.md`](../../../../../comms/plans/v0.2.37__sg-edge/README.md) — re-grounds the briefs onto existing `sg aws *` modules (`cf`/`acm`/`dns`/`ec2`/`iam`/`lambda_`/`s3`); the only genuinely-new AWS primitive is `If-None-Match` on `S3__AWS__Client.put_object`. Modelled on `sg_compute_specs/vault_publish/`.
+
+**Status note:** Slice 1 (typed foundation) has LANDED and is EXISTS — see the `edge — Phase 1 foundation` section in [`../index.md`](../index.md). Slices 2–6 (boot lock, fleet manager, proxy rig, Edge Waker, setup/wiring) remain PROPOSED.
+
 ---
 
 ## See also
