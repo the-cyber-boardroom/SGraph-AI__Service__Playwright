@@ -238,9 +238,10 @@ class test_Cli__SG_Edge__Dns(TestCase):
         assert data['parent'] == PARENT
         assert '5.6.7.8' in data['ips']
 
-    def test_proxies__missing_parent_exits_1(self):
-        result = self.runner.invoke(dns_app, ['proxies'], env={'SG_EDGE__PARENT_DOMAIN': '', 'SG_AWS__DNS__DEFAULT_ZONE': ''})
-        assert result.exit_code == 1
+    def test_parent_defaults_to_edge_sg_labs_app(self):
+        from sg_compute_specs.sg_edge.cli.Cli__SG_Edge__Dns import _parent_from
+        assert _parent_from('') == 'edge.sg-labs.app'                                 # hard-coded create/destroy-at-will zone
+        assert _parent_from('other.example.com') == 'other.example.com'              # explicit --parent still wins
 
     def test_state__zeroed_when_absent(self):
         result = self.runner.invoke(dns_app, ['state', '--parent', PARENT], catch_exceptions=False)
@@ -327,10 +328,6 @@ class test_Cli__SG_Edge__Status(TestCase):
     def tearDown(self):
         edge_mod._reconciler_factory = None
 
-    def test_status__missing_parent_exits_1(self):
-        result = self.runner.invoke(edge_app, ['status'], env={'SG_EDGE__PARENT_DOMAIN': '', 'SG_AWS__DNS__DEFAULT_ZONE': ''})
-        assert result.exit_code == 1
-
     def test_status__empty_fleet(self):
         edge_mod._reconciler_factory = lambda p: _make_reconciler(self.helper, p)
         result = self.runner.invoke(edge_app, ['status', '--parent', PARENT], catch_exceptions=False)
@@ -372,10 +369,6 @@ class test_Cli__SG_Edge__IdleCheck(TestCase):
 
     def tearDown(self):
         edge_mod._reconciler_factory = None
-
-    def test_idle_check__missing_parent_exits_1(self):
-        result = self.runner.invoke(edge_app, ['idle-check'], env={'SG_EDGE__PARENT_DOMAIN': '', 'SG_AWS__DNS__DEFAULT_ZONE': ''})
-        assert result.exit_code == 1
 
     def test_idle_check__increment_when_no_slugs(self):
         edge_mod._reconciler_factory = lambda p: _make_reconciler(self.helper, p)

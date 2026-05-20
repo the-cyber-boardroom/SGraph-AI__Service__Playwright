@@ -19,8 +19,12 @@ app = typer.Typer(name='dns', help='DNS-as-registry diagnostics (read-only).', n
 _dns_factory = None                                                              # tests assign a callable → SG_Edge__DNS__Helper
 
 
-def _parent_from(parent: str) -> str:
-    return parent or os.environ.get('SG_EDGE__PARENT_DOMAIN', os.environ.get('SG_AWS__DNS__DEFAULT_ZONE', ''))
+def _parent_from(parent: str) -> str:                                            # hard-coded edge.sg-labs.app is the final fallback (create/destroy-at-will zone)
+    from sg_compute_specs.sg_edge.local.sg_edge_local__config import SG_EDGE__AWS_PARENT
+    return (parent
+            or os.environ.get('SG_EDGE__PARENT_DOMAIN', '')
+            or os.environ.get('SG_AWS__DNS__DEFAULT_ZONE', '')
+            or SG_EDGE__AWS_PARENT)
 
 
 def _dns():
@@ -37,9 +41,6 @@ def proxies(
 ):
     c   = Console(highlight=False)
     par = _parent_from(parent)
-    if not par:
-        c.print('\n  [red]✗  --parent / $SG_EDGE__PARENT_DOMAIN is required[/]\n')
-        raise typer.Exit(1)
     try:
         ips = _dns().list_proxy_ips(par)
     except Exception as exc:
@@ -64,9 +65,6 @@ def state(
 ):
     c   = Console(highlight=False)
     par = _parent_from(parent)
-    if not par:
-        c.print('\n  [red]✗  --parent / $SG_EDGE__PARENT_DOMAIN is required[/]\n')
-        raise typer.Exit(1)
     try:
         rec = _dns().read_state(par)
     except Exception as exc:
@@ -89,9 +87,6 @@ def slugs(
 ):
     c   = Console(highlight=False)
     par = _parent_from(parent)
-    if not par:
-        c.print('\n  [red]✗  --parent / $SG_EDGE__PARENT_DOMAIN is required[/]\n')
-        raise typer.Exit(1)
     try:
         active = _dns().list_active_slugs(par)
     except Exception as exc:
@@ -117,9 +112,6 @@ def routing(
 ):
     c   = Console(highlight=False)
     par = _parent_from(parent)
-    if not par:
-        c.print('\n  [red]✗  --parent / $SG_EDGE__PARENT_DOMAIN is required[/]\n')
-        raise typer.Exit(1)
     try:
         rec = _dns().read_routing(par, slug)
     except Exception as exc:

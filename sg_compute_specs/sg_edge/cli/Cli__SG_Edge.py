@@ -24,11 +24,13 @@ app = typer.Typer(name='edge', help='SG/Edge — central edge tier (proxy fleet 
 
 _SLICE5 = '\n  [dim]⌛  Requires Slice 5 (EC2 launcher/terminator not yet wired)[/]\n'
 
-from sg_compute_specs.sg_edge.cli.Cli__SG_Edge__Dns   import app as _dns_app
-from sg_compute_specs.sg_edge.cli.Cli__SG_Edge__Proxy import app as _proxy_app
-from sg_compute_specs.sg_edge.cli.Cli__SG_Edge__Bench import app as _bench_app
-from sg_compute_specs.sg_edge.cli.Cli__SG_Edge__Waker import app as _waker_app
+from sg_compute_specs.sg_edge.cli.Cli__SG_Edge__Dns       import app as _dns_app
+from sg_compute_specs.sg_edge.cli.Cli__SG_Edge__Proxy     import app as _proxy_app
+from sg_compute_specs.sg_edge.cli.Cli__SG_Edge__Bench     import app as _bench_app
+from sg_compute_specs.sg_edge.cli.Cli__SG_Edge__Waker     import app as _waker_app
+from sg_compute_specs.sg_edge.local.cli.Cli__SG_Edge__Local import app as _local_app
 
+app.add_typer(_local_app, name='local', help='Local deployment (setup / usage / teardown — no AWS).')
 app.add_typer(_dns_app,   name='dns',   help='DNS-as-registry diagnostics (read-only).')
 app.add_typer(_proxy_app, name='proxy', help='Proxy-asset helpers (pure, no AWS).')
 app.add_typer(_bench_app, name='bench', help='SG/Edge bench harness (doc-05).')
@@ -37,8 +39,12 @@ app.add_typer(_waker_app, name='waker', help='Edge Waker debug and diagnostic ve
 _reconciler_factory = None                                                       # tests assign a callable(parent) → SG_Edge__Fleet__Reconciler
 
 
-def _parent_from(parent: str) -> str:
-    return parent or os.environ.get('SG_EDGE__PARENT_DOMAIN', os.environ.get('SG_AWS__DNS__DEFAULT_ZONE', ''))
+def _parent_from(parent: str) -> str:                                            # hard-coded edge.sg-labs.app is the final fallback (create/destroy-at-will zone)
+    from sg_compute_specs.sg_edge.local.sg_edge_local__config import SG_EDGE__AWS_PARENT
+    return (parent
+            or os.environ.get('SG_EDGE__PARENT_DOMAIN', '')
+            or os.environ.get('SG_AWS__DNS__DEFAULT_ZONE', '')
+            or SG_EDGE__AWS_PARENT)
 
 
 def _reconciler(parent: str):
@@ -62,9 +68,6 @@ def status(
 ):
     c   = Console(highlight=False)
     par = _parent_from(parent)
-    if not par:
-        c.print('\n  [red]✗  --parent / $SG_EDGE__PARENT_DOMAIN is required[/]\n')
-        raise typer.Exit(1)
     try:
         rec        = _reconciler(par)
         dns        = rec.dns
@@ -103,9 +106,6 @@ def idle_check(
 ):
     c   = Console(highlight=False)
     par = _parent_from(parent)
-    if not par:
-        c.print('\n  [red]✗  --parent / $SG_EDGE__PARENT_DOMAIN is required[/]\n')
-        raise typer.Exit(1)
     try:
         result = _reconciler(par).idle_check()
     except NotImplementedError:
