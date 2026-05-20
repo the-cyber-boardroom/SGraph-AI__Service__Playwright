@@ -8,6 +8,8 @@
 #
 # The waker app (Fast_API__Edge_Waker) requires osbot-fast-api-serverless which
 # needs Python ≥3.12.  Both commands skip cleanly on 3.11 (exit 2 + hint).
+# Routes are exercised in-process via Starlette's TestClient (same path the
+# test_Fast_API__Edge_Waker suite uses) — no live HTTP, no Lambda.
 # ═══════════════════════════════════════════════════════════════════════════════
 
 import typer
@@ -15,25 +17,25 @@ from rich.console import Console
 
 app = typer.Typer(name='waker', help='Edge Waker debug and diagnostic verbs.', no_args_is_help=True)
 
-_SLICE5 = '\n  [dim]⌛  Requires Slice 5 (deployed Lambda + CloudWatch Logs wiring)[/]\n'
-_PY312  = 'osbot-fast-api-serverless requires Python ≥3.12 — re-run with python3.12'
+_SLICE5      = '\n  [dim]⌛  Requires Slice 5 (deployed Lambda + CloudWatch Logs wiring)[/]\n'
+_PY312       = 'osbot-fast-api-serverless requires Python ≥3.12 — re-run with python3.12'
+_GET_ROUTES  = ('health', 'status')                                              # GET routes on the waker
+_POST_ROUTES = ('reconcile', 'idle-check')                                       # POST routes (control plane)
+
+
+def _local_client():                                                             # in-process Starlette test client over the real waker app
+    from starlette.testclient import TestClient
+    from sg_compute_specs.sg_edge.lambdas.edge_waker.Fast_API__Edge_Waker import Fast_API__Edge_Waker
+    waker = Fast_API__Edge_Waker()
+    waker.setup()
+    return TestClient(waker.app())
 
 
 @app.command(name='status', help='GET /__edge__/status via local in-process waker app (requires py3.12).')
 def status():
     c = Console(highlight=False)
     try:
-        import asyncio
-        from httpx import AsyncClient
-        from sg_compute_specs.sg_edge.lambdas.edge_waker.Fast_API__Edge_Waker import Fast_API__Edge_Waker
-        waker = Fast_API__Edge_Waker()
-        waker.setup()
-
-        async def _get():
-            async with AsyncClient(app=waker.app, base_url='http://test') as ac:
-                return await ac.get('/__edge__/status')
-
-        resp = asyncio.run(_get())
+        resp = _local_client().get('/__edge__/status')
         c.print()
         c.print(f'  Status : {resp.status_code}')
         c.print(f'  Body   : {resp.text[:800]}')
@@ -46,24 +48,20 @@ def status():
         raise typer.Exit(1)
 
 
-@app.command(name='invoke', help='Invoke a waker route locally (health|status|reconcile|idle-check, requires py3.12).')
+@app.command(name='invoke', help='Invoke a waker route locally: health|status|reconcile|idle-check (requires py3.12).')
 def invoke(route: str = typer.Argument(..., help='Route: health | status | reconcile | idle-check')):
     c    = Console(highlight=False)
-    path = f'/__edge__/{route}'
+    name = route.strip().lstrip('/').replace('__edge__/', '')
+    if name not in _GET_ROUTES + _POST_ROUTES:
+        c.print(f'\n  [red]✗  unknown route {route!r} — expected one of: '
+                f'{", ".join(_GET_ROUTES + _POST_ROUTES)}[/]\n')
+        raise typer.Exit(1)
+    path = f'/__edge__/{name}'
     try:
-        import asyncio
-        from httpx import AsyncClient
-        from sg_compute_specs.sg_edge.lambdas.edge_waker.Fast_API__Edge_Waker import Fast_API__Edge_Waker
-        waker = Fast_API__Edge_Waker()
-        waker.setup()
-
-        async def _get():
-            async with AsyncClient(app=waker.app, base_url='http://test') as ac:
-                return await ac.get(path)
-
-        resp = asyncio.run(_get())
+        client = _local_client()
+        resp   = client.post(path) if name in _POST_ROUTES else client.get(path)
         c.print()
-        c.print(f'  Route  : {path}')
+        c.print(f'  Route  : {path}  ({"POST" if name in _POST_ROUTES else "GET"})')
         c.print(f'  Status : {resp.status_code}')
         c.print(f'  Body   : {resp.text[:800]}')
         c.print()

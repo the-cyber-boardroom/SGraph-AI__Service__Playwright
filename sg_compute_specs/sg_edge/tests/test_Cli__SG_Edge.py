@@ -157,13 +157,25 @@ class test_Cli__SG_Edge__Bench(TestCase):
 # ═══════════════════════════════════════════════════════════════════════════════
 
 @skipUnless(_HAS_TYPER, 'typer not installed (Python <3.12 in this env)')
-class test_Cli__SG_Edge__Waker_Stubs(TestCase):
+class test_Cli__SG_Edge__Waker(TestCase):
+
+    def setUp(self):
+        self.runner = CliRunner()
 
     def test_logs_exits_0(self):
-        runner = CliRunner()
-        result = runner.invoke(waker_app, ['logs'], catch_exceptions=False)
+        result = self.runner.invoke(waker_app, ['logs'], catch_exceptions=False)
         assert result.exit_code == 0
         assert 'Slice 5' in result.output
+
+    def test_invoke_health__exits_0(self):                                       # /health is fully offline (no DNS)
+        result = self.runner.invoke(waker_app, ['invoke', 'health'], catch_exceptions=False)
+        assert result.exit_code == 0
+        assert '200'           in result.output
+        assert 'sg-edge-waker' in result.output
+
+    def test_invoke_unknown_route__exits_1(self):
+        result = self.runner.invoke(waker_app, ['invoke', 'bogus'])
+        assert result.exit_code == 1
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
