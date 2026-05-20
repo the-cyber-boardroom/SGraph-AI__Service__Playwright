@@ -27,6 +27,7 @@ cryptography                 = "*"
 acme                         = "*"
 josepy                       = "*"
 typer                        = "*"
+textual                      = "*"                                                      # SG/Edge TUI (sg_edge/tui); pulls rich. Imported lazily + tests @skipUnless.
 pyyaml                       = "*"
 
 [tool.poetry.scripts]
