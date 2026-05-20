@@ -24,8 +24,11 @@ from typing import Callable, Optional
 
 from osbot_utils.type_safe.Type_Safe                                          import Type_Safe
 
+from sg_compute_specs.sg_edge.enums.Enum__SG_Edge__Idle__Action               import Enum__SG_Edge__Idle__Action
 from sg_compute_specs.sg_edge.primitives.Safe_Str__SG_Edge__Parent_Domain     import Safe_Str__SG_Edge__Parent_Domain
+from sg_compute_specs.sg_edge.schemas.Schema__SG_Edge__Idle__Result           import Schema__SG_Edge__Idle__Result
 from sg_compute_specs.sg_edge.schemas.Schema__SG_Edge__Proxy                  import Schema__SG_Edge__Proxy
+from sg_compute_specs.sg_edge.schemas.Schema__SG_Edge__Reconcile__Result      import Schema__SG_Edge__Reconcile__Result
 from sg_compute_specs.sg_edge.schemas.Schema__SG_Edge__State__Record          import Schema__SG_Edge__State__Record
 from sg_compute_specs.sg_edge.service.SG_Edge__DNS__Helper                    import SG_Edge__DNS__Helper
 
@@ -56,31 +59,29 @@ class SG_Edge__Fleet__Reconciler(Type_Safe):
             return None                                                              # already up (or booting via a racing invocation) — no-op
         return self._launch_and_register()
 
-    def reconcile(self) -> dict:                                                      # scheduled scale check — scale UP toward desired_target; scale-DOWN is idle_check()'s job
+    def reconcile(self) -> Schema__SG_Edge__Reconcile__Result:                        # scheduled scale check — scale UP toward desired_target; scale-DOWN is idle_check()'s job
         current  = self.dns.proxy_count(self.parent)
         target   = self.desired_target()
         launched = []
         if current < target:
             for _ in range(target - current):
-                launched.append(str(self._launch_and_register().instance_id))
-        return {'current'  : current,
-                'target'   : target,
-                'launched' : launched}
+                launched.append(self._launch_and_register().instance_id)
+        return Schema__SG_Edge__Reconcile__Result(current=current, target=target, launched=launched)
 
-    def idle_check(self) -> dict:                                                     # scheduled teardown — zero_streak in the _state TXT
+    def idle_check(self) -> Schema__SG_Edge__Idle__Result:                            # scheduled teardown — zero_streak in the _state TXT
         active = self.dns.active_slug_count(self.parent)
         if active > 0:                                                                # traffic present — reset the streak
             self._write_streak(0)
-            return {'active': active, 'zero_streak': 0, 'action': 'reset'}
+            return Schema__SG_Edge__Idle__Result(active=active, zero_streak=0, action=Enum__SG_Edge__Idle__Action.RESET)
 
         streak = int(self.dns.read_state(self.parent).zero_streak) + 1
         if streak >= int(self.idle_threshold):                                        # idle long enough — drain the fleet
             drained = self._drain_all()
             self._write_streak(0)
-            return {'active': 0, 'zero_streak': 0, 'action': 'teardown', 'drained': drained}
+            return Schema__SG_Edge__Idle__Result(active=0, zero_streak=0, action=Enum__SG_Edge__Idle__Action.TEARDOWN, drained=drained)
 
         self._write_streak(streak)
-        return {'active': 0, 'zero_streak': streak, 'action': 'increment'}
+        return Schema__SG_Edge__Idle__Result(active=0, zero_streak=streak, action=Enum__SG_Edge__Idle__Action.INCREMENT)
 
     # ── internals ────────────────────────────────────────────────────────────────
 

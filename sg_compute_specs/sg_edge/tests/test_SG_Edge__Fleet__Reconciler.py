@@ -65,22 +65,22 @@ class test_SG_Edge__Fleet__Reconciler(TestCase):
 
     def test_reconcile__no_vaults_launches_nothing(self):
         result = self.reconciler.reconcile()
-        assert result['target']   == 0
-        assert result['launched'] == []
+        assert result.target          == 0
+        assert list(result.launched)  == []
         assert self.dns.proxy_count(PARENT) == 0
 
     def test_reconcile__launches_up_to_target(self):
         self._seed_vault('alice')
         result = self.reconciler.reconcile()
-        assert result['target'] == 2
-        assert len(result['launched']) == 2
+        assert result.target          == 2
+        assert len(result.launched)   == 2
         assert self.dns.proxy_count(PARENT) == 2
 
     def test_reconcile__noop_when_at_target(self):
         self._seed_vault('alice')
         self.reconciler.reconcile()                                                  # brings fleet to 2
         result = self.reconciler.reconcile()                                         # already at target
-        assert result['launched'] == []
+        assert list(result.launched)  == []
         assert self.dns.proxy_count(PARENT) == 2
 
     # ── idle_check (teardown counter) ────────────────────────────────────────────
@@ -88,15 +88,15 @@ class test_SG_Edge__Fleet__Reconciler(TestCase):
     def test_idle_check__resets_when_active(self):
         self._seed_vault('alice')
         result = self.reconciler.idle_check()
-        assert result['action']      == 'reset'
-        assert result['zero_streak'] == 0
+        assert str(result.action)  == 'reset'
+        assert result.zero_streak  == 0
 
     def test_idle_check__increments_below_threshold(self):
         r1 = self.reconciler.idle_check()
-        assert r1 == {'active': 0, 'zero_streak': 1, 'action': 'increment'}
+        assert r1.json() == {'active': 0, 'zero_streak': 1, 'action': 'increment', 'drained': []}
         r2 = self.reconciler.idle_check()
-        assert r2['zero_streak'] == 2
-        assert r2['action']      == 'increment'
+        assert r2.zero_streak    == 2
+        assert str(r2.action)    == 'increment'
 
     def test_idle_check__tears_down_at_threshold(self):
         self.reconciler.ensure_booting()                                             # one proxy up
@@ -104,9 +104,9 @@ class test_SG_Edge__Fleet__Reconciler(TestCase):
         self.reconciler.idle_check()                                                 # streak 1
         self.reconciler.idle_check()                                                 # streak 2
         result = self.reconciler.idle_check()                                        # streak 3 == threshold -> teardown
-        assert result['action']  == 'teardown'
-        assert result['drained'] == [ip]
-        assert self.terminated   == [ip]
+        assert str(result.action)     == 'teardown'
+        assert list(result.drained)   == [ip]
+        assert self.terminated        == [ip]
         assert self.dns.proxy_count(PARENT)              == 0
         assert int(self.dns.read_state(PARENT).zero_streak) == 0                     # streak reset after teardown
 
@@ -115,7 +115,7 @@ class test_SG_Edge__Fleet__Reconciler(TestCase):
         self.dns.add_proxy_ip(PARENT, '10.0.0.2')
         self.reconciler.idle_threshold = 1                                           # tear down on the first idle check
         result = self.reconciler.idle_check()
-        assert result['action']           == 'teardown'
-        assert sorted(result['drained'])  == ['10.0.0.1', '10.0.0.2']
-        assert sorted(self.terminated)    == ['10.0.0.1', '10.0.0.2']
+        assert str(result.action)            == 'teardown'
+        assert sorted(result.drained)        == ['10.0.0.1', '10.0.0.2']
+        assert sorted(self.terminated)       == ['10.0.0.1', '10.0.0.2']
         assert self.dns.proxy_count(PARENT) == 0

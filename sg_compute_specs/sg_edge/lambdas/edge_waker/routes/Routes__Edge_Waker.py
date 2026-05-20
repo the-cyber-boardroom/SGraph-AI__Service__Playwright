@@ -44,11 +44,11 @@ class Routes__Edge_Waker(Fast_API__Routes):
 
     # ── control plane ───────────────────────────────────────────────────────────
     def reconcile(self):                                                             # scheduled scale check / admin trigger
-        return self.reconciler.reconcile()
+        return self.reconciler.reconcile().json()
     reconcile.__route_path__ = '/__edge__/reconcile'
 
     def idle_check(self):                                                            # scheduled idle-teardown step
-        return self.reconciler.idle_check()
+        return self.reconciler.idle_check().json()
     idle_check.__route_path__ = '/__edge__/idle-check'
 
     # ── cold-cold catch-all ───────────────────────────────────────────────────────
