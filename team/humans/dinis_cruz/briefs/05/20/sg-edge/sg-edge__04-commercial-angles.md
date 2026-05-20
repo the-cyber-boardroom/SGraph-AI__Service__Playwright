@@ -8,13 +8,14 @@ related:
   - sg-edge__01-solution-overview.md
   - sg-edge__02-edge-fleet.md
   - sg-edge__03-targets.md
+  - sg-edge__05-mvp-test-and-acceptance.md
 ---
 
 # Why this document exists
 
 The SG/Edge architecture was built to solve a technical problem (LE rate limits, TLS at scale, ephemeral compute). But the *way* it solves that problem — DNS-driven routing, scale-to-zero per-edge isolation, vendor-neutral primitives, encrypted payloads end-to-end — happens to be very close to the shape of what enterprise and security-conscious customers will pay premium prices for.
 
-This document is the inventory: what billable units the architecture creates, what business models it enables, and which customer segments find each property valuable. None of these are speculative — they are direct consequences of architectural choices already documented in the other three docs.
+This document is the inventory: what billable units the architecture creates, what business models it enables, and which customer segments find each property valuable. None of these are speculative — they are direct consequences of architectural choices already documented in the other docs.
 
 # The core insight — architecture as a pricing surface
 
@@ -25,7 +26,7 @@ Most SaaS platforms have one or two dimensions to price on: seats, storage, requ
 |  Architectural choice            |  Becomes a billable property  |
 +------------------------------------------------------------------+
 |  Per-edge isolation              |  Dedicated tenancy            |
-|  (one CF distribution per        |  ($0.50/mo cost,              |
+|  (one CF distribution per        |  (~$0.50/mo cost,             |
 |   customer / environment)        |   premium price)              |
 |                                                                  |
 |  Component portability           |  Sovereignty / data           |
@@ -35,8 +36,9 @@ Most SaaS platforms have one or two dimensions to price on: seats, storage, requ
 |  Scale-to-zero economics         |  "Hibernation tier" for       |
 |                                  |  inactive customers           |
 |                                                                  |
-|  Coexistence with traditional    |  Tier ladder: ephemeral ->    |
-|  always-on path                  |  always-on -> dedicated       |
+|  Runtime mode continuum          |  Tier ladder: hibernation ->  |
+|  (same code, different runtime   |  cycles -> warm -> always-on  |
+|   states)                        |                               |
 |                                                                  |
 |  Per-target backend choice       |  Compute SKU mix              |
 |  (EC2 / Fargate / shared)        |                               |
@@ -51,6 +53,38 @@ Most SaaS platforms have one or two dimensions to price on: seats, storage, requ
 
 The unifying theme: most of these properties are *expensive to provide as add-ons* in conventional SaaS architectures (rebuild for isolation, rewrite for portability, re-architect for sovereignty). In SG/Edge they're already there, latent — every customer's deployment can be configured into any of these shapes without code changes.
 
+# The runtime-mode continuum — the key pricing primitive
+
+Most SaaS pricing has a hard line between "free trial" and "paid", and another hard line between "shared" and "dedicated." SG/Edge replaces both lines with a continuum:
+
+```
++--------------------------------------------------------------------+
+|  Runtime mode      |  What's running       |  Cost shape           |
++--------------------------------------------------------------------+
+|  Hibernation       |  CF + DNS only        |  ~$0.50/mo fixed      |
+|                    |  (proxy + target      |  (just Route 53 zone) |
+|                    |   at zero)            |                       |
+|                    |                                                |
+|  Cycles            |  Edge wakes 10-50/day |  Pennies/day, scales  |
+|                    |  on traffic           |  with usage           |
+|                    |                                                |
+|  Warm              |  N>=1 proxy always-on |  ~$15/mo + usage      |
+|                    |  vault wakes on visit |                       |
+|                    |                                                |
+|  Always-on         |  Pre-warmed everything|  Premium fixed +      |
+|                    |  + SLA                |  low usage             |
++--------------------------------------------------------------------+
+```
+
+The architectural property: **these are runtime states of the same system, not different products.** A customer at Hibernation tier on Sunday night who triggers their first request at 8am Monday morning transitions to Cycles for the day (waking and torn-down 10-15 times) and possibly to Warm if traffic justifies it, all without any deployment change. Same code, same operational model, same observability — just different runtime states governed by the idle-teardown threshold.
+
+This is the central commercial primitive. It enables:
+
+- **Genuine freemium**, because Hibernation costs almost nothing to keep alive (no per-customer overhead)
+- **Patient conversion paths**, because dormant trial users stay available indefinitely
+- **Usage-based pricing that's actually proportional**, because per-customer cost tracks per-customer activity
+- **Smooth upgrade paths**, because moving up tiers is a configuration change, not a re-platforming
+
 # Customer segments and what they buy
 
 Five distinct customer segments emerge naturally from the property matrix:
@@ -59,12 +93,11 @@ Five distinct customer segments emerge naturally from the property matrix:
 +------------------+---------------------------+----------------------+
 |  Segment         |  Buys                     |  Property leveraged  |
 +------------------+---------------------------+----------------------+
-|  SMB / startup   |  Cheap, fast, just works  |  Scale-to-zero       |
-|                  |                           |  economics           |
+|  SMB / startup   |  Cheap, fast, just works  |  Hibernation +       |
+|                  |                           |  Cycles economics    |
 |                  |                           |                      |
-|  Enterprise IT   |  Predictable cost,        |  Coexistence with    |
-|                  |  always-on, vendor SLA    |  traditional always- |
-|                  |                           |  on path             |
+|  Enterprise IT   |  Predictable cost,        |  Warm / Always-on    |
+|                  |  always-on, vendor SLA    |  tiers               |
 |                  |                           |                      |
 |  Security-       |  Verifiable isolation,    |  Per-edge isolation, |
 |  conscious       |  audit trail, zero-       |  encrypted payloads, |
@@ -90,31 +123,28 @@ The same codebase serves all five. Configuration determines which mode a given c
 
 ## 1. Tiered ephemerality — pay for what's on
 
-Traditional SaaS prices on "you exist" (seats, storage). SG/Edge can price on "you're using it":
+Maps directly to the runtime-mode continuum above:
 
 ```
 +--------------------------------------------------------------------+
-|  Tier              |  What's on                |  Price model      |
+|  Tier              |  Runtime mode             |  Price model      |
 +--------------------------------------------------------------------+
 |  Hibernation       |  CF + DNS only            |  ~$1/mo / edge    |
 |                    |  (proxy + vault at zero)  |  fixed            |
 |                    |                                                |
-|  Office hours      |  Proxy fleet on M-F       |  ~$15/mo + usage  |
-|                    |  business hours;          |                   |
-|                    |  scales to zero overnight |                   |
+|  Office hours      |  Cycles M-F business      |  ~$15/mo + usage  |
+|                    |  hours; scales to zero    |                   |
+|                    |  overnight                |                   |
 |                    |                                                |
 |  Always-warm       |  N>=1 proxy, vault wakes  |  Usage + small    |
 |                    |  on access                |  fixed             |
 |                    |                                                |
 |  Dedicated         |  Pre-warmed, own CF       |  Premium fixed    |
-|                    |  distribution, own ALB    |  + low usage      |
-|                    |  option, SLA              |                   |
+|                    |  distribution, own SLA    |  + low usage      |
 +--------------------------------------------------------------------+
 ```
 
-This is genuinely new pricing surface. A long-tail customer with a few hours of activity per week pays a couple of dollars; an enterprise customer with steady traffic pays for steady traffic; a security-sensitive customer pays for premium isolation. The customer self-selects the tier.
-
-Notable: a customer at Hibernation tier costs us almost nothing to keep ($0.50/mo Route 53 zone + a few hundred CF requests/month). We can keep ex-customers and trial customers in Hibernation indefinitely without a margin problem. This is unusual; most SaaS has fixed per-customer cost.
+Notable: a customer at Hibernation tier costs us almost nothing to keep ($0.50/mo Route 53 zone + a few hundred CF requests/month at most). We can keep ex-customers and trial customers in Hibernation indefinitely without a margin problem. This is unusual; most SaaS has fixed per-customer cost.
 
 ## 2. Per-environment pricing — sell isolation as a product
 
@@ -266,7 +296,7 @@ The commercial implication: gross margin profile is fundamentally different from
 
 Because the architecture's properties are *real*, not marketing — encrypted payloads are encrypted, logs are redacted at source, isolation is per-CF-distribution — the audit story is verifiable rather than performative:
 
-- SOC 2 controls: easier to evidence ("here's the Vector config that strips IPs; here's the proof it's deployed on every proxy")
+- SOC 2 controls: easier to evidence ("here's the nginx log_format directive that omits client IPs; here's the proof it's deployed on every proxy")
 - ISO 27001: separation of environments is per-AWS-resource, not per-database-row
 - GDPR: client metadata stripping is at the proxy, before it reaches storage
 - Zero-knowledge claims: payloads are AES-GCM encrypted in the browser before any HTTP request leaves; CF cannot decrypt them
@@ -284,8 +314,8 @@ Some sketches of what specific deals could look like, to make the abstract concr
 ## Scenario A — SMB freemium
 
 ```
-- Free tier: 1 vault, hibernation by default, $0/mo while idle
-- Paid tier $9/mo: always-warm, 5 vaults
+- Free tier: 1 vault, Hibernation mode by default, $0/mo while idle
+- Paid tier $9/mo: Warm tier, 5 vaults
 - Margin: positive even on free users (CF is free at trial volume)
 ```
 
@@ -294,7 +324,7 @@ Some sketches of what specific deals could look like, to make the abstract concr
 ```
 - Customer wants per-PR preview environments
 - Pricing: $X/mo base + $0.10 per preview env per day
-- Each preview env is one SG/Edge edge, scale-to-zero outside business hours
+- Each preview env is one SG/Edge edge, Cycles mode outside business hours
 - Customer pays for actual usage, no infra overhead for stale PRs
 ```
 

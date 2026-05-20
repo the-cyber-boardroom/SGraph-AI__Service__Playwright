@@ -37,7 +37,7 @@ def _default_zone() -> str:
 
 
 WAKER_LAMBDA_NAME = 'sg-compute-vault-publish-waker'
-WAKER_HANDLER     = 'sg_compute_specs.vault_publish.lambdas.waker.lambda_entry.handler'
+WAKER_HANDLER     = 'sg_compute_specs.vault_publish.lambdas.waker.lambda_entry.run'
 
 
 class Vault_Publish__Service(Type_Safe):

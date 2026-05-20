@@ -65,7 +65,7 @@ def _cmd_help(args):
 
 @cmd('health', 'Sanity check that the Lambda is alive (no AWS call).')
 def _cmd_health(args):
-    from sg_compute_specs.vault_publish.lambdas.waker.lambda_entry import DEPLOY_INFO, WAKER_VERSION
+    from sg_compute_specs.vault_publish.lambdas.waker.waker__config import DEPLOY_INFO, WAKER_VERSION
     return {
         'status'         : 'ok',
         'service'        : 'vault-waker',

@@ -61,7 +61,7 @@ from sg_compute_specs.vault_publish.setup.schemas.Schema__Setup__Issue          
 from sg_compute_specs.vault_publish.setup.schemas.Schema__Setup__Lambda__Report    import Schema__Setup__Lambda__Report
 
 WAKER_LAMBDA_NAME = 'sg-compute-vault-publish-waker'
-WAKER_HANDLER     = 'sg_compute_specs.vault_publish.lambdas.waker.lambda_entry.handler'
+WAKER_HANDLER     = 'sg_compute_specs.vault_publish.lambdas.waker.lambda_entry.run'
 EXPECTED_RUNTIME  = 'python3.12'
 EXPECTED_MEMORY   = 512
 EXPECTED_TIMEOUT  = 60
