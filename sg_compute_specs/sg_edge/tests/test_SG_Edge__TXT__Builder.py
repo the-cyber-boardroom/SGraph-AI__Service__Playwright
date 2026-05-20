@@ -1,12 +1,12 @@
 # ═══════════════════════════════════════════════════════════════════════════════
-# SG/Compute Specs — edge: tests for SG_Edge__TXT__Builder
+# SG/Compute Specs — sg_edge: tests for SG_Edge__TXT__Builder
 # ═══════════════════════════════════════════════════════════════════════════════
 
 from unittest import TestCase
 
-from sg_compute_specs.edge.enums.Enum__Edge__Backend__Type        import Enum__Edge__Backend__Type
-from sg_compute_specs.edge.schemas.Schema__Edge__TXT__Record      import Schema__Edge__TXT__Record
-from sg_compute_specs.edge.service.SG_Edge__TXT__Builder          import SG_Edge__TXT__Builder, MAX_TXT_LENGTH
+from sg_compute_specs.sg_edge.enums.Enum__SG_Edge__Backend__Type    import Enum__SG_Edge__Backend__Type
+from sg_compute_specs.sg_edge.schemas.Schema__SG_Edge__TXT__Record  import Schema__SG_Edge__TXT__Record
+from sg_compute_specs.sg_edge.service.SG_Edge__TXT__Builder         import SG_Edge__TXT__Builder, MAX_TXT_LENGTH
 
 
 class test_SG_Edge__TXT__Builder(TestCase):
@@ -15,12 +15,12 @@ class test_SG_Edge__TXT__Builder(TestCase):
         self.builder = SG_Edge__TXT__Builder()
 
     def _record(self, **kw):
-        defaults = dict(ip       = '10.0.1.5'                      ,
-                        port     = 8080                            ,
-                        type     = Enum__Edge__Backend__Type.EC2  ,
-                        launched = 1747700000                      )
+        defaults = dict(ip       = '10.0.1.5'                         ,
+                        port     = 8080                               ,
+                        type     = Enum__SG_Edge__Backend__Type.EC2   ,
+                        launched = 1747700000                         )
         defaults.update(kw)
-        return Schema__Edge__TXT__Record(**defaults)
+        return Schema__SG_Edge__TXT__Record(**defaults)
 
     # ── build ───────────────────────────────────────────────────────────────
 
@@ -36,7 +36,7 @@ class test_SG_Edge__TXT__Builder(TestCase):
         assert 'instance=' not in self.builder.build(self._record())
 
     def test_build__fargate_type(self):
-        txt = self.builder.build(self._record(type=Enum__Edge__Backend__Type.FARGATE))
+        txt = self.builder.build(self._record(type=Enum__SG_Edge__Backend__Type.FARGATE))
         assert 'type=fargate' in txt
 
     def test_build__under_dns_limit(self):
@@ -49,7 +49,7 @@ class test_SG_Edge__TXT__Builder(TestCase):
         assert int(record.version)  == 1
         assert str(record.ip)       == '10.0.1.5'
         assert int(record.port)     == 8080
-        assert record.type          == Enum__Edge__Backend__Type.EC2
+        assert record.type          == Enum__SG_Edge__Backend__Type.EC2
         assert int(record.launched) == 1747700000
         assert str(record.instance) == 'i-0abc123def4567890'
 

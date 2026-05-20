@@ -36,11 +36,11 @@ Last updated: 2026-05-17 | Domain: `sg-compute/`
 
 ## P-7 · SG/Edge — central edge tier (v0.2.37)
 
-**What:** A central edge that terminates TLS once (CloudFront + wildcard ACM), routes by slug to ephemeral vault targets via an OpenResty proxy fleet, and scales to zero. DNS-as-registry (no DynamoDB): `_sg.<slug>` TXT records carry routing metadata, `proxies.<parent>` A records carry fleet membership, and a single S3 `If-None-Match` object is the boot lock. Coordinated by an Edge Waker Lambda (cold-cold bootstrap of the proxy fleet) kept separate from the existing Vault Waker.
+**What:** A central edge that terminates TLS once (CloudFront + wildcard ACM), routes by slug to ephemeral vault targets via an OpenResty proxy fleet, and scales to zero. **DNS-as-registry, no coordination service:** `_sg.<slug>` TXT records carry routing metadata, `proxies.<parent>` A records carry fleet membership, and a `_state.<parent>` TXT record holds the idle-teardown counter. The Edge Waker is a convergent `Serverless__Fast_API` Lambda (cold-cold bootstrap + reconciliation toward a target proxy count), kept separate from the existing Vault Waker.
 
-**Design:** [`team/humans/dinis_cruz/briefs/05/20/sg-edge__01..04`](../../../../../humans/dinis_cruz/briefs/05/20/) (4 briefs). **Plan:** [`team/comms/plans/v0.2.37__sg-edge/README.md`](../../../../../comms/plans/v0.2.37__sg-edge/README.md) — re-grounds the briefs onto existing `sg aws *` modules (`cf`/`acm`/`dns`/`ec2`/`iam`/`lambda_`/`s3`); the only genuinely-new AWS primitive is `If-None-Match` on `S3__AWS__Client.put_object`. Modelled on `sg_compute_specs/vault_publish/`.
+**Design:** [`briefs/05/20/sg-edge/sg-edge__01..05`](../../../../../humans/dinis_cruz/briefs/05/20/sg-edge/) (5 briefs; rewritten `647de5a`). FastAPI-Lambda technique: [`briefs/05/20/fast-api/`](../../../../../humans/dinis_cruz/briefs/05/20/fast-api/). **Plan:** [`team/comms/plans/v0.2.37__sg-edge/README.md`](../../../../../comms/plans/v0.2.37__sg-edge/README.md) — re-grounds the briefs onto existing `sg aws *` modules (`cf` incl. `CloudFront__Origin__Failover__Builder`, `acm`, `dns`, `ec2`, `iam`, `lambda_`) and the in-repo Lambda template `vault_publish/lambdas/waker/` + `sg_compute/_for_osbot_aws/`. No new AWS primitive needed (the earlier S3 `If-None-Match` plan was dropped when the brief removed the lock).
 
-**Status note:** Slice 1 (typed foundation) has LANDED and is EXISTS — see the `edge — Phase 1 foundation` section in [`../index.md`](../index.md). Slices 2–6 (boot lock, fleet manager, proxy rig, Edge Waker, setup/wiring) remain PROPOSED.
+**Status note:** Slice 1 (typed foundation) has LANDED and is EXISTS — see the `sg_edge — Phase 1 foundation` section in [`../index.md`](../index.md). Slices 2–6 (DNS helper, Edge Waker FastAPI Lambda, proxy rig + CF Function, setup/wiring, `sg edge_bench` harness) remain PROPOSED. Purely additive — zero impact on existing `sg *` commands.
 
 ---
 

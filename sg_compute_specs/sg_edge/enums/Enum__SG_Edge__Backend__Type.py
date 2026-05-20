@@ -1,12 +1,16 @@
 # ═══════════════════════════════════════════════════════════════════════════════
-# SG/Compute Specs — edge: Safe_Int__Edge__Cycle_Count
-# Non-negative scheduled-check counter. Used for the fleet-state `zero_streak`
-# (consecutive idle-checks with zero active vaults before teardown — brief 02
-# uses a streak of 6 = 30 min at the 5-min cadence).
+# SG/Compute Specs — sg_edge: Enum__SG_Edge__Backend__Type
+# The `type=` field of an _sg.<slug> routing TXT record. Informational — lets the
+# proxy adjust behaviour per backend kind if needed. Values are the lowercase
+# tokens that appear verbatim in the TXT record.
 # ═══════════════════════════════════════════════════════════════════════════════
 
-from osbot_utils.type_safe.primitives.core.Safe_Int import Safe_Int
+from enum import Enum
 
 
-class Safe_Int__Edge__Cycle_Count(Safe_Int):
-    min_value = 0
+class Enum__SG_Edge__Backend__Type(str, Enum):
+    EC2     = 'ec2'
+    FARGATE = 'fargate'
+
+    def __str__(self):
+        return self.value
