@@ -235,7 +235,7 @@ class TestBootstrapLambdaSideEffects:
     def test_lambda_handler_set(self):
         svc, _, lc, _ = _svc_with_fakes()
         svc.bootstrap(_req())
-        assert lc._fn_store[WAKER_LAMBDA_NAME]['Handler'] == 'sg_compute_specs.vault_publish.lambdas.waker.lambda_entry.handler'
+        assert lc._fn_store[WAKER_LAMBDA_NAME]['Handler'] == 'sg_compute_specs.vault_publish.lambdas.waker.lambda_entry.run'
 
 
 class TestBootstrapCFSideEffects:

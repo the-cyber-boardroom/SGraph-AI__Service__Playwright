@@ -173,23 +173,34 @@ Align with the in-repo control-plane pattern; delete the hand-rolled adapter.
 **Outcome:** admin Lambda matches `Fast_API__Compute`; one less bespoke adapter to
 maintain; Mangum is battle-tested vs our ~100-LOC `Lambda_To_ASGI`.
 
-## Phase C — waker decision (keep plain-handler OR converge)
+## Phase C — waker decision: CONVERGE (C2) — ✅ DONE
 
-The waker is a hot-path router (slug resolve → wake → proxy/warming-page). It has **no
-FastAPI dependency** today, which is a feature: tiny ZIP, ~50-100ms faster cold start,
-no pydantic/starlette in the bundle. Two options:
+**Decision (operator override):** "ALL lambdas should use this Fast_API pattern and
+support swagger (including the main waker)." So C2, not C1 — one single Lambda shape
+across the project. The cold-start cost of bundling fastapi/starlette/mangum on the
+waker is accepted in exchange for uniformity + a browsable Swagger surface + the
+combined-deps Loader fixing the native-wheel problem for every Lambda the same way.
 
-- **C1 (recommended): keep waker as a plain handler.** It doesn't benefit from FastAPI —
-  it's a 6-way path switch + a state machine. Adopt only Phase A's combined-zip Builder
-  IF it ever grows native deps (it won't soon). Document it as the "plain-handler Lambda"
-  reference in the pattern doc.
-- **C2: converge waker onto `Serverless__Fast_API` too** for uniformity. Costs the
-  cold-start budget we deliberately reclaimed in v0.1.16 Phase 7. Only worth it if we
-  want one single Lambda shape across the project.
+Implemented (Stage 3):
+- `lambdas/waker/version` — IFD per-lambda version (`v0.1.0`).
+- `lambdas/waker/waker__config.py` — names, pinned `WAKER__LAMBDA_DEPENDENCIES`,
+  `WAKER_VERSION`/`DEPLOY_INFO` (moved out of the old `lambda_entry`), `waker_zone()`.
+- `lambdas/waker/routes/Routes__Waker.py` — root-mounted `Fast_API__Routes`. Explicit
+  diagnostic paths (`/__waker__/health|deploy|cmd|console|probe|status`) + a
+  `/{path:path}` ANY catch-all that builds `Schema__Waker__Request_Context` and runs
+  `Waker__Handler.handle()`. Catch-all registered LAST so diagnostics + `/docs` win.
+  Event-meta debug block sourced from Mangum's `request.scope['aws.event']`.
+- `lambdas/waker/Fast_API__Waker.py` — `Serverless__Fast_API` subclass,
+  `enable_api_key=False` (public) + `enable_cors=False` (probe builds its own
+  zone-matched CORS, preserving the `x-vault-warming-probe` header contract).
+- `lambdas/waker/lambda_entry.py` — thin: combined-deps load (gated on `AWS_REGION`)
+  → `Fast_API__Waker().setup()` → `handler`/`app`; `run()` surfaces cold-start errors.
 
-Recommendation: **C1**. Two legitimate Lambda shapes — "plain handler" (waker, hot path,
-no web framework) and "FastAPI app" (admin, control plane, richer surface). The pattern
-doc codifies both.
+Also: AWS Lambda `Handler` for **both** waker and admin switched from
+`lambda_entry.handler` (raw Mangum object → opaque 502 on cold-start failure) to
+`lambda_entry.run` (returns a readable error string instead) — `run` is the documented
+entry point and now actually does its job. Updated `WAKER_HANDLER` (×2),
+`ADMIN_HANDLER`, and the bootstrap test.
 
 ## Phase D — codify the SG/Compute Lambda pattern
 
@@ -238,7 +249,8 @@ share it.
 4. **Auth model for admin**: per-route `check_access_token` (SG-Send transfers style) vs
    `Middleware__Check_API_Key` subclass (our control-plane style). The control-plane
    precedent in this repo argues for the middleware approach.
-5. **Phase C**: confirm C1 (keep waker plain) vs C2 (converge).
+5. **Phase C**: ~~confirm C1 (keep waker plain) vs C2 (converge)~~ — RESOLVED: C2
+   (converge), per operator override. Done in Stage 3.
 6. **Sequencing**: Phase A alone fixes the production bug. B/C/D are quality/consistency.
    Ship A first as a hotfix, then B-D as a follow-up? Or do A+B together since they touch
    the same files?
