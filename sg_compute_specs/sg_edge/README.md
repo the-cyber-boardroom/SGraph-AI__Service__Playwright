@@ -79,8 +79,22 @@ on 3.11):
   (local-vs-edge), `Card` (ASCII export). All pure.
 
 `capabilities` makes "no data yet" first-class: cost / throughput / instance panes
-are deliberately absent (pending Slice 5), never fabricated. The screens (S1
-Deployment, S2 Topology, S3 Compare, S4 Slug detail, S5 Events) are later slices.
+are deliberately absent (pending Slice 5), never fabricated.
+
+**Slice S1 — the Deployment Reality screen — also exists today**: a Textual app
+(`tui/screens/SG_Edge__TUI__Screen__Deployment`) showing edge infrastructure /
+proxy fleet / slugs / checks at a glance, with a pure render module
+(`…Deployment__Render`, testable on 3.11) and shared glyph helpers. Run it via:
+
+```bash
+sg edge tui deployment                 # local edge (Textual; q quit, r refresh)
+sg edge tui deployment --target aws     # live edge.sg-labs.app DNS (read-only)
+sg edge tui deployment | cat            # no TTY → static ASCII card fallback
+```
+
+Textual is a lazy/gated dependency: registering `sg edge tui` never imports it, and
+the screen falls back to a static card when stdout is not a terminal. The remaining
+screens (S2 Topology, S3 Compare, S4 Slug detail, S5 Events) are later slices.
 
 ## Not built yet (deferred — see plans)
 
