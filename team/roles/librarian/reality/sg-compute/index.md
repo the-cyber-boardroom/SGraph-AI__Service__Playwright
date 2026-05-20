@@ -173,8 +173,9 @@ Onboarding guide: [`library/onboarding/v0.2.33__vault-app-fargate.md`](../../../
 | `Schema__SG_Edge__State__Record` | `sg_edge/schemas/` | Typed form of the `_state.<parent>` TXT (zero_streak + updated) |
 | `SG_Edge__TXT__Builder` | `sg_edge/service/` | Composes/parses the v=1 routing TXT; shared by Vault Waker + Reaper |
 | `SG_Edge__State__Builder` | `sg_edge/service/` | Composes/parses the `_state.<parent>` TXT counter |
+| `SG_Edge__DNS__Helper` | `sg_edge/service/` | Edge control-plane DNS surface over `sg aws dns`: `proxies.<parent>` A membership (list/add/remove/count), `_state.<parent>` TXT read/write, `_sg.*` active-slug count + routing read (Slice 2) |
 
-Tests: `sg_compute_specs/sg_edge/tests/` — 32 unit tests (both builders: build/parse/round-trip/rejection; schema defaults + json round-trip; enum coverage). No mocks. Purely additive — nothing outside `sg_edge/` imports it; the `sg` CLI surface is unchanged.
+Tests: `sg_compute_specs/sg_edge/tests/` — 47 unit tests (both builders + the DNS helper against the real `Route53__AWS__Client__In_Memory` fake). No mocks. Purely additive — nothing outside `sg_edge/` imports it; the `sg` CLI surface is unchanged.
 
 ---
 
