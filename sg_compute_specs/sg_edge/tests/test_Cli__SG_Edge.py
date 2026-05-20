@@ -130,26 +130,54 @@ class test_Cli__SG_Edge__Bench(TestCase):
     def setUp(self):
         self.runner = CliRunner()
 
-    def test_scenario_exits_0(self):
-        result = self.runner.invoke(bench_app, ['scenario', 'P-01'], catch_exceptions=False)
+    def test_list__shows_catalog(self):
+        result = self.runner.invoke(bench_app, ['list'], catch_exceptions=False)
         assert result.exit_code == 0
-        assert 'Slice 6' in result.output
+        assert 'F-01' in result.output
+        assert 'P-03' in result.output
+
+    def test_scenario_local__passes(self):
+        result = self.runner.invoke(bench_app, ['scenario', 'F-01', '--repeat', '2'], catch_exceptions=False)
+        assert result.exit_code == 0
+        assert 'PASS' in result.output
+        assert 'F-01' in result.output
+
+    def test_scenario_aws_bench__skips(self):
+        result = self.runner.invoke(bench_app, ['scenario', 'P-01', '--repeat', '2'], catch_exceptions=False)
+        assert result.exit_code == 0                                                 # skipped is not a failure
+        assert 'SKIP' in result.output
+
+    def test_scenario_unknown__exits_1(self):
+        result = self.runner.invoke(bench_app, ['scenario', 'ZZ-99'])
+        assert result.exit_code == 1
+
+    def test_scenario_json(self):
+        result = self.runner.invoke(bench_app, ['scenario', 'P-12', '--repeat', '2', '--json'], catch_exceptions=False)
+        data = json.loads(result.output[result.output.index('{'):])                  # JSON is printed after the rendered table
+        assert data['id']     == 'P-12'
+        assert data['passed'] is True
 
     def test_primitives_exits_0(self):
-        result = self.runner.invoke(bench_app, ['primitives'], catch_exceptions=False)
+        result = self.runner.invoke(bench_app, ['primitives', '--repeat', '2'], catch_exceptions=False)
         assert result.exit_code == 0
+        assert 'ran passed' in result.output
 
     def test_flows_exits_0(self):
-        result = self.runner.invoke(bench_app, ['flows'], catch_exceptions=False)
+        result = self.runner.invoke(bench_app, ['flows', '--repeat', '2'], catch_exceptions=False)
         assert result.exit_code == 0
 
     def test_failures_exits_0(self):
-        result = self.runner.invoke(bench_app, ['failures'], catch_exceptions=False)
+        result = self.runner.invoke(bench_app, ['failures', '--repeat', '2'], catch_exceptions=False)
         assert result.exit_code == 0
 
     def test_full_exits_0(self):
-        result = self.runner.invoke(bench_app, ['full'], catch_exceptions=False)
+        result = self.runner.invoke(bench_app, ['full', '--repeat', '1'], catch_exceptions=False)
         assert result.exit_code == 0
+        assert 'PASS' in result.output
+
+    def test_bad_target__exits_2(self):
+        result = self.runner.invoke(bench_app, ['scenario', 'F-01', '--target', 'bogus'])
+        assert result.exit_code != 0
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

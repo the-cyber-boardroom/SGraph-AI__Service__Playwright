@@ -24,6 +24,7 @@ sibling to `vault_app` / `vault_publish`.
 | Bench core | `bench/Edge_Bench__Runner` + `Edge_Bench__Stats` | p50/p95/p99 percentiles → PASS/WARN/FAIL verdicts vs doc-05 target/hard_fail thresholds |
 | CLI | `cli/Cli__SG_Edge*` | `sg edge` umbrella: `status`, `idle-check`, `dns *`, `proxy *`, `bench`, `waker` (+ `boot`/`reconcile`/`drain` Slice-5 stubs) |
 | Local deploy | `local/Local__Edge__Stack` + `Local__Route53__Client` + `Local__Edge__Proxy` | file-backed in-process local edge: setup / register / request / check / teardown — no AWS, no docker |
+| Bench (Slice 6 local) | `bench/Edge_Bench__Suite` + `bench/scenarios/Edge_Bench__Scenarios` | 8 runnable LOCAL doc-05 scenarios (P-03/07/12, F-01/06/08, X-07/12) over the local edge via `sg edge bench`; 8 aws-bench scenarios registered + skipped |
 
 State model (all in DNS, nothing else): `proxies.<parent>` A (fleet membership),
 `_state.<parent>` TXT (zero_streak teardown counter), `_sg.<slug>.<parent>` TXT
@@ -67,14 +68,30 @@ dormant slug, missing wildcard/fleet, records-without-a-stack-marker).
 - **EC2 launcher/terminator** wiring the reconciler's `_launcher`/`_terminator`
   seams; **`Setup__*`** provisioning (ACM/IAM/Lambda/CF/DNS) — live-AWS, Slice 5.
 - **`sg edge setup *`** + live `boot`/`reconcile`/`drain`/`waker logs` — Slice 5 (CLI-2).
-- **`sg edge bench` scenarios** (P-*/F-*/X-*) + docker-compose OpenResty stack — Slice 6.
-  (The `sg edge local` stack above is the pure-Python equivalent for the dev loop.)
+- **Bench aws-bench target** — the 8 AWS-timing scenarios (P-01/05/06/10/11, X-04/05/10)
+  are registered but skipped (`sg edge bench … --target aws-bench` needs the Slice-5/6
+  live backend) + the docker-compose OpenResty stack. The 8 LOCAL scenarios run today.
+
+## Running the bench (Slice 6 local)
+
+```bash
+sg edge bench list                       # the doc-05 scenario catalog
+sg edge bench scenario F-01 --repeat 10  # one scenario → p50/p95/p99 + PASS/WARN/FAIL
+sg edge bench primitives                 # a whole tier  (also: flows / failures)
+sg edge bench full                       # every scenario (= sg edge_bench full)
+#   --target local (default) | aws-bench   --json   --output runs.json
+```
+
+Local scenarios run in-process against a temp `sg edge local` stack and gate p95 on
+generous code-path budgets (catch gross regressions, no CI flakiness); the brief's
+AWS acceptance thresholds apply to `--target aws-bench` (not built). Exit code is
+non-zero on any non-skipped FAIL — drop `sg edge bench full` into CI as a no-AWS gate.
 
 ## Running the tests
 
 ```bash
-python3   -m pytest sg_compute_specs/sg_edge/tests/   # 3.11: 94 pass, 63 skip (typer + FastAPI)
-python3.12 -m pytest sg_compute_specs/sg_edge/tests/  # 3.12: 157 pass (CLI + FastAPI included)
+python3   -m pytest sg_compute_specs/sg_edge/tests/   # 3.11: 104 pass, 68 skip (typer + FastAPI)
+python3.12 -m pytest sg_compute_specs/sg_edge/tests/  # 3.12: 172 pass (CLI + bench + FastAPI)
 ```
 
 The CLI tests need `typer`, and the `test_Fast_API__Edge_Waker` tests need
