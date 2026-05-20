@@ -236,6 +236,9 @@ class Vault_Publish__Service(Type_Safe):
         from sgraph_ai_service_playwright__cli.aws.lambda_.enums.Enum__Lambda__Runtime     import Enum__Lambda__Runtime
         from sgraph_ai_service_playwright__cli.aws.lambda_.primitives.Safe_Str__Lambda__Name import Safe_Str__Lambda__Name
         from sgraph_ai_service_playwright__cli.aws.lambda_.schemas.Schema__Lambda__Deploy__Request import Schema__Lambda__Deploy__Request
+        from sgraph_ai_service_playwright__cli.aws.lambda_.service.Lambda__Deployer         import ifd_code_s3_key
+        from sg_compute_specs.vault_publish.lambdas.waker.waker__config                     import (
+            WAKER__DEPS_BASE_NAME, WAKER__LAMBDA_DEPENDENCIES, WAKER_VERSION)
 
         # vault_publish_dir = .../sg_compute_specs/vault_publish/
         # package_root      = parent of sg_compute_specs so arc paths become sg_compute_specs/...
@@ -249,12 +252,15 @@ class Vault_Publish__Service(Type_Safe):
             runtime     = Enum__Lambda__Runtime.PYTHON_3_12,
             memory_size = 512,
             timeout     = 60,
-            description = 'Vault Publish Waker — cold-start wake + proxy',
+            description = 'Vault Publish Waker - cold-start wake + proxy',
         )
         deploy_resp = self._deployer().deploy_from_folder(
             deploy_req,
-            package_root  = package_root,
-            extra_modules = ['osbot_utils', 'osbot_aws'],
+            package_root          = package_root,
+            extra_modules         = ['sg_compute', 'sgraph_ai_service_playwright__cli'],
+            combined_dependencies = (WAKER__DEPS_BASE_NAME, WAKER__LAMBDA_DEPENDENCIES),
+            code_s3_key           = ifd_code_s3_key(WAKER_LAMBDA_NAME, WAKER_VERSION),
+            architectures         = ['x86_64'],
         )
         if not deploy_resp.success:
             return Schema__Vault_Publish__Bootstrap__Response(
