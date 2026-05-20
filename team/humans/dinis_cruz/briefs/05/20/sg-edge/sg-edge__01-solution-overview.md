@@ -6,13 +6,15 @@ audience: implementing engineer (or next Claude thread) picking up the work
 related:
   - sg-edge__02-edge-fleet.md
   - sg-edge__03-targets.md
+  - sg-edge__04-commercial-angles.md
+  - sg-edge__05-mvp-test-and-acceptance.md
 prior:
   - v0_27_45__strategy-brief__sg-compute-as-serverless-environment.md
 ---
 
 # What this is
 
-The cert-strategy brief landed on a deeper problem: the per-vault TLS provisioning model is a holdover from when each vault was an island. As `sg-compute` becomes a serverless environment hosting many ephemeral workloads, we need a single edge layer that terminates TLS centrally, routes by slug, and scales independently of any one vault. This document sketches that edge — `SG/Edge` — and how it fits with the existing vault provisioning.
+The cert-strategy brief landed on a deeper problem: the per-vault TLS provisioning model is a holdover from when each vault was an island. As `sg-compute` becomes a serverless environment hosting many ephemeral workloads, we need a single edge layer that terminates TLS centrally, routes by slug, and scales independently of any one vault. This document sketches that edge — `SG/Edge` — sibling to SG/Vault, SG/Send, SG/API and SG/Tools.
 
 # The shape, at a glance
 
@@ -37,47 +39,121 @@ The cert-strategy brief landed on a deeper problem: the per-vault TLS provisioni
                 +----------------------+-------------------+
                 |                                          |
                 v                                          v
-       +----------------+                         +----------------+
-       |  SG/Edge fleet |                         |   Edge Waker   |
+       +----------------+    provisions           +----------------+
+       |  SG/Edge fleet | <-----------------------|   Edge Waker   |
        |  N x EC2 +     |                         |  (Lambda Fn    |
        |  OpenResty     |                         |   URL)         |
-       |  + sidecars    |                         +----------------+
-       +----------------+                                 |
-              |                                           | provisions
-              | slug -> backend                           v
-              | via DNS TXT lookup                  (SG/Edge fleet)
-              v
-       +----------------+
-       |  vault target  |
-       |  EC2 or        |
-       |  Fargate task  |
-       +----------------+
-              ^
-              | provisioned by
-              |
-       +----------------+
-       |   Vault Waker  |
-       |  (existing,    |
-       |   sg va / vp)  |
-       +----------------+
+       +----------------+                         +----------------+
+              |                                           |
+              | slug -> backend                           | also invokes
+              | via DNS lookup                            | Vault Waker
+              |                                           | (in parallel)
+              v                                           v
+       +----------------+                         +----------------+
+       |  vault target  |  <----------------------|   Vault Waker  |
+       |  EC2 or        |       provisions        |  (existing,    |
+       |  Fargate task  |                         |   sg va / vp)  |
+       +----------------+                         +----------------+
 ```
 
-Four layers, two wakers. The browser sees only the CloudFront edge. The vault targets are the same EC2 / Fargate compute that exists today. The two new pieces are the proxy fleet (always-on at small scale, autoscaled by the Edge Waker) and the Edge Waker itself (cold-cold bootstrap).
+Four layers, two wakers. Browser sees only the CloudFront edge. Vault targets are the same EC2 / Fargate compute that exists today. The two new pieces are the SG/Edge proxy fleet (scale-to-zero) and the Edge Waker (cold-cold bootstrap).
 
-# The four layers
+# How traffic reaches SG/Edge — the wildcard
 
-| Layer | What it does | Lifecycle | Always-on? |
-|---|---|---|---|
-| **CloudFront** | TLS termination with wildcard ACM cert, viewer-request Function for Host preservation and slug extraction, origin-group failover to Edge Waker | Permanent | Yes (~$0/mo at zero traffic) |
-| **SG/Edge fleet** | OpenResty proxies doing slug-to-backend routing via DNS lookups | Created by Edge Waker, torn down when no vaults active for N minutes | No — true scale-to-zero |
-| **Vault targets** | The existing EC2 / Fargate vault backends. Plain HTTP on `:8080`, never speaks TLS | Per-user, per-vault, ephemeral | No |
-| **Wakers** | Edge Waker (new) + Vault Waker (existing, `sg va` / `sg vp`) | Lambda, fires only when triggered | Yes (~$0/mo at zero invocations) |
+A single wildcard alias at the zone — `*.cv.sgraph.ai → CloudFront` — is set once at edge setup and never written per-slug. The browser resolves any subdomain (provisioned or not, real or typed-by-mistake) to CloudFront. CloudFront terminates TLS with the wildcard ACM cert and forwards to the proxy fleet.
 
-Storage state lives in DNS records and a single S3 lock object — no DynamoDB. This is deliberate (see "State model" below).
+This has two consequences worth being explicit about:
+
+1. **No per-slug DNS write is needed for traffic to reach the proxy.** Whatever a user types under the parent domain, OpenResty receives it. Routing decisions (does this slug exist? is the backend up?) happen *inside* the proxy based on additional DNS records, not from whether the request arrives.
+
+2. **The proxy is responsible for handling unrecognised slugs.** `random123.cv.sgraph.ai` will reach OpenResty exactly as `alice.cv.sgraph.ai` does. The proxy serves a "slug not recognised" page in that case (see Phase 2 flow below).
+
+This shape is especially well-suited to the agentic-workload future where slug count and churn rates would make per-slug DNS A-record writes operationally painful. The architecture handles thousands of short-lived slugs without DNS-zone churn.
+
+# The two DNS records per slug
+
+Each provisioned slug has two records, with distinct purposes and lifecycles:
+
+```
++------------------------------------------------------------------------+
+|  Record                          |  Owned by    |  Lifetime           |
++------------------------------------------------------------------------+
+|  alice.cv.sgraph.ai          A   |  Vault Waker |  Slug ownership     |
+|    -> CloudFront                 |  (control)   |  (long-lived)       |
+|                                                                        |
+|  _sg.alice.cv.sgraph.ai      TXT |  Vault Waker |  Backend runtime    |
+|    "v=1;ip=10.0.1.5;port=8080;   |  (data)      |  (ephemeral)        |
+|     type=ec2;launched=..."       |              |                     |
++------------------------------------------------------------------------+
+```
+
+The **A record** is the "this slug is registered to a customer" signal. Written when a slug is allocated; removed when a slug is offboarded. It is *not* required for traffic to arrive at SG/Edge (the wildcard handles that), but it is the proxy's source of truth for "is this a known slug?". Without an A record the proxy returns "slug not recognised."
+
+The **TXT record** at `_sg.<slug>.<parent>` carries the runtime routing data. Written when a vault target starts (with its current IP and port); updated when the target's IP changes (e.g. EC2 stop/start); removed when the target terminates. The TXT record being absent means "this slug is registered but has no active backend right now" — the proxy triggers the Vault Waker and serves a loading page.
+
+The four scenarios where A exists but TXT doesn't:
+
+1. New slug just registered, no vault has been provisioned yet
+2. Slug exists but has never been opened by anyone
+3. Vault's EC2/Fargate instance has terminated
+4. Vault Reaper detected a stale TXT (instance gone, TXT not cleaned up) and removed it
+
+All four are observably identical from the proxy's perspective: same signal, same handling — trigger the Vault Waker, serve a loading page. The waker is the layer with the operational intelligence to figure out *which kind* of wake is needed.
+
+# State model
+
+There is no DynamoDB. There is no S3 lock. State lives in DNS records and (transiently) in the OpenResty `shared_dict` cache.
+
+```
++---------------------------------------------------------------+
+|                    Where state lives                          |
++---------------------------------------------------------------+
+|                                                               |
+|  Per-parent wildcard alias (one-time setup):                  |
+|     *.cv.sgraph.ai            A     -> CloudFront             |
+|                                                               |
+|  Per-slug, registered status:                                 |
+|     alice.cv.sgraph.ai        A     -> CloudFront             |
+|       (value is the same as the wildcard - what matters       |
+|        is that the record exists explicitly)                  |
+|                                                               |
+|  Per-slug, runtime backend:                                   |
+|     _sg.alice.cv.sgraph.ai    TXT   -> "v=1;ip=10.0.1.5;..."  |
+|                                                               |
+|  Per-proxy, fleet membership:                                 |
+|     proxies.cv.sgraph.ai      A     -> 1.2.3.4                |
+|     proxies.cv.sgraph.ai      A     -> 1.2.3.5                |
+|     (multiple A records, written by Edge Waker on boot)       |
+|                                                               |
+|  Per-parent, Edge Waker counter (zero_streak for teardown):   |
+|     _state.cv.sgraph.ai       TXT   -> "zero_streak=2;..."    |
+|                                                               |
+|  Transient (in-process):                                      |
+|     OpenResty shared_dict cache (A / TXT / health / slug_seen)|
++---------------------------------------------------------------+
+```
+
+The architectural payoff of DNS-as-registry:
+
+- **Single source of truth.** DNS is the registry. No drift between "the system says it exists" and "DNS resolves to nothing." The proxy reads DNS directly.
+- **Portable.** Every cloud has DNS. Moving the whole thing to Hetzner + Cloudflare DNS is configuration, not rewrite.
+- **No coordination service.** No DynamoDB, no S3 lock, no SSM Parameter Store. Every piece of Edge Waker state lives in DNS records; every proxy↔waker handshake is direct HTTP. The Edge Waker is idempotent and convergent — see below.
+
+# No coordination service — why
+
+An earlier sketch of this architecture used an S3 conditional-write lock to prevent two Edge Waker invocations from both booting the proxy fleet simultaneously during a cold-cold event. On reflection, the lock is solving a problem that doesn't exist at the traffic shapes scale-to-zero is *for*.
+
+The traffic profile that triggers cold-cold is, by definition, low: the fleet was at zero because traffic was idle. The first user kicks off provisioning; a handful of concurrent users in the same 20-30s boot window might also trigger the Edge Waker. If two Edge Wakers both call `RunInstances`, the worst outcome is one extra `t4g.small` for a few minutes before idle teardown catches it. That's not damage — it's a rounding error, and the architecture's production-recommended state is N>=2 anyway.
+
+At the traffic shapes where coordination *would* matter (genuinely thousands of concurrent users arriving in a true cold-cold window), you've already opted into always-on proxies, which sidesteps the coordination problem from the other direction: proxies don't keep cold-starting if they never cold-start at all.
+
+This is the architectural elegance worth naming: most "scale to zero" stories have a coordination problem buried somewhere that breaks at higher scale, forcing a rewrite when the customer succeeds. Here the inverse is true. The coordination problem only *could* exist at higher scale, but by that point you've already opted into always-on infrastructure where the problem is moot. The architecture is correct at both ends of the traffic spectrum with a graceful interpolation between them.
+
+Reconciliation, not locking, is the model. The Edge Waker periodically reads DNS (count of healthy `proxies.<parent>` A records) and reconciles toward the target count. If two invocations both decide to add a proxy, one extra proxy boots. Idle teardown catches the surplus within minutes. Idempotent operations everywhere — `route53:ChangeResourceRecordSets` with `UPSERT`, `TerminateInstances` on the same ID twice — make this safe.
 
 # The two wakers
 
-The single most important architectural decision here is keeping the wakers separate. They share `sg-compute` primitives for launching EC2 / Fargate, but their responsibilities, lifecycles, and IAM scopes are completely different.
+The single most important architectural decision here is keeping the wakers separate. They share `sg-compute` primitives for launching EC2 / Fargate, but their responsibilities, lifecycles, and IAM scopes are different.
 
 ```
 +-----------------------------------------+    +-----------------------------------------+
@@ -86,7 +162,7 @@ The single most important architectural decision here is keeping the wakers sepa
 +-----------------------------------------+    +-----------------------------------------+
 | TRIGGER:                                |    | TRIGGER:                                |
 |   user-facing CLI / API call            |    |   CloudFront origin-group failover      |
-|   "create a vault for me"               |    |   (i.e. proxy fleet is down/cold)       |
+|   "create / wake a vault"               |    |   (i.e. proxy fleet is down/cold)       |
 |                                         |    |                                         |
 | FREQUENCY:                              |    | FREQUENCY:                              |
 |   100s-1000s/day, one per user vault    |    |   10-50/day with aggressive teardown;   |
@@ -94,12 +170,14 @@ The single most important architectural decision here is keeping the wakers sepa
 |                                         |    |                                         |
 | OUTPUTS:                                |    | OUTPUTS:                                |
 |   - EC2 / Fargate vault backend         |    |   - EC2 OpenResty proxy instances       |
-|   - per-slug Route 53 A + TXT records   |    |   - proxies.<parent> Route 53 A records |
+|   - per-slug TXT record (runtime)       |    |   - proxies.<parent> A records          |
+|   - per-slug A record (registration,    |    |                                         |
+|     only on first allocation)           |    |                                         |
 |                                         |    |                                         |
 | IAM SCOPE:                              |    | IAM SCOPE:                              |
 |   - ec2:RunInstances (vault profile)    |    |   - ec2:RunInstances (edge profile)     |
 |   - ecs:RunTask (vault task-def)        |    |   - route53:Change (proxies.* only)     |
-|   - route53:Change (slug zones)         |    |   - s3:PutObject (lock bucket)          |
+|   - route53:Change (slug zones)         |    |                                         |
 |                                         |    |                                         |
 | HOLDS UX FOR:                           |    | HOLDS UX FOR:                           |
 |   ~30s-2min (compute boot)              |    |   ~30-90s (proxy boot) ON FIRST USER    |
@@ -107,42 +185,7 @@ The single most important architectural decision here is keeping the wakers sepa
 +-----------------------------------------+    +-----------------------------------------+
 ```
 
-# State model — DNS as the registry
-
-There is no DynamoDB. State is stored in DNS records and (for one specific case) a single S3 object.
-
-```
-+---------------------------------------------------------------+
-|                    Where state lives                          |
-+---------------------------------------------------------------+
-|                                                               |
-|  Per-slug existence + routing:                                |
-|     alice.cv.sgraph.ai      A     -> CloudFront (or proxy)    |
-|     _sg.alice.cv.sgraph.ai  TXT   -> "v=1;ip=10.0.1.5;        |
-|                                       port=8080;type=ec2;     |
-|                                       launched=1747700000"    |
-|                                                               |
-|  Proxy fleet membership:                                      |
-|     proxies.cv.sgraph.ai    A     -> 1.2.3.4                  |
-|     proxies.cv.sgraph.ai    A     -> 1.2.3.5                  |
-|     (multiple A records, written by Edge Waker on boot,       |
-|      removed on terminate)                                    |
-|                                                               |
-|  Edge Waker boot-lock (the only non-DNS state):               |
-|     s3://sg-edge-locks/cv.sgraph.ai/fleet-state.json          |
-|     using S3 If-None-Match for conditional writes             |
-|                                                               |
-+---------------------------------------------------------------+
-```
-
-Why DNS-as-registry rather than DynamoDB:
-
-- **Single source of truth.** DNS is needed for routing anyway. If the record exists, the slug exists. No drift between "the registry says it's alive" and "DNS resolves to nothing."
-- **Free read scaling.** DNS resolvers cache aggressively; the proxy fleet's load on Route 53 is negligible.
-- **Portability.** Every cloud has DNS. Moving the whole thing to Hetzner + Cloudflare DNS is a configuration change, not a rewrite.
-- **Smaller IAM surface.** The proxy fleet doesn't need DynamoDB credentials.
-
-The one thing DNS lacks is conditional writes, needed exactly once: ensuring two Edge Waker Lambdas don't both decide to boot the proxy fleet. S3 has `If-None-Match` conditional writes since 2024 — a single small bucket handles it.
+The frequency numbers matter: the Edge Waker is *cycle-tolerant*. There's no architectural cost to invoking it 10-50 times per day (or more) with aggressive teardown. A given parent domain can hibernate overnight, wake on first request, scale up during the day, scale down in the evening, and tear down at night, all without any per-cycle penalty. This is what enables the scale-to-zero economics in `sg-edge__04-commercial-angles.md`.
 
 # Warm path — the common case
 
@@ -153,16 +196,14 @@ User                CloudFront         OpenResty proxy       Vault target
  |    (HTTPS, TLS         |                    |                    |
  |     terminates at CF)  |                    |                    |
  |                        |                    |                    |
- |                        |--HTTPS (self-      |                    |
- |                        |  signed at proxy)->|                    |
+ |                        |--HTTP (plain)----->|                    |
  |                        |   Host preserved   |                    |
  |                        |   X-SG-Slug=alice  |                    |
  |                        |                    |                    |
- |                        |                    |--TXT lookup--      |
- |                        |                    |  shared_dict       |
- |                        |                    |  cache (30s TTL)   |
+ |                        |                    | shared_dict cache  |
+ |                        |                    | (A + TXT + health) |
  |                        |                    |                    |
- |                        |                    |--HTTP------------->|
+ |                        |                    |--HTTP (plain)----->|
  |                        |                    |   :8080            |
  |                        |                    |                    |
  |                        |                    |<--response---------|
@@ -170,157 +211,84 @@ User                CloudFront         OpenResty proxy       Vault target
  |<-----------------------|                    |                    |
 ```
 
-Total overhead vs direct-to-vault: one in-region hop (~1-2ms) plus TXT lookup (cached: sub-ms; uncached: 1-5ms). Negligible at the response sizes vault handles.
+Plain HTTP everywhere inside AWS — CloudFront-to-proxy and proxy-to-target both. The wildcard ACM cert lives in CloudFront's managed TLS terminator and never leaves it. No certificate management on the proxy or the target.
+
+Why this is safe to claim:
+
+1. **Payloads are already encrypted.** SG/Vault and SG/Send encrypt all file content client-side in the browser before any HTTP request leaves. CF and OpenResty see ciphertext — the TLS termination at CF doesn't change what anyone in the path can read, because they already can't read the meaningful content.
+2. **Traffic inside AWS is on AWS's private network.** CF->proxy and proxy->target are in-region, AWS-managed connectivity. The threat model that requires defense-in-depth here is "AWS itself is hostile or compromised", which is well outside our model — if that's true, we have far bigger problems than plaintext on internal hops.
+3. **Centralised TLS termination is the standard pattern.** Cloudflare, Fastly, every major CDN. The trust boundary is well-established.
+
+The combined story: TLS terminates at the edge for ops/observability gain (centralised logging, one place to manage cert renewals), while the actual payload is encrypted anyway, while client-identifying metadata (IPs in particular) is dropped from logs at source, matching the practice already in production at `*.aws.sg-labs.app`. Zero-knowledge holds end-to-end.
 
 # Cold-cold path — first user after fleet teardown
 
-```
-User           CloudFront      Edge Waker     S3 lock    Fleet     Route 53
- |                  |               |            |         |           |
- |--->req---------->|               |            |         |           |
- |                  |--try primary->X            |         |           |
- |                  |  (no DNS records or        |         |           |
- |                  |   conn refused, ~1s)       |         |           |
- |                  |                            |         |           |
- |                  |---failover to secondary--->|         |           |
- |                  |                  |         |         |           |
- |                  |                  |--PUT---->         |           |
- |                  |                  |  If-None-Match    |           |
- |                  |                  |<--201 (won lock)--|           |
- |                  |                  |                   |           |
- |                  |                  |--RunInstances----->          |
- |                  |                  |                   |           |
- |<--loading page---|<-----------------|                   |           |
- |                  |                                      |           |
- |  (client polls /edge-status/<id>, then reloads)         |           |
- |                  |                                      |           |
- |       ...30-90s: EC2 boots, OpenResty starts...                     |
- |                  |                  |                   |           |
- |                  |                  |<--health green----|           |
- |                  |                  |--add A record (proxies.*)---->|
- |                  |                  |--release lock---->|           |
- |                  |                                      |           |
- |<-------- (client reload -> warm path) ---------------->|           |
-```
-
-Total cold-cold time: ~30-90s for the fleet, dominated by EC2 boot. If the vault itself is also cold (slug doesn't exist yet), the Vault Waker adds another 30-90s after the fleet is up. Worst case ~3 minutes for the first user; everyone after pays the warm path.
-
-# What this architecture unlocks
-
-The mechanics above describe *how* it works. This section is about *why it matters* — the capabilities that fall out of an ephemeral, DNS-driven, scale-to-zero edge that aren't possible with the traditional CF + ALB + always-on EC2 pattern.
-
-## Edges are cheap and you can have many
-
-The unit cost of standing up a new edge (new parent domain, new isolation boundary) is roughly:
+When the proxy fleet is at zero (no traffic for a sustained period, fleet torn down by Edge Waker), the first user arrives via CloudFront's origin-group failover to the Edge Waker Function URL. The waker bootstraps the fleet *and* (in parallel) the requested vault target.
 
 ```
-+-----------------------------------------------------------+
-|  Cost of one empty edge (no traffic, no vaults):          |
-|                                                           |
-|    CloudFront distribution    $0.00                       |
-|    Wildcard ACM cert           $0.00                       |
-|    Route 53 zone              $0.50 / month               |
-|    Edge Waker Lambda           $0.00 (idle)               |
-|    Proxy fleet                 $0.00 (scaled to zero)     |
-|    Vault targets               $0.00 (scaled to zero)     |
-|                                                           |
-|    Total fixed:                ~$0.50 / month             |
-+-----------------------------------------------------------+
+User           CloudFront      Edge Waker             EC2 API     Route 53
+ |                  |               |                    |           |
+ |---req----------->|               |                    |           |
+ |                  |--try primary->X (no IPs)           |           |
+ |                  |  (~1s conn timeout)                |           |
+ |                  |                                    |           |
+ |                  |---failover to secondary----------->|           |
+ |                  |                  |                 |           |
+ |                  |                  |--- TRACK A: proxy fleet --->|
+ |                  |                  |    RunInstances             |
+ |                  |                  |                              |
+ |                  |                  |--- TRACK B: vault target -->|
+ |                  |                  |    RunInstances/RunTask     |
+ |                  |                  |    (parallel, not sequential)
+ |                  |                  |                              |
+ |<--loading page---|<-----------------|                              |
+ |                  |                                                 |
+ |   (client polls /edge-status; both tracks proceed in parallel)    |
+ |                  |                                                 |
+ |       ...max(track A, track B) ~30-90s, dominated by EC2 boot...  |
+ |                  |                                                 |
+ |                  |                  |<-- proxy ready              |
+ |                  |                  |--add proxies.<parent> A---->|
+ |                  |                  |                              |
+ |                  |                  |<-- target ready              |
+ |                  |                  |--write _sg.<slug> TXT------>|
+ |                  |                                                 |
+ |  ...CF DNS-cache refresh at POP (~10-30s)...                       |
+ |                  |                                                 |
+ |<------ (client reload -> warm path) ----------------->|           |
 ```
 
-Compare to the traditional pattern: one ALB at ~$20/month, plus at least one always-on EC2 to make it useful, plus per-environment maintenance overhead. The empty-environment cost is two orders of magnitude lower with the edge architecture.
+The parallel-boot optimization halves the worst-case cold-cold time. Track A (proxy fleet) and track B (vault target) are independent — neither needs the other to be ready before starting. The user pays one boot time, not two.
 
-Practical consequence: spinning up a new isolation boundary (per-customer, per-environment, per-experiment) becomes cheap enough that you can do it generously rather than reluctantly.
+Total cold-cold time: ~30-90s typical (dominated by `max(proxy boot, target boot)`), ~120s worst case. Subsequent users hit the warm path with ~50ms in-region overhead.
 
-## Vault targets are effectively unlimited
+# Why this works at small AND large scale
 
-There is no DNS record *per target* in the bottleneck sense — there's a DNS record per *slug*, but the slug routing is just a TXT record that costs effectively nothing. And nothing in the architecture requires one target per slug:
-
-- A single EC2 instance can host many container-based slugs, each on a different port. The TXT record holds `ip:port`, so 100 small workloads can share one beefy EC2.
-- Fargate tasks remain one-per-slug if isolation requires it, but for lighter workloads the container-on-shared-EC2 path is open.
-- Backend mix is heterogeneous by design: some slugs may be EC2, some Fargate, some shared-EC2 containers. The proxy doesn't care; it just reads the TXT and connects.
-
-The DNS limits (10k records per zone default, raisable) and the EC2 instance limits (default 20, raisable to thousands) are both soft AWS quotas, not architectural ceilings. The architecture itself has no inherent ceiling.
-
-## The agentic workload case is where this really pays off
-
-The current model (one EC2 per vault) is the right shape when "vault" means a long-lived encrypted store for human data. It's overkill when "vault" means a sandbox where an agent runs for 60 seconds and terminates.
-
-Agentic workloads want: spin up in seconds, full TLS isolation, real network boundaries, no shared filesystem, near-zero cost when idle, and hundreds running concurrently per customer. This architecture delivers exactly that with no rework — only the target shape changes (smaller compute, faster boot, possibly container-per-agent on shared EC2). The edge layer, the wakers, the DNS-as-registry — all unchanged.
-
-When agentic usage takes off, the count of targets will explode by 1-2 orders of magnitude. The current cert-per-target model would die instantly at that volume; this architecture absorbs it without changes.
-
-## Capability matrix — what the architecture enables
+The same codebase serves both modes — scale-to-zero and always-on are runtime states, not architectural variants. As traffic grows, the fleet stays warm; as traffic dies, it tears down. The Edge Waker's idle-teardown threshold is the only knob:
 
 ```
-+----------------------------------+-----------------------------------+
-|  Capability                      |  How this architecture delivers   |
-+----------------------------------+-----------------------------------+
-|  Cheap isolation per customer    |  ~$0.50/mo per empty edge,        |
-|                                  |  add edges generously             |
-|                                  |                                   |
-|  Full integration test envs      |  Spin up entire stack from CF     |
-|  (end-to-end, with TLS)          |  down on demand, tear down after  |
-|                                  |  test run; no cost when idle      |
-|                                  |                                   |
-|  Many environments (dev/QA/      |  Each is one edge ($0.50/mo) +    |
-|  staging/prod/agents/...)        |  whatever it actually runs        |
-|                                  |                                   |
-|  Customer cost scales with use   |  Idle customer = near-zero cost;  |
-|  (not with existence)            |  active customer = real cost;     |
-|                                  |  no flat infra tax                |
-|                                  |                                   |
-|  Office-hours-only workloads     |  Teardown during off-hours costs  |
-|                                  |  literally nothing; wake-up on    |
-|                                  |  first morning request            |
-|                                  |                                   |
-|  Many concurrent agents          |  Container-per-agent on shared    |
-|                                  |  EC2; only DNS TXT per agent      |
-|                                  |                                   |
-|  DR / BCP if ALB outage          |  Edge path is already validated   |
-|                                  |  as parallel option; switch CF    |
-|                                  |  origin and route via OpenResty   |
-+----------------------------------+-----------------------------------+
++--------------------------------------------------------------------+
+|  Traffic shape       |  System mode      |  Customer experience    |
++--------------------------------------------------------------------+
+|  No traffic for days |  Hibernation:     |  $0/mo per parent       |
+|  (idle customer)     |  no proxies,      |  fleet (Route 53 zone   |
+|                      |  no targets       |  is the only fixed cost)|
+|                      |                                              |
+|  Bursty: hours-on,   |  Cycles:          |  First user pays cold-  |
+|  hours-off           |  edge waker fires |  cold (~60s); rest pay  |
+|  (dev environment,   |  10-50/day        |  warm path. Cost tracks |
+|   office-hours app)  |                   |  usage.                 |
+|                      |                                              |
+|  Steady moderate     |  Warm fleet,      |  All requests warm path |
+|  traffic             |  proxy fleet      |  (~50ms in-region).     |
+|                      |  stays N>=1       |                         |
+|                      |                                              |
+|  High steady traffic |  Always-on,       |  Same warm path, larger |
+|                      |  N=many           |  proxy fleet            |
++--------------------------------------------------------------------+
 ```
 
-## Coexists with the traditional pattern — not a replacement
-
-The traditional CF + ALB + always-on EC2 pattern still works and isn't removed. Customers and workloads with steady traffic or a preference for that shape continue to use it. The edge architecture is an additional mode, opt-in per workload:
-
-```
-+-------------------------------------------------------------+
-|  Workload type            |  Recommended path               |
-+-------------------------------------------------------------+
-|  High steady traffic      |  Traditional CF + ALB + EC2     |
-|  Always-on enterprise     |  Traditional CF + ALB + EC2     |
-|                                                             |
-|  Bursty / ephemeral       |  SG/Edge                        |
-|  Agentic / sandboxed      |  SG/Edge                        |
-|  Dev / QA / integration   |  SG/Edge                        |
-|  Long tail of small custs |  SG/Edge                        |
-|  Cost-sensitive trials    |  SG/Edge                        |
-+-------------------------------------------------------------+
-```
-
-The two paths share the vault target codebase — only the routing layer differs. Maintenance burden of running both is low.
-
-## What we're really doing — and why it's worth it
-
-The honest framing: several of the constraints driving this work are not vault problems; they are AWS / vendor problems exposed by an ephemeral workload pattern:
-
-- ALB cold-start variance (30s to 30 minutes) makes per-customer ALBs painful
-- ALB per-listener rule limit (100 default, ~1000 max) caps the per-ALB customer count
-- ACM certs can't be exported to non-AWS-managed terminators
-- LE rate limits (50 certs / week / eTLD+1) cap per-slug cert provisioning
-- ALBs have a permanent cost even when no traffic
-
-By building a vendor-neutral edge tier (OpenResty + DNS + commodity compute), we route around all of these. The whole stack is portable to Cloudflare, Fastly, Hetzner, bare metal — or split across providers for redundancy. We're not just solving the cert problem; we're decoupling the architecture from AWS-specific limitations so future provider moves (or multi-provider HA) are configuration changes, not rewrites.
-
-## The escape hatch from CF + Lambda dependency
-
-Worth noting for completeness, even though it's out of scope for the MVP: the CloudFront and Edge Waker Lambda dependency at the very top of the stack can also be removed. Replace CloudFront with an always-on edge proxy fleet (same OpenResty pattern, just bigger and managed differently) that holds the wildcard cert and does the cold-cold bootstrap itself. This gets you to a fully-portable, fully-self-hosted edge with no AWS dependency at all.
-
-Not needed now — CF + Lambda is convenient and cheap — but it's a known evolution path if AWS-specific risks ever become unacceptable for a customer segment.
+No architectural transitions, no migrations, no different deployment patterns — just the same system in different runtime states, controlled by the idle-teardown threshold. A customer can evolve through these modes during the course of a single day if their usage pattern justifies it.
 
 # What's AWS-specific vs portable
 
@@ -331,131 +299,136 @@ Not needed now — CF + Lambda is convenient and cheap — but it's a known evol
 | Edge fleet compute | EC2 | Any VM provider; OpenResty config unchanged |
 | Target compute | EC2 / Fargate | Any VM / container service |
 | Wakers | Lambda Function URLs | Any FaaS, or a small Go service |
-| Boot lock | S3 If-None-Match | R2, MinIO, any S3-compatible store |
 
-The Vault Waker is the most cloud-coupled component (talks `RunInstances` / `RunTask` APIs). Everything else is commodity.
+There is no longer any AWS-specific coordination service in the design (the S3 lock is gone). The Vault Waker is the most cloud-coupled component because it calls `RunInstances` / `RunTask` APIs, but every cloud has equivalents. Everything else is commodity.
 
-# MVP scope
+For completeness — the CF + Lambda dependency at the top of the stack can also be removed in a future evolution by replacing CloudFront with always-on OpenResty proxies that hold the wildcard cert and do the cold-cold bootstrap themselves. Not needed now, but a known evolution path if AWS-specific risks become unacceptable for a customer segment.
 
-Recommended first cut, sequenced by *where the unknowns live*. The Vault Waker pattern is already proven in production (`send.sgraph.ai` uses DNS-driven backend lookup at scale). The OpenResty hot path is mechanically straightforward. The genuinely unproven piece is the **Edge Waker + cold-cold bootstrap dance** — CF origin-group failover under real load, S3 lock coordination under concurrent triggers, EC2 boot variance, DNS-propagation behavior at CF POPs when proxy IPs change. That's where the curve balls are. Build that first, in isolation.
+# Centralised logging — the security framing
 
-**Phase 1 — prove the edge tier in isolation (the risky bit, build first):**
+The architecture has a property worth naming explicitly because security-sensitive customers will ask: TLS terminates at CloudFront, which sounds like it weakens the zero-knowledge story, but doesn't.
 
-The target here is *not* a vault. It's a static site served directly by OpenResty itself — a small HTML page that responds with the proxy's instance ID, current timestamp, and a few diagnostic headers. The slug routing is short-circuited: any host arriving at the proxy is served the static page locally. This lets us hammer the edge tier without a target backend in the loop at all.
+Three layers of defense:
+
+1. **Encrypted payloads.** SG/Vault and SG/Send encrypt all file content client-side in the browser before any HTTP request leaves. CF and OpenResty see ciphertext bodies. Centralised TLS termination doesn't change what CF can read; the answer is still "nothing meaningful."
+
+2. **Metadata stripping in logs.** Client-identifying data (IP addresses in particular) is dropped from logs before persistence, matching the practice already in production at `*.aws.sg-labs.app`. In the MVP this happens in the proxy's nginx access log config (omit `$remote_addr` from the log_format directive); in production it can be tightened further by a log-shipping pipeline.
+
+3. **Wildcard key boundary.** The private key for the wildcard cert lives inside CloudFront's AWS-managed TLS terminator. It's never written to disk on any proxy, never exposed in any vault target, never accessible to any IAM role we own. No certificate exists on the proxy or the target — the simplification removes an entire class of key-management concern.
+
+```
++-----------------------------------------------------------------+
+|              What each layer can see                            |
++-----------------------------------------------------------------+
+|  Layer            |  What's visible                            |
++-----------------------------------------------------------------+
+|  CloudFront       |  URL path, response codes, byte counts.    |
+|                   |  Client IP (then stripped from logs).      |
+|                   |  Cannot decrypt vault payloads —           |
+|                   |  they were already ciphertext.             |
+|                                                                 |
+|  OpenResty proxy  |  Same as CF plus request timing per        |
+|                   |  upstream. Client IP omitted from logs.    |
+|                                                                 |
+|  Vault target     |  Plain HTTP request bodies — but these     |
+|                   |  are already ciphertext produced by        |
+|                   |  browser-side AES-GCM.                     |
++-----------------------------------------------------------------+
+```
+
+# MVP phasing
+
+The order is determined by *where the unknowns live*. The Vault Waker pattern is already proven in production (`*.aws.sg-labs.app` uses DNS-driven backend lookup at scale). The OpenResty hot path is mechanically straightforward. The genuinely unproven piece is the **Edge Waker + cold-cold bootstrap dance** — CF origin-group failover under real load, EC2 boot variance, DNS-propagation behavior at CF POPs when proxy IPs change, idle-teardown stability. That's where the curve balls live. Build that first, in isolation.
+
+**Phase 1 — prove the edge tier in isolation.** The target is *not* a vault. It's a static site served directly by OpenResty itself — a small HTML page that responds with the proxy's instance ID, current timestamp, and diagnostic headers. The slug routing is short-circuited: any host arriving at the proxy is served the static page locally. This lets us hammer the edge tier without a target backend in the loop at all.
+
+In scope for Phase 1:
 
 - One CloudFront distribution with wildcard ACM cert
 - CloudFront Function (Host preservation, slug extraction)
 - CF origin group: primary = `proxies.<parent>`, secondary = Edge Waker Function URL
-- Edge Waker Lambda — full implementation: S3 conditional-write lock, EC2 RunInstances, SSM readiness polling, Route 53 A-record writes for `proxies.<parent>`
+- Edge Waker Lambda — full implementation: EC2 RunInstances, Route 53 A-record writes for `proxies.<parent>`, scale-up, idle teardown
 - OpenResty serving a static diagnostic site directly (no upstream proxying)
-- Sidecar suite (Vector, CloudWatch agent, Edge Heartbeat) running and shipping data
-- Cleanup + reaper logic for orphaned proxies
+- **No sidecars.** No Vector, no CloudWatch agent, no Edge Heartbeat. Logging via plain stdout / nginx default access log. Observability comes later — Phase 1's job is to prove the mechanics, not to be production-ready.
+- **No cert on proxy.** Plain HTTP CF->proxy. The configuration is just `listen 80;` in nginx.
+- Test rig (`sg edge_bench`) covering all primitive scenarios (see `sg-edge__05-mvp-test-and-acceptance.md`)
 
-What we test against this rig:
+**Phase 1 also runs fully offline / locally.** Every component in scope above has a local equivalent already proven in the repo: OpenResty runs in Docker, the Edge Waker is just a FastAPI service (the same pattern we use for our other Lambda Function URLs in dev), vault targets already run locally, and CloudFront's behavior (TLS termination + origin failover) can be simulated with a thin local nginx in front of the proxy. DNS-as-registry becomes a local resolver (CoreDNS in a container, or even `/etc/hosts` plus a small file-backed mock for the TXT records). A complete local Phase 1 environment can be brought up with `docker compose` and exercised by the same `sg edge_bench` CLI — local scenarios run in seconds rather than minutes, AWS API quirks are absent, and the AWS-only scenarios (CF DNS-cache refresh, Route 53 propagation, real EC2 boot variance) are the ones that still need a real bench environment. This is the right development loop: 90% of correctness work happens locally, the bench env catches AWS-specific behavior.
 
-```
-+-----------------------------------------------------------------+
-|  Test                            |  What it validates           |
-+-----------------------------------------------------------------+
-|  CF failover timing              |  Time from primary down to   |
-|                                  |  Edge Waker invocation       |
-|                                  |  (should be ~1-2s)           |
-|                                  |                              |
-|  Concurrent cold-cold triggers   |  S3 lock prevents duplicate  |
-|                                  |  EC2 launches; loser returns |
-|                                  |  loading page                |
-|                                  |                              |
-|  EC2 boot under stress           |  What happens when launch    |
-|                                  |  takes 3min instead of 30s?  |
-|                                  |  Does the loading page hold? |
-|                                  |                              |
-|  Mid-boot failure                |  Lock holder dies after EC2  |
-|                                  |  launch but before DNS write |
-|                                  |                              |
-|  Proxy kill during traffic       |  Route 53 health checks +    |
-|                                  |  CF retry behavior           |
-|                                  |                              |
-|  Aggressive teardown / boot      |  10+ cycles/day, watch for   |
-|                                  |  resource leaks, orphans     |
-|                                  |                              |
-|  DNS propagation at CF POPs      |  How long after writing A    |
-|                                  |  record does CF re-resolve?  |
-|                                  |                              |
-|  CloudFront cold-cold UX         |  End-to-end first-user       |
-|                                  |  experience timing           |
-+-----------------------------------------------------------------+
-```
+**Phase 2 — wire in Vault Waker integration.** Once Phase 1 has validated the edge tier mechanics, swap the static-site short-circuit for the real routing.
 
-This phase has no dependency on the vault target work, no dependency on changes to the Vault Waker, and exercises every component that's genuinely new.
+Phase 2 scope is deliberately tight:
 
-**Phase 2 — wire in vault targets:**
+- Vault Waker extended to write A record on slug registration (one-time per slug) and TXT record on each vault provision
+- Vault Waker extended to remove TXT on termination, remove A on slug offboarding
+- OpenResty Lua hot path (the flow below)
+- "Slug not recognised" page (text-only HTML, no information leak between scenarios)
+- Loading page for cold-vault wake (HTML + JS poll, served locally from OpenResty)
+- Waker invocation via `ngx.timer.at` for async fire-and-forget
+- Basic rate limiting on the "slug not recognised" path to prevent enumeration / DoS
 
-Once Phase 1 has validated the edge tier mechanics, swap the static-site short-circuit for the real routing:
-
-- OpenResty Lua hot path (DNS TXT lookup, `shared_dict` caching, backend selection)
-- Vault Waker extended to write A + TXT records on provision
-- Self-signed cert on proxy (or stable cert from Secrets Manager — decided in Phase 1)
-- Vault Reaper for orphan cleanup
-- First end-to-end vault behind the edge
-
-This phase is mostly integration work — the components are individually simpler than Phase 1, and most of the operational risk has been retired.
-
-**Phase 3 — production hardening:**
-
-- Multi-AZ proxy fleet (N >= 2)
-- Active vault scaling thresholds and tuning
-- Multi-region edge (one CF distribution per region, geo routing)
-- Migration path for vaults still on `letsencrypt-hostname` (drain naturally; no forced migration)
-
-**Explicitly out of scope:**
-- Replacing the existing `sg vp` slug routing — keeps working in parallel; new traffic via edge, old vaults drain
-- Removing CloudFront dependency (the "always-on OpenResty as CF replacement" escape hatch — flagged as a known evolution path, not built)
-- Cross-cloud failover (Cloudflare DNS as Route 53 standby, etc.)
-
-Rationale for this ordering: traditional MVP ordering says "ship the simplest thing first." For this architecture the simplest thing (Phase 2) is *also* the bit with the least risk and the most proven primitives. The risky bit (Phase 1) is hidden behind it. Inverting the order means we hit the curve balls early, with a test rig that can't fail in interesting ways, and gain confidence before adding the vault integration layer on top.
-
-# Centralised logging — the security framing
-
-The architecture has a property that's worth naming explicitly because security-sensitive customers will ask about it: TLS terminates at CloudFront, which sounds like it weakens the zero-knowledge story, but doesn't.
-
-Three layers of defense make this safe:
-
-1. **Encrypted payloads.** SG/Vault and SG/Send encrypt all file content client-side in the browser before any HTTP request leaves. CF and OpenResty see ciphertext bodies — request bodies and response bodies that contain user files are already AES-GCM encrypted with keys CF never holds. Centralised TLS termination doesn't change what CF can read; the answer is still "nothing meaningful."
-
-2. **Metadata stripping in logs.** Client-identifying data (IP addresses in particular) is dropped from logs before persistence, matching the practice already in production at `send.sgraph.ai`. CloudFront access logs and OpenResty access logs are post-processed by Vector (or equivalent) to remove or hash client IPs before they reach long-term storage. Vector's `transforms.remap` makes this a one-liner per field.
-
-3. **Wildcard key boundary.** The private key for the wildcard cert lives inside CloudFront's AWS-managed TLS terminator. It's never written to disk on any proxy, never exposed in any vault target, never accessible to any IAM role we own. AWS's TLS infrastructure is the same one that fronts millions of HTTPS sites — the trust boundary is well-established.
-
-The net result: the architecture gains centralised observability (one place to look for "is the edge healthy?", "what's the per-slug request pattern?", "what's the cache hit rate?") without compromising the zero-knowledge story. Customers get to verify this by inspecting either codebase — vault for the encryption layer, edge for the logging-redaction layer.
+**The Phase 2 Lua hot path** (~60-80 lines total):
 
 ```
-+-----------------------------------------------------------------+
-|              What the centralised edge can see                  |
-+-----------------------------------------------------------------+
-|  Layer                  |  What's visible to it                |
-+-----------------------------------------------------------------+
-|  CloudFront             |  URL path, response codes, byte      |
-|                         |  counts. Client IP (then stripped).  |
-|                         |  Cannot decrypt vault payloads —     |
-|                         |  they were already ciphertext.       |
-|                         |                                      |
-|  OpenResty proxy        |  Same as CF plus request timing per  |
-|                         |  upstream. Logs structured to        |
-|                         |  Vector, which strips PII before     |
-|                         |  shipping.                           |
-|                         |                                      |
-|  Vault target           |  Plain HTTP request bodies — but     |
-|                         |  these are already ciphertext        |
-|                         |  produced by browser-side AES-GCM.   |
-+-----------------------------------------------------------------+
+1. Parse slug from Host header
+2. Look up A record for <slug>.<parent> (cached, see TTL table below)
+   - NXDOMAIN -> "slug not recognised" page; rate-limited
+   - Found    -> continue
+3. Look up TXT record for _sg.<slug>.<parent> (cached, see TTL table below)
+   - NXDOMAIN -> trigger Vault Waker (async); serve loading page
+   - Found    -> parse v=1;ip=...;port=...
+4. Check shared_dict health cache for this slug
+   - Healthy (fresh)   -> proxy_pass to ip:port (no probe)
+   - Unhealthy (fresh) -> trigger Vault Waker (async); serve loading page
+   - Unknown           -> proxy_pass optimistically
+5. On proxy result:
+   - Success -> mark slug healthy in cache
+   - Failure -> mark slug unhealthy, fall through to waker path on next request
 ```
 
-Worth adding a section to the public-facing security posture page once the architecture is live: "TLS is terminated at the edge; payloads are encrypted before transit; client metadata is stripped from all logs. Zero-knowledge holds end-to-end."
+Cache TTLs need different settings for A vs TXT because their lifecycles are different:
 
-# Open questions
+```
++--------------------------------------------------------------------+
+|  Cache type          |  TTL    |  Reasoning                        |
++--------------------------------------------------------------------+
+|  A NXDOMAIN          |  60s    |  Unknown slugs don't materialize  |
+|                      |         |  spontaneously; long cache OK     |
+|  A found             |  300s   |  Slug registration is stable      |
+|  TXT NXDOMAIN        |  5s     |  Waker might be writing it RIGHT  |
+|                      |         |  NOW; need to discover quickly    |
+|  TXT found           |  30s    |  Backend IP/port is stable while  |
+|                      |         |  the vault is running             |
+|  health (per slug)   |  10s    |  Backend liveness is volatile     |
++--------------------------------------------------------------------+
+```
 
-1. **Cert delivery to proxy.** Self-signed regenerated at boot, or one stable cert in Secrets Manager? Recommendation: self-signed at boot (no secret management), CF doesn't verify origin cert anyway.
-2. **TXT record TTL.** 30s seems right (matches `shared_dict` cache TTL), but is 60s safer for cold-start propagation? Recommendation: 30s, with explicit verification step in Vault Waker readiness check.
-3. **Where does the CloudFront Function live in code?** New module `sg_compute_specs/edge/cloudfront_function/`? Same repo as proxy config? Recommendation: same repo, since it co-evolves with the proxy.
-4. **Scale-up trigger for proxy fleet.** Active vault count, or RPS to proxies, or CPU on proxy instances? Recommendation: active vault count is the simplest and aligns the scale story end-to-end.
-5. **Log redaction pipeline.** Vector's `transforms.remap` handles IP stripping cleanly, but where exactly does the redaction happen — in Vector on each proxy before shipping, or in a central enrichment step? Recommendation: at the source (proxy-side) — keeps PII off the network, matches `send.sgraph.ai` current practice.
+The asymmetric TXT cache TTL (long for found, short for NXDOMAIN) is the subtle bit. If we negative-cache "TXT missing" too aggressively, a user who triggers the waker has to wait for the negative cache to expire before the proxy notices the freshly-written TXT — adding 30-60s of avoidable delay to cold vault start.
+
+Explicitly out of scope for Phase 2:
+- Sidecars (Vector, CloudWatch agent) — deferred to Phase 3
+- HTTPS between proxy and target — plain HTTP is fine
+- Migrating existing vaults off `letsencrypt-hostname` — old vaults drain naturally; new ones use SG/Edge from day one
+- WebSocket support (vault doesn't use WS today; add when needed)
+- Agentic operating mode (see below)
+
+**Phase 3 — production hardening.** Multi-AZ, multi-region, scaling tuning, the sidecar suite for observability, scaling thresholds based on real traffic patterns.
+
+# Future operating modes — agentic workloads
+
+The current design assumes one customer / one slug / one vault — the human-customer case where the A record acts as a registration receipt. For agentic workloads where slugs are themselves ephemeral (lifetime measured in seconds or minutes), per-slug A records become churn (thousands written/removed per day per customer).
+
+Two future operating modes to support this, in addition to the human-customer mode above:
+
+1. **A-less mode:** skip A records entirely for agentic edges. The proxy treats "TXT exists" as authoritative for "this slug routes somewhere"; ownership / authorization is enforced earlier (when slugs are allocated to an account) rather than via DNS existence.
+
+2. **Pooled-A mode:** one long-lived A record per agent pool (e.g. `agent-pool-123.cv.sgraph.ai`), with the TXT extra fields routing to per-agent containers (path-based or via a small registry the proxy reads). One A record covers many ephemeral agents.
+
+These are Phase 3+ concerns. They share the same edge code with a configuration switch on a per-parent-domain basis. Not built for MVP but worth knowing the architecture handles them without rework.
+
+# Decisions (formerly open questions)
+
+1. **Loading page UX when TXT was just written.** Not a concern — the loading page polling is driven by the Edge Waker's UX, which controls the reload moment based on TXT availability. The user never needs to hit refresh manually, so the brief window where the proxy's negative cache is stale doesn't surface to the user. The polling client waits until status flips to ready, then triggers the reload itself.
+2. **Where does the CloudFront Function live in code?** New module `sg_compute_specs/sg_edge/cloudfront_function/` — same repo as the rest of SG/Edge. The module path uses `sg_edge` (matching the SG/Edge product name and sibling pattern with `vault_app`, `vault_publish` etc.), not `edge`.
+3. **Scale-up trigger for proxy fleet.** Deferred. MVP starts with a predefined number of proxy instances (configurable but static). Auto-scale logic needs real load-test data to choose the right metric (active vault count vs RPS vs CPU); we'll add it in Phase 3 once we have measurements from the bench environment.
+4. **"Slug not recognised" page content.** Simple 404 message for MVP — brandable later. No sign-up CTA, no integration with wider SG/Compute pages. Just a plain HTML page that says the slug isn't registered.
