@@ -150,4 +150,11 @@ class Admin__Policy__Template(Type_Safe):
             allow_wildcard_resource = True,                                       # SSM SendCommand needs * on instance ARN; tag condition does the scoping
         ))
 
+        # Combined-dependency zip read at cold start (Lambda__Dependencies__Loader).
+        stmts.append(Schema__IAM__Statement(
+            effect    = 'Allow',
+            actions   = _actions(['s3:GetObject']),
+            resources = _resources(['arn:aws:s3:::*--osbot-lambdas--*/lambdas-dependencies-combined/*']),
+        ))
+
         return Schema__IAM__Policy(statements=stmts)

@@ -99,7 +99,7 @@ class _Fake_Lambda_Client:
         }
         return self._store[FunctionName]
 
-    def update_function_code(self, FunctionName, ZipFile, **_): pass
+    def update_function_code(self, FunctionName, ZipFile=None, **_): pass
     def update_function_configuration(self, FunctionName, **_): pass
     def delete_function(self, FunctionName, **_): del self._store[FunctionName]
 
@@ -141,6 +141,11 @@ class _Lambda__Deployer__In_Memory(Lambda__Deployer):
 
     def client(self):                                                  return self._lc._fake
     def _build_zip(self, folder_path, package_root='', extra_modules=None): return b'FAKE_ZIP'
+    # AWS-boundary seams — no network in tests.
+    def _ensure_dependencies(self, combined_dependencies):             return {'status': 'faked'}
+    def _osbot_lambdas_bucket(self):                                   return 'fake-osbot-lambdas-bucket'
+    def _ensure_bucket(self, bucket):                                  return None
+    def _put_code_object(self, bucket, key, code):                     self._lc._code_uploads = getattr(self._lc, '_code_uploads', []) + [(bucket, key)]
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────

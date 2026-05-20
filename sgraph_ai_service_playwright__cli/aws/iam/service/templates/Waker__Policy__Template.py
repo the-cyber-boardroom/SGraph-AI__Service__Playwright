@@ -44,6 +44,14 @@ class Waker__Policy__Template(Type_Safe):
         ec2_start_resources.append(Safe_Str__Aws__Resource('arn:aws:ec2:*:*:instance/*'))
         ec2_start_condition = json.dumps({'StringEquals': {'aws:ResourceTag/StackType': 'vault-app'}})
 
+        # Combined-dependency zip read at cold start (Lambda__Dependencies__Loader).
+        # Scoped to the osbot-lambdas bucket's deps prefix in any account/region.
+        s3_deps_actions   = List__Safe_Str__Aws__Action()
+        s3_deps_actions.append(Safe_Str__Aws__Action('s3:GetObject'))
+        s3_deps_resources = List__Safe_Str__Aws__Resource()
+        s3_deps_resources.append(Safe_Str__Aws__Resource(
+            'arn:aws:s3:::*--osbot-lambdas--*/lambdas-dependencies-combined/*'))
+
         stmts = List__Schema__IAM__Statement()
         stmts.append(Schema__IAM__Statement(
             effect                  = 'Allow',
@@ -62,5 +70,10 @@ class Waker__Policy__Template(Type_Safe):
             actions        = ec2_start_actions,
             resources      = ec2_start_resources,
             condition_json = ec2_start_condition,        # tag condition prevents unscoped StartInstances
+        ))
+        stmts.append(Schema__IAM__Statement(
+            effect    = 'Allow',
+            actions   = s3_deps_actions,
+            resources = s3_deps_resources,               # scoped ARN (not bare "*") — read-only deps fetch
         ))
         return Schema__IAM__Policy(statements=stmts)

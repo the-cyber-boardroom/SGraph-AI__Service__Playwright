@@ -216,36 +216,58 @@ This becomes the reference for the reaper Lambda, any future cert-management Lam
 
 ---
 
-# Integration with our existing Setup__* CLI
+# Integration with our existing Setup__* CLI — Stage 4 ✅ DONE
 
-SG-Send deploys via `Deploy__Serverless__Fast_API`. We deploy via `Setup__Admin__Lambda`
-+ `Lambda__Deployer`. We do NOT have to replace our CLI — we keep `sg vp setup
-admin-lambda create/update/...` as the operator surface, but change what it does
-internally:
+We kept `sg vp setup lambda create/update` and `sg vp setup admin-lambda create/update`
+as the operator surface and changed only what they do internally. `Lambda__Deployer`
+grew the `combined_dependencies=` / `code_s3_key=` / `architectures=` options as planned.
 
-- **Before:** `Lambda__Deployer.deploy_from_folder(extra_modules=[fastapi, ...])`
-  (copies venv packages → breaks native wheels).
-- **After:** (1) `Lambda__Dependencies__Builder('sg-compute-admin', DEPS).upload()`,
-  then (2) `Lambda__Deployer.deploy_from_folder(extra_modules=['osbot_utils'])` for the
-  thin code zip (or keep deploying the full `vault_publish` tree minus the heavy deps).
+Implemented (Stage 4):
+- **`Lambda__Deployer.deploy_from_folder`** new params:
+  - `combined_dependencies=(base_name, packages)` → builds + uploads the platform
+    -correct third-party zip via `Lambda__Dependencies__Builder` BEFORE deploy
+    (idempotent; skips if the content-addressed object already exists).
+  - `code_s3_key` → uploads the code zip to the osbot-lambdas bucket and
+    creates/updates the function FROM S3 (vs inline `ZipFile`).
+  - `architectures=['x86_64']` → pinned on `create_function`.
+  - Seam methods (`_ensure_dependencies` / `_osbot_lambdas_bucket` / `_ensure_bucket`
+    / `_put_code_object` / `_s3_client`) so in-memory tests stay network-free.
+  - `_ensure_bucket` creates `{account}--osbot-lambdas--{region}` if missing
+    (resolves open question #3).
+  - `ifd_code_s3_key(name, version)` → nested IFD layout
+    `lambdas-code/{name}/v0/v0.1/v0.1.0.zip`.
+- **Code zip is now first-party only** — `extra_modules=['sg_compute',
+  'sgraph_ai_service_playwright__cli']` (+ the `vault_publish` folder). The whole
+  third-party stack (fastapi/starlette/mangum/pydantic + osbot-*, python-multipart)
+  ships in the combined S3 zip. This deletes the venv-copy of native wheels that
+  caused the pydantic-core ImportError. `sg_compute` MUST be in the code zip — it
+  carries the cold-start Loader, which runs before the combined zip is on sys.path.
+- **IFD version source**: the per-lambda `lambdas/{waker,admin}/version` file drives
+  both the S3 code key AND the baked `WAKER_VERSION` / `ADMIN_VERSION` env, so "the
+  version you see" == "the S3 artifact" == "what `{waker,admin}__config` reports".
+- **Execution-role S3 read**: `Waker__Policy__Template` + `Admin__Policy__Template`
+  now grant `s3:GetObject` on `*--osbot-lambdas--*/lambdas-dependencies-combined/*`
+  (scoped, read-only — auditor stays INFO for waker). Without this the cold-start
+  Loader 403s.
+- All three deploy paths updated: `Setup__Lambda.create`, `Setup__Admin__Lambda.create`,
+  and the legacy `Vault_Publish__Service.bootstrap`.
 
-`Lambda__Deployer` itself could grow a `combined_dependencies=` option that delegates to
-the Builder, so both the bespoke CLI and a future `Deploy__Serverless__Fast_API` path can
-share it.
+**Operator prerequisite (NOT in repo — credentials live in GH secrets):** the deploy
+identity (SG-Deploy-User) needs `s3:PutObject` + `s3:CreateBucket` + `s3:ListBucket`
+/`s3:HeadBucket` on `*--osbot-lambdas--*` to build/upload the deps + code zips.
 
 ---
 
 # Open questions / decisions needed before implementing
 
-1. **Lambda arch + python**: confirm we deploy `python3.12` on **x86_64** (Setup uses
-   `PYTHON_3_12`; arch defaults to x86_64 unless specified). The Builder constants must
-   match exactly. CLAUDE.md says "Python 3.12 / x86_64" for the main service but also
-   "arm64" in places — need the authoritative answer for the **waker/admin** Lambdas
-   specifically. **Blocking** for Phase A.
+1. **Lambda arch + python**: ~~confirm `python3.12` on x86_64~~ — RESOLVED: python3.12
+   / x86_64, now pinned explicitly via `architectures=['x86_64']` on create and matching
+   the Builder's `manylinux2014_x86_64` / `cp312` triple. Done in Stage 4.
 2. **Builder/Loader location**: `sg_compute/_for_osbot_aws/` (mirrors SG-Send) vs a more
    SG/Compute-native home? They're destined for `osbot_aws` upstream regardless.
-3. **The S3 deps bucket**: `{account}--osbot-lambdas--{region}` — does it already exist in
-   our account (SG-Send may have created it), or do we provision it? Add a setup check.
+3. **The S3 deps bucket**: ~~does it exist / do we provision it?~~ — RESOLVED:
+   `Lambda__Deployer._ensure_bucket` creates `{account}--osbot-lambdas--{region}` if
+   missing (idempotent head→create). Done in Stage 4.
 4. **Auth model for admin**: per-route `check_access_token` (SG-Send transfers style) vs
    `Middleware__Check_API_Key` subclass (our control-plane style). The control-plane
    precedent in this repo argues for the middleware approach.

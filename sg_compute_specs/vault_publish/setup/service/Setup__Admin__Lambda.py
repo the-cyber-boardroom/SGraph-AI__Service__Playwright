@@ -29,11 +29,13 @@ from sg_compute_specs.vault_publish.setup.schemas.Schema__Setup__Issue          
 from sg_compute_specs.vault_publish.setup.schemas.Schema__Setup__Lambda__Report  import Schema__Setup__Lambda__Report
 from sg_compute_specs.vault_publish.setup.service.Setup__Lambda                  import _read_version, _git_commit, _caller_identity
 
-ADMIN_LAMBDA_NAME = 'sg-compute-vault-publish-admin'
-ADMIN_HANDLER     = 'sg_compute_specs.vault_publish.lambdas.admin.lambda_entry.run'
-EXPECTED_RUNTIME  = 'python3.12'
-EXPECTED_MEMORY   = 768                                                                # admin does longer work than waker; modest bump
-EXPECTED_TIMEOUT  = 300                                                                # 5 min — register w/ --wait can take up to 90s, head-room for retries
+ADMIN_LAMBDA_NAME   = 'sg-compute-vault-publish-admin'
+ADMIN_HANDLER       = 'sg_compute_specs.vault_publish.lambdas.admin.lambda_entry.run'
+EXPECTED_RUNTIME    = 'python3.12'
+EXPECTED_MEMORY     = 768                                                              # admin does longer work than waker; modest bump
+EXPECTED_TIMEOUT    = 300                                                              # 5 min — register w/ --wait can take up to 90s, head-room for retries
+ADMIN_ARCHITECTURES = ['x86_64']                                                       # pinned on create — combined-deps wheels are manylinux2014_x86_64
+ADMIN_CODE_MODULES  = ['sg_compute', 'sgraph_ai_service_playwright__cli']               # first-party vendored into the code zip (deps ship via the combined S3 zip)
 
 
 class Setup__Admin__Lambda(Type_Safe):
@@ -151,12 +153,18 @@ class Setup__Admin__Lambda(Type_Safe):
         from sgraph_ai_service_playwright__cli.aws.lambda_.enums.Enum__Lambda__Runtime       import Enum__Lambda__Runtime
         from sgraph_ai_service_playwright__cli.aws.lambda_.primitives.Safe_Str__Lambda__Name import Safe_Str__Lambda__Name
         from sgraph_ai_service_playwright__cli.aws.lambda_.schemas.Schema__Lambda__Deploy__Request import Schema__Lambda__Deploy__Request
+        from sgraph_ai_service_playwright__cli.aws.lambda_.service.Lambda__Deployer           import ifd_code_s3_key
+        from sg_compute_specs.vault_publish.lambdas.admin.admin__config                       import (
+            ADMIN__DEPS_BASE_NAME, ADMIN__LAMBDA_DEPENDENCIES)
 
         vault_publish_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../..'))
         package_root      = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../../..'))
+        admin_code_dir    = os.path.join(vault_publish_dir, 'lambdas', 'admin')
+        code_version      = _read_version(admin_code_dir)                            # IFD per-lambda code version
 
         if progress: progress('build-env', 'start')
         env = _build_admin_deploy_env(vault_publish_dir)
+        env['ADMIN_VERSION'] = code_version                                          # align baked version with the S3 code key
         if progress: progress('build-env', 'done')
 
         if not role_arn:
@@ -181,29 +189,24 @@ class Setup__Admin__Lambda(Type_Safe):
             runtime     = Enum__Lambda__Runtime.PYTHON_3_12,
             memory_size = EXPECTED_MEMORY,
             timeout     = EXPECTED_TIMEOUT,
-            description = f'Vault Publish Admin - {env.get("ADMIN_VERSION", "?")} '
+            description = f'Vault Publish Admin - {code_version} '
                           f'deployed {env.get("ADMIN_DEPLOYED_AT", "?")}',
         )
-        # Admin Lambda needs FastAPI + its transitive deps. Waker doesn't,
-        # so the waker deploy only lists osbot_utils / osbot_aws.
-        #
-        # FastAPI 0.115+ requires `annotated_doc` (separate package from
-        # `annotated_types`); FastAPI 0.136+ confirmed dependency tree via
-        # `pip show fastapi`: annotated-doc, pydantic, starlette,
-        # typing-extensions, typing-inspection. Plus transitive:
-        # anyio (via starlette), idna (via anyio), python-multipart
-        # (Form handling), pydantic-core (pydantic compiled core).
+        # All third-party deps (fastapi/starlette/mangum/pydantic + osbot-*,
+        # python-multipart for the login Form) ship as platform-correct wheels
+        # in the combined S3 zip the cold-start Loader pulls onto sys.path — the
+        # code zip carries only first-party packages. This is what fixed the
+        # pydantic-core native-wheel ImportError that the old venv-copy approach
+        # (extra_modules=[fastapi, pydantic_core, ...]) produced.
         deploy_resp = self._deployer().deploy_from_folder(
             deploy_req,
-            package_root  = package_root,
-            extra_modules = ['osbot_utils', 'osbot_aws',
-                              'fastapi', 'starlette', 'anyio',
-                              'pydantic', 'pydantic_core',
-                              'typing_extensions', 'typing_inspection',
-                              'annotated_types', 'annotated_doc',
-                              'idna', 'python_multipart'],
-            environment   = env,
-            progress      = progress,
+            package_root          = package_root,
+            extra_modules         = ADMIN_CODE_MODULES,
+            environment           = env,
+            combined_dependencies = (ADMIN__DEPS_BASE_NAME, ADMIN__LAMBDA_DEPENDENCIES),
+            code_s3_key           = ifd_code_s3_key(ADMIN_LAMBDA_NAME, code_version),
+            architectures         = ADMIN_ARCHITECTURES,
+            progress              = progress,
         )
         if not deploy_resp.success:
             issues = List__Schema__Setup__Issue()

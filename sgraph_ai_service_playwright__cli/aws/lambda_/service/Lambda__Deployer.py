@@ -26,6 +26,20 @@ from sgraph_ai_service_playwright__cli.aws.lambda_.schemas.Schema__Lambda__Deplo
 from sgraph_ai_service_playwright__cli.aws.lambda_.schemas.Schema__Lambda__Deploy__Response   import Schema__Lambda__Deploy__Response
 
 
+def ifd_code_s3_key(lambda_name: str, version: str) -> str:
+    # IFD-versioned, immutable code-artifact key under the osbot-lambdas bucket.
+    # Nested by progressive version prefixes so the layout is browsable:
+    #   v0.1.0 → lambdas-code/{name}/v0/v0.1/v0.1.0.zip
+    # The convention (not enforced by refusing writes) is: bump the per-lambda
+    # `version` file whenever the code changes, so each key is a complete,
+    # self-contained snapshot of one code version.
+    raw   = version.strip().lstrip('vV') or '0'
+    parts = raw.split('.')
+    dirs  = ['v' + '.'.join(parts[:i]) for i in range(1, len(parts))]               # v0, v0.1, ...
+    leaf  = 'v' + '.'.join(parts) + '.zip'                                           # v0.1.0.zip
+    return '/'.join(['lambdas-code', lambda_name] + dirs + [leaf])
+
+
 class Lambda__Deployer(Type_Safe):
     region : str = ''
 
@@ -53,13 +67,26 @@ class Lambda__Deployer(Type_Safe):
                            extra_modules : list        = None,
                            layers        : list        = None,
                            environment   : dict        = None,
+                           combined_dependencies : 'Optional[tuple]' = None,
+                           code_s3_key           : str  = '',
+                           architectures         : list = None,
                            progress      : 'Optional[Callable[[str, str], None]]' = None,
                            ) -> Schema__Lambda__Deploy__Response:
         # progress(phase, status) is called at every observable phase boundary
         # so a CLI can render a live progress table. Phases (in order):
-        #   build-zip / detect-function / upload-code / wait-upload /
-        #   update-config / create-function / refresh
+        #   deps-upload / build-zip / upload-code-s3 / detect-function /
+        #   upload-code / wait-upload / update-config / create-function / refresh
         # status is one of: 'start', 'done'. No-op when progress is None.
+        #
+        # combined_dependencies = (base_name, packages): when set, the platform
+        #   -correct third-party stack is built + uploaded to S3 first (the
+        #   cold-start Loader pulls it onto sys.path), and is NOT bundled in the
+        #   code zip. When None, deps must come via extra_modules (legacy).
+        # code_s3_key: when set, the code zip is uploaded to that key under the
+        #   {account}--osbot-lambdas--{region} bucket and the function is created
+        #   /updated from S3 (IFD-versioned, immutable per version). When empty,
+        #   the zip is sent inline (Code.ZipFile) as before.
+        # architectures: pinned on create_function (cannot change post-create).
         def _p(phase: str, status: str) -> None:
             if progress:
                 try: progress(phase, status)
@@ -67,9 +94,24 @@ class Lambda__Deployer(Type_Safe):
 
         name = str(req.name)
 
+        if combined_dependencies:
+            _p('deps-upload', 'start')
+            self._ensure_dependencies(combined_dependencies)
+            _p('deps-upload', 'done')
+
         _p('build-zip', 'start')
         code = self._build_zip(req.folder_path, package_root=package_root, extra_modules=extra_modules)
         _p('build-zip', 'done')
+
+        if code_s3_key:                                                             # IFD-versioned S3 code artifact
+            _p('upload-code-s3', 'start')
+            bucket = self._osbot_lambdas_bucket()
+            self._ensure_bucket(bucket)
+            self._put_code_object(bucket, code_s3_key, code)
+            code_location = {'S3Bucket': bucket, 'S3Key': code_s3_key}
+            _p('upload-code-s3', 'done')
+        else:
+            code_location = {'ZipFile': code}
 
         lc = self.client()
         _p('detect-function', 'start')
@@ -90,7 +132,7 @@ class Lambda__Deployer(Type_Safe):
             _p('wait-prior-update', 'done')
 
             _p('upload-code', 'start')
-            lc.update_function_code(FunctionName=name, ZipFile=code)
+            lc.update_function_code(FunctionName=name, **code_location)
             _p('upload-code', 'done')
 
             _p('wait-upload', 'start')
@@ -124,11 +166,13 @@ class Lambda__Deployer(Type_Safe):
                 Runtime      = str(req.runtime),
                 Role         = req.role_arn,
                 Handler      = req.handler,
-                Code         = {'ZipFile': code},
+                Code         = code_location,
                 Timeout      = req.timeout,
                 MemorySize   = req.memory_size,
                 Description  = req.description,
             )
+            if architectures is not None:
+                create_kwargs['Architectures'] = architectures
             if layers is not None:
                 create_kwargs['Layers'] = layers
             if environment is not None:
@@ -145,6 +189,47 @@ class Lambda__Deployer(Type_Safe):
             message      = 'created' if not existing else 'updated',
             zip_size     = len(code),
         )
+
+    # ── S3 / combined-dependency seams (subclasses override for in-memory tests) ─
+
+    def _ensure_dependencies(self, combined_dependencies: tuple) -> dict:
+        # Build + upload the platform-correct combined third-party zip to S3.
+        # Idempotent: the Builder skips the upload if the content-addressable
+        # object already exists. base_name + packages MUST match what the
+        # cold-start Loader (lambda_entry) passes, or the hashes diverge.
+        from sg_compute._for_osbot_aws.Lambda__Dependencies__Builder import Lambda__Dependencies__Builder
+        base_name, packages = combined_dependencies
+        return Lambda__Dependencies__Builder(base_name, list(packages)).upload()
+
+    def _osbot_lambdas_bucket(self) -> str:
+        import boto3
+        account_id = boto3.client('sts').get_caller_identity()['Account']
+        region     = self.region or boto3.session.Session().region_name
+        return f'{account_id}--osbot-lambdas--{region}'
+
+    def _ensure_bucket(self, bucket: str) -> None:
+        s3 = self._s3_client()
+        try:
+            s3.head_bucket(Bucket=bucket)
+            return
+        except ClientError as exc:
+            code = exc.response.get('Error', {}).get('Code', '')
+            if code not in ('404', 'NoSuchBucket', 'NotFound'):
+                raise
+        region = self.region or boto3.session.Session().region_name
+        kwargs = {'Bucket': bucket}
+        if region and region != 'us-east-1':                                        # us-east-1 rejects an explicit LocationConstraint
+            kwargs['CreateBucketConfiguration'] = {'LocationConstraint': region}
+        s3.create_bucket(**kwargs)
+
+    def _put_code_object(self, bucket: str, key: str, code: bytes) -> None:
+        self._s3_client().put_object(Bucket=bucket, Key=key, Body=code)
+
+    def _s3_client(self):
+        kwargs = {}
+        if self.region:
+            kwargs['region_name'] = self.region
+        return boto3.client('s3', **kwargs)
 
     def _build_zip(self, folder_path: str, package_root: str = '', extra_modules: list = None) -> bytes:
         extra_modules = extra_modules or []

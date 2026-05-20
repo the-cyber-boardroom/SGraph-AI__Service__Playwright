@@ -60,11 +60,19 @@ from sg_compute_specs.vault_publish.setup.schemas.Enum__Setup__State            
 from sg_compute_specs.vault_publish.setup.schemas.Schema__Setup__Issue             import Schema__Setup__Issue
 from sg_compute_specs.vault_publish.setup.schemas.Schema__Setup__Lambda__Report    import Schema__Setup__Lambda__Report
 
-WAKER_LAMBDA_NAME = 'sg-compute-vault-publish-waker'
-WAKER_HANDLER     = 'sg_compute_specs.vault_publish.lambdas.waker.lambda_entry.run'
-EXPECTED_RUNTIME  = 'python3.12'
-EXPECTED_MEMORY   = 512
-EXPECTED_TIMEOUT  = 60
+WAKER_LAMBDA_NAME   = 'sg-compute-vault-publish-waker'
+WAKER_HANDLER       = 'sg_compute_specs.vault_publish.lambdas.waker.lambda_entry.run'
+EXPECTED_RUNTIME    = 'python3.12'
+EXPECTED_MEMORY     = 512
+EXPECTED_TIMEOUT    = 60
+WAKER_ARCHITECTURES = ['x86_64']                                                     # pinned on create — the combined-deps wheels are manylinux2014_x86_64
+
+# First-party packages vendored into the code zip alongside sg_compute_specs/
+# vault_publish (folder_path). sg_compute carries the cold-start dependency
+# Loader (must be importable BEFORE the combined zip is on sys.path); the cli
+# package carries the Route53 client the admin eval uses. All third-party deps
+# (fastapi/starlette/mangum/pydantic/osbot-*) ship via the combined S3 zip.
+WAKER_CODE_MODULES = ['sg_compute', 'sgraph_ai_service_playwright__cli']
 
 
 class Setup__Lambda(Type_Safe):
@@ -191,12 +199,18 @@ class Setup__Lambda(Type_Safe):
         from sgraph_ai_service_playwright__cli.aws.lambda_.enums.Enum__Lambda__Runtime       import Enum__Lambda__Runtime
         from sgraph_ai_service_playwright__cli.aws.lambda_.primitives.Safe_Str__Lambda__Name import Safe_Str__Lambda__Name
         from sgraph_ai_service_playwright__cli.aws.lambda_.schemas.Schema__Lambda__Deploy__Request import Schema__Lambda__Deploy__Request
+        from sgraph_ai_service_playwright__cli.aws.lambda_.service.Lambda__Deployer           import ifd_code_s3_key
+        from sg_compute_specs.vault_publish.lambdas.waker.waker__config                       import (
+            WAKER__DEPS_BASE_NAME, WAKER__LAMBDA_DEPENDENCIES)
 
         vault_publish_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../..'))
         package_root      = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../../..'))
+        waker_code_dir    = os.path.join(vault_publish_dir, 'lambdas', 'waker')
+        code_version      = _read_version(waker_code_dir)                            # IFD per-lambda code version
 
         if progress: progress('build-env', 'start')
         env = _build_deploy_env(vault_publish_dir)
+        env['WAKER_VERSION'] = code_version                                          # align baked version with the S3 code key + waker__config
         if progress: progress('build-env', 'done')
 
         deploy_req = Schema__Lambda__Deploy__Request(
@@ -207,15 +221,18 @@ class Setup__Lambda(Type_Safe):
             runtime     = Enum__Lambda__Runtime.PYTHON_3_12,
             memory_size = EXPECTED_MEMORY,
             timeout     = EXPECTED_TIMEOUT,
-            description = f'Vault Publish Waker — {env.get("WAKER_VERSION", "?")} '
+            description = f'Vault Publish Waker - {code_version} '
                           f'deployed {env.get("WAKER_DEPLOYED_AT", "?")}',
         )
         deploy_resp = self._deployer().deploy_from_folder(
             deploy_req,
-            package_root  = package_root,
-            extra_modules = ['osbot_utils', 'osbot_aws'],
-            environment   = env,
-            progress      = progress,
+            package_root          = package_root,
+            extra_modules         = WAKER_CODE_MODULES,
+            environment           = env,
+            combined_dependencies = (WAKER__DEPS_BASE_NAME, WAKER__LAMBDA_DEPENDENCIES),
+            code_s3_key           = ifd_code_s3_key(WAKER_LAMBDA_NAME, code_version),
+            architectures         = WAKER_ARCHITECTURES,
+            progress              = progress,
         )
         if not deploy_resp.success:
             issues = List__Schema__Setup__Issue()
