@@ -17,9 +17,16 @@ class test_SG_Edge__Proxy__User_Data(TestCase):
     def test_nginx_conf__is_the_static_rig(self):
         conf = self.builder.nginx_conf()
         assert 'listen      80 default_server;' in conf
+        assert 'listen      8089;'              in conf          # management surface on a separate, non-public port (brief 02)
         assert '/_edge/health'                   in conf
         assert '/_edge/slug_seen'                in conf
         assert '$remote_addr'             not in conf            # client IP is never logged (redaction at source)
+
+    def test_nginx_conf__management_endpoints_off_public_port(self):
+        conf       = self.builder.nginx_conf()
+        public     = conf.split('listen      8089;')[0]          # everything before the :8089 server block
+        assert '/_edge/slug_seen' not in public                  # slug_seen/stats must not be reachable on the public :80 origin
+        assert '/_edge/stats'     not in public
 
     def test_render__writes_config_and_runs_openresty(self):
         ud = self.builder.render()
@@ -27,6 +34,7 @@ class test_SG_Edge__Proxy__User_Data(TestCase):
         assert f"<<'{HEREDOC_MARKER}'" in ud                     # config embedded via heredoc
         assert 'docker run -d'          in ud
         assert '-p 80:80'               in ud
+        assert '-p 8089:8089'           in ud                    # management port published for the Edge Waker / Reaper probe
         assert 'EDGE_VERSION="1.2.3"'   in ud
         assert 'openresty/openresty'    in ud
         assert 'meta-data/instance-id'  in ud                    # instance id from IMDS, not an SDK call

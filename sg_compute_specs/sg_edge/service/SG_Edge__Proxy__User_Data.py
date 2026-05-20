@@ -2,10 +2,11 @@
 # SG/Compute Specs — sg_edge: SG_Edge__Proxy__User_Data
 # Builds the EC2 user-data (cloud-init bash) that brings up a Phase 1 edge proxy:
 # write the bundled OpenResty config to disk, read the instance id from IMDS, and
-# run the OpenResty container on :80 with the config mounted. The proxy never
-# touches AWS APIs (brief 02 — minimal IAM); EDGE_INSTANCE_ID is read from the
-# metadata service, not an SDK call. The exact same nginx.conf is reused by the
-# local docker-compose stack, so dev and prod behave identically.
+# run the OpenResty container with :80 (public traffic) and :8089 (the VPC-private
+# management surface the Edge Waker / Reaper probe). The proxy never touches AWS
+# APIs (brief 02 — minimal IAM); EDGE_INSTANCE_ID is read from the metadata
+# service, not an SDK call. The exact same nginx.conf is reused by the local
+# docker-compose stack, so dev and prod behave identically.
 # ═══════════════════════════════════════════════════════════════════════════════
 
 import os
@@ -39,7 +40,7 @@ class SG_Edge__Proxy__User_Data(Type_Safe):
             '-H "X-aws-ec2-metadata-token-ttl-seconds: 300" || true)\n'
             'EDGE_INSTANCE_ID=$(curl -s -H "X-aws-ec2-metadata-token: $TOKEN" '
             'http://169.254.169.254/latest/meta-data/instance-id || echo unknown)\n'
-            'docker run -d --name sg-edge --restart always -p 80:80 \\\n'
+            'docker run -d --name sg-edge --restart always -p 80:80 -p 8089:8089 \\\n'
             '  -e EDGE_INSTANCE_ID="$EDGE_INSTANCE_ID" \\\n'
             f'  -e EDGE_VERSION="{self.version}" \\\n'
             f'  -v /etc/sg-edge/nginx.conf:{CONTAINER_CONF}:ro \\\n'
