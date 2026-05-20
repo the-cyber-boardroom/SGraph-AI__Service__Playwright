@@ -24,6 +24,7 @@ sibling to `vault_app` / `vault_publish`.
 | Bench core | `bench/Edge_Bench__Runner` + `Edge_Bench__Stats` | p50/p95/p99 percentiles → PASS/WARN/FAIL verdicts vs doc-05 target/hard_fail thresholds |
 | CLI | `cli/Cli__SG_Edge*` | `sg edge` umbrella: `status`, `idle-check`, `dns *`, `proxy *`, `bench`, `waker` (+ `boot`/`reconcile`/`drain` Slice-5 stubs) |
 | Local deploy | `local/Local__Edge__Stack` + `Local__Route53__Client` + `Local__Edge__Proxy` | file-backed in-process local edge: setup / register / request / check / teardown — no AWS, no docker |
+| TUI data layer | `tui/source/*` + `tui/service/*` + `tui/schemas/*` | shared snapshot seam for the SG/Edge TUI (T1): one normalised `Schema__SG_Edge__TUI__Snapshot` from a local or AWS-DNS source, plus pure `Differ` / `Metrics` / `Comparison` / `Card`. No Textual yet — screens are later slices |
 
 State model (all in DNS, nothing else): `proxies.<parent>` A (fleet membership),
 `_state.<parent>` TXT (zero_streak teardown counter), `_sg.<slug>.<parent>` TXT
@@ -62,6 +63,25 @@ sg edge local usecase all              # run them all, one by one
 with ✓/●/✗ per layer and a Checks panel listing any deviations (orphan backend,
 dormant slug, missing wildcard/fleet, records-without-a-stack-marker).
 
+## SG/Edge TUI — `tui/` (data layer landed; screens pending)
+
+A visually-rich Textual TUI is planned (see `team/comms/plans/v0.2.38__sg-edge-tui/`).
+**Slice T1 — the shared data layer — exists today** and is pure (no Textual, runs
+on 3.11):
+
+- `tui/schemas/Schema__SG_Edge__TUI__Snapshot` — one normalised, source-independent
+  snapshot (zone / wildcard / fleet / slug-state / issues / `capabilities`).
+- `tui/source/SG_Edge__TUI__{Local,AWS}_Source` over `SG_Edge__TUI__Data_Source` —
+  Local wraps `Local__Edge__Stack`; AWS reads the live `edge.sg-labs.app` DNS
+  registry read-only (mutations raise until Slice 5; `can_act()` is False).
+- `tui/service/` — `Snapshot__Builder` (shared by both sources), `Differ`
+  (state-transition events), `Metrics` (honest sparkline ring buffers), `Comparison`
+  (local-vs-edge), `Card` (ASCII export). All pure.
+
+`capabilities` makes "no data yet" first-class: cost / throughput / instance panes
+are deliberately absent (pending Slice 5), never fabricated. The screens (S1
+Deployment, S2 Topology, S3 Compare, S4 Slug detail, S5 Events) are later slices.
+
 ## Not built yet (deferred — see plans)
 
 - **EC2 launcher/terminator** wiring the reconciler's `_launcher`/`_terminator`
@@ -75,6 +95,7 @@ dormant slug, missing wildcard/fleet, records-without-a-stack-marker).
 ```bash
 python3   -m pytest sg_compute_specs/sg_edge/tests/   # 3.11: 94 pass, 63 skip (typer + FastAPI)
 python3.12 -m pytest sg_compute_specs/sg_edge/tests/  # 3.12: 157 pass (CLI + FastAPI included)
+python3   -m pytest sg_compute_specs/sg_edge/tui/tests/  # TUI data layer (T1): 22 pass — pure, runs on 3.11
 ```
 
 The CLI tests need `typer`, and the `test_Fast_API__Edge_Waker` tests need
