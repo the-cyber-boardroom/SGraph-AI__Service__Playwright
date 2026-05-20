@@ -12,12 +12,16 @@
 # Best-effort rollback on first phase ERROR.
 # ═══════════════════════════════════════════════════════════════════════════════
 
+import hashlib
 from typing import Optional
 
 from osbot_utils.type_safe.Type_Safe import Type_Safe
 
 from sgraph_ai_service_playwright__cli.aws._shared.Phase__Timer                                 import Phase__Timer
 from sgraph_ai_service_playwright__cli.aws._shared.enums.Enum__AWS__Phase__Status               import Enum__AWS__Phase__Status
+from sgraph_ai_service_playwright__cli.aws.alb.primitives.Safe_Str__ALB__LB_Arn                 import Safe_Str__ALB__LB_Arn
+from sgraph_ai_service_playwright__cli.aws.alb.primitives.Safe_Str__ALB__TG_Arn                 import Safe_Str__ALB__TG_Arn
+from sgraph_ai_service_playwright__cli.aws.alb.primitives.Safe_Str__ALB__Listener_Arn           import Safe_Str__ALB__Listener_Arn
 from sgraph_ai_service_playwright__cli.aws.alb.schemas.Schema__ALB__Stack__Detail               import Schema__ALB__Stack__Detail
 from sgraph_ai_service_playwright__cli.aws.alb.schemas.Schema__ALB__Stack__Report               import Schema__ALB__Stack__Report
 from sgraph_ai_service_playwright__cli.aws.alb.schemas.Schema__ALB__Stack__Request              import Schema__ALB__Stack__Request
@@ -30,16 +34,25 @@ _TGT_SG_SUFFIX = '-target-sg'
 _MAX_LB_NAME   = 32                                                                # AWS ALB name length limit
 
 
-def _lb_name(stack: str) -> str:                                                   # truncate so total fits in 32 chars
-    suffix = _ALB_SUFFIX
-    avail  = _MAX_LB_NAME - len(suffix)
-    return (stack[:avail] + suffix) if len(stack) > avail else (stack + suffix)
+def _shrink_name(stack: str, suffix: str) -> str:                                  # collision-safe truncation; hash-suffix when stack+suffix exceeds the 32-char AWS limit
+    max_total = _MAX_LB_NAME
+    if len(stack + suffix) <= max_total:
+        return stack + suffix
+    # Hash the full stack name into 6 hex chars; reserve room for the hash + suffix.
+    digest   = hashlib.sha1(stack.encode('utf-8')).hexdigest()[:6]
+    reserved = len(suffix) + 1 + len(digest)                                       # 1 for '-' separator
+    head_len = max_total - reserved
+    if head_len < 1:
+        raise ValueError(f'stack name {stack!r} too long even with hash suffix')
+    return f'{stack[:head_len]}-{digest}{suffix}'
+
+
+def _lb_name(stack: str) -> str:
+    return _shrink_name(stack, _ALB_SUFFIX)
 
 
 def _tg_name(stack: str) -> str:
-    suffix = _TG_SUFFIX
-    avail  = _MAX_LB_NAME - len(suffix)
-    return (stack[:avail] + suffix) if len(stack) > avail else (stack + suffix)
+    return _shrink_name(stack, _TG_SUFFIX)
 
 
 class ALB__Stack__Provisioner(Type_Safe):
@@ -78,11 +91,11 @@ class ALB__Stack__Provisioner(Type_Safe):
                     phase.detail = f'reused {lb_arn}'
                     phase.status = Enum__AWS__Phase__Status.SKIPPED
                 else:
-                    tags    = dict(request.tags or {})
+                    tags    = {str(k): str(v) for k, v in dict(request.tags).items()}
                     tags['Stack'] = stack_name
                     lb      = self.alb_client.create_load_balancer(
                         name            = lb_name_str,
-                        subnets         = list(request.subnet_ids or []),
+                        subnets         = [str(s) for s in request.subnet_ids],
                         security_groups = [alb_sg_id] if alb_sg_id else [],
                         scheme          = 'internet-facing',
                         tags            = tags,
@@ -108,7 +121,7 @@ class ALB__Stack__Provisioner(Type_Safe):
                     phase.detail = f'reused {tg_arn}'
                     phase.status = Enum__AWS__Phase__Status.SKIPPED
                 else:
-                    tags    = dict(request.tags or {})
+                    tags    = {str(k): str(v) for k, v in dict(request.tags).items()}
                     tags['Stack'] = stack_name
                     tg      = self.alb_client.create_target_group(
                         name                  = tg_name_str,
@@ -166,59 +179,117 @@ class ALB__Stack__Provisioner(Type_Safe):
             # ── LISTENER ──────────────────────────────────────────────────────
             with timer.phase('LISTENER') as phase:
                 lb_name_str = _lb_name(stack_name)
-                existing_lb = self.alb_client.describe_load_balancer(lb_name_str)
-                if existing_lb is not None:
-                    listeners = self.alb_client.list_listeners(lb_arn=str(existing_lb.lb_arn))
-                    for listener in listeners:
-                        self.alb_client.delete_listener(str(listener.listener_arn))
-                    phase.detail = f'deleted {len(listeners)} listener(s)'
-                else:
+                try:
+                    existing_lb = self.alb_client.describe_load_balancer(lb_name_str)
+                except Exception as exc:                                             # noqa: BLE001 — collect, continue
+                    report.rollback_errors.append(f'describe_load_balancer({lb_name_str}): {exc.__class__.__name__}: {exc}')
+                    existing_lb = None
+                if existing_lb is None:
                     phase.detail = 'no lb found — skip'
                     phase.status = Enum__AWS__Phase__Status.SKIPPED
+                else:
+                    try:
+                        listeners = self.alb_client.list_listeners(lb_arn=str(existing_lb.lb_arn))
+                    except Exception as exc:                                         # noqa: BLE001
+                        report.rollback_errors.append(f'list_listeners({existing_lb.lb_arn}): {exc.__class__.__name__}: {exc}')
+                        listeners = []
+                    attempted    = 0
+                    deleted_okay = 0
+                    for listener in listeners:
+                        attempted += 1
+                        try:
+                            self.alb_client.delete_listener(str(listener.listener_arn))
+                            deleted_okay += 1
+                        except Exception as exc:                                     # noqa: BLE001
+                            report.rollback_errors.append(f'delete_listener({listener.listener_arn}): {exc.__class__.__name__}: {exc}')
+                    if attempted == 0:
+                        phase.detail = 'no listeners — skip'
+                        phase.status = Enum__AWS__Phase__Status.SKIPPED
+                    else:
+                        phase.detail = f'deleted {deleted_okay}/{attempted} listener(s)'
+                        if deleted_okay == 0:
+                            phase.status = Enum__AWS__Phase__Status.ERROR
 
             # ── TARGET_GROUP ──────────────────────────────────────────────────
             with timer.phase('TARGET_GROUP') as phase:
                 tg_name_str = _tg_name(stack_name)
-                all_tgs     = self.alb_client.list_target_groups()
-                deleted_tgs = 0
+                try:
+                    all_tgs = self.alb_client.list_target_groups()
+                except Exception as exc:                                             # noqa: BLE001
+                    report.rollback_errors.append(f'list_target_groups: {exc.__class__.__name__}: {exc}')
+                    all_tgs = []
+                attempted    = 0
+                deleted_okay = 0
                 for tg in all_tgs:
                     if str(tg.tg_name) == tg_name_str:
-                        self.alb_client.delete_target_group(str(tg.tg_arn))
-                        deleted_tgs += 1
-                phase.detail = f'deleted {deleted_tgs} target group(s)'
-                if deleted_tgs == 0:
+                        attempted += 1
+                        try:
+                            self.alb_client.delete_target_group(str(tg.tg_arn))
+                            deleted_okay += 1
+                        except Exception as exc:                                     # noqa: BLE001
+                            report.rollback_errors.append(f'delete_target_group({tg.tg_arn}): {exc.__class__.__name__}: {exc}')
+                if attempted == 0:
+                    phase.detail = 'no target groups — skip'
                     phase.status = Enum__AWS__Phase__Status.SKIPPED
+                else:
+                    phase.detail = f'deleted {deleted_okay}/{attempted} target group(s)'
+                    if deleted_okay == 0:
+                        phase.status = Enum__AWS__Phase__Status.ERROR
 
             # ── LOAD_BALANCER ─────────────────────────────────────────────────
             with timer.phase('LOAD_BALANCER') as phase:
                 lb_name_str = _lb_name(stack_name)
-                existing_lb = self.alb_client.describe_load_balancer(lb_name_str)
-                if existing_lb is not None:
-                    self.alb_client.delete_load_balancer(str(existing_lb.lb_arn))
-                    phase.detail = f'deleted {existing_lb.lb_arn}'
-                else:
+                try:
+                    existing_lb = self.alb_client.describe_load_balancer(lb_name_str)
+                except Exception as exc:                                             # noqa: BLE001
+                    report.rollback_errors.append(f'describe_load_balancer({lb_name_str}): {exc.__class__.__name__}: {exc}')
+                    existing_lb = None
+                if existing_lb is None:
                     phase.detail = 'not found — skip'
                     phase.status = Enum__AWS__Phase__Status.SKIPPED
+                else:
+                    try:
+                        self.alb_client.delete_load_balancer(str(existing_lb.lb_arn))
+                        phase.detail = f'deleted {existing_lb.lb_arn}'
+                    except Exception as exc:                                         # noqa: BLE001
+                        report.rollback_errors.append(f'delete_load_balancer({existing_lb.lb_arn}): {exc.__class__.__name__}: {exc}')
+                        phase.detail = f'failed to delete {existing_lb.lb_arn}'
+                        phase.status = Enum__AWS__Phase__Status.ERROR
 
             # ── SECURITY_GROUPS ───────────────────────────────────────────────
             with timer.phase('SECURITY_GROUPS') as phase:
-                deleted_sgs = 0
+                attempted    = 0
+                deleted_okay = 0
                 if self.ec2_client is not None:
                     for suffix in (_ALB_SG_SUFFIX, _TGT_SG_SUFFIX):
                         sg_name = stack_name + suffix
-                        existing = self.ec2_client.describe_security_group(sg_name)
-                        if existing is not None:
+                        try:
+                            existing = self.ec2_client.describe_security_group(sg_name)
+                        except Exception as exc:                                     # noqa: BLE001
+                            report.rollback_errors.append(f'describe_security_group({sg_name}): {exc.__class__.__name__}: {exc}')
+                            continue
+                        if existing is None:
+                            continue
+                        attempted += 1
+                        try:
                             self.ec2_client.delete_security_group(str(existing.sg_id))
-                            deleted_sgs += 1
-                phase.detail = f'deleted {deleted_sgs} security group(s)'
-                if deleted_sgs == 0:
+                            deleted_okay += 1
+                        except Exception as exc:                                     # noqa: BLE001
+                            report.rollback_errors.append(f'delete_security_group({existing.sg_id}): {exc.__class__.__name__}: {exc}')
+                if attempted == 0:
+                    phase.detail = 'no security groups — skip'
                     phase.status = Enum__AWS__Phase__Status.SKIPPED
+                else:
+                    phase.detail = f'deleted {deleted_okay}/{attempted} security group(s)'
+                    if deleted_okay == 0:
+                        phase.status = Enum__AWS__Phase__Status.ERROR
 
+            # ok=True if destroy ran end-to-end (rollback_errors may still be populated)
             report.ok       = True
             report.phases   = timer.results
             report.total_ms = timer.total_ms()
 
-        except Exception as exc:
+        except Exception as exc:                                                     # noqa: BLE001 — only setup failures land here
             report.error    = str(exc)
             report.phases   = timer.results
             report.total_ms = timer.total_ms()
@@ -233,18 +304,18 @@ class ALB__Stack__Provisioner(Type_Safe):
         lb_arn = str(existing_lb.lb_arn)
         detail = Schema__ALB__Stack__Detail(
             stack_name  = stack_name,
-            lb_arn      = lb_arn,
+            lb_arn      = Safe_Str__ALB__LB_Arn(lb_arn),
             lb_dns_name = existing_lb.dns_name,
         )
         tg_name_str = _tg_name(stack_name)
         all_tgs     = self.alb_client.list_target_groups()
         for tg in all_tgs:
             if str(tg.tg_name) == tg_name_str:
-                detail.tg_arn = str(tg.tg_arn)
+                detail.tg_arn = Safe_Str__ALB__TG_Arn(str(tg.tg_arn))
                 break
         listeners = self.alb_client.list_listeners(lb_arn=lb_arn)
         if listeners and len(listeners) > 0:
-            detail.listener_arn = str(listeners[0].listener_arn)
+            detail.listener_arn = Safe_Str__ALB__Listener_Arn(str(listeners[0].listener_arn))
         if self.ec2_client is not None:
             alb_sg = self.ec2_client.describe_security_group(stack_name + _ALB_SG_SUFFIX)
             if alb_sg is not None:

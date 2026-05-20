@@ -236,3 +236,31 @@ class Test__ALB__AWS__Client:
 
         lbs = list(c.list_load_balancers())
         assert lbs == []
+
+    def test_21__lb_name_collision_avoided(self):
+        # Two long stack names that share a 28-char prefix must NOT collapse
+        # to the same LB name once we shrink them to fit AWS's 32-char limit.
+        from sgraph_ai_service_playwright__cli.aws.alb.service.ALB__Stack__Provisioner import _lb_name, _tg_name, _shrink_name
+
+        stack_a = 'super-long-stack-name-aaaaaa-one'                                  # 32 chars, shared 28-char prefix
+        stack_b = 'super-long-stack-name-aaaaaa-two'                                  # 32 chars, shared 28-char prefix
+        assert stack_a[:28] == stack_b[:28]
+
+        name_a = _lb_name(stack_a)
+        name_b = _lb_name(stack_b)
+        assert name_a != name_b                                                       # collision avoided
+        assert len(name_a) <= 32
+        assert len(name_b) <= 32
+        assert name_a.endswith('-alb')
+        assert name_b.endswith('-alb')
+
+        # Same property for the TG name suffix.
+        tg_a = _tg_name(stack_a)
+        tg_b = _tg_name(stack_b)
+        assert tg_a != tg_b
+        assert tg_a.endswith('-tg')
+        assert tg_b.endswith('-tg')
+
+        # Short stacks should pass through unchanged (no hashing).
+        assert _lb_name('short') == 'short-alb'
+        assert _shrink_name('short', '-tg') == 'short-tg'

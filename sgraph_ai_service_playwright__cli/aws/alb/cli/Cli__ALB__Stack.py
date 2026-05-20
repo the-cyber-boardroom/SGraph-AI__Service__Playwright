@@ -96,8 +96,13 @@ def stack_provision(ctx         : typer.Context,
                     yes         : bool = typer.Option(False, '--yes',       help='Skip confirmation.'),
                     as_json     : bool = typer.Option(False, '--json',      help='Output as JSON.')):
     """Provision a full ALB stack (requires SG_AWS__ALB__ALLOW_MUTATIONS=1)."""
+    from sgraph_ai_service_playwright__cli.aws._shared.collections.List__Str import List__Str
     client     = ctx.obj['alb_client']
-    subnet_ids = [s.strip() for s in subnets.split(',') if s.strip()]
+    subnet_ids = List__Str()
+    for s in subnets.split(','):
+        s_clean = s.strip()
+        if s_clean:
+            subnet_ids.append(s_clean)
     if not yes and not typer.confirm(f'Provision ALB stack {name!r} in VPC {vpc}?', default=True):
         if as_json:
             typer.echo(json.dumps({'ok': False, 'aborted': True}, indent=2))

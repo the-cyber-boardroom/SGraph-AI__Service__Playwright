@@ -14,6 +14,7 @@
 # ═══════════════════════════════════════════════════════════════════════════════
 
 import json
+import os
 from typing import List
 
 import typer
@@ -176,13 +177,48 @@ def lb_delete(ctx     : typer.Context,
 @spec_cli_errors
 def lb_tags(ctx     : typer.Context,
             lb_arn  : str       = typer.Argument(..., help='Load balancer ARN.'),
-            as_json : bool      = typer.Option(False, '--json', help='Output as JSON.')):
-    """Show tags on a load balancer."""
-    client = ctx.obj['alb_client']
-    lb     = client.describe_load_balancer(lb_arn)
+            add     : List[str] = typer.Option([], '--add',     help='Add tag K=V (repeatable, mutating).'),
+            remove  : List[str] = typer.Option([], '--remove',  help='Remove tag by key (repeatable, mutating).'),
+            clear   : bool      = typer.Option(False, '--clear', help='Remove all tags (mutating).'),
+            yes     : bool      = typer.Option(False, '--yes',   help='Skip confirmation for mutations.'),
+            as_json : bool      = typer.Option(False, '--json',  help='Output as JSON.')):
+    """View and optionally modify tags on a load balancer."""
+    client      = ctx.obj['alb_client']
+    is_mutating = bool(add or remove or clear)
+    if is_mutating:
+        if os.environ.get(_MUTATION_ENV) != '1':
+            console.print(f'[red]Set {_MUTATION_ENV}=1 to allow tag mutations.[/red]')
+            raise typer.Exit(1)
+        if not yes and not typer.confirm(f'Modify tags on {lb_arn!r}?', default=False):
+            if as_json:
+                typer.echo(json.dumps({'ok': False, 'aborted': True}, indent=2))
+            else:
+                console.print('[yellow]Aborted.[/yellow]')
+            raise typer.Exit(0)
+    lb = client.describe_load_balancer(lb_arn)
     if lb is None:
         console.print(f'[red]Load balancer not found:[/red] {lb_arn}')
         raise typer.Exit(1)
+    if clear:
+        existing_keys = list({str(k): str(v) for k, v in lb.tags.items()}.keys())
+        if existing_keys:
+            client.remove_tags([lb_arn], existing_keys)
+    if add:
+        add_dict = {}
+        for kv in add:
+            if '=' in kv:
+                k, v = kv.split('=', 1)
+                add_dict[k] = v
+        if add_dict:
+            client.add_tags([lb_arn], add_dict)
+    if remove:
+        client.remove_tags([lb_arn], list(remove))
+    # re-describe to pick up fresh tags after mutation
+    if is_mutating:
+        lb = client.describe_load_balancer(lb_arn)
+        if lb is None:
+            console.print(f'[red]Load balancer not found after mutation:[/red] {lb_arn}')
+            raise typer.Exit(1)
     tags = {str(k): str(v) for k, v in lb.tags.items()}
     if as_json:
         typer.echo(json.dumps({'lb_arn': lb_arn, 'tags': tags}, indent=2))

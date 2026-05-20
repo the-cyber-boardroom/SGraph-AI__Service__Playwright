@@ -18,6 +18,15 @@ app = typer.Typer(
     no_args_is_help = True,
 )
 
+
+@app.callback()
+def _root(debug: bool = typer.Option(False, '--debug', '-D',
+                                     help='Show full Python traceback on errors.',
+                                     is_eager=True)):
+    from sg_compute.cli.base.Spec__CLI__Errors import set_debug
+    set_debug(debug)
+
+
 app.add_typer(lb_app,       name='lb')
 app.add_typer(tg_app,       name='tg')
 app.add_typer(listener_app, name='listener')
