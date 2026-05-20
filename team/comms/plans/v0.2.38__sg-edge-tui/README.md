@@ -26,6 +26,9 @@ decisions-confirmed:
   - "Card export: file + OSC-52 clipboard (survives the SSH/SSM chain)"
   - "User guide: new file library/guides/v0.2.38__sg-edge-tui-guide.md"
   - "Theme: dark default, ship a light-mode toggle in MVP"
+  - "Screen 5 event source: T1 Differ for MVP; unified observability session is a later swap"
+  - "Screen 3: local vs edge only — no 'Deployed' third column"
+  - "Command surface: sg edge tui <screen> subcommands"
 ---
 
 # SG/Edge TUI — exploration MVP plan (five screens)
@@ -82,6 +85,13 @@ rejected — the negative results — is an explicit deliverable.**
 7. **Card export = file + OSC-52 clipboard** (OSC-52 survives the SSH/SSM chain).
 8. **User guide = new file** `library/guides/v0.2.38__sg-edge-tui-guide.md`.
 9. **Theme = dark default + light-mode toggle (`t`)** shipped in MVP.
+10. **Screen 5 event source = T1 `Differ`** for the MVP (honest state-transition
+    trickle); the unified observability session is a later swap, not MVP work.
+11. **Screen 3 = local vs edge only** — no "Deployed" third column. A
+    cross-service deployed/version axis, if ever wanted, belongs to the labs/admin
+    UI, not this `sg_edge` tool.
+12. **Command surface = `sg edge tui <screen>` subcommands** (keeps the `sg edge`
+    tree tidy; still runs side-by-side in tmux).
 
 ---
 
@@ -206,7 +216,7 @@ What each screen can show **truthfully today** vs. what is a labelled-pending se
 |---|---|---|---|
 | **1. Deployment Reality** | wildcard, fleet IPs, DNS record counts, registered slugs + state | proxy EC2 rows (`i-…`, AZ, uptime), vault-srv instances + "vaults loaded", live CF/Lambda ARNs | **Buildable** — real infra + slug rows; instance rows seamed |
 | **2. Topology** | the layered shape (browser → wildcard → fleet → slugs) = the `check` diagram, interactive | per-proxy instances, vault-server grouping, "active flows" sparkline | **Buildable** — honest topology; richer nodes seamed |
-| **3. Local vs Edge** | local zone vs AWS edge zone: slug / fleet / wildcard / record presence — fully comparable via the two sources | a distinct "Deployed" 3rd column; component **version** drift (lives in other services, not `sg_edge`) | **Sweet spot** — honest *two-way* drift; three-way version matrix out of reach |
+| **3. Local vs Edge** | local zone vs AWS edge zone: slug / fleet / wildcard / record presence — fully comparable via the two sources | (out of scope) a "Deployed" 3rd column + cross-service version drift — belongs to the labs/admin UI, not `sg_edge` | **Sweet spot** — honest *two-way* drift; no third column |
 | **4. Slug Detail** | slug, fqdn, A/TXT state, backend ip:port, the DNS A/TXT records | instance (id/type/AZ/IP/health), cost, rps/error/latency sparklines, source/article/working vault bindings | **Honest skeleton** — State + DNS real; rest seamed |
 | **5. Live Event Stream** | state-transition events from polling deltas (registered / went-live / removed / fleet / issue) — the Differ already produces these | per-request events + latencies + wake events (needs the observability session / Slice 5/6) | **Honest trickle**, not a fast request stream |
 
@@ -255,7 +265,7 @@ card export) are built alongside S1 and reused across S2–S5.
 | 1 | Five screens buildable and runnable | ✅ S1–S5 as `sg edge tui *` commands |
 | 2 | Screen 1 shows current state at a glance | ✅ real infra + slugs; instance rows seamed |
 | 3 | Screen 2 topology readable | ✅ |
-| 4 | Screen 3 surfaces drift | 🟡 honest **two-way** (local vs edge); version matrix out of `sg_edge`'s reach |
+| 4 | Screen 3 surfaces drift | 🟡 honest **two-way** (local vs edge); no "Deployed" column (out of scope — cross-service) |
 | 5 | Screen 4 drill-in via keyboard | 🟡 skeleton — State+DNS real; Instance/Cost/Activity seamed |
 | 6 | Screen 5 updates in real time | 🟡 honest state-transition trickle; request stream pending observability/Slice 5/6 |
 | 7 | Run cleanly over SSM + docker exec | ✅ T-chain slice (manual verify in real chain) |
@@ -337,15 +347,17 @@ set, or a redesign absorbing the best of each. T1 already feeds whatever wins.
 
 ---
 
-## 13. Open questions for the human
+## 13. Resolved (kickoff Q&A)
 
-1. **Screen 5 event source** — for the MVP it's the T1 `Differ` (honest
-   state-transition trickle). The brief suggests the unified observability session
-   as the eventual source. Confirm: MVP stays on the Differ, observability is a
-   later swap?
-2. **Screen 3 "Deployed" column** — MVP does **local vs edge** only (the two real
-   sources). Is a third "Deployed" column meaningful for `sg_edge` specifically, or
-   is that a cross-service concern that belongs to the labs/admin UI instead?
-3. **Command surface** — `sg edge tui <screen>` subcommands (proposed) vs. the
-   brief's flat `sg-edge-tui-<name>`. Subcommands keep the `sg edge` tree tidy and
-   still run side-by-side in tmux. Confirm subcommands?
+All planning questions are settled — see §2 for the full confirmed list. The three
+resolved in the final round:
+
+1. **Screen 5 event source** — MVP stays on the T1 `Differ`; the unified
+   observability session is a later swap. ✅
+2. **Screen 3 "Deployed" column** — not needed; MVP is local vs edge only. A
+   cross-service deployed/version axis, if ever wanted, belongs to the labs/admin
+   UI. ✅
+3. **Command surface** — `sg edge tui <screen>` subcommands. ✅
+
+No open questions remain. Next concrete step: build **T1** (the shared data layer)
+— pure, 3.11, no new dependency — and review it before any Textual code.
