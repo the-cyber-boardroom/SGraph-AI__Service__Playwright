@@ -174,8 +174,11 @@ Onboarding guide: [`library/onboarding/v0.2.33__vault-app-fargate.md`](../../../
 | `SG_Edge__TXT__Builder` | `sg_edge/service/` | Composes/parses the v=1 routing TXT; shared by Vault Waker + Reaper |
 | `SG_Edge__State__Builder` | `sg_edge/service/` | Composes/parses the `_state.<parent>` TXT counter |
 | `SG_Edge__DNS__Helper` | `sg_edge/service/` | Edge control-plane DNS surface over `sg aws dns`: `proxies.<parent>` A membership (list/add/remove/count), `_state.<parent>` TXT read/write, `_sg.*` active-slug count + routing read (Slice 2) |
+| `Schema__SG_Edge__Proxy` | `sg_edge/schemas/` | A launched, health-green proxy (instance_id + ip) returned by the launcher seam (Slice 3) |
+| `SG_Edge__Fleet__Reconciler` | `sg_edge/service/` | Convergent control loop — `ensure_booting` (cold-cold), `reconcile` (scale check), `idle_check` (zero_streak teardown); AWS work behind launcher/terminator/clock seams (Slice 3) |
+| `Fast_API__Edge_Waker` + `Routes__Edge_Waker` + `Loading__Page` + `lambda_entry` + `edge_waker__config` | `sg_edge/lambdas/edge_waker/` | The Edge Waker as a `Serverless__Fast_API` Lambda (same pattern as `vault_publish/lambdas/waker/` + combined-deps loader). Routes: `/__edge__/health|status|reconcile|idle-check` + cold-cold loading-page catch-all (Slice 3) |
 
-Tests: `sg_compute_specs/sg_edge/tests/` — 47 unit tests (both builders + the DNS helper against the real `Route53__AWS__Client__In_Memory` fake). No mocks. Purely additive — nothing outside `sg_edge/` imports it; the `sg` CLI surface is unchanged.
+Tests: `sg_compute_specs/sg_edge/tests/` — 58 unit tests + 6 FastAPI route tests (skipped off Python 3.12). Logic (builders, DNS helper, reconciler) is fully covered against the real `Route53__AWS__Client__In_Memory` fake; the FastAPI surface is TestClient-tested in CI. No mocks. Purely additive — nothing outside `sg_edge/` imports it; the `sg` CLI surface is unchanged.
 
 ---
 
