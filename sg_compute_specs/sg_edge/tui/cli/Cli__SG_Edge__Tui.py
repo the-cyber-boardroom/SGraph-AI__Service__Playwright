@@ -59,6 +59,17 @@ def deployment(target: str = typer.Option('local', '--target', '-t', help='Data 
     SG_Edge__TUI__Screen__Deployment(source=source).run()
 
 
+@app.command(name='topology', help='Screen 2 — Topology: the layered flow (browser → wildcard → fleet → slugs).')
+def topology(target: str = typer.Option('local', '--target', '-t', help='Data source: local | aws'),
+             parent: str = typer.Option('',      '--parent', '-p', help='Edge parent zone (defaults per target)')):
+    source = _source(target, parent)
+    if not sys.stdout.isatty():                                                      # piped / CI / no real terminal → static card (itself a layered topology)
+        _render_static(source)
+        return
+    from sg_compute_specs.sg_edge.tui.screens.SG_Edge__TUI__Screen__Topology import SG_Edge__TUI__Screen__Topology
+    SG_Edge__TUI__Screen__Topology(source=source).run()
+
+
 _compare_sources_factory = None                                                      # tests assign a callable(local_parent, aws_parent) → (local_source, aws_source)
 
 

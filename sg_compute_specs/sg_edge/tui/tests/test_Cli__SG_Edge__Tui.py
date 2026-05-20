@@ -49,8 +49,14 @@ class test_Cli__SG_Edge__Tui(TestCase):
     def test_help_lists_commands(self):
         result = self.runner.invoke(self.mod.app, ['--help'])
         assert result.exit_code == 0
-        assert 'deployment' in result.output
-        assert 'compare'    in result.output
+        for cmd in ('deployment', 'topology', 'compare'):
+            assert cmd in result.output, cmd
+
+    def test_topology__no_tty_falls_back_to_card(self):
+        result = self.runner.invoke(self.mod.app, ['topology'], catch_exceptions=False)
+        assert result.exit_code == 0
+        assert 'SG/Edge' in result.output
+        assert 'alice'   in result.output
 
     def test_compare__no_tty_falls_back_to_plain_diff(self):
         from tests.unit.sgraph_ai_service_playwright__cli.aws.dns.service.Route53__AWS__Client__In_Memory import Route53__AWS__Client__In_Memory
