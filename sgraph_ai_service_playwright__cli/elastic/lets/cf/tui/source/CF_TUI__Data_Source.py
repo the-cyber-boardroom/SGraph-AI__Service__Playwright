@@ -23,3 +23,9 @@ class CF_TUI__Data_Source(Type_Safe):
 
     def traffic_snapshot(self) -> Schema__CF_TUI__Traffic_Snapshot:
         raise NotImplementedError
+
+    def list_files(self, date_iso : str = '', hour : str = '', max_files : int = 0):  # → List__CF_TUI__File_Row (the file browser)
+        raise NotImplementedError
+
+    def read_file(self, key : str):                                                  # → Schema__CF_TUI__File_View (drill into one object)
+        raise NotImplementedError

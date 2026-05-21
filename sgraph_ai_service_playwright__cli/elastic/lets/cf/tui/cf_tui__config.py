@@ -20,3 +20,15 @@ CF_LOGS_BUCKET      = '745506449035--sgraph-send-cf-logs--eu-west-2'
 CF_LOGS_PREFIX      = 'cloudfront-realtime/'                                          # date-partitioned under here: {YYYY}/{MM}/{DD}/{HH}/
 CF_LOGS_REGION      = 'eu-west-2'
 TUI_S3_SAMPLE_FILES = 25                                                             # newest .gz objects sampled per refresh for the "live" view
+
+
+def cf_realtime_prefix(date_iso : str = '', hour : str = '', base : str = CF_LOGS_PREFIX) -> str:
+    # Build the date-partitioned prefix. date_iso accepts 2026-05-21 or 2026/05/21;
+    # hour only applies when a date is given. Empty date → the base prefix (all dates).
+    prefix = base
+    if date_iso:
+        parts  = [p for p in date_iso.replace('-', '/').split('/') if p][:3]
+        prefix = prefix + '/'.join(parts) + '/'
+        if hour:
+            prefix = prefix + f'{int(hour):02d}/'
+    return prefix
