@@ -54,6 +54,12 @@ def _client() -> S3__AWS__Client:
     return S3__AWS__Client()
 
 
+@app.command('browse', help='Interactive S3 bucket/folder/file browser + viewer (Textual). No-TTY prints a listing.')
+def browse(path: str = typer.Argument('', help='Optional s3://bucket/prefix to start at')):
+    from sgraph_ai_service_playwright__cli.aws.s3.tui.cli.Cli__S3__Browser import run_browse  # lazy — textual not required to register the CLI
+    run_browse(path)
+
+
 def _parse_s3_uri(uri: str):                                                      # returns (bucket, key) tuple
     if not uri.startswith('s3://'):
         return '', uri
