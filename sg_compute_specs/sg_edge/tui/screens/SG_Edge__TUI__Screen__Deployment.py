@@ -10,25 +10,25 @@
 # one — no mocks). refresh_seconds=0 disables the timer (tests drive refresh by key).
 # ═══════════════════════════════════════════════════════════════════════════════
 
-from textual.app                                                                    import App, ComposeResult
+from textual.app                                                                    import ComposeResult
 from textual.containers                                                             import VerticalScroll
 from textual.widgets                                                                import Header, Footer, Static
 
+from sg_compute_specs.sg_edge.tui.screens.SG_Edge__TUI__App__Base                   import SG_Edge__TUI__App__Base
 from sg_compute_specs.sg_edge.tui.screens.SG_Edge__TUI__Deployment__Render          import deployment_markup
 from sg_compute_specs.sg_edge.tui.sg_edge_tui__config                               import TUI_REFRESH_SECONDS
 
 
-class SG_Edge__TUI__Screen__Deployment(App):
+class SG_Edge__TUI__Screen__Deployment(SG_Edge__TUI__App__Base):
     TITLE    = 'SG/Edge Deployment Reality'
-    BINDINGS = [('q', 'leave',   'Quit'),
-                ('r', 'refresh', 'Refresh')]
+    BINDINGS = [('r', 'refresh', 'Refresh')]
 
-    def __init__(self, source, refresh_seconds : float = TUI_REFRESH_SECONDS):
+    def __init__(self, source, docker_source=None, refresh_seconds : float = TUI_REFRESH_SECONDS):
         super().__init__()
         self.source          = source
+        self.docker_source   = docker_source                                         # None → no LOCAL DOCKER section
         self.refresh_seconds = refresh_seconds
         self.snapshot        = None
-        self.exited          = False
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -42,11 +42,9 @@ class SG_Edge__TUI__Screen__Deployment(App):
 
     def refresh_snapshot(self) -> None:
         self.snapshot = self.source.snapshot()
-        self.query_one('#body', Static).update(deployment_markup(self.snapshot))
+        containers    = self.docker_source.containers() if self.docker_source else None
+        available     = self.docker_source.available()  if self.docker_source else True
+        self.query_one('#body', Static).update(deployment_markup(self.snapshot, containers, available))
 
     def action_refresh(self) -> None:
         self.refresh_snapshot()
-
-    def action_leave(self) -> None:
-        self.exited = True
-        self.exit()

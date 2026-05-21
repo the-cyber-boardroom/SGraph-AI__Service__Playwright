@@ -17,6 +17,15 @@
 
 FROM mcr.microsoft.com/playwright/python:v1.58.0-noble
 
+# UTF-8 locale + a sane TERM so Unicode renders correctly when an operator
+# `docker exec -it`s in (e.g. to run `sg edge tui *`). The TUI dev pack also wants
+# `ncurses-term`/`locales` for a *dedicated* TUI image — see
+# library/guides/v0.2.38__sg-edge-tui-guide.md; not installed here to keep the
+# service image lean (the TUI CLI deps aren't in this image's requirements).
+ENV LANG=C.UTF-8 \
+    LC_ALL=C.UTF-8 \
+    TERM=xterm-256color
+
 WORKDIR /app
 
 COPY sg_compute_specs/playwright/requirements.txt ./

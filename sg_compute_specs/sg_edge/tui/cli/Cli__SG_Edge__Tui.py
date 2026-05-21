@@ -25,6 +25,42 @@ def main():                                                                     
     pass
 
 
+@app.command(name='dashboard', help='All screens in one app with tabbed navigation (1..6 / ←→ to switch).')
+def dashboard(parent: str = typer.Option('', '--parent', '-p', help='Local edge zone (default edge.sg-labs.local)'),
+              aws_parent: str = typer.Option('', '--aws-parent', help='AWS edge zone (default edge.sg-labs.app)')):
+    local_source = _source('local', parent)
+    if not sys.stdout.isatty():                                                      # piped / CI → static card of the local edge
+        _render_static(local_source)
+        return
+    aws_source = _source('aws', aws_parent)
+    from sg_compute_specs.sg_edge.tui.screens.SG_Edge__TUI__App import SG_Edge__TUI__App
+    SG_Edge__TUI__App(local_source=local_source, aws_source=aws_source, docker_source=_docker_source()).run()
+
+
+@app.command(name='diagnose', help='Print terminal capability checks (run before reporting broken TUI output).')
+def diagnose():
+    import os
+    import shutil
+    import subprocess
+    term   = os.environ.get('TERM', '')   or '(unset)'
+    lang   = os.environ.get('LANG', '')   or '(unset)'
+    lc_all = os.environ.get('LC_ALL', '') or '(unset)'
+    colors = '(tput unavailable)'
+    if shutil.which('tput'):
+        try:
+            colors = subprocess.run(['tput', 'colors'], capture_output=True, text=True).stdout.strip() or colors
+        except Exception:
+            pass
+    print('SG/Edge TUI — terminal diagnostics')
+    print(f'  TERM        = {term}')
+    print(f'  LANG        = {lang}')
+    print(f'  LC_ALL      = {lc_all}')
+    print(f'  tput colors = {colors}   (expect 256)')
+    print('  unicode test : █▓▒░ ▁▂▃▄▅▆▇█ ╭─╮ │ ╰─╯ ● ◐ ○ ✓ ✗ ⚠ ▸ ≈ ▲ ▼')
+    print('  truecolor    : \x1b[38;2;255;100;0mTRUECOLOR\x1b[0m   (renders orange ⇒ 24-bit ok)')
+    print('  if blocks/boxes show as ? or tofu, the locale or font is wrong — see the TUI guide.')
+
+
 def _source(target : str, parent : str):
     if _source_factory is not None:
         return _source_factory(target, parent)
@@ -48,6 +84,17 @@ def _render_static(source) -> None:                                             
     print(SG_Edge__TUI__Card().render(source.snapshot()))
 
 
+_docker_factory = None                                                               # tests assign a callable → SG_Edge__TUI__Docker__Source
+
+
+def _docker_source():
+    if _docker_factory is not None:
+        return _docker_factory()
+    from sg_compute.host_plane.pods.service.Pod__Runtime__Docker          import Pod__Runtime__Docker
+    from sg_compute_specs.sg_edge.tui.source.SG_Edge__TUI__Docker__Source import SG_Edge__TUI__Docker__Source
+    return SG_Edge__TUI__Docker__Source(runtime=Pod__Runtime__Docker())
+
+
 @app.command(name='deployment', help='Screen 1 — Deployment Reality: what is deployed, at a glance.')
 def deployment(target: str = typer.Option('local', '--target', '-t', help='Data source: local | aws'),
                parent: str = typer.Option('',      '--parent', '-p', help='Edge parent zone (defaults per target)')):
@@ -56,7 +103,37 @@ def deployment(target: str = typer.Option('local', '--target', '-t', help='Data 
         _render_static(source)
         return
     from sg_compute_specs.sg_edge.tui.screens.SG_Edge__TUI__Screen__Deployment import SG_Edge__TUI__Screen__Deployment
-    SG_Edge__TUI__Screen__Deployment(source=source).run()
+    SG_Edge__TUI__Screen__Deployment(source=source, docker_source=_docker_source()).run()
+
+
+@app.command(name='docker', help='Local Docker — what containers are running on this host (docker ps).')
+def docker():
+    src = _docker_source()
+    if not sys.stdout.isatty():                                                      # piped / CI → plain text list
+        from sg_compute_specs.sg_edge.tui.screens.SG_Edge__TUI__Docker__Render import docker_plain
+        print(docker_plain(src.containers(), src.available()))
+        return
+    from sg_compute_specs.sg_edge.tui.screens.SG_Edge__TUI__Screen__Docker import SG_Edge__TUI__Screen__Docker
+    SG_Edge__TUI__Screen__Docker(docker_source=src).run()
+
+
+@app.command(name='slugs', help='Slug inventory in a Textual DataTable (cursor/scroll/click; Enter → detail).')
+def slugs(target: str = typer.Option('local', '--target', '-t', help='Data source: local | aws'),
+          parent: str = typer.Option('',      '--parent', '-p', help='Edge parent zone (defaults per target)')):
+    source = _source(target, parent)
+    if not sys.stdout.isatty():                                                      # piped / CI → plain rows
+        from sg_compute_specs.sg_edge.tui.screens.widgets.SG_Edge__TUI__Table import type_safe_table
+        cols, rows = type_safe_table(source.snapshot().slugs, ['slug', 'state', 'backend_ip', 'backend_port'])
+        print('  '.join(cols))
+        for row in rows:
+            print('  '.join(row))
+        return
+    from sg_compute_specs.sg_edge.tui.screens.SG_Edge__TUI__Screen__Slugs import SG_Edge__TUI__Screen__Slugs
+    table = SG_Edge__TUI__Screen__Slugs(source=source)
+    table.run()
+    if table.opened_slug:                                                            # row selected → open Slug detail
+        from sg_compute_specs.sg_edge.tui.screens.SG_Edge__TUI__Screen__Slug_Detail import SG_Edge__TUI__Screen__Slug_Detail
+        SG_Edge__TUI__Screen__Slug_Detail(source=source, slug=table.opened_slug).run()
 
 
 @app.command(name='topology', help='Screen 2 — Topology: the layered flow (browser → wildcard → fleet → slugs).')

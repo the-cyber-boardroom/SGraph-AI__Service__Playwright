@@ -9,10 +9,11 @@
 # The first poll seeds the baseline (Differ yields nothing without a prior snapshot).
 # ═══════════════════════════════════════════════════════════════════════════════
 
-from textual.app                                                                    import App, ComposeResult
+from textual.app                                                                    import ComposeResult
 from textual.containers                                                             import VerticalScroll
 from textual.widgets                                                                import Header, Footer, Static
 
+from sg_compute_specs.sg_edge.tui.screens.SG_Edge__TUI__App__Base                   import SG_Edge__TUI__App__Base
 from sg_compute_specs.sg_edge.tui.service.SG_Edge__TUI__Differ                      import SG_Edge__TUI__Differ
 from sg_compute_specs.sg_edge.tui.service.SG_Edge__TUI__Metrics                     import SG_Edge__TUI__Metrics
 from sg_compute_specs.sg_edge.tui.screens.SG_Edge__TUI__Events__Render              import events_markup
@@ -21,10 +22,9 @@ from sg_compute_specs.sg_edge.tui.sg_edge_tui__config                           
 MAX_EVENTS = 200
 
 
-class SG_Edge__TUI__Screen__Events(App):
+class SG_Edge__TUI__Screen__Events(SG_Edge__TUI__App__Base):
     TITLE    = 'SG/Edge Live Activity'
-    BINDINGS = [('q', 'leave',   'Quit'),
-                ('r', 'poll',    'Poll'),
+    BINDINGS = [('r', 'poll',    'Poll'),
                 ('space', 'pause', 'Pause'),
                 ('c', 'clear',   'Clear'),
                 ('a', 'filter_all',    'All'),
@@ -43,7 +43,6 @@ class SG_Edge__TUI__Screen__Events(App):
         self.events          = []                                                    # newest first
         self.active_filter   = 'all'
         self.paused          = False
-        self.exited          = False
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -91,7 +90,3 @@ class SG_Edge__TUI__Screen__Events(App):
     def action_filter_slugs(self)  -> None: self.set_filter('slugs')
     def action_filter_fleet(self)  -> None: self.set_filter('fleet')
     def action_filter_issues(self) -> None: self.set_filter('issues')
-
-    def action_leave(self) -> None:
-        self.exited = True
-        self.exit()

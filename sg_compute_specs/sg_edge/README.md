@@ -31,6 +31,9 @@ sibling to `vault_app` / `vault_publish`.
 | TUI screen S3 | `tui/screens/SG_Edge__TUI__Screen__Compare` | `sg edge tui compare` — Local vs Edge drift (reads both sources; no-TTY → plain diff) |
 | TUI screen S4 | `tui/screens/SG_Edge__TUI__Screen__Slug_Detail` | `sg edge tui slug [name]` — per-slug deep-dive (State+DNS real; rest pending); Topology `Enter` drills in |
 | TUI screen S5 | `tui/screens/SG_Edge__TUI__Screen__Events` | `sg edge tui events` — live state-transition feed + honest sparklines (Differ + Metrics); pause / filter / clear |
+| TUI screen Docker | `tui/screens/SG_Edge__TUI__Screen__Docker` | `sg edge tui docker` — local running containers (`docker ps`); also embedded in Deployment |
+| TUI dashboard | `tui/screens/SG_Edge__TUI__App` | `sg edge tui dashboard` — all screens in one app, Textual `TabbedContent` (1..6 / ←→ to switch) |
+| TUI slugs (DataTable) | `tui/screens/SG_Edge__TUI__Screen__Slugs` + `widgets/SG_Edge__TUI__Table` | `sg edge tui slugs` — slug inventory as a real Textual `DataTable` (built-in cursor/scroll/click; Enter → detail). Prototype of the widget approach vs markup, via a generic Type_Safe→rows helper |
 
 State model (all in DNS, nothing else): `proxies.<parent>` A (fleet membership),
 `_state.<parent>` TXT (zero_streak teardown counter), `_sg.<slug>.<parent>` TXT
@@ -100,6 +103,8 @@ sg edge tui topology                    # Screen 2 — layered flow (↑/↓ sel
 sg edge tui compare                     # Screen 3 — local vs edge drift (reads both)
 sg edge tui slug alice                  # Screen 4 — per-slug deep-dive (↑/↓ to switch)
 sg edge tui events                      # Screen 5 — live event feed + sparklines
+sg edge tui docker                      # local running containers (docker ps)
+sg edge tui dashboard                   # ALL screens in one app — tabbed nav (1..6 / ←→)
 ```
 
 **All five exploratory screens exist.** S2 (`…Screen__Topology`) draws the layered
@@ -110,10 +115,16 @@ labelled pending). S5 (`…Screen__Events`) polls and diffs successive snapshots
 the `Differ`, streaming honest state-transition events with `Metrics`-backed
 sparklines (counts the TUI measured — not rps); pause / filter / clear.
 
+Every screen shares `q` quit · `?` context-aware help overlay · `t` dark/light
+theme · `e` export the snapshot as an ASCII card to the clipboard (OSC-52).
+`sg edge tui diagnose` prints terminal capability checks ($TERM/$LANG/colors/unicode/
+truecolor) for the SSH/SSM + `docker exec` chain. Full operator guide:
+[`library/guides/v0.2.38__sg-edge-tui-guide.md`](../../library/guides/v0.2.38__sg-edge-tui-guide.md).
+
 Textual is a lazy/gated dependency: registering `sg edge tui` never imports it, and
-each screen falls back to static output when stdout is not a terminal. Remaining:
-the T-chain polish — `diagnose`, help overlay `?`, theme toggle, OSC-52 export, and
-the user guide.
+each screen falls back to static output when stdout is not a terminal. All five
+screens + the T-chain polish are done; what remains is the **sixth conversation** —
+which screens get promoted into a canonical composite `sg edge tui` app.
 
 ## Not built yet (deferred — see plans)
 
