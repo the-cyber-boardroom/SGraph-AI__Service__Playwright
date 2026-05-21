@@ -90,7 +90,14 @@ def aws_auth_guard(family : str = ''):
     def decorator(fn):
         @functools.wraps(fn)
         def wrapper(*args, **kwargs):
+            from sgraph_ai_service_playwright__cli.aws._shared.auth import AWS__Auth__Context
             chooser = interactive_chooser if sys.stdin.isatty() and sys.stdout.isatty() else None
-            return run_guarded(lambda: fn(*args, **kwargs), family=family, chooser=chooser)
+            if family:
+                AWS__Auth__Context.set_active_family(family)                          # transparent assume of the family's scoped role for the duration
+            try:
+                return run_guarded(lambda: fn(*args, **kwargs), family=family, chooser=chooser)
+            finally:
+                if family:
+                    AWS__Auth__Context.clear_active_family()
         return wrapper
     return decorator

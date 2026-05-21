@@ -124,6 +124,7 @@ consolidate_app  = typer.Typer(help = 'Consolidation C-stage: many .gz → one e
 
 from sgraph_ai_service_playwright__cli.elastic.lets.cf.tui.cli.Cli__CF__Tui     import app as tui_app  # exploratory CF-logs TUI screens (textual imported lazily inside each command)
 from sgraph_ai_service_playwright__cli.elastic.lets.cf.local.cli.Cli__CF__Local import sync as cf_local_sync, cache as cf_local_cache  # native cache commands the TUI mirrors
+from sgraph_ai_service_playwright__cli.elastic.lets.cf.iam.cli.Cli__CF__Iam      import iam_app  # provision/inspect the sg-lets-cf least-privilege role
 
 app.add_typer(cf_app, name='cf')
 cf_app.add_typer(inventory_app  , name='inventory')
@@ -131,6 +132,7 @@ cf_app.add_typer(events_app     , name='events')
 cf_app.add_typer(sg_send_app    , name='sg-send')
 cf_app.add_typer(consolidate_app, name='consolidate')
 cf_app.add_typer(tui_app        , name='tui')
+cf_app.add_typer(iam_app        , name='iam')
 cf_app.command('sync' )(cf_local_sync)                                               # native CLI — the canonical, scriptable path (`sp el lets cf sync`)
 cf_app.command('cache')(cf_local_cache)                                              # native CLI — `sp el lets cf cache`
 

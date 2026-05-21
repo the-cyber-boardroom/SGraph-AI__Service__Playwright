@@ -12,4 +12,11 @@ from sgraph_ai_service_playwright__cli.credentials.service.Sg__Aws__Session impo
 
 
 def boto3_client_via_context(service : str, region : str = ''):
+    from sgraph_ai_service_playwright__cli.aws._shared.auth                import AWS__Auth__Context
+    from sgraph_ai_service_playwright__cli.aws._shared.auth.AWS__Auth__Resolver import AWS__Auth__Resolver
+    family = AWS__Auth__Context.get_active_family()
+    if family:                                                                       # a command family is running → assume its scoped role transparently
+        client = AWS__Auth__Resolver().client_for_family(family, service, region=region)
+        if client is not None:
+            return client                                                            # else: fall back to the base identity (guard surfaces a menu if it too lacks access)
     return Sg__Aws__Session.from_context().boto3_client_from_context(service, region=region)

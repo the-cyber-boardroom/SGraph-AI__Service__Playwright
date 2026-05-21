@@ -117,6 +117,29 @@ class IAM__AWS__Client(Type_Safe):
             message   = 'created' if created else 'already exists',
         )
 
+    def create_role_with_trust(self, role_name : str ,                            # generic: any assume-role trust JSON (e.g. account-root for sg-* family roles)
+                                      trust_json : str ,
+                                      description: str = '') -> Schema__IAM__Role__Create__Response:
+        iam = self.client()
+        try:
+            resp     = iam.create_role(RoleName                 = role_name  ,
+                                       AssumeRolePolicyDocument = trust_json ,
+                                       Description              = description)
+            role_arn = resp['Role']['Arn']
+            created  = True
+        except ClientError as e:
+            if e.response.get('Error', {}).get('Code', '') == 'EntityAlreadyExists':
+                existing = self.get_role(role_name)
+                role_arn = str(existing.role_arn) if existing else ''
+                created  = False
+            else:
+                raise
+        return Schema__IAM__Role__Create__Response(
+            role_name = Safe_Str__IAM__Role_Name(role_name),
+            role_arn  = Safe_Str__IAM__Role_Arn(role_arn),
+            created   = created,
+            message   = 'created' if created else 'already exists')
+
     def delete_role(self, role_name: str) -> bool:                                # True on success, False on ClientError (e.g. role missing)
         iam = self.client()
         try:
@@ -169,6 +192,14 @@ class IAM__AWS__Client(Type_Safe):
         trust_doc = IAM__Trust_Policy__Builder().build(trust_service)
         self.client().update_assume_role_policy(RoleName       = role_name,
                                                 PolicyDocument = trust_doc)
+
+    def update_assume_role_policy_raw(self, role_name: str, trust_json: str) -> bool: # raw trust JSON (e.g. account-root for sg-* family roles)
+        try:
+            self.client().update_assume_role_policy(RoleName       = role_name,
+                                                    PolicyDocument = trust_json)
+            return True
+        except ClientError:
+            return False
 
     # ── internal ──────────────────────────────────────────────────────────────
 
