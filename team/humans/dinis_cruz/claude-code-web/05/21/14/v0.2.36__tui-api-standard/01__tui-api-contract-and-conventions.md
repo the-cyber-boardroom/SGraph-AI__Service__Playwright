@@ -4,7 +4,7 @@ file: 01__tui-api-contract-and-conventions.md
 author: Architect (Claude)
 date: 2026-05-21 (UTC hour 14)
 repo: SGraph-AI__Service__Playwright @ claude/review-tui-cli-commits-S3xCM (v0.2.36 line)
-status: PROPOSED — does not exist yet. Standard for ratification; the cross-tool reference the two voice-memo briefs ask for.
+status: PROPOSED — not built yet. Data-model decisions ratified by owner 2026-05-21 (§10). Cross-tool reference the two voice-memo briefs ask for.
 scope: platform-wide standard (not specific to the Bedrock chat). The chat is its first consumer + first provider.
 grounds_on:
   - "voice-memo brief 1: v0.27.55__arch-brief__tui-api-structured-surface-for-text-uis (the outbound surface + dev sequence + TUI-of-TUIs)"
@@ -80,21 +80,24 @@ shared with the JS manifests.
 
 The briefs want **capability tokens** (`sg-edge:slugs:write`, time-bounded, delegable); the
 chat pack modelled **AWS IAM** (policy/role/vault-key). They are two layers, not a conflict:
-a **scope** is the user-facing capability token; a **privilege** is the backing grant the
-scope *maps down to* when the action actually touches AWS/vault/network.
+a **scope** is the user-facing capability descriptor, carried by an **SG Role token**
+(working name `sg-role` — deliberately *not* "Simple Token", which is reserved for SG/Send
+and vaults, §10 #2); a **privilege** is the backing grant the scope *maps down to* when the
+action actually touches AWS/vault/network.
 
 ```python
 Enum__Tui_Api__Tier:  READ_ONLY · WRITE · CRUD · DESTRUCTIVE          # coarse capability ladder
 
-Schema__Tui_Api__Scope:                                              # the capability token (brief 2)
+Schema__Tui_Api__Scope:                                              # the capability descriptor (brief 2)
     api        : str           # owning API slug, e.g. 'sg-edge.slugs'
-    capability : str           # fine verb or tier, e.g. 'read' | 'write' | 'wake' | 'terminate'
+    capability : str           # fine verb or tier, e.g. 'read'|'write'|'wake'; '*' = all methods of the API
     resource   : str = '*'     # optional qualifier, e.g. a slug glob
-    # string form: '{api}:{capability}[:{resource}]'  — what a Simple Token carries
+    # string form: '{api}:{capability}[:{resource}]'  — carried by an sg-role token (§10 #2).
+    # capability '*' grants the whole API (all its methods) in one go — the coarse v1 default (§10 #3).
 
 Schema__Tui_Api__Privilege:                                          # the backing grant a scope maps to
-    kind : Enum__Tui_Api__Priv_Kind   # SIMPLE_TOKEN | IAM_POLICY | IAM_ROLE | VAULT_KEY | ENV | NETWORK | OTHER
-    ref  : str                        # token id / policy ARN / role ARN / vault key / env var
+    kind : Enum__Tui_Api__Priv_Kind   # SG_ROLE | IAM_POLICY | IAM_ROLE | VAULT_KEY | ENV | NETWORK | OTHER
+    ref  : str                        # sg-role id / policy ARN / role ARN / vault key / env var
     note : str
 
 Schema__Tui_Api__Grant:                                              # a scope granted to an identity, time-bounded
@@ -364,20 +367,22 @@ for non-Python tools, with the same scoping/sequencing/audit applied at the boun
 
 ---
 
-## 10. Decisions to ratify (before building)
+## 10. Decisions — owner rulings (2026-05-21)
 
-| # | Decision | Recommendation |
-|---|---|---|
-| 1 | Scope ↔ privilege mapping depth | v1: scope is a Simple Token; privilege pre-flight is presence/role check + print-policy on miss. Live `iam:SimulatePrincipalPolicy` later. |
-| 2 | Token substrate | Reuse the credential-manager Simple Tokens; scopes are `{api}:{capability}[:{resource}]`; time-bounds + sub-agent derivation are first-class. |
-| 3 | Sequencing expressiveness | v1: flat preconditions over `provider.state()` (EQ/IN/EXISTS…). No DAG/workflow-engine yet. |
-| 4 | Orientation file name | `skills.md` (continuity with the vault-app JS convention), not `README.md`. |
-| 5 | Change-capture enforcement | Mandatory for shipped FEATURE/BREAKING; CI fails if absent; LLM-assisted drafting allowed. |
-| 6 | VFS default persistence | Ephemeral `Storage_FS__Memory`; `--vfs-backend local\|sqlite\|s3` to persist; document lose-on-close in SKILL-human. |
-| 7 | Multi-API granularity | Per-API scope by default; per-action scope where the action is DESTRUCTIVE. |
-| 8 | Provider surface in v1 | Yes — the chat exposes its own state/actions/events from the first slice (avoids the redo trap). |
-| 9 | JSON Schema source of truth | Derive from Type_Safe (Python) + enrich the JS manifests to match → one shared definition. |
-| 10 | Can the chat change its own loadout? | No. Loadout is human/workflow-curated; the model requests, the human/workflow grants. |
+All ten ruled by the owner. The recommendation column keeps the rationale; the ruling is binding.
+
+| # | Decision | Recommendation | Ruling |
+|---|---|---|---|
+| 1 | Scope ↔ privilege mapping depth | v1: presence/role check + print-policy on miss; live `iam:SimulatePrincipalPolicy` later. | ✅ **Agreed.** |
+| 2 | Token substrate | Reuse the credential-manager machinery; scopes are `{api}:{capability}[:{resource}]`; time-bounds + sub-agent derivation first-class. | ✅ **Agreed — but renamed.** *Not* "Simple Token" (reserved for SG/Send + vaults). Use **SG Role token** (`sg-role`); `Priv_Kind.SG_ROLE`. |
+| 3 | Sequencing expressiveness | v1: flat preconditions over `provider.state()` (EQ/IN/EXISTS…). No DAG/workflow-engine yet. | ✅ **Agreed — keep simple.** Plus: a grant may target a **whole API** (`{api}:*`) — all methods of one of the many available APIs. |
+| 4 | Orientation file name | `skills.md`, not `README.md`. | ✅ **Agreed** — `skills.md` is the industry standard. |
+| 5 | Change-capture enforcement | Mandatory for shipped FEATURE/BREAKING; CI fails if absent. | ⚠ **Changed — recommended, not mandatory.** No CI gate; the standard must also work for a very simple TUI API definition. |
+| 6 | VFS default persistence | Ephemeral `Storage_FS__Memory`; `--vfs-backend` to persist. | ✅ **Agreed — dies with the session.** Save-during-session is a later feature; switching memory_fs to disk/zip/sqlite is trivial. |
+| 7 | Multi-API granularity | Per-API scope by default; per-action where DESTRUCTIVE. | ✅ **Agreed.** |
+| 8 | Provider surface in v1 | Yes — the chat exposes its own state/actions/events from the first slice. | ✅ **Agreed — do this in v1.** |
+| 9 | JSON Schema source of truth | Derive from Type_Safe (Python) + enrich the JS manifests to match. | ✅ **Agreed — all derived programmatically** (no hand-written schema). |
+| 10 | Can the chat change its own loadout? | No. Loadout is human/workflow-curated. | ✅ **Agreed — no.** Has significant security implications (a model granting itself capability is an escalation path). |
 
 ---
 
@@ -390,7 +395,7 @@ for non-Python tools, with the same scoping/sequencing/audit applied at the boun
 | Bedrock chat TUI (engine, cost model, inspector) | **EXISTS** on this branch (the pilot host) |
 | `Bedrock__Cost__Calculator`, model aliases, stream adapter | **EXISTS** |
 | Everything in §4–§9 (the contract, execution center, tokens, sequencing, orientation, change-control, workflow assembly, the VFS *conventions* layer) | **PROPOSED — does not exist yet** |
-| Simple Tokens scoped to TUI APIs | **PROPOSED** (the credential manager exists; the scope mapping does not) |
+| SG Role tokens (`sg-role`) scoped to TUI APIs | **PROPOSED** (the credential manager exists; the scope mapping + `sg-role` token type do not) |
 
 ---
 
