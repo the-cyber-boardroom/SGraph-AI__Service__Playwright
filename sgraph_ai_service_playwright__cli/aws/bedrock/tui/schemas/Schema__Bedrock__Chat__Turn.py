@@ -18,3 +18,5 @@ class Schema__Bedrock__Chat__Turn(Type_Safe):
     ts            : float                                                         # epoch seconds (turn completion)
     request_json  : str                                                           # exact Converse request body sent (modelId + system + full messages)
     response_text : str                                                           # exact assistant text returned
+    model_calls   : int = 1                                                       # Converse round-trips this turn (agentic loop may be > 1)
+    tool_calls    : int = 0                                                       # tool invocations this turn (the cost meter's "N model · M tools")

@@ -107,3 +107,80 @@ class Bedrock__Chat__Engine(Type_Safe):
         session.total_cost_usd      += cost
         session.turn_count          += 1
         return turn
+
+    def send_turn_agentic(self, session, user_text, registry, center,                   # the Converse tool-use loop (C-TL1)
+                          tool_config=None, name_map=None, grants=None, max_steps=6):
+        model_id = self.resolve_model(session)
+        session.messages.append(Schema__Bedrock__Chat__Message(role=Enum__Bedrock__Chat__Role.USER,
+                                                               text=user_text, ts=time.time()))
+        messages         = self.build_messages(session)
+        system           = session.system_prompt or None
+        name_map         = name_map or {}
+        initial_messages = list(messages)                                               # captured for the Inspector
+
+        total_in = total_out = total_latency = 0
+        tool_cost   = 0.0
+        model_calls = 0
+        tool_calls  = 0
+        final_text  = ''
+
+        for _ in range(max_steps):
+            response = self.source.converse_turn(model_id, messages, region=session.region,
+                                                system=system, tool_config=tool_config)
+            model_calls   += 1
+            total_in      += int(response.get('input_tokens',  0))
+            total_out     += int(response.get('output_tokens', 0))
+            total_latency += int(response.get('latency_ms',    0))
+            content        = response.get('content', [])
+            messages.append({'role': 'assistant', 'content': content})
+
+            if response.get('stop_reason') != 'tool_use':                               # final answer — done
+                final_text = self.text_of_content(content)
+                break
+
+            tool_result_blocks = []
+            for block in content:                                                       # execute every requested tool
+                tool_use = block.get('toolUse')
+                if not tool_use:
+                    continue
+                tool_calls += 1
+                slug, action = name_map.get(tool_use.get('name', ''), (None, None))
+                if slug is None:
+                    payload, status = {'error': f"unknown tool: {tool_use.get('name')}"}, 'error'
+                else:
+                    result    = center.execute(slug, action, tool_use.get('input', {}) or {}, grants=grants)
+                    tool_cost += float(result.cost_usd)
+                    payload   = result.json().get('data', {})
+                    status    = 'success' if result.ok else 'error'
+                tool_result_blocks.append({'toolResult': {'toolUseId': tool_use.get('toolUseId', ''),
+                                                         'content'  : [{'json': payload}],
+                                                         'status'   : status}})
+            messages.append({'role': 'user', 'content': tool_result_blocks})            # feed results back
+
+        session.messages.append(Schema__Bedrock__Chat__Message(role=Enum__Bedrock__Chat__Role.ASSISTANT,
+                                                              text=final_text, ts=time.time()))
+        cost         = self.calc.estimate(model_id, total_in, total_out) + tool_cost
+        request_body = {'modelId': model_id, 'messages': initial_messages}
+        if tool_config:
+            request_body['toolConfig'] = tool_config
+        if system:
+            request_body['system'] = [{'text': system}]
+        turn = Schema__Bedrock__Chat__Turn(model_id      = Safe_Str__Bedrock__Model_Id(model_id),
+                                          input_tokens  = total_in,
+                                          output_tokens = total_out,
+                                          cost_usd      = cost,
+                                          latency_ms    = total_latency,
+                                          ts            = time.time(),
+                                          request_json  = json.dumps(request_body, indent=2, ensure_ascii=False, default=str),
+                                          response_text = final_text,
+                                          model_calls   = model_calls,
+                                          tool_calls    = tool_calls)
+        session.turns.append(turn)
+        session.total_input_tokens  += total_in
+        session.total_output_tokens += total_out
+        session.total_cost_usd      += cost
+        session.turn_count          += 1
+        return turn
+
+    def text_of_content(self, content: list) -> str:                                    # concat the text blocks of an assistant message
+        return ''.join(block.get('text', '') for block in content if 'text' in block)

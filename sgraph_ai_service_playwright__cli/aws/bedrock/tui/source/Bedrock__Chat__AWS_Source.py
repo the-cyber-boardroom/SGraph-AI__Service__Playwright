@@ -24,3 +24,16 @@ class Bedrock__Chat__AWS_Source(Bedrock__Chat__Source):
             usage = self.adapter.extract_usage(event)
             if usage is not None:
                 yield ('usage', usage)
+
+    def converse_turn(self, model_id: str, messages: list, region: str = '', system: str = None,
+                      tool_config: dict = None) -> dict:
+        response = self.runtime.converse_messages(model_id, messages, region=region or None,
+                                                 system=system, tool_config=tool_config)
+        message = response.get('output', {}).get('message', {})
+        usage   = response.get('usage', {})
+        metrics = response.get('metrics', {})
+        return {'stop_reason'  : response.get('stopReason', 'end_turn'),
+                'content'      : message.get('content', []),
+                'input_tokens' : int(usage.get('inputTokens', 0)),
+                'output_tokens': int(usage.get('outputTokens', 0)),
+                'latency_ms'   : int(metrics.get('latencyMs', 0))}
