@@ -24,6 +24,7 @@ from sgraph_ai_service_playwright__cli.elastic.lets.cf.tui.cf_tui__config   impo
 app = typer.Typer(name='tui', help='CloudFront-logs exploratory TUI screens (Textual).', no_args_is_help=True)
 
 _source_factory = None                                                               # tests assign a callable(source, bucket, prefix, region, date, hour, max_files) → Data_Source
+_arch_factory   = None                                                               # tests assign a callable(bucket, region) → CF_TUI__Arch_Source
 
 
 @app.callback()
@@ -105,6 +106,31 @@ def inspect(source : str = SOURCE, bucket : str = BUCKET, prefix : str = PREFIX,
         return
     from sgraph_ai_service_playwright__cli.elastic.lets.cf.tui.screens.CF_TUI__Screen__Inspector import CF_TUI__Screen__Inspector
     CF_TUI__Screen__Inspector(source=data_source, key=target_key, line_index=line).run()
+
+
+def _arch_source(bucket : str, region : str):
+    if _arch_factory is not None:
+        return _arch_factory(bucket, region)
+    from sgraph_ai_service_playwright__cli.aws.cf.service.CloudFront__AWS__Client     import CloudFront__AWS__Client
+    from sgraph_ai_service_playwright__cli.aws.logs.service.Logs__AWS__Client         import Logs__AWS__Client
+    from sgraph_ai_service_playwright__cli.aws.s3.service.S3__AWS__Client             import S3__AWS__Client
+    from sgraph_ai_service_playwright__cli.elastic.lets.cf.tui.source.CF_TUI__Arch_Source import CF_TUI__Arch_Source
+    from sgraph_ai_service_playwright__cli.elastic.lets.cf.tui.cf_tui__config         import CF_LOGS_BUCKET
+    return CF_TUI__Arch_Source(cf_client   = CloudFront__AWS__Client(),
+                               logs_client = Logs__AWS__Client(),
+                               s3_client   = S3__AWS__Client(region=region),
+                               bucket      = bucket or CF_LOGS_BUCKET)
+
+
+@app.command(name='architecture', help='Deployed Architecture — live CF/S3/CloudWatch wiring (Firehose marked UNVERIFIED).')
+def architecture(bucket : str = BUCKET, region : str = REGION):
+    src = _arch_source(bucket, region)
+    if not sys.stdout.isatty():
+        from sgraph_ai_service_playwright__cli.elastic.lets.cf.tui.screens.CF_TUI__Arch__Render import arch_plain
+        print(arch_plain(src.snapshot()))
+        return
+    from sgraph_ai_service_playwright__cli.elastic.lets.cf.tui.screens.CF_TUI__Screen__Arch import CF_TUI__Screen__Arch
+    CF_TUI__Screen__Arch(source=src).run()
 
 
 @app.command(name='diagnose', help='Deployment-chain self-check: TERM / LANG / unicode / truecolor.')
