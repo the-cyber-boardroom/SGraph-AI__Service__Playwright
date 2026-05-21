@@ -81,16 +81,31 @@ def run_diagnose() -> None:
     print('  truecolor : \x1b[38;2;255;100;0mTRUECOLOR\x1b[0m   (orange ⇒ 24-bit ok)')
 
 
-def register_tui(app: typer.Typer) -> None:
+def chat_registry():                                                              # the chat as a TUI API provider (decision #8)
+    from sgraph_ai_service_playwright__cli.aws.bedrock.tui.tui_api.Bedrock__Chat__Tui_Api__Provider import Bedrock__Chat__Tui_Api__Provider
+    from sgraph_ai_service_playwright__cli.tui.tool_api.service.Tui_Api__Registry                   import Tui_Api__Registry
+    return Tui_Api__Registry().register(Bedrock__Chat__Tui_Api__Provider(engine=build_engine()))
 
-    @app.command('tui')
-    def tui(model        : str           = typer.Option('default', '--model', '-m', help='Nova alias: default(lite) | lite | micro | pro | premier.'),
-            region       : str           = typer.Option('',        '--region',      help='AWS region (defaults to the resolved region).'),
-            context_file : Optional[str] = typer.Option(None,      '--context',     help='Seed the chat with a file as context to talk about.')):
-        """Interactive Nova chat with per-turn + per-session cost tracking."""
-        run_tui(model=model, region=region, context_file=context_file)
 
-    @app.command('tui-diagnose')
-    def tui_diagnose():
+def register_tui(parent_app: typer.Typer) -> None:
+    from sgraph_ai_service_playwright__cli.tui.tool_api.cli.Cli__Tui_Api import make_tui_api_app
+
+    tui_app = typer.Typer(name='tui', help='Interactive Nova chat + its TUI API (`tui api`).',
+                          invoke_without_command=True)
+
+    @tui_app.callback(invoke_without_command=True)
+    def launch(ctx          : typer.Context,
+               model        : str           = typer.Option('default', '--model', '-m', help='Nova alias: default(lite) | lite | micro | pro | premier.'),
+               region       : str           = typer.Option('',        '--region',      help='AWS region (defaults to the resolved region).'),
+               context_file : Optional[str] = typer.Option(None,      '--context',     help='Seed the chat with a file as context to talk about.')):
+        """Launch the chat TUI (bare `tui`); sub-commands `api` / `diagnose` below."""
+        if ctx.invoked_subcommand is None:
+            run_tui(model=model, region=region, context_file=context_file)
+
+    @tui_app.command('diagnose')
+    def diagnose():
         """Print terminal capability checks for the chat TUI."""
         run_diagnose()
+
+    tui_app.add_typer(make_tui_api_app(chat_registry()), name='api')              # `sg aws bedrock chat tui api …`
+    parent_app.add_typer(tui_app, name='tui')
