@@ -80,10 +80,11 @@ shared with the JS manifests.
 
 The briefs want **capability tokens** (`sg-edge:slugs:write`, time-bounded, delegable); the
 chat pack modelled **AWS IAM** (policy/role/vault-key). They are two layers, not a conflict:
-a **scope** is the user-facing capability descriptor, carried by an **SG Role token**
-(working name `sg-role` — deliberately *not* "Simple Token", which is reserved for SG/Send
-and vaults, §10 #2); a **privilege** is the backing grant the scope *maps down to* when the
-action actually touches AWS/vault/network.
+a **scope** is the user-facing capability descriptor, carried by an **SG/Role token**
+(`sg-role` — a first-class member of the SG/* family alongside SG/Send and SG/Edge;
+deliberately *not* "Simple Token", which is reserved for SG/Send and vaults, §10 #2); a
+**privilege** is the backing grant the scope *maps down to* when the action actually touches
+AWS/vault/network.
 
 ```python
 Enum__Tui_Api__Tier:  READ_ONLY · WRITE · CRUD · DESTRUCTIVE          # coarse capability ladder
@@ -374,7 +375,7 @@ All ten ruled by the owner. The recommendation column keeps the rationale; the r
 | # | Decision | Recommendation | Ruling |
 |---|---|---|---|
 | 1 | Scope ↔ privilege mapping depth | v1: presence/role check + print-policy on miss; live `iam:SimulatePrincipalPolicy` later. | ✅ **Agreed.** |
-| 2 | Token substrate | Reuse the credential-manager machinery; scopes are `{api}:{capability}[:{resource}]`; time-bounds + sub-agent derivation first-class. | ✅ **Agreed — but renamed.** *Not* "Simple Token" (reserved for SG/Send + vaults). Use **SG Role token** (`sg-role`); `Priv_Kind.SG_ROLE`. |
+| 2 | Token substrate | Reuse the credential-manager machinery; scopes are `{api}:{capability}[:{resource}]`; time-bounds + sub-agent derivation first-class. | ✅ **Agreed — but renamed.** *Not* "Simple Token" (reserved for SG/Send + vaults). Use **SG/Role token** (`sg-role`, an SG/* family member); `Priv_Kind.SG_ROLE`. |
 | 3 | Sequencing expressiveness | v1: flat preconditions over `provider.state()` (EQ/IN/EXISTS…). No DAG/workflow-engine yet. | ✅ **Agreed — keep simple.** Plus: a grant may target a **whole API** (`{api}:*`) — all methods of one of the many available APIs. |
 | 4 | Orientation file name | `skills.md`, not `README.md`. | ✅ **Agreed** — `skills.md` is the industry standard. |
 | 5 | Change-capture enforcement | Mandatory for shipped FEATURE/BREAKING; CI fails if absent. | ⚠ **Changed — recommended, not mandatory.** No CI gate; the standard must also work for a very simple TUI API definition. |
@@ -395,7 +396,7 @@ All ten ruled by the owner. The recommendation column keeps the rationale; the r
 | Bedrock chat TUI (engine, cost model, inspector) | **EXISTS** on this branch (the pilot host) |
 | `Bedrock__Cost__Calculator`, model aliases, stream adapter | **EXISTS** |
 | Everything in §4–§9 (the contract, execution center, tokens, sequencing, orientation, change-control, workflow assembly, the VFS *conventions* layer) | **PROPOSED — does not exist yet** |
-| SG Role tokens (`sg-role`) scoped to TUI APIs | **PROPOSED** (the credential manager exists; the scope mapping + `sg-role` token type do not) |
+| SG/Role tokens (`sg-role`) scoped to TUI APIs | **PROPOSED** (the credential manager exists; the scope mapping + `sg-role` token type do not) |
 
 ---
 
