@@ -38,11 +38,12 @@ precede the tool loop (C) so the chat engine isn't built twice — the briefs' "
 ### Phase B — TUI API foundations (pure-first; the ratified standard)
 | Slice | Scope | Textual? | Status |
 |---|---|---|---|
-| B1 — contract + registry | Type_Safe contract (standard §4), JSON-Schema-from-Type_Safe, `Tui_Api__Provider` + `Registry`, `sg <area> tui api list/describe/skills`; one read-only provider. Pure, 3.11. | no | proposed |
+| B1 — contract + registry | Type_Safe contract (standard §4), JSON-Schema-from-Type_Safe, `Tui_Api__Provider` + `Registry`, `sg <area> tui api list/describe/skills`; one read-only provider. Pure, 3.11. | no | ✅ **built** (`sg aws s3 tui api`; 14 tests) |
 | B2 — SG/Role tokens + resolver | scope/grant/privilege; token resolver over `credentials/` + `aws/creds/`; whole-API `{api}:*` grant. Pure. | no | proposed |
 | B3 — execution center | AUTO/CONFIRM/DRY_RUN, schema-validate, precondition/sequencing check, `ALLOW_MUTATIONS` gate, audit ring; `… tui api invoke`. Pure. | no | proposed |
 | B4 — VFS core tool | `memory_fs`-backed provider; `/tools/<tool>/` conventions; `vfs.*` actions; ephemeral default. **3.12-gated tests.** | no | proposed |
 | B5 — explorer/tester | Swagger-style explorer screen + automated contract-test harness | yes | proposed |
+| B6 — orientation + change-control | `Schema__Tui_Api__{Tool,Orientation,Change}` + `orientation()` provider method + `status`/`whatsnew`/`changelog` CLI. Change-capture recommended-not-enforced (§10 #5). Pure, 3.11. | no | proposed (ruled) |
 
 ### Phase C — chat ↔ TUI API (consumes B; see `05`)
 | Slice | Scope | Textual? | Status |

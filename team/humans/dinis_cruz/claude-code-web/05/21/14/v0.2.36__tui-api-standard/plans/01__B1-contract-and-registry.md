@@ -10,6 +10,12 @@ parent: 00__plans-index.md
 
 # B1 — contract + registry + CLI + first provider
 
+> **STATUS: ✅ BUILT (2026-05-21)** on `claude/review-tui-cli-commits-S3xCM`.
+> `sg aws s3 tui api list/describe/skills/invoke` work; 14 unit tests pass on 3.11.
+> One deviation from the sketch below: `Tui_Api__Schema__Builder` post-processes the osbot
+> emitter to map `Safe_Str` (a `str` subclass, not `is str`) → `{"type":"string"}` — the
+> emitter alone renders it as `object`. Otherwise as planned.
+
 **Goal.** Stand up the TUI API contract as Type_Safe classes, a registry, the
 `sg <area> tui api` CLI surface, JSON-Schema-from-Type_Safe, and **one real read-only
 provider** (`sg aws s3`). All pure, fully unit-tested on 3.11, no Textual, no mutations.

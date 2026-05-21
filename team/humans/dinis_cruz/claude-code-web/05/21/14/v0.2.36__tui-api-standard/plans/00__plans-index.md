@@ -98,7 +98,14 @@ A coherence pass (2026-05-21) found two parts of the standard not yet assigned t
    consumer-side and currently only implied by **C-TL2**. **Recommendation: build it in C-TL2** (it is the
    loadout's source of truth) — no separate slice needed; just make it explicit in C-TL2.
 
-Both are flagged for the owner; neither blocks B1–B4.
+**Owner ruling (2026-05-21):** add **B6** for orientation + change-control (after B4);
+build the workflow assembler **in C-TL2**. Separately, **tool/API granularity is left
+organic** — prove the slug model (`sg-aws.s3`, etc.) across several tools/services and let
+the right grain emerge, rather than fixing a convention now.
+
+**B1 status: ✅ BUILT (2026-05-21)** — `sgraph_ai_service_playwright__cli/tui/tool_api/` +
+`aws/s3/tui_api/`; `sg aws s3 tui api list/describe/skills/invoke` work; 14 unit tests pass
+on 3.11 (28 incl. existing s3, no regressions).
 
 ---
 
