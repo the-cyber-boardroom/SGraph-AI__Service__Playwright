@@ -14,6 +14,7 @@ import time
 from osbot_utils.type_safe.Type_Safe                                                import Type_Safe
 
 from sgraph_ai_service_playwright__cli.aws.cf.service.CloudFront__AWS__Client        import CloudFront__AWS__Client
+from sgraph_ai_service_playwright__cli.aws.firehose.service.Firehose__AWS__Client     import Firehose__AWS__Client
 from sgraph_ai_service_playwright__cli.aws.logs.service.Logs__AWS__Client            import Logs__AWS__Client
 from sgraph_ai_service_playwright__cli.aws.s3.service.S3__AWS__Client                import S3__AWS__Client
 from sgraph_ai_service_playwright__cli.elastic.lets.cf.tui.cf_tui__config            import CF_LOGS_BUCKET, CF_LOGS_PREFIX
@@ -27,11 +28,12 @@ def _v(x) -> str:
 
 
 class CF_TUI__Arch_Source(Type_Safe):
-    cf_client   : CloudFront__AWS__Client
-    logs_client : Logs__AWS__Client
-    s3_client   : S3__AWS__Client
-    bucket      : str = CF_LOGS_BUCKET
-    log_prefix  : str                                                                # '' = all log groups
+    cf_client       : CloudFront__AWS__Client
+    logs_client     : Logs__AWS__Client
+    s3_client       : S3__AWS__Client
+    firehose_client : Firehose__AWS__Client
+    bucket          : str = CF_LOGS_BUCKET
+    log_prefix      : str                                                            # '' = all log groups
 
     def label(self) -> str:
         return f's3://{self.bucket}  ·  cloudfront + cloudwatch (sg aws)'
@@ -63,5 +65,11 @@ class CF_TUI__Arch_Source(Type_Safe):
             snap.bucket_top_folders = len(resp.prefixes)
         except Exception as exc:
             snap.s3_error = str(exc)[:140]
+
+        try:
+            for stream in self.firehose_client.streams():
+                snap.firehose_streams.append(stream)
+        except Exception as exc:
+            snap.firehose_error = str(exc)[:140]
 
         return snap

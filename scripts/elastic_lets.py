@@ -122,7 +122,8 @@ sg_send_app      = typer.Typer(help = 'SGraph-Send convenience verbs over the Cl
 consolidate_app  = typer.Typer(help = 'Consolidation C-stage: many .gz → one events.ndjson.gz per day (decision #5). Enables 14–28× speedup on events load.',
                                no_args_is_help = True)
 
-from sgraph_ai_service_playwright__cli.elastic.lets.cf.tui.cli.Cli__CF__Tui import app as tui_app  # exploratory CF-logs TUI screens (textual imported lazily inside each command)
+from sgraph_ai_service_playwright__cli.elastic.lets.cf.tui.cli.Cli__CF__Tui     import app as tui_app  # exploratory CF-logs TUI screens (textual imported lazily inside each command)
+from sgraph_ai_service_playwright__cli.elastic.lets.cf.local.cli.Cli__CF__Local import sync as cf_local_sync, cache as cf_local_cache  # native cache commands the TUI mirrors
 
 app.add_typer(cf_app, name='cf')
 cf_app.add_typer(inventory_app  , name='inventory')
@@ -130,6 +131,8 @@ cf_app.add_typer(events_app     , name='events')
 cf_app.add_typer(sg_send_app    , name='sg-send')
 cf_app.add_typer(consolidate_app, name='consolidate')
 cf_app.add_typer(tui_app        , name='tui')
+cf_app.command('sync' )(cf_local_sync)                                               # native CLI — the canonical, scriptable path (`sp el lets cf sync`)
+cf_app.command('cache')(cf_local_cache)                                              # native CLI — `sp el lets cf cache`
 
 
 def build_inventory_loader() -> Inventory__Loader:                                  # Single construction site so tests and CLI share the wiring
