@@ -99,6 +99,38 @@ class Sg__Aws__Session(Type_Safe):
             kwargs['region_name'] = region
         return boto3.client(service_name, **kwargs)                 # fall-through: bare boto3
 
+    def base_session_from_context(self) -> object:                 # the identity we assume FROM: current SG role, else bare boto3 default chain (env/profile/IMDS)
+        from sgraph_ai_service_playwright__cli.credentials.service.Sg__Aws__Context import Sg__Aws__Context
+        role = Sg__Aws__Context.get_current_role()
+        if role:
+            session = self.session_for(role)
+            if session is not None:
+                return session
+        return boto3.Session()
+
+    def account_id_via_sts(self, base_session: object = None) -> str:
+        base = base_session if base_session is not None else self.base_session_from_context()
+        try:
+            return str(base.client('sts').get_caller_identity().get('Account', ''))
+        except Exception:
+            return ''
+
+    def assume_arn(self, role_arn: str, base_session: object = None) -> object | None:  # STS AssumeRole into an arbitrary ARN; region applied per-client by the caller
+        base = base_session if base_session is not None else self.base_session_from_context()
+        try:
+            response = base.client('sts').assume_role(
+                RoleArn         = str(role_arn),
+                RoleSessionName = _session_name('assume'),
+            )
+            creds = response['Credentials']
+        except Exception:
+            return None
+        return boto3.Session(
+            aws_access_key_id     = creds['AccessKeyId']    ,
+            aws_secret_access_key = creds['SecretAccessKey'] ,
+            aws_session_token     = creds['SessionToken']    ,
+        )
+
     def account_id_for(self, role_name: str) -> str:               # cached → STS → write-back → return
         config = self.store.role_get(role_name)
         if config is None:

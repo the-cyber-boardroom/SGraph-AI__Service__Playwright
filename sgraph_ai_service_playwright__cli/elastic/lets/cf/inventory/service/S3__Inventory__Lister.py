@@ -22,8 +22,6 @@
 import re
 from typing                                                                         import List, Tuple
 
-import boto3                                                                        # EXCEPTION — see module header (mirrors Elastic__AWS__Client)
-
 from osbot_utils.type_safe.Type_Safe                                                import Type_Safe
 from osbot_utils.type_safe.type_safe_core.decorators.type_safe                      import type_safe
 
@@ -65,10 +63,9 @@ def normalise_etag(raw: str) -> str:                                            
 class S3__Inventory__Lister(Type_Safe):
     counter : Call__Counter                                                         # Auto-instantiates a fresh counter per instance; SG_Send orchestrator injects a shared one to track totals across collaborators. Note: must NOT be a string-quoted forward ref — Type_Safe only auto-instantiates real type annotations.
 
-    def s3_client(self, region: str):                                               # Single seam — tests can override; per-call instantiation matches Elastic__AWS__Client.ec2_client. Empty region falls through to boto3's standard resolution chain (AWS_DEFAULT_REGION → profile → IMDS) — passing region_name='' would produce a malformed "https://s3..amazonaws.com" endpoint.
-        if region:
-            return boto3.client('s3', region_name=region)
-        return boto3.client('s3')
+    def s3_client(self, region: str):                                               # Single seam — tests can override. Routes through the shared session factory (keyring role / STS assume / bare-boto3 fall-through); empty region uses boto3's standard chain (AWS_DEFAULT_REGION → profile → IMDS).
+        from sgraph_ai_service_playwright__cli.aws._shared.auth.Aws__Session__Factory import boto3_client_via_context
+        return boto3_client_via_context('s3', region=region)
 
     @type_safe
     def paginate(self, bucket   : str ,

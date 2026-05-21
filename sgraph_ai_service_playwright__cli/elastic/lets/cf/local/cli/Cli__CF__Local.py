@@ -12,7 +12,10 @@
 
 import typer
 
+from sgraph_ai_service_playwright__cli.aws._shared.auth.AWS__Auth__Guard            import aws_auth_guard
 from sgraph_ai_service_playwright__cli.elastic.lets.cf.local.cli.CF__Local__Render import sync_plain, cache_plain
+
+FAMILY = 'el-lets-cf'
 
 app = typer.Typer(help='Local raw-cf-logs cache (native CLI; the TUI mirrors these).')
 
@@ -45,6 +48,7 @@ def build_local_store():
 
 
 @app.command('sync', help='Sync raw-cf-logs S3 → _vaults. Immutable: only missing objects download.')
+@aws_auth_guard(FAMILY)
 def sync(date : str = DATE, hour : str = HOUR, mode : str = MODE, bucket : str = BUCKET, region : str = REGION):
     svc    = build_sync_service(bucket, region)
     plan   = svc.plan(date, hour)
@@ -53,5 +57,6 @@ def sync(date : str = DATE, hour : str = HOUR, mode : str = MODE, bucket : str =
 
 
 @app.command('cache', help='Local raw-cf-logs cache stats — files / size / partition coverage.')
+@aws_auth_guard(FAMILY)
 def cache():
     print(cache_plain(build_local_store().stats()))
