@@ -57,3 +57,54 @@ def deployment(target: str = typer.Option('local', '--target', '-t', help='Data 
         return
     from sg_compute_specs.sg_edge.tui.screens.SG_Edge__TUI__Screen__Deployment import SG_Edge__TUI__Screen__Deployment
     SG_Edge__TUI__Screen__Deployment(source=source).run()
+
+
+@app.command(name='topology', help='Screen 2 — Topology: the layered flow (browser → wildcard → fleet → slugs).')
+def topology(target: str = typer.Option('local', '--target', '-t', help='Data source: local | aws'),
+             parent: str = typer.Option('',      '--parent', '-p', help='Edge parent zone (defaults per target)')):
+    source = _source(target, parent)
+    if not sys.stdout.isatty():                                                      # piped / CI / no real terminal → static card (itself a layered topology)
+        _render_static(source)
+        return
+    from sg_compute_specs.sg_edge.tui.screens.SG_Edge__TUI__Screen__Topology import SG_Edge__TUI__Screen__Topology
+    topo = SG_Edge__TUI__Screen__Topology(source=source)
+    topo.run()
+    if topo.opened_slug:                                                             # Enter drilled in → open the Slug-detail screen for that slug
+        from sg_compute_specs.sg_edge.tui.screens.SG_Edge__TUI__Screen__Slug_Detail import SG_Edge__TUI__Screen__Slug_Detail
+        SG_Edge__TUI__Screen__Slug_Detail(source=source, slug=topo.opened_slug).run()
+
+
+@app.command(name='slug', help='Screen 4 — Slug detail: deep-dive one slug (↑/↓ to switch).')
+def slug(name  : str = typer.Argument('', help='Slug to focus (default: first registered)'),
+         target: str = typer.Option('local', '--target', '-t', help='Data source: local | aws'),
+         parent: str = typer.Option('',      '--parent', '-p', help='Edge parent zone (defaults per target)')):
+    source = _source(target, parent)
+    if not sys.stdout.isatty():                                                      # piped / CI / no real terminal → plain text detail
+        from sg_compute_specs.sg_edge.tui.screens.SG_Edge__TUI__Slug_Detail__Render import slug_detail_plain
+        snap   = source.snapshot()
+        target_slug = name or (snap.slugs[0].slug if snap.slugs else '')
+        print(slug_detail_plain(snap, target_slug))
+        return
+    from sg_compute_specs.sg_edge.tui.screens.SG_Edge__TUI__Screen__Slug_Detail import SG_Edge__TUI__Screen__Slug_Detail
+    SG_Edge__TUI__Screen__Slug_Detail(source=source, slug=name).run()
+
+
+_compare_sources_factory = None                                                      # tests assign a callable(local_parent, aws_parent) → (local_source, aws_source)
+
+
+def _compare_sources(local_parent : str, aws_parent : str):
+    if _compare_sources_factory is not None:
+        return _compare_sources_factory(local_parent, aws_parent)
+    return _source('local', local_parent), _source('aws', aws_parent)
+
+
+@app.command(name='compare', help='Screen 3 — Local vs Edge: what differs between the local and AWS edge.')
+def compare(local_parent: str = typer.Option('', '--local-parent', help='Local edge zone (default edge.sg-labs.local)'),
+            aws_parent  : str = typer.Option('', '--aws-parent',   help='AWS edge zone (default edge.sg-labs.app)')):
+    local_source, aws_source = _compare_sources(local_parent, aws_parent)
+    if not sys.stdout.isatty():                                                      # piped / CI / no real terminal → plain text diff
+        from sg_compute_specs.sg_edge.tui.screens.SG_Edge__TUI__Compare__Render import compare_plain
+        print(compare_plain(local_source.snapshot(), aws_source.snapshot()))
+        return
+    from sg_compute_specs.sg_edge.tui.screens.SG_Edge__TUI__Screen__Compare import SG_Edge__TUI__Screen__Compare
+    SG_Edge__TUI__Screen__Compare(local_source=local_source, aws_source=aws_source).run()

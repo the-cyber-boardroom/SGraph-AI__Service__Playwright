@@ -8,6 +8,7 @@
 
 from sg_compute_specs.sg_edge.local.enums.Enum__Local__Edge__Severity      import Enum__Local__Edge__Severity
 from sg_compute_specs.sg_edge.tui.enums.Enum__SG_Edge__TUI__Slug_State      import Enum__SG_Edge__TUI__Slug_State
+from sg_compute_specs.sg_edge.tui.enums.Enum__SG_Edge__TUI__Sync_State      import Enum__SG_Edge__TUI__Sync_State
 
 SLUG_GLYPH = {Enum__SG_Edge__TUI__Slug_State.LIVE          : ('●', 'green'),
               Enum__SG_Edge__TUI__Slug_State.DORMANT       : ('◐', 'yellow'),
@@ -18,6 +19,10 @@ SEVERITY_GLYPH = {Enum__Local__Edge__Severity.OK   : ('✓', 'green'),
                   Enum__Local__Edge__Severity.WARN : ('⚠', 'yellow'),
                   Enum__Local__Edge__Severity.ERROR: ('✗', 'red')}
 
+SYNC_GLYPH = {Enum__SG_Edge__TUI__Sync_State.IN_SYNC   : ('●', 'green'),
+              Enum__SG_Edge__TUI__Sync_State.LOCAL_ONLY: ('⚠', 'yellow'),
+              Enum__SG_Edge__TUI__Sync_State.EDGE_ONLY : ('⚠', 'yellow')}
+
 
 def slug_glyph(state) -> tuple:
     return SLUG_GLYPH.get(state, ('·', 'white'))
@@ -25,6 +30,10 @@ def slug_glyph(state) -> tuple:
 
 def severity_glyph(severity) -> tuple:
     return SEVERITY_GLYPH.get(severity, ('·', 'white'))
+
+
+def sync_glyph(state) -> tuple:
+    return SYNC_GLYPH.get(state, ('·', 'white'))
 
 
 def yes_no(flag : bool) -> tuple:                                                    # ✓ green / ✗ red for a boolean capability
