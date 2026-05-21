@@ -11,7 +11,8 @@ from unittest import TestCase, skipUnless
 from sgraph_ai_service_playwright__cli.elastic.lets.cf.local.service.CF__Local__Store import CF__Local__Store
 from sgraph_ai_service_playwright__cli.elastic.lets.cf.local.schemas.Schema__CF__Local__Stats import Schema__CF__Local__Stats
 from sgraph_ai_service_playwright__cli.elastic.lets.cf.local.schemas.Schema__CF__Local__Day_Stat import Schema__CF__Local__Day_Stat
-from sgraph_ai_service_playwright__cli.elastic.lets.cf.tui.screens.CF_TUI__Cache__Render import cache_stats_markup, cache_stats_plain
+from sgraph_ai_service_playwright__cli.elastic.lets.cf.local.cli.CF__Local__Render import cache_plain
+from sgraph_ai_service_playwright__cli.elastic.lets.cf.tui.screens.CF_TUI__Cache__Render import cache_stats_markup
 
 try:
     import textual                                                                   # noqa: F401
@@ -40,7 +41,7 @@ class test_cache_render(TestCase):
             assert token in out, token
 
     def test_plain(self):
-        out = cache_stats_plain(populated_stats())
+        out = cache_plain(populated_stats())
         assert 'files=3' in out
         assert '['       not in out
 

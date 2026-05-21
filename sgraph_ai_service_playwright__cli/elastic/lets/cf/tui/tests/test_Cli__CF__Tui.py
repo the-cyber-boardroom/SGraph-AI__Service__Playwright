@@ -41,41 +41,41 @@ class test_Cli__CF__Tui(TestCase):
         assert 'Field Lineage' in result.output
         assert '/enhancecp'    in result.output                                      # first fixture file, line 0
 
-    def test_sync__no_tty_list_and_download(self):
+    def test_sync__no_tty_lists_only_no_download(self):                              # the TUI command is read-only when headless — downloads belong to `sp el lets cf sync`
         import tempfile
+        from sgraph_ai_service_playwright__cli.elastic.lets.cf.local.cli import Cli__CF__Local as native
         from sgraph_ai_service_playwright__cli.elastic.lets.cf.local.service.CF__Local__Store import CF__Local__Store
         from sgraph_ai_service_playwright__cli.elastic.lets.cf.local.service.CF__Logs__Sync   import CF__Logs__Sync
         from sgraph_ai_service_playwright__cli.elastic.lets.cf.local.tests.test_CF__Logs__Sync import FakeLister, FakeFetcher, PREFIX
         from sgraph_ai_service_playwright__cli.tui.debug.Debug__Event_Log                     import Debug__Event_Log
         with tempfile.TemporaryDirectory() as tmp:
-            self.mod._sync_factory = lambda bucket, region: CF__Logs__Sync(
-                lister=FakeLister(), fetcher=FakeFetcher(),
-                store=CF__Local__Store(root=tmp, src_prefix=PREFIX), debug=Debug__Event_Log())
+            store = CF__Local__Store(root=tmp, src_prefix=PREFIX)
+            native._sync_factory = lambda bucket, region: CF__Logs__Sync(
+                lister=FakeLister(), fetcher=FakeFetcher(), store=store, debug=Debug__Event_Log())
             try:
-                r1 = self.runner.invoke(self.mod.app, ['sync', '--date', '2026-05-21'], catch_exceptions=False)
-                assert r1.exit_code == 0
-                assert 'Sync · raw-cf-logs' in r1.output
-                assert 'missing=3'          in r1.output
-                r2 = self.runner.invoke(self.mod.app, ['sync', '--date', '2026-05-21', '--mode', 'download'], catch_exceptions=False)
-                assert r2.exit_code == 0
-                assert 'downloaded=3' in r2.output
+                r = self.runner.invoke(self.mod.app, ['sync', '--date', '2026-05-21'], catch_exceptions=False)
+                assert r.exit_code == 0
+                assert 'missing=3'                 in r.output
+                assert 'sp el lets cf sync'        in r.output                        # points at the native command for downloads
+                assert list(store.iter_local_files()) == []                          # headless TUI did NOT download
             finally:
-                self.mod._sync_factory = None
+                native._sync_factory = None
 
     def test_cache__no_tty_shows_stats(self):
         import tempfile
+        from sgraph_ai_service_playwright__cli.elastic.lets.cf.local.cli import Cli__CF__Local as native
         from sgraph_ai_service_playwright__cli.elastic.lets.cf.local.service.CF__Local__Store import CF__Local__Store
         with tempfile.TemporaryDirectory() as tmp:
             store = CF__Local__Store(root=tmp)
             store.write_key('cloudfront-realtime/2026/05/21/08/a.gz', b'hello')
-            self.mod._store_factory = lambda: store
+            native._store_factory = lambda: store
             try:
                 result = self.runner.invoke(self.mod.app, ['cache'], catch_exceptions=False)
                 assert result.exit_code == 0
                 assert 'Local Cache · raw-cf-logs' in result.output
                 assert 'files=1'                   in result.output
             finally:
-                self.mod._store_factory = None
+                native._store_factory = None
 
     def test_architecture__no_tty_shows_wiring(self):
         from sgraph_ai_service_playwright__cli.aws.firehose.tests.test_Firehose__AWS__Client import FakeFirehose

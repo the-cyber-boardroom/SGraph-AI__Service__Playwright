@@ -42,15 +42,3 @@ def sync_markup(plan : Schema__CF__Sync__Plan, result=None, busy : bool = False,
     if len(plan.files) > max_rows:
         lines.append(f'  [dim]… {len(plan.files) - max_rows} more[/]')
     return '\n'.join(lines)
-
-
-def sync_plain(plan : Schema__CF__Sync__Plan, result=None) -> str:
-    out = ['Sync · raw-cf-logs',
-           f's3://{plan.bucket}/{plan.prefix}  scope={_scope(plan)}',
-           f'remote={plan.remote_count} local={plan.local_count} missing={plan.missing_count} '
-           f'(local={human_size(plan.present_bytes)} to_fetch={human_size(plan.missing_bytes)})']
-    if result is not None and result.done:
-        out.append(f'downloaded={result.downloaded} skipped={result.skipped} failed={result.failed} bytes={human_size(result.bytes)}')
-    for f in plan.files:
-        out.append(f'  {"OK " if f.present_local else "-- "}{f.key.rsplit("/", 1)[-1]}  {human_size(f.size)}')
-    return '\n'.join(out)

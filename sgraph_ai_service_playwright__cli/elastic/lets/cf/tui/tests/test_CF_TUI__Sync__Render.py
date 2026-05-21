@@ -9,7 +9,7 @@ from unittest import TestCase
 from sgraph_ai_service_playwright__cli.elastic.lets.cf.local.schemas.Schema__CF__Sync__File   import Schema__CF__Sync__File
 from sgraph_ai_service_playwright__cli.elastic.lets.cf.local.schemas.Schema__CF__Sync__Plan   import Schema__CF__Sync__Plan
 from sgraph_ai_service_playwright__cli.elastic.lets.cf.local.schemas.Schema__CF__Sync__Result import Schema__CF__Sync__Result
-from sgraph_ai_service_playwright__cli.elastic.lets.cf.tui.screens.CF_TUI__Sync__Render import sync_markup, sync_plain
+from sgraph_ai_service_playwright__cli.elastic.lets.cf.tui.screens.CF_TUI__Sync__Render import sync_markup
 
 
 def plan(missing=1):
@@ -38,12 +38,3 @@ class test_sync_markup(TestCase):
         res = Schema__CF__Sync__Result(downloaded=2, skipped=1, bytes=300, done=True)
         out = sync_markup(plan(missing=0), result=res)
         assert 'synced 2' in out
-
-
-class test_sync_plain(TestCase):
-
-    def test_no_markup(self):
-        out = sync_plain(plan())
-        assert 'Sync · raw-cf-logs' in out
-        assert 'missing=1'          in out
-        assert '['                  not in out

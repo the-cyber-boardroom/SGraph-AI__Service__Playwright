@@ -14,6 +14,8 @@ Framework guides — read these before writing code against the corresponding li
 | [`v0.2.15__markdown_doc_style.md`](v0.2.15__markdown_doc_style.md)   | 0.2.15 | When writing any Markdown brief / plan / debrief / review — YAML frontmatter, not `═══` heading blocks |
 | [`v0.2.31__setup_cli_pattern.md`](v0.2.31__setup_cli_pattern.md)     | 0.2.31 | When building any CLI / API surface that manages > 1 connected resource — areas, five verbs, drift-first vocabulary, mutation gates, self-verification loop |
 | [`v0.2.36__sg-edge-local-user-guide.md`](v0.2.36__sg-edge-local-user-guide.md) | 0.2.36 | When operating, testing, or demoing the SG/Edge local edge (`sg edge local`) — setup/usage/teardown, the A+TXT model, reading `check`, use-cases, serving over HTTP |
+| [`v0.2.38__sg-edge-tui-guide.md`](v0.2.38__sg-edge-tui-guide.md) | 0.2.38 | When operating or extending the SG/Edge TUI (`sg edge tui *`) — the exploratory screens over the control plane |
+| [`v0.2.39__tui_cli_separation.md`](v0.2.39__tui_cli_separation.md) | 0.2.39 | **Before building or extending any `sg`/`sp` TUI.** The rule: a TUI is a GUI over the CLI — every retrieval/transformation is reachable from a native command; the TUI owns no logic |
 
 ---
 

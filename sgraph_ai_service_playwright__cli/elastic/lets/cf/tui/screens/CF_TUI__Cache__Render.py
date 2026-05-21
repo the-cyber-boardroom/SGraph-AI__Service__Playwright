@@ -31,15 +31,3 @@ def cache_stats_markup(stats : Schema__CF__Local__Stats, max_days : int = 60) ->
     if len(stats.days) > max_days:
         lines.append(f'  [dim]… {len(stats.days) - max_days} more days[/]')
     return '\n'.join(lines)
-
-
-def cache_stats_plain(stats : Schema__CF__Local__Stats) -> str:
-    out = ['Local Cache · raw-cf-logs', stats.base_path]
-    if not stats.exists or stats.total_files == 0:
-        out.append('empty — nothing synced yet')
-        return '\n'.join(out)
-    out.append(f'files={stats.total_files} size={human_size(stats.total_bytes)} '
-               f'days={stats.day_count} hours={stats.hour_count} coverage={stats.first_day}..{stats.last_day}')
-    for d in stats.days:
-        out.append(f'  {d.day}  files={d.files}  size={human_size(d.bytes)}  hours={d.hours}')
-    return '\n'.join(out)
