@@ -24,13 +24,21 @@ from sgraph_ai_service_playwright__cli.aws.bedrock.tui.schemas.Schema__Bedrock__
 from sgraph_ai_service_playwright__cli.aws.bedrock.tui.schemas.Schema__Bedrock__Chat__Turn       import Schema__Bedrock__Chat__Turn
 from sgraph_ai_service_playwright__cli.aws.bedrock.tui.schemas.List__Bedrock__Chat__Tool_Call    import List__Bedrock__Chat__Tool_Call
 from sgraph_ai_service_playwright__cli.aws.bedrock.tui.schemas.Schema__Bedrock__Chat__Tool_Call  import Schema__Bedrock__Chat__Tool_Call
+from sgraph_ai_service_playwright__cli.aws.bedrock.tui.service.Bedrock__Chat__Documents        import Bedrock__Chat__Documents
 from sgraph_ai_service_playwright__cli.aws.bedrock.tui.source.Bedrock__Chat__Source            import Bedrock__Chat__Source
 
 
+def _json_safe(obj):                                                              # render document bytes as a summary in request_json (Inspector)
+    if isinstance(obj, (bytes, bytearray)):
+        return f'<{len(obj)} bytes>'
+    return str(obj)
+
+
 class Bedrock__Chat__Engine(Type_Safe):
-    source   : Bedrock__Chat__Source                                              # injected (AWS | in-memory)
-    resolver : Bedrock__Model__Resolver
-    calc     : Bedrock__Cost__Calculator
+    source    : Bedrock__Chat__Source                                             # injected (AWS | in-memory)
+    resolver  : Bedrock__Model__Resolver
+    calc      : Bedrock__Cost__Calculator
+    documents : Bedrock__Chat__Documents
 
     def new_session(self, region: str = '', model_alias: str = DEFAULT_MODEL_ALIAS,
                     context=None, budget_usd: float = DEFAULT_BUDGET_USD) -> Schema__Bedrock__Chat__Session:
@@ -55,8 +63,11 @@ class Bedrock__Chat__Engine(Type_Safe):
         for m in session.messages:
             if m.role == Enum__Bedrock__Chat__Role.SYSTEM:
                 continue
-            role = 'assistant' if m.role == Enum__Bedrock__Chat__Role.ASSISTANT else 'user'
-            out.append({'role': role, 'content': [{'text': m.text}]})
+            role    = 'assistant' if m.role == Enum__Bedrock__Chat__Role.ASSISTANT else 'user'
+            content = [{'text': m.text}]
+            for document in getattr(m, 'documents', []) or []:                    # attach any Converse document blocks
+                content.append(self.documents.content_block(document))
+            out.append({'role': role, 'content': content})
         return out
 
     def preflight_cost(self, session: Schema__Bedrock__Chat__Session, user_text: str,
@@ -66,14 +77,17 @@ class Bedrock__Chat__Engine(Type_Safe):
         self.calc.check_cost_cap(model_id, history_chars, cost_override)
 
     def send_turn(self, session: Schema__Bedrock__Chat__Session, user_text: str,
-                  on_delta=None, cost_override: float = None) -> Schema__Bedrock__Chat__Turn:
+                  on_delta=None, cost_override: float = None, documents=None) -> Schema__Bedrock__Chat__Turn:
         model_id = self.resolve_model(session)
 
         # Pre-flight BEFORE mutating the session, so a rejected send leaves it clean.
         self.preflight_cost(session, user_text, cost_override)
 
-        session.messages.append(Schema__Bedrock__Chat__Message(role=Enum__Bedrock__Chat__Role.USER,
-                                                               text=user_text, ts=time.time()))
+        user_message = Schema__Bedrock__Chat__Message(role=Enum__Bedrock__Chat__Role.USER,
+                                                     text=user_text, ts=time.time())
+        for document in documents or []:                                          # attach any Converse documents to this turn
+            user_message.documents.append(document)
+        session.messages.append(user_message)
         messages = self.build_messages(session)
         system   = session.system_prompt or None
 
@@ -101,7 +115,7 @@ class Bedrock__Chat__Engine(Type_Safe):
                                            cost_usd      = cost,
                                            latency_ms    = latency,
                                            ts            = time.time(),
-                                           request_json  = json.dumps(request_body, indent=2, ensure_ascii=False),
+                                           request_json  = json.dumps(request_body, indent=2, ensure_ascii=False, default=_json_safe),
                                            response_text = response_text)
         session.turns.append(turn)
         session.total_input_tokens  += in_tok
@@ -111,10 +125,13 @@ class Bedrock__Chat__Engine(Type_Safe):
         return turn
 
     def send_turn_agentic(self, session, user_text, registry, center,                   # the Converse tool-use loop (C-TL1)
-                          tool_config=None, name_map=None, grants=None, max_steps=6):
+                          tool_config=None, name_map=None, grants=None, max_steps=6, documents=None):
         model_id = self.resolve_model(session)
-        session.messages.append(Schema__Bedrock__Chat__Message(role=Enum__Bedrock__Chat__Role.USER,
-                                                               text=user_text, ts=time.time()))
+        user_message = Schema__Bedrock__Chat__Message(role=Enum__Bedrock__Chat__Role.USER,
+                                                     text=user_text, ts=time.time())
+        for document in documents or []:
+            user_message.documents.append(document)
+        session.messages.append(user_message)
         messages         = self.build_messages(session)
         system           = session.system_prompt or None
         name_map         = name_map or {}
@@ -179,7 +196,7 @@ class Bedrock__Chat__Engine(Type_Safe):
                                           cost_usd      = cost,
                                           latency_ms    = total_latency,
                                           ts            = time.time(),
-                                          request_json  = json.dumps(request_body, indent=2, ensure_ascii=False, default=str),
+                                          request_json  = json.dumps(request_body, indent=2, ensure_ascii=False, default=_json_safe),
                                           response_text = final_text,
                                           model_calls   = model_calls,
                                           tool_calls    = tool_calls,
