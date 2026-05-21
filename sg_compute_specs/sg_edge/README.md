@@ -30,6 +30,7 @@ sibling to `vault_app` / `vault_publish`.
 | TUI screen S2 | `tui/screens/SG_Edge__TUI__Screen__Topology` | `sg edge tui topology` — layered flow + ↑/↓ slug navigation (no-TTY → static card) |
 | TUI screen S3 | `tui/screens/SG_Edge__TUI__Screen__Compare` | `sg edge tui compare` — Local vs Edge drift (reads both sources; no-TTY → plain diff) |
 | TUI screen S4 | `tui/screens/SG_Edge__TUI__Screen__Slug_Detail` | `sg edge tui slug [name]` — per-slug deep-dive (State+DNS real; rest pending); Topology `Enter` drills in |
+| TUI screen S5 | `tui/screens/SG_Edge__TUI__Screen__Events` | `sg edge tui events` — live state-transition feed + honest sparklines (Differ + Metrics); pause / filter / clear |
 
 State model (all in DNS, nothing else): `proxies.<parent>` A (fleet membership),
 `_state.<parent>` TXT (zero_streak teardown counter), `_sg.<slug>.<parent>` TXT
@@ -98,20 +99,21 @@ sg edge tui deployment | cat            # no TTY → static ASCII card fallback
 sg edge tui topology                    # Screen 2 — layered flow (↑/↓ select; Enter → detail)
 sg edge tui compare                     # Screen 3 — local vs edge drift (reads both)
 sg edge tui slug alice                  # Screen 4 — per-slug deep-dive (↑/↓ to switch)
-sg edge tui slug | cat                  # no TTY → plain-text detail
+sg edge tui events                      # Screen 5 — live event feed + sparklines
 ```
 
-**Slices S2, S3, S4 also exist.** S2 (`…Screen__Topology`) draws the layered
-browser → wildcard → fleet → slugs flow with ↑/↓ navigation; `Enter` on a slug
-drills into S4. S3 (`…Screen__Compare`) reads a local + an AWS-DNS snapshot and
-renders per-component drift via the `Comparison` service (honest two-way). S4
-(`…Screen__Slug_Detail`) deep-dives one slug — STATE + DNS + backend are real;
-instance / cost / activity / vault-binding render as labelled pending panes.
+**All five exploratory screens exist.** S2 (`…Screen__Topology`) draws the layered
+browser → wildcard → fleet → slugs flow (↑/↓; `Enter` drills into S4). S3
+(`…Screen__Compare`) renders local-vs-edge drift via the `Comparison` service. S4
+(`…Screen__Slug_Detail`) deep-dives one slug (STATE + DNS + backend real; the rest
+labelled pending). S5 (`…Screen__Events`) polls and diffs successive snapshots via
+the `Differ`, streaming honest state-transition events with `Metrics`-backed
+sparklines (counts the TUI measured — not rps); pause / filter / clear.
 
 Textual is a lazy/gated dependency: registering `sg edge tui` never imports it, and
-each screen falls back to static output when stdout is not a terminal. The last
-screen (S5 Events) and the T-chain polish (diagnose / help overlay / theme / export)
-are later slices.
+each screen falls back to static output when stdout is not a terminal. Remaining:
+the T-chain polish — `diagnose`, help overlay `?`, theme toggle, OSC-52 export, and
+the user guide.
 
 ## Not built yet (deferred — see plans)
 

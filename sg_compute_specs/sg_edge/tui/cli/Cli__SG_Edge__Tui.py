@@ -89,6 +89,17 @@ def slug(name  : str = typer.Argument('', help='Slug to focus (default: first re
     SG_Edge__TUI__Screen__Slug_Detail(source=source, slug=name).run()
 
 
+@app.command(name='events', help='Screen 5 — Live Activity: streamed state-transition events + honest sparklines.')
+def events(target: str = typer.Option('local', '--target', '-t', help='Data source: local | aws'),
+           parent: str = typer.Option('',      '--parent', '-p', help='Edge parent zone (defaults per target)')):
+    source = _source(target, parent)
+    if not sys.stdout.isatty():                                                      # piped / CI → a live feed is meaningless statically; show the current-state card
+        _render_static(source)
+        return
+    from sg_compute_specs.sg_edge.tui.screens.SG_Edge__TUI__Screen__Events import SG_Edge__TUI__Screen__Events
+    SG_Edge__TUI__Screen__Events(source=source).run()
+
+
 _compare_sources_factory = None                                                      # tests assign a callable(local_parent, aws_parent) → (local_source, aws_source)
 
 
