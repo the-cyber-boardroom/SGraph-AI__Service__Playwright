@@ -8,6 +8,7 @@
 from unittest import TestCase
 
 from sgraph_ai_service_playwright__cli.aws.cf.service.CloudFront__AWS__Client import CloudFront__AWS__Client
+from sgraph_ai_service_playwright__cli.aws.firehose.tests.test_Firehose__AWS__Client import FakeFirehose
 from sgraph_ai_service_playwright__cli.aws.logs.service.Logs__AWS__Client     import Logs__AWS__Client
 from sgraph_ai_service_playwright__cli.aws.logs.schemas.Schema__Logs__Group   import Schema__Logs__Group
 from sgraph_ai_service_playwright__cli.aws.s3.service.S3__AWS__Client          import S3__AWS__Client
@@ -49,8 +50,9 @@ class FakeCF_Err(CloudFront__AWS__Client):
         raise RuntimeError('Unable to locate credentials')
 
 
-def source(cf=None, logs=None, s3=None):
-    return CF_TUI__Arch_Source(cf_client=cf or FakeCF(), logs_client=logs or FakeLogs(), s3_client=s3 or FakeS3(), bucket='b')
+def source(cf=None, logs=None, s3=None, firehose=None):
+    return CF_TUI__Arch_Source(cf_client=cf or FakeCF(), logs_client=logs or FakeLogs(), s3_client=s3 or FakeS3(),
+                               firehose_client=firehose or FakeFirehose(), bucket='b')
 
 
 class test_CF_TUI__Arch_Source(TestCase):
@@ -66,6 +68,8 @@ class test_CF_TUI__Arch_Source(TestCase):
         assert snap.bucket_reachable         is True
         assert snap.bucket_top_folders       == 1
         assert snap.cf_error                 == ''
+        assert len(snap.firehose_streams)    == 1
+        assert snap.firehose_streams[0].destination_bucket.endswith('cf-logs--eu-west-2')
 
     def test_cf_error_is_graceful(self):
         snap = source(cf=FakeCF_Err()).snapshot()

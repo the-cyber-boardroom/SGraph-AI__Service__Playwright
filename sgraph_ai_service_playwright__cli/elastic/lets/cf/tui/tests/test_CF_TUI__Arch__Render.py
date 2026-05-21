@@ -31,6 +31,15 @@ class test_arch_markup(TestCase):
         out = arch_markup(s)
         assert 'Unable to locate credentials' in out
 
+    def test_firehose_verified_hop(self):
+        from sgraph_ai_service_playwright__cli.aws.firehose.schemas.Schema__Firehose__Stream import Schema__Firehose__Stream
+        s = snap()
+        s.firehose_streams.append(Schema__Firehose__Stream(name='cf-fh', status='ACTIVE',
+                                                           destination_bucket='cf-logs-bucket', destination_prefix='cloudfront-realtime/'))
+        out = arch_markup(s)
+        assert 'cf-fh'         in out
+        assert 'stream(s)'     in out                                                # verified, not UNVERIFIED-only
+
 
 class test_arch_plain(TestCase):
 

@@ -39,8 +39,18 @@ def arch_markup(snapshot : Schema__CF_TUI__Arch_Snapshot) -> str:
 
     lines.append('     [dim]│  real-time logs[/]')
     lines.append('     [dim]▼[/]')
-    lines.append('  [bold]Firehose[/]  [yellow]⚠ UNVERIFIED[/]')
-    lines.append(f'     [dim]{_esc(snapshot.firehose_note)}[/]')
+    if snapshot.firehose_error:
+        lines.append('  [bold]Firehose[/]  [red]✗[/]')
+        lines.append(f'     [red]✗ {_esc(snapshot.firehose_error)}[/]')
+    elif snapshot.firehose_streams:
+        lines.append(f'  [bold]Firehose[/]  [green]✓ {len(snapshot.firehose_streams)} stream(s)[/]')
+        for s in snapshot.firehose_streams:
+            dest = f's3://{s.destination_bucket}/{s.destination_prefix}' if s.destination_bucket else '(no S3 dest)'
+            lines.append(f'     [green]●[/] [cyan]{_esc(s.name)[:30].ljust(30)}[/] [dim]{s.status}[/]  → [dim]{_esc(dest)}[/]')
+        lines.append(f'     [yellow]⚠ {_esc(snapshot.firehose_note)}[/]')
+    else:
+        lines.append('  [bold]Firehose[/]  [yellow]⚠ UNVERIFIED[/]')
+        lines.append(f'     [dim]{_esc(snapshot.firehose_note)}[/]')
     lines.append('     [dim]│[/]')
     lines.append('     [dim]▼[/]')
 
@@ -73,7 +83,13 @@ def arch_plain(snapshot : Schema__CF_TUI__Arch_Snapshot) -> str:
     out.append(f'CloudFront ({len(snapshot.distributions)})' + (f'  ERROR: {snapshot.cf_error}' if snapshot.cf_error else ''))
     for d in snapshot.distributions:
         out.append(f'  {d.distribution_id}  {d.domain}  {d.status}  rt-log:{d.rt_log_status}')
-    out.append(f'Firehose: UNVERIFIED — {snapshot.firehose_note}')
+    if snapshot.firehose_streams:
+        out.append(f'Firehose ({len(snapshot.firehose_streams)}):')
+        for s in snapshot.firehose_streams:
+            out.append(f'  {s.name}  {s.status}  -> s3://{s.destination_bucket}/{s.destination_prefix}')
+        out.append(f'  note: {snapshot.firehose_note}')
+    else:
+        out.append(f'Firehose: UNVERIFIED — {snapshot.firehose_note}')
     out.append(f'S3: {snapshot.bucket_name}  reachable={snapshot.bucket_reachable}' + (f'  ERROR: {snapshot.s3_error}' if snapshot.s3_error else ''))
     out.append(f'CloudWatch Log Groups ({len(snapshot.log_groups)})' + (f'  ERROR: {snapshot.logs_error}' if snapshot.logs_error else ''))
     for g in snapshot.log_groups[:12]:

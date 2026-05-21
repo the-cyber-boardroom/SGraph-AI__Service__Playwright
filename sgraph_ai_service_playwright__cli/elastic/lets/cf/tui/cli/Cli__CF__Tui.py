@@ -112,14 +112,16 @@ def _arch_source(bucket : str, region : str):
     if _arch_factory is not None:
         return _arch_factory(bucket, region)
     from sgraph_ai_service_playwright__cli.aws.cf.service.CloudFront__AWS__Client     import CloudFront__AWS__Client
+    from sgraph_ai_service_playwright__cli.aws.firehose.service.Firehose__AWS__Client import Firehose__AWS__Client
     from sgraph_ai_service_playwright__cli.aws.logs.service.Logs__AWS__Client         import Logs__AWS__Client
     from sgraph_ai_service_playwright__cli.aws.s3.service.S3__AWS__Client             import S3__AWS__Client
     from sgraph_ai_service_playwright__cli.elastic.lets.cf.tui.source.CF_TUI__Arch_Source import CF_TUI__Arch_Source
-    from sgraph_ai_service_playwright__cli.elastic.lets.cf.tui.cf_tui__config         import CF_LOGS_BUCKET
-    return CF_TUI__Arch_Source(cf_client   = CloudFront__AWS__Client(),
-                               logs_client = Logs__AWS__Client(),
-                               s3_client   = S3__AWS__Client(region=region),
-                               bucket      = bucket or CF_LOGS_BUCKET)
+    from sgraph_ai_service_playwright__cli.elastic.lets.cf.tui.cf_tui__config         import CF_LOGS_BUCKET, CF_LOGS_REGION
+    return CF_TUI__Arch_Source(cf_client       = CloudFront__AWS__Client(),
+                               logs_client     = Logs__AWS__Client(),
+                               s3_client       = S3__AWS__Client(region=region),
+                               firehose_client = Firehose__AWS__Client(region=region or CF_LOGS_REGION),
+                               bucket          = bucket or CF_LOGS_BUCKET)
 
 
 @app.command(name='architecture', help='Deployed Architecture — live CF/S3/CloudWatch wiring (Firehose marked UNVERIFIED).')
@@ -131,6 +133,36 @@ def architecture(bucket : str = BUCKET, region : str = REGION):
         return
     from sgraph_ai_service_playwright__cli.elastic.lets.cf.tui.screens.CF_TUI__Screen__Arch import CF_TUI__Screen__Arch
     CF_TUI__Screen__Arch(source=src).run()
+
+
+# The sync/cache TUIs are a VISUAL front-end over the native commands — they build the
+# work through the SAME backend builders (no duplicated logic) and never perform CLI
+# mutations themselves. The canonical, scriptable path is `sp el lets cf sync|cache`.
+# See library/guides/v0.2.39__tui_cli_separation.md.
+
+@app.command(name='sync', help='Visual sync browser for raw-cf-logs (download via `g`). Scripted path: `sp el lets cf sync`.')
+def sync(date : str = DATE, hour : str = HOUR, bucket : str = BUCKET, region : str = REGION):
+    from sgraph_ai_service_playwright__cli.elastic.lets.cf.local.cli.Cli__CF__Local import build_sync_service
+    svc = build_sync_service(bucket, region)
+    if not sys.stdout.isatty():                                                      # pipe-safe, read-only preview — the GUI does not mutate when headless
+        from sgraph_ai_service_playwright__cli.elastic.lets.cf.local.cli.CF__Local__Render import sync_plain
+        print(sync_plain(svc.plan(date, hour)))
+        print('\n[non-interactive] to download, run: sp el lets cf sync --mode download')
+        return
+    from sgraph_ai_service_playwright__cli.elastic.lets.cf.tui.screens.CF_TUI__Screen__Sync import CF_TUI__Screen__Sync
+    CF_TUI__Screen__Sync(sync=svc, date_iso=date, hour=hour).run()
+
+
+@app.command(name='cache', help='Visual local-cache stats for raw-cf-logs. Scripted path: `sp el lets cf cache`.')
+def cache():
+    from sgraph_ai_service_playwright__cli.elastic.lets.cf.local.cli.Cli__CF__Local import build_local_store
+    store = build_local_store()
+    if not sys.stdout.isatty():
+        from sgraph_ai_service_playwright__cli.elastic.lets.cf.local.cli.CF__Local__Render import cache_plain
+        print(cache_plain(store.stats()))
+        return
+    from sgraph_ai_service_playwright__cli.elastic.lets.cf.tui.screens.CF_TUI__Screen__Cache import CF_TUI__Screen__Cache
+    CF_TUI__Screen__Cache(store=store).run()
 
 
 @app.command(name='diagnose', help='Deployment-chain self-check: TERM / LANG / unicode / truecolor.')

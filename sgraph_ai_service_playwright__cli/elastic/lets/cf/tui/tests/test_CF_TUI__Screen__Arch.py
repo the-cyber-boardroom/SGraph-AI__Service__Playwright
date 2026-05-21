@@ -13,6 +13,7 @@ try:
 except Exception:
     HAS_TEXTUAL = False
 
+from sgraph_ai_service_playwright__cli.aws.firehose.tests.test_Firehose__AWS__Client import FakeFirehose
 from sgraph_ai_service_playwright__cli.elastic.lets.cf.tui.source.CF_TUI__Arch_Source import CF_TUI__Arch_Source
 from sgraph_ai_service_playwright__cli.elastic.lets.cf.tui.tests.test_CF_TUI__Arch_Source import FakeCF, FakeLogs, FakeS3
 
@@ -22,7 +23,8 @@ class test_CF_TUI__Screen__Arch(TestCase):
 
     def screen(self):
         from sgraph_ai_service_playwright__cli.elastic.lets.cf.tui.screens.CF_TUI__Screen__Arch import CF_TUI__Screen__Arch
-        source = CF_TUI__Arch_Source(cf_client=FakeCF(), logs_client=FakeLogs(), s3_client=FakeS3(), bucket='b')
+        source = CF_TUI__Arch_Source(cf_client=FakeCF(), logs_client=FakeLogs(), s3_client=FakeS3(),
+                                     firehose_client=FakeFirehose(), bucket='b')
         return CF_TUI__Screen__Arch(source=source, refresh_seconds=0)
 
     def test_mounts_and_loads(self):

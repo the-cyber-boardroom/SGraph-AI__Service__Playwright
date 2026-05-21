@@ -41,23 +41,62 @@ class test_Cli__CF__Tui(TestCase):
         assert 'Field Lineage' in result.output
         assert '/enhancecp'    in result.output                                      # first fixture file, line 0
 
+    def test_sync__no_tty_lists_only_no_download(self):                              # the TUI command is read-only when headless — downloads belong to `sp el lets cf sync`
+        import tempfile
+        from sgraph_ai_service_playwright__cli.elastic.lets.cf.local.cli import Cli__CF__Local as native
+        from sgraph_ai_service_playwright__cli.elastic.lets.cf.local.service.CF__Local__Store import CF__Local__Store
+        from sgraph_ai_service_playwright__cli.elastic.lets.cf.local.service.CF__Logs__Sync   import CF__Logs__Sync
+        from sgraph_ai_service_playwright__cli.elastic.lets.cf.local.tests.test_CF__Logs__Sync import FakeLister, FakeFetcher, PREFIX
+        from sgraph_ai_service_playwright__cli.tui.debug.Debug__Event_Log                     import Debug__Event_Log
+        with tempfile.TemporaryDirectory() as tmp:
+            store = CF__Local__Store(root=tmp, src_prefix=PREFIX)
+            native._sync_factory = lambda bucket, region: CF__Logs__Sync(
+                lister=FakeLister(), fetcher=FakeFetcher(), store=store, debug=Debug__Event_Log())
+            try:
+                r = self.runner.invoke(self.mod.app, ['sync', '--date', '2026-05-21'], catch_exceptions=False)
+                assert r.exit_code == 0
+                assert 'missing=3'                 in r.output
+                assert 'sp el lets cf sync'        in r.output                        # points at the native command for downloads
+                assert list(store.iter_local_files()) == []                          # headless TUI did NOT download
+            finally:
+                native._sync_factory = None
+
+    def test_cache__no_tty_shows_stats(self):
+        import tempfile
+        from sgraph_ai_service_playwright__cli.elastic.lets.cf.local.cli import Cli__CF__Local as native
+        from sgraph_ai_service_playwright__cli.elastic.lets.cf.local.service.CF__Local__Store import CF__Local__Store
+        with tempfile.TemporaryDirectory() as tmp:
+            store = CF__Local__Store(root=tmp)
+            store.write_key('cloudfront-realtime/2026/05/21/08/a.gz', b'hello')
+            native._store_factory = lambda: store
+            try:
+                result = self.runner.invoke(self.mod.app, ['cache'], catch_exceptions=False)
+                assert result.exit_code == 0
+                assert 'Local Cache · raw-cf-logs' in result.output
+                assert 'files=1'                   in result.output
+            finally:
+                native._store_factory = None
+
     def test_architecture__no_tty_shows_wiring(self):
+        from sgraph_ai_service_playwright__cli.aws.firehose.tests.test_Firehose__AWS__Client import FakeFirehose
         from sgraph_ai_service_playwright__cli.elastic.lets.cf.tui.source.CF_TUI__Arch_Source import CF_TUI__Arch_Source
         from sgraph_ai_service_playwright__cli.elastic.lets.cf.tui.tests.test_CF_TUI__Arch_Source import FakeCF, FakeLogs, FakeS3
-        self.mod._arch_factory = lambda bucket, region: CF_TUI__Arch_Source(cf_client=FakeCF(), logs_client=FakeLogs(), s3_client=FakeS3(), bucket='b')
+        self.mod._arch_factory = lambda bucket, region: CF_TUI__Arch_Source(
+            cf_client=FakeCF(), logs_client=FakeLogs(), s3_client=FakeS3(), firehose_client=FakeFirehose(), bucket='b')
         try:
             result = self.runner.invoke(self.mod.app, ['architecture'], catch_exceptions=False)
             assert result.exit_code == 0
-            assert 'CF Deployed Architecture' in result.output
-            assert 'UNVERIFIED'               in result.output
-            assert 'E1ABCDE2FGHIJK'           in result.output
+            assert 'CF Deployed Architecture'   in result.output
+            assert 'UNVERIFIED'                 in result.output                      # per-distribution rt-log mapping
+            assert 'E1ABCDE2FGHIJK'             in result.output
+            assert 'sgraph-send-cf-logs-to-s3-2' in result.output                    # Firehose→S3 hop now verified
         finally:
             self.mod._arch_factory = None
 
     def test_help_lists_commands(self):
         result = self.runner.invoke(self.mod.app, ['--help'])
         assert result.exit_code == 0
-        for token in ('traffic', 'files', 'inspect', 'architecture', 'diagnose'):
+        for token in ('traffic', 'files', 'inspect', 'architecture', 'sync', 'cache', 'diagnose'):
             assert token in result.output, token
 
     def test_diagnose_runs(self):
