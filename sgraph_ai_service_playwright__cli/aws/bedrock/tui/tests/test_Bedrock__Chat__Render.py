@@ -31,17 +31,29 @@ class test_Bedrock__Chat__Render(TestCase):
         assert budget_fraction(1.0, 0.0)               == 0.0                      # no divide-by-zero
 
     def test_cost_meter_markup(self):
+        from sgraph_ai_service_playwright__cli.aws.bedrock.tui.schemas.Schema__Bedrock__Chat__Turn import Schema__Bedrock__Chat__Turn
         s = Schema__Bedrock__Chat__Session(model_alias='lite', region='us-east-1')
-        s.total_input_tokens  = 1204
-        s.total_output_tokens = 1840
-        s.total_cost_usd      = 0.000713
-        s.turn_count          = 3
+        s.total_input_tokens  = 5662
+        s.total_output_tokens = 1678
+        s.total_cost_usd      = 0.000630
+        s.turn_count          = 7
+        s.turns.append(Schema__Bedrock__Chat__Turn(input_tokens=1652, output_tokens=120,
+                                                   cost_usd=0.000075, latency_ms=608))
         markup = cost_meter_markup(s)
-        assert 'session'    in markup
-        assert '1204'       in markup
-        assert '$0.000713'  in markup
+        # session totals
+        assert 'session Σ'  in markup
+        assert '5662'       in markup
+        assert '1678'       in markup
+        assert '$0.000630'  in markup
+        # latest request stats
+        assert 'last request' in markup
+        assert '1652'         in markup
+        assert '120'          in markup
+        assert '$0.000075'    in markup
+        assert '608ms'        in markup
+        # budget bar
         assert 'budget'     in markup
-        assert '▓' in markup or '░' in markup                                      # the budget bar rendered
+        assert '▓' in markup or '░' in markup
 
     def test_model_picker_rows_nova_pricing(self):
         calc    = Bedrock__Cost__Calculator()

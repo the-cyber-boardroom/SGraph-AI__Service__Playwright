@@ -46,13 +46,26 @@ def cost_meter_markup(session) -> str:
               f'[dim]model[/]  {session.model_alias}',
               f'[dim]region[/] {session.region or "—"}',
               f'[dim]turns[/]  {session.turn_count}',
-              '',
-              f'[dim]tokens[/]',
-              f'  in  {session.total_input_tokens}',
-              f'  out {session.total_output_tokens}',
-              '',
-              f'[dim]cost[/]',
-              f'  Σ  [{colour}]${session.total_cost_usd:.6f}[/]',
+              '']
+
+    # last request — exact tokens/cost of the most recent turn
+    if session.turns:
+        t   = session.turns[-1]
+        tot = t.input_tokens + t.output_tokens
+        lines += [f'[bold]last request[/]',
+                  f'[dim]  in [/] {t.input_tokens}',
+                  f'[dim]  out[/] {t.output_tokens}',
+                  f'[dim]  tot[/] {tot}',
+                  f'[dim]  $  [/] [green]${t.cost_usd:.6f}[/] [dim]· {t.latency_ms}ms[/]',
+                  '']
+
+    # session totals
+    sess_tot = session.total_input_tokens + session.total_output_tokens
+    lines += [f'[bold]session Σ[/]',
+              f'[dim]  in [/] {session.total_input_tokens}',
+              f'[dim]  out[/] {session.total_output_tokens}',
+              f'[dim]  tot[/] {sess_tot}',
+              f'[dim]  $  [/] [{colour}]${session.total_cost_usd:.6f}[/]',
               '',
               f'[dim]budget[/] ${session.budget_usd:.2f}',
               f'  [{colour}]{_bar(frac)}[/] {frac * 100:.1f}%']
