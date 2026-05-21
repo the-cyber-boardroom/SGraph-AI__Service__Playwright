@@ -16,3 +16,5 @@ class Schema__Bedrock__Chat__Turn(Type_Safe):
     cost_usd      : float                                                         # Bedrock__Cost__Calculator.estimate(...)
     latency_ms    : int                                                           # from metadata.metrics.latencyMs
     ts            : float                                                         # epoch seconds (turn completion)
+    request_json  : str                                                           # exact Converse request body sent (modelId + system + full messages)
+    response_text : str                                                           # exact assistant text returned

@@ -46,18 +46,62 @@ def cost_meter_markup(session) -> str:
               f'[dim]model[/]  {session.model_alias}',
               f'[dim]region[/] {session.region or "—"}',
               f'[dim]turns[/]  {session.turn_count}',
-              '',
-              f'[dim]tokens[/]',
-              f'  in  {session.total_input_tokens}',
-              f'  out {session.total_output_tokens}',
-              '',
-              f'[dim]cost[/]',
-              f'  Σ  [{colour}]${session.total_cost_usd:.6f}[/]',
+              '']
+
+    # last request — exact tokens/cost of the most recent turn
+    if session.turns:
+        t   = session.turns[-1]
+        tot = t.input_tokens + t.output_tokens
+        lines += [f'[bold]last request[/]',
+                  f'[dim]  in [/] {t.input_tokens}',
+                  f'[dim]  out[/] {t.output_tokens}',
+                  f'[dim]  tot[/] {tot}',
+                  f'[dim]  $  [/] [green]${t.cost_usd:.6f}[/] [dim]· {t.latency_ms}ms[/]',
+                  '']
+
+    # session totals
+    sess_tot = session.total_input_tokens + session.total_output_tokens
+    lines += [f'[bold]session Σ[/]',
+              f'[dim]  in [/] {session.total_input_tokens}',
+              f'[dim]  out[/] {session.total_output_tokens}',
+              f'[dim]  tot[/] {sess_tot}',
+              f'[dim]  $  [/] [{colour}]${session.total_cost_usd:.6f}[/]',
               '',
               f'[dim]budget[/] ${session.budget_usd:.2f}',
               f'  [{colour}]{_bar(frac)}[/] {frac * 100:.1f}%']
     if session.context_label:
         lines += ['', f'[dim]context[/]', f'  {session.context_label}', '  [dim][SEEDED][/]']
+    return '\n'.join(lines)
+
+
+def _esc(text: str) -> str:                                                       # Rich-escape arbitrary text so [ in JSON / replies can't open a markup tag
+    return text.replace('[', r'\[')
+
+
+def inspector_list_markup(turns, selected: int) -> str:
+    lines = ['[bold]requests[/]  [dim](ctrl+↑/↓)[/]', '']
+    if not turns:
+        lines.append('  [dim](no turns yet)[/]')
+        return '\n'.join(lines)
+    for i, t in enumerate(turns):
+        marker = '[cyan]▸[/]' if i == selected else ' '
+        style  = 'bold' if i == selected else 'dim'
+        lines.append(f' {marker} [{style}]#{i + 1}  in {t.input_tokens} out {t.output_tokens}  ${t.cost_usd:.6f}[/]')
+    return '\n'.join(lines)
+
+
+def inspector_detail_markup(turn, index: int) -> str:
+    if turn is None:
+        return '[dim](no request selected)[/]'
+    lines = [f'[bold]request #{index + 1}[/]   [dim]{turn.model_id}[/]',
+             '[dim]── exact Converse body sent ──[/]', '']
+    for line in (turn.request_json or '').split('\n'):
+        lines.append(f'[dim]{_esc(line)}[/]')
+    lines += ['', '[bold]response[/]', '']
+    for line in (turn.response_text or '').split('\n'):
+        lines.append(_esc(line))
+    lines += ['', f'[dim]usage: in {turn.input_tokens} · out {turn.output_tokens} · '
+                  f'${turn.cost_usd:.6f} · {turn.latency_ms}ms[/]']
     return '\n'.join(lines)
 
 
