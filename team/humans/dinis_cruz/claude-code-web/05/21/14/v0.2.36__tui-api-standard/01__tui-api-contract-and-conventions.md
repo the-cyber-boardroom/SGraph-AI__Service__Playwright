@@ -366,6 +366,10 @@ for non-Python tools, with the same scoping/sequencing/audit applied at the boun
 | Each host's provider(s) + SKILL files + change records | with the host (`sg_edge/.../tui_api/`, `aws/s3/.../tui_api/`) | co-located with the capability |
 | Bedrock-chat-specific glue (toolConfig builder, engine tool-loop, doc attach) | `aws/bedrock/tui/` | provider-specific (see pack 05) |
 
+> **Detailed, code-grounded build plans** (slice-by-slice, with the verified reuse map) live
+> in [`plans/`](plans/00__plans-index.md): B1 contract+registry+CLI, B2 SG/Role, B3 execution
+> center, B4 VFS, B5+C chat slices.
+
 ---
 
 ## 10. Decisions — owner rulings (2026-05-21)
