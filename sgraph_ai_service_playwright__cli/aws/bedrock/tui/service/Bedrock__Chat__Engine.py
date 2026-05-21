@@ -21,7 +21,9 @@ from sgraph_ai_service_playwright__cli.aws.bedrock.tui.bedrock_chat_tui__config 
 from sgraph_ai_service_playwright__cli.aws.bedrock.tui.enums.Enum__Bedrock__Chat__Role         import Enum__Bedrock__Chat__Role
 from sgraph_ai_service_playwright__cli.aws.bedrock.tui.schemas.Schema__Bedrock__Chat__Message  import Schema__Bedrock__Chat__Message
 from sgraph_ai_service_playwright__cli.aws.bedrock.tui.schemas.Schema__Bedrock__Chat__Session  import Schema__Bedrock__Chat__Session
-from sgraph_ai_service_playwright__cli.aws.bedrock.tui.schemas.Schema__Bedrock__Chat__Turn     import Schema__Bedrock__Chat__Turn
+from sgraph_ai_service_playwright__cli.aws.bedrock.tui.schemas.Schema__Bedrock__Chat__Turn       import Schema__Bedrock__Chat__Turn
+from sgraph_ai_service_playwright__cli.aws.bedrock.tui.schemas.List__Bedrock__Chat__Tool_Call    import List__Bedrock__Chat__Tool_Call
+from sgraph_ai_service_playwright__cli.aws.bedrock.tui.schemas.Schema__Bedrock__Chat__Tool_Call  import Schema__Bedrock__Chat__Tool_Call
 from sgraph_ai_service_playwright__cli.aws.bedrock.tui.source.Bedrock__Chat__Source            import Bedrock__Chat__Source
 
 
@@ -123,6 +125,7 @@ class Bedrock__Chat__Engine(Type_Safe):
         model_calls = 0
         tool_calls  = 0
         final_text  = ''
+        tool_log    = List__Bedrock__Chat__Tool_Call()                                   # per-tool detail for the Inspector
 
         for _ in range(max_steps):
             response = self.source.converse_turn(model_id, messages, region=session.region,
@@ -155,6 +158,11 @@ class Bedrock__Chat__Engine(Type_Safe):
                 tool_result_blocks.append({'toolResult': {'toolUseId': tool_use.get('toolUseId', ''),
                                                          'content'  : [{'json': payload}],
                                                          'status'   : status}})
+                tool_log.append(Schema__Bedrock__Chat__Tool_Call(
+                    name        = str(tool_use.get('name', '')),
+                    input_json  = json.dumps(tool_use.get('input', {}) or {}, ensure_ascii=False, default=str),
+                    status      = status,
+                    result_json = json.dumps(payload, ensure_ascii=False, default=str)[:2000]))
             messages.append({'role': 'user', 'content': tool_result_blocks})            # feed results back
 
         session.messages.append(Schema__Bedrock__Chat__Message(role=Enum__Bedrock__Chat__Role.ASSISTANT,
@@ -174,7 +182,8 @@ class Bedrock__Chat__Engine(Type_Safe):
                                           request_json  = json.dumps(request_body, indent=2, ensure_ascii=False, default=str),
                                           response_text = final_text,
                                           model_calls   = model_calls,
-                                          tool_calls    = tool_calls)
+                                          tool_calls    = tool_calls,
+                                          tool_log      = tool_log)
         session.turns.append(turn)
         session.total_input_tokens  += total_in
         session.total_output_tokens += total_out

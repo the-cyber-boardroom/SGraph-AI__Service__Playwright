@@ -50,6 +50,10 @@ def test_loop_executes_tool_then_finishes(tmp_path):
     assert any(str(call.action_ref) == 'list_buckets' for call in center.log)     # the tool ran + was audited
     assert session.turn_count == 1
 
+    assert len(turn.tool_log) == 1                                                # C-TL3: tool call recorded for the Inspector
+    assert str(turn.tool_log[0].status) == 'success'
+    assert 'list_buckets' in str(turn.tool_log[0].name)
+
 
 def test_loop_with_no_tool_just_answers(tmp_path):
     registry, center, tool_config, name_map, _ = _harness(tmp_path)

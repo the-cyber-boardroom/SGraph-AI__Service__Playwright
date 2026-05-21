@@ -75,4 +75,7 @@ class test_Bedrock__Chat__Screen__agentic(TestCase):
             assert '42' in assistant.body_text()                                  # the model answered from the file content
             assert screen.last_turn.tool_calls  == 1                              # the VFS read happened
             assert screen.last_turn.model_calls == 2
-            assert any(str(call.action_ref) == 'vfs.read' for call in center.log) # executed + audited
+            assert len(screen.last_turn.tool_log) == 1                            # C-TL3: recorded for the Inspector
+            assert 'vfs_read' in str(screen.last_turn.tool_log[0].name)           # the (sanitised) Bedrock tool name
+            assert str(screen.last_turn.tool_log[0].status) == 'success'
+            assert any(str(call.action_ref) == 'vfs.read' for call in center.log) # executed + audited (real action name)
