@@ -7,6 +7,8 @@
 
 import time
 
+from typing import Any
+
 from osbot_utils.type_safe.Type_Safe import Type_Safe
 
 from sg_compute_specs.vault_app.fargate.schemas.Schema__VAF__Health__Result import Schema__VAF__Health__Result
@@ -16,7 +18,7 @@ class Vault_App__Fargate__Health(Type_Safe):
     timeout_seconds : int   = 30
     initial_delay   : float = 0.5
     max_delay       : float = 2.0
-    _http_get       : object = None                                             # override in tests: (url, headers) → (status_code, ok)
+    _http_get       : Any    = None                                             # override in tests: (url, headers) → (status_code, ok)
 
     def _do_get(self, url: str, headers: dict) -> tuple:                       # (status_code, ok)
         if self._http_get:

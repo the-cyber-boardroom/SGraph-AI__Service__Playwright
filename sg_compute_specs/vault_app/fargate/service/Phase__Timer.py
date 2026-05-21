@@ -8,6 +8,8 @@
 import time
 from datetime import datetime, timezone
 
+from typing import Any
+
 from osbot_utils.type_safe.Type_Safe import Type_Safe
 
 from sg_compute_specs.vault_app.fargate.collections.List__Schema__Phase__Result import List__Schema__Phase__Result
@@ -54,7 +56,7 @@ class _Phase__CM:                                                               
 
 class Phase__Timer(Type_Safe):
     results     : List__Schema__Phase__Result = None                             # accumulated phase records
-    progress_cb : object                      = None                             # callable(name, status, detail='') or None
+    progress_cb : Any                         = None                             # callable(name, status, detail='') or None
 
     def phase(self, name: str) -> _Phase__CM:                                   # returns a context manager for one named phase
         return _Phase__CM(timer=self, name=name)
