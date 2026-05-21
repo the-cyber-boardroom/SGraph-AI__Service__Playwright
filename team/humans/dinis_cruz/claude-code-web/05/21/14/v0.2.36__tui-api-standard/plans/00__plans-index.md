@@ -116,16 +116,19 @@ the right grain emerge, rather than fixing a convention now.
 - ✅ **C-P0** chat is a TUI API provider (state/actions; `sg aws bedrock chat tui api …`).
 - ✅ **C-TL1** the agentic Converse tool-use loop (`send_turn_agentic`) + `Bedrock__Tool_Config__Builder`;
   tools execute through the execution center; per-turn cost sums model + tool sub-calls.
-- ⬜ **C-TL2** loadout selection UI + `--tools` flag + wire the agentic loop into the live chat screen.
-- ⬜ **C-TL3** Inspector renders toolUse / toolResult + audit.
+- ✅ **C-TL2a** loadout + workflow assembler (`from_tools`/`from_workflow`/`granted_actions`).
+- ✅ **C-TL2b** `--tools` wired into the interactive chat: streaming for plain chat, the agentic
+  loop when tools are active; the chat registers the VFS core tool; pilot-tested (3.12).
+- ⬜ **C-TL3** Inspector renders toolUse / toolResult + audit per turn.
 - ⬜ **C-D1** Converse document attachments + N-doc context.
+- (deferred) the loadout selection *modal* — the `--tools` flag is the functional path.
 
-**Foundation B1–B6 BUILT; chat now a provider (C-P0) and agentic (C-TL1).** Remaining C work
-is screen-level UX integration (loadout modal, inspector tool blocks, documents).
+**Foundation B1–B6 BUILT; chat is a provider (C-P0), agentic (C-TL1), and tool-enabled
+interactively (C-TL2).** Remaining: inspector tool blocks (C-TL3) + documents (C-D1).
 
 **Runtime:** the project targets **Python 3.12**. A single 3.12 interpreter runs the whole
-suite (textual + memory_fs + boto3 together): **3.12 → 69 passed.** On a 3.11 lane the
-memory_fs (VFS) tests skip cleanly. All pushed to `claude/review-tui-cli-commits-S3xCM`.
+suite (textual + memory_fs + boto3 together): **3.12 → 98 passed.** On a 3.11 lane the
+memory_fs / agentic-pilot tests skip cleanly. All pushed to `claude/review-tui-cli-commits-S3xCM`.
 
 ---
 
