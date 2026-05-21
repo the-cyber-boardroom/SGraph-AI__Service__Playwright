@@ -25,6 +25,8 @@ app = typer.Typer(name='tui', help='CloudFront-logs exploratory TUI screens (Tex
 
 _source_factory = None                                                               # tests assign a callable(source, bucket, prefix, region, date, hour, max_files) → Data_Source
 _arch_factory   = None                                                               # tests assign a callable(bucket, region) → CF_TUI__Arch_Source
+_sync_factory   = None                                                               # tests assign a callable(bucket, region) → CF__Logs__Sync
+_store_factory  = None                                                               # tests assign a callable() → CF__Local__Store
 
 
 @app.callback()
@@ -131,6 +133,33 @@ def architecture(bucket : str = BUCKET, region : str = REGION):
         return
     from sgraph_ai_service_playwright__cli.elastic.lets.cf.tui.screens.CF_TUI__Screen__Arch import CF_TUI__Screen__Arch
     CF_TUI__Screen__Arch(source=src).run()
+
+
+def _sync_service(bucket : str, region : str):
+    if _sync_factory is not None:
+        return _sync_factory(bucket, region)
+    from sgraph_ai_service_playwright__cli.elastic.lets.cf.local.service.CF__Logs__Sync   import CF__Logs__Sync
+    from sgraph_ai_service_playwright__cli.elastic.lets.cf.local.service.CF__Local__Store import CF__Local__Store
+    from sgraph_ai_service_playwright__cli.elastic.lets.cf.tui.cf_tui__config             import CF_LOGS_BUCKET, CF_LOGS_REGION
+    return CF__Logs__Sync(bucket = bucket or CF_LOGS_BUCKET,
+                          region = region or CF_LOGS_REGION,
+                          store  = CF__Local__Store())
+
+
+MODE = typer.Option('list', '--mode', '-m', help='list (diff only) | download (fetch missing)')
+
+
+@app.command(name='sync', help='Sync raw-cf-logs S3 → _vaults. Immutable: only missing objects download. --mode list|download.')
+def sync(date : str = DATE, hour : str = HOUR, mode : str = MODE, bucket : str = BUCKET, region : str = REGION):
+    svc  = _sync_service(bucket, region)
+    if not sys.stdout.isatty():
+        from sgraph_ai_service_playwright__cli.elastic.lets.cf.tui.screens.CF_TUI__Sync__Render import sync_plain
+        plan   = svc.plan(date, hour)
+        result = svc.download_missing(plan) if str(mode) == 'download' else None
+        print(sync_plain(plan, result))
+        return
+    from sgraph_ai_service_playwright__cli.elastic.lets.cf.tui.screens.CF_TUI__Screen__Sync import CF_TUI__Screen__Sync
+    CF_TUI__Screen__Sync(sync=svc, date_iso=date, hour=hour).run()
 
 
 @app.command(name='diagnose', help='Deployment-chain self-check: TERM / LANG / unicode / truecolor.')

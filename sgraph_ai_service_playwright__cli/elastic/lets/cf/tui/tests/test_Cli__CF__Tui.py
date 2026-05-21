@@ -41,6 +41,27 @@ class test_Cli__CF__Tui(TestCase):
         assert 'Field Lineage' in result.output
         assert '/enhancecp'    in result.output                                      # first fixture file, line 0
 
+    def test_sync__no_tty_list_and_download(self):
+        import tempfile
+        from sgraph_ai_service_playwright__cli.elastic.lets.cf.local.service.CF__Local__Store import CF__Local__Store
+        from sgraph_ai_service_playwright__cli.elastic.lets.cf.local.service.CF__Logs__Sync   import CF__Logs__Sync
+        from sgraph_ai_service_playwright__cli.elastic.lets.cf.local.tests.test_CF__Logs__Sync import FakeLister, FakeFetcher, PREFIX
+        from sgraph_ai_service_playwright__cli.tui.debug.Debug__Event_Log                     import Debug__Event_Log
+        with tempfile.TemporaryDirectory() as tmp:
+            self.mod._sync_factory = lambda bucket, region: CF__Logs__Sync(
+                lister=FakeLister(), fetcher=FakeFetcher(),
+                store=CF__Local__Store(root=tmp, src_prefix=PREFIX), debug=Debug__Event_Log())
+            try:
+                r1 = self.runner.invoke(self.mod.app, ['sync', '--date', '2026-05-21'], catch_exceptions=False)
+                assert r1.exit_code == 0
+                assert 'Sync · raw-cf-logs' in r1.output
+                assert 'missing=3'          in r1.output
+                r2 = self.runner.invoke(self.mod.app, ['sync', '--date', '2026-05-21', '--mode', 'download'], catch_exceptions=False)
+                assert r2.exit_code == 0
+                assert 'downloaded=3' in r2.output
+            finally:
+                self.mod._sync_factory = None
+
     def test_architecture__no_tty_shows_wiring(self):
         from sgraph_ai_service_playwright__cli.elastic.lets.cf.tui.source.CF_TUI__Arch_Source import CF_TUI__Arch_Source
         from sgraph_ai_service_playwright__cli.elastic.lets.cf.tui.tests.test_CF_TUI__Arch_Source import FakeCF, FakeLogs, FakeS3
@@ -57,7 +78,7 @@ class test_Cli__CF__Tui(TestCase):
     def test_help_lists_commands(self):
         result = self.runner.invoke(self.mod.app, ['--help'])
         assert result.exit_code == 0
-        for token in ('traffic', 'files', 'inspect', 'architecture', 'diagnose'):
+        for token in ('traffic', 'files', 'inspect', 'architecture', 'sync', 'diagnose'):
             assert token in result.output, token
 
     def test_diagnose_runs(self):
