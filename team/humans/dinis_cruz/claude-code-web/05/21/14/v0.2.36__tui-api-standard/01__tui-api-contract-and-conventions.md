@@ -193,7 +193,8 @@ Schema__Tui_Api__Change:
     version : str
     ts      : float
 # Structured artefacts captured at the moment of change; rendered into changelog.md /
-# whatsnew.md in the VFS. CI enforces: a shipped FEATURE with no Change entry fails the build.
+# whatsnew.md in the VFS. Capture is RECOMMENDED, not CI-enforced (§10 #5) — a minimal
+# TUI API can ship without any change records.
 ```
 
 ### 4.6 Consumer side — loadout & workflow assembly (brief 2; pack 05 §4)
@@ -213,7 +214,7 @@ Schema__Tui_Api__Loadout:             # the assembled, live grant set the chat o
     grants   : List__Tui_Api__Grant
     workflow : str                    # provenance: which workflow assembled this
     budget_usd : float = 0            # optional spend ceiling for the whole loadout (cost — §7)
-    def tool_config(self)         -> dict   # Bedrock toolConfig: only granted, in-tier, available actions
+    def tool_config(self)         -> dict   # provider-agnostic allowed-action set (granted ∧ in-tier ∧ available); the Bedrock toolConfig mapping is chat-side (pack 05 / C-TL2)
     def skills_markup(self)       -> str    # concatenated SKILL-api prose for the system prompt
     def required_privileges(self) -> List__Tui_Api__Privilege   # union, for the pre-flight
 ```
@@ -246,7 +247,7 @@ Schema__Tui_Api__Call:                # the audit ring-buffer record (getLog() a
 class Tui_Api__Execution_Center(Type_Safe):
     mode      : Enum__Tui_Api__Exec_Mode
     registry  : Tui_Api__Registry
-    tokens    : Tui_Api__Token__Resolver     # over credentials/ + aws/creds/ scoped-creds
+    resolver  : Tui_Api__Privilege__Resolver # SG/Role + backing-privilege checks over credentials/ + aws/creds/
     log       : List__Tui_Api__Call          # ring buffer → the Inspector
     def execute(self, action_ref, params, on_preview=None, on_confirm=None) -> Result:
         # 1. resolve action → tier, scope, privileges, preconditions, supports_dry_run
@@ -256,7 +257,7 @@ class Tui_Api__Execution_Center(Type_Safe):
         # 5. privilege pre-flight: scope maps to present IAM/vault/env; else print minimal policy
         # 6. preview: DRY_RUN or (tier>=WRITE without ..._ALLOW_MUTATIONS) → provider dry-run → change-set
         # 7. gate: CONFIRM or tier>=WRITE/DESTRUCTIVE → surface preview (action·args·tier·scope·diff) → await
-        # 8. dispatch: provider.dispatch(action, params, mode) → Result
+        # 8. dispatch: provider.dispatch(action, params) → Result   (provider is mode-free; the center decided mode)
         # 9. audit: append a sanitised Call; attach cost (model round-trips + API $)
 ```
 
@@ -268,16 +269,17 @@ class Tui_Api__Provider(Type_Safe):
     def skills(self)                    -> dict                          # {human, api, driver} markdown
     def state(self)                     -> dict                          # outbound 'state' (brief 1)
     def actions_available(self, grants) -> List__Tui_Api__Action         # filtered by preconditions + scope
-    def dispatch(self, action, params, mode) -> Schema__Tui_Api__Result
+    def dispatch(self, action, params) -> Schema__Tui_Api__Result        # mode-free; the execution center owns AUTO/CONFIRM/DRY_RUN
     def events(self)                    -> 'iterator'                     # 'watch' — NDJSON stream (brief 1)
     def export(self, view, fmt)         -> bytes                          # 'export' (brief 1)
     def orientation(self)               -> Schema__Tui_Api__Orientation   # 'now what?' (brief 2)
     def populate_vfs(self, vfs)         -> None                           # write its doc tree (§6)
 ```
 
-A central `Tui_Api__Registry` enumerates providers by walking the `sg`/`sp` command tree, so
-the chat, the explorer, pytest, and the CLI all read **one** source of truth. Fractal: a
-provider may compose children (`manifest.children`); v1 supports one level and renders the tree.
+A central `Tui_Api__Registry` enumerates providers via **explicit per-area registration** (the
+house pattern — verified: no command-tree walker exists today; auto-discovery is a later
+enhancement), so the chat, the explorer, pytest, and the CLI all read **one** source of truth.
+Fractal: a provider may compose children (`manifest.children`); v1 supports one level and renders the tree.
 
 ---
 

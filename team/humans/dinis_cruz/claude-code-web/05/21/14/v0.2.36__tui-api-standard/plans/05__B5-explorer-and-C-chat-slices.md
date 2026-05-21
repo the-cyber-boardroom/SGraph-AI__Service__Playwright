@@ -11,7 +11,7 @@ parent: 00__plans-index.md
 # B5 + C — explorer/tester and the chat slices
 
 These depend on B1–B4. The chat-side design lives in
-[`../../10/v0.2.36__bedrock-chat-tui-pack/05__tui-api-tools-and-documents-plan.md`](../../10/v0.2.36__bedrock-chat-tui-pack/05__tui-api-tools-and-documents-plan.md);
+[`../../../10/v0.2.36__bedrock-chat-tui-pack/05__tui-api-tools-and-documents-plan.md`](../../../10/v0.2.36__bedrock-chat-tui-pack/05__tui-api-tools-and-documents-plan.md);
 this plan sequences them and notes the build specifics.
 
 ---

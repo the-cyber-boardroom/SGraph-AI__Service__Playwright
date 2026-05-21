@@ -187,9 +187,12 @@ def register_tui(parent_app: typer.Typer) -> None:
     parent_app.add_typer(tui_app, name='tui')
 ```
 
-For B1 the first wiring target is **`sg aws s3 tui api …`** (s3 has no TUI launch yet, so its
-`tui` group can be `api`-only). The bedrock `tui`→group conversion is done in C-P0 (when the
-chat gains its provider). Result B1 delivers:
+For B1 the first wiring target is **`sg aws s3 tui api …`**. Note: s3's Textual UI is the
+**`browse`** command — there is **no `tui` group on s3 today** — so adding `tui api` introduces
+a fresh `tui` group containing only `api`, with **no existing `tui` launch to preserve** (s3's
+`browse` can be re-homed under `tui` later, as a separate cleanup). The bedrock `tui`→group
+conversion — which *does* have a launch to preserve (`@app.command('tui')`) — is deferred to
+C-P0 (when the chat gains its provider). Result B1 delivers:
 
 ```
 sg aws s3 tui api list

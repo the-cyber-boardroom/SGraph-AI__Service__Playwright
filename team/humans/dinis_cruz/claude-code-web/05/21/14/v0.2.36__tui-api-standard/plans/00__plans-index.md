@@ -83,4 +83,23 @@ Everything below **EXISTS** and was read; the plans build over it rather than re
 
 ---
 
+## Known coverage gaps (need a slice decision)
+
+A coherence pass (2026-05-21) found two parts of the standard not yet assigned to a build slice:
+
+1. **Orientation + change-control surfaces.** The standard §4.4/§4.5 define `Schema__Tui_Api__Tool`,
+   `Schema__Tui_Api__Orientation`, `Schema__Tui_Api__Change`, `Enum__Tui_Api__Change_Kind`, and the CLI
+   §5 lists `status` / `whatsnew` / `changelog`. B1's CLI ships only `list/describe/skills/state/invoke`;
+   B4 ships the VFS *file* delivery (`skills.md` etc.) but not the live `status`/`orientation()` method or
+   the `Change` records. **Recommendation: add a small `B6 — orientation + change-control` slice**
+   (the `Schema__Tui_Api__Tool`/`Orientation`/`Change` classes + `orientation()` provider method +
+   `status`/`whatsnew`/`changelog` CLI), pure on 3.11, after B4. Change-capture is recommended-not-enforced (§10 #5).
+2. **Workflow assembler.** `Schema__Tui_Api__Workflow` + the workflow→loadout assembly (standard §4.6) is
+   consumer-side and currently only implied by **C-TL2**. **Recommendation: build it in C-TL2** (it is the
+   loadout's source of truth) — no separate slice needed; just make it explicit in C-TL2.
+
+Both are flagged for the owner; neither blocks B1–B4.
+
+---
+
 This document is released under the Creative Commons Attribution 4.0 International licence (CC BY 4.0).

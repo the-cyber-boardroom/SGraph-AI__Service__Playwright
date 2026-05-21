@@ -79,6 +79,13 @@ Defaults (decision: §10 #1 / brief 2): `AUTO` for READ_ONLY, `CONFIRM` for WRIT
 CONFIRM-with-typed-confirm for DESTRUCTIVE. Mutations stay behind the existing
 `..._ALLOW_MUTATIONS` env convention used by `sg aws s3`/`cf`.
 
+> **Reuse — do not re-invent the gate.** The mutation gate and confirm already exist:
+> `sgraph_ai_service_playwright__cli/aws/_shared/Mutation__Gate.py` → `require_mutation_gate(env_var)`
+> (the `..._ALLOW_MUTATIONS` check used by `sg aws s3`/`cf`) and
+> `aws/_shared/Aws__Confirm.py` → `confirm_or_abort(message, yes, dry_run)`. Step 4/5 of the
+> pipeline call these (the center wires its `on_confirm` callback to `confirm_or_abort`), so the
+> TUI API uses the *same* mutation discipline the rest of `sg aws` already enforces.
+
 ### Sequencing (decision #3 — flat, no DAG)
 ```python
 class Tui_Api__Precondition__Check(Type_Safe):
