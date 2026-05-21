@@ -173,21 +173,25 @@ class Schema__Bedrock__Chat__Turn(Type_Safe):
     cost_usd      : float                     # from Bedrock__Cost__Calculator.estimate()
     latency_ms    : int                       # from the metadata event
     ts            : float
+    request_json  : str                       # exact Converse body sent (modelId + system + full messages) — feeds the Inspector
+    response_text : str                       # exact assistant text returned — feeds the Inspector
 
 # Schema__Bedrock__Chat__Session            — in-memory, ephemeral; lost on close (by design)
 class Schema__Bedrock__Chat__Session(Type_Safe):
     session_id          : Safe_Str__Bedrock__Session_Id
-    provider            : str                 # 'nova' for now
-    model_alias         : str                 # 'lite' (default) | 'micro' | 'pro' | 'premier'
+    provider            : str  = 'nova'       # Nova-only for v1
+    model_alias         : str  = 'default'    # 'default'→nova-lite | 'micro' | 'pro' | 'premier'
     region              : str
     started_at          : float
+    system_prompt       : str                 # built from a seeded context (may be empty)
+    context_label       : str                 # short UI label for the seeded context (may be empty)
     messages            : List__Bedrock__Chat__Message
     turns               : List__Bedrock__Chat__Turn
     total_input_tokens  : int                 # running aggregate (engine maintains)
     total_output_tokens : int
     total_cost_usd      : float
     turn_count          : int
-    budget_usd          : float               # soft session budget for the meter (default 0.50)
+    budget_usd          : float = 0.50        # soft session budget for the meter
 ```
 
 `Safe_Str__Bedrock__Session_Id` and `…Model_Id` already exist in
@@ -310,12 +314,15 @@ sgraph_ai_service_playwright__cli/aws/bedrock/tui/
     Bedrock__Chat__Card                  pure: session → ASCII transcript+cost card (export/OSC-52)
     Bedrock__Chat__Brief__Builder        pure: session (+context) → dev-brief markdown
   screens/
-    Bedrock__Chat__Screen                the App: transcript + composer + cost sidebar
-    Bedrock__Chat__Render                pure: session → markup helpers (footers, bubble text)
+    Bedrock__Chat__Screen                the App: transcript + composer + cost sidebar + inspector
+    Bedrock__Chat__Render                pure: session → markup helpers (footers, bubble + inspector text)
     Bedrock__Chat__Model__Picker         ModalScreen[str]  — Nova picker with live pricing
     Bedrock__Chat__Brief__Modal          ModalScreen — confirm/preview a brief before writing
+    Bedrock__Chat__Cost__Confirm         ModalScreen — blocking over-cap confirm (pre-flight)
+    Bedrock__Chat__Help                  ModalScreen — context-aware help (walks the BINDINGS MRO)
     widgets/                             (chat widgets — promote to _shared/tui/chat/, see kit doc)
-      Chat__Transcript  Chat__Bubble  Chat__Composer  Chat__Cost__Meter
+      Chat__Bubble  Chat__Composer  Chat__Cost__Meter  Chat__Inspector
+      (the transcript is a VerticalScroll(id="transcript") composed inline, not a widget file)
   cli/
     Cli__Bedrock__Chat__Tui              `sg aws bedrock chat tui` + `diagnose`
   tests/                                 co-located, pilot + in-memory source, gated on textual
