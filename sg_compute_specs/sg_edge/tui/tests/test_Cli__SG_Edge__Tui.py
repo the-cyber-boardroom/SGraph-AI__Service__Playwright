@@ -49,7 +49,7 @@ class test_Cli__SG_Edge__Tui(TestCase):
     def test_help_lists_commands(self):
         result = self.runner.invoke(self.mod.app, ['--help'])
         assert result.exit_code == 0
-        for cmd in ('deployment', 'topology', 'compare', 'slug', 'events', 'diagnose'):
+        for cmd in ('deployment', 'topology', 'compare', 'slug', 'events', 'docker', 'dashboard', 'diagnose'):
             assert cmd in result.output, cmd
 
     def test_diagnose__prints_capability_checks(self):

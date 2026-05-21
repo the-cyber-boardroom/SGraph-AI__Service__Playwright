@@ -31,6 +31,8 @@ sibling to `vault_app` / `vault_publish`.
 | TUI screen S3 | `tui/screens/SG_Edge__TUI__Screen__Compare` | `sg edge tui compare` — Local vs Edge drift (reads both sources; no-TTY → plain diff) |
 | TUI screen S4 | `tui/screens/SG_Edge__TUI__Screen__Slug_Detail` | `sg edge tui slug [name]` — per-slug deep-dive (State+DNS real; rest pending); Topology `Enter` drills in |
 | TUI screen S5 | `tui/screens/SG_Edge__TUI__Screen__Events` | `sg edge tui events` — live state-transition feed + honest sparklines (Differ + Metrics); pause / filter / clear |
+| TUI screen Docker | `tui/screens/SG_Edge__TUI__Screen__Docker` | `sg edge tui docker` — local running containers (`docker ps`); also embedded in Deployment |
+| TUI dashboard | `tui/screens/SG_Edge__TUI__App` | `sg edge tui dashboard` — all screens in one app, Textual `TabbedContent` (1..6 / ←→ to switch) |
 
 State model (all in DNS, nothing else): `proxies.<parent>` A (fleet membership),
 `_state.<parent>` TXT (zero_streak teardown counter), `_sg.<slug>.<parent>` TXT
@@ -100,6 +102,8 @@ sg edge tui topology                    # Screen 2 — layered flow (↑/↓ sel
 sg edge tui compare                     # Screen 3 — local vs edge drift (reads both)
 sg edge tui slug alice                  # Screen 4 — per-slug deep-dive (↑/↓ to switch)
 sg edge tui events                      # Screen 5 — live event feed + sparklines
+sg edge tui docker                      # local running containers (docker ps)
+sg edge tui dashboard                   # ALL screens in one app — tabbed nav (1..6 / ←→)
 ```
 
 **All five exploratory screens exist.** S2 (`…Screen__Topology`) draws the layered

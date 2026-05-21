@@ -23,9 +23,10 @@ class SG_Edge__TUI__Screen__Deployment(SG_Edge__TUI__App__Base):
     TITLE    = 'SG/Edge Deployment Reality'
     BINDINGS = [('r', 'refresh', 'Refresh')]
 
-    def __init__(self, source, refresh_seconds : float = TUI_REFRESH_SECONDS):
+    def __init__(self, source, docker_source=None, refresh_seconds : float = TUI_REFRESH_SECONDS):
         super().__init__()
         self.source          = source
+        self.docker_source   = docker_source                                         # None → no LOCAL DOCKER section
         self.refresh_seconds = refresh_seconds
         self.snapshot        = None
 
@@ -41,7 +42,9 @@ class SG_Edge__TUI__Screen__Deployment(SG_Edge__TUI__App__Base):
 
     def refresh_snapshot(self) -> None:
         self.snapshot = self.source.snapshot()
-        self.query_one('#body', Static).update(deployment_markup(self.snapshot))
+        containers    = self.docker_source.containers() if self.docker_source else None
+        available     = self.docker_source.available()  if self.docker_source else True
+        self.query_one('#body', Static).update(deployment_markup(self.snapshot, containers, available))
 
     def action_refresh(self) -> None:
         self.refresh_snapshot()

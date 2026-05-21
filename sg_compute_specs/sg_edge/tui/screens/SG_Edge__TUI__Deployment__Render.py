@@ -12,11 +12,12 @@ import datetime
 from sg_compute_specs.sg_edge.tui.enums.Enum__SG_Edge__TUI__Slug_State              import Enum__SG_Edge__TUI__Slug_State
 from sg_compute_specs.sg_edge.tui.schemas.Schema__SG_Edge__TUI__Snapshot            import Schema__SG_Edge__TUI__Snapshot
 from sg_compute_specs.sg_edge.tui.screens.widgets.SG_Edge__TUI__Glyphs              import slug_glyph, severity_glyph, yes_no
+from sg_compute_specs.sg_edge.tui.screens.SG_Edge__TUI__Docker__Render              import docker_lines
 
 LIVE = Enum__SG_Edge__TUI__Slug_State.LIVE
 
 
-def deployment_markup(snapshot : Schema__SG_Edge__TUI__Snapshot) -> str:
+def deployment_markup(snapshot : Schema__SG_Edge__TUI__Snapshot, containers=None, docker_available : bool = True) -> str:
     lines = []
     stamp = datetime.datetime.fromtimestamp(int(snapshot.captured_at), datetime.timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')
     lines.append(f'[bold]SG/Edge Deployment Reality[/]   target=[cyan]{snapshot.target}[/]  parent=[cyan]{snapshot.parent}[/]')
@@ -50,6 +51,11 @@ def deployment_markup(snapshot : Schema__SG_Edge__TUI__Snapshot) -> str:
             glyph, style = slug_glyph(slug.state)
             backend      = f' → {slug.backend_ip}:{slug.backend_port}' if slug.state == LIVE else ''
             lines.append(f'  [{style}]{glyph}[/] {slug.slug[:18].ljust(18)} [dim]{slug.state}[/]{backend}')
+
+    if containers is not None:
+        lines.append('')
+        lines.append(f'[bold]LOCAL DOCKER[/]  ({len(containers.pods)})')
+        lines += docker_lines(containers, docker_available, styled=True)
 
     if snapshot.issues:
         lines.append('')

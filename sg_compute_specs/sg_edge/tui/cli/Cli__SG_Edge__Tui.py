@@ -25,6 +25,18 @@ def main():                                                                     
     pass
 
 
+@app.command(name='dashboard', help='All screens in one app with tabbed navigation (1..6 / ←→ to switch).')
+def dashboard(parent: str = typer.Option('', '--parent', '-p', help='Local edge zone (default edge.sg-labs.local)'),
+              aws_parent: str = typer.Option('', '--aws-parent', help='AWS edge zone (default edge.sg-labs.app)')):
+    local_source = _source('local', parent)
+    if not sys.stdout.isatty():                                                      # piped / CI → static card of the local edge
+        _render_static(local_source)
+        return
+    aws_source = _source('aws', aws_parent)
+    from sg_compute_specs.sg_edge.tui.screens.SG_Edge__TUI__App import SG_Edge__TUI__App
+    SG_Edge__TUI__App(local_source=local_source, aws_source=aws_source, docker_source=_docker_source()).run()
+
+
 @app.command(name='diagnose', help='Print terminal capability checks (run before reporting broken TUI output).')
 def diagnose():
     import os
@@ -72,6 +84,17 @@ def _render_static(source) -> None:                                             
     print(SG_Edge__TUI__Card().render(source.snapshot()))
 
 
+_docker_factory = None                                                               # tests assign a callable → SG_Edge__TUI__Docker__Source
+
+
+def _docker_source():
+    if _docker_factory is not None:
+        return _docker_factory()
+    from sg_compute.host_plane.pods.service.Pod__Runtime__Docker          import Pod__Runtime__Docker
+    from sg_compute_specs.sg_edge.tui.source.SG_Edge__TUI__Docker__Source import SG_Edge__TUI__Docker__Source
+    return SG_Edge__TUI__Docker__Source(runtime=Pod__Runtime__Docker())
+
+
 @app.command(name='deployment', help='Screen 1 — Deployment Reality: what is deployed, at a glance.')
 def deployment(target: str = typer.Option('local', '--target', '-t', help='Data source: local | aws'),
                parent: str = typer.Option('',      '--parent', '-p', help='Edge parent zone (defaults per target)')):
@@ -80,7 +103,18 @@ def deployment(target: str = typer.Option('local', '--target', '-t', help='Data 
         _render_static(source)
         return
     from sg_compute_specs.sg_edge.tui.screens.SG_Edge__TUI__Screen__Deployment import SG_Edge__TUI__Screen__Deployment
-    SG_Edge__TUI__Screen__Deployment(source=source).run()
+    SG_Edge__TUI__Screen__Deployment(source=source, docker_source=_docker_source()).run()
+
+
+@app.command(name='docker', help='Local Docker — what containers are running on this host (docker ps).')
+def docker():
+    src = _docker_source()
+    if not sys.stdout.isatty():                                                      # piped / CI → plain text list
+        from sg_compute_specs.sg_edge.tui.screens.SG_Edge__TUI__Docker__Render import docker_plain
+        print(docker_plain(src.containers(), src.available()))
+        return
+    from sg_compute_specs.sg_edge.tui.screens.SG_Edge__TUI__Screen__Docker import SG_Edge__TUI__Screen__Docker
+    SG_Edge__TUI__Screen__Docker(docker_source=src).run()
 
 
 @app.command(name='topology', help='Screen 2 — Topology: the layered flow (browser → wildcard → fleet → slugs).')
