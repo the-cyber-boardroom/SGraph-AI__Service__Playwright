@@ -23,6 +23,7 @@ from sgraph_ai_service_playwright__cli.aws.bedrock.tui.screens.Bedrock__Chat__Re
 from sgraph_ai_service_playwright__cli.aws.bedrock.tui.screens.widgets.Chat__Bubble           import Chat__Bubble
 from sgraph_ai_service_playwright__cli.aws.bedrock.tui.screens.widgets.Chat__Composer         import Chat__Composer
 from sgraph_ai_service_playwright__cli.aws.bedrock.tui.screens.widgets.Chat__Cost__Meter      import Chat__Cost__Meter
+from sgraph_ai_service_playwright__cli.aws.bedrock.tui.screens.widgets.Chat__Doc__Chips        import Chat__Doc__Chips
 from sgraph_ai_service_playwright__cli.aws.bedrock.tui.screens.widgets.Chat__Inspector        import Chat__Inspector
 
 COST_OVERRIDE_CONFIRMED = 1e9                                                      # explicit user-confirmed over-cap send
@@ -40,6 +41,7 @@ class Bedrock__Chat__Screen(App):
                 ('ctrl+o',   'model',        'Model'),
                 ('ctrl+b',   'brief',        'Brief'),
                 ('ctrl+g',   'tools',        'Tools'),
+                ('ctrl+d',   'attach',       'Attach doc'),
                 ('ctrl+l',   'clear',        'Clear'),
                 ('ctrl+up',  'inspect_prev', 'Prev req'),
                 ('ctrl+down','inspect_next', 'Next req'),
@@ -60,6 +62,7 @@ class Bedrock__Chat__Screen(App):
         self.tool_config       = tool_config
         self.name_map          = name_map or {}
         self.tools_active      = bool(tool_config and tool_config.get('tools'))    # tools loaded → agentic (non-streaming) path
+        self.pending_docs      = []                                               # documents attached to the next message (^D)
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -67,11 +70,13 @@ class Bedrock__Chat__Screen(App):
             yield VerticalScroll(id='transcript')
             yield Chat__Inspector(id='inspector')
             yield Chat__Cost__Meter(id='meter')
+        yield Chat__Doc__Chips(id='chips')
         yield Chat__Composer(id='composer')
         yield Footer()
 
     def on_mount(self) -> None:
         self.inspector().display = False                                          # hidden until f2; cost meter shown by default
+        self.chips().display     = False
         self.meter().refresh_from(self.session)
         self.query_one('#composer', Chat__Composer).focus()
 
@@ -85,6 +90,9 @@ class Bedrock__Chat__Screen(App):
 
     def inspector(self) -> Chat__Inspector:
         return self.query_one('#inspector', Chat__Inspector)
+
+    def chips(self) -> Chat__Doc__Chips:
+        return self.query_one('#chips', Chat__Doc__Chips)
 
     # ── send flow ────────────────────────────────────────────────────────────────
 
@@ -121,7 +129,8 @@ class Bedrock__Chat__Screen(App):
             acc.append(chunk)
             self.call_from_thread(bubble.set_body, ''.join(acc))
 
-        turn = await asyncio.to_thread(self.engine.send_turn, self.session, text, on_delta, cost_override)
+        documents = self.take_pending_docs()
+        turn = await asyncio.to_thread(self.engine.send_turn, self.session, text, on_delta, cost_override, documents)
         bubble.set_body(''.join(acc))
         self.finish_turn(bubble, turn)
 
@@ -134,8 +143,10 @@ class Bedrock__Chat__Screen(App):
         bubble.set_footer('[dim]⟳ running tools…[/]')
         self.transcript().anchor()
 
+        documents = self.take_pending_docs()
         turn = await asyncio.to_thread(self.engine.send_turn_agentic, self.session, text,
-                                       self.registry, self.center, self.tool_config, self.name_map)
+                                       self.registry, self.center, self.tool_config, self.name_map,
+                                       documents=documents)
         bubble.set_body(turn.response_text or '(no response)')
         self.finish_turn(bubble, turn)
 
@@ -199,6 +210,22 @@ class Bedrock__Chat__Screen(App):
         brief_text = Bedrock__Chat__Brief__Builder().build(self.session)
         write_path = str(Path(self.brief_dir) / f'brief-{self.session.session_id}.md')
         self.push_screen(Bedrock__Chat__Brief__Modal(brief_text, write_path))
+
+    def action_attach(self) -> None:                                              # ctrl+d — attach a document to the next message
+        from sgraph_ai_service_playwright__cli.aws.bedrock.tui.screens.Bedrock__Chat__Doc__Picker import Bedrock__Chat__Doc__Picker
+        def after(document) -> None:
+            if document is not None:
+                self.pending_docs.append(document)
+                self.chips().refresh_from(self.pending_docs)
+                self.notify(f'attached {document.name} ({document.size}B)')
+        self.push_screen(Bedrock__Chat__Doc__Picker(), after)
+
+    def take_pending_docs(self) -> list:                                          # consume the pending attachments for this send
+        documents = list(self.pending_docs)
+        if documents:
+            self.pending_docs = []
+            self.chips().refresh_from([])
+        return documents
 
     def action_tools(self) -> None:                                               # ctrl+g — choose which TUI APIs this chat may use
         from sgraph_ai_service_playwright__cli.tui.tool_api.screens.Tui_Api__Loadout__Modal import Tui_Api__Loadout__Modal
