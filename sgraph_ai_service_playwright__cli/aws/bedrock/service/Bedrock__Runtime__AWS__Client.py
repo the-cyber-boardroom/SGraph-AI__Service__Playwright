@@ -47,6 +47,27 @@ class Bedrock__Runtime__AWS__Client(Type_Safe):
             for event in stream:
                 yield event
 
+    # ── Multi-turn (conversation) variants ─────────────────────────────────────
+    # Accept a full Bedrock messages list so a chat session can pass its history.
+    # The single-turn converse/converse_stream above stay as-is for the CLI verbs.
+
+    def converse_messages(self, model_id: str, messages: list, region: str = None, system: str = None) -> dict:
+        runtime = self.client(region or self.current_region())
+        kwargs  = dict(modelId=model_id, messages=messages)
+        if system:
+            kwargs['system'] = [{'text': system}]                                 # Bedrock system block
+        return runtime.converse(**kwargs)
+
+    def converse_stream_messages(self, model_id: str, messages: list, region: str = None, system: str = None):
+        runtime = self.client(region or self.current_region())
+        kwargs  = dict(modelId=model_id, messages=messages)
+        if system:
+            kwargs['system'] = [{'text': system}]
+        stream  = runtime.converse_stream(**kwargs).get('stream')
+        if stream:
+            for event in stream:
+                yield event
+
     def extract_text(self, response: dict) -> str:                               # Extract the assistant text from a converse response
         output   = response.get('output', {})
         message  = output.get('message', {})
