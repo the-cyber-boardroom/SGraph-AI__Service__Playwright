@@ -7,6 +7,7 @@
 # ═══════════════════════════════════════════════════════════════════════════════
 
 from sg_compute_specs.sg_edge.local.enums.Enum__Local__Edge__Severity      import Enum__Local__Edge__Severity
+from sg_compute_specs.sg_edge.tui.enums.Enum__SG_Edge__TUI__Event_Kind      import Enum__SG_Edge__TUI__Event_Kind
 from sg_compute_specs.sg_edge.tui.enums.Enum__SG_Edge__TUI__Slug_State      import Enum__SG_Edge__TUI__Slug_State
 from sg_compute_specs.sg_edge.tui.enums.Enum__SG_Edge__TUI__Sync_State      import Enum__SG_Edge__TUI__Sync_State
 
@@ -23,6 +24,14 @@ SYNC_GLYPH = {Enum__SG_Edge__TUI__Sync_State.IN_SYNC   : ('●', 'green'),
               Enum__SG_Edge__TUI__Sync_State.LOCAL_ONLY: ('⚠', 'yellow'),
               Enum__SG_Edge__TUI__Sync_State.EDGE_ONLY : ('⚠', 'yellow')}
 
+EVENT_GLYPH = {Enum__SG_Edge__TUI__Event_Kind.SLUG_REGISTERED: ('+', 'green'),
+               Enum__SG_Edge__TUI__Event_Kind.WENT_LIVE       : ('▲', 'green'),
+               Enum__SG_Edge__TUI__Event_Kind.WENT_DORMANT    : ('▼', 'yellow'),
+               Enum__SG_Edge__TUI__Event_Kind.REMOVED         : ('-', 'red'),
+               Enum__SG_Edge__TUI__Event_Kind.FLEET_CHANGED   : ('≈', 'cyan'),
+               Enum__SG_Edge__TUI__Event_Kind.ISSUE           : ('⚠', 'yellow'),
+               Enum__SG_Edge__TUI__Event_Kind.CLEARED         : ('✓', 'green')}
+
 
 def slug_glyph(state) -> tuple:
     return SLUG_GLYPH.get(state, ('·', 'white'))
@@ -34,6 +43,10 @@ def severity_glyph(severity) -> tuple:
 
 def sync_glyph(state) -> tuple:
     return SYNC_GLYPH.get(state, ('·', 'white'))
+
+
+def event_glyph(kind) -> tuple:
+    return EVENT_GLYPH.get(kind, ('·', 'white'))
 
 
 def yes_no(flag : bool) -> tuple:                                                    # ✓ green / ✗ red for a boolean capability

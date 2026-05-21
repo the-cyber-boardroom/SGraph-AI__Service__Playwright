@@ -49,8 +49,14 @@ class test_Cli__SG_Edge__Tui(TestCase):
     def test_help_lists_commands(self):
         result = self.runner.invoke(self.mod.app, ['--help'])
         assert result.exit_code == 0
-        for cmd in ('deployment', 'topology', 'compare', 'slug'):
+        for cmd in ('deployment', 'topology', 'compare', 'slug', 'events'):
             assert cmd in result.output, cmd
+
+    def test_events__no_tty_falls_back_to_card(self):
+        result = self.runner.invoke(self.mod.app, ['events'], catch_exceptions=False)
+        assert result.exit_code == 0
+        assert 'SG/Edge' in result.output
+        assert 'alice'   in result.output
 
     def test_topology__no_tty_falls_back_to_card(self):
         result = self.runner.invoke(self.mod.app, ['topology'], catch_exceptions=False)
