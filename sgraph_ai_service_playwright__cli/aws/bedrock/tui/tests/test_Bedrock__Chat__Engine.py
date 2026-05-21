@@ -6,6 +6,7 @@
 # pre-flight cost cap leaving the session unmutated when it trips. Runs on 3.11.
 # ═══════════════════════════════════════════════════════════════════════════════
 
+import json
 from unittest import TestCase
 
 from sgraph_ai_service_playwright__cli.aws.bedrock.service.Bedrock__Cost__Calculator      import Bedrock__Cost__Calculator
@@ -86,6 +87,21 @@ class test_Bedrock__Chat__Engine(TestCase):
         assert session.turn_count    == 0
         assert len(session.messages) == 0                                          # rejected send did not mutate the session
         assert session.total_cost_usd == 0
+
+    def test_turn_records_exact_request_and_response(self):
+        eng, _src = engine([('first reply', 40, 10, 100), ('the wildcard is stale', 80, 40, 300)])
+        session   = eng.new_session(region='us-east-1', model_alias='lite')
+        eng.send_turn(session, 'one')
+        eng.send_turn(session, 'two')
+
+        turn2 = session.turns[-1]
+        assert turn2.response_text.strip() == 'the wildcard is stale'
+        # the recorded request body is the EXACT multi-turn payload sent to Bedrock
+        body = json.loads(turn2.request_json)
+        assert body['modelId'] == NOVA_LITE
+        roles = [m['role'] for m in body['messages']]
+        assert roles == ['user', 'assistant', 'user']                              # full history captured in the request
+        assert body['messages'][-1]['content'][0]['text'] == 'two'
 
     def test_context_seeds_system_prompt(self):
         from sgraph_ai_service_playwright__cli.aws.bedrock.tui.schemas.Schema__Bedrock__Chat__Context import Schema__Bedrock__Chat__Context

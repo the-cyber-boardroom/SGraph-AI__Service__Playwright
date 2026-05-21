@@ -6,6 +6,7 @@
 # behind the injected source. Reuses the existing Resolver + Cost calculator verbatim.
 # ═══════════════════════════════════════════════════════════════════════════════
 
+import json
 import time
 import uuid
 
@@ -88,13 +89,18 @@ class Bedrock__Chat__Engine(Type_Safe):
         session.messages.append(Schema__Bedrock__Chat__Message(role=Enum__Bedrock__Chat__Role.ASSISTANT,
                                                               text=response_text, ts=time.time()))
 
-        cost = self.calc.estimate(model_id, in_tok, out_tok)
+        cost         = self.calc.estimate(model_id, in_tok, out_tok)
+        request_body = {'modelId': model_id, 'messages': messages}                # the exact body the source sent (region is a client param, not body)
+        if system:
+            request_body['system'] = [{'text': system}]
         turn = Schema__Bedrock__Chat__Turn(model_id      = Safe_Str__Bedrock__Model_Id(model_id),
                                            input_tokens  = in_tok,
                                            output_tokens = out_tok,
                                            cost_usd      = cost,
                                            latency_ms    = latency,
-                                           ts            = time.time())
+                                           ts            = time.time(),
+                                           request_json  = json.dumps(request_body, indent=2, ensure_ascii=False),
+                                           response_text = response_text)
         session.turns.append(turn)
         session.total_input_tokens  += in_tok
         session.total_output_tokens += out_tok

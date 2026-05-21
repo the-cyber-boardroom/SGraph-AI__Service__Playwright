@@ -138,6 +138,44 @@ class test_Bedrock__Chat__Screen(TestCase):
             text = written[0].read_text()
             assert 'Dev brief' in text and 'why is alice dormant?' in text
 
+    # ── request/response inspector ───────────────────────────────────────────────
+    def test_inspector_toggles_and_shows_request_response(self):
+        asyncio.run(self.scenario_inspector())
+
+    async def scenario_inspector(self):
+        from textual.widgets import Static
+        app = self.screen([('first answer', 40, 10, 100), ('second answer', 1652, 120, 608)])
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            await self._send(app, pilot, 'one')
+            await self._send(app, pilot, 'two')
+
+            # inspector hidden by default; meter shown
+            assert app.inspector().display is False
+            assert app.meter().display is True
+
+            await pilot.press('f2')                                               # open inspector → meter hides
+            await pilot.pause()
+            assert app.inspector().display is True
+            assert app.meter().display is False
+            assert app.inspector_selected == 1                                    # newest selected
+
+            detail = app.query_one('#ins-detail', Static).content
+            assert 'request #2'      in detail
+            assert '"role": "user"'  in detail                                    # the exact messages array (history) is visible
+            assert 'second answer'   in detail
+
+            await pilot.press('ctrl+up')                                          # step to the first request
+            await pilot.pause()
+            assert app.inspector_selected == 0
+            detail = app.query_one('#ins-detail', Static).content
+            assert 'request #1' in detail and 'first answer' in detail
+
+            await pilot.press('f2')                                               # close → meter back
+            await pilot.pause()
+            assert app.inspector().display is False
+            assert app.meter().display is True
+
     # ── clear resets the session ────────────────────────────────────────────────
     def test_clear_resets(self):
         asyncio.run(self.scenario_clear())

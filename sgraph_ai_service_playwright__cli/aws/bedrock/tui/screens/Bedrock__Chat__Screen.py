@@ -23,6 +23,7 @@ from sgraph_ai_service_playwright__cli.aws.bedrock.tui.screens.Bedrock__Chat__Re
 from sgraph_ai_service_playwright__cli.aws.bedrock.tui.screens.widgets.Chat__Bubble           import Chat__Bubble
 from sgraph_ai_service_playwright__cli.aws.bedrock.tui.screens.widgets.Chat__Composer         import Chat__Composer
 from sgraph_ai_service_playwright__cli.aws.bedrock.tui.screens.widgets.Chat__Cost__Meter      import Chat__Cost__Meter
+from sgraph_ai_service_playwright__cli.aws.bedrock.tui.screens.widgets.Chat__Inspector        import Chat__Inspector
 
 COST_OVERRIDE_CONFIRMED = 1e9                                                      # explicit user-confirmed over-cap send
 
@@ -31,33 +32,39 @@ class Bedrock__Chat__Screen(App):
     TITLE    = TITLE
     # The composer (TextArea) keeps focus for typing, so global actions use Ctrl-combos
     # / F1 that TextArea does not consume — they bubble past the composer to the App.
-    BINDINGS = [('ctrl+q', 'leave',        'Quit'),
-                ('f1',     'help',         'Help'),
-                ('ctrl+t', 'toggle_theme', 'Theme'),
-                ('ctrl+s', 'export_card',  'Export'),
-                ('ctrl+o', 'model',        'Model'),
-                ('ctrl+b', 'brief',        'Brief'),
-                ('ctrl+l', 'clear',        'Clear'),
-                ('escape', 'stop',         'Stop')]
+    BINDINGS = [('ctrl+q',   'leave',        'Quit'),
+                ('f1',       'help',         'Help'),
+                ('f2',       'inspector',    'Inspect'),
+                ('ctrl+t',   'toggle_theme', 'Theme'),
+                ('ctrl+s',   'export_card',  'Export'),
+                ('ctrl+o',   'model',        'Model'),
+                ('ctrl+b',   'brief',        'Brief'),
+                ('ctrl+l',   'clear',        'Clear'),
+                ('ctrl+up',  'inspect_prev', 'Prev req'),
+                ('ctrl+down','inspect_next', 'Next req'),
+                ('escape',   'stop',         'Stop')]
 
     def __init__(self, engine, region: str = '', model_alias: str = 'default',
                  context=None, brief_dir: str = ''):
         super().__init__()
-        self.engine    = engine
-        self.session   = engine.new_session(region=region, model_alias=model_alias, context=context)
-        self.brief_dir = brief_dir or str(Path.home() / '.sg' / 'aws' / 'bedrock' / 'chat')
-        self.exited    = False
-        self.last_turn = None
+        self.engine            = engine
+        self.session           = engine.new_session(region=region, model_alias=model_alias, context=context)
+        self.brief_dir         = brief_dir or str(Path.home() / '.sg' / 'aws' / 'bedrock' / 'chat')
+        self.exited            = False
+        self.last_turn         = None
+        self.inspector_selected = 0
 
     def compose(self) -> ComposeResult:
         yield Header()
         with Horizontal():
             yield VerticalScroll(id='transcript')
+            yield Chat__Inspector(id='inspector')
             yield Chat__Cost__Meter(id='meter')
         yield Chat__Composer(id='composer')
         yield Footer()
 
     def on_mount(self) -> None:
+        self.inspector().display = False                                          # hidden until f2; cost meter shown by default
         self.meter().refresh_from(self.session)
         self.query_one('#composer', Chat__Composer).focus()
 
@@ -68,6 +75,9 @@ class Bedrock__Chat__Screen(App):
 
     def meter(self) -> Chat__Cost__Meter:
         return self.query_one('#meter', Chat__Cost__Meter)
+
+    def inspector(self) -> Chat__Inspector:
+        return self.query_one('#inspector', Chat__Inspector)
 
     # ── send flow ────────────────────────────────────────────────────────────────
 
@@ -109,11 +119,36 @@ class Bedrock__Chat__Screen(App):
         self.last_turn = turn
         bubble.set_footer(turn_footer(turn.input_tokens, turn.output_tokens, turn.cost_usd, turn.latency_ms))
         self.meter().refresh_from(self.session)
+        if self.inspector().display:                                              # follow the newest request while inspecting
+            self.inspector_selected = len(self.session.turns) - 1
+            self.inspector().refresh_from(self.session, self.inspector_selected)
         self.transcript().anchor()
         frac = (self.session.total_cost_usd / self.session.budget_usd) if self.session.budget_usd else 0.0
         if frac >= BUDGET_WARN_FRACTION:
             self.notify(f'session cost ${self.session.total_cost_usd:.4f} of ${self.session.budget_usd:.2f} budget',
                         severity='warning')
+
+    # ── inspector ────────────────────────────────────────────────────────────────
+
+    def action_inspector(self) -> None:                                           # f2 — open/close the request/response inspector (swaps with the cost meter)
+        opening = not self.inspector().display
+        self.inspector().display = opening
+        self.meter().display     = not opening
+        if opening:
+            self.inspector_selected = max(0, len(self.session.turns) - 1)
+            self.inspector().refresh_from(self.session, self.inspector_selected)
+
+    def action_inspect_prev(self) -> None:
+        self._inspect_step(-1)
+
+    def action_inspect_next(self) -> None:
+        self._inspect_step(+1)
+
+    def _inspect_step(self, delta: int) -> None:
+        if not self.inspector().display or not self.session.turns:
+            return
+        self.inspector_selected = max(0, min(self.inspector_selected + delta, len(self.session.turns) - 1))
+        self.inspector().refresh_from(self.session, self.inspector_selected)
 
     # ── actions ──────────────────────────────────────────────────────────────────
 
@@ -148,7 +183,10 @@ class Bedrock__Chat__Screen(App):
         self.session.context_label = old.context_label
         for child in list(self.transcript().children):
             child.remove()
+        self.inspector_selected = 0
         self.meter().refresh_from(self.session)
+        if self.inspector().display:
+            self.inspector().refresh_from(self.session, self.inspector_selected)
 
     def action_stop(self) -> None:
         self.workers.cancel_group(self, 'llm')

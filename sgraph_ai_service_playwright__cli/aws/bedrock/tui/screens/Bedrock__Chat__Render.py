@@ -74,6 +74,37 @@ def cost_meter_markup(session) -> str:
     return '\n'.join(lines)
 
 
+def _esc(text: str) -> str:                                                       # Rich-escape arbitrary text so [ in JSON / replies can't open a markup tag
+    return text.replace('[', r'\[')
+
+
+def inspector_list_markup(turns, selected: int) -> str:
+    lines = ['[bold]requests[/]  [dim](ctrl+↑/↓)[/]', '']
+    if not turns:
+        lines.append('  [dim](no turns yet)[/]')
+        return '\n'.join(lines)
+    for i, t in enumerate(turns):
+        marker = '[cyan]▸[/]' if i == selected else ' '
+        style  = 'bold' if i == selected else 'dim'
+        lines.append(f' {marker} [{style}]#{i + 1}  in {t.input_tokens} out {t.output_tokens}  ${t.cost_usd:.6f}[/]')
+    return '\n'.join(lines)
+
+
+def inspector_detail_markup(turn, index: int) -> str:
+    if turn is None:
+        return '[dim](no request selected)[/]'
+    lines = [f'[bold]request #{index + 1}[/]   [dim]{turn.model_id}[/]',
+             '[dim]── exact Converse body sent ──[/]', '']
+    for line in (turn.request_json or '').split('\n'):
+        lines.append(f'[dim]{_esc(line)}[/]')
+    lines += ['', '[bold]response[/]', '']
+    for line in (turn.response_text or '').split('\n'):
+        lines.append(_esc(line))
+    lines += ['', f'[dim]usage: in {turn.input_tokens} · out {turn.output_tokens} · '
+                  f'${turn.cost_usd:.6f} · {turn.latency_ms}ms[/]']
+    return '\n'.join(lines)
+
+
 def model_picker_rows(aliases: list, pricing_for, resolve) -> list:
     # → list of (alias, model_id, in_price, out_price) ; aliases includes 'default' first
     rows = []
