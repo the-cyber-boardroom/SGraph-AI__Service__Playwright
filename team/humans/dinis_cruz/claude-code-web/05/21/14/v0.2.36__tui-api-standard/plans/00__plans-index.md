@@ -119,15 +119,19 @@ the right grain emerge, rather than fixing a convention now.
 - ✅ **C-TL2a** loadout + workflow assembler (`from_tools`/`from_workflow`/`granted_actions`).
 - ✅ **C-TL2b** `--tools` wired into the interactive chat: streaming for plain chat, the agentic
   loop when tools are active; the chat registers the VFS core tool; pilot-tested (3.12).
-- ⬜ **C-TL3** Inspector renders toolUse / toolResult + audit per turn.
-- ⬜ **C-D1** Converse document attachments + N-doc context.
-- (deferred) the loadout selection *modal* — the `--tools` flag is the functional path.
+- ✅ **C-TL3** Inspector renders the per-turn tool calls (✓/✗ · name · input · result); turn carries `tool_log`.
+- ✅ **C-D1** Converse document attachments (`Bedrock__Chat__Documents`: load/validate/content-block;
+  send_turn/agentic accept `documents`); the functional core.
+- (deferred UI) the loadout selection *modal*, the `^D` document picker + chip row, and N-doc
+  persistent context — the `--tools` flag and engine-level document attach are the functional paths.
 
-**Foundation B1–B6 BUILT; chat is a provider (C-P0), agentic (C-TL1), and tool-enabled
-interactively (C-TL2).** Remaining: inspector tool blocks (C-TL3) + documents (C-D1).
+**Foundation B1–B6 BUILT; chat is a provider (C-P0), agentic (C-TL1), tool-enabled
+interactively (C-TL2), tool calls visible (C-TL3), and document-aware (C-D1).** The whole
+TUI API standard + the Bedrock chat consumption is built end-to-end; what remains is UI polish
+(the two modals + the doc chip row).
 
 **Runtime:** the project targets **Python 3.12**. A single 3.12 interpreter runs the whole
-suite (textual + memory_fs + boto3 together): **3.12 → 98 passed.** On a 3.11 lane the
+suite (textual + memory_fs + boto3 together): **3.12 → 107 passed.** On a 3.11 lane the
 memory_fs / agentic-pilot tests skip cleanly. All pushed to `claude/review-tui-cli-commits-S3xCM`.
 
 ---
