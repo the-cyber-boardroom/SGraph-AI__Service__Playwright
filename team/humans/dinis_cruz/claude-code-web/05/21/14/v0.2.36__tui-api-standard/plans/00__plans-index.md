@@ -103,9 +103,17 @@ build the workflow assembler **in C-TL2**. Separately, **tool/API granularity is
 organic** — prove the slug model (`sg-aws.s3`, etc.) across several tools/services and let
 the right grain emerge, rather than fixing a convention now.
 
-**B1 status: ✅ BUILT (2026-05-21)** — `sgraph_ai_service_playwright__cli/tui/tool_api/` +
-`aws/s3/tui_api/`; `sg aws s3 tui api list/describe/skills/invoke` work; 14 unit tests pass
-on 3.11 (28 incl. existing s3, no regressions).
+**Foundation status (2026-05-21) — the framework-free core is BUILT:**
+- ✅ **B1** contract + registry + CLI + S3 provider (`sg aws s3 tui api …`).
+- ✅ **B2** SG/Role tokens + privilege resolver over `aws/creds`.
+- ✅ **B3** execution center (sequencing, mutation gate, audit, dry-run); `invoke` routes through it.
+- ✅ **B4** VFS core tool over `memory_fs` (3.12-gated).
+- 🟡 **B5** contract-test harness built (the quality gate); the Textual explorer screen is pending.
+- ⬜ **B6** orientation + change-control — next.
+- ⬜ **C** chat slices (C-P0 provider surface, tool loop, loadout, documents) — after B6.
+
+Tests: **39 passed + 2 skipped on 3.11; 9 passed on 3.12.** All pushed to
+`claude/review-tui-cli-commits-S3xCM`.
 
 ---
 
