@@ -19,9 +19,12 @@ import sys
 
 import typer
 
+from sgraph_ai_service_playwright__cli.aws._shared.auth.AWS__Auth__Guard       import aws_auth_guard
 from sgraph_ai_service_playwright__cli.elastic.lets.cf.tui.cf_tui__config   import CF_LOGS_BUCKET, CF_LOGS_PREFIX, CF_LOGS_REGION, TUI_S3_SAMPLE_FILES
 
 app = typer.Typer(name='tui', help='CloudFront-logs exploratory TUI screens (Textual).', no_args_is_help=True)
+
+FAMILY = 'el-lets-cf'                                                                 # transparent-assume + auth-guard the S3-touching screens (cache/diagnose touch no AWS)
 
 _source_factory = None                                                               # tests assign a callable(source, bucket, prefix, region, date, hour, max_files) → Data_Source
 _arch_factory   = None                                                               # tests assign a callable(bucket, region) → CF_TUI__Arch_Source
@@ -67,6 +70,7 @@ LINE   = typer.Option(0,           '--line',          help='Line index within th
 
 
 @app.command(name='traffic', help='Screen 5 — Traffic Reality: what is going on on the website.')
+@aws_auth_guard(FAMILY)
 def traffic(source : str = SOURCE, bucket : str = BUCKET, prefix : str = PREFIX, region : str = REGION,
             date : str = DATE, hour : str = HOUR, max_files : int = MAXF):
     data_source = _source(source, bucket, prefix, region, date, hour, max_files)
@@ -79,6 +83,7 @@ def traffic(source : str = SOURCE, bucket : str = BUCKET, prefix : str = PREFIX,
 
 
 @app.command(name='files', help='S3 browser — walk folders (YYYY/MM/DD/HH) to a file and its parsed contents.')
+@aws_auth_guard(FAMILY)
 def files(source : str = SOURCE, bucket : str = BUCKET, prefix : str = PREFIX, region : str = REGION,
           date : str = DATE, hour : str = HOUR, max_files : int = MAXF):
     data_source = _source(source, bucket, prefix, region, date, hour, max_files)
@@ -92,6 +97,7 @@ def files(source : str = SOURCE, bucket : str = BUCKET, prefix : str = PREFIX, r
 
 
 @app.command(name='inspect', help='Field Lineage — one log line walked through all 38 fields, raw→transformed.')
+@aws_auth_guard(FAMILY)
 def inspect(source : str = SOURCE, bucket : str = BUCKET, prefix : str = PREFIX, region : str = REGION,
             date : str = DATE, hour : str = HOUR, max_files : int = MAXF, key : str = KEY, line : int = LINE):
     data_source = _source(source, bucket, prefix, region, date, hour, max_files)
@@ -125,6 +131,7 @@ def _arch_source(bucket : str, region : str):
 
 
 @app.command(name='architecture', help='Deployed Architecture — live CF/S3/CloudWatch wiring (Firehose marked UNVERIFIED).')
+@aws_auth_guard(FAMILY)
 def architecture(bucket : str = BUCKET, region : str = REGION):
     src = _arch_source(bucket, region)
     if not sys.stdout.isatty():
@@ -141,6 +148,7 @@ def architecture(bucket : str = BUCKET, region : str = REGION):
 # See library/guides/v0.2.39__tui_cli_separation.md.
 
 @app.command(name='sync', help='Visual sync browser for raw-cf-logs (download via `g`). Scripted path: `sp el lets cf sync`.')
+@aws_auth_guard(FAMILY)
 def sync(date : str = DATE, hour : str = HOUR, bucket : str = BUCKET, region : str = REGION):
     from sgraph_ai_service_playwright__cli.elastic.lets.cf.local.cli.Cli__CF__Local import build_sync_service
     svc = build_sync_service(bucket, region)
