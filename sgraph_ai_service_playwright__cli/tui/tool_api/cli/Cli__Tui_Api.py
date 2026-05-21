@@ -9,11 +9,14 @@ import json
 
 import typer
 
-from sgraph_ai_service_playwright__cli.tui.tool_api.service.Tui_Api__Registry import Tui_Api__Registry
+from sgraph_ai_service_playwright__cli.tui.tool_api.enums.Enum__Tui_Api__Exec_Mode      import Enum__Tui_Api__Exec_Mode
+from sgraph_ai_service_playwright__cli.tui.tool_api.service.Tui_Api__Execution_Center   import Tui_Api__Execution_Center
+from sgraph_ai_service_playwright__cli.tui.tool_api.service.Tui_Api__Registry           import Tui_Api__Registry
 
 
 def make_tui_api_app(registry: Tui_Api__Registry) -> typer.Typer:
-    app = typer.Typer(name='api', help='TUI API: discover + invoke this area\'s actions.', no_args_is_help=True)
+    app    = typer.Typer(name='api', help='TUI API: discover + invoke this area\'s actions.', no_args_is_help=True)
+    center = Tui_Api__Execution_Center(registry=registry)                         # every invoke is gated + audited here
 
     @app.command('list')
     def list_():
@@ -53,12 +56,14 @@ def make_tui_api_app(registry: Tui_Api__Registry) -> typer.Typer:
     @app.command('invoke')
     def invoke(slug: str = typer.Argument(..., help='API slug'),
                action: str = typer.Argument(..., help='action name, e.g. list_objects'),
-               params: str = typer.Option('{}', '--params', help='JSON object of action params.')):
-        """Invoke an action and print its result. (B3 will route this via the execution center.)"""
-        provider = registry.get(slug)
-        if provider is None:
+               params: str = typer.Option('{}', '--params', help='JSON object of action params.'),
+               dry_run: bool = typer.Option(False, '--dry-run', help='Preview a mutation without committing.')):
+        """Invoke an action through the execution center (sequencing → params → mutation gate → audit)."""
+        if registry.get(slug) is None:
             typer.echo(f'no such API: {slug}'); raise typer.Exit(code=1)
-        result = provider.dispatch(action, json.loads(params))
+        center.mode = Enum__Tui_Api__Exec_Mode.DRY_RUN if dry_run else Enum__Tui_Api__Exec_Mode.AUTO
+        result = center.execute(slug, action, json.loads(params),
+                                on_confirm=lambda a, p, preview: typer.confirm(f'Run {a.name} [{a.tier}]?', default=False))
         typer.echo(json.dumps(result.json(), indent=2, default=str))
         if not result.ok:
             raise typer.Exit(code=1)

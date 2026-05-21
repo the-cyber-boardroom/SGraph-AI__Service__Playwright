@@ -26,6 +26,9 @@ class Tui_Api__Provider(Type_Safe):
     def dispatch(self, action: str, params: dict) -> Schema__Tui_Api__Result:     # mode-free; the execution center (B3) owns mode
         raise NotImplementedError
 
+    def dry_run(self, action: str, params: dict) -> dict:                         # preview a change-set without committing (override where supported)
+        return {}
+
     def action(self, name: str) -> Schema__Tui_Api__Action:                       # convenience lookup into the manifest
         for action in self.manifest().actions:
             if str(action.name) == name:
