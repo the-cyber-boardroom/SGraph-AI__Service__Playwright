@@ -68,4 +68,10 @@ def make_tui_api_app(registry: Tui_Api__Registry) -> typer.Typer:
         if not result.ok:
             raise typer.Exit(code=1)
 
+    @app.command('explore')
+    def explore():
+        """Launch the Swagger-style TUI API explorer (Textual)."""
+        from sgraph_ai_service_playwright__cli.tui.tool_api.screens.Tui_Api__Explorer import Tui_Api__Explorer
+        Tui_Api__Explorer(registry=registry).run()
+
     return app
