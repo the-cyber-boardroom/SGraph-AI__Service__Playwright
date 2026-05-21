@@ -110,10 +110,16 @@ labelled pending). S5 (`…Screen__Events`) polls and diffs successive snapshots
 the `Differ`, streaming honest state-transition events with `Metrics`-backed
 sparklines (counts the TUI measured — not rps); pause / filter / clear.
 
+Every screen shares `q` quit · `?` context-aware help overlay · `t` dark/light
+theme · `e` export the snapshot as an ASCII card to the clipboard (OSC-52).
+`sg edge tui diagnose` prints terminal capability checks ($TERM/$LANG/colors/unicode/
+truecolor) for the SSH/SSM + `docker exec` chain. Full operator guide:
+[`library/guides/v0.2.38__sg-edge-tui-guide.md`](../../library/guides/v0.2.38__sg-edge-tui-guide.md).
+
 Textual is a lazy/gated dependency: registering `sg edge tui` never imports it, and
-each screen falls back to static output when stdout is not a terminal. Remaining:
-the T-chain polish — `diagnose`, help overlay `?`, theme toggle, OSC-52 export, and
-the user guide.
+each screen falls back to static output when stdout is not a terminal. All five
+screens + the T-chain polish are done; what remains is the **sixth conversation** —
+which screens get promoted into a canonical composite `sg edge tui` app.
 
 ## Not built yet (deferred — see plans)
 

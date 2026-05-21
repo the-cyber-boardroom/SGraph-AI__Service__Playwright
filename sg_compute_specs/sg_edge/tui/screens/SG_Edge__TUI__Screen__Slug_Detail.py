@@ -9,18 +9,18 @@
 # passes the selected one). refresh_seconds=0 → no timer.
 # ═══════════════════════════════════════════════════════════════════════════════
 
-from textual.app                                                                    import App, ComposeResult
+from textual.app                                                                    import ComposeResult
 from textual.containers                                                             import VerticalScroll
 from textual.widgets                                                                import Header, Footer, Static
 
+from sg_compute_specs.sg_edge.tui.screens.SG_Edge__TUI__App__Base                   import SG_Edge__TUI__App__Base
 from sg_compute_specs.sg_edge.tui.screens.SG_Edge__TUI__Slug_Detail__Render         import slug_detail_markup
 from sg_compute_specs.sg_edge.tui.sg_edge_tui__config                               import TUI_REFRESH_SECONDS
 
 
-class SG_Edge__TUI__Screen__Slug_Detail(App):
+class SG_Edge__TUI__Screen__Slug_Detail(SG_Edge__TUI__App__Base):
     TITLE    = 'SG/Edge Slug Detail'
-    BINDINGS = [('q', 'leave',       'Quit'),
-                ('r', 'refresh',     'Refresh'),
+    BINDINGS = [('r', 'refresh',     'Refresh'),
                 ('down', 'select_next', 'Next slug'),
                 ('j',    'select_next', 'Next slug'),
                 ('up',   'select_prev', 'Prev slug'),
@@ -32,7 +32,6 @@ class SG_Edge__TUI__Screen__Slug_Detail(App):
         self.focus_name      = slug
         self.refresh_seconds = refresh_seconds
         self.snapshot        = None
-        self.exited          = False
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -74,7 +73,3 @@ class SG_Edge__TUI__Screen__Slug_Detail(App):
 
     def action_refresh(self) -> None:
         self.refresh_snapshot()
-
-    def action_leave(self) -> None:
-        self.exited = True
-        self.exit()

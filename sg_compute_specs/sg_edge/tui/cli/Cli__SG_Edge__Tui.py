@@ -25,6 +25,30 @@ def main():                                                                     
     pass
 
 
+@app.command(name='diagnose', help='Print terminal capability checks (run before reporting broken TUI output).')
+def diagnose():
+    import os
+    import shutil
+    import subprocess
+    term   = os.environ.get('TERM', '')   or '(unset)'
+    lang   = os.environ.get('LANG', '')   or '(unset)'
+    lc_all = os.environ.get('LC_ALL', '') or '(unset)'
+    colors = '(tput unavailable)'
+    if shutil.which('tput'):
+        try:
+            colors = subprocess.run(['tput', 'colors'], capture_output=True, text=True).stdout.strip() or colors
+        except Exception:
+            pass
+    print('SG/Edge TUI — terminal diagnostics')
+    print(f'  TERM        = {term}')
+    print(f'  LANG        = {lang}')
+    print(f'  LC_ALL      = {lc_all}')
+    print(f'  tput colors = {colors}   (expect 256)')
+    print('  unicode test : █▓▒░ ▁▂▃▄▅▆▇█ ╭─╮ │ ╰─╯ ● ◐ ○ ✓ ✗ ⚠ ▸ ≈ ▲ ▼')
+    print('  truecolor    : \x1b[38;2;255;100;0mTRUECOLOR\x1b[0m   (renders orange ⇒ 24-bit ok)')
+    print('  if blocks/boxes show as ? or tofu, the locale or font is wrong — see the TUI guide.')
+
+
 def _source(target : str, parent : str):
     if _source_factory is not None:
         return _source_factory(target, parent)

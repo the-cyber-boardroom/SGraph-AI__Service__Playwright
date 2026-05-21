@@ -8,18 +8,18 @@
 # Construct with an injected SG_Edge__TUI__Data_Source. refresh_seconds=0 → no timer.
 # ═══════════════════════════════════════════════════════════════════════════════
 
-from textual.app                                                                    import App, ComposeResult
+from textual.app                                                                    import ComposeResult
 from textual.containers                                                             import VerticalScroll
 from textual.widgets                                                                import Header, Footer, Static
 
+from sg_compute_specs.sg_edge.tui.screens.SG_Edge__TUI__App__Base                   import SG_Edge__TUI__App__Base
 from sg_compute_specs.sg_edge.tui.screens.SG_Edge__TUI__Topology__Render            import topology_markup
 from sg_compute_specs.sg_edge.tui.sg_edge_tui__config                               import TUI_REFRESH_SECONDS
 
 
-class SG_Edge__TUI__Screen__Topology(App):
+class SG_Edge__TUI__Screen__Topology(SG_Edge__TUI__App__Base):
     TITLE    = 'SG/Edge Topology'
-    BINDINGS = [('q', 'leave',       'Quit'),
-                ('r', 'refresh',     'Refresh'),
+    BINDINGS = [('r', 'refresh',     'Refresh'),
                 ('down', 'select_next', 'Down'),
                 ('j',    'select_next', 'Down'),
                 ('up',   'select_prev', 'Up'),
@@ -32,7 +32,6 @@ class SG_Edge__TUI__Screen__Topology(App):
         self.refresh_seconds = refresh_seconds
         self.snapshot        = None
         self.selected_index  = 0
-        self.exited          = False
         self.opened_slug     = ''                                                    # set on Enter → CLI relaunches the Slug-detail screen
 
     def compose(self) -> ComposeResult:
@@ -79,7 +78,3 @@ class SG_Edge__TUI__Screen__Topology(App):
 
     def action_refresh(self) -> None:
         self.refresh_snapshot()
-
-    def action_leave(self) -> None:
-        self.exited = True
-        self.exit()
