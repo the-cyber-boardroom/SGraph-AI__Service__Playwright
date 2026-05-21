@@ -49,9 +49,16 @@ Each TUI is a **separate module** (e.g. `sg-{service}-tui`). The service's CLI/p
 
 ---
 
-## 3. Framework
+## 3. Framework — Textual + Rich, *conditioned*
 
-**Default: Textual + Rich (Python).** Already in-stack, fastest to iterate visual design, mature widgets (DataTable, Tree, Sparkline, ProgressBar), well-tested in containers over SSH/SSM. Second choice: Bubble Tea + Lipgloss (Go) if single-binary distribution becomes the priority. Don't relitigate this per-TUI unless there's a concrete reason.
+**Default: Textual + Rich (Python).** Already in-stack, fastest to iterate visual design, mature widgets (DataTable, Tree, Sparkline, ProgressBar), works over the SSH/SSM chain. The single feature that matters most *for this codebase*: **`App.run_test()` — the pilot harness** lets you drive a real app (`pilot.press(...)`) and assert on widget state with **no mocks and no real terminal**, which is exactly the project's no-mocks testing culture. Don't relitigate this per-TUI. Second choice: Bubble Tea + Lipgloss (Go), only if single-binary distribution becomes the priority.
+
+**The recommendation is conditioned on four disciplines** — Textual is a fast-moving, heavy dependency (8.x churns its API between majors), so adopt it *this* way or the bet is unsafe:
+
+1. **Content/view split — non-negotiable.** All content and logic live in **pure functions** (a `*_markup()` string builder, the Type_Safe aggregator/snapshot, the ASCII `Card`) that import **no Textual and no Rich** and are unit-tested on their own. The Textual `App` is a thin shell that polls the source, drops the pure markup into a `Static`, and binds keys. This is what makes the framework *swappable*: if Textual churns or is replaced, the value and tests are untouched.
+2. **Lazy + gated, never load-bearing.** Import Textual *inside* the command body, so registering the CLI sub-app never requires it — the rest of the CLI works without Textual installed. View-layer tests `@skipUnless` Textual is importable (exactly as CLI suites gate on typer); the pure layers always run.
+3. **Keep it out of the core service deps.** Textual is **operator tooling, not runtime** — do not add it to the main `pyproject.toml` dependencies (the one Docker image runs on Lambda/Fargate and stays lean). Install it where the TUI actually runs, and **pin the major version** given the churn.
+4. **Spend it where it pays.** A static dashboard is ~95% Rich (markup into one `Static`); Textual barely earns its keep there. Its real payoff is the **interactive** screens — focus/drill-in navigation, `DataTable`, modal help, live filtering, pause. Reach for Textual's layout/widget machinery on those; don't over-engineer the static screens with it.
 
 ---
 
