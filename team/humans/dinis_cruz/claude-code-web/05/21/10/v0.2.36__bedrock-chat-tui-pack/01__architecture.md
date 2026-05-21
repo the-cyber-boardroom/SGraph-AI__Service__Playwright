@@ -365,6 +365,27 @@ about the current TUI's data*, diagnose gaps, and emit a dev brief. Designed in 
 The context body is **labelled in the UI** (`context: edge snapshot @ 10:31`) so it's
 never ambiguous what the model was told (honesty rule).
 
+> **Reconcile with the VFS (TUI API standard §6).** Inlining a file as a system block is
+> right for **small, always-relevant** context (a snapshot, a reality-doc page). For a
+> **large** body of reference material, inlining it is the context-pollution anti-pattern the
+> standard names — use the **VFS read-on-demand** path instead (the model pulls only what it
+> needs via `vfs.read`). Rule of thumb: *attach/seed when the model must read it now; VFS when
+> it should read on demand.* See `05` §3–§4.
+
+---
+
+## 8. The chat as a TUI API provider (forward pointer)
+
+Per the ratified standard's decision #8, the chat exposes its **own** provider surface in v1
+— it is not only a consumer of tools. The key architectural fact: **`Schema__Bedrock__Chat__Session`
+(§4.1) is the `state()` surface** — it already holds everything an external driver needs
+(messages, turns, running cost aggregates, model, region, seeded context), and each turn
+already records `request_json` + `response_text` as the audit trail. So making the chat a
+`Tui_Api__Provider` is wiring, not new state. The provider actions (`send`/`clear`/`set_model`/
+`export_brief`), events (`turn_*`/`cost_*`), and the `sg aws bedrock chat tui api …` surface
+are specified in `05` §2; the generic contract is in
+[`../../14/v0.2.36__tui-api-standard/01__tui-api-contract-and-conventions.md`](../../14/v0.2.36__tui-api-standard/01__tui-api-contract-and-conventions.md).
+
 ---
 
 This document is released under the Creative Commons Attribution 4.0 International licence (CC BY 4.0).

@@ -16,22 +16,48 @@ its own; then the view in bounded slices.**
 
 ---
 
-## 1. Slice sequence
+## 1. Unified roadmap (chat + TUI API)
 
-| Slice | Scope | Textual? | 3.11? |
+The single roadmap for the whole effort. **Phase A (the chat)** is largely built on this
+branch. **Phase B (TUI API foundations)** is the ratified standard's generic layer
+([`../../14/v0.2.36__tui-api-standard/01__tui-api-contract-and-conventions.md`](../../14/v0.2.36__tui-api-standard/01__tui-api-contract-and-conventions.md)).
+**Phase C (chat ↔ TUI API)** wires them together (specified in `05`). Foundations (B)
+precede the tool loop (C) so the chat engine isn't built twice — the briefs' "v1, not v2".
+
+### Phase A — the chat (built)
+| Slice | Scope | Textual? | Status |
 |---|---|---|---|
-| **T1 — primitives + session core** | The two primitive extensions (`converse_messages`, stream `extract_usage`/`collect_with_usage`); the schemas (`Message`/`Turn`/`Session`/`Context` + enums + collections); `Bedrock__Chat__Engine.send_turn`; `Bedrock__Chat__In_Memory` source; `Bedrock__Chat__Card`. **Full unit coverage, no Textual. Land + review on its own.** | no | **yes** |
-| **S1 — chat screen (core loop)** | `Bedrock__Chat__Screen`: transcript of `Chat__Bubble`s, `Chat__Composer`, thread-worker streaming via `Markdown.get_stream`, anchor-to-bottom, per-bubble cost footer. Wire to the real `Bedrock__Chat__AWS_Source`. | yes | no (gated) |
-| **S2 — cost sidebar + caps** | `Chat__Cost__Meter` (running Σ tokens/$, budget bar, cost-color tokens); pre-flight `check_cost_cap` → blocking confirm modal; over-budget toast; `$` cost-detail Collapsible. | yes | no (gated) |
-| **S3 — model picker + theme/help/export** | `Bedrock__Chat__Model__Picker` (Nova only, priced); reuse help-modal + theme-toggle + OSC-52 card export patterns. | yes | no (gated) |
-| **S4 — brief capture + context seam** | `Bedrock__Chat__Brief__Builder`; `Bedrock__Chat__Brief__Modal`; `--context FILE` seeding + the `Chat__Context__Provider` contract. | yes | no (gated) |
-| **T-chain — deployment chain + docs** | `sg aws bedrock chat tui diagnose`; no-TTY one-shot fallback; first-frame < 100 ms; resize; `library/guides/v0.2.x__bedrock-chat-tui-guide.md`; reality-doc update. | yes | no (gated) |
-| **(deferred) P — promote chat widgets to `_shared/tui/chat/`** | After ~a week of use, lift the Tier-1 widgets out of `bedrock/tui/screens/widgets/` into the shared kit and wire `sg edge tui`'s chat mode. **The sixth conversation decides this.** | yes | no (gated) |
+| T1 — primitives + session core | two primitive extensions; schemas; `engine.send_turn`; in-memory source; card. Pure, 3.11. | no | ✅ built |
+| S1 — chat screen (core loop) | transcript/`Chat__Bubble`/`Chat__Composer`, thread-worker streaming, anchor, per-bubble footer | yes | ✅ built |
+| S2 — cost sidebar + caps | `Chat__Cost__Meter`, budget bar, pre-flight `check_cost_cap` → confirm modal, over-budget toast | yes | ✅ built |
+| S3 — picker + theme/help/export | Nova `Model__Picker`, help modal, theme toggle, OSC-52 export | yes | ✅ built |
+| S4 — brief + context seam | `Brief__Builder`/`Brief__Modal`; `--context FILE` seeding | yes | ✅ built |
+| +Inspector (beyond original plan) | F2 request/response panel; `Turn.request_json`/`response_text` (02 §8) | yes | ✅ built |
+| T-chain — deployment chain + docs | `… tui diagnose`; no-TTY one-shot; first-frame; guide; reality-doc | yes | 🟡 partial |
 
-**Build order rationale:** T1 is the valuable, framework-free core (the engine + cost
-model + the cost-accurate streaming fix) — it must be solid and reviewed before any
-Textual. S1→S2 deliver the cost-tracked chat (the brief's spine). S3→S4 add the verbs
-that make it more than a toy. Promotion to the shared kit is deliberately *after* use.
+### Phase B — TUI API foundations (pure-first; the ratified standard)
+| Slice | Scope | Textual? | Status |
+|---|---|---|---|
+| B1 — contract + registry | Type_Safe contract (standard §4), JSON-Schema-from-Type_Safe, `Tui_Api__Provider` + `Registry`, `sg <area> tui api list/describe/skills`; one read-only provider. Pure, 3.11. | no | proposed |
+| B2 — SG/Role tokens + resolver | scope/grant/privilege; token resolver over `credentials/` + `aws/creds/`; whole-API `{api}:*` grant. Pure. | no | proposed |
+| B3 — execution center | AUTO/CONFIRM/DRY_RUN, schema-validate, precondition/sequencing check, `ALLOW_MUTATIONS` gate, audit ring; `… tui api invoke`. Pure. | no | proposed |
+| B4 — VFS core tool | `memory_fs`-backed provider; `/tools/<tool>/` conventions; `vfs.*` actions; ephemeral default. **3.12-gated tests.** | no | proposed |
+| B5 — explorer/tester | Swagger-style explorer screen + automated contract-test harness | yes | proposed |
+
+### Phase C — chat ↔ TUI API (consumes B; see `05`)
+| Slice | Scope | Textual? | Status |
+|---|---|---|---|
+| C-P0 — chat provider surface | the chat as `Tui_Api__Provider` (state/actions/events) — standard #8, **v1** | yes (+pure) | proposed |
+| C-TL1 — engine tool-use loop | Converse tool loop; toolResult; per-turn cost summing all sub-calls | yes | proposed |
+| C-TL2 — loadout + toolConfig | loadout modal + `--tools`; only granted ∧ available actions reach the model | yes | proposed |
+| C-TL3 — inspector extension | toolUse/toolResult + audit + per-call cost; transcript tool blocks | yes | proposed |
+| C-D1 — documents | Converse document attachments + N-doc persistent context | yes | proposed |
+| (deferred) P — promote chat widgets | lift Tier-1 widgets to `_shared/tui/chat/`; wire `sg edge tui` chat mode | yes | deferred |
+
+**Build order.** A is done. Do **B1→B3** (the framework-free core — independently useful as
+`sg … tui api`), then **B4** (VFS, 3.12) and **C-P0** (cheap; makes the chat testable
+headless and avoids the redo trap). **C-TL1→TL3** then make the chat agentic + visible;
+**C-D1** runs in parallel; **B5** and the widget promotion land last.
 
 ---
 
