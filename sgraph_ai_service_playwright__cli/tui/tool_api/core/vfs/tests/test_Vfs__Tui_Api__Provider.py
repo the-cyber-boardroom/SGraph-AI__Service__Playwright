@@ -48,6 +48,11 @@ def test_unknown_action():
     assert _provider().dispatch('vfs.bogus', {}).ok is False
 
 
+def test_vfs_provider_satisfies_contract():
+    from sgraph_ai_service_playwright__cli.tui.tool_api.testing.Tui_Api__Contract__Asserts import Tui_Api__Contract__Asserts
+    Tui_Api__Contract__Asserts().assert_ok(_provider())
+
+
 def test_manifest_tiers_and_real_schema():
     manifest = _provider().manifest()
     names    = [str(a.name) for a in manifest.actions]
