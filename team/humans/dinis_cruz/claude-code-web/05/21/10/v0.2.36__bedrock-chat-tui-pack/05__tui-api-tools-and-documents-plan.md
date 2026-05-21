@@ -106,13 +106,14 @@ spec — signatures, returns, errors, limits; this is what goes to the model), `
 ## 3. Discovery — the TUI API lives in the CLI
 
 Each host area exposes its TUI API as a **CLI command + a provider class** (satisfies
-"GUI over the CLI" — nothing TUI-exclusive):
+"GUI over the CLI" — nothing TUI-exclusive). `api` is a **sub-command of `tui`** (not a
+new top-level verb on the area), so it sits naturally beside the area's other TUI screens:
 
 ```
-sg <area> tui-api list                 # what APIs/actions exist here
-sg <area> tui-api manifest [--json]    # the manifest (actions + tiers + privileges)
-sg <area> tui-api skills <human|api|driver>
-sg <area> tui-api invoke <action> --params '{...}' [--dry-run]   # the same dispatch the chat uses
+sg <area> tui api list                 # what APIs/actions exist here
+sg <area> tui api manifest [--json]    # the manifest (actions + tiers + privileges)
+sg <area> tui api skills <human|api|driver>
+sg <area> tui api invoke <action> --params '{...}' [--dry-run]   # the same dispatch the chat uses
 ```
 
 ```python
@@ -123,7 +124,7 @@ class Tui_Api__Provider(Type_Safe):          # the seam every host implements
 ```
 
 A central `Tui_Api__Registry` enumerates providers (walking the `sg`/`sp` command tree),
-so the chat reads exactly what `sg <area> tui-api` exposes — one source of truth, driveable
+so the chat reads exactly what `sg <area> tui api` exposes — one source of truth, driveable
 by a human, by pytest, and by the model alike.
 
 **Fractal.** A provider may compose child providers (`manifest.children`); the registry
@@ -242,7 +243,7 @@ The owner asked for a way to **manually and automatically test** TUI APIs — th
 of the JS `sg-tool-api-{console,explorer,manifest}` components and Swagger UI. A reusable
 screen + a pytest harness, both driving the **same** registry + execution center as the chat.
 
-**Manual (explorer/console screen — `sg ... tui-api explore` / a TUI screen):**
+**Manual (explorer/console screen — `sg ... tui api explore` / a TUI screen):**
 ```
 ┌─ TUI API Explorer ──────────────────────────┬─ action: sg aws s3 · list_objects ──────────┐
 │ ▾ sg edge            READ_ONLY WRITE          │ tier READ_ONLY   privs iam:s3:List*,Get*    │
@@ -280,7 +281,57 @@ exist and name every action. In-memory providers make this run with no AWS.
 
 ---
 
-## 9. Document support (settled scope)
+## 9. Core tools — the Virtual File System (VFS), reusing `memory_fs`
+
+A small **core tool set** ships with every chat TUI, **disabled by default**, enabled per
+use case via the loadout (§4). The first and most broadly useful is a **Virtual File
+System**.
+
+### Reuse confirmed — `memory_fs` is the VFS
+We already own the right abstraction: the **`memory_fs`** project (the owner's
+`Storage_FS__S3` brief is one backend). It is a mature, Type_Safe, versioned virtual
+filesystem with a `Storage_FS` interface and pluggable providers —
+**`Storage_FS__Memory`**, **`Storage_FS__Local_Disk`**, **`Storage_FS__Sqlite`**,
+**`Storage_FS__Zip`** (plus the brief's S3). The interface is exactly CRUD on files +
+folders: `file__save/bytes/str/json`, `file__exists`, `file__delete`, `files__paths`,
+`folder__folders`, `folder__files__all`, `clear` — over the higher-level `Memory_FS` /
+`File_FS` facades (typed files; latest / temporal / versioned path handlers).
+
+**Verified in this session on 3.12** — a CRUD round-trip over `Storage_FS__Memory`
+(create a folder tree, read, list folders/files, update, delete) works out of the box. So
+the VFS core tool is a **thin TUI API provider over a `Storage_FS`**, not a new store.
+- Default backend = **`Storage_FS__Memory`** (ephemeral — fits the chat's lose-on-close model, no creds).
+- Swap to **local / sqlite / zip / S3** when the working set should persist (one constructor change).
+- In-repo today there is **no** general VFS (only domain-specific in-memory test doubles — Route53, vault fetcher, the s3-browser fake); `memory_fs` is the thing to adopt.
+- **Runtime:** `memory_fs` requires **Python 3.12** (this repo targets 3.12 — aligned). Its provider tests run on 3.12 (gated, like the Textual view tests); the contract/registry layers stay 3.11-clean.
+
+### The VFS tool's actions (a TUI API)
+`vfs.list` · `vfs.tree` · `vfs.read` · `vfs.stat` (READ_ONLY) · `vfs.write` · `vfs.mkdir` ·
+`vfs.move` (WRITE) · `vfs.delete` · `vfs.clear` (DESTRUCTIVE). Each maps onto a `Storage_FS`
+call, carries real JSON Schema (path / content), a SKILL-api section, and a tier — so the
+loadout grants read-only browse vs. full CRUD per use case.
+
+### Why this is the high-value piece — files as a tool, not as context
+This is how you give an agent a **large** body of reference material **without paying for
+it in context**. The model isn't handed the files — it's handed the *tool* and (optionally)
+the *file list*; it pulls only what it needs via `vfs.read`. 500 reference files cost ~zero
+tokens until the model opens three. So the VFS becomes:
+- a **working memory / scratchpad** — the agent captures findings into a tidy folder tree (`vfs.write`) that persists across the session;
+- a **reference library** — seed it (from disk / S3 / a vault) and the agent browses on demand;
+- a **deliverable surface** — dev briefs, exported cards, generated artefacts land in the VFS and flush to local / S3 on the way out.
+
+RAG-lite via tool calls (no embedding store). It composes with document attachments (§10):
+attach when the model must read *now*; VFS when it should read *on demand*.
+
+### The pattern generalises (later core tools)
+Same shape — a controlled TUI API behind the execution center, disabled by default,
+tier-gated, audited — extends to the capabilities the owner flagged: **web fetch / search**
+(READ_ONLY, NETWORK privilege) and **code execution** (DESTRUCTIVE, sandbox privilege).
+They are just more core tools; the contract, loadout, confirm / dry-run, and audit are unchanged.
+
+---
+
+## 10. Document support (settled scope)
 
 Two capabilities, both feeding the existing context/attachment seams:
 
@@ -299,11 +350,12 @@ embedding store; changes the cost/latency profile).
 
 ---
 
-## 10. Module placement & reuse
+## 11. Module placement & reuse
 
 | Piece | Home | Why |
 |---|---|---|
 | TUI API contract types, registry, execution center, loadout, explorer/tester | `cli/tui/tool_api/` | generic + reusable; aligns with dev's shared `cli/tui/` lib |
+| Core tools (VFS now; web / code-exec later) | `cli/tui/tool_api/core/` | reusable across all chat TUIs; VFS wraps `memory_fs` (a new dependency, 3.12) |
 | Bedrock-specific glue (toolConfig builder, the engine tool loop, doc attachment) | `aws/bedrock/tui/` | provider-specific |
 | Each host's TUI API provider + SKILL files | with the host (e.g. `sg_edge/.../tui_api/`, `aws/s3/.../tui_api/`) | co-located with the capability it exposes |
 
@@ -313,28 +365,30 @@ invariant, on the Python side.
 
 ---
 
-## 11. Slice plan
+## 12. Slice plan
 
 | Slice | Scope | Textual? |
 |---|---|---|
-| **A1 — contract + registry (pure)** | the Type_Safe schemas, JSON-Schema-from-Type_Safe, `Tui_Api__Provider` + `Registry`, `sg <area> tui-api list/manifest/skills`. One real provider (a read-only `sg aws s3` slice). Full unit tests, no Textual. | no |
-| **A2 — execution center (pure)** | modes, schema-validation, privilege resolver (over scoped-creds), dry-run/simulate, `..._ALLOW_MUTATIONS` gate, audit ring buffer, `sg <area> tui-api invoke`. Unit-tested with in-memory providers. | no |
+| **C1 — VFS core tool** | Thin `Tui_Api__Provider` wrapping `Storage_FS__Memory` (default) / `Local_Disk` / `Sqlite` / `Zip`. Actions: `vfs.list`, `vfs.tree`, `vfs.read`, `vfs.stat` (READ_ONLY); `vfs.write`, `vfs.mkdir`, `vfs.move` (WRITE); `vfs.delete`, `vfs.clear` (DESTRUCTIVE). SKILL-human + SKILL-api + SKILL-driver. Unit-tested on Python 3.12 (gated). Disabled by default; enabled via loadout. | no |
+| **A1 — contract + registry (pure)** | the Type_Safe schemas, JSON-Schema-from-Type_Safe, `Tui_Api__Provider` + `Registry`, `sg <area> tui api list/manifest/skills`. One real provider (a read-only `sg aws s3` slice). Full unit tests, no Textual. | no |
+| **A2 — execution center (pure)** | modes, schema-validation, privilege resolver (over scoped-creds), dry-run/simulate, `..._ALLOW_MUTATIONS` gate, audit ring buffer, `sg <area> tui api invoke`. Unit-tested with in-memory providers. | no |
 | **A3 — chat tool loop** | toolConfig from loadout, the Converse tool-use loop in the engine, toolResult, per-turn cost summing all sub-calls. Pilot + pure tests. | yes |
 | **A4 — loadout UI** | the loadout modal + `--tools` flag; only granted actions/SKILLs reach the model. | yes |
 | **A5 — Inspector extension** | render toolUse/toolResult + audit entries; transcript tool blocks. | yes |
 | **A6 — Swagger-style explorer/tester** | the explorer/console screen + the automated contract-test harness. | yes |
 | **D1 — documents** | Converse document attachments (picker + chip + cost) + N-doc persistent context. | yes |
 
-Build order: A1→A2 are the valuable, framework-free core (and independently useful as
-`sg ... tui-api` CLI). A3 makes the chat agentic. A4–A6 add control + visibility. D1 in parallel.
+Build order: C1 is a standalone win (pure data, no Textual, no AWS). A1→A2 are the
+framework-free TUI API core (independently useful as `sg ... tui api` CLI). A3 makes the
+chat agentic. A4–A6 add control + visibility. D1 in parallel with A3.
 
 ---
 
-## 12. Acceptance criteria
+## 13. Acceptance criteria
 
 | # | Criterion | Verification |
 |---|---|---|
-| 1 | A host exposes a TUI API discoverable from the CLI **and** read by the chat from the same source | `sg <area> tui-api manifest` == what the chat loads |
+| 1 | A host exposes a TUI API discoverable from the CLI **and** read by the chat from the same source | `sg <area> tui api manifest` == what the chat loads |
 | 2 | Every action carries **real JSON Schema**; model output validates against it | contract test |
 | 3 | Tiers + privileges are declared and **enforced** before execution | priv-miss refuses with the minimal policy |
 | 4 | Loadout scopes what the model sees; over-tier actions are invisible, not just refused | pilot |
@@ -345,11 +399,13 @@ Build order: A1→A2 are the valuable, framework-free core (and independently us
 
 ---
 
-## 13. Open questions
+## 14. Open questions
 
 | Question | Recommendation |
 |---|---|
 | Default exec mode per tier | AUTO for READ_ONLY, CONFIRM for WRITE/CRUD, CONFIRM-with-typed-confirm for DESTRUCTIVE. |
+| VFS default persistence tier | Default = `Storage_FS__Memory` (ephemeral, no creds, zero friction). Expose a `--vfs-backend local\|sqlite\|s3` flag on `sg <area> tui` so power users opt into durable storage. The VFS tool's SKILL-human must document that content is lost on close by default. |
+| VFS seeding workflow | How does a user give the agent its 500 reference files? Candidates: (a) `--vfs-seed <dir>` at launch (reads local disk into the memory backend); (b) `vfs.import` action (WRITE, user confirms file list); (c) session context + attach-doc for the short list. Recommend (a) for launch — simplest; (b) later. |
 | Do browser (JS) tools ever need driving from the TUI? | Out of v1 (Python-native only). If yes later, add an HTTP/MCP bridge provider that satisfies the same contract. |
 | JSON Schema source of truth for shared tools | Enrich the JS manifests to real JSON Schema (option b) so browser + TUI share one definition; Python tools derive from Type_Safe. |
 | Privilege resolution depth | v1: presence/role check via scoped-creds + print-policy on miss. Live IAM simulation (`iam:SimulatePrincipalPolicy`) is a later enhancement. |
