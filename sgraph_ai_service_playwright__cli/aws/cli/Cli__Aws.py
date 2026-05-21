@@ -26,6 +26,7 @@ from sgraph_ai_service_playwright__cli.aws.cloudtrail.cli.Cli__CloudTrail    imp
 from sgraph_ai_service_playwright__cli.aws.creds.cli.Cli__Creds              import app as creds_app
 from sgraph_ai_service_playwright__cli.aws.observe.cli.Cli__Observe          import app as observe_app
 from sgraph_ai_service_playwright__cli.aws.logs.cli.Cli__Logs                import app as logs_app
+from sgraph_ai_service_playwright__cli.aws.firehose.cli.Cli__Firehose        import app as firehose_app
 from sgraph_ai_service_playwright__cli.aws.alb.cli.Cli__ALB                  import app as alb_app
 
 
@@ -79,4 +80,5 @@ app.add_typer(cloudtrail_app, name='cloudtrail' )
 app.add_typer(creds_app,      name='creds'      )
 app.add_typer(observe_app,    name='observe'    )
 app.add_typer(logs_app,       name='logs'       )
+app.add_typer(firehose_app,   name='firehose'   )
 app.add_typer(alb_app,        name='alb'        )

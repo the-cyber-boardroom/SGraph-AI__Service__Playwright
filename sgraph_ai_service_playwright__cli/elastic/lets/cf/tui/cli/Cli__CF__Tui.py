@@ -114,14 +114,16 @@ def _arch_source(bucket : str, region : str):
     if _arch_factory is not None:
         return _arch_factory(bucket, region)
     from sgraph_ai_service_playwright__cli.aws.cf.service.CloudFront__AWS__Client     import CloudFront__AWS__Client
+    from sgraph_ai_service_playwright__cli.aws.firehose.service.Firehose__AWS__Client import Firehose__AWS__Client
     from sgraph_ai_service_playwright__cli.aws.logs.service.Logs__AWS__Client         import Logs__AWS__Client
     from sgraph_ai_service_playwright__cli.aws.s3.service.S3__AWS__Client             import S3__AWS__Client
     from sgraph_ai_service_playwright__cli.elastic.lets.cf.tui.source.CF_TUI__Arch_Source import CF_TUI__Arch_Source
-    from sgraph_ai_service_playwright__cli.elastic.lets.cf.tui.cf_tui__config         import CF_LOGS_BUCKET
-    return CF_TUI__Arch_Source(cf_client   = CloudFront__AWS__Client(),
-                               logs_client = Logs__AWS__Client(),
-                               s3_client   = S3__AWS__Client(region=region),
-                               bucket      = bucket or CF_LOGS_BUCKET)
+    from sgraph_ai_service_playwright__cli.elastic.lets.cf.tui.cf_tui__config         import CF_LOGS_BUCKET, CF_LOGS_REGION
+    return CF_TUI__Arch_Source(cf_client       = CloudFront__AWS__Client(),
+                               logs_client     = Logs__AWS__Client(),
+                               s3_client       = S3__AWS__Client(region=region),
+                               firehose_client = Firehose__AWS__Client(region=region or CF_LOGS_REGION),
+                               bucket          = bucket or CF_LOGS_BUCKET)
 
 
 @app.command(name='architecture', help='Deployed Architecture — live CF/S3/CloudWatch wiring (Firehose marked UNVERIFIED).')

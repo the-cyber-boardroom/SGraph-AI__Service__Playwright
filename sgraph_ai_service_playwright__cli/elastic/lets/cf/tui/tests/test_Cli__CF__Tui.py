@@ -78,15 +78,18 @@ class test_Cli__CF__Tui(TestCase):
                 self.mod._store_factory = None
 
     def test_architecture__no_tty_shows_wiring(self):
+        from sgraph_ai_service_playwright__cli.aws.firehose.tests.test_Firehose__AWS__Client import FakeFirehose
         from sgraph_ai_service_playwright__cli.elastic.lets.cf.tui.source.CF_TUI__Arch_Source import CF_TUI__Arch_Source
         from sgraph_ai_service_playwright__cli.elastic.lets.cf.tui.tests.test_CF_TUI__Arch_Source import FakeCF, FakeLogs, FakeS3
-        self.mod._arch_factory = lambda bucket, region: CF_TUI__Arch_Source(cf_client=FakeCF(), logs_client=FakeLogs(), s3_client=FakeS3(), bucket='b')
+        self.mod._arch_factory = lambda bucket, region: CF_TUI__Arch_Source(
+            cf_client=FakeCF(), logs_client=FakeLogs(), s3_client=FakeS3(), firehose_client=FakeFirehose(), bucket='b')
         try:
             result = self.runner.invoke(self.mod.app, ['architecture'], catch_exceptions=False)
             assert result.exit_code == 0
-            assert 'CF Deployed Architecture' in result.output
-            assert 'UNVERIFIED'               in result.output
-            assert 'E1ABCDE2FGHIJK'           in result.output
+            assert 'CF Deployed Architecture'   in result.output
+            assert 'UNVERIFIED'                 in result.output                      # per-distribution rt-log mapping
+            assert 'E1ABCDE2FGHIJK'             in result.output
+            assert 'sgraph-send-cf-logs-to-s3-2' in result.output                    # Firehose→S3 hop now verified
         finally:
             self.mod._arch_factory = None
 
