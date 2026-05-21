@@ -41,10 +41,23 @@ class test_Cli__CF__Tui(TestCase):
         assert 'Field Lineage' in result.output
         assert '/enhancecp'    in result.output                                      # first fixture file, line 0
 
+    def test_architecture__no_tty_shows_wiring(self):
+        from sgraph_ai_service_playwright__cli.elastic.lets.cf.tui.source.CF_TUI__Arch_Source import CF_TUI__Arch_Source
+        from sgraph_ai_service_playwright__cli.elastic.lets.cf.tui.tests.test_CF_TUI__Arch_Source import FakeCF, FakeLogs, FakeS3
+        self.mod._arch_factory = lambda bucket, region: CF_TUI__Arch_Source(cf_client=FakeCF(), logs_client=FakeLogs(), s3_client=FakeS3(), bucket='b')
+        try:
+            result = self.runner.invoke(self.mod.app, ['architecture'], catch_exceptions=False)
+            assert result.exit_code == 0
+            assert 'CF Deployed Architecture' in result.output
+            assert 'UNVERIFIED'               in result.output
+            assert 'E1ABCDE2FGHIJK'           in result.output
+        finally:
+            self.mod._arch_factory = None
+
     def test_help_lists_commands(self):
         result = self.runner.invoke(self.mod.app, ['--help'])
         assert result.exit_code == 0
-        for token in ('traffic', 'files', 'inspect', 'diagnose'):
+        for token in ('traffic', 'files', 'inspect', 'architecture', 'diagnose'):
             assert token in result.output, token
 
     def test_diagnose_runs(self):
