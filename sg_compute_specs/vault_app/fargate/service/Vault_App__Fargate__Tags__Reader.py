@@ -5,13 +5,15 @@
 # config on missing cluster or missing tags.
 # ═══════════════════════════════════════════════════════════════════════════════
 
+from typing import Any
+
 from osbot_utils.type_safe.Type_Safe import Type_Safe
 
 from sg_compute_specs.vault_app.fargate.schemas.Schema__VAF__Cluster__Config import Schema__VAF__Cluster__Config
 
 
 class Vault_App__Fargate__Tags__Reader(Type_Safe):
-    fargate_client : object = None                                              # Fargate__AWS__Client injected by caller
+    fargate_client : Any    = None                                              # Fargate__AWS__Client injected by caller
 
     def read(self, cluster_name: str) -> Schema__VAF__Cluster__Config:         # describe cluster → extract tags
         if not self.fargate_client:
