@@ -5,13 +5,13 @@
 # requires textual — the rest of the CLI works whether or not textual is present.
 #
 #   traffic    Screen 5 — Traffic Reality (what is going on on the website)
-#   files      S3 browser — the .gz files per day + one file's parsed contents
+#   files      S3 browser — walk folders (YYYY/MM/DD/HH) → file → its parsed contents
+#   inspect    Field Lineage — one log line walked through all 38 fields raw→transformed
 #   diagnose   deployment-chain self-check (TERM / LANG / unicode / truecolor)
 #
 # --source in-memory|s3 picks the data source (default in-memory fixtures → runs with
-# no AWS). --date/--hour/--max-files scope the S3 reads (load more files, walk
-# hours/days). When stdout is not a TTY (piped / CI) the screen falls back to a static
-# text view and exits — safe to pipe, degrades gracefully over a broken chain.
+# no AWS). --date/--hour/--max-files scope the S3 reads. When stdout is not a TTY the
+# screen falls back to a static text view and exits — safe to pipe.
 # ═══════════════════════════════════════════════════════════════════════════════
 
 import os
@@ -43,8 +43,14 @@ def _source(source : str, bucket : str, prefix : str, region : str, date : str, 
                                  hour         = hour,
                                  sample_files = max_files or TUI_S3_SAMPLE_FILES).setup()
     from sgraph_ai_service_playwright__cli.elastic.lets.cf.tui.source.CF_TUI__In_Memory_Source import CF_TUI__In_Memory_Source
-    from sgraph_ai_service_playwright__cli.elastic.lets.cf.tui.cf_tui__fixtures             import FIXTURE_TSV
-    return CF_TUI__In_Memory_Source(tsv_text=FIXTURE_TSV).setup()
+    from sgraph_ai_service_playwright__cli.elastic.lets.cf.tui.cf_tui__fixtures             import fixture_files
+    return CF_TUI__In_Memory_Source(files=fixture_files()).setup()
+
+
+def _start_prefix(source : str, data_source) -> str:                                 # where the folder browser opens
+    if str(source) == 's3':
+        return data_source.scoped_prefix()
+    return ''
 
 
 # ─── shared options ──────────────────────────────────────────────────────────
@@ -55,13 +61,15 @@ REGION = typer.Option('',          '--region',        help='AWS region (s3 sourc
 DATE   = typer.Option('',          '--date',          help='Scope to a day: YYYY-MM-DD (s3 source)')
 HOUR   = typer.Option('',          '--hour',          help='Scope to an hour: HH (s3 source; needs --date)')
 MAXF   = typer.Option(0,           '--max-files',     help='Max newest objects to load (s3 source)')
+KEY    = typer.Option('',          '--key',           help='Object key to inspect (inspect; default: first file)')
+LINE   = typer.Option(0,           '--line',          help='Line index within the file (inspect)')
 
 
 @app.command(name='traffic', help='Screen 5 — Traffic Reality: what is going on on the website.')
 def traffic(source : str = SOURCE, bucket : str = BUCKET, prefix : str = PREFIX, region : str = REGION,
             date : str = DATE, hour : str = HOUR, max_files : int = MAXF):
     data_source = _source(source, bucket, prefix, region, date, hour, max_files)
-    if not sys.stdout.isatty():                                                      # piped / CI / no real terminal → static card
+    if not sys.stdout.isatty():
         from sgraph_ai_service_playwright__cli.elastic.lets.cf.tui.service.CF_TUI__Card import CF_TUI__Card
         print(CF_TUI__Card().render(data_source.traffic_snapshot()))
         return
@@ -69,17 +77,34 @@ def traffic(source : str = SOURCE, bucket : str = BUCKET, prefix : str = PREFIX,
     CF_TUI__Screen__Traffic(source=data_source).run()
 
 
-@app.command(name='files', help='S3 browser — the .gz files per day, and one file\'s parsed contents.')
+@app.command(name='files', help='S3 browser — walk folders (YYYY/MM/DD/HH) to a file and its parsed contents.')
 def files(source : str = SOURCE, bucket : str = BUCKET, prefix : str = PREFIX, region : str = REGION,
           date : str = DATE, hour : str = HOUR, max_files : int = MAXF):
     data_source = _source(source, bucket, prefix, region, date, hour, max_files)
-    if not sys.stdout.isatty():                                                      # piped / CI → static listing
-        from sgraph_ai_service_playwright__cli.elastic.lets.cf.tui.screens.CF_TUI__Files__Render import files_browse_plain
-        scope = data_source.label() + (f'  {date}' + (f' {hour}h' if hour else '') if date else '')
-        print(files_browse_plain(data_source.list_files(date, hour, max_files), scope))
+    start       = _start_prefix(source, data_source)
+    if not sys.stdout.isatty():
+        from sgraph_ai_service_playwright__cli.elastic.lets.cf.tui.screens.CF_TUI__Files__Render import dir_browse_plain
+        print(dir_browse_plain(list(data_source.list_dir(start)), start))
         return
     from sgraph_ai_service_playwright__cli.elastic.lets.cf.tui.screens.CF_TUI__Screen__Files import CF_TUI__Screen__Files
-    CF_TUI__Screen__Files(source=data_source, date_iso=date, hour=hour, max_files=max_files).run()
+    CF_TUI__Screen__Files(source=data_source, start_prefix=start).run()
+
+
+@app.command(name='inspect', help='Field Lineage — one log line walked through all 38 fields, raw→transformed.')
+def inspect(source : str = SOURCE, bucket : str = BUCKET, prefix : str = PREFIX, region : str = REGION,
+            date : str = DATE, hour : str = HOUR, max_files : int = MAXF, key : str = KEY, line : int = LINE):
+    data_source = _source(source, bucket, prefix, region, date, hour, max_files)
+    target_key  = key
+    if not target_key:                                                               # default to the first file in the scope
+        rows = list(data_source.list_files(date, hour, max_files))
+        if rows:
+            target_key = rows[0].key
+    if not sys.stdout.isatty():
+        from sgraph_ai_service_playwright__cli.elastic.lets.cf.tui.screens.CF_TUI__Inspector__Render import inspector_plain
+        print(inspector_plain(data_source.read_record(target_key, line)))
+        return
+    from sgraph_ai_service_playwright__cli.elastic.lets.cf.tui.screens.CF_TUI__Screen__Inspector import CF_TUI__Screen__Inspector
+    CF_TUI__Screen__Inspector(source=data_source, key=target_key, line_index=line).run()
 
 
 @app.command(name='diagnose', help='Deployment-chain self-check: TERM / LANG / unicode / truecolor.')

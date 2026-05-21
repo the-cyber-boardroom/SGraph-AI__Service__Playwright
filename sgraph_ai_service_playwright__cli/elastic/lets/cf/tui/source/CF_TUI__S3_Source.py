@@ -20,12 +20,16 @@ from sgraph_ai_service_playwright__cli.elastic.lets.cf.events.service.S3__Object
 from sgraph_ai_service_playwright__cli.elastic.lets.cf.inventory.service.S3__Inventory__Lister import S3__Inventory__Lister, parse_firehose_filename
 from sgraph_ai_service_playwright__cli.elastic.lets.cf.tui.cf_tui__config            import CF_LOGS_BUCKET, CF_LOGS_PREFIX, CF_LOGS_REGION, TUI_S3_SAMPLE_FILES, cf_realtime_prefix
 from sgraph_ai_service_playwright__cli.elastic.lets.cf.tui.enums.Enum__CF_TUI__Source         import Enum__CF_TUI__Source
+from sgraph_ai_service_playwright__cli.elastic.lets.cf.tui.schemas.List__CF_TUI__Dir_Entry     import List__CF_TUI__Dir_Entry
 from sgraph_ai_service_playwright__cli.elastic.lets.cf.tui.schemas.List__CF_TUI__File_Row      import List__CF_TUI__File_Row
+from sgraph_ai_service_playwright__cli.elastic.lets.cf.tui.schemas.Schema__CF_TUI__Dir_Entry   import Schema__CF_TUI__Dir_Entry
 from sgraph_ai_service_playwright__cli.elastic.lets.cf.tui.schemas.Schema__CF_TUI__File_Row    import Schema__CF_TUI__File_Row
 from sgraph_ai_service_playwright__cli.elastic.lets.cf.tui.schemas.Schema__CF_TUI__File_View   import Schema__CF_TUI__File_View
+from sgraph_ai_service_playwright__cli.elastic.lets.cf.tui.schemas.Schema__CF_TUI__Record_View import Schema__CF_TUI__Record_View
 from sgraph_ai_service_playwright__cli.elastic.lets.cf.tui.schemas.Schema__CF_TUI__Traffic_Snapshot import Schema__CF_TUI__Traffic_Snapshot
 from sgraph_ai_service_playwright__cli.elastic.lets.cf.tui.service.CF_TUI__Aggregator         import CF_TUI__Aggregator
 from sgraph_ai_service_playwright__cli.elastic.lets.cf.tui.service.CF_TUI__File_Builder       import CF_TUI__File_Builder
+from sgraph_ai_service_playwright__cli.elastic.lets.cf.tui.service.CF_TUI__Record_Builder     import CF_TUI__Record_Builder
 from sgraph_ai_service_playwright__cli.elastic.lets.cf.tui.source.CF_TUI__Data_Source         import CF_TUI__Data_Source
 
 
@@ -97,3 +101,35 @@ class CF_TUI__S3_Source(CF_TUI__Data_Source):
         raw  = self.fetcher.get_object_bytes(bucket=self.bucket, key=key, region=self.region)
         text = gunzip(raw)
         return CF_TUI__File_Builder(parser=self.parser).build(key, text, size_bytes=len(raw))
+
+    def read_record(self, key : str, line_index : int = 0) -> Schema__CF_TUI__Record_View:
+        self.setup()
+        text = gunzip(self.fetcher.get_object_bytes(bucket=self.bucket, key=key, region=self.region))
+        return CF_TUI__Record_Builder(parser=self.parser).build_from_text(text, key=key, line_index=line_index)
+
+    def list_objects_delimited(self, prefix : str) -> tuple:                         # (folder prefixes, file objects) at one level — overridable seam (tests subclass)
+        client    = self.lister.s3_client(self.region)
+        paginator = client.get_paginator('list_objects_v2')
+        folders   = []
+        objects   = []
+        for page in paginator.paginate(Bucket=self.bucket, Prefix=prefix, Delimiter='/'):
+            for cp in page.get('CommonPrefixes', []) or []:
+                folders.append(cp.get('Prefix', ''))
+            for obj in page.get('Contents', []) or []:
+                if obj.get('Key') and obj['Key'] != prefix:                          # skip the folder marker object itself
+                    objects.append(obj)
+        return folders, objects
+
+    def list_dir(self, prefix : str = '') -> List__CF_TUI__Dir_Entry:
+        base             = prefix or self.scoped_prefix() or self.prefix
+        folders, objects = self.list_objects_delimited(base)
+        entries          = List__CF_TUI__Dir_Entry()
+        for folder_prefix in sorted(folders):
+            name = folder_prefix[len(base):].rstrip('/')
+            entries.append(Schema__CF_TUI__Dir_Entry(name=name + '/', is_folder=True, path=folder_prefix))
+        for obj in sorted(objects, key=lambda o: o.get('Key', '')):
+            key = obj['Key']
+            entries.append(Schema__CF_TUI__Dir_Entry(name=key[len(base):], is_folder=False, path=key,
+                                                     size_bytes=int(obj.get('Size', 0) or 0),
+                                                     delivery_iso=parse_firehose_filename(key).get('iso', '')))
+        return entries

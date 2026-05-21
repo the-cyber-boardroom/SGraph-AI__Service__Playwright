@@ -29,18 +29,23 @@ class test_Cli__CF__Tui(TestCase):
         assert 'CF Traffic Reality' in result.output
         assert '/enhancecp'         in result.output                                 # real fixture data survives into the card
 
-    def test_files__no_tty_lists_files(self):
+    def test_files__no_tty_lists_dir(self):
         result = self.runner.invoke(self.mod.app, ['files'], catch_exceptions=False)
         assert result.exit_code == 0
-        assert 'CF Log Files' in result.output
-        assert 'fixtures.tsv' in result.output                                       # default in-memory presents one file
+        assert 'CF Log Files'        in result.output
+        assert 'cloudfront-realtime' in result.output                                # default in-memory presents the partition tree
+
+    def test_inspect__no_tty_shows_fields(self):
+        result = self.runner.invoke(self.mod.app, ['inspect'], catch_exceptions=False)
+        assert result.exit_code == 0
+        assert 'Field Lineage' in result.output
+        assert '/enhancecp'    in result.output                                      # first fixture file, line 0
 
     def test_help_lists_commands(self):
         result = self.runner.invoke(self.mod.app, ['--help'])
         assert result.exit_code == 0
-        assert 'traffic'  in result.output
-        assert 'files'    in result.output
-        assert 'diagnose' in result.output
+        for token in ('traffic', 'files', 'inspect', 'diagnose'):
+            assert token in result.output, token
 
     def test_diagnose_runs(self):
         result = self.runner.invoke(self.mod.app, ['diagnose'])

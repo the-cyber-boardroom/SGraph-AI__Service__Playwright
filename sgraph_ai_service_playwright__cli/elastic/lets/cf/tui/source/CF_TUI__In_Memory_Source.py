@@ -15,15 +15,20 @@ import time
 
 from sgraph_ai_service_playwright__cli.elastic.lets.cf.events.service.Bot__Classifier        import Bot__Classifier
 from sgraph_ai_service_playwright__cli.elastic.lets.cf.events.service.CF__Realtime__Log__Parser import CF__Realtime__Log__Parser
+from sgraph_ai_service_playwright__cli.elastic.lets.cf.inventory.service.S3__Inventory__Lister import parse_firehose_filename
 from sgraph_ai_service_playwright__cli.elastic.lets.cf.tui.enums.Enum__CF_TUI__Source         import Enum__CF_TUI__Source
+from sgraph_ai_service_playwright__cli.elastic.lets.cf.tui.schemas.List__CF_TUI__Dir_Entry     import List__CF_TUI__Dir_Entry
 from sgraph_ai_service_playwright__cli.elastic.lets.cf.tui.schemas.List__CF_TUI__File_Row      import List__CF_TUI__File_Row
 from sgraph_ai_service_playwright__cli.elastic.lets.cf.tui.schemas.List__CF_TUI__Fixture_File  import List__CF_TUI__Fixture_File
+from sgraph_ai_service_playwright__cli.elastic.lets.cf.tui.schemas.Schema__CF_TUI__Dir_Entry   import Schema__CF_TUI__Dir_Entry
 from sgraph_ai_service_playwright__cli.elastic.lets.cf.tui.schemas.Schema__CF_TUI__File_Row    import Schema__CF_TUI__File_Row
 from sgraph_ai_service_playwright__cli.elastic.lets.cf.tui.schemas.Schema__CF_TUI__File_View   import Schema__CF_TUI__File_View
 from sgraph_ai_service_playwright__cli.elastic.lets.cf.tui.schemas.Schema__CF_TUI__Fixture_File import Schema__CF_TUI__Fixture_File
+from sgraph_ai_service_playwright__cli.elastic.lets.cf.tui.schemas.Schema__CF_TUI__Record_View import Schema__CF_TUI__Record_View
 from sgraph_ai_service_playwright__cli.elastic.lets.cf.tui.schemas.Schema__CF_TUI__Traffic_Snapshot import Schema__CF_TUI__Traffic_Snapshot
 from sgraph_ai_service_playwright__cli.elastic.lets.cf.tui.service.CF_TUI__Aggregator         import CF_TUI__Aggregator
 from sgraph_ai_service_playwright__cli.elastic.lets.cf.tui.service.CF_TUI__File_Builder       import CF_TUI__File_Builder
+from sgraph_ai_service_playwright__cli.elastic.lets.cf.tui.service.CF_TUI__Record_Builder     import CF_TUI__Record_Builder
 from sgraph_ai_service_playwright__cli.elastic.lets.cf.tui.source.CF_TUI__Data_Source         import CF_TUI__Data_Source
 
 
@@ -84,3 +89,29 @@ class CF_TUI__In_Memory_Source(CF_TUI__Data_Source):
             if f.key == key:
                 return CF_TUI__File_Builder(parser=self.parser).build(key, f.tsv_text, size_bytes=len(f.tsv_text.encode('utf-8')))
         return Schema__CF_TUI__File_View(key=key)
+
+    def list_dir(self, prefix : str = '') -> List__CF_TUI__Dir_Entry:
+        folders = {}
+        files   = []
+        for f in self.effective_files():
+            if not f.key.startswith(prefix):
+                continue
+            remainder = f.key[len(prefix):]
+            if '/' in remainder:                                                     # a child folder one level down
+                segment = remainder.split('/', 1)[0]
+                folders[segment] = prefix + segment + '/'
+            else:                                                                    # a file at this level
+                files.append((remainder, f.key, len(f.tsv_text.encode('utf-8'))))
+        entries = List__CF_TUI__Dir_Entry()
+        for name in sorted(folders):
+            entries.append(Schema__CF_TUI__Dir_Entry(name=name + '/', is_folder=True, path=folders[name]))
+        for name, key, size in sorted(files):
+            entries.append(Schema__CF_TUI__Dir_Entry(name=name, is_folder=False, path=key, size_bytes=size,
+                                                     delivery_iso=parse_firehose_filename(key).get('iso', '')))
+        return entries
+
+    def read_record(self, key : str, line_index : int = 0) -> Schema__CF_TUI__Record_View:
+        for f in self.effective_files():
+            if f.key == key:
+                return CF_TUI__Record_Builder(parser=self.parser).build_from_text(f.tsv_text, key=key, line_index=line_index)
+        return Schema__CF_TUI__Record_View(key=key, line_index=line_index)

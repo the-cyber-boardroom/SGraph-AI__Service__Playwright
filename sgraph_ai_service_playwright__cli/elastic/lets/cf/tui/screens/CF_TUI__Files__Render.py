@@ -37,6 +37,40 @@ def files_browse_markup(rows, selected_index : int = 0, scope_label : str = '') 
     return '\n'.join(lines)
 
 
+def dir_browse_markup(entries, selected_index : int = 0, prefix : str = '', source_label : str = '') -> str:
+    lines = []
+    here  = prefix or '/'
+    lines.append(f'[bold]CF Log Files[/]   [dim]{source_label}[/]')
+    lines.append(f'[cyan]{here}[/]   [dim]({len(entries)})[/]')
+    lines.append('[dim]↑/↓ select · Enter open · Esc up · r refresh · q quit[/]')
+    lines.append('')
+    if not entries:
+        lines.append('  [dim](empty)[/]')
+        return '\n'.join(lines)
+    for i, e in enumerate(entries):
+        marker = '[cyan]▸[/]' if i == selected_index else ' '
+        style  = 'bold' if i == selected_index else 'default'
+        if e.is_folder:
+            lines.append(f' {marker} [{style}][blue]{e.name[:44].ljust(44)}[/][/] [dim]dir[/]')
+        else:
+            when = e.delivery_iso or ''
+            lines.append(f' {marker} [{style}]{e.name[:44].ljust(44)}[/] [dim]{human_size(e.size_bytes).rjust(8)}  {when}[/]')
+    return '\n'.join(lines)
+
+
+def dir_browse_plain(entries, prefix : str = '') -> str:
+    out = [f'CF Log Files   {prefix or "/"}   ({len(entries)})']
+    if not entries:
+        out.append('  (empty)')
+        return '\n'.join(out)
+    for e in entries:
+        if e.is_folder:
+            out.append(f'  {e.name[:44].ljust(44)} dir')
+        else:
+            out.append(f'  {e.name[:44].ljust(44)} {human_size(e.size_bytes).rjust(8)}  {e.delivery_iso or ""}')
+    return '\n'.join(out)
+
+
 def files_browse_plain(rows, scope_label : str = '') -> str:                         # no-TTY fallback: plain text listing
     out = [f'CF Log Files   {scope_label}   ({len(rows)})']
     if not rows:
@@ -49,12 +83,12 @@ def files_browse_plain(rows, scope_label : str = '') -> str:                    
     return '\n'.join(out)
 
 
-def file_view_markup(view : Schema__CF_TUI__File_View, raw : bool = False) -> str:
+def file_view_markup(view : Schema__CF_TUI__File_View, raw : bool = False, selected_index : int = -1) -> str:
     lines    = []
     basename = view.key.rsplit('/', 1)[-1]
     mode     = 'raw TSV' if raw else 'parsed'
     lines.append(f'[bold]{_esc(basename)}[/]   [dim]{human_size(view.size_bytes)} · {view.total_events} event(s) · {view.lines_skipped} skipped · [{mode}][/]')
-    lines.append('[dim]t raw/parsed · Esc back · q quit[/]')
+    lines.append('[dim]↑/↓ select · Enter inspect fields · t raw/parsed · Esc back · q quit[/]')
     lines.append('')
 
     if raw:
@@ -67,11 +101,12 @@ def file_view_markup(view : Schema__CF_TUI__File_View, raw : bool = False) -> st
     if not view.events:
         lines.append('  [dim](no events)[/]')
         return '\n'.join(lines)
-    lines.append('[dim]  time      method status uri                              cc cache bot ua[/]')
-    for ev in view.events:
-        cache = '[green]hit[/] ' if ev.cache_hit else '[dim]miss[/]'
-        bot   = '[red]bot[/]  ' if ev.is_bot else '[green]human[/]'
-        st    = status_style(ev.status_class)
-        lines.append(f'  {ev.time}  {ev.method[:6].ljust(6)} [{st}]{str(ev.status).ljust(3)}[/]    '
+    lines.append('[dim]    time      method status uri                              cc cache bot ua[/]')
+    for i, ev in enumerate(view.events):
+        marker = '[cyan]▸[/]' if i == selected_index else ' '
+        cache  = '[green]hit[/] ' if ev.cache_hit else '[dim]miss[/]'
+        bot    = '[red]bot[/]  ' if ev.is_bot else '[green]human[/]'
+        st     = status_style(ev.status_class)
+        lines.append(f' {marker} {ev.time}  {ev.method[:6].ljust(6)} [{st}]{str(ev.status).ljust(3)}[/]    '
                      f'{ev.uri[:32].ljust(32)} {ev.country[:2].ljust(2)} {cache} {bot} [dim]{_esc(ev.user_agent[:24])}[/]')
     return '\n'.join(lines)

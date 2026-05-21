@@ -1,9 +1,9 @@
 # ═══════════════════════════════════════════════════════════════════════════════
-# SP CLI (tests) — cf tui: pilot tests for the Files browser (S3 browser)
+# SP CLI (tests) — cf tui: pilot tests for the Files browser (folder → file → record)
 # Drives the real Textual app via App.run_test() with an in-memory source holding two
-# named blobs of real CF lines — no mocks. Verifies: mount lists files, ↓ moves the
-# cursor, Enter opens a file (inspect mode), `t` toggles raw, Esc returns, `q` exits.
-# @skipUnless textual; the screen is imported lazily so this module loads on 3.11.
+# named blobs under a folder — no mocks. Verifies: mount lists the folder, Enter
+# descends, Enter opens a file, Enter inspects a record's fields, Esc walks back up,
+# q exits. @skipUnless textual; the screen is imported lazily so this loads on 3.11.
 # ═══════════════════════════════════════════════════════════════════════════════
 
 import asyncio
@@ -25,44 +25,70 @@ class test_CF_TUI__Screen__Files(TestCase):
 
     def make_source(self):
         src = CF_TUI__In_Memory_Source().setup()
-        src.files.append(Schema__CF_TUI__Fixture_File(key='file-a.gz', tsv_text=LINE_ENHANCECP))
-        src.files.append(Schema__CF_TUI__Fixture_File(key='file-b.gz', tsv_text=LINE_ROBOTS))
+        src.files.append(Schema__CF_TUI__Fixture_File(key='logs/a.gz', tsv_text=LINE_ENHANCECP))
+        src.files.append(Schema__CF_TUI__Fixture_File(key='logs/b.gz', tsv_text=LINE_ROBOTS))
         return src
 
     def screen(self):
         from sgraph_ai_service_playwright__cli.elastic.lets.cf.tui.screens.CF_TUI__Screen__Files import CF_TUI__Screen__Files
-        return CF_TUI__Screen__Files(source=self.make_source(), refresh_seconds=0)
+        return CF_TUI__Screen__Files(source=self.make_source(), start_prefix='', refresh_seconds=0)
 
-    def test_mounts_and_lists(self):
-        asyncio.run(self.scenario_list())
+    def test_mounts_at_dir_root(self):
+        asyncio.run(self.scenario_root())
 
-    async def scenario_list(self):
+    async def scenario_root(self):
         app = self.screen()
         async with app.run_test() as pilot:
             await pilot.pause()
-            assert app.mode == 'browse'
-            assert {r.key for r in app.rows} == {'file-a.gz', 'file-b.gz'}
+            assert app.mode == 'dir'
+            assert [e.name for e in app.entries] == ['logs/']
+            assert app.entries[0].is_folder is True
 
-    def test_navigate_open_toggle_back(self):
+    def test_descend_open_inspect_and_back(self):
         asyncio.run(self.scenario_drill())
 
     async def scenario_drill(self):
         app = self.screen()
         async with app.run_test() as pilot:
             await pilot.pause()
-            await pilot.press('down')                                                # select second file
-            assert app.selected == 1
-            await pilot.press('enter')                                               # open it
+            await pilot.press('enter')                                               # descend into logs/
             await pilot.pause()
-            assert app.mode == 'inspect'
-            assert app.view is not None
+            assert app.prefix == 'logs/'
+            assert {e.name for e in app.entries} == {'a.gz', 'b.gz'}
+
+            await pilot.press('enter')                                               # open the first file
+            await pilot.pause()
+            assert app.mode == 'file'
             assert app.view.total_events == 1
-            assert app.raw is False
-            await pilot.press('t')                                                    # raw toggle
-            assert app.raw is True
-            await pilot.press('escape')                                               # back to browse
+
+            await pilot.press('enter')                                               # inspect the selected event's fields
             await pilot.pause()
-            assert app.mode == 'browse'
+            assert app.mode == 'record'
+            assert app.record.valid is True
+
+            await pilot.press('escape')                                              # record → file
+            await pilot.pause()
+            assert app.mode == 'file'
+            await pilot.press('escape')                                              # file → dir (logs/)
+            await pilot.pause()
+            assert app.mode == 'dir' and app.prefix == 'logs/'
+            await pilot.press('escape')                                              # dir up → root
+            await pilot.pause()
+            assert app.prefix == ''
+
+    def test_raw_toggle_in_file(self):
+        asyncio.run(self.scenario_raw())
+
+    async def scenario_raw(self):
+        app = self.screen()
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            await pilot.press('enter')                                               # into logs/
+            await pilot.press('enter')                                               # open a.gz
+            await pilot.pause()
+            assert app.raw is False
+            await pilot.press('t')
+            assert app.raw is True
 
     def test_quit(self):
         asyncio.run(self.scenario_quit())

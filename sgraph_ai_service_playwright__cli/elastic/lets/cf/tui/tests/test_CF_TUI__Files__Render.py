@@ -11,8 +11,10 @@ from sgraph_ai_service_playwright__cli.elastic.lets.cf.events.service.CF__Realti
 from sgraph_ai_service_playwright__cli.elastic.lets.cf.tui.cf_tui__fixtures           import FIXTURE_TSV
 from sgraph_ai_service_playwright__cli.elastic.lets.cf.tui.schemas.List__CF_TUI__File_Row import List__CF_TUI__File_Row
 from sgraph_ai_service_playwright__cli.elastic.lets.cf.tui.schemas.Schema__CF_TUI__File_Row import Schema__CF_TUI__File_Row
+from sgraph_ai_service_playwright__cli.elastic.lets.cf.tui.schemas.List__CF_TUI__Dir_Entry import List__CF_TUI__Dir_Entry
+from sgraph_ai_service_playwright__cli.elastic.lets.cf.tui.schemas.Schema__CF_TUI__Dir_Entry import Schema__CF_TUI__Dir_Entry
 from sgraph_ai_service_playwright__cli.elastic.lets.cf.tui.service.CF_TUI__File_Builder import CF_TUI__File_Builder
-from sgraph_ai_service_playwright__cli.elastic.lets.cf.tui.screens.CF_TUI__Files__Render import files_browse_markup, files_browse_plain, file_view_markup, human_size
+from sgraph_ai_service_playwright__cli.elastic.lets.cf.tui.screens.CF_TUI__Files__Render import files_browse_markup, files_browse_plain, file_view_markup, human_size, dir_browse_markup, dir_browse_plain
 
 
 def rows():
@@ -63,3 +65,34 @@ class test_human_size(TestCase):
         assert human_size(512)            == '512B'
         assert human_size(2048).endswith('KB')
         assert human_size(5 * 1024 * 1024).endswith('MB')
+
+
+def dir_entries():
+    out = List__CF_TUI__Dir_Entry()
+    out.append(Schema__CF_TUI__Dir_Entry(name='2026/', is_folder=True,  path='cloudfront-realtime/2026/'))
+    out.append(Schema__CF_TUI__Dir_Entry(name='a.gz',  is_folder=False, path='cloudfront-realtime/2026/a.gz', size_bytes=480, delivery_iso='2026-04-21T08:00:01Z'))
+    return out
+
+
+class test_dir_browse(TestCase):
+
+    def test_folders_and_files(self):
+        out = dir_browse_markup(dir_entries(), selected_index=0, prefix='cloudfront-realtime/', source_label='s3://bucket')
+        for token in ('CF Log Files', 'cloudfront-realtime/', '2026/', 'a.gz', 'dir', '▸'):
+            assert token in out, token
+
+    def test_empty(self):
+        out = dir_browse_markup(List__CF_TUI__Dir_Entry(), 0, 'p/', 's3://bucket')
+        assert '(empty)' in out
+
+    def test_plain(self):
+        out = dir_browse_plain(dir_entries(), 'cloudfront-realtime/')
+        assert '2026/' in out and 'a.gz' in out
+        assert '['     not in out
+
+
+class test_file_view_selection(TestCase):
+
+    def test_selected_marker(self):
+        out = file_view_markup(file_view(), raw=False, selected_index=0)
+        assert '▸' in out                                                            # selected event row marked

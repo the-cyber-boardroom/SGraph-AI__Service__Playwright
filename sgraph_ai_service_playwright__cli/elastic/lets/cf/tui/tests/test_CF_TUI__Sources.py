@@ -134,3 +134,58 @@ class test_CF_TUI__In_Memory_Source__files(TestCase):
         rows = CF_TUI__In_Memory_Source(tsv_text=FIXTURE_TSV).setup().list_files()
         assert len(rows) == 1
         assert rows[0].key == 'fixtures.tsv'
+
+
+def _folder_src():
+    from sgraph_ai_service_playwright__cli.elastic.lets.cf.tui.schemas.Schema__CF_TUI__Fixture_File import Schema__CF_TUI__Fixture_File
+    src = CF_TUI__In_Memory_Source().setup()
+    src.files.append(Schema__CF_TUI__Fixture_File(key='cloudfront-realtime/2026/04/21/08/a.gz', tsv_text=LINE_ENHANCECP))
+    src.files.append(Schema__CF_TUI__Fixture_File(key='cloudfront-realtime/2026/04/21/08/b.gz', tsv_text=LINE_ROBOTS))
+    return src
+
+
+class test_CF_TUI__In_Memory_Source__dir(TestCase):
+
+    def test_list_dir_root_shows_folder(self):
+        entries = _folder_src().list_dir('')
+        assert len(entries) == 1
+        assert entries[0].is_folder is True
+        assert entries[0].name     == 'cloudfront-realtime/'
+
+    def test_list_dir_descends_to_files(self):
+        entries = _folder_src().list_dir('cloudfront-realtime/2026/04/21/08/')
+        assert {e.name for e in entries} == {'a.gz', 'b.gz'}
+        assert all(e.is_folder is False for e in entries)
+
+    def test_read_record(self):
+        rv = _folder_src().read_record('cloudfront-realtime/2026/04/21/08/b.gz', 0)
+        assert rv.valid is True
+        assert {f.name: f for f in rv.fields}['cs-uri-stem'].value == '/robots.txt'
+
+
+class S3Source__Dir(CF_TUI__S3_Source):
+    def list_objects_delimited(self, prefix):
+        leaf = 'cloudfront-realtime/2026/04/21/08/'
+        if prefix == leaf:
+            return [], [{'Key': leaf + 'a.gz', 'Size': 480}, {'Key': leaf + 'b.gz', 'Size': 510}]
+        return [leaf], []
+
+
+class test_CF_TUI__S3_Source__dir(TestCase):
+
+    def test_list_dir_folders(self):
+        entries = S3Source__Dir().setup().list_dir('cloudfront-realtime/2026/04/21/')
+        assert len(entries) == 1
+        assert entries[0].is_folder is True
+        assert entries[0].name     == '08/'
+
+    def test_list_dir_files(self):
+        entries = S3Source__Dir().setup().list_dir('cloudfront-realtime/2026/04/21/08/')
+        assert {e.name for e in entries} == {'a.gz', 'b.gz'}
+        assert all(e.is_folder is False for e in entries)
+
+    def test_read_record(self):
+        src = CF_TUI__S3_Source(lister=Lister__In_Memory(), fetcher=Fetcher__In_Memory()).setup()
+        rv  = src.read_record(KEY_A, 0)
+        assert rv.valid is True
+        assert {f.name: f for f in rv.fields}['cs-uri-stem'].value == '/enhancecp'
