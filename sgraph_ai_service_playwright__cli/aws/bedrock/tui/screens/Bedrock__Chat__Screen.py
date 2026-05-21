@@ -45,7 +45,8 @@ class Bedrock__Chat__Screen(App):
                 ('escape',   'stop',         'Stop')]
 
     def __init__(self, engine, region: str = '', model_alias: str = 'default',
-                 context=None, brief_dir: str = ''):
+                 context=None, brief_dir: str = '',
+                 registry=None, center=None, tool_config=None, name_map=None):
         super().__init__()
         self.engine            = engine
         self.session           = engine.new_session(region=region, model_alias=model_alias, context=context)
@@ -53,6 +54,11 @@ class Bedrock__Chat__Screen(App):
         self.exited            = False
         self.last_turn         = None
         self.inspector_selected = 0
+        self.registry          = registry                                         # the tools the chat consumes (when tool-enabled)
+        self.center            = center
+        self.tool_config       = tool_config
+        self.name_map          = name_map or {}
+        self.tools_active      = bool(tool_config and tool_config.get('tools'))    # tools loaded → agentic (non-streaming) path
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -86,6 +92,9 @@ class Bedrock__Chat__Screen(App):
         self.handle_submit(message.text)
 
     def handle_submit(self, text: str, cost_override: float = None) -> None:
+        if self.tools_active:                                                     # tool-enabled chat → agentic (non-streaming) loop
+            self.agentic_worker(text)
+            return
         try:
             self.engine.preflight_cost(self.session, text, cost_override)         # leaves session clean if it trips
         except ValueError as exc:
@@ -115,9 +124,24 @@ class Bedrock__Chat__Screen(App):
         bubble.set_body(''.join(acc))
         self.finish_turn(bubble, turn)
 
+    @work(exclusive=True, group='llm')
+    async def agentic_worker(self, text: str) -> None:                            # tool-enabled: non-streaming Converse tool loop
+        user = Chat__Bubble('user', text, author='you')
+        await self.transcript().mount(user)
+        bubble = Chat__Bubble('assistant', '', author=str(self.session.model_alias))
+        await self.transcript().mount(bubble)
+        bubble.set_footer('[dim]⟳ running tools…[/]')
+        self.transcript().anchor()
+
+        turn = await asyncio.to_thread(self.engine.send_turn_agentic, self.session, text,
+                                       self.registry, self.center, self.tool_config, self.name_map)
+        bubble.set_body(turn.response_text or '(no response)')
+        self.finish_turn(bubble, turn)
+
     def finish_turn(self, bubble: Chat__Bubble, turn) -> None:
         self.last_turn = turn
-        bubble.set_footer(turn_footer(turn.input_tokens, turn.output_tokens, turn.cost_usd, turn.latency_ms))
+        bubble.set_footer(turn_footer(turn.input_tokens, turn.output_tokens, turn.cost_usd, turn.latency_ms,
+                                      getattr(turn, 'model_calls', 1), getattr(turn, 'tool_calls', 0)))
         self.meter().refresh_from(self.session)
         if self.inspector().display:                                              # follow the newest request while inspecting
             self.inspector_selected = len(self.session.turns) - 1

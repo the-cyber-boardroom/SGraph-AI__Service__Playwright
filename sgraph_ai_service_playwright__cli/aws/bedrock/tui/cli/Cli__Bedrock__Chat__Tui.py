@@ -53,12 +53,32 @@ def run_one_shot(engine, region: str, model: str, context, prompt: str) -> None:
           f'${turn.cost_usd:.6f} · {turn.latency_ms}ms]')
 
 
-def run_tui(model: str = 'default', region: str = '', context_file: Optional[str] = None) -> None:
+def build_tools(tools_spec: str) -> dict:                                         # '--tools core.vfs:read' → the screen's tool kwargs
+    if not tools_spec:
+        return {}
+    from sgraph_ai_service_playwright__cli.tui.tool_api.core.vfs.Vfs__Tui_Api__Provider import Vfs__Tui_Api__Provider  # lazy (memory_fs, 3.12)
+    from sgraph_ai_service_playwright__cli.aws.bedrock.tui.tui_api.Bedrock__Tool_Config__Builder import Bedrock__Tool_Config__Builder
+    from sgraph_ai_service_playwright__cli.tui.tool_api.service.Tui_Api__Execution_Center        import Tui_Api__Execution_Center
+    from sgraph_ai_service_playwright__cli.tui.tool_api.service.Tui_Api__Loadout__Assembler      import Tui_Api__Loadout__Assembler
+    from sgraph_ai_service_playwright__cli.tui.tool_api.service.Tui_Api__Privilege__Resolver     import Tui_Api__Privilege__Resolver
+    from sgraph_ai_service_playwright__cli.tui.tool_api.service.Tui_Api__Registry                import Tui_Api__Registry
+
+    registry  = Tui_Api__Registry().register(Vfs__Tui_Api__Provider())            # the chat enables the VFS core tool
+    resolver  = Tui_Api__Privilege__Resolver()
+    center    = Tui_Api__Execution_Center(registry=registry, resolver=resolver)
+    assembler = Tui_Api__Loadout__Assembler()
+    loadout   = assembler.from_tools(tools_spec)
+    granted   = assembler.granted_actions(loadout, registry, resolver)
+    tool_config, name_map = Bedrock__Tool_Config__Builder().build(granted)
+    return {'registry': registry, 'center': center, 'tool_config': tool_config, 'name_map': name_map}
+
+
+def run_tui(model: str = 'default', region: str = '', context_file: Optional[str] = None, tools: str = '') -> None:
     engine  = build_engine()
     region  = region or resolve_region(engine)
     context = load_context(context_file)
 
-    if not sys.stdout.isatty():                                                   # piped / CI → one-shot from stdin
+    if not sys.stdout.isatty():                                                   # piped / CI → one-shot from stdin (no tools)
         prompt = sys.stdin.read().strip() if not sys.stdin.isatty() else ''
         if prompt:
             run_one_shot(engine, region, model, context, prompt)
@@ -67,7 +87,7 @@ def run_tui(model: str = 'default', region: str = '', context_file: Optional[str
         return
 
     from sgraph_ai_service_playwright__cli.aws.bedrock.tui.screens.Bedrock__Chat__Screen import Bedrock__Chat__Screen
-    Bedrock__Chat__Screen(engine, region=region, model_alias=model, context=context).run()
+    Bedrock__Chat__Screen(engine, region=region, model_alias=model, context=context, **build_tools(tools)).run()
 
 
 def run_diagnose() -> None:
@@ -97,10 +117,11 @@ def register_tui(parent_app: typer.Typer) -> None:
     def launch(ctx          : typer.Context,
                model        : str           = typer.Option('default', '--model', '-m', help='Nova alias: default(lite) | lite | micro | pro | premier.'),
                region       : str           = typer.Option('',        '--region',      help='AWS region (defaults to the resolved region).'),
-               context_file : Optional[str] = typer.Option(None,      '--context',     help='Seed the chat with a file as context to talk about.')):
+               context_file : Optional[str] = typer.Option(None,      '--context',     help='Seed the chat with a file as context to talk about.'),
+               tools        : str           = typer.Option('',        '--tools',       help="Enable tools, e.g. 'core.vfs:read' — switches to the agentic (non-streaming) loop.")):
         """Launch the chat TUI (bare `tui`); sub-commands `api` / `diagnose` below."""
         if ctx.invoked_subcommand is None:
-            run_tui(model=model, region=region, context_file=context_file)
+            run_tui(model=model, region=region, context_file=context_file, tools=tools)
 
     @tui_app.command('diagnose')
     def diagnose():

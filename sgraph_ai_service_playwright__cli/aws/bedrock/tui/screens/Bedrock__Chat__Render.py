@@ -24,9 +24,13 @@ def cost_colour(fraction: float) -> str:
     return 'green'
 
 
-def turn_footer(input_tokens: int, output_tokens: int, cost_usd: float, latency_ms: int) -> str:
-    return (f'[dim]in {input_tokens} · out {output_tokens} · '
+def turn_footer(input_tokens: int, output_tokens: int, cost_usd: float, latency_ms: int,
+                model_calls: int = 1, tool_calls: int = 0) -> str:
+    base = (f'[dim]in {input_tokens} · out {output_tokens} · '
             f'[/][green]${cost_usd:.6f}[/][dim] · {latency_ms}ms[/]')
+    if tool_calls:
+        base += f'[dim] · {model_calls} model · {tool_calls} tools[/]'
+    return base
 
 
 def streaming_footer() -> str:
