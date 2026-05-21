@@ -36,14 +36,20 @@ class test_CF_TUI__In_Memory_Source(TestCase):
 
 # ─── in-memory S3 boundaries (no AWS, no mocks — subclass + override) ─────────
 
-KEY_TO_LINE = {'cloudfront-realtime/2026/04/21/08/a.gz': LINE_ENHANCECP,
-               'cloudfront-realtime/2026/04/21/08/b.gz': LINE_ROBOTS}
+KEY_A = 'cloudfront-realtime/2026/04/21/08/stream-1-2026-04-21-08-00-01-a1b2c3.gz'
+KEY_B = 'cloudfront-realtime/2026/04/21/08/stream-1-2026-04-21-08-00-02-a1b2c3.gz'
+KEY_TO_LINE = {KEY_A: LINE_ENHANCECP,
+               KEY_B: LINE_ROBOTS}
+
+
+PREFIXES_SEEN = []                                                                   # records the prefix the source asked the lister for
 
 
 class Lister__In_Memory(S3__Inventory__Lister):
     def paginate(self, bucket='', prefix='', max_keys=0, region=''):
-        objects = [{'Key': 'cloudfront-realtime/2026/04/21/08/a.gz', 'LastModified': '2026-04-21T08:00:01'},
-                   {'Key': 'cloudfront-realtime/2026/04/21/08/b.gz', 'LastModified': '2026-04-21T08:00:02'}]
+        PREFIXES_SEEN.append(prefix)
+        objects = [{'Key': 'cloudfront-realtime/2026/04/21/08/stream-1-2026-04-21-08-00-01-a1b2c3.gz', 'LastModified': '2026-04-21T08:00:01', 'Size': 480},
+                   {'Key': 'cloudfront-realtime/2026/04/21/08/stream-1-2026-04-21-08-00-02-a1b2c3.gz', 'LastModified': '2026-04-21T08:00:02', 'Size': 510}]
         return objects, 1
 
 
@@ -66,3 +72,120 @@ class test_CF_TUI__S3_Source(TestCase):
     def test_label_is_bucket_prefix(self):
         source = CF_TUI__S3_Source(bucket='b', prefix='p/', lister=Lister__In_Memory(), fetcher=Fetcher__In_Memory()).setup()
         assert source.label() == 's3://b/p/'
+
+    def test_scoped_prefix_from_date_and_hour(self):
+        source = CF_TUI__S3_Source(date_iso='2026-04-21', hour='08', lister=Lister__In_Memory(), fetcher=Fetcher__In_Memory()).setup()
+        assert source.scoped_prefix() == 'cloudfront-realtime/2026/04/21/08/'
+        PREFIXES_SEEN.clear()
+        source.list_files()                                                          # the lister should be asked for the scoped prefix
+        assert PREFIXES_SEEN == ['cloudfront-realtime/2026/04/21/08/']
+
+    def test_list_files_returns_metadata_rows(self):
+        source = CF_TUI__S3_Source(lister=Lister__In_Memory(), fetcher=Fetcher__In_Memory()).setup()
+        rows   = source.list_files()
+        assert len(rows) == 2
+        assert rows[0].size_bytes   in (480, 510)
+        assert rows[0].delivery_iso != ''                                            # Firehose timestamp parsed from the filename
+
+    def test_read_file_parses_one_object(self):
+        source = CF_TUI__S3_Source(lister=Lister__In_Memory(), fetcher=Fetcher__In_Memory()).setup()
+        view   = source.read_file(KEY_A)
+        assert view.total_events == 1
+        assert view.events[0].uri    == '/enhancecp'
+        assert view.events[0].status == 302
+        assert view.events[0].is_bot is True
+        assert 'enhancecp' in view.raw_text
+
+
+def test_scoped_prefix_uses_args():
+    from sgraph_ai_service_playwright__cli.elastic.lets.cf.tui.source.CF_TUI__S3_Source import CF_TUI__S3_Source
+    s = CF_TUI__S3_Source()
+    assert s.scoped_prefix('2026-05-21')        == 'cloudfront-realtime/2026/05/21/'
+    assert s.scoped_prefix('2026/05/21', '00')  == 'cloudfront-realtime/2026/05/21/00/'
+    assert s.scoped_prefix()                    == 'cloudfront-realtime/'
+
+
+class test_CF_TUI__In_Memory_Source__files(TestCase):
+
+    def source(self):
+        from sgraph_ai_service_playwright__cli.elastic.lets.cf.tui.schemas.Schema__CF_TUI__Fixture_File import Schema__CF_TUI__Fixture_File
+        src = CF_TUI__In_Memory_Source().setup()
+        src.files.append(Schema__CF_TUI__Fixture_File(key='hour-08/file-a.gz', tsv_text=LINE_ENHANCECP))
+        src.files.append(Schema__CF_TUI__Fixture_File(key='hour-08/file-b.gz', tsv_text=LINE_ROBOTS))
+        return src
+
+    def test_list_files_lists_each_blob(self):
+        rows = self.source().list_files()
+        assert {r.key for r in rows} == {'hour-08/file-a.gz', 'hour-08/file-b.gz'}
+        assert all(r.size_bytes > 0 for r in rows)
+
+    def test_read_file_parses_named_blob(self):
+        view = self.source().read_file('hour-08/file-b.gz')
+        assert view.total_events  == 1
+        assert view.events[0].uri == '/robots.txt'
+
+    def test_traffic_aggregates_across_files(self):
+        snap = self.source().traffic_snapshot()
+        assert snap.total_events  == 2
+        assert snap.files_sampled == 2
+
+    def test_default_single_fixture_file(self):                                      # tsv_text shorthand → one "fixtures.tsv"
+        from sgraph_ai_service_playwright__cli.elastic.lets.cf.tui.cf_tui__fixtures import FIXTURE_TSV
+        rows = CF_TUI__In_Memory_Source(tsv_text=FIXTURE_TSV).setup().list_files()
+        assert len(rows) == 1
+        assert rows[0].key == 'fixtures.tsv'
+
+
+def _folder_src():
+    from sgraph_ai_service_playwright__cli.elastic.lets.cf.tui.schemas.Schema__CF_TUI__Fixture_File import Schema__CF_TUI__Fixture_File
+    src = CF_TUI__In_Memory_Source().setup()
+    src.files.append(Schema__CF_TUI__Fixture_File(key='cloudfront-realtime/2026/04/21/08/a.gz', tsv_text=LINE_ENHANCECP))
+    src.files.append(Schema__CF_TUI__Fixture_File(key='cloudfront-realtime/2026/04/21/08/b.gz', tsv_text=LINE_ROBOTS))
+    return src
+
+
+class test_CF_TUI__In_Memory_Source__dir(TestCase):
+
+    def test_list_dir_root_shows_folder(self):
+        entries = _folder_src().list_dir('')
+        assert len(entries) == 1
+        assert entries[0].is_folder is True
+        assert entries[0].name     == 'cloudfront-realtime/'
+
+    def test_list_dir_descends_to_files(self):
+        entries = _folder_src().list_dir('cloudfront-realtime/2026/04/21/08/')
+        assert {e.name for e in entries} == {'a.gz', 'b.gz'}
+        assert all(e.is_folder is False for e in entries)
+
+    def test_read_record(self):
+        rv = _folder_src().read_record('cloudfront-realtime/2026/04/21/08/b.gz', 0)
+        assert rv.valid is True
+        assert {f.name: f for f in rv.fields}['cs-uri-stem'].value == '/robots.txt'
+
+
+class S3Source__Dir(CF_TUI__S3_Source):
+    def list_objects_delimited(self, prefix):
+        leaf = 'cloudfront-realtime/2026/04/21/08/'
+        if prefix == leaf:
+            return [], [{'Key': leaf + 'a.gz', 'Size': 480}, {'Key': leaf + 'b.gz', 'Size': 510}]
+        return [leaf], []
+
+
+class test_CF_TUI__S3_Source__dir(TestCase):
+
+    def test_list_dir_folders(self):
+        entries = S3Source__Dir().setup().list_dir('cloudfront-realtime/2026/04/21/')
+        assert len(entries) == 1
+        assert entries[0].is_folder is True
+        assert entries[0].name     == '08/'
+
+    def test_list_dir_files(self):
+        entries = S3Source__Dir().setup().list_dir('cloudfront-realtime/2026/04/21/08/')
+        assert {e.name for e in entries} == {'a.gz', 'b.gz'}
+        assert all(e.is_folder is False for e in entries)
+
+    def test_read_record(self):
+        src = CF_TUI__S3_Source(lister=Lister__In_Memory(), fetcher=Fetcher__In_Memory()).setup()
+        rv  = src.read_record(KEY_A, 0)
+        assert rv.valid is True
+        assert {f.name: f for f in rv.fields}['cs-uri-stem'].value == '/enhancecp'
