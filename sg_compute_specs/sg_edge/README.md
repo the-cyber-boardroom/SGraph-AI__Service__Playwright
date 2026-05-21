@@ -34,6 +34,7 @@ sibling to `vault_app` / `vault_publish`.
 | TUI screen Docker | `tui/screens/SG_Edge__TUI__Screen__Docker` | `sg edge tui docker` — local running containers (`docker ps`); also embedded in Deployment |
 | TUI dashboard | `tui/screens/SG_Edge__TUI__App` | `sg edge tui dashboard` — all screens in one app, Textual `TabbedContent` (1..6 / ←→ to switch) |
 | TUI slugs (DataTable) | `tui/screens/SG_Edge__TUI__Screen__Slugs` + `widgets/SG_Edge__TUI__Table` | `sg edge tui slugs` — slug inventory as a real Textual `DataTable` (built-in cursor/scroll/click; Enter → detail). Prototype of the widget approach vs markup, via a generic Type_Safe→rows helper |
+| TUI Control Center | `tui/screens/SG_Edge__TUI__Screen__Control_Center` | `sg edge tui control` — action-capable cockpit on the shared `Tui__App` + Debug Panel: register / request / setup / teardown (capability-gated, confirm on destructive). Each action = one `sg edge local *` backend call |
 
 State model (all in DNS, nothing else): `proxies.<parent>` A (fleet membership),
 `_state.<parent>` TXT (zero_streak teardown counter), `_sg.<slug>.<parent>` TXT

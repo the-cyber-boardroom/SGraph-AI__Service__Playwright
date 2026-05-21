@@ -51,8 +51,14 @@ def setup(parent: str = typer.Option('', '--parent', '-p', help='Local edge zone
 @app.command(name='register', help='Register a slug (A + backend TXT) — replicates the Vault Waker.')
 def register(slug      : str  = typer.Argument(..., help='Slug to register'),
              parent    : str  = typer.Option('', '--parent', '-p'),
-             no_backend: bool = typer.Option(False, '--no-backend', help='Write only the A record (dormant slug — no live backend).')):
+             no_backend: bool = typer.Option(False, '--no-backend', help='Write only the A record (dormant slug — no live backend).'),
+             dry_run   : bool = typer.Option(False, '--dry-run', help='Preview the records that would be written; do not mutate.')):
     c    = Console(highlight=False)
+    if dry_run:                                                                      # the preview the TUI shows, reachable natively (separation guide rule 6)
+        st   = _stack(parent)
+        txt  = '' if no_backend else f' + _sg.{slug}.{st.parent} TXT (backend)'
+        c.print(f'\n  [dim]· dry-run[/]  register [bold]{slug}[/] would write {slug}.{st.parent} A{txt}\n')
+        return
     view = _stack(parent).register(slug, with_backend=not no_backend)
     backend = f'{view.backend_ip}:{view.backend_port}' if view.has_txt else '(none — dormant)'
     c.print(f'\n  [green]✓[/]  registered [bold]{slug}[/]  ([cyan]{view.fqdn}[/])')
@@ -61,8 +67,12 @@ def register(slug      : str  = typer.Argument(..., help='Slug to register'),
 
 @app.command(name='unregister', help='Remove a slug (A + TXT).')
 def unregister(slug  : str  = typer.Argument(..., help='Slug to remove'),
-               parent: str  = typer.Option('', '--parent', '-p')):
+               parent: str  = typer.Option('', '--parent', '-p'),
+               dry_run: bool = typer.Option(False, '--dry-run', help='Preview the removal; do not mutate.')):
     c       = Console(highlight=False)
+    if dry_run:
+        c.print(f'\n  [dim]· dry-run[/]  unregister [bold]{slug}[/] would remove its A + _sg.{slug} TXT records\n')
+        return
     removed = _stack(parent).unregister(slug)
     if removed:
         c.print(f'\n  [green]✓[/]  unregistered [bold]{slug}[/]\n')
@@ -73,8 +83,12 @@ def unregister(slug  : str  = typer.Argument(..., help='Slug to remove'),
 
 @app.command(name='teardown', help='Destroy the local edge (delete the local DNS + stack files).')
 def teardown(parent: str  = typer.Option('', '--parent', '-p'),
-             yes   : bool = typer.Option(False, '--yes', '-y', help='Skip confirmation')):
+             yes   : bool = typer.Option(False, '--yes', '-y', help='Skip confirmation'),
+             dry_run: bool = typer.Option(False, '--dry-run', help='Preview what teardown would delete; do not mutate.')):
     c = Console(highlight=False)
+    if dry_run:
+        c.print('\n  [dim]· dry-run[/]  teardown would delete the local DNS + stack state files\n')
+        return
     if not yes:
         typer.confirm('\n  Tear down the local edge (delete local DNS + stack state)?', default=True, abort=True)
     removed = _stack(parent).teardown()
