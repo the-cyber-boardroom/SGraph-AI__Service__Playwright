@@ -62,6 +62,21 @@ class test_Cli__CF__Tui(TestCase):
             finally:
                 self.mod._sync_factory = None
 
+    def test_cache__no_tty_shows_stats(self):
+        import tempfile
+        from sgraph_ai_service_playwright__cli.elastic.lets.cf.local.service.CF__Local__Store import CF__Local__Store
+        with tempfile.TemporaryDirectory() as tmp:
+            store = CF__Local__Store(root=tmp)
+            store.write_key('cloudfront-realtime/2026/05/21/08/a.gz', b'hello')
+            self.mod._store_factory = lambda: store
+            try:
+                result = self.runner.invoke(self.mod.app, ['cache'], catch_exceptions=False)
+                assert result.exit_code == 0
+                assert 'Local Cache · raw-cf-logs' in result.output
+                assert 'files=1'                   in result.output
+            finally:
+                self.mod._store_factory = None
+
     def test_architecture__no_tty_shows_wiring(self):
         from sgraph_ai_service_playwright__cli.elastic.lets.cf.tui.source.CF_TUI__Arch_Source import CF_TUI__Arch_Source
         from sgraph_ai_service_playwright__cli.elastic.lets.cf.tui.tests.test_CF_TUI__Arch_Source import FakeCF, FakeLogs, FakeS3
@@ -78,7 +93,7 @@ class test_Cli__CF__Tui(TestCase):
     def test_help_lists_commands(self):
         result = self.runner.invoke(self.mod.app, ['--help'])
         assert result.exit_code == 0
-        for token in ('traffic', 'files', 'inspect', 'architecture', 'sync', 'diagnose'):
+        for token in ('traffic', 'files', 'inspect', 'architecture', 'sync', 'cache', 'diagnose'):
             assert token in result.output, token
 
     def test_diagnose_runs(self):

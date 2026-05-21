@@ -162,6 +162,24 @@ def sync(date : str = DATE, hour : str = HOUR, mode : str = MODE, bucket : str =
     CF_TUI__Screen__Sync(sync=svc, date_iso=date, hour=hour).run()
 
 
+def _local_store():
+    if _store_factory is not None:
+        return _store_factory()
+    from sgraph_ai_service_playwright__cli.elastic.lets.cf.local.service.CF__Local__Store import CF__Local__Store
+    return CF__Local__Store()
+
+
+@app.command(name='cache', help='Local raw-cf-logs cache stats — what is on disk under _vaults (files / size / coverage).')
+def cache():
+    store = _local_store()
+    if not sys.stdout.isatty():
+        from sgraph_ai_service_playwright__cli.elastic.lets.cf.tui.screens.CF_TUI__Cache__Render import cache_stats_plain
+        print(cache_stats_plain(store.stats()))
+        return
+    from sgraph_ai_service_playwright__cli.elastic.lets.cf.tui.screens.CF_TUI__Screen__Cache import CF_TUI__Screen__Cache
+    CF_TUI__Screen__Cache(store=store).run()
+
+
 @app.command(name='diagnose', help='Deployment-chain self-check: TERM / LANG / unicode / truecolor.')
 def diagnose():
     print(f'TERM = {os.environ.get("TERM", "(unset)")}')
