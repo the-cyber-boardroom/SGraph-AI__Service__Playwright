@@ -81,6 +81,7 @@ streaming yields accurate tokens/cost. Details in `01__architecture.md` §3.
 | 2 | [`02__ux-mockups.md`](02__ux-mockups.md) | ASCII mockups of every screen/modal/state, the "best 2026 text-chat UX" rationale, keybindings, cost-color tokens | What it looks and feels like |
 | 3 | [`03__reusable-component-kit.md`](03__reusable-component-kit.md) | The shared chat component kit, mirroring the JS "reusable-component-first" model, and how `sg edge tui` embeds a chat mode | The reuse story |
 | 4 | [`04__implementation-plan.md`](04__implementation-plan.md) | Slice sequence, testing (pilot, no mocks), deployment-chain checklist, effort, risks, open questions | How to build it |
+| 5 | [`05__tui-api-tools-and-documents-plan.md`](05__tui-api-tools-and-documents-plan.md) | The **TUI API** (skills + actions + privileges the host hands the chat — the Python mirror of the SGraph JS Tool API), capability tiers, the loadout, the controlled tool execution center (auto/confirm/dry-run, privilege-gated), the Swagger-style tester, and document support | Adding tools + documents |
 
 The per-service brief template (`tui-startup-pack/02`) is honoured across these:
 data/primitives/seam → `01` §1–3; screens → `02`; honesty + deployment + acceptance →
