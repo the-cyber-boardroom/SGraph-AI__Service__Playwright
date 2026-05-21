@@ -2,16 +2,13 @@
 # SP CLI — firehose: Firehose__AWS__Client
 # Read-only access to Amazon Data Firehose (no CRUD — we only need to retrieve the
 # CF-logging delivery streams and their S3 destinations to complete the architecture
-# picture). Sole boto3 boundary for Firehose — subclasses override client() to inject
-# fakes for tests. List/describe never raise: a missing credential yields [] / None so
-# callers (CLI, architecture screen) degrade gracefully.
-#
-# EXCEPTION — boto3 used directly; osbot_aws does not cover Firehose.
+# picture). Sole Firehose boundary — subclasses override client() to inject fakes for
+# tests. List/describe never raise: a missing credential yields [] / None so callers
+# (CLI, architecture screen) degrade gracefully. Credentials flow through the shared
+# Aws__Session__Factory (keyring role / assume / bare-boto3 fall-through).
 # ═══════════════════════════════════════════════════════════════════════════════
 
 from typing import Optional
-
-import boto3                                                                          # EXCEPTION — see module header
 
 from osbot_utils.type_safe.Type_Safe                                                  import Type_Safe
 
@@ -23,10 +20,8 @@ class Firehose__AWS__Client(Type_Safe):
     region : str = ''                                                                 # override to target a specific region
 
     def client(self):                                                                 # single boto3 seam — subclass overrides to inject a fake
-        kwargs = {}
-        if self.region:
-            kwargs['region_name'] = self.region
-        return boto3.client('firehose', **kwargs)
+        from sgraph_ai_service_playwright__cli.aws._shared.auth.Aws__Session__Factory import boto3_client_via_context
+        return boto3_client_via_context('firehose', region=self.region)
 
     def list_delivery_streams(self) -> list:                                          # returns list[str] of stream names; never raises
         try:

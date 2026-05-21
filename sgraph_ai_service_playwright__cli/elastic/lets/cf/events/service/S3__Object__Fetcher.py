@@ -11,8 +11,6 @@
 # Tests subclass and override get_object_bytes(); no boto3, no AWS round trips.
 # ═══════════════════════════════════════════════════════════════════════════════
 
-import boto3                                                                        # EXCEPTION — see slice 1's S3__Inventory__Lister header (mirrors Elastic__AWS__Client)
-
 from osbot_utils.type_safe.Type_Safe                                                import Type_Safe
 from osbot_utils.type_safe.type_safe_core.decorators.type_safe                      import type_safe
 
@@ -22,10 +20,9 @@ from sgraph_ai_service_playwright__cli.elastic.lets.Call__Counter               
 class S3__Object__Fetcher(Type_Safe):
     counter : Call__Counter                                                         # Auto-instantiates per instance; SG_Send orchestrator injects a shared one
 
-    def s3_client(self, region: str):                                               # Single seam — tests override.  Empty region falls through to boto3 default chain.
-        if region:
-            return boto3.client('s3', region_name=region)
-        return boto3.client('s3')
+    def s3_client(self, region: str):                                               # Single seam — tests override.  Routes through the shared session factory (role/assume/bare).
+        from sgraph_ai_service_playwright__cli.aws._shared.auth.Aws__Session__Factory import boto3_client_via_context
+        return boto3_client_via_context('s3', region=region)
 
     @type_safe
     def get_object_bytes(self, bucket : str ,

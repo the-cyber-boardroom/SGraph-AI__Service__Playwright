@@ -28,10 +28,8 @@ class Logs__AWS__Client(Type_Safe):
     region : str = ''                                                             # override to target specific region
 
     def client(self):                                                             # single boto3 seam — subclass overrides to inject fake
-        kwargs = {}
-        if self.region:
-            kwargs['region_name'] = self.region
-        return boto3.client('logs', **kwargs)
+        from sgraph_ai_service_playwright__cli.aws._shared.auth.Aws__Session__Factory import boto3_client_via_context
+        return boto3_client_via_context('logs', region=self.region)
 
     # ── log group management ──────────────────────────────────────────────────
 

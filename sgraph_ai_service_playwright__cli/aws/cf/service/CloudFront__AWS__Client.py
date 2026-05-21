@@ -33,7 +33,8 @@ from sgraph_ai_service_playwright__cli.aws.cf.service.CloudFront__Distribution__
 class CloudFront__AWS__Client(Type_Safe):
 
     def client(self):                                                                  # Single boto3 seam — subclass overrides to inject fake
-        return boto3.client('cloudfront', region_name='us-east-1')
+        from sgraph_ai_service_playwright__cli.aws._shared.auth.Aws__Session__Factory import boto3_client_via_context
+        return boto3_client_via_context('cloudfront', region='us-east-1')              # CloudFront is global — always the IAD endpoint
 
     # ── read ──────────────────────────────────────────────────────────────────
 
