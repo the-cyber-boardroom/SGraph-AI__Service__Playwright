@@ -117,6 +117,25 @@ def docker():
     SG_Edge__TUI__Screen__Docker(docker_source=src).run()
 
 
+@app.command(name='slugs', help='Slug inventory in a Textual DataTable (cursor/scroll/click; Enter → detail).')
+def slugs(target: str = typer.Option('local', '--target', '-t', help='Data source: local | aws'),
+          parent: str = typer.Option('',      '--parent', '-p', help='Edge parent zone (defaults per target)')):
+    source = _source(target, parent)
+    if not sys.stdout.isatty():                                                      # piped / CI → plain rows
+        from sg_compute_specs.sg_edge.tui.screens.widgets.SG_Edge__TUI__Table import type_safe_table
+        cols, rows = type_safe_table(source.snapshot().slugs, ['slug', 'state', 'backend_ip', 'backend_port'])
+        print('  '.join(cols))
+        for row in rows:
+            print('  '.join(row))
+        return
+    from sg_compute_specs.sg_edge.tui.screens.SG_Edge__TUI__Screen__Slugs import SG_Edge__TUI__Screen__Slugs
+    table = SG_Edge__TUI__Screen__Slugs(source=source)
+    table.run()
+    if table.opened_slug:                                                            # row selected → open Slug detail
+        from sg_compute_specs.sg_edge.tui.screens.SG_Edge__TUI__Screen__Slug_Detail import SG_Edge__TUI__Screen__Slug_Detail
+        SG_Edge__TUI__Screen__Slug_Detail(source=source, slug=table.opened_slug).run()
+
+
 @app.command(name='topology', help='Screen 2 — Topology: the layered flow (browser → wildcard → fleet → slugs).')
 def topology(target: str = typer.Option('local', '--target', '-t', help='Data source: local | aws'),
              parent: str = typer.Option('',      '--parent', '-p', help='Edge parent zone (defaults per target)')):
