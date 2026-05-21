@@ -39,6 +39,7 @@ class Bedrock__Chat__Screen(App):
                 ('ctrl+s',   'export_card',  'Export'),
                 ('ctrl+o',   'model',        'Model'),
                 ('ctrl+b',   'brief',        'Brief'),
+                ('ctrl+g',   'tools',        'Tools'),
                 ('ctrl+l',   'clear',        'Clear'),
                 ('ctrl+up',  'inspect_prev', 'Prev req'),
                 ('ctrl+down','inspect_next', 'Next req'),
@@ -198,6 +199,42 @@ class Bedrock__Chat__Screen(App):
         brief_text = Bedrock__Chat__Brief__Builder().build(self.session)
         write_path = str(Path(self.brief_dir) / f'brief-{self.session.session_id}.md')
         self.push_screen(Bedrock__Chat__Brief__Modal(brief_text, write_path))
+
+    def action_tools(self) -> None:                                               # ctrl+g — choose which TUI APIs this chat may use
+        from sgraph_ai_service_playwright__cli.tui.tool_api.screens.Tui_Api__Loadout__Modal import Tui_Api__Loadout__Modal
+        registry = self._available_registry()
+        def after(loadout) -> None:
+            if loadout is not None:
+                self.apply_loadout(registry, loadout)
+        self.push_screen(Tui_Api__Loadout__Modal(registry), after)
+
+    def _available_registry(self):                                                # the providers the chat can enable (VFS core tool first)
+        if self.registry is not None:
+            return self.registry
+        from sgraph_ai_service_playwright__cli.tui.tool_api.service.Tui_Api__Registry import Tui_Api__Registry
+        registry = Tui_Api__Registry()
+        try:
+            from sgraph_ai_service_playwright__cli.tui.tool_api.core.vfs.Vfs__Tui_Api__Provider import Vfs__Tui_Api__Provider
+            registry.register(Vfs__Tui_Api__Provider())
+        except Exception:
+            pass                                                                  # memory_fs absent → no VFS tool offered
+        return registry
+
+    def apply_loadout(self, registry, loadout) -> None:
+        from sgraph_ai_service_playwright__cli.aws.bedrock.tui.tui_api.Bedrock__Tool_Config__Builder import Bedrock__Tool_Config__Builder
+        from sgraph_ai_service_playwright__cli.tui.tool_api.service.Tui_Api__Execution_Center        import Tui_Api__Execution_Center
+        from sgraph_ai_service_playwright__cli.tui.tool_api.service.Tui_Api__Loadout__Assembler       import Tui_Api__Loadout__Assembler
+        from sgraph_ai_service_playwright__cli.tui.tool_api.service.Tui_Api__Privilege__Resolver      import Tui_Api__Privilege__Resolver
+        resolver              = Tui_Api__Privilege__Resolver()
+        granted               = Tui_Api__Loadout__Assembler().granted_actions(loadout, registry, resolver)
+        tool_config, name_map = Bedrock__Tool_Config__Builder().build(granted)
+        self.registry     = registry
+        self.center       = Tui_Api__Execution_Center(registry=registry, resolver=resolver)
+        self.tool_config  = tool_config
+        self.name_map     = name_map
+        self.tools_active = bool(tool_config.get('tools'))
+        count = len(tool_config.get('tools', []))
+        self.notify(f'tools: {count} action(s) enabled' if count else 'tools disabled')
 
     def action_clear(self) -> None:
         old = self.session
