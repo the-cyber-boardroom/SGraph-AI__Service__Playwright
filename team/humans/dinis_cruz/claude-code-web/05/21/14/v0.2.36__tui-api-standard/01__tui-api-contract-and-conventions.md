@@ -371,6 +371,10 @@ for non-Python tools, with the same scoping/sequencing/audit applied at the boun
 > **Detailed, code-grounded build plans** (slice-by-slice, with the verified reuse map) live
 > in [`plans/`](plans/00__plans-index.md): B1 contract+registry+CLI, B2 SG/Role, B3 execution
 > center, B4 VFS, B5+C chat slices.
+>
+> **Hands-on:** [`02__how-to-test-and-try.md`](02__how-to-test-and-try.md) — run the tests,
+> drive the CLI/explorer, use the tool-enabled chat, and reproduce everything headlessly
+> (no AWS) with the in-memory snippets.
 
 ---
 
