@@ -9,6 +9,7 @@ from osbot_utils.type_safe.Type_Safe import Type_Safe
 
 from sgraph_ai_service_playwright__cli.tui.tool_api.enums.Enum__Tui_Api__Tier            import Enum__Tui_Api__Tier
 from sgraph_ai_service_playwright__cli.tui.tool_api.primitives.Safe_Str__Tui_Api__Action_Name import Safe_Str__Tui_Api__Action_Name
+from sgraph_ai_service_playwright__cli.tui.tool_api.schemas.List__Tui_Api__Privilege      import List__Tui_Api__Privilege
 from sgraph_ai_service_playwright__cli.tui.tool_api.schemas.Schema__Tui_Api__Scope        import Schema__Tui_Api__Scope
 
 
@@ -19,4 +20,5 @@ class Schema__Tui_Api__Action(Type_Safe):
     output_schema : dict
     tier          : Enum__Tui_Api__Tier = Enum__Tui_Api__Tier.READ_ONLY
     scope         : Schema__Tui_Api__Scope
+    privileges    : List__Tui_Api__Privilege                                      # per-action backing grants (override the API baseline)
     idempotent    : bool = True
