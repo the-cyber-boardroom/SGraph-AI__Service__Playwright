@@ -10,7 +10,10 @@ import os
 from sgraph_ai_service_playwright__cli.aws.s3.service.S3__AWS__Client                       import S3__AWS__Client
 from sgraph_ai_service_playwright__cli.aws.s3.tui_api.schemas.Schema__S3__Params__Head_Object import Schema__S3__Params__Head_Object
 from sgraph_ai_service_playwright__cli.aws.s3.tui_api.schemas.Schema__S3__Params__List_Objects import Schema__S3__Params__List_Objects
+from sgraph_ai_service_playwright__cli.tui.tool_api.enums.Enum__Tui_Api__Change_Kind        import Enum__Tui_Api__Change_Kind
 from sgraph_ai_service_playwright__cli.tui.tool_api.enums.Enum__Tui_Api__Tier               import Enum__Tui_Api__Tier
+from sgraph_ai_service_playwright__cli.tui.tool_api.schemas.Schema__Tui_Api__Orientation    import Schema__Tui_Api__Orientation
+from sgraph_ai_service_playwright__cli.tui.tool_api.service.Tui_Api__Change_Log             import Tui_Api__Change_Log
 from sgraph_ai_service_playwright__cli.tui.tool_api.schemas.List__Tui_Api__Action            import List__Tui_Api__Action
 from sgraph_ai_service_playwright__cli.tui.tool_api.schemas.List__Tui_Api__Tier              import List__Tui_Api__Tier
 from sgraph_ai_service_playwright__cli.tui.tool_api.schemas.Schema__Tui_Api__Action          import Schema__Tui_Api__Action
@@ -53,6 +56,14 @@ class S3__Tui_Api__Provider(Tui_Api__Provider):
                                         tiers       = tiers,
                                         actions     = actions,
                                         skills      = Schema__Tui_Api__Skills())
+
+    def orientation(self) -> Schema__Tui_Api__Orientation:
+        change_log = Tui_Api__Change_Log()
+        change_log.add(Enum__Tui_Api__Change_Kind.FEATURE,
+                       'Read-only S3 TUI API: list_buckets, list_objects, head_object.', '0.1.0')
+        return Schema__Tui_Api__Orientation(tool='sg-aws',
+                                          status={'healthy': True, 'note': 'read-only; credentials from the active sg context'},
+                                          recent_changes=change_log.changes)
 
     def skills(self) -> dict:
         here = os.path.join(os.path.dirname(__file__), 'skills')

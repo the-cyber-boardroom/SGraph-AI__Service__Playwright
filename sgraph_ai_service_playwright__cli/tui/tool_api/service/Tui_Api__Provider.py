@@ -7,9 +7,10 @@
 
 from osbot_utils.type_safe.Type_Safe import Type_Safe
 
-from sgraph_ai_service_playwright__cli.tui.tool_api.schemas.Schema__Tui_Api__Action   import Schema__Tui_Api__Action
-from sgraph_ai_service_playwright__cli.tui.tool_api.schemas.Schema__Tui_Api__Manifest import Schema__Tui_Api__Manifest
-from sgraph_ai_service_playwright__cli.tui.tool_api.schemas.Schema__Tui_Api__Result   import Schema__Tui_Api__Result
+from sgraph_ai_service_playwright__cli.tui.tool_api.schemas.Schema__Tui_Api__Action      import Schema__Tui_Api__Action
+from sgraph_ai_service_playwright__cli.tui.tool_api.schemas.Schema__Tui_Api__Manifest    import Schema__Tui_Api__Manifest
+from sgraph_ai_service_playwright__cli.tui.tool_api.schemas.Schema__Tui_Api__Orientation import Schema__Tui_Api__Orientation
+from sgraph_ai_service_playwright__cli.tui.tool_api.schemas.Schema__Tui_Api__Result      import Schema__Tui_Api__Result
 
 
 class Tui_Api__Provider(Type_Safe):
@@ -28,6 +29,9 @@ class Tui_Api__Provider(Type_Safe):
 
     def dry_run(self, action: str, params: dict) -> dict:                         # preview a change-set without committing (override where supported)
         return {}
+
+    def orientation(self) -> Schema__Tui_Api__Orientation:                        # the 'now what?' surface — override to add status + changes
+        return Schema__Tui_Api__Orientation(tool=str(self.manifest().tool), status={'healthy': True})
 
     def action(self, name: str) -> Schema__Tui_Api__Action:                       # convenience lookup into the manifest
         for action in self.manifest().actions:

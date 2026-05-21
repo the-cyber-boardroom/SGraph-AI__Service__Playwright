@@ -68,6 +68,37 @@ def make_tui_api_app(registry: Tui_Api__Registry) -> typer.Typer:
         if not result.ok:
             raise typer.Exit(code=1)
 
+    @app.command('status')
+    def status(slug: str = typer.Argument(..., help='API slug')):
+        """Orientation: 'now what?' — health, currently-available actions, recent changes."""
+        provider = registry.get(slug)
+        if provider is None:
+            typer.echo(f'no such API: {slug}'); raise typer.Exit(code=1)
+        orientation = provider.orientation()
+        out = {'tool'             : orientation.tool,
+               'status'           : orientation.status,
+               'available_actions': [str(action.name) for action in center.available_actions(slug)],
+               'recent_changes'   : [change.json() for change in orientation.recent_changes]}
+        typer.echo(json.dumps(out, indent=2, default=str))
+
+    @app.command('whatsnew')
+    def whatsnew(slug: str = typer.Argument(..., help='API slug')):
+        """Highlights since last visit (rendered from the provider's change log)."""
+        provider = registry.get(slug)
+        if provider is None:
+            typer.echo(f'no such API: {slug}'); raise typer.Exit(code=1)
+        from sgraph_ai_service_playwright__cli.tui.tool_api.service.Tui_Api__Change_Log import Tui_Api__Change_Log
+        typer.echo(Tui_Api__Change_Log(changes=provider.orientation().recent_changes).whatsnew_markdown())
+
+    @app.command('changelog')
+    def changelog(slug: str = typer.Argument(..., help='API slug')):
+        """Full structured change history for an API."""
+        provider = registry.get(slug)
+        if provider is None:
+            typer.echo(f'no such API: {slug}'); raise typer.Exit(code=1)
+        from sgraph_ai_service_playwright__cli.tui.tool_api.service.Tui_Api__Change_Log import Tui_Api__Change_Log
+        typer.echo(Tui_Api__Change_Log(changes=provider.orientation().recent_changes).changelog_markdown())
+
     @app.command('explore')
     def explore():
         """Launch the Swagger-style TUI API explorer (Textual)."""
