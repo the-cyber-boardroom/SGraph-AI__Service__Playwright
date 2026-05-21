@@ -111,12 +111,15 @@ the right grain emerge, rather than fixing a convention now.
 - ✅ **B5** contract-test harness **and** the Textual explorer screen (`sg <area> tui api explore`),
   built from Textual built-ins (Header/Footer/DataTable/Static) and pilot-tested headless via
   `App.run_test()` with the in-memory S3 provider — the same way the chat/edge/s3 TUIs are tested.
-- ⬜ **B6** orientation + change-control — next.
-- ⬜ **C** chat slices (C-P0 provider surface, tool loop, loadout, documents) — after B6.
+- ✅ **B6** orientation + change-control (`status` / `whatsnew` / `changelog`); `Schema__Tui_Api__Tool`
+  multi-API aggregation deferred until multi-API tools exist (organic granularity).
+- ⬜ **C** chat slices (C-P0 provider surface, tool loop, loadout, documents) — next.
+
+**The entire framework-free foundation B1–B6 is BUILT.**
 
 **Runtime:** the project targets **Python 3.12**. A single 3.12 interpreter runs the whole
-suite (textual + memory_fs + boto3 together): **3.12 → 53 passed.** On a 3.11 lane the
-memory_fs (VFS) tests skip cleanly: **3.11 → 44 passed, 2 skipped.** All pushed to
+suite (textual + memory_fs + boto3 together): **3.12 → 59 passed.** On a 3.11 lane the
+memory_fs (VFS) tests skip cleanly: **3.11 → 50 passed, 2 skipped.** All pushed to
 `claude/review-tui-cli-commits-S3xCM`.
 
 ---
