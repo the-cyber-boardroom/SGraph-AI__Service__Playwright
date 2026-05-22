@@ -25,6 +25,7 @@ from sgraph_ai_service_playwright__cli.aws.bedrock.tui.screens.widgets.Chat__Com
 from sgraph_ai_service_playwright__cli.aws.bedrock.tui.screens.widgets.Chat__Cost__Meter      import Chat__Cost__Meter
 from sgraph_ai_service_playwright__cli.aws.bedrock.tui.screens.widgets.Chat__Doc__Chips        import Chat__Doc__Chips
 from sgraph_ai_service_playwright__cli.aws.bedrock.tui.screens.widgets.Chat__Inspector        import Chat__Inspector
+from sgraph_ai_service_playwright__cli.aws.bedrock.tui.screens.widgets.Chat__Vfs__Browser      import Chat__Vfs__Browser
 
 COST_OVERRIDE_CONFIRMED = 1e9                                                      # explicit user-confirmed over-cap send
 
@@ -36,6 +37,7 @@ class Bedrock__Chat__Screen(App):
     BINDINGS = [('ctrl+q',   'leave',        'Quit'),
                 ('f1',       'help',         'Help'),
                 ('f2',       'inspector',    'Inspect'),
+                ('f3',       'vfs',          'Files'),
                 ('ctrl+t',   'toggle_theme', 'Theme'),
                 ('ctrl+s',   'export_card',  'Export'),
                 ('ctrl+o',   'model',        'Model'),
@@ -57,6 +59,7 @@ class Bedrock__Chat__Screen(App):
         self.exited            = False
         self.last_turn         = None
         self.inspector_selected = 0
+        self.vfs_selected      = 0
         self.registry          = registry                                         # the tools the chat consumes (when tool-enabled)
         self.center            = center
         self.tool_config       = tool_config
@@ -69,14 +72,16 @@ class Bedrock__Chat__Screen(App):
         with Horizontal():
             yield VerticalScroll(id='transcript')
             yield Chat__Inspector(id='inspector')
+            yield Chat__Vfs__Browser(id='vfs')
             yield Chat__Cost__Meter(id='meter')
         yield Chat__Doc__Chips(id='chips')
         yield Chat__Composer(id='composer')
         yield Footer()
 
     def on_mount(self) -> None:
-        self.inspector().display = False                                          # hidden until f2; cost meter shown by default
-        self.chips().display     = False
+        self.inspector().display   = False                                        # hidden until f2; cost meter shown by default
+        self.vfs_browser().display = False                                        # hidden until f3
+        self.chips().display       = False
         self.meter().refresh_from(self.session)
         self.query_one('#composer', Chat__Composer).focus()
 
@@ -93,6 +98,9 @@ class Bedrock__Chat__Screen(App):
 
     def chips(self) -> Chat__Doc__Chips:
         return self.query_one('#chips', Chat__Doc__Chips)
+
+    def vfs_browser(self) -> Chat__Vfs__Browser:
+        return self.query_one('#vfs', Chat__Vfs__Browser)
 
     # ── send flow ────────────────────────────────────────────────────────────────
 
@@ -158,33 +166,59 @@ class Bedrock__Chat__Screen(App):
         if self.inspector().display:                                              # follow the newest request while inspecting
             self.inspector_selected = len(self.session.turns) - 1
             self.inspector().refresh_from(self.session, self.inspector_selected)
+        if self.vfs_browser().display:                                            # the agent may have written files this turn
+            self.vfs_browser().refresh_from(self._vfs_provider(), self.vfs_selected)
         self.transcript().anchor()
         frac = (self.session.total_cost_usd / self.session.budget_usd) if self.session.budget_usd else 0.0
         if frac >= BUDGET_WARN_FRACTION:
             self.notify(f'session cost ${self.session.total_cost_usd:.4f} of ${self.session.budget_usd:.2f} budget',
                         severity='warning')
 
-    # ── inspector ────────────────────────────────────────────────────────────────
+    # ── right-panel slot: cost meter · inspector (f2) · VFS browser (f3) ──────────
 
-    def action_inspector(self) -> None:                                           # f2 — open/close the request/response inspector (swaps with the cost meter)
-        opening = not self.inspector().display
-        self.inspector().display = opening
-        self.meter().display     = not opening
-        if opening:
-            self.inspector_selected = max(0, len(self.session.turns) - 1)
-            self.inspector().refresh_from(self.session, self.inspector_selected)
+    def _show_panel(self, panel: str) -> None:                                    # exactly one of 'meter' | 'inspector' | 'vfs' is visible
+        self.meter().display       = (panel == 'meter')
+        self.inspector().display   = (panel == 'inspector')
+        self.vfs_browser().display = (panel == 'vfs')
+
+    def action_inspector(self) -> None:                                           # f2 — request/response inspector
+        if self.inspector().display:
+            self._show_panel('meter')
+            return
+        self._show_panel('inspector')
+        self.inspector_selected = max(0, len(self.session.turns) - 1)
+        self.inspector().refresh_from(self.session, self.inspector_selected)
+
+    def action_vfs(self) -> None:                                                 # f3 — VFS file browser (uses the same slot as the inspector)
+        if self.vfs_browser().display:
+            self._show_panel('meter')
+            return
+        self._show_panel('vfs')
+        self.vfs_selected = 0
+        self.vfs_browser().refresh_from(self._vfs_provider(), self.vfs_selected)
+
+    def _vfs_provider(self):                                                      # the chat's VFS provider, if tools are enabled
+        return self.registry.get('core.vfs') if self.registry is not None else None
 
     def action_inspect_prev(self) -> None:
-        self._inspect_step(-1)
+        self._vfs_step(-1) if self.vfs_browser().display else self._inspect_step(-1)
 
     def action_inspect_next(self) -> None:
-        self._inspect_step(+1)
+        self._vfs_step(+1) if self.vfs_browser().display else self._inspect_step(+1)
 
     def _inspect_step(self, delta: int) -> None:
         if not self.inspector().display or not self.session.turns:
             return
         self.inspector_selected = max(0, min(self.inspector_selected + delta, len(self.session.turns) - 1))
         self.inspector().refresh_from(self.session, self.inspector_selected)
+
+    def _vfs_step(self, delta: int) -> None:
+        provider = self._vfs_provider()
+        files    = list(provider.state().get('files', [])) if provider is not None else []
+        if not files:
+            return
+        self.vfs_selected = max(0, min(self.vfs_selected + delta, len(files) - 1))
+        self.vfs_browser().refresh_from(provider, self.vfs_selected)
 
     # ── actions ──────────────────────────────────────────────────────────────────
 
@@ -264,6 +298,8 @@ class Bedrock__Chat__Screen(App):
         self.notify(f'tools: {count} action(s) enabled' if count else 'tools disabled')
 
     def action_clear(self) -> None:
+        # Clears the conversation + cost only. The VFS / tools (self.registry, self.center)
+        # are deliberately untouched — files the agent created survive a clear.
         old = self.session
         self.session = self.engine.new_session(region=old.region, model_alias=str(old.model_alias),
                                                budget_usd=old.budget_usd)
@@ -275,6 +311,8 @@ class Bedrock__Chat__Screen(App):
         self.meter().refresh_from(self.session)
         if self.inspector().display:
             self.inspector().refresh_from(self.session, self.inspector_selected)
+        if self.vfs_browser().display:                                            # VFS persists; just re-render the panel
+            self.vfs_browser().refresh_from(self._vfs_provider(), self.vfs_selected)
 
     def action_stop(self) -> None:
         self.workers.cancel_group(self, 'llm')

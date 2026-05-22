@@ -119,6 +119,25 @@ def inspector_detail_markup(turn, index: int) -> str:
     return '\n'.join(lines)
 
 
+def vfs_list_markup(files: list, selected: int) -> str:
+    lines = [f'[bold]VFS · {len(files)} file(s)[/]', '']
+    for index, path in enumerate(files):
+        marker = '[cyan]▸[/]' if index == selected else ' '
+        lines.append(f' {marker} {_esc(str(path))}')
+    if not files:
+        lines.append('  [dim](no files yet — the agent can vfs.write)[/]')
+    return '\n'.join(lines)
+
+
+def vfs_detail_markup(path: str, content: str) -> str:
+    if path is None:
+        return '[dim](no file selected)[/]'
+    lines = [f'[dim]── {_esc(str(path))} ──[/]', '']
+    for line in (content or '').split('\n'):
+        lines.append(_esc(line))
+    return '\n'.join(lines)
+
+
 def model_picker_rows(aliases: list, pricing_for, resolve) -> list:
     # → list of (alias, model_id, in_price, out_price) ; aliases includes 'default' first
     rows = []
