@@ -9,9 +9,12 @@
 # ═══════════════════════════════════════════════════════════════════════════════
 
 import functools
+import os
 import sys
 
 from sgraph_ai_service_playwright__cli.aws._shared.auth.AWS__Auth__Classifier import is_auth_error, auth_error_cause
+
+ADMIN_ROLE_ENV = 'SG_AWS__IAM__ADMIN_ROLE'                                            # override the default admin credential name
 
 
 def _default_store():
@@ -23,6 +26,29 @@ def _default_store():
 def _set_context_role(role : str) -> None:
     from sgraph_ai_service_playwright__cli.credentials.service.Sg__Aws__Context import Sg__Aws__Context
     Sg__Aws__Context.set_global_role(role)
+
+
+def adopt_admin_role_if_available(admin_role : str, store=None, set_role=None, notify=None) -> str:
+    # Admin-by-default for management commands: if no base identity is selected and the
+    # admin credential (e.g. 'iam-admin') exists in the keyring, adopt it silently-ish.
+    # That credential is the whole point of the privileged role — don't make the operator
+    # pick it from a menu every time. Returns the adopted role name ('' if none).
+    role = os.environ.get(ADMIN_ROLE_ENV) or admin_role
+    if not role:
+        return ''
+    from sgraph_ai_service_playwright__cli.credentials.service.Sg__Aws__Context import Sg__Aws__Context
+    if Sg__Aws__Context.get_current_role():                                          # operator already chose one (env / `as <role>`) — respect it
+        return ''
+    store = store if store is not None else _default_store()
+    try:
+        exists = store.role_get(role) is not None
+    except Exception:
+        exists = False
+    if not exists:                                                                   # not configured here → fall through to the guard menu
+        return ''
+    (set_role or _set_context_role)(role)
+    (notify  or (lambda r: print(f'[iam] using admin credential: {r}', file=sys.stderr)))(role)
+    return role
 
 
 def remediation_text(family : str, cause : str, roles : list) -> str:
@@ -86,12 +112,18 @@ def run_guarded(fn, family : str = '', store=None, chooser=None):
         raise SystemExit(1)                                                          # abort
 
 
-def aws_auth_guard(family : str = ''):
+def aws_auth_guard(family : str = '', admin_role : str = ''):
+    # family      → transparent-assume that family's scoped role for the command duration.
+    # admin_role  → management commands (e.g. `iam …`) adopt this base credential by
+    #               default when none is selected. Mutually sensible: a family role is
+    #               assumed FROM the admin identity. Pass one or the other (or neither).
     def decorator(fn):
         @functools.wraps(fn)
         def wrapper(*args, **kwargs):
             from sgraph_ai_service_playwright__cli.aws._shared.auth import AWS__Auth__Context
-            chooser = interactive_chooser if sys.stdin.isatty() and sys.stdout.isatty() else None
+            from sgraph_ai_service_playwright__cli.credentials.service.Sg__Aws__Context import Sg__Aws__Context
+            chooser  = interactive_chooser if sys.stdin.isatty() and sys.stdout.isatty() else None
+            adopted  = adopt_admin_role_if_available(admin_role) if admin_role else ''
             if family:
                 AWS__Auth__Context.set_active_family(family)                          # transparent assume of the family's scoped role for the duration
             try:
@@ -99,5 +131,7 @@ def aws_auth_guard(family : str = ''):
             finally:
                 if family:
                     AWS__Auth__Context.clear_active_family()
+                if adopted:
+                    Sg__Aws__Context.clear_global_role()                              # don't leak the adopted admin identity into later commands (REPL/tests)
         return wrapper
     return decorator
