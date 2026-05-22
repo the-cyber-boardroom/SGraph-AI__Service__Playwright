@@ -23,6 +23,7 @@ from sgraph_ai_service_playwright__cli.aws.bedrock.tui.screens.Bedrock__Chat__Re
 from sgraph_ai_service_playwright__cli.aws.bedrock.tui.screens.widgets.Chat__Bubble           import Chat__Bubble
 from sgraph_ai_service_playwright__cli.aws.bedrock.tui.screens.widgets.Chat__Composer         import Chat__Composer
 from sgraph_ai_service_playwright__cli.aws.bedrock.tui.screens.widgets.Chat__Cost__Meter      import Chat__Cost__Meter
+from sgraph_ai_service_playwright__cli.aws.bedrock.tui.screens.widgets.Chat__Doc__Chips        import Chat__Doc__Chips
 from sgraph_ai_service_playwright__cli.aws.bedrock.tui.screens.widgets.Chat__Inspector        import Chat__Inspector
 
 COST_OVERRIDE_CONFIRMED = 1e9                                                      # explicit user-confirmed over-cap send
@@ -39,13 +40,16 @@ class Bedrock__Chat__Screen(App):
                 ('ctrl+s',   'export_card',  'Export'),
                 ('ctrl+o',   'model',        'Model'),
                 ('ctrl+b',   'brief',        'Brief'),
+                ('ctrl+g',   'tools',        'Tools'),
+                ('ctrl+d',   'attach',       'Attach doc'),
                 ('ctrl+l',   'clear',        'Clear'),
                 ('ctrl+up',  'inspect_prev', 'Prev req'),
                 ('ctrl+down','inspect_next', 'Next req'),
                 ('escape',   'stop',         'Stop')]
 
     def __init__(self, engine, region: str = '', model_alias: str = 'default',
-                 context=None, brief_dir: str = ''):
+                 context=None, brief_dir: str = '',
+                 registry=None, center=None, tool_config=None, name_map=None):
         super().__init__()
         self.engine            = engine
         self.session           = engine.new_session(region=region, model_alias=model_alias, context=context)
@@ -53,6 +57,12 @@ class Bedrock__Chat__Screen(App):
         self.exited            = False
         self.last_turn         = None
         self.inspector_selected = 0
+        self.registry          = registry                                         # the tools the chat consumes (when tool-enabled)
+        self.center            = center
+        self.tool_config       = tool_config
+        self.name_map          = name_map or {}
+        self.tools_active      = bool(tool_config and tool_config.get('tools'))    # tools loaded → agentic (non-streaming) path
+        self.pending_docs      = []                                               # documents attached to the next message (^D)
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -60,11 +70,13 @@ class Bedrock__Chat__Screen(App):
             yield VerticalScroll(id='transcript')
             yield Chat__Inspector(id='inspector')
             yield Chat__Cost__Meter(id='meter')
+        yield Chat__Doc__Chips(id='chips')
         yield Chat__Composer(id='composer')
         yield Footer()
 
     def on_mount(self) -> None:
         self.inspector().display = False                                          # hidden until f2; cost meter shown by default
+        self.chips().display     = False
         self.meter().refresh_from(self.session)
         self.query_one('#composer', Chat__Composer).focus()
 
@@ -79,6 +91,9 @@ class Bedrock__Chat__Screen(App):
     def inspector(self) -> Chat__Inspector:
         return self.query_one('#inspector', Chat__Inspector)
 
+    def chips(self) -> Chat__Doc__Chips:
+        return self.query_one('#chips', Chat__Doc__Chips)
+
     # ── send flow ────────────────────────────────────────────────────────────────
 
     @on(Chat__Composer.Submitted)                                                 # bind by type — the Chat__Composer name mangles the auto handler
@@ -86,6 +101,9 @@ class Bedrock__Chat__Screen(App):
         self.handle_submit(message.text)
 
     def handle_submit(self, text: str, cost_override: float = None) -> None:
+        if self.tools_active:                                                     # tool-enabled chat → agentic (non-streaming) loop
+            self.agentic_worker(text)
+            return
         try:
             self.engine.preflight_cost(self.session, text, cost_override)         # leaves session clean if it trips
         except ValueError as exc:
@@ -111,13 +129,31 @@ class Bedrock__Chat__Screen(App):
             acc.append(chunk)
             self.call_from_thread(bubble.set_body, ''.join(acc))
 
-        turn = await asyncio.to_thread(self.engine.send_turn, self.session, text, on_delta, cost_override)
+        documents = self.take_pending_docs()
+        turn = await asyncio.to_thread(self.engine.send_turn, self.session, text, on_delta, cost_override, documents)
         bubble.set_body(''.join(acc))
+        self.finish_turn(bubble, turn)
+
+    @work(exclusive=True, group='llm')
+    async def agentic_worker(self, text: str) -> None:                            # tool-enabled: non-streaming Converse tool loop
+        user = Chat__Bubble('user', text, author='you')
+        await self.transcript().mount(user)
+        bubble = Chat__Bubble('assistant', '', author=str(self.session.model_alias))
+        await self.transcript().mount(bubble)
+        bubble.set_footer('[dim]⟳ running tools…[/]')
+        self.transcript().anchor()
+
+        documents = self.take_pending_docs()
+        turn = await asyncio.to_thread(self.engine.send_turn_agentic, self.session, text,
+                                       self.registry, self.center, self.tool_config, self.name_map,
+                                       documents=documents)
+        bubble.set_body(turn.response_text or '(no response)')
         self.finish_turn(bubble, turn)
 
     def finish_turn(self, bubble: Chat__Bubble, turn) -> None:
         self.last_turn = turn
-        bubble.set_footer(turn_footer(turn.input_tokens, turn.output_tokens, turn.cost_usd, turn.latency_ms))
+        bubble.set_footer(turn_footer(turn.input_tokens, turn.output_tokens, turn.cost_usd, turn.latency_ms,
+                                      getattr(turn, 'model_calls', 1), getattr(turn, 'tool_calls', 0)))
         self.meter().refresh_from(self.session)
         if self.inspector().display:                                              # follow the newest request while inspecting
             self.inspector_selected = len(self.session.turns) - 1
@@ -174,6 +210,58 @@ class Bedrock__Chat__Screen(App):
         brief_text = Bedrock__Chat__Brief__Builder().build(self.session)
         write_path = str(Path(self.brief_dir) / f'brief-{self.session.session_id}.md')
         self.push_screen(Bedrock__Chat__Brief__Modal(brief_text, write_path))
+
+    def action_attach(self) -> None:                                              # ctrl+d — attach a document to the next message
+        from sgraph_ai_service_playwright__cli.aws.bedrock.tui.screens.Bedrock__Chat__Doc__Picker import Bedrock__Chat__Doc__Picker
+        def after(document) -> None:
+            if document is not None:
+                self.pending_docs.append(document)
+                self.chips().refresh_from(self.pending_docs)
+                self.notify(f'attached {document.name} ({document.size}B)')
+        self.push_screen(Bedrock__Chat__Doc__Picker(), after)
+
+    def take_pending_docs(self) -> list:                                          # consume the pending attachments for this send
+        documents = list(self.pending_docs)
+        if documents:
+            self.pending_docs = []
+            self.chips().refresh_from([])
+        return documents
+
+    def action_tools(self) -> None:                                               # ctrl+g — choose which TUI APIs this chat may use
+        from sgraph_ai_service_playwright__cli.tui.tool_api.screens.Tui_Api__Loadout__Modal import Tui_Api__Loadout__Modal
+        registry = self._available_registry()
+        def after(loadout) -> None:
+            if loadout is not None:
+                self.apply_loadout(registry, loadout)
+        self.push_screen(Tui_Api__Loadout__Modal(registry), after)
+
+    def _available_registry(self):                                                # the providers the chat can enable (VFS core tool first)
+        if self.registry is not None:
+            return self.registry
+        from sgraph_ai_service_playwright__cli.tui.tool_api.service.Tui_Api__Registry import Tui_Api__Registry
+        registry = Tui_Api__Registry()
+        try:
+            from sgraph_ai_service_playwright__cli.tui.tool_api.core.vfs.Vfs__Tui_Api__Provider import Vfs__Tui_Api__Provider
+            registry.register(Vfs__Tui_Api__Provider())
+        except Exception:
+            pass                                                                  # memory_fs absent → no VFS tool offered
+        return registry
+
+    def apply_loadout(self, registry, loadout) -> None:
+        from sgraph_ai_service_playwright__cli.aws.bedrock.tui.tui_api.Bedrock__Tool_Config__Builder import Bedrock__Tool_Config__Builder
+        from sgraph_ai_service_playwright__cli.tui.tool_api.service.Tui_Api__Execution_Center        import Tui_Api__Execution_Center
+        from sgraph_ai_service_playwright__cli.tui.tool_api.service.Tui_Api__Loadout__Assembler       import Tui_Api__Loadout__Assembler
+        from sgraph_ai_service_playwright__cli.tui.tool_api.service.Tui_Api__Privilege__Resolver      import Tui_Api__Privilege__Resolver
+        resolver              = Tui_Api__Privilege__Resolver()
+        granted               = Tui_Api__Loadout__Assembler().granted_actions(loadout, registry, resolver)
+        tool_config, name_map = Bedrock__Tool_Config__Builder().build(granted)
+        self.registry     = registry
+        self.center       = Tui_Api__Execution_Center(registry=registry, resolver=resolver)
+        self.tool_config  = tool_config
+        self.name_map     = name_map
+        self.tools_active = bool(tool_config.get('tools'))
+        count = len(tool_config.get('tools', []))
+        self.notify(f'tools: {count} action(s) enabled' if count else 'tools disabled')
 
     def action_clear(self) -> None:
         old = self.session

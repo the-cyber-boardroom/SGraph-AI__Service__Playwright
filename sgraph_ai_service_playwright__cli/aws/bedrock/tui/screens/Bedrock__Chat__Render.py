@@ -24,9 +24,13 @@ def cost_colour(fraction: float) -> str:
     return 'green'
 
 
-def turn_footer(input_tokens: int, output_tokens: int, cost_usd: float, latency_ms: int) -> str:
-    return (f'[dim]in {input_tokens} · out {output_tokens} · '
+def turn_footer(input_tokens: int, output_tokens: int, cost_usd: float, latency_ms: int,
+                model_calls: int = 1, tool_calls: int = 0) -> str:
+    base = (f'[dim]in {input_tokens} · out {output_tokens} · '
             f'[/][green]${cost_usd:.6f}[/][dim] · {latency_ms}ms[/]')
+    if tool_calls:
+        base += f'[dim] · {model_calls} model · {tool_calls} tools[/]'
+    return base
 
 
 def streaming_footer() -> str:
@@ -97,11 +101,21 @@ def inspector_detail_markup(turn, index: int) -> str:
              '[dim]── exact Converse body sent ──[/]', '']
     for line in (turn.request_json or '').split('\n'):
         lines.append(f'[dim]{_esc(line)}[/]')
+    tool_log = getattr(turn, 'tool_log', None)
+    if tool_log:                                                                  # agentic turns: show every tool the model called
+        lines += ['', f'[bold]tool calls ({len(tool_log)})[/]', '']
+        for call in tool_log:
+            marker = '[green]✓[/]' if str(call.status) == 'success' else '[red]✗[/]'
+            lines.append(f'{marker} [b]{_esc(str(call.name))}[/] [dim]{_esc(call.input_json)}[/]')
+            for line in (call.result_json or '').split('\n'):
+                lines.append(f'  [dim]{_esc(line)}[/]')
+
     lines += ['', '[bold]response[/]', '']
     for line in (turn.response_text or '').split('\n'):
         lines.append(_esc(line))
     lines += ['', f'[dim]usage: in {turn.input_tokens} · out {turn.output_tokens} · '
-                  f'${turn.cost_usd:.6f} · {turn.latency_ms}ms[/]']
+                  f'${turn.cost_usd:.6f} · {turn.latency_ms}ms · '
+                  f'{getattr(turn, "model_calls", 1)} model · {getattr(turn, "tool_calls", 0)} tools[/]']
     return '\n'.join(lines)
 
 

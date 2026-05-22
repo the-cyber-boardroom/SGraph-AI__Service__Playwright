@@ -72,6 +72,14 @@ boto3, no AWS** — it knows nothing about Nova. It takes a `Chat__Engine__Contr
 
 **Tier 2 is the glue** that satisfies the contract using the Bedrock primitives.
 
+> **The kit is bigger than chat widgets now.** The ratified TUI API standard makes *every*
+> chat TUI both a **consumer** of tools and a **provider** of its own surface. The reusable
+> machinery for that — `Tui_Api__Provider`, the registry, the execution center, the loadout —
+> lives one level up at `cli/tui/tool_api/` (standard §9), not in `_shared/tui/chat/`. A chat
+> TUI **composes both**: the Tier-1 chat widgets here + the `tool_api` provider/consumer
+> there. The reuse story is therefore "mix chat widgets **and** a TUI API surface into any
+> tool," not just widgets.
+
 > **Exploration caveat.** For the very first slices it is acceptable to build the chat
 > widgets *inside* `bedrock/tui/screens/widgets/` and **promote them to `_shared/tui/chat/`
 > once the shapes settle** (the sixth conversation). Designing them against the contract
@@ -133,8 +141,9 @@ class Chat__Bubble(Markdown):                       # extends the widget it spec
 | `Chat__Bubble` | 1 | any chat TUI | role + markdown; streams via `get_stream`; scoped CSS |
 | `Chat__Composer` | 1 | any input TUI (not just chat) | a submit-on-Enter `TextArea` is generally useful |
 | `Chat__Cost__Meter` | 1 | any LLM TUI | binds to a provider-agnostic cost summary |
+| `Chat__Inspector` | 1 | any LLM TUI | shows exact request/response per turn (built; the honesty + multi-turn-proof surface) |
 | `Chat__Engine__Contract` | 1 | every chat backend | the seam that lets the same UI front any LLM |
-| `Chat__Context__Provider` | 1 | `sg edge tui`, cf tui, … | "talk to *this* screen's data" without UI changes |
+| `Chat__Context__Provider` | 1 | `sg edge tui`, cf tui, … | "talk to *this* screen's data"; **for large data, hands a VFS tree, not an inlined body** (see §5) |
 | `Bedrock__Chat__Engine` | 2 | Bedrock chat TUI | the Nova-specific implementation |
 | `Bedrock__Chat__Model__Picker` | 2 | Bedrock chat TUI | Nova-priced; trivially extended to other providers later |
 
@@ -155,9 +164,17 @@ and create dev briefs." Because the chat kit is Tier-1 generic and takes a
    the model answers against the **real snapshot**, and `b` writes a dev brief to the
    agent-output folder.
 
+> **Small snapshot vs. large reference set.** Returning `card.render(snapshot)` as an inlined
+> body is right for a *small, always-relevant* snapshot. When a host wants to expose a *large*
+> body (many screens, a doc set, history), `Chat__Context__Provider` should instead **mount a
+> VFS tree** (`populate_vfs`, TUI API standard §6) and let the model pull on demand — not
+> inline 50k tokens up front. The seam is the same; only small/now context is inlined.
+
 This is the concrete reuse win: **one chat kit, embedded in every rich read-only TUI,
 turning each into a place you can diagnose and emit action plans** — the AWS-Q-style
-experience, built reusable-first.
+experience, built reusable-first. And because each such TUI is also a TUI API **provider**,
+the embedding composes both ways: the host drives the chat, and the chat reads the host's
+data — a concrete **TUI-of-TUIs**.
 
 ```
    sg edge tui (read-only screens)            sg aws bedrock chat tui (standalone)

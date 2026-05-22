@@ -14,3 +14,7 @@ class Bedrock__Chat__Source(Type_Safe):
 
     def stream_turn(self, model_id: str, messages: list, region: str = '', system: str = None):
         raise NotImplementedError                                                 # yields ('delta', text) | ('usage', (in, out, ms))
+
+    def converse_turn(self, model_id: str, messages: list, region: str = '', system: str = None,
+                      tool_config: dict = None) -> dict:                           # non-streaming, tool-aware (the agentic loop)
+        raise NotImplementedError                                                 # → {stop_reason, content[], input_tokens, output_tokens, latency_ms}

@@ -51,11 +51,14 @@ class Bedrock__Runtime__AWS__Client(Type_Safe):
     # Accept a full Bedrock messages list so a chat session can pass its history.
     # The single-turn converse/converse_stream above stay as-is for the CLI verbs.
 
-    def converse_messages(self, model_id: str, messages: list, region: str = None, system: str = None) -> dict:
+    def converse_messages(self, model_id: str, messages: list, region: str = None, system: str = None,
+                          tool_config: dict = None) -> dict:
         runtime = self.client(region or self.current_region())
         kwargs  = dict(modelId=model_id, messages=messages)
         if system:
             kwargs['system'] = [{'text': system}]                                 # Bedrock system block
+        if tool_config:
+            kwargs['toolConfig'] = tool_config                                    # Bedrock tool-use config
         return runtime.converse(**kwargs)
 
     def converse_stream_messages(self, model_id: str, messages: list, region: str = None, system: str = None):

@@ -71,9 +71,16 @@ Three regions: a growing **transcript** (left, `1fr`), a docked **cost/session s
 ├────────────────────────────────────────────────────────────────────────┴────────────────────────┤
 │ ▌ ask about the edge snapshot…                                                            (nova-lite) │
 ├──────────────────────────────────────────────────────────────────────────────────────────────────┤
-│ [Enter] send  [⇧Enter] newline  [Esc] stop  [m] model  [b] brief  [e] export  [^L] clear  [?] help │
+│ [Enter] send [⇧Enter] newline [Esc] stop [^O] model [^B] brief [^S] export [^L] clear [F2] inspect [F1] help │
 └──────────────────────────────────────────────────────────────────────────────────────────────────┘
 ```
+
+> **Implementation note (bindings drifted from this sketch — the doc is now corrected).**
+> The composer is a focused `TextArea`, which **swallows single-letter keys** (you'd type
+> `m`/`b`/`$` into the message). So every global action moved to a **Ctrl-combo** or an
+> **F-key** that `TextArea` does not bind. The canonical set is §6 below; the footer above
+> reflects it. This is a kept negative result: single-letter hotkeys are unavailable to any
+> chat TUI whose composer holds focus.
 
 - **Per-bubble footer** (assistant): `⟳ streaming · 412ms` while live; on completion it
   becomes `in 412 · out 690 · $0.000291 · 412ms` — the exact, metadata-derived cost,
@@ -112,6 +119,11 @@ idiom (catalogue §5) applied to spend.
 A `Sparkline` of per-turn cost (reuses the `sg edge tui` sparkline idiom) makes the
 spend trend legible at a glance. **Teaches:** does anyone want per-turn detail, or is the
 session Σ enough; is the cost-trend sparkline meaningful for chat.
+
+> **Status:** this `$` cost-detail Collapsible is **PROPOSED — not yet built.** The
+> per-turn detail that *was* built is the **Inspector** (§8), which shows each turn's exact
+> request/response and cost. If the Inspector covers the need, this Collapsible may not be
+> worth adding.
 
 ---
 
@@ -190,18 +202,23 @@ should briefs land.
 
 ---
 
-## 6. Keybindings (keyboard-primary, playbook §4)
+## 6. Keybindings (keyboard-primary, playbook §4) — as implemented
+
+Single-letter hotkeys are unavailable while the composer (`TextArea`) holds focus (it
+consumes them as input), so global actions use Ctrl-combos + F-keys. This is the canonical,
+implemented set (`Bedrock__Chat__Screen.BINDINGS`):
 
 ```
-Enter      send               m   model picker
-⇧Enter     newline            b   capture dev brief
-Esc        stop streaming     $   cost detail
-^L         clear chat         e   export session card (file + OSC-52)
-PgUp/PgDn  scroll transcript  t   toggle theme
-?          help (modal)       Ctrl+P  command palette  q  quit
+Enter      send                  ^O   model picker
+⇧Enter     newline               ^B   capture dev brief
+Esc        stop streaming        ^S   export session card (file + OSC-52)
+^L         clear chat            ^T   toggle theme
+PgUp/PgDn  scroll transcript     F2   inspector (request/response — swaps with the cost meter)
+F1         help (modal)          ^↑/^↓ inspector: prev / next request
+^Q         quit                  Ctrl+P  command palette (Textual built-in)
 ```
 
-`?` opens the same context-aware Help modal pattern `sg edge tui` uses (walk the MRO
+`F1` opens the same context-aware Help modal pattern `sg edge tui` uses (walks the MRO
 `BINDINGS`). Mouse is enhancement only; everything is reachable from the keyboard.
 
 ---
@@ -221,6 +238,48 @@ The budget bar, per-turn footers, and the over-budget toast all read these token
 theme switch keeps the cost semantics intact. Per-bubble role styling
 (`-user`/`-assistant`) uses `$primary` / `$success` borders via the bubble's scoped
 `DEFAULT_CSS`.
+
+---
+
+## 8. The inspector panel — `F2`  (request/response, as built)
+
+A right-docked panel (`Chat__Inspector`, `width: 64`) that **swaps with the cost meter**
+(`width: 34`) — `F2` toggles which one is visible, so the transcript keeps its `1fr` and
+only one side panel shows at a time. It answers "what *exactly* did we send the model?" —
+the honesty surface that also proves the conversation is multi-turn (the request body grows
+as history accumulates).
+
+```
+┌─ transcript … ──────────────────────────────────┬─ inspector · turn 3/3 ─────────────────┐
+│  ╭─ you ─────────────────────────────────╮       │ requests                                │
+│  │ and why is the A record stale?        │       │  1  nova-lite  in 402  $0.000088        │
+│  ╰───────────────────────────────────────╯       │  2  nova-lite  in 400  $0.000206        │
+│  ╭─ nova-lite ───────────────────────────╮       │▸ 3  nova-lite  in 402  $0.000291  ◀     │
+│  │ Because the fleet was recycled and …  │       │ ─────────────────────────────────────── │
+│  │ in 402 · out 870 · $0.000291 · 412ms  │       │ request  (exact Converse body)          │
+│  ╰───────────────────────────────────────╯       │  {                                      │
+│                                                   │   "modelId": "amazon.nova-lite-v1:0",   │
+│                                                   │   "system": [{"text": "edge snapshot…"}]│
+│                                                   │   "messages": [                         │
+│                                                   │     {"role": "user",      "content": …},│
+│                                                   │     {"role": "assistant", "content": …},│
+│                                                   │     {"role": "user",      "content": …} │  ← full history sent
+│                                                   │   ] }                                   │
+│                                                   │ response  (exact text returned)         │
+│                                                   │  Because the fleet was recycled …       │
+└───────────────────────────────────────────────────┴─────────────────────────────────────────┘
+```
+
+- **Toggle** `F2`; **navigate** `^↑` / `^↓` (prev / next request). Each row is one
+  `Schema__Bedrock__Chat__Turn`; the detail renders that turn's `request_json` +
+  `response_text` (the two fields added to the schema for exactly this).
+- **Why it matters:** the request body shows the **entire message history** re-sent each
+  turn — concrete proof the chat is a conversation, not independent calls, and a direct
+  read on *why multi-turn input tokens (and cost) grow*. It is the TUI twin of the JS dev
+  panel's `getGenerations()`.
+
+**Teaches:** is raw request JSON the right altitude, or should it be a rendered summary; do
+operators reach for this, or is the per-bubble footer enough.
 
 ---
 
