@@ -8,7 +8,8 @@
 from unittest import TestCase
 
 from sgraph_ai_service_playwright__cli.aws._shared.auth.AWS__Auth__Classifier import is_auth_error, auth_error_cause
-from sgraph_ai_service_playwright__cli.aws._shared.auth.AWS__Auth__Guard      import run_guarded, remediation_text
+from sgraph_ai_service_playwright__cli.aws._shared.auth.AWS__Auth__Guard      import run_guarded, remediation_text, adopt_admin_role_if_available
+from sgraph_ai_service_playwright__cli.credentials.service.Sg__Aws__Context   import Sg__Aws__Context
 
 
 class _NoCredentialsError(Exception):                                                # stand-in with botocore's class name
@@ -85,6 +86,39 @@ class test_run_guarded(TestCase):
         def fn():
             raise exc
         return fn
+
+
+class _StoreWith:
+    def __init__(self, names): self._names = set(names)
+    def role_get(self, name): return object() if name in self._names else None
+
+
+class test_adopt_admin_role(TestCase):
+
+    def setUp(self):    Sg__Aws__Context.clear_global_role()
+    def tearDown(self): Sg__Aws__Context.clear_global_role()
+
+    def test_adopts_when_available_and_no_role(self):
+        chosen = []
+        adopted = adopt_admin_role_if_available('iam-admin', store=_StoreWith(['iam-admin']),
+                                                set_role=chosen.append, notify=lambda r: None)
+        assert adopted == 'iam-admin'
+        assert chosen  == ['iam-admin']
+
+    def test_no_adopt_when_not_in_store(self):
+        chosen = []
+        adopted = adopt_admin_role_if_available('iam-admin', store=_StoreWith([]),
+                                                set_role=chosen.append, notify=lambda r: None)
+        assert adopted == ''
+        assert chosen  == []
+
+    def test_respects_already_selected_role(self):
+        Sg__Aws__Context.set_global_role('dev')                                       # operator already chose → don't override
+        chosen = []
+        adopted = adopt_admin_role_if_available('iam-admin', store=_StoreWith(['iam-admin']),
+                                                set_role=chosen.append, notify=lambda r: None)
+        assert adopted == ''
+        assert chosen  == []
 
 
 class test_remediation_text(TestCase):

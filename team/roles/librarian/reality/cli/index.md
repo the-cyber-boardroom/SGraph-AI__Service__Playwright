@@ -26,6 +26,7 @@ The CLI surface is large; per the 300-line fractal rule it is split into focused
 | [`aws-fargate.md`](aws-fargate.md) | `sg aws fargate` — ECS Fargate cluster/task-def/task lifecycle (v0.2.29 Slice C) |
 | [`aws-bedrock.md`](aws-bedrock.md) | The 2026-05-17 `sg aws bedrock` Slice E — chat, agent, tool sub-trees with local-file capture |
 | [`aws-logs.md`](aws-logs.md) | `sg aws logs` — CloudWatch log group management and tailing (v0.2.33 Slice 0c) |
+| [`aws-auth.md`](aws-auth.md) | The v0.2.40 shared AWS auth layer (`aws/_shared/auth/`) — credential chokepoint convergence, the `NoCredentialsError` guard/menu, role-profile registry, role provisioner, transparent assume of a family's least-privilege role |
 
 ---
 
@@ -55,6 +56,7 @@ This is the high-level surface; details live in the sub-files.
 | `sg aws ec2 eni ...` (v0.2.33 Slice 0b) | `aws/ec2/eni` | [`aws-ec2.md`](aws-ec2.md) |
 | `sg vault-app fargate ...` (v0.2.33 Slices 1–6) | `vault-app/fargate` | [`../sg-compute/index.md`](../sg-compute/index.md) |
 | `sg vp ...` (vault-publish slug bootstrap, v0.2.23) | `vp` | [`sg-compute/index.md`](../sg-compute/index.md) |
+| `sg el lets cf iam ...` (v0.2.40 — provision the `sg-lets-cf` role) | `aws/_shared/auth` + `elastic/lets/cf/iam` | [`aws-auth.md`](aws-auth.md), [`lets/index.md`](../lets/index.md) |
 
 ### `Fast_API__SP__CLI` route count (at v0.1.31 freeze)
 

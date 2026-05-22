@@ -6,6 +6,19 @@ This is a pointer log, not a content log. For full delta detail, see the master 
 
 ---
 
+## 2026-05-21 (v0.2.40 — shared AWS auth layer + sg el lets cf iam)
+
+2026-05-21 | cli, lets | v0.2.40 shared AWS auth layer (`aws/_shared/auth/`):
+  credential chokepoint convergence (CloudFront/Logs/Firehose + LETS S3 boundaries),
+  `NoCredentialsError` guard/menu, role-profile registry, role provisioner,
+  transparent assume of `sg-lets-cf`, and the `sg el lets cf iam` sub-app.
+
+- `cli/aws-auth.md` — NEW: the full engine — chokepoint (`Aws__Session__Factory`), guard (`AWS__Auth__Classifier`/`AWS__Auth__Guard`), registry (`AWS__Role__Profiles` + profile/statement schemas), provisioner (`AWS__Role__Provisioner` + `Schema__AWS__Role__Plan`), transparent assume (`AWS__Auth__Context`/`AWS__Auth__Resolver`), `IAM__AWS__Client.create_role_with_trust`/`update_assume_role_policy_raw`, `Sg__Aws__Session.assume_arn`/`account_id_via_sts`. Wiring matrix + caveats (live IAM/STS unverified).
+- `lets/index.md` — UPDATED: `sp el lets cf iam show|plan|create|update|test|delete` added to the CLI surface; v0.2.40 auth-guard + transparent-assume subsection.
+- `cli/index.md` — UPDATED: rows for `aws-auth.md` and `sg el lets cf iam`.
+
+---
+
 ## 2026-05-19 (v0.2.33 — vault-app fargate: sg vault-app fargate sub-app)
 
 2026-05-19 | sg-compute, cli | v0.2.33 vault-app fargate: `sg vault-app fargate` sub-app

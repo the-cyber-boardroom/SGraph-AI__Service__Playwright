@@ -51,7 +51,7 @@ def _mutation_guard():
 
 
 @iam_app.command('show', help='Show the desired policy + trust and whether the role exists.')
-@aws_auth_guard('')                                                                  # catch auth errors (clean menu); do NOT transparently assume — we manage the role with the base identity
+@aws_auth_guard('', admin_role='iam-admin')                                                                  # default to the iam-admin base credential; catch auth errors (menu). No transparent assume — these commands MANAGE the role as admin.
 def show(ctx : typer.Context, as_json : bool = typer.Option(False, '--json', help='Output as JSON.')):
     profile = _profile()
     plan    = ctx.obj['provisioner'].plan(profile)
@@ -67,7 +67,7 @@ def show(ctx : typer.Context, as_json : bool = typer.Option(False, '--json', hel
 
 
 @iam_app.command('plan', help='Diff the live role against the profile (actions to add/remove).')
-@aws_auth_guard('')
+@aws_auth_guard('', admin_role='iam-admin')
 def plan(ctx : typer.Context, as_json : bool = typer.Option(False, '--json', help='Output as JSON.')):
     profile = _profile()
     p       = ctx.obj['provisioner'].plan(profile)
@@ -89,7 +89,7 @@ def plan(ctx : typer.Context, as_json : bool = typer.Option(False, '--json', hel
 
 
 @iam_app.command('create', help='Create-or-update the role to match the profile (gated).')
-@aws_auth_guard('')
+@aws_auth_guard('', admin_role='iam-admin')
 def create(ctx     : typer.Context,
            yes     : bool = typer.Option(False, '--yes', '-y', help='Skip confirmation.'),
            dry_run : bool = typer.Option(False, '--dry-run', help='Print the plan; make no changes.')):
@@ -113,6 +113,7 @@ def update(ctx     : typer.Context,
 
 
 @iam_app.command('test', help='Assume the role and print the caller identity (proves it is assumable).')
+@aws_auth_guard('', admin_role='iam-admin')
 def test(ctx : typer.Context):
     from sgraph_ai_service_playwright__cli.credentials.service.Sg__Aws__Session import Sg__Aws__Session
     profile    = _profile()
@@ -132,7 +133,7 @@ def test(ctx : typer.Context):
 
 
 @iam_app.command('delete', help='Delete the role (gated).')
-@aws_auth_guard('')
+@aws_auth_guard('', admin_role='iam-admin')
 def delete(ctx     : typer.Context,
            yes     : bool = typer.Option(False, '--yes', '-y', help='Skip confirmation.'),
            dry_run : bool = typer.Option(False, '--dry-run', help='Print what would happen; make no changes.')):

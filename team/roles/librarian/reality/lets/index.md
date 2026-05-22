@@ -42,6 +42,11 @@ sp el lets cf consolidate load [stack] [options]
     --password                 # else $SG_ELASTIC_PASSWORD
     --region                   # else boto3 default chain
     --dry-run                  # build queue, skip all writes
+
+sp el lets cf iam show | plan        # desired sg-lets-cf least-priv policy; diff vs live role
+sp el lets cf iam create | update    # provision/refresh the role (gated: SG_AWS__IAM__ALLOW_MUTATIONS=1 + confirm)
+sp el lets cf iam test               # assume sg-lets-cf and print the caller identity (proves assumable)
+sp el lets cf iam delete [-y]        # delete the role (gated)
 ```
 
 All verbs accept an optional positional `[STACK_NAME]` — auto-pick when a single stack exists; prompt on multiple.
@@ -49,6 +54,16 @@ All verbs accept an optional positional `[STACK_NAME]` — auto-pick when a sing
 `--from-inventory` (events): pulls work queue from `sg-cf-inventory-*` docs where `content_processed=false` — slice 1's forward-declared field finally has a reader.
 
 `--from-consolidated` (events): reads the pre-built `events.ndjson.gz` for the date instead of per-file fetch + parse. Uses `refresh=False + routing=date` (E-1, E-2) for one bulk-post call. ~14× speedup.
+
+#### v0.2.40 — auth guard + transparent assume (`iam` sub-app)
+
+The S3-touching cf commands (native `sync`/`cache`; TUI `traffic`/`files`/`inspect`/`architecture`/`sync`) are wrapped with `@aws_auth_guard('el-lets-cf')`:
+
+- **Transparent assume (default):** each command assumes the scoped `sg-lets-cf` role from the operator's base identity, with a one-line stderr notice. Falls back to the base identity, then the auth menu, if the role is absent or assume is denied.
+- **Auth guard:** a missing/expired credential no longer dumps a botocore traceback — interactive terminals get a menu (pick a stored keyring credential, retry in-process); piped/CI get remediation + exit 2.
+- **`iam` sub-app** (`elastic/lets/cf/iam/`): `cf_role_profile.py` declares the least-priv policy and self-registers into the generic registry; `cli/Cli__CF__Iam.py` exposes show/plan/create/update/test/delete over the generic `AWS__Role__Provisioner`.
+
+Full engine + caveats: [`cli/aws-auth.md`](../cli/aws-auth.md).
 
 ---
 
