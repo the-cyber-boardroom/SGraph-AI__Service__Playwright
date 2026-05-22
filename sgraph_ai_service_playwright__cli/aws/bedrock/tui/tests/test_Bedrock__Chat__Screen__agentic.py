@@ -79,3 +79,6 @@ class test_Bedrock__Chat__Screen__agentic(TestCase):
             assert 'vfs_read' in str(screen.last_turn.tool_log[0].name)           # the (sanitised) Bedrock tool name
             assert str(screen.last_turn.tool_log[0].status) == 'success'
             assert any(str(call.action_ref) == 'vfs.read' for call in center.log) # executed + audited (real action name)
+
+            from sgraph_ai_service_playwright__cli.aws.bedrock.tui.screens.widgets.Chat__Tool_Calls import Chat__Tool_Calls
+            assert len(screen.query(Chat__Tool_Calls)) == 1                       # the collapsed tool-call card is in the transcript

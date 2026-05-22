@@ -138,6 +138,27 @@ def vfs_detail_markup(path: str, content: str) -> str:
     return '\n'.join(lines)
 
 
+def tool_calls_markup(tool_log) -> str:                                           # the expanded body of the transcript tool-call section
+    lines = []
+    for call in tool_log:
+        marker = '[green]✓[/]' if str(call.status) == 'success' else '[red]✗[/]'
+        lines.append(f'{marker} [b]{_esc(str(call.name))}[/]')
+        lines.append(f'  [dim]request [/] {_esc(call.input_json)}')
+        lines.append(f'  [dim]response[/] {_esc(call.result_json)}')
+        lines.append('')
+    return '\n'.join(lines).rstrip()
+
+
+def tool_calls_title(tool_log) -> str:                                            # the collapsed summary line
+    total   = len(tool_log)
+    failed  = sum(1 for call in tool_log if str(call.status) != 'success')
+    names   = ', '.join(str(call.name).split('__')[-1] for call in tool_log[:3])
+    suffix  = '' if total <= 3 else ' …'
+    warn    = f'  [red]({failed} failed)[/]' if failed else ''
+    return f'🔧 {total} tool call{"s" if total != 1 else ""}: {names}{suffix}{warn}'
+
+
+
 def model_picker_rows(aliases: list, pricing_for, resolve) -> list:
     # → list of (alias, model_id, in_price, out_price) ; aliases includes 'default' first
     rows = []

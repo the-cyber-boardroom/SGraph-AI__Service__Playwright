@@ -144,17 +144,23 @@ class Bedrock__Chat__Screen(App):
 
     @work(exclusive=True, group='llm')
     async def agentic_worker(self, text: str) -> None:                            # tool-enabled: non-streaming Converse tool loop
-        user = Chat__Bubble('user', text, author='you')
-        await self.transcript().mount(user)
-        bubble = Chat__Bubble('assistant', '', author=str(self.session.model_alias))
-        await self.transcript().mount(bubble)
-        bubble.set_footer('[dim]⟳ running tools…[/]')
+        from textual.widgets import Static
+        from sgraph_ai_service_playwright__cli.aws.bedrock.tui.screens.widgets.Chat__Tool_Calls import Chat__Tool_Calls
+
+        await self.transcript().mount(Chat__Bubble('user', text, author='you'))
+        status = Static('[dim]⟳ running tools…[/]')
+        await self.transcript().mount(status)
         self.transcript().anchor()
 
         documents = self.take_pending_docs()
         turn = await asyncio.to_thread(self.engine.send_turn_agentic, self.session, text,
                                        self.registry, self.center, self.tool_config, self.name_map,
                                        documents=documents)
+        await status.remove()
+        if turn.tool_log:                                                         # collapsed tool-call card (request/response on expand)
+            await self.transcript().mount(Chat__Tool_Calls(list(turn.tool_log)))
+        bubble = Chat__Bubble('assistant', '', author=str(self.session.model_alias))
+        await self.transcript().mount(bubble)
         bubble.set_body(turn.response_text or '(no response)')
         self.finish_turn(bubble, turn)
 
