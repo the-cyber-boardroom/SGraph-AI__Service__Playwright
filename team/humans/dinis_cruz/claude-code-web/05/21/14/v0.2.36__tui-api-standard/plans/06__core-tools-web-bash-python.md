@@ -30,7 +30,7 @@ grounds_on:
 |---|---|
 | The TUI API contract, SG/Role scopes, **execution center** (confirm/dry-run/`ALLOW_MUTATIONS`/audit), loadout, the chat's collapsed **tool-call cards** + **F2 inspector**, the **VFS** core tool | A **`Container__Exec`** substrate (run a command in an ephemeral container) — the repo has **no** command-exec primitive today |
 | The **Playwright** browser core (`sg_compute_specs/playwright` step/sequence primitives) — reused for `web.render` of JS pages (on-brand: this IS a browser-automation service) | An **HTTP fetch + SSRF/allowlist** guard (no general web-egress guard exists; closest is the evaluate-action `JS__Expression__Allowlist` deny-by-default philosophy) |
-| `cli/docker` + `cli/podman` (Docker **stack on EC2** tooling) — *context only*; it deploys the service image, it does not exec commands | The VFS↔container **working-dir sync** (materialise the session VFS → mount → sync back) |
+| `cli/docker` + `cli/podman` (Docker **stack on EC2** tooling) — *context only*; it deploys the service image, it does not exec commands | A **local-disk (temp-folder) VFS backend** (`memory_fs`'s `Storage_FS__Local_Disk`, plus a `vfs_root_path()`) so the container can **bind-mount the VFS dir** as `/work` |
 
 **Deployment constraint (must flag):** spawning containers needs a **container runtime on the
 host** (laptop / EC2 / a container-capable Fargate task). It does **not** work inside Lambda.
@@ -78,10 +78,18 @@ Both sit on the shared **`Container__Exec`** substrate (§4). The model's call �
 center (gated/audited) → `Container__Exec.run(...)` → the result is fed back **truthfully** (the
 same honest-tool-result path just added), and shown in the collapsed tool-call card + inspector.
 
-**VFS as the working directory (the powerful bit):** before a run, **materialise the session
-VFS** into a temp dir, mount it read-write as `/work` in the container; after the run, **sync
-changes back** into the VFS. So `web.fetch → vfs.write → python.run (reads /work, writes results)
-→ vfs.read` is one coherent workflow, and **F3** shows the files throughout.
+**VFS as the working directory (the powerful bit) — via a temp-folder VFS backend.**
+Prerequisite: extend the built VFS core tool to optionally back its storage with a **local
+temp folder** (`memory_fs` already ships `Storage_FS__Local_Disk`) instead of in-memory.
+When bash/python are enabled, the session VFS uses a per-session **temp dir**, and the
+container **mounts that exact dir** as `/work` (read-write). No materialise/sync round-trip —
+**the folder *is* the shared state**: `vfs.write` (tool), the container's file I/O, and the
+**F3** browser all read/write the same directory. So `web.fetch → vfs.write → python.run
+(reads/writes /work) → vfs.read` is one coherent workflow with a single source of truth.
+
+> The VFS provider gains a `vfs_root_path()` (the host dir, when the backend is local-disk)
+> so the exec substrate knows what to mount. Default stays in-memory + ephemeral (decision
+> §8 #8); the local-disk backend is auto-selected when a container tool is in the loadout.
 
 ---
 
@@ -89,15 +97,16 @@ changes back** into the VFS. So `web.fetch → vfs.write → python.run (reads /
 
 ```python
 class Container__Exec(Type_Safe):                          # interface
-    def run(self, image: str, argv: list, *, stdin: str = '', workdir_files: dict = None,
+    def run(self, image: str, argv: list, *, stdin: str = '', workdir_path: str = None,
             timeout_s: int = 30, network: bool = False) -> Schema__Exec__Result: ...
-# Schema__Exec__Result: stdout · stderr · exit_code · duration_ms · timed_out
+# workdir_path = the VFS temp dir to bind-mount as /work (RW); Schema__Exec__Result: stdout · stderr · exit_code · duration_ms · timed_out
 ```
 
 - **Real runner** (`Container__Exec__Docker` / `__Podman`): `docker run --rm` with hardening —
-  `--network none` (default), non-root user, `--read-only` rootfs + a writable `/work` tmpfs/mount,
-  `--memory`/`--cpus` caps, `--pids-limit`, drop capabilities, and a hard **timeout kill**. Writes
-  `workdir_files` into `/work`, runs, reads `/work` back. Uses the docker/podman CLI on a
+  `--network none` (default), non-root user, `--read-only` rootfs + the VFS temp dir
+  **bind-mounted** at `/work` (`-v {workdir_path}:/work`), `--memory`/`--cpus` caps,
+  `--pids-limit`, drop capabilities, and a hard **timeout kill**. The mount means changes are
+  live in the VFS the instant the container writes them. Uses the docker/podman CLI on a
   container-capable host. (osbot-aws is for AWS, not local docker — this is local subprocess/SDK.)
 - **In-memory fake** (`Container__Exec__In_Memory`): scripted `{argv → result}` for **no-mock tests**
   of bash/python providers + the gating, with **no Docker** — so the provider/loadout/engine tests
@@ -142,13 +151,15 @@ Everything reuses what's built:
 | **W1 — web.fetch** | httpx GET + HTML→text + SSRF guard + domain allowlist + caps; READ_ONLY provider | in-memory fake HTTP (no network) |
 | **W2 — web.render** | drive the Playwright step/sequence primitives for JS pages | gated (needs chromium) |
 | **W3 — web.search** | a search backend behind a key/privilege | deferred |
-| **X0 — Container__Exec** | the substrate: interface + `__In_Memory` fake + a real docker/podman runner with the hardening flags | fake (anywhere) + real (gated on a runtime) |
-| **X1 — bash.run** | provider over the substrate; DESTRUCTIVE, gated; truthful result | in-memory exec |
-| **X2 — python.run** | provider over the substrate; DESTRUCTIVE, gated | in-memory exec |
-| **X3 — VFS workdir sync** | materialise VFS → mount `/work` → sync back | in-memory exec + VFS |
+| **V-local — VFS temp-folder backend** *(prerequisite for X1/X2)* | extend the built VFS tool: a `Storage_FS__Local_Disk` (per-session temp dir) backend + `vfs_root_path()`; default stays in-memory, auto-switch to local when a container tool is loaded | 3.12-gated (CRUD over a temp dir; path exposed) |
+| **X0 — Container__Exec** | the substrate: interface + `__In_Memory` fake + a real docker/podman runner with the hardening flags; bind-mounts `workdir_path` as `/work` | fake (anywhere) + real (gated on a runtime) |
+| **X1 — bash.run** | provider over the substrate; DESTRUCTIVE, gated; truthful result; `/work` = the VFS temp dir | in-memory exec |
+| **X2 — python.run** | provider over the substrate; DESTRUCTIVE, gated; `/work` = the VFS temp dir | in-memory exec |
+| **X3 — VFS↔container coherence** | wire the VFS temp dir as the bind-mounted `/work` (no copy); F3 + tools + container share it | in-memory exec + local-disk VFS |
 
-Build order: **W1** (safe, high-value, pure-ish) → **X0** (the substrate) → **X1/X2** (bash/python over
-the fake, gated for real) → **X3** (the VFS↔container loop) → **W2** (Playwright render) → W3 later.
+Build order: **W1** (safe, high-value, pure-ish) → **V-local** (the temp-folder VFS backend —
+the share mechanism) → **X0** (the substrate) → **X1/X2** (bash/python, gated for real) →
+**X3** (wire the temp dir as `/work`) → **W2** (Playwright render) → W3 later.
 Each is a core tool under `cli/tui/tool_api/core/{web,bash,python}/`, disabled by default.
 
 ---
@@ -158,6 +169,7 @@ Each is a core tool under `cli/tui/tool_api/core/{web,bash,python}/`, disabled b
 | # | Question | Recommendation |
 |---|---|---|
 | 1 | Per-call vs per-session container | **Per-session** container reused across calls (faster, and `/work` persists between bash/python calls); torn down on session close. Per-call is the stricter-isolation fallback. |
+| 1b | VFS backend when containers are used | **Auto-switch to `Storage_FS__Local_Disk`** (a per-session temp dir) so it can be bind-mounted; default stays in-memory when no container tool is loaded. Temp dir lifecycle = session (created on enable, removed on close — ephemeral on disk). Bind RW. |
 | 2 | Network in exec containers | **Off by default.** No `pip install`/`apt` at run time → use pre-baked images + stdlib. A separate higher-privilege "network-on" tier later. |
 | 3 | Base images | `busybox`/`alpine` (bash), `python:3.12-slim` (python) — pin digests; keep small. |
 | 4 | Where exec runs | v1: **local/host Docker** (the operator's machine or the EC2 the TUI runs on). A remote exec service (SSM/Fargate task) is a later option. **Never Lambda.** |
@@ -174,7 +186,8 @@ Each is a core tool under `cli/tui/tool_api/core/{web,bash,python}/`, disabled b
 | The core-tool pattern + the VFS as its template | **EXISTS** (built) |
 | The execution center gating/audit, loadout, tool-cards, inspector, VFS browser | **EXISTS** |
 | Playwright step/sequence primitives (for web.render) | **EXISTS** (`sg_compute_specs/playwright`) |
-| `Container__Exec` substrate, web/bash/python providers, SSRF/allowlist guard, VFS workdir sync | **PROPOSED — does not exist yet** |
+| `memory_fs` local-disk backend (`Storage_FS__Local_Disk`) — the temp-folder substrate | **EXISTS** (PyPI) — just needs wiring into the VFS provider + a `vfs_root_path()` |
+| `Container__Exec` substrate, web/bash/python providers, SSRF/allowlist guard, the temp-folder VFS backend + bind-mount | **PROPOSED — does not exist yet** |
 | A container-exec primitive in `cli/docker` | **does not exist** — that tooling deploys the service to EC2, it does not exec commands |
 
 ---
