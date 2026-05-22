@@ -170,8 +170,11 @@ class Bedrock__Chat__Engine(Type_Safe):
                 else:
                     result    = center.execute(slug, action, tool_use.get('input', {}) or {}, grants=grants)
                     tool_cost += float(result.cost_usd)
-                    payload   = result.json().get('data', {})
-                    status    = 'success' if result.ok else 'error'
+                    if result.ok:
+                        payload, status = result.json().get('data', {}), 'success'
+                    else:                                                                   # gated / refused / errored — tell the model the truth
+                        payload = {'error': result.error, 'dry_run': result.dry_run, 'preview': result.preview}
+                        status  = 'error'
                 tool_result_blocks.append({'toolResult': {'toolUseId': tool_use.get('toolUseId', ''),
                                                          'content'  : [{'json': payload}],
                                                          'status'   : status}})

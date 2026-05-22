@@ -28,3 +28,15 @@ def test_inspector_detail_omits_tools_for_streaming_turn():
     turn = Schema__Bedrock__Chat__Turn(model_id='amazon.nova-lite-v1:0', input_tokens=10, output_tokens=5,
                                       cost_usd=0.0, latency_ms=50, response_text='hi')
     assert 'tool calls' not in inspector_detail_markup(turn, 0)
+
+
+def test_transcript_tool_calls_markup_and_title():
+    from sgraph_ai_service_playwright__cli.aws.bedrock.tui.screens.Bedrock__Chat__Render import tool_calls_markup, tool_calls_title
+    log = List__Bedrock__Chat__Tool_Call()
+    log.append(Schema__Bedrock__Chat__Tool_Call(name='core_vfs__vfs_write', input_json='{"path": "a.txt"}',
+                                              status='error', result_json='{"error": "mutation gate: set …"}'))
+    markup = tool_calls_markup(log)
+    assert '✗' in markup and 'core_vfs__vfs_write' in markup
+    assert 'request' in markup and 'response' in markup and 'mutation gate' in markup
+    title = tool_calls_title(log)
+    assert '1 tool call' in title and 'vfs_write' in title and 'failed' in title

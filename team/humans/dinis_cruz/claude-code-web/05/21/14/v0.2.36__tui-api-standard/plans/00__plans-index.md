@@ -24,6 +24,7 @@ existing primitives, per the playbook).
 | [`03__B3-execution-center.md`](03__B3-execution-center.md) | modes, schema-validate, sequencing/preconditions, mutation gate, audit | B3 | yes (3.11) |
 | [`04__B4-vfs-core-tool.md`](04__B4-vfs-core-tool.md) | `memory_fs`-backed VFS core tool + `/tools/<tool>/` conventions | B4 | yes (3.12-gated) |
 | [`05__B5-explorer-and-C-chat-slices.md`](05__B5-explorer-and-C-chat-slices.md) | Swagger explorer/tester + the chat consumption slices (C-P0…D1) | B5 + C | mixed |
+| [`06__core-tools-web-bash-python.md`](06__core-tools-web-bash-python.md) | **PROPOSED** — three more core tools: Web Access (READ_ONLY), Bash + Python (DESTRUCTIVE, ephemeral containers) | future | mixed |
 
 Build order: **B1 → B2 → B3 → B4** (each pure, independently testable, no Textual), then
 **B5** + the **C** chat slices. B1 is the keystone and is shippable on its own as the
