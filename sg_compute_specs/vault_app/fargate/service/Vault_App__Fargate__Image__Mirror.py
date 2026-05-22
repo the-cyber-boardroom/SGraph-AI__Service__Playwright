@@ -19,6 +19,8 @@ import shutil
 import subprocess
 import time
 
+from typing import Any
+
 from osbot_utils.type_safe.Type_Safe import Type_Safe
 
 
@@ -26,11 +28,11 @@ _PROGRESS_NOISE_RE = re.compile(r'^[\s\d.]+$')                                  
 
 
 class Vault_App__Fargate__Image__Mirror(Type_Safe):
-    _runner    : object = None                                                    # override in tests: (cmd) → (rc, stdout, stderr)
-    step_cb    : object = None                                                    # callable(step_name, line) → None; line-level progress
+    _runner    : Any    = None                                                    # override in tests: (cmd) → (rc, stdout, stderr)
+    step_cb    : Any    = None                                                    # callable(step_name, line) → None; line-level progress
     region     : str    = ''                                                      # AWS region; required for ecr login
     registry   : str    = ''                                                      # e.g. '123.dkr.ecr.eu-west-2.amazonaws.com'; required for ecr login
-    ecr_client : object = None                                                    # if set, used for idempotency check (describe_image latest)
+    ecr_client : Any    = None                                                    # if set, used for idempotency check (describe_image latest)
     force      : bool   = False                                                   # bypass idempotency check, always re-push
     platform   : str    = 'linux/amd64'                                           # docker --platform; Fargate task-def runtimePlatform defaults to X86_64
 

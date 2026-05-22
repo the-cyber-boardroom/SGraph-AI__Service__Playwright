@@ -44,6 +44,24 @@ class test_Cli__SG_Edge__Local(TestCase):
         assert result.exit_code == 0
         assert 'deployed' in result.output
 
+    # ── dry-run previews (the native home for the TUI Control Center previews) ──
+
+    def test_register_dry_run__previews_without_mutating(self):
+        self.runner.invoke(local_app, ['setup'], catch_exceptions=False)
+        result = self.runner.invoke(local_app, ['register', 'zoe', '--dry-run'], catch_exceptions=False)
+        assert result.exit_code == 0
+        assert 'dry-run' in result.output and 'zoe' in result.output
+        listed = self.runner.invoke(local_app, ['list'], catch_exceptions=False)     # not actually registered
+        assert 'zoe' not in listed.output
+
+    def test_teardown_dry_run__previews_without_deleting(self):
+        self.runner.invoke(local_app, ['setup'], catch_exceptions=False)
+        result = self.runner.invoke(local_app, ['teardown', '--dry-run'], catch_exceptions=False)
+        assert result.exit_code == 0
+        assert 'dry-run' in result.output
+        status = self.runner.invoke(local_app, ['status'], catch_exceptions=False)   # still deployed
+        assert 'deployed=True' in status.output
+
     def test_register_then_request__welcome(self):
         self.runner.invoke(local_app, ['setup'], catch_exceptions=False)
         self.runner.invoke(local_app, ['register', 'alice'], catch_exceptions=False)

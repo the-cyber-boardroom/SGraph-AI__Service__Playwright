@@ -5,6 +5,8 @@
 # check_unique() is the collision guard called by start before run_task.
 # ═══════════════════════════════════════════════════════════════════════════════
 
+from typing import Any
+
 from osbot_utils.type_safe.Type_Safe import Type_Safe
 
 
@@ -12,7 +14,7 @@ _SLUG_TAG = 'VaultApp__Slug'                                                    
 
 
 class Vault_App__Fargate__Slug__Resolver(Type_Safe):
-    fargate_client : object = None                                              # Fargate__AWS__Client injected by caller
+    fargate_client : Any    = None                                              # Fargate__AWS__Client injected by caller
 
     def _running_slug_tasks(self, cluster_name: str) -> list:                  # returns list of (slug, task_arn) for RUNNING tasks
         if not self.fargate_client:

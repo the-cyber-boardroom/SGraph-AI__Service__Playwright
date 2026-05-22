@@ -136,6 +136,25 @@ def slugs(target: str = typer.Option('local', '--target', '-t', help='Data sourc
         SG_Edge__TUI__Screen__Slug_Detail(source=source, slug=table.opened_slug).run()
 
 
+@app.command(name='control', help='Control Center — action-capable cockpit (register/request/setup/teardown).')
+def control(target: str = typer.Option('local', '--target', '-t', help='Data source: local | aws'),
+            parent: str = typer.Option('',      '--parent', '-p', help='Edge parent zone (defaults per target)')):
+    source = _source(target, parent)
+    if not sys.stdout.isatty():                                                      # piped / CI → read-only card + native-command footer (rule 3: no mutation)
+        from sg_compute_specs.sg_edge.tui.service.SG_Edge__TUI__Card import SG_Edge__TUI__Card
+        print(SG_Edge__TUI__Card().render(source.snapshot()))
+        print('\nnative commands (the screen calls the same backend — never TUI-only):')
+        for verb, cmd in (('register', 'sg edge local register <slug>'),
+                          ('unregister', 'sg edge local unregister <slug>'),
+                          ('request',  'sg edge local request <slug>'),
+                          ('setup',    'sg edge local setup'),
+                          ('teardown', 'sg edge local teardown')):
+            print(f'  {verb:<11} {cmd}')
+        return
+    from sg_compute_specs.sg_edge.tui.screens.SG_Edge__TUI__Screen__Control_Center import SG_Edge__TUI__Screen__Control_Center
+    SG_Edge__TUI__Screen__Control_Center(source=source).run()
+
+
 @app.command(name='topology', help='Screen 2 — Topology: the layered flow (browser → wildcard → fleet → slugs).')
 def topology(target: str = typer.Option('local', '--target', '-t', help='Data source: local | aws'),
              parent: str = typer.Option('',      '--parent', '-p', help='Edge parent zone (defaults per target)')):

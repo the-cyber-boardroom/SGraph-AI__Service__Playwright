@@ -42,10 +42,12 @@ from sgraph_ai_service_playwright__cli.aws.s3.service.S3__AWS__Client           
 from sgraph_ai_service_playwright__cli.aws.s3.service.S3__Format__Detector           import S3__Format__Detector
 from sgraph_ai_service_playwright__cli.aws.s3.service.S3__Source__Adapter            import S3__Source__Adapter
 from sgraph_ai_service_playwright__cli.aws.s3.service.S3__Vim__Editor                import S3__Vim__Editor
+from sgraph_ai_service_playwright__cli.aws.s3.tui_api.Cli__S3__Tui_Api               import register_s3_tui_api
 from sg_compute.cli.base.Spec__CLI__Errors                                  import spec_cli_errors
 
 app     = typer.Typer(name='s3', help='S3 object and bucket management.', no_args_is_help=True)
 console = Console()
+register_s3_tui_api(app)                                                            # adds `sg aws s3 tui api …`
 
 _MUTATION_ENV = 'SG_AWS__S3__ALLOW_MUTATIONS'
 

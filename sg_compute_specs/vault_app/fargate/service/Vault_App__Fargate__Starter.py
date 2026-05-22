@@ -9,6 +9,8 @@
 import time as _time
 from datetime import datetime, timezone
 
+from typing import Any
+
 from osbot_utils.type_safe.Type_Safe import Type_Safe
 
 from sg_compute.platforms.ec2.networking.Stack__Name__Generator                    import Stack__Name__Generator
@@ -31,11 +33,11 @@ class Vault_App__Fargate__Starter(Type_Safe):
     slug_resolver  : Vault_App__Fargate__Slug__Resolver = None
     timings_store  : Vault_App__Fargate__Timings__Store = None
 
-    fargate_client : object = None                                                # Fargate__AWS__Client — injected
-    ec2_client     : object = None                                                # EC2__AWS__Client — injected
-    route53_client : object = None                                                # Route53__AWS__Client — injected; None = DNS skipped
+    fargate_client : Any    = None                                                # Fargate__AWS__Client — injected
+    ec2_client     : Any    = None                                                # EC2__AWS__Client — injected
+    route53_client : Any    = None                                                # Route53__AWS__Client — injected; None = DNS skipped
 
-    progress_cb    : object = None                                                # callable(name, status, detail='') or None
+    progress_cb    : Any    = None                                                # callable(name, status, detail='') or None
 
     def setup(self) -> None:                                                      # idempotent; fills None fields with real defaults
         if not self.spec:

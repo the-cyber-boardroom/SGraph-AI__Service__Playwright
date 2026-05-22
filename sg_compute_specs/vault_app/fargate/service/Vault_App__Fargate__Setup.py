@@ -8,6 +8,8 @@
 # progress_cb: callable(phase_name, status, detail='') or None.
 # ═══════════════════════════════════════════════════════════════════════════════
 
+from typing import Any
+
 from osbot_utils.type_safe.Type_Safe import Type_Safe
 
 from sg_compute_specs.vault_app.fargate.enums.Enum__VAF__Phase__Status         import Enum__VAF__Phase__Status
@@ -33,12 +35,12 @@ class Vault_App__Fargate__Setup(Type_Safe):
     tags_reader    : Vault_App__Fargate__Tags__Reader  = None
     image_mirror   : Vault_App__Fargate__Image__Mirror = None
 
-    ecr_client     : object = None                                                # ECR__AWS__Client   — injected
-    fargate_client : object = None                                                # Fargate__AWS__Client — injected
-    logs_client    : object = None                                                # Logs__AWS__Client  — injected
-    iam_client     : object = None                                                # IAM__AWS__Client   — injected
+    ecr_client     : Any    = None                                                # ECR__AWS__Client   — injected
+    fargate_client : Any    = None                                                # Fargate__AWS__Client — injected
+    logs_client    : Any    = None                                                # Logs__AWS__Client  — injected
+    iam_client     : Any    = None                                                # IAM__AWS__Client   — injected
 
-    progress_cb    : object = None                                                # callable(phase_name, status, detail='') or None
+    progress_cb    : Any    = None                                                # callable(phase_name, status, detail='') or None
 
     # ── lifecycle ─────────────────────────────────────────────────────────────
 

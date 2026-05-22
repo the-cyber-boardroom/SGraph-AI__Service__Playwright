@@ -6,6 +6,8 @@
 
 import os
 
+from typing import Any
+
 from osbot_utils.type_safe.Type_Safe import Type_Safe
 
 
@@ -13,7 +15,7 @@ _STACK_TAG_VALUE = 'sg-vault-app-fargate'                                       
 
 
 class Vault_App__Fargate__Cluster__Resolver(Type_Safe):
-    fargate_client : object = None                                              # Fargate__AWS__Client injected by caller
+    fargate_client : Any    = None                                              # Fargate__AWS__Client injected by caller
     env_var        : str    = 'SG_VAULT_APP__FARGATE__CLUSTER'
 
     def resolve(self, cluster_flag: str = '') -> str:                           # cluster_flag → env var → auto-discover → raise

@@ -49,8 +49,15 @@ class test_Cli__SG_Edge__Tui(TestCase):
     def test_help_lists_commands(self):
         result = self.runner.invoke(self.mod.app, ['--help'])
         assert result.exit_code == 0
-        for cmd in ('deployment', 'topology', 'compare', 'slug', 'events', 'docker', 'dashboard', 'diagnose'):
+        for cmd in ('deployment', 'topology', 'compare', 'slug', 'events', 'docker', 'dashboard', 'control', 'diagnose'):
             assert cmd in result.output, cmd
+
+    def test_control__no_tty_card_plus_native_footer_no_mutation(self):
+        result = self.runner.invoke(self.mod.app, ['control'], catch_exceptions=False)
+        assert result.exit_code == 0
+        assert 'SG/Edge' in result.output                                            # read-only card
+        assert 'native commands' in result.output                                    # points at the CLI (separation rule 3)
+        assert 'sg edge local register <slug>' in result.output
 
     def test_diagnose__prints_capability_checks(self):
         result = self.runner.invoke(self.mod.app, ['diagnose'], catch_exceptions=False)
