@@ -123,3 +123,19 @@ def traffic(repeat  : int  = typer.Option(1, '--repeat', '-n', help='Replays of 
         print(traffic_plain(report, results)); return
     from sgraph_ai_service_playwright__cli.sentinel.tui.screens.Sentinel__TUI__Screen__Traffic import Sentinel__TUI__Screen__Traffic
     Sentinel__TUI__Screen__Traffic(generator=generator).run()
+
+
+@app.command('chat', help='Ask SG/Sentinel a question in natural language (read-only, Nova).')
+def chat(question : str  = typer.Argument(..., help='Your question, e.g. "why was 185.10.10.10 blocked?"'),
+         model    : str  = typer.Option('micro', '--model', help='Nova alias: micro (cheapest) | lite | pro.'),
+         as_json  : bool = typer.Option(False, '--json', help='Output the answer + cost as JSON.')):
+    """One-shot chat over the read-only TUI API (Bedrock Nova). Needs AWS credentials."""
+    from sgraph_ai_service_playwright__cli.sentinel.tui.chat.Sentinel__Chat import Sentinel__Chat
+    chatter = Sentinel__Chat(source=_source(), model=model)
+    session = chatter.new_session()
+    turn    = chatter.ask(session, question)
+    if as_json:
+        typer.echo(json.dumps({'response': turn.response_text, 'cost_usd': turn.cost_usd,
+                               'model_calls': turn.model_calls, 'tool_calls': turn.tool_calls}, indent=2)); return
+    print(turn.response_text or '(no response)')
+    print(f'\n[cost ${round(turn.cost_usd, 5)} · {turn.model_calls} model call(s) · {turn.tool_calls} tool call(s)]')
