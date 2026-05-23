@@ -11,18 +11,20 @@
 # ═══════════════════════════════════════════════════════════════════════════════
 
 import json
+import os
 import shutil
 
 import typer
 from rich.console import Console
-from rich.table   import Table
 
-from sgraph_ai_service_playwright__cli.sentinel.runtime.layer1.Sentinel__L1__Source     import node_available
-from sgraph_ai_service_playwright__cli.sentinel.runtime.local.Sentinel__Local__Harness  import Sentinel__Local__Harness, default_local_sink_dir
-from sgraph_ai_service_playwright__cli.sentinel.service.log_sink.Local_FS__Log__Sink     import Local_FS__Log__Sink
-from sg_compute.cli.base.Spec__CLI__Errors                                              import spec_cli_errors
+from sgraph_ai_service_playwright__cli.sentinel.runtime.layer1.Sentinel__L1__Source      import node_available
+from sgraph_ai_service_playwright__cli.sentinel.runtime.local.Sentinel__Docker__Harness  import Sentinel__Docker__Harness
+from sgraph_ai_service_playwright__cli.sentinel.runtime.local.Sentinel__Docker__Runtime  import Sentinel__Docker__Runtime, docker_available
+from sgraph_ai_service_playwright__cli.sentinel.runtime.local.Sentinel__Local__Harness   import Sentinel__Local__Harness, default_local_sink_dir
+from sgraph_ai_service_playwright__cli.sentinel.service.log_sink.Local_FS__Log__Sink      import Local_FS__Log__Sink
+from sg_compute.cli.base.Spec__CLI__Errors                                               import spec_cli_errors
 
-app     = typer.Typer(name='local', help='Offline full stack (local-direct): up / hit / down.', no_args_is_help=True)
+app     = typer.Typer(name='local', help='Offline full stack (local-direct or --docker): up / hit / down.', no_args_is_help=True)
 console = Console()
 
 
@@ -32,12 +34,21 @@ def _sink() -> Local_FS__Log__Sink:
 
 @app.command('up')
 @spec_cli_errors
-def cmd_up():
-    """Check the offline stack is ready (node present) and ensure the sink dir exists."""
-    ok = node_available()
+def cmd_up(docker: bool = typer.Option(False, '--docker', help='Bring up the CF-env simulation container (Target C).')):
+    """Bring up the offline stack — local-direct (node) or the --docker CF-env sim."""
     sink_dir = default_local_sink_dir()
-    import os
     os.makedirs(sink_dir, exist_ok=True)
+    if docker:
+        if not docker_available():
+            console.print('[red]docker not available (daemon not reachable).[/red]')
+            raise typer.Exit(1)
+        runtime = Sentinel__Docker__Runtime()
+        console.print('Building + starting the CF-env sim container…')
+        runtime.up()
+        console.print(f'sink (local): {sink_dir}')
+        console.print(f'[green]docker CF-env sim ready[/green] at {runtime.base_url()}')
+        return
+    ok = node_available()
     console.print(f"node        : {'[green]found[/green]' if ok else '[red]missing[/red]'}")
     console.print(f'sink (local): {sink_dir}')
     if not ok:
@@ -51,12 +62,19 @@ def cmd_up():
 def cmd_hit(method  : str  = typer.Argument(..., help='HTTP method, e.g. GET.'),
             path    : str  = typer.Argument(..., help='Request path, e.g. /etc/passwd.'),
             ip      : str  = typer.Option('', '--ip', help='Source IP for the synthetic request.'),
+            docker  : bool = typer.Option(False, '--docker', help='Route via the running CF-env sim container (Target C).'),
             as_json : bool = typer.Option(False, '--json', help='Output as JSON.')):
     """Send one synthetic request through the full L1 → L2 → sink stack."""
-    if not node_available():
-        console.print('[red]node not found on PATH — cannot run the L1 engine.[/red]')
-        raise typer.Exit(1)
-    harness            = Sentinel__Local__Harness(log_sink=_sink())
+    if docker:
+        if not docker_available():
+            console.print('[red]docker not available (daemon not reachable).[/red]')
+            raise typer.Exit(1)
+        harness = Sentinel__Docker__Harness(log_sink=_sink(), runtime=Sentinel__Docker__Runtime())
+    else:
+        if not node_available():
+            console.print('[red]node not found on PATH — cannot run the L1 engine.[/red]')
+            raise typer.Exit(1)
+        harness = Sentinel__Local__Harness(log_sink=_sink())
     signal, enforce    = harness.hit(method, path, source_ip=ip)
     if as_json:
         typer.echo(json.dumps({'signal': signal.json(), 'enforcement': enforce.json()}, indent=2))
@@ -73,8 +91,12 @@ def cmd_hit(method  : str  = typer.Argument(..., help='HTTP method, e.g. GET.'),
 
 @app.command('down')
 @spec_cli_errors
-def cmd_down():
-    """Clear the local sink (removes all locally stored log records)."""
+def cmd_down(docker: bool = typer.Option(False, '--docker', help='Stop the CF-env simulation container.')):
+    """Tear down — stop the --docker container, or clear the local sink (direct)."""
+    if docker:
+        Sentinel__Docker__Runtime().down()
+        console.print('[green]Stopped[/green] CF-env sim container.')
+        return
     sink_dir = default_local_sink_dir()
     shutil.rmtree(sink_dir, ignore_errors=True)
     console.print(f'[green]Cleared[/green] {sink_dir}')

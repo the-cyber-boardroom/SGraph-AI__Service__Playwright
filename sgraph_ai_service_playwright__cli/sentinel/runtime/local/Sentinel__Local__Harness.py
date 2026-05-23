@@ -32,21 +32,25 @@ def default_local_sink_dir() -> str:                                            
     return os.path.join(os.path.expanduser('~'), '.sg_sentinel', 'local-logs')
 
 
+def build_captured(method      : str, path : str, source_ip : str = '',
+                   host        : str = 'static.example.com',
+                   user_agent  : str = 'sentinel-local',
+                   querystring : str = '',
+                   request_id  : str = '', received_at : str = '') -> dict:
+    rid = request_id  or ('sn-' + secrets.token_hex(12))                             # the captured request L1 sees (snake_case)
+    ts  = received_at or datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
+    return {'request_id'  : rid, 'aws_request_id': '', 'method': method, 'path': path,
+            'querystring' : querystring, 'host': host, 'source_ip': source_ip,
+            'user_agent'  : user_agent, 'received_at': ts, 'cache_status': 'miss'}
+
+
 class Sentinel__Local__Harness(Type_Safe):
     log_sink     : Log__Sink
     l1_source    : Sentinel__L1__Source
     privacy_mode : Safe_Str = Safe_Str('hash')
 
-    def build_captured(self, method      : str, path : str, source_ip : str = '',
-                             host        : str = 'static.example.com',
-                             user_agent  : str = 'sentinel-local',
-                             querystring : str = '',
-                             request_id  : str = '', received_at : str = '') -> dict:
-        rid = request_id  or ('sn-' + secrets.token_hex(12))
-        ts  = received_at or datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
-        return {'request_id'  : rid, 'aws_request_id': '', 'method': method, 'path': path,
-                'querystring' : querystring, 'host': host, 'source_ip': source_ip,
-                'user_agent'  : user_agent, 'received_at': ts, 'cache_status': 'miss'}
+    def build_captured(self, method : str, path : str, source_ip : str = '', **kw) -> dict:
+        return build_captured(method, path, source_ip, **kw)
 
     def evaluate_signal(self, captured: dict) -> Schema__Sentinel__Signal:          # L1 only — no I/O, no sink write
         sig_dict = self.l1_source.evaluate(captured)
