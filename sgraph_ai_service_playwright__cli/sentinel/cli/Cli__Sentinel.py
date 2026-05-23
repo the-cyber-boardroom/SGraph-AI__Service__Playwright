@@ -26,3 +26,7 @@ def _root():                                                                    
 
 
 # Subgroups are mounted here as each phase lands (rules, local, logs, blocks, deploy, status).
+
+# ── rules ──────────────────────────────────────────────────────────────────────
+from sgraph_ai_service_playwright__cli.sentinel.cli.Cli__Sentinel__Rules import app as _rules_app
+app.add_typer(_rules_app, name='rules', help='Tiny-core rule visibility (list / show / test).')
