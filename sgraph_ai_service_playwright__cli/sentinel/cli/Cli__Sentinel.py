@@ -30,3 +30,15 @@ def _root():                                                                    
 # ── rules ──────────────────────────────────────────────────────────────────────
 from sgraph_ai_service_playwright__cli.sentinel.cli.Cli__Sentinel__Rules import app as _rules_app
 app.add_typer(_rules_app, name='rules', help='Tiny-core rule visibility (list / show / test).')
+
+# ── local ──────────────────────────────────────────────────────────────────────
+from sgraph_ai_service_playwright__cli.sentinel.cli.Cli__Sentinel__Local import app as _local_app
+app.add_typer(_local_app, name='local', help='Offline full stack (local-direct): up / hit / down.')
+
+# ── logs ───────────────────────────────────────────────────────────────────────
+from sgraph_ai_service_playwright__cli.sentinel.cli.Cli__Sentinel__Logs import app as _logs_app
+app.add_typer(_logs_app, name='logs', help='Read the log sink (ls / tail / trace).')
+
+# ── blocks ─────────────────────────────────────────────────────────────────────
+from sgraph_ai_service_playwright__cli.sentinel.cli.Cli__Sentinel__Blocks import app as _blocks_app
+app.add_typer(_blocks_app, name='blocks', help='Inspect blocked requests (list / why).')
