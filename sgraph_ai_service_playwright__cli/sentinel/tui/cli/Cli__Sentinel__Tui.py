@@ -90,3 +90,26 @@ def status(as_json: bool = typer.Option(False, '--json', help='Output as JSON.')
         print(status_plain(source.status(), _sink_label())); return
     from sgraph_ai_service_playwright__cli.sentinel.tui.screens.Sentinel__TUI__Screen__Status import Sentinel__TUI__Screen__Status
     Sentinel__TUI__Screen__Status(source=source, sink_label=_sink_label()).run()
+
+
+@app.command('traffic', help='Replay the use-case corpus (L1+L2) and show accuracy + latency.')
+def traffic(repeat  : int  = typer.Option(1, '--repeat', '-n', help='Replays of the corpus per run.'),
+            as_json : bool = typer.Option(False, '--json', help='Output the report as JSON (runs once).')):
+    from sgraph_ai_service_playwright__cli.sentinel.runtime.layer1.Sentinel__L1__Source        import node_available
+    from sgraph_ai_service_playwright__cli.sentinel.runtime.local.Sentinel__Local__Harness     import Sentinel__Local__Harness
+    from sgraph_ai_service_playwright__cli.sentinel.service.log_sink.InMemory__Log__Sink        import InMemory__Log__Sink
+    from sgraph_ai_service_playwright__cli.sentinel.traffic.service.Sentinel__Traffic__Generator import Sentinel__Traffic__Generator
+    if not node_available():
+        print('node not found on PATH — cannot run the L1 engine.'); raise typer.Exit(1)
+    generator = Sentinel__Traffic__Generator(harness=Sentinel__Local__Harness(log_sink=InMemory__Log__Sink()))
+    if as_json or not sys.stdout.isatty():                                           # piped / CI / --json → run once, print
+        from sgraph_ai_service_playwright__cli.sentinel.traffic.service.Sentinel__Traffic__Corpus          import Sentinel__Traffic__Corpus
+        from sgraph_ai_service_playwright__cli.sentinel.traffic.service.Sentinel__Traffic__Report__Builder import Sentinel__Traffic__Report__Builder
+        from sgraph_ai_service_playwright__cli.sentinel.tui.screens.Sentinel__TUI__Traffic__Render         import traffic_plain
+        results = generator.run_local(Sentinel__Traffic__Corpus().cases(), repeat=repeat)
+        report  = Sentinel__Traffic__Report__Builder().build(results, mode='local')
+        if as_json:
+            typer.echo(json.dumps({'report': report.json(), 'results': [r.json() for r in results]}, indent=2)); return
+        print(traffic_plain(report, results)); return
+    from sgraph_ai_service_playwright__cli.sentinel.tui.screens.Sentinel__TUI__Screen__Traffic import Sentinel__TUI__Screen__Traffic
+    Sentinel__TUI__Screen__Traffic(generator=generator).run()
