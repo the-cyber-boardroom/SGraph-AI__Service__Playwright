@@ -15,6 +15,7 @@ from sgraph_ai_service_playwright__cli.sentinel.enums.Enum__Sentinel__Layer     
 from sgraph_ai_service_playwright__cli.sentinel.primitives.Safe_Str__Sentinel__Request_Id     import Safe_Str__Sentinel__Request_Id
 from sgraph_ai_service_playwright__cli.sentinel.primitives.Safe_Str__Sentinel__Reason         import Safe_Str__Sentinel__Reason
 from sgraph_ai_service_playwright__cli.sentinel.primitives.Safe_Str__Sentinel__Rule_Id        import Safe_Str__Sentinel__Rule_Id
+from sgraph_ai_service_playwright__cli.sentinel.primitives.Safe_Str__Sentinel__Version        import Safe_Str__Sentinel__Version
 from sgraph_ai_service_playwright__cli.sentinel.schemas.Schema__Sentinel__Captured            import Schema__Sentinel__Captured
 
 
@@ -27,5 +28,5 @@ class Schema__Sentinel__Signal(Type_Safe):
     rule_id         : Safe_Str__Sentinel__Rule_Id
     action          : Enum__Sentinel__Action      = Enum__Sentinel__Action.PASS
     layer           : Enum__Sentinel__Layer       = Enum__Sentinel__Layer.L1
-    engine_version  : Safe_Str
-    ruleset_version : Safe_Str
+    engine_version  : Safe_Str__Sentinel__Version
+    ruleset_version : Safe_Str__Sentinel__Version

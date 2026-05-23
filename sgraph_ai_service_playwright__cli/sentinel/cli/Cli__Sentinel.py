@@ -50,3 +50,7 @@ app.add_typer(_deploy_app, name='deploy', help='Live AWS deploy (create / destro
 # ── status ───────────────────────────────────────────────────────────────────
 from sgraph_ai_service_playwright__cli.sentinel.cli.Cli__Sentinel__Status import status_command
 app.command('status', help='Show what SG/Sentinel has deployed.')(status_command)
+
+# ── tui (Textual operator surfaces) ────────────────────────────────────────────
+from sgraph_ai_service_playwright__cli.sentinel.tui.cli.Cli__Sentinel__Tui import app as _tui_app
+app.add_typer(_tui_app, name='tui', help='Operator TUI surfaces (rules / logs / blocks / status).')
