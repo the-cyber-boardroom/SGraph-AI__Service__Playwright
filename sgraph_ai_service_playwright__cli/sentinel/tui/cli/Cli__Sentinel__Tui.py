@@ -43,6 +43,16 @@ def _source():
     return Sentinel__TUI__Source(log_sink=Local_FS__Log__Sink(root_dir=default_local_sink_dir()))
 
 
+def _tui_api_registry():                                                             # SG/Sentinel as a read-only TUI API (chat/explorer/pytest driveable)
+    from sgraph_ai_service_playwright__cli.tui.tool_api.service.Tui_Api__Registry        import Tui_Api__Registry
+    from sgraph_ai_service_playwright__cli.sentinel.tui.tui_api.Sentinel__Tui_Api__Provider import Sentinel__Tui_Api__Provider
+    return Tui_Api__Registry().register(Sentinel__Tui_Api__Provider(source=_source()))
+
+
+from sgraph_ai_service_playwright__cli.tui.tool_api.cli.Cli__Tui_Api import make_tui_api_app  # noqa: E402 — wire `sg sentinel tui api …` (no textual, no LLM)
+app.add_typer(make_tui_api_app(_tui_api_registry()), name='api')
+
+
 @app.command('rules', help='The six tiny-core rules (enter → detail).')
 def rules(as_json: bool = typer.Option(False, '--json', help='Output as JSON.')):
     source = _source()
