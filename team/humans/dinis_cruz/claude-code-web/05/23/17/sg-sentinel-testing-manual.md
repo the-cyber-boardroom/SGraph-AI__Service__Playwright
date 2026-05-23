@@ -45,6 +45,10 @@ sg sentinel logs    ls | tail [-n N] | trace <request-id>      # use case 1 (rea
 sg sentinel blocks  list | why <request-id|ip>                 # use case 2
 sg sentinel deploy  create | destroy <id> | teardown <id>      # live AWS (mutation-gated)
 sg sentinel status                                             # what's deployed
+sg sentinel tui     rules|logs|blocks|status|traffic           # Textual operator screens
+sg sentinel tui     api | chat "<q>" | dashboard               # TUI API + LLM chat (read-only, Nova)
+sg sentinel traffic cases | gen | send --url <base>            # use-case generator + measurement
+sg sentinel echo    serve [--port N]                           # httpget echo origin (local/docker/lambda/EC2)
 ```
 Every command accepts `--json`. Mutating deploy commands accept `--yes` / `--dry-run`.
 
@@ -179,14 +183,51 @@ sg sentinel tui rules        # the 6 rules; ↑/↓ select, enter → detail (sc
 sg sentinel tui logs         # records in the sink; enter → trace by request id
 sg sentinel tui blocks       # blocked requests grouped by reason/rule + action breakdown
 sg sentinel tui status       # reality + the EXACT materialised L1 engine code (what ships to CF)
+sg sentinel tui traffic      # press g to replay the corpus through L1+L2 → accuracy + latency table
 
 sg sentinel tui blocks --json    # structured (chatbot/script ready)
 sg sentinel tui status --json
+sg sentinel tui traffic --json   # runs once, emits the report + per-case results
 ```
-Keys in any screen: `q` quit, `?` help, `t` theme, `r` refresh. (Threat-intel / fractal
-rule-graph / multi-distribution mockups are intentionally not built — they need deferred features.)
+Keys in any screen: `q` quit, `?` help, `t` theme, `r` refresh (traffic: `g` run, `r` reset).
+(Threat-intel / fractal rule-graph / multi-distribution mockups are intentionally not built —
+they need deferred features.)
 
-## 8. Traffic generator + httpget echo server (rule testing + impact measurement)
+## 8. Talk to it — the TUI API + LLM chat (read-only, Nova)
+
+Every surface is also a structured **TUI API** (the same data the screens render), so it is
+scriptable, agent-addressable, and the backing for the chat. All actions are **read-only**.
+
+```bash
+# discover + invoke the API (no LLM, no AWS — pure dispatch)
+sg sentinel tui api list                              # the read actions + their tiers
+sg sentinel tui api describe sg-sentinel              # full manifest (JSON Schemas)
+sg sentinel tui api invoke  sg-sentinel rules_list
+sg sentinel tui api invoke  sg-sentinel blocks_why --params '{"needle":"185.10.10.10"}'
+sg sentinel tui api invoke  sg-sentinel traffic_gen --params '{"repeat":1}'
+```
+
+Natural-language chat (Bedrock **Nova `micro`** — cheapest; needs AWS credentials):
+
+```bash
+eval $(sg aws credentials switch <role>)              # creds for Bedrock
+
+# one-shot (pipe-friendly):
+sg sentinel tui chat "why was 185.10.10.10 blocked?"
+sg sentinel tui chat "summarise the blocks" --json
+sg sentinel tui chat "run the traffic corpus and report accuracy" --model micro
+
+# interactive: all surfaces in tabs + ONE shared chat session that carries across tabs:
+sg sentinel tui dashboard            # type in the right-hand pane; q to quit, r to refresh tabs
+sg sentinel tui dashboard --no-chat  # pure viewer (no LLM / no AWS)
+```
+
+How it stays honest: the LLM can only call the read actions above, so answers are **grounded
+in live state** (it reads the real sink/rules/engine) and it **changes nothing**. Each answer
+shows the tool calls used + the Nova cost. Mutating actions (`deploy_*`, HTTP `traffic_send`)
+are deliberately NOT exposed to chat.
+
+## 9. Traffic generator + httpget echo server (rule testing + impact measurement)
 
 The **echo server** is the origin / measurement tool; the **traffic generator** fires a
 labelled use-case corpus and reports accuracy + latency.
@@ -222,9 +263,11 @@ docker run -p 8080:8080 sg-sentinel-httpget
 # EC2: same as local — python -c "from ...echo.Echo__Server import serve; serve('0.0.0.0', 8080)"
 ```
 
-## 9. What is NOT in the MVP (don't look for it)
+## 10. What is NOT in the MVP (don't look for it)
 
-Fingerprint/fast-track; any rule evaluation at L2; Layer 3 / LLM; fractal-graph traversal;
-rules-as-vault; evidence/compliance graphs; threat-intel; multi-CDN; cache-hit logging;
-log batching; IP-escrow privacy mode. The TUIs ship the MVP-backed surfaces (rules / logs /
-blocks / status); the deferred-feature mockups (threat-intel etc.) are not built.
+Fingerprint/fast-track; any rule evaluation at L2; Layer 3 async/LLM responders (the edge
+itself); fractal-graph traversal; rules-as-vault; evidence/compliance graphs; threat-intel;
+multi-CDN; cache-hit logging; log batching; IP-escrow privacy mode. The TUIs ship the
+MVP-backed surfaces (rules / logs / blocks / status / traffic); the deferred-feature mockups
+(threat-intel etc.) are not built. The LLM chat is **read-only** — it can inspect everything
+and run traffic, but mutating chat actions (`deploy_*`, HTTP `traffic_send`) are deferred.
