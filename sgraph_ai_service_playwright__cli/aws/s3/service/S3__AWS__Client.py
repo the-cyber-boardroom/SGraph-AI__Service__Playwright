@@ -252,6 +252,25 @@ class S3__AWS__Client(Type_Safe):
         except ClientError:
             return False
 
+    def empty_bucket(self, bucket: str) -> int:                                   # delete every object; returns count removed
+        # EXCEPTION — added for SG/Sentinel teardown (no orphans). A bucket must be
+        # empty before it can be deleted.
+        removed = 0
+        for obj in self.list_objects(bucket, '', recursive=True).objects:
+            if self.delete_object(bucket, str(obj.key)):
+                removed += 1
+        return removed
+
+    def delete_bucket(self, bucket: str, force: bool = False) -> bool:            # force=True empties it first
+        # EXCEPTION — added for SG/Sentinel teardown (no orphans).
+        if force:
+            self.empty_bucket(bucket)
+        try:
+            self.client().delete_bucket(Bucket=bucket)
+            return True
+        except ClientError:
+            return False
+
     # ── bucket metadata ───────────────────────────────────────────────────────
 
     def get_bucket_region(self, bucket: str) -> str:

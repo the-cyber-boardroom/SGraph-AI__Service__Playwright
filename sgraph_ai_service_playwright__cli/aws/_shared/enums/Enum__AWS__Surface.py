@@ -14,3 +14,4 @@ class Enum__AWS__Surface(str, Enum):
     CREDS       = 'creds'
     OBSERVE     = 'observe'
     IAM_GRAPH   = 'iam-graph'
+    SENTINEL    = 'sentinel'

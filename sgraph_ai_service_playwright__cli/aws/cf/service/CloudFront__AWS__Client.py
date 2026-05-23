@@ -197,6 +197,48 @@ class CloudFront__AWS__Client(Type_Safe):
         cf.update_distribution(Id=distribution_id, DistributionConfig=config, IfMatch=etag)
         return True
 
+    # ── Lambda@Edge association on the default cache behavior ────────────────
+    #
+    # EXCEPTION — added for SG/Sentinel (L@E on origin-request). CloudFront has no
+    # osbot-aws coverage and the CF-Function path above handles only
+    # FunctionAssociations; Lambda@Edge needs LambdaFunctionAssociations. Mirrors
+    # the attach/detach pattern above. The ARN must be a numbered version ARN
+    # (CloudFront rejects $LATEST for Lambda@Edge).
+
+    def get_lambda_edge_associations(self, distribution_id: str, event_type: str = 'origin-request') -> list:
+        cf          = self.client()
+        config_resp = cf.get_distribution_config(Id=distribution_id)
+        config      = config_resp.get('DistributionConfig', {})
+        assocs      = config.get('DefaultCacheBehavior', {}).get('LambdaFunctionAssociations', {})
+        items       = assocs.get('Items', []) or []
+        return [it.get('LambdaFunctionARN', '') for it in items if it.get('EventType') == event_type]
+
+    def associate_lambda_edge(self, distribution_id: str, lambda_version_arn: str,
+                              event_type: str = 'origin-request') -> bool:
+        cf          = self.client()
+        config_resp = cf.get_distribution_config(Id=distribution_id)
+        etag        = config_resp['ETag']
+        config      = config_resp['DistributionConfig']
+        beh         = config.setdefault('DefaultCacheBehavior', {})
+        existing    = beh.get('LambdaFunctionAssociations', {}).get('Items', []) or []
+        kept        = [it for it in existing if it.get('EventType') != event_type]    # replace any prior assoc for this event_type
+        kept.append({'EventType': event_type, 'LambdaFunctionARN': lambda_version_arn, 'IncludeBody': False})
+        beh['LambdaFunctionAssociations'] = {'Quantity': len(kept), 'Items': kept}
+        cf.update_distribution(Id=distribution_id, DistributionConfig=config, IfMatch=etag)
+        return True
+
+    def disassociate_lambda_edge(self, distribution_id: str, event_type: str = 'origin-request') -> bool:
+        cf          = self.client()
+        config_resp = cf.get_distribution_config(Id=distribution_id)
+        etag        = config_resp['ETag']
+        config      = config_resp['DistributionConfig']
+        beh         = config.setdefault('DefaultCacheBehavior', {})
+        existing    = beh.get('LambdaFunctionAssociations', {}).get('Items', []) or []
+        kept        = [it for it in existing if it.get('EventType') != event_type]
+        beh['LambdaFunctionAssociations'] = {'Quantity': len(kept), 'Items': kept}
+        cf.update_distribution(Id=distribution_id, DistributionConfig=config, IfMatch=etag)
+        return True
+
     # ── internal ──────────────────────────────────────────────────────────────
 
     def _parse_status(self, raw: str) -> Enum__CF__Distribution__Status:

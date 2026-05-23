@@ -42,3 +42,11 @@ app.add_typer(_logs_app, name='logs', help='Read the log sink (ls / tail / trace
 # ── blocks ─────────────────────────────────────────────────────────────────────
 from sgraph_ai_service_playwright__cli.sentinel.cli.Cli__Sentinel__Blocks import app as _blocks_app
 app.add_typer(_blocks_app, name='blocks', help='Inspect blocked requests (list / why).')
+
+# ── deploy (live AWS) ──────────────────────────────────────────────────────────
+from sgraph_ai_service_playwright__cli.sentinel.cli.Cli__Sentinel__Deploy import app as _deploy_app
+app.add_typer(_deploy_app, name='deploy', help='Live AWS deploy (create / destroy / teardown). Mutation-gated.')
+
+# ── status ───────────────────────────────────────────────────────────────────
+from sgraph_ai_service_playwright__cli.sentinel.cli.Cli__Sentinel__Status import status_command
+app.command('status', help='Show what SG/Sentinel has deployed.')(status_command)

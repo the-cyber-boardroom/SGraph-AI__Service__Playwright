@@ -190,6 +190,12 @@ class Lambda__Deployer(Type_Safe):
             zip_size     = len(code),
         )
 
+    def publish_version(self, name: str) -> str:                                    # numbered version ARN — required for Lambda@Edge
+        # EXCEPTION — added for SG/Sentinel. Lambda@Edge rejects $LATEST; CloudFront
+        # must reference a numbered version ARN (…:function:name:N).
+        resp = self.client().publish_version(FunctionName=name)
+        return resp.get('FunctionArn', '')
+
     # ── S3 / combined-dependency seams (subclasses override for in-memory tests) ─
 
     def _ensure_dependencies(self, combined_dependencies: tuple) -> dict:

@@ -42,7 +42,9 @@ class AWS__Role__Provisioner(Type_Safe):
     def desired_policy_json(self, profile) -> str:
         return json.dumps(profiles.policy_document(profile), indent=2)
 
-    def desired_trust_json(self, account_id : str) -> str:
+    def desired_trust_json(self, account_id : str, profile=None) -> str:
+        if profile is not None:                                                       # honour an execution-role (service-principal) trust when declared
+            return json.dumps(profiles.trust_policy_for(profile, account_id), indent=2)
         return json.dumps(profiles.trust_policy_document(account_id), indent=2)
 
     def current_actions(self, profile) -> list:                                      # actions on the live inline policy ([] if role/policy absent)
@@ -82,12 +84,12 @@ class AWS__Role__Provisioner(Type_Safe):
             actions_to_remove = to_remove,
             in_sync           = exists and not to_add and not to_remove,
             policy_json       = self.desired_policy_json(profile),
-            trust_json        = self.desired_trust_json(account_id) if account_id else '')
+            trust_json        = self.desired_trust_json(account_id, profile) if account_id else '')
 
     def apply(self, profile):                                                        # create-or-update: idempotent, overwrites the inline policy to match the profile
         self.setup()
         account_id = self.resolve_account_id()
-        trust_json = self.desired_trust_json(account_id)
+        trust_json = self.desired_trust_json(account_id, profile)
         resp       = self.iam.create_role_with_trust(profile.role_name, trust_json,
                                                       str(profile.description))
         if not resp.created:                                                         # role already there — keep its trust current too
