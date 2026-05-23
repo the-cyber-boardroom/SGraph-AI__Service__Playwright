@@ -85,6 +85,16 @@ class _Fake_Lambda_Client:
                 'DeleteFunction')
         del self._store[FunctionName]
 
+    def publish_version(self, FunctionName: str, **_):
+        if FunctionName not in self._store:
+            raise ClientError(
+                {'Error': {'Code': 'ResourceNotFoundException', 'Message': f'Function not found: {FunctionName}'}},
+                'PublishVersion')
+        versions = self._store[FunctionName].setdefault('_published', 0) + 1
+        self._store[FunctionName]['_published'] = versions
+        base = self._store[FunctionName]['FunctionArn']
+        return {'FunctionName': FunctionName, 'Version': str(versions), 'FunctionArn': f'{base}:{versions}'}
+
     # ── invoke ────────────────────────────────────────────────────────────────
 
     def invoke(self, FunctionName: str, InvocationType: str = 'RequestResponse',

@@ -9,10 +9,13 @@
 from osbot_utils.type_safe.Type_Safe                                                  import Type_Safe
 
 from sgraph_ai_service_playwright__cli.aws._shared.auth.schemas.List__AWS__Policy__Statement import List__AWS__Policy__Statement
+from sgraph_ai_service_playwright__cli.aws._shared.collections.List__Str                     import List__Str
 
 
 class Schema__AWS__Role__Profile(Type_Safe):
-    family      : str                                                                # stable id, e.g. 'el-lets-cf'
-    role_name   : str                                                                # the IAM role to assume / create, e.g. 'sg-lets-cf'
-    description : str
-    statements  : List__AWS__Policy__Statement
+    family         : str                                                             # stable id, e.g. 'el-lets-cf'
+    role_name      : str                                                             # the IAM role to assume / create, e.g. 'sg-lets-cf'
+    description    : str
+    statements     : List__AWS__Policy__Statement
+    trust_services : List__Str                                                       # when set, an execution-role trust for these AWS service
+                                                                                     # principals (e.g. lambda + edgelambda) instead of account-root assume

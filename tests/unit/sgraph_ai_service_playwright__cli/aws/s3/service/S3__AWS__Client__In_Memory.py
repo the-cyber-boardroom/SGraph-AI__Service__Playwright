@@ -120,6 +120,13 @@ class _Fake_S3_Client:
                 'Versioning': 'Enabled',
             }
 
+    # ── delete_bucket ──────────────────────────────────────────────────────────
+
+    def delete_bucket(self, Bucket: str, **_):
+        if any(b == Bucket for (b, _k) in self._objects):
+            raise ClientError({'Error': {'Code': 'BucketNotEmpty', 'Message': Bucket}}, 'DeleteBucket')
+        self._buckets.pop(Bucket, None)
+
     # ── bucket access-block / versioning stubs ────────────────────────────────
 
     def put_public_access_block(self, **_):                                       # no-op for tests
