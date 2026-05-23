@@ -214,3 +214,6 @@ _vaults
 _exports
 .claude/worktrees/
 .clone/
+
+# sandbox-redirected /tmp dirs that leak into the repo root during test runs
+_tmp_*
