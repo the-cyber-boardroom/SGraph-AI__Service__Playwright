@@ -25,6 +25,18 @@ def main():                                                                     
     pass
 
 
+def _tui_api_registry():                                                             # the SG/Edge edge as a TUI API (local source); explicit registration (house pattern)
+    from sg_compute_specs.sg_edge.local.Local__Edge__Stack            import Local__Edge__Stack
+    from sg_compute_specs.sg_edge.tui.source.SG_Edge__TUI__Local_Source import SG_Edge__TUI__Local_Source
+    from sg_compute_specs.sg_edge.tui.tui_api.SG_Edge__Tui_Api__Provider import SG_Edge__Tui_Api__Provider
+    from sgraph_ai_service_playwright__cli.tui.tool_api.service.Tui_Api__Registry import Tui_Api__Registry
+    return Tui_Api__Registry().register(SG_Edge__Tui_Api__Provider(source=SG_Edge__TUI__Local_Source(stack=Local__Edge__Stack())))
+
+
+from sgraph_ai_service_playwright__cli.tui.tool_api.cli.Cli__Tui_Api import make_tui_api_app  # noqa: E402 — wire `sg edge tui api …` (no textual)
+app.add_typer(make_tui_api_app(_tui_api_registry()), name='api')
+
+
 @app.command(name='dashboard', help='All screens in one app with tabbed navigation (1..6 / ←→ to switch).')
 def dashboard(parent: str = typer.Option('', '--parent', '-p', help='Local edge zone (default edge.sg-labs.local)'),
               aws_parent: str = typer.Option('', '--aws-parent', help='AWS edge zone (default edge.sg-labs.app)')):
