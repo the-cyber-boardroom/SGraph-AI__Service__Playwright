@@ -139,3 +139,21 @@ def chat(question : str  = typer.Argument(..., help='Your question, e.g. "why wa
                                'model_calls': turn.model_calls, 'tool_calls': turn.tool_calls}, indent=2)); return
     print(turn.response_text or '(no response)')
     print(f'\n[cost ${round(turn.cost_usd, 5)} · {turn.model_calls} model call(s) · {turn.tool_calls} tool call(s)]')
+
+
+@app.command('dashboard', help='All surfaces in one app + one shared chat pane (Nova, read-only).')
+def dashboard(no_chat : bool = typer.Option(False, '--no-chat', help='Run as a pure viewer (no LLM / no AWS).'),
+              model   : str  = typer.Option('micro', '--model', help='Nova alias: micro (cheapest) | lite | pro.')):
+    """Tabbed Rules/Logs/Blocks/Status/Traffic + a shared chat pane that carries across tabs."""
+    source = _source()
+    if not sys.stdout.isatty():                                                      # piped / CI → a plain combined summary
+        st = source.status()
+        print(f'SG/Sentinel: rules {st.rule_count}  banned_ips {st.banned_ip_count}  '
+              f'records {st.record_count} (allow {st.allow_count} / block {st.block_count})  node={st.node_available}')
+        return
+    chat = None
+    if not no_chat:
+        from sgraph_ai_service_playwright__cli.sentinel.tui.chat.Sentinel__Chat import Sentinel__Chat
+        chat = Sentinel__Chat(source=source, model=model)
+    from sgraph_ai_service_playwright__cli.sentinel.tui.screens.Sentinel__TUI__Dashboard import Sentinel__TUI__Dashboard
+    Sentinel__TUI__Dashboard(source=source, chat=chat, sink_label=_sink_label()).run()
