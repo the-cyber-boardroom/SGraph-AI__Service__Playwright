@@ -119,6 +119,11 @@ from scripts.prometheus import app as _prometheus_app
 app.add_typer(_prometheus_app, name='prometheus', help='Ephemeral Prometheus + cAdvisor EC2 stacks.')
 app.add_typer(_prometheus_app, name='prom',       hidden=True)
 
+# ── sentinel ─────────────────────────────────────────────────────────────────
+from sgraph_ai_service_playwright__cli.sentinel.cli.Cli__Sentinel import app as _sentinel_app
+app.add_typer(_sentinel_app, name='sentinel', help='SG/Sentinel — edge guard (logging + blocking).')
+app.add_typer(_sentinel_app, name='sn',       hidden=True)               # short alias
+
 # ── vault-app ────────────────────────────────────────────────────────────────
 from sg_compute_specs.vault_app.cli.Cli__Vault_App import app as _vault_app_app
 app.add_typer(_vault_app_app, name='vault-app', help='Ephemeral Vault App EC2 stacks.')
