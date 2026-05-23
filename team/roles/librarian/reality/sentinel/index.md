@@ -52,11 +52,19 @@ Mounted in `sg_compute/cli/Cli__SG.py` as a top-level peer surface.
 
 `tests/.../sentinel/parity/` — canonical request set asserted against the local-direct baseline (always runs, node-gated); docker (B↔C) and live AWS legs gated and skip without docker/creds.
 
+### Operator TUIs (`tui/`)
+
+`sg sentinel tui rules | logs | blocks | status` — Textual screens following the sg_edge pattern (pure `*__Render` fns + thin screens over `Sentinel__TUI__Source`). Every command has `--json` + a no-TTY plain fallback. `status` shows the EXACT materialised L1 engine code. Threat-intel / fractal-graph / multi-distribution mockups are NOT built (deferred features). Chat/tui_api wiring is deferred (the source is chat-ready in shape).
+
+### Traffic generator + httpget echo server (`traffic/`)
+
+`sg sentinel echo serve` — dependency-free stdlib echo server (origin / measurement tool): echoes each request JSON/HTML, records what reached it (`GET /__hits`). Same `Echo__Payload` runs local / docker (`traffic/echo/docker/Dockerfile`) / Lambda (`traffic/echo/lambda_handler.py`) / EC2. `sg sentinel traffic cases | gen | send` — a labelled use-case corpus (benign + malicious + malformed, covering every rule) replayed in-process through L1+L2 (`gen`, faithful rule accuracy + decision latency) or over real HTTP at any target (`send --url`, end-to-end). `Sentinel__Traffic__Report__Builder` aggregates accuracy (malicious-blocked / benign-allowed) + latency percentiles — the impact measurement.
+
 ---
 
 ## NOT IN THE MVP (PROPOSED — does not exist yet)
 
-Fingerprint/fast-track; any rule evaluation at L2; Layer 3 async/LLM; fractal-graph traversal; rules-as-vault; evidence/compliance graphs; threat-intel; multi-CDN; SSL termination; cache-hit logging (needs viewer-response path); log batching; IP-escrow privacy mode; the **TUI** (CLI-first for the MVP — the CLI is TUI-API-friendly via `--json`). See `proposed/index.md`.
+Fingerprint/fast-track; any rule evaluation at L2; Layer 3 async/LLM; fractal-graph traversal; rules-as-vault; evidence/compliance graphs; threat-intel; multi-CDN; SSL termination; cache-hit logging (needs viewer-response path); log batching; IP-escrow privacy mode. TUIs ship the MVP-backed surfaces (rules/logs/blocks/status); deferred-feature TUI mockups (threat-intel etc.) and the tui_api **chat** wiring are not built. See `proposed/index.md`.
 
 ---
 

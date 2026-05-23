@@ -6,6 +6,16 @@ This is a pointer log, not a content log. For full delta detail, see the master 
 
 ---
 
+## 2026-05-23 (SG/Sentinel — operator TUIs + traffic generator / httpget echo server)
+
+2026-05-23 | sentinel | Added `sg sentinel tui rules|logs|blocks|status` (Textual,
+  MVP-backed; pure renders + thin screens + --json/no-TTY) and `sg sentinel traffic`
+  (use-case corpus replayed in-process through L1+L2 or over HTTP) + `sg sentinel echo
+  serve` (dependency-free httpget echo origin; same Echo__Payload on local/docker/Lambda/
+  EC2) for rule testing + impact measurement. Added Safe_Str__Sentinel__Version. Branch only.
+
+- `sentinel/index.md` — updated EXISTS: TUIs (`tui/`) + traffic generator/echo (`traffic/`).
+
 ## 2026-05-23 (SG/Sentinel MVP — Phases 0–5, branch `claude/gracious-galileo-fNYWn`)
 
 2026-05-23 | sentinel (NEW), cli, security | SG/Sentinel edge-guard MVP: new

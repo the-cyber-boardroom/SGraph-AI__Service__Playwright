@@ -170,8 +170,61 @@ Opt-in legs:
 | AWS parity | `SG_SENTINEL__LIVE_TESTS=1` + `SENTINEL_TEST_DISTRIBUTION=<cf-domain>` |
 | Live smoke (deploy→curl→teardown) | `SG_SENTINEL__LIVE_TESTS=1` + `SG_AWS__SENTINEL__ALLOW_MUTATIONS=1` |
 
-## 7. What is NOT in the MVP (don't look for it)
+## 7. Operator TUIs (`sg sentinel tui *`)
+
+Textual screens; each also supports `--json` and a plain-text no-TTY fallback (safe to pipe).
+
+```bash
+sg sentinel tui rules        # the 6 rules; ↑/↓ select, enter → detail (schema in/out)
+sg sentinel tui logs         # records in the sink; enter → trace by request id
+sg sentinel tui blocks       # blocked requests grouped by reason/rule + action breakdown
+sg sentinel tui status       # reality + the EXACT materialised L1 engine code (what ships to CF)
+
+sg sentinel tui blocks --json    # structured (chatbot/script ready)
+sg sentinel tui status --json
+```
+Keys in any screen: `q` quit, `?` help, `t` theme, `r` refresh. (Threat-intel / fractal
+rule-graph / multi-distribution mockups are intentionally not built — they need deferred features.)
+
+## 8. Traffic generator + httpget echo server (rule testing + impact measurement)
+
+The **echo server** is the origin / measurement tool; the **traffic generator** fires a
+labelled use-case corpus and reports accuracy + latency.
+
+```bash
+# 1. see the corpus (benign + malicious + malformed, covering every rule)
+sg sentinel traffic cases
+
+# 2. faithful rule test, in-process through the real L1 + L2 (needs node):
+sg sentinel traffic gen                    # → accuracy 100%, 10/10 malicious blocked, decision latency
+sg sentinel traffic gen --repeat 50 --json # load + machine-readable
+
+# 3. end-to-end over real HTTP against a target:
+sg sentinel echo serve --port 8080 &       # the httpget origin (echoes JSON/HTML; GET /__hits = what reached it)
+sg sentinel traffic send --url http://127.0.0.1:8080      # BARE origin → 0/10 malicious blocked (baseline)
+curl -s http://127.0.0.1:8080/__hits       # confirm /etc/passwd, /.env … reached the bare origin
+
+#    point `send` at a Sentinel-fronted CF distribution instead → malicious_blocked climbs:
+sg sentinel traffic send --url https://<dXXXX>.cloudfront.net
+```
+
+The contrast between `gen`/Sentinel-fronted `send` (malicious blocked, only good traffic
+reaches origin) and bare-origin `send` (everything reaches origin) **is** the SG/Sentinel
+impact measurement. Note: `gen` latency is the harness (node-subprocess) cost, not the
+CloudFront runtime; use `send` against a live distribution for real edge latency.
+
+Run the echo server elsewhere:
+```bash
+# docker
+docker build -f sgraph_ai_service_playwright__cli/sentinel/traffic/echo/docker/Dockerfile -t sg-sentinel-httpget .
+docker run -p 8080:8080 sg-sentinel-httpget
+# Lambda / Lambda@Edge: handler = echo/lambda_handler.handler (same Echo__Payload)
+# EC2: same as local — python -c "from ...echo.Echo__Server import serve; serve('0.0.0.0', 8080)"
+```
+
+## 9. What is NOT in the MVP (don't look for it)
 
 Fingerprint/fast-track; any rule evaluation at L2; Layer 3 / LLM; fractal-graph traversal;
 rules-as-vault; evidence/compliance graphs; threat-intel; multi-CDN; cache-hit logging;
-log batching; IP-escrow privacy mode; and **the TUI** (CLI-first for the MVP).
+log batching; IP-escrow privacy mode. The TUIs ship the MVP-backed surfaces (rules / logs /
+blocks / status); the deferred-feature mockups (threat-intel etc.) are not built.
