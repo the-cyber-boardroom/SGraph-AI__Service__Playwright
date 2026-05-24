@@ -12,8 +12,8 @@ This manual shows how to test the SG/Sentinel MVP end to end using the `sg senti
 (alias `sn`) CLI. It covers all three targets: **local-direct** (node), **local-docker**
 (CloudFront-environment simulation), and **live AWS** (CloudFront Function + Lambda@Edge).
 
-The MVP is **CLI-first** — there is **no TUI** (deferred by design). Every command
-supports `--json` so a TUI or script can sit on top later.
+Every command supports `--json`. On top of the CLI there are now **Textual TUIs**
+(`sg sentinel tui …`, §6) and a **read-only LLM chat** over the same data (§7).
 
 ## 0. Prerequisites
 
@@ -40,7 +40,8 @@ export SG_SENTINEL__LOCAL_SINK_DIR=$(mktemp -d)      # where logs/blocks read & 
 
 ```
 sg sentinel rules   list | show <id> | test          # the six tiny-core rules
-sg sentinel local   up [--docker] | hit <m> <path> [--ip] [--docker] | down [--docker]
+sg sentinel local   up [--direct] | status | hit [METHOD] <path> [--ip] [--direct] | down
+                                                               # CF-env sim by default; --direct = node
 sg sentinel logs    ls | tail [-n N] | trace <request-id>      # use case 1 (read the sink)
 sg sentinel blocks  list | why <request-id|ip>                 # use case 2
 sg sentinel deploy  create | destroy <id> | teardown <id>      # live AWS (mutation-gated)
@@ -72,54 +73,49 @@ Expected `rules test` decisions (the canonical request set):
 | GET | `/index.html`   | 10.0.0.6     | block | 0003 | drop_403 |
 | GET | `` (empty)      | 203.0.113.5  | block | 0007 | drop_403 |
 
-## 3. Target B — local-direct (offline, no AWS)
+## 3. Targets B & C — the offline stack (`sg sentinel local`)
 
-This runs the **real** L1 JS engine (via node) + the **real** Python L2 actor in-process,
-writing to a local-FS sink. Both MVP use cases work fully offline.
+The local stack runs the **real** L1 JS engine + the **real** Python L2 actor and writes to a
+local-FS sink. **The CF-env sim container (Target C) is the default**; add `--direct` to run
+the engine via local `node` (Target B) instead. `hit` assumes **GET** unless you give a method.
 
 ```bash
-sg sentinel local up                                  # checks node + ensures the sink dir
+sg sentinel local status               # what's ready: node / docker / container / sink + counts
+sg sentinel local up                   # start the CF-env sim container (default)
+# sg sentinel local up --direct        #   …or check the local-node path instead (no docker)
 
-# use case 2 — blocking (obvious-bad)
-sg sentinel local hit GET /etc/passwd   --ip 185.10.10.10   # → block, rule 0012, HTTP 403
-sg sentinel local hit GET /wp-login.php --ip 91.20.20.20    # → block, rule 0018, HTTP 404
-sg sentinel local hit GET /.env         --ip 77.30.30.30    # → block, rule 0014, HTTP 404
-sg sentinel local hit GET /index.html   --ip 10.0.0.6       # → block, rule 0003 (banned ip)
-
-# use case 1 — logging (real-time visibility)
-sg sentinel local hit GET /index.html   --ip 198.51.100.2   # → allow, rule 0001, pass to origin
+# use case 2 — blocking (obvious-bad). GET is assumed; --ip spoofs the source IP (X-Forwarded-For).
+sg sentinel local hit /etc/passwd     --ip 185.10.10.10   # → block, rule 0012, HTTP 403
+sg sentinel local hit /wp-login.php   --ip 91.20.20.20    # → block, rule 0018, HTTP 404
+sg sentinel local hit /.env           --ip 77.30.30.30    # → block, rule 0014, HTTP 404
+sg sentinel local hit /index.html     --ip 10.0.0.6       # → block, rule 0003 (banned ip)
+sg sentinel local hit GET /index.html --ip 198.51.100.2   # → allow, rule 0001 (explicit method also works)
+sg sentinel local hit /etc/passwd --direct                #   …force the local-node path
 
 # read the sink
-sg sentinel logs ls                                   # every record
-sg sentinel logs tail -n 5
-sg sentinel logs trace <request-id>                   # the full replayable record (from `hit` output)
-sg sentinel blocks list                               # only the blocked requests + reason
-sg sentinel blocks why 185.10.10.10                   # look up by the raw IP you used (matches the hashed store)
+sg sentinel logs ls | tail -n 5 | trace <request-id>
+sg sentinel blocks list                # blocked requests + reason
+sg sentinel blocks why 185.10.10.10    # by the raw IP you used (matches the hashed store)
 
-sg sentinel local down                                # clears the local sink
+sg sentinel local down                 # stop the container + clear the sink (--keep-logs to keep it)
+```
+
+Because the CF-env sim is a real HTTP listener, you can also **curl it directly** — it runs L1
+over the actual request and returns the signal (handy to eyeball a verdict):
+
+```bash
+curl -s http://127.0.0.1:8599/etc/passwd                       # → {"verdict":"block","rule_id":"0012",…}
+curl -s -H 'X-Forwarded-For: 10.0.0.6' http://127.0.0.1:8599/  # → block, rule 0003 (banned ip)
 ```
 
 Notes:
 - `local hit` prints the `request_id`, verdict, rule, reason, and enforcement.
 - Source IP is **hashed** in the stored record by default (privacy mode). `blocks why <ip>`
   understands both the raw IP and its hashed form.
+- `--direct` (Target B) needs `node` on PATH; the default (Target C) needs a running docker daemon.
+- `sg sentinel local status` tells you which paths are ready before you `hit`.
 
-## 4. Target C — local-docker (CloudFront-environment simulation)
-
-Requires a running Docker daemon. Builds a Node container that runs the **same**
-`sentinel_l1.js` behind a tiny HTTP listener; the harness POSTs requests at it and runs
-the same Python L2 on the result.
-
-```bash
-sg sentinel local up   --docker        # builds image + starts the container (CF-env sim)
-sg sentinel local hit  --docker GET /etc/passwd --ip 185.10.10.10   # routed via the container
-sg sentinel logs ls                    # same sink as direct mode
-sg sentinel local down --docker        # stops the container
-```
-
-If `docker info` fails, these commands tell you the daemon isn't reachable and exit.
-
-## 5. Target A — live AWS (ephemeral CloudFront + Lambda@Edge)
+## 4. Target A — live AWS (ephemeral CloudFront + Lambda@Edge)
 
 Mutation-gated. **Costs money and creates real AWS resources** — use an ephemeral test
 distribution and always `teardown`.
@@ -154,7 +150,7 @@ deployed as a **numbered version** (not `$LATEST`), with an execution role trust
 `lambda.amazonaws.com` and `edgelambda.amazonaws.com`; teardown **polls** for the async
 replica deletion before removing the function.
 
-## 6. The automated test suite
+## 5. The automated test suite
 
 ```bash
 . .venv/bin/activate
@@ -174,7 +170,7 @@ Opt-in legs:
 | AWS parity | `SG_SENTINEL__LIVE_TESTS=1` + `SENTINEL_TEST_DISTRIBUTION=<cf-domain>` |
 | Live smoke (deploy→curl→teardown) | `SG_SENTINEL__LIVE_TESTS=1` + `SG_AWS__SENTINEL__ALLOW_MUTATIONS=1` |
 
-## 7. Operator TUIs (`sg sentinel tui *`)
+## 6. Operator TUIs (`sg sentinel tui *`)
 
 Textual screens; each also supports `--json` and a plain-text no-TTY fallback (safe to pipe).
 
@@ -193,7 +189,7 @@ Keys in any screen: `q` quit, `?` help, `t` theme, `r` refresh (traffic: `g` run
 (Threat-intel / fractal rule-graph / multi-distribution mockups are intentionally not built —
 they need deferred features.)
 
-## 8. Talk to it — the TUI API + LLM chat (read-only, Nova)
+## 7. Talk to it — the TUI API + LLM chat (read-only, Nova)
 
 Every surface is also a structured **TUI API** (the same data the screens render), so it is
 scriptable, agent-addressable, and the backing for the chat. All actions are **read-only**.
@@ -227,7 +223,7 @@ in live state** (it reads the real sink/rules/engine) and it **changes nothing**
 shows the tool calls used + the Nova cost. Mutating actions (`deploy_*`, HTTP `traffic_send`)
 are deliberately NOT exposed to chat.
 
-## 9. Traffic generator + httpget echo server (rule testing + impact measurement)
+## 8. Traffic generator + httpget echo server (rule testing + impact measurement)
 
 The **echo server** is the origin / measurement tool; the **traffic generator** fires a
 labelled use-case corpus and reports accuracy + latency.
@@ -263,7 +259,7 @@ docker run -p 8080:8080 sg-sentinel-httpget
 # EC2: same as local — python -c "from ...echo.Echo__Server import serve; serve('0.0.0.0', 8080)"
 ```
 
-## 10. What is NOT in the MVP (don't look for it)
+## 9. What is NOT in the MVP (don't look for it)
 
 Fingerprint/fast-track; any rule evaluation at L2; Layer 3 async/LLM responders (the edge
 itself); fractal-graph traversal; rules-as-vault; evidence/compliance graphs; threat-intel;
