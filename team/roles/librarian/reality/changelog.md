@@ -6,6 +6,30 @@ This is a pointer log, not a content log. For full delta detail, see the master 
 
 ---
 
+## 2026-05-23 (SG/Sentinel — operator TUIs + traffic generator / httpget echo server)
+
+2026-05-23 | sentinel | Added `sg sentinel tui rules|logs|blocks|status` (Textual,
+  MVP-backed; pure renders + thin screens + --json/no-TTY) and `sg sentinel traffic`
+  (use-case corpus replayed in-process through L1+L2 or over HTTP) + `sg sentinel echo
+  serve` (dependency-free httpget echo origin; same Echo__Payload on local/docker/Lambda/
+  EC2) for rule testing + impact measurement. Added Safe_Str__Sentinel__Version. Branch only.
+
+- `sentinel/index.md` — updated EXISTS: TUIs (`tui/`) + traffic generator/echo (`traffic/`).
+
+## 2026-05-23 (SG/Sentinel MVP — Phases 0–5, branch `claude/gracious-galileo-fNYWn`)
+
+2026-05-23 | sentinel (NEW), cli, security | SG/Sentinel edge-guard MVP: new
+  `sg sentinel` peer surface (logging + obvious-bad blocking), L1 CF Function
+  decides+signals → L2 Lambda@Edge acts+writes, three targets (local-direct /
+  local-docker / live AWS) over one `Schema__Sentinel__Signal` spine. Shared
+  `aws/_shared/auth` gained `Schema__AWS__Role__Profile.trust_services` (Lambda@Edge
+  exec-role trust — approved option a); `aws/cf|lambda_|s3` gained L@E association,
+  numbered-version publish, and bucket delete/empty (EXCEPTION-headed). Not yet on `dev`.
+
+- `sentinel/index.md` — NEW domain: CLI surface, signal spine, L1 engine + 6 rules,
+  L2 actor + sinks, the three targets, role profiles, parity matrix, known gaps.
+- `sentinel/proposed/index.md` — NEW: the deferred v0.27.58 vision (incl. the TUI).
+
 ## 2026-05-21 (v0.2.40 — shared AWS auth layer + sg el lets cf iam)
 
 2026-05-21 | cli, lets | v0.2.40 shared AWS auth layer (`aws/_shared/auth/`):

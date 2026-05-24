@@ -19,6 +19,7 @@ from sgraph_ai_service_playwright__cli.sentinel.primitives.Safe_Str__Sentinel__R
 from sgraph_ai_service_playwright__cli.sentinel.primitives.Safe_Str__Sentinel__Request_Id     import Safe_Str__Sentinel__Request_Id
 from sgraph_ai_service_playwright__cli.sentinel.primitives.Safe_Str__Sentinel__Rule_Id        import Safe_Str__Sentinel__Rule_Id
 from sgraph_ai_service_playwright__cli.sentinel.primitives.Safe_Str__Sentinel__Timestamp      import Safe_Str__Sentinel__Timestamp
+from sgraph_ai_service_playwright__cli.sentinel.primitives.Safe_Str__Sentinel__Version        import Safe_Str__Sentinel__Version
 
 
 class Schema__Sentinel__Log_Record(Type_Safe):
@@ -37,5 +38,5 @@ class Schema__Sentinel__Log_Record(Type_Safe):
     layer           : Enum__Sentinel__Layer       = Enum__Sentinel__Layer.L1
     enforced        : bool                         = False
     http_status     : int                          = 0
-    engine_version  : Safe_Str
-    ruleset_version : Safe_Str
+    engine_version  : Safe_Str__Sentinel__Version
+    ruleset_version : Safe_Str__Sentinel__Version

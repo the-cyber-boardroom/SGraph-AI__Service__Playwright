@@ -37,6 +37,7 @@ When code lands, the author updates the relevant domain's `index.md` in the same
 | **QA** | [`qa/`](qa/index.md) | Tests (unit, integration, deploy-via-pytest), smoke tests, test inventory | ✅ MIGRATED |
 | **Security** | [`security/`](security/index.md) | JS expression allowlist, vault-key hygiene, security-group naming, AppSec rules | ✅ MIGRATED |
 | **SG/Compute** | [`sg-compute/`](sg-compute/index.md) | `sg_compute` SDK + `sg_compute_specs` catalogue — ephemeral EC2 nodes, spec contract, helpers layer | ✅ MIGRATED |
+| **SG/Sentinel** | [`sentinel/`](sentinel/index.md) | Edge guard — `sg sentinel` logging + obvious-bad blocking; L1 (CF Function) decides+signals, L2 (Lambda@Edge) acts+writes; three targets | 🟡 MVP (branch, not on `dev`) |
 
 Each domain directory contains:
 
