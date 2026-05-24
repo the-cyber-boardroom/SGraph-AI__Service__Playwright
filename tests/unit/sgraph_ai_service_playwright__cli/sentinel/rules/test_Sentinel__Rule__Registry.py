@@ -26,5 +26,22 @@ class TestGet:
         rule = Sentinel__Rule__Registry().get('0018')
         assert str(rule.name) == 'wp-scan-on-static'
 
+    def test_get_by_name(self):                                                      # `rules show capture-all`
+        rule = Sentinel__Rule__Registry().get('capture-all')
+        assert str(rule.rule_id) == '0001'
+
+    def test_get_by_name_is_case_insensitive(self):
+        assert str(Sentinel__Rule__Registry().get('PATH-NEVER-VALID').rule_id) == '0012'
+
     def test_get_missing_returns_none(self):
         assert Sentinel__Rule__Registry().get('9999') is None
+
+
+class TestText:
+    def test_description_preserves_spaces_and_punctuation(self):                     # not Safe_Str-mangled
+        rule = Sentinel__Rule__Registry().get('0001')
+        assert ' ' in str(rule.description) and ';' in str(rule.description)
+        assert '_' not in str(rule.description)
+
+    def test_confidence_preserves_hyphen(self):
+        assert str(Sentinel__Rule__Registry().get('0001').confidence) == 'deterministic-certain'

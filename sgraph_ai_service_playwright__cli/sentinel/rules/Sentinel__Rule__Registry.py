@@ -40,8 +40,9 @@ class Sentinel__Rule__Registry(Type_Safe):
                                             description='WordPress scan (/wp-login.php, /wp-admin/, /xmlrpc.php) on a static site.'))
         return rules
 
-    def get(self, rule_id: str) -> Schema__Sentinel__Rule:                          # None when no such rule
+    def get(self, needle: str) -> Schema__Sentinel__Rule:                           # match by rule id OR name; None when no such rule
+        key = str(needle).strip().lower()
         for rule in self.all():
-            if str(rule.rule_id) == str(rule_id):
+            if key in (str(rule.rule_id).lower(), str(rule.name).lower()):
                 return rule
         return None

@@ -78,10 +78,17 @@ class Sentinel__Docker__Runtime(Type_Safe):
     def down(self) -> None:
         self._run(['docker', 'rm', '-f', str(self.container_name)], check=False)
 
+    def is_running(self) -> bool:                                                    # is the CF-env sim container up?
+        proc = self._run(['docker', 'ps', '--filter', f'name=^{self.container_name}$', '--format', '{{.Names}}'], check=False)
+        return str(self.container_name) in (proc.stdout or '')
+
     def evaluate(self, captured: dict) -> dict:                                      # POST captured → signal (via the container)
         resp = requests.post(self.base_url() + '/', data=json.dumps(captured), timeout=10)
         resp.raise_for_status()
-        return resp.json()
+        data = resp.json()
+        if not isinstance(data, dict) or 'verdict' not in data:                      # the engine errored — surface it, never silent-allow
+            raise RuntimeError(f"CF-env sim engine error: {data.get('error', data) if isinstance(data, dict) else data}")
+        return data
 
     def _run(self, cmd: list, check: bool = True) -> subprocess.CompletedProcess:
         proc = subprocess.run(cmd, capture_output=True, text=True)
