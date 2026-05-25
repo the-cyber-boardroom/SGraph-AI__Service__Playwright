@@ -3,6 +3,7 @@
 # Local_FS and InMemory must agree on the key layout and round-trip records.
 # ═══════════════════════════════════════════════════════════════════════════════
 
+import os
 import tempfile
 
 from sgraph_ai_service_playwright__cli.sentinel.schemas.Schema__Sentinel__Log_Record import Schema__Sentinel__Log_Record
@@ -55,3 +56,12 @@ class TestLocalFsSink:
     def test_read_all_empty_when_dir_absent(self):
         sink = Local_FS__Log__Sink(root_dir='/tmp/sg_sentinel_does_not_exist_xyz')
         assert len(sink.read_all()) == 0
+
+    def test_root_dir_path_is_not_mangled(self):                                     # regression: Safe_Str used to turn '/' '.' '-' into '_'
+        with tempfile.TemporaryDirectory() as d:
+            root = os.path.join(d, 'SGraph-AI__Service__Playwright', '_vaults', 'sentinel')   # slashes, dots, hyphens
+            sink = Local_FS__Log__Sink(root_dir=root)
+            assert sink.root_dir == root                                            # preserved verbatim
+            sink.write(_record(request_id='sn-fs'))
+            assert os.path.isdir(os.path.join(root, 'sentinel'))                    # wrote UNDER the real absolute path
+            assert len(sink.read_all()) == 1

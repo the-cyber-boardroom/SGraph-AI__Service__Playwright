@@ -8,26 +8,24 @@
 import json
 import os
 
-from osbot_utils.type_safe.primitives.core.Safe_Str import Safe_Str
-
 from sgraph_ai_service_playwright__cli.sentinel.collections.List__Schema__Sentinel__Log_Record import List__Schema__Sentinel__Log_Record
 from sgraph_ai_service_playwright__cli.sentinel.schemas.Schema__Sentinel__Log_Record           import Schema__Sentinel__Log_Record
 from sgraph_ai_service_playwright__cli.sentinel.service.log_sink.Log__Sink                      import Log__Sink
 
 
 class Local_FS__Log__Sink(Log__Sink):
-    root_dir : Safe_Str
+    root_dir : str = ''                                                             # filesystem path — plain str (Safe_Str would mangle '/' '.' '-' → '_')
 
     def write(self, record: Schema__Sentinel__Log_Record) -> str:
         key  = self.key_for(record)
-        path = os.path.join(str(self.root_dir), key)
+        path = os.path.join(self.root_dir, key)
         os.makedirs(os.path.dirname(path), exist_ok=True)
         with open(path, 'w') as fh:
             json.dump(record.json(), fh, indent=2)
         return key
 
     def read_all(self) -> List__Schema__Sentinel__Log_Record:
-        root    = str(self.root_dir)
+        root    = self.root_dir
         records = List__Schema__Sentinel__Log_Record()
         if not os.path.isdir(root):
             return records
