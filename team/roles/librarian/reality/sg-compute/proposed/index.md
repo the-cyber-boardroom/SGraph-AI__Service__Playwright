@@ -2,7 +2,7 @@
 
 PROPOSED — does not exist yet. Items below extend the SG/Compute domain but are not in code today.
 
-Last updated: 2026-05-17 | Domain: `sg-compute/`
+Last updated: 2026-05-25 | Domain: `sg-compute/`
 
 ---
 
@@ -41,6 +41,16 @@ Last updated: 2026-05-17 | Domain: `sg-compute/`
 **Design:** [`briefs/05/20/sg-edge/sg-edge__01..05`](../../../../../humans/dinis_cruz/briefs/05/20/sg-edge/) (5 briefs; rewritten `647de5a`). FastAPI-Lambda technique: [`briefs/05/20/fast-api/`](../../../../../humans/dinis_cruz/briefs/05/20/fast-api/). **Plan:** [`team/comms/plans/v0.2.37__sg-edge/README.md`](../../../../../comms/plans/v0.2.37__sg-edge/README.md) — re-grounds the briefs onto existing `sg aws *` modules (`cf` incl. `CloudFront__Origin__Failover__Builder`, `acm`, `dns`, `ec2`, `iam`, `lambda_`) and the in-repo Lambda template `vault_publish/lambdas/waker/` + `sg_compute/_for_osbot_aws/`. No new AWS primitive needed (the earlier S3 `If-None-Match` plan was dropped when the brief removed the lock).
 
 **Status note:** Slice 1 (typed foundation) has LANDED and is EXISTS — see the `sg_edge — Phase 1 foundation` section in [`../index.md`](../index.md). Slices 2–6 (DNS helper, Edge Waker FastAPI Lambda, proxy rig + CF Function, setup/wiring, `sg edge_bench` harness) remain PROPOSED. Purely additive — zero impact on existing `sg *` commands.
+
+## P-8 · `sg vscode` — VS Code on EC2 compute spec
+
+**What:** A new top-level compute spec (`sg_compute_specs/vscode/`) that launches an ephemeral EC2 node running VS Code server, so VS-Code-dependent tooling (agentic coding extensions, language servers, app builders) runs on remote compute instead of the laptop. Two access modes: **SSM port-forward** (default — editor on loopback, no inbound ports, reached via `AWS-StartPortForwardingSession`) and **public HTTPS** (Caddy `:443` + auth portal, optional Auto-DNS). Plus the free SSM-shell terminal path from `Spec__Service__Base.connect_target`.
+
+**Reuse:** clones `local_claude` (SSM-only EC2 skeleton), `vault_app`'s SSM-forward surfacing (`Schema__Vault_App__Info.ssm_forward`, `Vault_App__Stack__Mapper.py:76`, `Cli__Vault_App.py` `forward`), `vnc`'s Caddy/auth/SG templates, the `sg_compute/platforms/ec2/` helpers + `Section__*` user-data, and `Vault_App__Auto_DNS`. Net-new is small: the `vscode/` package files, a `Vscode__Compose__Template` (code-server / `code serve-web` container), two enums, a stack-name primitive, and the schemas.
+
+**Open decision:** distribution default — code-server (Open VSX marketplace) vs official `code serve-web` (full MS marketplace). The latter matters if target tools need MS-marketplace-only extensions. Built behind `Enum__Vscode__Distribution` either way.
+
+**Design:** [`library/docs/specs/v0.2.41__spec__vscode-on-ec2.md`](../../../../../../library/docs/specs/v0.2.41__spec__vscode-on-ec2.md). **Status note:** Net-new — does not exist in code. Purely additive — zero impact on existing `sg *` commands. Awaiting human ratification of the distribution decision before Dev picks up.
 
 ---
 
