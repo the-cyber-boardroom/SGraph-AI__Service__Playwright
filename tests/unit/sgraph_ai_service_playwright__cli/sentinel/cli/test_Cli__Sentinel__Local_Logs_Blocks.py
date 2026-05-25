@@ -30,7 +30,7 @@ class TestLocalHitThenRead:
     def test_hit_blocks_and_logs_and_blocks_surface_it(self):
         with tempfile.TemporaryDirectory() as d:
             env = _env(d)
-            r1 = runner.invoke(local_app, ['hit', 'GET', '/etc/passwd', '--ip', '185.10.10.10', '--json'], env=env)
+            r1 = runner.invoke(local_app, ['hit', 'GET', '/etc/passwd', '--direct', '--ip', '185.10.10.10', '--json'], env=env)
             assert r1.exit_code == 0
             signal = json.loads(r1.output)['signal']
             assert signal['verdict'] == 'block' and signal['rule_id'] == '0012'
@@ -48,7 +48,7 @@ class TestLocalHitThenRead:
     def test_trace_and_why_find_the_record(self):
         with tempfile.TemporaryDirectory() as d:
             env = _env(d)
-            r1 = runner.invoke(local_app, ['hit', 'GET', '/etc/passwd', '--ip', '185.10.10.10', '--json'], env=env)
+            r1 = runner.invoke(local_app, ['hit', 'GET', '/etc/passwd', '--direct', '--ip', '185.10.10.10', '--json'], env=env)
             request_id = json.loads(r1.output)['signal']['request_id']
 
             r2 = runner.invoke(logs_app, ['trace', request_id, '--json'], env=env)
@@ -62,7 +62,7 @@ class TestLocalHitThenRead:
     def test_benign_hit_passes_and_records_no_block(self):
         with tempfile.TemporaryDirectory() as d:
             env = _env(d)
-            r1 = runner.invoke(local_app, ['hit', 'GET', '/index.html', '--ip', '198.51.100.2', '--json'], env=env)
+            r1 = runner.invoke(local_app, ['hit', 'GET', '/index.html', '--direct', '--ip', '198.51.100.2', '--json'], env=env)
             assert json.loads(r1.output)['enforcement']['pass_to_origin'] is True
             r2 = runner.invoke(blocks_app, ['list', '--json'], env=env)
             assert json.loads(r2.output) == []
