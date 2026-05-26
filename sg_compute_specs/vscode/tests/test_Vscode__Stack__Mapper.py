@@ -58,6 +58,15 @@ class test_Vscode__Stack__Mapper(TestCase):
         assert info.ingress    == 'public-https'
         assert info.vscode_url == 'https://1.2.3.4'
 
+    def test_public_https_url_prefers_fqdn(self):
+        info = Vscode__Stack__Mapper().to_info(
+            _details(Tags=[{'Key': 'StackName',    'Value': 'calm-bohr'},
+                           {'Key': 'StackIngress', 'Value': 'public-https'},
+                           {'Key': 'StackFqdn',    'Value': 'vsc.example.com'}]),
+            'eu-west-2')
+        assert info.fqdn       == 'vsc.example.com'
+        assert info.vscode_url == 'https://vsc.example.com'             # hostname matches the LE cert SAN
+
     def test_command_helpers_empty_without_instance(self):
         assert ssm_forward_command('', 'eu-west-2') == ''
         assert ssm_session_command('', 'eu-west-2') == ''

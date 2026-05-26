@@ -9,6 +9,7 @@
 
 import json
 import os
+import threading
 
 import typer
 from rich.console import Console
@@ -28,15 +29,62 @@ from sg_compute_specs.vscode.service.Vscode__Stack__Mapper           import EDIT
 
 
 def _set_extras(request, distribution='code-server', ingress='ssm-forward',
-                disk_size=0, password='', public=False, use_spot=True):
+                disk_size=0, password='', public=False, with_aws_dns=False,
+                fqdn='', use_spot=True):
     request.distribution   = Enum__Vscode__Distribution(distribution)
     request.ingress        = Enum__Vscode__Ingress(ingress)
     if disk_size:
         request.disk_size_gb = int(disk_size)
     if password:
         request.password = password
+    if fqdn:
+        request.fqdn = fqdn
     request.public_ingress = bool(public)
+    request.with_aws_dns   = bool(with_aws_dns)
     request.use_spot       = bool(use_spot)
+
+
+# ── --with-aws-dns: post-launch parallel Route 53 work ────────────────────────
+# Kicked off after create_stack returns, before _wait_healthy blocks. Polls for
+# the public IP then upserts the A record. Reuses the spec-agnostic
+# Vault_App__Auto_DNS (zone resolve → upsert → INSYNC → authoritative check).
+
+def _vscode_post_launch(svc, region, request, response, kwargs, console):
+    if not bool(getattr(request, 'with_aws_dns', False)):
+        return None
+    fqdn = str(getattr(request, 'fqdn', '') or '').strip()
+    if not fqdn:
+        return None
+    info       = getattr(response, 'stack_info', None) or response
+    stack_name = str(getattr(info, 'stack_name', '') or '')
+
+    def _worker():
+        import time as _time
+        from sg_compute_specs.vault_app.service.Vault_App__Auto_DNS import Vault_App__Auto_DNS
+        public_ip = ''
+        deadline  = _time.time() + 60
+        while _time.time() < deadline:
+            fresh = svc.get_stack_info(region, stack_name)
+            ip    = str(getattr(fresh, 'public_ip', '') or '') if fresh is not None else ''
+            if ip:
+                public_ip = ip
+                break
+            _time.sleep(2)
+        if not public_ip:
+            console.print('  [yellow]⚠[/]  auto-dns: gave up waiting for public IP after 60s')
+            return
+        console.print(f'  [dim]auto-dns:[/] starting  {fqdn} → {public_ip}')
+        def _progress(stage, detail):
+            console.print(f'  [dim]auto-dns:[/] {stage}  [dim]{detail}[/]')
+        result = Vault_App__Auto_DNS().run(fqdn=fqdn, public_ip=public_ip, on_progress=_progress)
+        if result.error:
+            console.print(f'  [red]✗[/]  auto-dns failed: {result.error}')
+        else:
+            console.print(f'  [green]✓[/]  auto-dns: {fqdn} → {public_ip}  (INSYNC + authoritative, {result.elapsed_ms}ms)')
+
+    thread = threading.Thread(target=_worker, daemon=True, name='vscode-auto-dns')
+    thread.start()
+    return thread
 
 
 _cli_spec = Schema__Spec__CLI__Spec(
@@ -51,6 +99,7 @@ _cli_spec = Schema__Spec__CLI__Spec(
     render_info_fn        = render_info                           ,
     render_create_fn      = render_create                         ,
     extra_create_field_setters = _set_extras                      ,
+    post_launch_fn        = _vscode_post_launch                   ,
 )
 
 
@@ -67,6 +116,10 @@ app = Spec__CLI__Builder(
          'Editor password. Auto-generated and shown once if blank.'),
         ('public'      , bool, False,
          'PUBLIC_HTTPS only: open :443 to 0.0.0.0/0 instead of your caller /32.'),
+        ('with_aws_dns', bool, False,
+         'PUBLIC_HTTPS only: upsert a Route 53 A record post-launch (real LE cert). Forces world-open :80/:443.'),
+        ('fqdn'        , str , '',
+         "Hostname for the A record + Let's Encrypt cert. Required with --with-aws-dns."),
         ('use_spot'    , bool, True,
          'Spot instance (~70% cheaper). Pass --no-use-spot for on-demand.'),
     ],

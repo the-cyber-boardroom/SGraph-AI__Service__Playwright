@@ -18,6 +18,7 @@ class Schema__Vscode__Info(Type_Safe):
     security_group_id  : str  = ''
     distribution       : str  = ''    # from StackDistribution tag
     ingress            : str  = ''    # from StackIngress tag
+    fqdn               : str  = ''    # from StackFqdn tag — set when --with-aws-dns issued a hostname
     vscode_url         : str  = ''    # http://localhost:<port> (SSM) or https://<host> (public)
     ssm_forward        : str  = ''    # ready-to-paste AWS-StartPortForwardingSession command
     ssm_session        : str  = ''    # ready-to-paste interactive SSM shell command

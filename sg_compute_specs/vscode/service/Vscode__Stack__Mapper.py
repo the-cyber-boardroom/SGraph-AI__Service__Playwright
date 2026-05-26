@@ -17,6 +17,7 @@ from sg_compute_specs.vscode.schemas.Schema__Vscode__Info import Schema__Vscode_
 
 TAG_DISTRIBUTION = 'StackDistribution'
 TAG_INGRESS      = 'StackIngress'
+TAG_FQDN         = 'StackFqdn'
 TAG_TERMINATE_AT = 'TerminateAt'
 STACK_TYPE       = 'vscode'
 
@@ -52,9 +53,11 @@ def ssm_session_command(instance_id: str, region: str) -> str:
     return f'aws ssm start-session --target {instance_id} --region {region}'
 
 
-def vscode_url_for(ingress: str, public_ip: str, port: int = EDITOR_PORT) -> str:
-    if ingress == INGRESS_PUBLIC and public_ip:
-        return f'https://{public_ip}'
+def vscode_url_for(ingress: str, public_ip: str, fqdn: str = '', port: int = EDITOR_PORT) -> str:
+    if ingress == INGRESS_PUBLIC:
+        host = fqdn or public_ip                   # prefer the hostname (matches the LE cert SAN)
+        if host:
+            return f'https://{host}'
     return f'http://localhost:{port}'              # SSM-forward default — open after `sg vscode forward`
 
 
@@ -64,6 +67,7 @@ class Vscode__Stack__Mapper(Type_Safe):
         instance_id             = details.get('InstanceId', '') or ''
         public_ip               = details.get('PublicIpAddress', '') or ''
         ingress                 = tag_value(details, TAG_INGRESS) or 'ssm-forward'
+        fqdn                    = tag_value(details, TAG_FQDN) or ''
         terminate_at, remaining = _time_remaining(details)
         return Schema__Vscode__Info(
             instance_id        = instance_id                                  ,
@@ -77,7 +81,8 @@ class Vscode__Stack__Mapper(Type_Safe):
             security_group_id  = first_sg_id(details)                         ,
             distribution       = tag_value(details, TAG_DISTRIBUTION)         ,
             ingress            = ingress                                      ,
-            vscode_url         = vscode_url_for(ingress, public_ip)           ,
+            fqdn               = fqdn                                         ,
+            vscode_url         = vscode_url_for(ingress, public_ip, fqdn)     ,
             ssm_forward        = ssm_forward_command(instance_id, region)     ,
             ssm_session        = ssm_session_command(instance_id, region)     ,
             uptime_seconds     = uptime_seconds(details)                      ,

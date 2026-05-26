@@ -198,7 +198,7 @@ Tests: `sg_compute_specs/sg_edge/tests/` — 72 unit tests + 6 FastAPI route tes
 | 1 | Package skeleton + `manifest.py` + `version` + contract test + `pyproject` entry point | ✅ EXISTS — `Spec__Loader` discovers `vscode` (16 specs); `tests/test_manifest.py` (6 tests) |
 | 2 | SSM_FORWARD mode end-to-end (schemas, `Vscode__Service`, `Vscode__User_Data__Builder`, `Vscode__Compose__Template`, `Vscode__Stack__Mapper`, CLI + top-level mount) | ✅ EXISTS — `sg vscode` (alias `vsc`) mounted; `create/list/info/wait/health/connect/exec/delete/ami/cert` from the builder + `forward`/`url`; 17 unit tests pass |
 | 3 | PUBLIC_HTTPS mode (`Vscode__Caddy__Template` + `--ingress public-https` + `--public`) | ✅ EXISTS — Caddy `tls internal` :443 → code-server (code-server's own password auth; shared `EC2__SG__Helper` opens :443/:80, caller /32 or 0.0.0.0/0). code-server stays loopback-published so forward/health are mode-independent |
-| 4 | Auto-DNS + real cert (reuse `Vault_App__Auto_DNS`) | ❌ not yet |
+| 4 | Auto-DNS + real cert (reuse `Vault_App__Auto_DNS`) | ✅ EXISTS — `--with-aws-dns --fqdn <host>` (PUBLIC_HTTPS only): post-launch Route 53 A-record upsert via the shared `Vault_App__Auto_DNS`; Caddy uses the hostname → automatic Let's Encrypt cert (forces world-open :80/:443 for the ACM challenge) |
 | 5 | `serve-web` distribution branch | ❌ not yet |
 | 6 | TUI (`sg vscode tui`) — GUI over the CLI | ❌ not yet |
 

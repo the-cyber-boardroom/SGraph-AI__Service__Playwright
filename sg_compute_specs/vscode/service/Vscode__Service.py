@@ -30,6 +30,7 @@ from sg_compute_specs.vscode.service.Vscode__Stack__Mapper            import (Vs
                                                                               EDITOR_PORT           ,
                                                                               TAG_DISTRIBUTION      ,
                                                                               TAG_INGRESS           ,
+                                                                              TAG_FQDN              ,
                                                                               TAG_TERMINATE_AT      ,
                                                                               ssm_forward_command   ,
                                                                               ssm_session_command   ,
@@ -75,6 +76,17 @@ class Vscode__Service(Spec__Service__Base):
                            creator : str = '') -> Schema__Vscode__Create__Response:
         t0           = time.monotonic()
         is_public    = request.ingress == Enum__Vscode__Ingress.PUBLIC_HTTPS
+        with_dns     = bool(request.with_aws_dns)
+        fqdn         = str(request.fqdn).strip()
+        if with_dns and not is_public:
+            raise ValueError('--with-aws-dns requires --ingress public-https')
+        if with_dns and not fqdn:
+            raise ValueError('--with-aws-dns requires --fqdn <hostname>')
+        # A real Let's Encrypt cert needs the ACM HTTP-01 challenge reachable, so
+        # --with-aws-dns forces world-open :80/:443. Caddy uses the fqdn (real cert);
+        # otherwise `tls internal` (self-signed). code-server's password still gates.
+        domain       = fqdn if with_dns else ''
+        public_open  = request.public_ingress or with_dns
         stack_name   = str(request.stack_name)    or self.name_gen.generate()
         region       = str(request.region)        or DEFAULT_REGION
         caller_ip    = str(request.caller_ip)     or self.ip_detector.detect()
@@ -89,8 +101,8 @@ class Vscode__Service(Spec__Service__Base):
 
         # SSM_FORWARD: editor binds to loopback — open NO inbound ports.
         # PUBLIC_HTTPS: Caddy serves :443 (+:80 for ACM) — open to caller /32, or
-        #               0.0.0.0/0 when --public (code-server's password still gates).
-        if is_public and request.public_ingress:
+        #               0.0.0.0/0 when --public / --with-aws-dns.
+        if is_public and public_open:
             inbound_ports, extra_cidrs = [], {443: '0.0.0.0/0', 80: '0.0.0.0/0'}
         elif is_public:
             inbound_ports, extra_cidrs = [443, 80], {}
@@ -105,6 +117,8 @@ class Vscode__Service(Spec__Service__Base):
             TAG_DISTRIBUTION: request.distribution.value ,
             TAG_INGRESS     : request.ingress.value      ,
         }
+        if fqdn:
+            extra[TAG_FQDN] = fqdn
         if float(request.max_hours) > 0:
             terminate_at = datetime.now(timezone.utc) + timedelta(hours=float(request.max_hours))
             extra[TAG_TERMINATE_AT] = terminate_at.strftime('%Y-%m-%dT%H:%M:%SZ')
@@ -116,6 +130,7 @@ class Vscode__Service(Spec__Service__Base):
             password     = password                ,
             distribution = request.distribution    ,
             ingress      = request.ingress         ,
+            domain       = domain                  ,
             max_hours    = float(request.max_hours),
         )
         iid = self.aws_client.launch.run_instance(
@@ -139,7 +154,8 @@ class Vscode__Service(Spec__Service__Base):
             security_group_id = sg_id                                          ,
             distribution      = request.distribution.value                     ,
             ingress           = request.ingress.value                          ,
-            vscode_url        = vscode_url_for(request.ingress.value, '')       ,
+            fqdn              = fqdn                                            ,
+            vscode_url        = vscode_url_for(request.ingress.value, '', fqdn) ,
             ssm_forward       = ssm_forward_command(iid, region)               ,
             ssm_session       = ssm_session_command(iid, region)               ,
             disk_size_gb      = disk_gb                                        ,

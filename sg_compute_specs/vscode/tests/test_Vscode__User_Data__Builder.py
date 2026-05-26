@@ -54,4 +54,10 @@ class test_Vscode__User_Data__Builder(TestCase):
         assert 'caddy:2-alpine'                   in ud
         assert '-p 443:443'                       in ud
         assert '127.0.0.1:8443:8080'              in ud          # still loopback-published → forward/health work
+        assert 'tls internal'                     in ud          # no domain → self-signed
+
+    def test_public_mode_with_domain_uses_real_cert(self):
+        ud = self.render(ingress=Enum__Vscode__Ingress.PUBLIC_HTTPS, domain='vsc.example.com')
+        assert 'vsc.example.com {'                in ud          # Caddy site block → automatic Let's Encrypt
+        assert 'tls internal'                 not in ud
 

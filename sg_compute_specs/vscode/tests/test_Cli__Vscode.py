@@ -35,10 +35,13 @@ class test_Cli__Vscode(TestCase):
     def test_set_extras_maps_enums(self):
         req = Schema__Vscode__Create__Request()
         _set_extras(req, distribution='serve-web', ingress='public-https',
-                    disk_size=250, password='pw', public=True, use_spot=False)
+                    disk_size=250, password='pw', public=True,
+                    with_aws_dns=True, fqdn='vsc.example.com', use_spot=False)
         assert req.distribution   == Enum__Vscode__Distribution.SERVE_WEB
         assert req.ingress        == Enum__Vscode__Ingress.PUBLIC_HTTPS
         assert int(req.disk_size_gb) == 250
         assert req.password       == 'pw'
         assert req.public_ingress is True
+        assert req.with_aws_dns   is True
+        assert req.fqdn           == 'vsc.example.com'
         assert req.use_spot       is False
