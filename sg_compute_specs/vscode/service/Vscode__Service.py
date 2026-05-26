@@ -17,6 +17,7 @@ from sg_compute.core.spec.Spec__Service__Base                     import Spec__S
 from sg_compute.platforms.ec2.networking.Caller__IP__Detector     import Caller__IP__Detector
 from sg_compute.platforms.ec2.networking.Stack__Name__Generator   import Stack__Name__Generator
 
+from sg_compute_specs.vscode.enums.Enum__Vscode__Distribution         import Enum__Vscode__Distribution
 from sg_compute_specs.vscode.enums.Enum__Vscode__Ingress              import Enum__Vscode__Ingress
 from sg_compute_specs.vscode.schemas.Schema__Vscode__Create__Request  import Schema__Vscode__Create__Request
 from sg_compute_specs.vscode.schemas.Schema__Vscode__Create__Response import Schema__Vscode__Create__Response
@@ -78,6 +79,13 @@ class Vscode__Service(Spec__Service__Base):
         is_public    = request.ingress == Enum__Vscode__Ingress.PUBLIC_HTTPS
         with_dns     = bool(request.with_aws_dns)
         fqdn         = str(request.fqdn).strip()
+        if request.distribution == Enum__Vscode__Distribution.OPENVSCODE_SERVER:
+            raise NotImplementedError(
+                'openvscode-server is not implemented; use --distribution code-server or serve-web')
+        if request.distribution == Enum__Vscode__Distribution.SERVE_WEB and is_public:
+            raise ValueError(
+                'serve-web supports --ingress ssm-forward only (run it remotely, tunnel in).\n'
+                '  Use --distribution code-server for --ingress public-https.')
         if with_dns and not is_public:
             raise ValueError('--with-aws-dns requires --ingress public-https')
         if with_dns and not fqdn:
@@ -220,17 +228,19 @@ class Vscode__Service(Spec__Service__Base):
             except Exception:
                 pass
             try:
+                # Generic probe — works for code-server (/ → 302) and serve-web (/ → 200).
                 result = self.exec(region, name,
-                                   f'curl -sf http://127.0.0.1:{EDITOR_PORT}/healthz',
+                                   f"curl -s -o /dev/null -w '%{{http_code}}' "
+                                   f'http://127.0.0.1:{EDITOR_PORT}/ || echo 000',
                                    timeout_sec=30)
-                stdout = str(getattr(result, 'stdout', '') or '')
-                if 'alive' in stdout or stdout.strip().startswith('{'):
+                code = str(getattr(result, 'stdout', '') or '').strip()[-3:]
+                if code[:1] in ('2', '3'):
                     probe.healthy    = True
                     probe.state      = 'running'
                     probe.last_error = ''
                     break
                 probe.state      = 'starting'
-                probe.last_error = (stdout[:256] if stdout else 'no response from code-server')
+                probe.last_error = f'editor not ready (http {code or "000"})'
             except Exception as exc:
                 probe.state      = 'starting'
                 probe.last_error = str(exc)[:512]

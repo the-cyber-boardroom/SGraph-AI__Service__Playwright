@@ -61,3 +61,11 @@ class test_Vscode__User_Data__Builder(TestCase):
         assert 'vsc.example.com {'                in ud          # Caddy site block → automatic Let's Encrypt
         assert 'tls internal'                 not in ud
 
+    def test_serve_web_is_host_process_no_docker(self):
+        ud = self.render(distribution=Enum__Vscode__Distribution.SERVE_WEB)
+        assert 'code serve-web'             in ud
+        assert 'code-serve-web.service'     in ud
+        assert 'dnf install -y docker'  not in ud               # serve-web runs on the host, not in Docker
+        assert 'codercom/code-server'   not in ud
+        assert 'caddy'              not in ud.lower()
+

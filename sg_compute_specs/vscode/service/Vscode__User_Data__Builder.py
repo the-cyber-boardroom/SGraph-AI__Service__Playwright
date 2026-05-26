@@ -12,8 +12,9 @@ from sg_compute.platforms.ec2.user_data.Section__Docker import Section__Docker
 
 from sg_compute_specs.vscode.enums.Enum__Vscode__Distribution import Enum__Vscode__Distribution
 from sg_compute_specs.vscode.enums.Enum__Vscode__Ingress      import Enum__Vscode__Ingress
-from sg_compute_specs.vscode.service.Vscode__Caddy__Template  import Vscode__Caddy__Template
+from sg_compute_specs.vscode.service.Vscode__Caddy__Template   import Vscode__Caddy__Template
 from sg_compute_specs.vscode.service.Vscode__Compose__Template import Vscode__Compose__Template
+from sg_compute_specs.vscode.service.Vscode__Serve_Web__Template import Vscode__Serve_Web__Template
 from sg_compute_specs.vscode.service.Vscode__Stack__Mapper     import EDITOR_PORT
 
 DOCKER_NETWORK = 'vscode-net'
@@ -34,6 +35,14 @@ class Vscode__User_Data__Builder(Type_Safe):
                      ingress      : Enum__Vscode__Ingress      = Enum__Vscode__Ingress.SSM_FORWARD,
                      domain       : str                        = ''  ,
                      max_hours    : float                      = 4.0) -> str:
+        # serve-web is a host process (no Docker, no Caddy) — SSM_FORWARD only.
+        if distribution == Enum__Vscode__Distribution.SERVE_WEB:
+            return '\n'.join(p for p in [
+                Section__Base().render(stack_name=stack_name, max_hours=max_hours),
+                Vscode__Serve_Web__Template().render(port=EDITOR_PORT),
+                FOOTER,
+            ] if p)
+
         parts = [
             Section__Base()  .render(stack_name=stack_name, max_hours=max_hours) ,
             Section__Docker().render()                                           ,

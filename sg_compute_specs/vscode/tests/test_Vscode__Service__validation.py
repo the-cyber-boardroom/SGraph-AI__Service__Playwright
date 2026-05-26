@@ -10,6 +10,7 @@ try:
     from sg_compute_specs.vscode.service.Vscode__Service                 import Vscode__Service
     from sg_compute_specs.vscode.schemas.Schema__Vscode__Create__Request import Schema__Vscode__Create__Request
     from sg_compute_specs.vscode.enums.Enum__Vscode__Ingress             import Enum__Vscode__Ingress
+    from sg_compute_specs.vscode.enums.Enum__Vscode__Distribution        import Enum__Vscode__Distribution
     IMPORTABLE = True
 except Exception:
     IMPORTABLE = False
@@ -33,3 +34,17 @@ class test_Vscode__Service__validation(TestCase):
         with self.assertRaises(ValueError) as ctx:
             svc.create_stack(req)
         assert 'fqdn' in str(ctx.exception)
+
+    def test_serve_web_rejects_public_https(self):
+        svc = Vscode__Service()
+        req = Schema__Vscode__Create__Request(distribution=Enum__Vscode__Distribution.SERVE_WEB,
+                                              ingress=Enum__Vscode__Ingress.PUBLIC_HTTPS)
+        with self.assertRaises(ValueError) as ctx:
+            svc.create_stack(req)
+        assert 'ssm-forward' in str(ctx.exception)
+
+    def test_openvscode_not_implemented(self):
+        svc = Vscode__Service()
+        req = Schema__Vscode__Create__Request(distribution=Enum__Vscode__Distribution.OPENVSCODE_SERVER)
+        with self.assertRaises(NotImplementedError):
+            svc.create_stack(req)
