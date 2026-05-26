@@ -29,6 +29,7 @@ playwright  = "sg_compute_specs.playwright.manifest"
 podman      = "sg_compute_specs.podman.manifest"
 prometheus  = "sg_compute_specs.prometheus.manifest"
 vnc         = "sg_compute_specs.vnc.manifest"
+vscode      = "sg_compute_specs.vscode.manifest"
 
 [tool.setuptools]
 package-dir     = { "" = ".." }

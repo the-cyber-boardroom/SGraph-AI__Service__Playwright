@@ -187,6 +187,25 @@ Tests: `sg_compute_specs/sg_edge/tests/` — 72 unit tests + 6 FastAPI route tes
 
 ---
 
+## vscode — VS Code on EC2 (v0.2.41, in progress)
+
+`sg_compute_specs/vscode/` — new top-level compute spec: an ephemeral EC2 node running web/browser VS Code (code-server, with `code serve-web` behind a distribution enum), reachable via SSM port-forward (default, no inbound ports) or public HTTPS (Caddy + auth). Spec: [`library/docs/specs/v0.2.41__spec__vscode-on-ec2.md`](../../../../library/docs/specs/v0.2.41__spec__vscode-on-ec2.md); proposed entry P-8.
+
+**Slice status:**
+
+| Slice | What | Status |
+|-------|------|--------|
+| 1 | Package skeleton + `manifest.py` + `version` + contract test + `pyproject` entry point | ✅ EXISTS — `Spec__Loader` discovers `vscode` (16 specs); `tests/test_manifest.py` (6 tests) |
+| 2 | SSM_FORWARD mode end-to-end (schemas, `Vscode__Service`, `Vscode__User_Data__Builder`, `Vscode__Compose__Template`, `Vscode__Stack__Mapper`, CLI + top-level mount) | ❌ not yet |
+| 3 | PUBLIC_HTTPS mode (`Vscode__Caddy__Template`, `Vscode__SG__Helper`, `--public`) | ❌ not yet |
+| 4 | Auto-DNS + real cert (reuse `Vault_App__Auto_DNS`) | ❌ not yet |
+| 5 | `serve-web` distribution branch | ❌ not yet |
+| 6 | TUI (`sg vscode tui`) — GUI over the CLI | ❌ not yet |
+
+Net-new, additive — nothing outside `sg_compute_specs/vscode/` imports it until the top-level mount (Slice 2). EC2/AWS-bound behaviour is verified via deploy-via-pytest (skips without creds); unit tests cover schemas, user-data content, stack-mapper, and SG naming.
+
+---
+
 ## PROPOSED — does not exist yet
 
 See [`proposed/index.md`](proposed/index.md).
