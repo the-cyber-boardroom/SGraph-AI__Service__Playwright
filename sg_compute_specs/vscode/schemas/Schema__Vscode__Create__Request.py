@@ -21,4 +21,5 @@ class Schema__Vscode__Create__Request(Type_Safe):
     distribution  : Enum__Vscode__Distribution = Enum__Vscode__Distribution.CODE_SERVER
     ingress       : Enum__Vscode__Ingress      = Enum__Vscode__Ingress.SSM_FORWARD
     password      : str                        = ''             # empty = auto-generate; surfaced once at create
+    public_ingress: bool                       = False          # PUBLIC_HTTPS only: open :443 to 0.0.0.0/0 vs caller /32
     use_spot      : bool                       = True           # spot by default (~70% cheaper)

@@ -74,10 +74,7 @@ class Vscode__Service(Spec__Service__Base):
     def create_stack(self, request : Schema__Vscode__Create__Request,
                            creator : str = '') -> Schema__Vscode__Create__Response:
         t0           = time.monotonic()
-        if request.ingress == Enum__Vscode__Ingress.PUBLIC_HTTPS:
-            raise NotImplementedError(
-                'PUBLIC_HTTPS ingress is not wired yet (Slice 3). '
-                'Use the default --ingress ssm-forward.')
+        is_public    = request.ingress == Enum__Vscode__Ingress.PUBLIC_HTTPS
         stack_name   = str(request.stack_name)    or self.name_gen.generate()
         region       = str(request.region)        or DEFAULT_REGION
         caller_ip    = str(request.caller_ip)     or self.ip_detector.detect()
@@ -91,10 +88,18 @@ class Vscode__Service(Spec__Service__Base):
         disk_gb      = int(request.disk_size_gb)
 
         # SSM_FORWARD: editor binds to loopback — open NO inbound ports.
+        # PUBLIC_HTTPS: Caddy serves :443 (+:80 for ACM) — open to caller /32, or
+        #               0.0.0.0/0 when --public (code-server's password still gates).
+        if is_public and request.public_ingress:
+            inbound_ports, extra_cidrs = [], {443: '0.0.0.0/0', 80: '0.0.0.0/0'}
+        elif is_public:
+            inbound_ports, extra_cidrs = [443, 80], {}
+        else:
+            inbound_ports, extra_cidrs = [], {}
         sg_id = self.aws_client.sg.ensure_security_group(
             region, stack_name, caller_ip,
-            inbound_ports=[],
-            extra_cidrs={})
+            inbound_ports=inbound_ports,
+            extra_cidrs=extra_cidrs)
 
         extra = {
             TAG_DISTRIBUTION: request.distribution.value ,
@@ -106,10 +111,11 @@ class Vscode__Service(Spec__Service__Base):
         tags = self.aws_client.tags.build(stack_name, caller_ip, creator, extra_tags=extra)
 
         user_data = self.user_data_builder.render(
-            stack_name   = stack_name           ,
-            region       = region               ,
-            password     = password             ,
-            distribution = request.distribution ,
+            stack_name   = stack_name              ,
+            region       = region                  ,
+            password     = password                ,
+            distribution = request.distribution    ,
+            ingress      = request.ingress         ,
             max_hours    = float(request.max_hours),
         )
         iid = self.aws_client.launch.run_instance(

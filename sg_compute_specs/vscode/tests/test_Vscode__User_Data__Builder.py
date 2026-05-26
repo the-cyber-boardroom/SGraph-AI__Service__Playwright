@@ -6,6 +6,7 @@
 from unittest import TestCase
 
 from sg_compute_specs.vscode.enums.Enum__Vscode__Distribution  import Enum__Vscode__Distribution
+from sg_compute_specs.vscode.enums.Enum__Vscode__Ingress       import Enum__Vscode__Ingress
 from sg_compute_specs.vscode.service.Vscode__User_Data__Builder import Vscode__User_Data__Builder
 
 
@@ -39,3 +40,18 @@ class test_Vscode__User_Data__Builder(TestCase):
         ud = self.render()
         assert 'touch /var/lib/sg-compute-boot-ok' in ud
         assert 'vscode boot complete'              in ud
+
+    def test_ssm_mode_has_no_caddy(self):
+        ud = self.render(ingress=Enum__Vscode__Ingress.SSM_FORWARD)
+        assert 'caddy'              not in ud.lower()
+        assert 'docker network'     not in ud
+        assert '127.0.0.1:8443:8080' in ud                       # loopback-only publish
+
+    def test_public_mode_adds_network_and_caddy(self):
+        ud = self.render(ingress=Enum__Vscode__Ingress.PUBLIC_HTTPS)
+        assert 'docker network create vscode-net' in ud
+        assert '--network vscode-net'             in ud          # code-server joins the net
+        assert 'caddy:2-alpine'                   in ud
+        assert '-p 443:443'                       in ud
+        assert '127.0.0.1:8443:8080'              in ud          # still loopback-published → forward/health work
+

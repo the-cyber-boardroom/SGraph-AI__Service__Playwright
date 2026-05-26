@@ -28,14 +28,15 @@ from sg_compute_specs.vscode.service.Vscode__Stack__Mapper           import EDIT
 
 
 def _set_extras(request, distribution='code-server', ingress='ssm-forward',
-                disk_size=0, password='', use_spot=True):
-    request.distribution = Enum__Vscode__Distribution(distribution)
-    request.ingress      = Enum__Vscode__Ingress(ingress)
+                disk_size=0, password='', public=False, use_spot=True):
+    request.distribution   = Enum__Vscode__Distribution(distribution)
+    request.ingress        = Enum__Vscode__Ingress(ingress)
     if disk_size:
         request.disk_size_gb = int(disk_size)
     if password:
         request.password = password
-    request.use_spot = bool(use_spot)
+    request.public_ingress = bool(public)
+    request.use_spot       = bool(use_spot)
 
 
 _cli_spec = Schema__Spec__CLI__Spec(
@@ -64,6 +65,8 @@ app = Spec__CLI__Builder(
          'Root volume in GiB. Room for repos + node_modules + Docker images.'),
         ('password'    , str , '',
          'Editor password. Auto-generated and shown once if blank.'),
+        ('public'      , bool, False,
+         'PUBLIC_HTTPS only: open :443 to 0.0.0.0/0 instead of your caller /32.'),
         ('use_spot'    , bool, True,
          'Spot instance (~70% cheaper). Pass --no-use-spot for on-demand.'),
     ],
