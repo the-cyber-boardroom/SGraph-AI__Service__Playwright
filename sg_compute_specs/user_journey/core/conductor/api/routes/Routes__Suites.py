@@ -22,7 +22,8 @@ from sg_compute_specs.user_journey.core.schemas.suite.Schema__Suite__Definition 
 
 TAG__ROUTES_SUITES   = 'suites'
 ROUTES_PATHS__SUITES = ['/suites', '/suites/{suite_run_id}',
-                        '/suites/{suite_run_id}/stop', '/suites/{suite_run_id}/report/{worker_id}']
+                        '/suites/{suite_run_id}/stop', '/suites/{suite_run_id}/scale',
+                        '/suites/{suite_run_id}/report/{worker_id}']
 
 SUITE_SERVICE = Suite__Service().setup()                                            # process singleton; runtime swapped at boot
 
@@ -49,6 +50,16 @@ class Routes__Suites(Fast_API__Routes):
         @router.post('/suites/{suite_run_id}/stop')
         def stop(suite_run_id: str):
             status = SUITE_SERVICE.stop_suite(suite_run_id)
+            if status is None:
+                raise HTTPException(status_code=404, detail=f'no suite run {suite_run_id!r}')
+            return status.json()
+
+        @router.post('/suites/{suite_run_id}/scale')
+        def scale(suite_run_id: str, payload: dict = Body(default=None)):
+            payload      = payload or {}
+            count        = int(payload.get('count', 0))
+            concurrency  = int(payload.get('concurrency', 1))
+            status       = SUITE_SERVICE.scale_suite(suite_run_id, count, concurrency)
             if status is None:
                 raise HTTPException(status_code=404, detail=f'no suite run {suite_run_id!r}')
             return status.json()

@@ -18,14 +18,19 @@ from sg_compute_specs.user_journey.core.conductor.Worker__Runtime              i
 from sg_compute_specs.user_journey.core.conductor.Worker__Runtime__InMemory    import Worker__Runtime__InMemory
 from sg_compute_specs.user_journey.core.schemas.enums.Enum__Suite__Run__State   import Enum__Suite__Run__State
 from sg_compute_specs.user_journey.core.schemas.enums.Enum__Worker__State        import Enum__Worker__State
+from sg_compute_specs.user_journey.core.schemas.primitives.docker.Safe_Str__Docker__Image import Safe_Str__Docker__Image
+from sg_compute_specs.user_journey.core.schemas.suite.Schema__Suite__Definition  import Schema__Suite__Definition
+from sg_compute_specs.user_journey.core.schemas.suite.Schema__Suite__Entry       import Schema__Suite__Entry
 from sg_compute_specs.user_journey.core.schemas.suite.Schema__Suite__Run__Status import Schema__Suite__Run__Status
 
 
 class Suite__Service(Type_Safe):
-    runner     : Suite__Runner
-    aggregator : Result__Aggregator
-    runtime    : Worker__Runtime = None                                             # defaults to in-memory in setup()
-    runs       : Dict[str, Schema__Suite__Run__Status]                              # suite_run_id → live snapshot
+    runner         : Suite__Runner
+    aggregator     : Result__Aggregator
+    runtime        : Worker__Runtime = None                                         # defaults to in-memory in setup()
+    runs           : Dict[str, Schema__Suite__Run__Status]                          # suite_run_id → live snapshot
+    definitions    : Dict[str, Schema__Suite__Definition]                           # kept so scale can launch more
+    default_images : Dict[str, Safe_Str__Docker__Image]                             # the runner image used per run
 
     def setup(self) -> 'Suite__Service':
         if self.runtime is None:
@@ -39,8 +44,31 @@ class Suite__Service(Type_Safe):
             for spec in wave:
                 workers.append(self.runtime.launch(spec))
         status = self._snapshot(run_id, definition.suite_id, workers)
-        self.runs[run_id] = status
+        self.runs[run_id]        = status
+        self.definitions[run_id] = definition
+        if default_image:
+            self.default_images[run_id] = default_image
         return status
+
+    def scale_suite(self, suite_run_id, count, concurrency) -> Schema__Suite__Run__Status:
+        run_id     = str(suite_run_id)
+        status     = self.runs.get(run_id)
+        definition = self.definitions.get(run_id)
+        if status is None or definition is None or not definition.entries:
+            return status                                                           # nothing to scale
+        first  = definition.entries[0]                                              # scale-up applies to the first (load) entry
+        scaled = Schema__Suite__Definition(suite_id=definition.suite_id)
+        scaled.entries.append(Schema__Suite__Entry(worker_image=first.worker_image, journey_id=first.journey_id,
+                                                   environment=first.environment, count=count, concurrency=concurrency))
+        existing       = {str(worker.worker_id) for worker in status.workers}
+        default_image  = self.default_images.get(run_id)
+        for wave in self.runner.plan(scaled, default_image):
+            for spec in wave:
+                if str(spec.worker_id) not in existing:                             # launch only the new replicas (scale-up)
+                    status.workers.append(self.runtime.launch(spec))
+        refreshed = self._reaggregate(status)
+        self.runs[run_id] = refreshed
+        return refreshed
 
     def get_suite(self, suite_run_id):
         return self.runs.get(str(suite_run_id))

@@ -82,6 +82,26 @@ class TestStopSuite:
         assert Suite__Service().setup().get_suite('nope')       is None
 
 
+class TestScaleSuite:
+
+    def test__scale_up_launches_delta_workers(self):
+        service = Suite__Service().setup()
+        service.start_suite(_definition(count=3, concurrency=2),
+                            default_image='diniscruz/sg-journey-runner:latest', suite_run_id='run-6')
+        scaled = service.scale_suite('run-6', count=5, concurrency=5)
+        assert len(scaled.workers)        == 5                                      # 3 existing + 2 new replicas
+        assert int(scaled.counts.running) == 5
+
+    def test__scale_down_is_noop_in_memory(self):
+        service = Suite__Service().setup()
+        service.start_suite(_definition(count=3), suite_run_id='run-7')
+        scaled = service.scale_suite('run-7', count=1, concurrency=1)
+        assert len(scaled.workers) == 3                                             # existing workers are not torn down
+
+    def test__scale_unknown_returns_none(self):
+        assert Suite__Service().setup().scale_suite('nope', 5, 5) is None
+
+
 class TestRuntimeInjection:
 
     def test__setup_defaults_to_in_memory_runtime(self):

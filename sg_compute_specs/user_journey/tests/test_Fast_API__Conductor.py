@@ -75,6 +75,13 @@ class test_Fast_API__Conductor(TestCase):
         assert stopped.status_code        == 200
         assert stopped.json()['state']    == 'stopped'
 
+    def test__scale_grows_worker_count(self):
+        started = self.client.post('/suites', json=_definition_body(), headers=self._auth())   # count=3
+        run_id  = started.json()['suite_run_id']
+        scaled  = self.client.post(f'/suites/{run_id}/scale', json={'count': 5, 'concurrency': 5}, headers=self._auth())
+        assert scaled.status_code              == 200
+        assert len(scaled.json()['workers'])   == 5
+
     def test__get_unknown_is_404(self):
         response = self.client.get('/suites/does-not-exist', headers=self._auth())
         assert response.status_code == 404
