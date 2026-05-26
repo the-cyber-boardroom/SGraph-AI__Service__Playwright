@@ -196,7 +196,7 @@ Tests: `sg_compute_specs/sg_edge/tests/` — 72 unit tests + 6 FastAPI route tes
 | Slice | What | Status |
 |-------|------|--------|
 | 1 | Package skeleton + `manifest.py` + `version` + contract test + `pyproject` entry point | ✅ EXISTS — `Spec__Loader` discovers `vscode` (16 specs); `tests/test_manifest.py` (6 tests) |
-| 2 | SSM_FORWARD mode end-to-end (schemas, `Vscode__Service`, `Vscode__User_Data__Builder`, `Vscode__Compose__Template`, `Vscode__Stack__Mapper`, CLI + top-level mount) | ❌ not yet |
+| 2 | SSM_FORWARD mode end-to-end (schemas, `Vscode__Service`, `Vscode__User_Data__Builder`, `Vscode__Compose__Template`, `Vscode__Stack__Mapper`, CLI + top-level mount) | ✅ EXISTS — `sg vscode` (alias `vsc`) mounted; `create/list/info/wait/health/connect/exec/delete/ami/cert` from the builder + `forward`/`url`; 17 unit tests pass |
 | 3 | PUBLIC_HTTPS mode (`Vscode__Caddy__Template`, `Vscode__SG__Helper`, `--public`) | ❌ not yet |
 | 4 | Auto-DNS + real cert (reuse `Vault_App__Auto_DNS`) | ❌ not yet |
 | 5 | `serve-web` distribution branch | ❌ not yet |

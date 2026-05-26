@@ -138,6 +138,11 @@ app.add_typer(_vault_publish_app, name='vp',            hidden=True)
 from scripts.vnc import app as _vnc_app
 app.add_typer(_vnc_app, name='vnc',          help='Ephemeral VNC (chromium + nginx + mitmproxy) EC2 stacks.')
 
+# ── vscode ─────────────────────────────────────────────────────────────────────
+from sg_compute_specs.vscode.cli.Cli__Vscode import app as _vscode_app
+app.add_typer(_vscode_app, name='vscode',    help='Ephemeral VS Code (code-server) EC2 stacks.')
+app.add_typer(_vscode_app, name='vsc',        hidden=True)
+
 # ── observability (hidden) ───────────────────────────────────────────────────
 from scripts.observability import app as _observability_app
 app.add_typer(_observability_app, name='observability', hidden=True)
