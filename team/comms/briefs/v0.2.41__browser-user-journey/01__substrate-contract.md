@@ -100,7 +100,10 @@ custom interceptors" = create with or without that flag.
 
 **Verdict:** because `/pods` cannot override the command, the **conductor fans
 workers out via the Docker socket** (the same access host-plane already has).
-Arbitrary images are allowed; ECR pulls use the instance profile.
+Arbitrary images are allowed; the platform's new images publish to **Docker Hub**
+(public, under the `diniscruz/` namespace like `diniscruz/sg-playwright` /
+`diniscruz/sg-host-control`), so **no registry auth is needed at pull time** —
+not ECR.
 
 ### A6. Stack lifecycle CLI (reused verbatim)
 

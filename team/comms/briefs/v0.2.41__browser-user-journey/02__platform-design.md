@@ -280,7 +280,7 @@ are the fan-out core. 9 is the gated integration + load proof.
 | Q4 | Conductor fan-out via `/pods` or Docker socket? | **Docker socket** — `/pods` can't override command/limits. Same access host-plane already has. |
 | Q5 | Where does journey/worker code live — sibling repo (qa Q1) or this repo? | **This repo**, as the `user_journey` spec — the human wants it as a first-class `sg` capability, not a sibling service. (Divergence from the qa pack's sibling-repo lean; noted intentionally.) |
 | Q6 | Hot-swap interceptors on a live stack? | **No (v1).** mitmproxy hot-reload (`PUT /config/interceptor`) is unbuilt; "with/without" = create-time selection per ephemeral stack. |
-| Q7 | Conductor + worker = new CI images? | **Yes** — two new images (conductor lightweight; runner FROM Playwright base). DevOps mirrors the host-control build/publish flow. |
+| Q7 | Conductor + worker = new CI images? | **Yes — two new images published to Docker Hub (NOT ECR):** `diniscruz/sg-journey-conductor` (lightweight: python + docker CLI) and `diniscruz/sg-journey-runner` (FROM the Playwright base). Mirror the host-control Docker-Hub build/publish flow (GH Actions → `docker push diniscruz/…`). Public images → no pull-time auth on the EC2. |
 | Q8 | Run-id / suite-run-id format? | `YYYY-MM-DDTHH-mm-ssZ__{id}__{uuid8}` — sortable + greppable in the vault tree; `Safe_Str__Id` validates. |
 
 ---
