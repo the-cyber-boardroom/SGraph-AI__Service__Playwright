@@ -13,6 +13,7 @@
 from osbot_fast_api.api.Fast_API                                                         import Fast_API
 
 from sg_compute_specs.mitmproxy.api.routes.Routes__CA                                   import Routes__CA
+from sg_compute_specs.mitmproxy.api.routes.Routes__Capture                              import Routes__Capture
 from sg_compute_specs.mitmproxy.api.routes.Routes__Config                               import Routes__Config
 from sg_compute_specs.mitmproxy.api.routes.Routes__Health                               import Routes__Health
 from sg_compute_specs.mitmproxy.api.routes.Routes__Metrics                              import Routes__Metrics
@@ -30,4 +31,5 @@ class Fast_API__Agent_Mitmproxy(Fast_API):
         self.add_routes(Routes__CA     )
         self.add_routes(Routes__Config )
         self.add_routes(Routes__Metrics)
+        self.add_routes(Routes__Capture)
         self.add_routes(Routes__Web    )
