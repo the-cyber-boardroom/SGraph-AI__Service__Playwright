@@ -187,7 +187,7 @@ Tests: `sg_compute_specs/sg_edge/tests/` — 72 unit tests + 6 FastAPI route tes
 
 ---
 
-## vscode — VS Code on EC2 (v0.2.41, in progress)
+## vscode — VS Code on EC2 (v0.2.41)
 
 `sg_compute_specs/vscode/` — new top-level compute spec: an ephemeral EC2 node running web/browser VS Code (code-server, with `code serve-web` behind a distribution enum), reachable via SSM port-forward (default, no inbound ports) or public HTTPS (Caddy + auth). Spec: [`library/docs/specs/v0.2.41__spec__vscode-on-ec2.md`](../../../../library/docs/specs/v0.2.41__spec__vscode-on-ec2.md); proposed entry P-8.
 
@@ -200,9 +200,13 @@ Tests: `sg_compute_specs/sg_edge/tests/` — 72 unit tests + 6 FastAPI route tes
 | 3 | PUBLIC_HTTPS mode (`Vscode__Caddy__Template` + `--ingress public-https` + `--public`) | ✅ EXISTS — Caddy `tls internal` :443 → code-server (code-server's own password auth; shared `EC2__SG__Helper` opens :443/:80, caller /32 or 0.0.0.0/0). code-server stays loopback-published so forward/health are mode-independent |
 | 4 | Auto-DNS + real cert (reuse `Vault_App__Auto_DNS`) | ✅ EXISTS — `--with-aws-dns --fqdn <host>` (PUBLIC_HTTPS only): post-launch Route 53 A-record upsert via the shared `Vault_App__Auto_DNS`; Caddy uses the hostname → automatic Let's Encrypt cert (forces world-open :80/:443 for the ACM challenge) |
 | 5 | `serve-web` distribution branch | ✅ EXISTS — `--distribution serve-web`: official VS Code CLI on the host under systemd (`Vscode__Serve_Web__Template`), tokenless on loopback, SSM_FORWARD only (full MS marketplace). `openvscode-server` enum value reserved but guarded as not-implemented |
-| 6 | TUI (`sg vscode tui`) — GUI over the CLI | ❌ not yet |
+| 6 | TUI (`sg vscode tui`) — GUI over the CLI | ✅ EXISTS — `sg vscode tui stacks` (read-only dashboard on the shared `Tui__App`, non-TTY → ASCII card) + `sg vscode tui api` (`Vscode__Tui_Api__Provider`: status/list/delete). Data source delegates to `Vscode__Service`; Textual lazy-imported, screen pilot-tested |
 
-Net-new, additive — nothing outside `sg_compute_specs/vscode/` imports it until the top-level mount (Slice 2). EC2/AWS-bound behaviour is verified via deploy-via-pytest (skips without creds); unit tests cover schemas, user-data content, stack-mapper, and SG naming.
+All six slices landed. **49 unit tests** pass (manifest, schemas, user-data/compose/caddy/serve-web content, stack-mapper, service guards, CLI surface, TUI builder/render/card/provider/screen). Net-new, additive. AWS/EC2-bound behaviour (actual launch/SSM/Route53) is exercised by deploy-via-pytest against real creds — not runnable in this container; the unit suite covers every pure layer with no mocks. Textual is operator-tooling (lazy import), kept out of the runtime image.
+
+### vscode file tree — EXISTS
+
+`sg_compute_specs/vscode/`: `manifest.py`, `version`, `enums/` (Distribution, Ingress), `schemas/` (Create__Request/Response, Info, List, Delete__Response), `service/` (Vscode__Service, AWS__Client, AMI__Helper, User_Data__Builder, Compose__Template, Caddy__Template, Serve_Web__Template, Stack__Mapper), `cli/` (Cli__Vscode + Renderers; forward/url verbs; post-launch Auto-DNS hook), `tui/` (source/Data_Source, schemas/Snapshot+Stack, service/Snapshot__Builder+Render+Card, screens/Screen__Stacks, tui_api/Provider+params, cli/Cli__Vscode__Tui), `tests/` + `tui/tests/`. Mounted top-level as `sg vscode` (alias `vsc`) in `sg_compute/cli/Cli__SG.py`; pyproject entry point added.
 
 ---
 

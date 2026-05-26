@@ -52,7 +52,7 @@ Last updated: 2026-05-25 | Domain: `sg-compute/`
 
 **Decisions (ratified 2026-05-25):** web/browser VS Code only (no remote desktop); v1 defaults to code-server (Open VSX), with official `code serve-web` (full MS marketplace) behind `Enum__Vscode__Distribution` for feature parity; fully ephemeral (vault-managed data is a later follow-on); no `--git-repo` seeding (post-connect); no `code tunnel` (SSM-forward is the only tunnel).
 
-**Design:** [`library/docs/specs/v0.2.41__spec__vscode-on-ec2.md`](../../../../../../library/docs/specs/v0.2.41__spec__vscode-on-ec2.md). **Status note:** Net-new — does not exist in code. Purely additive — zero impact on existing `sg *` commands. Decisions ratified; ready for Dev to scaffold Slice 1.
+**Design:** [`library/docs/specs/v0.2.41__spec__vscode-on-ec2.md`](../../../../../../library/docs/specs/v0.2.41__spec__vscode-on-ec2.md). **Status note:** ✅ **LANDED** — all 6 slices shipped on `claude/epic-mendel-4gsfy` and the spec now EXISTS (`sg_compute_specs/vscode/`); see the `vscode — VS Code on EC2` section in [`../index.md`](../index.md). 49 unit tests. AWS/EC2-bound behaviour pending deploy-via-pytest against live creds.
 
 ---
 

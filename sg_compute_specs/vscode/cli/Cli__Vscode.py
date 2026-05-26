@@ -187,3 +187,8 @@ def url(name  : str = typer.Argument(None, help='Stack name; auto-selected when 
         Console(highlight=False, stderr=True).print(f'  [red]✗  No vscode stack matched {name!r}[/]')
         raise typer.Exit(1)
     Console(highlight=False).print(str(getattr(info, 'vscode_url', '') or ''))
+
+
+# ── tui (GUI over this CLI) — `sg vscode tui <screen>` ────────────────────────
+from sg_compute_specs.vscode.tui.cli.Cli__Vscode__Tui import app as _tui_app  # noqa: E402
+app.add_typer(_tui_app, name='tui')
