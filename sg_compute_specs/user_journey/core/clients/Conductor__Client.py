@@ -25,6 +25,13 @@ class Conductor__Client(Type_Safe):                                             
     def start_suite(self, suite_definition: Schema__Suite__Definition) -> Schema__Suite__Run__Status:
         return self.parse_status(self._post('/suites', suite_definition.json()))
 
+    def start_suite_id(self, suite_id) -> Schema__Suite__Run__Status:               # start a vault-stored suite by id
+        return self.parse_status(self._post('/suites', {'suite_id': str(suite_id)}))
+
+    def scale_suite(self, suite_run_id, count, concurrency) -> Schema__Suite__Run__Status:
+        return self.parse_status(self._post(f'/suites/{suite_run_id}/scale',
+                                            {'count': int(count), 'concurrency': int(concurrency)}))
+
     def get_suite(self, suite_run_id) -> Schema__Suite__Run__Status:
         return self.parse_status(self._get(f'/suites/{suite_run_id}'))
 
