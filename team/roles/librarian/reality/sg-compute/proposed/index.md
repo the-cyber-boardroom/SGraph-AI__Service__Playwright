@@ -48,6 +48,8 @@ Last updated: 2026-05-25 | Domain: `sg-compute/`
 
 **Reuse:** clones `local_claude` (SSM-only EC2 skeleton), `vault_app`'s SSM-forward surfacing (`Schema__Vault_App__Info.ssm_forward`, `Vault_App__Stack__Mapper.py:76`, `Cli__Vault_App.py` `forward`), `vnc`'s Caddy/auth/SG templates, the `sg_compute/platforms/ec2/` helpers + `Section__*` user-data, and `Vault_App__Auto_DNS`. Net-new is small: the `vscode/` package files, a `Vscode__Compose__Template` (code-server / `code serve-web` container), two enums, a stack-name primitive, and the schemas.
 
+**TUI:** includes a `sg vscode tui` dimension following the shared TUI pattern (`sgraph_ai_service_playwright__cli/tui/` `Tui__App` + `tool_api/Tui_Api__Provider`; canonical example `sg_compute_specs/sg_edge/tui/`) — a read-only stacks dashboard over the native CLI with capability-gated actions. GUI-over-the-CLI per `library/guides/v0.2.39__tui_cli_separation.md`; lands after the native CLI (slice 6).
+
 **Decisions (ratified 2026-05-25):** web/browser VS Code only (no remote desktop); v1 defaults to code-server (Open VSX), with official `code serve-web` (full MS marketplace) behind `Enum__Vscode__Distribution` for feature parity; fully ephemeral (vault-managed data is a later follow-on); no `--git-repo` seeding (post-connect); no `code tunnel` (SSM-forward is the only tunnel).
 
 **Design:** [`library/docs/specs/v0.2.41__spec__vscode-on-ec2.md`](../../../../../../library/docs/specs/v0.2.41__spec__vscode-on-ec2.md). **Status note:** Net-new — does not exist in code. Purely additive — zero impact on existing `sg *` commands. Decisions ratified; ready for Dev to scaffold Slice 1.
