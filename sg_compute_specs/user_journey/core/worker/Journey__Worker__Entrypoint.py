@@ -42,3 +42,7 @@ class Journey__Worker__Entrypoint(Type_Safe):
         result = self.run(dict(os.environ), Playwright__Service())                  # capture_client wired by the deploy harness
         print(json.dumps(result.json()))
         return result
+
+
+if __name__ == '__main__':                                                          # `python3 -m …Journey__Worker__Entrypoint` (worker container CMD)
+    Journey__Worker__Entrypoint().main()
