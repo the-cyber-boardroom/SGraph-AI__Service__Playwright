@@ -6,6 +6,19 @@ This is a pointer log, not a content log. For full delta detail, see the master 
 
 ---
 
+## 2026-05-27 (User-Journey — flows viewer, local runner, deploy shell + user guide)
+
+2026-05-27 | user-journey | Follow-up to the new domain: `sg user-journey flows` +
+  conductor `GET /suites/{run}/flows` (proxied via a CAPTURE_CLIENT seam); `sg
+  user-journey run-local <journey.json>` + `Journey__Local__Runner` (laptop loop: real
+  Chromium + optional mitmproxy capture); `conductor_app` entry (uvicorn + boot Docker-runtime
+  swap) + worker entrypoint `__main__` guard; worker/conductor **Dockerfiles** + gated
+  `tests/deploy/` skeleton (AUTHORED, never built/run). New user guide
+  `library/guides/v0.2.41__user-journey-user-guide.md`.
+
+- `user-journey/index.md` — updated EXISTS: run-local + flows verbs, traffic-capture path, deployment shell (author-only).
+- `user-journey/proposed/index.md` — P-1/P-4 → ⚠ authored-not-run; P-7 → ↔ partial; added P-9 (local mitmproxy launcher).
+
 ## 2026-05-27 (User-Journey — new domain: suite conductor platform, branch `claude/browser-automation-cli-architect-xgULF`)
 
 2026-05-27 | user-journey | NEW net-new domain (12th in the map). Full unit-verifiable

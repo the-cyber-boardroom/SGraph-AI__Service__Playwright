@@ -52,13 +52,25 @@ Mounted in `sg_compute/cli/Cli__SG.py` as a top-level peer surface.
 
 | Command | Does |
 |---------|------|
+| `sg user-journey run-local <journey.json>` | Run ONE journey on a real local Chromium (+ optional mitmproxy capture); print result + flows. No conductor/Docker/AWS |
 | `sg user-journey status <run-id>` | Cockpit snapshot (worker grid + aggregates); `--json` |
+| `sg user-journey flows <run-id>` | Captured network flows for a suite run (one line per request); `--json` |
 | `sg user-journey scale <run-id> <count> <concurrency>` | Resize a running suite; `--json` |
 | `sg user-journey stop <run-id>` | Stop a running suite; `--json` |
 | `sg user-journey cockpit <run-id>` | Live Textual cockpit (lazy import, interactive) |
 | `sg user-journey chat [--workflow monitor\|operate\|load]` | Conversational cockpit; LLM drives via the granted workflow tools (lazy) |
 
-`status` / `scale` / `stop` go through `Conductor__Client` and are CliRunner-tested via the `_client_factory` seam; `cockpit` / `chat` lazy-import the cli TUI so the spec never statically imports the cli package.
+`run-local` uses `Journey__Local__Runner` (load_journey / new_run_id pure + tested; `run()` gated). `status` / `flows` / `scale` / `stop` go through `Conductor__Client` (`_client_factory` seam); `cockpit` / `chat` lazy-import the cli TUI so the spec never statically imports the cli package.
+
+### Traffic capture (per-run flows)
+
+`Journey__Sequence__Builder` stamps `X-SG-Run-Id` on every request; the mitmproxy sidecar's `run_capture_addon` buckets flows per run; read them at the sidecar's `GET /capture/network-log/{run_id}` (NDJSON) — surfaced through `Mitmproxy__Capture__Client`, the conductor's **`GET /suites/{run}/flows`** (proxied via a swappable `CAPTURE_CLIENT` seam), the `uj.flows` tool, and `sg user-journey flows`. The live mitmweb UI (`:8081`) shows flows in real time. User guide: `library/guides/v0.2.41__user-journey-user-guide.md`.
+
+### Deployment shell (author-only — NOT built/run here)
+
+- `core/conductor/api/conductor_app.py` — conductor container entry: builds `app` (uvicorn target + unit-tested), boot swaps the suite runtime to the Docker backend iff `docker_available()`. `Journey__Worker__Entrypoint` has a `__main__` guard (worker container CMD).
+- `docker/worker/Dockerfile` (Playwright base, CMD = entrypoint) + `docker/conductor/Dockerfile` (slim python + docker CLI, CMD = `conductor_app`) + `docker/conductor/requirements.txt`. **Authored, never built** (no daemon).
+- `tests/deploy/test_user_journey_deploy.py` — numbered deploy-via-pytest skeleton (build → run → HTTP → teardown); SKIPS unless `SG_UJ__DEPLOY_TEST=1` + a Docker daemon is reachable. **Never executed.**
 
 ### Tests
 
@@ -66,9 +78,9 @@ Mounted in `sg_compute/cli/Cli__SG.py` as a top-level peer surface.
 
 ---
 
-## NOT BUILT (PROPOSED — does not exist yet)
+## NOT BUILT / NOT RUN (PROPOSED)
 
-Worker + conductor **Docker images**; Docker Hub **CI**; EC2 **conductor-host** provisioning/lifecycle; **deploy-via-pytest** + live load runs; the interactive Textual cockpit/chat screens exercised **live** (built, but only the pure cores are tested); vault-stored **suites by id** (`Conductor__Client.start_suite_id` exists; conductor-side resolution + a journey store are not). See `proposed/index.md`.
+The Docker images + deploy-via-pytest skeleton are **authored but never built or executed** (no daemon here) — treat as unverified until the gated harness runs. Still entirely absent: Docker Hub **CI**; EC2 **conductor-host** provisioning/lifecycle; live **load** runs; the interactive Textual cockpit/chat screens exercised **live** (only the pure cores are tested); a one-command **local mitmproxy** launcher (bring your own today); vault-stored **suites by id** (`Conductor__Client.start_suite_id` exists; conductor-side resolution + a journey store are not). See `proposed/index.md`.
 
 ---
 
