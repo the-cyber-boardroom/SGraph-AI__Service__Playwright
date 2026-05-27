@@ -97,6 +97,27 @@ def stop(suite_run_id: str  = typer.Argument(..., help='Suite run id.'),
     console.print(f'\n  [yellow]■[/]  stopped [cyan]{suite_run_id}[/]  state={snapshot.state}\n')
 
 
+@app.command(name='flows', help='Captured network flows for a suite run (one line per request; --json for full).')
+def flows(suite_run_id: str  = typer.Argument(..., help='Suite run id.'),
+          conductor   : str  = typer.Option('', '--conductor', envvar='SG_UJ__CONDUCTOR_URL',     help='Conductor base URL.'),
+          api_key     : str  = typer.Option('', '--api-key',   envvar='SG_UJ__CONDUCTOR_API_KEY', help='X-API-Key.'),
+          output_json : bool = typer.Option(False, '--json', help='Machine-readable JSON output.')):
+    console = Console(highlight=False)
+    try:
+        records = _client(conductor, api_key).get_flows(suite_run_id)
+    except Exception as exc:
+        console.print(f'\n  [red]✗  {exc}[/]\n')
+        raise typer.Exit(1)
+    if output_json:
+        console.print(json.dumps(records, indent=2))
+        return
+    console.print(f'\n  [bold]{len(records)} flow(s)[/] for [cyan]{suite_run_id}[/]')
+    for record in records:
+        target = record.get('url') or f"{record.get('host', '')}{record.get('path', '')}"
+        console.print(f"  {str(record.get('method', '?')):6} {str(record.get('status', '')):>3}  {target}")
+    console.print()
+
+
 @app.command(name='cockpit', help='Live Textual cockpit for a suite run (interactive).')
 def cockpit(suite_run_id: str   = typer.Argument(..., help='Suite run id.'),
             conductor   : str   = typer.Option('', '--conductor', envvar='SG_UJ__CONDUCTOR_URL',     help='Conductor base URL.'),

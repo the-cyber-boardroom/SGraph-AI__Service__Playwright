@@ -33,6 +33,9 @@ if _HAS_TYPER:
         def stop_suite(self, suite_run_id):
             return Schema__Suite__Run__Status(state=Enum__Suite__Run__State.STOPPED)
 
+        def get_flows(self, suite_run_id):
+            return [{'method': 'GET', 'status': 200, 'url': 'https://shop.test/'}]
+
 
 @skipUnless(_HAS_TYPER, 'typer not installed (Python <3.12 in this env)')
 class test_Cli__User_Journey(TestCase):
@@ -63,6 +66,17 @@ class test_Cli__User_Journey(TestCase):
         result = self.runner.invoke(uj_app, ['stop', 'r1'], catch_exceptions=False)
         assert result.exit_code == 0
         assert 'stopped' in result.output
+
+    def test_flows__lists_requests(self):
+        result = self.runner.invoke(uj_app, ['flows', 'r1'], catch_exceptions=False)
+        assert result.exit_code == 0
+        assert '1 flow' in result.output
+        assert 'GET' in result.output and 'https://shop.test/' in result.output
+
+    def test_flows__json(self):
+        result = self.runner.invoke(uj_app, ['flows', 'r1', '--json'], catch_exceptions=False)
+        assert result.exit_code == 0
+        assert json.loads(result.output)[0]['status'] == 200
 
     def test_no_args_shows_help(self):
         result = self.runner.invoke(uj_app, [])
