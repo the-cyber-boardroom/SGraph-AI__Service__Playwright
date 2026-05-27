@@ -17,8 +17,9 @@
 
 from osbot_utils.type_safe.Type_Safe import Type_Safe
 
-from sg_compute.platforms.ec2.user_data.Section__Base                import Section__Base
-from sg_compute_specs.vault_app.service.Vault_App__Compose__Template import Vault_App__Compose__Template
+from sg_compute.platforms.ec2.user_data.Section__Base                       import Section__Base
+from sg_compute_specs.vault_app.service.Vault_App__Compose__Template        import Vault_App__Compose__Template
+from sg_compute_specs.vault_app.service.Vault_App__Reverse_Proxy__Override   import Vault_App__Reverse_Proxy__Override
 
 FOOTER = ('\ntouch /var/lib/sg-compute-boot-ok\n'
           'echo "[vault-app] boot complete at $(date -u +%FT%TZ)"\n')
@@ -128,11 +129,18 @@ class Vault_App__User_Data__Builder(Type_Safe):
             tls_env_lines   = tls_env_lines   ,
             compose_yaml    = compose_yaml    )
 
+        # Reverse-proxy overrides must land on disk BEFORE `compose up` so the
+        # bind-mount at /app/sg_overrides is populated when the vault container starts.
+        overrides_block = ''
+        if with_playwright:
+            overrides_block = Vault_App__Reverse_Proxy__Override().render_write_block()
+
         parts = [
             Section__Base().render(stack_name=stack_name, max_hours=max_hours,
                                    shutdown_behavior=shutdown_behavior),
-            engine_block ,
-            stack_block  ,
-            FOOTER       ,
+            engine_block    ,
+            overrides_block ,
+            stack_block     ,
+            FOOTER          ,
         ]
         return '\n'.join(p for p in parts if p)

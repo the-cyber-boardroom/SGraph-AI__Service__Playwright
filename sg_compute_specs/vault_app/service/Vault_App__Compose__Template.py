@@ -51,15 +51,15 @@ _HOST_PLANE = '''
 _SG_SEND_VAULT = '''
   sg-send-vault:
     image: {sg_send_vault_image}
-    ports:
+{proxy_command}    ports:
       - "8080:8080"
     volumes:
       - ${{VAULT_DATA_PATH:-/opt/vault-app/data}}:/data
-    environment:
+{proxy_volume}    environment:
       SGRAPH_SEND__ACCESS_TOKEN:     ${{SGRAPH_SEND__ACCESS_TOKEN}}
       SEND__STORAGE_MODE:            ${{SEND__STORAGE_MODE:-disk}}
       SG_VAULT_APP__SEED_VAULT_KEYS: ${{SG_VAULT_APP__SEED_VAULT_KEYS:-}}
-    networks:
+{proxy_env}    networks:
       - vault-net
     restart: unless-stopped
 '''
@@ -72,12 +72,12 @@ _SG_SEND_VAULT = '''
 _SG_SEND_VAULT_TLS = '''
   sg-send-vault:
     image: {sg_send_vault_image}
-    ports:
+{proxy_command}    ports:
       - "443:443"
     volumes:
       - ${{VAULT_DATA_PATH:-/opt/vault-app/data}}:/data
       - certs:/certs:ro
-    environment:
+{proxy_volume}    environment:
       SGRAPH_SEND__ACCESS_TOKEN:     ${{SGRAPH_SEND__ACCESS_TOKEN}}
       SEND__STORAGE_MODE:            ${{SEND__STORAGE_MODE:-disk}}
       SG_VAULT_APP__SEED_VAULT_KEYS: ${{SG_VAULT_APP__SEED_VAULT_KEYS:-}}
@@ -85,7 +85,7 @@ _SG_SEND_VAULT_TLS = '''
       FAST_API__TLS__CERT_FILE:      /certs/cert.pem
       FAST_API__TLS__KEY_FILE:       /certs/key.pem
       FAST_API__TLS__PORT:           "443"
-    networks:
+{proxy_env}    networks:
       - vault-net
     depends_on:
       cert-init:
@@ -181,10 +181,23 @@ class Vault_App__Compose__Template(Type_Safe):
                      host_control_image  : str  = HOST_CONTROL_IMAGE           ,
                      docker_socket       : str  = '/var/run/docker.sock'      ,
                      with_tls_check      : bool = False                        ) -> str:
+        # Runtime-injection reverse proxy: only meaningful with --with-playwright
+        # (the only shape with a sg-playwright sibling on vault-net to proxy to).
+        # Overrides the container command to our bring-our-own entrypoint, bind-mounts
+        # the sg_overrides package, and points /pw/* at the internal Playwright.
+        proxy_command = proxy_volume = proxy_env = ''
+        if with_playwright:
+            proxy_command = '    command: ["python", "-m", "sg_overrides.serve_with_proxy"]\n'
+            proxy_volume  = '      - /opt/vault-app/overrides:/app/sg_overrides:ro\n'
+            proxy_env     = '      FAST_API__REVERSE_PROXY__ROUTES: "pw=http://sg-playwright:8000"\n'
+
         vault_block = (_SG_SEND_VAULT_TLS if with_tls_check else _SG_SEND_VAULT)
         parts = [
             _HEADER                                                           ,
-            vault_block.format(sg_send_vault_image=sg_send_vault_image)       ,
+            vault_block.format(sg_send_vault_image = sg_send_vault_image ,
+                               proxy_command       = proxy_command       ,
+                               proxy_volume        = proxy_volume         ,
+                               proxy_env           = proxy_env            ),
         ]
         if with_playwright:
             parts.append(_HOST_PLANE.format(host_control_image=host_control_image,

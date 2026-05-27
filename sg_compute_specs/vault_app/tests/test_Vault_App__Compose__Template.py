@@ -110,3 +110,25 @@ class TestVaultAppComposeTemplate:
         assert 'FAST_API__TLS__ENABLED' not in result
         assert '\nvolumes:\n'           not in result                      # service-level `    volumes:` still allowed
         assert '"8080:8080"'            in result                          # plain stack keeps the HTTP port
+
+    # ── reverse-proxy runtime injection (with-playwright only) ───────────────
+
+    def test_with_playwright_injects_reverse_proxy(self):
+        result = Vault_App__Compose__Template().render(with_playwright=True)
+        assert 'command: ["python", "-m", "sg_overrides.serve_with_proxy"]'  in result
+        assert '/opt/vault-app/overrides:/app/sg_overrides:ro'               in result
+        assert 'FAST_API__REVERSE_PROXY__ROUTES: "pw=http://sg-playwright:8000"' in result
+
+    def test_with_playwright_and_tls_injects_reverse_proxy(self):
+        result = Vault_App__Compose__Template().render(with_playwright=True, with_tls_check=True)
+        assert 'command: ["python", "-m", "sg_overrides.serve_with_proxy"]'  in result
+        assert '/opt/vault-app/overrides:/app/sg_overrides:ro'               in result
+        assert 'FAST_API__REVERSE_PROXY__ROUTES: "pw=http://sg-playwright:8000"' in result
+        assert 'FAST_API__TLS__ENABLED:        "true"'                       in result   # TLS still wired alongside
+        assert '"443:443"'                                                   in result
+
+    def test_just_vault_has_no_reverse_proxy(self):
+        result = Vault_App__Compose__Template().render(with_playwright=False)
+        assert 'sg_overrides'                  not in result
+        assert 'FAST_API__REVERSE_PROXY__ROUTES' not in result
+        assert 'command:'                      not in result               # stock image CMD is used
