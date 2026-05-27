@@ -6,6 +6,20 @@ This is a pointer log, not a content log. For full delta detail, see the master 
 
 ---
 
+## 2026-05-27 (User-Journey — new domain: suite conductor platform, branch `claude/browser-automation-cli-architect-xgULF`)
+
+2026-05-27 | user-journey | NEW net-new domain (12th in the map). Full unit-verifiable
+  platform on a branch: journey → `Journey__Worker` (reuses Playwright core + mitmproxy
+  per-run capture, `X-SG-Run-Id`) → suite `Suite__Runner`/`Suite__Service`/`Result__Aggregator`
+  → `Fast_API__Conductor` + `Conductor__Client` → `Worker__Runtime` port (InMemory + Docker,
+  env-JSON journey delivery via `SG_UJ__JOURNEY_JSON`) → `Journey__Worker__Entrypoint` →
+  tool-API provider (`browser.user-journey`, gated `uj.*`) + monitor/operate/load workflows →
+  cockpit render + screen + chat launcher → `sg user-journey` CLI. ~128 tests, no mocks. Not on `dev`.
+
+- `user-journey/index.md` — NEW: EXISTS (journey/worker, suite/conductor, runtime port, tool-API, TUIs, CLI, tests).
+- `user-journey/proposed/index.md` — NEW: P-1…P-8 (Docker images, CI, EC2 host, deploy-via-pytest, live screens, suites-by-id, capture wiring, persistence).
+- `index.md` — Domain Map: added the User-Journey row (🟡 branch).
+
 ## 2026-05-23 (SG/Sentinel — operator TUIs + traffic generator / httpget echo server)
 
 2026-05-23 | sentinel | Added `sg sentinel tui rules|logs|blocks|status` (Textual,

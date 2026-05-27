@@ -38,6 +38,7 @@ When code lands, the author updates the relevant domain's `index.md` in the same
 | **Security** | [`security/`](security/index.md) | JS expression allowlist, vault-key hygiene, security-group naming, AppSec rules | ✅ MIGRATED |
 | **SG/Compute** | [`sg-compute/`](sg-compute/index.md) | `sg_compute` SDK + `sg_compute_specs` catalogue — ephemeral EC2 nodes, spec contract, helpers layer | ✅ MIGRATED |
 | **SG/Sentinel** | [`sentinel/`](sentinel/index.md) | Edge guard — `sg sentinel` logging + obvious-bad blocking; L1 (CF Function) decides+signals, L2 (Lambda@Edge) acts+writes; three targets | 🟡 MVP (branch, not on `dev`) |
+| **User-Journey** | [`user-journey/`](user-journey/index.md) | Suite conductor — one journey → fan-out browser workers; reuses Playwright core + mitmproxy capture; tool-API + cockpit/chat TUIs + `sg user-journey` CLI + Docker runtime (env-JSON delivery) | 🟡 Platform (branch, not on `dev`) |
 
 Each domain directory contains:
 
@@ -52,8 +53,8 @@ Each domain directory contains:
 | Metric | Value |
 |--------|-------|
 | Code version | v0.2.25 |
-| Domains in master map | 11 |
-| Domains migrated to new format | **11 of 11** |
+| Domains in master map | 12 (11 migrated + User-Journey net-new) |
+| Domains migrated to new format | **11 of 11** (legacy monoliths) |
 | Old version-stamped monoliths archived | 4 (`v0.1.13`, `v0.1.24`, `v0.1.29`, plus `v0.1.31/` directory) |
 
 Cross-cutting proposed items from `_archive/v0.1.31/05__proposed.md` are distributed across the per-domain `proposed/index.md` files. Each domain's `proposed/` uses `P-N` IDs scoped to that domain.
