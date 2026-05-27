@@ -124,6 +124,11 @@ from sgraph_ai_service_playwright__cli.sentinel.cli.Cli__Sentinel import app as 
 app.add_typer(_sentinel_app, name='sentinel', help='SG/Sentinel — edge guard (logging + blocking).')
 app.add_typer(_sentinel_app, name='sn',       hidden=True)               # short alias
 
+# ── user-journey ─────────────────────────────────────────────────────────────
+from sg_compute_specs.user_journey.cli.Cli__User_Journey import app as _user_journey_app
+app.add_typer(_user_journey_app, name='user-journey', help='User-journey suite conductor — status / scale / stop + cockpit / chat.')
+app.add_typer(_user_journey_app, name='uj',           hidden=True)               # short alias
+
 # ── vault-app ────────────────────────────────────────────────────────────────
 from sg_compute_specs.vault_app.cli.Cli__Vault_App import app as _vault_app_app
 app.add_typer(_vault_app_app, name='vault-app', help='Ephemeral Vault App EC2 stacks.')
