@@ -19,6 +19,17 @@ if _HAS_TYPER:
     from sg_compute_specs.user_journey.core.clients.Conductor__Client               import Conductor__Client
     from sg_compute_specs.user_journey.core.schemas.enums.Enum__Suite__Run__State   import Enum__Suite__Run__State
     from sg_compute_specs.user_journey.core.schemas.suite.Schema__Suite__Run__Status import Schema__Suite__Run__Status
+    from sg_compute_specs.user_journey.core.schemas.enums.Enum__Journey__Run__Status import Enum__Journey__Run__Status
+    from sg_compute_specs.user_journey.core.schemas.journey.Schema__Journey__Definition import Schema__Journey__Definition
+    from sg_compute_specs.user_journey.core.schemas.journey.Schema__Journey__Result     import Schema__Journey__Result
+
+    class _Canned_Runner:                                                            # stands in for Journey__Local__Runner (no browser)
+        def run_file(self, path, run_id=None):
+            journey            = Schema__Journey__Definition()
+            journey.journey_id = 'checkout'
+            result             = Schema__Journey__Result(status=Enum__Journey__Run__Status.PASSED)
+            flows              = [{'method': 'GET', 'status': 200, 'url': 'https://shop.test/'}]
+            return (journey, run_id or 'local-abc123', result, flows)
 
     class _Canned_Conductor(Conductor__Client):
         def get_suite(self, suite_run_id):
@@ -46,6 +57,7 @@ class test_Cli__User_Journey(TestCase):
 
     def tearDown(self):
         uj_mod._client_factory = None
+        uj_mod._runner_factory = None
 
     def test_status__renders_cockpit(self):
         result = self.runner.invoke(uj_app, ['status', 'r1'], catch_exceptions=False)
@@ -77,6 +89,23 @@ class test_Cli__User_Journey(TestCase):
         result = self.runner.invoke(uj_app, ['flows', 'r1', '--json'], catch_exceptions=False)
         assert result.exit_code == 0
         assert json.loads(result.output)[0]['status'] == 200
+
+    def test_run_local__prints_result_and_flows(self):
+        uj_mod._runner_factory = lambda: _Canned_Runner()
+        result = self.runner.invoke(uj_app, ['run-local', 'checkout.json'], catch_exceptions=False)
+        assert result.exit_code == 0
+        assert 'checkout' in result.output
+        assert 'passed'   in result.output.lower()
+        assert '1 flow'   in result.output
+        assert 'https://shop.test/' in result.output
+
+    def test_run_local__json(self):
+        uj_mod._runner_factory = lambda: _Canned_Runner()
+        result = self.runner.invoke(uj_app, ['run-local', 'checkout.json', '--run-id', 'r9', '--json'], catch_exceptions=False)
+        assert result.exit_code == 0
+        payload = json.loads(result.output)
+        assert payload['run_id'] == 'r9'
+        assert payload['flows'][0]['status'] == 200
 
     def test_no_args_shows_help(self):
         result = self.runner.invoke(uj_app, [])

@@ -25,6 +25,7 @@ app = typer.Typer(name            = 'user-journey',
                   no_args_is_help = True)
 
 _client_factory = None                                                              # tests assign callable() → Conductor__Client
+_runner_factory = None                                                              # tests assign callable() → Journey__Local__Runner
 
 
 def _client(conductor: str, api_key: str):
@@ -97,6 +98,46 @@ def stop(suite_run_id: str  = typer.Argument(..., help='Suite run id.'),
     console.print(f'\n  [yellow]■[/]  stopped [cyan]{suite_run_id}[/]  state={snapshot.state}\n')
 
 
+def _runner(capture_url: str, capture_api_key: str):
+    if _runner_factory is not None:
+        return _runner_factory()
+    from sg_compute_specs.user_journey.core.worker.Journey__Local__Runner import Journey__Local__Runner
+    runner = Journey__Local__Runner()
+    if capture_url:     runner.capture_url     = capture_url
+    if capture_api_key: runner.capture_api_key = capture_api_key
+    return runner
+
+
+def _print_flows(console, flows):
+    for record in flows:
+        target = record.get('url') or f"{record.get('host', '')}{record.get('path', '')}"
+        console.print(f"  {str(record.get('method', '?')):6} {str(record.get('status', '')):>3}  {target}")
+
+
+@app.command(name='run-local', help='Run ONE journey from a JSON file against a real local Chromium (+ optional mitmproxy capture) and print the result + flows.')
+def run_local(journey_file   : str  = typer.Argument(..., help='Path to a journey JSON file.'),
+              proxy          : str  = typer.Option('', '--proxy', envvar='SG_PLAYWRIGHT__DEFAULT_PROXY_URL', help='Browser proxy URL (mitmproxy :8080).'),
+              capture_url    : str  = typer.Option('', '--capture-url', envvar='SG_UJ__CAPTURE_URL', help='mitmproxy admin URL for flows (:8000).'),
+              capture_api_key: str  = typer.Option('', '--capture-api-key', envvar='SG_UJ__CAPTURE_API_KEY', help='mitmproxy X-API-Key.'),
+              run_id         : str  = typer.Option('', '--run-id', help='Override the generated run id.'),
+              output_json    : bool = typer.Option(False, '--json', help='Machine-readable JSON output.')):
+    console = Console(highlight=False)
+    if proxy:
+        os.environ['SG_PLAYWRIGHT__DEFAULT_PROXY_URL'] = proxy                       # Browser__Launcher reads this at launch
+    try:
+        journey, rid, result, flows = _runner(capture_url, capture_api_key).run_file(journey_file, run_id or None)
+    except Exception as exc:
+        console.print(f'\n  [red]✗  {exc}[/]\n')
+        raise typer.Exit(1)
+    if output_json:
+        console.print(json.dumps({'run_id': rid, 'result': result.json(), 'flows': flows}, indent=2))
+        return
+    console.print(f'\n  [bold]run {rid}[/]  journey=[cyan]{journey.journey_id}[/]  status=[bold]{result.status}[/]')
+    console.print(f'  {len(flows)} flow(s) captured')
+    _print_flows(console, flows)
+    console.print()
+
+
 @app.command(name='flows', help='Captured network flows for a suite run (one line per request; --json for full).')
 def flows(suite_run_id: str  = typer.Argument(..., help='Suite run id.'),
           conductor   : str  = typer.Option('', '--conductor', envvar='SG_UJ__CONDUCTOR_URL',     help='Conductor base URL.'),
@@ -112,9 +153,7 @@ def flows(suite_run_id: str  = typer.Argument(..., help='Suite run id.'),
         console.print(json.dumps(records, indent=2))
         return
     console.print(f'\n  [bold]{len(records)} flow(s)[/] for [cyan]{suite_run_id}[/]')
-    for record in records:
-        target = record.get('url') or f"{record.get('host', '')}{record.get('path', '')}"
-        console.print(f"  {str(record.get('method', '?')):6} {str(record.get('status', '')):>3}  {target}")
+    _print_flows(console, records)
     console.print()
 
 
