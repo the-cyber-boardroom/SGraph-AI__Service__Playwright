@@ -16,9 +16,10 @@ from sg_compute_specs.user_journey.core.schemas.conductor.Schema__Worker__Spec  
 
 class Suite__Runner(Type_Safe):                                                     # decides what to launch, in what order
 
-    def expand_entry(self, entry, default_image=None) -> List[Schema__Worker__Spec]:
+    def expand_entry(self, entry, default_image=None, journeys=None) -> List[Schema__Worker__Spec]:
         image   = entry.worker_image if entry.worker_image is not None else default_image
         journey = str(entry.journey_id) if entry.journey_id is not None else 'journey'
+        defn    = journeys.get(journey) if (journeys and entry.journey_id is not None) else None
         specs   = []
         for replica in range(int(entry.count)):
             spec               = Schema__Worker__Spec(replica_index=replica)
@@ -28,6 +29,7 @@ class Suite__Runner(Type_Safe):                                                 
             if image              is not None: spec.worker_image = image
             if entry.journey_id   is not None: spec.journey_id   = entry.journey_id
             if entry.environment  is not None: spec.environment  = entry.environment
+            if defn               is not None: spec.journey       = defn            # carried into SG_UJ__JOURNEY_JSON
             specs.append(spec)
         return specs
 
@@ -35,11 +37,11 @@ class Suite__Runner(Type_Safe):                                                 
         size = max(1, int(size))
         return [specs[index:index + size] for index in range(0, len(specs), size)]
 
-    def waves_for_entry(self, entry, default_image=None) -> List[List[Schema__Worker__Spec]]:
-        return self.chunk(self.expand_entry(entry, default_image), int(entry.concurrency))
+    def waves_for_entry(self, entry, default_image=None, journeys=None) -> List[List[Schema__Worker__Spec]]:
+        return self.chunk(self.expand_entry(entry, default_image, journeys), int(entry.concurrency))
 
-    def plan(self, suite_definition, default_image=None) -> List[List[Schema__Worker__Spec]]:
+    def plan(self, suite_definition, default_image=None, journeys=None) -> List[List[Schema__Worker__Spec]]:
         waves = []
         for entry in suite_definition.entries:                                      # entries run in order; each chunked by its concurrency
-            waves.extend(self.waves_for_entry(entry, default_image))
+            waves.extend(self.waves_for_entry(entry, default_image, journeys))
         return waves

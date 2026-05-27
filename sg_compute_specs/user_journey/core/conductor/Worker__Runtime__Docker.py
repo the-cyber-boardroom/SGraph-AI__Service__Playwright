@@ -9,6 +9,7 @@
 # Everything above the port (Suite__Service) is identical to the in-memory backend.
 # ═══════════════════════════════════════════════════════════════════════════════
 
+import json
 import shutil
 import subprocess
 
@@ -46,6 +47,8 @@ class Worker__Runtime__Docker(Worker__Runtime):
                  '-e', f'SG_UJ__JOURNEY_ID={spec.journey_id}']
         if spec.environment is not None:
             args += ['-e', f'SG_UJ__ENVIRONMENT={spec.environment}']
+        if spec.journey is not None:                                                # the worker loads this (no store, no callback)
+            args += ['-e', f'SG_UJ__JOURNEY_JSON={json.dumps(spec.journey.json())}']
         args.append(str(spec.worker_image))
         return args
 
