@@ -27,6 +27,9 @@ import uuid
 
 from fastapi.openapi.utils                                                          import get_openapi
 from osbot_fast_api.api.routes.Routes__Set_Cookie                                    import Routes__Set_Cookie
+from osbot_utils.utils.Env                                                           import get_env
+
+from sg_compute_specs.playwright.core.consts.env_vars                                import ENV_VAR__ROOT_PATH
 
 from sg_compute_specs.playwright.core.agentic_fastapi.Agentic_FastAPI                    import Agentic_FastAPI
 from sg_compute_specs.playwright.core.fast_api.routes.Routes__Browser                    import Routes__Browser
@@ -51,8 +54,20 @@ class Fast_API__Playwright__Service(Agentic_FastAPI):
         self.watchdog.setup().start()                                               # Background thread — disabled via ENV_VAR__WATCHDOG_DISABLED='1' for local / tests
         result = super().setup()                                                    # API-key middleware is enabled by Serverless__Fast_API__Config default (reads FAST_API__AUTH__API_KEY__NAME / FAST_API__AUTH__API_KEY__VALUE)
         self.attach_watchdog_middleware()                                           # Needs the app instance built by super().setup()
+        self.attach_root_path_middleware()                                          # Honour SG_PLAYWRIGHT__ROOT_PATH so /docs + /openapi.json work behind a reverse proxy
         self.attach_screenshot_examples()                                           # Inject Swagger UI example values for /screenshot and /screenshot/batch
         return result
+
+    def attach_root_path_middleware(self):
+        root_path = (get_env(ENV_VAR__ROOT_PATH) or '').rstrip('/')                  # e.g. '/pw' when served behind the vault reverse proxy; blank standalone (no-op)
+        if not root_path:
+            return
+        app = self.app()
+
+        @app.middleware('http')                                                     # Set the ASGI root_path so FastAPI emits prefixed /docs + /openapi.json URLs. The proxy already strips the prefix, so route matching is unaffected.
+        async def root_path_middleware(request, call_next):
+            request.scope['root_path'] = root_path
+            return await call_next(request)
 
     def attach_screenshot_examples(self):
         app = self.app()

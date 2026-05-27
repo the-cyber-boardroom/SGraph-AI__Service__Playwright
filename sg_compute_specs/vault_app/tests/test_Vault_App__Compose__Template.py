@@ -119,6 +119,14 @@ class TestVaultAppComposeTemplate:
         assert '/opt/vault-app/overrides:/app/sg_overrides:ro'               in result
         assert 'FAST_API__REVERSE_PROXY__ROUTES: "pw=http://sg-playwright:8000"' in result
 
+    def test_with_playwright_sets_playwright_root_path(self):
+        result = Vault_App__Compose__Template().render(with_playwright=True)
+        assert 'SG_PLAYWRIGHT__ROOT_PATH:           "/pw"' in result            # prefix must match the reverse-proxy mount so the UI + /docs resolve
+
+    def test_just_vault_has_no_playwright_root_path(self):
+        result = Vault_App__Compose__Template().render(with_playwright=False)
+        assert 'SG_PLAYWRIGHT__ROOT_PATH' not in result
+
     def test_with_playwright_and_tls_injects_reverse_proxy(self):
         result = Vault_App__Compose__Template().render(with_playwright=True, with_tls_check=True)
         assert 'command: ["python", "-m", "sg_overrides.serve_with_proxy"]'  in result

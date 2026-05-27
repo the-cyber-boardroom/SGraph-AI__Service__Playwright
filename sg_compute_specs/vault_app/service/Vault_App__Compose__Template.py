@@ -104,6 +104,7 @@ _SG_PLAYWRIGHT = '''
       SG_PLAYWRIGHT__DEPLOYMENT_TARGET:   container
       SG_PLAYWRIGHT__DEFAULT_PROXY_URL:   http://agent-mitmproxy:8080
       SG_PLAYWRIGHT__IGNORE_HTTPS_ERRORS: 'true'
+      SG_PLAYWRIGHT__ROOT_PATH:           "/pw"                # served behind the vault reverse proxy at /pw — keeps the index UI + /docs prefix-correct
     networks:
       - vault-net
     depends_on:

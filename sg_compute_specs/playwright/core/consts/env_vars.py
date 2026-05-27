@@ -48,6 +48,7 @@ ENV_VAR__DEFAULT_PROXY_URL             = 'SG_PLAYWRIGHT__DEFAULT_PROXY_URL'
 #   EC2     — set to http://agent-mitmproxy:8080 (the Docker service name on sg-net).
 #             The sidecar handles upstream auth; no credentials cross the browser boundary.
 #   Laptop  — leave UNSET for direct testing, or point at a local mitmproxy if needed.
+ENV_VAR__ROOT_PATH                     = 'SG_PLAYWRIGHT__ROOT_PATH'                 # Mount prefix when served behind a reverse proxy (e.g. '/pw'); blank = served at root (standalone). Drives the index UI API_BASE + FastAPI root_path for /docs + /openapi.json.
 ENV_VAR__IGNORE_HTTPS_ERRORS           = 'SG_PLAYWRIGHT__IGNORE_HTTPS_ERRORS'
 # Set to any non-empty value to pass ignore_https_errors=True to the browser context.
 # Required on EC2 where agent_mitmproxy does TLS interception (presents forged certs).

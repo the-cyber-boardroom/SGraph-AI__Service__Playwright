@@ -14,8 +14,9 @@ from unittest                                                                   
 
 from osbot_fast_api_serverless.fast_api.Serverless__Fast_API                                import Serverless__Fast_API
 
-from sg_compute_specs.playwright.core.consts.env_vars                                           import ENV_VAR__DEPLOYMENT_TARGET
+from sg_compute_specs.playwright.core.consts.env_vars                                           import ENV_VAR__DEPLOYMENT_TARGET, ENV_VAR__ROOT_PATH
 from sg_compute_specs.playwright.core.fast_api.Fast_API__Playwright__Service                    import Fast_API__Playwright__Service
+from sg_compute_specs.playwright.core.fast_api.routes.Routes__Index                             import Routes__Index
 from sg_compute_specs.playwright.core.service.Playwright__Service                               import Playwright__Service
 
 
@@ -24,7 +25,7 @@ ENV_VAR__API_KEY_VALUE = 'FAST_API__AUTH__API_KEY__VALUE'
 
 
 class _EnvScrub:
-    KEYS = (ENV_VAR__DEPLOYMENT_TARGET, ENV_VAR__API_KEY_NAME, ENV_VAR__API_KEY_VALUE)
+    KEYS = (ENV_VAR__DEPLOYMENT_TARGET, ENV_VAR__API_KEY_NAME, ENV_VAR__API_KEY_VALUE, ENV_VAR__ROOT_PATH)
     def __init__(self, **overrides):
         self.overrides = overrides
         self.snapshot  = {}
@@ -106,6 +107,43 @@ class test_client_end_to_end(TestCase):                                         
             fa       = Fast_API__Playwright__Service().setup()
             response = fa.client().get('/health/info')
         assert response.status_code == 401
+
+
+class test_root_path_prefix(TestCase):                                              # SG_PLAYWRIGHT__ROOT_PATH makes the UI + /docs work behind a reverse proxy
+
+    def test__index_injects_api_base_from_env(self):
+        with _EnvScrub(**{ENV_VAR__ROOT_PATH: '/pw'}):
+            html = Routes__Index().index().body.decode()
+        assert 'window.API_BASE="/pw";' in html
+
+    def test__index_api_base_blank_when_standalone(self):                           # backward-compatible: no env → served at root, unchanged
+        with _EnvScrub():
+            html = Routes__Index().index().body.decode()
+        assert 'window.API_BASE="";' in html
+
+    def test__index_strips_trailing_slash_on_prefix(self):
+        with _EnvScrub(**{ENV_VAR__ROOT_PATH: '/pw/'}):
+            html = Routes__Index().index().body.decode()
+        assert 'window.API_BASE="/pw";' in html
+
+    def test__docs_references_prefixed_openapi_when_root_path_set(self):
+        with _EnvScrub(**{ENV_VAR__DEPLOYMENT_TARGET: 'laptop'   ,
+                          ENV_VAR__API_KEY_NAME     : 'X-API-Key',
+                          ENV_VAR__API_KEY_VALUE    : 'unit-test',
+                          ENV_VAR__ROOT_PATH        : '/pw'      }):
+            fa = Fast_API__Playwright__Service().setup()
+            r  = fa.client().get('/docs', headers={'X-API-Key': 'unit-test'})
+        assert r.status_code == 200
+        assert '/pw/openapi.json' in r.text                                         # Swagger fetches the prefixed spec → resolves through the proxy
+
+    def test__docs_uses_root_openapi_when_no_root_path(self):                       # standalone: no prefix injected
+        with _EnvScrub(**{ENV_VAR__DEPLOYMENT_TARGET: 'laptop'   ,
+                          ENV_VAR__API_KEY_NAME     : 'X-API-Key',
+                          ENV_VAR__API_KEY_VALUE    : 'unit-test'}):
+            fa = Fast_API__Playwright__Service().setup()
+            r  = fa.client().get('/docs', headers={'X-API-Key': 'unit-test'})
+        assert r.status_code == 200
+        assert '/pw/openapi.json' not in r.text
 
 
 class test_lambda_handler_module(TestCase):

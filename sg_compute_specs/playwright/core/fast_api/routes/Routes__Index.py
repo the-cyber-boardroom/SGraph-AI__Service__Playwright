@@ -12,6 +12,9 @@ from fastapi.responses                                                          
 from osbot_fast_api.api.decorators.route_path                                      import route_path
 from osbot_fast_api.api.routes.Fast_API__Routes                                    import Fast_API__Routes
 from osbot_fast_api.api.schemas.safe_str.Safe_Str__Fast_API__Route__Prefix         import Safe_Str__Fast_API__Route__Prefix
+from osbot_utils.utils.Env                                                          import get_env
+
+from sg_compute_specs.playwright.core.consts.env_vars                               import ENV_VAR__ROOT_PATH
 
 
 INDEX_HTML = r'''<!DOCTYPE html>
@@ -20,6 +23,7 @@ INDEX_HTML = r'''<!DOCTYPE html>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>SG Playwright Service</title>
+<script>window.API_BASE="__API_BASE__";</script>
 <style>
 :root {
   --bg:#0f1117; --surface:#1a1d27; --surface2:#212437; --border:#2e3149;
@@ -480,7 +484,7 @@ function escHtml(s) {
 function post(path, key, body) {
   const headers = {'Content-Type':'application/json'};
   if (key) headers['X-API-Key'] = key;
-  return fetch(path, {method:'POST', headers, body:JSON.stringify(body)});
+  return fetch(window.API_BASE + path, {method:'POST', headers, body:JSON.stringify(body)});
 }
 
 function setBusy(which, on) {
@@ -522,7 +526,7 @@ function showMeta(f, dur, trace) {
 async function checkHealth() {
   const badge = document.getElementById('health-badge');
   try {
-    const r = await fetch('/health/status');
+    const r = await fetch(window.API_BASE + '/health/status');
     const d = await r.json();
     const ok = d.healthy===true;
     badge.textContent = ok ? '● healthy' : '● degraded';
@@ -574,7 +578,7 @@ document.addEventListener('keydown', e => {
   if (e.key === 'ArrowLeft'  && lbIdx > 0)                lbIdx--, renderLightbox();
   if (e.key === 'ArrowRight' && lbIdx < lbShots.length-1) lbIdx++, renderLightbox();
 });
-document.getElementById('lb').addEventListener('click', e => {
+document.getElementById('lb')?.addEventListener('click', e => {
   if (e.target === document.getElementById('lb')) closeLightbox();
 });
 </script>
@@ -606,7 +610,8 @@ class Routes__Index(Fast_API__Routes):
 
     @route_path('/')
     def index(self) -> HTMLResponse:
-        return HTMLResponse(content=INDEX_HTML)
+        api_base = (get_env(ENV_VAR__ROOT_PATH) or '').rstrip('/')                   # '' standalone; '/pw' behind the reverse proxy — makes the UI's fetch() calls prefix-correct
+        return HTMLResponse(content=INDEX_HTML.replace('__API_BASE__', api_base))
 
     def setup_routes(self):
         self.add_route_get(self.index)
