@@ -6,7 +6,6 @@ import os
 import pytest
 
 import typer
-import click
 
 from sgraph_ai_service_playwright__cli.aws._shared.Mutation__Gate import require_mutation_gate
 
@@ -26,13 +25,13 @@ class Test__Mutation__Gate:
     def test_blocks_when_env_unset(self):
         os.environ.pop(ENV_VAR, None)
         fn = _make_guarded()
-        with pytest.raises(click.exceptions.Exit):
+        with pytest.raises(typer.Exit):                                            # the gate raises typer.Exit; newer typer vendors its own click so click.exceptions.Exit no longer matches
             fn()
 
     def test_blocks_when_env_zero(self):
         os.environ[ENV_VAR] = '0'
         fn = _make_guarded()
-        with pytest.raises(click.exceptions.Exit):
+        with pytest.raises(typer.Exit):
             fn()
         del os.environ[ENV_VAR]
 
