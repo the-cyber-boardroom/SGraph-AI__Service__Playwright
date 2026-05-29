@@ -7,9 +7,12 @@
 # schema, and the capture_config; returning a Schema__Step__Result__* with
 # duration + status + any artefact refs.
 #
-# Phase 2.9 first pass: NAVIGATE, CLICK, FILL, SCREENSHOT, GET_CONTENT, GET_URL.
-# The remaining ten actions raise NotImplementedError with a clear "Phase 2.11"
-# message — signposted TODOs for the next Step__Executor expansion.
+# Implemented verbs: NAVIGATE, CLICK, FILL, SCREENSHOT, GET_CONTENT, GET_URL,
+# EVALUATE, WAIT_FOR, PRESS, SELECT, HOVER, SCROLL, SET_VIEWPORT, DISPATCH_EVENT.
+# Recording (video) is context-level via capture_config.video, not a per-step verb.
+# Dispatch is table-driven (ACTION_HANDLERS); an unmapped verb returns a per-step
+# FAILED result rather than raising — Sequence__Runner also wraps execution as a
+# second guarantee that no single step can abort a whole sequence.
 #
 # Error handling: each execute_* catches exceptions, times the step, populates
 # error_message, and returns a FAILED result rather than raising — Sequence__Runner
@@ -46,10 +49,37 @@ from sg_compute_specs.playwright.core.schemas.steps.Schema__Step__Get_Url       
 from sg_compute_specs.playwright.core.schemas.steps.Schema__Step__Evaluate                              import Schema__Step__Evaluate
 from sg_compute_specs.playwright.core.schemas.steps.Schema__Step__Navigate                              import Schema__Step__Navigate
 from sg_compute_specs.playwright.core.schemas.steps.Schema__Step__Screenshot                            import Schema__Step__Screenshot
+from sg_compute_specs.playwright.core.schemas.steps.Schema__Step__Wait_For                              import Schema__Step__Wait_For
+from sg_compute_specs.playwright.core.schemas.steps.Schema__Step__Press                                 import Schema__Step__Press
+from sg_compute_specs.playwright.core.schemas.steps.Schema__Step__Select                                import Schema__Step__Select
+from sg_compute_specs.playwright.core.schemas.steps.Schema__Step__Hover                                 import Schema__Step__Hover
+from sg_compute_specs.playwright.core.schemas.steps.Schema__Step__Scroll                                import Schema__Step__Scroll
+from sg_compute_specs.playwright.core.schemas.steps.Schema__Step__Set_Viewport                          import Schema__Step__Set_Viewport
+from sg_compute_specs.playwright.core.schemas.steps.Schema__Step__Dispatch_Event                        import Schema__Step__Dispatch_Event
 from sg_compute_specs.playwright.core.service.Artefact__Writer                                          import Artefact__Writer
 
 
-DEFERRED_MESSAGE = 'Deferred to Phase 2.11 — not in the Phase 2.9 first-pass subset.'
+# Action → handler-method name. Single source of truth for dispatch; the same table
+# is reused by the async engine's executor. An action absent from this table resolves
+# to a clean per-step FAILED result (see execute), never an exception that aborts the
+# whole sequence. VIDEO_START / VIDEO_STOP are intentionally absent — recording is a
+# context-level concern handled via capture_config.video, not a per-step verb.
+ACTION_HANDLERS = {
+    Enum__Step__Action.NAVIGATE       : 'execute_navigate'       ,
+    Enum__Step__Action.CLICK          : 'execute_click'          ,
+    Enum__Step__Action.FILL           : 'execute_fill'           ,
+    Enum__Step__Action.SCREENSHOT     : 'execute_screenshot'     ,
+    Enum__Step__Action.GET_CONTENT    : 'execute_get_content'    ,
+    Enum__Step__Action.GET_URL        : 'execute_get_url'        ,
+    Enum__Step__Action.EVALUATE       : 'execute_evaluate'       ,
+    Enum__Step__Action.WAIT_FOR       : 'execute_wait_for'       ,
+    Enum__Step__Action.PRESS          : 'execute_press'          ,
+    Enum__Step__Action.SELECT         : 'execute_select'         ,
+    Enum__Step__Action.HOVER          : 'execute_hover'          ,
+    Enum__Step__Action.SCROLL         : 'execute_scroll'         ,
+    Enum__Step__Action.SET_VIEWPORT   : 'execute_set_viewport'   ,
+    Enum__Step__Action.DISPATCH_EVENT : 'execute_dispatch_event' ,
+}
 
 
 class Step__Executor(Type_Safe):
@@ -65,15 +95,12 @@ class Step__Executor(Type_Safe):
                 capture_config  : Schema__Capture__Config
            ) -> Schema__Step__Result__Base:
 
-        action = step.action
-        if   action == Enum__Step__Action.NAVIGATE    : return self.execute_navigate    (page, step, step_index, capture_config)
-        elif action == Enum__Step__Action.CLICK       : return self.execute_click       (page, step, step_index, capture_config)
-        elif action == Enum__Step__Action.FILL        : return self.execute_fill        (page, step, step_index, capture_config)
-        elif action == Enum__Step__Action.SCREENSHOT  : return self.execute_screenshot  (page, step, step_index, capture_config)
-        elif action == Enum__Step__Action.GET_CONTENT : return self.execute_get_content (page, step, step_index, capture_config)
-        elif action == Enum__Step__Action.GET_URL     : return self.execute_get_url     (page, step, step_index, capture_config)
-        elif action == Enum__Step__Action.EVALUATE    : return self.execute_evaluate    (page, step, step_index, capture_config)
-        raise NotImplementedError(f'Step__Executor.execute({action.value}): {DEFERRED_MESSAGE}')
+        started_ms   = self.now_ms()
+        handler_name = ACTION_HANDLERS.get(step.action)
+        if handler_name is None:                                                        # Unknown / unsupported verb → clean per-step FAILED, never a crash
+            return self.failed_result(step, step_index, started_ms,
+                                      NotImplementedError(f'Unsupported action: {step.action.value}'))
+        return getattr(self, handler_name)(page, step, step_index, capture_config)
 
     # ─── First-pass action handlers ────────────────────────────────────────────
 
@@ -190,17 +217,82 @@ class Step__Executor(Type_Safe):
         except Exception as error:
             return self.failed_result(step, step_index, started_ms, error)
 
-    # ─── Deferred action handlers — Phase 2.11 ─────────────────────────────────
+    # ─── Interaction / wait handlers ───────────────────────────────────────────
 
-    def execute_press         (self, page, step, step_index, capture_config): raise NotImplementedError(f'PRESS: {DEFERRED_MESSAGE}')
-    def execute_select        (self, page, step, step_index, capture_config): raise NotImplementedError(f'SELECT: {DEFERRED_MESSAGE}')
-    def execute_hover         (self, page, step, step_index, capture_config): raise NotImplementedError(f'HOVER: {DEFERRED_MESSAGE}')
-    def execute_scroll        (self, page, step, step_index, capture_config): raise NotImplementedError(f'SCROLL: {DEFERRED_MESSAGE}')
-    def execute_wait_for      (self, page, step, step_index, capture_config): raise NotImplementedError(f'WAIT_FOR: {DEFERRED_MESSAGE}')
-    def execute_video_start   (self, page, step, step_index, capture_config): raise NotImplementedError(f'VIDEO_START: {DEFERRED_MESSAGE} (context-level API)')
-    def execute_video_stop    (self, page, step, step_index, capture_config): raise NotImplementedError(f'VIDEO_STOP: {DEFERRED_MESSAGE} (context-level API)')
-    def execute_dispatch_event(self, page, step, step_index, capture_config): raise NotImplementedError(f'DISPATCH_EVENT: {DEFERRED_MESSAGE}')
-    def execute_set_viewport  (self, page, step, step_index, capture_config): raise NotImplementedError(f'SET_VIEWPORT: {DEFERRED_MESSAGE}')
+    def execute_wait_for(self, page, step: Schema__Step__Wait_For, step_index: int, capture_config: Schema__Capture__Config) -> Schema__Step__Result__Base:
+        started_ms = self.now_ms()
+        try:
+            if   step.selector    is not None:                                          # Wait for a selector to be visible (or merely attached)
+                state = 'visible' if bool(step.visible) else 'attached'
+                page.wait_for_selector(str(step.selector), state=state, timeout=int(step.timeout_ms))
+            elif step.url_pattern is not None:                                          # Wait for the URL to match
+                page.wait_for_url(str(step.url_pattern), timeout=int(step.timeout_ms))
+            elif step.state       is not None:                                          # Wait for a page load state (load / domcontentloaded / networkidle)
+                page.wait_for_load_state(str(step.state), timeout=int(step.timeout_ms))
+            else:
+                page.wait_for_load_state(timeout=int(step.timeout_ms))                  # Default: wait for 'load'
+            return self.passed_result(step, step_index, started_ms)
+        except Exception as error:
+            return self.failed_result(step, step_index, started_ms, error)
+
+    def execute_press(self, page, step: Schema__Step__Press, step_index: int, capture_config: Schema__Capture__Config) -> Schema__Step__Result__Base:
+        started_ms = self.now_ms()
+        try:
+            if step.selector is not None:
+                page.press(str(step.selector), str(step.key), timeout=int(step.timeout_ms))
+            else:
+                page.keyboard.press(str(step.key))                                      # Press on the active element
+            return self.passed_result(step, step_index, started_ms)
+        except Exception as error:
+            return self.failed_result(step, step_index, started_ms, error)
+
+    def execute_select(self, page, step: Schema__Step__Select, step_index: int, capture_config: Schema__Capture__Config) -> Schema__Step__Result__Base:
+        started_ms = self.now_ms()
+        try:
+            values = [str(v) for v in step.values]                                      # Multi-select supported
+            page.select_option(str(step.selector), values, timeout=int(step.timeout_ms))
+            return self.passed_result(step, step_index, started_ms)
+        except Exception as error:
+            return self.failed_result(step, step_index, started_ms, error)
+
+    def execute_hover(self, page, step: Schema__Step__Hover, step_index: int, capture_config: Schema__Capture__Config) -> Schema__Step__Result__Base:
+        started_ms = self.now_ms()
+        try:
+            page.hover(str(step.selector), timeout=int(step.timeout_ms))
+            return self.passed_result(step, step_index, started_ms)
+        except Exception as error:
+            return self.failed_result(step, step_index, started_ms, error)
+
+    def execute_scroll(self, page, step: Schema__Step__Scroll, step_index: int, capture_config: Schema__Capture__Config) -> Schema__Step__Result__Base:
+        started_ms = self.now_ms()
+        try:
+            if step.selector is not None:                                               # Scroll a specific element into view
+                page.locator(str(step.selector)).scroll_into_view_if_needed(timeout=int(step.timeout_ms))
+            else:                                                                       # Scroll the viewport by (x, y) pixels
+                page.mouse.wheel(int(step.x), int(step.y))
+            return self.passed_result(step, step_index, started_ms)
+        except Exception as error:
+            return self.failed_result(step, step_index, started_ms, error)
+
+    def execute_set_viewport(self, page, step: Schema__Step__Set_Viewport, step_index: int, capture_config: Schema__Capture__Config) -> Schema__Step__Result__Base:
+        started_ms = self.now_ms()
+        try:
+            page.set_viewport_size({'width' : int(step.viewport.width) ,
+                                    'height': int(step.viewport.height)})
+            return self.passed_result(step, step_index, started_ms)
+        except Exception as error:
+            return self.failed_result(step, step_index, started_ms, error)
+
+    def execute_dispatch_event(self, page, step: Schema__Step__Dispatch_Event, step_index: int, capture_config: Schema__Capture__Config) -> Schema__Step__Result__Base:
+        started_ms = self.now_ms()
+        try:
+            event_init = {str(k): str(v) for k, v in step.event_init.items()} if step.event_init else None
+            page.dispatch_event(str(step.selector), str(step.event_type),
+                                event_init = event_init           ,
+                                timeout    = int(step.timeout_ms) )
+            return self.passed_result(step, step_index, started_ms)
+        except Exception as error:
+            return self.failed_result(step, step_index, started_ms, error)
 
     # ─── Result constructors ───────────────────────────────────────────────────
 
