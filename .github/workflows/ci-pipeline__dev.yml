@@ -32,5 +32,5 @@ jobs:
       release_type        : 'minor'
       target_deploy       : 'dev'
       should_increment_tag: true
-      force_image_rebuild : ${{ inputs.force_image_rebuild || false }}
+      force_image_rebuild : ${{ inputs.force_image_rebuild || true }}
     secrets: inherit
