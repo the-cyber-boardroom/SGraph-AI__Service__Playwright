@@ -13,6 +13,7 @@ from osbot_utils.type_safe.primitives.domains.common.safe_str.Safe_Str__Text    
 
 from sg_compute_specs.playwright.core.schemas.artefact.Schema__Artefact__Ref                            import Schema__Artefact__Ref
 from sg_compute_specs.playwright.core.schemas.enums.Enum__Step__Action                                  import Enum__Step__Action
+from sg_compute_specs.playwright.core.schemas.enums.Enum__Step__Error__Type                             import Enum__Step__Error__Type
 from sg_compute_specs.playwright.core.schemas.enums.Enum__Step__Status                                  import Enum__Step__Status
 from sg_compute_specs.playwright.core.schemas.primitives.identifiers.Step_Id                            import Step_Id
 from sg_compute_specs.playwright.core.schemas.primitives.numeric.Safe_UInt__Milliseconds                import Safe_UInt__Milliseconds
@@ -24,5 +25,6 @@ class Schema__Step__Result__Base(Type_Safe):                                    
     action              : Enum__Step__Action
     status              : Enum__Step__Status
     duration_ms         : Safe_UInt__Milliseconds
-    error_message       : Safe_Str__Text = None                                     # Populated on failure
+    error_message       : Safe_Str__Text         = None                             # Populated on failure (free-text)
+    error_type          : Enum__Step__Error__Type = None                            # Structured failure class — lets clients branch on category without parsing the message
     artefacts           : List[Schema__Artefact__Ref]                               # Artefacts produced by this step

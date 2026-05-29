@@ -36,6 +36,7 @@ from sg_compute_specs.playwright.core.schemas.artefact.Schema__Artefact__Ref    
 from sg_compute_specs.playwright.core.schemas.capture.Schema__Capture__Config                           import Schema__Capture__Config
 from sg_compute_specs.playwright.core.schemas.enums.Enum__Content__Format                               import Enum__Content__Format
 from sg_compute_specs.playwright.core.schemas.enums.Enum__Step__Action                                  import Enum__Step__Action
+from sg_compute_specs.playwright.core.schemas.enums.Enum__Step__Error__Type                             import Enum__Step__Error__Type
 from sg_compute_specs.playwright.core.schemas.enums.Enum__Step__Status                                  import Enum__Step__Status
 from sg_compute_specs.playwright.core.schemas.primitives.identifiers.Step_Id                            import Step_Id
 from sg_compute_specs.playwright.core.schemas.results.Schema__Step__Result__Base                        import Schema__Step__Result__Base
@@ -321,7 +322,23 @@ class Step__Executor(Type_Safe):
                                           status        = Enum__Step__Status.FAILED         ,
                                           duration_ms   = self.now_ms() - started_ms        ,
                                           error_message = Safe_Str__Text(str(error)[:1000]) ,
+                                          error_type    = self.classify_error(error)        ,
                                           artefacts     = []                                )
+
+    def classify_error(self, error: Exception) -> Enum__Step__Error__Type:              # Map an exception to a structured category. Recognise Playwright's TimeoutError + Error classes by name to avoid an import-time dependency on the sync-API module.
+        cls       = type(error).__name__
+        msg_lower = str(error).lower()
+        if 'timeout' in cls.lower() or 'timeout' in msg_lower:
+            return Enum__Step__Error__Type.TIMEOUT
+        if isinstance(error, NotImplementedError):
+            return Enum__Step__Error__Type.UNSUPPORTED_ACTION
+        if 'allowlist' in msg_lower or 'not allowed' in msg_lower:                       # JS__Expression__Allowlist denial
+            return Enum__Step__Error__Type.EVALUATE_REJECTED
+        if 'ERR_NAME_NOT_RESOLVED' in str(error) or 'net::' in str(error) or 'navigation' in msg_lower:
+            return Enum__Step__Error__Type.NAVIGATION_FAILED
+        if 'selector' in msg_lower and ('not found' in msg_lower or 'no element' in msg_lower or 'no node' in msg_lower):
+            return Enum__Step__Error__Type.SELECTOR_NOT_FOUND
+        return Enum__Step__Error__Type.UNKNOWN
 
     def resolve_id(self, step: Schema__Step__Base, step_index: int) -> Step_Id:         # Fall back to the ordinal when caller didn't provide id
         return step.id if step.id is not None else Step_Id(str(step_index))
