@@ -120,12 +120,15 @@ class Sequence__Runner(Type_Safe):
                     skipped += 1
                     continue
 
-                self.request_validator.validate_step(step, capture_config, capabilities, target)
-
-                result = self.step_executor.execute(page           = page           ,
-                                                     step           = step           ,
-                                                     step_index     = step_index     ,
-                                                     capture_config = capture_config )
+                step_started_ms = int(time.time() * 1000)
+                try:                                                                     # Belt-and-braces: a single step may NEVER abort the whole sequence.
+                    self.request_validator.validate_step(step, capture_config, capabilities, target)
+                    result = self.step_executor.execute(page           = page           ,
+                                                         step           = step           ,
+                                                         step_index     = step_index     ,
+                                                         capture_config = capture_config )
+                except Exception as error:                                               # Step validation / execution that escapes the executor's own guards
+                    result = self.step_executor.failed_result(step, step_index, step_started_ms, error)
                 step_results.append(result)
 
                 if result.status == Enum__Step__Status.PASSED:

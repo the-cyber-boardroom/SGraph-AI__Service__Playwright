@@ -13,6 +13,12 @@ owner_steering:
 
 # Architecture & Implementation Review
 
+> ⚠️ **READ `04__empirical-findings__live-v0.1.162.md` BEFORE THIS DOC.** This review was written
+> against committed HEAD (v0.2.41). After live testing against the deployed `:latest` (v0.1.162),
+> several specific claims here are wrong or need patching — `04` documents which. The phased plan
+> in §10 below still stands; the diagnoses in §1–§2 are partly corrected by `04` §4. The brief is
+> *more* right than I credited on first read, just about *different verbs* than it identified.
+
 > **How this was produced:** every claim in the brief was checked against the actual code in
 > `sg_compute_specs/playwright/core/` (routes, `Playwright__Service`, `Sequence__Runner`,
 > `Step__Executor`, `Browser__Launcher`, `Artefact__Writer`, the schema tree). Where the brief's
