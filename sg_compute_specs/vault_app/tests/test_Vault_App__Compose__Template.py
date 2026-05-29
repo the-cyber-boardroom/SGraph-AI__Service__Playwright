@@ -119,9 +119,9 @@ class TestVaultAppComposeTemplate:
         assert '/opt/vault-app/overrides:/app/sg_overrides:ro'               in result
         assert 'FAST_API__REVERSE_PROXY__ROUTES: "pw=http://sg-playwright:8000"' in result
 
-    def test_with_playwright_sets_playwright_root_path(self):
+    def test_no_explicit_root_path_env_needed(self):                            # decoupled: X-Forwarded-Prefix header + /pw default replace the explicit env
         result = Vault_App__Compose__Template().render(with_playwright=True)
-        assert 'SG_PLAYWRIGHT__ROOT_PATH:           "/pw"' in result            # prefix must match the reverse-proxy mount so the UI + /docs resolve
+        assert 'SG_PLAYWRIGHT__ROOT_PATH:' not in result                        # service derives /pw from the proxy header / default — no duplication
 
     def test_just_vault_has_no_playwright_root_path(self):
         result = Vault_App__Compose__Template().render(with_playwright=False)

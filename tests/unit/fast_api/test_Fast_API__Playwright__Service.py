@@ -109,37 +109,53 @@ class test_client_end_to_end(TestCase):                                         
         assert response.status_code == 401
 
 
-class test_root_path_prefix(TestCase):                                              # SG_PLAYWRIGHT__ROOT_PATH makes the UI + /docs work behind a reverse proxy
+class _FakeRequest:                                                                 # minimal stand-in for fastapi.Request — only .headers.get is used by the resolver
+    def __init__(self, headers: dict = None):
+        self.headers = headers or {}
+
+
+class test_root_path_prefix(TestCase):                                              # prefix resolution: X-Forwarded-Prefix header → SG_PLAYWRIGHT__ROOT_PATH env → /pw default
 
     def test__index_injects_api_base_from_env(self):
         with _EnvScrub(**{ENV_VAR__ROOT_PATH: '/pw'}):
-            html = Routes__Index().index().body.decode()
+            html = Routes__Index().index(_FakeRequest()).body.decode()
         assert 'window.API_BASE="/pw";' in html
 
-    def test__index_api_base_blank_when_standalone(self):                           # backward-compatible: no env → served at root, unchanged
+    def test__index_defaults_to_pw_when_unset(self):                                # owner mandate: default to /pw when no value provided
         with _EnvScrub():
-            html = Routes__Index().index().body.decode()
+            html = Routes__Index().index(_FakeRequest()).body.decode()
+        assert 'window.API_BASE="/pw";' in html
+
+    def test__index_standalone_via_slash_sentinel(self):                            # explicit "served at root" → env=/ → no prefix
+        with _EnvScrub(**{ENV_VAR__ROOT_PATH: '/'}):
+            html = Routes__Index().index(_FakeRequest()).body.decode()
         assert 'window.API_BASE="";' in html
+
+    def test__forwarded_prefix_header_wins_over_env(self):                          # proxy-set header takes precedence → same image works behind any prefix
+        with _EnvScrub(**{ENV_VAR__ROOT_PATH: '/pw'}):
+            req  = _FakeRequest({'x-forwarded-prefix': '/automation'})
+            html = Routes__Index().index(req).body.decode()
+        assert 'window.API_BASE="/automation";' in html
 
     def test__index_strips_trailing_slash_on_prefix(self):
         with _EnvScrub(**{ENV_VAR__ROOT_PATH: '/pw/'}):
-            html = Routes__Index().index().body.decode()
+            html = Routes__Index().index(_FakeRequest()).body.decode()
         assert 'window.API_BASE="/pw";' in html
 
-    def test__docs_references_prefixed_openapi_when_root_path_set(self):
-        with _EnvScrub(**{ENV_VAR__DEPLOYMENT_TARGET: 'laptop'   ,
-                          ENV_VAR__API_KEY_NAME     : 'X-API-Key',
-                          ENV_VAR__API_KEY_VALUE    : 'unit-test',
-                          ENV_VAR__ROOT_PATH        : '/pw'      }):
-            fa = Fast_API__Playwright__Service().setup()
-            r  = fa.client().get('/docs', headers={'X-API-Key': 'unit-test'})
-        assert r.status_code == 200
-        assert '/pw/openapi.json' in r.text                                         # Swagger fetches the prefixed spec → resolves through the proxy
-
-    def test__docs_uses_root_openapi_when_no_root_path(self):                       # standalone: no prefix injected
+    def test__docs_references_prefixed_openapi_by_default(self):                     # default /pw → Swagger fetches the prefixed spec
         with _EnvScrub(**{ENV_VAR__DEPLOYMENT_TARGET: 'laptop'   ,
                           ENV_VAR__API_KEY_NAME     : 'X-API-Key',
                           ENV_VAR__API_KEY_VALUE    : 'unit-test'}):
+            fa = Fast_API__Playwright__Service().setup()
+            r  = fa.client().get('/docs', headers={'X-API-Key': 'unit-test'})
+        assert r.status_code == 200
+        assert '/pw/openapi.json' in r.text
+
+    def test__docs_uses_root_openapi_when_slash_sentinel(self):                     # explicit standalone: env=/ → no prefix
+        with _EnvScrub(**{ENV_VAR__DEPLOYMENT_TARGET: 'laptop'   ,
+                          ENV_VAR__API_KEY_NAME     : 'X-API-Key',
+                          ENV_VAR__API_KEY_VALUE    : 'unit-test',
+                          ENV_VAR__ROOT_PATH        : '/'        }):
             fa = Fast_API__Playwright__Service().setup()
             r  = fa.client().get('/docs', headers={'X-API-Key': 'unit-test'})
         assert r.status_code == 200

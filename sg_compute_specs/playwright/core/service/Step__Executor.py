@@ -24,20 +24,15 @@
 # class that writes to sinks).
 # ═══════════════════════════════════════════════════════════════════════════════
 
-import time
 from typing                                                                                         import Any, List
 
-from osbot_utils.type_safe.Type_Safe                                                                import Type_Safe
-from osbot_utils.type_safe.primitives.domains.common.safe_str.Safe_Str__Text                        import Safe_Str__Text
 from sg_compute_specs.playwright.core.schemas.primitives.text.Safe_Str__Page__Content                   import Safe_Str__Page__Content
 from osbot_utils.type_safe.primitives.domains.web.safe_str.Safe_Str__Url                            import Safe_Str__Url
 
 from sg_compute_specs.playwright.core.schemas.artefact.Schema__Artefact__Ref                            import Schema__Artefact__Ref
 from sg_compute_specs.playwright.core.schemas.capture.Schema__Capture__Config                           import Schema__Capture__Config
 from sg_compute_specs.playwright.core.schemas.enums.Enum__Content__Format                               import Enum__Content__Format
-from sg_compute_specs.playwright.core.schemas.enums.Enum__Step__Action                                  import Enum__Step__Action
 from sg_compute_specs.playwright.core.schemas.enums.Enum__Step__Status                                  import Enum__Step__Status
-from sg_compute_specs.playwright.core.schemas.primitives.identifiers.Step_Id                            import Step_Id
 from sg_compute_specs.playwright.core.schemas.results.Schema__Step__Result__Base                        import Schema__Step__Result__Base
 from sg_compute_specs.playwright.core.schemas.results.Schema__Step__Result__Get_Content                 import Schema__Step__Result__Get_Content
 from sg_compute_specs.playwright.core.schemas.results.Schema__Step__Result__Get_Url                     import Schema__Step__Result__Get_Url
@@ -56,35 +51,12 @@ from sg_compute_specs.playwright.core.schemas.steps.Schema__Step__Hover         
 from sg_compute_specs.playwright.core.schemas.steps.Schema__Step__Scroll                                import Schema__Step__Scroll
 from sg_compute_specs.playwright.core.schemas.steps.Schema__Step__Set_Viewport                          import Schema__Step__Set_Viewport
 from sg_compute_specs.playwright.core.schemas.steps.Schema__Step__Dispatch_Event                        import Schema__Step__Dispatch_Event
-from sg_compute_specs.playwright.core.service.Artefact__Writer                                          import Artefact__Writer
+from sg_compute_specs.playwright.core.service.Step__Executor__Base                                       import ACTION_HANDLERS, Step__Executor__Base
+
+__all__ = ['ACTION_HANDLERS', 'Step__Executor']                                         # ACTION_HANDLERS re-exported from the base for callers that import it from here
 
 
-# Action → handler-method name. Single source of truth for dispatch; the same table
-# is reused by the async engine's executor. An action absent from this table resolves
-# to a clean per-step FAILED result (see execute), never an exception that aborts the
-# whole sequence. VIDEO_START / VIDEO_STOP are intentionally absent — recording is a
-# context-level concern handled via capture_config.video, not a per-step verb.
-ACTION_HANDLERS = {
-    Enum__Step__Action.NAVIGATE       : 'execute_navigate'       ,
-    Enum__Step__Action.CLICK          : 'execute_click'          ,
-    Enum__Step__Action.FILL           : 'execute_fill'           ,
-    Enum__Step__Action.SCREENSHOT     : 'execute_screenshot'     ,
-    Enum__Step__Action.GET_CONTENT    : 'execute_get_content'    ,
-    Enum__Step__Action.GET_URL        : 'execute_get_url'        ,
-    Enum__Step__Action.EVALUATE       : 'execute_evaluate'       ,
-    Enum__Step__Action.WAIT_FOR       : 'execute_wait_for'       ,
-    Enum__Step__Action.PRESS          : 'execute_press'          ,
-    Enum__Step__Action.SELECT         : 'execute_select'         ,
-    Enum__Step__Action.HOVER          : 'execute_hover'          ,
-    Enum__Step__Action.SCROLL         : 'execute_scroll'         ,
-    Enum__Step__Action.SET_VIEWPORT   : 'execute_set_viewport'   ,
-    Enum__Step__Action.DISPATCH_EVENT : 'execute_dispatch_event' ,
-}
-
-
-class Step__Executor(Type_Safe):
-
-    artefact_writer : Artefact__Writer
+class Step__Executor(Step__Executor__Base):                                             # Sync engine. Engine-neutral helpers live in Step__Executor__Base.
 
     # ─── Dispatcher ────────────────────────────────────────────────────────────
 
@@ -95,12 +67,12 @@ class Step__Executor(Type_Safe):
                 capture_config  : Schema__Capture__Config
            ) -> Schema__Step__Result__Base:
 
-        started_ms   = self.now_ms()
-        handler_name = ACTION_HANDLERS.get(step.action)
-        if handler_name is None:                                                        # Unknown / unsupported verb → clean per-step FAILED, never a crash
+        started_ms = self.now_ms()
+        handler    = self.handler_name(step)
+        if handler is None:                                                             # Unknown / unsupported verb → clean per-step FAILED, never a crash
             return self.failed_result(step, step_index, started_ms,
                                       NotImplementedError(f'Unsupported action: {step.action.value}'))
-        return getattr(self, handler_name)(page, step, step_index, capture_config)
+        return getattr(self, handler)(page, step, step_index, capture_config)
 
     # ─── First-pass action handlers ────────────────────────────────────────────
 
@@ -294,40 +266,6 @@ class Step__Executor(Type_Safe):
         except Exception as error:
             return self.failed_result(step, step_index, started_ms, error)
 
-    # ─── Result constructors ───────────────────────────────────────────────────
-
-    def passed_result(self                                          ,
-                      step       : Schema__Step__Base               ,
-                      step_index : int                              ,
-                      started_ms : int                              ,
-                      artefacts  : List[Schema__Artefact__Ref] = None
-                 ) -> Schema__Step__Result__Base:
-        return Schema__Step__Result__Base(step_id     = self.resolve_id(step, step_index) ,
-                                          step_index  = step_index                        ,
-                                          action      = step.action                       ,
-                                          status      = Enum__Step__Status.PASSED         ,
-                                          duration_ms = self.now_ms() - started_ms        ,
-                                          artefacts   = artefacts or []                   )
-
-    def failed_result(self                                          ,
-                      step       : Schema__Step__Base               ,
-                      step_index : int                              ,
-                      started_ms : int                              ,
-                      error      : Exception
-                 ) -> Schema__Step__Result__Base:
-        return Schema__Step__Result__Base(step_id       = self.resolve_id(step, step_index) ,
-                                          step_index    = step_index                        ,
-                                          action        = step.action                       ,
-                                          status        = Enum__Step__Status.FAILED         ,
-                                          duration_ms   = self.now_ms() - started_ms        ,
-                                          error_message = Safe_Str__Text(str(error)[:1000]) ,
-                                          artefacts     = []                                )
-
-    def resolve_id(self, step: Schema__Step__Base, step_index: int) -> Step_Id:         # Fall back to the ordinal when caller didn't provide id
-        return step.id if step.id is not None else Step_Id(str(step_index))
-
-    def filter_refs(self, refs: List[Schema__Artefact__Ref]) -> List[Schema__Artefact__Ref]:
-        return [r for r in refs if r is not None]                                       # Drop None refs (sink_config.enabled=False)
-
-    def now_ms(self) -> int:                                                            # Single wall-clock seam — tests subclass to freeze time
-        return int(time.time() * 1000)
+    # ─── Result constructors, error classification, helpers ─────────────────────
+    # All engine-neutral — inherited from Step__Executor__Base
+    # (passed_result / failed_result / classify_error / resolve_id / filter_refs / now_ms).

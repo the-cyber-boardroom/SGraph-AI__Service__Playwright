@@ -25,6 +25,7 @@ from sg_compute_specs.playwright.core.schemas.enums.Enum__Artefact__Sink        
 from sg_compute_specs.playwright.core.schemas.enums.Enum__Artefact__Type                             import Enum__Artefact__Type
 from sg_compute_specs.playwright.core.schemas.enums.Enum__Content__Format                            import Enum__Content__Format
 from sg_compute_specs.playwright.core.schemas.enums.Enum__Step__Action                               import Enum__Step__Action
+from sg_compute_specs.playwright.core.schemas.enums.Enum__Step__Error__Type                          import Enum__Step__Error__Type
 from sg_compute_specs.playwright.core.schemas.enums.Enum__Step__Status                               import Enum__Step__Status
 from sg_compute_specs.playwright.core.schemas.primitives.identifiers.Step_Id                         import Step_Id
 from sg_compute_specs.playwright.core.schemas.results.Schema__Step__Result__Get_Content              import Schema__Step__Result__Get_Content
@@ -446,5 +447,41 @@ class test_dispatch_table(TestCase):
         page = _Fake_Page()
         step = Schema__Step__Base(action=Enum__Step__Action.VIDEO_START)                 # intentionally not in ACTION_HANDLERS
         res  = _executor().execute(page, step, step_index=0, capture_config=_capture_config_all_inline())
-        assert res.status == Enum__Step__Status.FAILED
+        assert res.status     == Enum__Step__Status.FAILED
+        assert res.error_type == Enum__Step__Error__Type.UNSUPPORTED_ACTION              # classified, not just free-text
         assert 'Unsupported action' in str(res.error_message)
+
+
+class test_classify_error(TestCase):                                                     # error_type classifier — exhaustive over the enum's recognised classes
+
+    def _classify(self, error):
+        return _executor().classify_error(error)
+
+    def test__timeout_by_class_name(self):
+        class PlaywrightTimeoutError(Exception): pass
+        assert self._classify(PlaywrightTimeoutError('boom')) == Enum__Step__Error__Type.TIMEOUT
+
+    def test__timeout_by_message(self):
+        assert self._classify(RuntimeError('Timeout 30000ms exceeded.')) == Enum__Step__Error__Type.TIMEOUT
+
+    def test__not_implemented_maps_to_unsupported_action(self):
+        assert self._classify(NotImplementedError('VIDEO')) == Enum__Step__Error__Type.UNSUPPORTED_ACTION
+
+    def test__navigation_dns_failure(self):
+        assert self._classify(RuntimeError('net::ERR_NAME_NOT_RESOLVED at https://nope.invalid/')) == Enum__Step__Error__Type.NAVIGATION_FAILED
+
+    def test__evaluate_rejected_by_allowlist(self):
+        assert self._classify(RuntimeError('JS expression not in trusted allowlist')) == Enum__Step__Error__Type.EVALUATE_REJECTED
+
+    def test__selector_not_found(self):
+        assert self._classify(RuntimeError('selector "#nope" did not match any element (no element)')) == Enum__Step__Error__Type.SELECTOR_NOT_FOUND
+
+    def test__unknown_default(self):
+        assert self._classify(RuntimeError('weird thing happened')) == Enum__Step__Error__Type.UNKNOWN
+
+    def test__failed_result_populates_error_type(self):                                  # end-to-end through the result builder
+        page = _Fake_Page(raise_on='wait_for_selector')
+        step = Schema__Step__Wait_For(selector='main')
+        res  = _executor().execute(page, step, step_index=0, capture_config=_capture_config_all_inline())
+        assert res.status     == Enum__Step__Status.FAILED
+        assert res.error_type == Enum__Step__Error__Type.UNKNOWN                         # RuntimeError('… blew up') is not a recognised class
