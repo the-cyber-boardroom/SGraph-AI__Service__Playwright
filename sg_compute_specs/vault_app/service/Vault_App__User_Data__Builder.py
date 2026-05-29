@@ -24,6 +24,14 @@ from sg_compute_specs.vault_app.service.Vault_App__Reverse_Proxy__Override   imp
 FOOTER = ('\ntouch /var/lib/sg-compute-boot-ok\n'
           'echo "[vault-app] boot complete at $(date -u +%FT%TZ)"\n')
 
+# agent-mitmproxy loads this file via `mitmweb --scripts=/interceptors/active.py`
+# (the host dir is bind-mounted read-only — see Vault_App__Compose__Template).
+# A no-op is written when no interceptor is chosen so the --scripts target always
+# resolves; a real script swaps the body in.
+INTERCEPTOR_DIR   = '/opt/vault-app/interceptors'
+INTERCEPTOR_FILE  = '/opt/vault-app/interceptors/active.py'
+INTERCEPTOR_NO_OP = '# sg-vault-app: no interceptor active\n'
+
 # ── container-engine install fragments ───────────────────────────────────────
 # docker: docker-compose-plugin is NOT in standard AL2023 repos — the compose V2
 #         CLI plugin binary is downloaded from Docker's GitHub releases instead.
@@ -95,6 +103,7 @@ class Vault_App__User_Data__Builder(Type_Safe):
                      tls_mode           : str   = 'self-signed',
                      acme_prod          : bool  = False        ,
                      tls_hostname       : str   = ''           ,
+                     interceptor_source : str   = ''           ,
                      shutdown_behavior  : str   = 'terminate'  ) -> str:
         engine        = container_engine if container_engine in ('docker', 'podman') else 'docker'
         is_podman     = engine == 'podman'
@@ -129,18 +138,31 @@ class Vault_App__User_Data__Builder(Type_Safe):
             tls_env_lines   = tls_env_lines   ,
             compose_yaml    = compose_yaml    )
 
-        # Reverse-proxy overrides must land on disk BEFORE `compose up` so the
-        # bind-mount at /app/sg_overrides is populated when the vault container starts.
-        overrides_block = ''
+        # Reverse-proxy overrides + the mitmproxy interceptor must land on disk
+        # BEFORE `compose up` so the bind-mounts (/app/sg_overrides and
+        # /interceptors) are populated when the containers start.
+        overrides_block   = ''
+        interceptor_block = ''
         if with_playwright:
-            overrides_block = Vault_App__Reverse_Proxy__Override().render_write_block()
+            overrides_block   = Vault_App__Reverse_Proxy__Override().render_write_block()
+            interceptor_block = self.render_interceptor_block(interceptor_source)
 
         parts = [
             Section__Base().render(stack_name=stack_name, max_hours=max_hours,
                                    shutdown_behavior=shutdown_behavior),
-            engine_block    ,
-            overrides_block ,
-            stack_block     ,
-            FOOTER          ,
+            engine_block      ,
+            overrides_block   ,
+            interceptor_block ,
+            stack_block       ,
+            FOOTER            ,
         ]
         return '\n'.join(p for p in parts if p)
+
+    def render_interceptor_block(self, interceptor_source: str = '') -> str:       # bash that writes the mitmproxy intercept script to the host (before `compose up`)
+        source = interceptor_source or INTERCEPTOR_NO_OP
+        return ('\n# ── agent-mitmproxy interceptor script ───────────────────────────────────────\n'
+                f'echo "[vault-app] writing interceptor to {INTERCEPTOR_FILE}"\n'
+                f'mkdir -p {INTERCEPTOR_DIR}\n'
+                + 'cat > ' + INTERCEPTOR_FILE + " <<'SG_INTERCEPTOR_EOF'\n"            # quoted delimiter — the Python payload is written verbatim
+                + source + '\nSG_INTERCEPTOR_EOF\n'
+                + 'echo "[vault-app] interceptor written"\n')

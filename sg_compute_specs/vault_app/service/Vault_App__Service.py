@@ -38,6 +38,7 @@ from sg_compute_specs.vault_app.service.Vault_App__Stack__Mapper            impo
                                                                                     TAG_TLS_ENABLED          ,
                                                                                     TAG_TLS_HOSTNAME         ,
                                                                                     TAG_WITH_PLAYWRIGHT      )
+from sg_compute_specs.vault_app.service.Vault_App__Interceptor__Resolver    import Vault_App__Interceptor__Resolver
 from sg_compute_specs.vault_app.service.Vault_App__User_Data__Builder       import Vault_App__User_Data__Builder
 
 DEFAULT_REGION                = os.environ.get('AWS_DEFAULT_REGION', 'eu-west-2')
@@ -61,9 +62,10 @@ def _elapsed_since_iso(iso_ts: str) -> int:
 
 
 class Vault_App__Service(Spec__Service__Base):
-    aws_client         : Optional[Vault_App__AWS__Client]        = None
-    user_data_builder  : Optional[Vault_App__User_Data__Builder] = None
-    mapper             : Optional[Vault_App__Stack__Mapper]      = None
+    aws_client           : Optional[Vault_App__AWS__Client]          = None
+    user_data_builder    : Optional[Vault_App__User_Data__Builder]   = None
+    interceptor_resolver : Optional[Vault_App__Interceptor__Resolver] = None
+    mapper               : Optional[Vault_App__Stack__Mapper]        = None
     ip_detector        : Optional[Caller__IP__Detector]          = None
     name_gen           : Optional[Stack__Name__Generator]        = None
     ami_helper         : Optional[Vault_App__AMI__Helper]        = None
@@ -71,9 +73,10 @@ class Vault_App__Service(Spec__Service__Base):
     _auto_dns_factory   : Optional[Callable]                     = None  # seam for tests
 
     def setup(self) -> 'Vault_App__Service':
-        self.aws_client        = Vault_App__AWS__Client       ().setup()
-        self.user_data_builder = Vault_App__User_Data__Builder()
-        self.mapper            = Vault_App__Stack__Mapper     ()
+        self.aws_client           = Vault_App__AWS__Client          ().setup()
+        self.user_data_builder    = Vault_App__User_Data__Builder   ()
+        self.interceptor_resolver = Vault_App__Interceptor__Resolver()
+        self.mapper               = Vault_App__Stack__Mapper        ()
         self.ip_detector       = Caller__IP__Detector         ()
         self.name_gen          = Stack__Name__Generator       ()
         self.ami_helper        = Vault_App__AMI__Helper       ()
@@ -149,6 +152,10 @@ class Vault_App__Service(Spec__Service__Base):
             raise ValueError("tls_mode='letsencrypt-hostname' requires a non-empty tls_hostname "
                              "(the FQDN whose A record points at this stack's EC2 IP)")
 
+        # Resolve the mitmproxy interceptor (no-op unless --interceptor-script was
+        # given). Only consumed in the --with-playwright shape; harmless otherwise.
+        interceptor_source, _ = self.interceptor_resolver.resolve(request.interceptor)
+
         user_data = self.user_data_builder.render(
             stack_name       = stack_name              ,
             access_token     = access_token            ,
@@ -161,6 +168,7 @@ class Vault_App__Service(Spec__Service__Base):
             tls_mode         = tls_mode_resolved                   ,
             acme_prod        = bool(request.acme_prod)             ,
             tls_hostname     = tls_hostname                        ,
+            interceptor_source = interceptor_source                ,
         )
         iid = self.aws_client.launch.run_instance(
             region                = region              ,

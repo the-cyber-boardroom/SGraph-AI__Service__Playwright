@@ -116,6 +116,9 @@ _SG_PLAYWRIGHT = '''
     restart: unless-stopped
 '''
 
+# --scripts=/interceptors/active.py loads the intercept script the user-data
+# builder writes to the host (a no-op unless --interceptor-script was given).
+# The dir is bind-mounted read-only; mitmweb hot-reloads the file when it changes.
 _AGENT_MITMPROXY = '''
   agent-mitmproxy:
     image: mitmproxy/mitmproxy:latest
@@ -127,6 +130,9 @@ _AGENT_MITMPROXY = '''
       - --listen-port=8080
       - --set
       - block_global=false
+      - --scripts=/interceptors/active.py
+    volumes:
+      - /opt/vault-app/interceptors:/interceptors:ro
     networks:
       - vault-net
     restart: unless-stopped

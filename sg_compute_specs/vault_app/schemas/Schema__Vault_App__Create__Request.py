@@ -9,6 +9,8 @@
 
 from osbot_utils.type_safe.Type_Safe import Type_Safe
 
+from sg_compute_specs.vault_app.schemas.Schema__Vault_App__Interceptor__Choice import Schema__Vault_App__Interceptor__Choice
+
 
 class Schema__Vault_App__Create__Request(Type_Safe):
     region           : str   = 'eu-west-2'
@@ -29,3 +31,4 @@ class Schema__Vault_App__Create__Request(Type_Safe):
     acme_prod        : bool  = True         # default: LE production directory (browser-trusted)
     tls_hostname     : str   = ''           # required when tls_mode=letsencrypt-hostname; the FQDN whose A record points at this stack's EC2 IP. Auto-derived from stack-name + default zone when --with-aws-dns is on and this is blank.
     with_aws_dns     : bool  = False        # opt in to parallel Route 53 A-record creation on `create`. Auto-derives tls_hostname from <stack-name>.<default-zone> (e.g. warm-bohr.sg-compute.sgraph.ai) when tls_hostname is blank. AWS-only.
+    interceptor      : Schema__Vault_App__Interceptor__Choice  # mitmproxy intercept script for the --with-playwright stack; CLI fills inline_source from --interceptor-script <file>. Ignored in just-vault mode.

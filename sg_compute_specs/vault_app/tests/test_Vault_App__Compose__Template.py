@@ -52,6 +52,15 @@ class TestVaultAppComposeTemplate:
         assert 'block_global=false'                in result
         assert '"127.0.0.1:19081:8000"'            not in result             # no admin FastAPI port
 
+    def test_agent_mitmproxy_loads_interceptor(self):
+        result = Vault_App__Compose__Template().render(with_playwright=True)
+        assert '--scripts=/interceptors/active.py'           in result       # mitmweb loads the intercept script
+        assert '/opt/vault-app/interceptors:/interceptors:ro' in result      # host dir bind-mounted read-only
+
+    def test_just_vault_has_no_interceptor_mount(self):
+        result = Vault_App__Compose__Template().render(with_playwright=False)
+        assert '/interceptors' not in result                                 # only the with-playwright shape runs mitmproxy
+
     def test_podman_socket_path(self):
         result = Vault_App__Compose__Template().render(with_playwright=True,
                                                        docker_socket='/run/podman/podman.sock')

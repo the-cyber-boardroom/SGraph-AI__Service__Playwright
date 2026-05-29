@@ -90,6 +90,20 @@ The standalone `scripts/provision_mitmproxy_ec2.py` no longer exists at the repo
 
 The placeholder file `tests/unit/scripts/test_provision_mitmproxy_ec2.py` still exists but is a single `@pytest.mark.skip` documenting that the script is PROPOSED — not implemented.
 
+#### vault-app `--with-playwright` stack (v0.2.43)
+
+The `sg va create --with-playwright` 4-container stack runs a **vanilla `mitmproxy/mitmproxy:latest`** image (not the custom `agent_mitmproxy` image above) as the egress proxy for the Playwright browser — see `sg_compute_specs/vault_app/service/Vault_App__Compose__Template.py`. Playwright is pointed at it via `SG_PLAYWRIGHT__DEFAULT_PROXY_URL=http://agent-mitmproxy:8080` + `IGNORE_HTTPS_ERRORS`, so every request the browser makes (including everything reached through the vault's `/pw/*` reverse proxy) flows through mitmproxy.
+
+As of v0.2.43 an **intercept script** can be loaded into that proxy at create time:
+
+- `mitmweb` runs with `--scripts=/interceptors/active.py`; the host dir `/opt/vault-app/interceptors` is bind-mounted read-only.
+- `Vault_App__User_Data__Builder.render_interceptor_block()` writes `active.py` to the host **before `compose up`** (a no-op stub when none is chosen).
+- CLI: `sg va create --with-playwright --interceptor-script <file>` reads the local Python file and ships its source inline (`Cli__Vault_App._set_extras`).
+- Resolution chain: `Schema__Vault_App__Interceptor__Choice` (`kind` ∈ {`none`, `inline`}) → `Vault_App__Interceptor__Resolver.resolve()` → source string → user-data builder. `Schema__Vault_App__Create__Request.interceptor` carries the choice.
+- mitmweb hot-reloads `active.py` on change, so a future `set-interceptor`-over-SSM command could swap the script on a running stack without a recreate (not yet implemented).
+
+This vault-app path is independent of the custom-image addon registry / FastAPI admin API described above — it is plain mitmweb with a single `--scripts` file.
+
 ---
 
 ### CI

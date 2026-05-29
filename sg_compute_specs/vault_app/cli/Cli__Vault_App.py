@@ -161,7 +161,7 @@ def _render_vault_app_create(response, console: Console) -> None:
 def _set_extras(request, with_playwright=False, podman=False, use_spot=True,
                 storage_mode='disk', seed_vault_keys='', access_token='', disk_size=0,
                 with_tls_check=True, tls_mode='letsencrypt-ip', acme_prod=True,
-                tls_hostname='', with_aws_dns=False):
+                tls_hostname='', with_aws_dns=False, interceptor_script=''):
     request.with_playwright  = bool(with_playwright)
     request.container_engine = 'podman' if podman else 'docker'
     request.use_spot         = bool(use_spot)
@@ -185,6 +185,18 @@ def _set_extras(request, with_playwright=False, podman=False, use_spot=True,
         request.access_token    = access_token
     if disk_size:
         request.disk_size_gb    = int(disk_size)
+    # --interceptor-script: read the local file now (operator's machine) and ship
+    # its source inline. Only meaningful with --with-playwright (it's the only
+    # shape that runs agent-mitmproxy); ignored otherwise.
+    if interceptor_script:
+        import pathlib
+        from sg_compute_specs.vault_app.enums.Enum__Vault_App__Interceptor__Kind          import Enum__Vault_App__Interceptor__Kind
+        from sg_compute_specs.vault_app.primitives.Safe_Str__Vault_App__Interceptor__Source import Safe_Str__Vault_App__Interceptor__Source
+        path = pathlib.Path(interceptor_script).expanduser()
+        if not path.is_file():
+            raise typer.BadParameter(f'interceptor script not found: {interceptor_script}')
+        request.interceptor.kind          = Enum__Vault_App__Interceptor__Kind.INLINE
+        request.interceptor.inline_source = Safe_Str__Vault_App__Interceptor__Source(path.read_text(encoding='utf-8'))
 
 
 # ── --with-aws-dns: post-launch parallel Route 53 work ───────────────────────
@@ -268,6 +280,10 @@ app = Spec__CLI__Builder(
          'Spot instance (~70% cheaper). Pass --no-use-spot for on-demand.'),
         ('disk_size'      , int , 20,
          'Root volume in GiB — vault data + container image layers.'),
+        ('interceptor_script', str, '',
+         'Path to a mitmproxy intercept script (Python) loaded by agent-mitmproxy '
+         'so every browser request flowing through /pw/* passes through it. '
+         '--with-playwright only; see scripts/interceptors/ for examples.'),
         # ── vault storage ────────────────────────────────────────────────
         ('storage_mode'   , str , 'disk',
          'sg-send-vault storage backend: disk | memory | s3.'),
