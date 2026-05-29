@@ -8,13 +8,13 @@
 # API key is persisted in localStorage so it survives page reloads.
 # ═══════════════════════════════════════════════════════════════════════════════
 
+from fastapi                                                                        import Request
 from fastapi.responses                                                              import HTMLResponse
 from osbot_fast_api.api.decorators.route_path                                      import route_path
 from osbot_fast_api.api.routes.Fast_API__Routes                                    import Fast_API__Routes
 from osbot_fast_api.api.schemas.safe_str.Safe_Str__Fast_API__Route__Prefix         import Safe_Str__Fast_API__Route__Prefix
-from osbot_utils.utils.Env                                                          import get_env
 
-from sg_compute_specs.playwright.core.consts.env_vars                               import ENV_VAR__ROOT_PATH
+from sg_compute_specs.playwright.core.service.Root_Path__Resolver                  import Root_Path__Resolver
 
 
 INDEX_HTML = r'''<!DOCTYPE html>
@@ -609,8 +609,8 @@ class Routes__Index(Fast_API__Routes):
         self.prefix = Safe_Str__Fast_API__Route__Prefix('/')    # Mount at root
 
     @route_path('/')
-    def index(self) -> HTMLResponse:
-        api_base = (get_env(ENV_VAR__ROOT_PATH) or '').rstrip('/')                   # '' standalone; '/pw' behind the reverse proxy — makes the UI's fetch() calls prefix-correct
+    def index(self, request: Request) -> HTMLResponse:
+        api_base = Root_Path__Resolver().resolve(request)                            # Per-request: X-Forwarded-Prefix header (proxy) → SG_PLAYWRIGHT__ROOT_PATH env → '/pw' default. Single source of truth shared with the root_path middleware.
         return HTMLResponse(content=INDEX_HTML.replace('__API_BASE__', api_base))
 
     def setup_routes(self):

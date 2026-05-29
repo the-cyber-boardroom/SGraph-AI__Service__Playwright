@@ -27,9 +27,7 @@ import uuid
 
 from fastapi.openapi.utils                                                          import get_openapi
 from osbot_fast_api.api.routes.Routes__Set_Cookie                                    import Routes__Set_Cookie
-from osbot_utils.utils.Env                                                           import get_env
-
-from sg_compute_specs.playwright.core.consts.env_vars                                import ENV_VAR__ROOT_PATH
+from sg_compute_specs.playwright.core.service.Root_Path__Resolver                    import Root_Path__Resolver
 
 from sg_compute_specs.playwright.core.agentic_fastapi.Agentic_FastAPI                    import Agentic_FastAPI
 from sg_compute_specs.playwright.core.fast_api.routes.Routes__Browser                    import Routes__Browser
@@ -59,14 +57,14 @@ class Fast_API__Playwright__Service(Agentic_FastAPI):
         return result
 
     def attach_root_path_middleware(self):
-        root_path = (get_env(ENV_VAR__ROOT_PATH) or '').rstrip('/')                  # e.g. '/pw' when served behind the vault reverse proxy; blank standalone (no-op)
-        if not root_path:
-            return
-        app = self.app()
+        app      = self.app()
+        resolver = Root_Path__Resolver()
 
-        @app.middleware('http')                                                     # Set the ASGI root_path so FastAPI emits prefixed /docs + /openapi.json URLs. The proxy already strips the prefix, so route matching is unaffected.
+        @app.middleware('http')                                                     # Per-request prefix resolution (X-Forwarded-Prefix → env → /pw default). The proxy already strips the prefix from the path, so route matching is unaffected; root_path drives FastAPI's URL emission for /docs + /openapi.json.
         async def root_path_middleware(request, call_next):
-            request.scope['root_path'] = root_path
+            root_path = resolver.resolve(request)
+            if root_path:
+                request.scope['root_path'] = root_path
             return await call_next(request)
 
     def attach_screenshot_examples(self):
