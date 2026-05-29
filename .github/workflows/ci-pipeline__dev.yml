@@ -6,7 +6,7 @@ on:
         description: 'Force Docker image rebuild even when no image-relevant files changed'
         required: false
         type: boolean
-        default: false
+        default: true
   push:
     branches:
       - dev
