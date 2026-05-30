@@ -30,7 +30,7 @@ class test_playwright__scaffold(TestCase):
     def test__manifest(self):
         from sg_compute_specs.playwright.manifest import MANIFEST
         assert MANIFEST.spec_id == 'playwright'
-        assert str(MANIFEST.version).startswith('v0.1.')
+        assert str(MANIFEST.version).startswith('v0.')                               # repo-root /version (single source; v0.2.x line) — was v0.1. before the version consolidation
         assert MANIFEST.display_name == 'Playwright'
 
     def test__spec_loader_discovers_playwright(self):
