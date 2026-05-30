@@ -19,7 +19,7 @@ on:
       - 'team/**'
       - 'library/**'
       - '**/*.md'
-      - 'sg_compute_specs/playwright/core/version'
+      - 'version'
 
 jobs:
   deploy-main:

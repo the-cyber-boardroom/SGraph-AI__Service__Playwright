@@ -60,6 +60,7 @@ RUN  python3 -c "import sys, importlib.metadata; \
 COPY sg_compute/        sg_compute/
 COPY sg_compute_specs/  sg_compute_specs/
 COPY capabilities.json  ./
+COPY version            ./version                                                    # repo-root version — single source of truth, read at runtime by consts/version.py + manifest.py
 
 EXPOSE 8000
 

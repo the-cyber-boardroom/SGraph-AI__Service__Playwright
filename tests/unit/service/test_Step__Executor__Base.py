@@ -31,6 +31,11 @@ class test_extraction_shape(TestCase):
         assert ACTION_HANDLERS[Enum__Step__Action.NAVIGATE] == 'execute_navigate'
 
 
+class _Base_Frozen_Time(Step__Executor__Base):                                          # use the documented now_ms seam — otherwise duration_ms = real wall-clock - 0 blows Safe_UInt__Milliseconds (900_000 cap)
+    def now_ms(self) -> int:
+        return 100                                                                      # any value < 900_000 + started_ms in the tests
+
+
 class test_base_helpers_standalone(TestCase):
 
     def test__handler_name_maps_known_action(self):
@@ -44,13 +49,14 @@ class test_base_helpers_standalone(TestCase):
 
     def test__passed_result_shape(self):
         step = Schema__Step__Get_Url()
-        res  = Step__Executor__Base().passed_result(step, step_index=3, started_ms=0)
+        res  = _Base_Frozen_Time().passed_result(step, step_index=3, started_ms=0)
         assert res.status     == Enum__Step__Status.PASSED
         assert res.step_index == 3
         assert str(res.step_id) == '3'                                                  # falls back to ordinal
+        assert int(res.duration_ms) == 100                                              # frozen now_ms - started_ms
 
     def test__failed_result_classifies(self):
         step = Schema__Step__Get_Url()
-        res  = Step__Executor__Base().failed_result(step, 0, 0, TimeoutError('Timeout 30000ms exceeded'))
+        res  = _Base_Frozen_Time().failed_result(step, 0, 0, TimeoutError('Timeout 30000ms exceeded'))
         assert res.status     == Enum__Step__Status.FAILED
         assert res.error_type == Enum__Step__Error__Type.TIMEOUT

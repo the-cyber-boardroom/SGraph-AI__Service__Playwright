@@ -208,7 +208,7 @@ jobs:
 
       - name: Read image version
         id: version
-        run: echo "version=$(cat sg_compute_specs/playwright/core/version)" >> $GITHUB_OUTPUT
+        run: echo "version=$(cat version)" >> $GITHUB_OUTPUT                            # repo-root version — auto-incremented by the increment-tag job; single source of truth
 
       - name: Download digests
         uses: actions/download-artifact@v4

@@ -16,9 +16,9 @@ class test_playwright__scaffold(TestCase):
         assert os.path.isdir(_core.path)
         assert _core.path.endswith('core')
 
-    def test__version_constant(self):
+    def test__version_constant(self):                                                   # now sourced from the repo-root `version` (single source of truth)
         from sg_compute_specs.playwright.core.consts.version import version__sgraph_ai_service_playwright
-        assert str(version__sgraph_ai_service_playwright).startswith('v0.1.')
+        assert str(version__sgraph_ai_service_playwright).startswith('v0.')
 
     def test__fast_api_importable(self):
         try:
