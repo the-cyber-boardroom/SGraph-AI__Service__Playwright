@@ -227,9 +227,15 @@ jobs:
           PYTHONPATH                  : '.'
         run: pytest tests/integration_live/ --ignore=tests/integration_live/test_00_preflight.py -v --timeout=90
 
-      - name: Dump container logs on failure
-        if: failure()
-        run: docker logs "$CONTAINER_NAME" --tail 500 || true
+      - name: Container state + logs after suite                                    # Always dump — even on success, useful for spotting warnings; on failure it's the only diagnostic we have
+        if: always()
+        run: |
+          echo "── container state after suite ───────────────────────────"
+          docker ps -a --filter "name=$CONTAINER_NAME" --format 'table {{.Names}}\t{{.Status}}\t{{.Image}}'
+          echo "── docker inspect (exit code / oom / restart count) ──────"
+          docker inspect "$CONTAINER_NAME" --format 'Status: {{.State.Status}}  ExitCode: {{.State.ExitCode}}  OOMKilled: {{.State.OOMKilled}}  RestartCount: {{.RestartCount}}  Error: {{.State.Error}}' || true
+          echo "── last 500 lines of service log ─────────────────────────"
+          docker logs "$CONTAINER_NAME" --tail 500 2>&1 || true
 
       - name: Stop test container
         if: always()
