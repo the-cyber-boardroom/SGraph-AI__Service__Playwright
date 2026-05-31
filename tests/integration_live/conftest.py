@@ -57,12 +57,30 @@ def _api_key_header() -> str:
 _SKIP_REASON = f'Set {ENV__BASE_URL} + {ENV__API_KEY} to run live integration tests.'
 
 
-def pytest_collection_modifyitems(config, items):                                        # Module-level pytestmark in conftest does NOT apply to sibling test modules; this hook does
-    if _base_url() and _api_key():
+def pytest_configure(config):                                                            # Register the `serial` marker so pytest-xdist + the test files agree on the schedule
+    config.addinivalue_line('markers',
+        'serial: must run sequentially in a single xdist worker (shared session state)')
+
+
+def pytest_collection_modifyitems(config, items):
+    # 1) Skip-gate when env vars are unset (laptop default)
+    if not (_base_url() and _api_key()):
+        skip_marker = pytest.mark.skip(reason=_SKIP_REASON)
+        for item in items:
+            item.add_marker(skip_marker)
         return
-    skip_marker = pytest.mark.skip(reason=_SKIP_REASON)
+
+    # 2) pytest-xdist: pin serial-marked tests to ONE worker. Session tests
+    #    are stateful (open → act → probe → close on the same session_id) so
+    #    they can't be sharded across workers. We use `xdist_group` to force
+    #    all `serial`-marked tests onto the same scheduler bucket.
+    try:
+        import xdist                                                                      # only present when pytest-xdist is installed (CI install)
+    except ImportError:
+        return
     for item in items:
-        item.add_marker(skip_marker)
+        if item.get_closest_marker('serial') is not None:
+            item.add_marker(pytest.mark.xdist_group('serial'))
 
 
 @pytest.fixture(scope='session')
