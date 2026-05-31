@@ -66,6 +66,9 @@ from sg_compute_specs.playwright.core.service.Credentials__Loader               
 from sg_compute_specs.playwright.core.service.JS__Expression__Allowlist                     import JS__Expression__Allowlist
 from sg_compute_specs.playwright.core.service.Request__Validator                            import Request__Validator
 from sg_compute_specs.playwright.core.service.Sequence__Runner                              import Sequence__Runner
+from sg_compute_specs.playwright.core.service.probe.Probe__Executor                         import Probe__Executor
+from sg_compute_specs.playwright.core.schemas.inspect.Schema__Inspect__Request              import Schema__Inspect__Request
+from sg_compute_specs.playwright.core.schemas.inspect.Schema__Inspect__Response             import Schema__Inspect__Response
 
 
 class Playwright__Service(Type_Safe):
@@ -76,6 +79,7 @@ class Playwright__Service(Type_Safe):
     request_validator   : Request__Validator
     credentials_loader  : Credentials__Loader
     sequence_runner     : Sequence__Runner
+    probe_executor      : Probe__Executor                                           # Φ5 — handles POST /inspect via the sequence_runner
 
     def setup(self) -> 'Playwright__Service':
         if self.capability_detector.detected_target is None:
@@ -84,6 +88,7 @@ class Playwright__Service(Type_Safe):
         self.sequence_runner.request_validator   = self.request_validator
         self.sequence_runner.browser_launcher    = self.browser_launcher
         self.sequence_runner.credentials_loader  = self.credentials_loader
+        self.probe_executor.sequence_runner      = self.sequence_runner            # Φ5 — probe-batch uses the same runner instance as /sequence/execute
         return self
 
     def _screenshot_runner(self) -> Sequence__Runner:                               # Dedicated runner for the screenshot surface — JS allowlist bypassed (each call is an isolated ephemeral session)
@@ -129,6 +134,15 @@ class Playwright__Service(Type_Safe):
     def execute_sequence(self, request: Schema__Sequence__Request) -> Schema__Sequence__Response:
         self.setup()
         return self._run_sequence(request)
+
+    # ─── Inspect surface (Φ5 — POST /inspect, probe-batch) ──────────────────────
+
+    def inspect(self, request: Schema__Inspect__Request) -> Schema__Inspect__Response:
+        self.setup()
+        try:
+            return self.probe_executor.execute(request)
+        except ValueError as ve:                                                     # Probe validation (e.g. mutating verb in probes) — surface as 422
+            raise HTTPException(422, str(ve))
 
     # ─── Simple screenshot surface (/screenshot, /screenshot/batch) ─────────────
 
