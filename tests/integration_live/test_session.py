@@ -8,7 +8,12 @@
 
 from unittest import TestCase
 
+import pytest
+
 from tests.integration_live.conftest import TARGET__SGRAPH
+
+
+pytestmark = pytest.mark.serial                                                          # All tests in this module share state (session_id lifecycle) — keep them on one xdist worker
 
 
 def _client():

@@ -34,6 +34,13 @@ from osbot_utils.type_safe.Type_Safe                                            
 MAX_EVENTS_PER_KIND = 1000                                                          # Per-kind ring-buffer cap; keeps memory predictable on long pages
 PAGE_ATTR_NAME      = '_sgpw_buffer'                                                # Convention for attaching buffer to a Playwright page
 
+# Resource types that, by design, hold their connection open for the page's
+# lifetime (websockets, server-sent-events). Counting them as in_flight makes
+# wait_for: network_idle_ms permanently impossible on any page that uses them
+# (~every modern SPA). They're still RECORDED in request/response/failed events
+# for diagnostics; just excluded from the in_flight set the idle predicate watches.
+NON_IDLE_RESOURCE_TYPES = frozenset({'websocket', 'eventsource'})
+
 
 class Page__Listeners__Buffer(Type_Safe):
 
@@ -71,11 +78,13 @@ class Page__Listeners__Buffer(Type_Safe):
 
     def _on_request(self, request: Any) -> None:
         try:
-            self.in_flight_ids.add(id(request))
+            resource_type = safe_str_attr(request, 'resource_type')
+            if resource_type not in NON_IDLE_RESOURCE_TYPES:                        # Exclude long-living connection types from the idle predicate
+                self.in_flight_ids.add(id(request))
             self.request_events.append({'url'           : safe_str_attr(request, 'url'),
                                         'method'        : safe_str_attr(request, 'method'),
-                                        'resource_type' : safe_str_attr(request, 'resource_type'),
-                                        'timestamp'     : _now_ms()                              })
+                                        'resource_type' : resource_type                  ,
+                                        'timestamp'     : _now_ms()                      })
             self._trim(self.request_events)
         except Exception:
             pass

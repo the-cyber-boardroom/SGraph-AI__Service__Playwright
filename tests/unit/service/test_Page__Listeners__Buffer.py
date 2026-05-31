@@ -189,3 +189,29 @@ class test_module_helpers(TestCase):
 
     def test__buffer_from_page_returns_none_for_unattached_page(self):
         assert buffer_from_page(_Fake_Page()) is None
+
+
+# ─── Long-living connection types excluded from idle predicate ──────────────────
+class test_non_idle_resource_types(TestCase):
+
+    def test__websocket_request_does_not_increment_in_flight(self):                   # Otherwise any SPA with a websocket makes wait_for: network_idle_ms permanently impossible
+        buf  = Page__Listeners__Buffer()
+        page = _Fake_Page(); buf.attach(page)
+        ws_req = _Fake_Request(url='wss://example.com/ws', resource_type='websocket')
+        page.trigger('request', ws_req)
+        assert buf.in_flight_count() == 0                                              # Not counted toward idle
+        assert len(buf.request_events) == 1                                            # Still recorded for diagnostics
+
+    def test__eventsource_request_does_not_increment_in_flight(self):
+        buf  = Page__Listeners__Buffer()
+        page = _Fake_Page(); buf.attach(page)
+        sse_req = _Fake_Request(url='https://example.com/stream', resource_type='eventsource')
+        page.trigger('request', sse_req)
+        assert buf.in_flight_count() == 0
+        assert len(buf.request_events) == 1
+
+    def test__xhr_still_increments_in_flight(self):                                    # Regression — only websocket + eventsource are excluded
+        buf  = Page__Listeners__Buffer()
+        page = _Fake_Page(); buf.attach(page)
+        page.trigger('request', _Fake_Request(url='https://example.com/api', resource_type='xhr'))
+        assert buf.in_flight_count() == 1

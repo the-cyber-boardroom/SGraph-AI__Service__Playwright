@@ -159,7 +159,7 @@ jobs:
           python-version: '3.12'
 
       - name: Install integration test deps
-        run: pip install pytest httpx pytest-timeout
+        run: pip install pytest httpx pytest-timeout pytest-xdist                       # xdist parallelises the live tier; conftest pins `serial`-marked tests (session lifecycle) onto a single worker via xdist_group
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -225,7 +225,7 @@ jobs:
           SG_PLAYWRIGHT__LIVE_BASE_URL: http://localhost:8000
           SG_PLAYWRIGHT__LIVE_API_KEY : ${{ env.TEST_API_KEY_VALUE }}
           PYTHONPATH                  : '.'
-        run: pytest tests/integration_live/ --ignore=tests/integration_live/test_00_preflight.py -v --timeout=90
+        run: pytest tests/integration_live/ --ignore=tests/integration_live/test_00_preflight.py -v --timeout=90 -n 4 --dist loadgroup    # -n 4 = 4 xdist workers; loadgroup honours @pytest.mark.xdist_group so session tests stay pinned to one worker
 
       - name: Container state + logs after suite                                    # Always dump — even on success, useful for spotting warnings; on failure it's the only diagnostic we have
         if: always()
@@ -236,6 +236,37 @@ jobs:
           docker inspect "$CONTAINER_NAME" --format 'Status: {{.State.Status}}  ExitCode: {{.State.ExitCode}}  OOMKilled: {{.State.OOMKilled}}  RestartCount: {{.RestartCount}}  Error: {{.State.Error}}' || true
           echo "── last 500 lines of service log ─────────────────────────"
           docker logs "$CONTAINER_NAME" --tail 500 2>&1 || true
+
+      - name: Resource leak introspection                                           # Surfaces orphan Chromium processes, /dev/shm + memory growth, FD count. Warnings only — exits 0 — so a long-running EC2 deployment's leak signal lands in the CI log without blocking the build. Promote to assertions once the baselines are stable.
+        if: always()
+        run: |
+          set +e
+          echo "── docker stats (cpu, mem, mem%) ────────────────────────"
+          docker stats --no-stream --format 'table {{.Name}}\t{{.CPUPerc}}\t{{.MemUsage}}\t{{.MemPerc}}\t{{.PIDs}}' "$CONTAINER_NAME"
+          echo ""
+          echo "── orphan Chromium processes (should be 0 between requests) ─"
+          chromium_count=$(docker exec "$CONTAINER_NAME" sh -c 'pgrep -fc -- chrome || true')
+          echo "Chromium processes: ${chromium_count:-?}"
+          if [ -n "$chromium_count" ] && [ "$chromium_count" -gt 0 ]; then
+            echo "WARNING: $chromium_count Chromium process(es) still running after suite — potential leak"
+            docker exec "$CONTAINER_NAME" sh -c 'ps -eo pid,ppid,etime,rss,cmd | grep -i chrom | head -20' || true
+          fi
+          echo ""
+          echo "── zombie processes ─────────────────────────────────────"
+          zombies=$(docker exec "$CONTAINER_NAME" sh -c "ps -eo stat,pid,cmd | awk '\$1 ~ /^Z/' | wc -l")
+          echo "Zombie processes: ${zombies:-?}"
+          [ "$zombies" -gt 0 ] && docker exec "$CONTAINER_NAME" sh -c "ps -eo stat,pid,cmd | awk '\$1 ~ /^Z/'" || true
+          echo ""
+          echo "── /dev/shm usage ───────────────────────────────────────"
+          docker exec "$CONTAINER_NAME" df -h /dev/shm || true
+          echo ""
+          echo "── open file descriptors on service process ─────────────"
+          docker exec "$CONTAINER_NAME" sh -c 'ls /proc/1/fd 2>/dev/null | wc -l' || true
+          echo ""
+          echo "── /metrics scrape (sample of Prometheus output) ────────"
+          curl -sf -H "X-API-Key: $TEST_API_KEY_VALUE" http://localhost:8000/metrics 2>/dev/null | head -50 || echo "metrics unavailable"
+          echo ""
+          exit 0                                                                     # Never block on this — pure observability for now
 
       - name: Stop test container
         if: always()
