@@ -193,22 +193,38 @@ class _Fake_Page:
         self._maybe_raise('pdf')
         return self.pdf_bytes
 
-    # Φ3 — page.accessibility.snapshot()
+    # Φ3 — get_a11y_tree uses CDP (page.accessibility removed in Playwright 1.49+).
+    # Executor calls page.context.new_cdp_session(page) → client.send('Accessibility.getFullAXTree')
     @property
-    def accessibility(self):
-        return _Fake_Accessibility(self)
+    def context(self):
+        return _Fake_Context(self)
 
 
-class _Fake_Accessibility:
-    a11y_tree = {'role': 'WebArea', 'name': 'fake', 'children': []}
+class _Fake_Context:
+    def __init__(self, page):
+        self.page = page
+
+    def new_cdp_session(self, page):
+        self.page.calls.append(('context.new_cdp_session', id(page)))
+        return _Fake_CDP_Session(self.page)
+
+
+class _Fake_CDP_Session:
+    a11y_tree = {'nodes': [{'nodeId': '1', 'role': {'value': 'WebArea'}, 'ignored': False, 'childIds': ['2']},
+                           {'nodeId': '2', 'role': {'value': 'StaticText'}, 'ignored': True , 'childIds': []}]}
 
     def __init__(self, page):
         self.page = page
 
-    def snapshot(self, **kwargs):
-        self.page.calls.append(('accessibility.snapshot', kwargs))
-        self.page._maybe_raise('accessibility.snapshot')
-        return self.a11y_tree
+    def send(self, method, params=None):
+        self.page.calls.append(('cdp.send', method, params))
+        self.page._maybe_raise(f'cdp.{method}')
+        if method == 'Accessibility.getFullAXTree':
+            return self.a11y_tree
+        return {}
+
+    def detach(self):
+        self.page.calls.append(('cdp.detach',))
 
 
 class _Fake_Text_Locator:                                                            # Returned by page.get_by_text(...) — only needs .wait_for(...) for the FR-1a path
@@ -757,19 +773,32 @@ class test_execute_get_dom_tree(TestCase):
 
 class test_execute_get_a11y_tree(TestCase):
 
-    def test__returns_snapshot_in_accessibility_tree_field(self):
+    def test__returns_cdp_tree_in_accessibility_tree_field(self):
         page = _Fake_Page()
-        step = Schema__Step__Get_A11y_Tree()
+        step = Schema__Step__Get_A11y_Tree(interesting_only=False)                                 # No filtering — full CDP shape preserved
         res  = _executor().execute(page, step, step_index=0, capture_config=_capture_config_all_inline())
         assert res.status == Enum__Step__Status.PASSED
-        assert res.accessibility_tree == {'role': 'WebArea', 'name': 'fake', 'children': []}
+        assert isinstance(res.accessibility_tree, dict)
+        assert 'nodes' in res.accessibility_tree
+        assert len(res.accessibility_tree['nodes']) == 2                                          # Both nodes from the fake survive
 
-    def test__interesting_only_passed_through(self):
+    def test__interesting_only_filters_out_ignored_nodes(self):
         page = _Fake_Page()
-        step = Schema__Step__Get_A11y_Tree(interesting_only=False)
+        step = Schema__Step__Get_A11y_Tree(interesting_only=True)
+        res  = _executor().execute(page, step, step_index=0, capture_config=_capture_config_all_inline())
+        assert res.status == Enum__Step__Status.PASSED
+        nodes = res.accessibility_tree['nodes']
+        assert len(nodes) == 1                                                                    # The ignored=True node is dropped
+        assert nodes[0]['nodeId'] == '1'
+        assert nodes[0]['ignored'] is False
+
+    def test__cdp_session_is_detached_after_use(self):                                            # Hygiene — failing to detach leaks websocket connections
+        page = _Fake_Page()
+        step = Schema__Step__Get_A11y_Tree()
         _executor().execute(page, step, step_index=0, capture_config=_capture_config_all_inline())
-        snap_calls = [c for c in page.calls if c[0] == 'accessibility.snapshot']
-        assert snap_calls and snap_calls[0][1].get('interesting_only') is False
+        kinds = [c[0] for c in page.calls]
+        assert kinds.index('context.new_cdp_session') < kinds.index('cdp.send')
+        assert 'cdp.detach' in kinds
 
 
 class test_execute_get_pdf(TestCase):

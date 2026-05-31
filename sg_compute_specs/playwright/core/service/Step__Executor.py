@@ -378,17 +378,28 @@ class Step__Executor(Step__Executor__Base):                                     
     def execute_get_a11y_tree(self, page, step: Schema__Step__Get_A11y_Tree, step_index: int, capture_config: Schema__Capture__Config) -> Schema__Step__Result__Base:
         started_ms = self.now_ms()
         try:
-            kwargs = {'interesting_only': bool(step.interesting_only)}
-            if step.root_selector is not None:                                                   # Scope to a subtree if provided
-                kwargs['root'] = page.locator(str(step.root_selector))
-            tree = page.accessibility.snapshot(**kwargs)
+            # page.accessibility was removed in Playwright 1.49+; CDP is the
+            # replacement. `Accessibility.getFullAXTree` returns {nodes:[…]}
+            # where each node has {nodeId, role, name, ignored, childIds, …}.
+            # When interesting_only is True we drop ignored nodes (matches the
+            # old API's pruning semantics).
+            client = page.context.new_cdp_session(page)
+            try:
+                tree = client.send('Accessibility.getFullAXTree')
+            finally:
+                client.detach()
+            if bool(step.interesting_only) and isinstance(tree, dict):
+                tree = {**tree, 'nodes': [n for n in tree.get('nodes', []) if not n.get('ignored', False)]}
+            # root_selector is intentionally not honoured yet — CDP scoping
+            # requires queryAXTree with a backendNodeId; will land when the
+            # probe-batch verb (Φ5) lifts the helper.
             return Schema__Step__Result__Base(step_id            = self.resolve_id(step, step_index) ,
                                               step_index         = step_index                        ,
                                               action             = step.action                       ,
                                               status             = Enum__Step__Status.PASSED         ,
                                               duration_ms        = self.now_ms() - started_ms        ,
                                               artefacts          = []                                ,
-                                              accessibility_tree = tree or {}                        )    # snapshot() returns None when scoped to a hidden subtree
+                                              accessibility_tree = tree if isinstance(tree, dict) else {})
         except Exception as error:
             return self.failed_result(step, step_index, started_ms, error)
 
