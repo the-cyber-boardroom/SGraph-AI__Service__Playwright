@@ -26,7 +26,9 @@ class _Fake_Browser:
     def __init__(self):
         self.contexts = []
         self.closed   = False
-    def new_context(self, **_):
+        self.context_kwargs : list = []                                              # Records every new_context(**kwargs) call so tests can assert on ignore_https_errors etc.
+    def new_context(self, **kwargs):
+        self.context_kwargs.append(kwargs)
         ctx = _Fake_Context()
         self.contexts.append(ctx)
         return ctx
@@ -118,3 +120,48 @@ class test_ttl_expiry(TestCase):
         assert str(s1.session_id) not in active                                     # s1 swept
         assert str(s2.session_id) in     active                                     # s2 alive
         assert str(s1.session_id) in reg.browser_launcher.stopped                   # browser stopped for s1
+
+
+# ─── ISSUE-A regression: session worker must honour ignore_https_errors ─────────
+# The @Content debrief (31 May 2026) reported /session/{id}/act navigation to
+# https://dev.vault.sgraph.ai failing with ERR_CERT_AUTHORITY_INVALID, while the
+# SAME url worked via /sequence/execute and /inspect. Root cause: Session__Registry's
+# _get_or_create_page didn't read SG_PLAYWRIGHT__IGNORE_HTTPS_ERRORS the way
+# Sequence__Runner.get_or_create_page did. This test pins that parity.
+
+import os
+
+from sg_compute_specs.playwright.core.consts.env_vars import ENV_VAR__IGNORE_HTTPS_ERRORS
+
+
+class test_ignore_https_errors_parity(TestCase):
+
+    def setUp(self):
+        self._old = os.environ.pop(ENV_VAR__IGNORE_HTTPS_ERRORS, None)
+
+    def tearDown(self):
+        if self._old is not None:
+            os.environ[ENV_VAR__IGNORE_HTTPS_ERRORS] = self._old
+        else:
+            os.environ.pop(ENV_VAR__IGNORE_HTTPS_ERRORS, None)
+
+    def test__env_var_set_passes_ignore_https_errors_to_new_context(self):
+        os.environ[ENV_VAR__IGNORE_HTTPS_ERRORS] = '1'
+        reg   = _registry()
+        state = reg.open(Schema__Browser__Config(), ttl_ms=60_000)
+        try:
+            kwargs_list = state.browser.context_kwargs
+            assert kwargs_list, 'expected new_context to have been called'
+            assert kwargs_list[0].get('ignore_https_errors') is True
+        finally:
+            reg.close(str(state.session_id))
+
+    def test__env_var_unset_omits_the_kwarg(self):                                          # No env var → no ignore_https_errors kwarg (default-secure)
+        reg   = _registry()
+        state = reg.open(Schema__Browser__Config(), ttl_ms=60_000)
+        try:
+            kwargs_list = state.browser.context_kwargs
+            assert kwargs_list, 'expected new_context to have been called'
+            assert 'ignore_https_errors' not in kwargs_list[0]
+        finally:
+            reg.close(str(state.session_id))

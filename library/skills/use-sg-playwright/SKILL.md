@@ -1,6 +1,6 @@
 ---
 name: use-sg-playwright
-description: Drive the SG/Playwright browser-automation service over HTTP — navigate pages, run scripted multi-step sequences, take screenshots/PDFs, extract DOM/text/HTML, batch-probe one page from many angles, or hold a stateful browser session. Trigger when the user asks to "navigate to a URL", "take a screenshot of a page", "scrape a page", "fill a form on a site", "extract the DOM from", "render a PDF of", "click a button on", "drive a browser", or any phrasing that means "remote-control a real Chromium instance through the sg-playwright API". The launching operator gives you a HOST (the FQDN of an ephemeral sg-compute EC2 / a /pw vault proxy) and a TOKEN (the X-API-Key); every call is HTTP — you hold no browser yourself.
+description: Drive the SG/Playwright browser-automation service over HTTP — navigate pages, run scripted multi-step sequences, take screenshots/PDFs, extract DOM/text/HTML, batch-probe one page from many angles, or hold a stateful browser session. Trigger when the user asks to "navigate to a URL", "take a screenshot of a page", "scrape a page", "fill a form on a site", "extract the DOM from", "render a PDF of", "click a button on", "drive a browser", or any phrasing that means "remote-control a real Chromium instance through the sg-playwright API". The launching operator gives you a HOST (the FQDN of an ephemeral sg-compute EC2 / a /pw vault proxy) and a TOKEN; every call is HTTP — you hold no browser yourself. CRITICAL on auth: use `x-sgraph-access-token: ${TOKEN}` for `${HOST}/pw/...` (the proxied production path) and `X-API-Key: ${TOKEN}` for direct stack access — sending the wrong header gets 401 on every call.
 ---
 
 # use-sg-playwright
@@ -11,26 +11,35 @@ The launching operator gives you two values:
 
 ```
 HOST   = https://<name>.sg-compute.sgraph.ai      # FQDN; trusted cert; no -k needed
-TOKEN  = <X-API-Key from `sg va info`>
+TOKEN  = <token from `sg va info`>
 ```
 
-Every request:
+**The auth header depends on the path** — this is the #1 first-attempt failure:
+
+| Path | Header | Why |
+|---|---|---|
+| `${HOST}/pw/...` (vault `/pw` reverse proxy — the production path) | `x-sgraph-access-token: ${TOKEN}` | The `/pw` proxy strips the inbound header and injects `X-API-Key` upstream. A caller sending `X-API-Key` to the proxy gets 401 at the proxy. |
+| `${HOST}/...` (direct service — local Docker / direct EC2 port) | `X-API-Key: ${TOKEN}` | Hits the API-key middleware directly. |
+
+Every request via the `/pw` proxy:
 
 ```bash
-curl -s -H "X-API-Key: ${TOKEN}" -H "Content-Type: application/json" \
+curl -s -H "x-sgraph-access-token: ${TOKEN}" -H "Content-Type: application/json" \
      -X POST "${HOST}/pw/<route>" -d '{...}'
 ```
 
-For direct (non-/pw-proxy) access, drop the `/pw` prefix:
+Direct access (no proxy):
 
 ```bash
-curl -s -H "X-API-Key: ${TOKEN}" "${HOST}/sequence/execute" -d '{...}'
+curl -s -H "X-API-Key: ${TOKEN}" -H "Content-Type: application/json" \
+     -X POST "${HOST}/<route>" -d '{...}'
 ```
 
 Verify the service is reachable:
 
 ```bash
-curl -sf -H "X-API-Key: ${TOKEN}" "${HOST}/pw/health/info"
+curl -sf -H "x-sgraph-access-token: ${TOKEN}" "${HOST}/pw/health/info"        # /pw proxy
+curl -sf -H "X-API-Key: ${TOKEN}"             "${HOST}/health/info"           # direct
 ```
 
 ## Decision tree — which route to use
@@ -192,7 +201,10 @@ Every step result carries EVERY lifted field (most are `null`). Look for the fie
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| `404` from a known route | The proxy strips `/pw` for vault-proxied access — direct access doesn't have it. Use `${HOST}/pw/...` vs `${HOST}/...` per your environment. | Check whether the operator gave you a `/pw` HOST or a direct one. |
+| `401` on every call | Wrong auth header — `X-API-Key` against the `/pw` proxy, or `x-sgraph-access-token` against direct. | See the Connect section's table; pick the header that matches the path. |
+| `404` from a known route | Some paths are `/pw`-prefixed (proxy), some aren't (direct). | Use `${HOST}/pw/...` vs `${HOST}/...` per your environment. |
+| `/inspect` screenshot probe reports `passed` but `artefacts: []` | Without `capture_config` the screenshot has no sink → no artefact emitted. The step still "succeeds" in capturing bytes; they just go nowhere. | Set `"capture_config": {"screenshot": {"enabled": true, "sink": "inline"}}` at the TOP LEVEL of the `/inspect` body. |
+| `get_text` returns `""` on a shadow-DOM-heavy app | `get_text` uses light-DOM `innerText` — does NOT pierce shadow roots. | Use `get_dom_tree` (which DOES pierce open shadow roots, marks `shadow_root: true`) or `screenshot` for shadow-heavy pages. |
 | `wait_for: function` returns `failed` with "allowlist" | Default service has empty allowlist. | Either use `/screenshot` (which has its own `allow_all` runner for `javascript`), or ask the operator to populate the allowlist. |
 | `get_a11y_tree` returns flat `{nodes: [...]}` instead of a nested tree | This is the new CDP shape since Playwright 1.49 removed `page.accessibility`. Filter `n.ignored === false` for "interesting only". | Update any client that expected the old nested shape. |
 | `/inspect`'s `probe_results.X.url` startswith different URL than `navigate.url` | Site redirected (e.g. `https://sgraph.ai/` → `https://sgraph.ai/en-GB/`). | Compare loosely (`startswith` instead of `==`). |
@@ -201,9 +213,10 @@ Every step result carries EVERY lifted field (most are `null`). Look for the fie
 ## Reading the docs while you work
 
 ```bash
-curl -sf -H "X-API-Key: ${TOKEN}" "${HOST}/pw/health/capabilities" | jq
-curl -sf -H "X-API-Key: ${TOKEN}" "${HOST}/pw/health/info" | jq
-curl -sf -H "X-API-Key: ${TOKEN}" "${HOST}/pw/metrics" | head
+# via /pw proxy:
+curl -sf -H "x-sgraph-access-token: ${TOKEN}" "${HOST}/pw/health/capabilities" | jq
+curl -sf -H "x-sgraph-access-token: ${TOKEN}" "${HOST}/pw/health/info"          | jq
+curl -sf -H "x-sgraph-access-token: ${TOKEN}" "${HOST}/pw/metrics"              | head
 ```
 
 The full Swagger UI is at `${HOST}/pw/docs` — every schema, every example, live against your stack.
