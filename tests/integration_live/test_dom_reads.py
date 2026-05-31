@@ -118,6 +118,9 @@ class test_get_a11y_tree(TestCase):
             assert step['status'] == 'passed', f'get_a11y_tree failed: {step.get("error_message")}'
             tree = step.get('accessibility_tree')
             assert isinstance(tree, dict), f'accessibility_tree must serialise as a dict (empty is OK), got {type(tree).__name__}: {tree!r}'
+            # CDP shape: {'nodes': [{nodeId, role, name, ignored, childIds, …}, …]}
+            assert 'nodes' in tree, f'expected CDP-shaped a11y tree with `nodes`, got keys: {sorted(tree.keys())}'
+            assert isinstance(tree['nodes'], list) and len(tree['nodes']) > 0     # Every real page has at least a RootWebArea
 
 
 # ─── FR-5d — PDF rendering ──────────────────────────────────────────────────────
