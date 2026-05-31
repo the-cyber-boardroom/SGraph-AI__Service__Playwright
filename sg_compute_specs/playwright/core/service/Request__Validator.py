@@ -52,6 +52,11 @@ class Request__Validator(Type_Safe):                                            
                 self.reject('evaluate_expression_not_allowed',
                             'JS expression not in trusted allowlist')
 
+        if step.action == Enum__Step__Action.WAIT_FOR and step.function is not None:    # FR-1c — wait_for.function runs user JS via page.wait_for_function; same allowlist as evaluate
+            if not self.js_allowlist.is_allowed(step.function):
+                self.reject('wait_for_function_not_allowed',
+                            'wait_for.function expression not in trusted allowlist')
+
         self.validate_sink_configs(cap_config, capabilities, target)
 
     def validate_sink_configs(self,

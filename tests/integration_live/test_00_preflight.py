@@ -72,11 +72,13 @@ class test_02_service_reachable(TestCase):
             r = c.get('/health/info')
             assert r.status_code == 200, f'/health/info returned {r.status_code}: {r.text[:300]}'
 
-    def test__health_info_payload_has_version(self):
+    def test__health_info_payload_has_service_version(self):
         with _live_client() as c:
             r = c.get('/health/info')
             body = r.json()
-            assert isinstance(body, dict) and 'version' in body, f'Unexpected /health/info body shape: {body!r}'
+            assert isinstance(body, dict), f'Expected dict, got {type(body).__name__}'
+            assert 'service_version' in body, f'Missing service_version in /health/info — keys: {sorted(body.keys())}'
+            assert str(body['service_version']).startswith('v'), f'Unexpected service_version shape: {body["service_version"]!r}'
 
 
 # ─── Tier 4 — service reports a usable browser ────────────────────────────────

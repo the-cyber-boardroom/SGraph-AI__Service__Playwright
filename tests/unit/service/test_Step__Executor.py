@@ -76,6 +76,10 @@ class _Fake_Locator:                                                            
     def scroll_into_view_if_needed(self, **kwargs):
         self.page.calls.append(('locator.scroll_into_view_if_needed', self.selector, kwargs))
 
+    def evaluate(self, expression, **kwargs):                                        # Φ3 — get_html selector branch uses locator.evaluate('el => el.outerHTML', …)
+        self.page.calls.append(('locator.evaluate', self.selector, expression, kwargs))
+        return f'<{self.selector.strip("#.")}>fake-outerhtml</{self.selector.strip("#.")}>'
+
 
 class _Fake_Keyboard:
     def __init__(self, page):
@@ -161,9 +165,15 @@ class _Fake_Page:
         self.calls.append(('content',))
         return self.content_value
 
-    def evaluate(self, expression):
-        self.calls.append(('evaluate', expression))
-        return self.evaluate_return_value                                            # FR-5a — return value surfaced; tests set evaluate_return_value
+    dom_tree_return_value = {'tag': 'body', 'id': None, 'class': None,               # Φ3 — what page.evaluate(DOM_TREE_JS, args) returns; per-test override
+                             'role': None, 'accessible_name': 'fake', 'rect': {'x':0,'y':0,'w':1,'h':1},
+                             'visible': True, 'child_count': 0, 'children': []}
+
+    def evaluate(self, expression, *args):                                            # Variadic: page.evaluate accepts (expr, args) and (expr); fake handles both
+        self.calls.append(('evaluate', expression, args))
+        if args and isinstance(args[0], dict) and 'rootSelector' in args[0]:          # Φ3 — DOM_TREE_JS invocation; return the canned tree
+            return self.dom_tree_return_value
+        return self.evaluate_return_value                                             # FR-5a — return value surfaced; tests set evaluate_return_value
 
     def wait_for_timeout(self, duration_ms):                                          # Φ2 — FR-4 plain wait verb
         self.calls.append(('wait_for_timeout', duration_ms))
@@ -171,6 +181,34 @@ class _Fake_Page:
 
     def get_by_text(self, text):                                                     # Φ2 — FR-1a wait_for: text routes through page.get_by_text(...).wait_for(...)
         return _Fake_Text_Locator(self, text)
+
+    def wait_for_function(self, expression, **kwargs):                               # Φ3 — FR-1c wait_for: function
+        self.calls.append(('wait_for_function', expression, kwargs))
+        self._maybe_raise('wait_for_function')
+
+    pdf_bytes : bytes = b'%PDF-1.4 fake pdf body'
+
+    def pdf(self, **kwargs):                                                         # Φ3 — FR-5d get_pdf
+        self.calls.append(('pdf', kwargs))
+        self._maybe_raise('pdf')
+        return self.pdf_bytes
+
+    # Φ3 — page.accessibility.snapshot()
+    @property
+    def accessibility(self):
+        return _Fake_Accessibility(self)
+
+
+class _Fake_Accessibility:
+    a11y_tree = {'role': 'WebArea', 'name': 'fake', 'children': []}
+
+    def __init__(self, page):
+        self.page = page
+
+    def snapshot(self, **kwargs):
+        self.page.calls.append(('accessibility.snapshot', kwargs))
+        self.page._maybe_raise('accessibility.snapshot')
+        return self.a11y_tree
 
 
 class _Fake_Text_Locator:                                                            # Returned by page.get_by_text(...) — only needs .wait_for(...) for the FR-1a path
@@ -640,3 +678,130 @@ class test_screenshot_viewport_shorthand(TestCase):
         _executor().execute(page, step, step_index=0, capture_config=_capture_config_all_inline())
         kinds = [c[0] for c in page.calls]
         assert 'set_viewport_size' not in kinds
+
+
+# ─── Φ3 — DOM-read verbs (FR-2) ──────────────────────────────────────────────────
+from sg_compute_specs.playwright.core.schemas.steps.Schema__Step__Get_A11y_Tree   import Schema__Step__Get_A11y_Tree
+from sg_compute_specs.playwright.core.schemas.steps.Schema__Step__Get_Dom_Tree    import Schema__Step__Get_Dom_Tree
+from sg_compute_specs.playwright.core.schemas.steps.Schema__Step__Get_Html        import Schema__Step__Get_Html
+from sg_compute_specs.playwright.core.schemas.steps.Schema__Step__Get_Pdf         import Schema__Step__Get_Pdf
+from sg_compute_specs.playwright.core.schemas.steps.Schema__Step__Get_Text        import Schema__Step__Get_Text
+
+
+class test_execute_get_text(TestCase):
+
+    def test__no_selector_uses_body_locator(self):
+        page = _Fake_Page()
+        step = Schema__Step__Get_Text()
+        res  = _executor().execute(page, step, step_index=0, capture_config=_capture_config_all_inline())
+        assert res.status == Enum__Step__Status.PASSED
+        assert str(res.text) == 'inner text'
+        body_text_calls = [c for c in page.calls if c[0] == 'locator.inner_text' and c[1] == 'body']
+        assert body_text_calls, f'expected locator(body).inner_text() call, got {page.calls}'
+
+    def test__selector_scopes_to_subtree(self):
+        page = _Fake_Page()
+        step = Schema__Step__Get_Text(selector='#article')
+        res  = _executor().execute(page, step, step_index=0, capture_config=_capture_config_all_inline())
+        assert res.status == Enum__Step__Status.PASSED
+        scoped = [c for c in page.calls if c[0] == 'locator.inner_text' and c[1] == '#article']
+        assert scoped
+
+    def test__failure_path_returns_base_failed_with_no_text(self):
+        page = _Fake_Page()
+        page.locator = lambda sel: (_ for _ in ()).throw(RuntimeError('locator blew up'))    # force failure
+        step = Schema__Step__Get_Text()
+        res  = _executor().execute(page, step, step_index=0, capture_config=_capture_config_all_inline())
+        assert res.status == Enum__Step__Status.FAILED
+        assert res.text   is None
+
+
+class test_execute_get_html(TestCase):
+
+    def test__no_selector_uses_page_content(self):
+        page = _Fake_Page()
+        step = Schema__Step__Get_Html()
+        res  = _executor().execute(page, step, step_index=0, capture_config=_capture_config_all_inline())
+        assert res.status   == Enum__Step__Status.PASSED
+        assert str(res.html) == '<html><body>hello</body></html>'                                # _Fake_Page.content_value
+        assert ('content',) in page.calls
+
+    def test__selector_uses_locator_evaluate_outerhtml(self):
+        page = _Fake_Page()
+        step = Schema__Step__Get_Html(selector='#main')
+        res  = _executor().execute(page, step, step_index=0, capture_config=_capture_config_all_inline())
+        assert res.status == Enum__Step__Status.PASSED
+        evals = [c for c in page.calls if c[0] == 'locator.evaluate']
+        assert evals and evals[0][2] == 'el => el.outerHTML'                                     # Outer HTML JS expr — distinguishes from get_content's innerHTML
+
+
+class test_execute_get_dom_tree(TestCase):
+
+    def test__passes_root_selector_max_depth_args_to_js(self):
+        page = _Fake_Page()
+        step = Schema__Step__Get_Dom_Tree(root_selector='#app', max_depth=5, include_invisible=True)
+        res  = _executor().execute(page, step, step_index=0, capture_config=_capture_config_all_inline())
+        assert res.status == Enum__Step__Status.PASSED
+        evals = [c for c in page.calls if c[0] == 'evaluate']
+        assert evals, 'expected page.evaluate(DOM_TREE_JS, args) call'
+        args = evals[0][2][0]                                                                    # First positional arg after expression
+        assert args == {'rootSelector': '#app', 'maxDepth': 5, 'includeInvisible': True}
+
+    def test__returns_tree_in_dom_tree_field(self):
+        page = _Fake_Page()
+        step = Schema__Step__Get_Dom_Tree()
+        res  = _executor().execute(page, step, step_index=0, capture_config=_capture_config_all_inline())
+        assert res.dom_tree is not None
+        assert res.dom_tree['tag'] == 'body'
+
+
+class test_execute_get_a11y_tree(TestCase):
+
+    def test__returns_snapshot_in_accessibility_tree_field(self):
+        page = _Fake_Page()
+        step = Schema__Step__Get_A11y_Tree()
+        res  = _executor().execute(page, step, step_index=0, capture_config=_capture_config_all_inline())
+        assert res.status == Enum__Step__Status.PASSED
+        assert res.accessibility_tree == {'role': 'WebArea', 'name': 'fake', 'children': []}
+
+    def test__interesting_only_passed_through(self):
+        page = _Fake_Page()
+        step = Schema__Step__Get_A11y_Tree(interesting_only=False)
+        _executor().execute(page, step, step_index=0, capture_config=_capture_config_all_inline())
+        snap_calls = [c for c in page.calls if c[0] == 'accessibility.snapshot']
+        assert snap_calls and snap_calls[0][1].get('interesting_only') is False
+
+
+class test_execute_get_pdf(TestCase):
+
+    def test__routes_bytes_through_capture_pdf(self):
+        page = _Fake_Page()
+        step = Schema__Step__Get_Pdf(format='Letter', landscape=True, print_background=False)
+        cfg  = Schema__Capture__Config(pdf=Schema__Artefact__Sink_Config(enabled=True, sink=Enum__Artefact__Sink.INLINE))
+        res  = _executor().execute(page, step, step_index=0, capture_config=cfg)
+        assert res.status == Enum__Step__Status.PASSED
+        assert len(res.artefacts) == 1
+        assert res.artefacts[0].artefact_type == Enum__Artefact__Type.PDF
+        pdf_calls = [c for c in page.calls if c[0] == 'pdf']
+        assert pdf_calls and pdf_calls[0][1] == {'format': 'Letter', 'landscape': True, 'print_background': False}
+
+
+# ─── Φ3 — FR-1c wait_for: function ───────────────────────────────────────────────
+class test_wait_for_function(TestCase):
+
+    def test__function_branch_calls_wait_for_function(self):
+        page = _Fake_Page()
+        step = Schema__Step__Wait_For(function='() => window.__ready === true')
+        res  = _executor().execute(page, step, step_index=0, capture_config=_capture_config_all_inline())
+        assert res.status == Enum__Step__Status.PASSED
+        fn_calls = [c for c in page.calls if c[0] == 'wait_for_function']
+        assert fn_calls and fn_calls[0][1] == '() => window.__ready === true'
+
+    def test__function_takes_precedence_over_other_branches(self):                                 # If function + selector both set, function wins (most-specific predicate)
+        page = _Fake_Page()
+        step = Schema__Step__Wait_For(function='() => true', selector='#x', text='hi')
+        _executor().execute(page, step, step_index=0, capture_config=_capture_config_all_inline())
+        kinds = [c[0] for c in page.calls]
+        assert 'wait_for_function' in kinds
+        assert 'wait_for_selector' not in kinds
+        assert 'text.wait_for'      not in kinds
