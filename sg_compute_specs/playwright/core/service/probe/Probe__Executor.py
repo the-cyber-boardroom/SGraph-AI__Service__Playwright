@@ -57,9 +57,18 @@ _DIAGNOSTICS_KEY__NETWORK = '__diagnostics_network_failures__'
 
 class Probe__Executor(Type_Safe):
 
-    sequence_runner : Any = None                                                    # Injected by Playwright__Service.setup() — same Sequence__Runner instance used by /sequence/execute (duck-typed for testability)
+    run_sequence            : Any = None                                            # Callable injected by Playwright__Service: (Schema__Sequence__Request) -> Schema__Sequence__Response.
+                                                                                    # Provided as a callable (not the raw runner) because Lambda/LWA wraps sync Playwright calls in a fresh thread to escape the asyncio event loop — bypassing the wrapper crashes with "using Playwright Sync API inside the asyncio loop". The callable encapsulates that wrapping.
+    run_sequence_held_page  : Any = None                                            # Φ7 — callable for session-mode: (Schema__Sequence__Request, page, listeners_buffer) -> Schema__Sequence__Response
 
     def execute(self, request: Schema__Inspect__Request) -> Schema__Inspect__Response:
+        return self._execute_internal(request, navigate_required=True)
+
+    def execute_on_held_page(self, request, page, listeners_buffer) -> Schema__Inspect__Response:    # Φ7 — /session/{id}/probe entry point. `request` is Schema__Session__Probe__Request shape (no navigate). Returns the same Inspect__Response shape.
+        return self._execute_internal(request, navigate_required=False, held_page=page, held_buffer=listeners_buffer)
+
+    def _execute_internal(self, request, navigate_required: bool,
+                          held_page=None, held_buffer=None) -> Schema__Inspect__Response:
         # ── Step 1: validate probe names + verbs ──────────────────────────────
         for probe_name, probe_dict in request.probes.items():
             action = probe_dict.get('action')
@@ -68,10 +77,10 @@ class Probe__Executor(Type_Safe):
                                  f"Allowed: {sorted(READ_ONLY_PROBE_ACTIONS)}")
 
         # ── Step 2: assemble the internal sequence ────────────────────────────
-        navigate_dict = request.navigate.json()
+        navigate_dict = request.navigate.json() if navigate_required else None      # Held-page mode: page is already at some URL; no navigate step
         settle_dicts  = list(request.settle or [])
         probe_items   = list(request.probes.items())                                # Preserves dict insertion order — caller can rely on probe order if needed
-        steps         = [navigate_dict] + settle_dicts + [d for _, d in probe_items]
+        steps         = ([navigate_dict] if navigate_dict is not None else []) + settle_dicts + [d for _, d in probe_items]
 
         # Always append diagnostic steps when diagnostics_on_fail is True — we
         # need the buffer values BEFORE Sequence__Runner tears down the browser.
@@ -88,19 +97,23 @@ class Probe__Executor(Type_Safe):
         seq_request = Schema__Sequence__Request(
             sequence_id     = Sequence_Id()                                                      ,
             trace_id        = trace_id                                                           ,
-            browser_config  = request.browser_config                                             ,
-            credentials     = request.credentials                                                ,
+            browser_config  = getattr(request, 'browser_config', None)                           ,    # Probe__Request (held-page mode) has no browser_config; only Inspect__Request does
+            credentials     = getattr(request, 'credentials',    None)                           ,
             capture_config  = request.capture_config or Schema__Capture__Config()                ,
             sequence_config = Schema__Sequence__Config()                                         ,    # No halt_on_error — probes are independent; one failure shouldn't skip the rest
             steps           = steps                                                              ,
         )
-        seq_response = self.sequence_runner.execute(seq_request)
+        if held_page is not None:                                                                    # Φ7 — session mode: run on held page, no launch/teardown
+            seq_response = self.run_sequence_held_page(seq_request, held_page, held_buffer)
+        else:
+            seq_response = self.run_sequence(seq_request)                                            # asyncio-safe wrapper provided by Playwright__Service.setup()
 
         # ── Step 4: split results back into navigate / settle / probes ────────
         results          = list(seq_response.step_results)
-        navigate_result  = results[0] if results else None
-        settle_results   = results[1 : 1 + len(settle_dicts)]
-        probes_offset    = 1 + len(settle_dicts)
+        navigate_offset  = 1 if navigate_required else 0
+        navigate_result  = results[0] if navigate_required and results else None
+        settle_results   = results[navigate_offset : navigate_offset + len(settle_dicts)]
+        probes_offset    = navigate_offset + len(settle_dicts)
         probe_slice      = results[probes_offset : probes_offset + len(probe_items)]
         probe_results    = {name: probe_slice[i] for i, (name, _) in enumerate(probe_items)}
 

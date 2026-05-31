@@ -923,3 +923,54 @@ class test_wait_for_network_idle_ms(TestCase):                                  
         assert res.status == Enum__Step__Status.PASSED
         kinds = [c[0] for c in page.calls]
         assert 'wait_for_load_state' in kinds                                         # Fell through to page.wait_for_load_state('networkidle', …)
+
+
+# ─── Φ6a — screenshot.frame_selector (sub-frame capture) ────────────────────────
+class _Fake_Frame_Locator:                                                              # Returned by page.frame_locator(...) — exposes locator() (which returns a _Fake_Locator)
+    def __init__(self, page, frame_selector):
+        self.page           = page
+        self.frame_selector = frame_selector
+
+    def locator(self, selector):
+        self.page.calls.append(('frame.locator', self.frame_selector, selector))
+        return _Fake_Locator(self.page, selector)
+
+
+# Monkey-patch the fake page to expose frame_locator on demand
+def _attach_frame_locator(page):
+    def frame_locator(frame_selector):
+        page.calls.append(('frame_locator', frame_selector))
+        return _Fake_Frame_Locator(page, frame_selector)
+    page.frame_locator = frame_locator
+
+
+class test_screenshot_frame_selector(TestCase):
+
+    def test__with_frame_and_selector_routes_through_frame_locator(self):
+        page = _Fake_Page()
+        _attach_frame_locator(page)
+        step = Schema__Step__Screenshot(frame_selector='iframe.product', selector='.price', full_page=False)
+        res  = _executor().execute(page, step, step_index=0, capture_config=_capture_config_all_inline())
+        assert res.status == Enum__Step__Status.PASSED
+        kinds = [c[0] for c in page.calls]
+        assert 'frame_locator' in kinds                                               # Frame was resolved
+        assert 'frame.locator' in kinds                                               # Selector ran against frame, not page
+        assert 'locator.screenshot' in kinds
+
+    def test__with_frame_only_captures_iframe_element_from_parent(self):
+        page = _Fake_Page()
+        _attach_frame_locator(page)
+        step = Schema__Step__Screenshot(frame_selector='iframe#payment')
+        res  = _executor().execute(page, step, step_index=0, capture_config=_capture_config_all_inline())
+        assert res.status == Enum__Step__Status.PASSED
+        # When frame_selector is set without a child selector, screenshot the iframe element itself via page.locator
+        locator_screenshots = [c for c in page.calls if c[0] == 'locator.screenshot' and c[1] == 'iframe#payment']
+        assert locator_screenshots
+
+    def test__no_frame_selector_keeps_original_screenshot_path(self):                 # Regression — page.screenshot() still used when frame_selector is None
+        page = _Fake_Page()
+        step = Schema__Step__Screenshot(full_page=True)
+        _executor().execute(page, step, step_index=0, capture_config=_capture_config_all_inline())
+        kinds = [c[0] for c in page.calls]
+        assert 'screenshot'         in kinds                                          # page.screenshot()
+        assert 'frame_locator'      not in kinds

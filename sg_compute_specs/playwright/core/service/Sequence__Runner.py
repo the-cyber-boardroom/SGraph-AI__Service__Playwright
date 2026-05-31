@@ -72,6 +72,82 @@ class Sequence__Runner(Type_Safe):
     browser_launcher    : Browser__Launcher
     credentials_loader  : Credentials__Loader
 
+    def execute_on_held_page(self, request: Schema__Sequence__Request,                   # Φ7 — session-mode entry point. Reuses everything except launch / teardown.
+                              page: 'Any', listeners_buffer: 'Page__Listeners__Buffer'
+                         ) -> Schema__Sequence__Response:
+        sequence_id    = request.sequence_id or Sequence_Id()
+        trace_id       = request.trace_id    or Safe_Str__Trace_Id(uuid.uuid4().hex[:8])
+        capture_config = request.capture_config
+        capabilities   = self.capability_detector.capabilities()
+        target         = self.capability_detector.target()
+        started_ms     = int(time.time() * 1000)
+
+        parsed_steps = self.sequence_dispatcher.parse_steps(request.steps)
+        self.request_validator.validate_step_ids_unique(parsed_steps)
+        # No browser_config validation — session inherits from /session/open
+
+        steps_started_ms = int(time.time() * 1000)
+        results, artefacts, counters = self._iterate_steps(parsed_steps, page, request, capabilities, target, started_ms)
+        steps_ms = int(time.time() * 1000) - steps_started_ms
+
+        # End-of-sequence listener artefact emission — same path as standalone execute()
+        if listeners_buffer is not None:
+            self._emit_listener_artefacts(listeners_buffer, capture_config, artefacts)
+
+        status   = self.sequence_status(failed=counters['failed'], halted=counters['halted'])
+        total_ms = int(time.time() * 1000) - started_ms
+        timings  = Schema__Sequence__Timings(playwright_start_ms = Safe_UInt__Milliseconds(0),    # No launch happened — zero out the launch-side timings
+                                              browser_launch_ms   = Safe_UInt__Milliseconds(0),
+                                              steps_ms            = Safe_UInt__Milliseconds(steps_ms),
+                                              browser_close_ms    = Safe_UInt__Milliseconds(0),
+                                              total_ms            = Safe_UInt__Milliseconds(total_ms))
+        return Schema__Sequence__Response(sequence_id       = sequence_id                                       ,
+                                           trace_id          = trace_id                                          ,
+                                           status            = status                                            ,
+                                           total_duration_ms = Safe_UInt__Milliseconds(total_ms)                  ,
+                                           steps_total       = Safe_UInt(len(parsed_steps))                      ,
+                                           steps_passed      = Safe_UInt(counters['passed'])                     ,
+                                           steps_failed      = Safe_UInt(counters['failed'])                     ,
+                                           steps_skipped     = Safe_UInt(counters['skipped'])                    ,
+                                           step_results      = results                                           ,
+                                           artefacts         = artefacts                                         ,
+                                           timings           = timings                                           )
+
+    def _iterate_steps(self, parsed_steps, page, request, capabilities, target, started_ms):    # Extracted from execute() so /session/act can reuse without re-implementing the iteration / deadline / belt-and-braces error wrapping
+        step_results : List[Schema__Step__Result__Base] = []
+        artefacts    : List[Schema__Artefact__Ref]      = []
+        passed = failed = skipped = 0
+        halted = False
+        deadline_ms    = started_ms + self.get_deadline_ms()
+        capture_config = request.capture_config
+
+        for step_index, step in enumerate(parsed_steps):
+            if halted:
+                result = self.skipped_result(step, step_index)
+                step_results.append(result); skipped += 1
+                continue
+            if int(time.time() * 1000) >= deadline_ms:
+                halted = True
+                result = self.skipped_result(step, step_index)
+                step_results.append(result); skipped += 1
+                continue
+            step_started_ms = int(time.time() * 1000)
+            try:
+                self.request_validator.validate_step(step, capture_config, capabilities, target)
+                result = self.step_executor.execute(page=page, step=step, step_index=step_index, capture_config=capture_config)
+            except Exception as error:
+                result = self.step_executor.failed_result(step, step_index, step_started_ms, error)
+            step_results.append(result)
+            if result.status == Enum__Step__Status.PASSED:
+                passed += 1
+            elif result.status == Enum__Step__Status.FAILED:
+                failed += 1
+                if request.sequence_config.halt_on_error:
+                    halted = True
+            for ref in result.artefacts:
+                artefacts.append(ref)
+        return step_results, artefacts, {'passed': passed, 'failed': failed, 'skipped': skipped, 'halted': halted}
+
     def execute(self, request: Schema__Sequence__Request) -> Schema__Sequence__Response:
         sequence_id    = request.sequence_id or Sequence_Id()
         trace_id       = request.trace_id    or Safe_Str__Trace_Id(uuid.uuid4().hex[:8])
@@ -93,12 +169,8 @@ class Sequence__Runner(Type_Safe):
 
         step_results : List[Schema__Step__Result__Base] = []
         artefacts    : List[Schema__Artefact__Ref]      = []
-        passed  = 0
-        failed  = 0
-        skipped = 0
-        halted  = False
+        counters     = {'passed': 0, 'failed': 0, 'skipped': 0, 'halted': False}
 
-        deadline_ms      = started_ms + self.get_deadline_ms()                          # Wall-clock soft deadline — between-step check only
         steps_started_ms = int(time.time() * 1000)
         browser_close_ms = 0
 
@@ -114,40 +186,7 @@ class Sequence__Runner(Type_Safe):
                 context = launch_result.browser.contexts[0] if launch_result.browser.contexts else None
                 self.credentials_loader.apply(context, request.credentials)
 
-            for step_index, step in enumerate(parsed_steps):
-                if halted:                                                              # After halt_on_error failure → SKIPPED
-                    result = self.skipped_result(step, step_index)
-                    step_results.append(result)
-                    skipped += 1
-                    continue
-
-                if int(time.time() * 1000) >= deadline_ms:                              # Deadline breached — treat like halt_on_error
-                    halted = True
-                    result = self.skipped_result(step, step_index)
-                    step_results.append(result)
-                    skipped += 1
-                    continue
-
-                step_started_ms = int(time.time() * 1000)
-                try:                                                                     # Belt-and-braces: a single step may NEVER abort the whole sequence.
-                    self.request_validator.validate_step(step, capture_config, capabilities, target)
-                    result = self.step_executor.execute(page           = page           ,
-                                                         step           = step           ,
-                                                         step_index     = step_index     ,
-                                                         capture_config = capture_config )
-                except Exception as error:                                               # Step validation / execution that escapes the executor's own guards
-                    result = self.step_executor.failed_result(step, step_index, step_started_ms, error)
-                step_results.append(result)
-
-                if result.status == Enum__Step__Status.PASSED:
-                    passed += 1
-                elif result.status == Enum__Step__Status.FAILED:
-                    failed += 1
-                    if request.sequence_config.halt_on_error:
-                        halted = True
-
-                for ref in result.artefacts:
-                    artefacts.append(ref)
+            step_results, artefacts, counters = self._iterate_steps(parsed_steps, page, request, capabilities, target, started_ms)
 
             # Φ4 — FR-5c end-of-sequence artefact emission from the listener buffer.
             # Fires only when the caller opted in via capture_config (console_log /
@@ -159,7 +198,7 @@ class Sequence__Runner(Type_Safe):
             steps_ms         = int(time.time() * 1000) - steps_started_ms
             browser_close_ms = int(self.browser_launcher.stop(session_id))              # try/finally + idempotent stop() = guaranteed Chromium teardown even on step exceptions
 
-        status   = self.sequence_status(failed=failed, halted=halted)
+        status   = self.sequence_status(failed=counters['failed'], halted=counters['halted'])
         total_ms = int(time.time() * 1000) - started_ms
 
         timings  = Schema__Sequence__Timings(playwright_start_ms = Safe_UInt__Milliseconds(playwright_start_ms),
@@ -173,9 +212,9 @@ class Sequence__Runner(Type_Safe):
                                            status            = status                                            ,
                                            total_duration_ms = Safe_UInt__Milliseconds(total_ms)                  ,
                                            steps_total       = Safe_UInt(len(parsed_steps))                      ,
-                                           steps_passed      = Safe_UInt(passed)                                 ,
-                                           steps_failed      = Safe_UInt(failed)                                 ,
-                                           steps_skipped     = Safe_UInt(skipped)                                ,
+                                           steps_passed      = Safe_UInt(counters['passed'])                     ,
+                                           steps_failed      = Safe_UInt(counters['failed'])                     ,
+                                           steps_skipped     = Safe_UInt(counters['skipped'])                    ,
                                            step_results      = step_results                                      ,
                                            artefacts         = artefacts                                         ,
                                            timings           = timings                                           )

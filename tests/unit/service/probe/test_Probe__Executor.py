@@ -60,12 +60,12 @@ def _seq_response(step_results: List[Schema__Step__Result__Base], status=Enum__S
                                        timings           = Schema__Sequence__Timings()         )
 
 
-class _Fake_Sequence_Runner:
+class _Fake_Sequence_Runner:                                                              # Callable — matches Probe__Executor.run_sequence (asyncio-safe wrapper) signature
     def __init__(self, response: Schema__Sequence__Response):
         self.response          = response
         self.last_request: Schema__Sequence__Request = None
 
-    def execute(self, request: Schema__Sequence__Request) -> Schema__Sequence__Response:
+    def __call__(self, request: Schema__Sequence__Request) -> Schema__Sequence__Response:
         self.last_request = request
         return self.response
 
@@ -78,7 +78,7 @@ class test_validation(TestCase):
         req = Schema__Inspect__Request(navigate=Schema__Step__Navigate(url='https://example.com'),
                                         settle  =[]                                                ,
                                         probes  ={'do_click': {'action': 'click', 'selector': 'a'}})
-        executor = Probe__Executor(sequence_runner=_Fake_Sequence_Runner(_seq_response([])))
+        executor = Probe__Executor(run_sequence=_Fake_Sequence_Runner(_seq_response([])))
         with self.assertRaises(ValueError) as cm:
             executor.execute(req)
         assert "'click' is not a read-only probe verb" in str(cm.exception)
@@ -88,7 +88,7 @@ class test_validation(TestCase):
         req = Schema__Inspect__Request(navigate=Schema__Step__Navigate(url='https://example.com'),
                                         settle  =[]                                                ,
                                         probes  ={'p1': {'action': 'navigate', 'url': 'https://x'}})
-        executor = Probe__Executor(sequence_runner=_Fake_Sequence_Runner(_seq_response([])))
+        executor = Probe__Executor(run_sequence=_Fake_Sequence_Runner(_seq_response([])))
         with self.assertRaises(ValueError):
             executor.execute(req)
 
@@ -107,7 +107,7 @@ class test_sequence_assembly(TestCase):
                                                         _passed_result(3, Enum__Step__Action.GET_TEXT),
                                                         _passed_result(4, Enum__Step__Action.GET_CONSOLE_TAIL,    step_id=_DIAGNOSTICS_KEY__CONSOLE),
                                                         _passed_result(5, Enum__Step__Action.GET_NETWORK_FAILURES, step_id=_DIAGNOSTICS_KEY__NETWORK)]))
-        executor = Probe__Executor(sequence_runner=runner)
+        executor = Probe__Executor(run_sequence=runner)
         executor.execute(req)
 
         steps = runner.last_request.steps
@@ -126,7 +126,7 @@ class test_sequence_assembly(TestCase):
                                         diagnostics_on_fail=False                                   )
         runner   = _Fake_Sequence_Runner(_seq_response([_passed_result(0, Enum__Step__Action.NAVIGATE),
                                                         _passed_result(1, Enum__Step__Action.GET_URL)]))
-        Probe__Executor(sequence_runner=runner).execute(req)
+        Probe__Executor(run_sequence=runner).execute(req)
         steps = runner.last_request.steps
         assert len(steps) == 2                                                                # No diagnostic tails appended
         assert all(s.get('id') not in (_DIAGNOSTICS_KEY__CONSOLE, _DIAGNOSTICS_KEY__NETWORK) for s in steps)
@@ -144,7 +144,7 @@ class test_result_splitting(TestCase):
                                                         _passed_result(1, Enum__Step__Action.WAIT_FOR),
                                                         _passed_result(2, Enum__Step__Action.GET_URL,  url='https://example.com/'),
                                                         _passed_result(3, Enum__Step__Action.GET_TEXT, text='Hello')]))
-        resp = Probe__Executor(sequence_runner=runner).execute(req)
+        resp = Probe__Executor(run_sequence=runner).execute(req)
 
         assert resp.navigate_result.action == Enum__Step__Action.NAVIGATE
         assert len(resp.settle_results)   == 1
@@ -159,7 +159,7 @@ class test_result_splitting(TestCase):
                                         diagnostics_on_fail=False                                   )
         runner   = _Fake_Sequence_Runner(_seq_response([_passed_result(0, Enum__Step__Action.NAVIGATE),
                                                         _passed_result(1, Enum__Step__Action.GET_URL)]))
-        resp = Probe__Executor(sequence_runner=runner).execute(req)
+        resp = Probe__Executor(run_sequence=runner).execute(req)
         assert resp.settle_results == []
         assert 'url' in resp.probe_results
 
@@ -177,7 +177,7 @@ class test_diagnostics(TestCase):
             _passed_result(2, Enum__Step__Action.GET_CONSOLE_TAIL,    step_id=_DIAGNOSTICS_KEY__CONSOLE,    console_log=[{'type': 'error', 'text': 'oops'}]),
             _passed_result(3, Enum__Step__Action.GET_NETWORK_FAILURES, step_id=_DIAGNOSTICS_KEY__NETWORK,    network_failures=[{'url': 'https://blocked/'}]),
         ], status=Enum__Sequence__Status.FAILED))
-        resp = Probe__Executor(sequence_runner=runner).execute(req)
+        resp = Probe__Executor(run_sequence=runner).execute(req)
 
         assert resp.diagnostics is not None
         assert resp.diagnostics['console_log']     == [{'type': 'error', 'text': 'oops'}]
@@ -194,5 +194,5 @@ class test_diagnostics(TestCase):
             _passed_result(2, Enum__Step__Action.GET_CONSOLE_TAIL,    step_id=_DIAGNOSTICS_KEY__CONSOLE,    console_log=[]),
             _passed_result(3, Enum__Step__Action.GET_NETWORK_FAILURES, step_id=_DIAGNOSTICS_KEY__NETWORK,    network_failures=[]),
         ]))
-        resp = Probe__Executor(sequence_runner=runner).execute(req)
+        resp = Probe__Executor(run_sequence=runner).execute(req)
         assert resp.diagnostics is None

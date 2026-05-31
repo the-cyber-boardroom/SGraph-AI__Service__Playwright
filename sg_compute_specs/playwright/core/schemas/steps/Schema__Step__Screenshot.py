@@ -16,3 +16,4 @@ class Schema__Step__Screenshot(Schema__Step__Base):                             
     selector            : Safe_Str__Selector   = None                               # Element screenshot if provided
     save_as             : Safe_Str__File__Name = None                               # Filename within sink's folder/prefix
     viewport            : Schema__Viewport     = None                               # FR-7 — set viewport before snapping; avoids a preceding set_viewport step for the common "screenshot at size N×M" case
+    frame_selector      : Safe_Str__Selector   = None                               # Φ6a — capture inside a specific (same-origin) iframe. Pairs with `selector` (element within frame) or `full_page` (full frame). Cross-origin frames return a failed result.
