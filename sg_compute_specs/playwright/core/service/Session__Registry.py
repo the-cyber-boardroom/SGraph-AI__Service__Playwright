@@ -24,9 +24,7 @@ import time
 from typing                                                                                         import Any, Dict, List, Optional
 
 from osbot_utils.type_safe.Type_Safe                                                                import Type_Safe
-from osbot_utils.utils.Env                                                                          import get_env
 
-from sg_compute_specs.playwright.core.consts.env_vars                                                   import ENV_VAR__IGNORE_HTTPS_ERRORS
 from sg_compute_specs.playwright.core.schemas.browser.Schema__Browser__Config                           import Schema__Browser__Config
 from sg_compute_specs.playwright.core.schemas.primitives.identifiers.Session_Id                         import Session_Id
 from sg_compute_specs.playwright.core.service.Page__Listeners__Buffer                                   import Page__Listeners__Buffer
@@ -152,16 +150,6 @@ class Session__Registry(Type_Safe):
         except Exception:
             pass                                                                    # Never raise — close must be best-effort
 
-    def _get_or_create_page(self, browser: Any) -> Any:                              # Runs on the worker thread (called from launch_fn). Must mirror Sequence__Runner.get_or_create_page — including the ENV_VAR__IGNORE_HTTPS_ERRORS check. Without it the session worker's browser context has different TLS trust than the pooled sequence path: vault navigations land ERR_CERT_AUTHORITY_INVALID on /session/{id}/act while the SAME url works via /sequence/execute and /inspect (the @Content debrief ISSUE-A reproducer).
-        contexts = browser.contexts
-        if contexts:
-            context = contexts[0]
-        else:
-            ctx_kwargs = {}
-            if get_env(ENV_VAR__IGNORE_HTTPS_ERRORS):                                # Set on EC2 when the agent_mitmproxy sidecar does TLS interception
-                ctx_kwargs['ignore_https_errors'] = True
-            context = browser.new_context(**ctx_kwargs)
-        pages = context.pages
-        if pages:
-            return pages[0]
-        return context.new_page()
+    def _get_or_create_page(self, browser: Any) -> Any:                              # Runs on the worker thread (called from launch_fn). Delegates to Page__Factory — the single canonical helper that handles the SG_PLAYWRIGHT__IGNORE_HTTPS_ERRORS env var. ISSUE-A 2026-05-31 was caused by this method having its own copy of the logic without the env-var check; never reintroduce that.
+        from sg_compute_specs.playwright.core.service.Page__Factory import get_or_create_page as _factory
+        return _factory(browser)

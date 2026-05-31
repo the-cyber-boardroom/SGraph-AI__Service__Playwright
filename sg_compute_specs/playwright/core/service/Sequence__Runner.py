@@ -219,20 +219,9 @@ class Sequence__Runner(Type_Safe):
                                            artefacts         = artefacts                                         ,
                                            timings           = timings                                           )
 
-    def get_or_create_page(self, browser: Any, session_id: Any) -> Any:              # Freshly launched browser has no context / page — create on demand
-        contexts = browser.contexts                                                  # Playwright sync API: `contexts` is a @property returning List[BrowserContext]
-        if contexts:
-            context = contexts[0]
-        else:
-            ctx_kwargs = {}
-            if get_env(ENV_VAR__IGNORE_HTTPS_ERRORS):
-                ctx_kwargs['ignore_https_errors'] = True                             # Set on EC2 when the agent_mitmproxy sidecar does TLS interception
-            context = browser.new_context(**ctx_kwargs)
-
-        pages = context.pages
-        if pages:
-            return pages[0]
-        return context.new_page()
+    def get_or_create_page(self, browser: Any, session_id: Any) -> Any:              # Delegates to Page__Factory — the single canonical helper. Don't reimplement here; see Page__Factory module docstring for why (ISSUE-A 2026-05-31).
+        from sg_compute_specs.playwright.core.service.Page__Factory import get_or_create_page as _factory
+        return _factory(browser)
 
     def skipped_result(self, step: Schema__Step__Base, step_index: int) -> Schema__Step__Result__Base:
         step_id = step.id if step.id is not None else Step_Id(str(step_index))
