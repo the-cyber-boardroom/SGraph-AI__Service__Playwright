@@ -88,7 +88,7 @@ class Playwright__Service(Type_Safe):
         self.sequence_runner.request_validator   = self.request_validator
         self.sequence_runner.browser_launcher    = self.browser_launcher
         self.sequence_runner.credentials_loader  = self.credentials_loader
-        self.probe_executor.sequence_runner      = self.sequence_runner            # Φ5 — probe-batch uses the same runner instance as /sequence/execute
+        self.probe_executor.run_sequence         = self._run_sequence              # Φ5 — inject the asyncio-safe wrapper, not the raw runner; bare runner.execute() crashes inside FastAPI's asyncio loop ("using Playwright Sync API inside the asyncio loop")
         return self
 
     def _screenshot_runner(self) -> Sequence__Runner:                               # Dedicated runner for the screenshot surface — JS allowlist bypassed (each call is an isolated ephemeral session)

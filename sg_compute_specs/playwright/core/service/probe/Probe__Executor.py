@@ -57,7 +57,8 @@ _DIAGNOSTICS_KEY__NETWORK = '__diagnostics_network_failures__'
 
 class Probe__Executor(Type_Safe):
 
-    sequence_runner : Any = None                                                    # Injected by Playwright__Service.setup() — same Sequence__Runner instance used by /sequence/execute (duck-typed for testability)
+    run_sequence : Any = None                                                       # Callable injected by Playwright__Service: (Schema__Sequence__Request) -> Schema__Sequence__Response.
+                                                                                    # Provided as a callable (not the raw runner) because Lambda/LWA wraps sync Playwright calls in a fresh thread to escape the asyncio event loop — bypassing the wrapper crashes with "using Playwright Sync API inside the asyncio loop". The callable encapsulates that wrapping.
 
     def execute(self, request: Schema__Inspect__Request) -> Schema__Inspect__Response:
         # ── Step 1: validate probe names + verbs ──────────────────────────────
@@ -94,7 +95,7 @@ class Probe__Executor(Type_Safe):
             sequence_config = Schema__Sequence__Config()                                         ,    # No halt_on_error — probes are independent; one failure shouldn't skip the rest
             steps           = steps                                                              ,
         )
-        seq_response = self.sequence_runner.execute(seq_request)
+        seq_response = self.run_sequence(seq_request)                                                # asyncio-safe wrapper provided by Playwright__Service.setup()
 
         # ── Step 4: split results back into navigate / settle / probes ────────
         results          = list(seq_response.step_results)
