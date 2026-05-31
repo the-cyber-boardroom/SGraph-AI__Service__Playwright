@@ -97,6 +97,7 @@ class Playwright__Service(Type_Safe):
         self.probe_executor.run_sequence          = self._run_sequence              # Φ5 — inject the asyncio-safe wrapper, not the raw runner; bare runner.execute() crashes inside FastAPI's asyncio loop ("using Playwright Sync API inside the asyncio loop")
         self.probe_executor.run_sequence_held_page= self._run_sequence_held_page    # Φ7 — session-mode runner callable; same isolation pattern
         self.session_registry.browser_launcher    = self.browser_launcher           # Φ7 — shared launcher for held-session lifecycle
+        self.session_registry.sweep_expired()                                       # Φ7-proper — every request to ANY endpoint sweeps idle sessions (no background thread needed; cleanup happens whenever anyone touches the service)
         return self
 
     def _screenshot_runner(self) -> Sequence__Runner:                               # Dedicated runner for the screenshot surface — JS allowlist bypassed (each call is an isolated ephemeral session)
@@ -152,34 +153,26 @@ class Playwright__Service(Type_Safe):
         except ValueError as ve:                                                     # Probe validation (e.g. mutating verb in probes) — surface as 422
             raise HTTPException(422, str(ve))
 
-    # ─── Session-handle surface (Φ7 — opt-in stateful) ─────────────────────────
+    # ─── Session-handle surface (Φ7-proper — opt-in stateful) ──────────────────
+    # All session_* methods marshal Playwright work onto the SESSION'S OWN
+    # worker thread (Session__State.worker). That thread owns the Playwright
+    # runtime + browser + page for the session's whole lifetime — no thread
+    # affinity issues, no asyncio-loop visibility, no per-request thread
+    # spawning. The asyncio escape happens for free because the worker thread
+    # was spawned without an event loop.
 
-    def _run_sequence_held_page(self, request, page, listeners_buffer):              # Φ7 — asyncio-safe wrapper for held-page runs; same pattern as _run_sequence_via
-        import asyncio
-        try:
-            asyncio.get_running_loop()
-            from concurrent.futures import ThreadPoolExecutor
-            with ThreadPoolExecutor(max_workers=1) as pool:
-                return pool.submit(self.sequence_runner.execute_on_held_page, request, page, listeners_buffer).result()
-        except RuntimeError:
-            return self.sequence_runner.execute_on_held_page(request, page, listeners_buffer)
+    def _run_sequence_held_page(self, request, page, listeners_buffer):              # Sync delegation — caller MUST already be on the session's worker thread
+        return self.sequence_runner.execute_on_held_page(request, page, listeners_buffer)
 
     def session_open(self, request: Schema__Session__Open__Request) -> Schema__Session__Open__Response:
         self.setup()
         capabilities = self.capability_detector.capabilities()
         ttl_ms       = min(int(request.ttl_ms), int(capabilities.max_session_lifetime_ms))
-        # Launching Chromium is a sync Playwright call → must be off the asyncio loop
-        import asyncio
-        try:
-            asyncio.get_running_loop()
-            from concurrent.futures import ThreadPoolExecutor
-            with ThreadPoolExecutor(max_workers=1) as pool:
-                state = pool.submit(self.session_registry.open,
-                                    request.browser_config, ttl_ms,
-                                    request.browser_config, request.credentials).result()
-        except RuntimeError:
-            state = self.session_registry.open(request.browser_config, ttl_ms,
-                                                request.browser_config, request.credentials)
+        # Session__Registry.open() internally spawns the worker thread which
+        # launches Chromium ON ITSELF — the calling thread just blocks on the
+        # setup-done event (no asyncio-loop visibility on the worker → safe).
+        state = self.session_registry.open(request.browser_config, ttl_ms,
+                                            request.browser_config, request.credentials)
         return Schema__Session__Open__Response(session_id    = state.session_id     ,
                                                 expires_at_ms = state.expires_at_ms  ,
                                                 expires_in_ms = ttl_ms               )
@@ -195,7 +188,9 @@ class Playwright__Service(Type_Safe):
                        sequence_config = request.sequence_config or _SC()                     ,
                        steps           = request.steps                                        ,
                        trace_id        = request.trace_id                                     )
-        return self._run_sequence_held_page(seq_req, state.page, state.buffer)
+        # Marshal onto the session's worker thread — page.* calls run there
+        return state.worker.submit(self.sequence_runner.execute_on_held_page,
+                                    seq_req, state.page, state.buffer)
 
     def session_probe(self, session_id: str, request: Schema__Session__Probe__Request) -> Schema__Inspect__Response:
         self.setup()
@@ -203,12 +198,18 @@ class Playwright__Service(Type_Safe):
         if state is None:
             raise HTTPException(404, f'session not found or expired: {session_id}')
         try:
-            return self.probe_executor.execute_on_held_page(request, state.page, state.buffer)
+            # Same marshalling discipline — probe_executor.execute_on_held_page
+            # touches the page (via the wrapped sequence_runner), so it must
+            # run on the session's worker thread.
+            return state.worker.submit(self.probe_executor.execute_on_held_page,
+                                        request, state.page, state.buffer)
         except ValueError as ve:
             raise HTTPException(422, str(ve))
 
     def session_close(self, session_id: str) -> dict:
         self.setup()
+        # Worker.stop() runs the teardown_fn (browser.close) on the worker
+        # thread before joining — preserves Playwright affinity at teardown too.
         closed = self.session_registry.close(session_id)
         return {'session_id': str(session_id), 'closed': closed}
 
