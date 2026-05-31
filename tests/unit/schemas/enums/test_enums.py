@@ -70,10 +70,11 @@ class test_Enum__Step__Action(TestCase):
             'wait'          ,                                                       # Φ2 — FR-4 fixed-duration sleep
             'get_text'      , 'get_html'      , 'get_dom_tree'  ,                   # Φ3 — FR-2 DOM-read verbs
             'get_a11y_tree' , 'get_pdf'       ,                                     # Φ3 — FR-5b accessibility, FR-5d PDF
+            'get_console_tail', 'get_network_failures',                             # Φ4 — FR-5c listener-buffer verbs
         ])
 
-    def test__has_twenty_two_actions(self):                                         # Φ3 — added 5 (get_text/get_html/get_dom_tree/get_a11y_tree/get_pdf). Was 17 after Φ2, 16 in v0.2.47.
-        assert len(list(Enum__Step__Action)) == 22
+    def test__has_twenty_four_actions(self):                                        # Φ4 — added 2 (get_console_tail / get_network_failures). Was 22 after Φ3.
+        assert len(list(Enum__Step__Action)) == 24
 
 
 class test_Enum__Wait__State(TestCase):

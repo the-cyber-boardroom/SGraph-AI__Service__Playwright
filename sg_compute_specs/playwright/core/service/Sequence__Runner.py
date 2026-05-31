@@ -53,9 +53,11 @@ from sg_compute_specs.playwright.core.schemas.steps.Schema__Step__Base          
 from sg_compute_specs.playwright.core.service.Browser__Launcher                                         import Browser__Launcher
 from sg_compute_specs.playwright.core.service.Capability__Detector                                      import Capability__Detector
 from sg_compute_specs.playwright.core.service.Credentials__Loader                                       import Credentials__Loader
+from sg_compute_specs.playwright.core.service.Page__Listeners__Buffer                                   import Page__Listeners__Buffer
 from sg_compute_specs.playwright.core.service.Request__Validator                                        import Request__Validator
 from sg_compute_specs.playwright.core.service.Sequence__Dispatcher                                      import Sequence__Dispatcher
 from sg_compute_specs.playwright.core.service.Step__Executor                                            import Step__Executor
+from sg_compute_specs.playwright.core.schemas.enums.Enum__Artefact__Type                                import Enum__Artefact__Type
 
 
 DEFAULT_REQUEST_DEADLINE_MS = 25000                                                 # 5 s headroom under CloudFront's 30 s gateway timeout
@@ -100,8 +102,14 @@ class Sequence__Runner(Type_Safe):
         steps_started_ms = int(time.time() * 1000)
         browser_close_ms = 0
 
+        listeners_buffer : Page__Listeners__Buffer = None                                # Φ4 — populated before first step so load-time events are captured
         try:
             page = self.get_or_create_page(launch_result.browser, session_id)
+            listeners_buffer = Page__Listeners__Buffer()                                  # Φ4 — attach BEFORE any navigate so page.on('console')/('request')/('response')/('requestfailed') see load-time events
+            try:
+                listeners_buffer.attach(page)
+            except Exception:                                                             # Buffer attachment must NEVER prevent the sequence from running
+                listeners_buffer = None
             if request.credentials:
                 context = launch_result.browser.contexts[0] if launch_result.browser.contexts else None
                 self.credentials_loader.apply(context, request.credentials)
@@ -140,6 +148,13 @@ class Sequence__Runner(Type_Safe):
 
                 for ref in result.artefacts:
                     artefacts.append(ref)
+
+            # Φ4 — FR-5c end-of-sequence artefact emission from the listener buffer.
+            # Fires only when the caller opted in via capture_config (console_log /
+            # network_log sink_config.enabled=True). Failures here MUST not abort the
+            # sequence — best-effort, swallowed on any exception.
+            if listeners_buffer is not None:
+                self._emit_listener_artefacts(listeners_buffer, capture_config, artefacts)
         finally:
             steps_ms         = int(time.time() * 1000) - steps_started_ms
             browser_close_ms = int(self.browser_launcher.stop(session_id))              # try/finally + idempotent stop() = guaranteed Chromium teardown even on step exceptions
@@ -198,3 +213,25 @@ class Sequence__Runner(Type_Safe):
     def get_deadline_ms(self) -> int:
         raw = get_env(ENV_VAR__REQUEST_DEADLINE_MS)
         return int(raw) if raw else DEFAULT_REQUEST_DEADLINE_MS
+
+    def _emit_listener_artefacts(self, buffer: 'Page__Listeners__Buffer',                 # Φ4 — surface console/network buffers as terminal artefacts when the caller asked for them
+                                 capture_config, artefacts: List) -> None:
+        import json
+        try:
+            writer = self.step_executor.artefact_writer
+
+            console_cfg = capture_config.console_log
+            if console_cfg.enabled and buffer.console_events:                              # No artefact for an empty buffer — keeps the artefacts list tidy
+                data = json.dumps(list(buffer.console_events), separators=(',', ':')).encode('utf-8')
+                ref  = writer.write_artefact(Enum__Artefact__Type.CONSOLE_LOG, data, console_cfg)
+                if ref is not None:
+                    artefacts.append(ref)
+
+            network_cfg = capture_config.network_log
+            if network_cfg.enabled and (buffer.request_events or buffer.response_events or buffer.failed_events):
+                data = json.dumps(buffer.network_snapshot(), separators=(',', ':')).encode('utf-8')
+                ref  = writer.write_artefact(Enum__Artefact__Type.NETWORK_LOG, data, network_cfg)
+                if ref is not None:
+                    artefacts.append(ref)
+        except Exception:                                                                  # Best-effort — listener-artefact emission must NEVER abort sequence finalisation
+            pass

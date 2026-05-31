@@ -28,5 +28,7 @@ class Enum__Step__Action(str, Enum):                                            
     GET_DOM_TREE   = "get_dom_tree"                                                 # Φ3 — compact JSON tree (tag/id/class/role/rect/visible/children); bounded by max_depth + optional root_selector
     GET_A11Y_TREE  = "get_a11y_tree"                                                # Φ3 — accessibility tree snapshot (page.accessibility.snapshot)
     GET_PDF        = "get_pdf"                                                      # Φ3 — page.pdf() → PDF artefact via capture_config.pdf
+    GET_CONSOLE_TAIL    = "get_console_tail"                                        # Φ4 — read tail of buffered console events (page.on('console') captures load-time)
+    GET_NETWORK_FAILURES= "get_network_failures"                                    # Φ4 — read buffered page.on('requestfailed') events
 
     def __str__(self): return self.value

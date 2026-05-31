@@ -53,3 +53,6 @@ class Schema__Step__Result__Base(Type_Safe):                                    
     html                : Safe_Str__Page__Content      = None                       # get_html       : outerHTML of page/selector
     dom_tree            : Dict                         = None                       # get_dom_tree   : compact JSON {tag,id,class,role,accessible_name,rect,visible,child_count,children}
     accessibility_tree  : Dict                         = None                       # get_a11y_tree  : page.accessibility.snapshot()
+    # ── Φ4 — FR-5c console + network capture. Same lift-to-base pattern. ───────
+    console_log         : List                         = None                       # get_console_tail     : List[{type,text,timestamp,location?}] — page.on('console') events
+    network_failures    : List                         = None                       # get_network_failures : List[{url,method,failure_text,timestamp}] — page.on('requestfailed') events

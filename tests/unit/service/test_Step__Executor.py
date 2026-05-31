@@ -834,3 +834,92 @@ class test_wait_for_function(TestCase):
         assert 'wait_for_function' in kinds
         assert 'wait_for_selector' not in kinds
         assert 'text.wait_for'      not in kinds
+
+
+# ─── Φ4 — FR-5c listener-buffer verbs + FR-1d network_idle_ms ───────────────────
+from sg_compute_specs.playwright.core.schemas.steps.Schema__Step__Get_Console_Tail     import Schema__Step__Get_Console_Tail
+from sg_compute_specs.playwright.core.schemas.steps.Schema__Step__Get_Network_Failures import Schema__Step__Get_Network_Failures
+from sg_compute_specs.playwright.core.service.Page__Listeners__Buffer                  import (
+    Page__Listeners__Buffer, PAGE_ATTR_NAME)
+
+
+def _attach_fake_buffer(page, *,
+                        console_events=(),
+                        failed_events=(),
+                        in_flight=0):
+    buf = Page__Listeners__Buffer()
+    buf.console_events.extend(list(console_events))
+    buf.failed_events .extend(list(failed_events))
+    if in_flight > 0:
+        buf.in_flight_ids.update(range(in_flight))                                   # fake unique ids
+    setattr(page, PAGE_ATTR_NAME, buf)
+    return buf
+
+
+class test_execute_get_console_tail(TestCase):
+
+    def test__returns_tail_from_attached_buffer(self):
+        page = _Fake_Page()
+        _attach_fake_buffer(page, console_events=[
+            {'type': 'log',   'text': 'first' , 'timestamp': 1},
+            {'type': 'warn',  'text': 'second', 'timestamp': 2},
+            {'type': 'error', 'text': 'third' , 'timestamp': 3},
+        ])
+        step = Schema__Step__Get_Console_Tail(lines=2)
+        res  = _executor().execute(page, step, step_index=0, capture_config=_capture_config_all_inline())
+        assert res.status == Enum__Step__Status.PASSED
+        assert [e['text'] for e in res.console_log] == ['second', 'third']
+
+    def test__no_buffer_attached_returns_empty_log(self):                            # Unit tests that bypass the runner — verb must not crash
+        page = _Fake_Page()
+        step = Schema__Step__Get_Console_Tail()
+        res  = _executor().execute(page, step, step_index=0, capture_config=_capture_config_all_inline())
+        assert res.status      == Enum__Step__Status.PASSED
+        assert res.console_log == []
+
+
+class test_execute_get_network_failures(TestCase):
+
+    def test__returns_failed_events_from_buffer(self):
+        page = _Fake_Page()
+        _attach_fake_buffer(page, failed_events=[
+            {'url': 'https://blocked.example/x', 'method': 'GET', 'failure_text': 'BLOCKED'  , 'timestamp': 9},
+        ])
+        step = Schema__Step__Get_Network_Failures()
+        res  = _executor().execute(page, step, step_index=0, capture_config=_capture_config_all_inline())
+        assert res.status            == Enum__Step__Status.PASSED
+        assert len(res.network_failures) == 1
+        assert res.network_failures[0]['url'] == 'https://blocked.example/x'
+
+    def test__no_buffer_returns_empty_list(self):
+        page = _Fake_Page()
+        step = Schema__Step__Get_Network_Failures()
+        res  = _executor().execute(page, step, step_index=0, capture_config=_capture_config_all_inline())
+        assert res.status              == Enum__Step__Status.PASSED
+        assert res.network_failures    == []
+
+
+class test_wait_for_network_idle_ms(TestCase):                                       # FR-1d
+
+    def test__returns_immediately_when_in_flight_is_zero_and_idle_window_satisfied(self):
+        page = _Fake_Page()
+        _attach_fake_buffer(page, in_flight=0)
+        step = Schema__Step__Wait_For(network_idle_ms=10, timeout_ms=2000)            # 10ms quiet window — buffer is already quiet
+        res  = _executor().execute(page, step, step_index=0, capture_config=_capture_config_all_inline())
+        assert res.status == Enum__Step__Status.PASSED
+
+    def test__times_out_when_requests_stay_in_flight(self):
+        page = _Fake_Page()
+        _attach_fake_buffer(page, in_flight=3)                                        # Never drains
+        step = Schema__Step__Wait_For(network_idle_ms=50, timeout_ms=200)             # 200ms timeout; buffer never goes quiet
+        res  = _executor().execute(page, step, step_index=0, capture_config=_capture_config_all_inline())
+        assert res.status == Enum__Step__Status.FAILED
+        assert 'network_idle_ms' in str(res.error_message)
+
+    def test__falls_back_to_load_state_when_no_buffer_attached(self):                 # Without a buffer the executor falls back to Playwright's built-in networkidle
+        page = _Fake_Page()
+        step = Schema__Step__Wait_For(network_idle_ms=100, timeout_ms=1000)
+        res  = _executor().execute(page, step, step_index=0, capture_config=_capture_config_all_inline())
+        assert res.status == Enum__Step__Status.PASSED
+        kinds = [c[0] for c in page.calls]
+        assert 'wait_for_load_state' in kinds                                         # Fell through to page.wait_for_load_state('networkidle', …)

@@ -2,6 +2,7 @@
 # Playwright Service — Schema__Step__Wait_For (spec §5.6)
 # ═══════════════════════════════════════════════════════════════════════════════
 
+from osbot_utils.type_safe.primitives.core.Safe_UInt                                                    import Safe_UInt
 from osbot_utils.type_safe.primitives.domains.common.safe_str.Safe_Str__Text                            import Safe_Str__Text
 
 from sg_compute_specs.playwright.core.schemas.enums.Enum__Step__Action                                  import Enum__Step__Action
@@ -21,3 +22,4 @@ class Schema__Step__Wait_For(Schema__Step__Base):                               
     visible             : bool                      = True                          # For selector waits: visible vs attached
     selector_gone       : bool                      = False                         # FR-1b — wait for selector to detach from the DOM (state='detached'); overrides `visible` when True
     function            : Safe_Str__JS__Expression  = None                          # FR-1c — wait until a JS predicate returns truthy (page.wait_for_function); allowlist-gated, same gate as EVALUATE
+    network_idle_ms     : Safe_UInt                 = None                          # FR-1d — wait until no in-flight requests for N consecutive ms (page.on('request')/('response') buffer); requires Sequence__Runner to have attached the listener buffer

@@ -43,13 +43,16 @@ from sg_compute_specs.playwright.core.schemas.steps.Schema__Step__Click         
 from sg_compute_specs.playwright.core.schemas.steps.Schema__Step__Fill                                  import Schema__Step__Fill
 from sg_compute_specs.playwright.core.schemas.enums.Enum__Artefact__Type                               import Enum__Artefact__Type
 from sg_compute_specs.playwright.core.schemas.steps.Schema__Step__Get_A11y_Tree                         import Schema__Step__Get_A11y_Tree
+from sg_compute_specs.playwright.core.schemas.steps.Schema__Step__Get_Console_Tail                      import Schema__Step__Get_Console_Tail
 from sg_compute_specs.playwright.core.schemas.steps.Schema__Step__Get_Content                           import Schema__Step__Get_Content
 from sg_compute_specs.playwright.core.schemas.steps.Schema__Step__Get_Dom_Tree                          import Schema__Step__Get_Dom_Tree
 from sg_compute_specs.playwright.core.schemas.steps.Schema__Step__Get_Html                              import Schema__Step__Get_Html
+from sg_compute_specs.playwright.core.schemas.steps.Schema__Step__Get_Network_Failures                  import Schema__Step__Get_Network_Failures
 from sg_compute_specs.playwright.core.schemas.steps.Schema__Step__Get_Pdf                               import Schema__Step__Get_Pdf
 from sg_compute_specs.playwright.core.schemas.steps.Schema__Step__Get_Text                              import Schema__Step__Get_Text
 from sg_compute_specs.playwright.core.schemas.steps.Schema__Step__Get_Url                               import Schema__Step__Get_Url
 from sg_compute_specs.playwright.core.schemas.steps.Schema__Step__Evaluate                              import Schema__Step__Evaluate
+from sg_compute_specs.playwright.core.service.Page__Listeners__Buffer                                   import buffer_from_page
 from sg_compute_specs.playwright.core.schemas.steps.Schema__Step__Navigate                              import Schema__Step__Navigate
 from sg_compute_specs.playwright.core.schemas.steps.Schema__Step__Screenshot                            import Schema__Step__Screenshot
 from sg_compute_specs.playwright.core.schemas.steps.Schema__Step__Wait                                  import Schema__Step__Wait
@@ -224,8 +227,10 @@ class Step__Executor(Step__Executor__Base):                                     
     def execute_wait_for(self, page, step: Schema__Step__Wait_For, step_index: int, capture_config: Schema__Capture__Config) -> Schema__Step__Result__Base:
         started_ms = self.now_ms()
         try:
-            if   step.function    is not None:                                          # FR-1c — wait for a JS predicate to return truthy. Allowlist already checked upstream in Request__Validator
+            if   step.function        is not None:                                      # FR-1c — wait for a JS predicate to return truthy. Allowlist already checked upstream in Request__Validator
                 page.wait_for_function(str(step.function), timeout=int(step.timeout_ms))
+            elif step.network_idle_ms is not None:                                      # FR-1d — wait until N ms have passed with no in-flight requests
+                self._wait_for_network_idle(page, int(step.network_idle_ms), int(step.timeout_ms))
             elif step.text        is not None:                                          # FR-1a — wait for visible text. When `selector` is also set, scope to that subtree
                 root   = page.locator(str(step.selector)) if step.selector is not None else page
                 locator = root.get_by_text(str(step.text))
@@ -413,6 +418,58 @@ class Step__Executor(Step__Executor__Base):                                     
             return self.passed_result(step, step_index, started_ms, artefacts=self.filter_refs([ref]))
         except Exception as error:
             return self.failed_result(step, step_index, started_ms, error)
+
+    # ─── Φ4 — listener-buffer verbs (FR-5c) + universal idle predicate (FR-1d) ─
+
+    def execute_get_console_tail(self, page, step: Schema__Step__Get_Console_Tail, step_index: int, capture_config: Schema__Capture__Config) -> Schema__Step__Result__Base:
+        started_ms = self.now_ms()
+        try:
+            buffer = buffer_from_page(page)                                                          # None when Sequence__Runner didn't attach one (unit tests bypass the runner)
+            events = buffer.console_tail(int(step.lines)) if buffer is not None else []
+            return Schema__Step__Result__Base(step_id     = self.resolve_id(step, step_index) ,
+                                              step_index  = step_index                        ,
+                                              action      = step.action                       ,
+                                              status      = Enum__Step__Status.PASSED         ,
+                                              duration_ms = self.now_ms() - started_ms        ,
+                                              artefacts   = []                                ,
+                                              console_log = events                            )
+        except Exception as error:
+            return self.failed_result(step, step_index, started_ms, error)
+
+    def execute_get_network_failures(self, page, step: Schema__Step__Get_Network_Failures, step_index: int, capture_config: Schema__Capture__Config) -> Schema__Step__Result__Base:
+        started_ms = self.now_ms()
+        try:
+            buffer  = buffer_from_page(page)
+            events  = buffer.network_failures() if buffer is not None else []
+            return Schema__Step__Result__Base(step_id          = self.resolve_id(step, step_index) ,
+                                              step_index       = step_index                        ,
+                                              action           = step.action                       ,
+                                              status           = Enum__Step__Status.PASSED         ,
+                                              duration_ms      = self.now_ms() - started_ms        ,
+                                              artefacts        = []                                ,
+                                              network_failures = events                            )
+        except Exception as error:
+            return self.failed_result(step, step_index, started_ms, error)
+
+    def _wait_for_network_idle(self, page, idle_ms: int, timeout_ms: int) -> None:                  # FR-1d — block until the listener buffer reports no in-flight requests for `idle_ms` consecutive ms, bounded by timeout_ms
+        import time
+        buffer = buffer_from_page(page)
+        if buffer is None:                                                                          # Without the buffer we can't enforce idle; fall back to Playwright's built-in networkidle (500ms hardcoded)
+            page.wait_for_load_state('networkidle', timeout=int(timeout_ms))
+            return
+        deadline_ms = self.now_ms() + int(timeout_ms)
+        quiet_since = self.now_ms() if buffer.in_flight_count() == 0 else None
+        while self.now_ms() < deadline_ms:
+            in_flight = buffer.in_flight_count()
+            if in_flight == 0:
+                if quiet_since is None:
+                    quiet_since = self.now_ms()
+                elif self.now_ms() - quiet_since >= int(idle_ms):
+                    return                                                                          # Quiet long enough — success
+            else:
+                quiet_since = None                                                                  # Reset on any in-flight request
+            time.sleep(0.05)                                                                        # 50ms poll — bounded CPU while waiting
+        raise TimeoutError(f'wait_for: network_idle_ms={idle_ms} not reached within timeout_ms={timeout_ms} (in_flight={buffer.in_flight_count()})')
 
     # ─── Built-in JS for get_dom_tree (NOT user JS — bypasses the allowlist) ───
     # Compact, dependency-free DOM traversal. Returns the same shape every time
