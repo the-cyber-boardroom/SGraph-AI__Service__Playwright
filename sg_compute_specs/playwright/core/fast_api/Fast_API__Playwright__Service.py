@@ -37,6 +37,7 @@ from sg_compute_specs.playwright.core.fast_api.routes.Routes__Inspect           
 from sg_compute_specs.playwright.core.fast_api.routes.Routes__Metrics                    import Routes__Metrics
 from sg_compute_specs.playwright.core.fast_api.routes.Routes__Screenshot                 import Routes__Screenshot
 from sg_compute_specs.playwright.core.fast_api.routes.Routes__Sequence                   import Routes__Sequence
+from sg_compute_specs.playwright.core.fast_api.routes.Routes__Session                    import Routes__Session
 from sg_compute_specs.playwright.core.service.Playwright__Service                        import Playwright__Service
 from sg_compute_specs.playwright.core.service.Request__Watchdog                          import Request__Watchdog
 
@@ -107,5 +108,6 @@ class Fast_API__Playwright__Service(Agentic_FastAPI):
         self.add_routes(Routes__Sequence   , service=self.service)
         self.add_routes(Routes__Screenshot , service=self.service)
         self.add_routes(Routes__Inspect    , service=self.service)                  # Φ5 — POST /inspect probe-batch
+        self.add_routes(Routes__Session    , service=self.service)                  # Φ7 — opt-in stateful session handles
         self.add_routes(Routes__Metrics  )                                          # No service injection — reads from module-level _REGISTRY in Metrics__Collector
         self.add_routes(Routes__Set_Cookie)                                         # /auth/set-cookie-form (HTML UI) + /auth/set-auth-cookie (POST) — both in AUTH__EXCLUDED_PATHS so they bypass the API-key middleware

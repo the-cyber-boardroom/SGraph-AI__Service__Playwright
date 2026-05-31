@@ -66,9 +66,14 @@ from sg_compute_specs.playwright.core.service.Credentials__Loader               
 from sg_compute_specs.playwright.core.service.JS__Expression__Allowlist                     import JS__Expression__Allowlist
 from sg_compute_specs.playwright.core.service.Request__Validator                            import Request__Validator
 from sg_compute_specs.playwright.core.service.Sequence__Runner                              import Sequence__Runner
+from sg_compute_specs.playwright.core.service.Session__Registry                             import Session__Registry
 from sg_compute_specs.playwright.core.service.probe.Probe__Executor                         import Probe__Executor
 from sg_compute_specs.playwright.core.schemas.inspect.Schema__Inspect__Request              import Schema__Inspect__Request
 from sg_compute_specs.playwright.core.schemas.inspect.Schema__Inspect__Response             import Schema__Inspect__Response
+from sg_compute_specs.playwright.core.schemas.session_handle.Schema__Session__Open__Request import Schema__Session__Open__Request
+from sg_compute_specs.playwright.core.schemas.session_handle.Schema__Session__Open__Response import Schema__Session__Open__Response
+from sg_compute_specs.playwright.core.schemas.session_handle.Schema__Session__Act__Request  import Schema__Session__Act__Request
+from sg_compute_specs.playwright.core.schemas.session_handle.Schema__Session__Probe__Request import Schema__Session__Probe__Request
 
 
 class Playwright__Service(Type_Safe):
@@ -80,15 +85,18 @@ class Playwright__Service(Type_Safe):
     credentials_loader  : Credentials__Loader
     sequence_runner     : Sequence__Runner
     probe_executor      : Probe__Executor                                           # Φ5 — handles POST /inspect via the sequence_runner
+    session_registry    : Session__Registry                                         # Φ7 — opt-in stateful session handles
 
     def setup(self) -> 'Playwright__Service':
         if self.capability_detector.detected_target is None:
             self.capability_detector.detect()
-        self.sequence_runner.capability_detector = self.capability_detector
-        self.sequence_runner.request_validator   = self.request_validator
-        self.sequence_runner.browser_launcher    = self.browser_launcher
-        self.sequence_runner.credentials_loader  = self.credentials_loader
-        self.probe_executor.run_sequence         = self._run_sequence              # Φ5 — inject the asyncio-safe wrapper, not the raw runner; bare runner.execute() crashes inside FastAPI's asyncio loop ("using Playwright Sync API inside the asyncio loop")
+        self.sequence_runner.capability_detector  = self.capability_detector
+        self.sequence_runner.request_validator    = self.request_validator
+        self.sequence_runner.browser_launcher     = self.browser_launcher
+        self.sequence_runner.credentials_loader   = self.credentials_loader
+        self.probe_executor.run_sequence          = self._run_sequence              # Φ5 — inject the asyncio-safe wrapper, not the raw runner; bare runner.execute() crashes inside FastAPI's asyncio loop ("using Playwright Sync API inside the asyncio loop")
+        self.probe_executor.run_sequence_held_page= self._run_sequence_held_page    # Φ7 — session-mode runner callable; same isolation pattern
+        self.session_registry.browser_launcher    = self.browser_launcher           # Φ7 — shared launcher for held-session lifecycle
         return self
 
     def _screenshot_runner(self) -> Sequence__Runner:                               # Dedicated runner for the screenshot surface — JS allowlist bypassed (each call is an isolated ephemeral session)
@@ -143,6 +151,66 @@ class Playwright__Service(Type_Safe):
             return self.probe_executor.execute(request)
         except ValueError as ve:                                                     # Probe validation (e.g. mutating verb in probes) — surface as 422
             raise HTTPException(422, str(ve))
+
+    # ─── Session-handle surface (Φ7 — opt-in stateful) ─────────────────────────
+
+    def _run_sequence_held_page(self, request, page, listeners_buffer):              # Φ7 — asyncio-safe wrapper for held-page runs; same pattern as _run_sequence_via
+        import asyncio
+        try:
+            asyncio.get_running_loop()
+            from concurrent.futures import ThreadPoolExecutor
+            with ThreadPoolExecutor(max_workers=1) as pool:
+                return pool.submit(self.sequence_runner.execute_on_held_page, request, page, listeners_buffer).result()
+        except RuntimeError:
+            return self.sequence_runner.execute_on_held_page(request, page, listeners_buffer)
+
+    def session_open(self, request: Schema__Session__Open__Request) -> Schema__Session__Open__Response:
+        self.setup()
+        capabilities = self.capability_detector.capabilities()
+        ttl_ms       = min(int(request.ttl_ms), int(capabilities.max_session_lifetime_ms))
+        # Launching Chromium is a sync Playwright call → must be off the asyncio loop
+        import asyncio
+        try:
+            asyncio.get_running_loop()
+            from concurrent.futures import ThreadPoolExecutor
+            with ThreadPoolExecutor(max_workers=1) as pool:
+                state = pool.submit(self.session_registry.open,
+                                    request.browser_config, ttl_ms,
+                                    request.browser_config, request.credentials).result()
+        except RuntimeError:
+            state = self.session_registry.open(request.browser_config, ttl_ms,
+                                                request.browser_config, request.credentials)
+        return Schema__Session__Open__Response(session_id    = state.session_id     ,
+                                                expires_at_ms = state.expires_at_ms  ,
+                                                expires_in_ms = ttl_ms               )
+
+    def session_act(self, session_id: str, request: Schema__Session__Act__Request):
+        self.setup()
+        state = self.session_registry.get(session_id)
+        if state is None:
+            raise HTTPException(404, f'session not found or expired: {session_id}')
+        from sg_compute_specs.playwright.core.schemas.sequence.Schema__Sequence__Request import Schema__Sequence__Request as _SR
+        from sg_compute_specs.playwright.core.schemas.sequence.Schema__Sequence__Config  import Schema__Sequence__Config  as _SC
+        seq_req = _SR(capture_config  = request.capture_config or Schema__Capture__Config()  ,
+                       sequence_config = request.sequence_config or _SC()                     ,
+                       steps           = request.steps                                        ,
+                       trace_id        = request.trace_id                                     )
+        return self._run_sequence_held_page(seq_req, state.page, state.buffer)
+
+    def session_probe(self, session_id: str, request: Schema__Session__Probe__Request) -> Schema__Inspect__Response:
+        self.setup()
+        state = self.session_registry.get(session_id)
+        if state is None:
+            raise HTTPException(404, f'session not found or expired: {session_id}')
+        try:
+            return self.probe_executor.execute_on_held_page(request, state.page, state.buffer)
+        except ValueError as ve:
+            raise HTTPException(422, str(ve))
+
+    def session_close(self, session_id: str) -> dict:
+        self.setup()
+        closed = self.session_registry.close(session_id)
+        return {'session_id': str(session_id), 'closed': closed}
 
     # ─── Simple screenshot surface (/screenshot, /screenshot/batch) ─────────────
 

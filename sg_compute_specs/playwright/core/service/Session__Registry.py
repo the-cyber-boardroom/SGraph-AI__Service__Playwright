@@ -54,7 +54,7 @@ class Session__State:                                                           
 
 class Session__Registry(Type_Safe):
 
-    browser_launcher : Browser__Launcher = None                                     # Injected by Playwright__Service.setup() — reuses the same launcher as /sequence/execute
+    browser_launcher : Any = None                                                   # Injected by Playwright__Service.setup() — duck-typed (.launch/.register/.stop) for testability; real type is Browser__Launcher
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
