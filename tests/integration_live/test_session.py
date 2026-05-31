@@ -66,8 +66,11 @@ class test_session_act_then_probe(TestCase):
                 ra = c.post(f'/session/{sid}/act', json=act_body)
                 assert ra.status_code == 200, ra.text
                 act_resp = ra.json()
-                assert act_resp['status']       == 'completed'
-                assert act_resp['steps_passed'] == 1
+                # Surface the per-step error_message on failure — bare "status=failed" is uninformative
+                if act_resp['status'] != 'completed':
+                    step_errors = [(r.get('action'), r.get('status'), r.get('error_type'), r.get('error_message'))
+                                   for r in act_resp.get('step_results', [])]
+                    self.fail(f'/session/act navigate failed. sequence status={act_resp["status"]}, step_results={step_errors}')
 
                 # probe: read URL + DOM tree, no navigate (page is already loaded)
                 probe_body = {'settle': [], 'probes': {'where': {'action': 'get_url'},
