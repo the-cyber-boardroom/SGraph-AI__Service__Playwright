@@ -23,5 +23,10 @@ class Enum__Step__Action(str, Enum):                                            
     SET_VIEWPORT   = "set_viewport"                                                 # Change viewport dimensions
     GET_CONTENT    = "get_content"                                                  # Return page HTML / text
     GET_URL        = "get_url"                                                      # Return current URL
+    GET_TEXT       = "get_text"                                                     # Φ3 — visible text of page or selector (innerText)
+    GET_HTML       = "get_html"                                                     # Φ3 — outerHTML of page or selector
+    GET_DOM_TREE   = "get_dom_tree"                                                 # Φ3 — compact JSON tree (tag/id/class/role/rect/visible/children); bounded by max_depth + optional root_selector
+    GET_A11Y_TREE  = "get_a11y_tree"                                                # Φ3 — accessibility tree snapshot (page.accessibility.snapshot)
+    GET_PDF        = "get_pdf"                                                      # Φ3 — page.pdf() → PDF artefact via capture_config.pdf
 
     def __str__(self): return self.value

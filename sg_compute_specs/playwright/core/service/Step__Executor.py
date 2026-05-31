@@ -41,7 +41,13 @@ from sg_compute_specs.playwright.core.schemas.results.Schema__Step__Result__Get_
 from sg_compute_specs.playwright.core.schemas.steps.Schema__Step__Base                                  import Schema__Step__Base
 from sg_compute_specs.playwright.core.schemas.steps.Schema__Step__Click                                 import Schema__Step__Click
 from sg_compute_specs.playwright.core.schemas.steps.Schema__Step__Fill                                  import Schema__Step__Fill
+from sg_compute_specs.playwright.core.schemas.enums.Enum__Artefact__Type                               import Enum__Artefact__Type
+from sg_compute_specs.playwright.core.schemas.steps.Schema__Step__Get_A11y_Tree                         import Schema__Step__Get_A11y_Tree
 from sg_compute_specs.playwright.core.schemas.steps.Schema__Step__Get_Content                           import Schema__Step__Get_Content
+from sg_compute_specs.playwright.core.schemas.steps.Schema__Step__Get_Dom_Tree                          import Schema__Step__Get_Dom_Tree
+from sg_compute_specs.playwright.core.schemas.steps.Schema__Step__Get_Html                              import Schema__Step__Get_Html
+from sg_compute_specs.playwright.core.schemas.steps.Schema__Step__Get_Pdf                               import Schema__Step__Get_Pdf
+from sg_compute_specs.playwright.core.schemas.steps.Schema__Step__Get_Text                              import Schema__Step__Get_Text
 from sg_compute_specs.playwright.core.schemas.steps.Schema__Step__Get_Url                               import Schema__Step__Get_Url
 from sg_compute_specs.playwright.core.schemas.steps.Schema__Step__Evaluate                              import Schema__Step__Evaluate
 from sg_compute_specs.playwright.core.schemas.steps.Schema__Step__Navigate                              import Schema__Step__Navigate
@@ -218,7 +224,9 @@ class Step__Executor(Step__Executor__Base):                                     
     def execute_wait_for(self, page, step: Schema__Step__Wait_For, step_index: int, capture_config: Schema__Capture__Config) -> Schema__Step__Result__Base:
         started_ms = self.now_ms()
         try:
-            if   step.text        is not None:                                          # FR-1a — wait for visible text. When `selector` is also set, scope to that subtree
+            if   step.function    is not None:                                          # FR-1c — wait for a JS predicate to return truthy. Allowlist already checked upstream in Request__Validator
+                page.wait_for_function(str(step.function), timeout=int(step.timeout_ms))
+            elif step.text        is not None:                                          # FR-1a — wait for visible text. When `selector` is also set, scope to that subtree
                 root   = page.locator(str(step.selector)) if step.selector is not None else page
                 locator = root.get_by_text(str(step.text))
                 locator.wait_for(state='visible', timeout=int(step.timeout_ms))
@@ -303,6 +311,142 @@ class Step__Executor(Step__Executor__Base):                                     
             return self.passed_result(step, step_index, started_ms)
         except Exception as error:
             return self.failed_result(step, step_index, started_ms, error)
+
+    # ─── Φ3 — DOM-read verbs (FR-2) + a11y (FR-5b) + PDF (FR-5d) ───────────────
+
+    def execute_get_text(self, page, step: Schema__Step__Get_Text, step_index: int, capture_config: Schema__Capture__Config) -> Schema__Step__Result__Base:
+        started_ms = self.now_ms()
+        try:
+            locator = page.locator(str(step.selector)) if step.selector is not None else page.locator('body')
+            text    = locator.inner_text(timeout=int(step.timeout_ms))
+
+            artefacts : List[Schema__Artefact__Ref] = []
+            if not step.inline_in_response:
+                ref = self.artefact_writer.capture_page_content(text.encode('utf-8'), capture_config.page_content)
+                artefacts = self.filter_refs([ref])
+
+            return Schema__Step__Result__Base(step_id     = self.resolve_id(step, step_index) ,
+                                              step_index  = step_index                        ,
+                                              action      = step.action                       ,
+                                              status      = Enum__Step__Status.PASSED         ,
+                                              duration_ms = self.now_ms() - started_ms        ,
+                                              artefacts   = artefacts                         ,
+                                              text        = Safe_Str__Page__Content(text)     )
+        except Exception as error:
+            return self.failed_result(step, step_index, started_ms, error)
+
+    def execute_get_html(self, page, step: Schema__Step__Get_Html, step_index: int, capture_config: Schema__Capture__Config) -> Schema__Step__Result__Base:
+        started_ms = self.now_ms()
+        try:
+            if step.selector is not None:                                                       # outerHTML of the selector
+                html = page.locator(str(step.selector)).evaluate('el => el.outerHTML', timeout=int(step.timeout_ms))
+            else:
+                html = page.content()                                                           # Full document — already includes <html>…</html>
+
+            artefacts : List[Schema__Artefact__Ref] = []
+            if not step.inline_in_response:
+                ref = self.artefact_writer.capture_page_content(html.encode('utf-8'), capture_config.page_content)
+                artefacts = self.filter_refs([ref])
+
+            return Schema__Step__Result__Base(step_id     = self.resolve_id(step, step_index) ,
+                                              step_index  = step_index                        ,
+                                              action      = step.action                       ,
+                                              status      = Enum__Step__Status.PASSED         ,
+                                              duration_ms = self.now_ms() - started_ms        ,
+                                              artefacts   = artefacts                         ,
+                                              html        = Safe_Str__Page__Content(html)     )
+        except Exception as error:
+            return self.failed_result(step, step_index, started_ms, error)
+
+    def execute_get_dom_tree(self, page, step: Schema__Step__Get_Dom_Tree, step_index: int, capture_config: Schema__Capture__Config) -> Schema__Step__Result__Base:
+        started_ms = self.now_ms()
+        try:
+            args = {'rootSelector'    : str(step.root_selector) if step.root_selector is not None else None,
+                    'maxDepth'        : int(step.max_depth)                                                ,
+                    'includeInvisible': bool(step.include_invisible)                                       }
+            tree = page.evaluate(self.DOM_TREE_JS, args)                                        # Built-in introspection — bypasses the JS allowlist (not user-supplied)
+            return Schema__Step__Result__Base(step_id     = self.resolve_id(step, step_index) ,
+                                              step_index  = step_index                        ,
+                                              action      = step.action                       ,
+                                              status      = Enum__Step__Status.PASSED         ,
+                                              duration_ms = self.now_ms() - started_ms        ,
+                                              artefacts   = []                                ,
+                                              dom_tree    = tree                              )
+        except Exception as error:
+            return self.failed_result(step, step_index, started_ms, error)
+
+    def execute_get_a11y_tree(self, page, step: Schema__Step__Get_A11y_Tree, step_index: int, capture_config: Schema__Capture__Config) -> Schema__Step__Result__Base:
+        started_ms = self.now_ms()
+        try:
+            kwargs = {'interesting_only': bool(step.interesting_only)}
+            if step.root_selector is not None:                                                   # Scope to a subtree if provided
+                kwargs['root'] = page.locator(str(step.root_selector))
+            tree = page.accessibility.snapshot(**kwargs)
+            return Schema__Step__Result__Base(step_id            = self.resolve_id(step, step_index) ,
+                                              step_index         = step_index                        ,
+                                              action             = step.action                       ,
+                                              status             = Enum__Step__Status.PASSED         ,
+                                              duration_ms        = self.now_ms() - started_ms        ,
+                                              artefacts          = []                                ,
+                                              accessibility_tree = tree or {}                        )    # snapshot() returns None when scoped to a hidden subtree
+        except Exception as error:
+            return self.failed_result(step, step_index, started_ms, error)
+
+    def execute_get_pdf(self, page, step: Schema__Step__Get_Pdf, step_index: int, capture_config: Schema__Capture__Config) -> Schema__Step__Result__Base:
+        started_ms = self.now_ms()
+        try:
+            data = page.pdf(format           = str(step.format)             ,
+                            landscape        = bool(step.landscape)         ,
+                            print_background = bool(step.print_background)  )
+            ref  = self.artefact_writer.capture_pdf(data, capture_config.pdf)
+            return self.passed_result(step, step_index, started_ms, artefacts=self.filter_refs([ref]))
+        except Exception as error:
+            return self.failed_result(step, step_index, started_ms, error)
+
+    # ─── Built-in JS for get_dom_tree (NOT user JS — bypasses the allowlist) ───
+    # Compact, dependency-free DOM traversal. Returns the same shape every time
+    # so downstream tooling can cache against it. Visibility check is cheap +
+    # conservative: zero-rect / display:none / visibility:hidden / opacity:0 all
+    # count as "not visible". `include_invisible` overrides the recursion filter
+    # but the node's own `visible` field still reflects reality.
+    DOM_TREE_JS = """
+    (args) => {
+      const { rootSelector, maxDepth, includeInvisible } = args;
+      const root = rootSelector ? document.querySelector(rootSelector) : document.body;
+      if (!root) return null;
+      function isVisible(el) {
+        const rect = el.getBoundingClientRect();
+        if (rect.width === 0 || rect.height === 0) return false;
+        const style = window.getComputedStyle(el);
+        if (style.visibility === 'hidden' || style.display === 'none' || style.opacity === '0') return false;
+        return true;
+      }
+      function nodeData(el, depth) {
+        const rect = el.getBoundingClientRect();
+        const vis  = isVisible(el);
+        const kids = [];
+        if (depth < maxDepth) {
+          for (const child of el.children) {
+            if (!includeInvisible && !isVisible(child)) continue;
+            kids.push(nodeData(child, depth + 1));
+          }
+        }
+        const txt = (el.textContent || '').trim().slice(0, 80);
+        return {
+          tag             : el.tagName.toLowerCase(),
+          id              : el.id || null,
+          class           : el.className || null,
+          role            : el.getAttribute('role'),
+          accessible_name : el.getAttribute('aria-label') || txt || null,
+          rect            : { x: rect.x|0, y: rect.y|0, w: rect.width|0, h: rect.height|0 },
+          visible         : vis,
+          child_count     : el.children.length,
+          children        : kids
+        };
+      }
+      return nodeData(root, 0);
+    }
+    """
 
     # ─── Result constructors, error classification, helpers ─────────────────────
     # All engine-neutral — inherited from Step__Executor__Base

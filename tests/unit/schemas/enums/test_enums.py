@@ -63,15 +63,17 @@ class test_Enum__Step__Status(TestCase):
 class test_Enum__Step__Action(TestCase):
     def test__roundtrip(self):
         _assert_roundtrip(Enum__Step__Action, [
-            'navigate'      , 'click'         , 'fill'         , 'press'          ,
-            'select'        , 'hover'         , 'scroll'       , 'wait_for'       ,
-            'screenshot'    , 'video_start'   , 'video_stop'   , 'evaluate'       ,
-            'dispatch_event', 'set_viewport'  , 'get_content'  , 'get_url'        ,
+            'navigate'      , 'click'         , 'fill'          , 'press'          ,
+            'select'        , 'hover'         , 'scroll'        , 'wait_for'       ,
+            'screenshot'    , 'video_start'   , 'video_stop'    , 'evaluate'       ,
+            'dispatch_event', 'set_viewport'  , 'get_content'   , 'get_url'        ,
             'wait'          ,                                                       # Φ2 — FR-4 fixed-duration sleep
+            'get_text'      , 'get_html'      , 'get_dom_tree'  ,                   # Φ3 — FR-2 DOM-read verbs
+            'get_a11y_tree' , 'get_pdf'       ,                                     # Φ3 — FR-5b accessibility, FR-5d PDF
         ])
 
-    def test__has_seventeen_actions(self):                                          # Φ2 — added WAIT (FR-4). Spec evolves; was 16 in v0.2.47.
-        assert len(list(Enum__Step__Action)) == 17
+    def test__has_twenty_two_actions(self):                                         # Φ3 — added 5 (get_text/get_html/get_dom_tree/get_a11y_tree/get_pdf). Was 17 after Φ2, 16 in v0.2.47.
+        assert len(list(Enum__Step__Action)) == 22
 
 
 class test_Enum__Wait__State(TestCase):

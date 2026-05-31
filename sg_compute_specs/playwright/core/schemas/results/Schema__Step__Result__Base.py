@@ -10,7 +10,7 @@
 # the fields here means the wire format always carries them (None when N/A).
 # ═══════════════════════════════════════════════════════════════════════════════
 
-from typing                                                                                         import Any, List
+from typing                                                                                         import Any, Dict, List
 
 from osbot_utils.type_safe.Type_Safe                                                                import Type_Safe
 from osbot_utils.type_safe.primitives.core.Safe_UInt                                                import Safe_UInt
@@ -48,3 +48,8 @@ class Schema__Step__Result__Base(Type_Safe):                                    
     url                 : Safe_Str__Url__Permissive    = None                       # get_url     : page.url at step time (Permissive so vault URLs with ':' in fragment round-trip)
     return_value        : Any                          = None                       # evaluate    : JS expression's return value (any JSON-serialisable)
     return_type         : Enum__Evaluate__Return_Type  = None                       # evaluate    : classified type (json|string|number|boolean)
+    # ── Φ3 — FR-2 DOM reads + FR-5b a11y. Same lift-to-base pattern for serialisation safety. ─
+    text                : Safe_Str__Page__Content      = None                       # get_text       : innerText of page/selector (10 MB cap for SPA-sized payloads)
+    html                : Safe_Str__Page__Content      = None                       # get_html       : outerHTML of page/selector
+    dom_tree            : Dict                         = None                       # get_dom_tree   : compact JSON {tag,id,class,role,accessible_name,rect,visible,child_count,children}
+    accessibility_tree  : Dict                         = None                       # get_a11y_tree  : page.accessibility.snapshot()

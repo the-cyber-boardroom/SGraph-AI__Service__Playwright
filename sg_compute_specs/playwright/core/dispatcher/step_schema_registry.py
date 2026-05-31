@@ -25,7 +25,12 @@ from sg_compute_specs.playwright.core.schemas.steps.Schema__Step__Click         
 from sg_compute_specs.playwright.core.schemas.steps.Schema__Step__Dispatch_Event                        import Schema__Step__Dispatch_Event
 from sg_compute_specs.playwright.core.schemas.steps.Schema__Step__Evaluate                              import Schema__Step__Evaluate
 from sg_compute_specs.playwright.core.schemas.steps.Schema__Step__Fill                                  import Schema__Step__Fill
+from sg_compute_specs.playwright.core.schemas.steps.Schema__Step__Get_A11y_Tree                         import Schema__Step__Get_A11y_Tree
 from sg_compute_specs.playwright.core.schemas.steps.Schema__Step__Get_Content                           import Schema__Step__Get_Content
+from sg_compute_specs.playwright.core.schemas.steps.Schema__Step__Get_Dom_Tree                          import Schema__Step__Get_Dom_Tree
+from sg_compute_specs.playwright.core.schemas.steps.Schema__Step__Get_Html                              import Schema__Step__Get_Html
+from sg_compute_specs.playwright.core.schemas.steps.Schema__Step__Get_Pdf                               import Schema__Step__Get_Pdf
+from sg_compute_specs.playwright.core.schemas.steps.Schema__Step__Get_Text                              import Schema__Step__Get_Text
 from sg_compute_specs.playwright.core.schemas.steps.Schema__Step__Get_Url                               import Schema__Step__Get_Url
 from sg_compute_specs.playwright.core.schemas.steps.Schema__Step__Hover                                 import Schema__Step__Hover
 from sg_compute_specs.playwright.core.schemas.steps.Schema__Step__Navigate                              import Schema__Step__Navigate
@@ -59,6 +64,11 @@ STEP_SCHEMAS : Dict__Step__Schemas__By_Action = Dict__Step__Schemas__By_Action({
     Enum__Step__Action.SET_VIEWPORT   : Schema__Step__Set_Viewport  ,
     Enum__Step__Action.GET_CONTENT    : Schema__Step__Get_Content   ,
     Enum__Step__Action.GET_URL        : Schema__Step__Get_Url       ,
+    Enum__Step__Action.GET_TEXT       : Schema__Step__Get_Text      ,
+    Enum__Step__Action.GET_HTML       : Schema__Step__Get_Html      ,
+    Enum__Step__Action.GET_DOM_TREE   : Schema__Step__Get_Dom_Tree  ,
+    Enum__Step__Action.GET_A11Y_TREE  : Schema__Step__Get_A11y_Tree ,
+    Enum__Step__Action.GET_PDF        : Schema__Step__Get_Pdf       ,
 })
 
 
