@@ -103,17 +103,18 @@ class test_ttl_expiry(TestCase):
         reg   = _registry()
         state = reg.open(Schema__Browser__Config(), ttl_ms=1)                      # 1ms TTL → expires almost immediately
         sid   = str(state.session_id)
-        time.sleep(0.005)
+        time.sleep(0.050)                                                           # 50ms — guarantees expiry on any CI timing granularity
         result = reg.get(sid)                                                       # get() detects expiry + cleans up
         assert result is None
         assert sid in reg.browser_launcher.stopped
 
-    def test__sweep_expired_closes_all_past_deadline(self):
+    def test__sweep_expired_closes_all_past_deadline(self):                         # Asserts OBSERVABLE state, not the return count. open() implicitly sweeps so the 1st session can be cleaned by the 2nd open(); a stable test checks what's LEFT after the explicit sweep, not how many that sweep removed
         reg = _registry()
-        s1  = reg.open(Schema__Browser__Config(), ttl_ms=1)                        # expires immediately
-        s2  = reg.open(Schema__Browser__Config(), ttl_ms=60_000)                   # stays alive
-        time.sleep(0.005)
-        cleaned = reg.sweep_expired()
-        assert cleaned == 1
-        assert str(s2.session_id) in reg.session_ids()
-        assert str(s1.session_id) not in reg.session_ids()
+        s1  = reg.open(Schema__Browser__Config(), ttl_ms=50)                       # 50ms — survives the s2.open() call, expires before the sleep ends
+        s2  = reg.open(Schema__Browser__Config(), ttl_ms=60_000)                   # stays alive throughout
+        time.sleep(0.200)                                                           # 200ms — well past s1's TTL, well under s2's
+        reg.sweep_expired()
+        active = reg.session_ids()
+        assert str(s1.session_id) not in active                                     # s1 swept
+        assert str(s2.session_id) in     active                                     # s2 alive
+        assert str(s1.session_id) in reg.browser_launcher.stopped                   # browser stopped for s1
