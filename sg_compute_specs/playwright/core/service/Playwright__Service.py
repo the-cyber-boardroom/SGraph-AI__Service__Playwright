@@ -29,7 +29,7 @@ import uuid
 
 from fastapi                                                                            import HTTPException
 from osbot_utils.type_safe.Type_Safe                                                    import Type_Safe
-from osbot_utils.type_safe.primitives.domains.web.safe_str.Safe_Str__Url                import Safe_Str__Url
+from sg_compute_specs.playwright.core.schemas.primitives.text.Safe_Str__Url__Permissive import Safe_Str__Url__Permissive
 
 from sg_compute_specs.playwright.core.schemas.artefact.Schema__Artefact__Sink_Config        import Schema__Artefact__Sink_Config
 from sg_compute_specs.playwright.core.schemas.enums.Enum__Screenshot__Format                import Enum__Screenshot__Format
@@ -323,11 +323,11 @@ class Playwright__Service(Type_Safe):
             seq_response = self._run_sequence(seq_request)
             self.raise_on_sequence_failure(seq_response)
 
-            final_url : Safe_Str__Url = Safe_Str__Url(str(url))                      # Fallback if GET_URL somehow missing
-            html      : str           = None
+            final_url : Safe_Str__Url__Permissive = Safe_Str__Url__Permissive(str(url))    # Fallback if GET_URL somehow missing (Permissive — BUG-1)
+            html      : str                       = None
             for result in seq_response.step_results:
                 if result.action == Enum__Step__Action.GET_URL and getattr(result, 'url', None):
-                    final_url = Safe_Str__Url(str(result.url))
+                    final_url = Safe_Str__Url__Permissive(str(result.url))
                 if result.action == Enum__Step__Action.GET_CONTENT and getattr(result, 'content', None) is not None:
                     html = str(result.content)
 

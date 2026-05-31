@@ -27,13 +27,15 @@
 from typing                                                                                         import Any, List
 
 from sg_compute_specs.playwright.core.schemas.primitives.text.Safe_Str__Page__Content                   import Safe_Str__Page__Content
-from osbot_utils.type_safe.primitives.domains.web.safe_str.Safe_Str__Url                            import Safe_Str__Url
+from sg_compute_specs.playwright.core.schemas.primitives.text.Safe_Str__Url__Permissive                 import Safe_Str__Url__Permissive
 
 from sg_compute_specs.playwright.core.schemas.artefact.Schema__Artefact__Ref                            import Schema__Artefact__Ref
 from sg_compute_specs.playwright.core.schemas.capture.Schema__Capture__Config                           import Schema__Capture__Config
 from sg_compute_specs.playwright.core.schemas.enums.Enum__Content__Format                               import Enum__Content__Format
+from sg_compute_specs.playwright.core.schemas.enums.Enum__Evaluate__Return_Type                         import Enum__Evaluate__Return_Type
 from sg_compute_specs.playwright.core.schemas.enums.Enum__Step__Status                                  import Enum__Step__Status
 from sg_compute_specs.playwright.core.schemas.results.Schema__Step__Result__Base                        import Schema__Step__Result__Base
+from sg_compute_specs.playwright.core.schemas.results.Schema__Step__Result__Evaluate                    import Schema__Step__Result__Evaluate
 from sg_compute_specs.playwright.core.schemas.results.Schema__Step__Result__Get_Content                 import Schema__Step__Result__Get_Content
 from sg_compute_specs.playwright.core.schemas.results.Schema__Step__Result__Get_Url                     import Schema__Step__Result__Get_Url
 from sg_compute_specs.playwright.core.schemas.steps.Schema__Step__Base                                  import Schema__Step__Base
@@ -169,7 +171,7 @@ class Step__Executor(Step__Executor__Base):                                     
                                                  action      = step.action                       ,
                                                  status      = Enum__Step__Status.PASSED         ,
                                                  duration_ms = self.now_ms() - started_ms        ,
-                                                 url         = Safe_Str__Url(url)                )
+                                                 url         = Safe_Str__Url__Permissive(url)    )    # Permissive: vault URLs etc. carry ':' in fragment — BUG-1
         except Exception as error:
             base = self.failed_result(step, step_index, started_ms, error)
             return Schema__Step__Result__Get_Url(step_id       = base.step_id       ,
@@ -178,16 +180,34 @@ class Step__Executor(Step__Executor__Base):                                     
                                                  status        = base.status        ,
                                                  duration_ms   = base.duration_ms   ,
                                                  error_message = base.error_message ,
+                                                 error_type    = base.error_type    ,
                                                  artefacts     = base.artefacts     ,
-                                                 url           = Safe_Str__Url('http://error.invalid/'))
+                                                 url           = Safe_Str__Url__Permissive('http://error.invalid/'))
 
-    def execute_evaluate(self, page, step: Schema__Step__Evaluate, step_index: int, capture_config: Schema__Capture__Config) -> Schema__Step__Result__Base:
+    def execute_evaluate(self, page, step: Schema__Step__Evaluate, step_index: int, capture_config: Schema__Capture__Config) -> Schema__Step__Result__Evaluate:
         started_ms = self.now_ms()
         try:
-            page.evaluate(str(step.expression))
-            return self.passed_result(step, step_index, started_ms)
+            raw_value   = page.evaluate(str(step.expression))                                   # FR-5a — surface the return value (was discarded). Allowlist still applies upstream; only allow-listed reads reach here.
+            return_type = self.classify_eval_return(raw_value)
+            return Schema__Step__Result__Evaluate(step_id      = self.resolve_id(step, step_index) ,
+                                                  step_index   = step_index                        ,
+                                                  action       = step.action                       ,
+                                                  status       = Enum__Step__Status.PASSED         ,
+                                                  duration_ms  = self.now_ms() - started_ms        ,
+                                                  artefacts    = []                                ,
+                                                  return_value = raw_value                         ,    # JSON-serialisable (allowlist limits to constant reads → safe shapes)
+                                                  return_type  = return_type                       )
         except Exception as error:
-            return self.failed_result(step, step_index, started_ms, error)
+            return self.failed_result(step, step_index, started_ms, error)                          # Base result — return_value/return_type stay None (now lifted-to-base optional)
+
+    def classify_eval_return(self, value) -> Enum__Evaluate__Return_Type:                           # FR-5a — map raw eval value → return-type enum the response carries
+        if isinstance(value, bool):                                                                 # bool is a subclass of int — check first
+            return Enum__Evaluate__Return_Type.BOOLEAN
+        if isinstance(value, (int, float)):
+            return Enum__Evaluate__Return_Type.NUMBER
+        if isinstance(value, str):
+            return Enum__Evaluate__Return_Type.STRING
+        return Enum__Evaluate__Return_Type.JSON                                                     # dict / list / None / anything else → opaque JSON
 
     # ─── Interaction / wait handlers ───────────────────────────────────────────
 

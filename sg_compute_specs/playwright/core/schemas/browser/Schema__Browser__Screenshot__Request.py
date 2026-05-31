@@ -10,17 +10,17 @@
 # ═══════════════════════════════════════════════════════════════════════════════
 
 from osbot_utils.type_safe.Type_Safe                                                               import Type_Safe
-from osbot_utils.type_safe.primitives.domains.web.safe_str.Safe_Str__Url                           import Safe_Str__Url
 
 from sg_compute_specs.playwright.core.schemas.browser.Schema__Browser__Config                          import Schema__Browser__Config
 from sg_compute_specs.playwright.core.schemas.browser.Schema__Viewport                                 import Schema__Viewport
 from sg_compute_specs.playwright.core.schemas.enums.Enum__Wait__State                                  import Enum__Wait__State
 from sg_compute_specs.playwright.core.schemas.primitives.browser.Safe_Str__Selector                    import Safe_Str__Selector
 from sg_compute_specs.playwright.core.schemas.primitives.numeric.Safe_UInt__Timeout_MS                 import Safe_UInt__Timeout_MS
+from sg_compute_specs.playwright.core.schemas.primitives.text.Safe_Str__Url__Permissive                import Safe_Str__Url__Permissive
 
 
 class Schema__Browser__Screenshot__Request(Type_Safe):
-    url            : Safe_Str__Url
+    url            : Safe_Str__Url__Permissive                                      # RFC-compliant URL — BUG-1
     selector       : Safe_Str__Selector      = None                                 # Element-only screenshot if set; else viewport
     click          : Safe_Str__Selector      = None                                 # Optional pre-click before capturing
     full_page      : bool                    = False                                # Scroll-to-render full page (ignored if selector set)

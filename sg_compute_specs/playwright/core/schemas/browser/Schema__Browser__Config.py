@@ -11,12 +11,12 @@ from typing                                                                     
 from osbot_utils.type_safe.Type_Safe                                                                 import Type_Safe
 from osbot_utils.type_safe.primitives.domains.http.safe_str.Safe_Str__Http__User_Agent               import Safe_Str__Http__User_Agent
 from osbot_utils.type_safe.primitives.domains.identifiers.safe_str.Safe_Str__Key                     import Safe_Str__Key
-from osbot_utils.type_safe.primitives.domains.web.safe_str.Safe_Str__Url                             import Safe_Str__Url
 
 from sg_compute_specs.playwright.core.schemas.browser.Schema__Viewport                                   import Schema__Viewport
 from sg_compute_specs.playwright.core.schemas.enums.Enum__Browser__Name                                  import Enum__Browser__Name
 from sg_compute_specs.playwright.core.schemas.enums.Enum__Browser__Provider                              import Enum__Browser__Provider
 from sg_compute_specs.playwright.core.schemas.primitives.browser.Safe_Str__Browser__Launch_Arg           import Safe_Str__Browser__Launch_Arg
+from sg_compute_specs.playwright.core.schemas.primitives.text.Safe_Str__Url__Permissive                  import Safe_Str__Url__Permissive
 
 
 class Schema__Browser__Config(Type_Safe):                                           # How to launch the browser
@@ -28,4 +28,4 @@ class Schema__Browser__Config(Type_Safe):                                       
     user_agent       : Safe_Str__Http__User_Agent = None                            # Override UA string
     locale           : Safe_Str__Key = "en-GB"                                      # Browser locale
     timezone         : Safe_Str__Key = None                                         # IANA timezone e.g. "Europe/London"
-    cdp_endpoint_url : Safe_Str__Url = None                                         # Required when provider=CDP_CONNECT
+    cdp_endpoint_url : Safe_Str__Url__Permissive = None                             # Required when provider=CDP_CONNECT (RFC-compliant — BUG-1)
