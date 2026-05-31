@@ -24,6 +24,7 @@ from sg_compute_specs.playwright.core.schemas.capture.Schema__Capture__Config   
 from sg_compute_specs.playwright.core.schemas.enums.Enum__Artefact__Sink                             import Enum__Artefact__Sink
 from sg_compute_specs.playwright.core.schemas.enums.Enum__Artefact__Type                             import Enum__Artefact__Type
 from sg_compute_specs.playwright.core.schemas.enums.Enum__Content__Format                            import Enum__Content__Format
+from sg_compute_specs.playwright.core.schemas.enums.Enum__Evaluate__Return_Type                      import Enum__Evaluate__Return_Type
 from sg_compute_specs.playwright.core.schemas.enums.Enum__Step__Action                               import Enum__Step__Action
 from sg_compute_specs.playwright.core.schemas.enums.Enum__Step__Error__Type                          import Enum__Step__Error__Type
 from sg_compute_specs.playwright.core.schemas.enums.Enum__Step__Status                               import Enum__Step__Status
@@ -35,6 +36,7 @@ from sg_compute_specs.playwright.core.schemas.steps.Schema__Step__Click         
 from sg_compute_specs.playwright.core.schemas.steps.Schema__Step__Fill                               import Schema__Step__Fill
 from sg_compute_specs.playwright.core.schemas.steps.Schema__Step__Get_Content                        import Schema__Step__Get_Content
 from sg_compute_specs.playwright.core.schemas.steps.Schema__Step__Get_Url                            import Schema__Step__Get_Url
+from sg_compute_specs.playwright.core.schemas.steps.Schema__Step__Evaluate                           import Schema__Step__Evaluate
 from sg_compute_specs.playwright.core.schemas.steps.Schema__Step__Hover                              import Schema__Step__Hover
 from sg_compute_specs.playwright.core.schemas.steps.Schema__Step__Navigate                           import Schema__Step__Navigate
 from sg_compute_specs.playwright.core.schemas.steps.Schema__Step__Screenshot                         import Schema__Step__Screenshot
@@ -98,6 +100,7 @@ class _Fake_Page:
     content_value            : str   = '<html><body>hello</body></html>'
     inner_html_value         : str   = '<span>inner</span>'
     inner_text_value         : str   = 'inner text'
+    evaluate_return_value            = 'Example Domain'                              # FR-5a — what page.evaluate() returns; per-test override
 
     def __init__(self, *, raise_on: str = None):
         self.calls    = []
@@ -157,6 +160,10 @@ class _Fake_Page:
     def content(self):
         self.calls.append(('content',))
         return self.content_value
+
+    def evaluate(self, expression):
+        self.calls.append(('evaluate', expression))
+        return self.evaluate_return_value                                            # FR-5a — return value surfaced; tests set evaluate_return_value
 
 
 # ── _InMemoryWriter: routes artefacts without real vault/S3 ──────────────────
@@ -485,3 +492,43 @@ class test_classify_error(TestCase):                                            
         res  = _executor().execute(page, step, step_index=0, capture_config=_capture_config_all_inline())
         assert res.status     == Enum__Step__Status.FAILED
         assert res.error_type == Enum__Step__Error__Type.UNKNOWN                         # RuntimeError('… blew up') is not a recognised class
+
+
+# ─── FR-5a — evaluate's return value is surfaced ─────────────────────────────────
+class test_execute_evaluate(TestCase):
+
+    def test__return_value_is_surfaced_as_string(self):
+        page = _Fake_Page()
+        page.evaluate_return_value = 'Example Domain'
+        step = Schema__Step__Evaluate(expression='document.title')
+        res  = _executor().execute(page, step, step_index=0, capture_config=_capture_config_all_inline())
+        assert res.status       == Enum__Step__Status.PASSED
+        assert res.return_value == 'Example Domain'
+        assert res.return_type  == Enum__Evaluate__Return_Type.STRING
+
+    def test__classify_eval_return__bool(self):
+        assert _executor().classify_eval_return(True)  == Enum__Evaluate__Return_Type.BOOLEAN
+        assert _executor().classify_eval_return(False) == Enum__Evaluate__Return_Type.BOOLEAN
+
+    def test__classify_eval_return__number(self):
+        assert _executor().classify_eval_return(42)    == Enum__Evaluate__Return_Type.NUMBER
+        assert _executor().classify_eval_return(3.14)  == Enum__Evaluate__Return_Type.NUMBER
+
+    def test__classify_eval_return__string(self):
+        assert _executor().classify_eval_return('hi')  == Enum__Evaluate__Return_Type.STRING
+
+    def test__classify_eval_return__json_for_collections(self):
+        assert _executor().classify_eval_return({'k': 1}) == Enum__Evaluate__Return_Type.JSON
+        assert _executor().classify_eval_return([1, 2])   == Enum__Evaluate__Return_Type.JSON
+        assert _executor().classify_eval_return(None)     == Enum__Evaluate__Return_Type.JSON
+
+    def test__failure_path_returns_base_with_no_return_value(self):
+        page = _Fake_Page()
+        def _raise(expression):                                                          # override evaluate to raise
+            raise RuntimeError('eval crashed')
+        page.evaluate = _raise
+        step = Schema__Step__Evaluate(expression='whatever')
+        res  = _executor().execute(page, step, step_index=0, capture_config=_capture_config_all_inline())
+        assert res.status       == Enum__Step__Status.FAILED
+        assert res.return_value is None
+        assert res.return_type  is None
