@@ -126,8 +126,15 @@ class Step__Executor(Step__Executor__Base):                                     
             if step.viewport is not None:                                                       # FR-7 — set viewport before snapping (shorthand for a preceding set_viewport step)
                 page.set_viewport_size({'width' : int(step.viewport.width) ,
                                         'height': int(step.viewport.height)})
+            scope = page                                                                        # Φ6a — when frame_selector is set, route screenshot calls through the frame's locator() instead of page's. Same-origin frames only; cross-origin raises here.
+            if step.frame_selector is not None:
+                frame = page.frame_locator(str(step.frame_selector))
+                scope = frame                                                                   # frame_locator exposes locator() but NOT page.screenshot — selector branch is required
             if step.selector is not None:
-                data = page.locator(str(step.selector)).screenshot(timeout=int(step.timeout_ms))
+                data = scope.locator(str(step.selector)).screenshot(timeout=int(step.timeout_ms))
+            elif step.frame_selector is not None:
+                # Frame-level full capture: anchor on the iframe element from the parent page
+                data = page.locator(str(step.frame_selector)).screenshot(timeout=int(step.timeout_ms))
             else:
                 data = page.screenshot(full_page=bool(step.full_page), timeout=int(step.timeout_ms))
             ref  = self.artefact_writer.capture_screenshot(data, capture_config.screenshot)
@@ -477,40 +484,68 @@ class Step__Executor(Step__Executor__Base):                                     
     # conservative: zero-rect / display:none / visibility:hidden / opacity:0 all
     # count as "not visible". `include_invisible` overrides the recursion filter
     # but the node's own `visible` field still reflects reality.
+    # Φ6a — DOM tree honours open shadow roots + same-origin iframes.
+    # Boundary markers:
+    #   shadow_root : true  on the shadow-host node whose subtree is its shadowRoot
+    #   iframe      : true  on the iframe element whose subtree is its contentDocument.body
+    # Cross-origin iframes (SecurityError on contentDocument) silently mark
+    # `cross_origin: true` and stop descent — see addendum §6 "Out" line.
     DOM_TREE_JS = """
     (args) => {
       const { rootSelector, maxDepth, includeInvisible } = args;
       const root = rootSelector ? document.querySelector(rootSelector) : document.body;
       if (!root) return null;
       function isVisible(el) {
+        if (!(el instanceof Element)) return true;
         const rect = el.getBoundingClientRect();
         if (rect.width === 0 || rect.height === 0) return false;
-        const style = window.getComputedStyle(el);
+        const style = (el.ownerDocument && el.ownerDocument.defaultView) ?
+                      el.ownerDocument.defaultView.getComputedStyle(el) :
+                      window.getComputedStyle(el);
         if (style.visibility === 'hidden' || style.display === 'none' || style.opacity === '0') return false;
         return true;
       }
+      function childrenOf(el) {                                                  // Φ6a — descend into open shadow roots + same-origin iframes
+        if (el.tagName && el.tagName.toLowerCase() === 'iframe') {
+          try {
+            const doc = el.contentDocument;
+            if (doc && doc.body) return { kids: [doc.body], boundary: 'iframe' };
+          } catch (e) {
+            return { kids: [], boundary: 'iframe_cross_origin' };                // SecurityError on cross-origin frames; mark + stop
+          }
+        }
+        if (el.shadowRoot) {                                                     // Open shadow root only — closed roots are inaccessible by design
+          return { kids: Array.from(el.shadowRoot.children), boundary: 'shadow_root' };
+        }
+        return { kids: Array.from(el.children || []), boundary: null };
+      }
       function nodeData(el, depth) {
-        const rect = el.getBoundingClientRect();
+        const rect = (el.getBoundingClientRect ? el.getBoundingClientRect() : {x:0,y:0,width:0,height:0});
         const vis  = isVisible(el);
+        const { kids: rawKids, boundary } = childrenOf(el);
         const kids = [];
         if (depth < maxDepth) {
-          for (const child of el.children) {
+          for (const child of rawKids) {
             if (!includeInvisible && !isVisible(child)) continue;
             kids.push(nodeData(child, depth + 1));
           }
         }
-        const txt = (el.textContent || '').trim().slice(0, 80);
-        return {
-          tag             : el.tagName.toLowerCase(),
+        const txt  = (el.textContent || '').trim().slice(0, 80);
+        const node = {
+          tag             : (el.tagName || '#document').toLowerCase(),
           id              : el.id || null,
-          class           : el.className || null,
-          role            : el.getAttribute('role'),
-          accessible_name : el.getAttribute('aria-label') || txt || null,
+          class           : (typeof el.className === 'string' ? el.className : null) || null,
+          role            : (el.getAttribute ? el.getAttribute('role') : null),
+          accessible_name : (el.getAttribute && el.getAttribute('aria-label')) || txt || null,
           rect            : { x: rect.x|0, y: rect.y|0, w: rect.width|0, h: rect.height|0 },
           visible         : vis,
-          child_count     : el.children.length,
+          child_count     : rawKids.length,
           children        : kids
         };
+        if (boundary === 'shadow_root')        node.shadow_root = true;
+        if (boundary === 'iframe')             node.iframe      = true;
+        if (boundary === 'iframe_cross_origin'){node.iframe = true; node.cross_origin = true;}
+        return node;
       }
       return nodeData(root, 0);
     }
