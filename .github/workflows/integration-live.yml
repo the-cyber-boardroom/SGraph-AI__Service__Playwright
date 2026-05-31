@@ -56,7 +56,8 @@ jobs:
           FAST_API__AUTH__API_KEY__NAME : 'X-API-Key'
           FAST_API__AUTH__API_KEY__VALUE: 'ci-live-integration-key'
         options: >-
-          --health-cmd "python -c 'import urllib.request; urllib.request.urlopen(\"http://localhost:8000/health/status\", timeout=2)' || exit 1"
+          --shm-size=2g
+          --health-cmd "python -c 'import urllib.request; urllib.request.urlopen(\"http://localhost:8000/health/info\", timeout=2)' || exit 1"
           --health-interval 5s
           --health-timeout 3s
           --health-retries 20

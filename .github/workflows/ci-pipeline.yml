@@ -112,20 +112,28 @@ jobs:
 
 
   # ════════════════════════════════════════════════════════════════════════════
-  # Job 3: Build Playwright Image — per-arch, on NATIVE runners (matrix)
-  #   linux/amd64 builds on ubuntu-latest, linux/arm64 on ubuntu-24.04-arm.
-  #   Each arch builds natively (no QEMU emulation — the slow path the single
-  #   multi-arch job paid before) and pushes BY DIGEST only (no tag yet).
-  #   Digests are handed to the merge job via artifacts.
+  # ════════════════════════════════════════════════════════════════════════════
+  # Job 3a: Build amd64 + integration test in ONE job (faster feedback)
+  #   Builds the image natively on amd64, loads it into the local Docker daemon
+  #   (--load), runs the full integration_live suite against it inside the same
+  #   workspace (no registry roundtrip, no artifact dance), then pushes BY
+  #   DIGEST only if the integration tests pass. The orphaned by-digest layer
+  #   from a failed test never becomes a tag.
+  #
+  #   Why combined: the previous split (build → upload artifact → separate
+  #   integration job → docker pull → run) added ~30s of friction per
+  #   iteration. Folding the test in keeps the image local and shortens the
+  #   PR feedback loop.
+  #
+  #   The container runs with --shm-size=2g — Chromium uses /dev/shm for
+  #   renderer IPC, and Docker's 64MB default is too small (manifests as the
+  #   container crashing mid-test after a handful of sequence runs).
   #
   #   MANUAL ONLY: gated on force_image_rebuild (workflow_dispatch input).
-  #   Push triggers no longer auto-build/publish — set
-  #   force_image_rebuild=true when running ci-pipeline__{dev,main,prod}.yml
-  #   from the Actions UI to release a new image.
   # ════════════════════════════════════════════════════════════════════════════
-  build-playwright-image:
-    name: "Build Playwright Image (${{ matrix.platform }})"
-    runs-on: ${{ matrix.runner }}
+  build-and-test-amd64:
+    name: "Build + integration test (amd64)"
+    runs-on: ubuntu-latest
     timeout-minutes: 25
     needs: [run-unit-tests, increment-tag]
     if: |
@@ -133,20 +141,144 @@ jobs:
       needs.run-unit-tests.result == 'success' &&
       (needs.increment-tag.result == 'success' || needs.increment-tag.result == 'skipped') &&
       inputs.force_image_rebuild
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - platform : linux/amd64
-            runner   : ubuntu-latest
-            arch     : amd64
-          - platform : linux/arm64
-            runner   : ubuntu-24.04-arm
-            arch     : arm64
+    env:
+      TEST_TAG          : 'sg-playwright:pretag-test'
+      TEST_API_KEY_NAME : 'X-API-Key'
+      TEST_API_KEY_VALUE: 'ci-pretag-integration-key'
+      CONTAINER_NAME    : 'sgpw-pretag-test'
     steps:
       - uses: actions/checkout@v5
         with:
           ref: ${{ inputs.git_branch }}                                                 # Pick up the version-file bump pushed by increment-tag
+
+      - name: Git Update Current Branch
+        uses: owasp-sbot/OSBot-GitHub-Actions/.github/actions/git__update_branch@dev
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Install integration test deps
+        run: pip install pytest httpx pytest-timeout
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ env.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build amd64 image into local Docker daemon
+        uses: docker/build-push-action@v6
+        with:
+          context     : .
+          file        : sg_compute_specs/playwright/Dockerfile
+          platforms   : linux/amd64
+          load        : true                                                            # Load to local daemon so the next step can `docker run` it
+          tags        : ${{ env.TEST_TAG }}
+          cache-from  : type=gha,scope=amd64
+          cache-to    : type=gha,scope=amd64,mode=max
+
+      - name: Run image in background
+        run: |
+          docker run -d \
+            --name "$CONTAINER_NAME" \
+            -p 8000:8000 \
+            --shm-size=2g \
+            -e FAST_API__AUTH__API_KEY__NAME="$TEST_API_KEY_NAME" \
+            -e FAST_API__AUTH__API_KEY__VALUE="$TEST_API_KEY_VALUE" \
+            "$TEST_TAG"
+
+      - name: Wait for /health/info ready
+        run: |
+          for i in $(seq 1 45); do
+            if curl -sf -H "$TEST_API_KEY_NAME: $TEST_API_KEY_VALUE" \
+                 http://localhost:8000/health/info > /dev/null; then
+              echo "Service ready after ${i}*2s"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "Service never became reachable" >&2
+          docker logs "$CONTAINER_NAME" --tail 200 || true
+          exit 1
+
+      - name: Preflight — runner + service liveness (cheap, no browser)
+        env:
+          SG_PLAYWRIGHT__LIVE_BASE_URL: http://localhost:8000
+          SG_PLAYWRIGHT__LIVE_API_KEY : ${{ env.TEST_API_KEY_VALUE }}
+          PYTHONPATH                  : '.'
+        run: pytest tests/integration_live/test_00_preflight.py -v --timeout=60
+
+      - name: Container snapshot after preflight
+        if: always()
+        run: |
+          echo "── container state after preflight ───────────────────────"
+          docker ps -a --filter "name=$CONTAINER_NAME" --format 'table {{.Names}}\t{{.Status}}\t{{.Image}}'
+          echo "── last 100 lines of service log ─────────────────────────"
+          docker logs "$CONTAINER_NAME" --tail 100 || true
+
+      - name: Run remaining live integration suite
+        env:
+          SG_PLAYWRIGHT__LIVE_BASE_URL: http://localhost:8000
+          SG_PLAYWRIGHT__LIVE_API_KEY : ${{ env.TEST_API_KEY_VALUE }}
+          PYTHONPATH                  : '.'
+        run: pytest tests/integration_live/ --ignore=tests/integration_live/test_00_preflight.py -v --timeout=90
+
+      - name: Dump container logs on failure
+        if: failure()
+        run: docker logs "$CONTAINER_NAME" --tail 500 || true
+
+      - name: Stop test container
+        if: always()
+        run: docker rm -f "$CONTAINER_NAME" || true
+
+      - name: Push amd64 image by digest (only if tests passed)
+        id: push
+        uses: docker/build-push-action@v6
+        with:
+          context     : .
+          file        : sg_compute_specs/playwright/Dockerfile
+          platforms   : linux/amd64
+          cache-from  : type=gha,scope=amd64                                             # Cache hit from previous build step — near-instant
+          outputs     : type=image,name=${{ env.REGISTRY_IMAGE }},push-by-digest=true,name-canonical=true,push=true
+
+      - name: Export digest
+        run: |
+          mkdir -p /tmp/digests
+          digest="${{ steps.push.outputs.digest }}"
+          touch "/tmp/digests/${digest#sha256:}"
+
+      - name: Upload digest
+        uses: actions/upload-artifact@v4
+        with:
+          name              : digest-amd64
+          path              : /tmp/digests/*
+          if-no-files-found : error
+          retention-days    : 1
+
+  # ════════════════════════════════════════════════════════════════════════════
+  # Job 3b: Build arm64 (no integration test — runs in parallel with amd64)
+  #   arm64 is functionally identical to amd64; the integration tests on
+  #   amd64 are sufficient signal. Runs in parallel — total wall-clock is
+  #   max(amd64-build+test, arm64-build).
+  # ════════════════════════════════════════════════════════════════════════════
+  build-arm64:
+    name: "Build arm64"
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 25
+    needs: [run-unit-tests, increment-tag]
+    if: |
+      always() &&
+      needs.run-unit-tests.result == 'success' &&
+      (needs.increment-tag.result == 'success' || needs.increment-tag.result == 'skipped') &&
+      inputs.force_image_rebuild
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.git_branch }}
 
       - name: Git Update Current Branch
         uses: owasp-sbot/OSBot-GitHub-Actions/.github/actions/git__update_branch@dev
@@ -166,9 +298,9 @@ jobs:
         with:
           context     : .
           file        : sg_compute_specs/playwright/Dockerfile
-          platforms   : ${{ matrix.platform }}
-          cache-from  : type=gha,scope=${{ matrix.arch }}
-          cache-to    : type=gha,scope=${{ matrix.arch }},mode=max
+          platforms   : linux/arm64
+          cache-from  : type=gha,scope=arm64
+          cache-to    : type=gha,scope=arm64,mode=max
           outputs     : type=image,name=${{ env.REGISTRY_IMAGE }},push-by-digest=true,name-canonical=true,push=true
 
       - name: Export digest
@@ -180,134 +312,38 @@ jobs:
       - name: Upload digest
         uses: actions/upload-artifact@v4
         with:
-          name              : digest-${{ matrix.arch }}
+          name              : digest-arm64
           path              : /tmp/digests/*
           if-no-files-found : error
           retention-days    : 1
 
   # ════════════════════════════════════════════════════════════════════════════
-  # Job 3a-bis: Integration test the freshly-built image BEFORE tagging.
-  #   Pulls the amd64 by-digest image (no tag exists yet) and runs the live
-  #   HTTP suite (tests/integration_live/) against it. If any sentinel
-  #   fails — BUG-1, BUG-2, FR-5a, /browser/* round-trip, /sequence/execute
-  #   polymorphic preservation — the manifest push is skipped and `:latest`
-  #   stays pinned to the previous good build. amd64 only by design: the
-  #   image is functionally identical across arches; arm64 build correctness
-  #   is verified by the build job's own success.
+  # Job 3b (REMOVED): integration-test-image
+  #   Folded into build-and-test-amd64 above — no separate job, no registry
+  #   pull, no artifact handoff. The pre-tag gate is now an inline step
+  #   inside the amd64 build, which is what the user requested for faster
+  #   feedback.
   # ════════════════════════════════════════════════════════════════════════════
-  integration-test-image:
-    name: "Integration test image (pre-tag, amd64)"
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    needs: [build-playwright-image]
-    if: ${{ !cancelled() && needs.build-playwright-image.result == 'success' }}
-    env:
-      TEST_API_KEY_HEADER: 'X-API-Key'
-      TEST_API_KEY_VALUE : 'ci-pretag-integration-key'
-      CONTAINER_NAME     : 'sgpw-pretag-test'
-    steps:
-      - uses: actions/checkout@v5
-
-      - uses: actions/setup-python@v6
-        with:
-          python-version: '3.12'
-
-      - name: Install test deps
-        run: pip install pytest httpx pytest-timeout
-
-      - name: Login to Docker Hub
-        uses: docker/login-action@v3
-        with:
-          username: ${{ env.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
-
-      - name: Download amd64 digest
-        uses: actions/download-artifact@v4
-        with:
-          name: digest-amd64
-          path: /tmp/digests
-
-      - name: Resolve by-digest image reference
-        id: ref
-        run: |
-          digest_file=$(ls /tmp/digests | head -1)
-          echo "image_ref=${{ env.REGISTRY_IMAGE }}@sha256:${digest_file}" >> $GITHUB_OUTPUT
-          echo "Using: ${{ env.REGISTRY_IMAGE }}@sha256:${digest_file}"
-
-      - name: Pull image
-        run: docker pull "${{ steps.ref.outputs.image_ref }}"
-
-      - name: Run image (background)
-        run: |
-          docker run -d \
-            --name "$CONTAINER_NAME" \
-            -p 8000:8000 \
-            -e FAST_API__AUTH__API_KEY__NAME="$TEST_API_KEY_HEADER" \
-            -e FAST_API__AUTH__API_KEY__VALUE="$TEST_API_KEY_VALUE" \
-            "${{ steps.ref.outputs.image_ref }}"
-
-      - name: Wait for /health/status ready
-        run: |
-          for i in $(seq 1 45); do
-            if curl -sf -H "$TEST_API_KEY_HEADER: $TEST_API_KEY_VALUE" \
-                 http://localhost:8000/health/status > /dev/null; then
-              echo "Service ready after ${i}*2s"
-              exit 0
-            fi
-            sleep 2
-          done
-          echo "Service never became reachable" >&2
-          docker logs "$CONTAINER_NAME" --tail 200 || true
-          exit 1
-
-      - name: Preflight — runner + service liveness (cheap, no browser)
-        env:
-          SG_PLAYWRIGHT__LIVE_BASE_URL: http://localhost:8000
-          SG_PLAYWRIGHT__LIVE_API_KEY : ${{ env.TEST_API_KEY_VALUE }}
-          PYTHONPATH                  : '.'
-        run: pytest tests/integration_live/test_00_preflight.py -v --timeout=60         # If preflight fails the rest can't pass — surface the right altitude in the CI log
-
-      - name: Preflight container snapshot
-        if: always()
-        run: |
-          echo "── container state after preflight ───────────────────────"
-          docker ps -a --filter "name=$CONTAINER_NAME" --format 'table {{.Names}}\t{{.Status}}\t{{.Image}}'
-          echo "── last 100 lines of service log ─────────────────────────"
-          docker logs "$CONTAINER_NAME" --tail 100 || true
-
-      - name: Run remaining live integration suite
-        env:
-          SG_PLAYWRIGHT__LIVE_BASE_URL: http://localhost:8000
-          SG_PLAYWRIGHT__LIVE_API_KEY : ${{ env.TEST_API_KEY_VALUE }}
-          PYTHONPATH                  : '.'
-        run: pytest tests/integration_live/ --ignore=tests/integration_live/test_00_preflight.py -v --timeout=90
-
-      - name: Dump container logs on failure
-        if: failure()
-        run: docker logs "$CONTAINER_NAME" --tail 500 || true
-
-      - name: Stop container
-        if: always()
-        run: docker rm -f "$CONTAINER_NAME" || true
-
 
   # ════════════════════════════════════════════════════════════════════════════
-  # Job 3b: Merge per-arch digests into the published manifest list
+  # Job 4: Merge per-arch digests into the published manifest list
   #   Combines the amd64 + arm64 digests into a single multi-arch manifest and
   #   tags it. Pushes two tags:
   #     diniscruz/sg-playwright:<version>   — immutable, version-pinned
   #     diniscruz/sg-playwright:latest      — floating
   #
-  #   GATED on integration-test-image — a broken image never gets a tag. The
-  #   by-digest layer pushed by Job 3 stays orphaned (no consumer can pull
-  #   it without the exact sha256) and gets garbage-collected by Docker Hub.
+  #   GATED on the amd64 job (which now includes integration tests) AND on
+  #   the arm64 build job. A broken image never gets a tag — the orphaned
+  #   by-digest layers from a failed amd64 build (and the parallel arm64
+  #   build that succeeded) get GC'd by Docker Hub since no tag references
+  #   them.
   # ════════════════════════════════════════════════════════════════════════════
   push-playwright-manifest:
     name: "Push Playwright Image Manifest to Docker Hub"
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    needs: [build-playwright-image, integration-test-image]
-    if: ${{ !cancelled() && needs.build-playwright-image.result == 'success' && needs.integration-test-image.result == 'success' }}
+    needs: [build-and-test-amd64, build-arm64]
+    if: ${{ !cancelled() && needs.build-and-test-amd64.result == 'success' && needs.build-arm64.result == 'success' }}
     steps:
       - uses: actions/checkout@v5
         with:
