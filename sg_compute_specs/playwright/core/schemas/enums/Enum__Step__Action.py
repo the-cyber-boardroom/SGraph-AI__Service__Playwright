@@ -13,7 +13,8 @@ class Enum__Step__Action(str, Enum):                                            
     SELECT         = "select"                                                       # Select option from dropdown
     HOVER          = "hover"                                                        # Mouse hover
     SCROLL         = "scroll"                                                       # Scroll viewport or element
-    WAIT_FOR       = "wait_for"                                                     # Wait for selector / url / state
+    WAIT_FOR       = "wait_for"                                                     # Wait for selector / url / state / text
+    WAIT           = "wait"                                                         # Plain fixed-duration sleep (FR-4 — explicit, intentional pause; not the "blind wait" anti-pattern wait_for replaces)
     SCREENSHOT     = "screenshot"                                                   # Capture screenshot
     VIDEO_START    = "video_start"                                                  # Begin session recording
     VIDEO_STOP     = "video_stop"                                                   # End session recording

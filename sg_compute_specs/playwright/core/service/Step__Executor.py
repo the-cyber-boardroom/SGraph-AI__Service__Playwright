@@ -46,6 +46,7 @@ from sg_compute_specs.playwright.core.schemas.steps.Schema__Step__Get_Url       
 from sg_compute_specs.playwright.core.schemas.steps.Schema__Step__Evaluate                              import Schema__Step__Evaluate
 from sg_compute_specs.playwright.core.schemas.steps.Schema__Step__Navigate                              import Schema__Step__Navigate
 from sg_compute_specs.playwright.core.schemas.steps.Schema__Step__Screenshot                            import Schema__Step__Screenshot
+from sg_compute_specs.playwright.core.schemas.steps.Schema__Step__Wait                                  import Schema__Step__Wait
 from sg_compute_specs.playwright.core.schemas.steps.Schema__Step__Wait_For                              import Schema__Step__Wait_For
 from sg_compute_specs.playwright.core.schemas.steps.Schema__Step__Press                                 import Schema__Step__Press
 from sg_compute_specs.playwright.core.schemas.steps.Schema__Step__Select                                import Schema__Step__Select
@@ -113,6 +114,9 @@ class Step__Executor(Step__Executor__Base):                                     
     def execute_screenshot(self, page, step: Schema__Step__Screenshot, step_index: int, capture_config: Schema__Capture__Config) -> Schema__Step__Result__Base:
         started_ms = self.now_ms()
         try:
+            if step.viewport is not None:                                                       # FR-7 — set viewport before snapping (shorthand for a preceding set_viewport step)
+                page.set_viewport_size({'width' : int(step.viewport.width) ,
+                                        'height': int(step.viewport.height)})
             if step.selector is not None:
                 data = page.locator(str(step.selector)).screenshot(timeout=int(step.timeout_ms))
             else:
@@ -214,8 +218,14 @@ class Step__Executor(Step__Executor__Base):                                     
     def execute_wait_for(self, page, step: Schema__Step__Wait_For, step_index: int, capture_config: Schema__Capture__Config) -> Schema__Step__Result__Base:
         started_ms = self.now_ms()
         try:
-            if   step.selector    is not None:                                          # Wait for a selector to be visible (or merely attached)
-                state = 'visible' if bool(step.visible) else 'attached'
+            if   step.text        is not None:                                          # FR-1a — wait for visible text. When `selector` is also set, scope to that subtree
+                root   = page.locator(str(step.selector)) if step.selector is not None else page
+                locator = root.get_by_text(str(step.text))
+                locator.wait_for(state='visible', timeout=int(step.timeout_ms))
+            elif step.selector    is not None:                                          # Wait for a selector — state depends on flags
+                if   bool(step.selector_gone): state = 'detached'                       # FR-1b — wait until selector leaves the DOM
+                elif bool(step.visible)      : state = 'visible'
+                else                         : state = 'attached'
                 page.wait_for_selector(str(step.selector), state=state, timeout=int(step.timeout_ms))
             elif step.url_pattern is not None:                                          # Wait for the URL to match
                 page.wait_for_url(str(step.url_pattern), timeout=int(step.timeout_ms))
@@ -223,6 +233,14 @@ class Step__Executor(Step__Executor__Base):                                     
                 page.wait_for_load_state(str(step.state), timeout=int(step.timeout_ms))
             else:
                 page.wait_for_load_state(timeout=int(step.timeout_ms))                  # Default: wait for 'load'
+            return self.passed_result(step, step_index, started_ms)
+        except Exception as error:
+            return self.failed_result(step, step_index, started_ms, error)
+
+    def execute_wait(self, page, step: Schema__Step__Wait, step_index: int, capture_config: Schema__Capture__Config) -> Schema__Step__Result__Base:  # FR-4 — plain fixed-duration pause (explicit, intentional; not the blind-wait anti-pattern that wait_for replaces)
+        started_ms = self.now_ms()
+        try:
+            page.wait_for_timeout(int(step.duration_ms))
             return self.passed_result(step, step_index, started_ms)
         except Exception as error:
             return self.failed_result(step, step_index, started_ms, error)

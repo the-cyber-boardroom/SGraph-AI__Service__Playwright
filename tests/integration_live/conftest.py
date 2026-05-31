@@ -34,10 +34,10 @@ ENV__API_KEY       = 'SG_PLAYWRIGHT__LIVE_API_KEY'
 ENV__API_KEY_NAME  = 'SG_PLAYWRIGHT__LIVE_API_KEY_NAME'
 DEFAULT_KEY_HEADER = 'X-API-Key'
 
-TARGET__EXAMPLE    = 'https://example.com/'
-TARGET__SGRAPH     = 'https://sgraph.ai/'
-TARGET__SEND       = 'https://send.sgraph.ai/'
+TARGET__SGRAPH     = 'https://sgraph.ai/'                                                # Marketing site — lightest of the three, used as the default smoke target
+TARGET__SEND       = 'https://send.sgraph.ai/'                                           # Real product UI — heavier JS, used to validate live-app paths
 TARGET__VAULT_URL  = 'https://dev.vault.sgraph.ai/#tcss7to5vfp6asjbm1t1p5ng:rqw3wk4b'    # BUG-1 sentinel — the URL shape that crashed the @Content driving session
+TARGET__ALL_SGRAPH = [TARGET__SGRAPH, TARGET__SEND]                                       # Convenience list for tests that hit "every target"
 
 REQUEST_TIMEOUT_S  = 60.0                                                                # Real browser launches dominate; 60s leaves slack for cold-start
 

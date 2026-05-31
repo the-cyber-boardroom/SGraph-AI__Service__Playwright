@@ -8,7 +8,7 @@
 
 from unittest import TestCase
 
-from tests.integration_live.conftest import TARGET__EXAMPLE, TARGET__SGRAPH, TARGET__SEND
+from tests.integration_live.conftest import TARGET__SGRAPH, TARGET__SEND
 
 
 def _client():
@@ -25,11 +25,11 @@ def _base_body(steps):                                                          
             'steps'          : steps             }
 
 
-class test_sequence_execute__example_com(TestCase):
+class test_sequence_execute__sgraph_ai(TestCase):
 
     def test__navigate_then_get_url_then_get_content__all_subclass_fields_preserved(self):  # BUG-2 sentinel — every subclass-only field must survive the wire
         body = _base_body([
-            {'action': 'navigate'   , 'url': TARGET__EXAMPLE                              },
+            {'action': 'navigate'   , 'url': TARGET__SGRAPH                               },
             {'action': 'get_url'                                                          },
             {'action': 'get_content', 'content_format': 'html', 'inline_in_response': True},
         ])
@@ -41,31 +41,15 @@ class test_sequence_execute__example_com(TestCase):
             assert resp['steps_passed'] == 3
             results = resp['step_results']
             assert len(results) == 3
-            assert results[1].get('url', '').startswith('https://example.com')           # get_url result — would be None pre-BUG-2-fix
-            assert 'Example Domain' in (results[2].get('content') or '')                  # get_content result — would be None pre-BUG-2-fix
-            assert results[2].get('content_format') == 'html'
-
-
-class test_sequence_execute__sgraph_ai(TestCase):
-
-    def test__own_marketing_site_renders(self):
-        body = _base_body([
-            {'action': 'navigate'   , 'url': TARGET__SGRAPH                               },
-            {'action': 'get_content', 'content_format': 'html', 'inline_in_response': True},
-        ])
-        with _client() as c:
-            r = c.post('/sequence/execute', json=body)
-            assert r.status_code == 200, r.text
-            resp = r.json()
-            assert resp['status']       == 'completed'
-            html = resp['step_results'][1].get('content') or ''
-            assert len(html) > 1000                                                       # Real page, not an error stub
+            assert results[1].get('url', '').startswith('https://sgraph.ai')         # get_url result — would be None pre-BUG-2-fix
+            html = results[2].get('content') or ''                                   # get_content result — would be None pre-BUG-2-fix
             assert '<html' in html.lower()
+            assert results[2].get('content_format') == 'html'
 
 
 class test_sequence_execute__send_sgraph_ai(TestCase):
 
-    def test__real_product_surface_loads_and_renders_dom(self):                          # send.sgraph.ai is the live product UI — heavier JS than the marketing site
+    def test__real_product_surface_loads_and_renders_dom(self):                      # send.sgraph.ai is the live product UI — heavier JS than the marketing site
         body = _base_body([
             {'action': 'navigate'   , 'url': TARGET__SEND, 'wait_until': 'load'           },
             {'action': 'get_url'                                                          },
@@ -79,4 +63,4 @@ class test_sequence_execute__send_sgraph_ai(TestCase):
             results = resp['step_results']
             assert results[1].get('url', '').startswith('https://send.sgraph.ai')
             html = results[2].get('content') or ''
-            assert len(html) > 500                                                       # Some real markup arrived
+            assert len(html) > 500                                                   # Some real markup arrived

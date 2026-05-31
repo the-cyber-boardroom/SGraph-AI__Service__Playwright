@@ -36,6 +36,7 @@ from sg_compute_specs.playwright.core.schemas.steps.Schema__Step__Select        
 from sg_compute_specs.playwright.core.schemas.steps.Schema__Step__Set_Viewport                          import Schema__Step__Set_Viewport
 from sg_compute_specs.playwright.core.schemas.steps.Schema__Step__Video__Start                          import Schema__Step__Video__Start
 from sg_compute_specs.playwright.core.schemas.steps.Schema__Step__Video__Stop                           import Schema__Step__Video__Stop
+from sg_compute_specs.playwright.core.schemas.steps.Schema__Step__Wait                                  import Schema__Step__Wait
 from sg_compute_specs.playwright.core.schemas.steps.Schema__Step__Wait_For                              import Schema__Step__Wait_For
 
 
@@ -49,6 +50,7 @@ STEP_SCHEMAS : Dict__Step__Schemas__By_Action = Dict__Step__Schemas__By_Action({
     Enum__Step__Action.HOVER          : Schema__Step__Hover         ,
     Enum__Step__Action.SCROLL         : Schema__Step__Scroll        ,
     Enum__Step__Action.WAIT_FOR       : Schema__Step__Wait_For      ,
+    Enum__Step__Action.WAIT           : Schema__Step__Wait          ,
     Enum__Step__Action.SCREENSHOT     : Schema__Step__Screenshot    ,
     Enum__Step__Action.VIDEO_START    : Schema__Step__Video__Start  ,
     Enum__Step__Action.VIDEO_STOP     : Schema__Step__Video__Stop   ,

@@ -67,10 +67,11 @@ class test_Enum__Step__Action(TestCase):
             'select'        , 'hover'         , 'scroll'       , 'wait_for'       ,
             'screenshot'    , 'video_start'   , 'video_stop'   , 'evaluate'       ,
             'dispatch_event', 'set_viewport'  , 'get_content'  , 'get_url'        ,
+            'wait'          ,                                                       # Φ2 — FR-4 fixed-duration sleep
         ])
 
-    def test__has_sixteen_actions(self):                                            # Spec: 16 action verbs
-        assert len(list(Enum__Step__Action)) == 16
+    def test__has_seventeen_actions(self):                                          # Φ2 — added WAIT (FR-4). Spec evolves; was 16 in v0.2.47.
+        assert len(list(Enum__Step__Action)) == 17
 
 
 class test_Enum__Wait__State(TestCase):

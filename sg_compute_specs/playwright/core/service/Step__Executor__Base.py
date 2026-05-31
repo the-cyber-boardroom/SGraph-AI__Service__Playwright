@@ -48,6 +48,7 @@ ACTION_HANDLERS = {
     Enum__Step__Action.GET_URL        : 'execute_get_url'        ,
     Enum__Step__Action.EVALUATE       : 'execute_evaluate'       ,
     Enum__Step__Action.WAIT_FOR       : 'execute_wait_for'       ,
+    Enum__Step__Action.WAIT           : 'execute_wait'           ,
     Enum__Step__Action.PRESS          : 'execute_press'          ,
     Enum__Step__Action.SELECT         : 'execute_select'         ,
     Enum__Step__Action.HOVER          : 'execute_hover'          ,
