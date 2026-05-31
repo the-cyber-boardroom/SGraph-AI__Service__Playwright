@@ -1,0 +1,115 @@
+# ═══════════════════════════════════════════════════════════════════════════════
+# Integration tests against a PUBLISHED sg-playwright image.
+#
+# Complement to the pre-tag gate baked into ci-pipeline.yml
+# (job: integration-test-image). That job tests the image BEFORE it's
+# tagged — this workflow tests an image AFTER it's been tagged + pulled by
+# the world. Use cases:
+#   • Nightly drift check (public targets evolve; cron catches it).
+#   • Pre-release smoke (workflow_dispatch with `image_tag: vN.N.N`).
+#   • Bisection — point at any historical tag/digest to confirm where a
+#     regression entered.
+#
+# Public CDN-hosted targets (no compute concern from frequent runs):
+#   • https://example.com         — RFC-safe stability sentinel
+#   • https://sgraph.ai           — own marketing site
+#   • https://send.sgraph.ai      — real product UI (real JS)
+#
+# Two jobs:
+#   • integration-live-http  — black-box HTTP against the shipped image
+#   • integration-in-image   — runs tests/integration/service/ INSIDE
+#                              the image (bundled Chromium, wider verbs)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+name: Integration — Live (published image)
+
+on:
+  schedule:
+    - cron: '0 4 * * *'                                                                  # 04:00 UTC nightly — daylight regression sweep
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: 'Image tag to test (latest, vN.N.N, or sha-...)'
+        required: false
+        type: string
+        default: 'latest'
+
+env:
+  REGISTRY_IMAGE          : 'diniscruz/sg-playwright'
+  SERVICE_PORT            : '8000'
+  TEST_API_KEY_HEADER     : 'X-API-Key'
+  TEST_API_KEY_VALUE      : 'ci-live-integration-key'                                    # Per-run secret; the service container is throwaway
+
+jobs:
+
+  integration-live-http:
+    name: 'Live HTTP — image:${{ inputs.image_tag || ''latest'' }}'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    services:
+      playwright:
+        image: diniscruz/sg-playwright:${{ inputs.image_tag || 'latest' }}
+        ports:
+          - 8000:8000
+        env:
+          FAST_API__AUTH__API_KEY__NAME : 'X-API-Key'
+          FAST_API__AUTH__API_KEY__VALUE: 'ci-live-integration-key'
+        options: >-
+          --health-cmd "python -c 'import urllib.request; urllib.request.urlopen(\"http://localhost:8000/health/status\", timeout=2)' || exit 1"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+          --health-start-period 30s
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Install test deps
+        run: pip install pytest httpx
+
+      - name: Wait for service to be reachable
+        run: |
+          for i in $(seq 1 30); do
+            if curl -sf -H "X-API-Key: $TEST_API_KEY_VALUE" "http://localhost:$SERVICE_PORT/health/status" > /dev/null; then
+              echo "Service ready after ${i}*2s"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "Service never became reachable" >&2
+          docker ps -a
+          exit 1
+
+      - name: Run live integration tests
+        env:
+          SG_PLAYWRIGHT__LIVE_BASE_URL: http://localhost:8000
+          SG_PLAYWRIGHT__LIVE_API_KEY : ${{ env.TEST_API_KEY_VALUE }}
+          PYTHONPATH                  : '.'
+        run: pytest tests/integration_live/ -v --timeout=90
+
+      - name: Dump service logs on failure
+        if: failure()
+        run: docker logs "${{ job.services.playwright.id }}" --tail 200 || true
+
+  integration-in-image:
+    name: 'In-image pytest — image:${{ inputs.image_tag || ''latest'' }}'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    container:
+      image: diniscruz/sg-playwright:${{ inputs.image_tag || 'latest' }}
+      options: --user root
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install test deps
+        run: pip install pytest pytest-timeout
+
+      - name: Run integration tests
+        env:
+          PYTHONPATH: '.'
+        run: pytest tests/integration/service/ -v --timeout=90
