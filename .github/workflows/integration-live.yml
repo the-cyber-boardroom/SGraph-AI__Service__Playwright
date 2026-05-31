@@ -85,12 +85,19 @@ jobs:
           docker ps -a
           exit 1
 
-      - name: Run live integration tests
+      - name: Preflight — runner + service liveness
         env:
           SG_PLAYWRIGHT__LIVE_BASE_URL: http://localhost:8000
           SG_PLAYWRIGHT__LIVE_API_KEY : ${{ env.TEST_API_KEY_VALUE }}
           PYTHONPATH                  : '.'
-        run: pytest tests/integration_live/ -v --timeout=90
+        run: pytest tests/integration_live/test_00_preflight.py -v --timeout=60
+
+      - name: Run remaining live integration tests
+        env:
+          SG_PLAYWRIGHT__LIVE_BASE_URL: http://localhost:8000
+          SG_PLAYWRIGHT__LIVE_API_KEY : ${{ env.TEST_API_KEY_VALUE }}
+          PYTHONPATH                  : '.'
+        run: pytest tests/integration_live/ --ignore=tests/integration_live/test_00_preflight.py -v --timeout=90
 
       - name: Dump service logs on failure
         if: failure()

@@ -240,3 +240,58 @@ class test_capture_helpers(TestCase):                                           
             assert ref.local_ref is not None and os.path.exists(str(ref.local_ref.path))
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
+
+
+# ─── Φ2 — FR-7 artefact dimensions (PNG IHDR parse) ──────────────────────────────
+def _png_with_ihdr(width: int, height: int) -> bytes:                                # Minimal PNG header — signature + IHDR chunk. Enough for parse_png_dimensions; bytes after IHDR don't matter for the dim extraction
+    sig    = b'\x89PNG\r\n\x1a\n'
+    length = (13).to_bytes(4, 'big')                                                 # IHDR is always 13 bytes
+    ctype  = b'IHDR'
+    body   = width.to_bytes(4, 'big') + height.to_bytes(4, 'big') + b'\x08\x02\x00\x00\x00'  # bit_depth=8, color_type=2 (RGB), compression/filter/interlace=0
+    crc    = b'\x00\x00\x00\x00'                                                     # Bogus CRC — parser doesn't check
+    return sig + length + ctype + body + crc
+
+
+class test_parse_png_dimensions(TestCase):
+
+    def test__returns_width_height_for_valid_png(self):
+        w   = _InMemoryWriter()
+        png = _png_with_ihdr(1280, 720)
+        assert w.parse_png_dimensions(png) == (1280, 720)
+
+    def test__handles_large_full_page_dimensions(self):                              # full_page screenshots can run 20k+ px tall
+        w   = _InMemoryWriter()
+        png = _png_with_ihdr(1920, 21000)
+        assert w.parse_png_dimensions(png) == (1920, 21000)
+
+    def test__returns_none_for_non_png_bytes(self):
+        w = _InMemoryWriter()
+        assert w.parse_png_dimensions(b'<html>not a png</html>') is None
+
+    def test__returns_none_for_too_short_input(self):
+        w = _InMemoryWriter()
+        assert w.parse_png_dimensions(b'\x89PNG\r\n\x1a\n') is None                  # Signature only — no IHDR
+
+    def test__returns_none_when_first_chunk_is_not_ihdr(self):
+        w = _InMemoryWriter()
+        broken = b'\x89PNG\r\n\x1a\n' + b'\x00\x00\x00\x0d' + b'XXXX' + (b'\x00' * 13) + b'\x00\x00\x00\x00'
+        assert w.parse_png_dimensions(broken) is None
+
+
+class test_capture_screenshot_populates_dimensions(TestCase):
+
+    def test__width_and_height_set_on_ref_for_valid_png(self):
+        w   = _InMemoryWriter()
+        cfg = Schema__Artefact__Sink_Config(enabled=True, sink=Enum__Artefact__Sink.INLINE)
+        ref = w.capture_screenshot(_png_with_ihdr(800, 600), cfg)
+        assert ref is not None
+        assert int(ref.width)  == 800
+        assert int(ref.height) == 600
+
+    def test__non_png_bytes_leave_dimensions_none(self):                             # Defensive — we never want capture to crash on weird bytes
+        w   = _InMemoryWriter()
+        cfg = Schema__Artefact__Sink_Config(enabled=True, sink=Enum__Artefact__Sink.INLINE)
+        ref = w.capture_screenshot(b'garbage bytes', cfg)
+        assert ref is not None
+        assert ref.width  is None
+        assert ref.height is None

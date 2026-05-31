@@ -45,6 +45,7 @@ from sg_compute_specs.playwright.core.schemas.artefact.Schema__S3_Ref           
 from sg_compute_specs.playwright.core.schemas.artefact.Schema__Vault_Ref                             import Schema__Vault_Ref
 from sg_compute_specs.playwright.core.schemas.enums.Enum__Artefact__Sink                             import Enum__Artefact__Sink
 from sg_compute_specs.playwright.core.schemas.enums.Enum__Artefact__Type                             import Enum__Artefact__Type
+from sg_compute_specs.playwright.core.schemas.primitives.numeric.Safe_UInt__Pixel__Dimension         import Safe_UInt__Pixel__Dimension
 from sg_compute_specs.playwright.core.schemas.primitives.s3.Safe_Str__S3_Key                         import Safe_Str__S3_Key
 
 
@@ -136,7 +137,23 @@ class Artefact__Writer(Type_Safe):
                            data        : bytes                           ,
                            sink_config : Schema__Artefact__Sink_Config
                       ) -> Schema__Artefact__Ref:
-        return self.write_artefact(Enum__Artefact__Type.SCREENSHOT, data, sink_config)
+        ref = self.write_artefact(Enum__Artefact__Type.SCREENSHOT, data, sink_config)
+        if ref is not None:                                                          # FR-7 — populate pixel dims from PNG IHDR; no-op when capture is disabled (ref is None) or the bytes are not a valid PNG
+            dims = self.parse_png_dimensions(data)
+            if dims is not None:
+                ref.width, ref.height = Safe_UInt__Pixel__Dimension(dims[0]), Safe_UInt__Pixel__Dimension(dims[1])
+        return ref
+
+    def parse_png_dimensions(self, data: bytes):                                     # PNG layout: 8-byte signature, then chunks. First chunk is always IHDR — 4-byte length, 4-byte type 'IHDR', 13-byte data (width:4 big-endian, height:4 big-endian, then bit_depth/color_type/...)
+        if len(data) < 24:                                                           # 8 sig + 4 length + 4 type + 8 (width+height) = 24
+            return None
+        if data[:8] != b'\x89PNG\r\n\x1a\n':                                         # Not a PNG — silently skip (caller still gets a valid ref minus dims)
+            return None
+        if data[12:16] != b'IHDR':                                                   # First chunk MUST be IHDR per spec; bail if not
+            return None
+        width  = int.from_bytes(data[16:20], 'big')
+        height = int.from_bytes(data[20:24], 'big')
+        return (width, height)
 
     def capture_page_content(self                                          ,
                              data        : bytes                           ,

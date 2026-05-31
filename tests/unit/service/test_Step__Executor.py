@@ -165,6 +165,23 @@ class _Fake_Page:
         self.calls.append(('evaluate', expression))
         return self.evaluate_return_value                                            # FR-5a — return value surfaced; tests set evaluate_return_value
 
+    def wait_for_timeout(self, duration_ms):                                          # Φ2 — FR-4 plain wait verb
+        self.calls.append(('wait_for_timeout', duration_ms))
+        self._maybe_raise('wait_for_timeout')
+
+    def get_by_text(self, text):                                                     # Φ2 — FR-1a wait_for: text routes through page.get_by_text(...).wait_for(...)
+        return _Fake_Text_Locator(self, text)
+
+
+class _Fake_Text_Locator:                                                            # Returned by page.get_by_text(...) — only needs .wait_for(...) for the FR-1a path
+    def __init__(self, page, text):
+        self.page = page
+        self.text = text
+
+    def wait_for(self, **kwargs):
+        self.page.calls.append(('text.wait_for', self.text, kwargs))
+        self.page._maybe_raise('text.wait_for')
+
 
 # ── _InMemoryWriter: routes artefacts without real vault/S3 ──────────────────
 
@@ -532,3 +549,94 @@ class test_execute_evaluate(TestCase):
         assert res.status       == Enum__Step__Status.FAILED
         assert res.return_value is None
         assert res.return_type  is None
+
+
+# ─── Φ2 — FR-4 plain wait verb ───────────────────────────────────────────────────
+from sg_compute_specs.playwright.core.schemas.steps.Schema__Step__Wait import Schema__Step__Wait
+
+
+class test_execute_wait(TestCase):
+
+    def test__sleeps_for_duration_ms(self):
+        page = _Fake_Page()
+        step = Schema__Step__Wait(duration_ms=250)
+        res  = _executor().execute(page, step, step_index=0, capture_config=_capture_config_all_inline())
+        assert res.status == Enum__Step__Status.PASSED
+        assert ('wait_for_timeout', 250) in page.calls
+
+    def test__zero_duration_is_a_no_op_that_still_passes(self):
+        page = _Fake_Page()
+        step = Schema__Step__Wait(duration_ms=0)
+        res  = _executor().execute(page, step, step_index=0, capture_config=_capture_config_all_inline())
+        assert res.status == Enum__Step__Status.PASSED
+        assert ('wait_for_timeout', 0) in page.calls
+
+    def test__exception_surfaces_as_failed(self):
+        page = _Fake_Page(raise_on='wait_for_timeout')
+        step = Schema__Step__Wait(duration_ms=100)
+        res  = _executor().execute(page, step, step_index=0, capture_config=_capture_config_all_inline())
+        assert res.status == Enum__Step__Status.FAILED
+
+
+# ─── Φ2 — FR-1a wait_for: text + FR-1b wait_for: selector_gone ─────────────────
+class test_wait_for_text_and_selector_gone(TestCase):
+
+    def test__text_branch_routes_through_get_by_text(self):                          # FR-1a
+        page = _Fake_Page()
+        step = Schema__Step__Wait_For(text='Welcome back')
+        res  = _executor().execute(page, step, step_index=0, capture_config=_capture_config_all_inline())
+        assert res.status == Enum__Step__Status.PASSED
+        text_calls = [c for c in page.calls if c[0] == 'text.wait_for']
+        assert len(text_calls) == 1
+        assert text_calls[0][1] == 'Welcome back'
+        assert text_calls[0][2].get('state') == 'visible'
+
+    def test__selector_gone_passes_state_detached(self):                             # FR-1b
+        page = _Fake_Page()
+        step = Schema__Step__Wait_For(selector='.spinner', selector_gone=True)
+        res  = _executor().execute(page, step, step_index=0, capture_config=_capture_config_all_inline())
+        assert res.status == Enum__Step__Status.PASSED
+        selector_calls = [c for c in page.calls if c[0] == 'wait_for_selector']
+        assert len(selector_calls) == 1
+        assert selector_calls[0][1] == '.spinner'
+        assert selector_calls[0][2].get('state') == 'detached'
+
+    def test__selector_visible_default_still_works(self):                            # Regression — pre-Φ2 behaviour unchanged
+        page = _Fake_Page()
+        step = Schema__Step__Wait_For(selector='#login')
+        res  = _executor().execute(page, step, step_index=0, capture_config=_capture_config_all_inline())
+        assert res.status == Enum__Step__Status.PASSED
+        selector_calls = [c for c in page.calls if c[0] == 'wait_for_selector']
+        assert selector_calls[0][2].get('state') == 'visible'
+
+    def test__text_takes_precedence_over_selector_only(self):                        # text wins; selector-only branch is NOT taken when text is also set
+        page = _Fake_Page()
+        step = Schema__Step__Wait_For(text='ok')
+        _executor().execute(page, step, step_index=0, capture_config=_capture_config_all_inline())
+        kinds = [c[0] for c in page.calls]
+        assert 'text.wait_for'      in kinds
+        assert 'wait_for_selector'  not in kinds
+
+
+# ─── Φ2 — FR-7 viewport shorthand on screenshot ──────────────────────────────────
+from sg_compute_specs.playwright.core.schemas.browser.Schema__Viewport import Schema__Viewport
+
+
+class test_screenshot_viewport_shorthand(TestCase):
+
+    def test__sets_viewport_before_snapping(self):
+        page = _Fake_Page()
+        step = Schema__Step__Screenshot(full_page=False, viewport=Schema__Viewport(width=1024, height=768))
+        res  = _executor().execute(page, step, step_index=0, capture_config=_capture_config_all_inline())
+        assert res.status == Enum__Step__Status.PASSED
+        kinds = [c[0] for c in page.calls]
+        assert kinds.index('set_viewport_size') < kinds.index('screenshot')          # Order matters: viewport first, then screenshot
+        viewport_call = next(c for c in page.calls if c[0] == 'set_viewport_size')
+        assert viewport_call[1] == {'width': 1024, 'height': 768}
+
+    def test__no_viewport_means_no_set_viewport_call(self):
+        page = _Fake_Page()
+        step = Schema__Step__Screenshot(full_page=False)
+        _executor().execute(page, step, step_index=0, capture_config=_capture_config_all_inline())
+        kinds = [c[0] for c in page.calls]
+        assert 'set_viewport_size' not in kinds

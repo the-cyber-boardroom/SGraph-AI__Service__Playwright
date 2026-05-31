@@ -16,6 +16,7 @@ from sg_compute_specs.playwright.core.schemas.artefact.Schema__S3_Ref           
 from sg_compute_specs.playwright.core.schemas.artefact.Schema__Vault_Ref                               import Schema__Vault_Ref
 from sg_compute_specs.playwright.core.schemas.enums.Enum__Artefact__Sink                               import Enum__Artefact__Sink
 from sg_compute_specs.playwright.core.schemas.enums.Enum__Artefact__Type                               import Enum__Artefact__Type
+from sg_compute_specs.playwright.core.schemas.primitives.numeric.Safe_UInt__Pixel__Dimension           import Safe_UInt__Pixel__Dimension
 from sg_compute_specs.playwright.core.schemas.primitives.text.Safe_Str__Artefact__Inline               import Safe_Str__Artefact__Inline
 
 
@@ -24,6 +25,8 @@ class Schema__Artefact__Ref(Type_Safe):                                         
     sink          : Enum__Artefact__Sink
     size_bytes    : Safe_UInt__FileSize                                             # Always populated
     content_hash  : Safe_Str__Hash                = None                            # Optional content hash
+    width         : Safe_UInt__Pixel__Dimension   = None                            # FR-7 — pixel width  (populated for SCREENSHOT artefacts; parsed from PNG IHDR)
+    height        : Safe_UInt__Pixel__Dimension   = None                            # FR-7 — pixel height (populated for SCREENSHOT artefacts; parsed from PNG IHDR)
     vault_ref     : Schema__Vault_Ref             = None                            # Populated when sink=VAULT
     s3_ref        : Schema__S3_Ref                = None                            # Populated when sink=S3
     local_ref     : Schema__Local_File_Ref        = None                            # Populated when sink=LOCAL_FILE
