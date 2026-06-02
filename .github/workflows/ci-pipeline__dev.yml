@@ -6,7 +6,7 @@ on:
         description: 'Force Docker image rebuild even when no image-relevant files changed'
         required: false
         type: boolean
-        default: false
+        default: true
   push:
     branches:
       - dev
@@ -19,10 +19,10 @@ on:
       - 'team/**'
       - 'library/**'
       - '**/*.md'
-      # version-bump commits — increment-tag writes these; ignore them so the
-      # bump commit does not re-trigger a second CI run (belt-and-suspenders
-      # alongside the [skip ci] tag in the commit message)
-      - 'sg_compute_specs/playwright/core/version'
+      # version-bump commits — increment-tag writes the repo-root version file;
+      # ignore it so the bump commit does not re-trigger a second CI run
+      # (belt-and-suspenders alongside the [skip ci] tag in the commit message)
+      - 'version'
 
 jobs:
   deploy-dev:
@@ -32,5 +32,5 @@ jobs:
       release_type        : 'minor'
       target_deploy       : 'dev'
       should_increment_tag: true
-      force_image_rebuild : ${{ inputs.force_image_rebuild || false }}
+      force_image_rebuild : ${{ inputs.force_image_rebuild || true }}
     secrets: inherit

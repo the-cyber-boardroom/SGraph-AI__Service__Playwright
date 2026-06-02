@@ -13,6 +13,7 @@
 from osbot_fast_api.api.routes.Fast_API__Routes                                         import Fast_API__Routes
 
 from sg_compute_specs.playwright.core.schemas.sequence.Schema__Sequence__Request            import Schema__Sequence__Request
+from sg_compute_specs.playwright.core.schemas.sequence.Schema__Sequence__Response           import Schema__Sequence__Response
 from sg_compute_specs.playwright.core.service.Playwright__Service                           import Playwright__Service
 
 
@@ -24,8 +25,8 @@ class Routes__Sequence(Fast_API__Routes):
     tag     : str                = TAG__ROUTES_SEQUENCE
     service : Playwright__Service                                                   # Injected by Fast_API__Playwright__Service.setup_routes()
 
-    def execute(self, body: Schema__Sequence__Request) -> dict:
-        return self.service.execute_sequence(body).json()
+    def execute(self, body: Schema__Sequence__Request) -> Schema__Sequence__Response:   # Typed return → OpenAPI advertises the schema (was advertised as `string` because `.json()` returned a dict)
+        return self.service.execute_sequence(body)
 
     def setup_routes(self):
         self.add_route_post(self.execute)

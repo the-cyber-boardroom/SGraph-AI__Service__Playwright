@@ -53,9 +53,11 @@ from sg_compute_specs.playwright.core.schemas.steps.Schema__Step__Base          
 from sg_compute_specs.playwright.core.service.Browser__Launcher                                         import Browser__Launcher
 from sg_compute_specs.playwright.core.service.Capability__Detector                                      import Capability__Detector
 from sg_compute_specs.playwright.core.service.Credentials__Loader                                       import Credentials__Loader
+from sg_compute_specs.playwright.core.service.Page__Listeners__Buffer                                   import Page__Listeners__Buffer
 from sg_compute_specs.playwright.core.service.Request__Validator                                        import Request__Validator
 from sg_compute_specs.playwright.core.service.Sequence__Dispatcher                                      import Sequence__Dispatcher
 from sg_compute_specs.playwright.core.service.Step__Executor                                            import Step__Executor
+from sg_compute_specs.playwright.core.schemas.enums.Enum__Artefact__Type                                import Enum__Artefact__Type
 
 
 DEFAULT_REQUEST_DEADLINE_MS = 25000                                                 # 5 s headroom under CloudFront's 30 s gateway timeout
@@ -69,6 +71,82 @@ class Sequence__Runner(Type_Safe):
     step_executor       : Step__Executor
     browser_launcher    : Browser__Launcher
     credentials_loader  : Credentials__Loader
+
+    def execute_on_held_page(self, request: Schema__Sequence__Request,                   # Φ7 — session-mode entry point. Reuses everything except launch / teardown.
+                              page: 'Any', listeners_buffer: 'Page__Listeners__Buffer'
+                         ) -> Schema__Sequence__Response:
+        sequence_id    = request.sequence_id or Sequence_Id()
+        trace_id       = request.trace_id    or Safe_Str__Trace_Id(uuid.uuid4().hex[:8])
+        capture_config = request.capture_config
+        capabilities   = self.capability_detector.capabilities()
+        target         = self.capability_detector.target()
+        started_ms     = int(time.time() * 1000)
+
+        parsed_steps = self.sequence_dispatcher.parse_steps(request.steps)
+        self.request_validator.validate_step_ids_unique(parsed_steps)
+        # No browser_config validation — session inherits from /session/open
+
+        steps_started_ms = int(time.time() * 1000)
+        results, artefacts, counters = self._iterate_steps(parsed_steps, page, request, capabilities, target, started_ms)
+        steps_ms = int(time.time() * 1000) - steps_started_ms
+
+        # End-of-sequence listener artefact emission — same path as standalone execute()
+        if listeners_buffer is not None:
+            self._emit_listener_artefacts(listeners_buffer, capture_config, artefacts)
+
+        status   = self.sequence_status(failed=counters['failed'], halted=counters['halted'])
+        total_ms = int(time.time() * 1000) - started_ms
+        timings  = Schema__Sequence__Timings(playwright_start_ms = Safe_UInt__Milliseconds(0),    # No launch happened — zero out the launch-side timings
+                                              browser_launch_ms   = Safe_UInt__Milliseconds(0),
+                                              steps_ms            = Safe_UInt__Milliseconds(steps_ms),
+                                              browser_close_ms    = Safe_UInt__Milliseconds(0),
+                                              total_ms            = Safe_UInt__Milliseconds(total_ms))
+        return Schema__Sequence__Response(sequence_id       = sequence_id                                       ,
+                                           trace_id          = trace_id                                          ,
+                                           status            = status                                            ,
+                                           total_duration_ms = Safe_UInt__Milliseconds(total_ms)                  ,
+                                           steps_total       = Safe_UInt(len(parsed_steps))                      ,
+                                           steps_passed      = Safe_UInt(counters['passed'])                     ,
+                                           steps_failed      = Safe_UInt(counters['failed'])                     ,
+                                           steps_skipped     = Safe_UInt(counters['skipped'])                    ,
+                                           step_results      = results                                           ,
+                                           artefacts         = artefacts                                         ,
+                                           timings           = timings                                           )
+
+    def _iterate_steps(self, parsed_steps, page, request, capabilities, target, started_ms):    # Extracted from execute() so /session/act can reuse without re-implementing the iteration / deadline / belt-and-braces error wrapping
+        step_results : List[Schema__Step__Result__Base] = []
+        artefacts    : List[Schema__Artefact__Ref]      = []
+        passed = failed = skipped = 0
+        halted = False
+        deadline_ms    = started_ms + self.get_deadline_ms()
+        capture_config = request.capture_config
+
+        for step_index, step in enumerate(parsed_steps):
+            if halted:
+                result = self.skipped_result(step, step_index)
+                step_results.append(result); skipped += 1
+                continue
+            if int(time.time() * 1000) >= deadline_ms:
+                halted = True
+                result = self.skipped_result(step, step_index)
+                step_results.append(result); skipped += 1
+                continue
+            step_started_ms = int(time.time() * 1000)
+            try:
+                self.request_validator.validate_step(step, capture_config, capabilities, target)
+                result = self.step_executor.execute(page=page, step=step, step_index=step_index, capture_config=capture_config)
+            except Exception as error:
+                result = self.step_executor.failed_result(step, step_index, step_started_ms, error)
+            step_results.append(result)
+            if result.status == Enum__Step__Status.PASSED:
+                passed += 1
+            elif result.status == Enum__Step__Status.FAILED:
+                failed += 1
+                if request.sequence_config.halt_on_error:
+                    halted = True
+            for ref in result.artefacts:
+                artefacts.append(ref)
+        return step_results, artefacts, {'passed': passed, 'failed': failed, 'skipped': skipped, 'halted': halted}
 
     def execute(self, request: Schema__Sequence__Request) -> Schema__Sequence__Response:
         sequence_id    = request.sequence_id or Sequence_Id()
@@ -91,57 +169,36 @@ class Sequence__Runner(Type_Safe):
 
         step_results : List[Schema__Step__Result__Base] = []
         artefacts    : List[Schema__Artefact__Ref]      = []
-        passed  = 0
-        failed  = 0
-        skipped = 0
-        halted  = False
+        counters     = {'passed': 0, 'failed': 0, 'skipped': 0, 'halted': False}
 
-        deadline_ms      = started_ms + self.get_deadline_ms()                          # Wall-clock soft deadline — between-step check only
         steps_started_ms = int(time.time() * 1000)
         browser_close_ms = 0
 
+        listeners_buffer : Page__Listeners__Buffer = None                                # Φ4 — populated before first step so load-time events are captured
         try:
             page = self.get_or_create_page(launch_result.browser, session_id)
+            listeners_buffer = Page__Listeners__Buffer()                                  # Φ4 — attach BEFORE any navigate so page.on('console')/('request')/('response')/('requestfailed') see load-time events
+            try:
+                listeners_buffer.attach(page)
+            except Exception:                                                             # Buffer attachment must NEVER prevent the sequence from running
+                listeners_buffer = None
             if request.credentials:
                 context = launch_result.browser.contexts[0] if launch_result.browser.contexts else None
                 self.credentials_loader.apply(context, request.credentials)
 
-            for step_index, step in enumerate(parsed_steps):
-                if halted:                                                              # After halt_on_error failure → SKIPPED
-                    result = self.skipped_result(step, step_index)
-                    step_results.append(result)
-                    skipped += 1
-                    continue
+            step_results, artefacts, counters = self._iterate_steps(parsed_steps, page, request, capabilities, target, started_ms)
 
-                if int(time.time() * 1000) >= deadline_ms:                              # Deadline breached — treat like halt_on_error
-                    halted = True
-                    result = self.skipped_result(step, step_index)
-                    step_results.append(result)
-                    skipped += 1
-                    continue
-
-                self.request_validator.validate_step(step, capture_config, capabilities, target)
-
-                result = self.step_executor.execute(page           = page           ,
-                                                     step           = step           ,
-                                                     step_index     = step_index     ,
-                                                     capture_config = capture_config )
-                step_results.append(result)
-
-                if result.status == Enum__Step__Status.PASSED:
-                    passed += 1
-                elif result.status == Enum__Step__Status.FAILED:
-                    failed += 1
-                    if request.sequence_config.halt_on_error:
-                        halted = True
-
-                for ref in result.artefacts:
-                    artefacts.append(ref)
+            # Φ4 — FR-5c end-of-sequence artefact emission from the listener buffer.
+            # Fires only when the caller opted in via capture_config (console_log /
+            # network_log sink_config.enabled=True). Failures here MUST not abort the
+            # sequence — best-effort, swallowed on any exception.
+            if listeners_buffer is not None:
+                self._emit_listener_artefacts(listeners_buffer, capture_config, artefacts)
         finally:
             steps_ms         = int(time.time() * 1000) - steps_started_ms
             browser_close_ms = int(self.browser_launcher.stop(session_id))              # try/finally + idempotent stop() = guaranteed Chromium teardown even on step exceptions
 
-        status   = self.sequence_status(failed=failed, halted=halted)
+        status   = self.sequence_status(failed=counters['failed'], halted=counters['halted'])
         total_ms = int(time.time() * 1000) - started_ms
 
         timings  = Schema__Sequence__Timings(playwright_start_ms = Safe_UInt__Milliseconds(playwright_start_ms),
@@ -155,27 +212,16 @@ class Sequence__Runner(Type_Safe):
                                            status            = status                                            ,
                                            total_duration_ms = Safe_UInt__Milliseconds(total_ms)                  ,
                                            steps_total       = Safe_UInt(len(parsed_steps))                      ,
-                                           steps_passed      = Safe_UInt(passed)                                 ,
-                                           steps_failed      = Safe_UInt(failed)                                 ,
-                                           steps_skipped     = Safe_UInt(skipped)                                ,
+                                           steps_passed      = Safe_UInt(counters['passed'])                     ,
+                                           steps_failed      = Safe_UInt(counters['failed'])                     ,
+                                           steps_skipped     = Safe_UInt(counters['skipped'])                    ,
                                            step_results      = step_results                                      ,
                                            artefacts         = artefacts                                         ,
                                            timings           = timings                                           )
 
-    def get_or_create_page(self, browser: Any, session_id: Any) -> Any:              # Freshly launched browser has no context / page — create on demand
-        contexts = browser.contexts                                                  # Playwright sync API: `contexts` is a @property returning List[BrowserContext]
-        if contexts:
-            context = contexts[0]
-        else:
-            ctx_kwargs = {}
-            if get_env(ENV_VAR__IGNORE_HTTPS_ERRORS):
-                ctx_kwargs['ignore_https_errors'] = True                             # Set on EC2 when the agent_mitmproxy sidecar does TLS interception
-            context = browser.new_context(**ctx_kwargs)
-
-        pages = context.pages
-        if pages:
-            return pages[0]
-        return context.new_page()
+    def get_or_create_page(self, browser: Any, session_id: Any) -> Any:              # Delegates to Page__Factory — the single canonical helper. Don't reimplement here; see Page__Factory module docstring for why (ISSUE-A 2026-05-31).
+        from sg_compute_specs.playwright.core.service.Page__Factory import get_or_create_page as _factory
+        return _factory(browser)
 
     def skipped_result(self, step: Schema__Step__Base, step_index: int) -> Schema__Step__Result__Base:
         step_id = step.id if step.id is not None else Step_Id(str(step_index))
@@ -195,3 +241,25 @@ class Sequence__Runner(Type_Safe):
     def get_deadline_ms(self) -> int:
         raw = get_env(ENV_VAR__REQUEST_DEADLINE_MS)
         return int(raw) if raw else DEFAULT_REQUEST_DEADLINE_MS
+
+    def _emit_listener_artefacts(self, buffer: 'Page__Listeners__Buffer',                 # Φ4 — surface console/network buffers as terminal artefacts when the caller asked for them
+                                 capture_config, artefacts: List) -> None:
+        import json
+        try:
+            writer = self.step_executor.artefact_writer
+
+            console_cfg = capture_config.console_log
+            if console_cfg.enabled and buffer.console_events:                              # No artefact for an empty buffer — keeps the artefacts list tidy
+                data = json.dumps(list(buffer.console_events), separators=(',', ':')).encode('utf-8')
+                ref  = writer.write_artefact(Enum__Artefact__Type.CONSOLE_LOG, data, console_cfg)
+                if ref is not None:
+                    artefacts.append(ref)
+
+            network_cfg = capture_config.network_log
+            if network_cfg.enabled and (buffer.request_events or buffer.response_events or buffer.failed_events):
+                data = json.dumps(buffer.network_snapshot(), separators=(',', ':')).encode('utf-8')
+                ref  = writer.write_artefact(Enum__Artefact__Type.NETWORK_LOG, data, network_cfg)
+                if ref is not None:
+                    artefacts.append(ref)
+        except Exception:                                                                  # Best-effort — listener-artefact emission must NEVER abort sequence finalisation
+            pass

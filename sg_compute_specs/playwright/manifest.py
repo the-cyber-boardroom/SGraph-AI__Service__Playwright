@@ -11,8 +11,10 @@ from sg_compute.primitives.enums.Enum__Spec__Nav_Group                          
 from sg_compute.primitives.enums.Enum__Spec__Stability                             import Enum__Spec__Stability
 
 
-def _read_version() -> str:
-    return (Path(__file__).parent / 'core' / 'version').read_text().strip()
+def _read_version() -> str:                                                     # repo-root `version` (single source of truth; playwright → sg_compute_specs → repo)
+    repo_root = Path(__file__).parent.parent.parent
+    version_file = repo_root / 'version'
+    return version_file.read_text().strip() if version_file.exists() else 'v0'
 
 
 MANIFEST = Schema__Spec__Manifest__Entry(

@@ -16,9 +16,9 @@ class test_playwright__scaffold(TestCase):
         assert os.path.isdir(_core.path)
         assert _core.path.endswith('core')
 
-    def test__version_constant(self):
+    def test__version_constant(self):                                                   # now sourced from the repo-root `version` (single source of truth)
         from sg_compute_specs.playwright.core.consts.version import version__sgraph_ai_service_playwright
-        assert str(version__sgraph_ai_service_playwright).startswith('v0.1.')
+        assert str(version__sgraph_ai_service_playwright).startswith('v0.')
 
     def test__fast_api_importable(self):
         try:
@@ -30,7 +30,7 @@ class test_playwright__scaffold(TestCase):
     def test__manifest(self):
         from sg_compute_specs.playwright.manifest import MANIFEST
         assert MANIFEST.spec_id == 'playwright'
-        assert str(MANIFEST.version).startswith('v0.1.')
+        assert str(MANIFEST.version).startswith('v0.')                               # repo-root /version (single source; v0.2.x line) — was v0.1. before the version consolidation
         assert MANIFEST.display_name == 'Playwright'
 
     def test__spec_loader_discovers_playwright(self):

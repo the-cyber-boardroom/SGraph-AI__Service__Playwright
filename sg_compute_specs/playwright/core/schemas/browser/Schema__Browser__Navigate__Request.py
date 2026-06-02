@@ -9,16 +9,16 @@
 # ═══════════════════════════════════════════════════════════════════════════════
 
 from osbot_utils.type_safe.Type_Safe                                                               import Type_Safe
-from osbot_utils.type_safe.primitives.domains.web.safe_str.Safe_Str__Url                           import Safe_Str__Url
 
 from sg_compute_specs.playwright.core.schemas.browser.Schema__Browser__Config                          import Schema__Browser__Config
 from sg_compute_specs.playwright.core.schemas.browser.Schema__Viewport                                 import Schema__Viewport
 from sg_compute_specs.playwright.core.schemas.enums.Enum__Wait__State                                  import Enum__Wait__State
 from sg_compute_specs.playwright.core.schemas.primitives.numeric.Safe_UInt__Timeout_MS                 import Safe_UInt__Timeout_MS
+from sg_compute_specs.playwright.core.schemas.primitives.text.Safe_Str__Url__Permissive                import Safe_Str__Url__Permissive
 
 
 class Schema__Browser__Navigate__Request(Type_Safe):
-    url            : Safe_Str__Url
+    url            : Safe_Str__Url__Permissive                                      # RFC-compliant URL — BUG-1 (05-30 debrief response pack)
     viewport       : Schema__Viewport        = None                                 # Shorthand for browser_config.viewport — avoids nesting
     browser_config : Schema__Browser__Config = None                                 # Optional — launch defaults applied when omitted
     wait_until     : Enum__Wait__State       = Enum__Wait__State.LOAD

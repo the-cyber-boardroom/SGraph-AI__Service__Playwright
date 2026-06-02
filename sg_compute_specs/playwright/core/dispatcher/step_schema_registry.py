@@ -25,7 +25,14 @@ from sg_compute_specs.playwright.core.schemas.steps.Schema__Step__Click         
 from sg_compute_specs.playwright.core.schemas.steps.Schema__Step__Dispatch_Event                        import Schema__Step__Dispatch_Event
 from sg_compute_specs.playwright.core.schemas.steps.Schema__Step__Evaluate                              import Schema__Step__Evaluate
 from sg_compute_specs.playwright.core.schemas.steps.Schema__Step__Fill                                  import Schema__Step__Fill
+from sg_compute_specs.playwright.core.schemas.steps.Schema__Step__Get_A11y_Tree                         import Schema__Step__Get_A11y_Tree
+from sg_compute_specs.playwright.core.schemas.steps.Schema__Step__Get_Console_Tail                      import Schema__Step__Get_Console_Tail
 from sg_compute_specs.playwright.core.schemas.steps.Schema__Step__Get_Content                           import Schema__Step__Get_Content
+from sg_compute_specs.playwright.core.schemas.steps.Schema__Step__Get_Dom_Tree                          import Schema__Step__Get_Dom_Tree
+from sg_compute_specs.playwright.core.schemas.steps.Schema__Step__Get_Html                              import Schema__Step__Get_Html
+from sg_compute_specs.playwright.core.schemas.steps.Schema__Step__Get_Network_Failures                  import Schema__Step__Get_Network_Failures
+from sg_compute_specs.playwright.core.schemas.steps.Schema__Step__Get_Pdf                               import Schema__Step__Get_Pdf
+from sg_compute_specs.playwright.core.schemas.steps.Schema__Step__Get_Text                              import Schema__Step__Get_Text
 from sg_compute_specs.playwright.core.schemas.steps.Schema__Step__Get_Url                               import Schema__Step__Get_Url
 from sg_compute_specs.playwright.core.schemas.steps.Schema__Step__Hover                                 import Schema__Step__Hover
 from sg_compute_specs.playwright.core.schemas.steps.Schema__Step__Navigate                              import Schema__Step__Navigate
@@ -36,6 +43,7 @@ from sg_compute_specs.playwright.core.schemas.steps.Schema__Step__Select        
 from sg_compute_specs.playwright.core.schemas.steps.Schema__Step__Set_Viewport                          import Schema__Step__Set_Viewport
 from sg_compute_specs.playwright.core.schemas.steps.Schema__Step__Video__Start                          import Schema__Step__Video__Start
 from sg_compute_specs.playwright.core.schemas.steps.Schema__Step__Video__Stop                           import Schema__Step__Video__Stop
+from sg_compute_specs.playwright.core.schemas.steps.Schema__Step__Wait                                  import Schema__Step__Wait
 from sg_compute_specs.playwright.core.schemas.steps.Schema__Step__Wait_For                              import Schema__Step__Wait_For
 
 
@@ -49,6 +57,7 @@ STEP_SCHEMAS : Dict__Step__Schemas__By_Action = Dict__Step__Schemas__By_Action({
     Enum__Step__Action.HOVER          : Schema__Step__Hover         ,
     Enum__Step__Action.SCROLL         : Schema__Step__Scroll        ,
     Enum__Step__Action.WAIT_FOR       : Schema__Step__Wait_For      ,
+    Enum__Step__Action.WAIT           : Schema__Step__Wait          ,
     Enum__Step__Action.SCREENSHOT     : Schema__Step__Screenshot    ,
     Enum__Step__Action.VIDEO_START    : Schema__Step__Video__Start  ,
     Enum__Step__Action.VIDEO_STOP     : Schema__Step__Video__Stop   ,
@@ -57,6 +66,13 @@ STEP_SCHEMAS : Dict__Step__Schemas__By_Action = Dict__Step__Schemas__By_Action({
     Enum__Step__Action.SET_VIEWPORT   : Schema__Step__Set_Viewport  ,
     Enum__Step__Action.GET_CONTENT    : Schema__Step__Get_Content   ,
     Enum__Step__Action.GET_URL        : Schema__Step__Get_Url       ,
+    Enum__Step__Action.GET_TEXT       : Schema__Step__Get_Text      ,
+    Enum__Step__Action.GET_HTML       : Schema__Step__Get_Html      ,
+    Enum__Step__Action.GET_DOM_TREE   : Schema__Step__Get_Dom_Tree  ,
+    Enum__Step__Action.GET_A11Y_TREE        : Schema__Step__Get_A11y_Tree        ,
+    Enum__Step__Action.GET_PDF              : Schema__Step__Get_Pdf              ,
+    Enum__Step__Action.GET_CONSOLE_TAIL     : Schema__Step__Get_Console_Tail     ,
+    Enum__Step__Action.GET_NETWORK_FAILURES : Schema__Step__Get_Network_Failures ,
 })
 
 

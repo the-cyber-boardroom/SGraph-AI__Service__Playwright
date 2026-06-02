@@ -29,7 +29,7 @@ import uuid
 
 from fastapi                                                                            import HTTPException
 from osbot_utils.type_safe.Type_Safe                                                    import Type_Safe
-from osbot_utils.type_safe.primitives.domains.web.safe_str.Safe_Str__Url                import Safe_Str__Url
+from sg_compute_specs.playwright.core.schemas.primitives.text.Safe_Str__Url__Permissive import Safe_Str__Url__Permissive
 
 from sg_compute_specs.playwright.core.schemas.artefact.Schema__Artefact__Sink_Config        import Schema__Artefact__Sink_Config
 from sg_compute_specs.playwright.core.schemas.enums.Enum__Screenshot__Format                import Enum__Screenshot__Format
@@ -66,6 +66,14 @@ from sg_compute_specs.playwright.core.service.Credentials__Loader               
 from sg_compute_specs.playwright.core.service.JS__Expression__Allowlist                     import JS__Expression__Allowlist
 from sg_compute_specs.playwright.core.service.Request__Validator                            import Request__Validator
 from sg_compute_specs.playwright.core.service.Sequence__Runner                              import Sequence__Runner
+from sg_compute_specs.playwright.core.service.Session__Registry                             import Session__Registry
+from sg_compute_specs.playwright.core.service.probe.Probe__Executor                         import Probe__Executor
+from sg_compute_specs.playwright.core.schemas.inspect.Schema__Inspect__Request              import Schema__Inspect__Request
+from sg_compute_specs.playwright.core.schemas.inspect.Schema__Inspect__Response             import Schema__Inspect__Response
+from sg_compute_specs.playwright.core.schemas.session_handle.Schema__Session__Open__Request import Schema__Session__Open__Request
+from sg_compute_specs.playwright.core.schemas.session_handle.Schema__Session__Open__Response import Schema__Session__Open__Response
+from sg_compute_specs.playwright.core.schemas.session_handle.Schema__Session__Act__Request  import Schema__Session__Act__Request
+from sg_compute_specs.playwright.core.schemas.session_handle.Schema__Session__Probe__Request import Schema__Session__Probe__Request
 
 
 class Playwright__Service(Type_Safe):
@@ -76,14 +84,20 @@ class Playwright__Service(Type_Safe):
     request_validator   : Request__Validator
     credentials_loader  : Credentials__Loader
     sequence_runner     : Sequence__Runner
+    probe_executor      : Probe__Executor                                           # Φ5 — handles POST /inspect via the sequence_runner
+    session_registry    : Session__Registry                                         # Φ7 — opt-in stateful session handles
 
     def setup(self) -> 'Playwright__Service':
         if self.capability_detector.detected_target is None:
             self.capability_detector.detect()
-        self.sequence_runner.capability_detector = self.capability_detector
-        self.sequence_runner.request_validator   = self.request_validator
-        self.sequence_runner.browser_launcher    = self.browser_launcher
-        self.sequence_runner.credentials_loader  = self.credentials_loader
+        self.sequence_runner.capability_detector  = self.capability_detector
+        self.sequence_runner.request_validator    = self.request_validator
+        self.sequence_runner.browser_launcher     = self.browser_launcher
+        self.sequence_runner.credentials_loader   = self.credentials_loader
+        self.probe_executor.run_sequence          = self._run_sequence              # Φ5 — inject the asyncio-safe wrapper, not the raw runner; bare runner.execute() crashes inside FastAPI's asyncio loop ("using Playwright Sync API inside the asyncio loop")
+        self.probe_executor.run_sequence_held_page= self._run_sequence_held_page    # Φ7 — session-mode runner callable; same isolation pattern
+        self.session_registry.browser_launcher    = self.browser_launcher           # Φ7 — shared launcher for held-session lifecycle
+        self.session_registry.sweep_expired()                                       # Φ7-proper — every request to ANY endpoint sweeps idle sessions (no background thread needed; cleanup happens whenever anyone touches the service)
         return self
 
     def _screenshot_runner(self) -> Sequence__Runner:                               # Dedicated runner for the screenshot surface — JS allowlist bypassed (each call is an isolated ephemeral session)
@@ -129,6 +143,75 @@ class Playwright__Service(Type_Safe):
     def execute_sequence(self, request: Schema__Sequence__Request) -> Schema__Sequence__Response:
         self.setup()
         return self._run_sequence(request)
+
+    # ─── Inspect surface (Φ5 — POST /inspect, probe-batch) ──────────────────────
+
+    def inspect(self, request: Schema__Inspect__Request) -> Schema__Inspect__Response:
+        self.setup()
+        try:
+            return self.probe_executor.execute(request)
+        except ValueError as ve:                                                     # Probe validation (e.g. mutating verb in probes) — surface as 422
+            raise HTTPException(422, str(ve))
+
+    # ─── Session-handle surface (Φ7-proper — opt-in stateful) ──────────────────
+    # All session_* methods marshal Playwright work onto the SESSION'S OWN
+    # worker thread (Session__State.worker). That thread owns the Playwright
+    # runtime + browser + page for the session's whole lifetime — no thread
+    # affinity issues, no asyncio-loop visibility, no per-request thread
+    # spawning. The asyncio escape happens for free because the worker thread
+    # was spawned without an event loop.
+
+    def _run_sequence_held_page(self, request, page, listeners_buffer):              # Sync delegation — caller MUST already be on the session's worker thread
+        return self.sequence_runner.execute_on_held_page(request, page, listeners_buffer)
+
+    def session_open(self, request: Schema__Session__Open__Request) -> Schema__Session__Open__Response:
+        self.setup()
+        capabilities = self.capability_detector.capabilities()
+        ttl_ms       = min(int(request.ttl_ms), int(capabilities.max_session_lifetime_ms))
+        # Session__Registry.open() internally spawns the worker thread which
+        # launches Chromium ON ITSELF — the calling thread just blocks on the
+        # setup-done event (no asyncio-loop visibility on the worker → safe).
+        state = self.session_registry.open(request.browser_config, ttl_ms,
+                                            request.browser_config, request.credentials)
+        return Schema__Session__Open__Response(session_id    = state.session_id     ,
+                                                expires_at_ms = state.expires_at_ms  ,
+                                                expires_in_ms = ttl_ms               )
+
+    def session_act(self, session_id: str, request: Schema__Session__Act__Request):
+        self.setup()
+        state = self.session_registry.get(session_id)
+        if state is None:
+            raise HTTPException(404, f'session not found or expired: {session_id}')
+        from sg_compute_specs.playwright.core.schemas.sequence.Schema__Sequence__Request import Schema__Sequence__Request as _SR
+        from sg_compute_specs.playwright.core.schemas.sequence.Schema__Sequence__Config  import Schema__Sequence__Config  as _SC
+        seq_req = _SR(capture_config  = request.capture_config or Schema__Capture__Config()  ,
+                       sequence_config = request.sequence_config or _SC()                     ,
+                       steps           = request.steps                                        ,
+                       trace_id        = request.trace_id                                     )
+        # Marshal onto the session's worker thread — page.* calls run there
+        return state.worker.submit(self.sequence_runner.execute_on_held_page,
+                                    seq_req, state.page, state.buffer)
+
+    def session_probe(self, session_id: str, request: Schema__Session__Probe__Request) -> Schema__Inspect__Response:
+        self.setup()
+        state = self.session_registry.get(session_id)
+        if state is None:
+            raise HTTPException(404, f'session not found or expired: {session_id}')
+        try:
+            # Same marshalling discipline — probe_executor.execute_on_held_page
+            # touches the page (via the wrapped sequence_runner), so it must
+            # run on the session's worker thread.
+            return state.worker.submit(self.probe_executor.execute_on_held_page,
+                                        request, state.page, state.buffer)
+        except ValueError as ve:
+            raise HTTPException(422, str(ve))
+
+    def session_close(self, session_id: str) -> dict:
+        self.setup()
+        # Worker.stop() runs the teardown_fn (browser.close) on the worker
+        # thread before joining — preserves Playwright affinity at teardown too.
+        closed = self.session_registry.close(session_id)
+        return {'session_id': str(session_id), 'closed': closed}
 
     # ─── Simple screenshot surface (/screenshot, /screenshot/batch) ─────────────
 
@@ -323,11 +406,11 @@ class Playwright__Service(Type_Safe):
             seq_response = self._run_sequence(seq_request)
             self.raise_on_sequence_failure(seq_response)
 
-            final_url : Safe_Str__Url = Safe_Str__Url(str(url))                      # Fallback if GET_URL somehow missing
-            html      : str           = None
+            final_url : Safe_Str__Url__Permissive = Safe_Str__Url__Permissive(str(url))    # Fallback if GET_URL somehow missing (Permissive — BUG-1)
+            html      : str                       = None
             for result in seq_response.step_results:
                 if result.action == Enum__Step__Action.GET_URL and getattr(result, 'url', None):
-                    final_url = Safe_Str__Url(str(result.url))
+                    final_url = Safe_Str__Url__Permissive(str(result.url))
                 if result.action == Enum__Step__Action.GET_CONTENT and getattr(result, 'content', None) is not None:
                     html = str(result.content)
 

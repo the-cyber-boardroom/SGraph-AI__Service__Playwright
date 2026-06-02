@@ -11,6 +11,7 @@ from osbot_utils.type_safe.Type_Safe                                            
 from osbot_utils.type_safe.primitives.core.Safe_UInt                                                import Safe_UInt
 
 from sg_compute_specs.playwright.core.schemas.artefact.Schema__Artefact__Ref                            import Schema__Artefact__Ref
+from sg_compute_specs.playwright.core.schemas.enums.Enum__Engine                                        import Enum__Engine
 from sg_compute_specs.playwright.core.schemas.enums.Enum__Sequence__Status                              import Enum__Sequence__Status
 from sg_compute_specs.playwright.core.schemas.primitives.identifiers.Safe_Str__Trace_Id                 import Safe_Str__Trace_Id
 from sg_compute_specs.playwright.core.schemas.primitives.identifiers.Sequence_Id                        import Sequence_Id
@@ -20,6 +21,7 @@ from sg_compute_specs.playwright.core.schemas.sequence.Schema__Sequence__Timings
 
 
 class Schema__Sequence__Response(Type_Safe):                                        # POST /sequence/execute response
+    engine            : Enum__Engine = Enum__Engine.SYNC                            # Which execution engine actually ran (reported; client may pin via requested_engine on the request — P2)
     sequence_id       : Sequence_Id
     trace_id          : Safe_Str__Trace_Id
     status            : Enum__Sequence__Status
