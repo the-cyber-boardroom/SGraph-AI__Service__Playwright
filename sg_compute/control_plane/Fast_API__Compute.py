@@ -88,7 +88,20 @@ class Fast_API__Compute(Serverless__Fast_API):
         self._mount_control_routes()
         self._mount_spec_routes()
         self._mount_legacy_routes()
+        self.attach_root_path_middleware()                                      # Honour X-Forwarded-Prefix / SG_COMPUTE__ROOT_PATH so /docs + /openapi.json work when fronted by the vault Fast_API__Reverse_Proxy (e.g. /host/...)
         return self
+
+    def attach_root_path_middleware(self):                                      # Mirrors sg_compute_specs/playwright/core/fast_api/Fast_API__Playwright__Service.attach_root_path_middleware. The vault Fast_API__Reverse_Proxy sends X-Forwarded-Prefix on every proxied request — this middleware translates that into FastAPI's scope['root_path'] so URL emission in /docs + /openapi.json matches what the proxy actually serves under (e.g. /host/openapi.json instead of /openapi.json).
+        from sg_compute.control_plane.Root_Path__Resolver import Root_Path__Resolver
+        app      = self.app()
+        resolver = Root_Path__Resolver()
+
+        @app.middleware('http')
+        async def root_path_middleware(request, call_next):
+            root_path = resolver.resolve(request)
+            if root_path:
+                request.scope['root_path'] = root_path
+            return await call_next(request)
 
     def setup_middlewares(self):
         self._assert_api_key_configured()
