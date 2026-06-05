@@ -91,18 +91,14 @@ def _render_vault_app_info(info, console: Console) -> None:
         t.add_row('playwright-cookie', f'[cyan]{playwright_url}/auth/set-cookie-form[/]')
 
     host_plane_url = str(getattr(info, 'host_plane_url', '') or '')
-    mitmweb_url    = str(getattr(info, 'mitmweb_url',    '') or '')
 
     if host_plane_url:
         t.add_row('host-plane',        f'[cyan]{host_plane_url}[/]  [dim](container admin: /containers/list, /host/shell/page, …)[/]')
         t.add_row('host-plane-cookie', f'[cyan]{host_plane_url}/auth/set-cookie-form[/]')
-    if mitmweb_url:
-        t.add_row('mitmweb',           f'[cyan]{mitmweb_url}[/]  [dim](mitmproxy admin UI)[/]')
-        t.add_row('mitmweb-cookie',    f'[cyan]http://localhost:19081/auth/set-cookie-form[/]')
+    # agent-mitmproxy runs mitmdump (no web UI) — observe it via `sg va logs --source mitmproxy`.
 
     open_cmds = []
     if host_plane_url: open_cmds.append('[cyan]sp vault-app open host-plane[/]')
-    if mitmweb_url:    open_cmds.append('[cyan]sp vault-app open mitmweb[/]')
     if open_cmds:
         t.add_row('open', '  ·  '.join(open_cmds))
     if vault_url:
@@ -364,7 +360,7 @@ _LOG_SOURCES = {                                                       # name �
                    'sg-send-vault container — the vault app itself'),
     'mitmproxy' : ('(docker logs --tail {tail} vault-app-agent-mitmproxy-1 2>&1 || '
                    'podman logs --tail {tail} vault-app-agent-mitmproxy-1 2>&1) || true', 60,
-                   'agent-mitmproxy container — mitmweb startup line includes the web UI password'),
+                   'agent-mitmproxy container — mitmdump streams script-load errors + one line per proxied request'),
 }
 
 
@@ -932,17 +928,14 @@ def cert_renew(name     : str  = typer.Argument(None, help='Stack name; auto-sel
 # form URL, description, with-playwright requirement). Adding a new internal
 # sidecar = one entry here; no other command changes needed.
 
+# agent-mitmproxy runs mitmdump (no web UI), so there's no mitmweb forward target —
+# observe the proxy via `sg va logs --source mitmproxy`.
 _FORWARD_TARGETS = {
     'host-plane': {'port'            : 19009,
                    'url'             : 'http://localhost:19009',
                    'cookie_form'     : 'http://localhost:19009/auth/set-cookie-form',
                    'desc'            : 'host-plane admin API — containers, shell, logs, pods, status',
                    'needs_playwright': False},
-    'mitmweb'   : {'port'            : 19081,
-                   'url'             : 'http://localhost:19081/web/',
-                   'cookie_form'     : 'http://localhost:19081/auth/set-cookie-form',
-                   'desc'            : 'mitmproxy admin UI — requires --with-playwright',
-                   'needs_playwright': True },
 }
 
 
@@ -963,7 +956,6 @@ def _render_open_targets(c: Console) -> None:
 \b
 Available targets:
   host-plane  host-plane admin API (containers, shell, logs, pods, status)
-  mitmweb     mitmproxy admin UI (--with-playwright only)
 
 \b
 Starts an `aws ssm start-session AWS-StartPortForwardingSession` tunnel,
@@ -972,7 +964,7 @@ CLI — Ctrl-C closes the tunnel. Run with no target to list options.
 ''')
 @spec_cli_errors
 def open_target(target: Optional[str] = typer.Argument(None,
-                          help='host-plane | mitmweb — omit to list available targets.'),
+                          help='host-plane — omit to list available targets.'),
                 name  : Optional[str] = typer.Argument(None,
                           help='Stack name; auto-selected when only one exists.'),
                 region: str = typer.Option(DEFAULT_REGION, '--region', '-r')):

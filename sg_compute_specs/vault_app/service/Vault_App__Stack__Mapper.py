@@ -32,7 +32,7 @@ STACK_TYPE          = 'vault-app'
 VAULT_PORT               = 8080
 PLAYWRIGHT_EXTERNAL_PORT = 80                     # host:80 → container:8000 — standard port so Claude/sandbox egress proxies (which only allow :80/:443) can reach it
 HOST_PLANE_LOCAL_PORT    = 19009                  # 127.0.0.1:19009 → host-plane:8000 — SSM-port-forward target only
-MITMWEB_LOCAL_PORT       = 19081                  # 127.0.0.1:19081 → agent-mitmproxy:8000 (admin FastAPI, with Routes__Web /web/* → mitmweb)
+                                                  # (agent-mitmproxy runs mitmdump — no web UI / admin port to forward)
 
 
 def _time_remaining(details: dict) -> tuple:
@@ -72,8 +72,8 @@ class Vault_App__Stack__Mapper(Type_Safe):
             vault_url, playwright_url = '', ''
         instance_id    = details.get('InstanceId', '') or ''
         host_plane_url = f'http://localhost:{HOST_PLANE_LOCAL_PORT}' if instance_id else ''
-        mitmweb_url    = (f'http://localhost:{MITMWEB_LOCAL_PORT}/web/'
-                          if instance_id and with_playwright else '')
+        # agent-mitmproxy runs mitmdump (no web UI) — no mitmweb URL/forward to surface.
+        mitmweb_url    = ''
 
         def _ssm_fwd(port: int) -> str:
             return (f'aws ssm start-session --target {instance_id} '
@@ -83,7 +83,7 @@ class Vault_App__Stack__Mapper(Type_Safe):
                     f'--region {region}') if instance_id else ''
 
         ssm_forward         = _ssm_fwd(HOST_PLANE_LOCAL_PORT)
-        mitmweb_ssm_forward = _ssm_fwd(MITMWEB_LOCAL_PORT) if with_playwright else ''
+        mitmweb_ssm_forward = ''                                                      # mitmdump has no web UI to forward to
         return Schema__Vault_App__Info(
             instance_id        = instance_id                                         ,
             stack_name         = tag_value(details, TAG_STACK_NAME)                  ,

@@ -48,13 +48,18 @@ class TestVaultAppComposeTemplate:
     def test_agent_mitmproxy_uses_docker_hub(self):
         result = Vault_App__Compose__Template().render(with_playwright=True)
         assert 'image: mitmproxy/mitmproxy:latest' in result
-        assert 'mitmweb'                           in result
+        assert 'mitmdump'                          in result                 # mitmdump, not mitmweb — streams to stdout
+        assert 'mitmweb'                           not in result             # no web UI
         assert 'block_global=false'                in result
-        assert '"127.0.0.1:19081:8000"'            not in result             # no admin FastAPI port
+
+    def test_agent_mitmproxy_logs_to_stdout(self):
+        result = Vault_App__Compose__Template().render(with_playwright=True)
+        assert 'termlog_verbosity=info' in result                           # script-load errors + logs hit docker logs
+        assert 'flow_detail=1'          in result                           # one line per request
 
     def test_agent_mitmproxy_loads_interceptor(self):
         result = Vault_App__Compose__Template().render(with_playwright=True)
-        assert '--scripts=/interceptors/active.py'           in result       # mitmweb loads the intercept script
+        assert '--scripts=/interceptors/active.py'           in result       # mitmdump loads the intercept script
         assert '/opt/vault-app/interceptors:/interceptors:ro' in result      # host dir bind-mounted read-only
 
     def test_just_vault_has_no_interceptor_mount(self):

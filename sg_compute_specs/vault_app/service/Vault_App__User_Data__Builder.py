@@ -24,7 +24,7 @@ from sg_compute_specs.vault_app.service.Vault_App__Reverse_Proxy__Override   imp
 FOOTER = ('\ntouch /var/lib/sg-compute-boot-ok\n'
           'echo "[vault-app] boot complete at $(date -u +%FT%TZ)"\n')
 
-# agent-mitmproxy loads this file via `mitmweb --scripts=/interceptors/active.py`
+# agent-mitmproxy loads this file via `mitmdump --scripts=/interceptors/active.py`
 # (the host dir is bind-mounted read-only — see Vault_App__Compose__Template).
 # A no-op is written when no interceptor is chosen so the --scripts target always
 # resolves; a real script swaps the body in.

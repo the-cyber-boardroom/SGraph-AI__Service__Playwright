@@ -98,24 +98,26 @@ class Vault_App__Service(Spec__Service__Base):
         )
 
     def apply_name_prefix(self, tags: list, stack_name: str, name_prefix: str) -> list:
-        # --name-prefix does two non-breaking things:
+        # --name-prefix does three non-breaking things:
         #   1. rewrites the `Name` tag → `<prefix>-<stack-name>` (never double-prefixing)
         #   2. stamps an additive `Namespace=<prefix>` tag so the operator can filter
         #      all their stacks in the console.
-        # Every OTHER tag is left untouched on purpose: they are either a server-side
-        # lifecycle filter (Purpose/StackName/StackType), read back by the mapper
-        # (StackEngine drives podman detection, StackTLS, TerminateAt, AccessToken, …),
-        # or data/identity (CallerIP, CreatedBy). Prefixing any of those would break
-        # list/info/delete or corrupt the value — so only Name + the new Namespace tag.
+        #   3. (operator-requested hack) emits a prefixed-KEY *duplicate* of every tag
+        #      (`<prefix>-StackType=vault-app`, …) so the whole tag set is greppable
+        #      under `<prefix>-*`. The ORIGINAL keys/values are kept verbatim so the
+        #      lifecycle commands — which filter on the canonical keys (Purpose /
+        #      StackName / StackType) and read back values (StackEngine → podman, …) —
+        #      keep working. The duplicates are additive and never filtered on.
         prefix = (name_prefix or '').strip()
         if not prefix:
             return tags
-        naming   = Stack__Naming(section_prefix=prefix)
-        out      = [{**t, 'Value': naming.aws_name_for_stack(stack_name)}
-                    if t.get('Key') == 'Name' else t
-                    for t in tags]
-        out.append({'Key': TAG_NAMESPACE, 'Value': prefix})
-        return out
+        naming = Stack__Naming(section_prefix=prefix)
+        base   = [{**t, 'Value': naming.aws_name_for_stack(stack_name)}
+                  if t.get('Key') == 'Name' else t
+                  for t in tags]
+        base.append({'Key': TAG_NAMESPACE, 'Value': prefix})
+        duplicates = [{'Key': f'{prefix}-{t["Key"]}', 'Value': t['Value']} for t in base]
+        return base + duplicates
 
     def create_stack(self, request : Schema__Vault_App__Create__Request,
                            creator : str = '') -> Schema__Vault_App__Create__Response:
