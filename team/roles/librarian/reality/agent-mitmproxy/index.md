@@ -102,6 +102,8 @@ As of v0.2.43 an **intercept script** can be loaded into that proxy at create ti
 - Resolution chain: `Schema__Vault_App__Interceptor__Choice` (`kind` ∈ {`none`, `inline`}) → `Vault_App__Interceptor__Resolver.resolve()` → source string → user-data builder. `Schema__Vault_App__Create__Request.interceptor` carries the choice.
 - mitmweb hot-reloads `active.py` on change, so a future `set-interceptor`-over-SSM command could swap the script on a running stack without a recreate (not yet implemented).
 
+**Interceptor env vars (v0.2.43):** the agent-mitmproxy compose service has an `env_file: /opt/vault-app/interceptors/active.env` (mirrors Firefox's `env_source`/`env_file` pattern). `Vault_App__User_Data__Builder.render_interceptor_block()` always writes `active.env` (empty placeholder when none, `chmod 600`) before `compose up`, so the env_file reference always resolves. CLI: `--interceptor-env-file <file>` (dotenv) + repeatable `--interceptor-env KEY=VALUE` merge into `Schema__Vault_App__Create__Request.interceptor_env`. The interceptor script reads them via `os.environ`.
+
 This vault-app path is independent of the custom-image addon registry / FastAPI admin API described above — it is plain mitmweb with a single `--scripts` file.
 
 ---

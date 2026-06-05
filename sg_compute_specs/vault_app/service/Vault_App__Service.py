@@ -181,6 +181,7 @@ class Vault_App__Service(Spec__Service__Base):
             acme_prod        = bool(request.acme_prod)             ,
             tls_hostname     = tls_hostname                        ,
             interceptor_source = interceptor_source                ,
+            interceptor_env    = str(request.interceptor_env)      ,
         )
         iid = self.aws_client.launch.run_instance(
             region                = region              ,

@@ -22,7 +22,7 @@
 import json
 import os
 import threading
-from typing import Optional
+from typing import List, Optional
 
 import typer
 from rich.console import Console
@@ -162,7 +162,7 @@ def _set_extras(request, with_playwright=False, podman=False, use_spot=True,
                 storage_mode='disk', seed_vault_keys='', access_token='', disk_size=0,
                 with_tls_check=True, tls_mode='letsencrypt-ip', acme_prod=True,
                 tls_hostname='', with_aws_dns=False, interceptor_script='',
-                name_prefix=''):
+                interceptor_env_file='', interceptor_env=None, name_prefix=''):
     request.with_playwright  = bool(with_playwright)
     request.name_prefix      = (name_prefix or '').strip()
     request.container_engine = 'podman' if podman else 'docker'
@@ -199,6 +199,21 @@ def _set_extras(request, with_playwright=False, podman=False, use_spot=True,
             raise typer.BadParameter(f'interceptor script not found: {interceptor_script}')
         request.interceptor.kind          = Enum__Vault_App__Interceptor__Kind.INLINE
         request.interceptor.inline_source = Safe_Str__Vault_App__Interceptor__Source(path.read_text(encoding='utf-8'))
+    # --interceptor-env-file <file> (dotenv) + --interceptor-env KEY=VALUE (repeatable).
+    # Both merge into one env block mounted on the agent-mitmproxy container so the
+    # interceptor script can read config via os.environ. --with-playwright only.
+    env_lines = []
+    if interceptor_env_file:
+        import pathlib
+        env_path = pathlib.Path(interceptor_env_file).expanduser()
+        if not env_path.is_file():
+            raise typer.BadParameter(f'interceptor env file not found: {interceptor_env_file}')
+        env_lines.append(env_path.read_text(encoding='utf-8').rstrip('\n'))
+    for kv in (interceptor_env or []):
+        if '=' not in kv:
+            raise typer.BadParameter(f'--interceptor-env expects KEY=VALUE, got {kv!r}')
+        env_lines.append(kv.strip())
+    request.interceptor_env = '\n'.join(line for line in env_lines if line)
 
 
 # ── --with-aws-dns: post-launch parallel Route 53 work ───────────────────────
@@ -290,6 +305,13 @@ app = Spec__CLI__Builder(
          'Path to a mitmproxy intercept script (Python) loaded by agent-mitmproxy '
          'so every browser request flowing through /pw/* passes through it. '
          '--with-playwright only; see scripts/interceptors/ for examples.'),
+        ('interceptor_env_file', str, '',
+         'Path to a dotenv-style file (KEY=VALUE lines) injected into the '
+         'agent-mitmproxy container, so the intercept script can read config via '
+         'os.environ. --with-playwright only.'),
+        ('interceptor_env', List[str], [],
+         'Inline interceptor env var, KEY=VALUE; repeat for multiple. Merged with '
+         '--interceptor-env-file (inline wins on duplicate keys via env_file order).'),
         # ── vault storage ────────────────────────────────────────────────
         ('storage_mode'   , str , 'disk',
          'sg-send-vault storage backend: disk | memory | s3.'),

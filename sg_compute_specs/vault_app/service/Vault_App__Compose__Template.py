@@ -121,6 +121,9 @@ _SG_PLAYWRIGHT = '''
 # --scripts=/interceptors/active.py loads the intercept script the user-data
 # builder writes to the host (a no-op unless --interceptor-script was given).
 # The dir is bind-mounted read-only; mitmweb hot-reloads the file when it changes.
+# env_file injects the operator's --interceptor-env vars so the script can read
+# config via os.environ (the user-data builder always writes active.env, empty
+# when none given, so the env_file reference always resolves).
 _AGENT_MITMPROXY = '''
   agent-mitmproxy:
     image: mitmproxy/mitmproxy:latest
@@ -133,6 +136,8 @@ _AGENT_MITMPROXY = '''
       - --set
       - block_global=false
       - --scripts=/interceptors/active.py
+    env_file:
+      - /opt/vault-app/interceptors/active.env
     volumes:
       - /opt/vault-app/interceptors:/interceptors:ro
     networks:
