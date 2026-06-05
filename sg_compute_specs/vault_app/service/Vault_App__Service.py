@@ -16,6 +16,7 @@ from typing   import Callable, Optional
 
 from sg_compute.core.spec.Spec__Service__Base                   import Spec__Service__Base
 from sg_compute.platforms.ec2.helpers.EC2__Stack__Mapper        import tag_value
+from sg_compute.platforms.ec2.helpers.Stack__Naming            import Stack__Naming
 from sg_compute.platforms.ec2.networking.Caller__IP__Detector   import Caller__IP__Detector
 from sg_compute.platforms.ec2.networking.Stack__Name__Generator import Stack__Name__Generator
 
@@ -95,6 +96,16 @@ class Vault_App__Service(Spec__Service__Base):
             health_scheme         = 'http'                                      ,
         )
 
+    def apply_name_prefix(self, tags: list, stack_name: str, name_prefix: str) -> list:
+        # Cosmetic-only: rewrites the `Name` tag to `<prefix>-<stack-name>` (never
+        # double-prefixing). StackName/StackType — what list/info/delete filter on —
+        # are left untouched. Blank prefix is a no-op (bare stack name).
+        prefix = (name_prefix or '').strip()
+        if not prefix:
+            return tags
+        prefixed = Stack__Naming(section_prefix=prefix).aws_name_for_stack(stack_name)
+        return [{**t, 'Value': prefixed} if t.get('Key') == 'Name' else t for t in tags]
+
     def create_stack(self, request : Schema__Vault_App__Create__Request,
                            creator : str = '') -> Schema__Vault_App__Create__Response:
         t0           = time.monotonic()
@@ -147,6 +158,7 @@ class Vault_App__Service(Spec__Service__Base):
             terminate_at = datetime.now(timezone.utc) + timedelta(hours=float(request.max_hours))
             extra[TAG_TERMINATE_AT] = terminate_at.strftime('%Y-%m-%dT%H:%M:%SZ')
         tags = self.aws_client.tags.build(stack_name, caller_ip, creator, extra_tags=extra)
+        tags = self.apply_name_prefix(tags, stack_name, str(request.name_prefix))
 
         if bool(request.with_tls_check) and tls_mode_resolved == 'letsencrypt-hostname' and not tls_hostname:
             raise ValueError("tls_mode='letsencrypt-hostname' requires a non-empty tls_hostname "

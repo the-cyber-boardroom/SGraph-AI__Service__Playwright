@@ -161,8 +161,10 @@ def _render_vault_app_create(response, console: Console) -> None:
 def _set_extras(request, with_playwright=False, podman=False, use_spot=True,
                 storage_mode='disk', seed_vault_keys='', access_token='', disk_size=0,
                 with_tls_check=True, tls_mode='letsencrypt-ip', acme_prod=True,
-                tls_hostname='', with_aws_dns=False, interceptor_script=''):
+                tls_hostname='', with_aws_dns=False, interceptor_script='',
+                name_prefix=''):
     request.with_playwright  = bool(with_playwright)
+    request.name_prefix      = (name_prefix or '').strip()
     request.container_engine = 'podman' if podman else 'docker'
     request.use_spot         = bool(use_spot)
     request.with_tls_check   = bool(with_tls_check)
@@ -280,6 +282,10 @@ app = Spec__CLI__Builder(
          'Spot instance (~70% cheaper). Pass --no-use-spot for on-demand.'),
         ('disk_size'      , int , 20,
          'Root volume in GiB — vault data + container image layers.'),
+        ('name_prefix'    , str , '',
+         "Prefix for the AWS Name tag (e.g. 'acme' → Name=acme-<stack-name>). "
+         'Cosmetic only — StackName/StackType (used by list/info/delete) are '
+         'unchanged. Default: bare stack name, no prefix.'),
         ('interceptor_script', str, '',
          'Path to a mitmproxy intercept script (Python) loaded by agent-mitmproxy '
          'so every browser request flowing through /pw/* passes through it. '

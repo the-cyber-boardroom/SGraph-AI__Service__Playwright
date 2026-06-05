@@ -32,3 +32,4 @@ class Schema__Vault_App__Create__Request(Type_Safe):
     tls_hostname     : str   = ''           # required when tls_mode=letsencrypt-hostname; the FQDN whose A record points at this stack's EC2 IP. Auto-derived from stack-name + default zone when --with-aws-dns is on and this is blank.
     with_aws_dns     : bool  = False        # opt in to parallel Route 53 A-record creation on `create`. Auto-derives tls_hostname from <stack-name>.<default-zone> (e.g. warm-bohr.sg-compute.sgraph.ai) when tls_hostname is blank. AWS-only.
     interceptor      : Schema__Vault_App__Interceptor__Choice  # mitmproxy intercept script for the --with-playwright stack; CLI fills inline_source from --interceptor-script <file>. Ignored in just-vault mode.
+    name_prefix      : str   = ''           # prefixes the AWS `Name` tag (e.g. 'acme' → Name=acme-<stack-name>). Cosmetic only — StackName/StackType (used by list/info/delete) are unchanged. Blank = bare stack name.
