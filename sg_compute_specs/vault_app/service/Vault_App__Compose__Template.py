@@ -118,23 +118,29 @@ _SG_PLAYWRIGHT = '''
     restart: unless-stopped
 '''
 
-# --scripts=/interceptors/active.py loads the intercept script the user-data
-# builder writes to the host (a no-op unless --interceptor-script was given).
-# The dir is bind-mounted read-only; mitmweb hot-reloads the file when it changes.
+# mitmdump (not mitmweb): no web UI, and crucially it streams flows + script-load
+# errors + addon output to STDOUT, so `docker logs agent-mitmproxy` and
+# `sg va logs --source mitmproxy` actually show something. termlog_verbosity=info
+# surfaces "Loading script …" + tracebacks; flow_detail=1 logs one line per request.
+# --scripts=/interceptors/active.py loads the intercept script the user-data builder
+# writes to the host (a no-op unless --interceptor-script was given); the dir is
+# bind-mounted read-only and mitmproxy hot-reloads the file when it changes.
 # env_file injects the operator's --interceptor-env vars so the script can read
-# config via os.environ (the user-data builder always writes active.env, empty
-# when none given, so the env_file reference always resolves).
+# config via os.environ (the user-data builder always writes active.env, empty when
+# none given, so the env_file reference always resolves).
 _AGENT_MITMPROXY = '''
   agent-mitmproxy:
     image: mitmproxy/mitmproxy:latest
     command:
-      - mitmweb
-      - --web-host=127.0.0.1
-      - --web-port=8081
+      - mitmdump
       - --listen-host=0.0.0.0
       - --listen-port=8080
       - --set
       - block_global=false
+      - --set
+      - termlog_verbosity=info
+      - --set
+      - flow_detail=1
       - --scripts=/interceptors/active.py
     env_file:
       - /opt/vault-app/interceptors/active.env

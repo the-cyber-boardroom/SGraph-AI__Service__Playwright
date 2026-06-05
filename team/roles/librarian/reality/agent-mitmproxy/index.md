@@ -94,17 +94,21 @@ The placeholder file `tests/unit/scripts/test_provision_mitmproxy_ec2.py` still 
 
 The `sg va create --with-playwright` 4-container stack runs a **vanilla `mitmproxy/mitmproxy:latest`** image (not the custom `agent_mitmproxy` image above) as the egress proxy for the Playwright browser — see `sg_compute_specs/vault_app/service/Vault_App__Compose__Template.py`. Playwright is pointed at it via `SG_PLAYWRIGHT__DEFAULT_PROXY_URL=http://agent-mitmproxy:8080` + `IGNORE_HTTPS_ERRORS`, so every request the browser makes (including everything reached through the vault's `/pw/*` reverse proxy) flows through mitmproxy.
 
+The proxy runs **`mitmdump`** (NOT `mitmweb`) — `mitmdump --listen-port=8080 --set block_global=false --set termlog_verbosity=info --set flow_detail=1 --scripts=/interceptors/active.py`. No web UI; instead it streams script-load errors + one line per proxied request to **stdout**, so `docker logs vault-app-agent-mitmproxy-1` and `sg va logs --source mitmproxy` show live activity. There is no `sp vault-app open mitmweb` target and no `mitmweb_url` in `info` (both removed — they pointed at a `:8000` admin API the vanilla image never had).
+
 As of v0.2.43 an **intercept script** can be loaded into that proxy at create time:
 
-- `mitmweb` runs with `--scripts=/interceptors/active.py`; the host dir `/opt/vault-app/interceptors` is bind-mounted read-only.
+- `mitmdump` runs with `--scripts=/interceptors/active.py`; the host dir `/opt/vault-app/interceptors` is bind-mounted read-only.
 - `Vault_App__User_Data__Builder.render_interceptor_block()` writes `active.py` to the host **before `compose up`** (a no-op stub when none is chosen).
 - CLI: `sg va create --with-playwright --interceptor-script <file>` reads the local Python file and ships its source inline (`Cli__Vault_App._set_extras`).
 - Resolution chain: `Schema__Vault_App__Interceptor__Choice` (`kind` ∈ {`none`, `inline`}) → `Vault_App__Interceptor__Resolver.resolve()` → source string → user-data builder. `Schema__Vault_App__Create__Request.interceptor` carries the choice.
-- mitmweb hot-reloads `active.py` on change, so a future `set-interceptor`-over-SSM command could swap the script on a running stack without a recreate (not yet implemented).
+- mitmproxy hot-reloads `active.py` on change, so a future `set-interceptor`-over-SSM command could swap the script on a running stack without a recreate (not yet implemented).
 
 **Interceptor env vars (v0.2.43):** the agent-mitmproxy compose service has an `env_file: /opt/vault-app/interceptors/active.env` (mirrors Firefox's `env_source`/`env_file` pattern). `Vault_App__User_Data__Builder.render_interceptor_block()` always writes `active.env` (empty placeholder when none, `chmod 600`) before `compose up`, so the env_file reference always resolves. CLI: `--interceptor-env-file <file>` (dotenv) + repeatable `--interceptor-env KEY=VALUE` merge into `Schema__Vault_App__Create__Request.interceptor_env`. The interceptor script reads them via `os.environ`.
 
-This vault-app path is independent of the custom-image addon registry / FastAPI admin API described above — it is plain mitmweb with a single `--scripts` file.
+**Name prefix / tags (v0.2.43):** `--name-prefix <p>` prefixes the `Name` tag (`<p>-<stack-name>`), stamps an additive `Namespace=<p>` tag, and emits a prefixed-KEY **duplicate** of every tag (`<p>-StackType`, …) for console grouping. Originals are kept verbatim so the lifecycle filters (Purpose / StackName / StackType) and read-back values (StackEngine → podman, …) keep working. See `Vault_App__Service.apply_name_prefix`.
+
+This vault-app path is independent of the custom-image addon registry / FastAPI admin API described above — it is plain `mitmdump` with a single `--scripts` file.
 
 ---
 

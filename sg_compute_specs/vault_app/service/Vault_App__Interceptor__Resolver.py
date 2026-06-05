@@ -2,7 +2,7 @@
 # SG/Compute Specs — vault-app: Vault_App__Interceptor__Resolver
 # Turns a Schema__Vault_App__Interceptor__Choice into (source: str, label: str).
 # The source is written to /opt/vault-app/interceptors/active.py by the user-data
-# builder and loaded by agent-mitmproxy via mitmweb --scripts.
+# builder and loaded by agent-mitmproxy via mitmdump --scripts.
 # ═══════════════════════════════════════════════════════════════════════════════
 
 from osbot_utils.type_safe.Type_Safe                                            import Type_Safe

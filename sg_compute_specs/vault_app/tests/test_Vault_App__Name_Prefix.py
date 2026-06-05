@@ -72,6 +72,34 @@ class TestVaultAppNamePrefix:
         assert _val(result, 'CallerIP')    == '1.2.3.4/32'
         assert _val(result, 'CreatedBy')   == 'tester'
 
+    # ── prefixed-key duplicate tags (operator hack) ──────────────────────────
+
+    def test_prefixed_key_duplicates_created(self):
+        svc    = Vault_App__Service()
+        result = svc.apply_name_prefix(self._tags(), 'acme', '')  # baseline count w/ no prefix
+        base_n = len(result)
+        result = svc.apply_name_prefix(self._tags(), 'warm-bohr', 'acme')
+        # every base tag (incl. the new Namespace) gets one prefixed-key duplicate
+        assert _val(result, 'acme-StackType') == 'vault-app'          # duplicate carries original value
+        assert _val(result, 'acme-StackName') == 'warm-bohr'
+        assert _val(result, 'acme-Namespace') == 'acme'
+        assert len(result) == (base_n + 1) * 2                        # base + Namespace, then doubled
+
+    def test_originals_kept_alongside_duplicates(self):
+        svc    = Vault_App__Service()
+        result = svc.apply_name_prefix(self._tags(), 'warm-bohr', 'acme')
+        keys   = [t['Key'] for t in result]
+        assert 'StackType'      in keys and 'acme-StackType' in keys  # both present
+        assert 'StackName'      in keys and 'acme-StackName' in keys
+        # canonical lookups still resolve to the unprefixed originals (lifecycle safe)
+        assert _val(result, 'StackName') == 'warm-bohr'
+        assert _val(result, 'StackType') == 'vault-app'
+
+    def test_no_duplicates_when_blank_prefix(self):
+        svc    = Vault_App__Service()
+        result = svc.apply_name_prefix(self._tags(), 'warm-bohr', '')
+        assert not any(t['Key'].startswith('acme-') for t in result)
+
     # ── schema + CLI wiring ──────────────────────────────────────────────────
 
     def test_schema_default_is_empty(self):

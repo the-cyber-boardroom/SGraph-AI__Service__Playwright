@@ -241,13 +241,13 @@ class TestCliVaultApp:
         result = runner.invoke(app, ['open', '--help'])
         assert result.exit_code == 0
         assert 'host-plane' in result.output
-        assert 'mitmweb'    in result.output
+        assert 'mitmweb'    not in result.output       # mitmdump has no web UI — target removed
 
     def test_open_with_no_target_lists_available(self):
         result = runner.invoke(app, ['open'])
         assert result.exit_code == 0
         assert 'host-plane' in result.output
-        assert 'mitmweb'    in result.output
+        assert 'mitmweb'    not in result.output
 
     def test_open_rejects_unknown_target(self):
         result = runner.invoke(app, ['open', 'bogus'])
