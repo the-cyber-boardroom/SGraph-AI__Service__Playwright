@@ -35,6 +35,7 @@ from sg_compute_specs.vault_app.service.Vault_App__Stack__Mapper            impo
                                                                                     PLAYWRIGHT_EXTERNAL_PORT ,
                                                                                     TAG_ACCESS_TOKEN         ,
                                                                                     TAG_ENGINE               ,
+                                                                                    TAG_NAMESPACE            ,
                                                                                     TAG_TERMINATE_AT         ,
                                                                                     TAG_TLS_ENABLED          ,
                                                                                     TAG_TLS_HOSTNAME         ,
@@ -97,14 +98,24 @@ class Vault_App__Service(Spec__Service__Base):
         )
 
     def apply_name_prefix(self, tags: list, stack_name: str, name_prefix: str) -> list:
-        # Cosmetic-only: rewrites the `Name` tag to `<prefix>-<stack-name>` (never
-        # double-prefixing). StackName/StackType — what list/info/delete filter on —
-        # are left untouched. Blank prefix is a no-op (bare stack name).
+        # --name-prefix does two non-breaking things:
+        #   1. rewrites the `Name` tag → `<prefix>-<stack-name>` (never double-prefixing)
+        #   2. stamps an additive `Namespace=<prefix>` tag so the operator can filter
+        #      all their stacks in the console.
+        # Every OTHER tag is left untouched on purpose: they are either a server-side
+        # lifecycle filter (Purpose/StackName/StackType), read back by the mapper
+        # (StackEngine drives podman detection, StackTLS, TerminateAt, AccessToken, …),
+        # or data/identity (CallerIP, CreatedBy). Prefixing any of those would break
+        # list/info/delete or corrupt the value — so only Name + the new Namespace tag.
         prefix = (name_prefix or '').strip()
         if not prefix:
             return tags
-        prefixed = Stack__Naming(section_prefix=prefix).aws_name_for_stack(stack_name)
-        return [{**t, 'Value': prefixed} if t.get('Key') == 'Name' else t for t in tags]
+        naming   = Stack__Naming(section_prefix=prefix)
+        out      = [{**t, 'Value': naming.aws_name_for_stack(stack_name)}
+                    if t.get('Key') == 'Name' else t
+                    for t in tags]
+        out.append({'Key': TAG_NAMESPACE, 'Value': prefix})
+        return out
 
     def create_stack(self, request : Schema__Vault_App__Create__Request,
                            creator : str = '') -> Schema__Vault_App__Create__Response:

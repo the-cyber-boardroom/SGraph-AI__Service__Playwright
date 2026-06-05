@@ -18,7 +18,10 @@ def _val(tags, k):  return next(t['Value'] for t in tags if t['Key'] == k)
 class TestVaultAppNamePrefix:
 
     def _tags(self, stack_name='warm-bohr'):
-        return EC2__Tags__Builder(stack_type=STACK_TYPE).build(stack_name, '1.2.3.4/32', 'tester')
+        # Mirror the real create path: base tags + the vault-app extras (incl. StackEngine).
+        return EC2__Tags__Builder(stack_type=STACK_TYPE).build(
+            stack_name, '1.2.3.4/32', 'tester',
+            extra_tags={'StackEngine': 'docker', 'StackWithPlaywright': 'true', 'AccessToken': 'secret-tok'})
 
     def test_blank_prefix_is_no_op(self):
         svc    = Vault_App__Service()
@@ -46,6 +49,28 @@ class TestVaultAppNamePrefix:
         svc    = Vault_App__Service()
         result = svc.apply_name_prefix(self._tags(), 'warm-bohr', '   ')
         assert _name(result) == 'warm-bohr'
+
+    # ── additive Namespace tag ───────────────────────────────────────────────
+
+    def test_prefix_adds_namespace_tag(self):
+        svc    = Vault_App__Service()
+        result = svc.apply_name_prefix(self._tags(), 'warm-bohr', 'acme')
+        assert _val(result, 'Namespace') == 'acme'                    # filterable, additive
+
+    def test_blank_prefix_adds_no_namespace_tag(self):
+        svc    = Vault_App__Service()
+        result = svc.apply_name_prefix(self._tags(), 'warm-bohr', '')
+        assert all(t['Key'] != 'Namespace' for t in result)
+
+    def test_data_and_filter_tags_never_prefixed(self):
+        # StackEngine (podman detection), Purpose/StackType/StackName (filters),
+        # CallerIP/CreatedBy (data) must keep their raw values.
+        svc    = Vault_App__Service()
+        result = svc.apply_name_prefix(self._tags(), 'warm-bohr', 'acme')
+        assert _val(result, 'StackEngine') == 'docker'                # NOT 'acme-docker' — would break podman detection
+        assert _val(result, 'Purpose')     == 'ephemeral-ec2'
+        assert _val(result, 'CallerIP')    == '1.2.3.4/32'
+        assert _val(result, 'CreatedBy')   == 'tester'
 
     # ── schema + CLI wiring ──────────────────────────────────────────────────
 
