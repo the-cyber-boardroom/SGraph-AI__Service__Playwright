@@ -32,6 +32,12 @@ INTERCEPTOR_DIR   = '/opt/vault-app/interceptors'
 INTERCEPTOR_FILE  = '/opt/vault-app/interceptors/active.py'
 INTERCEPTOR_NO_OP = '# sg-vault-app: no interceptor active\n'
 
+# env_file consumed by the agent-mitmproxy compose service (docker reads it from
+# the host at `compose up`). Always written — empty when no --interceptor-env —
+# so the compose `env_file:` reference always resolves. 0600 (may hold secrets).
+INTERCEPTOR_ENV_FILE  = '/opt/vault-app/interceptors/active.env'
+INTERCEPTOR_ENV_EMPTY = '# sg-vault-app: no interceptor env\n'
+
 # ── container-engine install fragments ───────────────────────────────────────
 # docker: docker-compose-plugin is NOT in standard AL2023 repos — the compose V2
 #         CLI plugin binary is downloaded from Docker's GitHub releases instead.
@@ -104,6 +110,7 @@ class Vault_App__User_Data__Builder(Type_Safe):
                      acme_prod          : bool  = False        ,
                      tls_hostname       : str   = ''           ,
                      interceptor_source : str   = ''           ,
+                     interceptor_env    : str   = ''           ,
                      shutdown_behavior  : str   = 'terminate'  ) -> str:
         engine        = container_engine if container_engine in ('docker', 'podman') else 'docker'
         is_podman     = engine == 'podman'
@@ -145,7 +152,7 @@ class Vault_App__User_Data__Builder(Type_Safe):
         interceptor_block = ''
         if with_playwright:
             overrides_block   = Vault_App__Reverse_Proxy__Override().render_write_block()
-            interceptor_block = self.render_interceptor_block(interceptor_source)
+            interceptor_block = self.render_interceptor_block(interceptor_source, interceptor_env)
 
         parts = [
             Section__Base().render(stack_name=stack_name, max_hours=max_hours,
@@ -158,11 +165,16 @@ class Vault_App__User_Data__Builder(Type_Safe):
         ]
         return '\n'.join(p for p in parts if p)
 
-    def render_interceptor_block(self, interceptor_source: str = '') -> str:       # bash that writes the mitmproxy intercept script to the host (before `compose up`)
-        source = interceptor_source or INTERCEPTOR_NO_OP
-        return ('\n# ── agent-mitmproxy interceptor script ───────────────────────────────────────\n'
+    def render_interceptor_block(self, interceptor_source: str = '',
+                                       interceptor_env   : str = '') -> str:        # bash that writes the intercept script + env file to the host (before `compose up`)
+        source   = interceptor_source or INTERCEPTOR_NO_OP
+        env_body = interceptor_env    or INTERCEPTOR_ENV_EMPTY
+        return ('\n# ── agent-mitmproxy interceptor script + env ─────────────────────────────────\n'
                 f'echo "[vault-app] writing interceptor to {INTERCEPTOR_FILE}"\n'
                 f'mkdir -p {INTERCEPTOR_DIR}\n'
                 + 'cat > ' + INTERCEPTOR_FILE + " <<'SG_INTERCEPTOR_EOF'\n"            # quoted delimiter — the Python payload is written verbatim
                 + source + '\nSG_INTERCEPTOR_EOF\n'
+                + 'cat > ' + INTERCEPTOR_ENV_FILE + " <<'SG_INTERCEPTOR_ENV_EOF'\n"    # dotenv for the agent-mitmproxy container (compose env_file)
+                + env_body + '\nSG_INTERCEPTOR_ENV_EOF\n'
+                + f'chmod 600 {INTERCEPTOR_ENV_FILE}\n'                                # may hold secrets
                 + 'echo "[vault-app] interceptor written"\n')
