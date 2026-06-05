@@ -24,6 +24,9 @@ TAG_ACCESS_TOKEN    = 'AccessToken'               # vault API key + access token
                                                   # Note: ec2:DescribeInstances exposes this; the access token was
                                                   # already recoverable on the box via SSM, this just makes the
                                                   # AWS-API path explicit so `sp vault-app info` can surface it.
+TAG_NAMESPACE       = 'Namespace'                 # additive, set by --name-prefix; lets the operator filter all their
+                                                  # stacks in the console (Namespace=<prefix>). NOT a lifecycle filter —
+                                                  # list/info/delete never key off it, so it's safe to add/omit freely.
 STACK_TYPE          = 'vault-app'
 
 VAULT_PORT               = 8080
