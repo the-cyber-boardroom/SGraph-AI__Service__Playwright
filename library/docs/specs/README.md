@@ -13,7 +13,7 @@ These are the **definitive** specs for the SG Playwright Service. If code and sp
 | [`v0.20.55__schema-catalogue-v2.md`](v0.20.55__schema-catalogue-v2.md) | 1439 | Every `Type_Safe` schema, enum, Safe_* primitive, and collection subclass |
 | [`v0.20.55__routes-catalogue-v2.md`](v0.20.55__routes-catalogue-v2.md) | 1234 | All 25 routes, 12 service classes, registration pattern, step dispatch |
 | [`v0.20.55__ci-pipeline.md`](v0.20.55__ci-pipeline.md)                 | 1161 | CI jobs, Docker infrastructure classes, deploy-via-pytest layout |
-| [`v0.2.63__pw-capture-stack.md`](v0.2.63__pw-capture-stack.md)         | —    | **PROPOSED.** New `pw_capture` stack — sg-playwright behind mitmproxy with a bundled interceptor that streams flows to `MGraph-AI__Service__Mitmproxy` (durable flow store + interceptor registry + egress policy). Cross-repo contract. |
+| [`v0.2.63__content-transformation-proxy-stack.md`](v0.2.63__content-transformation-proxy-stack.md) | — | **PROPOSED.** The 4-component content-transformation proxy stack — mitmproxy (proxy) × FastAPI MITM service (decide + inject the transformation script) × sg-playwright (browser automation / QA) × vault app (scripts in, logs out via append→S3, UX). Captures the role of each piece + the `content_proxy` SG/Compute assembly. VNC out of scope. |
 
 ---
 
