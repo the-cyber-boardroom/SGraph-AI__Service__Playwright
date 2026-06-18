@@ -29,6 +29,17 @@ also build a **Textual TUI** for dev/QA/ops and a **layered test suite** (each p
 then the integration). The two key deliverables are the two reachable proxy paths into one
 transformation workflow.
 
+**MVP & targets (read this):**
+- **The first MVP deploys NO vaults** — its job is to prove the pieces wire up. The
+  `/mitm-proxy` injected UI (always processed by the interceptor) is the chain-proof smoke
+  check. Vault loading (zip/sgit) is **post-MVP**.
+- **Both targets ship from one compose template:** **local** (`docker compose up` the committed
+  `sg_compute_specs/content_proxy/docker/compose/docker-compose.yml`) and **EC2** (**with or
+  without** an SSL cert — `--tls none|letsencrypt|acm`).
+- Images pulled from **Docker Hub**: `diniscruz/sg-playwright`, `diniscruz/sg-send-vault`,
+  stock `mitmproxy/mitmproxy`, + the MGraph-AI MITM service image. sg-playwright is reached by
+  browsers only via the vault **`/pw` on `:443`** (its `:8000` is net-local).
+
 ---
 
 ## The two key deliverables (what "done" means)
@@ -92,9 +103,11 @@ Everything else (TUI, vault loading, ASG/LB) serves these two.
 |---------|--------|
 | The four/five components (mitmproxy, MITM service, sg-playwright, vault app) | as-built (sg-send v0.33.21) |
 | `content_proxy` spec (compose + CLI + user-data) | **to build (this repo)** |
-| Two-mitmproxy topology (ext-auth / int-noauth) | **to build** |
-| Vault loading (zip / sgit) | **to build** |
-| TUI (status/traffic/scripts/transform/logs) | **to build** |
-| Test suite (per-piece + integration + traffic corpus) | **to build** |
+| Two-mitmproxy topology (ext-auth / int-noauth) | **to build (MVP)** |
+| Local docker-compose (committed) + EC2 deploy (TLS none/LE/ACM) | **to build (MVP)** |
+| `/mitm-proxy` injected-UI smoke check | **to build (MVP)** |
+| TUI (status/traffic/scripts/transform/logs) | **to build (MVP)** |
+| Test suite (per-piece + integration + traffic corpus) | **to build (MVP)** |
+| Vault loading (zip / sgit) + roles 1–2 | **to build (POST-MVP)** |
 | VNC remote browser | **out of scope** |
 </content>

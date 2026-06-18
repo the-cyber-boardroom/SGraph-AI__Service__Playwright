@@ -22,6 +22,8 @@ All diagrams are ASCII so they render identically everywhere. Index:
 9. Scaling — ASG + the two load balancers
 10. Component / port map
 11. Local vs EC2 targets
+12. The `/mitm-proxy` smoke check (MVP) + the `/pw` on `:443` path
+13. TLS termination (Let's Encrypt / ACM)
 
 ---
 
@@ -243,11 +245,15 @@ unique state, so the group scales freely.
   │ mitmproxy-ext  │ 8080  │ basic auth  │ human browser (via NLB)         [deliv. a]  │
   │ mitmproxy-int  │ 8081  │ none        │ sg-playwright browser (net only)[deliv. b]  │
   │ mitm-service   │ 10011 │ x-api-key   │ both interceptors (net only)                │
-  │ sg-playwright  │ 8000  │ X-API-Key   │ tests/agents; vault /pw proxy               │
-  │ vault-app      │ 443   │ token       │ users (via ALB); UX launcher                │
+  │ sg-playwright  │ 8000  │ X-API-Key   │ net-only; browsers reach it via vault /pw:443│
+  │ vault-app      │ 443   │ token/TLS   │ users (via ALB); /pw → sg-playwright; UX     │
   └────────────────┴───────┴─────────────┴───────────────────────────────────────────┘
+  Images (Docker Hub): mitmproxy/mitmproxy (stock) · diniscruz/sg-playwright · diniscruz/sg-send-vault
+                       + the MGraph-AI MITM service image (ref TBD).
   Network-local only (never in the SG / LB): 8081, 10011, 8000.
-  Externally exposed: 8080 (NLB, mode 1) and 443 (ALB, mode 2).
+  Externally exposed: 8080 (NLB, mode 1) and 443 (ALB, mode 2, TLS).
+  KEY: sg-playwright :8000 is NOT browser-reachable — a :443 vault page reaches it ONLY
+       same-origin via https://<host>/pw/* (the v0.2.41 reverse-proxy seam).
 ```
 
 ---
@@ -264,4 +270,49 @@ unique state, so the group scales freely.
 ```
 
 The same compose template renders both; only image refs, LB, and vault source differ.
+
+---
+
+## 12. The `/mitm-proxy` smoke check (MVP) + the `/pw` on `:443` path
+
+The cheapest "is everything wired?" signal. The interceptor **always** processes `/mitm-proxy`
+paths, so the FastAPI MITM service's own built-in UI gets injected and rendered — with **no
+vault, no origin, no cookie, no script** deployed. If you see the UI, the chain works.
+
+```
+  Browser ──proxy──▶ mitmproxy-(ext|int) ──always-process──▶ FastAPI MITM service
+   GET /mitm-proxy        (addon)                              serves its admin/UI
+        ◀───────────────  injected UI page  ◀──────────────── (modified_body)
+        │
+        ▼  the UI renders  ⇒  mitmproxy ✓  interceptor ✓  FastAPI ✓  browser path ✓
+```
+
+And the browser-to-Playwright path is **always** through the vault on `:443`:
+
+```
+  Vault page (https://<host>, :443)
+        │  fetch('/pw/sequence/execute')          ← same-origin, no mixed content
+        ▼
+  vault-app :443  ──/pw──▶  sg-playwright :8000   ← reverse proxy (X-Forwarded-Prefix: /pw,
+        ▲                                            x-sgraph-access-token → X-API-Key)
+        │  https only
+  (sg-playwright :8000 is never exposed to the browser directly)
+```
+
+---
+
+## 13. TLS termination (Let's Encrypt / ACM)
+
+```
+  LOCAL                         EC2 — Let's Encrypt            EC2 — AWS ACM
+  ─────                         ───────────────────            ─────────────
+  vault-app self-signed         vault-app self-terminates      ALB terminates TLS (ACM cert)
+  (NONE) on :443                :443 with LE cert (IP/DNS)         │
+        │                              │                          ▼
+   browser accepts warning        browser trusts LE          vault-app behind ALB (http)
+```
+
+Choice carried by `Schema__Content_Proxy__Create__Request.tls`
+(`Enum__Content_Proxy__Tls ∈ {NONE, LETSENCRYPT, ACM}`). Prior art for the LE path:
+`team/roles/architect/reviews/05/14/v0.2.6__vault-app-tls-options.md`.
 </content>

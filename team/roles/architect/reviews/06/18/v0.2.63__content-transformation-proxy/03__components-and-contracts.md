@@ -141,9 +141,15 @@ the addon forwards. The stack does not parse cookies.
 
 `MGraph-AI__Service__Mitmproxy` — Python 3.12 / OSBot-Utils / OSBot-Fast-API / OSBot-AWS;
 `x-api-key`; **:10011**; admin UI + console + mitm-scripts CLI; Lambda-deployable. For this
-stack it runs as a **container** on the compose, reachable only on the docker network. It reads
-the latest transformation script from the **script vault** and returns it inside
-`modified_body`. We pull a pinned image (spec open decision #2); we do not re-implement it.
+stack it runs as a **container** on the compose, reachable only on the docker network. It pulls
+a pinned image (spec open decision #2 — confirm the Docker Hub ref); we do not re-implement it.
+
+- **Post-MVP:** it reads the latest transformation script from the **script vault** and returns
+  it inside `modified_body`.
+- **MVP (no vault):** it injects its **built-in `/mitm-proxy` admin UI / default script**. The
+  interceptor's `should_process_request` *always* processes `/mitm-proxy` paths — so requesting
+  `/mitm-proxy` through either proxy renders the injected UI and proves the whole chain with
+  nothing else deployed (the MVP smoke check; see doc 01 §12 and doc 05).
 
 ---
 
@@ -155,16 +161,27 @@ the latest transformation script from the **script vault** and returns it inside
   `/browser/*`, `/screenshot`). **No new endpoints.**
 - The QA sequence: set `mitm-*` cookies on the context → navigate a corpus URL → extract
   DOM/text + screenshot → assert the transform. This is deliverable (b).
-- Browser-page callers reach it same-origin via the vault `/pw` reverse proxy
-  (`x-sgraph-access-token` → `X-API-Key`), per the v0.2.41 spec.
+- **Browser/vault callers reach it ONLY via the vault `/pw` proxy on `:443`** — `:8000` is
+  net-local and not browser-reachable (a `:443` vault page → `:8000` is mixed-content/blocked).
+  Same-origin `https://<host>/pw/*` with `x-sgraph-access-token` → `X-API-Key` and
+  `X-Forwarded-Prefix: /pw`, per the v0.2.41 reverse-proxy spec. Server-to-server (pytest/CLI)
+  may hit `:8000` directly on the docker network.
 
 ---
 
-## 7. Vault app (external image) + vault loading
+## 7. Vault app (`diniscruz/sg-send-vault`) + TLS + vault loading
 
-- Runs as a container; `SEND__STORAGE_MODE` → S3; serves the UX launcher + testing vaults; the
-  append target for role-2 logging; hosts the `/pw` reverse proxy.
-- **Vaults loaded at build/deploy** by the `content_proxy` user-data / `load-vaults` verb:
+- **Image:** `diniscruz/sg-send-vault` from Docker Hub (pulled like `diniscruz/sg-playwright` —
+  not built here; code is in `SGraph-AI__App__Send`).
+- Runs as a container; terminates **`:443` (TLS)**; hosts the **`/pw` reverse proxy** to
+  sg-playwright (`FAST_API__REVERSE_PROXY__ROUTES="pw=http://sg-playwright:8000"`);
+  `SEND__STORAGE_MODE`.
+- **TLS (EC2):** `NONE` (local self-signed) · `LETSENCRYPT` (self-terminate, IP/DNS — prior art
+  `v0.2.6__vault-app-tls-options.md`) · `ACM` (cert on the ALB, L7). Carried by
+  `Schema__Content_Proxy__Create__Request.tls`.
+- **MVP: no vaults.** The vault app runs (for `:443` + `/pw` + TLS), but **no script/log/UX
+  vaults are loaded.** Role-1 (script source) and role-2 (append→S3 logging) are post-MVP.
+- **Post-MVP — vault loading** by the `content_proxy` user-data / `load-vaults` verb:
   `Schema__Content_Proxy__Vault__Source { kind: Enum (ZIP | SGIT), ref: Safe_Str, target: Safe_Str }`.
   - `ZIP` — copy a bundled archive into the vault app's store.
   - `SGIT` — `sgit clone <ref>` from a live server or `s3://bucket` (precedent:
@@ -176,11 +193,12 @@ the latest transformation script from the **script vault** and returns it inside
 
 | Schema / enum | Fields / values |
 |---------------|-----------------|
-| `Schema__Content_Proxy__Create__Request` | `name`, `mode: Enum__Content_Proxy__Mode`, `vaults_to_load: List__…__Vault__Source`, `proxyauth_user`, `proxyauth_pass`, `mitm_service_image`, `vault_app_image`, `region`, `instance_type` |
+| `Schema__Content_Proxy__Create__Request` | `name`, `mode: Enum__Content_Proxy__Mode`, `tls: Enum__Content_Proxy__Tls`, `vaults_to_load: List__…__Vault__Source` (empty in MVP), `proxyauth_user`, `proxyauth_pass`, `mitm_service_image`, `vault_app_image='diniscruz/sg-send-vault'`, `playwright_image='diniscruz/sg-playwright'`, `region`, `instance_type` |
 | `Schema__Content_Proxy__Vault__Source` | `kind: Enum (ZIP|SGIT)`, `ref: Safe_Str`, `target: Safe_Str__Id` |
 | `Schema__Content_Proxy__Stack__Info` | instance id/state/ip, `mode`, component health, `active_script`, `vaults_present` |
 | `Schema__Content_Proxy__Flow__Summary` | `via: Enum (EXT|INT)`, `method`, `host`, `path`, `status_code`, `action: Enum (INJECTED|BLOCKED|CACHED|SKIPPED|FALLBACK|PASSED)`, `fastapi: Enum (CONNECTED|UNAVAILABLE)` |
 | `Enum__Content_Proxy__Mode` | `DIRECT_PROXY`, `VAULT_WEB` |
+| `Enum__Content_Proxy__Tls` | `NONE`, `LETSENCRYPT`, `ACM` |
 | `Enum__Content_Proxy__Flow__Action` | `INJECTED`, `BLOCKED`, `CACHED`, `SKIPPED`, `FALLBACK`, `PASSED` |
 
 Flow actions map directly to the addon's `x-proxy-*` headers — so the TUI/Source derives them

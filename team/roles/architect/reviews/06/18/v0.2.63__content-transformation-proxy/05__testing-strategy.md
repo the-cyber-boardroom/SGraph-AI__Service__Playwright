@@ -36,6 +36,24 @@ contracts (schemas, status codes, headers, persisted artefacts); real Chromium g
 
 ---
 
+## 0. The smoke test — the `/mitm-proxy` injected UI (run this first, always)
+
+The cheapest "is everything wired?" signal, and the **MVP's primary acceptance gate**. The
+interceptor *always* processes `/mitm-proxy` paths, so the FastAPI MITM service's built-in UI is
+injected and rendered with **no vault, no origin, no cookie, no script**. Request `/mitm-proxy`
+through each proxy:
+
+```
+  curl -x http://demo:demo@localhost:8080 http://anything/mitm-proxy   # ext
+  curl -x http://localhost:8081           http://anything/mitm-proxy   # int
+  # assert: 200 + the injected MITM UI markup  =>  mitmproxy ✓ interceptor ✓ FastAPI ✓
+```
+
+If this passes, the chain is good and you can layer everything else on top. It is surfaced in
+the TUI `status` screen and asserted in integration + deploy-via-pytest.
+
+---
+
 ## 1. Per-piece (each puzzle piece alone)
 
 ### 1a. The interceptor addon (pure functions, no live mitmproxy)

@@ -22,7 +22,17 @@ traffic corpus).
 
 ---
 
+## MVP scope
+
+The **first MVP deploys NO vaults** — its only job is to prove every piece wires up. MVP = AC-0
+through AC-6. Vault loading + roles 1–2 are **post-MVP** (AC-7).
+
 ## Acceptance criteria
+
+### AC-0 — the `/mitm-proxy` smoke (MVP chain proof)
+- [ ] Requesting `/mitm-proxy` through **each** proxy renders the FastAPI MITM service's
+      built-in injected UI — with no vault, no origin, no script. Proves mitmproxy → FastAPI →
+      browser end-to-end. Surfaced in TUI `status`.
 
 ### AC-1 — deliverable (a)
 - [ ] A browser configured with proxy `http://USER:PASS@<host>:8080` loads a target page and
@@ -31,20 +41,21 @@ traffic corpus).
 - [ ] CA-trust step documented (install mitmproxy CA or accept warning).
 
 ### AC-2 — deliverable (b)
-- [ ] `sp content-proxy transform <url> --via int --json` (or a `/sequence/execute` call with
-      the browser proxied to `mitmproxy-int` + `mitm-*` cookies set) returns DOM/text/screenshot
-      showing the **same** transform as AC-1.
-- [ ] No proxy-auth friction (the int proxy has none).
+- [ ] sg-playwright drives a browser through `mitmproxy-int` (no auth) into the same workflow;
+      browser/vault callers reach Playwright via the vault **`/pw` on `:443`** (not `:8000`).
+- [ ] `sp content-proxy transform <url> --via int --json` returns DOM/text/screenshot showing
+      the **same** transform as AC-1.
 - [ ] **Parity:** the same corpus URL via `ext` and `int` yields the same transform.
 
-### AC-3 — the stack
+### AC-3 — the stack runs on BOTH targets
 - [ ] `sg-compute spec list` shows `content_proxy` (convention discovery, no registry edit).
-- [ ] `sp content-proxy create --wait` brings up all 5 services; `status` shows them healthy.
-- [ ] `load-vaults` populates the script + log + UX vaults via **zip** and via **sgit**.
-- [ ] The active transformation script is sourced from the **script vault**; updating the vault
-      changes behaviour with no redeploy.
-- [ ] Logs **append** to the S3-backed log vault and the vault **reopens from another
-      environment** with the same files (role 2).
+- [ ] **Local:** `docker compose -f sg_compute_specs/content_proxy/docker/compose/docker-compose.yml up`
+      (or `sp content-proxy create --local`) brings up all 5 services; `status` healthy; TLS `NONE`.
+- [ ] **EC2 without cert:** `sp content-proxy create --tls none --wait` — runs; both deliverable
+      paths work.
+- [ ] **EC2 with cert:** `sp content-proxy create --tls letsencrypt|acm --wait` — `:443` serves
+      a trusted cert; both deliverable paths work over HTTPS.
+- [ ] The committed local compose == `template.render(local-defaults)` (drift-guard test).
 
 ### AC-4 — the TUI
 - [ ] `sp content-proxy tui` renders status / traffic / scripts / transform / logs.
@@ -65,6 +76,14 @@ traffic corpus).
 - [ ] Reality doc `content-proxy/index.md` + changelog updated in the landing commit.
 - [ ] No vault keys / AWS creds in git.
 
+### AC-7 — vaults (POST-MVP, not required for the MVP)
+- [ ] `load-vaults` populates script + log + UX vaults via **zip** and via **sgit** (live
+      server / s3).
+- [ ] Active transformation script sourced from the **script vault**; updating the vault changes
+      behaviour with no redeploy (role 1).
+- [ ] Logs **append** to the S3-backed log vault; the vault **reopens from another environment**
+      with the same files (role 2).
+
 ---
 
 ## Demo script (what to show the owner)
@@ -73,27 +92,34 @@ traffic corpus).
 # 1. it's a spec
 sg-compute spec list                                  # content_proxy appears
 
-# 2. bring it up locally
-sp content-proxy create cp-local --mode direct \
-      --vault zip:./scripts.zip --proxyauth demo:demo --wait
-sp content-proxy status --json                        # 5 services healthy
+# 2a. bring it up LOCALLY (no AWS, no vaults)
+docker compose -f sg_compute_specs/content_proxy/docker/compose/docker-compose.yml up -d
+#    ...or:  sp content-proxy create --local --proxyauth demo:demo
+sp content-proxy status --json                        # 5 services healthy, TLS none
 
-# 3. deliverable (a) — human proxy
+# 3. MVP chain proof — the /mitm-proxy injected UI
+#    open http://demo:demo@localhost:8080/mitm-proxy  (or via the int proxy)
+#    -> the FastAPI MITM UI renders  => whole chain works, no vault needed
+
+# 4. deliverable (a) — human proxy
 #    configure a browser proxy to http://demo:demo@localhost:8080, open a target page
-#    -> content is blurred/removed
+#    -> content is transformed
 
-# 4. deliverable (b) — scripted playwright through the no-auth proxy
+# 5. deliverable (b) — scripted playwright through the no-auth proxy (reached via /pw:443)
 sp content-proxy transform https://news.site/9 --via int --json
 #    -> before/after, injected <script>, rules fired
 
-# 5. parity + accuracy
+# 6. accuracy + the operator TUI
 sp content-proxy traffic --run-corpus --json          # accuracy + latency report
+sp content-proxy tui                                  # watch flows live, drill into a flow
 
-# 6. the operator TUI
-sp content-proxy tui                                   # watch flows live, drill into a flow
+# 7. EC2 — with or without a cert
+sp content-proxy create --region eu-west-2 --tls none        --wait   # no cert
+sp content-proxy create --region eu-west-2 --tls letsencrypt --wait   # LE cert on :443
 
-# 7. vaults are the backbone
-sp content-proxy scripts                              # versions; set-active a new script -> behaviour changes
+# 8. POST-MVP — vaults as the backbone
+sp content-proxy load-vaults --vault zip:./scripts.zip --vault sgit:s3://bkt/logs
+sp content-proxy scripts                              # versions; set-active -> behaviour changes
 sp content-proxy logs --follow                        # append->S3; reopen elsewhere
 ```
 

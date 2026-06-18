@@ -38,6 +38,10 @@ sg_compute_specs/content_proxy/
 │   └── List__Schema__Content_Proxy__Flow__Summary.py
 ├── interceptors/
 │   └── active.py               # baked from the supplied fastapi_interceptor.py (+ doc 03 §9 fixes)
+├── docker/
+│   └── compose/
+│       └── docker-compose.yml  # COMMITTED — for local `docker compose up`. Generated from the
+│                               # template; a test asserts it == template.render(local-defaults)
 ├── service/
 │   ├── ContentProxy__Service.py            # Tier-1 orchestrator (8-verb contract + extras)
 │   ├── ContentProxy__Compose__Template.py  # renders the 5-service docker-compose (2 mitmproxies)
@@ -71,61 +75,97 @@ sg_compute_specs/content_proxy/
 
 ## Slices (each is a commit + tests + reality-doc update)
 
+> **MVP = slices 0–8 with NO vaults deployed.** The goal of the MVP is to prove every piece
+> wires up. Vault loading + roles 1–2 are post-MVP (slice 9). The MVP's primary gate is the
+> **`/mitm-proxy` injected-UI smoke check** (doc 01 §12).
+
 ### Slice 0 — skeleton + manifest (½ day)
-- Package skeleton, `manifest.py`, `version`, enums, schemas (doc 03 §8). `test_manifest.py`
-  passes the conformance contract → `sg-compute spec content_proxy` lists.
+- Package skeleton, `manifest.py`, `version`, enums (incl. `Enum__Content_Proxy__Tls`),
+  schemas (doc 03 §8). `test_manifest.py` passes the conformance contract.
 - **Demo:** `sg-compute spec list` shows `content_proxy`.
 
 ### Slice 1 — the interceptor addon, unit-tested (½ day)
 - Bake the supplied `fastapi_interceptor.py` → `interceptors/active.py` with the doc-03-§9
   fixes. Pure-function tests for `should_process_request/response`, `prepare_*_data`,
-  `apply_*_modifications` over fixture `http.HTTPFlow`-shaped dicts (no live mitmproxy).
-- **Demo:** `pytest tests/interceptor` green; static assets skipped, html processed, block/
-  cached/override applied.
+  `apply_*_modifications` over fixture flow dicts (no live mitmproxy). Assert `/mitm-proxy` is
+  always processed.
+- **Demo:** `pytest tests/interceptor` green.
 
-### Slice 2 — single-proxy compose, local (1 day)
-- `ContentProxy__Compose__Template` renders `mitmproxy-int` + `mitm-service` + `sg-playwright`
-  (no vault app yet, no auth). `ContentProxy__HTTP__Probe` checks health.
-- **Demo:** `docker-compose up`; drive sg-playwright `/sequence/execute` through
-  `mitmproxy-int` against a fixture origin; assert the injected `<script>` is in the DOM.
-  **This is deliverable (b) minimal.**
+### Slice 2 — single-proxy compose + the `/mitm-proxy` smoke (1 day) ← THE CHAIN PROOF
+- `ContentProxy__Compose__Template` renders `mitmproxy-int` + `mitm-service` (stock image +
+  addon; no vault, no auth, no origin). `ContentProxy__HTTP__Probe` checks health.
+- **Demo:** `docker-compose up`; request `/mitm-proxy` through `mitmproxy-int` → the FastAPI
+  UI is injected and renders. **Proves mitmproxy → FastAPI → browser end-to-end.**
 
-### Slice 3 — second proxy + basic auth (½ day)
-- Add `mitmproxy-ext` with `--proxyauth`. Same interceptor, same FastAPI.
-- **Demo:** a real browser (or curl with proxy creds) through `:8080` gets the transform;
-  no creds → 407. **This is deliverable (a).**
+### Slice 3 — vault app on `:443` + `/pw` → sg-playwright (1 day)
+- Add `vault-app` (`diniscruz/sg-send-vault`) terminating `:443` with `/pw`→sg-playwright, and
+  `sg-playwright` (`diniscruz/sg-playwright`) net-local on `:8000` proxied to `mitmproxy-int`.
+  TLS `NONE` (self-signed) locally.
+- **Demo:** `https://localhost/pw/health/status` works; drive `/pw/sequence/execute` →
+  transformed DOM via `mitmproxy-int`. **This is deliverable (b)** (browser path on `:443`).
 
-### Slice 4 — the `content_proxy` CLI (8 verbs + extras) (1 day)
+### Slice 4 — second proxy + basic auth (½ day)
+- Add `mitmproxy-ext` with `--proxyauth`. Same interceptor, same FastAPI workflow.
+- **Demo:** a browser / curl with proxy creds through `:8080` gets the transform; no creds →
+  407. **This is deliverable (a).**
+
+### Slice 5 — the `content_proxy` CLI (8 verbs + extras) (1 day)
 - Wire `Cli__ContentProxy` via `Spec__CLI__Builder` (free: list/info/create/delete/wait/
-  health/connect/exec). Extras: `traffic`, `scripts`, `transform`, `logs`, `load-vaults`.
-  Renderers pure.
+  health/connect/exec). Extras: `traffic`, `scripts`, `transform`, `logs`. **No `load-vaults`
+  in the MVP CLI.** Renderers pure.
 - **Demo:** `sp content-proxy create --wait` (local), `… status --json`, `… transform <url>`.
-
-### Slice 5 — vault app + vault loading (1–1.5 days)
-- Add `vault-app` to compose; `ContentProxy__Vault__Loader` does zip copy-in + sgit clone
-  (from live server / s3). Script vault feeds the MITM service; log vault is the append target.
-- **Demo:** `sp content-proxy load-vaults --vault zip:./scripts.zip --vault sgit:s3://…`;
-  the active script comes from the vault; logs append (role 2).
 
 ### Slice 6 — the TUI (1.5 days)
 - `ContentProxy__TUI__Source` + pure `*__Render` fns + thin screens (doc 02). Every command
   `--json` + no-TTY fallback. Tests: render fns + headless screen smoke (sentinel pattern).
-- **Demo:** `sp content-proxy tui` → status/traffic/transform screens live.
+  `status` surfaces the `/mitm-proxy` smoke result.
+- **Demo:** `sp content-proxy tui` → status/traffic/transform live.
 
 ### Slice 7 — the traffic corpus + accuracy report (1 day)
 - `traffic/corpus/` labelled pages; `ContentProxy__Traffic__Runner` replays through the
-  workflow; `…__Report__Builder` reports accuracy (blurred/removed/blocked as labelled) +
-  latency. Driveable from the TUI `transform`/`traffic` screens.
+  workflow; `…__Report__Builder` reports accuracy + latency. Driveable from the TUI.
 - **Demo:** `sp content-proxy traffic --run-corpus --json` → accuracy table.
 
-### Slice 8 — EC2 via SG/Compute + deploy-via-pytest (1.5 days)
-- `ContentProxy__User_Data__Builder` (compose up + load-vaults on the box); `create` launches
-  EC2; deploy-via-pytest numbered lifecycle. NLB/ALB + ASG noted as infra (cross-ref v0.33.2).
-- **Demo:** `sp content-proxy create --region … --wait`; the two deliverable paths hit live.
+### Slice 8 — EC2 + TLS + deploy-via-pytest (1.5 days) ← MVP COMPLETE
+- `ContentProxy__User_Data__Builder` (compose up on the box; **no vaults**). `create` launches
+  EC2; **TLS via `LETSENCRYPT` or `ACM`** (§3.3). deploy-via-pytest numbered lifecycle. NLB/ALB
+  + ASG as infra (cross-ref v0.33.2).
+- **Demo:** `sp content-proxy create --region … --tls letsencrypt --wait`; both deliverable
+  paths hit live over HTTPS; `/mitm-proxy` UI renders. **MVP done.**
 
-### Slice 9 — docs + reality (½ day)
+### Slice 9 (POST-MVP) — vault loading + roles 1–2 (1.5 days)
+- Add `load-vaults` (`ContentProxy__Vault__Loader`: zip copy-in + sgit clone from live
+  server / s3). Script vault feeds the MITM service (role 1); log vault is the append→S3 target
+  (role 2). `Schema__…__Vault__Source` populated.
+- **Demo:** `sp content-proxy load-vaults --vault zip:… --vault sgit:s3://…`; active script
+  comes from the vault; logs append + reopen elsewhere.
+
+### Slice 10 — docs + reality (½ day)
 - New reality domain `team/roles/librarian/reality/content-proxy/index.md`; changelog; onboarding
   pointer; update the spec status table.
+
+---
+
+## Deployment targets & where the docker-compose lives
+
+**Both targets ship. Same compose, one source of truth (`ContentProxy__Compose__Template`).**
+
+| Target | How it starts | TLS | Compose file location |
+|--------|---------------|-----|------------------------|
+| **Local (dev/CI)** | `docker compose -f sg_compute_specs/content_proxy/docker/compose/docker-compose.yml up` (or `sp content-proxy create --local`) | `NONE` / self-signed | **committed** at `sg_compute_specs/content_proxy/docker/compose/docker-compose.yml` |
+| **EC2 — no cert** | `sp content-proxy create --tls none` | `NONE` (HTTP / self-signed `:443`) | rendered → written by user-data to `/opt/content-proxy/docker-compose.yml` |
+| **EC2 — with cert** | `sp content-proxy create --tls letsencrypt|acm` | Let's Encrypt (self-terminate) or ACM (on the ALB) | same `/opt/content-proxy/docker-compose.yml` |
+
+Precedent (verified): `sg_compute_specs/vault_app/docker/compose/docker-compose.yml` is a
+committed local compose; `Vault_App__User_Data__Builder` / `Vnc__User_Data__Builder` write the
+rendered compose to `/opt/<stack>/docker-compose.yml` via a heredoc on the EC2 box. We mirror
+both.
+
+- **Single source of truth:** `ContentProxy__Compose__Template.render(...)`. The committed
+  local file is produced from it (drift-guarded by a unit test — slice 2). Local and EC2 differ
+  only in image tags, the `--proxyauth` secret, the TLS mode, and (post-MVP) the vault sources.
+- **Anyone can `docker compose up` the committed file** to get the full stack locally with zero
+  AWS — that is the primary dev/QA loop.
 
 ---
 
