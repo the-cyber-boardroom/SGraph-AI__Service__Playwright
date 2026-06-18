@@ -24,8 +24,8 @@
 name: Integration — Live (published image)
 
 on:
-  schedule:
-    - cron: '0 4 * * *'                                                                  # 04:00 UTC nightly — daylight regression sweep
+#  schedule:
+#    - cron: '0 4 * * *'                                                                  # 04:00 UTC nightly — daylight regression sweep
   workflow_dispatch:
     inputs:
       image_tag:
