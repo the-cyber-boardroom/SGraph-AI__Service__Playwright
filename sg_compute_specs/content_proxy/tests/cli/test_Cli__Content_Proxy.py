@@ -10,8 +10,11 @@ import pytest
 
 pytest.importorskip('osbot_aws')                                                   # EC2 foundation dep
 
-from sg_compute_specs.content_proxy.cli.Cli__Content_Proxy import app
-from sg_compute_specs.content_proxy.service.Content_Proxy__Service import Content_Proxy__Service
+from pathlib import Path
+import tempfile
+
+from sg_compute_specs.content_proxy.cli.Cli__Content_Proxy import (app, read_env_file, smoke_curl_args,
+                                                                  Content_Proxy__Service)
 
 
 class test_Cli__Content_Proxy(TestCase):
@@ -25,10 +28,37 @@ class test_Cli__Content_Proxy(TestCase):
         groups = {g.name for g in app.registered_groups}
         assert {'ami', 'cert', 'local'} <= groups                                   # builder groups + our local lifecycle
 
-    def test_local_group_has_up_down_status(self):
+    def test_local_group_commands(self):
         local = [g for g in app.registered_groups if g.name == 'local'][0]
         names = {c.name or '' for c in local.typer_instance.registered_commands}
-        assert {'up', 'down', 'status'} <= names
+        assert {'up', 'down', 'status', 'logs', 'smoke'} <= names
+
+
+class test_local_helpers(TestCase):
+
+    def test_read_env_file(self):
+        with tempfile.TemporaryDirectory() as d:
+            p = Path(d) / '.env'
+            p.write_text('# comment\n\nCONTENT_PROXY__PROXYAUTH_USER=demo\nCONTENT_PROXY__PROXYAUTH_PASS=secret\nBAD LINE\n')
+            env = read_env_file(p)
+            assert env['CONTENT_PROXY__PROXYAUTH_USER'] == 'demo'
+            assert env['CONTENT_PROXY__PROXYAUTH_PASS'] == 'secret'
+            assert 'BAD LINE' not in env
+
+    def test_read_env_missing_file(self):
+        assert read_env_file(Path('/no/such/.env')) == {}
+
+    def test_smoke_curl_args_with_auth(self):
+        args = smoke_curl_args('http://example.com/mitm-proxy', 'demo', 'secret')
+        assert args[0] == 'curl'
+        assert '-x' in args
+        assert 'http://demo:secret@localhost:8080' in args
+        assert 'http://example.com/mitm-proxy' in args
+
+    def test_smoke_curl_args_no_auth(self):
+        args = smoke_curl_args('http://h/mitm-proxy')
+        assert 'http://localhost:8080' in args
+        assert '@localhost' not in ' '.join(args)
 
 
 class test_Content_Proxy__Service_wiring(TestCase):

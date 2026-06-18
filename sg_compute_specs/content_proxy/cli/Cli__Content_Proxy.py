@@ -7,6 +7,7 @@
 
 import subprocess
 from pathlib       import Path
+from typing        import List, Optional
 
 import typer
 from rich.console  import Console
@@ -99,6 +100,27 @@ def _compose(*args: str):
                            '-f', str(COMPOSE_FILE), *args])
 
 
+# ── pure helpers (unit-tested) ──────────────────────────────────────────────────
+
+def read_env_file(path: Path) -> dict:                                             # KEY=VALUE → dict; ignores comments/blanks
+    env = {}
+    if not path.exists():
+        return env
+    for line in path.read_text().splitlines():
+        line = line.strip()
+        if not line or line.startswith('#') or '=' not in line:
+            continue
+        k, v = line.split('=', 1)
+        env[k.strip()] = v.strip()
+    return env
+
+
+def smoke_curl_args(url: str, user: str = '', password: str = '') -> List[str]:    # /mitm-proxy chain check via mitmproxy-ext
+    proxy = f'http://{user}:{password}@localhost:8080' if user else 'http://localhost:8080'
+    return ['curl', '-sS', '--max-time', '15', '-o', '-',
+            '-w', '\n[http %{http_code}]\n', '-x', proxy, url]
+
+
 @local_app.command(name='up')
 @spec_cli_errors
 def local_up(detach: bool = typer.Option(True, '--detach/--attach', '-d',
@@ -130,6 +152,45 @@ def local_down(volumes: bool = typer.Option(False, '--volumes', '-v', help='Also
 def local_status():
     """Show the local stack containers (docker compose ps)."""
     raise typer.Exit(_compose('ps').returncode)
+
+
+@local_app.command(name='logs')
+@spec_cli_errors
+def local_logs(service: Optional[str] = typer.Argument(None,
+                          help='Service to tail (mitm-service / mitmproxy-ext / sg-playwright / …); all if omitted.'),
+               follow : bool          = typer.Option(False, '--follow', '-f', help='Stream logs.'),
+               tail   : int           = typer.Option(200,  '--tail', help='Lines from the end.')):
+    """Tail docker compose logs for the local stack."""
+    args = ['logs', '--tail', str(tail)]
+    if follow:
+        args.append('--follow')
+    if service:
+        args.append(service)
+    raise typer.Exit(_compose(*args).returncode)
+
+
+@local_app.command(name='smoke')
+@spec_cli_errors
+def local_smoke(url: str = typer.Option('http://example.com/mitm-proxy', '--url',
+                          help='Target whose /mitm-proxy path proves the chain (host is irrelevant — always processed).')):
+    """The /mitm-proxy chain check: curl through mitmproxy-ext → FastAPI injected UI.
+
+    A 2xx with MITM-UI markup means mitmproxy → interceptor → FastAPI → browser all work.
+    """
+    c     = Console(highlight=False)
+    env   = read_env_file(ENV_FILE)
+    user  = env.get('CONTENT_PROXY__PROXYAUTH_USER', '')
+    pwd   = env.get('CONTENT_PROXY__PROXYAUTH_PASS', '')
+    args  = smoke_curl_args(url, user, pwd)
+    c.print(f'  [dim]curl -x http://{user + "@" if user else ""}localhost:8080 {url}[/]')
+    rc = subprocess.run(args)
+    if rc.returncode == 0:
+        c.print('  [green]✓[/]  proxy reachable. A 200 + MITM UI markup above = chain OK '
+                '([yellow]503/fallback[/] = mitm-service still down).')
+    else:
+        c.print('  [red]✗[/]  could not reach mitmproxy-ext on :8080 — is the stack up? '
+                '[dim](sg content-proxy local up)[/]')
+    raise typer.Exit(rc.returncode)
 
 
 app.add_typer(local_app, name='local')
