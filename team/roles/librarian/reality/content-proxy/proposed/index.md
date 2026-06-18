@@ -6,23 +6,17 @@ Last updated: 2026-06-18 | Domain: `content-proxy/`
 
 ---
 
-## P-1 · EC2 launch Service (the AWS boundary) — DECISION NEEDED
+## P-1 · EC2 launch Service — ✅ DONE (2026-06-18)
 
-`Content_Proxy__Service` implementing the SG/Compute contract (`create_stack`,
-`list_stacks`, `get_stack_info`, `delete_stack`, `cli_spec`, `name_gen`). This is
-the AWS-coupled layer the docker spec implements via ~8–10 helper classes
-(`*__AWS__Client`, `*__SG__Helper`, `*__Instance__Helper`, `*__Stack__Mapper`,
-`*__Tags`, `*__Launch__Helper`, `Random__Stack__Name__Generator`,
-`Caller__IP__Detector`). **Decision:** replicate that layer for `content_proxy`, or
-reuse a shared EC2 launch foundation (the v0.33.2 aws-deployment foundation the
-owner referenced)? Cannot be unit-tested without live AWS.
+`Content_Proxy__Service` + `Content_Proxy__AWS__Client` now reuse the shared
+`sg va`-style EC2 foundation (`EC2__SG/AMI/Instance/Launch/Tags__*` +
+`Stack__Naming`). See the EXISTS section.
 
-## P-2 · `Cli__ContentProxy` (Spec__CLI__Builder wiring)
+## P-2 · `Cli__Content_Proxy` (Spec__CLI__Builder wiring) — ✅ DONE (2026-06-18)
 
-The 8 standard verbs via `Spec__CLI__Builder` + extras (`status`, `traffic`,
-`transform`, `logs`; `load-vaults` post-MVP). Blocked on P-1 (the builder calls
-the service's create/list/delete). The local extras (`status`/`traffic` over a
-running compose) can land independently of P-1.
+8 standard verbs via `Spec__CLI__Builder` + a `local up|down|status` group.
+Registered as `sg content-proxy` / `cp`. Remaining CLI extras (`status`/`traffic`/
+`transform`/`logs` reading a running stack) ride on P-3.
 
 ## P-3 · Textual screens + `Content_Proxy__TUI__Source`
 

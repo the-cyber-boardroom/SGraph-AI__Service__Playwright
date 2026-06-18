@@ -32,11 +32,19 @@ The content-transformation proxy stack: a browser routes through **mitmproxy**, 
 ### Traffic harness (`traffic/`)
 - Labelled corpus (`should-blur/remove/pass/skip`) + fixtures, `Content_Proxy__Traffic__Runner` (pure `build_results` grading), `Content_Proxy__Traffic__Report__Builder` (accuracy + p50/p95 latency).
 
+### EC2 launch + CLI (`service/`, `cli/`) — reuses the shared `sg va` foundation
+- `Content_Proxy__AWS__Client` composes the shared EC2 helpers (`EC2__SG/AMI/Instance/Launch/Tags__*` + `Stack__Naming(section_prefix='cp')`, `stack_type='content-proxy'`) — no new AWS logic.
+- `Content_Proxy__Service` (`Spec__Service__Base`): `create_stack` / `list_stacks` / `get_stack_info` / `delete_stack` + `cli_spec`; `health`/`exec`/`connect` inherited. Tags carry `cp:mode` / `cp:tls`. `Content_Proxy__Stack__Mapper` (pure, tested). Create/List/Delete response schemas.
+- `Cli__Content_Proxy` (`Spec__CLI__Builder`): 8 standard verbs (`list/info/create/delete/wait/health/connect/exec`) + `ami`/`cert` groups + a **`local up|down|status`** group wrapping `docker compose` on the committed local stack. Registered in `sg_compute/cli/Cli__SG.py` as **`sg content-proxy`** (alias `cp`).
+
+### Configurable proxy tool
+- `Enum__Content_Proxy__Proxy__Tool` (MITMWEB | MITMDUMP). Create request defaults to **MITMDUMP** (prod-safe, no in-memory flow accumulation); the committed local compose + template default to **MITMWEB** (dev — TUI `/flows`).
+
 ---
 
 ## PROPOSED — does not exist yet
 
-See [`proposed/index.md`](proposed/index.md). Headline: the **EC2 launch Service** (`create/list/get/delete`) + the **`Cli__ContentProxy`** wiring (Spec__CLI__Builder) + **Textual screens** + **deploy-via-pytest** + **vault loading** (post-MVP) are not built — the AWS launch layer is the boundary pending the shared-foundation decision.
+See [`proposed/index.md`](proposed/index.md). The EC2 launch Service + CLI now EXIST (above). Remaining: **Textual screens + live `__TUI__Source`** (the render fns exist), **api/routes**, **deploy-via-pytest + real-Chromium integration**, **vault loading** (post-MVP), and **LE/ACM TLS wiring**. None unit-testable without docker/AWS.
 
 ---
 
