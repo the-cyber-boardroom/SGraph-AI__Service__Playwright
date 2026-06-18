@@ -100,7 +100,8 @@ class Content_Proxy__User_Data__Builder(Type_Safe):
             mitmproxy_image    = str(request.mitmproxy_image)   ,
             mitm_service_image = str(request.mitm_service_image),
             playwright_image   = str(request.playwright_image)  ,
-            vault_app_image    = str(request.vault_app_image)   )
+            vault_app_image    = str(request.vault_app_image)   ,
+            proxy_tool         = request.proxy_tool             )                    # MITMDUMP default on EC2 (prod-safe)
         return TEMPLATE.format(log_file      = LOG_FILE                                  ,
                                app_dir       = APP_DIR                                   ,
                                env_body      = self.render_env(request)                  ,
