@@ -45,6 +45,11 @@ app.add_typer(_catalog_app, name='catalog',  help='List stack types or live stac
 from sgraph_ai_service_playwright__cli.credentials.cli.Cli__Credentials import app as _credentials_app
 app.add_typer(_credentials_app, name='credentials', hidden=True)          # alias of sg aws credentials; drop in v0.2.30
 
+# ── content-proxy ──────────────────────────────────────────────────────────────
+from sg_compute_specs.content_proxy.cli.Cli__Content_Proxy import app as _content_proxy_app
+app.add_typer(_content_proxy_app, name='content-proxy', help='Content-transformation proxy stack (mitmproxy × MITM service × sg-playwright × vault).')
+app.add_typer(_content_proxy_app, name='cp',            hidden=True)
+
 # ── docker ───────────────────────────────────────────────────────────────────
 from scripts.docker_stack import app as _docker_app
 app.add_typer(_docker_app, name='docker',    help='Ephemeral Docker EC2 stacks (AL2023 + Docker CE).')
