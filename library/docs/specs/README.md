@@ -13,6 +13,7 @@ These are the **definitive** specs for the SG Playwright Service. If code and sp
 | [`v0.20.55__schema-catalogue-v2.md`](v0.20.55__schema-catalogue-v2.md) | 1439 | Every `Type_Safe` schema, enum, Safe_* primitive, and collection subclass |
 | [`v0.20.55__routes-catalogue-v2.md`](v0.20.55__routes-catalogue-v2.md) | 1234 | All 25 routes, 12 service classes, registration pattern, step dispatch |
 | [`v0.20.55__ci-pipeline.md`](v0.20.55__ci-pipeline.md)                 | 1161 | CI jobs, Docker infrastructure classes, deploy-via-pytest layout |
+| [`v0.2.63__content-transformation-proxy-stack.md`](v0.2.63__content-transformation-proxy-stack.md) | — | **PROPOSED.** The content-transformation proxy stack — **two** mitmproxies (ext basic-auth for browsers, int no-auth for sg-playwright) × FastAPI MITM service (decide via cookie + inject the transformation `<script>`) × sg-playwright (QA) × vault app (scripts in, logs out via append→S3, UX). Role of each piece + the `content_proxy` SG/Compute assembly + TUI. Brief pack: `team/roles/architect/reviews/06/18/v0.2.63__content-transformation-proxy/`. VNC out of scope. |
 
 ---
 
