@@ -130,7 +130,9 @@ def local_up(detach        : bool = typer.Option(True, '--detach/--attach', '-d'
                                                help='Run detached (default) or attached.'),
              fix_mitm_httpx: bool = typer.Option(False, '--fix-mitm-httpx',
                                                help='TEMP: build a local MITM image with httpx added '
-                                                    '(works around the upstream image missing httpx).')):
+                                                    '(works around the upstream image missing httpx).'),
+             pull          : bool = typer.Option(False, '--pull',
+                                               help='Pull the latest images first (up --pull always).')):
     """Bring the 5-service stack up locally (mitmweb by default → TUI /flows)."""
     c = Console(highlight=False)
     _ensure_env(c)
@@ -139,6 +141,8 @@ def local_up(detach        : bool = typer.Option(True, '--detach/--attach', '-d'
         c.print('  [yellow]⚠[/]  --fix-mitm-httpx: building a local MITM image with httpx (temporary workaround)')
     c.print(f'  [dim]docker compose up ({COMPOSE_FILE})[/]')
     up_args = ['up', '-d'] if detach else ['up']
+    if pull:
+        up_args += ['--pull', 'always']
     if fix_mitm_httpx:
         up_args.append('--build')
     rc = _compose(*up_args, extra_files=extra)
@@ -164,6 +168,18 @@ def local_down(volumes: bool = typer.Option(False, '--volumes', '-v', help='Also
 def local_status():
     """Show the local stack containers (docker compose ps)."""
     raise typer.Exit(_compose('ps').returncode)
+
+
+@local_app.command(name='pull')
+@spec_cli_errors
+def local_pull():
+    """Pull the latest images for the stack (refresh diniscruz/* :latest)."""
+    c = Console(highlight=False)
+    c.print('  [dim]docker compose pull[/]')
+    rc = _compose('pull')
+    if rc.returncode == 0:
+        c.print('  [green]✓[/]  images refreshed — now: [cyan]sg content-proxy local up[/]')
+    raise typer.Exit(rc.returncode)
 
 
 @local_app.command(name='logs')
