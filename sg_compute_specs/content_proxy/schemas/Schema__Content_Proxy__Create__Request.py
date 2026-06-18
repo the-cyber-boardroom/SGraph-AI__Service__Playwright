@@ -8,11 +8,13 @@
 from osbot_utils.type_safe.Type_Safe                                                import Type_Safe
 from osbot_utils.type_safe.primitives.domains.common.safe_str.Safe_Str__Text        import Safe_Str__Text
 
+from sg_compute.platforms.ec2.primitives.Safe_Str__AMI__Id                          import Safe_Str__AMI__Id
 from sg_compute.primitives.Safe_Str__AWS__Region                                    import Safe_Str__AWS__Region
 from sg_compute.primitives.Safe_Str__Docker__Image                                  import Safe_Str__Docker__Image
 
 from sg_compute_specs.content_proxy.collections.List__Schema__Content_Proxy__Vault__Source import List__Schema__Content_Proxy__Vault__Source
 from sg_compute_specs.content_proxy.enums.Enum__Content_Proxy__Mode                  import Enum__Content_Proxy__Mode
+from sg_compute_specs.content_proxy.enums.Enum__Content_Proxy__Proxy__Tool           import Enum__Content_Proxy__Proxy__Tool
 from sg_compute_specs.content_proxy.enums.Enum__Content_Proxy__Tls                   import Enum__Content_Proxy__Tls
 from sg_compute_specs.content_proxy.primitives.Safe_Str__Content_Proxy__Ref          import Safe_Str__Content_Proxy__Ref
 from sg_compute_specs.content_proxy.primitives.Safe_Str__Content_Proxy__Stack__Name  import Safe_Str__Content_Proxy__Stack__Name
@@ -27,6 +29,10 @@ class Schema__Content_Proxy__Create__Request(Type_Safe):
     max_hours          : int             = 1
     mode               : Enum__Content_Proxy__Mode = Enum__Content_Proxy__Mode.DIRECT_PROXY
     tls                : Enum__Content_Proxy__Tls  = Enum__Content_Proxy__Tls.NONE
+    proxy_tool         : Enum__Content_Proxy__Proxy__Tool = Enum__Content_Proxy__Proxy__Tool.MITMDUMP   # prod-safe default
+    from_ami           : Safe_Str__AMI__Id                                           # blank → latest AL2023
+    use_spot           : bool = True
+    disk_size_gb       : int  = 0
     # secrets / operator-supplied material (→ .env or mounted files; never tagged)
     proxyauth_user     : Safe_Str__Text                                              # mitmproxy-ext basic-auth user
     proxyauth_pass     : Safe_Str__Text                                              # mitmproxy-ext basic-auth pass

@@ -4,6 +4,7 @@
 
 from unittest                                                                       import TestCase
 
+from sg_compute_specs.content_proxy.enums.Enum__Content_Proxy__Proxy__Tool           import Enum__Content_Proxy__Proxy__Tool
 from sg_compute_specs.content_proxy.service.Content_Proxy__Compose__Template         import (Content_Proxy__Compose__Template,
                                                                                              PLACEHOLDERS)
 
@@ -57,5 +58,19 @@ class test_Content_Proxy__Compose__Template(TestCase):
         yaml = Content_Proxy__Compose__Template().render(mitmproxy_image='mitmproxy/mitmproxy:10.4.2')
         assert 'mitmproxy/mitmproxy:10.4.2' in yaml
 
+    def test_default_tool_is_mitmweb_with_flows_api(self):
+        assert '- mitmweb'     in self.yaml                                          # default render = dev (TUI /flows)
+        assert '--web-port=8081' in self.yaml
+
+    def test_mitmdump_tool_is_headless(self):
+        yaml = Content_Proxy__Compose__Template().render(
+            proxy_tool=Enum__Content_Proxy__Proxy__Tool.MITMDUMP)
+        assert '- mitmdump'   in yaml
+        assert 'mitmweb'      not in yaml                                            # no web UI in prod
+        assert '--web-port'   not in yaml
+        assert yaml.count('--scripts=/interceptors/active.py') == 2                  # both proxies still run the interceptor
+        assert 'proxyauth=' in yaml                                                  # ext still authed
+
     def test_placeholders_locked(self):
-        assert PLACEHOLDERS == ('mitmproxy_image', 'mitm_service_image', 'playwright_image', 'vault_app_image')
+        assert PLACEHOLDERS == ('mitmproxy_image', 'mitm_service_image', 'playwright_image',
+                                'vault_app_image', 'int_command', 'ext_command')

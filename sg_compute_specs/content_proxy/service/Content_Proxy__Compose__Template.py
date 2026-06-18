@@ -2,17 +2,20 @@
 # SG/Compute Specs — Content Proxy: Content_Proxy__Compose__Template
 # Renders the docker-compose.yml for the 5-service content-transformation stack.
 # Pure templating. Secrets are NEVER in the YAML — they are `${...}` references
-# interpolated by docker-compose from the .env file (written by the user-data
-# builder on EC2, or supplied locally). Image refs are the only .format fields.
+# interpolated by docker-compose from the .env file. Image refs + the per-proxy
+# command blocks are the only injected fields.
 #
 # Two mitmproxy instances run the SAME interceptor into the SAME FastAPI workflow:
 #   mitmproxy-ext  :8080  basic auth (--proxyauth)  — for a human browser
 #   mitmproxy-int  :8080  no auth, net-local         — for the sg-playwright browser
-# Both run mitmweb so the TUI can read /flows. The 10.4.2 VNC pin does NOT apply:
-# we never reverse-proxy the mitmweb UI; the TUI reads /flows from localhost/SSM.
+# The proxy tool is configurable (Enum__Content_Proxy__Proxy__Tool):
+#   MITMWEB  — dev/QA: exposes /flows for the TUI; accumulates flows in memory.
+#   MITMDUMP — prod : headless; no accumulation (no TUI flows).
 # ═══════════════════════════════════════════════════════════════════════════════
 
 from osbot_utils.type_safe.Type_Safe                                                import Type_Safe
+
+from sg_compute_specs.content_proxy.enums.Enum__Content_Proxy__Proxy__Tool           import Enum__Content_Proxy__Proxy__Tool
 
 
 MITMPROXY_IMAGE    = 'mitmproxy/mitmproxy:12.2.3'                                   # latest
@@ -20,10 +23,23 @@ MITM_SERVICE_IMAGE = 'diniscruz/mgraph-ai-service-mitmproxy'
 PLAYWRIGHT_IMAGE   = 'diniscruz/sg-playwright'
 VAULT_APP_IMAGE    = 'diniscruz/sg-send-vault'
 
-PLACEHOLDERS = ('mitmproxy_image', 'mitm_service_image', 'playwright_image', 'vault_app_image')   # locked by test
+PLACEHOLDERS = ('mitmproxy_image', 'mitm_service_image', 'playwright_image', 'vault_app_image',
+                'int_command', 'ext_command')                                       # locked by test
 
 
-# `${{...}}` survives .format() as `${...}` for docker-compose env interpolation.
+def proxy_command(tool: Enum__Content_Proxy__Proxy__Tool, with_proxyauth: bool, indent: str = '      ') -> str:
+    lines = [str(tool.value)]                                                       # 'mitmweb' | 'mitmdump'
+    if tool == Enum__Content_Proxy__Proxy__Tool.MITMWEB:
+        lines += ['--web-host=0.0.0.0', '--web-port=8081']
+    lines += ['--listen-host=0.0.0.0', '--listen-port=8080',
+              '--scripts=/interceptors/active.py']
+    if with_proxyauth:
+        lines += ['--set',
+                  'proxyauth=${CONTENT_PROXY__PROXYAUTH_USER}:${CONTENT_PROXY__PROXYAUTH_PASS}']
+    return '\n'.join(f'{indent}- {ln}' for ln in lines)
+
+
+# `${{...}}` survives .format() as `${...}`. The command blocks are injected verbatim.
 COMPOSE_TEMPLATE = """\
 services:
   mitm-service:
@@ -40,12 +56,7 @@ services:
     image: {mitmproxy_image}
     container_name: cp-mitmproxy-int
     command:
-      - mitmweb
-      - --web-host=0.0.0.0
-      - --web-port=8081
-      - --listen-host=0.0.0.0
-      - --listen-port=8080
-      - --scripts=/interceptors/active.py
+{int_command}
     environment:
       - FASTAPI_BASE_URL=http://mitm-service:10011
       - FASTAPI_API_KEY_NAME=${{FASTAPI_API_KEY_NAME}}
@@ -63,14 +74,7 @@ services:
     image: {mitmproxy_image}
     container_name: cp-mitmproxy-ext
     command:
-      - mitmweb
-      - --web-host=0.0.0.0
-      - --web-port=8081
-      - --listen-host=0.0.0.0
-      - --listen-port=8080
-      - --scripts=/interceptors/active.py
-      - --set
-      - proxyauth=${{CONTENT_PROXY__PROXYAUTH_USER}}:${{CONTENT_PROXY__PROXYAUTH_PASS}}
+{ext_command}
     environment:
       - FASTAPI_BASE_URL=http://mitm-service:10011
       - FASTAPI_API_KEY_NAME=${{FASTAPI_API_KEY_NAME}}
@@ -126,8 +130,12 @@ class Content_Proxy__Compose__Template(Type_Safe):
     def render(self, mitmproxy_image    : str = MITMPROXY_IMAGE    ,
                      mitm_service_image : str = MITM_SERVICE_IMAGE ,
                      playwright_image   : str = PLAYWRIGHT_IMAGE   ,
-                     vault_app_image    : str = VAULT_APP_IMAGE    ) -> str:
-        return COMPOSE_TEMPLATE.format(mitmproxy_image    = str(mitmproxy_image)   ,
-                                       mitm_service_image = str(mitm_service_image),
-                                       playwright_image   = str(playwright_image)  ,
-                                       vault_app_image    = str(vault_app_image)   )
+                     vault_app_image    : str = VAULT_APP_IMAGE    ,
+                     proxy_tool         : Enum__Content_Proxy__Proxy__Tool = Enum__Content_Proxy__Proxy__Tool.MITMWEB
+               ) -> str:
+        return COMPOSE_TEMPLATE.format(mitmproxy_image    = str(mitmproxy_image)            ,
+                                       mitm_service_image = str(mitm_service_image)         ,
+                                       playwright_image   = str(playwright_image)           ,
+                                       vault_app_image    = str(vault_app_image)            ,
+                                       int_command        = proxy_command(proxy_tool, False),
+                                       ext_command        = proxy_command(proxy_tool, True ))
