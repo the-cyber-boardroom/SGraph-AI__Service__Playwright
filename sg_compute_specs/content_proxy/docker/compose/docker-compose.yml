@@ -24,8 +24,8 @@ services:
       - FASTAPI_API_KEY_NAME=${FASTAPI_API_KEY_NAME}
       - FASTAPI_API_KEY_VALUE=${FASTAPI_API_KEY_VALUE}
     volumes:
-      - ./interceptors:/interceptors:ro
-      - ${CONTENT_PROXY__CA_DIR:-./certs}:/home/mitmproxy/.mitmproxy:ro
+      - ../../interceptors:/interceptors:ro
+      - ${CONTENT_PROXY__CA_DIR:-./certs}:/home/mitmproxy/.mitmproxy
     networks:
       - cp-net
     restart: unless-stopped
@@ -49,8 +49,8 @@ services:
       - FASTAPI_API_KEY_NAME=${FASTAPI_API_KEY_NAME}
       - FASTAPI_API_KEY_VALUE=${FASTAPI_API_KEY_VALUE}
     volumes:
-      - ./interceptors:/interceptors:ro
-      - ${CONTENT_PROXY__CA_DIR:-./certs}:/home/mitmproxy/.mitmproxy:ro
+      - ../../interceptors:/interceptors:ro
+      - ${CONTENT_PROXY__CA_DIR:-./certs}:/home/mitmproxy/.mitmproxy
     ports:
       - "8080:8080"
       - "8081:8081"

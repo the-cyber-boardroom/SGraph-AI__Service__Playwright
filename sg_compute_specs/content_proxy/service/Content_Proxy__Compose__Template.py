@@ -24,7 +24,13 @@ PLAYWRIGHT_IMAGE   = 'diniscruz/sg-playwright'
 VAULT_APP_IMAGE    = 'diniscruz/sg-send-vault'
 
 PLACEHOLDERS = ('mitmproxy_image', 'mitm_service_image', 'playwright_image', 'vault_app_image',
-                'int_command', 'ext_command')                                       # locked by test
+                'int_command', 'ext_command', 'interceptors_mount')                 # locked by test
+
+# Where the interceptor dir lives, RELATIVE TO THE COMPOSE FILE:
+#   local committed compose sits in content_proxy/docker/compose/ → ../../interceptors
+#   EC2 user-data writes the compose to /opt/content-proxy/ → ./interceptors
+INTERCEPTORS_MOUNT__LOCAL = '../../interceptors'
+INTERCEPTORS_MOUNT__EC2   = './interceptors'
 
 
 def proxy_command(tool: Enum__Content_Proxy__Proxy__Tool, with_proxyauth: bool, indent: str = '      ') -> str:
@@ -62,8 +68,8 @@ services:
       - FASTAPI_API_KEY_NAME=${{FASTAPI_API_KEY_NAME}}
       - FASTAPI_API_KEY_VALUE=${{FASTAPI_API_KEY_VALUE}}
     volumes:
-      - ./interceptors:/interceptors:ro
-      - ${{CONTENT_PROXY__CA_DIR:-./certs}}:/home/mitmproxy/.mitmproxy:ro
+      - {interceptors_mount}:/interceptors:ro
+      - ${{CONTENT_PROXY__CA_DIR:-./certs}}:/home/mitmproxy/.mitmproxy
     networks:
       - cp-net
     restart: unless-stopped
@@ -80,8 +86,8 @@ services:
       - FASTAPI_API_KEY_NAME=${{FASTAPI_API_KEY_NAME}}
       - FASTAPI_API_KEY_VALUE=${{FASTAPI_API_KEY_VALUE}}
     volumes:
-      - ./interceptors:/interceptors:ro
-      - ${{CONTENT_PROXY__CA_DIR:-./certs}}:/home/mitmproxy/.mitmproxy:ro
+      - {interceptors_mount}:/interceptors:ro
+      - ${{CONTENT_PROXY__CA_DIR:-./certs}}:/home/mitmproxy/.mitmproxy
     ports:
       - "8080:8080"
       - "8081:8081"
@@ -131,11 +137,13 @@ class Content_Proxy__Compose__Template(Type_Safe):
                      mitm_service_image : str = MITM_SERVICE_IMAGE ,
                      playwright_image   : str = PLAYWRIGHT_IMAGE   ,
                      vault_app_image    : str = VAULT_APP_IMAGE    ,
-                     proxy_tool         : Enum__Content_Proxy__Proxy__Tool = Enum__Content_Proxy__Proxy__Tool.MITMWEB
+                     proxy_tool         : Enum__Content_Proxy__Proxy__Tool = Enum__Content_Proxy__Proxy__Tool.MITMWEB,
+                     interceptors_mount : str = INTERCEPTORS_MOUNT__LOCAL
                ) -> str:
         return COMPOSE_TEMPLATE.format(mitmproxy_image    = str(mitmproxy_image)            ,
                                        mitm_service_image = str(mitm_service_image)         ,
                                        playwright_image   = str(playwright_image)           ,
                                        vault_app_image    = str(vault_app_image)            ,
                                        int_command        = proxy_command(proxy_tool, False),
-                                       ext_command        = proxy_command(proxy_tool, True ))
+                                       ext_command        = proxy_command(proxy_tool, True ),
+                                       interceptors_mount = str(interceptors_mount)         )

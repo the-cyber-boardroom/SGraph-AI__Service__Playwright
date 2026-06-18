@@ -45,8 +45,18 @@ class test_Content_Proxy__Compose__Template(TestCase):
         mitm_block = self.yaml.split('mitm-service:')[1].split('mitmproxy-int:')[0]
         assert 'ports:' not in mitm_block                                          # :10011 net-local, never published
 
-    def test_ca_dir_mounted_into_both_proxies(self):
-        assert self.yaml.count('/home/mitmproxy/.mitmproxy:ro') == 2
+    def test_ca_dir_mounted_writable_into_both_proxies(self):
+        assert self.yaml.count(':/home/mitmproxy/.mitmproxy\n') == 2                 # rw — mitmproxy self-generates its CA
+        assert '/home/mitmproxy/.mitmproxy:ro' not in self.yaml
+
+    def test_interceptors_mount_local_default_points_at_real_dir(self):
+        assert self.yaml.count('../../interceptors:/interceptors:ro') == 2          # committed/local: two levels up
+
+    def test_interceptors_mount_ec2_override(self):
+        from sg_compute_specs.content_proxy.service.Content_Proxy__Compose__Template import INTERCEPTORS_MOUNT__EC2
+        yaml = Content_Proxy__Compose__Template().render(interceptors_mount=INTERCEPTORS_MOUNT__EC2)
+        assert yaml.count('./interceptors:/interceptors:ro') == 2
+        assert '../../interceptors' not in yaml
 
     def test_default_images(self):
         assert 'mitmproxy/mitmproxy:12.2.3'             in self.yaml
@@ -73,4 +83,4 @@ class test_Content_Proxy__Compose__Template(TestCase):
 
     def test_placeholders_locked(self):
         assert PLACEHOLDERS == ('mitmproxy_image', 'mitm_service_image', 'playwright_image',
-                                'vault_app_image', 'int_command', 'ext_command')
+                                'vault_app_image', 'int_command', 'ext_command', 'interceptors_mount')
