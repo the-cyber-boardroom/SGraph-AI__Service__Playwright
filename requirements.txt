@@ -6,8 +6,8 @@ playwright
 osbot-utils
 osbot-aws
 osbot-docker
-osbot-fast-api
-osbot-fast-api-serverless
+osbot-fast-api>=0.39.0
+osbot-fast-api-serverless>=1.35.0
 cryptography
 acme
 josepy
