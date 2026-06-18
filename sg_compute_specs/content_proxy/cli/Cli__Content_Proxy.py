@@ -29,6 +29,7 @@ COMPOSE_DIR  = Path(_pkg.__file__).parent / 'docker' / 'compose'
 COMPOSE_FILE = COMPOSE_DIR / 'docker-compose.yml'
 ENV_FILE     = COMPOSE_DIR / '.env'
 ENV_EXAMPLE  = COMPOSE_DIR / '.env.example'
+MITM_HTTPX_OVERRIDE = COMPOSE_DIR / 'docker-compose.mitm-httpx.yml'                 # temporary: adds httpx to the MITM image
 
 
 def _set_extras(request, mode='direct_proxy', tls='none', proxy_tool='mitmdump',
@@ -95,9 +96,11 @@ def _ensure_env(c: Console) -> None:
         CERTS_DIR.chmod(0o777)                                                       # container user (uid 1000) must be able to write
 
 
-def _compose(*args: str):
-    return subprocess.run(['docker', 'compose', '--env-file', str(ENV_FILE),
-                           '-f', str(COMPOSE_FILE), *args])
+def _compose(*args: str, extra_files: Optional[List[Path]] = None):
+    files = ['-f', str(COMPOSE_FILE)]
+    for f in (extra_files or []):
+        files += ['-f', str(f)]
+    return subprocess.run(['docker', 'compose', '--env-file', str(ENV_FILE), *files, *args])
 
 
 # ── pure helpers (unit-tested) ──────────────────────────────────────────────────
@@ -123,13 +126,22 @@ def smoke_curl_args(url: str, user: str = '', password: str = '') -> List[str]: 
 
 @local_app.command(name='up')
 @spec_cli_errors
-def local_up(detach: bool = typer.Option(True, '--detach/--attach', '-d',
-                                         help='Run detached (default) or attached.')):
+def local_up(detach        : bool = typer.Option(True, '--detach/--attach', '-d',
+                                               help='Run detached (default) or attached.'),
+             fix_mitm_httpx: bool = typer.Option(False, '--fix-mitm-httpx',
+                                               help='TEMP: build a local MITM image with httpx added '
+                                                    '(works around the upstream image missing httpx).')):
     """Bring the 5-service stack up locally (mitmweb by default → TUI /flows)."""
     c = Console(highlight=False)
     _ensure_env(c)
+    extra = [MITM_HTTPX_OVERRIDE] if fix_mitm_httpx else []
+    if fix_mitm_httpx:
+        c.print('  [yellow]⚠[/]  --fix-mitm-httpx: building a local MITM image with httpx (temporary workaround)')
     c.print(f'  [dim]docker compose up ({COMPOSE_FILE})[/]')
-    rc = _compose('up', '-d') if detach else _compose('up')
+    up_args = ['up', '-d'] if detach else ['up']
+    if fix_mitm_httpx:
+        up_args.append('--build')
+    rc = _compose(*up_args, extra_files=extra)
     if rc.returncode == 0:
         c.print('  [green]✓[/]  stack up. Try the /mitm-proxy smoke:')
         c.print('     [cyan]curl -x http://localhost:8080 http://example.com/mitm-proxy[/]')
