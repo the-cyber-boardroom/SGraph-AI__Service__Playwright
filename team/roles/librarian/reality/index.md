@@ -28,6 +28,7 @@ When code lands, the author updates the relevant domain's `index.md` in the same
 |--------|-----------|----------------|--------|
 | **Playwright service** | [`playwright-service/`](playwright-service/index.md) | Core FastAPI service, routes, schemas, Step__Executor, Browser__Launcher, capability profiles | ✅ MIGRATED |
 | **agent_mitmproxy** | [`agent-mitmproxy/`](agent-mitmproxy/index.md) | Sibling package (mitmproxy admin FastAPI, addons, reverse-proxied UI) | ✅ MIGRATED |
+| **content-proxy** | [`content-proxy/`](content-proxy/index.md) | `content_proxy` SG/Compute spec — content-transformation proxy stack (two mitmproxies × FastAPI MITM service × sg-playwright × vault app) | 🟡 MVP core (branch, not on `dev`) |
 | **CLI** | [`cli/`](cli/index.md) | `sp-cli` Typer command + `Fast_API__SP__CLI` (the duality) — observability, EC2, catalog, vault, lets | ✅ MIGRATED (split: `duality.md` / `ec2.md` / `observability.md` / `aws-dns.md`) |
 | **Host Control Plane** | [`host-control/`](host-control/index.md) | `sgraph_ai_service_playwright__host` package — container runtime abstraction, shell executor, Routes__Host__* | ✅ MIGRATED (pilot) |
 | **UI** | [`ui/`](ui/index.md) | Static-site dashboard — `sp-cli-*` web component family, plugins, fractal-UI rebuild | ✅ MIGRATED |

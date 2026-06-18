@@ -6,6 +6,20 @@ This is a pointer log, not a content log. For full delta detail, see the master 
 
 ---
 
+## 2026-06-18 (content-proxy — new spec MVP core, branch `claude/clever-wozniak-r0dxkh`)
+
+2026-06-18 | content-proxy (NEW) | New `content_proxy` SG/Compute spec — the
+  content-transformation proxy stack (two mitmproxies → FastAPI MITM service that
+  injects a client-side `<script>`; sg-playwright QA; vault-app `:443`+`/pw`). Built
+  + tested (52 unit tests, no mocks): manifest/enums/primitives/schemas, the
+  stdlib-only interceptor logic + `active.py`, `Content_Proxy__Compose__Template`
+  (5 services, committed local compose + drift guard + `.env.example`),
+  `…__User_Data__Builder`, `…__Flow__Mapper`, TUI status/traffic renders, and the
+  traffic corpus + report builder. The EC2 launch Service + CLI + Textual screens +
+  vault loading are PROPOSED (AWS boundary — decision pending). Branch only.
+
+- `content-proxy/index.md` — NEW domain. Spec: `library/docs/specs/v0.2.63__content-transformation-proxy-stack.md`; brief pack under `team/roles/architect/reviews/06/18/`.
+
 ## 2026-05-23 (SG/Sentinel — operator TUIs + traffic generator / httpget echo server)
 
 2026-05-23 | sentinel | Added `sg sentinel tui rules|logs|blocks|status` (Textual,
