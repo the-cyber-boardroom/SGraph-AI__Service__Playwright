@@ -14,7 +14,8 @@ from pathlib                                                                    
 from osbot_utils.type_safe.Type_Safe                                                import Type_Safe
 
 import sg_compute_specs.content_proxy.interceptors                                   as interceptors_pkg
-from sg_compute_specs.content_proxy.service.Content_Proxy__Compose__Template         import Content_Proxy__Compose__Template
+from sg_compute_specs.content_proxy.service.Content_Proxy__Compose__Template         import (Content_Proxy__Compose__Template,
+                                                                                             INTERCEPTORS_MOUNT__EC2)
 
 
 APP_DIR  = '/opt/content-proxy'
@@ -101,7 +102,8 @@ class Content_Proxy__User_Data__Builder(Type_Safe):
             mitm_service_image = str(request.mitm_service_image),
             playwright_image   = str(request.playwright_image)  ,
             vault_app_image    = str(request.vault_app_image)   ,
-            proxy_tool         = request.proxy_tool             )                    # MITMDUMP default on EC2 (prod-safe)
+            proxy_tool         = request.proxy_tool             ,                    # MITMDUMP default on EC2 (prod-safe)
+            interceptors_mount = INTERCEPTORS_MOUNT__EC2        )                    # /opt/content-proxy/interceptors
         return TEMPLATE.format(log_file      = LOG_FILE                                  ,
                                app_dir       = APP_DIR                                   ,
                                env_body      = self.render_env(request)                  ,

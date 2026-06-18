@@ -82,10 +82,16 @@ local_app = typer.Typer(no_args_is_help=True,
                         help='Run the content-proxy stack locally via docker compose.')
 
 
+CERTS_DIR = COMPOSE_DIR / 'certs'
+
+
 def _ensure_env(c: Console) -> None:
     if not ENV_FILE.exists():
         ENV_FILE.write_text(ENV_EXAMPLE.read_text())
         c.print(f'  [yellow]⚠[/]  created {ENV_FILE} from .env.example — edit the secrets before any real use')
+    if not CERTS_DIR.exists():                                                       # mitmproxy self-generates its CA here (rw mount)
+        CERTS_DIR.mkdir(parents=True, exist_ok=True)
+        CERTS_DIR.chmod(0o777)                                                       # container user (uid 1000) must be able to write
 
 
 def _compose(*args: str):
