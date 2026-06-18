@@ -131,18 +131,21 @@ Resolved already (2026-06-18): code lives **here**; stock-image + interceptor-ad
 `:10011` (not upstream); **cookie** activation (FastAPI-owned); **two** mitmproxies (ext-auth /
 int-noauth); vaults via **zip or sgit**; **VNC out of scope**.
 
-Still open:
+All resolved (2026-06-18):
 
-1. **mitmproxy version pin** — reuse VNC `10.4.2`, or clear a newer line? *(Recommend 10.4.2.)*
-2. **MITM-service image** — pull a pinned `MGraph-AI__Service__Mitmproxy` image, or build in
-   this repo's compose? *(Recommend pull pinned.)*
-3. **QA cookie names/values** — exact `mitm-*` cookies the FastAPI service keys on, so the
-   sg-playwright sequence can set them.
-4. **Basic-auth secret source** for `mitmproxy-ext` — env / vault / generated-at-launch (like
-   the VNC operator password)?
-5. **CA trust for Mode 1** — document install, or ship a helper to fetch/install the proxy CA?
-6. **NLB/ALB/ASG** — confirm these reuse the existing aws-deployment foundation (v0.33.2) rather
-   than new modules in this spec.
+1. **mitmproxy version** → **latest `12.2.3`** (run `mitmdump`). The VNC `10.4.2` pin was a
+   Caddy-reverse-proxy-of-mitmweb constraint; not relevant to a forward proxy.
+2. **MITM-service image** → **pull the Docker Hub image** being published now (wire as
+   `mitm_service_image`; ref pending — the only external dependency left).
+3. **QA cookies** → `mitm-show`, `mitm-inject`, `mitm-debug` (confirmed); set on the Playwright
+   context in the QA sequence.
+4. **Basic-auth secret** → from the **`.env`** file (`CONTENT_PROXY__PROXYAUTH_{USER,PASS}`).
+5. **Proxy CA (Mode 1)** → **user supplies** the CA cert/key via setup params
+   (`--proxy-ca` / `--proxy-ca-key`), mounted into both mitmproxy containers.
+6. **NLB/ALB/ASG** → **reuse the existing aws-deployment foundation** (v0.33.2); no new infra
+   modules here.
+
+Nothing blocking. Only pending external input: the MITM-service Docker Hub image ref.
 
 ---
 

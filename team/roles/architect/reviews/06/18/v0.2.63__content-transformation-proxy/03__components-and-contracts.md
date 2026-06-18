@@ -17,19 +17,31 @@ verbatim from the operator-supplied `fastapi_interceptor.py` (v0.2.1).
 
 ## 1. mitmproxy — stock image + one interceptor addon
 
-- **Image:** `mitmproxy/mitmproxy` (pin a 10.x — see open decision in the spec).
-- **Command:** `mitmweb --listen-host 0.0.0.0 --listen-port <8080|8081> --scripts /interceptors/active.py [--proxyauth user:pass]`
-- **`--proxyauth` only on `mitmproxy-ext`.** `mitmproxy-int` has none.
+- **Image:** `mitmproxy/mitmproxy:12.2.3` (**latest**). The VNC `10.4.2` pin was specific to
+  Caddy reverse-proxying the mitmweb UI (v11+ host-rebind/CSRF) — **not relevant here**; this
+  stack is a forward proxy and runs `mitmdump` (no web UI).
+- **Command:** `mitmdump --listen-host 0.0.0.0 --listen-port <8080|8081> --scripts /interceptors/active.py [--proxyauth ${PROXYAUTH_USER}:${PROXYAUTH_PASS}]`
+- **`--proxyauth` only on `mitmproxy-ext`** (creds from `.env`). `mitmproxy-int` has none.
+- **User-supplied CA** mounted at `/home/mitmproxy/.mitmproxy/` on both, so Mode-1 browsers
+  trust a known CA (§7).
 - **The addon is the same file** on both. It is dumb plumbing: capture the flow → POST to
   FastAPI → apply the returned modifications.
 
 ### 1.1 The interceptor's env (what the compose must set)
 
 ```
+# the interceptor → FastAPI link (both proxies)
 FASTAPI_BASE_URL        = http://mitm-service:10011     # the MITM service on the docker network
 FASTAPI_API_KEY_NAME    = x-api-key                     # header name the MITM service expects
 FASTAPI_API_KEY_VALUE   = <secret>                      # the key value
+
+# mitmproxy-ext only — basic-auth creds, sourced from .env (never committed)
+CONTENT_PROXY__PROXYAUTH_USER = <user>
+CONTENT_PROXY__PROXYAUTH_PASS = <pass>
 ```
+
+All secrets live in the **`.env`** file (committed only as `.env.example` with placeholders).
+The user-supplied proxy CA cert/key are mounted as files, not env.
 
 > Note the addon builds `FASTAPI_HEADERS` from these at import. If the name/value are unset the
 > header dict is malformed — **the compose must always set all three.** (Improvement to fold in
@@ -193,7 +205,7 @@ a pinned image (spec open decision #2 — confirm the Docker Hub ref); we do not
 
 | Schema / enum | Fields / values |
 |---------------|-----------------|
-| `Schema__Content_Proxy__Create__Request` | `name`, `mode: Enum__Content_Proxy__Mode`, `tls: Enum__Content_Proxy__Tls`, `vaults_to_load: List__…__Vault__Source` (empty in MVP), `proxyauth_user`, `proxyauth_pass`, `mitm_service_image`, `vault_app_image='diniscruz/sg-send-vault'`, `playwright_image='diniscruz/sg-playwright'`, `region`, `instance_type` |
+| `Schema__Content_Proxy__Create__Request` | `name`, `mode: Enum__Content_Proxy__Mode`, `tls: Enum__Content_Proxy__Tls`, `proxy_ca_cert`, `proxy_ca_key` (user-supplied, §7), `proxyauth_user`, `proxyauth_pass` (→ `.env`), `vaults_to_load: List__…__Vault__Source` (empty in MVP), `mitmproxy_image='mitmproxy/mitmproxy:12.2.3'`, `mitm_service_image` (Docker Hub, ref pending), `vault_app_image='diniscruz/sg-send-vault'`, `playwright_image='diniscruz/sg-playwright'`, `region`, `instance_type` |
 | `Schema__Content_Proxy__Vault__Source` | `kind: Enum (ZIP|SGIT)`, `ref: Safe_Str`, `target: Safe_Str__Id` |
 | `Schema__Content_Proxy__Stack__Info` | instance id/state/ip, `mode`, component health, `active_script`, `vaults_present` |
 | `Schema__Content_Proxy__Flow__Summary` | `via: Enum (EXT|INT)`, `method`, `host`, `path`, `status_code`, `action: Enum (INJECTED|BLOCKED|CACHED|SKIPPED|FALLBACK|PASSED)`, `fastapi: Enum (CONNECTED|UNAVAILABLE)` |

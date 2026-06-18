@@ -104,10 +104,12 @@ sg_compute_specs/content_proxy/
 - **Demo:** `https://localhost/pw/health/status` works; drive `/pw/sequence/execute` →
   transformed DOM via `mitmproxy-int`. **This is deliverable (b)** (browser path on `:443`).
 
-### Slice 4 — second proxy + basic auth (½ day)
-- Add `mitmproxy-ext` with `--proxyauth`. Same interceptor, same FastAPI workflow.
+### Slice 4 — second proxy + basic auth + proxy CA (½ day)
+- Add `mitmproxy-ext` (`mitmdump … --proxyauth`). Creds from **`.env`**
+  (`CONTENT_PROXY__PROXYAUTH_{USER,PASS}`; commit `.env.example` only). Mount the
+  **user-supplied proxy CA** (`--proxy-ca`/`--proxy-ca-key`) into both proxies.
 - **Demo:** a browser / curl with proxy creds through `:8080` gets the transform; no creds →
-  407. **This is deliverable (a).**
+  407; the browser trusts the supplied CA. **This is deliverable (a).**
 
 ### Slice 5 — the `content_proxy` CLI (8 verbs + extras) (1 day)
 - Wire `Cli__ContentProxy` via `Spec__CLI__Builder` (free: list/info/create/delete/wait/
@@ -127,9 +129,10 @@ sg_compute_specs/content_proxy/
 - **Demo:** `sp content-proxy traffic --run-corpus --json` → accuracy table.
 
 ### Slice 8 — EC2 + TLS + deploy-via-pytest (1.5 days) ← MVP COMPLETE
-- `ContentProxy__User_Data__Builder` (compose up on the box; **no vaults**). `create` launches
-  EC2; **TLS via `LETSENCRYPT` or `ACM`** (§3.3). deploy-via-pytest numbered lifecycle. NLB/ALB
-  + ASG as infra (cross-ref v0.33.2).
+- `ContentProxy__User_Data__Builder` (writes `.env` + compose to `/opt/content-proxy/`, compose
+  up; **no vaults**). `create` launches EC2; **TLS via `LETSENCRYPT` or `ACM`** (§3.3).
+  **Reuse the existing aws-deployment foundation (v0.33.2) for NLB/ALB/ASG — no new infra
+  modules.** deploy-via-pytest numbered lifecycle.
 - **Demo:** `sp content-proxy create --region … --tls letsencrypt --wait`; both deliverable
   paths hit live over HTTPS; `/mitm-proxy` UI renders. **MVP done.**
 
