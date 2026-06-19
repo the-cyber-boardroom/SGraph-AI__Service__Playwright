@@ -1,16 +1,17 @@
 # ═══════════════════════════════════════════════════════════════════════════════
 # SG/Compute Specs — Content Proxy: Content_Proxy__Compose__Template
-# Renders the docker-compose.yml for the 5-service content-transformation stack.
-# Pure templating. Secrets are NEVER in the YAML — they are `${...}` references
-# interpolated by docker-compose from the .env file. Image refs + the per-proxy
-# command blocks are the only injected fields.
+# Renders the docker-compose.yml for the content-transformation stack. Pure
+# templating. Secrets are NEVER in the YAML — `${...}` refs from the .env.
 #
-# Two mitmproxy instances run the SAME interceptor into the SAME FastAPI workflow:
-#   mitmproxy-ext  :8080  basic auth (--proxyauth)  — for a human browser
-#   mitmproxy-int  :8080  no auth, net-local         — for the sg-playwright browser
-# The proxy tool is configurable (Enum__Content_Proxy__Proxy__Tool):
-#   MITMWEB  — dev/QA: exposes /flows for the TUI; accumulates flows in memory.
-#   MITMDUMP — prod : headless; no accumulation (no TUI flows).
+# Proxies: two mitmproxy instances (ext basic-auth / int no-auth) run the SAME
+# interceptor into the SAME FastAPI workflow. Proxy tool is configurable
+# (mitmweb dev / mitmdump prod).
+#
+# Vault TLS (mirrors `sg va`): NONE → vault plain HTTP on :8080 (host 443→8080).
+# SELF_SIGNED / LETSENCRYPT → a one-shot cert-init sidecar
+# (diniscruz/sg-host-control) writes /certs to a shared volume; the vault
+# terminates TLS on :443 via FAST_API__TLS__*. letsencrypt-ip also publishes :80
+# for the ACME http-01 challenge.
 # ═══════════════════════════════════════════════════════════════════════════════
 
 from osbot_utils.type_safe.Type_Safe                                                import Type_Safe
@@ -23,36 +24,116 @@ MITMPROXY_IMAGE    = 'mitmproxy/mitmproxy:12.2.3'                               
 MITM_SERVICE_IMAGE = 'diniscruz/mgraph-ai-service-mitmproxy'
 PLAYWRIGHT_IMAGE   = 'diniscruz/sg-playwright'
 VAULT_APP_IMAGE    = 'diniscruz/sg-send-vault'
+CERT_INIT_IMAGE    = 'diniscruz/sg-host-control'                                    # carries sg_compute.platforms.tls.cert_init
 
-PLACEHOLDERS = ('mitmproxy_image', 'mitm_service_image', 'playwright_image', 'vault_app_image',
-                'int_command', 'ext_command', 'interceptors_mount', 'vault_port')   # locked by test
+PLACEHOLDERS = ('mitmproxy_image', 'mitm_service_image', 'playwright_image',
+                'int_command', 'ext_command', 'interceptors_mount',
+                'vault_block', 'cert_init_block', 'volumes_block')                  # locked by test
 
-# Where the interceptor dir lives, RELATIVE TO THE COMPOSE FILE:
-#   local committed compose sits in content_proxy/docker/compose/ → ../../interceptors
-#   EC2 user-data writes the compose to /opt/content-proxy/ → ./interceptors
-INTERCEPTORS_MOUNT__LOCAL = '../../interceptors'
-INTERCEPTORS_MOUNT__EC2   = './interceptors'
+INTERCEPTORS_MOUNT__LOCAL = '../../interceptors'                                    # committed local compose sits in docker/compose/
+INTERCEPTORS_MOUNT__EC2   = './interceptors'                                        # EC2 user-data writes compose to /opt/content-proxy/
 
 
-def vault_container_port(tls: Enum__Content_Proxy__Tls) -> int:
-    # vault-app serves plain HTTP on :8080 by default; with TLS configured it
-    # terminates on :443. Host always publishes 443 → this container port.
-    return 8080 if tls == Enum__Content_Proxy__Tls.NONE else 443
+def _cert_init_mode(tls: Enum__Content_Proxy__Tls) -> str:                          # → SG__CERT_INIT__MODE
+    if tls == Enum__Content_Proxy__Tls.LETSENCRYPT:
+        return 'letsencrypt-ip'
+    return 'self-signed'                                                            # SELF_SIGNED + ACM-fallback
 
 
 def proxy_command(tool: Enum__Content_Proxy__Proxy__Tool, with_proxyauth: bool, indent: str = '      ') -> str:
     lines = [str(tool.value)]                                                       # 'mitmweb' | 'mitmdump'
     if tool == Enum__Content_Proxy__Proxy__Tool.MITMWEB:
         lines += ['--web-host=0.0.0.0', '--web-port=8081']
-    lines += ['--listen-host=0.0.0.0', '--listen-port=8080',
-              '--scripts=/interceptors/active.py']
+    lines += ['--listen-host=0.0.0.0', '--listen-port=8080', '--scripts=/interceptors/active.py']
     if with_proxyauth:
-        lines += ['--set',
-                  'proxyauth=${CONTENT_PROXY__PROXYAUTH_USER}:${CONTENT_PROXY__PROXYAUTH_PASS}']
+        lines += ['--set', 'proxyauth=${CONTENT_PROXY__PROXYAUTH_USER}:${CONTENT_PROXY__PROXYAUTH_PASS}']
     return '\n'.join(f'{indent}- {ln}' for ln in lines)
 
 
-# `${{...}}` survives .format() as `${...}`. The command blocks are injected verbatim.
+# ── vault-app blocks (HTTP vs TLS) ──────────────────────────────────────────────
+_VAULT_HTTP = """\
+  vault-app:
+    image: {vault_app_image}
+    container_name: cp-vault-app
+    environment:
+      - FAST_API__REVERSE_PROXY__ROUTES=pw=http://sg-playwright:8000
+      - SEND__STORAGE_MODE=${SEND__STORAGE_MODE:-memory}
+    ports:
+      - "443:8080"
+    networks:
+      - cp-net
+    restart: unless-stopped
+    depends_on:
+      - sg-playwright
+"""
+
+_VAULT_TLS = """\
+  vault-app:
+    image: {vault_app_image}
+    container_name: cp-vault-app
+    environment:
+      - FAST_API__REVERSE_PROXY__ROUTES=pw=http://sg-playwright:8000
+      - SEND__STORAGE_MODE=${SEND__STORAGE_MODE:-memory}
+      - FAST_API__TLS__ENABLED=true
+      - FAST_API__TLS__CERT_FILE=/certs/cert.pem
+      - FAST_API__TLS__KEY_FILE=/certs/key.pem
+      - FAST_API__TLS__PORT=443
+    volumes:
+      - vault_certs:/certs:ro
+    ports:
+      - "443:443"
+    networks:
+      - cp-net
+    restart: unless-stopped
+    depends_on:
+      sg-playwright:
+        condition: service_started
+      cert-init:
+        condition: service_completed_successfully
+"""
+
+_CERT_INIT = """\
+
+  cert-init:
+    image: {cert_init_image}
+    container_name: cp-cert-init
+    command: ["python3", "-m", "sg_compute.platforms.tls.cert_init"]
+    environment:
+      - SG__CERT_INIT__MODE={mode}
+      - SG__CERT_INIT__ACME_PROD=${SG__CERT_INIT__ACME_PROD:-false}
+      - SG__CERT_INIT__ACME_EMAIL=${SG__CERT_INIT__ACME_EMAIL:-}
+      - FAST_API__TLS__CERT_FILE=/certs/cert.pem
+      - FAST_API__TLS__KEY_FILE=/certs/key.pem
+    volumes:
+      - vault_certs:/certs
+{acme_ports}    networks:
+      - cp-net
+    restart: "no"
+"""
+
+_ACME_PORTS = '    ports:\n      - "80:80"\n'                                        # letsencrypt-ip http-01 challenge
+
+
+def vault_block(vault_app_image: str, tls: Enum__Content_Proxy__Tls) -> str:
+    tpl = _VAULT_HTTP if tls == Enum__Content_Proxy__Tls.NONE else _VAULT_TLS
+    return tpl.replace('{vault_app_image}', str(vault_app_image))
+
+
+def cert_init_block(tls: Enum__Content_Proxy__Tls) -> str:
+    if tls == Enum__Content_Proxy__Tls.NONE:
+        return ''
+    mode  = _cert_init_mode(tls)
+    ports = _ACME_PORTS if mode == 'letsencrypt-ip' else ''
+    return (_CERT_INIT.replace('{cert_init_image}', CERT_INIT_IMAGE)
+                      .replace('{mode}', mode)
+                      .replace('{acme_ports}', ports))
+
+
+def volumes_block(tls: Enum__Content_Proxy__Tls) -> str:
+    return '' if tls == Enum__Content_Proxy__Tls.NONE else '\nvolumes:\n  vault_certs:\n'
+
+
+# `${{...}}` survives .format() as `${...}`. vault/cert/volumes blocks are injected verbatim.
 COMPOSE_TEMPLATE = """\
 services:
   mitm-service:
@@ -61,8 +142,6 @@ services:
     environment:
       - FAST_API__AUTH__API_KEY__NAME=${{FASTAPI_API_KEY_NAME}}
       - FAST_API__AUTH__API_KEY__VALUE=${{FASTAPI_API_KEY_VALUE}}
-      # AWS creds to read the scripts S3 bucket. LOCAL: set them in .env (passthrough
-      # below). EC2/prod: leave them UNSET and use the instance role instead.
       - AWS_ACCOUNT_ID
       - AWS_DEFAULT_REGION
       - AWS_ACCESS_KEY_ID
@@ -125,24 +204,11 @@ services:
     depends_on:
       - mitmproxy-int
 
-  vault-app:
-    image: {vault_app_image}
-    container_name: cp-vault-app
-    environment:
-      - FAST_API__REVERSE_PROXY__ROUTES=pw=http://sg-playwright:8000
-      - SEND__STORAGE_MODE=${{SEND__STORAGE_MODE:-memory}}
-    ports:
-      - "443:{vault_port}"
-    networks:
-      - cp-net
-    restart: unless-stopped
-    depends_on:
-      - sg-playwright
-
+{vault_block}{cert_init_block}
 networks:
   cp-net:
     driver: bridge
-"""
+{volumes_block}"""
 
 
 class Content_Proxy__Compose__Template(Type_Safe):
@@ -158,8 +224,9 @@ class Content_Proxy__Compose__Template(Type_Safe):
         return COMPOSE_TEMPLATE.format(mitmproxy_image    = str(mitmproxy_image)            ,
                                        mitm_service_image = str(mitm_service_image)         ,
                                        playwright_image   = str(playwright_image)           ,
-                                       vault_app_image    = str(vault_app_image)            ,
                                        int_command        = proxy_command(proxy_tool, False),
                                        ext_command        = proxy_command(proxy_tool, True ),
                                        interceptors_mount = str(interceptors_mount)         ,
-                                       vault_port         = vault_container_port(tls)       )
+                                       vault_block        = vault_block(vault_app_image, tls),
+                                       cert_init_block    = cert_init_block(tls)            ,
+                                       volumes_block      = volumes_block(tls)              )

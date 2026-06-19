@@ -78,7 +78,7 @@ app = Spec__CLI__Builder(
     cli_spec             = _cli_spec,
     extra_create_options = [
         ('mode'          , str , 'direct_proxy', 'direct_proxy (NLB) or vault_web (ALB).'),
-        ('tls'           , str , 'none'        , 'EC2 TLS: none | letsencrypt | acm.'),
+        ('tls'           , str , 'none'        , 'Vault TLS on :443 — none | self-signed (IP, browser warns) | letsencrypt (real IP cert, opens :80) | acm (ALB, not wired).'),
         ('proxy_tool'    , str , 'mitmdump'    , 'mitmweb (dev, TUI /flows, in-memory) or mitmdump (prod, headless).'),
         ('proxyauth_user', str , ''            , 'mitmproxy-ext basic-auth user (Mode 1).'),
         ('proxyauth_pass', str , ''            , 'mitmproxy-ext basic-auth pass (Mode 1).'),

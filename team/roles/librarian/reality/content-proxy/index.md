@@ -37,6 +37,10 @@ The content-transformation proxy stack: a browser routes through **mitmproxy**, 
 - `Content_Proxy__Service` (`Spec__Service__Base`): `create_stack` / `list_stacks` / `get_stack_info` / `delete_stack` + `cli_spec`; `health`/`exec`/`connect` inherited. Tags carry `cp:mode` / `cp:tls`. `Content_Proxy__Stack__Mapper` (pure, tested). Create/List/Delete response schemas.
 - `Cli__Content_Proxy` (`Spec__CLI__Builder`): 8 standard verbs (`list/info/create/delete/wait/health/connect/exec`) + `ami`/`cert` groups + a top-level **`smoke`** (runs the `/mitm-proxy` chain check on the EC2 box via SSM, no SSH) + create extras (`--env-file` ships a working `.env` verbatim, `--scripts-bucket`, `--forward-aws-creds`, `--proxy-tool`, `--tls`, `--proxyauth-*`, `--proxy-ca-*`) + a **`local up|down|status|logs|smoke|pull|ca`** group wrapping `docker compose` on the committed local stack (`smoke` = curl the `/mitm-proxy` chain check through mitmproxy-ext; `pull` = refresh `:latest`; `ca` = show the mitmproxy CA cert for browser import; `up --pull`). Registered in `sg_compute/cli/Cli__SG.py` as **`sg content-proxy`** (alias `cp`).
 
+### Vault TLS on :443 (mirrors `sg va`)
+- `Enum__Content_Proxy__Tls` = NONE / SELF_SIGNED / LETSENCRYPT (→ cert-init `letsencrypt-ip`) / ACM (ALB — not wired). When `tls != NONE` the compose adds a one-shot **`cert-init`** sidecar (`diniscruz/sg-host-control`, auto-detects the public IP via IMDS) that writes `/certs` to a shared `vault_certs` volume; the vault terminates TLS on :443 via `FAST_API__TLS__*`. LETSENCRYPT also opens/publishes `:80` (ACME http-01). `create` opens SG `:80` only for LETSENCRYPT. Health probe scheme follows the stack's tls (http for NONE, https for TLS).
+- **Secrets:** `create` reuses `FASTAPI_API_KEY_VALUE` / `SG_PLAYWRIGHT__API_KEY` from a supplied `--env-file`, generating only when absent (surfaced once, labelled from-env vs generated).
+
 ### Configurable proxy tool
 - `Enum__Content_Proxy__Proxy__Tool` (MITMWEB | MITMDUMP). Create request defaults to **MITMDUMP** (prod-safe, no in-memory flow accumulation); the committed local compose + template default to **MITMWEB** (dev — TUI `/flows`).
 
