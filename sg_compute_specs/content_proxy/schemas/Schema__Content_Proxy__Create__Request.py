@@ -13,6 +13,7 @@ from sg_compute.primitives.Safe_Str__AWS__Region                                
 from sg_compute.primitives.Safe_Str__Docker__Image                                  import Safe_Str__Docker__Image
 
 from sg_compute_specs.content_proxy.collections.List__Schema__Content_Proxy__Vault__Source import List__Schema__Content_Proxy__Vault__Source
+from sg_compute_specs.content_proxy.enums.Enum__Content_Proxy__Edge                  import Enum__Content_Proxy__Edge
 from sg_compute_specs.content_proxy.enums.Enum__Content_Proxy__Mode                  import Enum__Content_Proxy__Mode
 from sg_compute_specs.content_proxy.enums.Enum__Content_Proxy__Proxy__Tool           import Enum__Content_Proxy__Proxy__Tool
 from sg_compute_specs.content_proxy.enums.Enum__Content_Proxy__Tls                   import Enum__Content_Proxy__Tls
@@ -30,6 +31,9 @@ class Schema__Content_Proxy__Create__Request(Type_Safe):
     max_hours          : float           = 1.0                                       # fractional ok (0.2 / 0.5 / 1.5)
     mode               : Enum__Content_Proxy__Mode = Enum__Content_Proxy__Mode.DIRECT_PROXY
     tls                : Enum__Content_Proxy__Tls  = Enum__Content_Proxy__Tls.NONE
+    edge               : Enum__Content_Proxy__Edge = Enum__Content_Proxy__Edge.NONE   # NONE=vault-as-edge; CADDY=dedicated edge
+    hostname           : Safe_Str__Content_Proxy__Ref                                 # <slug>.sg-compute.sgraph.ai (Caddy auto-ACME)
+    with_aws_dns       : bool = False                                                 # Route 53 upsert <stack>.<zone>→IP at create
     proxy_tool         : Enum__Content_Proxy__Proxy__Tool = Enum__Content_Proxy__Proxy__Tool.MITMDUMP   # prod-safe default
     from_ami           : Safe_Str__AMI__Id                                           # blank → latest AL2023
     use_spot           : bool = True

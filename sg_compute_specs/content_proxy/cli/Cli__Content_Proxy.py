@@ -7,6 +7,7 @@
 
 import shlex
 import subprocess
+import threading
 from pathlib       import Path
 from typing        import List, Optional
 
@@ -19,6 +20,7 @@ from sg_compute.cli.base.Spec__CLI__Defaults     import DEFAULT_REGION
 from sg_compute.cli.base.Spec__CLI__Errors       import spec_cli_errors
 
 from sg_compute_specs.content_proxy.cli.Renderers                       import render_create, render_info
+from sg_compute_specs.content_proxy.enums.Enum__Content_Proxy__Edge        import Enum__Content_Proxy__Edge
 from sg_compute_specs.content_proxy.enums.Enum__Content_Proxy__Mode        import Enum__Content_Proxy__Mode
 from sg_compute_specs.content_proxy.enums.Enum__Content_Proxy__Proxy__Tool import Enum__Content_Proxy__Proxy__Tool
 from sg_compute_specs.content_proxy.enums.Enum__Content_Proxy__Tls         import Enum__Content_Proxy__Tls
@@ -35,7 +37,8 @@ ENV_FILE          = COMPOSE_DIR / '.env'
 ENV_EXAMPLE       = COMPOSE_DIR / '.env.example'
 
 
-def _set_extras(request, mode='direct_proxy', tls='none', proxy_tool='mitmdump',
+def _set_extras(request, mode='direct_proxy', tls='none', edge='none', hostname='',
+                with_aws_dns=False, proxy_tool='mitmdump',
                 proxyauth_user='', proxyauth_pass='', proxy_ca_cert='', proxy_ca_key='',
                 scripts_bucket='', forward_aws_creds=False, env_file='', ca_from_local=False,
                 use_spot=True, disk_size=0, mitm_service_image=''):
@@ -48,6 +51,11 @@ def _set_extras(request, mode='direct_proxy', tls='none', proxy_tool='mitmdump',
         request.proxy_ca_pem = ca.read_text()
     request.mode              = Enum__Content_Proxy__Mode(mode)
     request.tls               = Enum__Content_Proxy__Tls(tls)
+    request.edge              = Enum__Content_Proxy__Edge(edge)
+    request.hostname          = hostname
+    request.with_aws_dns      = bool(with_aws_dns)
+    if hostname or with_aws_dns:                                                     # a public hostname requires the Caddy edge (auto-ACME)
+        request.edge          = Enum__Content_Proxy__Edge.CADDY
     request.proxy_tool        = Enum__Content_Proxy__Proxy__Tool(proxy_tool)
     request.proxyauth_user    = proxyauth_user
     request.proxyauth_pass    = proxyauth_pass
@@ -61,6 +69,46 @@ def _set_extras(request, mode='direct_proxy', tls='none', proxy_tool='mitmdump',
         request.mitm_service_image = mitm_service_image
 
 
+# ── --with-aws-dns / --hostname: post-launch Route 53 (reuses the sg va flow) ──
+# Kicked off after create_stack returns, BEFORE _wait_healthy blocks on EC2 boot.
+# Polls for the public IP, then upserts <fqdn> A → IP + waits INSYNC + authoritative.
+# By the time Caddy reaches its ACME http-01 challenge, DNS has typically converged.
+def _content_proxy_post_launch(svc, region, request, response, kwargs, console):
+    fqdn = str(getattr(request, 'hostname', '') or '').strip()                      # service derived this from --hostname/--with-aws-dns
+    if not fqdn or not bool(getattr(request, 'with_aws_dns', False)):
+        return None
+    info       = getattr(response, 'stack_info', None) or response
+    stack_name = str(getattr(info, 'stack_name', '') or '')
+
+    def _worker():
+        import time as _time
+        from sg_compute_specs.vault_app.service.Vault_App__Auto_DNS import Vault_App__Auto_DNS
+        public_ip = ''
+        deadline  = _time.time() + 60
+        while _time.time() < deadline:
+            fresh = svc.get_stack_info(region, stack_name)
+            ip    = str(getattr(fresh, 'public_ip', '') or '') if fresh is not None else ''
+            if ip:
+                public_ip = ip
+                break
+            _time.sleep(2)
+        if not public_ip:
+            console.print('  [yellow]⚠[/]  auto-dns: gave up waiting for public IP after 60s — skipping Route 53 work')
+            return
+        console.print(f'  [dim]auto-dns:[/] starting  {fqdn} → {public_ip}')
+        def _progress(stage, detail):
+            console.print(f'  [dim]auto-dns:[/] {stage}  [dim]{detail}[/]')
+        result = Vault_App__Auto_DNS().run(fqdn=fqdn, public_ip=public_ip, on_progress=_progress)
+        if result.error:
+            console.print(f'  [red]✗[/]  auto-dns failed: {result.error}')
+        else:
+            console.print(f'  [green]✓[/]  auto-dns: {fqdn} → {public_ip}  (INSYNC + authoritative, {result.elapsed_ms}ms)')
+
+    thread = threading.Thread(target=_worker, daemon=True, name='content-proxy-auto-dns')
+    thread.start()
+    return thread                                                                  # Spec__CLI__Builder joins after _wait_healthy
+
+
 _cli_spec = Schema__Spec__CLI__Spec(
     spec_id               = 'content_proxy'                          ,
     display_name          = 'Content-Transformation Proxy'           ,
@@ -72,14 +120,18 @@ _cli_spec = Schema__Spec__CLI__Spec(
     health_scheme         = 'http'                                   ,   # NONE/MVP: vault plain HTTP behind :443 (TLS stacks → https)
     extra_create_field_setters = _set_extras                         ,
     render_info_fn             = render_info                         ,
-    render_create_fn           = render_create                       )
+    render_create_fn           = render_create                       ,
+    post_launch_fn             = _content_proxy_post_launch          )
 
 
 app = Spec__CLI__Builder(
     cli_spec             = _cli_spec,
     extra_create_options = [
         ('mode'          , str , 'direct_proxy', 'direct_proxy (NLB) or vault_web (ALB).'),
-        ('tls'           , str , 'none'        , 'Vault TLS on :443 — none | self-signed (IP, browser warns) | letsencrypt (real IP cert, opens :80) | acm (ALB, not wired).'),
+        ('tls'           , str , 'none'        , 'Vault TLS on :443 — none | self-signed (IP, browser warns) | letsencrypt (real IP cert, opens :80) | acm (ALB, not wired). Ignored when --edge caddy (the edge terminates TLS).'),
+        ('edge'          , str , 'none'        , 'Front door: none (vault-as-edge) | caddy (dedicated edge owns :443, /pw routed, vault is a plain origin). --hostname/--with-aws-dns force caddy.'),
+        ('hostname'      , str , ''            , 'Public FQDN for the Caddy edge (e.g. my-stack.sg-compute.sgraph.ai) — Caddy does auto-ACME for a real trusted cert (opens :80+:443 to the world). Implies --edge caddy.'),
+        ('with_aws_dns'  , bool, False         , 'Auto-create the Route 53 A record <stack>.sg-compute.sgraph.ai → public IP at create (reuses the sg va flow). Implies --edge caddy + a derived hostname.'),
         ('proxy_tool'    , str , 'mitmdump'    , 'mitmweb (dev, TUI /flows, in-memory) or mitmdump (prod, headless).'),
         ('proxyauth_user', str , ''            , 'mitmproxy-ext basic-auth user (Mode 1).'),
         ('proxyauth_pass', str , ''            , 'mitmproxy-ext basic-auth pass (Mode 1).'),
@@ -121,6 +173,17 @@ def _ensure_env(c: Console) -> None:
     if not ENV_FILE.exists():
         ENV_FILE.write_text(ENV_EXAMPLE.read_text())
         c.print(f'  [yellow]⚠[/]  created {ENV_FILE} from .env.example — edit the secrets before any real use')
+    else:                                                                            # a pre-existing .env may predate newer keys (e.g. SGRAPH_SEND__ACCESS_TOKEN)
+        have    = set(read_env_file(ENV_FILE).keys())
+        example = read_env_file(ENV_EXAMPLE)
+        missing = [(k, v) for k, v in example.items() if k not in have]
+        if missing:
+            with ENV_FILE.open('a') as fh:
+                fh.write('\n# ── appended by `sg content-proxy local` (keys added since this .env was created) ──\n')
+                for k, v in missing:
+                    fh.write(f'{k}={v}\n')
+            c.print(f'  [yellow]⚠[/]  appended {len(missing)} missing key(s) to {ENV_FILE.name}: '
+                    f'[dim]{", ".join(k for k, _ in missing)}[/] — set real values before any real use')
     if not CERTS_DIR.exists():                                                       # mitmproxy self-generates its CA here (rw mount)
         CERTS_DIR.mkdir(parents=True, exist_ok=True)
         CERTS_DIR.chmod(0o777)                                                       # container user (uid 1000) must be able to write

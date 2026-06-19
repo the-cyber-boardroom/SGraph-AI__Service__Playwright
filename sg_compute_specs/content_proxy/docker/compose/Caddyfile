@@ -2,7 +2,7 @@
 	auto_https disable_redirects
 }
 
-:443 {
+localhost, 127.0.0.1 {
 	tls internal
 
 	# sg-playwright, same-origin under /pw — strip the prefix, inject the API key

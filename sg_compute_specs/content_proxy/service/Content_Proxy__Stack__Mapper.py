@@ -10,15 +10,18 @@ from osbot_utils.type_safe.Type_Safe                                            
 from sg_compute.platforms.ec2.helpers.EC2__Stack__Mapper                            import (tag_value, state_str,
                                                                                             first_sg_id)
 
+from sg_compute_specs.content_proxy.enums.Enum__Content_Proxy__Edge                  import Enum__Content_Proxy__Edge
 from sg_compute_specs.content_proxy.enums.Enum__Content_Proxy__Mode                  import Enum__Content_Proxy__Mode
 from sg_compute_specs.content_proxy.enums.Enum__Content_Proxy__Stack__State          import Enum__Content_Proxy__Stack__State
 from sg_compute_specs.content_proxy.enums.Enum__Content_Proxy__Tls                   import Enum__Content_Proxy__Tls
 from sg_compute_specs.content_proxy.schemas.Schema__Content_Proxy__Stack__Info       import Schema__Content_Proxy__Stack__Info
 
 
-TAG_MODE   = 'cp:mode'
-TAG_TLS    = 'cp:tls'
-TAG_ACCESS = 'cp:access-token'                                                      # recoverable for info (like sg va's AccessToken)
+TAG_MODE     = 'cp:mode'
+TAG_TLS      = 'cp:tls'
+TAG_EDGE     = 'cp:edge'
+TAG_HOSTNAME = 'cp:hostname'
+TAG_ACCESS   = 'cp:access-token'                                                    # recoverable for info (like sg va's AccessToken)
 
 
 def _state(details: dict) -> Enum__Content_Proxy__Stack__State:
@@ -48,4 +51,7 @@ class Content_Proxy__Stack__Mapper(Type_Safe):
                                  Enum__Content_Proxy__Mode.DIRECT_PROXY)              ,
             tls          = _enum(Enum__Content_Proxy__Tls,  tag_value(details, TAG_TLS),
                                  Enum__Content_Proxy__Tls.NONE)                       ,
+            edge         = _enum(Enum__Content_Proxy__Edge, tag_value(details, TAG_EDGE),
+                                 Enum__Content_Proxy__Edge.NONE)                      ,
+            hostname     = tag_value(details, TAG_HOSTNAME)                           ,
             access_token = tag_value(details, TAG_ACCESS)                             )

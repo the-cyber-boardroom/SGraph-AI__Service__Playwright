@@ -61,3 +61,48 @@ class test_committed_caddy_files_no_drift(TestCase):
         caddyfile = (d / 'Caddyfile').read_text()
         assert compose   == Content_Proxy__Compose__Template().render(edge=Enum__Content_Proxy__Edge.CADDY)
         assert caddyfile == Content_Proxy__Edge__Template().render()
+
+
+class test_Content_Proxy__Edge__Template__internal_named_site(TestCase):
+
+    def test_internal_site_is_named_not_bare_443(self):
+        caddy = Content_Proxy__Edge__Template().render()
+        assert 'localhost, 127.0.0.1 {' in caddy                                      # named site → internal cert provisioned (fixes tls internal error)
+        assert ':443 {' not in caddy                                                  # bare :443 has no subject → handshake aborts
+
+
+class test_Content_Proxy__Edge__Template__hostname(TestCase):
+
+    def setUp(self):
+        self.caddy = Content_Proxy__Edge__Template().render(hostname='my-stack.sg-compute.sgraph.ai',
+                                                            acme_email='ops@example.com')
+
+    def test_hostname_site_block(self):
+        assert 'my-stack.sg-compute.sgraph.ai {' in self.caddy                        # the FQDN site → Caddy auto-ACME
+        assert 'tls internal' not in self.caddy                                       # public cert, not internal CA
+        assert 'localhost' not in self.caddy
+
+    def test_acme_email_in_global_block(self):
+        assert 'email ops@example.com' in self.caddy
+
+    def test_routes_preserved(self):
+        assert 'handle_path /pw/*'                in self.caddy
+        assert 'reverse_proxy sg-playwright:8000' in self.caddy
+        assert 'reverse_proxy vault-app:8080'     in self.caddy
+
+    def test_no_email_when_blank(self):
+        caddy = Content_Proxy__Edge__Template().render(hostname='h.example.com')
+        assert 'email' not in caddy
+        assert 'h.example.com {' in caddy
+
+
+class test_compose_edge_caddy__hostname_ports(TestCase):
+
+    def test_internal_publishes_only_443(self):
+        yaml = Content_Proxy__Compose__Template().render(edge=Enum__Content_Proxy__Edge.CADDY)
+        assert '"443:443"' in yaml and '"80:80"' not in yaml                          # tls internal → no ACME http-01 port (caddy is the only :80/:443 publisher)
+
+    def test_hostname_publishes_80_and_443(self):
+        yaml = Content_Proxy__Compose__Template().render(edge=Enum__Content_Proxy__Edge.CADDY,
+                                                         hostname='h.sg-compute.sgraph.ai')
+        assert '"80:80"' in yaml and '"443:443"' in yaml                              # auto-ACME needs :80 (http-01) + :443 (tls-alpn)

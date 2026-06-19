@@ -11,6 +11,7 @@ from osbot_utils.type_safe.primitives.domains.common.safe_str.Safe_Str__Text    
 from sg_compute.platforms.ec2.primitives.Safe_Str__Instance__Id                     import Safe_Str__Instance__Id
 from sg_compute.primitives.Safe_Str__AWS__Region                                    import Safe_Str__AWS__Region
 
+from sg_compute_specs.content_proxy.enums.Enum__Content_Proxy__Edge                  import Enum__Content_Proxy__Edge
 from sg_compute_specs.content_proxy.enums.Enum__Content_Proxy__Mode                  import Enum__Content_Proxy__Mode
 from sg_compute_specs.content_proxy.enums.Enum__Content_Proxy__Stack__State          import Enum__Content_Proxy__Stack__State
 from sg_compute_specs.content_proxy.enums.Enum__Content_Proxy__Tls                   import Enum__Content_Proxy__Tls
@@ -25,6 +26,8 @@ class Schema__Content_Proxy__Stack__Info(Type_Safe):
     state             : Enum__Content_Proxy__Stack__State = Enum__Content_Proxy__Stack__State.UNKNOWN
     mode              : Enum__Content_Proxy__Mode         = Enum__Content_Proxy__Mode.DIRECT_PROXY
     tls               : Enum__Content_Proxy__Tls          = Enum__Content_Proxy__Tls.NONE
+    edge              : Enum__Content_Proxy__Edge         = Enum__Content_Proxy__Edge.NONE
+    hostname          : Safe_Str__Text                                              # <slug>.sg-compute.sgraph.ai (Caddy auto-ACME); blank = IP only
     access_token      : Safe_Str__Text                                              # vault API key + /pw key + set-cookie token (from tag)
     active_script     : Safe_Str__Text
     # per-component health (the 5 services)

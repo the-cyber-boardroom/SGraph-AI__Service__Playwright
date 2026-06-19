@@ -8,15 +8,22 @@ from rich.console import Console
 from rich.panel   import Panel
 from rich.table   import Table
 
-from sg_compute_specs.content_proxy.enums.Enum__Content_Proxy__Tls import Enum__Content_Proxy__Tls
+from sg_compute_specs.content_proxy.enums.Enum__Content_Proxy__Edge import Enum__Content_Proxy__Edge
+from sg_compute_specs.content_proxy.enums.Enum__Content_Proxy__Tls  import Enum__Content_Proxy__Tls
 
 
 def _urls(info):                                                                    # (proxy_endpoint, vault_url, scheme_note)
-    ip  = str(getattr(info, 'public_ip', '') or '')
-    tls = getattr(info, 'tls', Enum__Content_Proxy__Tls.NONE)
+    ip       = str(getattr(info, 'public_ip', '') or '')
+    tls      = getattr(info, 'tls',  Enum__Content_Proxy__Tls.NONE)
+    edge     = getattr(info, 'edge', Enum__Content_Proxy__Edge.NONE)
+    hostname = str(getattr(info, 'hostname', '') or '')
     if not ip:
         return '', '', ''
     proxy = f'http://{ip}:8080'                                                     # Mode 1 — configure the browser proxy here
+    if edge == Enum__Content_Proxy__Edge.CADDY:                                     # the Caddy edge always terminates TLS on :443
+        if hostname:
+            return proxy, f'https://{hostname}', 'TLS via Caddy edge (trusted, auto-ACME)'
+        return proxy, f'https://{ip}', 'TLS via Caddy edge (internal CA — curl -k)'
     if tls == Enum__Content_Proxy__Tls.NONE:
         return proxy, f'http://{ip}:443', 'plain HTTP on :443 (TLS none)'           # vault is http behind host 443
     return proxy, f'https://{ip}', 'TLS on :443'
@@ -40,6 +47,12 @@ def render_info(info, console: Console) -> None:
     t.add_row('region',     str(getattr(info, 'region', '') or '—'))
     t.add_row('mode',       getattr(info, 'mode', None).value if hasattr(getattr(info, 'mode', None), 'value') else '—')
     t.add_row('tls',        getattr(info, 'tls',  None).value if hasattr(getattr(info, 'tls',  None), 'value') else '—')
+    edge_val = getattr(info, 'edge', None)
+    if hasattr(edge_val, 'value') and edge_val.value != 'none':
+        t.add_row('edge',   edge_val.value)
+    hostname = str(getattr(info, 'hostname', '') or '')
+    if hostname:
+        t.add_row('hostname', f'[bold cyan]{hostname}[/]  [dim](Route 53 → public IP; Caddy auto-ACME)[/]')
     token = str(getattr(info, 'access_token', '') or '')
     if proxy:
         t.add_row('proxy (Mode 1)', f'[bold cyan]{proxy}[/]  [dim]configure your browser proxy here — use your proxyauth creds[/]')

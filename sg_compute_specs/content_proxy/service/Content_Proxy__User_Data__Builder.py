@@ -14,8 +14,10 @@ from pathlib                                                                    
 from osbot_utils.type_safe.Type_Safe                                                import Type_Safe
 
 import sg_compute_specs.content_proxy.interceptors                                   as interceptors_pkg
+from sg_compute_specs.content_proxy.enums.Enum__Content_Proxy__Edge                   import Enum__Content_Proxy__Edge
 from sg_compute_specs.content_proxy.service.Content_Proxy__Compose__Template         import (Content_Proxy__Compose__Template,
                                                                                              INTERCEPTORS_MOUNT__EC2)
+from sg_compute_specs.content_proxy.service.Content_Proxy__Edge__Template            import Content_Proxy__Edge__Template
 from sg_compute_specs.vault_app.service.Vault_App__Reverse_Proxy__Override           import Vault_App__Reverse_Proxy__Override
 
 
@@ -60,6 +62,8 @@ CP_LOGIC_EOF
 
 {overrides_block}
 
+{caddy_block}
+
 cd {app_dir}
 docker compose --env-file {app_dir}/.env up -d
 
@@ -71,7 +75,8 @@ SHUTDOWN_TEMPLATE = 'shutdown -h +{minutes}  # auto-terminate after {hours}h'
 SHUTDOWN_DISABLED = '# max_hours=0 — no auto-terminate'
 
 PLACEHOLDERS = ('log_file', 'app_dir', 'env_body', 'compose_body',
-                'active_body', 'logic_body', 'ca_block', 'overrides_block', 'shutdown_line')   # locked by test
+                'active_body', 'logic_body', 'ca_block', 'overrides_block',
+                'caddy_block', 'shutdown_line')   # locked by test
 
 
 class Content_Proxy__User_Data__Builder(Type_Safe):
@@ -118,11 +123,24 @@ class Content_Proxy__User_Data__Builder(Type_Safe):
             return f'# proxy CA path {cert} supplied — copy into {APP_DIR}/certs before boot'
         return '# no proxy CA supplied — mitmproxy will self-generate one'
 
+    def _caddy_block(self, request, hostname: str) -> str:
+        # edge=caddy → write the Caddyfile the cp-caddy service bind-mounts. hostname
+        # (when set) makes Caddy do public auto-ACME; blank → `tls internal` (IP/local).
+        if getattr(request, 'edge', None) != Enum__Content_Proxy__Edge.CADDY:
+            return '# edge=none — vault is the front door (no Caddyfile)'
+        acme_email = str(getattr(request, 'proxyauth_user', '') or '')               # not used for ACME; placeholder left blank below
+        caddyfile  = Content_Proxy__Edge__Template().render(hostname=hostname, acme_email='')
+        return ('echo "[content-proxy] writing Caddyfile (edge=caddy)"\n'
+                f"cat > {APP_DIR}/Caddyfile <<'CP_CADDY_EOF'\n{caddyfile}\nCP_CADDY_EOF")
+
     def render(self, request, fastapi_api_key: str = '', access_token: str = '',
-               region: str = '', aws_creds: dict = None, env_override: str = '') -> str:
+               region: str = '', aws_creds: dict = None, env_override: str = '',
+               hostname: str = '') -> str:
         # MVP: if the operator supplied a full .env, ship it verbatim; else build one.
         env_body = env_override if env_override else self.render_env(
             request, fastapi_api_key, access_token, region, aws_creds)
+        edge     = getattr(request, 'edge', Enum__Content_Proxy__Edge.NONE)
+        is_caddy = edge == Enum__Content_Proxy__Edge.CADDY
         compose = Content_Proxy__Compose__Template().render(
             mitmproxy_image    = str(request.mitmproxy_image)   ,
             mitm_service_image = str(request.mitm_service_image),
@@ -130,7 +148,13 @@ class Content_Proxy__User_Data__Builder(Type_Safe):
             vault_app_image    = str(request.vault_app_image)   ,
             proxy_tool         = request.proxy_tool             ,                    # MITMDUMP default on EC2 (prod-safe)
             interceptors_mount = INTERCEPTORS_MOUNT__EC2        ,                    # /opt/content-proxy/interceptors
-            tls                = request.tls                    )                    # vault port: 8080 (NONE) vs 443 (TLS)
+            tls                = request.tls                    ,                    # vault port: 8080 (NONE) vs 443 (TLS)
+            edge               = edge                           ,                    # caddy → vault plain origin, edge owns :443
+            hostname           = hostname                       )                    # caddy hostname → publish :80 for ACME
+        # caddy fronts /pw at the edge → vault uses its default entrypoint (no override package needed)
+        overrides_block = ('# edge=caddy — /pw routed at the edge, no vault entrypoint patch'
+                           if is_caddy else
+                           Vault_App__Reverse_Proxy__Override().render_write_block(OVERRIDES_DIR))
         return TEMPLATE.format(log_file      = LOG_FILE                                  ,
                                app_dir       = APP_DIR                                   ,
                                env_body      = env_body                                  ,
@@ -138,5 +162,6 @@ class Content_Proxy__User_Data__Builder(Type_Safe):
                                active_body   = self._interceptor_body('active.py')       ,
                                logic_body    = self._interceptor_body('Content_Proxy__Interceptor__Logic.py'),
                                ca_block      = self._ca_block(request)                   ,
-                               overrides_block = Vault_App__Reverse_Proxy__Override().render_write_block(OVERRIDES_DIR),
+                               overrides_block = overrides_block                         ,
+                               caddy_block   = self._caddy_block(request, hostname)      ,
                                shutdown_line = self._shutdown_line(float(request.max_hours)))
