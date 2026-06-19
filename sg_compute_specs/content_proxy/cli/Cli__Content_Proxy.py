@@ -285,18 +285,23 @@ def remote_smoke_command(url: str) -> str:                                      
 
 @local_app.command(name='up')
 @spec_cli_errors
-def local_up(detach: bool = typer.Option(True, '--detach/--attach', '-d',
-                                         help='Run detached (default) or attached.'),
-             pull  : bool = typer.Option(False, '--pull',
-                                         help='Pull the latest images first (up --pull always).'),
-             edge  : str  = typer.Option('none', '--edge',
-                                         help='Front door: none (vault-as-edge) | caddy (dedicated edge, /pw routed, no vault patch).')):
+def local_up(detach  : bool = typer.Option(True, '--detach/--attach', '-d',
+                                          help='Run detached (default) or attached.'),
+             pull    : bool = typer.Option(False, '--pull',
+                                          help='Pull the latest images first (up --pull always).'),
+             recreate: bool = typer.Option(True, '--recreate/--no-recreate',
+                                          help='Force-recreate containers so .env + the bind-mounted Caddyfile always take effect '
+                                               '(docker compose does NOT recreate on bind-mount content changes). --no-recreate to skip.'),
+             edge    : str  = typer.Option('none', '--edge',
+                                          help='Front door: none (vault-as-edge) | caddy (dedicated edge, /pw routed, no vault patch).')):
     """Bring the stack up locally (mitmweb by default → TUI /flows)."""
     c = Console(highlight=False)
     _ensure_env(c)
     compose_file = COMPOSE_FILE_CADDY if edge == 'caddy' else COMPOSE_FILE
     c.print(f'  [dim]docker compose up ({compose_file.name})[/]')
     up_args = ['up', '-d'] if detach else ['up']
+    if recreate:                                                                      # bind-mounted Caddyfile / changed .env only load on (re)create
+        up_args.append('--force-recreate')
     if pull:
         up_args += ['--pull', 'always']
     rc = _compose(*up_args, compose_file=compose_file)
