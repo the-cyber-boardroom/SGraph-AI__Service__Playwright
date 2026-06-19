@@ -47,6 +47,14 @@ VAULT_PORT            = 443                                                     
 ACME_PORT             = 80                                                          # cert-init http-01 (letsencrypt-ip only)
 
 
+def sg_rules(tls):                                                                  # → (inbound_ports[caller /32], extra_cidrs{port: cidr})
+    inbound = [EXT_PROXY_PORT, VAULT_PORT]                                          # proxy + vault open to the caller only
+    extra   = {}
+    if tls == Enum__Content_Proxy__Tls.LETSENCRYPT:                                 # ACME http-01 is validated by LE's servers, not the caller
+        extra[ACME_PORT] = '0.0.0.0/0'
+    return inbound, extra
+
+
 def localhost_probe_command(https: bool) -> str:                                   # curl the vault on the box (SSM) — no SG/IP/cert deps
     url  = 'https://localhost/' if https else 'http://localhost:443/'
     flag = '-k ' if https else ''
@@ -134,11 +142,9 @@ class Content_Proxy__Service(Spec__Service__Base):
         itype      = str(request.instance_type) or DEFAULT_INSTANCE_TYPE
         request.stack_name = stack_name                                             # so user-data / tags see the resolved name
 
-        inbound = [EXT_PROXY_PORT, VAULT_PORT]
-        if request.tls == Enum__Content_Proxy__Tls.LETSENCRYPT:
-            inbound.append(ACME_PORT)                                               # cert-init http-01 challenge needs :80
+        inbound, extra_cidrs = sg_rules(request.tls)
         sg_id = self.aws_client.sg.ensure_security_group(region, stack_name, caller_ip,
-                                                         inbound_ports=inbound)
+                                                         inbound_ports=inbound, extra_cidrs=extra_cidrs)
         tags  = self.aws_client.tags.build(stack_name, caller_ip, creator,
                                            extra_tags={TAG_MODE: request.mode.value,
                                                        TAG_TLS : request.tls.value })

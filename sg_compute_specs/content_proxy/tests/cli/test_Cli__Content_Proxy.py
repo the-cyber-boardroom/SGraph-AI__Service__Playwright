@@ -114,6 +114,24 @@ class test_env_secret_reuse(TestCase):
         assert m.get('FASTAPI_API_KEY_VALUE') is None                               # → create_stack generates one
 
 
+class test_sg_rules(TestCase):
+
+    def test_none_and_self_signed_open_only_caller(self):
+        from sg_compute_specs.content_proxy.service.Content_Proxy__Service import sg_rules
+        from sg_compute_specs.content_proxy.enums.Enum__Content_Proxy__Tls import Enum__Content_Proxy__Tls
+        for tls in (Enum__Content_Proxy__Tls.NONE, Enum__Content_Proxy__Tls.SELF_SIGNED):
+            inbound, extra = sg_rules(tls)
+            assert inbound == [8080, 443]
+            assert extra == {}                                                       # no world-open ports
+
+    def test_letsencrypt_opens_80_to_world(self):
+        from sg_compute_specs.content_proxy.service.Content_Proxy__Service import sg_rules
+        from sg_compute_specs.content_proxy.enums.Enum__Content_Proxy__Tls import Enum__Content_Proxy__Tls
+        inbound, extra = sg_rules(Enum__Content_Proxy__Tls.LETSENCRYPT)
+        assert inbound == [8080, 443]
+        assert extra == {80: '0.0.0.0/0'}                                           # ACME http-01 from LE servers
+
+
 class test_ssm_health_probe(TestCase):
 
     def test_localhost_probe_command_scheme(self):
