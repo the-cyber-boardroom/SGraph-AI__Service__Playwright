@@ -112,3 +112,22 @@ class test_env_secret_reuse(TestCase):
         from sg_compute_specs.content_proxy.service.Content_Proxy__Service import _parse_env
         m = _parse_env('SOMETHING_ELSE=1\n')
         assert m.get('FASTAPI_API_KEY_VALUE') is None                               # → create_stack generates one
+
+
+class test_ssm_health_probe(TestCase):
+
+    def test_localhost_probe_command_scheme(self):
+        from sg_compute_specs.content_proxy.service.Content_Proxy__Service import localhost_probe_command
+        http  = localhost_probe_command(https=False)
+        https = localhost_probe_command(https=True)
+        assert 'http://localhost:443/' in http and '-k' not in http                 # NONE → http on host 443
+        assert 'https://localhost/'    in https and '-k' in https                   # TLS → https, accept self-signed
+        assert '%{http_code}' in http
+
+    def test_parse_and_classify_codes(self):
+        from sg_compute_specs.content_proxy.service.Content_Proxy__Service import parse_http_code, is_healthy_code
+        assert parse_http_code('200')   == 200 and is_healthy_code(200) is True
+        assert parse_http_code('404\n') == 404 and is_healthy_code(404) is True      # any non-5xx = serving
+        assert parse_http_code('000')   == 0   and is_healthy_code(0)   is False     # curl couldn't connect
+        assert parse_http_code('')      == 0
+        assert is_healthy_code(503) is False
