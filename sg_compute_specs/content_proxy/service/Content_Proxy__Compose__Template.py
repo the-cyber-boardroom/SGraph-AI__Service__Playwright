@@ -16,6 +16,7 @@
 from osbot_utils.type_safe.Type_Safe                                                import Type_Safe
 
 from sg_compute_specs.content_proxy.enums.Enum__Content_Proxy__Proxy__Tool           import Enum__Content_Proxy__Proxy__Tool
+from sg_compute_specs.content_proxy.enums.Enum__Content_Proxy__Tls                   import Enum__Content_Proxy__Tls
 
 
 MITMPROXY_IMAGE    = 'mitmproxy/mitmproxy:12.2.3'                                   # latest
@@ -24,13 +25,19 @@ PLAYWRIGHT_IMAGE   = 'diniscruz/sg-playwright'
 VAULT_APP_IMAGE    = 'diniscruz/sg-send-vault'
 
 PLACEHOLDERS = ('mitmproxy_image', 'mitm_service_image', 'playwright_image', 'vault_app_image',
-                'int_command', 'ext_command', 'interceptors_mount')                 # locked by test
+                'int_command', 'ext_command', 'interceptors_mount', 'vault_port')   # locked by test
 
 # Where the interceptor dir lives, RELATIVE TO THE COMPOSE FILE:
 #   local committed compose sits in content_proxy/docker/compose/ → ../../interceptors
 #   EC2 user-data writes the compose to /opt/content-proxy/ → ./interceptors
 INTERCEPTORS_MOUNT__LOCAL = '../../interceptors'
 INTERCEPTORS_MOUNT__EC2   = './interceptors'
+
+
+def vault_container_port(tls: Enum__Content_Proxy__Tls) -> int:
+    # vault-app serves plain HTTP on :8080 by default; with TLS configured it
+    # terminates on :443. Host always publishes 443 → this container port.
+    return 8080 if tls == Enum__Content_Proxy__Tls.NONE else 443
 
 
 def proxy_command(tool: Enum__Content_Proxy__Proxy__Tool, with_proxyauth: bool, indent: str = '      ') -> str:
@@ -125,7 +132,7 @@ services:
       - FAST_API__REVERSE_PROXY__ROUTES=pw=http://sg-playwright:8000
       - SEND__STORAGE_MODE=${{SEND__STORAGE_MODE:-memory}}
     ports:
-      - "443:443"
+      - "443:{vault_port}"
     networks:
       - cp-net
     restart: unless-stopped
@@ -145,7 +152,8 @@ class Content_Proxy__Compose__Template(Type_Safe):
                      playwright_image   : str = PLAYWRIGHT_IMAGE   ,
                      vault_app_image    : str = VAULT_APP_IMAGE    ,
                      proxy_tool         : Enum__Content_Proxy__Proxy__Tool = Enum__Content_Proxy__Proxy__Tool.MITMWEB,
-                     interceptors_mount : str = INTERCEPTORS_MOUNT__LOCAL
+                     interceptors_mount : str = INTERCEPTORS_MOUNT__LOCAL,
+                     tls                : Enum__Content_Proxy__Tls = Enum__Content_Proxy__Tls.NONE
                ) -> str:
         return COMPOSE_TEMPLATE.format(mitmproxy_image    = str(mitmproxy_image)            ,
                                        mitm_service_image = str(mitm_service_image)         ,
@@ -153,4 +161,5 @@ class Content_Proxy__Compose__Template(Type_Safe):
                                        vault_app_image    = str(vault_app_image)            ,
                                        int_command        = proxy_command(proxy_tool, False),
                                        ext_command        = proxy_command(proxy_tool, True ),
-                                       interceptors_mount = str(interceptors_mount)         )
+                                       interceptors_mount = str(interceptors_mount)         ,
+                                       vault_port         = vault_container_port(tls)       )

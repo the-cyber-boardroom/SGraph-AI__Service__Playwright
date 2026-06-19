@@ -88,7 +88,7 @@ services:
       - FAST_API__REVERSE_PROXY__ROUTES=pw=http://sg-playwright:8000
       - SEND__STORAGE_MODE=${SEND__STORAGE_MODE:-memory}
     ports:
-      - "443:443"
+      - "443:8080"
     networks:
       - cp-net
     restart: unless-stopped

@@ -14,6 +14,7 @@ from pathlib import Path
 import tempfile
 
 from sg_compute_specs.content_proxy.cli.Cli__Content_Proxy import (app, read_env_file, smoke_curl_args,
+                                                                  remote_smoke_command,
                                                                   Content_Proxy__Service)
 
 
@@ -23,6 +24,18 @@ class test_Cli__Content_Proxy(TestCase):
         cmds = {c.name or (c.callback.__name__ if c.callback else '') for c in app.registered_commands}
         for verb in ('list', 'info', 'create', 'delete', 'wait', 'health', 'connect', 'exec'):
             assert verb in cmds, verb
+
+    def test_remote_smoke_command_present(self):
+        cmds = {c.name or (c.callback.__name__ if c.callback else '') for c in app.registered_commands}
+        assert 'smoke' in cmds                                                       # top-level EC2 (SSM) smoke
+
+    def test_remote_smoke_command_builder(self):
+        cmd = remote_smoke_command('http://example.com/mitm-proxy')
+        assert '/opt/content-proxy/.env' in cmd                                      # reads creds from the box .env
+        assert 'CONTENT_PROXY__PROXYAUTH_USER' in cmd and 'localhost:8080' in cmd
+        assert 'http://example.com/mitm-proxy' in cmd                               # url present (shlex-quoted when needed)
+        assert "'http://a b'" in remote_smoke_command('http://a b')                  # special chars do get quoted
+        assert '%{http_code}' in cmd
 
     def test_groups_present(self):
         groups = {g.name for g in app.registered_groups}
@@ -74,7 +87,7 @@ class test_Content_Proxy__Service_wiring(TestCase):
         sp = Content_Proxy__Service().cli_spec()
         assert sp.spec_id       == 'content_proxy'
         assert sp.health_port   == 443
-        assert sp.health_scheme == 'https'
+        assert sp.health_scheme == 'http'                                           # vault plain HTTP behind :443 (NONE/MVP)
 
     def test_name_gen_generates(self):
         name = Content_Proxy__Service().setup().name_gen.generate()

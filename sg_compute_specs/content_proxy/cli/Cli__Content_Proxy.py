@@ -5,6 +5,7 @@
 # Mounted in sg_compute/cli/Cli__SG.py as `sg content-proxy` (alias `cp`).
 # ═══════════════════════════════════════════════════════════════════════════════
 
+import shlex
 import subprocess
 from pathlib       import Path
 from typing        import List, Optional
@@ -14,6 +15,7 @@ from rich.console  import Console
 
 from sg_compute.cli.base.Schema__Spec__CLI__Spec import Schema__Spec__CLI__Spec
 from sg_compute.cli.base.Spec__CLI__Builder      import Spec__CLI__Builder
+from sg_compute.cli.base.Spec__CLI__Defaults     import DEFAULT_REGION
 from sg_compute.cli.base.Spec__CLI__Errors       import spec_cli_errors
 
 from sg_compute_specs.content_proxy.enums.Enum__Content_Proxy__Mode        import Enum__Content_Proxy__Mode
@@ -33,16 +35,21 @@ ENV_EXAMPLE  = COMPOSE_DIR / '.env.example'
 
 def _set_extras(request, mode='direct_proxy', tls='none', proxy_tool='mitmdump',
                 proxyauth_user='', proxyauth_pass='', proxy_ca_cert='', proxy_ca_key='',
+                scripts_bucket='', forward_aws_creds=False, env_file='',
                 use_spot=True, disk_size=0, mitm_service_image=''):
-    request.mode           = Enum__Content_Proxy__Mode(mode)
-    request.tls            = Enum__Content_Proxy__Tls(tls)
-    request.proxy_tool     = Enum__Content_Proxy__Proxy__Tool(proxy_tool)
-    request.proxyauth_user = proxyauth_user
-    request.proxyauth_pass = proxyauth_pass
-    request.proxy_ca_cert  = proxy_ca_cert
-    request.proxy_ca_key   = proxy_ca_key
-    request.use_spot       = bool(use_spot)
-    request.disk_size_gb   = int(disk_size)
+    if env_file:                                                                     # MVP: ship a full .env verbatim to the box
+        request.env_inline = Path(env_file).read_text()
+    request.mode              = Enum__Content_Proxy__Mode(mode)
+    request.tls               = Enum__Content_Proxy__Tls(tls)
+    request.proxy_tool        = Enum__Content_Proxy__Proxy__Tool(proxy_tool)
+    request.proxyauth_user    = proxyauth_user
+    request.proxyauth_pass    = proxyauth_pass
+    request.proxy_ca_cert     = proxy_ca_cert
+    request.proxy_ca_key      = proxy_ca_key
+    request.scripts_bucket    = scripts_bucket
+    request.forward_aws_creds = bool(forward_aws_creds)
+    request.use_spot          = bool(use_spot)
+    request.disk_size_gb      = int(disk_size)
     if mitm_service_image:
         request.mitm_service_image = mitm_service_image
 
@@ -69,6 +76,9 @@ app = Spec__CLI__Builder(
         ('proxyauth_pass', str , ''            , 'mitmproxy-ext basic-auth pass (Mode 1).'),
         ('proxy_ca_cert' , str , ''            , 'Path to the user-supplied proxy CA cert (Mode 1 browser trust).'),
         ('proxy_ca_key'  , str , ''            , 'Path to the user-supplied proxy CA key.'),
+        ('env_file'      , str , ''            , 'Path to a full .env shipped verbatim to the box (MVP: overrides generated env — ship your working local .env).'),
+        ('scripts_bucket', str , ''            , 'S3 bucket the MITM service reads injection scripts from (CACHE__SERVICE__BUCKET_NAME).'),
+        ('forward_aws_creds', bool, False      , 'Bake the operator AWS_* creds into the box .env (local-parity; default off → instance role).'),
         ('use_spot'      , bool, True          , 'Spot instance (~70%% cheaper). --no-use-spot for on-demand.'),
         ('disk_size'     , int , 0             , 'Root volume GiB. 0 = AMI default.'),
         # ── advanced ──
@@ -119,6 +129,13 @@ def smoke_curl_args(url: str, user: str = '', password: str = '') -> List[str]: 
     proxy = f'http://{user}:{password}@localhost:8080' if user else 'http://localhost:8080'
     return ['curl', '-sS', '--max-time', '15', '-o', '-',
             '-w', '\n[http %{http_code}]\n', '-x', proxy, url]
+
+
+def remote_smoke_command(url: str) -> str:                                         # runs ON the EC2 box (SSM); reads creds from its .env
+    return ('set -a; . /opt/content-proxy/.env 2>/dev/null; set +a; '
+            "curl -sS --max-time 15 -w '\\n[http %{http_code}]\\n' "
+            '-x "http://$CONTENT_PROXY__PROXYAUTH_USER:$CONTENT_PROXY__PROXYAUTH_PASS@localhost:8080" '
+            + shlex.quote(url))
 
 
 @local_app.command(name='up')
@@ -234,3 +251,33 @@ def local_smoke(url: str = typer.Option('http://example.com/mitm-proxy', '--url'
 
 
 app.add_typer(local_app, name='local')
+
+
+# ── remote smoke (EC2, over SSM — no SSH) ───────────────────────────────────────
+
+@app.command()
+@spec_cli_errors
+def smoke(name  : Optional[str] = typer.Argument(None,
+                  help='Stack name; auto-selected when only one exists.'),
+          region: str           = typer.Option(DEFAULT_REGION, '--region', '-r'),
+          url   : str           = typer.Option('http://example.com/mitm-proxy', '--url',
+                  help='Target whose /mitm-proxy path proves the chain (host irrelevant — always processed).')):
+    """Run the /mitm-proxy chain check ON the EC2 box via SSM (no SSH).
+
+    Reads the proxyauth creds from the box's /opt/content-proxy/.env and curls
+    through mitmproxy-ext → FastAPI. A 2xx/3xx + MITM-UI markup means the whole
+    chain works on the instance.
+    """
+    c    = Console(highlight=False)
+    svc  = Content_Proxy__Service().setup()
+    name = Spec__CLI__Builder(_cli_spec).resolver.resolve(svc, name, region, 'content_proxy')
+    c.print(f'  [dim]ssm exec on {name} → curl …/mitm-proxy via mitmproxy-ext[/]')
+    result = svc.exec(region, name, remote_smoke_command(url), timeout_sec=60)
+    out = str(getattr(result, 'stdout', '') or '')
+    c.print(out)
+    ok = ('[http 2' in out or '[http 3' in out) and 'mitm-proxy' in out.lower()
+    if ok:
+        c.print('  [green]✓[/]  chain OK on the instance (mitmproxy → interceptor → FastAPI).')
+    else:
+        c.print('  [yellow]⚠[/]  no MITM-UI redirect seen — check [cyan]sg content-proxy exec <name> '
+                'docker ps[/] and [cyan]… logs[/] (mitm-service up? scripts bucket reachable?).')
