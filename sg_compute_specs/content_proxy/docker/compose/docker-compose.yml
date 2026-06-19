@@ -5,6 +5,12 @@ services:
     environment:
       - FAST_API__AUTH__API_KEY__NAME=${FASTAPI_API_KEY_NAME}
       - FAST_API__AUTH__API_KEY__VALUE=${FASTAPI_API_KEY_VALUE}
+      # AWS creds to read the scripts S3 bucket. LOCAL: set them in .env (passthrough
+      # below). EC2/prod: leave them UNSET and use the instance role instead.
+      - AWS_ACCOUNT_ID
+      - AWS_DEFAULT_REGION
+      - AWS_ACCESS_KEY_ID
+      - AWS_SECRET_ACCESS_KEY
     networks:
       - cp-net
     restart: unless-stopped
