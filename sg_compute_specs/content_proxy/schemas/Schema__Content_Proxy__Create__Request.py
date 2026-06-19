@@ -16,6 +16,7 @@ from sg_compute_specs.content_proxy.collections.List__Schema__Content_Proxy__Vau
 from sg_compute_specs.content_proxy.enums.Enum__Content_Proxy__Mode                  import Enum__Content_Proxy__Mode
 from sg_compute_specs.content_proxy.enums.Enum__Content_Proxy__Proxy__Tool           import Enum__Content_Proxy__Proxy__Tool
 from sg_compute_specs.content_proxy.enums.Enum__Content_Proxy__Tls                   import Enum__Content_Proxy__Tls
+from sg_compute_specs.content_proxy.primitives.Safe_Str__Content_Proxy__Env__File   import Safe_Str__Content_Proxy__Env__File
 from sg_compute_specs.content_proxy.primitives.Safe_Str__Content_Proxy__Ref          import Safe_Str__Content_Proxy__Ref
 from sg_compute_specs.content_proxy.primitives.Safe_Str__Content_Proxy__Stack__Name  import Safe_Str__Content_Proxy__Stack__Name
 from sg_compute_specs.content_proxy.primitives.Safe_Str__IP__Address                 import Safe_Str__IP__Address
@@ -40,6 +41,7 @@ class Schema__Content_Proxy__Create__Request(Type_Safe):
     proxy_ca_key       : Safe_Str__Content_Proxy__Ref                                # user-supplied proxy CA key  path
     scripts_bucket     : Safe_Str__Content_Proxy__Ref                                # CACHE__SERVICE__BUCKET_NAME (MITM scripts)
     forward_aws_creds  : bool = False                                                # bake operator AWS_* into the EC2 .env (parity; else instance role)
+    env_inline         : Safe_Str__Content_Proxy__Env__File                          # full .env shipped verbatim (MVP: overrides generated env)
     # image refs (pulled from Docker Hub)
     mitmproxy_image    : Safe_Str__Docker__Image = 'mitmproxy/mitmproxy:12.2.3'
     mitm_service_image : Safe_Str__Docker__Image = 'diniscruz/mgraph-ai-service-mitmproxy'

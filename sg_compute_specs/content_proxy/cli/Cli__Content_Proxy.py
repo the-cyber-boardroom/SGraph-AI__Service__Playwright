@@ -33,8 +33,10 @@ ENV_EXAMPLE  = COMPOSE_DIR / '.env.example'
 
 def _set_extras(request, mode='direct_proxy', tls='none', proxy_tool='mitmdump',
                 proxyauth_user='', proxyauth_pass='', proxy_ca_cert='', proxy_ca_key='',
-                scripts_bucket='', forward_aws_creds=False,
+                scripts_bucket='', forward_aws_creds=False, env_file='',
                 use_spot=True, disk_size=0, mitm_service_image=''):
+    if env_file:                                                                     # MVP: ship a full .env verbatim to the box
+        request.env_inline = Path(env_file).read_text()
     request.mode              = Enum__Content_Proxy__Mode(mode)
     request.tls               = Enum__Content_Proxy__Tls(tls)
     request.proxy_tool        = Enum__Content_Proxy__Proxy__Tool(proxy_tool)
@@ -72,6 +74,7 @@ app = Spec__CLI__Builder(
         ('proxyauth_pass', str , ''            , 'mitmproxy-ext basic-auth pass (Mode 1).'),
         ('proxy_ca_cert' , str , ''            , 'Path to the user-supplied proxy CA cert (Mode 1 browser trust).'),
         ('proxy_ca_key'  , str , ''            , 'Path to the user-supplied proxy CA key.'),
+        ('env_file'      , str , ''            , 'Path to a full .env shipped verbatim to the box (MVP: overrides generated env — ship your working local .env).'),
         ('scripts_bucket', str , ''            , 'S3 bucket the MITM service reads injection scripts from (CACHE__SERVICE__BUCKET_NAME).'),
         ('forward_aws_creds', bool, False      , 'Bake the operator AWS_* creds into the box .env (local-parity; default off → instance role).'),
         ('use_spot'      , bool, True          , 'Spot instance (~70%% cheaper). --no-use-spot for on-demand.'),

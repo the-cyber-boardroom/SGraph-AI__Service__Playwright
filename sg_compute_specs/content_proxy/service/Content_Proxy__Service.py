@@ -84,10 +84,11 @@ class Content_Proxy__Service(Spec__Service__Base):
                 if v:
                     aws_creds[k] = v
         user_data = self.user_data_builder.render(request,
-                                                  fastapi_api_key    = fastapi_key   ,
-                                                  playwright_api_key = playwright_key,
-                                                  region             = region        ,
-                                                  aws_creds          = aws_creds     )
+                                                  fastapi_api_key    = fastapi_key        ,
+                                                  playwright_api_key = playwright_key     ,
+                                                  region             = region             ,
+                                                  aws_creds          = aws_creds          ,
+                                                  env_override       = str(request.env_inline))
         iid = self.aws_client.launch.run_instance(region                = region            ,
                                                   ami_id                = ami_id            ,
                                                   sg_id                 = sg_id             ,
@@ -104,7 +105,8 @@ class Content_Proxy__Service(Spec__Service__Base):
                                     'State'         : {'Name': 'pending'}          ,
                                     'SecurityGroups': [{'GroupId': sg_id}]         ,
                                     'Tags'          : tags                         }, region)
-        creds_path = 'baked AWS creds' if aws_creds else 'instance role'
+        env_src    = 'env-file' if str(request.env_inline) else ('baked AWS creds' if aws_creds else 'instance role')
+        creds_path = env_src
         return Schema__Content_Proxy__Create__Response(
             stack_info         = info                                        ,
             fastapi_api_key    = fastapi_key                                 ,

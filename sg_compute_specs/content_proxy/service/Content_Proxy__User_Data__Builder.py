@@ -107,7 +107,10 @@ class Content_Proxy__User_Data__Builder(Type_Safe):
                 f'copy it into {APP_DIR}/certs before first boot"')
 
     def render(self, request, fastapi_api_key: str = '', playwright_api_key: str = '',
-               region: str = '', aws_creds: dict = None) -> str:
+               region: str = '', aws_creds: dict = None, env_override: str = '') -> str:
+        # MVP: if the operator supplied a full .env, ship it verbatim; else build one.
+        env_body = env_override if env_override else self.render_env(
+            request, fastapi_api_key, playwright_api_key, region, aws_creds)
         compose = Content_Proxy__Compose__Template().render(
             mitmproxy_image    = str(request.mitmproxy_image)   ,
             mitm_service_image = str(request.mitm_service_image),
@@ -118,8 +121,7 @@ class Content_Proxy__User_Data__Builder(Type_Safe):
             tls                = request.tls                    )                    # vault port: 8080 (NONE) vs 443 (TLS)
         return TEMPLATE.format(log_file      = LOG_FILE                                  ,
                                app_dir       = APP_DIR                                   ,
-                               env_body      = self.render_env(request, fastapi_api_key,
-                                                               playwright_api_key, region, aws_creds),
+                               env_body      = env_body                                  ,
                                compose_body  = compose                                   ,
                                active_body   = self._interceptor_body('active.py')       ,
                                logic_body    = self._interceptor_body('Content_Proxy__Interceptor__Logic.py'),

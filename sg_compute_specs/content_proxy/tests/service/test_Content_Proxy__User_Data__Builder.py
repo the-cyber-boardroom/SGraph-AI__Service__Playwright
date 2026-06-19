@@ -52,6 +52,16 @@ class test_Content_Proxy__User_Data__Builder(TestCase):
     def test_certs_dir_is_writable(self):
         assert 'chmod 777' in self.ud and '/certs' in self.ud                       # mitmproxy self-gen CA on EC2
 
+    def test_env_override_shipped_verbatim(self):
+        my_env = 'FASTAPI_API_KEY_VALUE=fromfile\nCACHE__SERVICE__BUCKET_NAME=my-bkt\nAWS_ACCESS_KEY_ID=AKIA\n'
+        ud = Content_Proxy__User_Data__Builder().render(
+            Schema__Content_Proxy__Create__Request(), env_override=my_env,
+            fastapi_api_key='GENERATED')                                            # generated value must be ignored
+        assert 'FASTAPI_API_KEY_VALUE=fromfile' in ud                              # verbatim wins
+        assert 'GENERATED' not in ud
+        assert 'CACHE__SERVICE__BUCKET_NAME=my-bkt' in ud
+        assert 'AWS_ACCESS_KEY_ID=AKIA' in ud
+
     def test_embeds_interceptor_files(self):
         assert f'{APP_DIR}/interceptors/active.py' in self.ud
         assert 'Content-Proxy interceptor loaded'  in self.ud                       # active.py body embedded
