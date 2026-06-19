@@ -43,7 +43,8 @@ class test_Content_Proxy__Compose__Template(TestCase):
 
     def test_mitm_service_gets_aws_creds_passthrough(self):
         mitm_block = self.yaml.split('mitm-service:')[1].split('mitmproxy-int:')[0]
-        for var in ('AWS_ACCOUNT_ID', 'AWS_DEFAULT_REGION', 'AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY'):
+        for var in ('AWS_ACCOUNT_ID', 'AWS_DEFAULT_REGION', 'AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY',
+                    'CACHE__SERVICE__BUCKET_NAME'):
             assert f'- {var}\n' in mitm_block, var                                   # bare passthrough, no literal value
         assert 'AWS_SECRET_ACCESS_KEY=' not in mitm_block                           # never a baked value
 
