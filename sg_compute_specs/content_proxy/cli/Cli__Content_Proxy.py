@@ -28,10 +28,11 @@ from sg_compute_specs.content_proxy.service.Content_Proxy__Service              
 
 # ── committed local compose (the `docker compose up` target) ────────────────────
 import sg_compute_specs.content_proxy as _pkg
-COMPOSE_DIR  = Path(_pkg.__file__).parent / 'docker' / 'compose'
-COMPOSE_FILE = COMPOSE_DIR / 'docker-compose.yml'
-ENV_FILE     = COMPOSE_DIR / '.env'
-ENV_EXAMPLE  = COMPOSE_DIR / '.env.example'
+COMPOSE_DIR       = Path(_pkg.__file__).parent / 'docker' / 'compose'
+COMPOSE_FILE      = COMPOSE_DIR / 'docker-compose.yml'
+COMPOSE_FILE_CADDY = COMPOSE_DIR / 'docker-compose.caddy.yml'                        # dedicated-edge variant (PoC)
+ENV_FILE          = COMPOSE_DIR / '.env'
+ENV_EXAMPLE       = COMPOSE_DIR / '.env.example'
 
 
 def _set_extras(request, mode='direct_proxy', tls='none', proxy_tool='mitmdump',
@@ -126,9 +127,9 @@ def _ensure_env(c: Console) -> None:
     _ensure_overrides()                                                              # /pw entrypoint override (always refresh)
 
 
-def _compose(*args: str):
+def _compose(*args: str, compose_file: Path = None):
     return subprocess.run(['docker', 'compose', '--env-file', str(ENV_FILE),
-                           '-f', str(COMPOSE_FILE), *args])
+                           '-f', str(compose_file or COMPOSE_FILE), *args])
 
 
 # ── pure helpers (unit-tested) ──────────────────────────────────────────────────
@@ -164,19 +165,26 @@ def remote_smoke_command(url: str) -> str:                                      
 def local_up(detach: bool = typer.Option(True, '--detach/--attach', '-d',
                                          help='Run detached (default) or attached.'),
              pull  : bool = typer.Option(False, '--pull',
-                                         help='Pull the latest images first (up --pull always).')):
-    """Bring the 5-service stack up locally (mitmweb by default → TUI /flows)."""
+                                         help='Pull the latest images first (up --pull always).'),
+             edge  : str  = typer.Option('none', '--edge',
+                                         help='Front door: none (vault-as-edge) | caddy (dedicated edge, /pw routed, no vault patch).')):
+    """Bring the stack up locally (mitmweb by default → TUI /flows)."""
     c = Console(highlight=False)
     _ensure_env(c)
-    c.print(f'  [dim]docker compose up ({COMPOSE_FILE})[/]')
+    compose_file = COMPOSE_FILE_CADDY if edge == 'caddy' else COMPOSE_FILE
+    c.print(f'  [dim]docker compose up ({compose_file.name})[/]')
     up_args = ['up', '-d'] if detach else ['up']
     if pull:
         up_args += ['--pull', 'always']
-    rc = _compose(*up_args)
+    rc = _compose(*up_args, compose_file=compose_file)
     if rc.returncode == 0:
-        c.print('  [green]✓[/]  stack up. Try the /mitm-proxy smoke:')
-        c.print('     [cyan]curl -x http://localhost:8080 http://example.com/mitm-proxy[/]')
-        c.print('     vault front door: [cyan]https://localhost/[/]   (self-signed)')
+        c.print('  [green]✓[/]  stack up. /mitm-proxy smoke:  '
+                '[cyan]curl -x http://localhost:8080 http://example.com/mitm-proxy[/]')
+        if edge == 'caddy':
+            c.print('     edge:  [cyan]https://localhost/[/]  ·  [cyan]https://localhost/pw/[/]  '
+                    '[dim](Caddy internal CA → curl -k, or trust /data root)[/]')
+        else:
+            c.print('     vault front door: [cyan]https://localhost/[/]   (self-signed)')
     raise typer.Exit(rc.returncode)
 
 

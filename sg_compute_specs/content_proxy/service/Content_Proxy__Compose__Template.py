@@ -16,6 +16,7 @@
 
 from osbot_utils.type_safe.Type_Safe                                                import Type_Safe
 
+from sg_compute_specs.content_proxy.enums.Enum__Content_Proxy__Edge                   import Enum__Content_Proxy__Edge
 from sg_compute_specs.content_proxy.enums.Enum__Content_Proxy__Proxy__Tool           import Enum__Content_Proxy__Proxy__Tool
 from sg_compute_specs.content_proxy.enums.Enum__Content_Proxy__Tls                   import Enum__Content_Proxy__Tls
 
@@ -25,10 +26,11 @@ MITM_SERVICE_IMAGE = 'diniscruz/mgraph-ai-service-mitmproxy'
 PLAYWRIGHT_IMAGE   = 'diniscruz/sg-playwright'
 VAULT_APP_IMAGE    = 'diniscruz/sg-send-vault'
 CERT_INIT_IMAGE    = 'diniscruz/sg-host-control'                                    # carries sg_compute.platforms.tls.cert_init
+CADDY_IMAGE        = 'caddy:2.8'                                                    # dedicated front-door edge (PoC)
 
 PLACEHOLDERS = ('mitmproxy_image', 'mitm_service_image', 'playwright_image',
                 'int_command', 'ext_command', 'interceptors_mount',
-                'vault_block', 'cert_init_block', 'volumes_block')                  # locked by test
+                'vault_block', 'cert_init_block', 'edge_block', 'volumes_block')    # locked by test
 
 INTERCEPTORS_MOUNT__LOCAL = '../../interceptors'                                    # committed local compose sits in docker/compose/
 INTERCEPTORS_MOUNT__EC2   = './interceptors'                                        # EC2 user-data writes compose to /opt/content-proxy/
@@ -124,13 +126,59 @@ _CERT_INIT = """\
 
 _ACME_PORTS = '    ports:\n      - "80:80"\n'                                        # letsencrypt-ip http-01 challenge
 
+# Caddy-edge mode: vault is a plain origin (no TLS, no /pw override, no :443).
+# The edge owns :443 + /pw routing — this is what deletes the cross-spec patch.
+_VAULT_PLAIN = """\
+  vault-app:
+    image: {vault_app_image}
+    container_name: cp-vault-app
+    environment:
+      - FAST_API__AUTH__API_KEY__NAME=${FAST_API__AUTH__API_KEY__NAME:-X-API-Key}
+      - FAST_API__AUTH__API_KEY__VALUE=${FAST_API__AUTH__API_KEY__VALUE}
+      - SGRAPH_SEND__ACCESS_TOKEN=${SGRAPH_SEND__ACCESS_TOKEN}
+      - SEND__STORAGE_MODE=${SEND__STORAGE_MODE:-memory}
+    networks:
+      - cp-net
+    restart: unless-stopped
+    depends_on:
+      - sg-playwright
+"""
 
-def vault_block(vault_app_image: str, tls: Enum__Content_Proxy__Tls) -> str:
-    tpl = _VAULT_HTTP if tls == Enum__Content_Proxy__Tls.NONE else _VAULT_TLS
+_CADDY = """\
+
+  caddy:
+    image: {caddy_image}
+    container_name: cp-caddy
+    environment:
+      - SGRAPH_SEND__ACCESS_TOKEN=${SGRAPH_SEND__ACCESS_TOKEN}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    ports:
+      - "443:443"
+    networks:
+      - cp-net
+    restart: unless-stopped
+    depends_on:
+      - vault-app
+      - sg-playwright
+"""
+
+
+def vault_block(vault_app_image: str, tls: Enum__Content_Proxy__Tls,
+                edge: Enum__Content_Proxy__Edge = Enum__Content_Proxy__Edge.NONE) -> str:
+    if edge == Enum__Content_Proxy__Edge.CADDY:                                     # caddy fronts TLS + /pw → vault is plain
+        tpl = _VAULT_PLAIN
+    else:
+        tpl = _VAULT_HTTP if tls == Enum__Content_Proxy__Tls.NONE else _VAULT_TLS
     return tpl.replace('{vault_app_image}', str(vault_app_image))
 
 
-def cert_init_block(tls: Enum__Content_Proxy__Tls) -> str:
+def cert_init_block(tls: Enum__Content_Proxy__Tls,
+                    edge: Enum__Content_Proxy__Edge = Enum__Content_Proxy__Edge.NONE) -> str:
+    if edge == Enum__Content_Proxy__Edge.CADDY:                                     # the edge does TLS — no vault cert-init
+        return ''
     if tls == Enum__Content_Proxy__Tls.NONE:
         return ''
     mode  = _cert_init_mode(tls)
@@ -140,8 +188,20 @@ def cert_init_block(tls: Enum__Content_Proxy__Tls) -> str:
                       .replace('{acme_ports}', ports))
 
 
-def volumes_block(tls: Enum__Content_Proxy__Tls) -> str:
-    return '' if tls == Enum__Content_Proxy__Tls.NONE else '\nvolumes:\n  vault_certs:\n'
+def edge_block(edge: Enum__Content_Proxy__Edge) -> str:
+    if edge == Enum__Content_Proxy__Edge.CADDY:
+        return _CADDY.replace('{caddy_image}', CADDY_IMAGE)
+    return ''
+
+
+def volumes_block(tls: Enum__Content_Proxy__Tls,
+                  edge: Enum__Content_Proxy__Edge = Enum__Content_Proxy__Edge.NONE) -> str:
+    vols = []
+    if edge == Enum__Content_Proxy__Edge.CADDY:
+        vols += ['  caddy_data:', '  caddy_config:']
+    elif tls != Enum__Content_Proxy__Tls.NONE:
+        vols.append('  vault_certs:')
+    return '\nvolumes:\n' + '\n'.join(vols) + '\n' if vols else ''
 
 
 # `${{...}}` survives .format() as `${...}`. vault/cert/volumes blocks are injected verbatim.
@@ -215,7 +275,7 @@ services:
     depends_on:
       - mitmproxy-int
 
-{vault_block}{cert_init_block}
+{vault_block}{cert_init_block}{edge_block}
 networks:
   cp-net:
     driver: bridge
@@ -230,7 +290,8 @@ class Content_Proxy__Compose__Template(Type_Safe):
                      vault_app_image    : str = VAULT_APP_IMAGE    ,
                      proxy_tool         : Enum__Content_Proxy__Proxy__Tool = Enum__Content_Proxy__Proxy__Tool.MITMWEB,
                      interceptors_mount : str = INTERCEPTORS_MOUNT__LOCAL,
-                     tls                : Enum__Content_Proxy__Tls = Enum__Content_Proxy__Tls.NONE
+                     tls                : Enum__Content_Proxy__Tls = Enum__Content_Proxy__Tls.NONE,
+                     edge               : Enum__Content_Proxy__Edge = Enum__Content_Proxy__Edge.NONE
                ) -> str:
         return COMPOSE_TEMPLATE.format(mitmproxy_image    = str(mitmproxy_image)            ,
                                        mitm_service_image = str(mitm_service_image)         ,
@@ -238,6 +299,7 @@ class Content_Proxy__Compose__Template(Type_Safe):
                                        int_command        = proxy_command(proxy_tool, False),
                                        ext_command        = proxy_command(proxy_tool, True ),
                                        interceptors_mount = str(interceptors_mount)         ,
-                                       vault_block        = vault_block(vault_app_image, tls),
-                                       cert_init_block    = cert_init_block(tls)            ,
-                                       volumes_block      = volumes_block(tls)              )
+                                       vault_block        = vault_block(vault_app_image, tls, edge),
+                                       cert_init_block    = cert_init_block(tls, edge)      ,
+                                       edge_block         = edge_block(edge)               ,
+                                       volumes_block      = volumes_block(tls, edge)        )
