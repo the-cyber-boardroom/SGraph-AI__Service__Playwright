@@ -208,7 +208,7 @@ Cookie injection via the interceptor causes HTTP/2 body length corruption on hea
 1. **Revert the interceptor** to the original (no cookie injection)
 2. **Implement cookie injection browser-side** via JavaScript instead — cleaner, no mitmproxy response handling involved
 
-The `InvalidBodyLengthError` is also worth raising with the upstream proxy team (akeia) — it may be a bug in how their proxy sets `Content-Length` on compressed HTTP/2 responses.
+The `InvalidBodyLengthError` is also worth raising with the upstream proxy team — it may be a bug in how their proxy sets `Content-Length` on compressed HTTP/2 responses.
 
 ### Interceptor file after revert (original state)
 
