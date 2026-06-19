@@ -5,6 +5,7 @@
 # Mounted in sg_compute/cli/Cli__SG.py as `sg content-proxy` (alias `cp`).
 # ═══════════════════════════════════════════════════════════════════════════════
 
+import shlex
 import subprocess
 from pathlib       import Path
 from typing        import List, Optional
@@ -14,6 +15,7 @@ from rich.console  import Console
 
 from sg_compute.cli.base.Schema__Spec__CLI__Spec import Schema__Spec__CLI__Spec
 from sg_compute.cli.base.Spec__CLI__Builder      import Spec__CLI__Builder
+from sg_compute.cli.base.Spec__CLI__Defaults     import DEFAULT_REGION
 from sg_compute.cli.base.Spec__CLI__Errors       import spec_cli_errors
 
 from sg_compute_specs.content_proxy.enums.Enum__Content_Proxy__Mode        import Enum__Content_Proxy__Mode
@@ -129,6 +131,13 @@ def smoke_curl_args(url: str, user: str = '', password: str = '') -> List[str]: 
             '-w', '\n[http %{http_code}]\n', '-x', proxy, url]
 
 
+def remote_smoke_command(url: str) -> str:                                         # runs ON the EC2 box (SSM); reads creds from its .env
+    return ('set -a; . /opt/content-proxy/.env 2>/dev/null; set +a; '
+            "curl -sS --max-time 15 -w '\\n[http %{http_code}]\\n' "
+            '-x "http://$CONTENT_PROXY__PROXYAUTH_USER:$CONTENT_PROXY__PROXYAUTH_PASS@localhost:8080" '
+            + shlex.quote(url))
+
+
 @local_app.command(name='up')
 @spec_cli_errors
 def local_up(detach: bool = typer.Option(True, '--detach/--attach', '-d',
@@ -242,3 +251,33 @@ def local_smoke(url: str = typer.Option('http://example.com/mitm-proxy', '--url'
 
 
 app.add_typer(local_app, name='local')
+
+
+# ── remote smoke (EC2, over SSM — no SSH) ───────────────────────────────────────
+
+@app.command()
+@spec_cli_errors
+def smoke(name  : Optional[str] = typer.Argument(None,
+                  help='Stack name; auto-selected when only one exists.'),
+          region: str           = typer.Option(DEFAULT_REGION, '--region', '-r'),
+          url   : str           = typer.Option('http://example.com/mitm-proxy', '--url',
+                  help='Target whose /mitm-proxy path proves the chain (host irrelevant — always processed).')):
+    """Run the /mitm-proxy chain check ON the EC2 box via SSM (no SSH).
+
+    Reads the proxyauth creds from the box's /opt/content-proxy/.env and curls
+    through mitmproxy-ext → FastAPI. A 2xx/3xx + MITM-UI markup means the whole
+    chain works on the instance.
+    """
+    c    = Console(highlight=False)
+    svc  = Content_Proxy__Service().setup()
+    name = Spec__CLI__Builder(_cli_spec).resolver.resolve(svc, name, region, 'content_proxy')
+    c.print(f'  [dim]ssm exec on {name} → curl …/mitm-proxy via mitmproxy-ext[/]')
+    result = svc.exec(region, name, remote_smoke_command(url), timeout_sec=60)
+    out = str(getattr(result, 'stdout', '') or '')
+    c.print(out)
+    ok = ('[http 2' in out or '[http 3' in out) and 'mitm-proxy' in out.lower()
+    if ok:
+        c.print('  [green]✓[/]  chain OK on the instance (mitmproxy → interceptor → FastAPI).')
+    else:
+        c.print('  [yellow]⚠[/]  no MITM-UI redirect seen — check [cyan]sg content-proxy exec <name> '
+                'docker ps[/] and [cyan]… logs[/] (mitm-service up? scripts bucket reachable?).')
