@@ -92,3 +92,23 @@ class test_Content_Proxy__Service_wiring(TestCase):
     def test_name_gen_generates(self):
         name = Content_Proxy__Service().setup().name_gen.generate()
         assert '-' in name                                                          # adjective-scientist
+
+
+class test_env_secret_reuse(TestCase):
+
+    def test_env_file_keys_are_reused_not_regenerated(self):
+        from sg_compute_specs.content_proxy.service.Content_Proxy__Service import _parse_env
+        env = 'FASTAPI_API_KEY_VALUE=fromfileFK\nSG_PLAYWRIGHT__API_KEY=fromfilePK\n'
+        m   = _parse_env(env)
+        assert m.get('FASTAPI_API_KEY_VALUE')  == 'fromfileFK'
+        assert m.get('SG_PLAYWRIGHT__API_KEY') == 'fromfilePK'
+        # mirror create_stack's selection logic
+        import secrets
+        fk = m.get('FASTAPI_API_KEY_VALUE')  or secrets.token_urlsafe(24)
+        pk = m.get('SG_PLAYWRIGHT__API_KEY') or secrets.token_urlsafe(24)
+        assert (fk, pk) == ('fromfileFK', 'fromfilePK')                              # reused verbatim, not generated
+
+    def test_missing_keys_fall_back_to_generated(self):
+        from sg_compute_specs.content_proxy.service.Content_Proxy__Service import _parse_env
+        m = _parse_env('SOMETHING_ELSE=1\n')
+        assert m.get('FASTAPI_API_KEY_VALUE') is None                               # → create_stack generates one

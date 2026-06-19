@@ -47,3 +47,11 @@ class test_render_create(TestCase):
         out  = _cap(render_create, resp)
         assert 'cp-demo' in out and 'Launching' in out
         assert 'FK' in out and 'PK' in out                                          # secrets shown once
+        assert 'generated secrets' in out                                           # generated (no env-file)
+
+    def test_create_labels_env_file_secrets(self):
+        info = Schema__Content_Proxy__Stack__Info(stack_name='cp-demo')
+        resp = Schema__Content_Proxy__Create__Response(stack_info=info, fastapi_api_key='FK',
+                                                      playwright_api_key='PK', secrets_from_env=True)
+        out  = _cap(render_create, resp)
+        assert 'from --env-file' in out and 'generated secrets' not in out          # reused, not generated

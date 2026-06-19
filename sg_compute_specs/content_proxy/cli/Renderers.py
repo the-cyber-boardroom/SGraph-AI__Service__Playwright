@@ -63,10 +63,13 @@ def render_create(response, console: Console) -> None:
     console.print()
     console.print(f'  instance-id : [dim]{instance_id}[/]')
     console.print(f'  submitted in: {elapsed / 1000:.1f}s')
+    from_env = bool(getattr(response, 'secrets_from_env', False))
     if fastapi_key or pw_key:                                                       # surfaced ONCE — not recoverable later
+        title = ('[bold]stack secrets[/]  [dim](from --env-file)[/]' if from_env
+                 else '[bold]generated secrets[/]  [dim](shown once)[/]')
         console.print()
         console.print(Panel('\n'.join([
-            '[bold]generated secrets[/]  [dim](shown once)[/]',
+            title,
             f'  FASTAPI_API_KEY_VALUE  {fastapi_key}',
             f'  SG_PLAYWRIGHT__API_KEY {pw_key}',
         ]), border_style='yellow', expand=False))
