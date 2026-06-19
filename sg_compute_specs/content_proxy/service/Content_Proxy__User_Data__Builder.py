@@ -101,11 +101,15 @@ class Content_Proxy__User_Data__Builder(Type_Safe):
         return SHUTDOWN_DISABLED
 
     def _ca_block(self, request) -> str:
+        pem = str(getattr(request, 'proxy_ca_pem', '') or '')
+        if pem:                                                                      # ship the (already-trusted) CA so the EC2 proxy reuses it
+            return ('echo "[content-proxy] installing supplied proxy CA"\n'
+                    f"cat > {APP_DIR}/certs/mitmproxy-ca.pem <<'CP_CA_EOF'\n{pem}\nCP_CA_EOF\n"
+                    f'chmod 644 {APP_DIR}/certs/mitmproxy-ca.pem')
         cert = str(getattr(request, 'proxy_ca_cert', '') or '')
-        if not cert:
-            return '# no proxy CA supplied — mitmproxy will self-generate one'
-        return (f'echo "[content-proxy] proxy CA supplied at {cert}; '
-                f'copy it into {APP_DIR}/certs before first boot"')
+        if cert:
+            return f'# proxy CA path {cert} supplied — copy into {APP_DIR}/certs before boot'
+        return '# no proxy CA supplied — mitmproxy will self-generate one'
 
     def render(self, request, fastapi_api_key: str = '', playwright_api_key: str = '',
                region: str = '', aws_creds: dict = None, env_override: str = '') -> str:
