@@ -8,6 +8,7 @@
 import shlex
 import subprocess
 import threading
+import uuid
 from pathlib       import Path
 from typing        import List, Optional
 
@@ -183,7 +184,12 @@ def _ensure_env(c: Console) -> None:
                 for k, v in missing:
                     fh.write(f'{k}={v}\n')
             c.print(f'  [yellow]⚠[/]  appended {len(missing)} missing key(s) to {ENV_FILE.name}: '
-                    f'[dim]{", ".join(k for k, _ in missing)}[/] — set real values before any real use')
+                    f'[dim]{", ".join(k for k, _ in missing)}[/]')
+    updates = realize_secrets(read_env_file(ENV_FILE))                               # placeholder/blank secrets → real GUIDs (mitm-service rejects 'change-me')
+    if updates:
+        apply_env_updates(ENV_FILE, updates)
+        c.print(f'  [green]✓[/]  generated GUIDs for {len(updates)} secret(s) in {ENV_FILE.name}: '
+                f'[dim]{", ".join(sorted(updates))}[/]')
     if not CERTS_DIR.exists():                                                       # mitmproxy self-generates its CA here (rw mount)
         CERTS_DIR.mkdir(parents=True, exist_ok=True)
         CERTS_DIR.chmod(0o777)                                                       # container user (uid 1000) must be able to write
@@ -193,6 +199,47 @@ def _ensure_env(c: Console) -> None:
 def _compose(*args: str, compose_file: Path = None):
     return subprocess.run(['docker', 'compose', '--env-file', str(ENV_FILE),
                            '-f', str(compose_file or COMPOSE_FILE), *args])
+
+
+# ── secret realization (the mitm-service rejects placeholders — keys must be GUIDs) ─
+PLACEHOLDER_VALUE = 'change-me'
+GUID_SECRET_KEYS  = ('FASTAPI_API_KEY_VALUE', 'CONTENT_PROXY__PROXYAUTH_PASS')      # standalone secrets → own GUID each
+ACCESS_TOKEN_KEYS = ('FAST_API__AUTH__API_KEY__VALUE', 'SGRAPH_SEND__ACCESS_TOKEN')  # ONE access token in two vars — must be identical
+
+
+def _needs_value(v: str) -> bool:                                                  # blank or the shipped placeholder ⇒ generate
+    return (v or '').strip() in ('', PLACEHOLDER_VALUE)
+
+
+def realize_secrets(env: dict) -> dict:                                            # → {key: new_value} for keys that must change
+    updates = {}
+    real_token = next((env[k] for k in ACCESS_TOKEN_KEYS if not _needs_value(env.get(k, ''))), '')
+    if any(_needs_value(env.get(k, '')) for k in ACCESS_TOKEN_KEYS):               # keep the pair coupled to one GUID
+        token = real_token or str(uuid.uuid4())
+        for k in ACCESS_TOKEN_KEYS:
+            if env.get(k, '') != token:
+                updates[k] = token
+    for k in GUID_SECRET_KEYS:                                                     # mitm-service requires a real GUID, not 'change-me'
+        if _needs_value(env.get(k, '')):
+            updates[k] = str(uuid.uuid4())
+    return updates
+
+
+def apply_env_updates(path: Path, updates: dict) -> None:                          # rewrite KEY= lines in place; append any missing
+    if not updates:
+        return
+    lines, seen, out = path.read_text().splitlines(), set(), []
+    for line in lines:
+        s = line.strip()
+        if s and not s.startswith('#') and '=' in s:
+            k = s.split('=', 1)[0].strip()
+            if k in updates:
+                out.append(f'{k}={updates[k]}')
+                seen.add(k)
+                continue
+        out.append(line)
+    out += [f'{k}={v}' for k, v in updates.items() if k not in seen]
+    path.write_text('\n'.join(out) + '\n')
 
 
 # ── pure helpers (unit-tested) ──────────────────────────────────────────────────

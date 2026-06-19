@@ -7,8 +7,8 @@
 
 import math
 import os
-import secrets
 import time
+import uuid
 
 from typing                                                                         import Optional
 
@@ -172,10 +172,10 @@ class Content_Proxy__Service(Spec__Service__Base):
                                                          inbound_ports=inbound, extra_cidrs=extra_cidrs)
         # app secrets: reuse what a supplied --env-file already defines; generate only if absent
         env_map       = _parse_env(str(request.env_inline))
-        fastapi_key   = env_map.get('FASTAPI_API_KEY_VALUE') or secrets.token_urlsafe(24)         # interceptor ↔ mitm-service
+        fastapi_key   = env_map.get('FASTAPI_API_KEY_VALUE') or str(uuid.uuid4())                 # interceptor ↔ mitm-service (mitm-service requires a GUID)
         access_token  = (env_map.get('FAST_API__AUTH__API_KEY__VALUE')                            # the access token (sg va model):
                          or env_map.get('SGRAPH_SEND__ACCESS_TOKEN')                              # vault key + sg-playwright key (/pw)
-                         or secrets.token_urlsafe(24))                                            # + set-cookie token
+                         or str(uuid.uuid4()))                                                    # + set-cookie token
         keys_from_env = bool(env_map.get('FAST_API__AUTH__API_KEY__VALUE')
                              or env_map.get('SGRAPH_SEND__ACCESS_TOKEN')
                              or env_map.get('FASTAPI_API_KEY_VALUE'))

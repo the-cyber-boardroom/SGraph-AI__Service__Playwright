@@ -15,6 +15,7 @@ import tempfile
 
 from sg_compute_specs.content_proxy.cli.Cli__Content_Proxy import (app, read_env_file, smoke_curl_args,
                                                                   remote_smoke_command, auth_help_lines,
+                                                                  realize_secrets, apply_env_updates,
                                                                   Content_Proxy__Service)
 
 
@@ -78,6 +79,36 @@ class test_local_helpers(TestCase):
     def test_auth_help_lines_flag_placeholder_token(self):
         lines = '\n'.join(auth_help_lines('https://localhost', 'change-me'))
         assert 'placeholder' in lines                                                # nudge to set a real value
+
+    def test_realize_secrets_generates_guids_for_placeholders(self):
+        env = {'FASTAPI_API_KEY_VALUE': 'change-me', 'CONTENT_PROXY__PROXYAUTH_PASS': '',
+               'FAST_API__AUTH__API_KEY__VALUE': 'change-me', 'SGRAPH_SEND__ACCESS_TOKEN': 'change-me'}
+        up  = realize_secrets(env)
+        assert len(up['FASTAPI_API_KEY_VALUE']) == 36                                 # a uuid4 GUID
+        assert up['FASTAPI_API_KEY_VALUE'] != 'change-me'
+        assert up['FAST_API__AUTH__API_KEY__VALUE'] == up['SGRAPH_SEND__ACCESS_TOKEN']  # one access token, two vars
+        assert up['CONTENT_PROXY__PROXYAUTH_PASS']                                    # generated too
+
+    def test_realize_secrets_leaves_real_values_untouched(self):
+        env = {'FASTAPI_API_KEY_VALUE': 'already-a-real-guid', 'CONTENT_PROXY__PROXYAUTH_PASS': 'sekret',
+               'FAST_API__AUTH__API_KEY__VALUE': 'tok', 'SGRAPH_SEND__ACCESS_TOKEN': 'tok'}
+        assert realize_secrets(env) == {}                                            # nothing to do
+
+    def test_realize_secrets_aligns_access_token_pair(self):
+        env = {'FAST_API__AUTH__API_KEY__VALUE': 'realtok', 'SGRAPH_SEND__ACCESS_TOKEN': 'change-me'}
+        up  = realize_secrets(env)
+        assert up['SGRAPH_SEND__ACCESS_TOKEN'] == 'realtok'                           # placeholder aligned to the real one, not regenerated
+
+    def test_apply_env_updates_rewrites_and_appends(self):
+        with tempfile.TemporaryDirectory() as d:
+            p = Path(d) / '.env'
+            p.write_text('# header\nFASTAPI_API_KEY_VALUE=change-me\nOTHER=keep\n')
+            apply_env_updates(p, {'FASTAPI_API_KEY_VALUE': 'GUID-1', 'NEWKEY': 'v'})
+            env = read_env_file(p)
+            assert env['FASTAPI_API_KEY_VALUE'] == 'GUID-1'                           # rewritten in place
+            assert env['OTHER'] == 'keep'                                            # untouched
+            assert env['NEWKEY'] == 'v'                                              # appended
+            assert '# header' in p.read_text()                                       # comments preserved
 
     def test_smoke_curl_args_no_auth(self):
         args = smoke_curl_args('http://h/mitm-proxy')
