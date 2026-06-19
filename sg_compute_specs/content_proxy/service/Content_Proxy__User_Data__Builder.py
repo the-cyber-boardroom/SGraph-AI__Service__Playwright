@@ -16,10 +16,12 @@ from osbot_utils.type_safe.Type_Safe                                            
 import sg_compute_specs.content_proxy.interceptors                                   as interceptors_pkg
 from sg_compute_specs.content_proxy.service.Content_Proxy__Compose__Template         import (Content_Proxy__Compose__Template,
                                                                                              INTERCEPTORS_MOUNT__EC2)
+from sg_compute_specs.vault_app.service.Vault_App__Reverse_Proxy__Override           import Vault_App__Reverse_Proxy__Override
 
 
-APP_DIR  = '/opt/content-proxy'
-LOG_FILE = '/var/log/sg-content-proxy-boot.log'
+APP_DIR       = '/opt/content-proxy'
+OVERRIDES_DIR = '/opt/content-proxy/overrides'                                       # /pw runtime injection (same sg-send-vault image as sg va)
+LOG_FILE      = '/var/log/sg-content-proxy-boot.log'
 
 TEMPLATE = '''\
 #!/usr/bin/env bash
@@ -56,6 +58,8 @@ CP_LOGIC_EOF
 
 {ca_block}
 
+{overrides_block}
+
 cd {app_dir}
 docker compose --env-file {app_dir}/.env up -d
 
@@ -67,17 +71,17 @@ SHUTDOWN_TEMPLATE = 'shutdown -h +{minutes}  # auto-terminate after {hours}h'
 SHUTDOWN_DISABLED = '# max_hours=0 — no auto-terminate'
 
 PLACEHOLDERS = ('log_file', 'app_dir', 'env_body', 'compose_body',
-                'active_body', 'logic_body', 'ca_block', 'shutdown_line')           # locked by test
+                'active_body', 'logic_body', 'ca_block', 'overrides_block', 'shutdown_line')   # locked by test
 
 
 class Content_Proxy__User_Data__Builder(Type_Safe):
 
-    def render_env(self, request, fastapi_api_key: str = '', playwright_api_key: str = '',
+    def render_env(self, request, fastapi_api_key: str = '', send_access_token: str = '',
                    region: str = '', aws_creds: dict = None) -> str:
         lines = [
             'FASTAPI_API_KEY_NAME=x-api-key',
             f'FASTAPI_API_KEY_VALUE={fastapi_api_key}',                              # generated per-stack; interceptor ↔ mitm-service
-            f'SG_PLAYWRIGHT__API_KEY={playwright_api_key}',                          # generated per-stack; sg-playwright X-API-Key
+            f'SGRAPH_SEND__ACCESS_TOKEN={send_access_token}',                        # shared: vault auth + sg-playwright X-API-Key (via /pw)
             f'CONTENT_PROXY__PROXYAUTH_USER={str(request.proxyauth_user)}',
             f'CONTENT_PROXY__PROXYAUTH_PASS={str(request.proxyauth_pass)}',
             f'CONTENT_PROXY__CA_DIR={APP_DIR}/certs',
@@ -111,11 +115,11 @@ class Content_Proxy__User_Data__Builder(Type_Safe):
             return f'# proxy CA path {cert} supplied — copy into {APP_DIR}/certs before boot'
         return '# no proxy CA supplied — mitmproxy will self-generate one'
 
-    def render(self, request, fastapi_api_key: str = '', playwright_api_key: str = '',
+    def render(self, request, fastapi_api_key: str = '', send_access_token: str = '',
                region: str = '', aws_creds: dict = None, env_override: str = '') -> str:
         # MVP: if the operator supplied a full .env, ship it verbatim; else build one.
         env_body = env_override if env_override else self.render_env(
-            request, fastapi_api_key, playwright_api_key, region, aws_creds)
+            request, fastapi_api_key, send_access_token, region, aws_creds)
         compose = Content_Proxy__Compose__Template().render(
             mitmproxy_image    = str(request.mitmproxy_image)   ,
             mitm_service_image = str(request.mitm_service_image),
@@ -131,4 +135,5 @@ class Content_Proxy__User_Data__Builder(Type_Safe):
                                active_body   = self._interceptor_body('active.py')       ,
                                logic_body    = self._interceptor_body('Content_Proxy__Interceptor__Logic.py'),
                                ca_block      = self._ca_block(request)                   ,
+                               overrides_block = Vault_App__Reverse_Proxy__Override().render_write_block(OVERRIDES_DIR),
                                shutdown_line = self._shutdown_line(float(request.max_hours)))

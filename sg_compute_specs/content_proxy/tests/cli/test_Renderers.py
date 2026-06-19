@@ -43,7 +43,7 @@ class test_render_create(TestCase):
     def test_create_surfaces_generated_secrets_once(self):
         info = Schema__Content_Proxy__Stack__Info(stack_name='cp-demo', instance_id='i-0123456789abcdef0')
         resp = Schema__Content_Proxy__Create__Response(stack_info=info, fastapi_api_key='FK',
-                                                      playwright_api_key='PK', elapsed_ms=3200)
+                                                      send_access_token='PK', elapsed_ms=3200)
         out  = _cap(render_create, resp)
         assert 'cp-demo' in out and 'Launching' in out
         assert 'FK' in out and 'PK' in out                                          # secrets shown once
@@ -52,6 +52,6 @@ class test_render_create(TestCase):
     def test_create_labels_env_file_secrets(self):
         info = Schema__Content_Proxy__Stack__Info(stack_name='cp-demo')
         resp = Schema__Content_Proxy__Create__Response(stack_info=info, fastapi_api_key='FK',
-                                                      playwright_api_key='PK', secrets_from_env=True)
+                                                      send_access_token='PK', secrets_from_env=True)
         out  = _cap(render_create, resp)
         assert 'from --env-file' in out and 'generated secrets' not in out          # reused, not generated

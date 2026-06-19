@@ -13,6 +13,7 @@ import time
 from typing                                                                         import Optional
 
 from sg_compute.cli.base.Schema__Spec__CLI__Spec                                    import Schema__Spec__CLI__Spec
+from sg_compute.cli.base.schemas.Schema__CLI__Health__Probe                         import Schema__CLI__Health__Probe
 from sg_compute.core.spec.Spec__Service__Base                                       import Spec__Service__Base
 from sg_compute.platforms.ec2.networking.Caller__IP__Detector                       import Caller__IP__Detector
 from sg_compute.platforms.ec2.networking.Stack__Name__Generator                     import Stack__Name__Generator
@@ -46,13 +47,35 @@ VAULT_PORT            = 443                                                     
 ACME_PORT             = 80                                                          # cert-init http-01 (letsencrypt-ip only)
 
 
+def sg_rules(tls):                                                                  # → (inbound_ports[caller /32], extra_cidrs{port: cidr})
+    inbound = [EXT_PROXY_PORT, VAULT_PORT]                                          # proxy + vault open to the caller only
+    extra   = {}
+    if tls == Enum__Content_Proxy__Tls.LETSENCRYPT:                                 # ACME http-01 is validated by LE's servers, not the caller
+        extra[ACME_PORT] = '0.0.0.0/0'
+    return inbound, extra
+
+
+def localhost_probe_command(https: bool) -> str:                                   # curl the vault on the box (SSM) — no SG/IP/cert deps
+    url  = 'https://localhost/' if https else 'http://localhost:443/'
+    flag = '-k ' if https else ''
+    return f"curl -s {flag}-o /dev/null --max-time 5 -w '%{{http_code}}' {url}"
+
+
+def parse_http_code(stdout: str) -> int:                                            # SSM stdout → numeric http code (0 = no response)
+    digits = ''.join(ch for ch in str(stdout or '') if ch.isdigit())
+    return int(digits[:3]) if digits else 0
+
+
+def is_healthy_code(code: int) -> bool:                                             # vault answered (any non-5xx) ⇒ stack serving
+    return 100 <= code < 500
+
+
 class Content_Proxy__Service(Spec__Service__Base):
     aws_client        : Optional[Content_Proxy__AWS__Client]      = None
     mapper            : Optional[Content_Proxy__Stack__Mapper]    = None
     ip_detector       : Optional[Caller__IP__Detector]           = None
     name_gen          : Optional[Stack__Name__Generator]         = None
     user_data_builder : Optional[Content_Proxy__User_Data__Builder] = None
-    probe_scheme      : str = 'http'                                                # set by health() per the stack's tls
 
     def setup(self) -> 'Content_Proxy__Service':
         self.aws_client        = Content_Proxy__AWS__Client().setup()
@@ -69,14 +92,45 @@ class Content_Proxy__Service(Spec__Service__Base):
             default_instance_type = DEFAULT_INSTANCE_TYPE                     ,
             create_request_cls    = Schema__Content_Proxy__Create__Request   ,
             service_factory       = lambda: Content_Proxy__Service().setup() ,
-            health_path           = '/'                                      ,   # vault-app front door responds <500 → healthy
+            health_path           = '/'                                      ,
             health_port           = VAULT_PORT                               ,
-            health_scheme         = self.probe_scheme                        )   # http for NONE; https for TLS stacks (set by health())
+            health_scheme         = 'http'                                   )   # unused: health() probes via SSM on the box (below)
 
     def health(self, region: str, name: str, timeout_sec: int = 0, poll_sec: int = 10):
-        info = self.get_stack_info(region, name)                                    # pick scheme from the stack's tls tag
-        self.probe_scheme = 'https' if (info is not None and info.tls != Enum__Content_Proxy__Tls.NONE) else 'http'
-        return super().health(region, name, timeout_sec=timeout_sec, poll_sec=poll_sec)
+        # Probe the vault ON THE BOX via SSM (localhost) — robust vs SG/IP and self-signed TLS.
+        t0       = time.monotonic()
+        probe    = Schema__CLI__Health__Probe()
+        deadline = time.monotonic() + max(timeout_sec, 0)
+        while True:
+            try:
+                info = self.get_stack_info(region, name)
+                if info is None:
+                    probe.state, probe.last_error = 'missing', f'no stack matched {name!r}'
+                else:
+                    instance_id = str(getattr(info, 'instance_id', '') or '')
+                    state       = info.state.value if hasattr(info.state, 'value') else str(info.state or '')
+                    if not instance_id:
+                        probe.state, probe.last_error = state or 'pending', 'no instance id yet'
+                    else:
+                        https = getattr(info, 'tls', None) not in (None, Enum__Content_Proxy__Tls.NONE)
+                        cmd   = localhost_probe_command(https)
+                        try:
+                            stdout, _ = self.aws_client.instance.run_command(region, instance_id, cmd, timeout_sec=20)
+                            code = parse_http_code(stdout)
+                            if is_healthy_code(code):
+                                probe.healthy, probe.state, probe.last_error = True, 'running', ''
+                                break
+                            probe.state     = state or 'starting'
+                            probe.last_error = f'vault http {code or "no-response"} (via ssm)'
+                        except Exception as exc:                                    # SSM/agent not ready yet → keep polling
+                            probe.state, probe.last_error = state or 'starting', str(exc)[:200]
+            except Exception as exc:
+                probe.last_error = str(exc)[:200]
+            if time.monotonic() >= deadline:
+                break
+            time.sleep(poll_sec)
+        probe.elapsed_ms = int((time.monotonic() - t0) * 1000)
+        return probe
 
     def create_stack(self, request: Schema__Content_Proxy__Create__Request,
                            creator: str = '') -> Schema__Content_Proxy__Create__Response:
@@ -88,19 +142,17 @@ class Content_Proxy__Service(Spec__Service__Base):
         itype      = str(request.instance_type) or DEFAULT_INSTANCE_TYPE
         request.stack_name = stack_name                                             # so user-data / tags see the resolved name
 
-        inbound = [EXT_PROXY_PORT, VAULT_PORT]
-        if request.tls == Enum__Content_Proxy__Tls.LETSENCRYPT:
-            inbound.append(ACME_PORT)                                               # cert-init http-01 challenge needs :80
+        inbound, extra_cidrs = sg_rules(request.tls)
         sg_id = self.aws_client.sg.ensure_security_group(region, stack_name, caller_ip,
-                                                         inbound_ports=inbound)
+                                                         inbound_ports=inbound, extra_cidrs=extra_cidrs)
         tags  = self.aws_client.tags.build(stack_name, caller_ip, creator,
                                            extra_tags={TAG_MODE: request.mode.value,
                                                        TAG_TLS : request.tls.value })
         # app secrets: reuse what a supplied --env-file already defines; generate only if absent
-        env_map        = _parse_env(str(request.env_inline))
-        fastapi_key    = env_map.get('FASTAPI_API_KEY_VALUE')  or secrets.token_urlsafe(24)
-        playwright_key = env_map.get('SG_PLAYWRIGHT__API_KEY') or secrets.token_urlsafe(24)
-        keys_from_env  = bool(env_map.get('FASTAPI_API_KEY_VALUE') or env_map.get('SG_PLAYWRIGHT__API_KEY'))
+        env_map       = _parse_env(str(request.env_inline))
+        fastapi_key   = env_map.get('FASTAPI_API_KEY_VALUE')    or secrets.token_urlsafe(24)
+        send_token    = env_map.get('SGRAPH_SEND__ACCESS_TOKEN') or secrets.token_urlsafe(24)   # vault auth + playwright key (/pw)
+        keys_from_env = bool(env_map.get('FASTAPI_API_KEY_VALUE') or env_map.get('SGRAPH_SEND__ACCESS_TOKEN'))
         aws_creds = {}
         if bool(request.forward_aws_creds):                                          # parity path — bake operator creds; else instance role
             for k in ('AWS_ACCOUNT_ID', 'AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY'):
@@ -109,7 +161,7 @@ class Content_Proxy__Service(Spec__Service__Base):
                     aws_creds[k] = v
         user_data = self.user_data_builder.render(request,
                                                   fastapi_api_key    = fastapi_key        ,
-                                                  playwright_api_key = playwright_key     ,
+                                                  send_access_token  = send_token         ,
                                                   region             = region             ,
                                                   aws_creds          = aws_creds          ,
                                                   env_override       = str(request.env_inline))
@@ -134,7 +186,7 @@ class Content_Proxy__Service(Spec__Service__Base):
         return Schema__Content_Proxy__Create__Response(
             stack_info         = info                                        ,
             fastapi_api_key    = fastapi_key                                 ,
-            playwright_api_key = playwright_key                              ,
+            send_access_token  = send_token                                  ,
             secrets_from_env   = keys_from_env                              ,
             message    = f'Instance {iid} launching ({STACK_TYPE}, {request.proxy_tool.value}, S3 via {creds_path})',
             elapsed_ms = int((time.monotonic() - t0) * 1000)                 )

@@ -34,10 +34,10 @@ class test_Content_Proxy__User_Data__Builder(TestCase):
     def test_generated_app_keys_and_region_in_env(self):
         ud = Content_Proxy__User_Data__Builder().render(
             Schema__Content_Proxy__Create__Request(scripts_bucket='my-scripts'),
-            fastapi_api_key='FK123', playwright_api_key='PK456', region='eu-west-2',
+            fastapi_api_key='FK123', send_access_token='PK456', region='eu-west-2',
             aws_creds={'AWS_ACCESS_KEY_ID': 'AKIA', 'AWS_SECRET_ACCESS_KEY': 'sk'})
-        assert 'FASTAPI_API_KEY_VALUE=FK123'        in ud
-        assert 'SG_PLAYWRIGHT__API_KEY=PK456'       in ud
+        assert 'FASTAPI_API_KEY_VALUE=FK123'         in ud
+        assert 'SGRAPH_SEND__ACCESS_TOKEN=PK456'     in ud
         assert 'AWS_DEFAULT_REGION=eu-west-2'       in ud
         assert 'CACHE__SERVICE__BUCKET_NAME=my-scripts' in ud
         assert 'AWS_ACCESS_KEY_ID=AKIA'             in ud                            # forwarded creds (parity path)
@@ -97,6 +97,11 @@ class test_Content_Proxy__User_Data__Builder(TestCase):
         assert 'load-vaults' not in self.ud
         assert 'sgit clone'  not in self.ud
 
+    def test_writes_pw_override(self):
+        assert '/opt/content-proxy/overrides/serve_with_proxy.py'        in self.ud   # /pw entrypoint override written
+        assert '/opt/content-proxy/overrides/Fast_API__Reverse_Proxy.py' in self.ud
+        assert 'sg_overrides' in self.ud
+
     def test_placeholders_locked(self):
         assert PLACEHOLDERS == ('log_file', 'app_dir', 'env_body', 'compose_body',
-                                'active_body', 'logic_body', 'ca_block', 'shutdown_line')
+                                'active_body', 'logic_body', 'ca_block', 'overrides_block', 'shutdown_line')

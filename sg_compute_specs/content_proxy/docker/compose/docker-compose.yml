@@ -72,7 +72,7 @@ services:
       - SG_PLAYWRIGHT__DEFAULT_PROXY_URL=http://mitmproxy-int:8080
       - IGNORE_HTTPS_ERRORS=true
       - FAST_API__AUTH__API_KEY__NAME=X-API-Key
-      - FAST_API__AUTH__API_KEY__VALUE=${SG_PLAYWRIGHT__API_KEY}
+      - FAST_API__AUTH__API_KEY__VALUE=${SGRAPH_SEND__ACCESS_TOKEN}
     networks:
       - cp-net
     restart: unless-stopped
@@ -82,9 +82,13 @@ services:
   vault-app:
     image: diniscruz/sg-send-vault
     container_name: cp-vault-app
+    command: ["python", "-m", "sg_overrides.serve_with_proxy"]
     environment:
       - FAST_API__REVERSE_PROXY__ROUTES=pw=http://sg-playwright:8000
+      - SGRAPH_SEND__ACCESS_TOKEN=${SGRAPH_SEND__ACCESS_TOKEN}
       - SEND__STORAGE_MODE=${SEND__STORAGE_MODE:-memory}
+    volumes:
+      - ./overrides:/app/sg_overrides:ro
     ports:
       - "443:8080"
     networks:

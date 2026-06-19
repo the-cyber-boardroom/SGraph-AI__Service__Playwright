@@ -98,17 +98,54 @@ class test_env_secret_reuse(TestCase):
 
     def test_env_file_keys_are_reused_not_regenerated(self):
         from sg_compute_specs.content_proxy.service.Content_Proxy__Service import _parse_env
-        env = 'FASTAPI_API_KEY_VALUE=fromfileFK\nSG_PLAYWRIGHT__API_KEY=fromfilePK\n'
+        env = 'FASTAPI_API_KEY_VALUE=fromfileFK\nSGRAPH_SEND__ACCESS_TOKEN=fromfileTOK\n'
         m   = _parse_env(env)
-        assert m.get('FASTAPI_API_KEY_VALUE')  == 'fromfileFK'
-        assert m.get('SG_PLAYWRIGHT__API_KEY') == 'fromfilePK'
+        assert m.get('FASTAPI_API_KEY_VALUE')    == 'fromfileFK'
+        assert m.get('SGRAPH_SEND__ACCESS_TOKEN') == 'fromfileTOK'
         # mirror create_stack's selection logic
         import secrets
-        fk = m.get('FASTAPI_API_KEY_VALUE')  or secrets.token_urlsafe(24)
-        pk = m.get('SG_PLAYWRIGHT__API_KEY') or secrets.token_urlsafe(24)
-        assert (fk, pk) == ('fromfileFK', 'fromfilePK')                              # reused verbatim, not generated
+        fk  = m.get('FASTAPI_API_KEY_VALUE')     or secrets.token_urlsafe(24)
+        tok = m.get('SGRAPH_SEND__ACCESS_TOKEN') or secrets.token_urlsafe(24)
+        assert (fk, tok) == ('fromfileFK', 'fromfileTOK')                           # reused verbatim, not generated
 
     def test_missing_keys_fall_back_to_generated(self):
         from sg_compute_specs.content_proxy.service.Content_Proxy__Service import _parse_env
         m = _parse_env('SOMETHING_ELSE=1\n')
         assert m.get('FASTAPI_API_KEY_VALUE') is None                               # → create_stack generates one
+
+
+class test_sg_rules(TestCase):
+
+    def test_none_and_self_signed_open_only_caller(self):
+        from sg_compute_specs.content_proxy.service.Content_Proxy__Service import sg_rules
+        from sg_compute_specs.content_proxy.enums.Enum__Content_Proxy__Tls import Enum__Content_Proxy__Tls
+        for tls in (Enum__Content_Proxy__Tls.NONE, Enum__Content_Proxy__Tls.SELF_SIGNED):
+            inbound, extra = sg_rules(tls)
+            assert inbound == [8080, 443]
+            assert extra == {}                                                       # no world-open ports
+
+    def test_letsencrypt_opens_80_to_world(self):
+        from sg_compute_specs.content_proxy.service.Content_Proxy__Service import sg_rules
+        from sg_compute_specs.content_proxy.enums.Enum__Content_Proxy__Tls import Enum__Content_Proxy__Tls
+        inbound, extra = sg_rules(Enum__Content_Proxy__Tls.LETSENCRYPT)
+        assert inbound == [8080, 443]
+        assert extra == {80: '0.0.0.0/0'}                                           # ACME http-01 from LE servers
+
+
+class test_ssm_health_probe(TestCase):
+
+    def test_localhost_probe_command_scheme(self):
+        from sg_compute_specs.content_proxy.service.Content_Proxy__Service import localhost_probe_command
+        http  = localhost_probe_command(https=False)
+        https = localhost_probe_command(https=True)
+        assert 'http://localhost:443/' in http and '-k' not in http                 # NONE → http on host 443
+        assert 'https://localhost/'    in https and '-k' in https                   # TLS → https, accept self-signed
+        assert '%{http_code}' in http
+
+    def test_parse_and_classify_codes(self):
+        from sg_compute_specs.content_proxy.service.Content_Proxy__Service import parse_http_code, is_healthy_code
+        assert parse_http_code('200')   == 200 and is_healthy_code(200) is True
+        assert parse_http_code('404\n') == 404 and is_healthy_code(404) is True      # any non-5xx = serving
+        assert parse_http_code('000')   == 0   and is_healthy_code(0)   is False     # curl couldn't connect
+        assert parse_http_code('')      == 0
+        assert is_healthy_code(503) is False

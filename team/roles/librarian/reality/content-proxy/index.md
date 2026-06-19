@@ -39,7 +39,9 @@ The content-transformation proxy stack: a browser routes through **mitmproxy**, 
 
 ### Vault TLS on :443 (mirrors `sg va`)
 - `Enum__Content_Proxy__Tls` = NONE / SELF_SIGNED / LETSENCRYPT (→ cert-init `letsencrypt-ip`) / ACM (ALB — not wired). When `tls != NONE` the compose adds a one-shot **`cert-init`** sidecar (`diniscruz/sg-host-control`, auto-detects the public IP via IMDS) that writes `/certs` to a shared `vault_certs` volume; the vault terminates TLS on :443 via `FAST_API__TLS__*`. LETSENCRYPT also opens/publishes `:80` (ACME http-01). `create` opens SG `:80` only for LETSENCRYPT. Health probe scheme follows the stack's tls (http for NONE, https for TLS).
-- **Secrets:** `create` reuses `FASTAPI_API_KEY_VALUE` / `SG_PLAYWRIGHT__API_KEY` from a supplied `--env-file`, generating only when absent (surfaced once, labelled from-env vs generated).
+- **Secrets:** one shared `SGRAPH_SEND__ACCESS_TOKEN` (vault auth + the sg-playwright `X-API-Key` the `/pw` proxy forwards — they must match) + `FASTAPI_API_KEY_VALUE` (interceptor↔mitm-service). `create` reuses both from a supplied `--env-file`, generating only when absent (surfaced once, labelled from-env vs generated).
+- **Health via SSM:** `wait`/`health` probe the vault on the box (`localhost`) over SSM (`localhost_probe_command` + `parse_http_code`/`is_healthy_code`), not the external IP — robust against SG/caller-IP drift and self-signed TLS.
+- **Interceptor** leaves `mitm.it` (mitmproxy onboarding/cert page) untouched.
 
 ### Configurable proxy tool
 - `Enum__Content_Proxy__Proxy__Tool` (MITMWEB | MITMDUMP). Create request defaults to **MITMDUMP** (prod-safe, no in-memory flow accumulation); the committed local compose + template default to **MITMWEB** (dev — TUI `/flows`).

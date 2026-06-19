@@ -55,9 +55,13 @@ _VAULT_HTTP = """\
   vault-app:
     image: {vault_app_image}
     container_name: cp-vault-app
+    command: ["python", "-m", "sg_overrides.serve_with_proxy"]
     environment:
       - FAST_API__REVERSE_PROXY__ROUTES=pw=http://sg-playwright:8000
+      - SGRAPH_SEND__ACCESS_TOKEN=${SGRAPH_SEND__ACCESS_TOKEN}
       - SEND__STORAGE_MODE=${SEND__STORAGE_MODE:-memory}
+    volumes:
+      - ./overrides:/app/sg_overrides:ro
     ports:
       - "443:8080"
     networks:
@@ -71,14 +75,17 @@ _VAULT_TLS = """\
   vault-app:
     image: {vault_app_image}
     container_name: cp-vault-app
+    command: ["python", "-m", "sg_overrides.serve_with_proxy"]
     environment:
       - FAST_API__REVERSE_PROXY__ROUTES=pw=http://sg-playwright:8000
+      - SGRAPH_SEND__ACCESS_TOKEN=${SGRAPH_SEND__ACCESS_TOKEN}
       - SEND__STORAGE_MODE=${SEND__STORAGE_MODE:-memory}
       - FAST_API__TLS__ENABLED=true
       - FAST_API__TLS__CERT_FILE=/certs/cert.pem
       - FAST_API__TLS__KEY_FILE=/certs/key.pem
       - FAST_API__TLS__PORT=443
     volumes:
+      - ./overrides:/app/sg_overrides:ro
       - vault_certs:/certs:ro
     ports:
       - "443:443"
@@ -100,7 +107,7 @@ _CERT_INIT = """\
     command: ["python3", "-m", "sg_compute.platforms.tls.cert_init"]
     environment:
       - SG__CERT_INIT__MODE={mode}
-      - SG__CERT_INIT__ACME_PROD=${SG__CERT_INIT__ACME_PROD:-false}
+      - SG__CERT_INIT__ACME_PROD=${SG__CERT_INIT__ACME_PROD:-true}
       - SG__CERT_INIT__ACME_EMAIL=${SG__CERT_INIT__ACME_EMAIL:-}
       - FAST_API__TLS__CERT_FILE=/certs/cert.pem
       - FAST_API__TLS__KEY_FILE=/certs/key.pem
@@ -197,7 +204,7 @@ services:
       - SG_PLAYWRIGHT__DEFAULT_PROXY_URL=http://mitmproxy-int:8080
       - IGNORE_HTTPS_ERRORS=true
       - FAST_API__AUTH__API_KEY__NAME=X-API-Key
-      - FAST_API__AUTH__API_KEY__VALUE=${{SG_PLAYWRIGHT__API_KEY}}
+      - FAST_API__AUTH__API_KEY__VALUE=${{SGRAPH_SEND__ACCESS_TOKEN}}
     networks:
       - cp-net
     restart: unless-stopped

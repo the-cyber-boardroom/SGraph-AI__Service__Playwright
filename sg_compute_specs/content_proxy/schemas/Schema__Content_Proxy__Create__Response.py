@@ -10,7 +10,7 @@ from sg_compute_specs.content_proxy.schemas.Schema__Content_Proxy__Stack__Info  
 class Schema__Content_Proxy__Create__Response(Type_Safe):
     stack_info         : Schema__Content_Proxy__Stack__Info = None
     fastapi_api_key    : str  = ''   # interceptor ↔ mitm-service auth (from --env-file, or generated)
-    playwright_api_key : str  = ''   # sg-playwright X-API-Key (from --env-file, or generated)
+    send_access_token  : str  = ''   # vault auth + sg-playwright X-API-Key via /pw (from --env-file, or generated)
     secrets_from_env   : bool = False  # True when the keys came from a supplied --env-file
     message            : str  = ''
     elapsed_ms         : int  = 0

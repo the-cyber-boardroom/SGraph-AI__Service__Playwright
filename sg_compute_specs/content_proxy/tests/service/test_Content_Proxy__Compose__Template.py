@@ -40,6 +40,8 @@ class test_Content_Proxy__Compose__Template(TestCase):
     def test_vault_app_reverse_proxy_and_port(self):
         assert 'FAST_API__REVERSE_PROXY__ROUTES=pw=http://sg-playwright:8000' in self.yaml
         assert '"443:8080"' in self.yaml                                            # NONE default: host 443 → container 8080 (plain HTTP)
+        assert 'command: ["python", "-m", "sg_overrides.serve_with_proxy"]' in self.yaml   # custom entrypoint mounts /pw
+        assert './overrides:/app/sg_overrides:ro' in self.yaml                      # runtime-injected override package
         assert 'cert-init'  not in self.yaml                                        # no cert sidecar for NONE
         assert 'vault_certs' not in self.yaml
 
@@ -58,6 +60,7 @@ class test_Content_Proxy__Compose__Template(TestCase):
         yaml = Content_Proxy__Compose__Template().render(tls=Enum__Content_Proxy__Tls.LETSENCRYPT)
         assert 'SG__CERT_INIT__MODE=letsencrypt-ip' in yaml
         assert '"80:80"' in yaml                                                    # http-01 challenge port
+        assert 'SG__CERT_INIT__ACME_PROD=${SG__CERT_INIT__ACME_PROD:-true}' in yaml # IP certs need LE prod
 
     def test_mitm_service_gets_aws_creds_passthrough(self):
         mitm_block = self.yaml.split('mitm-service:')[1].split('mitmproxy-int:')[0]
