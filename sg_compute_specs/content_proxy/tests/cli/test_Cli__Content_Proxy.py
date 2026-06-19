@@ -14,7 +14,7 @@ from pathlib import Path
 import tempfile
 
 from sg_compute_specs.content_proxy.cli.Cli__Content_Proxy import (app, read_env_file, smoke_curl_args,
-                                                                  remote_smoke_command,
+                                                                  remote_smoke_command, auth_help_lines,
                                                                   Content_Proxy__Service)
 
 
@@ -67,6 +67,17 @@ class test_local_helpers(TestCase):
         assert '-x' in args
         assert 'http://demo:secret@localhost:8080' in args
         assert 'http://example.com/mitm-proxy' in args
+
+    def test_auth_help_lines_show_set_cookie_and_token(self):
+        lines = '\n'.join(auth_help_lines('https://localhost', 'real-token-123'))
+        assert 'https://localhost/auth/set-cookie-form' in lines                      # one-click browser auth
+        assert 'real-token-123'                         in lines                      # the actual token
+        assert 'x-sgraph-access-token'                  in lines                      # header alternative
+        assert 'placeholder' not in lines                                            # real token → no warning
+
+    def test_auth_help_lines_flag_placeholder_token(self):
+        lines = '\n'.join(auth_help_lines('https://localhost', 'change-me'))
+        assert 'placeholder' in lines                                                # nudge to set a real value
 
     def test_smoke_curl_args_no_auth(self):
         args = smoke_curl_args('http://h/mitm-proxy')

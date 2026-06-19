@@ -210,6 +210,18 @@ def read_env_file(path: Path) -> dict:                                          
     return env
 
 
+def auth_help_lines(base_url: str, token: str) -> List[str]:                       # the "how to authenticate the browser" block for `local up`
+    # the vault (and /pw behind it) require the access token as a header or cookie;
+    # the set-cookie form is the one-click way to plant the cookie in the browser.
+    token_note = (f'[bold yellow]{token}[/]' if token and token != 'change-me'
+                  else f'[yellow]{token or "<unset>"}[/]  [dim](still the .env placeholder — set a real value)[/]')
+    return [
+        f'  access token : {token_note}  [dim](SGRAPH_SEND__ACCESS_TOKEN in .env)[/]',
+        f'  set-cookie   : [cyan]{base_url}/auth/set-cookie-form[/]  [dim]— open this, paste the token → auths the browser for / and /pw[/]',
+        f'  or header    : [dim]curl -k -H "x-sgraph-access-token: <token>" {base_url}/[/]',
+    ]
+
+
 def smoke_curl_args(url: str, user: str = '', password: str = '') -> List[str]:    # /mitm-proxy chain check via mitmproxy-ext
     proxy = f'http://{user}:{password}@localhost:8080' if user else 'http://localhost:8080'
     return ['curl', '-sS', '--max-time', '15', '-o', '-',
@@ -248,6 +260,10 @@ def local_up(detach: bool = typer.Option(True, '--detach/--attach', '-d',
                     '[dim](Caddy internal CA → curl -k, or trust /data root)[/]')
         else:
             c.print('     vault front door: [cyan]https://localhost/[/]   (self-signed)')
+        token = read_env_file(ENV_FILE).get('SGRAPH_SEND__ACCESS_TOKEN', '')         # vault + /pw need this (header or cookie)
+        c.print()
+        for line in auth_help_lines('https://localhost', token):
+            c.print(line)
     raise typer.Exit(rc.returncode)
 
 
