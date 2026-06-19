@@ -37,9 +37,15 @@ class test_Content_Proxy__Compose__Template(TestCase):
         assert 'SG_PLAYWRIGHT__DEFAULT_PROXY_URL=http://mitmproxy-int:8080' in self.yaml
         assert 'IGNORE_HTTPS_ERRORS=true' in self.yaml
 
-    def test_vault_app_reverse_proxy_and_443(self):
+    def test_vault_app_reverse_proxy_and_port(self):
         assert 'FAST_API__REVERSE_PROXY__ROUTES=pw=http://sg-playwright:8000' in self.yaml
-        assert '"443:443"' in self.yaml
+        assert '"443:8080"' in self.yaml                                            # NONE default: host 443 → container 8080 (plain HTTP)
+
+    def test_vault_port_maps_443_when_tls(self):
+        from sg_compute_specs.content_proxy.enums.Enum__Content_Proxy__Tls import Enum__Content_Proxy__Tls
+        yaml = Content_Proxy__Compose__Template().render(tls=Enum__Content_Proxy__Tls.LETSENCRYPT)
+        assert '"443:443"'  in yaml                                                 # vault terminates TLS on 443
+        assert '"443:8080"' not in yaml
 
     def test_mitm_service_gets_aws_creds_passthrough(self):
         mitm_block = self.yaml.split('mitm-service:')[1].split('mitmproxy-int:')[0]
@@ -90,4 +96,5 @@ class test_Content_Proxy__Compose__Template(TestCase):
 
     def test_placeholders_locked(self):
         assert PLACEHOLDERS == ('mitmproxy_image', 'mitm_service_image', 'playwright_image',
-                                'vault_app_image', 'int_command', 'ext_command', 'interceptors_mount')
+                                'vault_app_image', 'int_command', 'ext_command', 'interceptors_mount',
+                                'vault_port')

@@ -31,6 +31,27 @@ class test_Content_Proxy__User_Data__Builder(TestCase):
         assert 'CONTENT_PROXY__PROXYAUTH_USER=demo'   in self.ud
         assert 'CONTENT_PROXY__PROXYAUTH_PASS=secret' in self.ud
 
+    def test_generated_app_keys_and_region_in_env(self):
+        ud = Content_Proxy__User_Data__Builder().render(
+            Schema__Content_Proxy__Create__Request(scripts_bucket='my-scripts'),
+            fastapi_api_key='FK123', playwright_api_key='PK456', region='eu-west-2',
+            aws_creds={'AWS_ACCESS_KEY_ID': 'AKIA', 'AWS_SECRET_ACCESS_KEY': 'sk'})
+        assert 'FASTAPI_API_KEY_VALUE=FK123'        in ud
+        assert 'SG_PLAYWRIGHT__API_KEY=PK456'       in ud
+        assert 'AWS_DEFAULT_REGION=eu-west-2'       in ud
+        assert 'CACHE__SERVICE__BUCKET_NAME=my-scripts' in ud
+        assert 'AWS_ACCESS_KEY_ID=AKIA'             in ud                            # forwarded creds (parity path)
+        assert 'AWS_SECRET_ACCESS_KEY=sk'           in ud
+
+    def test_no_aws_creds_baked_by_default(self):
+        ud = Content_Proxy__User_Data__Builder().render(
+            Schema__Content_Proxy__Create__Request(), region='eu-west-2')            # no aws_creds → instance role
+        assert 'AWS_ACCESS_KEY_ID='   not in ud
+        assert 'AWS_SECRET_ACCESS_KEY=' not in ud
+
+    def test_certs_dir_is_writable(self):
+        assert 'chmod 777' in self.ud and '/certs' in self.ud                       # mitmproxy self-gen CA on EC2
+
     def test_embeds_interceptor_files(self):
         assert f'{APP_DIR}/interceptors/active.py' in self.ud
         assert 'Content-Proxy interceptor loaded'  in self.ud                       # active.py body embedded

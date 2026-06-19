@@ -74,7 +74,7 @@ class test_Content_Proxy__Service_wiring(TestCase):
         sp = Content_Proxy__Service().cli_spec()
         assert sp.spec_id       == 'content_proxy'
         assert sp.health_port   == 443
-        assert sp.health_scheme == 'https'
+        assert sp.health_scheme == 'http'                                           # vault plain HTTP behind :443 (NONE/MVP)
 
     def test_name_gen_generates(self):
         name = Content_Proxy__Service().setup().name_gen.generate()

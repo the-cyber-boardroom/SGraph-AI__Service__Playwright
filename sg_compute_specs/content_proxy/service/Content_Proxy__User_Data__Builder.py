@@ -36,6 +36,7 @@ chmod +x /usr/local/lib/docker/cli-plugins/docker-compose
 systemctl enable --now amazon-ssm-agent || true
 
 mkdir -p {app_dir}/interceptors {app_dir}/certs
+chmod 777 {app_dir}/certs                                                           # mitmproxy (uid 1000) self-generates its CA here
 
 cat > {app_dir}/.env <<'CP_ENV_EOF'
 {env_body}
@@ -71,15 +72,24 @@ PLACEHOLDERS = ('log_file', 'app_dir', 'env_body', 'compose_body',
 
 class Content_Proxy__User_Data__Builder(Type_Safe):
 
-    def render_env(self, request) -> str:
-        return '\n'.join([
-            f'FASTAPI_API_KEY_NAME={str(request.api_key_name) if hasattr(request, "api_key_name") else "x-api-key"}',
-            'FASTAPI_API_KEY_VALUE=${FASTAPI_API_KEY_VALUE:-}',                      # injected via SSM/secret at deploy
+    def render_env(self, request, fastapi_api_key: str = '', playwright_api_key: str = '',
+                   region: str = '', aws_creds: dict = None) -> str:
+        lines = [
+            'FASTAPI_API_KEY_NAME=x-api-key',
+            f'FASTAPI_API_KEY_VALUE={fastapi_api_key}',                              # generated per-stack; interceptor ↔ mitm-service
+            f'SG_PLAYWRIGHT__API_KEY={playwright_api_key}',                          # generated per-stack; sg-playwright X-API-Key
             f'CONTENT_PROXY__PROXYAUTH_USER={str(request.proxyauth_user)}',
             f'CONTENT_PROXY__PROXYAUTH_PASS={str(request.proxyauth_pass)}',
             f'CONTENT_PROXY__CA_DIR={APP_DIR}/certs',
             'SEND__STORAGE_MODE=memory',
-        ])
+            f'AWS_DEFAULT_REGION={region}',
+        ]
+        if str(request.scripts_bucket):
+            lines.append(f'CACHE__SERVICE__BUCKET_NAME={str(request.scripts_bucket)}')
+        for k, v in (aws_creds or {}).items():                                      # only when --forward-aws-creds (else instance role)
+            if v:
+                lines.append(f'{k}={v}')
+        return '\n'.join(lines)
 
     def _interceptor_body(self, filename: str) -> str:
         return (Path(interceptors_pkg.__file__).parent / filename).read_text()
@@ -96,17 +106,20 @@ class Content_Proxy__User_Data__Builder(Type_Safe):
         return (f'echo "[content-proxy] proxy CA supplied at {cert}; '
                 f'copy it into {APP_DIR}/certs before first boot"')
 
-    def render(self, request) -> str:
+    def render(self, request, fastapi_api_key: str = '', playwright_api_key: str = '',
+               region: str = '', aws_creds: dict = None) -> str:
         compose = Content_Proxy__Compose__Template().render(
             mitmproxy_image    = str(request.mitmproxy_image)   ,
             mitm_service_image = str(request.mitm_service_image),
             playwright_image   = str(request.playwright_image)  ,
             vault_app_image    = str(request.vault_app_image)   ,
             proxy_tool         = request.proxy_tool             ,                    # MITMDUMP default on EC2 (prod-safe)
-            interceptors_mount = INTERCEPTORS_MOUNT__EC2        )                    # /opt/content-proxy/interceptors
+            interceptors_mount = INTERCEPTORS_MOUNT__EC2        ,                    # /opt/content-proxy/interceptors
+            tls                = request.tls                    )                    # vault port: 8080 (NONE) vs 443 (TLS)
         return TEMPLATE.format(log_file      = LOG_FILE                                  ,
                                app_dir       = APP_DIR                                   ,
-                               env_body      = self.render_env(request)                  ,
+                               env_body      = self.render_env(request, fastapi_api_key,
+                                                               playwright_api_key, region, aws_creds),
                                compose_body  = compose                                   ,
                                active_body   = self._interceptor_body('active.py')       ,
                                logic_body    = self._interceptor_body('Content_Proxy__Interceptor__Logic.py'),

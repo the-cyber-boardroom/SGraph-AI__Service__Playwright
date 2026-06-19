@@ -5,6 +5,8 @@
 # EC2__* helpers). health/exec/connect inherited from Spec__Service__Base.
 # ═══════════════════════════════════════════════════════════════════════════════
 
+import os
+import secrets
 import time
 
 from typing                                                                         import Optional
@@ -55,7 +57,7 @@ class Content_Proxy__Service(Spec__Service__Base):
             service_factory       = lambda: Content_Proxy__Service().setup() ,
             health_path           = '/'                                      ,   # vault-app front door responds <500 → healthy
             health_port           = VAULT_PORT                               ,
-            health_scheme         = 'https'                                  )
+            health_scheme         = 'http'                                   )   # NONE/MVP: vault is plain HTTP behind :443 (host 443→container 8080). TLS stacks → https (follow-up)
 
     def create_stack(self, request: Schema__Content_Proxy__Create__Request,
                            creator: str = '') -> Schema__Content_Proxy__Create__Response:
@@ -72,7 +74,20 @@ class Content_Proxy__Service(Spec__Service__Base):
         tags  = self.aws_client.tags.build(stack_name, caller_ip, creator,
                                            extra_tags={TAG_MODE: request.mode.value,
                                                        TAG_TLS : request.tls.value })
-        user_data = self.user_data_builder.render(request)
+        # per-stack app secrets (surfaced once; also written into the box .env)
+        fastapi_key    = secrets.token_urlsafe(24)
+        playwright_key = secrets.token_urlsafe(24)
+        aws_creds = {}
+        if bool(request.forward_aws_creds):                                          # parity path — bake operator creds; else instance role
+            for k in ('AWS_ACCOUNT_ID', 'AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY'):
+                v = os.environ.get(k, '')
+                if v:
+                    aws_creds[k] = v
+        user_data = self.user_data_builder.render(request,
+                                                  fastapi_api_key    = fastapi_key   ,
+                                                  playwright_api_key = playwright_key,
+                                                  region             = region        ,
+                                                  aws_creds          = aws_creds     )
         iid = self.aws_client.launch.run_instance(region                = region            ,
                                                   ami_id                = ami_id            ,
                                                   sg_id                 = sg_id             ,
@@ -89,9 +104,12 @@ class Content_Proxy__Service(Spec__Service__Base):
                                     'State'         : {'Name': 'pending'}          ,
                                     'SecurityGroups': [{'GroupId': sg_id}]         ,
                                     'Tags'          : tags                         }, region)
+        creds_path = 'baked AWS creds' if aws_creds else 'instance role'
         return Schema__Content_Proxy__Create__Response(
-            stack_info = info                                                ,
-            message    = f'Instance {iid} launching ({STACK_TYPE}, {request.proxy_tool.value})',
+            stack_info         = info                                        ,
+            fastapi_api_key    = fastapi_key                                 ,
+            playwright_api_key = playwright_key                              ,
+            message    = f'Instance {iid} launching ({STACK_TYPE}, {request.proxy_tool.value}, S3 via {creds_path})',
             elapsed_ms = int((time.monotonic() - t0) * 1000)                 )
 
     def list_stacks(self, region: str = '') -> Schema__Content_Proxy__List:

@@ -33,16 +33,19 @@ ENV_EXAMPLE  = COMPOSE_DIR / '.env.example'
 
 def _set_extras(request, mode='direct_proxy', tls='none', proxy_tool='mitmdump',
                 proxyauth_user='', proxyauth_pass='', proxy_ca_cert='', proxy_ca_key='',
+                scripts_bucket='', forward_aws_creds=False,
                 use_spot=True, disk_size=0, mitm_service_image=''):
-    request.mode           = Enum__Content_Proxy__Mode(mode)
-    request.tls            = Enum__Content_Proxy__Tls(tls)
-    request.proxy_tool     = Enum__Content_Proxy__Proxy__Tool(proxy_tool)
-    request.proxyauth_user = proxyauth_user
-    request.proxyauth_pass = proxyauth_pass
-    request.proxy_ca_cert  = proxy_ca_cert
-    request.proxy_ca_key   = proxy_ca_key
-    request.use_spot       = bool(use_spot)
-    request.disk_size_gb   = int(disk_size)
+    request.mode              = Enum__Content_Proxy__Mode(mode)
+    request.tls               = Enum__Content_Proxy__Tls(tls)
+    request.proxy_tool        = Enum__Content_Proxy__Proxy__Tool(proxy_tool)
+    request.proxyauth_user    = proxyauth_user
+    request.proxyauth_pass    = proxyauth_pass
+    request.proxy_ca_cert     = proxy_ca_cert
+    request.proxy_ca_key      = proxy_ca_key
+    request.scripts_bucket    = scripts_bucket
+    request.forward_aws_creds = bool(forward_aws_creds)
+    request.use_spot          = bool(use_spot)
+    request.disk_size_gb      = int(disk_size)
     if mitm_service_image:
         request.mitm_service_image = mitm_service_image
 
@@ -69,6 +72,8 @@ app = Spec__CLI__Builder(
         ('proxyauth_pass', str , ''            , 'mitmproxy-ext basic-auth pass (Mode 1).'),
         ('proxy_ca_cert' , str , ''            , 'Path to the user-supplied proxy CA cert (Mode 1 browser trust).'),
         ('proxy_ca_key'  , str , ''            , 'Path to the user-supplied proxy CA key.'),
+        ('scripts_bucket', str , ''            , 'S3 bucket the MITM service reads injection scripts from (CACHE__SERVICE__BUCKET_NAME).'),
+        ('forward_aws_creds', bool, False      , 'Bake the operator AWS_* creds into the box .env (local-parity; default off → instance role).'),
         ('use_spot'      , bool, True          , 'Spot instance (~70%% cheaper). --no-use-spot for on-demand.'),
         ('disk_size'     , int , 0             , 'Root volume GiB. 0 = AMI default.'),
         # ── advanced ──

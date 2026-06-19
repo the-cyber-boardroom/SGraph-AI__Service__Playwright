@@ -38,6 +38,8 @@ class Schema__Content_Proxy__Create__Request(Type_Safe):
     proxyauth_pass     : Safe_Str__Text                                              # mitmproxy-ext basic-auth pass
     proxy_ca_cert      : Safe_Str__Content_Proxy__Ref                                # user-supplied proxy CA cert path
     proxy_ca_key       : Safe_Str__Content_Proxy__Ref                                # user-supplied proxy CA key  path
+    scripts_bucket     : Safe_Str__Content_Proxy__Ref                                # CACHE__SERVICE__BUCKET_NAME (MITM scripts)
+    forward_aws_creds  : bool = False                                                # bake operator AWS_* into the EC2 .env (parity; else instance role)
     # image refs (pulled from Docker Hub)
     mitmproxy_image    : Safe_Str__Docker__Image = 'mitmproxy/mitmproxy:12.2.3'
     mitm_service_image : Safe_Str__Docker__Image = 'diniscruz/mgraph-ai-service-mitmproxy'
