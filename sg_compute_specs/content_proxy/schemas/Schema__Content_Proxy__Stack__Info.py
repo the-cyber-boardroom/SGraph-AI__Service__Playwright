@@ -25,6 +25,7 @@ class Schema__Content_Proxy__Stack__Info(Type_Safe):
     state             : Enum__Content_Proxy__Stack__State = Enum__Content_Proxy__Stack__State.UNKNOWN
     mode              : Enum__Content_Proxy__Mode         = Enum__Content_Proxy__Mode.DIRECT_PROXY
     tls               : Enum__Content_Proxy__Tls          = Enum__Content_Proxy__Tls.NONE
+    access_token      : Safe_Str__Text                                              # vault API key + /pw key + set-cookie token (from tag)
     active_script     : Safe_Str__Text
     # per-component health (the 5 services)
     mitmproxy_ext_ok  : bool = False

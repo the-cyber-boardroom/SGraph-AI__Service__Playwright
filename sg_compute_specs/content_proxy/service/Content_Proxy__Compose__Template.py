@@ -58,6 +58,8 @@ _VAULT_HTTP = """\
     command: ["python", "-m", "sg_overrides.serve_with_proxy"]
     environment:
       - FAST_API__REVERSE_PROXY__ROUTES=pw=http://sg-playwright:8000
+      - FAST_API__AUTH__API_KEY__NAME=${FAST_API__AUTH__API_KEY__NAME:-X-API-Key}
+      - FAST_API__AUTH__API_KEY__VALUE=${FAST_API__AUTH__API_KEY__VALUE}
       - SGRAPH_SEND__ACCESS_TOKEN=${SGRAPH_SEND__ACCESS_TOKEN}
       - SEND__STORAGE_MODE=${SEND__STORAGE_MODE:-memory}
     volumes:
@@ -78,6 +80,8 @@ _VAULT_TLS = """\
     command: ["python", "-m", "sg_overrides.serve_with_proxy"]
     environment:
       - FAST_API__REVERSE_PROXY__ROUTES=pw=http://sg-playwright:8000
+      - FAST_API__AUTH__API_KEY__NAME=${FAST_API__AUTH__API_KEY__NAME:-X-API-Key}
+      - FAST_API__AUTH__API_KEY__VALUE=${FAST_API__AUTH__API_KEY__VALUE}
       - SGRAPH_SEND__ACCESS_TOKEN=${SGRAPH_SEND__ACCESS_TOKEN}
       - SEND__STORAGE_MODE=${SEND__STORAGE_MODE:-memory}
       - FAST_API__TLS__ENABLED=true
@@ -203,8 +207,8 @@ services:
     environment:
       - SG_PLAYWRIGHT__DEFAULT_PROXY_URL=http://mitmproxy-int:8080
       - IGNORE_HTTPS_ERRORS=true
-      - FAST_API__AUTH__API_KEY__NAME=X-API-Key
-      - FAST_API__AUTH__API_KEY__VALUE=${{SGRAPH_SEND__ACCESS_TOKEN}}
+      - FAST_API__AUTH__API_KEY__NAME=${{FAST_API__AUTH__API_KEY__NAME:-X-API-Key}}
+      - FAST_API__AUTH__API_KEY__VALUE=${{FAST_API__AUTH__API_KEY__VALUE}}
     networks:
       - cp-net
     restart: unless-stopped

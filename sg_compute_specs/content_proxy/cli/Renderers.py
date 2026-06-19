@@ -40,10 +40,15 @@ def render_info(info, console: Console) -> None:
     t.add_row('region',     str(getattr(info, 'region', '') or '—'))
     t.add_row('mode',       getattr(info, 'mode', None).value if hasattr(getattr(info, 'mode', None), 'value') else '—')
     t.add_row('tls',        getattr(info, 'tls',  None).value if hasattr(getattr(info, 'tls',  None), 'value') else '—')
+    token = str(getattr(info, 'access_token', '') or '')
     if proxy:
         t.add_row('proxy (Mode 1)', f'[bold cyan]{proxy}[/]  [dim]configure your browser proxy here — use your proxyauth creds[/]')
         t.add_row('vault / UX',     f'[bold cyan]{vault_url}/[/]  [dim]{scheme_note}[/]')
         t.add_row('sg-playwright',  f'[cyan]{vault_url}/pw/[/]  [dim](same-origin via the vault /pw proxy)[/]')
+    if token:
+        t.add_row('access-token', f'[bold]{token}[/]  [dim](X-API-Key + x-sgraph-access-token)[/]')
+    if vault_url:
+        t.add_row('set-cookie',  f'[cyan]{vault_url}/auth/set-cookie-form[/]  [dim]— paste the token here to auth the browser (vault + /pw)[/]')
     t.add_row('proxy CA',   '[dim]import into the browser for Mode 1 → [/][cyan]sg content-proxy local ca[/]')
     t.add_row('verify',     '[cyan]sg content-proxy smoke[/]  [dim](runs the /mitm-proxy chain check on the box via SSM)[/]')
     console.print(t)
@@ -54,9 +59,10 @@ def render_create(response, console: Console) -> None:
     info        = getattr(response, 'stack_info', None) or response
     stack_name  = str(getattr(info, 'stack_name',  '') or '')
     instance_id = str(getattr(info, 'instance_id', '') or '')
-    elapsed     = int(getattr(response, 'elapsed_ms', 0) or 0)
-    fastapi_key = str(getattr(response, 'fastapi_api_key',   '') or '')
-    send_token  = str(getattr(response, 'send_access_token', '') or '')
+    elapsed      = int(getattr(response, 'elapsed_ms', 0) or 0)
+    fastapi_key  = str(getattr(response, 'fastapi_api_key', '') or '')
+    access_token = str(getattr(response, 'access_token',    '') or '')
+    _, vault_url, _ = _urls(info)
 
     console.print()
     console.print(Panel(f'[bold green]Launching[/]  ·  {stack_name}', border_style='green', expand=False))
@@ -64,15 +70,19 @@ def render_create(response, console: Console) -> None:
     console.print(f'  instance-id : [dim]{instance_id}[/]')
     console.print(f'  submitted in: {elapsed / 1000:.1f}s')
     from_env = bool(getattr(response, 'secrets_from_env', False))
-    if fastapi_key or send_token:                                                   # surfaced ONCE — not recoverable later
+    if fastapi_key or access_token:                                                  # surfaced ONCE — not recoverable from the API
         title = ('[bold]stack secrets[/]  [dim](from --env-file)[/]' if from_env
                  else '[bold]generated secrets[/]  [dim](shown once)[/]')
         console.print()
         console.print(Panel('\n'.join([
             title,
-            f'  FASTAPI_API_KEY_VALUE     {fastapi_key}',
-            f'  SGRAPH_SEND__ACCESS_TOKEN {send_token}  [dim](vault auth + /pw key)[/]',
+            f'  access token  [bold yellow]{access_token}[/]  [dim](vault key + /pw key + set-cookie)[/]',
+            f'  mitm key      {fastapi_key}  [dim](interceptor ↔ mitm-service)[/]',
         ]), border_style='yellow', expand=False))
+    if vault_url:
+        console.print()
+        console.print(f'  vault / UX  : [bold cyan]{vault_url}/[/]')
+        console.print(f'  set-cookie  : [cyan]{vault_url}/auth/set-cookie-form[/]  [dim]— paste the access token to auth the browser (vault + /pw)[/]')
     console.print()
-    console.print('  [dim]run [cyan]sg content-proxy info[/] for URLs/ports, or [cyan]… create --wait[/] to block until healthy.[/]')
+    console.print('  [dim]run [cyan]sg content-proxy info[/] for the full URL/token block.[/]')
     console.print()
