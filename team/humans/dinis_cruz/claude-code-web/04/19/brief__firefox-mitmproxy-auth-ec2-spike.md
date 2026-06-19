@@ -104,14 +104,14 @@ Consequence: Lambda's capabilities profile should stay `[chromium]` only; multi-
 From the instance **host**:
 
 ```
-curl -v -x http://akeia:<pw>@mitmproxy.dev.akeia.ai:8080 https://example.com --insecure
+curl -v -x http://upstream-proxy:<pw>@mitmproxy.dev.example.com:8080 https://example.com --insecure
 → 200 OK
 ```
 
 From **inside the container**:
 
 ```
-sudo docker exec sg-playwright curl -v -x http://akeia:<pw>@mitmproxy.dev.akeia.ai:8080 https://example.com --insecure
+sudo docker exec sg-playwright curl -v -x http://upstream-proxy:<pw>@mitmproxy.dev.example.com:8080 https://example.com --insecure
 → 200 OK
 ```
 
@@ -137,8 +137,8 @@ POST /browser/screenshot
   "browser_config": {
     "browser_name": "firefox",
     "proxy": {
-      "server": "http://mitmproxy.dev.akeia.ai:8080",
-      "auth": {"username": "akeia", "password": "<pw>"},
+      "server": "http://mitmproxy.dev.example.com:8080",
+      "auth": {"username": "upstream-proxy", "password": "<pw>"},
       "ignore_https_errors": true,
       "bypass": []
     }
@@ -198,8 +198,8 @@ python3 -c "
 from playwright.sync_api import sync_playwright
 pw = sync_playwright().start()
 browser = pw.firefox.launch(headless=True, proxy={
-    'server': 'http://mitmproxy.dev.akeia.ai:8080',
-    'username': 'akeia',
+    'server': 'http://mitmproxy.dev.example.com:8080',
+    'username': 'upstream-proxy',
     'password': '<pw>',
 })
 page = browser.new_page(ignore_https_errors=True)
@@ -216,7 +216,7 @@ If this works → the service is dropping `proxy.auth` somewhere between the req
 
 From the host, tcpdump or `mitmproxy -k` on the instance itself against the proxy endpoint — see if a 407 is issued and whether Firefox replies with `Proxy-Authorization`.
 
-Or cheaper: point Firefox at a local squid with basic auth, reproduce without any corporate proxy in the way. If it fails locally too → Playwright/Firefox bug, not `mitmproxy.dev.akeia.ai` specific.
+Or cheaper: point Firefox at a local squid with basic auth, reproduce without any corporate proxy in the way. If it fails locally too → Playwright/Firefox bug, not `mitmproxy.dev.example.com` specific.
 
 ### 4.4 Workaround if the hypothesis holds: CDP-less Firefox auth
 

@@ -124,7 +124,7 @@ sg-ec2 delete qa-ephemeral-XXX
 
 ### Workflow E (new) — CI-simulated authenticated upstream
 
-**Use case:** prove the sidecar's upstream-forwarding mode works without needing real `akeia` credentials in the GitHub Actions environment.
+**Use case:** prove the sidecar's upstream-forwarding mode works without needing real `upstream-proxy` credentials in the GitHub Actions environment.
 
 **The trick.** Stand up a **second** `agent_mitmproxy` (or vanilla mitmproxy) **inside the GH runner** configured with `--proxyauth user:pass`. Point our real sidecar at it as its upstream. This reproduces the Phase 1.11 chain using only runner-local infrastructure.
 
@@ -139,7 +139,7 @@ GH Actions runner
 │                                   :9090                   (via the auth chain)
 │
 └── Browser requests exercise the full authenticated-upstream path that
-    production uses against the real akeia proxy — but fully containerised
+    production uses against the real upstream-proxy proxy — but fully containerised
     and credential-free from the repo's perspective.
 ```
 
