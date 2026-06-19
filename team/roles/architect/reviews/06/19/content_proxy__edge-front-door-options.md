@@ -96,7 +96,7 @@ Each future workload stresses the edge differently. This table is the deciding l
 
 ### C. Caddy  ⭐ (recommended for now)
 - **Pros:** **built-in automatic HTTPS (ACME)**, incl. internal self-signed for IPs; the simplest config (`Caddyfile`); **native WebSocket + streaming** (no special directives); `reverse_proxy` one-liners; `caddy-security` plugin for JWT/forward-auth; **we already build + run Caddy in `sp vnc`** (caddy + caddy-security via xcaddy, JWT portal, `/mitmweb` reverse proxy) → in-house experience + a copyable template.
-- **Cons:** raw L4/TCP needs the `layer4` plugin (less first-class than nginx `stream`); ACME for **bare IPs** has the same Let's-Encrypt-IP limitation we already hit (use Caddy's internal CA / our cert-init for IP, or a domain for public ACME).
+- **Cons:** raw L4/TCP needs the `layer4` plugin (less first-class than nginx `stream`); **publicly-trusted bare-IP certs** depend on whether the edge's *built-in* ACME implements LE's IP-identifier profile (see §6) — if not, reuse the proven `cert-init` and mount the cert (Caddy's *internal* CA always covers IP for the self-signed path).
 - **Verdict:** **best fit today** — auto-TLS + native WS + simplest config + existing precedent. It directly removes the vault patch and the vault-port/TLS bolt-ons. ⭐
 
 ### D. Traefik
@@ -155,8 +155,56 @@ and `proxy CA` (Mode-1 mitmproxy) is untouched (still its own `:8080`).
 
 ---
 
-## 6. Risks & caveats
-- **Bare-IP TLS** is unchanged: public ACME won't issue for raw IPs → use the edge's internal/self-signed CA for IP, or a real domain for trusted certs. (Same trade-off we have now; the edge just centralizes it.)
+## 6. TLS / cert sourcing — how the edge gets a cert (corrected)
+
+The repo has **three** cert paths, all via `cert-init` (`Cert__ACME__Client`) —
+**none use AWS ACM**:
+
+1. `self-signed` — offline, browser warns.
+2. `letsencrypt-ip` — **publicly-trusted cert for the bare IP** (LE's short-lived IP-identifier profile, http-01 on `:80`). *(Earlier draft wrongly said ACME won't issue for IPs — it does; this is exactly what `sg cp --tls letsencrypt` and `sg va` use.)*
+3. `letsencrypt-hostname` — publicly-trusted cert for an FQDN; **AWS Route 53** (`--with-aws-dns`) writes the A record so the FQDN points at the box, then LE **http-01**. So `sg va`'s "AWS cert" = **Route 53 (DNS) + Let's Encrypt** — *not* ACM.
+
+**Does the edge (Caddy) work with all of these? Yes — two ways:**
+
+- **(Recommended) Edge consumes `cert-init`'s output.** Keep the proven sidecar minting the cert (ip/hostname/self-signed) to a shared volume; point Caddy at it: `tls /certs/cert.pem /certs/key.pem`. Caddy does **no** ACME — it just serves the cert. This mirrors `sg va` exactly and covers **all three** modes (incl. the LE-IP path) with zero new cert logic at the edge.
+- **(Optional) Caddy's own ACME.** For a **hostname**, Caddy can issue itself — http-01 (it owns `:443`/`:80`) or **DNS-01 via the `caddy-dns/route53` plugin** (using the instance's AWS creds/role) — a clean fit with the existing Route 53 usage. For a **bare IP**, prefer `cert-init` (Caddy's built-in ACME may not yet request LE's IP-identifier profile).
+
+> **One thing that genuinely does NOT work: a true ACM (AWS Certificate Manager) *public* cert in Caddy/nginx.** ACM public certs are non-exportable — they only terminate at an ALB/CloudFront. So "ACM" implies the ALB path, not a container edge. But since `sg va` uses Route 53 + LE (not ACM), this never blocks parity.
+
+## 6c. The hostname requirement — `*.sgraph.ai` for external callers (e.g. Claude)
+
+**This is now a first-class requirement, not optional.** For an external service
+(Claude, agents, webhooks, browsers without a custom CA) to talk to a vault, the
+box needs a **stable, publicly-trusted HTTPS hostname** — a per-launch IP with a
+self-signed/IP cert won't do (no trust, IP churns per launch). This is exactly
+the `sg va --with-aws-dns` path:
+
+1. On `create`, **Route 53** upserts `<slug>.sgraph.ai → box IP` (reuse the
+   existing Auto-DNS / `sg aws dns` helper vault_app already uses).
+2. `cert-init` runs `letsencrypt-hostname` → publicly-trusted LE cert for the FQDN.
+3. The box is reachable at `https://<slug>.sgraph.ai/` (vault), `…/pw/`, etc. —
+   trusted by any client, no CA import.
+
+**This is where a domain-based edge is the *right* tool (not a workaround):**
+- **Caddy + the hostname owns its own ACME** — http-01 (it holds `:80`/`:443`)
+  or **DNS-01 via `caddy-dns/route53`** (the instance role does the Route 53
+  TXT) — and **auto-renews**. For a long-lived/stable `<slug>.sgraph.ai`, Caddy
+  managing the cert lifecycle is cleaner than a one-shot `cert-init`.
+- For the **ephemeral IP** quick-path, keep `cert-init` (LE-IP) feeding the edge.
+
+So the edge gives a clean two-tier story:
+| Tier | URL | Cert | Who reaches it |
+|------|-----|------|----------------|
+| quick / dev | `https://<ip>/` | self-signed or LE-IP (cert-init) | you, with CA import or click-through |
+| **integration / prod** | `https://<slug>.sgraph.ai/` | **LE-hostname (Route 53 + ACME)** | **Claude / any external service, trusted** |
+
+`content_proxy` should therefore grow a `--hostname` / `--with-aws-dns` create
+option (mirroring `sg va`) and reuse the Route 53 helper — the edge then serves
+that FQDN with an auto-renewed trusted cert.
+
+## 6b. Other risks & caveats
+- **One more container** on the box (the edge). Negligible footprint; big simplification.
+- **WebRTC media is out of scope for the edge** — budget a TURN server / direct ports when that workload lands.
 - **One more container** on the box (the edge). Negligible footprint; big simplification.
 - **WebRTC media is out of scope for the edge** — budget a TURN server / direct ports when that workload lands.
 - **Auth translation** (browser cookie/token → backend `X-API-Key`) currently done in the Python proxy must move to the edge (Caddy `header_up` / forward-auth, or keep a tiny per-backend auth shim). Verify each backend's auth fits the edge's primitives.
@@ -165,6 +213,7 @@ and `proxy CA` (Mode-1 mitmproxy) is untouched (still its own `:8080`).
 
 ## 7. Recommendation & next step
 1. **Adopt a dedicated edge** as the `:443` front door; demote the vault to a plain origin. This alone resolves D1 + the vault-port/TLS bolt-ons and unblocks streaming.
+1b. **Make the `<slug>.sgraph.ai` hostname path first-class** (reuse `sg va`'s Route 53 + LE-hostname) — it's the only way external callers like Claude get a stable trusted URL. The edge (Caddy) auto-manages that cert.
 2. **Use Caddy** (reuse the `sp vnc` build/template) for the first cut; **re-evaluate Traefik** when per-stack dynamic backends or rich middleware become the driver.
 3. **Retain `Fast_API__Reverse_Proxy`** for in-app same-origin only; stop using it as the edge.
 4. **Keep WebRTC media on a separate track** (TURN/direct ports).
