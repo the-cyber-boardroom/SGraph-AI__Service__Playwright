@@ -60,6 +60,7 @@ services:
       - AWS_DEFAULT_REGION
       - AWS_ACCESS_KEY_ID
       - AWS_SECRET_ACCESS_KEY
+      - CACHE__SERVICE__BUCKET_NAME
     networks:
       - cp-net
     restart: unless-stopped
