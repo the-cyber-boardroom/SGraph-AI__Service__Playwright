@@ -24,6 +24,11 @@ class test_Content_Proxy__Interceptor__Logic(TestCase):
         for p in ('/app.js', '/style.css', '/logo.png', '/f.woff2', '/movie.mp4'):
             assert L.should_process_request('GET', p) is False, p
 
+    def test_mitm_it_left_untouched(self):
+        assert L.should_process_request('GET', '/', 'mitm.it')          is False     # onboarding/cert page served by mitmproxy
+        assert L.should_process_request('GET', '/cert/pem', 'mitm.it')  is False
+        assert L.should_process_response('text/html', False, 'mitm.it') is False     # don't transform the cert page
+
     def test_html_and_extensionless_processed(self):
         assert L.should_process_request('GET', '/')              is True
         assert L.should_process_request('GET', '/article/9')     is True

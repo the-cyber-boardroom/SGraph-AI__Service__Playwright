@@ -15,6 +15,7 @@ from urllib.parse import urlparse
 
 VERSION__INTERCEPTOR = 'v0.2.1'                                                     # cookies only, no path params
 ADMIN_PATH_PREFIX    = '/mitm-proxy'                                                # always processed → the injected-UI smoke check
+MAGIC_HOSTS          = {'mitm.it'}                                                  # mitmproxy onboarding/cert page — never touch it
 
 STATIC_EXTENSIONS = {'.jpg', '.jpeg', '.png', '.gif', '.webp', '.svg', '.ico',     # images
                      '.css', '.js', '.woff', '.woff2', '.ttf', '.eot',             # fonts / styles
@@ -24,7 +25,9 @@ STATIC_EXTENSIONS = {'.jpg', '.jpeg', '.png', '.gif', '.webp', '.svg', '.ico',  
 PROCESSABLE_RESPONSE_TYPES = ('text/html',)                                         # only HTML gets the transform
 
 
-def should_process_request(method: str, path: str) -> bool:                        # send this request to FastAPI?
+def should_process_request(method: str, path: str, host: str = '') -> bool:        # send this request to FastAPI?
+    if (host or '').lower() in MAGIC_HOSTS:                                         # let mitmproxy serve mitm.it untouched
+        return False
     if (method or '').upper() != 'GET':
         return False
     if (path or '').startswith(ADMIN_PATH_PREFIX):                                  # admin/UI must always reach FastAPI
@@ -36,7 +39,9 @@ def should_process_request(method: str, path: str) -> bool:                     
     return ext not in STATIC_EXTENSIONS
 
 
-def should_process_response(content_type: str, cached_in_request: bool) -> bool:   # send this response to FastAPI?
+def should_process_response(content_type: str, cached_in_request: bool, host: str = '') -> bool:   # send this response to FastAPI?
+    if (host or '').lower() in MAGIC_HOSTS:                                         # leave the mitm.it onboarding page intact
+        return False
     if cached_in_request:
         return False
     ct = (content_type or '').lower()

@@ -61,7 +61,7 @@ async def call_fastapi(endpoint: str, data: dict):
 async def request(flow: http.HTTPFlow) -> None:
     global request_count, errors_count
     request_count += 1
-    if not L.should_process_request(flow.request.method, flow.request.path):
+    if not L.should_process_request(flow.request.method, flow.request.path, flow.request.pretty_host):
         flow.request.headers['x-proxy-action'] = 'skipped'
         return
     flow.request.headers['x-proxy-request-count'] = str(request_count)
@@ -104,7 +104,7 @@ async def response(flow: http.HTTPFlow) -> None:
         return
     cached_in_request = flow.response.headers.get('x-proxy-cached-in-request') == 'true'
     content_type      = flow.response.headers.get('content-type', '')
-    if not L.should_process_response(content_type, cached_in_request):
+    if not L.should_process_response(content_type, cached_in_request, flow.request.pretty_host):
         flow.response.headers['x-proxy-action'] = 'skipped'
         return
     flow.response.headers['x-proxy-response-count'] = str(response_count)
