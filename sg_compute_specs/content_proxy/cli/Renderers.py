@@ -55,8 +55,8 @@ def render_create(response, console: Console) -> None:
     stack_name  = str(getattr(info, 'stack_name',  '') or '')
     instance_id = str(getattr(info, 'instance_id', '') or '')
     elapsed     = int(getattr(response, 'elapsed_ms', 0) or 0)
-    fastapi_key = str(getattr(response, 'fastapi_api_key',    '') or '')
-    pw_key      = str(getattr(response, 'playwright_api_key', '') or '')
+    fastapi_key = str(getattr(response, 'fastapi_api_key',   '') or '')
+    send_token  = str(getattr(response, 'send_access_token', '') or '')
 
     console.print()
     console.print(Panel(f'[bold green]Launching[/]  ·  {stack_name}', border_style='green', expand=False))
@@ -64,14 +64,14 @@ def render_create(response, console: Console) -> None:
     console.print(f'  instance-id : [dim]{instance_id}[/]')
     console.print(f'  submitted in: {elapsed / 1000:.1f}s')
     from_env = bool(getattr(response, 'secrets_from_env', False))
-    if fastapi_key or pw_key:                                                       # surfaced ONCE — not recoverable later
+    if fastapi_key or send_token:                                                   # surfaced ONCE — not recoverable later
         title = ('[bold]stack secrets[/]  [dim](from --env-file)[/]' if from_env
                  else '[bold]generated secrets[/]  [dim](shown once)[/]')
         console.print()
         console.print(Panel('\n'.join([
             title,
-            f'  FASTAPI_API_KEY_VALUE  {fastapi_key}',
-            f'  SG_PLAYWRIGHT__API_KEY {pw_key}',
+            f'  FASTAPI_API_KEY_VALUE     {fastapi_key}',
+            f'  SGRAPH_SEND__ACCESS_TOKEN {send_token}  [dim](vault auth + /pw key)[/]',
         ]), border_style='yellow', expand=False))
     console.print()
     console.print('  [dim]run [cyan]sg content-proxy info[/] for URLs/ports, or [cyan]… create --wait[/] to block until healthy.[/]')

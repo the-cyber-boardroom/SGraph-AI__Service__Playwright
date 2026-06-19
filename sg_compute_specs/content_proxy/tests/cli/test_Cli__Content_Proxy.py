@@ -98,15 +98,15 @@ class test_env_secret_reuse(TestCase):
 
     def test_env_file_keys_are_reused_not_regenerated(self):
         from sg_compute_specs.content_proxy.service.Content_Proxy__Service import _parse_env
-        env = 'FASTAPI_API_KEY_VALUE=fromfileFK\nSG_PLAYWRIGHT__API_KEY=fromfilePK\n'
+        env = 'FASTAPI_API_KEY_VALUE=fromfileFK\nSGRAPH_SEND__ACCESS_TOKEN=fromfileTOK\n'
         m   = _parse_env(env)
-        assert m.get('FASTAPI_API_KEY_VALUE')  == 'fromfileFK'
-        assert m.get('SG_PLAYWRIGHT__API_KEY') == 'fromfilePK'
+        assert m.get('FASTAPI_API_KEY_VALUE')    == 'fromfileFK'
+        assert m.get('SGRAPH_SEND__ACCESS_TOKEN') == 'fromfileTOK'
         # mirror create_stack's selection logic
         import secrets
-        fk = m.get('FASTAPI_API_KEY_VALUE')  or secrets.token_urlsafe(24)
-        pk = m.get('SG_PLAYWRIGHT__API_KEY') or secrets.token_urlsafe(24)
-        assert (fk, pk) == ('fromfileFK', 'fromfilePK')                              # reused verbatim, not generated
+        fk  = m.get('FASTAPI_API_KEY_VALUE')     or secrets.token_urlsafe(24)
+        tok = m.get('SGRAPH_SEND__ACCESS_TOKEN') or secrets.token_urlsafe(24)
+        assert (fk, tok) == ('fromfileFK', 'fromfileTOK')                           # reused verbatim, not generated
 
     def test_missing_keys_fall_back_to_generated(self):
         from sg_compute_specs.content_proxy.service.Content_Proxy__Service import _parse_env

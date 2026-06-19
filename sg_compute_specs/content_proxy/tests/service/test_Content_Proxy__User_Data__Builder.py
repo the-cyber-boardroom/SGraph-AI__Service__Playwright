@@ -34,10 +34,10 @@ class test_Content_Proxy__User_Data__Builder(TestCase):
     def test_generated_app_keys_and_region_in_env(self):
         ud = Content_Proxy__User_Data__Builder().render(
             Schema__Content_Proxy__Create__Request(scripts_bucket='my-scripts'),
-            fastapi_api_key='FK123', playwright_api_key='PK456', region='eu-west-2',
+            fastapi_api_key='FK123', send_access_token='PK456', region='eu-west-2',
             aws_creds={'AWS_ACCESS_KEY_ID': 'AKIA', 'AWS_SECRET_ACCESS_KEY': 'sk'})
-        assert 'FASTAPI_API_KEY_VALUE=FK123'        in ud
-        assert 'SG_PLAYWRIGHT__API_KEY=PK456'       in ud
+        assert 'FASTAPI_API_KEY_VALUE=FK123'         in ud
+        assert 'SGRAPH_SEND__ACCESS_TOKEN=PK456'     in ud
         assert 'AWS_DEFAULT_REGION=eu-west-2'       in ud
         assert 'CACHE__SERVICE__BUCKET_NAME=my-scripts' in ud
         assert 'AWS_ACCESS_KEY_ID=AKIA'             in ud                            # forwarded creds (parity path)

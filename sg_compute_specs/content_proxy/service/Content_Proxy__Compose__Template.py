@@ -57,6 +57,7 @@ _VAULT_HTTP = """\
     container_name: cp-vault-app
     environment:
       - FAST_API__REVERSE_PROXY__ROUTES=pw=http://sg-playwright:8000
+      - SGRAPH_SEND__ACCESS_TOKEN=${SGRAPH_SEND__ACCESS_TOKEN}
       - SEND__STORAGE_MODE=${SEND__STORAGE_MODE:-memory}
     ports:
       - "443:8080"
@@ -73,6 +74,7 @@ _VAULT_TLS = """\
     container_name: cp-vault-app
     environment:
       - FAST_API__REVERSE_PROXY__ROUTES=pw=http://sg-playwright:8000
+      - SGRAPH_SEND__ACCESS_TOKEN=${SGRAPH_SEND__ACCESS_TOKEN}
       - SEND__STORAGE_MODE=${SEND__STORAGE_MODE:-memory}
       - FAST_API__TLS__ENABLED=true
       - FAST_API__TLS__CERT_FILE=/certs/cert.pem
@@ -197,7 +199,7 @@ services:
       - SG_PLAYWRIGHT__DEFAULT_PROXY_URL=http://mitmproxy-int:8080
       - IGNORE_HTTPS_ERRORS=true
       - FAST_API__AUTH__API_KEY__NAME=X-API-Key
-      - FAST_API__AUTH__API_KEY__VALUE=${{SG_PLAYWRIGHT__API_KEY}}
+      - FAST_API__AUTH__API_KEY__VALUE=${{SGRAPH_SEND__ACCESS_TOKEN}}
     networks:
       - cp-net
     restart: unless-stopped

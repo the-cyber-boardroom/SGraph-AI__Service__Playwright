@@ -72,12 +72,12 @@ PLACEHOLDERS = ('log_file', 'app_dir', 'env_body', 'compose_body',
 
 class Content_Proxy__User_Data__Builder(Type_Safe):
 
-    def render_env(self, request, fastapi_api_key: str = '', playwright_api_key: str = '',
+    def render_env(self, request, fastapi_api_key: str = '', send_access_token: str = '',
                    region: str = '', aws_creds: dict = None) -> str:
         lines = [
             'FASTAPI_API_KEY_NAME=x-api-key',
             f'FASTAPI_API_KEY_VALUE={fastapi_api_key}',                              # generated per-stack; interceptor ↔ mitm-service
-            f'SG_PLAYWRIGHT__API_KEY={playwright_api_key}',                          # generated per-stack; sg-playwright X-API-Key
+            f'SGRAPH_SEND__ACCESS_TOKEN={send_access_token}',                        # shared: vault auth + sg-playwright X-API-Key (via /pw)
             f'CONTENT_PROXY__PROXYAUTH_USER={str(request.proxyauth_user)}',
             f'CONTENT_PROXY__PROXYAUTH_PASS={str(request.proxyauth_pass)}',
             f'CONTENT_PROXY__CA_DIR={APP_DIR}/certs',
@@ -111,11 +111,11 @@ class Content_Proxy__User_Data__Builder(Type_Safe):
             return f'# proxy CA path {cert} supplied — copy into {APP_DIR}/certs before boot'
         return '# no proxy CA supplied — mitmproxy will self-generate one'
 
-    def render(self, request, fastapi_api_key: str = '', playwright_api_key: str = '',
+    def render(self, request, fastapi_api_key: str = '', send_access_token: str = '',
                region: str = '', aws_creds: dict = None, env_override: str = '') -> str:
         # MVP: if the operator supplied a full .env, ship it verbatim; else build one.
         env_body = env_override if env_override else self.render_env(
-            request, fastapi_api_key, playwright_api_key, region, aws_creds)
+            request, fastapi_api_key, send_access_token, region, aws_creds)
         compose = Content_Proxy__Compose__Template().render(
             mitmproxy_image    = str(request.mitmproxy_image)   ,
             mitm_service_image = str(request.mitm_service_image),

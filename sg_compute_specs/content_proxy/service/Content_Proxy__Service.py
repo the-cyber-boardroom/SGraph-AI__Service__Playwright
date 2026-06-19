@@ -97,10 +97,10 @@ class Content_Proxy__Service(Spec__Service__Base):
                                            extra_tags={TAG_MODE: request.mode.value,
                                                        TAG_TLS : request.tls.value })
         # app secrets: reuse what a supplied --env-file already defines; generate only if absent
-        env_map        = _parse_env(str(request.env_inline))
-        fastapi_key    = env_map.get('FASTAPI_API_KEY_VALUE')  or secrets.token_urlsafe(24)
-        playwright_key = env_map.get('SG_PLAYWRIGHT__API_KEY') or secrets.token_urlsafe(24)
-        keys_from_env  = bool(env_map.get('FASTAPI_API_KEY_VALUE') or env_map.get('SG_PLAYWRIGHT__API_KEY'))
+        env_map       = _parse_env(str(request.env_inline))
+        fastapi_key   = env_map.get('FASTAPI_API_KEY_VALUE')    or secrets.token_urlsafe(24)
+        send_token    = env_map.get('SGRAPH_SEND__ACCESS_TOKEN') or secrets.token_urlsafe(24)   # vault auth + playwright key (/pw)
+        keys_from_env = bool(env_map.get('FASTAPI_API_KEY_VALUE') or env_map.get('SGRAPH_SEND__ACCESS_TOKEN'))
         aws_creds = {}
         if bool(request.forward_aws_creds):                                          # parity path — bake operator creds; else instance role
             for k in ('AWS_ACCOUNT_ID', 'AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY'):
@@ -109,7 +109,7 @@ class Content_Proxy__Service(Spec__Service__Base):
                     aws_creds[k] = v
         user_data = self.user_data_builder.render(request,
                                                   fastapi_api_key    = fastapi_key        ,
-                                                  playwright_api_key = playwright_key     ,
+                                                  send_access_token  = send_token         ,
                                                   region             = region             ,
                                                   aws_creds          = aws_creds          ,
                                                   env_override       = str(request.env_inline))
@@ -134,7 +134,7 @@ class Content_Proxy__Service(Spec__Service__Base):
         return Schema__Content_Proxy__Create__Response(
             stack_info         = info                                        ,
             fastapi_api_key    = fastapi_key                                 ,
-            playwright_api_key = playwright_key                              ,
+            send_access_token  = send_token                                  ,
             secrets_from_env   = keys_from_env                              ,
             message    = f'Instance {iid} launching ({STACK_TYPE}, {request.proxy_tool.value}, S3 via {creds_path})',
             elapsed_ms = int((time.monotonic() - t0) * 1000)                 )
