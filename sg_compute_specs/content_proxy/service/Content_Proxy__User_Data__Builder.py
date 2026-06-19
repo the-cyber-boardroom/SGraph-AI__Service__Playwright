@@ -94,9 +94,10 @@ class Content_Proxy__User_Data__Builder(Type_Safe):
     def _interceptor_body(self, filename: str) -> str:
         return (Path(interceptors_pkg.__file__).parent / filename).read_text()
 
-    def _shutdown_line(self, max_hours: int) -> str:
-        if max_hours and int(max_hours) > 0:
-            return SHUTDOWN_TEMPLATE.format(minutes=int(max_hours) * 60, hours=int(max_hours))
+    def _shutdown_line(self, max_hours: float) -> str:
+        minutes = int(round(float(max_hours) * 60))
+        if minutes > 0:
+            return SHUTDOWN_TEMPLATE.format(minutes=minutes, hours=max_hours)
         return SHUTDOWN_DISABLED
 
     def _ca_block(self, request) -> str:
@@ -126,4 +127,4 @@ class Content_Proxy__User_Data__Builder(Type_Safe):
                                active_body   = self._interceptor_body('active.py')       ,
                                logic_body    = self._interceptor_body('Content_Proxy__Interceptor__Logic.py'),
                                ca_block      = self._ca_block(request)                   ,
-                               shutdown_line = self._shutdown_line(int(request.max_hours)))
+                               shutdown_line = self._shutdown_line(float(request.max_hours)))

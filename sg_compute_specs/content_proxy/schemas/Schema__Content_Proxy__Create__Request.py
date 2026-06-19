@@ -27,7 +27,7 @@ class Schema__Content_Proxy__Create__Request(Type_Safe):
     region             : Safe_Str__AWS__Region
     instance_type      : Safe_Str__Text  = 't3.large'
     caller_ip          : Safe_Str__IP__Address
-    max_hours          : int             = 1
+    max_hours          : float           = 1.0                                       # fractional ok (0.2 / 0.5 / 1.5)
     mode               : Enum__Content_Proxy__Mode = Enum__Content_Proxy__Mode.DIRECT_PROXY
     tls                : Enum__Content_Proxy__Tls  = Enum__Content_Proxy__Tls.NONE
     proxy_tool         : Enum__Content_Proxy__Proxy__Tool = Enum__Content_Proxy__Proxy__Tool.MITMDUMP   # prod-safe default

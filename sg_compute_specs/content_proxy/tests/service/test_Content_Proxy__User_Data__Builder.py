@@ -70,6 +70,14 @@ class test_Content_Proxy__User_Data__Builder(TestCase):
     def test_shutdown_for_max_hours(self):
         assert 'shutdown -h +120' in self.ud                                        # 2h → 120 min
 
+    def test_shutdown_for_fractional_hours(self):
+        ud = Content_Proxy__User_Data__Builder().render(
+            Schema__Content_Proxy__Create__Request(max_hours=0.5))
+        assert 'shutdown -h +30' in ud                                              # 0.5h → 30 min
+        ud2 = Content_Proxy__User_Data__Builder().render(
+            Schema__Content_Proxy__Create__Request(max_hours=1.5))
+        assert 'shutdown -h +90' in ud2                                             # 1.5h → 90 min
+
     def test_no_shutdown_when_max_hours_zero(self):
         ud = Content_Proxy__User_Data__Builder().render(
             Schema__Content_Proxy__Create__Request(max_hours=0))
