@@ -102,7 +102,7 @@ _CERT_INIT = """\
     command: ["python3", "-m", "sg_compute.platforms.tls.cert_init"]
     environment:
       - SG__CERT_INIT__MODE={mode}
-      - SG__CERT_INIT__ACME_PROD=${SG__CERT_INIT__ACME_PROD:-false}
+      - SG__CERT_INIT__ACME_PROD=${SG__CERT_INIT__ACME_PROD:-true}
       - SG__CERT_INIT__ACME_EMAIL=${SG__CERT_INIT__ACME_EMAIL:-}
       - FAST_API__TLS__CERT_FILE=/certs/cert.pem
       - FAST_API__TLS__KEY_FILE=/certs/key.pem

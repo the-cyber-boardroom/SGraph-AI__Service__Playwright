@@ -58,6 +58,7 @@ class test_Content_Proxy__Compose__Template(TestCase):
         yaml = Content_Proxy__Compose__Template().render(tls=Enum__Content_Proxy__Tls.LETSENCRYPT)
         assert 'SG__CERT_INIT__MODE=letsencrypt-ip' in yaml
         assert '"80:80"' in yaml                                                    # http-01 challenge port
+        assert 'SG__CERT_INIT__ACME_PROD=${SG__CERT_INIT__ACME_PROD:-true}' in yaml # IP certs need LE prod
 
     def test_mitm_service_gets_aws_creds_passthrough(self):
         mitm_block = self.yaml.split('mitm-service:')[1].split('mitmproxy-int:')[0]
