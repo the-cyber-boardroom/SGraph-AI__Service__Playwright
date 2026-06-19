@@ -103,6 +103,28 @@ class test_Content_Proxy__User_Data__Builder(TestCase):
         assert '/opt/content-proxy/overrides/Fast_API__Reverse_Proxy.py' in self.ud
         assert 'sg_overrides' in self.ud
 
+    def test_none_edge_writes_no_caddyfile(self):
+        assert 'edge=none — vault is the front door' in self.ud                       # default: no Caddyfile
+        assert f'{APP_DIR}/Caddyfile' not in self.ud
+
+    def test_caddy_edge_writes_caddyfile_and_drops_pw_override(self):
+        from sg_compute_specs.content_proxy.enums.Enum__Content_Proxy__Edge import Enum__Content_Proxy__Edge
+        req = Schema__Content_Proxy__Create__Request(edge=Enum__Content_Proxy__Edge.CADDY)
+        ud  = Content_Proxy__User_Data__Builder().render(req)                         # internal (no hostname) caddy edge
+        assert f'{APP_DIR}/Caddyfile' in ud                                           # the edge Caddyfile is written
+        assert 'localhost, 127.0.0.1 {' in ud                                         # internal named site
+        assert 'cp-caddy' in ud                                                       # compose has the caddy service
+        assert 'serve_with_proxy' not in ud                                          # vault is a plain origin — no /pw patch
+        assert 'edge=caddy — /pw routed at the edge' in ud
+
+    def test_caddy_edge_hostname_writes_fqdn_site(self):
+        from sg_compute_specs.content_proxy.enums.Enum__Content_Proxy__Edge import Enum__Content_Proxy__Edge
+        req = Schema__Content_Proxy__Create__Request(edge=Enum__Content_Proxy__Edge.CADDY)
+        ud  = Content_Proxy__User_Data__Builder().render(req, hostname='h.sg-compute.sgraph.ai')
+        assert 'h.sg-compute.sgraph.ai {' in ud                                       # FQDN site → Caddy auto-ACME
+        assert '"80:80"' in ud                                                        # ACME http-01 port published
+
     def test_placeholders_locked(self):
         assert PLACEHOLDERS == ('log_file', 'app_dir', 'env_body', 'compose_body',
-                                'active_body', 'logic_body', 'ca_block', 'overrides_block', 'shutdown_line')
+                                'active_body', 'logic_body', 'ca_block', 'overrides_block',
+                                'caddy_block', 'shutdown_line')

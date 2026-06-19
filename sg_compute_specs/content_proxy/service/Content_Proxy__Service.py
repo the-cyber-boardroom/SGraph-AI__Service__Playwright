@@ -18,6 +18,7 @@ from sg_compute.core.spec.Spec__Service__Base                                   
 from sg_compute.platforms.ec2.networking.Caller__IP__Detector                       import Caller__IP__Detector
 from sg_compute.platforms.ec2.networking.Stack__Name__Generator                     import Stack__Name__Generator
 
+from sg_compute_specs.content_proxy.enums.Enum__Content_Proxy__Edge                   import Enum__Content_Proxy__Edge
 from sg_compute_specs.content_proxy.enums.Enum__Content_Proxy__Tls                    import Enum__Content_Proxy__Tls
 from sg_compute_specs.content_proxy.schemas.Schema__Content_Proxy__Create__Request   import Schema__Content_Proxy__Create__Request
 from sg_compute_specs.content_proxy.schemas.Schema__Content_Proxy__Create__Response  import Schema__Content_Proxy__Create__Response
@@ -25,13 +26,29 @@ from sg_compute_specs.content_proxy.schemas.Schema__Content_Proxy__Delete__Respo
 from sg_compute_specs.content_proxy.schemas.Schema__Content_Proxy__List              import Schema__Content_Proxy__List
 from sg_compute_specs.content_proxy.schemas.Schema__Content_Proxy__Stack__Info       import Schema__Content_Proxy__Stack__Info
 from sg_compute_specs.content_proxy.service.Content_Proxy__AWS__Client               import Content_Proxy__AWS__Client, STACK_TYPE
-from sg_compute_specs.content_proxy.service.Content_Proxy__Stack__Mapper             import Content_Proxy__Stack__Mapper, TAG_MODE, TAG_TLS, TAG_ACCESS
+from sg_compute_specs.content_proxy.service.Content_Proxy__Stack__Mapper             import (Content_Proxy__Stack__Mapper, TAG_MODE,
+                                                                                            TAG_TLS, TAG_EDGE, TAG_HOSTNAME, TAG_ACCESS)
 from sg_compute_specs.content_proxy.service.Content_Proxy__User_Data__Builder        import Content_Proxy__User_Data__Builder
 
 
 DEFAULT_REGION        = 'eu-west-2'
 DEFAULT_INSTANCE_TYPE = 't3.large'
 PROFILE_NAME          = 'playwright-ec2'                                            # IAM instance profile (SSM + ECR), shared
+DEFAULT_AWS_DNS_ZONE  = 'sg-compute.sgraph.ai'                                      # same default as sg va / aws dns — single source via env
+
+
+def _default_aws_dns_zone() -> str:
+    return os.environ.get('SG_AWS__DNS__DEFAULT_ZONE', DEFAULT_AWS_DNS_ZONE)
+
+
+def derive_fqdn(stack_name: str, request) -> str:
+    # explicit --hostname wins; else --with-aws-dns auto-derives <stack>.<zone>; else blank (IP only)
+    explicit = str(getattr(request, 'hostname', '') or '').strip()
+    if explicit:
+        return explicit
+    if bool(getattr(request, 'with_aws_dns', False)):
+        return f'{stack_name}.{_default_aws_dns_zone()}'
+    return ''
 
 
 def _parse_env(text: str) -> dict:                                                  # KEY=VALUE lines from a .env string
@@ -47,11 +64,14 @@ VAULT_PORT            = 443                                                     
 ACME_PORT             = 80                                                          # cert-init http-01 (letsencrypt-ip only)
 
 
-def sg_rules(tls):                                                                  # → (inbound_ports[caller /32], extra_cidrs{port: cidr})
+def sg_rules(tls, edge=Enum__Content_Proxy__Edge.NONE, hostname=''):                # → (inbound_ports[caller /32], extra_cidrs{port: cidr})
     inbound = [EXT_PROXY_PORT, VAULT_PORT]                                          # proxy + vault open to the caller only
     extra   = {}
     if tls == Enum__Content_Proxy__Tls.LETSENCRYPT:                                 # ACME http-01 is validated by LE's servers, not the caller
         extra[ACME_PORT] = '0.0.0.0/0'
+    if edge == Enum__Content_Proxy__Edge.CADDY and hostname:                        # public hostname → world must reach :443 (Claude) + :80 (Caddy ACME http-01)
+        extra[VAULT_PORT] = '0.0.0.0/0'
+        extra[ACME_PORT]  = '0.0.0.0/0'
     return inbound, extra
 
 
@@ -112,8 +132,9 @@ class Content_Proxy__Service(Spec__Service__Base):
                     if not instance_id:
                         probe.state, probe.last_error = state or 'pending', 'no instance id yet'
                     else:
-                        https = getattr(info, 'tls', None) not in (None, Enum__Content_Proxy__Tls.NONE)
-                        cmd   = localhost_probe_command(https)
+                        edge_tls = getattr(info, 'edge', None) == Enum__Content_Proxy__Edge.CADDY  # caddy always serves :443 TLS
+                        https    = edge_tls or getattr(info, 'tls', None) not in (None, Enum__Content_Proxy__Tls.NONE)
+                        cmd      = localhost_probe_command(https)
                         try:
                             stdout, _ = self.aws_client.instance.run_command(region, instance_id, cmd, timeout_sec=30)
                             code = parse_http_code(stdout)
@@ -141,8 +162,12 @@ class Content_Proxy__Service(Spec__Service__Base):
         ami_id     = str(request.from_ami)      or self.aws_client.ami.latest_al2023_ami(region)
         itype      = str(request.instance_type) or DEFAULT_INSTANCE_TYPE
         request.stack_name = stack_name                                             # so user-data / tags see the resolved name
+        fqdn               = derive_fqdn(stack_name, request)                        # explicit --hostname or <stack>.<zone> (--with-aws-dns); else ''
+        if fqdn:                                                                     # --hostname/--with-aws-dns imply the Caddy edge (auto-ACME for it)
+            request.edge = Enum__Content_Proxy__Edge.CADDY
+        request.hostname = fqdn
 
-        inbound, extra_cidrs = sg_rules(request.tls)
+        inbound, extra_cidrs = sg_rules(request.tls, request.edge, fqdn)
         sg_id = self.aws_client.sg.ensure_security_group(region, stack_name, caller_ip,
                                                          inbound_ports=inbound, extra_cidrs=extra_cidrs)
         # app secrets: reuse what a supplied --env-file already defines; generate only if absent
@@ -154,10 +179,14 @@ class Content_Proxy__Service(Spec__Service__Base):
         keys_from_env = bool(env_map.get('FAST_API__AUTH__API_KEY__VALUE')
                              or env_map.get('SGRAPH_SEND__ACCESS_TOKEN')
                              or env_map.get('FASTAPI_API_KEY_VALUE'))
+        extra_tags = {TAG_MODE  : request.mode.value,
+                      TAG_TLS   : request.tls.value ,
+                      TAG_EDGE  : request.edge.value,
+                      TAG_ACCESS: access_token       }
+        if fqdn:
+            extra_tags[TAG_HOSTNAME] = fqdn
         tags = self.aws_client.tags.build(stack_name, caller_ip, creator,                         # access token tagged → recoverable for info
-                                          extra_tags={TAG_MODE  : request.mode.value,
-                                                      TAG_TLS   : request.tls.value ,
-                                                      TAG_ACCESS: access_token       })
+                                          extra_tags=extra_tags)
         aws_creds = {}
         if bool(request.forward_aws_creds):                                          # parity path — bake operator creds; else instance role
             for k in ('AWS_ACCOUNT_ID', 'AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY'):
@@ -169,7 +198,8 @@ class Content_Proxy__Service(Spec__Service__Base):
                                                   access_token       = access_token       ,
                                                   region             = region             ,
                                                   aws_creds          = aws_creds          ,
-                                                  env_override       = str(request.env_inline))
+                                                  env_override       = str(request.env_inline),
+                                                  hostname           = fqdn               )
         iid = self.aws_client.launch.run_instance(region                = region            ,
                                                   ami_id                = ami_id            ,
                                                   sg_id                 = sg_id             ,

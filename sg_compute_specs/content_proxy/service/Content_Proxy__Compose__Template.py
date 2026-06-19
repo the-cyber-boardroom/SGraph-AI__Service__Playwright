@@ -156,14 +156,16 @@ _CADDY = """\
       - caddy_data:/data
       - caddy_config:/config
     ports:
-      - "443:443"
-    networks:
+{caddy_ports}    networks:
       - cp-net
     restart: unless-stopped
     depends_on:
       - vault-app
       - sg-playwright
 """
+
+_CADDY_PORTS__INTERNAL = '      - "443:443"\n'                                       # tls internal — 443 only
+_CADDY_PORTS__HOSTNAME = '      - "80:80"\n      - "443:443"\n'                       # auto-ACME http-01 (:80) + tls-alpn (:443)
 
 
 def vault_block(vault_app_image: str, tls: Enum__Content_Proxy__Tls,
@@ -188,9 +190,11 @@ def cert_init_block(tls: Enum__Content_Proxy__Tls,
                       .replace('{acme_ports}', ports))
 
 
-def edge_block(edge: Enum__Content_Proxy__Edge) -> str:
+def edge_block(edge: Enum__Content_Proxy__Edge, hostname: str = '') -> str:
     if edge == Enum__Content_Proxy__Edge.CADDY:
-        return _CADDY.replace('{caddy_image}', CADDY_IMAGE)
+        ports = _CADDY_PORTS__HOSTNAME if hostname else _CADDY_PORTS__INTERNAL      # hostname → publish :80 for ACME http-01
+        return (_CADDY.replace('{caddy_image}', CADDY_IMAGE)
+                      .replace('{caddy_ports}', ports))
     return ''
 
 
@@ -291,7 +295,8 @@ class Content_Proxy__Compose__Template(Type_Safe):
                      proxy_tool         : Enum__Content_Proxy__Proxy__Tool = Enum__Content_Proxy__Proxy__Tool.MITMWEB,
                      interceptors_mount : str = INTERCEPTORS_MOUNT__LOCAL,
                      tls                : Enum__Content_Proxy__Tls = Enum__Content_Proxy__Tls.NONE,
-                     edge               : Enum__Content_Proxy__Edge = Enum__Content_Proxy__Edge.NONE
+                     edge               : Enum__Content_Proxy__Edge = Enum__Content_Proxy__Edge.NONE,
+                     hostname           : str = ''                                   # caddy public auto-ACME → publish :80
                ) -> str:
         return COMPOSE_TEMPLATE.format(mitmproxy_image    = str(mitmproxy_image)            ,
                                        mitm_service_image = str(mitm_service_image)         ,
@@ -301,5 +306,5 @@ class Content_Proxy__Compose__Template(Type_Safe):
                                        interceptors_mount = str(interceptors_mount)         ,
                                        vault_block        = vault_block(vault_app_image, tls, edge),
                                        cert_init_block    = cert_init_block(tls, edge)      ,
-                                       edge_block         = edge_block(edge)               ,
+                                       edge_block         = edge_block(edge, hostname)     ,
                                        volumes_block      = volumes_block(tls, edge)        )
