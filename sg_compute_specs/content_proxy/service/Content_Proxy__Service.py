@@ -115,7 +115,7 @@ class Content_Proxy__Service(Spec__Service__Base):
                         https = getattr(info, 'tls', None) not in (None, Enum__Content_Proxy__Tls.NONE)
                         cmd   = localhost_probe_command(https)
                         try:
-                            stdout, _ = self.aws_client.instance.run_command(region, instance_id, cmd, timeout_sec=20)
+                            stdout, _ = self.aws_client.instance.run_command(region, instance_id, cmd, timeout_sec=30)
                             code = parse_http_code(stdout)
                             if is_healthy_code(code):
                                 probe.healthy, probe.state, probe.last_error = True, 'running', ''
