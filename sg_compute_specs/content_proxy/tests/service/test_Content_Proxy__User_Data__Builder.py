@@ -52,6 +52,16 @@ class test_Content_Proxy__User_Data__Builder(TestCase):
     def test_certs_dir_is_writable(self):
         assert 'chmod 777' in self.ud and '/certs' in self.ud                       # mitmproxy self-gen CA on EC2
 
+    def test_proxy_ca_pem_written_to_box(self):
+        pem = '-----BEGIN CERTIFICATE-----\nMIIBfake\n-----END CERTIFICATE-----'
+        ud = Content_Proxy__User_Data__Builder().render(
+            Schema__Content_Proxy__Create__Request(proxy_ca_pem=pem))
+        assert '/certs/mitmproxy-ca.pem' in ud                                       # written to the mounted CA dir
+        assert '-----BEGIN CERTIFICATE-----' in ud                                   # the supplied CA, verbatim
+
+    def test_no_ca_block_when_none(self):
+        assert 'mitmproxy will self-generate' in self.ud                             # default: self-gen
+
     def test_env_override_shipped_verbatim(self):
         my_env = 'FASTAPI_API_KEY_VALUE=fromfile\nCACHE__SERVICE__BUCKET_NAME=my-bkt\nAWS_ACCESS_KEY_ID=AKIA\n'
         ud = Content_Proxy__User_Data__Builder().render(

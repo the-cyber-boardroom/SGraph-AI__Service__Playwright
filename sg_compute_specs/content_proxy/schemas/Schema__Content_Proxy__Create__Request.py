@@ -39,6 +39,7 @@ class Schema__Content_Proxy__Create__Request(Type_Safe):
     proxyauth_pass     : Safe_Str__Text                                              # mitmproxy-ext basic-auth pass
     proxy_ca_cert      : Safe_Str__Content_Proxy__Ref                                # user-supplied proxy CA cert path
     proxy_ca_key       : Safe_Str__Content_Proxy__Ref                                # user-supplied proxy CA key  path
+    proxy_ca_pem       : Safe_Str__Content_Proxy__Env__File                          # combined mitmproxy CA (cert+key) shipped to the box
     scripts_bucket     : Safe_Str__Content_Proxy__Ref                                # CACHE__SERVICE__BUCKET_NAME (MITM scripts)
     forward_aws_creds  : bool = False                                                # bake operator AWS_* into the EC2 .env (parity; else instance role)
     env_inline         : Safe_Str__Content_Proxy__Env__File                          # full .env shipped verbatim (MVP: overrides generated env)

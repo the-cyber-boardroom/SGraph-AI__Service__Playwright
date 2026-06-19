@@ -18,6 +18,7 @@ from sg_compute.cli.base.Spec__CLI__Builder      import Spec__CLI__Builder
 from sg_compute.cli.base.Spec__CLI__Defaults     import DEFAULT_REGION
 from sg_compute.cli.base.Spec__CLI__Errors       import spec_cli_errors
 
+from sg_compute_specs.content_proxy.cli.Renderers                       import render_create, render_info
 from sg_compute_specs.content_proxy.enums.Enum__Content_Proxy__Mode        import Enum__Content_Proxy__Mode
 from sg_compute_specs.content_proxy.enums.Enum__Content_Proxy__Proxy__Tool import Enum__Content_Proxy__Proxy__Tool
 from sg_compute_specs.content_proxy.enums.Enum__Content_Proxy__Tls         import Enum__Content_Proxy__Tls
@@ -35,10 +36,15 @@ ENV_EXAMPLE  = COMPOSE_DIR / '.env.example'
 
 def _set_extras(request, mode='direct_proxy', tls='none', proxy_tool='mitmdump',
                 proxyauth_user='', proxyauth_pass='', proxy_ca_cert='', proxy_ca_key='',
-                scripts_bucket='', forward_aws_creds=False, env_file='',
+                scripts_bucket='', forward_aws_creds=False, env_file='', ca_from_local=False,
                 use_spot=True, disk_size=0, mitm_service_image=''):
     if env_file:                                                                     # MVP: ship a full .env verbatim to the box
         request.env_inline = Path(env_file).read_text()
+    if ca_from_local:                                                                # reuse the local docker mitmproxy CA (already trusted in your browser)
+        ca = COMPOSE_DIR / 'certs' / 'mitmproxy-ca.pem'
+        if not ca.exists():
+            raise FileNotFoundError(f'{ca} not found — run `sg content-proxy local up` once to generate it')
+        request.proxy_ca_pem = ca.read_text()
     request.mode              = Enum__Content_Proxy__Mode(mode)
     request.tls               = Enum__Content_Proxy__Tls(tls)
     request.proxy_tool        = Enum__Content_Proxy__Proxy__Tool(proxy_tool)
@@ -62,8 +68,10 @@ _cli_spec = Schema__Spec__CLI__Spec(
     service_factory       = lambda: Content_Proxy__Service().setup() ,
     health_path           = '/'                                      ,
     health_port           = 443                                      ,
-    health_scheme         = 'https'                                  ,
-    extra_create_field_setters = _set_extras                         )
+    health_scheme         = 'http'                                   ,   # NONE/MVP: vault plain HTTP behind :443 (TLS stacks → https)
+    extra_create_field_setters = _set_extras                         ,
+    render_info_fn             = render_info                         ,
+    render_create_fn           = render_create                       )
 
 
 app = Spec__CLI__Builder(
@@ -77,6 +85,7 @@ app = Spec__CLI__Builder(
         ('proxy_ca_cert' , str , ''            , 'Path to the user-supplied proxy CA cert (Mode 1 browser trust).'),
         ('proxy_ca_key'  , str , ''            , 'Path to the user-supplied proxy CA key.'),
         ('env_file'      , str , ''            , 'Path to a full .env shipped verbatim to the box (MVP: overrides generated env — ship your working local .env).'),
+        ('ca_from_local' , bool, False         , 'Ship the local docker mitmproxy CA (docker/compose/certs/mitmproxy-ca.pem) so the EC2 proxy uses the CA already trusted in your browser.'),
         ('scripts_bucket', str , ''            , 'S3 bucket the MITM service reads injection scripts from (CACHE__SERVICE__BUCKET_NAME).'),
         ('forward_aws_creds', bool, False      , 'Bake the operator AWS_* creds into the box .env (local-parity; default off → instance role).'),
         ('use_spot'      , bool, True          , 'Spot instance (~70%% cheaper). --no-use-spot for on-demand.'),
