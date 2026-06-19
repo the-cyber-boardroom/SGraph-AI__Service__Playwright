@@ -25,7 +25,7 @@ from sg_compute_specs.content_proxy.schemas.Schema__Content_Proxy__Delete__Respo
 from sg_compute_specs.content_proxy.schemas.Schema__Content_Proxy__List              import Schema__Content_Proxy__List
 from sg_compute_specs.content_proxy.schemas.Schema__Content_Proxy__Stack__Info       import Schema__Content_Proxy__Stack__Info
 from sg_compute_specs.content_proxy.service.Content_Proxy__AWS__Client               import Content_Proxy__AWS__Client, STACK_TYPE
-from sg_compute_specs.content_proxy.service.Content_Proxy__Stack__Mapper             import Content_Proxy__Stack__Mapper, TAG_MODE, TAG_TLS
+from sg_compute_specs.content_proxy.service.Content_Proxy__Stack__Mapper             import Content_Proxy__Stack__Mapper, TAG_MODE, TAG_TLS, TAG_ACCESS
 from sg_compute_specs.content_proxy.service.Content_Proxy__User_Data__Builder        import Content_Proxy__User_Data__Builder
 
 
@@ -145,14 +145,19 @@ class Content_Proxy__Service(Spec__Service__Base):
         inbound, extra_cidrs = sg_rules(request.tls)
         sg_id = self.aws_client.sg.ensure_security_group(region, stack_name, caller_ip,
                                                          inbound_ports=inbound, extra_cidrs=extra_cidrs)
-        tags  = self.aws_client.tags.build(stack_name, caller_ip, creator,
-                                           extra_tags={TAG_MODE: request.mode.value,
-                                                       TAG_TLS : request.tls.value })
         # app secrets: reuse what a supplied --env-file already defines; generate only if absent
         env_map       = _parse_env(str(request.env_inline))
-        fastapi_key   = env_map.get('FASTAPI_API_KEY_VALUE')    or secrets.token_urlsafe(24)
-        send_token    = env_map.get('SGRAPH_SEND__ACCESS_TOKEN') or secrets.token_urlsafe(24)   # vault auth + playwright key (/pw)
-        keys_from_env = bool(env_map.get('FASTAPI_API_KEY_VALUE') or env_map.get('SGRAPH_SEND__ACCESS_TOKEN'))
+        fastapi_key   = env_map.get('FASTAPI_API_KEY_VALUE') or secrets.token_urlsafe(24)         # interceptor ↔ mitm-service
+        access_token  = (env_map.get('FAST_API__AUTH__API_KEY__VALUE')                            # the access token (sg va model):
+                         or env_map.get('SGRAPH_SEND__ACCESS_TOKEN')                              # vault key + sg-playwright key (/pw)
+                         or secrets.token_urlsafe(24))                                            # + set-cookie token
+        keys_from_env = bool(env_map.get('FAST_API__AUTH__API_KEY__VALUE')
+                             or env_map.get('SGRAPH_SEND__ACCESS_TOKEN')
+                             or env_map.get('FASTAPI_API_KEY_VALUE'))
+        tags = self.aws_client.tags.build(stack_name, caller_ip, creator,                         # access token tagged → recoverable for info
+                                          extra_tags={TAG_MODE  : request.mode.value,
+                                                      TAG_TLS   : request.tls.value ,
+                                                      TAG_ACCESS: access_token       })
         aws_creds = {}
         if bool(request.forward_aws_creds):                                          # parity path — bake operator creds; else instance role
             for k in ('AWS_ACCOUNT_ID', 'AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY'):
@@ -161,7 +166,7 @@ class Content_Proxy__Service(Spec__Service__Base):
                     aws_creds[k] = v
         user_data = self.user_data_builder.render(request,
                                                   fastapi_api_key    = fastapi_key        ,
-                                                  send_access_token  = send_token         ,
+                                                  access_token       = access_token       ,
                                                   region             = region             ,
                                                   aws_creds          = aws_creds          ,
                                                   env_override       = str(request.env_inline))
@@ -186,7 +191,7 @@ class Content_Proxy__Service(Spec__Service__Base):
         return Schema__Content_Proxy__Create__Response(
             stack_info         = info                                        ,
             fastapi_api_key    = fastapi_key                                 ,
-            send_access_token  = send_token                                  ,
+            access_token       = access_token                                ,
             secrets_from_env   = keys_from_env                              ,
             message    = f'Instance {iid} launching ({STACK_TYPE}, {request.proxy_tool.value}, S3 via {creds_path})',
             elapsed_ms = int((time.monotonic() - t0) * 1000)                 )

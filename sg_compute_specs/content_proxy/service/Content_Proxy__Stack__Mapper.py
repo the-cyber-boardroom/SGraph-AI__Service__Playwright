@@ -16,8 +16,9 @@ from sg_compute_specs.content_proxy.enums.Enum__Content_Proxy__Tls              
 from sg_compute_specs.content_proxy.schemas.Schema__Content_Proxy__Stack__Info       import Schema__Content_Proxy__Stack__Info
 
 
-TAG_MODE = 'cp:mode'
-TAG_TLS  = 'cp:tls'
+TAG_MODE   = 'cp:mode'
+TAG_TLS    = 'cp:tls'
+TAG_ACCESS = 'cp:access-token'                                                      # recoverable for info (like sg va's AccessToken)
 
 
 def _state(details: dict) -> Enum__Content_Proxy__Stack__State:
@@ -43,7 +44,8 @@ class Content_Proxy__Stack__Mapper(Type_Safe):
             region      = region                                                      ,
             public_ip   = details.get('PublicIpAddress', '') or ''                    ,
             state       = _state(details)                                             ,
-            mode        = _enum(Enum__Content_Proxy__Mode, tag_value(details, TAG_MODE),
-                                Enum__Content_Proxy__Mode.DIRECT_PROXY)               ,
-            tls         = _enum(Enum__Content_Proxy__Tls,  tag_value(details, TAG_TLS),
-                                Enum__Content_Proxy__Tls.NONE)                        )
+            mode         = _enum(Enum__Content_Proxy__Mode, tag_value(details, TAG_MODE),
+                                 Enum__Content_Proxy__Mode.DIRECT_PROXY)              ,
+            tls          = _enum(Enum__Content_Proxy__Tls,  tag_value(details, TAG_TLS),
+                                 Enum__Content_Proxy__Tls.NONE)                       ,
+            access_token = tag_value(details, TAG_ACCESS)                             )

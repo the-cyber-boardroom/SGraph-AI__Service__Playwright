@@ -30,6 +30,13 @@ class test_render_info(TestCase):
         assert 'http://35.179.109.135:443/'  in out                                 # vault (plain HTTP behind 443, NONE)
         assert '/pw/' in out                                                        # sg-playwright via /pw
         assert 'sg content-proxy smoke' in out                                      # verify hint
+
+    def test_info_shows_access_token_and_set_cookie(self):
+        info = Schema__Content_Proxy__Stack__Info(stack_name='cp-demo', public_ip='1.2.3.4',
+                                                 tls=Enum__Content_Proxy__Tls.SELF_SIGNED, access_token='TOK123')
+        out  = _cap(render_info, info)
+        assert 'TOK123' in out                                                      # access token shown (recovered from tag)
+        assert '/auth/set-cookie-form' in out                                       # set-cookie link
         assert 'local ca' in out                                                    # CA import hint
 
     def test_info_https_when_tls(self):
@@ -43,7 +50,7 @@ class test_render_create(TestCase):
     def test_create_surfaces_generated_secrets_once(self):
         info = Schema__Content_Proxy__Stack__Info(stack_name='cp-demo', instance_id='i-0123456789abcdef0')
         resp = Schema__Content_Proxy__Create__Response(stack_info=info, fastapi_api_key='FK',
-                                                      send_access_token='PK', elapsed_ms=3200)
+                                                      access_token='PK', elapsed_ms=3200)
         out  = _cap(render_create, resp)
         assert 'cp-demo' in out and 'Launching' in out
         assert 'FK' in out and 'PK' in out                                          # secrets shown once
@@ -52,6 +59,6 @@ class test_render_create(TestCase):
     def test_create_labels_env_file_secrets(self):
         info = Schema__Content_Proxy__Stack__Info(stack_name='cp-demo')
         resp = Schema__Content_Proxy__Create__Response(stack_info=info, fastapi_api_key='FK',
-                                                      send_access_token='PK', secrets_from_env=True)
+                                                      access_token='PK', secrets_from_env=True)
         out  = _cap(render_create, resp)
         assert 'from --env-file' in out and 'generated secrets' not in out          # reused, not generated
