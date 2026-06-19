@@ -26,11 +26,14 @@ from osbot_utils.type_safe.Type_Safe                                            
 
 
 # the route body shared by both site-address modes (one tab of indent under the block)
+# The injected header NAME is env-driven ({$FAST_API__AUTH__API_KEY__NAME}) so it
+# always matches what sg-playwright expects — never hardcode it. Caddy reads both
+# {$...} placeholders from its own env (compose sets them from the .env).
 ROUTE_BODY = """\
 	# sg-playwright, same-origin under /pw — strip the prefix, inject the API key
 	handle_path /pw/* {
 		reverse_proxy sg-playwright:8000 {
-			header_up X-API-Key {$SGRAPH_SEND__ACCESS_TOKEN}
+			header_up {$FAST_API__AUTH__API_KEY__NAME:x-api-key} {$SGRAPH_SEND__ACCESS_TOKEN}
 			header_up X-Forwarded-Prefix /pw
 		}
 	}

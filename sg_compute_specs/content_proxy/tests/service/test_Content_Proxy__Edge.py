@@ -19,7 +19,7 @@ class test_Content_Proxy__Edge__Template(TestCase):
     def test_routes_pw_to_playwright_with_auth(self):
         assert 'handle_path /pw/*' in self.caddy
         assert 'reverse_proxy sg-playwright:8000' in self.caddy
-        assert 'header_up X-API-Key {$SGRAPH_SEND__ACCESS_TOKEN}' in self.caddy      # auth injected at the edge
+        assert 'header_up {$FAST_API__AUTH__API_KEY__NAME:x-api-key} {$SGRAPH_SEND__ACCESS_TOKEN}' in self.caddy  # env-driven name, never hardcoded
         assert 'header_up X-Forwarded-Prefix /pw' in self.caddy
 
     def test_root_to_vault_and_tls(self):
