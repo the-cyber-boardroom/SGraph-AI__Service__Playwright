@@ -112,4 +112,4 @@ class test_Content_Proxy__Compose__Template(TestCase):
     def test_placeholders_locked(self):
         assert PLACEHOLDERS == ('mitmproxy_image', 'mitm_service_image', 'playwright_image',
                                 'int_command', 'ext_command', 'interceptors_mount',
-                                'vault_block', 'cert_init_block', 'volumes_block')
+                                'vault_block', 'cert_init_block', 'edge_block', 'volumes_block')

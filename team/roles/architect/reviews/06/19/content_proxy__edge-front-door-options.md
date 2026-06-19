@@ -219,4 +219,26 @@ that FQDN with an auto-renewed trusted cert.
 4. **Keep WebRTC media on a separate track** (TURN/direct ports).
 
 Suggested follow-up artefact: a thin PoC — `Content_Proxy__Edge__Template` (Caddyfile) routing `/ → vault:8080`, `/pw/* → sg-playwright:8000` with TLS at the edge — proving the vault patch can be deleted, behind a `--edge caddy|none` flag so it's introduced without breaking the current path.
+
+---
+
+## 8. PoC — landed (2026-06-19)
+
+The Caddy edge PoC is implemented behind `--edge caddy` (local), default path untouched:
+
+- `Content_Proxy__Edge__Template` → renders the `Caddyfile`: `tls internal`; `handle_path /pw/*` → `sg-playwright:8000` (strip prefix, inject `X-API-Key {$SGRAPH_SEND__ACCESS_TOKEN}` + `X-Forwarded-Prefix /pw`); `handle` → `vault-app:8080`.
+- `Content_Proxy__Compose__Template.render(edge=CADDY)` → adds the `caddy` service (owns `:443`, `caddy_data`/`caddy_config` volumes) and demotes vault to a **plain origin** (`_VAULT_PLAIN`: no `serve_with_proxy`, no `sg_overrides` mount, no `FAST_API__TLS__*`, no published port); **no cert-init** (edge does TLS).
+- Committed runnable artefacts: `docker/compose/docker-compose.caddy.yml` + `docker/compose/Caddyfile` (drift-guarded).
+- CLI: **`sg cp local up --edge caddy`** (defaults to `none`).
+
+Run it locally:
+```
+sg cp local up --edge caddy
+curl -k https://localhost/             # vault (plain origin behind the edge)
+curl -k https://localhost/pw/health/status   # sg-playwright via the edge (auth injected)
+curl -x http://localhost:8080 http://example.com/mitm-proxy   # Mode-1 proxy (unchanged)
+```
+**Proves:** the vault runs unpatched, `/pw` is an edge route (no runtime injection), TLS terminates at the edge. 100 unit tests green (incl. edge template + compose-variant + drift guard).
+
+**Not yet (next slice):** EC2 `--edge`/`--with-aws-dns` (the `<slug>.sgraph.ai` hostname + LE-hostname cert at the edge), and removing the vault patch from the *default* path once the edge is the default. WebSocket/VNC/WebRTC backends slot in as additional Caddy routes when those workloads land.
 </content>

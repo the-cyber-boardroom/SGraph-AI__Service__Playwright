@@ -43,6 +43,9 @@ The content-transformation proxy stack: a browser routes through **mitmproxy**, 
 - **Health via SSM:** `wait`/`health` probe the vault on the box (`localhost`) over SSM (`localhost_probe_command` + `parse_http_code`/`is_healthy_code`), not the external IP — robust against SG/caller-IP drift and self-signed TLS.
 - **Interceptor** leaves `mitm.it` (mitmproxy onboarding/cert page) untouched.
 
+### Front-door edge — Caddy PoC (opt-in)
+- `Enum__Content_Proxy__Edge` (NONE | CADDY). `Content_Proxy__Edge__Template` renders a `Caddyfile`; `Compose__Template.render(edge=CADDY)` adds a `caddy` service that owns `:443` (TLS) and routes `/`→vault, `/pw/*`→sg-playwright (auth injected) — vault becomes a **plain origin** (no `serve_with_proxy` patch, no vault TLS, no cert-init). Committed `docker/compose/docker-compose.caddy.yml` + `Caddyfile` (drift-guarded); `sg cp local up --edge caddy`. Default path (NONE, vault-as-edge) unchanged. Rationale + options: `team/roles/architect/reviews/06/19/content_proxy__edge-front-door-options.md`.
+
 ### Configurable proxy tool
 - `Enum__Content_Proxy__Proxy__Tool` (MITMWEB | MITMDUMP). Create request defaults to **MITMDUMP** (prod-safe, no in-memory flow accumulation); the committed local compose + template default to **MITMWEB** (dev — TUI `/flows`).
 

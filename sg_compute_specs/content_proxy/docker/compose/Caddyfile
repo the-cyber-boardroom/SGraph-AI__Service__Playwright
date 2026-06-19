@@ -1,0 +1,23 @@
+{
+	auto_https disable_redirects
+}
+
+:443 {
+	tls internal
+
+	# sg-playwright, same-origin under /pw — strip the prefix, inject the API key
+	handle_path /pw/* {
+		reverse_proxy sg-playwright:8000 {
+			header_up X-API-Key {$SGRAPH_SEND__ACCESS_TOKEN}
+			header_up X-Forwarded-Prefix /pw
+		}
+	}
+
+	# bare /pw → /pw/ so the handle_path matcher catches it
+	redir /pw /pw/ 308
+
+	# everything else → the vault app (plain origin)
+	handle {
+		reverse_proxy vault-app:8080
+	}
+}

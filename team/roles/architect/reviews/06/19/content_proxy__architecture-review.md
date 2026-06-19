@@ -108,12 +108,14 @@ The spec (`v0.2.63__content-transformation-proxy-stack.md`) predates the live wo
 
 ## 7. Recommendations (prioritized)
 
-1. **P1 — Build the integration tier.** A gated `docker compose up` smoke (`/mitm-proxy` + `/pw/health` + a transform fixture) + the numbered deploy-via-pytest. This retro-covers defects #1–#8 and is the MVP's missing safety net.
-2. **P1 — Kill the cross-spec import (D1).** Shared module or the upstream Send PR for native `/pw`.
+1. **P1 — Adopt a dedicated front-door edge + the `*.sgraph.ai` hostname path.** See the companion exploration: [`content_proxy__edge-front-door-options.md`](content_proxy__edge-front-door-options.md). A Caddy edge (TLS + path routing) demotes the vault to a plain origin — this **resolves D1** (no vault patch), kills the vault-port/TLS bolt-ons, and unblocks streaming (WS/VNC/WebRTC-signaling). Coupled with reusing `sg va`'s Route 53 + LE-hostname so external callers (Claude) reach each vault at a stable trusted `https://<slug>.sgraph.ai/`. **Status: PoC landed** — `sg cp local up --edge caddy` (Caddy front-door; vault plain origin; `/pw` routed at the edge; `tls internal` locally). Next: the EC2 `--edge`/`--with-aws-dns` wiring.
+2. **P1 — Build the integration tier.** A gated `docker compose up` smoke (`/mitm-proxy` + `/pw/health` + a transform fixture) + the numbered deploy-via-pytest. This retro-covers defects #1–#8 and is the MVP's missing safety net.
 3. **P2 — Reconcile the spec to as-built (§6)** and publish the **auth map (D5)**.
 4. **P2 — Decide `api/routes` (D2):** build them or drop the control-plane claim.
 5. **P3 — Security hardening slice (D4):** instance-role S3 + SSM-param token; remove baked secrets.
 6. **P3 — Finish the TUI** (live `__TUI__Source` + screens over the existing render fns) and **vault loading** (P-6) when the product needs them.
+
+> **Update (2026-06-19):** D1 now has a concrete path — the Caddy edge PoC. Once the EC2 `--edge` + `--with-aws-dns` wiring lands and the vault patch is removed from the default path, D1 closes and the vault-port/TLS findings (§3, §4 #8) become moot.
 
 ---
 
