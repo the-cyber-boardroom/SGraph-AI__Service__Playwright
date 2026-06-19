@@ -60,7 +60,7 @@ _VAULT_HTTP = """\
     command: ["python", "-m", "sg_overrides.serve_with_proxy"]
     environment:
       - FAST_API__REVERSE_PROXY__ROUTES=pw=http://sg-playwright:8000
-      - FAST_API__AUTH__API_KEY__NAME=${FAST_API__AUTH__API_KEY__NAME:-X-API-Key}
+      - FAST_API__AUTH__API_KEY__NAME=${FAST_API__AUTH__API_KEY__NAME:-x-api-key}
       - FAST_API__AUTH__API_KEY__VALUE=${FAST_API__AUTH__API_KEY__VALUE}
       - SGRAPH_SEND__ACCESS_TOKEN=${SGRAPH_SEND__ACCESS_TOKEN}
       - SEND__STORAGE_MODE=${SEND__STORAGE_MODE:-memory}
@@ -82,7 +82,7 @@ _VAULT_TLS = """\
     command: ["python", "-m", "sg_overrides.serve_with_proxy"]
     environment:
       - FAST_API__REVERSE_PROXY__ROUTES=pw=http://sg-playwright:8000
-      - FAST_API__AUTH__API_KEY__NAME=${FAST_API__AUTH__API_KEY__NAME:-X-API-Key}
+      - FAST_API__AUTH__API_KEY__NAME=${FAST_API__AUTH__API_KEY__NAME:-x-api-key}
       - FAST_API__AUTH__API_KEY__VALUE=${FAST_API__AUTH__API_KEY__VALUE}
       - SGRAPH_SEND__ACCESS_TOKEN=${SGRAPH_SEND__ACCESS_TOKEN}
       - SEND__STORAGE_MODE=${SEND__STORAGE_MODE:-memory}
@@ -133,7 +133,7 @@ _VAULT_PLAIN = """\
     image: {vault_app_image}
     container_name: cp-vault-app
     environment:
-      - FAST_API__AUTH__API_KEY__NAME=${FAST_API__AUTH__API_KEY__NAME:-X-API-Key}
+      - FAST_API__AUTH__API_KEY__NAME=${FAST_API__AUTH__API_KEY__NAME:-x-api-key}
       - FAST_API__AUTH__API_KEY__VALUE=${FAST_API__AUTH__API_KEY__VALUE}
       - SGRAPH_SEND__ACCESS_TOKEN=${SGRAPH_SEND__ACCESS_TOKEN}
       - SEND__STORAGE_MODE=${SEND__STORAGE_MODE:-memory}
@@ -151,6 +151,7 @@ _CADDY = """\
     container_name: cp-caddy
     environment:
       - SGRAPH_SEND__ACCESS_TOKEN=${SGRAPH_SEND__ACCESS_TOKEN}
+      - FAST_API__AUTH__API_KEY__NAME=${FAST_API__AUTH__API_KEY__NAME:-x-api-key}
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data
@@ -271,7 +272,7 @@ services:
     environment:
       - SG_PLAYWRIGHT__DEFAULT_PROXY_URL=http://mitmproxy-int:8080
       - IGNORE_HTTPS_ERRORS=true
-      - FAST_API__AUTH__API_KEY__NAME=${{FAST_API__AUTH__API_KEY__NAME:-X-API-Key}}
+      - FAST_API__AUTH__API_KEY__NAME=${{FAST_API__AUTH__API_KEY__NAME:-x-api-key}}
       - FAST_API__AUTH__API_KEY__VALUE=${{FAST_API__AUTH__API_KEY__VALUE}}
     networks:
       - cp-net

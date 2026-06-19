@@ -263,9 +263,10 @@ def auth_help_lines(base_url: str, token: str) -> List[str]:                    
     token_note = (f'[bold yellow]{token}[/]' if token and token != 'change-me'
                   else f'[yellow]{token or "<unset>"}[/]  [dim](still the .env placeholder — set a real value)[/]')
     return [
-        f'  access token : {token_note}  [dim](SGRAPH_SEND__ACCESS_TOKEN in .env)[/]',
-        f'  set-cookie   : [cyan]{base_url}/auth/set-cookie-form[/]  [dim]— open this, paste the token → auths the browser for / and /pw[/]',
-        f'  or header    : [dim]curl -k -H "x-sgraph-access-token: <token>" {base_url}/[/]',
+        f'  access token  : {token_note}  [dim](SGRAPH_SEND__ACCESS_TOKEN in .env)[/]',
+        f'  vault cookie  : [cyan]{base_url}/auth/set-cookie-form[/]  [dim]— paste the token → auths the vault UI ( / )[/]',
+        f'  /pw cookie    : [cyan]{base_url}/pw/auth/set-cookie-form[/]  [dim]— paste the token → auths sg-playwright ( /pw )[/]',
+        f'  or header     : [dim]curl -k -H "x-api-key: <token>" {base_url}/pw/info/health[/]',
     ]
 
 

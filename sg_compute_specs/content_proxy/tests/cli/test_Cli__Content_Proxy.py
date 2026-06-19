@@ -71,9 +71,10 @@ class test_local_helpers(TestCase):
 
     def test_auth_help_lines_show_set_cookie_and_token(self):
         lines = '\n'.join(auth_help_lines('https://localhost', 'real-token-123'))
-        assert 'https://localhost/auth/set-cookie-form' in lines                      # one-click browser auth
-        assert 'real-token-123'                         in lines                      # the actual token
-        assert 'x-sgraph-access-token'                  in lines                      # header alternative
+        assert 'https://localhost/auth/set-cookie-form'    in lines                   # vault UI auth
+        assert 'https://localhost/pw/auth/set-cookie-form' in lines                   # sg-playwright (/pw) auth
+        assert 'real-token-123'                            in lines                   # the actual token
+        assert 'x-api-key'                                 in lines                   # header alternative (canonical key name)
         assert 'placeholder' not in lines                                            # real token → no warning
 
     def test_auth_help_lines_flag_placeholder_token(self):
