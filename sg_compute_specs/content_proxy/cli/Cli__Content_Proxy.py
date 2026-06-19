@@ -29,7 +29,6 @@ COMPOSE_DIR  = Path(_pkg.__file__).parent / 'docker' / 'compose'
 COMPOSE_FILE = COMPOSE_DIR / 'docker-compose.yml'
 ENV_FILE     = COMPOSE_DIR / '.env'
 ENV_EXAMPLE  = COMPOSE_DIR / '.env.example'
-MITM_HTTPX_OVERRIDE = COMPOSE_DIR / 'docker-compose.mitm-httpx.yml'                 # temporary: adds httpx to the MITM image
 
 
 def _set_extras(request, mode='direct_proxy', tls='none', proxy_tool='mitmdump',
@@ -96,11 +95,9 @@ def _ensure_env(c: Console) -> None:
         CERTS_DIR.chmod(0o777)                                                       # container user (uid 1000) must be able to write
 
 
-def _compose(*args: str, extra_files: Optional[List[Path]] = None):
-    files = ['-f', str(COMPOSE_FILE)]
-    for f in (extra_files or []):
-        files += ['-f', str(f)]
-    return subprocess.run(['docker', 'compose', '--env-file', str(ENV_FILE), *files, *args])
+def _compose(*args: str):
+    return subprocess.run(['docker', 'compose', '--env-file', str(ENV_FILE),
+                           '-f', str(COMPOSE_FILE), *args])
 
 
 # ── pure helpers (unit-tested) ──────────────────────────────────────────────────
@@ -126,26 +123,18 @@ def smoke_curl_args(url: str, user: str = '', password: str = '') -> List[str]: 
 
 @local_app.command(name='up')
 @spec_cli_errors
-def local_up(detach        : bool = typer.Option(True, '--detach/--attach', '-d',
-                                               help='Run detached (default) or attached.'),
-             fix_mitm_httpx: bool = typer.Option(False, '--fix-mitm-httpx',
-                                               help='TEMP: build a local MITM image with httpx added '
-                                                    '(works around the upstream image missing httpx).'),
-             pull          : bool = typer.Option(False, '--pull',
-                                               help='Pull the latest images first (up --pull always).')):
+def local_up(detach: bool = typer.Option(True, '--detach/--attach', '-d',
+                                         help='Run detached (default) or attached.'),
+             pull  : bool = typer.Option(False, '--pull',
+                                         help='Pull the latest images first (up --pull always).')):
     """Bring the 5-service stack up locally (mitmweb by default → TUI /flows)."""
     c = Console(highlight=False)
     _ensure_env(c)
-    extra = [MITM_HTTPX_OVERRIDE] if fix_mitm_httpx else []
-    if fix_mitm_httpx:
-        c.print('  [yellow]⚠[/]  --fix-mitm-httpx: building a local MITM image with httpx (temporary workaround)')
     c.print(f'  [dim]docker compose up ({COMPOSE_FILE})[/]')
     up_args = ['up', '-d'] if detach else ['up']
     if pull:
         up_args += ['--pull', 'always']
-    if fix_mitm_httpx:
-        up_args.append('--build')
-    rc = _compose(*up_args, extra_files=extra)
+    rc = _compose(*up_args)
     if rc.returncode == 0:
         c.print('  [green]✓[/]  stack up. Try the /mitm-proxy smoke:')
         c.print('     [cyan]curl -x http://localhost:8080 http://example.com/mitm-proxy[/]')
@@ -168,6 +157,29 @@ def local_down(volumes: bool = typer.Option(False, '--volumes', '-v', help='Also
 def local_status():
     """Show the local stack containers (docker compose ps)."""
     raise typer.Exit(_compose('ps').returncode)
+
+
+@local_app.command(name='ca')
+@spec_cli_errors
+def local_ca(pem: bool = typer.Option(False, '--pem', help='Print the PEM to stdout instead of the path.')):
+    """Show the mitmproxy CA cert to import into a browser (Mode 1 trust).
+
+    mitmproxy self-generates it into the mounted certs/ dir on first boot. Import
+    the .pem into Firefox: Settings → Privacy & Security → Certificates → View
+    Certificates → Authorities → Import → trust for websites.
+    """
+    c  = Console(highlight=False)
+    ca = CERTS_DIR / 'mitmproxy-ca-cert.pem'
+    if not ca.exists():
+        c.print(f'  [yellow]⚠[/]  {ca} not found yet — run [cyan]sg content-proxy local up[/] first '
+                '(mitmproxy generates it on boot).')
+        raise typer.Exit(1)
+    if pem:
+        c.print(ca.read_text())
+    else:
+        c.print(f'  CA cert: [cyan]{ca}[/]')
+        c.print('  [dim]Firefox: Settings → Privacy & Security → Certificates → View Certificates →[/]')
+        c.print('  [dim]Authorities → Import → select this file → "Trust this CA to identify websites".[/]')
 
 
 @local_app.command(name='pull')

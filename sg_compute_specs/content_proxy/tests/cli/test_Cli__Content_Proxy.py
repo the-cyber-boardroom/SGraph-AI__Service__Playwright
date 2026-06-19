@@ -31,7 +31,7 @@ class test_Cli__Content_Proxy(TestCase):
     def test_local_group_commands(self):
         local = [g for g in app.registered_groups if g.name == 'local'][0]
         names = {c.name or '' for c in local.typer_instance.registered_commands}
-        assert {'up', 'down', 'status', 'logs', 'smoke', 'pull'} <= names
+        assert {'up', 'down', 'status', 'logs', 'smoke', 'pull', 'ca'} <= names
 
 
 class test_local_helpers(TestCase):
