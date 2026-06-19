@@ -97,6 +97,11 @@ class test_Content_Proxy__User_Data__Builder(TestCase):
         assert 'load-vaults' not in self.ud
         assert 'sgit clone'  not in self.ud
 
+    def test_writes_pw_override(self):
+        assert '/opt/content-proxy/overrides/serve_with_proxy.py'        in self.ud   # /pw entrypoint override written
+        assert '/opt/content-proxy/overrides/Fast_API__Reverse_Proxy.py' in self.ud
+        assert 'sg_overrides' in self.ud
+
     def test_placeholders_locked(self):
         assert PLACEHOLDERS == ('log_file', 'app_dir', 'env_body', 'compose_body',
-                                'active_body', 'logic_body', 'ca_block', 'shutdown_line')
+                                'active_body', 'logic_body', 'ca_block', 'overrides_block', 'shutdown_line')

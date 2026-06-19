@@ -55,10 +55,13 @@ _VAULT_HTTP = """\
   vault-app:
     image: {vault_app_image}
     container_name: cp-vault-app
+    command: ["python", "-m", "sg_overrides.serve_with_proxy"]
     environment:
       - FAST_API__REVERSE_PROXY__ROUTES=pw=http://sg-playwright:8000
       - SGRAPH_SEND__ACCESS_TOKEN=${SGRAPH_SEND__ACCESS_TOKEN}
       - SEND__STORAGE_MODE=${SEND__STORAGE_MODE:-memory}
+    volumes:
+      - ./overrides:/app/sg_overrides:ro
     ports:
       - "443:8080"
     networks:
@@ -72,6 +75,7 @@ _VAULT_TLS = """\
   vault-app:
     image: {vault_app_image}
     container_name: cp-vault-app
+    command: ["python", "-m", "sg_overrides.serve_with_proxy"]
     environment:
       - FAST_API__REVERSE_PROXY__ROUTES=pw=http://sg-playwright:8000
       - SGRAPH_SEND__ACCESS_TOKEN=${SGRAPH_SEND__ACCESS_TOKEN}
@@ -81,6 +85,7 @@ _VAULT_TLS = """\
       - FAST_API__TLS__KEY_FILE=/certs/key.pem
       - FAST_API__TLS__PORT=443
     volumes:
+      - ./overrides:/app/sg_overrides:ro
       - vault_certs:/certs:ro
     ports:
       - "443:443"

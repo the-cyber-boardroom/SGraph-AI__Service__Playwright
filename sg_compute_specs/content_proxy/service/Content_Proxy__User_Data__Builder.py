@@ -16,10 +16,12 @@ from osbot_utils.type_safe.Type_Safe                                            
 import sg_compute_specs.content_proxy.interceptors                                   as interceptors_pkg
 from sg_compute_specs.content_proxy.service.Content_Proxy__Compose__Template         import (Content_Proxy__Compose__Template,
                                                                                              INTERCEPTORS_MOUNT__EC2)
+from sg_compute_specs.vault_app.service.Vault_App__Reverse_Proxy__Override           import Vault_App__Reverse_Proxy__Override
 
 
-APP_DIR  = '/opt/content-proxy'
-LOG_FILE = '/var/log/sg-content-proxy-boot.log'
+APP_DIR       = '/opt/content-proxy'
+OVERRIDES_DIR = '/opt/content-proxy/overrides'                                       # /pw runtime injection (same sg-send-vault image as sg va)
+LOG_FILE      = '/var/log/sg-content-proxy-boot.log'
 
 TEMPLATE = '''\
 #!/usr/bin/env bash
@@ -56,6 +58,8 @@ CP_LOGIC_EOF
 
 {ca_block}
 
+{overrides_block}
+
 cd {app_dir}
 docker compose --env-file {app_dir}/.env up -d
 
@@ -67,7 +71,7 @@ SHUTDOWN_TEMPLATE = 'shutdown -h +{minutes}  # auto-terminate after {hours}h'
 SHUTDOWN_DISABLED = '# max_hours=0 — no auto-terminate'
 
 PLACEHOLDERS = ('log_file', 'app_dir', 'env_body', 'compose_body',
-                'active_body', 'logic_body', 'ca_block', 'shutdown_line')           # locked by test
+                'active_body', 'logic_body', 'ca_block', 'overrides_block', 'shutdown_line')   # locked by test
 
 
 class Content_Proxy__User_Data__Builder(Type_Safe):
@@ -131,4 +135,5 @@ class Content_Proxy__User_Data__Builder(Type_Safe):
                                active_body   = self._interceptor_body('active.py')       ,
                                logic_body    = self._interceptor_body('Content_Proxy__Interceptor__Logic.py'),
                                ca_block      = self._ca_block(request)                   ,
+                               overrides_block = Vault_App__Reverse_Proxy__Override().render_write_block(OVERRIDES_DIR),
                                shutdown_line = self._shutdown_line(float(request.max_hours)))

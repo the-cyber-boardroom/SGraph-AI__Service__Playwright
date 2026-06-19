@@ -40,6 +40,8 @@ class test_Content_Proxy__Compose__Template(TestCase):
     def test_vault_app_reverse_proxy_and_port(self):
         assert 'FAST_API__REVERSE_PROXY__ROUTES=pw=http://sg-playwright:8000' in self.yaml
         assert '"443:8080"' in self.yaml                                            # NONE default: host 443 → container 8080 (plain HTTP)
+        assert 'command: ["python", "-m", "sg_overrides.serve_with_proxy"]' in self.yaml   # custom entrypoint mounts /pw
+        assert './overrides:/app/sg_overrides:ro' in self.yaml                      # runtime-injected override package
         assert 'cert-init'  not in self.yaml                                        # no cert sidecar for NONE
         assert 'vault_certs' not in self.yaml
 

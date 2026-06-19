@@ -102,7 +102,18 @@ local_app = typer.Typer(no_args_is_help=True,
                         help='Run the content-proxy stack locally via docker compose.')
 
 
-CERTS_DIR = COMPOSE_DIR / 'certs'
+CERTS_DIR     = COMPOSE_DIR / 'certs'
+OVERRIDES_DIR = COMPOSE_DIR / 'overrides'                                            # /pw runtime-injection files (generated)
+
+
+def _ensure_overrides() -> None:
+    # write the sg_overrides package the vault container's custom entrypoint loads (/pw)
+    from sg_compute_specs.vault_app.service.Vault_App__Reverse_Proxy__Override import (Vault_App__Reverse_Proxy__Override,
+                                                                                       SERVE_WITH_PROXY)
+    OVERRIDES_DIR.mkdir(parents=True, exist_ok=True)
+    (OVERRIDES_DIR / '__init__.py').write_text('')
+    (OVERRIDES_DIR / 'Fast_API__Reverse_Proxy.py').write_text(Vault_App__Reverse_Proxy__Override().reverse_proxy_source())
+    (OVERRIDES_DIR / 'serve_with_proxy.py').write_text(SERVE_WITH_PROXY)
 
 
 def _ensure_env(c: Console) -> None:
@@ -112,6 +123,7 @@ def _ensure_env(c: Console) -> None:
     if not CERTS_DIR.exists():                                                       # mitmproxy self-generates its CA here (rw mount)
         CERTS_DIR.mkdir(parents=True, exist_ok=True)
         CERTS_DIR.chmod(0o777)                                                       # container user (uid 1000) must be able to write
+    _ensure_overrides()                                                              # /pw entrypoint override (always refresh)
 
 
 def _compose(*args: str):
