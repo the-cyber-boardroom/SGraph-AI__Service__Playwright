@@ -5,6 +5,7 @@
 # EC2__* helpers). health/exec/connect inherited from Spec__Service__Base.
 # ═══════════════════════════════════════════════════════════════════════════════
 
+import math
 import os
 import secrets
 import time
@@ -96,7 +97,7 @@ class Content_Proxy__Service(Spec__Service__Base):
                                                   tags                  = tags              ,
                                                   instance_type         = itype             ,
                                                   instance_profile_name = PROFILE_NAME      ,
-                                                  max_hours             = int(request.max_hours),
+                                                  max_hours             = int(math.ceil(request.max_hours)),  # >0 → on-demand terminate-on-shutdown flag
                                                   disk_size_gb          = int(request.disk_size_gb),
                                                   use_spot              = bool(request.use_spot))
         info = self.mapper.to_info({'InstanceId'    : iid                          ,
