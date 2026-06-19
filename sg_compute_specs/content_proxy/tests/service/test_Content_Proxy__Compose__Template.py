@@ -62,12 +62,12 @@ class test_Content_Proxy__Compose__Template(TestCase):
         assert '"80:80"' in yaml                                                    # http-01 challenge port
         assert 'SG__CERT_INIT__ACME_PROD=${SG__CERT_INIT__ACME_PROD:-true}' in yaml # IP certs need LE prod
 
-    def test_mitm_service_gets_aws_creds_passthrough(self):
+    def test_mitm_service_gets_aws_creds_from_env_file(self):
         mitm_block = self.yaml.split('mitm-service:')[1].split('mitmproxy-int:')[0]
         for var in ('AWS_ACCOUNT_ID', 'AWS_DEFAULT_REGION', 'AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY',
                     'CACHE__SERVICE__BUCKET_NAME'):
-            assert f'- {var}\n' in mitm_block, var                                   # bare passthrough, no literal value
-        assert 'AWS_SECRET_ACCESS_KEY=' not in mitm_block                           # never a baked value
+            assert f'- {var}=${{{var}:-}}\n' in mitm_block, var                      # interpolated from .env (single source), empty default
+        assert 'AWS_SECRET_ACCESS_KEY=sk' not in mitm_block                         # never a baked literal value
 
     def test_mitm_service_on_docker_network_only(self):
         mitm_block = self.yaml.split('mitm-service:')[1].split('mitmproxy-int:')[0]
