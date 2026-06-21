@@ -3,7 +3,7 @@ title: "03 — Workflow authoring (import / export / share)"
 file: 03__workflow-authoring.md
 author: Architect (Claude)
 date: 2026-06-21
-repo: SGraph-AI__Service__Playwright @ dev (root version: v0.2.63)
+repo: "SGraph-AI__Service__Playwright @ dev (root version: v0.2.63)"
 status: PROPOSED — format design, no runtime code
 parent: README.md
 covers: "User point (c) — workflow import/export"
@@ -141,8 +141,9 @@ the `act`/`probe`/`close` URLs. Round-trip and secret-strip rules apply identica
 ## 6. What this enables
 
 - The brief 02 gallery ships as **bundled `.sgpw.json` files** (the envelope's `title`
-  + `request`) loaded from a static `WORKFLOWS` JS array inside `INDEX_HTML` — no
-  separate asset route needed (Decision #1).
+  + `request`) loaded from a static `WORKFLOWS` JS array inside the served `GET /`
+  document — no separate workflow-asset route needed. (The component/token assets are
+  a separate concern, served + root_path-aware per Decision #11 / brief 08.)
 - The same files are the integration-test fixtures (brief 06): a test loads the
   `request` body and POSTs it, asserting on the response. Because the format IS the
   request body, the fixture and the UI run identical JSON.

@@ -3,7 +3,7 @@ title: "04 — In-app docs & help"
 file: 04__docs-and-help.md
 author: Architect (Claude)
 date: 2026-06-21
-repo: SGraph-AI__Service__Playwright @ dev (root version: v0.2.63)
+repo: "SGraph-AI__Service__Playwright @ dev (root version: v0.2.63)"
 status: PROPOSED — design only, no runtime code
 parent: README.md
 covers: "User point (d) — in-app docs and help"

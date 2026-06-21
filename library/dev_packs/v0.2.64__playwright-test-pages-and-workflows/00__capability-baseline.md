@@ -3,7 +3,7 @@ title: "00 — Capability baseline"
 file: 00__capability-baseline.md
 author: Architect (Claude)
 date: 2026-06-21
-repo: SGraph-AI__Service__Playwright @ dev (root version: v0.2.63)
+repo: "SGraph-AI__Service__Playwright @ dev (root version: v0.2.63)"
 status: PROPOSED (baseline distillation — facts traced to code)
 parent: README.md
 ---

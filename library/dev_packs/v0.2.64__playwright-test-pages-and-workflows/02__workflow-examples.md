@@ -3,7 +3,7 @@ title: "02 — Workflow examples (gallery + test fixtures)"
 file: 02__workflow-examples.md
 author: Architect (Claude)
 date: 2026-06-21
-repo: SGraph-AI__Service__Playwright @ dev (root version: v0.2.63)
+repo: "SGraph-AI__Service__Playwright @ dev (root version: v0.2.63)"
 status: PROPOSED — example bodies, no runtime code
 parent: README.md
 covers: "User point (b) — multiple complex example workflows"

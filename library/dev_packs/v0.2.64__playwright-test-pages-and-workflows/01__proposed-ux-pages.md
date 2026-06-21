@@ -3,7 +3,7 @@ title: "01 — Proposed UX pages (capability-driven console)"
 file: 01__proposed-ux-pages.md
 author: Architect (Claude)
 date: 2026-06-21
-repo: SGraph-AI__Service__Playwright @ dev (root version: v0.2.63)
+repo: "SGraph-AI__Service__Playwright @ dev (root version: v0.2.63)"
 status: PROPOSED — design only, no INDEX_HTML changes
 parent: README.md
 covers: "User point (a) — test multiple features"
@@ -12,13 +12,19 @@ covers: "User point (a) — test multiple features"
 # 01 — Proposed UX pages
 
 Covers the operator's **point (a)**: a test page that drives multiple features, not
-just `/screenshot`. The design keeps the **single self-contained HTML/JS file**
-(Decision #1) and reorganises it as a **capability-driven console** (Decision #2)
-whose visible controls follow the deployment's own `/health/capabilities`.
+just `/screenshot`. The design **builds the console on the shared sgraph.ai
+component library** — `sg-layout` + `sg-tool-api` + sg-tokens (Decision #1, rev 3,
+matching the admin dashboard at `sgraph_ai_service_playwright__api_site/admin/index.html:19,7`)
+— and reorganises it as a **capability-driven console** (Decision #2) whose visible
+controls follow the deployment's own `/health/capabilities`. Because the page now
+loads served components and asset URLs, **every asset/component/fetch URL must be
+root_path-aware** so the console works behind the `/pw` proxy and at root
+(Decision #11, brief 08).
 
 > No `INDEX_HTML` edits in this pack. This is the spec a downstream Dev phase
 > implements against the existing `Routes__Index.py` seam (`__API_BASE__` injection
-> at `:26`/`:613-614`, `post()` helper at `:484-487`).
+> at `:26`/`:613-614`, `post()` helper at `:484-487`). Component/asset URLs are
+> templated through the same resolved root_path prefix as `window.API_BASE` (brief 08).
 
 ---
 
@@ -202,7 +208,7 @@ Read-only dashboards:
 
 ---
 
-## 4. Shared components (one file, Decision #1)
+## 4. Shared console logic (Decision #1 — built on `sg-layout` + `sg-tool-api`)
 
 | Component | Responsibility |
 |-----------|----------------|
@@ -215,8 +221,12 @@ Read-only dashboards:
 | `curlExporter(method, path, body)` | "Copy as curl" (Decision #6) |
 | `workflowIO` | save/load/import/export — designed in brief 03 |
 
-These are functions inside the one `INDEX_HTML` script, not separate files — the JS
-SDK question (separate served `.js`) is brief 05's open question.
+These are the console's own logic, wired into the `sg-layout` shell and driving (and
+driven by) the `sg-tool-api` `window.__tool` bridge (brief 05 rev 3). The
+`window.__tool` registration itself comes from the served `sg-tool-api` component
+(Q1b resolved → option A), not a hand-rolled inline shim. All of it — and the
+component/token assets it loads — resolves through the root_path-aware URL rule
+(Decision #11, brief 08) so it works behind `/pw` and at root.
 
 ---
 
@@ -242,14 +252,25 @@ the new tabs land:
 
 ---
 
-## 6. Why keep one file (Decision #1 justification)
+## 6. Why build on the shared components (Decision #1 rev-3 justification)
 
-`Routes__Index.py:6-9` states the design intent: "no external deps", "Served from the
-same origin so fetch() calls don't need CORS", "API key persisted in localStorage".
-The service runs identically on laptop / CI / Claude Web / Fargate / Lambda
-(`CLAUDE.md` Architecture) with **one Docker image and no asset pipeline.** A
-multi-file SPA would need a build step and a static-asset route, breaking that
-parity. The console therefore grows inside `INDEX_HTML`. The **only** justified
-exception is the optional standalone JS SDK file in brief 05 — and that is gated on
-the precedent question (Q1), served as a sibling route if adopted, and never required
-by the console itself.
+**Rev-1/rev-2 of this pack kept a single self-contained `INDEX_HTML` with no external
+deps.** Rev 3 reverses that: per the operator (2026-06-21) the console is built on the
+shared sgraph.ai component library — `sg-layout` (panel/routing shell) + `sg-tool-api`
+(the `window.__tool` bridge) + sg-tokens — exactly as the admin dashboard does
+(`sgraph_ai_service_playwright__api_site/admin/index.html:19` `<sg-layout id="root-layout">`,
+`:7` `sg-tokens.css`). The trade is deliberate: we give up the zero-dependency property
+to gain the powerful shared-component features (routing, design tokens, the
+explorer/console/manifest dev panels) and to align the test page with every other tool.
+
+The 5-target parity argument (`CLAUDE.md` Architecture — one Docker image runs on
+laptop / CI / Claude Web / Fargate / Lambda) is **preserved by Decision #11, not by
+single-file-ness**: the components are still served same-origin and their URLs are
+templated through the same resolved root_path prefix as `window.API_BASE`
+(`Routes__Index.py:26`/`:613-614`, `Root_Path__Resolver.py:41-53`), so the same image
+works standalone at root and behind the `/pw` reverse proxy. Where a component is
+loaded CDN-absolute (`https://dev.tools.sgraph.ai/...`) it is prefix-independent but
+requires browser egress to that host — an offline/locked-down deployment must vendor or
+prefix-template it instead. Brief 08 specifies the full URL rule and the
+CDN-vs-vendored-vs-prefixed trade-off; the `escHtml`/localStorage notes above are
+unaffected.

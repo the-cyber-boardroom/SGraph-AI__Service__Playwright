@@ -3,7 +3,7 @@ title: "06 — Integration-test strategy"
 file: 06__integration-tests.md
 author: Architect (Claude)
 date: 2026-06-21
-repo: SGraph-AI__Service__Playwright @ dev (root version: v0.2.63)
+repo: "SGraph-AI__Service__Playwright @ dev (root version: v0.2.63)"
 status: PROPOSED — test design, no test code
 parent: README.md
 covers: "User point (g) — integration tests for the Docker build and UI workflows"
@@ -114,26 +114,47 @@ tests (§2/§3) still cover the workflows.
 
 ---
 
-## 5. Docker build + verb-table drift (deploy/CI tier)
+## 5. Docker image checks + verb-table drift (CI tier — gate the publish)
 
-**Docker build job (point (a)).** No `docker build` test exists today (only
-`test_wheel_contains_ui.py` + compose-template rendering at
-`sg_compute_specs/playwright/tests/test_Playwright__Compose__Template.py`). Add a
-**`workflow_dispatch`-gated, deploy-via-pytest** numbered sequence (CLAUDE.md testing
-rule #4 — `test_1__`, `test_2__`, ... top-down), off the per-PR path (Q5 default):
+**Docker image checks (point (a)) — placement gates the Docker Hub publish (Q5).**
+The operator's requirement: the Docker-dependent integration checks run **after the
+step that builds the image(s) and before the publish-to-Docker-Hub step**, so a red
+check blocks publication.
+
+**The existing CI pipeline already implements exactly this shape** —
+`.github/workflows/ci-pipeline.yml`:
+
+| Job | What it does | Line |
+|-----|--------------|------|
+| `build-amd64` | builds + pushes the amd64 image **by digest only** (no tag yet) | `:123` |
+| `build-arm64` | builds + pushes the arm64 image by digest, in parallel | `:181` |
+| `integration-test-image` | pulls the by-digest amd64 image, runs it, waits for `/health/info`, runs the live integration suite — **this is the gate** | `:254` |
+| `push-playwright-manifest` | tags + publishes `diniscruz/sg-playwright:<version>` + `:latest` to Docker Hub, **only when `needs.integration-test-image.result == 'success'`** | `:400` (`needs`/`if` at `:404-405`) |
+
+So a broken image never gets a tag: build-by-digest → integration-test-image → (green)
+→ publish manifest. The pack's job is therefore **to extend `integration-test-image`,
+not to invent a new on-demand job.** Add these UI/workflow-surface assertions to that
+job's suite (they run against the already-built by-digest container, before the
+manifest push), as a deploy-via-pytest numbered sequence (CLAUDE.md testing rule #4 —
+`test_1__`, `test_2__`, ... top-down):
 
 ```
-test_1__build_image           docker build of sg_compute_specs/playwright/Dockerfile
-test_2__run_container         start it, wait for health
-test_3__get_index             GET /            → 200, body contains "SG Playwright"
-test_4__get_capabilities      GET /health/capabilities → 200, Schema__Service__Capabilities shape
+test_1__container_ready       the by-digest image is already running (job step); wait for /health/info
+test_2__get_index             GET /            → 200, body contains "SG Playwright"
+test_3__get_capabilities      GET /health/capabilities → 200, Schema__Service__Capabilities shape
+test_4__index_prefix_aware    GET / behind X-Forwarded-Prefix: /pw → asset/component/fetch URLs carry the /pw prefix (brief 08 acceptance)
 test_5__execute_workflow_W1   POST /sequence/execute with W1 → status completed
-test_6__teardown              stop + rm container
 ```
 
-These run real `docker build` + container HTTP, so they are slow and on-demand
-(`workflow_dispatch`), matching the lab-harness "never in CI initially; on-demand once
-a baseline exists" stance.
+These run against the real built image inside `integration-test-image`, so they gate
+`push-playwright-manifest` automatically — no separate `workflow_dispatch` job is
+needed for the publish gate. (A standalone `docker build`-from-`Dockerfile` smoke can
+still be added for local/manual runs against
+`sg_compute_specs/playwright/Dockerfile`, but it is **not** the publish gate; the
+pipeline above is.) No `docker build` *test* exists today (only
+`test_wheel_contains_ui.py` + compose-template rendering at
+`sg_compute_specs/playwright/tests/test_Playwright__Compose__Template.py`) — these
+checks live in the CI job, not the per-PR unit path.
 
 **Verb-table drift check (brief 04 §1 stretch).** A cheap unit test asserts the
 embedded UI verb table matches `STEP_SCHEMAS`
@@ -149,7 +170,7 @@ docs (brief 04) cannot rot. This is the structural defence against a future D4.
 | UI body-builder + workflow-fixture parse | `tests/unit/fast_api/routes/` | none |
 | W1-W9 against real Chromium | `tests/integration/` (new `test_Workflows__Gallery.py`) | `SG_PLAYWRIGHT__CHROMIUM_EXECUTABLE` |
 | UI execute-path headless smoke | `tests/integration/` | `SG_PLAYWRIGHT__CHROMIUM_EXECUTABLE` + `window.__tool` present |
-| Docker build deploy-via-pytest | `tests/ci/` or a new `tests/deploy/` numbered module | `workflow_dispatch` |
+| Docker image checks (extend `integration-test-image`; gate the publish) | `tests/integration_live/` (the suite that job already runs) or a new numbered module the job invokes | runs in CI after `build-amd64`/`build-arm64`, before `push-playwright-manifest` (`ci-pipeline.yml:254` → `:400`) |
 | Verb-table drift | `tests/unit/` | none |
 
 All follow CLAUDE.md testing rules: no mocks, no patches; assert on contracts; real

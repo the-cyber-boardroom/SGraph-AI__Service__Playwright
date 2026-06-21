@@ -2,8 +2,8 @@
 title: "05 — JS API (agentic window.__tool — aligned to sgraph.ai precedent)"
 file: 05__js-api.md
 author: Architect (Claude)
-date: 2026-06-21 (rev 2 — precedent supplied, Q1 RESOLVED)
-repo: SGraph-AI__Service__Playwright @ dev (root version: v0.2.63)
+date: 2026-06-21 (rev 3 — Q1b RESOLVED → real sg-tool-api on sg-layout)
+repo: "SGraph-AI__Service__Playwright @ dev (root version: v0.2.63)"
 status: PROPOSED — design proposal aligned to the agentic-js-api precedent. No runtime code.
 parent: README.md
 covers: "User point (f) — JS API support"
@@ -17,9 +17,11 @@ precedent:
 
 # 05 — JS API (agentic `window.__tool`)
 
-Covers **point (f)**: JavaScript-API support. **Rev 2** replaces the rev-1 "shape
+Covers **point (f)**: JavaScript-API support. **Rev 2** replaced the rev-1 "shape
 proposal blocked on precedent" with a design aligned to the supplied house pattern:
-the **agentic JS API** (`window.__tool`) used across the sgraph.ai tools.
+the **agentic JS API** (`window.__tool`) used across the sgraph.ai tools. **Rev 3**
+resolves the last packaging sub-decision: `window.__tool` is registered via the
+**real `sg-tool-api` web component**, wired on `sg-layout`, not an inline shim.
 
 > ✅ **Q1 RESOLVED.** The operator supplied the precedent on 2026-06-21:
 > `https://sgraph.ai/en-gb/library/use-cases/agentic-js-api` (read any page's
@@ -27,8 +29,16 @@ the **agentic JS API** (`window.__tool`) used across the sgraph.ai tools.
 > `team/humans/dinis_cruz/claude-code-web/06/21/15/agentic-js-api-research.md`.
 > The rev-1 `SgPlaywrightClient` HTTP-wrapper guess (modeled on the admin-site
 > `api-client.js`) is **superseded** — it was the wrong house style. The correct
-> pattern is the dual-surface, self-describing `window.__tool` below. One sub-decision
-> remains (§6, Q1b): reuse the shared `sg-tool-api` web component vs. an inline shim.
+> pattern is the dual-surface, self-describing `window.__tool` below.
+>
+> ✅ **Q1b RESOLVED (rev 3) → option (A).** The operator decided to **reuse the
+> shared `sg-tool-api` web component and build the console on `sg-layout`** (its other
+> tools use it; "it brings a lot of powerful features"). This **reverses the pack's
+> old Decision #1** (single self-contained no-deps file) — see README Decision #1/#8
+> rev 3. The "inline shim" recommendation from rev 2 is superseded. §1-§5 below (the
+> method surface, the `getSkills()` trio, the Playwright runtime-discovery workflow)
+> are unchanged — only the **packaging** conclusion changes (real component, not shim).
+> The console's component/asset URLs are now root_path-aware (Decision #11, brief 08).
 
 ---
 
@@ -173,31 +183,33 @@ the human console and the agent API as one (brief 06 §4).
 
 ---
 
-## 6. The one remaining sub-decision (Q1b)
+## 6. Packaging — Q1b RESOLVED → reuse the real `sg-tool-api` on `sg-layout`
 
 ```
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║  OPEN SUB-QUESTION (Q1b) — component reuse vs. inline shim                      ║
+║  ✅ Q1b RESOLVED (2026-06-21) → option (A): reuse the real component.           ║
 ║                                                                                ║
 ║  The house pattern registers window.__tool via the shared `sg-tool-api` web    ║
 ║  component, served (with sg-layout + dev panels) from                          ║
 ║  /components/{category}/{name}/v{major}/v{minor}/v{patch}/.                     ║
 ║                                                                                ║
-║  But Decision #1 keeps the test page a SINGLE self-contained HTML/JS file with ║
-║  NO external deps (Routes__Index.py:6-9) for Lambda/Fargate/laptop parity.     ║
+║  DECISION: build the console on `sg-layout` + `sg-tool-api` + sg-tokens — the   ║
+║  SAME composition the admin dashboard uses                                     ║
+║  (sgraph_ai_service_playwright__api_site/admin/index.html:19 <sg-layout>,       ║
+║   :7 sg-tokens.css). window.__tool is registered by the REAL sg-tool-api        ║
+║  component, NOT a hand-rolled inline shim.                                      ║
 ║                                                                                ║
-║  CHOOSE:                                                                        ║
-║   (A) Reuse `sg-tool-api` / `sg-layout` components — maximal consistency with  ║
-║       the other tools (explorer/console/manifest dev panels for free), but     ║
-║       introduces an external component dependency + a serving path.            ║
-║   (B) Inline a minimal `window.__tool` shim in INDEX_HTML that implements the  ║
-║       SAME contract (meta.getMethods/getVersion/getManifest/getSkills/health,  ║
-║       SGA_TOOL events, the method surface above) with zero external deps.      ║
+║  Why (A) over the rev-2 inline-shim recommendation: the operator wants the     ║
+║  powerful shared-component features (routing, tokens, the explorer/console/     ║
+║  manifest dev panels) and alignment with every other tool. This REVERSES the    ║
+║  old Decision #1 (single self-contained no-deps file) — see README rev 3.       ║
 ║                                                                                ║
-║  ARCHITECT RECOMMENDATION: (B) for Phase 5 — preserve the no-deps/no-build     ║
-║  invariant that makes one Docker image run on all 5 targets; keep the contract ║
-║  byte-identical to `sg-tool-api` so a later swap to (A) is transparent. Adopt  ║
-║  (A) only if/when the test page is allowed to pull served components.          ║
+║  Consequence (now mandatory): the page depends on those components + their      ║
+║  asset URLs being reachable. Decision #11 / brief 08 require every component/    ║
+║  asset/fetch URL to be root_path-aware (templated like window.API_BASE, or      ║
+║  CDN-absolute https://dev.tools.sgraph.ai/...) so the SAME image works behind    ║
+║  /pw and at root. The CDN host needs browser egress; an offline deployment      ║
+║  vendors/prefix-templates instead (brief 08).                                   ║
 ╚══════════════════════════════════════════════════════════════════════════════╝
 ```
 
@@ -205,10 +217,13 @@ the human console and the agent API as one (brief 06 §4).
 
 ## 7. Constraints any final shape must honour
 
-1. **Contract-identical to `sg-tool-api`.** Whatever the packaging (Q1b), the
-   `window.__tool` + `meta.*` + `SGA_TOOL` surface must match the house pattern so
-   agents that already know the pattern need no sg-playwright-specific knowledge.
-2. **Dependency-free, no build step** if option (B) (Decision #1) — vanilla ES2020.
+1. **Use the real `sg-tool-api` contract.** `window.__tool` is registered by the
+   served `sg-tool-api` component (Q1b → A); the `window.__tool` + `meta.*` +
+   `SGA_TOOL` surface is therefore the house pattern by construction, so agents that
+   already know the pattern need no sg-playwright-specific knowledge.
+2. **Root_path-aware asset/component URLs** (Decision #11, brief 08) — `sg-layout`,
+   `sg-tool-api`, sg-tokens and the page's own JS load via a prefix-templated or
+   CDN-absolute URL, never an absolute-rooted `/components/...` (breaks behind `/pw`).
 3. **Auth-mode aware** — `X-API-Key` vs `x-sgraph-access-token` (Decision #7); a single
    hard-coded header reproduces the #1 first-attempt 401.
 4. **Self-describing from live truth** — `getSkills().api` and `getManifest()` derive
@@ -216,8 +231,11 @@ the human console and the agent API as one (brief 06 §4).
    (closes D2/D4).
 5. **Secret-safe** — `getLog()` and any state getter never expose the token; `setAuth`
    writes it but no getter reads it back.
-6. **No new endpoint** unless Q1b picks (A) and the component must be served — then a
-   public static route, designed in brief 01, not new service logic.
+6. **Component serving, not new service logic.** Reusing `sg-tool-api`/`sg-layout`
+   needs a served-component path (the existing static-file convention, e.g.
+   `sgraph_ai_service_playwright__api_site/components/.../v0/v0.1/v0.1.0/`, or the CDN),
+   designed in brief 01 + brief 08 — **not** a new runtime endpoint or new service
+   logic (Decision #9 still holds).
 7. **Type_Safe N/A** — this is browser JS; CLAUDE.md's Type_Safe rules govern the
    *service*. The client still sends only real `Schema__*` field names (briefs 02/03).
 
@@ -225,10 +243,13 @@ the human console and the agent API as one (brief 06 §4).
 
 ## 8. Recommendation
 
-Implement `window.__tool` as a **dependency-free inline shim** (Q1b option B) whose
-contract is byte-identical to the shared `sg-tool-api` component, with `getSkills()`
-generated from the code-derived capability surface. This delivers the agentic JS API
-the house style mandates while preserving the single-file, no-build invariant that lets
-one Docker image run on laptop/CI/Web/Fargate/Lambda. Phases 1-4 + 6 proceed without it;
-the JS-API layer (Phase 5) is purely additive and never on the critical path — the
-console is fully usable from the human UI before `window.__tool` exists.
+Register `window.__tool` via the **real `sg-tool-api` web component, mounted on
+`sg-layout`** (Q1b option A — operator-decided), with `getSkills()` generated from the
+code-derived capability surface. This delivers the agentic JS API the house style
+mandates, identical to every other sgraph.ai tool, and brings the explorer/console/
+manifest dev panels for free. The trade for the dropped no-deps property is handled by
+Decision #11 / brief 08: the component, token, and page-JS URLs are root_path-aware, so
+the same Docker image still runs on laptop/CI/Web/Fargate/Lambda and works behind `/pw`
+and at root. Phases 1-4 + 6 proceed without the JS-API layer; Phase 5 is purely
+additive and never on the critical path — the console is fully usable from the human UI
+(itself now on `sg-layout`) before `window.__tool` is exercised programmatically.
