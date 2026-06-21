@@ -64,7 +64,7 @@ def _build_fast_api():
 ```
 
 For the UI's JS body-builders, a tiny headless-browser harness (brief 06 §4) loads
-`GET /`, drives `window.sgp.exportWorkflow()` (brief 05 §4), and asserts the emitted
+`GET /`, drives `window.__tool.exportWorkflow()` (brief 05 §4), and asserts the emitted
 body equals the gallery fixture — proving the builder round-trips (brief 03 §2).
 
 ---
@@ -101,14 +101,14 @@ headless-browser smoke test:
 1. Starts the in-memory service (`_build_fast_api()`), serves `GET /`.
 2. Loads `GET /` in a headless Chromium (the service's own Playwright — dog-fooding;
    gated on `SG_PLAYWRIGHT__CHROMIUM_EXECUTABLE`).
-3. Drives `window.sgp.run(window.sgp.loadExample('W1'))` (brief 05 §4) — the same
+3. Drives `window.__tool.run(window.__tool.loadExample('W1'))` (brief 05 §4) — the same
    programmatic surface a user's "Load example → Execute" click hits.
 4. Asserts the result pane renders a step list with the expected passed count and an
    `<img>` whose `src` is a `data:image/png;base64,` URL.
 
 This is the only test that exercises the actual DOM/JS of the console; the rest assert
 the request bodies + HTTP contracts. It is the most expensive test, so it is
-gated/optional and runs in the integration tier, not per-PR. If the JS-API (`window.sgp`)
+gated/optional and runs in the integration tier, not per-PR. If the JS-API (`window.__tool`)
 is not yet built (Phase 5), this test is skipped with a clear reason; the body-level
 tests (§2/§3) still cover the workflows.
 
@@ -148,7 +148,7 @@ docs (brief 04) cannot rot. This is the structural defence against a future D4.
 |-----------|-----------|------|
 | UI body-builder + workflow-fixture parse | `tests/unit/fast_api/routes/` | none |
 | W1-W9 against real Chromium | `tests/integration/` (new `test_Workflows__Gallery.py`) | `SG_PLAYWRIGHT__CHROMIUM_EXECUTABLE` |
-| UI execute-path headless smoke | `tests/integration/` | `SG_PLAYWRIGHT__CHROMIUM_EXECUTABLE` + `window.sgp` present |
+| UI execute-path headless smoke | `tests/integration/` | `SG_PLAYWRIGHT__CHROMIUM_EXECUTABLE` + `window.__tool` present |
 | Docker build deploy-via-pytest | `tests/ci/` or a new `tests/deploy/` numbered module | `workflow_dispatch` |
 | Verb-table drift | `tests/unit/` | none |
 

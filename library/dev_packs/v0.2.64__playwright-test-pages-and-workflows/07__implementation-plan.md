@@ -25,8 +25,8 @@ everything after composes on that clean base.
 | **P2** | Capability tabs (Sequence/Inspect/Session/Browser/Debug/Service) | P1 | 01 §3 | L |
 | **P3** | Workflow import/export + gallery | P2 | 02, 03 | M |
 | **P4** | In-app docs & help + verb-table drift test | P2 | 04, 06 §5 | M |
-| **P5** | JS API (SDK + `window.*`) | P2; **Q1 answered** | 05 | M |
-| **P6** | Integration tests (workflows + UI smoke + Docker) | P2, P3 (fixtures); P5 for the UI-smoke `window.sgp` path | 06 | M |
+| **P5** | JS API — agentic `window.__tool` (Q1 resolved; Q1b inline-shim recommended) | P2 | 05 | M |
+| **P6** | Integration tests (workflows + UI smoke + Docker) | P2, P3 (fixtures); P5 for the UI-smoke `window.__tool` path | 06 | M |
 | **P7** | Debrief + Librarian/catalogue update | all | — | S |
 
 ```
@@ -71,7 +71,7 @@ therefore **named regions of the single file plus separate test files**:
 | P2 | the tab rail + each tab's builder/result pane; the verb→fields table | — |
 | P3 | the `workflowIO` region + the `WORKFLOWS` gallery array | bundled `.sgpw.json` fixtures (also tests) |
 | P4 | the docs/help pane + contextual `?` popovers | — |
-| P5 | the `window.sgp` block + optional `sg-playwright-client.js` route | `sg-playwright-client.js` (if served) |
+| P5 | the inline `window.__tool` agentic-API shim (contract-identical to `sg-tool-api`); served component route only if Q1b picks option (A) | served `sg-tool-api` component (only if Q1b=A) |
 | P6 | — | `tests/integration/test_Workflows__Gallery.py`, `tests/unit/...`, `tests/deploy/...` |
 
 **Conflict surface:** the single shared file. To keep slices conflict-free, P1 lands
@@ -152,7 +152,7 @@ When done:
 | **G2** | P2 PR | Each of Sequence/Inspect/Session/Browser/Debug/Service tabs builds + executes a request; disabled tabs match `capabilities` (e.g. Session greyed when `supports_persistent=false`). |
 | **G3** | P3 PR | Build W3 → export → re-import → identical body; "Copy as curl" emits a key-placeholder, not the stored key; gallery loads W1-W9. |
 | **G4** | P4 PR | Verb reference lists all 24 verbs; version shown == `/health/info` `service_version` (not v0.1.29); drift test passes. |
-| **G5** | P5 PR (post-Q1) | `await window.sgp.run(window.sgp.loadExample('W1'))` renders a result; SDK handles JSON + image/png + text/plain responses. |
+| **G5** | P5 PR | `window.__tool.meta.getMethods/getVersion/getSkills` return the live spec; `await window.__tool.run(window.__tool.loadExample('W1'))` renders a result; `getSkills().api` is generated from `/health/capabilities` (no pinned version); the contract matches `sg-tool-api`. |
 | **G6** | P6 PR | `pytest tests/integration/test_Workflows__Gallery.py` passes with real Chromium and **skips cleanly** without it; Docker `test_1..test_6` build job green on `workflow_dispatch`. |
 | **G-Final** | integration → dev | Full UI walkthrough; reality-doc D1 flagged to Librarian; debrief filed. |
 
