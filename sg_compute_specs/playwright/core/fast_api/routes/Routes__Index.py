@@ -174,7 +174,8 @@ details>.db{padding-top:8px;display:flex;flex-direction:column;gap:8px;}
 <header>
   <h1>SG <span>Playwright</span> Service</h1>
   <span id="health-badge" class="badge chk">checking…</span>
-  <nav><a href="/docs" target="_blank">API docs ↗</a></nav>
+  <span id="svc-info" style="font-size:.72rem;color:var(--muted)"></span>
+  <nav><a id="docs-link" href="#" target="_blank">API docs ↗</a></nav>
 </header>
 
 <main>
@@ -205,9 +206,9 @@ details>.db{padding-top:8px;display:flex;flex-direction:column;gap:8px;}
     </div>
 
     <div>
-      <label>Format</label>
+      <label>Render</label>
       <div class="tg">
-        <button id="fmt-png"  class="active" onclick="setFmt('png')">PNG screenshot</button>
+        <button id="fmt-png"  class="active" onclick="setFmt('png')">Image (PNG)</button>
         <button id="fmt-html" class=""       onclick="setFmt('html')">HTML source</button>
       </div>
     </div>
@@ -442,7 +443,7 @@ async function execBatch() {
     const r    = await post('/screenshot/batch', apiKey, body);
     const data = await r.json();
     if (!r.ok) { showErr(JSON.stringify(data,null,2)); return; }
-    const shots = data.screenshots || [];
+    const shots = Array.isArray(data.screenshots) ? data.screenshots : [];
     showBatchGrid(shots, items, data.duration_ms);
     setStatus('b', `${shots.length} screenshot${shots.length!==1?'s':''} in ${data.duration_ms}ms`);
   } catch(e) { showErr('Network error: '+e.message); }
@@ -459,18 +460,19 @@ function showBatchGrid(shots, items, totalMs) {
   grid.innerHTML = '';
   shots.forEach((s, i) => {
     const url   = (items[i]||{}).url || `#${i+1}`;
+    const u     = escHtml(url);                                  // escape: url is user-supplied — was injected raw into innerHTML (XSS / markup break)
     const thumb = document.createElement('div');
     thumb.className = 'batch-thumb';
     thumb.title = 'Click to maximise';
     thumb.onclick = () => openLightbox(shots, items, i);
     if (s.screenshot_b64) {
       thumb.innerHTML = `<img src="data:image/png;base64,${s.screenshot_b64}" loading="lazy">
-        <div class="thumb-label" title="${url}">${i+1}. ${url}</div>`;
+        <div class="thumb-label" title="${u}">${i+1}. ${u}</div>`;
     } else if (s.html) {
       thumb.innerHTML = `<pre>${escHtml(s.html.slice(0,400))}…</pre>
-        <div class="thumb-label" title="${url}">${i+1}. ${url} (HTML)</div>`;
+        <div class="thumb-label" title="${u}">${i+1}. ${u} (HTML)</div>`;
     } else {
-      thumb.innerHTML = `<div class="thumb-label" style="color:var(--warn)">No result for ${url}</div>`;
+      thumb.innerHTML = `<div class="thumb-label" style="color:var(--warn)">No result for ${u}</div>`;
     }
     grid.appendChild(thumb);
   });
@@ -522,18 +524,44 @@ function showMeta(f, dur, trace) {
   document.getElementById('placeholder').style.display='none';
 }
 
-// ── Health check ──
-async function checkHealth() {
+// ── Bootstrap: health badge + service info + capabilities (auth-aware) ──
+// The health/info/capabilities calls now send the API key, so key-protected
+// deployments no longer always read "degraded" (was: GET /health/status with no
+// header). /health/info + /health/capabilities are fetched once so later UI can be
+// driven by what the deployment actually supports.
+let CAPABILITIES = null, SERVICE_INFO = null;
+function authHeaders(extra) {
+  const h = Object.assign({}, extra || {});
+  const k = keyEl.value.trim();
+  if (k) h['X-API-Key'] = k;
+  return h;
+}
+function apiGet(path) { return fetch(window.API_BASE + path, { headers: authHeaders() }); }
+function showServiceInfo(info) {
+  const el = document.getElementById('svc-info');
+  if (!el || !info) return;
+  const bits = [info.service_version,
+                info.chromium_version && ('chromium ' + info.chromium_version),
+                info.deployment_target].filter(Boolean);
+  el.textContent = bits.join(' · ');
+}
+async function bootstrap() {
   const badge = document.getElementById('health-badge');
   try {
-    const r = await fetch(window.API_BASE + '/health/status');
+    const r = await apiGet('/health/status');
     const d = await r.json();
     const ok = d.healthy===true;
     badge.textContent = ok ? '● healthy' : '● degraded';
     badge.className   = 'badge '+(ok?'ok':'err');
   } catch { badge.textContent='● unreachable'; badge.className='badge err'; }
+  try { const r = await apiGet('/health/info');         if (r.ok) { SERVICE_INFO = await r.json(); showServiceInfo(SERVICE_INFO); } } catch {}
+  try { const r = await apiGet('/health/capabilities'); if (r.ok)   CAPABILITIES = await r.json();                                  } catch {}
 }
-checkHealth();
+// Make the API-docs link prefix-aware (fixes the absolute /docs href breaking behind the /pw proxy).
+(function(){ const a = document.getElementById('docs-link'); if (a) a.href = window.API_BASE + '/docs'; })();
+bootstrap();
+// Re-run when the key changes so the badge + capabilities reflect the entered key (debounced).
+let _bootT; keyEl.addEventListener('input', () => { clearTimeout(_bootT); _bootT = setTimeout(bootstrap, 400); });
 
 // ── Seed batch with two blank cards ──
 addCard('https://sgraph.ai');
