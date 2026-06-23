@@ -243,21 +243,20 @@ pre.out{background:var(--surface);border:1px solid var(--border);border-radius:v
 #console-out{flex:1;min-height:60px;}
 .console-quick{display:flex;gap:6px;flex-wrap:wrap;}
 
-/* ══ Resizable work area (item 2). Three light panes (builder | result over a
-      full-width console) laid out with a CSS grid; two drag handles resize the
-      column split and the console height. Pure in-house — no external component,
-      so it always renders. Sizes persist to localStorage. ══ */
-.console-grid{flex:1;display:grid;
-  grid-template-columns: var(--lc,1fr) 6px var(--rc,1fr);
-  grid-template-rows: var(--tr,1fr) 6px var(--cr,260px);
-  grid-template-areas:"builder vsplit result" "hsplit hsplit hsplit" "console console console";
-  overflow:hidden;min-height:0;}
+/* ══ Work area (item 2). Normally <sg-layout> mounts into #work-area and provides
+      resizable, tabbed, drag-to-dock panels. The pane-host custom elements relocate
+      our pre-built panes into the layout. If sg-layout is unavailable, .console-grid
+      lays the same three light panes out as a plain grid so the console always
+      works. ══ */
+#work-area{flex:1;min-height:0;display:flex;}
+#work-area sg-layout{flex:1;min-height:0;width:100%;}
+#pane-store{display:none;}                                                          /* holds pane content until the layout (or grid) relocates it */
+sg-pane-builder,sg-pane-result,sg-pane-console{display:block;height:100%;min-height:0;overflow:auto;}
+.console-grid{display:grid;grid-template-columns:minmax(320px,1fr) minmax(320px,1fr);
+  grid-template-rows:1fr auto;grid-template-areas:"builder result" "console console";overflow:hidden;min-height:0;}
 .console-grid #builder{grid-area:builder;min-width:0;min-height:0;overflow:auto;}
 .console-grid #result-panel{grid-area:result;min-width:0;min-height:0;overflow:auto;}
-.console-grid #console-pane{grid-area:console;min-height:0;overflow:auto;border-top:1px solid var(--lborder);}
-.vsplit{grid-area:vsplit;cursor:col-resize;background:var(--lborder);}
-.hsplit{grid-area:hsplit;cursor:row-resize;background:var(--lborder);}
-.vsplit:hover,.hsplit:hover{background:var(--accent);}
+.console-grid #console-pane{grid-area:console;min-height:0;overflow:auto;border-top:1px solid var(--lborder);max-height:40vh;}
 </style>
 </head>
 <body>
@@ -270,6 +269,7 @@ pre.out{background:var(--surface);border:1px solid var(--border);border-radius:v
     <a id="docs-link" target="_blank">API docs ↗</a>
     <a id="skills-link" target="_blank">Skills ↗</a>
     <a onclick="switchTab('service')">Service ⚙</a>
+    <a onclick="resetConsoleLayout()" title="Restore the default panel arrangement">⟲ Layout</a>
   </nav>
 </header>
 
@@ -301,9 +301,13 @@ pre.out{background:var(--surface);border:1px solid var(--border);border-radius:v
     <button data-tab="docs"     onclick="switchTab('docs')">Docs</button>
   </div>
 
-  <!-- work-area: in-house resizable CSS grid — builder | result over a full-width
-       console, with drag handles (#vsplit/#hsplit). Light panes per Decision #1. -->
-  <div class="console-grid" id="work-area">
+  <!-- work-area: <sg-layout> mounts here (resizable, tabbed, drag-to-dock panels).
+       The pane CONTENT lives in #pane-store and is relocated into the layout by the
+       sg-pane-* host elements (sg-layout instantiates a tag per tab — see the
+       sg-layout quick-start §5; you do NOT slot existing nodes). If sg-layout is
+       unreachable or fails to mount we fall back to a plain CSS grid. Light per #1. -->
+  <div id="work-area"></div>
+  <div id="pane-store">
     <!-- ────────── BUILDER (left of split) — light work pane ────────── -->
     <div class="builder work-light" id="builder">
 
@@ -507,11 +511,7 @@ pre.out{background:var(--surface);border:1px solid var(--border);border-radius:v
       <div class="btn-row"><button class="exec-btn" id="btn-console" onclick="consoleRun()">Run ▶</button></div>
       <div id="console-out"></div>
     </div>
-
-    <!-- drag handles — resize the builder|result column split and the console height (item 2) -->
-    <div class="vsplit" id="vsplit" title="Drag to resize"></div>
-    <div class="hsplit" id="hsplit" title="Drag to resize"></div>
-  </div>
+  </div><!-- /#pane-store -->
 </main>
 
 <script>
@@ -1294,34 +1294,74 @@ document.addEventListener('keydown', e=>{ if(!(e.ctrlKey||e.metaKey)||e.key!=='E
   ({screenshot:execScreenshot,sequence:execSequence,inspect:execInspect,browser:execBrowser,debug:execDebug}[activeTab]||(()=>{}))(); });
 
 // ════════════════════════════════════════════════════════════════════════════
-//  Resizable work area (item 2) — the three light panes live in a CSS grid
-//  (builder | result over a full-width console). Two drag handles resize the
-//  column split (--lc/--rc) and the console height (--cr); sizes persist to
-//  localStorage. This is pure in-house DOM — no external web component and no
-//  reparenting of the panes — so the console always renders and never depends on
-//  a CDN. (We dropped the sg-layout web component here: its panel API instantiates
-//  components via a `tag`, and does not project our existing plain-div panes.)
+//  sg-layout integration (item 2) — the blessed pattern from the sg-layout
+//  quick-start (v0.1.0): the layout INSTANTIATES one custom element per tab from
+//  its `tag`; you do NOT slot existing nodes yourself (§5). So we host each pane
+//  with a tiny sg-pane-* element whose connectedCallback relocates our pre-built
+//  pane content (parked in #pane-store) into itself. Resize + tabs + drag-to-dock
+//  then come for free. CDN host is tools.sgraph.ai (events on el.events, not DOM
+//  CustomEvents; wait for whenDefined). If the component is unreachable or fails
+//  to mount, applyConsoleGridFallback lays the same panes out as a plain grid so
+//  the console always works.
 // ════════════════════════════════════════════════════════════════════════════
-const SG_SIZES_LS = 'sg-playwright:console:sizes:v1';
-function setupResizers(){
-  const area=document.getElementById('work-area'); if(!area) return;
-  try{ const s=JSON.parse(localStorage.getItem(SG_SIZES_LS)||'null'); if(s){
-    if(s.lc) area.style.setProperty('--lc', s.lc); if(s.rc) area.style.setProperty('--rc', s.rc);
-    if(s.cr) area.style.setProperty('--cr', s.cr); } }catch(e){}
-  const save=()=>{ try{ localStorage.setItem(SG_SIZES_LS, JSON.stringify({
-    lc:area.style.getPropertyValue('--lc'), rc:area.style.getPropertyValue('--rc'), cr:area.style.getPropertyValue('--cr') })); }catch(e){} };
-  const dragCol=e=>{ const r=area.getBoundingClientRect(); let t=(e.clientX-r.left)/r.width;
-    t=Math.min(0.8,Math.max(0.2,t)); area.style.setProperty('--lc', t.toFixed(3)+'fr'); area.style.setProperty('--rc', (1-t).toFixed(3)+'fr'); };
-  const dragRow=e=>{ const r=area.getBoundingClientRect(); let h=r.bottom-e.clientY;
-    h=Math.min(r.height*0.7,Math.max(80,h)); area.style.setProperty('--cr', Math.round(h)+'px'); };
-  const start=move=>e=>{ e.preventDefault();
-    const mv=ev=>move(ev), up=()=>{ document.removeEventListener('pointermove',mv); document.removeEventListener('pointerup',up); save(); };
-    document.addEventListener('pointermove',mv); document.addEventListener('pointerup',up); };
-  const v=document.getElementById('vsplit'), h=document.getElementById('hsplit');
-  if(v) v.addEventListener('pointerdown', start(dragCol));
-  if(h) h.addEventListener('pointerdown', start(dragRow));
+const SG_LAYOUT_LS = 'sg-playwright:console:layout:v2';
+function definePaneHost(tag, contentId){                                            // a tab tag that relocates our pre-built pane into itself
+  if(customElements.get(tag)) return;
+  customElements.define(tag, class extends HTMLElement{
+    connectedCallback(){ const n=document.getElementById(contentId);
+      if(n && n.parentElement!==this) this.appendChild(n);
+      this.style.display='block'; this.style.height='100%'; this.style.minHeight='0'; this.style.overflow='auto'; }
+  });
 }
-setupResizers();
+definePaneHost('sg-pane-builder','builder');
+definePaneHost('sg-pane-result','result-panel');
+definePaneHost('sg-pane-console','console-pane');
+function defaultConsoleLayout(){                                                    // builder | result (top row) over a full-width console
+  return { type:'column', sizes:[0.72,0.28], children:[
+    { type:'row', sizes:[0.5,0.5], children:[
+      { type:'stack', id:'s-builder', tabs:[{ tag:'sg-pane-builder', title:'Builder' }] },
+      { type:'stack', id:'s-result',  tabs:[{ tag:'sg-pane-result',  title:'Result'  }] } ] },
+    { type:'stack', id:'s-console', tabs:[{ tag:'sg-pane-console', title:'Console' }] } ] };
+}
+function paneNodes(){ return [document.getElementById('builder'),document.getElementById('result-panel'),document.getElementById('console-pane')]; }
+function applyConsoleGridFallback(){                                                // plain CSS grid — guaranteed-working state if sg-layout is absent/failed
+  const area=document.getElementById('work-area'); if(!area) return;
+  const host=area.querySelector('sg-layout'); if(host) host.remove();
+  area.className='console-grid';
+  paneNodes().forEach(p=>{ if(p && p.parentElement!==area) area.appendChild(p); });
+}
+function resetConsoleLayout(){                                                      // header ⟲ Layout — restore the default arrangement
+  try{ localStorage.removeItem(SG_LAYOUT_LS); }catch(e){}
+  const area=document.getElementById('work-area'); const el=area&&area.querySelector('sg-layout');
+  if(el&&typeof el.setLayout==='function'){ try{ el.setLayout(defaultConsoleLayout()); return; }catch(e){} }
+  applyConsoleGridFallback();
+}
+const SG_LAYOUT_SRC=['https://tools.sgraph.ai/core/sg-layout/v0.1.0/sg-layout.js',
+                     'https://dev.tools.sgraph.ai/core/sg-layout/v0.1.0/sg-layout.js'];
+(async function loadSgLayout(){
+  if(!('customElements' in window)){ applyConsoleGridFallback(); return; }
+  let loaded=false;
+  for(const src of SG_LAYOUT_SRC){ try{ await import(src); loaded=true; break; }catch(e){} }
+  if(!loaded){ applyConsoleGridFallback(); return; }                               // CDN unreachable — stay on the grid
+  try{ await customElements.whenDefined('sg-layout'); }catch(e){}
+  if(!customElements.get('sg-layout')){ applyConsoleGridFallback(); return; }
+  try{
+    const area=document.getElementById('work-area');
+    const el=document.createElement('sg-layout'); area.appendChild(el);
+    // light theme on the panel chrome so headers/tabs match the light work panes (Decision #1)
+    const t={'--sgl-bg':'#ffffff','--sgl-surface':'#f4f5f7','--sgl-surface-hover':'#e9ecef','--sgl-border':'#d0d4dc',
+             '--sgl-accent':'#2563eb','--sgl-text':'#1f2937','--sgl-text-muted':'#6b7280'};
+    for(const k in t) el.style.setProperty(k, t[k]);
+    let saved=null; try{ saved=JSON.parse(localStorage.getItem(SG_LAYOUT_LS)||'null'); }catch(e){}
+    el.setLayout(saved||defaultConsoleLayout());
+    const persist=()=>{ try{ if(el.getLayout) localStorage.setItem(SG_LAYOUT_LS, JSON.stringify(el.getLayout())); }catch(e){} };
+    try{ if(el.events&&el.events.on) el.events.on('layout:changed', persist); }catch(e){}
+    // Verify the panes actually mounted (e.g. a stale saved tree, or a mount error).
+    // If the builder has no box shortly after, revert to the always-working grid.
+    setTimeout(()=>requestAnimationFrame(()=>{ const b=document.getElementById('builder');
+      if(!b || b.getBoundingClientRect().width<=0) applyConsoleGridFallback(); }), 600);
+  }catch(e){ applyConsoleGridFallback(); }
+})();
 
 // ════════════════════════════════════════════════════════════════════════════
 //  Bottom __tool console (item 6) — live REPL over window.__tool, in the OPERATOR's
