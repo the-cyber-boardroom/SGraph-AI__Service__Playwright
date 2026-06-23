@@ -43,6 +43,14 @@ def _default_aws_dns_zone() -> str:
     return os.environ.get('SG_AWS__DNS__DEFAULT_ZONE', DEFAULT_AWS_DNS_ZONE)
 
 
+def derive_account_id(region: str) -> str:                                          # deploying account (operator's session) — written to the box .env so the mitm-service app has AWS_ACCOUNT_ID even on the instance-role path
+    try:
+        from osbot_aws.AWS_Config import AWS_Config
+        return str(AWS_Config().aws_session_account_id() or '')
+    except Exception:                                                               # offline / no creds at create time → leave blank (app can still derive via STS at runtime)
+        return ''
+
+
 def derive_fqdn(stack_name: str, request) -> str:
     # explicit --hostname wins; else --with-aws-dns auto-derives <stack>.<zone>; else blank (IP only)
     explicit = str(getattr(request, 'hostname', '') or '').strip()
@@ -294,10 +302,12 @@ class Content_Proxy__Service(Spec__Service__Base):
                 v = os.environ.get(k, '')
                 if v:
                     aws_creds[k] = v
+        account_id = derive_account_id(region) or aws_creds.get('AWS_ACCOUNT_ID', '')  # always set AWS_ACCOUNT_ID on the box, even on the instance-role path
         user_data = self.user_data_builder.render(request,
                                                   fastapi_api_key    = fastapi_key        ,
                                                   access_token       = access_token       ,
                                                   region             = region             ,
+                                                  account_id         = account_id         ,
                                                   aws_creds          = aws_creds          ,
                                                   env_override       = str(request.env_inline),
                                                   hostname           = fqdn               )
