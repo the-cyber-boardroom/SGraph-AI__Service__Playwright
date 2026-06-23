@@ -337,7 +337,14 @@ jobs:
           SG_PLAYWRIGHT__LIVE_BASE_URL: http://localhost:8000
           SG_PLAYWRIGHT__LIVE_API_KEY : ${{ env.TEST_API_KEY_VALUE }}
           PYTHONPATH                  : '.'
-        run: pytest tests/integration_live/ --ignore=tests/integration_live/test_00_preflight.py -v --timeout=90 -n 4 --dist loadgroup    # -n 4 = 4 xdist workers; loadgroup pins serial-marked session tests to one worker
+        run: pytest tests/integration_live/ --ignore=tests/integration_live/test_00_preflight.py --ignore=tests/integration_live/test_99_ui_console.py -v --timeout=90 -n 4 --dist loadgroup    # -n 4 = 4 xdist workers; loadgroup pins serial-marked session tests to one worker. test_99 runs serially in the dedicated console-gate step below.
+
+      - name: UI console + Docker-image checks (gate the publish)                       # v0.2.64 brief 06 §5 — GET / + /health/capabilities + /pw-prefixed index + W1 against the by-digest image; a red check here blocks push-playwright-manifest
+        env:
+          SG_PLAYWRIGHT__LIVE_BASE_URL: http://localhost:8000
+          SG_PLAYWRIGHT__LIVE_API_KEY : ${{ env.TEST_API_KEY_VALUE }}
+          PYTHONPATH                  : '.'
+        run: pytest tests/integration_live/test_99_ui_console.py -v --timeout=90        # numbered test_1..test_5 run top-down (deploy-via-pytest); serial — not sharded across xdist workers
 
       - name: Container state + logs after suite
         if: always()
