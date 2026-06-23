@@ -354,6 +354,19 @@ class test_Routes__Index__iteration2(TestCase):
         assert "shotViewerEl('data:image/png;base64,'+s.screenshot_b64" in self.html # batch
         assert 'div.appendChild(shotViewerEl(sh.src' in self.html                    # per-step
 
+    # ── sequence step artefacts: inline screenshot renders (enum value is lowercase) ──
+    def test__step_artefact_screenshot_case_insensitive(self):
+        assert "String(a.artefact_type||'').toLowerCase()" in self.html               # match the lowercase enum value
+        assert "at==='screenshot'"     in self.html
+        assert "a.artefact_type==='SCREENSHOT'" not in self.html                       # the old case-sensitive bug is gone
+        assert 'application/pdf'       in self.html                                    # non-image inline artefacts get a download link
+
+    # ── step cards collapse to save space (sequence/batch/inspect share .step-head) ──
+    def test__step_cards_collapsible(self):
+        assert '.step-card.collapsed .step-fields{display:none;}' in self.html
+        assert "e.target.closest('.step-head')" in self.html                          # delegated collapse toggle
+        assert "card.classList.toggle('collapsed')" in self.html
+
     # ── item 4: copyText clipboard fix — all three sites routed through it ──
     def test__copytext_helper_present(self):
         assert 'function copyText'           in self.html
