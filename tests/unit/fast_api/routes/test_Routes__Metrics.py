@@ -72,7 +72,7 @@ class test_route_registration(TestCase):
     def test__metrics_path_registered(self):
         with _EnvScrub(**{ENV_VAR__DEPLOYMENT_TARGET: 'laptop'}):
             fa, _ = _client()
-        paths = {str(getattr(r, 'path', '')) for r in fa.app().routes}
+        paths = {str(p) for p in fa.routes_paths_all()}                             # osbot helper expands _IncludedRouter (FastAPI >= 0.137 / Starlette 1.x no longer flattens)
         assert '/metrics' in paths
 
 
