@@ -118,9 +118,9 @@ class test_Routes__Index__P2_console(TestCase):
     def test__sg_tokens_loaded_cdn_absolute(self):
         assert 'https://dev.tools.sgraph.ai/components/tokens/' in self.html          # sg-tokens CDN-absolute (prefix-independent)
         assert 'sg-tokens.css'                                  in self.html
-        # sg-layout was dropped (iteration-2 fix) — the layout is an in-house grid, so
-        # the console never depends on the sg-layout component.
-        assert 'core/sg-layout/'                                not in self.html
+        # sg-layout is imported from tools.sgraph.ai (the documented host) with a
+        # dev-host fallback; if it can't load, the grid fallback keeps the console usable.
+        assert 'https://tools.sgraph.ai/core/sg-layout/v0.1.0/sg-layout.js' in self.html
 
     def test__all_endpoint_family_tabs_present(self):
         for tab in ['screenshot','sequence','inspect','session','browser','debug','service','docs']:
@@ -317,24 +317,28 @@ class test_Routes__Index__iteration2(TestCase):
         assert '.work-light .gbtn'            in self.html
         assert '.work-light select'           in self.html
 
-    # ── item 2: in-house resizable grid (panes never reparented; no CDN dependency) ──
-    def test__resizable_grid_present(self):
-        assert 'class="console-grid" id="work-area"' in self.html                      # grid is the layout, set in markup
-        assert 'function setupResizers'          in self.html
-        assert 'id="vsplit"'                     in self.html                          # column-split drag handle
-        assert 'id="hsplit"'                     in self.html                          # console-height drag handle
-        assert "grid-template-areas:\"builder vsplit result\"" in self.html
+    # ── item 2: sg-layout hosted via the blessed tag-instantiation pattern ──
+    def test__sg_layout_pane_hosts_defined(self):
+        # sg-layout instantiates a tag per tab; we host each pane with an element
+        # that relocates our pre-built pane content (parked in #pane-store) into itself.
+        assert 'id="pane-store"'                 in self.html
+        assert "definePaneHost('sg-pane-builder','builder')"       in self.html
+        assert "definePaneHost('sg-pane-result','result-panel')"   in self.html
+        assert "definePaneHost('sg-pane-console','console-pane')"  in self.html
+        assert "tag:'sg-pane-builder'"           in self.html                          # layout tree uses the host tag, not slot=
+        assert 'function defaultConsoleLayout'   in self.html
 
-    def test__resizer_persists_sizes(self):
-        assert "'sg-playwright:console:sizes:v1'" in self.html                         # sizes persisted to localStorage
-        assert "setProperty('--lc'"              in self.html                          # column ratio written to a CSS var
+    def test__sg_layout_uses_documented_api(self):
+        assert "customElements.whenDefined('sg-layout')" in self.html                  # wait for registration before setLayout
+        assert 'el.setLayout('                   in self.html
+        assert "el.events.on('layout:changed'"   in self.html                          # internal event bus, not addEventListener
+        assert "'sg-playwright:console:layout:v2'" in self.html                        # persisted layout tree
 
-    def test__no_sg_layout_dependency(self):
-        # The sg-layout web component was dropped (it instantiates via `tag` and does
-        # not project our plain-div panes); the console must not depend on the CDN.
-        assert 'sg-layout/v0.1.0/sg-layout.js' not in self.html
-        assert 'wireSgLayout'                    not in self.html
-        assert "document.getElementById('sess-disabled').style" not in self.html       # null crash guarded
+    def test__sg_layout_graceful_fallback_and_reset(self):
+        assert 'function applyConsoleGridFallback' in self.html                        # plain grid if sg-layout is absent/fails
+        assert 'getBoundingClientRect().width<=0'  in self.html                        # verify-or-revert mount check
+        assert 'function resetConsoleLayout'       in self.html                        # header ⟲ Layout control
+        assert "document.getElementById('sess-disabled').style" not in self.html       # null crash stays guarded
 
     # ── item 3: screenshot viewer with Download + Open in new tab ──
     def test__screenshot_viewer_present(self):
