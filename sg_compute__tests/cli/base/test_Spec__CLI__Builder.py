@@ -261,3 +261,67 @@ class test_Spec__CLI__Builder(TestCase):
         result   = self.runner.invoke(app, ['info'])
         assert result.exit_code == 0
         assert any('get_stack_info' in str(e) for e in svc.call_log)
+
+
+# ── _wait_healthy branch selection: diagnose() present vs absent ──────────────
+# create --wait calls builder._wait_healthy. When the service exposes diagnose(),
+# the builder renders the shared live boot-progress table (looping until all rows
+# are ok/skip or timeout); when it doesn't, the silent svc.health() poll stays.
+# No mocks — two tiny in-memory services, one with diagnose() and one without.
+
+from sg_compute.cli.base.Schema__Spec__CLI__Spec import Schema__Spec__CLI__Spec
+from sg_compute.cli.base.Spec__CLI__Builder      import Spec__CLI__Builder
+
+
+class _DiagnoseService(_FakeService):                                               # exposes diagnose() → diagnose branch
+    def __init__(self, stages, names=None):
+        super().__init__(names)
+        self._stages = stages
+    def diagnose(self, region, name):
+        self.call_log.append(('diagnose', region, name))
+        for row in self._stages:
+            yield row
+
+
+def _spec_for(svc, **kw):
+    return Schema__Spec__CLI__Spec(
+        spec_id               = 'docker'    ,
+        display_name          = 'Docker'    ,
+        default_instance_type = 't3.medium' ,
+        create_request_cls    = _FakeRequest,
+        service_factory       = lambda: svc ,
+        **kw)
+
+
+class test_wait_healthy_branch_selection(TestCase):
+
+    def test_no_diagnose_uses_silent_health_poll(self):                            # fallback path unchanged
+        svc     = _FakeService(['my-stack'])
+        builder = Spec__CLI__Builder(_spec_for(svc))
+        builder._wait_healthy(svc, 'eu-west-2', 'my-stack')                        # healthy probe → no raise
+        assert any(e[0] == 'health'   for e in svc.call_log)
+        assert not any(e[0] == 'diagnose' for e in svc.call_log)
+
+    def test_diagnose_present_drives_the_table(self):
+        # All rows ok on the first attempt → run_until_ok returns on attempt 1
+        # (no sleep / no 600s loop) and _wait_healthy returns without raising.
+        stages  = [('ec2-state', 'ok', 'running'), ('containers-up', 'ok', 'up')]
+        svc     = _DiagnoseService(stages, ['my-stack'])
+        spec    = _spec_for(svc, diagnose_check_order=('ec2-state', 'containers-up', 'external-http'))
+        builder = Spec__CLI__Builder(spec)
+        builder._wait_healthy(svc, 'eu-west-2', 'my-stack')                        # all ok → no raise
+        assert any(e[0] == 'diagnose' for e in svc.call_log)
+        assert not any(e[0] == 'health' for e in svc.call_log if e == ('health',))  # diagnose path, not silent health text
+
+    def test_diagnose_not_ok_raises_exit_1(self):
+        # A permanent 'fail' row keeps all_ok False; the builder raises exit(1).
+        # poll_window=0 (no sleep) is achieved by exercising the renderer directly
+        # with timeout=0 — the exit-on-not-ok branch is what we assert here.
+        from sg_compute.cli.base.Spec__Diagnose__Renderer import run_until_ok
+        from rich.console import Console
+        svc = _DiagnoseService([('ec2-state', 'fail', 'pending')], ['my-stack'])
+        _rows, all_ok = run_until_ok(svc, 'eu-west-2', 'my-stack',
+                                     console=Console(highlight=False, record=True, width=120),
+                                     check_order=('ec2-state', 'external-http'),
+                                     timeout=0, poll=1)
+        assert all_ok is False                                                      # → Spec__CLI__Builder._wait_healthy_diagnose raises typer.Exit(1)

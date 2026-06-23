@@ -562,6 +562,15 @@ _DIAG_HINTS = {
     'external-http'    : [('vault'     , 'sg-send-vault container output')],
 }
 
+# Carry the diagnose config onto _cli_spec so `sg va create --wait` renders the
+# same live boot-progress check-table (via Spec__CLI__Builder._wait_healthy, which
+# branches on hasattr(svc, 'diagnose')) as the standalone `check` / `wait` commands
+# below — with the right check order + `sg va logs --source <x>` suggestions.
+# Assigned after build() since _wait_healthy reads these lazily at invocation time.
+_cli_spec.diagnose_check_order = _CHECK_ORDER
+_cli_spec.diagnose_hints       = _DIAG_HINTS
+_cli_spec.diagnose_log_prefix  = 'sg va logs'
+
 
 def _build_check_table(rows, *, header_extra: str = '') -> Table:
     t = Table(box=None, show_header=True, header_style='bold', padding=(0, 2), pad_edge=False)
