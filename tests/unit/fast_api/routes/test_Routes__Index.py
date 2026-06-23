@@ -172,7 +172,7 @@ class test_Routes__Index__P3_workflows(TestCase):
             assert fn in self.html, f'missing {fn}'
 
     def test__gallery_w1_to_w9_present_with_real_verbs(self):
-        for wid in ['W1','W2','W3','W4','W5','W6','W7','W8','W9']:
+        for wid in ['S1','S2','S3','S4','S5','W1','W2','W3','W4','W5','W6','W7','W8','W9']:
             assert f"id:'{wid}'" in self.html, f'gallery missing {wid}'
         # real verb/field names from the capability map, not invented ones
         assert "action:'get_pdf'"           in self.html                              # W4
@@ -283,3 +283,121 @@ class test_Routes__Index__serving(TestCase):
         assert 'window.API_BASE="/pw";'  in html
         assert 'src="/components'        not in html
         assert '"/api/specs/'            not in html
+
+
+# ════════════════════════════════════════════════════════════════════════════════
+#  Iteration 2 — light work panes, sg-layout wiring + fallback, screenshot viewer,
+#  copyText clipboard fix, S-series examples, bottom __tool console
+# ════════════════════════════════════════════════════════════════════════════════
+class test_Routes__Index__iteration2(TestCase):
+
+    @classmethod
+    def setUpClass(cls):
+        cls.html = _render()
+
+    # ── item 1: theme split — light work panes; header + rail keep dark tokens ──
+    def test__light_work_panes_present(self):
+        assert '.work-light'                in self.html                              # light pane class defined
+        assert 'class="builder work-light"' in self.html                             # center builder is a light pane
+        assert 'class="result work-light"'  in self.html                             # right result is a light pane
+        assert '--lsurface'                 in self.html                             # light palette tokens
+        assert '--ltext'                    in self.html
+
+    def test__header_and_rail_keep_dark_tokens(self):
+        # the dark chrome variables are still the ones header/.tab-rail use
+        assert 'header{background:var(--surface)' in self.html
+        assert '.tab-rail{background:var(--surface)' in self.html
+        assert 'class="tab-rail"' in self.html                                       # rail is NOT a .work-light pane
+        assert 'class="tab-rail work-light"' not in self.html
+
+    def test__light_panes_restyle_inputs(self):                                      # inputs/selects/buttons readable on white
+        assert '.work-light input[type=text]' in self.html
+        assert '.work-light .gbtn'            in self.html
+        assert '.work-light select'           in self.html
+
+    # ── item 2: sg-layout wiring + localStorage key + graceful fallback ──
+    def test__sg_layout_wiring_present(self):
+        assert 'function wireSgLayout'           in self.html
+        assert 'function defaultConsoleLayout'   in self.html
+        assert "slot:'p-builder'"                in self.html
+        assert "slot:'p-result'"                 in self.html
+        assert "slot:'p-console'"                in self.html
+        assert 'setLayout(saved||defaultConsoleLayout())' in self.html
+        assert 'getLayout()'                     in self.html
+
+    def test__sg_layout_localstorage_key(self):
+        assert "'sg-playwright:console:layout:v1'" in self.html
+
+    def test__sg_layout_graceful_fallback(self):
+        assert "customElements.get('sg-layout')"     in self.html                    # detection condition
+        assert 'function applyConsoleGridFallback'    in self.html
+        assert '.console-grid'                        in self.html                    # CSS-grid fallback
+        assert 'https://dev.tools.sgraph.ai/core/sg-layout/' in self.html            # CDN import (optional)
+
+    # ── item 3: screenshot viewer with Download + Open in new tab ──
+    def test__screenshot_viewer_present(self):
+        assert 'function shotViewerEl' in self.html
+        assert 'function showShot'     in self.html
+        assert '.shot-viewer'          in self.html
+        assert 'Download'              in self.html
+        assert 'Open in new tab'       in self.html
+        assert '.download='            in self.html or 'download=filename' in self.html
+
+    def test__screenshot_viewer_used_by_single_batch_and_steps(self):
+        assert "showShot('data:image/png;base64,'+data.screenshot_b64" in self.html  # single
+        assert "shotViewerEl('data:image/png;base64,'+s.screenshot_b64" in self.html # batch
+        assert 'div.appendChild(shotViewerEl(sh.src' in self.html                    # per-step
+
+    # ── item 4: copyText clipboard fix — all three sites routed through it ──
+    def test__copytext_helper_present(self):
+        assert 'function copyText'           in self.html
+        assert 'document.execCommand'        in self.html                            # insecure-origin fallback
+        assert 'window.isSecureContext'      in self.html
+
+    def test__no_bare_navigator_clipboard_writeText(self):
+        # the ONLY navigator.clipboard.writeText( call lives inside copyText's secure
+        # branch; every call SITE (copyJson/copyCurl/trace-id/console) routes through
+        # copyText so insecure origins never hit a bare clipboard call.
+        assert self.html.count('navigator.clipboard.writeText(') == 1
+        copytext_block = self.html.split('function copyText')[1].split('function _copyFallback')[0]
+        assert 'navigator.clipboard.writeText(' in copytext_block                     # the one call is inside copyText
+
+    def test__three_clipboard_sites_use_copytext(self):
+        assert self.html.count('copyText(') >= 4                                     # copyJson + copyCurl + trace-id + console viewer/quick
+        assert 'copyText(JSON.stringify(body' in self.html                           # copyJson
+        assert 'copyText(curl)'               in self.html                           # copyCurl
+        assert "onclick=\"copyText('"          in self.html                          # trace-id click-to-copy
+
+    # ── item 5: S-series self-contained examples + D7 fix ──
+    def test__s_series_examples_present(self):
+        for sid in ['S1','S2','S3','S4','S5']:
+            assert f"id:'{sid}'" in self.html, f'missing {sid}'
+        assert 'function tpUrl' in self.html
+        assert "window.location.origin + window.API_BASE + '/test-pages/'" in self.html
+        assert "tpUrl('simple')"  in self.html                                       # S1/S2
+        assert "tpUrl('form')"    in self.html                                       # S3
+        assert "tpUrl('dynamic')" in self.html                                       # S4
+        assert "tpUrl('links')"   in self.html                                       # S5
+
+    def test__D7_w2_uses_valid_full_url_pattern(self):
+        assert "url_pattern:'**/dashboard**'" not in self.html                       # the rejected glob is gone
+        assert "url_pattern:'https://app.example.com/dashboard'" in self.html        # full http(s) URL
+
+    # ── item 6: bottom __tool console ──
+    def test__bottom_tool_console_present(self):
+        assert 'id="console-pane"'      in self.html
+        assert 'id="console-input"'     in self.html
+        assert 'function consoleRun'    in self.html
+        assert 'function consoleQuick'  in self.html
+        assert '__tool.meta.getMethods()' in self.html                              # quick button
+        assert 'getManifest()'          in self.html
+        assert 'getSkills()'            in self.html
+        assert 'getLog()'               in self.html
+
+    def test__console_output_is_escaped(self):
+        block = self.html.split('async function consoleRun')[1].split('document.getElementById(\'console-input\').addEventListener')[0]
+        assert 'escHtml(' in block                                                   # all console output escaped
+        assert '_consoleImageSrc' in self.html                                       # base64/imageSrc → viewer
+
+    def test__console_runs_in_browser_not_server_allowlist(self):
+        assert 'not the server-side evaluate allowlist' in self.html or 'NOT the server-side evaluate allowlist' in self.html

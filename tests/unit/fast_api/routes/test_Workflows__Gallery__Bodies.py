@@ -32,34 +32,45 @@ from sg_compute_specs.playwright.core.schemas.screenshot.Schema__Screenshot__Bat
 from sg_compute_specs.playwright.core.schemas.sequence.Schema__Sequence__Request            import Schema__Sequence__Request
 
 
-GALLERY_IDS = ['W1', 'W2', 'W3', 'W4', 'W5', 'W6', 'W7', 'W8', 'W9']
+from sg_compute_specs.playwright.core.schemas.screenshot.Schema__Screenshot__Request       import Schema__Screenshot__Request
+
+# S1-S5 self-contained fixture examples (Decision #5) lead the gallery; W1-W9 follow.
+GALLERY_IDS_S = ['S1', 'S2', 'S3', 'S4', 'S5']
+GALLERY_IDS_W = ['W1', 'W2', 'W3', 'W4', 'W5', 'W6', 'W7', 'W8', 'W9']
+GALLERY_IDS   = GALLERY_IDS_S + GALLERY_IDS_W
+
+# tpUrl(name) resolves at runtime to window.location.origin + window.API_BASE +
+# '/test-pages/<name>'. For the body-level (no-browser) tests we substitute a
+# concrete absolute URL so the literals deserialise; the real origin is supplied by
+# the browser at click time.
+_TP_ORIGIN = 'http://test.local/test-pages/'
 
 # Endpoint → schema each workflow body must deserialise into (brief 06 §3 map).
 SCHEMA_FOR_ENDPOINT = {'/sequence/execute' : Schema__Sequence__Request            ,
                        '/inspect'          : Schema__Inspect__Request             ,
-                       '/screenshot/batch' : Schema__Screenshot__Batch__Request   }
+                       '/screenshot/batch' : Schema__Screenshot__Batch__Request   ,
+                       '/screenshot'       : Schema__Screenshot__Request          }
 
-# ── D7 (FLAGGED, not fixed) ──────────────────────────────────────────────────
-# W2's `wait_for` step uses Playwright's glob URL pattern `**/dashboard**`
-# (correct per brief 02 + Playwright `wait_for_url` semantics), but
-# Schema__Step__Wait_For.url_pattern is typed Safe_Str__Url__Permissive
-# (Schema__Step__Wait_For.py:20) whose regex requires a full `http(s)://...`
-# URL. So the W2 gallery body is REJECTED with HTTP 400 by /sequence/execute
-# today — clicking "Load example → W2 → Execute" never reaches the browser.
-# This is a real contract discrepancy surfaced by this test (a good failure):
-# the gallery seed and the schema field type disagree. It is out of scope for
-# the P6/P7 tests-and-docs slice (it needs either a schema field-type change or
-# a gallery edit — both runtime/design decisions), so it is asserted here AS A
-# CONTRACT (the same way brief 06 §3 asserts W7's allowlist failure) and flagged
-# for the human / a future Dev slice. When D7 is resolved, move W2 into the
-# clean-deserialise set below and delete this carve-out.
-WORKFLOWS_KNOWN_BAD = {'W2'}                                                                # see D7 above
+# ── D7 (FIXED, iteration 2) ──────────────────────────────────────────────────
+# Previously W2's `wait_for` step used Playwright's glob URL pattern
+# `**/dashboard**`, but Schema__Step__Wait_For.url_pattern is typed
+# Safe_Str__Url__Permissive whose regex requires a full `http(s)://...` URL — so
+# the W2 body was REJECTED with HTTP 400 by /sequence/execute (clicking
+# "Load example → W2 → Execute" never reached the browser). Iteration 2 changes
+# W2 to a full-URL pattern (`https://app.example.com/dashboard`), so W2 now
+# deserialises cleanly like every other workflow. WORKFLOWS_KNOWN_BAD is now
+# empty; the regression guard below asserts W2's url_pattern step parses.
+WORKFLOWS_KNOWN_BAD = set()                                                                 # D7 resolved — see above
 
 
 def _extract_gallery():                                                                     # Parse the live `const GALLERY = [...]` JS-object-literal out of INDEX_HTML
     m = re.search(r'const GALLERY\s*=\s*(\[.*?\]);', INDEX_HTML, re.DOTALL)
     assert m is not None, 'const GALLERY = [...] block not found in INDEX_HTML'
     block = m.group(1)
+
+    # tpUrl('name') / tpUrl("name") → a concrete quoted URL literal so the JS-object
+    # literal becomes valid JSON (the real origin is composed in-browser at click time).
+    block = re.sub(r"tpUrl\(\s*['\"]([a-z]+)['\"]\s*\)", lambda mm: '"' + _TP_ORIGIN + mm.group(1) + '"', block)
 
     strings = []                                                                            # 1) stash single- AND double-quoted JS string literals (handles nested quotes, e.g. W8 javascript)
     def _stash(mm):
@@ -89,8 +100,19 @@ class test_Workflows__Gallery__Bodies(TestCase):
 
     # ── the gallery itself ──────────────────────────────────────────────────────
 
-    def test__gallery_has_all_nine_workflows(self):
-        assert [w['id'] for w in self.gallery] == GALLERY_IDS
+    def test__gallery_has_s_series_then_w_series(self):
+        assert [w['id'] for w in self.gallery] == GALLERY_IDS                                # S1-S5 lead (headline), W1-W9 follow
+
+    def test__s_series_targets_self_contained_test_pages(self):                              # Decision #5 — S-series URLs are the service's own /test-pages/* fixtures
+        for sid in GALLERY_IDS_S:
+            w   = self.by_id[sid]
+            req = w['request']
+            blob = json.dumps(req)
+            assert '/test-pages/' in blob, f'{sid} does not target a /test-pages fixture'
+
+    def test__s_series_urls_compose_off_origin_and_api_base(self):                           # the live JS composes tpUrl off window.location.origin + window.API_BASE
+        assert "function tpUrl" in INDEX_HTML
+        assert "window.location.origin + window.API_BASE + '/test-pages/'" in INDEX_HTML
 
     def test__every_workflow_has_endpoint_and_request(self):
         for w in self.gallery:
@@ -109,13 +131,15 @@ class test_Workflows__Gallery__Bodies(TestCase):
             obj        = schema_cls.from_json(w['request'])                                  # raises ValueError on any bad field type / shape
             assert obj is not None, f'{w["id"]} → {schema_cls.__name__} returned None'
 
-    def test__D7__W2_url_pattern_glob_is_rejected_by_wait_for_schema(self):                  # contract assertion of the flagged discrepancy (good-failure test)
+    def test__D7__W2_url_pattern_is_now_a_valid_full_url(self):                              # D7 regression guard — W2's wait_for url_pattern parses through the dispatcher
         w = self.by_id['W2']
-        Schema__Sequence__Request.from_json(w['request'])                                    # the envelope parses (steps stored as List[dict], validated lazily)
+        Schema__Sequence__Request.from_json(w['request'])                                    # envelope parses
         wait_for_step = next(s for s in w['request']['steps'] if s.get('url_pattern'))
-        idx           = w['request']['steps'].index(wait_for_step)
-        with self.assertRaises(Exception):                                                   # the dispatcher rejects it: Safe_Str__Url__Permissive declines the `**/dashboard**` glob → HTTP 400 at /sequence/execute
-            parse_step(wait_for_step, idx)
+        assert wait_for_step['url_pattern'].startswith('http')                               # full http(s):// URL, not a `**/glob**`
+        assert '*' not in wait_for_step['url_pattern']
+        idx = w['request']['steps'].index(wait_for_step)
+        parsed = parse_step(wait_for_step, idx)                                              # no longer rejected by Safe_Str__Url__Permissive
+        assert parsed is not None
 
     def test__W1_sequence_body_round_trips(self):                                            # spot-check the most-exercised body explicitly
         w   = self.by_id['W1']
