@@ -51,6 +51,10 @@ INDEX_HTML = r'''<!DOCTYPE html>
   --bg:#0f1117; --surface:#1a1d27; --surface2:#212437; --border:#2e3149;
   --accent:#4f8ef7; --accent2:#34c88a; --danger:#e05c5c; --warn:#f0a040;
   --text:#d4d8f0; --muted:#6b7094; --radius:8px;
+  /* Light work-pane palette (Decision #1): builder + result + console panes use
+     a light surface with dark text. Header + tab rail keep the dark tokens. */
+  --lbg:#ffffff; --lsurface:#f5f6fa; --lsurface2:#eceef4; --lborder:#d3d7e2;
+  --ltext:#1c2233; --lmuted:#5a6379;
   font-family:'Segoe UI',system-ui,sans-serif;
 }
 *{box-sizing:border-box;margin:0;padding:0;}
@@ -191,6 +195,63 @@ pre.out{background:var(--surface);border:1px solid var(--border);border-radius:v
 .cap-table{width:100%;border-collapse:collapse;font-size:.74rem;}
 .cap-table td{border:1px solid var(--border);padding:5px 8px;}
 .cap-table td:first-child{color:var(--muted);width:45%;}
+
+/* ══ Light work panes (Decision #1) — builder (center) + result (right) + console
+      (bottom) read on white. Header + .tab-rail keep the dark tokens above. The
+      `.work-light` class is applied to those three panes only; everything below is
+      scoped under it so the dark chrome is never touched. ══ */
+.work-light{background:var(--lsurface);color:var(--ltext);}
+.work-light .section-title{color:var(--ltext);}
+.work-light label{color:var(--lmuted);}
+.work-light input[type=text],.work-light input[type=number],.work-light input[type=password],
+.work-light textarea,.work-light select{
+  background:var(--lbg);border:1px solid var(--lborder);color:var(--ltext);}
+.work-light input:focus,.work-light textarea:focus,.work-light select:focus{border-color:var(--accent);}
+.work-light .gbtn,.work-light .add-btn,.work-light .ib{
+  background:var(--lsurface2);border:1px solid var(--lborder);color:var(--ltext);}
+.work-light .gbtn:hover,.work-light .add-btn:hover,.work-light .ib:hover{border-color:var(--accent);color:var(--accent);}
+.work-light .step-card,.work-light .gallery button{background:var(--lbg);border:1px solid var(--lborder);color:var(--ltext);}
+.work-light .gallery button:hover{border-color:var(--accent);}
+.work-light .step-head .num{background:var(--lsurface2);color:var(--lmuted);}
+.work-light details summary{color:var(--lmuted);}
+.work-light details summary:hover{color:var(--ltext);}
+.work-light pre.out{background:var(--lbg);border:1px solid var(--lborder);color:var(--ltext);}
+.work-light .step-result{background:var(--lbg);border:1px solid var(--lborder);}
+.work-light .batch-thumb{background:var(--lbg);border:1px solid var(--lborder);}
+.work-light .result-meta{color:var(--lmuted);}
+.work-light .ck{color:var(--ltext);}
+.work-light .docs-verb{background:var(--lbg);border:1px solid var(--lborder);}
+.work-light .cap-table td{border:1px solid var(--lborder);}
+.work-light .cap-table td:first-child{color:var(--lmuted);}
+.work-light .placeholder{color:var(--lmuted);}
+
+/* ══ Screenshot viewer (item 3) — light, framed, scrollable; checkerboard backdrop ══ */
+.shot-viewer{border:1px solid var(--lborder);border-radius:var(--radius);background:#fff;
+  background-image:linear-gradient(45deg,#e8e8e8 25%,transparent 25%),linear-gradient(-45deg,#e8e8e8 25%,transparent 25%),linear-gradient(45deg,transparent 75%,#e8e8e8 75%),linear-gradient(-45deg,transparent 75%,#e8e8e8 75%);
+  background-size:18px 18px;background-position:0 0,0 9px,9px -9px,-9px 0;
+  max-height:60vh;overflow:auto;padding:8px;}
+.shot-viewer img{display:block;max-width:100%;height:auto;}
+.shot-bar{display:flex;gap:8px;margin-top:6px;}
+.shot-bar a{font-size:.74rem;text-decoration:none;color:var(--accent);border:1px solid var(--lborder);
+  border-radius:6px;padding:4px 10px;cursor:pointer;background:var(--lbg);}
+.shot-bar a:hover{border-color:var(--accent);}
+
+/* ══ Bottom console pane (item 6) — light __tool REPL ══ */
+#console-pane{display:flex;flex-direction:column;gap:8px;padding:12px;overflow:auto;}
+#console-input{width:100%;min-height:80px;font-family:monospace;font-size:.8rem;
+  background:var(--lbg);border:1px solid var(--lborder);border-radius:var(--radius);color:var(--ltext);padding:8px;resize:vertical;}
+#console-out{flex:1;min-height:60px;}
+.console-quick{display:flex;gap:6px;flex-wrap:wrap;}
+
+/* ══ sg-layout slots + CSS-grid fallback (item 2). When sg-layout is present it owns
+      layout; when absent, .console-grid (added by JS) lays the three panes out with
+      plain CSS grid so the console is fully usable offline. ══ */
+sg-layout{flex:1;min-height:0;display:block;}
+.console-grid{flex:1;display:grid;grid-template-columns:minmax(360px,1fr) minmax(360px,1fr);
+  grid-template-rows:1fr auto;grid-template-areas:"builder result" "console console";overflow:hidden;min-height:0;}
+.console-grid #builder{grid-area:builder;}
+.console-grid #result-panel{grid-area:result;}
+.console-grid #console-pane{grid-area:console;border-top:1px solid var(--lborder);max-height:34vh;}
 </style>
 </head>
 <body>
@@ -234,9 +295,12 @@ pre.out{background:var(--surface);border:1px solid var(--border);border-radius:v
     <button data-tab="docs"     onclick="switchTab('docs')">Docs</button>
   </div>
 
-  <div class="split">
-    <!-- ────────── BUILDER (left of split) ────────── -->
-    <div class="builder" id="builder">
+  <!-- work-area host: sg-layout drives builder|result|console when the CDN component
+       is present; otherwise JS swaps in .console-grid so the three light panes stay
+       usable offline (Decision #1 light panes; item 2 graceful fallback). -->
+  <div class="split" id="work-area">
+    <!-- ────────── BUILDER (left of split) — light work pane ────────── -->
+    <div class="builder work-light" id="builder">
 
       <!-- Screenshot tab -->
       <div id="tab-screenshot" class="tab-pane active">
@@ -400,11 +464,11 @@ pre.out{background:var(--surface);border:1px solid var(--border);border-radius:v
 
     </div>
 
-    <!-- ────────── RESULT (right of split) ────────── -->
-    <div class="result" id="result-panel">
+    <!-- ────────── RESULT (right of split) — light work pane ────────── -->
+    <div class="result work-light" id="result-panel">
       <!-- gallery + workflow IO live in the result column header so every builder shares them -->
       <details open>
-        <summary>▸ Example gallery (W1–W9) &amp; workflow import/export</summary>
+        <summary>▸ Example gallery (S1–S5 self-contained · W1–W9) &amp; workflow import/export</summary>
         <div class="db">
           <div class="btn-row">
             <button class="gbtn" onclick="wfSaveLocal()">Save</button>
@@ -423,6 +487,20 @@ pre.out{background:var(--surface);border:1px solid var(--border);border-radius:v
       <div id="batch-grid" class="batch-grid"></div>
       <pre id="result-err"></pre>
       <p class="placeholder" id="placeholder">Build a request and click Execute</p>
+    </div>
+
+    <!-- ────────── CONSOLE (bottom dock) — light __tool REPL (item 6) ────────── -->
+    <div id="console-pane" class="work-light">
+      <div class="section-title">window.__tool console — runs in YOUR browser (not the server-side evaluate allowlist)</div>
+      <div class="console-quick">
+        <button class="gbtn" onclick="consoleQuick('await __tool.meta.getMethods()')">List methods</button>
+        <button class="gbtn" onclick="consoleQuick('await __tool.meta.getManifest()')">Manifest</button>
+        <button class="gbtn" onclick="consoleQuick('await __tool.meta.getSkills()')">Skills</button>
+        <button class="gbtn" onclick="consoleQuick('await __tool.meta.getLog()')">Log</button>
+      </div>
+      <textarea id="console-input" spellcheck="false" placeholder="await __tool.screenshot({url: window.location.origin + window.API_BASE + '/test-pages/simple'})  —  Ctrl/Cmd+Enter to run"></textarea>
+      <div class="btn-row"><button class="exec-btn" id="btn-console" onclick="consoleRun()">Run ▶</button></div>
+      <div id="console-out"></div>
     </div>
   </div>
 </main>
@@ -500,6 +578,31 @@ function setAuth(opts){                                                         
 }
 
 function escHtml(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+// ── copyText (item 4 — real bug): navigator.clipboard is undefined on insecure
+//    origins like http://0.0.0.0, so the old bare clipboard calls threw silently
+//    (TypeError: cannot read writeText of undefined). Prefer the async Clipboard API
+//    when available + secure; else
+//    fall back to a hidden <textarea> + execCommand('copy'). Never throws. ──
+function copyText(s){
+  s = String(s == null ? '' : s);
+  try{
+    if (navigator.clipboard && window.isSecureContext){
+      navigator.clipboard.writeText(s).catch(()=>_copyFallback(s));
+      return true;
+    }
+  }catch(e){}
+  return _copyFallback(s);
+}
+function _copyFallback(s){
+  try{
+    const ta=document.createElement('textarea'); ta.value=s;
+    ta.style.position='fixed'; ta.style.opacity='0'; ta.style.left='-9999px';
+    document.body.appendChild(ta); ta.focus(); ta.select();
+    let ok=false; try{ ok=document.execCommand('copy'); }catch(e){ ok=false; }
+    document.body.removeChild(ta); return ok;
+  }catch(e){ return false; }
+}
 
 // ── request() — reads status BEFORE parsing; falls back to text() on non-JSON ──
 async function apiGet(path){ return fetch(window.API_BASE + path, { headers: authHeaders() }); }
@@ -768,9 +871,7 @@ async function execBrowser(){
     try{
       const r=await fetch(window.API_BASE+path,{method:'POST',headers:authHeaders({'Content-Type':'application/json'}),body:JSON.stringify(body)});
       if(!r.ok){ showErr(`HTTP ${r.status}\n`+escHtml(await r.text())); setBusy('br',false); return; }
-      const blob=await r.blob(); const img=document.getElementById('result-img');
-      img.src=URL.createObjectURL(blob); img.style.display='block';
-      document.getElementById('placeholder').style.display='none';
+      const blob=await r.blob(); showShot(URL.createObjectURL(blob), 'browser-screenshot.png');
       const meta=document.getElementById('result-meta'); meta.style.display='flex';
       meta.innerHTML = [...r.headers].filter(([k])=>/-ms$/i.test(k)).map(([k,v])=>`<span>${escHtml(k)}: <strong>${escHtml(v)}</strong></span>`).join('') || '<span>image/png</span>';
       setStatus('br','done');
@@ -808,12 +909,12 @@ function currentRequest(){
     default:           return buildScreenshotBody();
   }
 }
-function copyJson(){ const {body}=currentRequest(); navigator.clipboard.writeText(JSON.stringify(body,null,2)); flash('JSON copied'); }
+function copyJson(){ const {body}=currentRequest(); copyText(JSON.stringify(body,null,2)); flash('JSON copied'); }
 function copyCurl(){
   const {path,body}=currentRequest();
   // curl uses a placeholder — NEVER the stored token (hard rule).
   const curl = `curl -X POST '${location.origin}${window.API_BASE}${path}' \\\n  -H '${authHeaderName()}: $SG_PLAYWRIGHT_KEY' \\\n  -H 'Content-Type: application/json' \\\n  -d '${JSON.stringify(body)}'`;
-  navigator.clipboard.writeText(curl); flash('curl copied (key placeholder $SG_PLAYWRIGHT_KEY)');
+  copyText(curl); flash('curl copied (key placeholder $SG_PLAYWRIGHT_KEY)');
 }
 function flash(msg){ const el=document.getElementById('status-'+statusKeyForTab()); if(el){ el.textContent=msg; el.style.color='var(--accent2)'; } }
 function statusKeyForTab(){ return {screenshot:'ss',sequence:'seq',inspect:'ins',browser:'br',debug:'dbg',session:'sess'}[activeTab]||'ss'; }
@@ -848,9 +949,28 @@ function showErr(msg){ const el=document.getElementById('result-err'); el.textCo
 function showMetaLine(html){ const el=document.getElementById('result-meta'); el.innerHTML=html; el.style.display='flex'; document.getElementById('placeholder').style.display='none'; }
 
 function renderJson(data){ const pre=document.getElementById('result-html'); pre.textContent=JSON.stringify(data,null,2); pre.style.display='block'; document.getElementById('placeholder').style.display='none'; }
+
+// ── Screenshot viewer (item 3) — light, framed, scrollable; Download + Open in new
+//    tab. Returns an element so per-step / batch can embed it; the main single-shot
+//    path drops it into #result-steps. `src` is a data: URL or object URL. ──
+function shotViewerEl(src, filename){
+  const wrap=document.createElement('div');
+  const view=document.createElement('div'); view.className='shot-viewer';
+  const img=document.createElement('img'); img.src=src; img.alt='screenshot'; view.appendChild(img);
+  const bar=document.createElement('div'); bar.className='shot-bar';
+  const dl=document.createElement('a'); dl.textContent='Download'; dl.href=src; dl.download=filename||'screenshot.png';
+  const open=document.createElement('a'); open.textContent='Open in new tab'; open.style.cursor='pointer';
+  open.onclick=()=>{ const w=window.open(); if(w){ w.document.write('<img src="'+src+'" style="max-width:100%">'); w.document.title=filename||'screenshot'; } };
+  bar.appendChild(dl); bar.appendChild(open); wrap.appendChild(view); wrap.appendChild(bar);
+  return wrap;
+}
+function showShot(src, filename){                                                   // single-shot: clear placeholder, render the viewer in the steps area
+  const steps=document.getElementById('result-steps'); steps.appendChild(shotViewerEl(src, filename));
+  document.getElementById('placeholder').style.display='none';
+}
 function renderSingle(data, format){
-  showMetaLine(`<strong>${format.toUpperCase()}</strong> <span>${escHtml(data.duration_ms??'?')}ms</span> <span style="font-family:monospace;font-size:.7rem" title="click to copy" onclick="navigator.clipboard.writeText('${escHtml(data.trace_id||'')}')">${escHtml(data.trace_id||'')}</span>`);
-  if(format==='png' && data.screenshot_b64){ const img=document.getElementById('result-img'); img.src='data:image/png;base64,'+data.screenshot_b64; img.style.display='block'; }
+  showMetaLine(`<strong>${format.toUpperCase()}</strong> <span>${escHtml(data.duration_ms??'?')}ms</span> <span style="font-family:monospace;font-size:.7rem;cursor:pointer" title="click to copy" onclick="copyText('${escHtml(data.trace_id||'')}');flash('trace id copied')">${escHtml(data.trace_id||'')}</span>`);
+  if(format==='png' && data.screenshot_b64){ showShot('data:image/png;base64,'+data.screenshot_b64, (data.trace_id||'screenshot')+'.png'); }
   else if(data.html!==undefined && data.html!==null){ const pre=document.getElementById('result-html'); pre.textContent=data.html; pre.style.display='block'; }
 }
 function renderBatch(data, items){
@@ -859,7 +979,10 @@ function renderBatch(data, items){
   const grid=document.getElementById('batch-grid'); grid.innerHTML='';
   shots.forEach((s,i)=>{ const url=(items[i]||{}).url||`#${i+1}`; const u=escHtml(url);
     const t=document.createElement('div'); t.className='batch-thumb';
-    if(s.screenshot_b64) t.innerHTML=`<img src="data:image/png;base64,${s.screenshot_b64}" loading="lazy"><div class="thumb-label" title="${u}">${i+1}. ${u}</div>`;
+    if(s.screenshot_b64){                                                            // item 3: framed viewer with Download + Open per batch item
+      const label=document.createElement('div'); label.className='thumb-label'; label.title=url; label.textContent=`${i+1}. ${url}`;
+      t.appendChild(shotViewerEl('data:image/png;base64,'+s.screenshot_b64, `batch-${i+1}.png`)); t.appendChild(label);
+    }
     else if(s.html) t.innerHTML=`<pre class="out" style="max-height:160px">${escHtml(s.html.slice(0,400))}…</pre><div class="thumb-label" title="${u}">${i+1}. ${u} (HTML)</div>`;
     else t.innerHTML=`<div class="thumb-label" style="color:var(--warn)">No result for ${u}</div>`;
     grid.appendChild(t); });
@@ -889,10 +1012,12 @@ function stepResultEl(s, label){
   if(s.accessibility_tree) body+=`<details><summary>accessibility_tree</summary><pre class="out">${escHtml(JSON.stringify(s.accessibility_tree,null,2))}</pre></details>`;
   if(s.console_log) body+=`<details><summary>console_log</summary><pre class="out">${escHtml(JSON.stringify(s.console_log,null,2))}</pre></details>`;
   if(s.network_failures) body+=`<details><summary>network_failures</summary><pre class="out">${escHtml(JSON.stringify(s.network_failures,null,2))}</pre></details>`;
-  (s.artefacts||[]).forEach(a=>{ if(a.inline_b64 && a.artefact_type==='SCREENSHOT') body+=`<img src="data:image/png;base64,${a.inline_b64}">`;
+  const shots=[];                                                                    // item 3: per-step screenshots get the framed viewer (Download / Open), appended after the text body
+  (s.artefacts||[]).forEach((a,ai)=>{ if(a.inline_b64 && a.artefact_type==='SCREENSHOT') shots.push({src:'data:image/png;base64,'+a.inline_b64, name:`step-${escHtml(label).replace(/[^a-z0-9]+/gi,'-')||ai}.png`});
     else body+=`<div>artefact: ${escHtml(a.artefact_type||'?')} (${escHtml(a.sink||'?')})</div>`; });
   if(s.error_message) body+=`<div style="color:var(--danger)">${escHtml(s.error_message)}</div>`;
   div.innerHTML=`<div class="srh">${statusPill(s.status)}<span>${escHtml(label)}</span><span style="color:var(--muted)">${escHtml(s.duration_ms??'')}ms</span></div>${body}`;
+  shots.forEach(sh=>div.appendChild(shotViewerEl(sh.src, sh.name)));
   return div;
 }
 
@@ -1001,7 +1126,38 @@ function loadInsProbe(name,probe){
 // ════════════════════════════════════════════════════════════════════════════
 //  Example gallery (W1–W9) — REAL verbs/fields from the capability map (brief 02)
 // ════════════════════════════════════════════════════════════════════════════
+// S-series: self-contained examples (Decision #5) targeting the service's own
+// /test-pages/* fixtures. URLs are resolved at LOAD time off
+// window.location.origin + window.API_BASE so they run against THIS deployment with
+// no external egress. They are the headline of the gallery; W1-W9 follow as
+// public-site recipes. tpUrl() composes the absolute fixture URL.
+function tpUrl(name){ return window.location.origin + window.API_BASE + '/test-pages/' + name; }
 const GALLERY = [
+  { id:'S1', title:'Screenshot a fixture page', tab:'screenshot', endpoint:'/screenshot',
+    request:{ url:tpUrl('simple'), format:'png' } },
+  { id:'S2', title:'Inspect DOM of a fixture page', tab:'inspect', endpoint:'/inspect',
+    request:{ navigate:{url:tpUrl('simple')}, settle:[], diagnostics_on_fail:true,
+      probes:{ current_url:{action:'get_url'}, page_text:{action:'get_text'},
+        dom:{action:'get_dom_tree',max_depth:6,include_invisible:false} } } },
+  { id:'S3', title:'Fill + submit a form (per-step shot)', tab:'sequence', endpoint:'/sequence/execute',
+    request:{ capture_config:{screenshot:{enabled:true,sink:'inline'}}, steps:[
+      {action:'navigate',url:tpUrl('form'),wait_until:'domcontentloaded'},
+      {action:'fill',selector:'#username',value:'demo'},
+      {action:'fill',selector:'#password',value:'hunter2'},
+      {action:'click',selector:'#submit'},
+      {action:'wait_for',selector:'#welcome'},
+      {action:'screenshot',full_page:true} ] } },
+  { id:'S4', title:'Wait for a deferred selector', tab:'sequence', endpoint:'/sequence/execute',
+    request:{ steps:[
+      {action:'navigate',url:tpUrl('dynamic'),wait_until:'domcontentloaded'},
+      {action:'wait_for',selector:'#ready'},
+      {action:'get_text',selector:'#ready'} ] } },
+  { id:'S5', title:'Navigate / scroll / selector capture', tab:'sequence', endpoint:'/sequence/execute',
+    request:{ capture_config:{screenshot:{enabled:true,sink:'inline'}}, steps:[
+      {action:'navigate',url:tpUrl('links'),wait_until:'domcontentloaded'},
+      {action:'scroll',y:2000},
+      {action:'wait_for',selector:'#bottom'},
+      {action:'screenshot',selector:'#gamma'} ] } },
   { id:'W1', title:'Form fill + wait + per-step shots', tab:'sequence', endpoint:'/sequence/execute',
     request:{ capture_config:{screenshot:{enabled:true,sink:'inline'}}, steps:[
       {action:'navigate',url:'https://example.com/login',wait_until:'domcontentloaded'},
@@ -1017,7 +1173,7 @@ const GALLERY = [
       {action:'fill',selector:'#user',value:'demo'},
       {action:'fill',selector:'#pass',value:'demo'},
       {action:'click',selector:'#sign-in'},
-      {action:'wait_for',url_pattern:'**/dashboard**',timeout_ms:15000},
+      {action:'wait_for',url_pattern:'https://app.example.com/dashboard',timeout_ms:15000},
       {action:'navigate',url:'https://app.example.com/reports/42'},
       {action:'wait_for',selector:'[data-ready=true]'},
       {action:'get_url'},
@@ -1122,16 +1278,96 @@ addCard('https://sgraph.ai'); addCard('');
 bootstrap();
 let _bootT; keyEl.addEventListener('input', ()=>{ clearTimeout(_bootT); _bootT=setTimeout(bootstrap,400); });
 
-// Ctrl/Cmd+Enter executes the active tab
+// Ctrl/Cmd+Enter executes the active tab (but not when the console input is focused —
+// that has its own handler so the two REPLs don't collide).
 document.addEventListener('keydown', e=>{ if(!(e.ctrlKey||e.metaKey)||e.key!=='Enter')return;
+  if(document.activeElement && document.activeElement.id==='console-input')return;
   ({screenshot:execScreenshot,sequence:execSequence,inspect:execInspect,browser:execBrowser,debug:execDebug}[activeTab]||(()=>{}))(); });
 
-// ── sg-layout: CDN-absolute, prefix-independent (Decision #11). Optional shell —
-//    the console renders fully without it (graceful offline degradation). ──
-(async function loadSgLayout(){
-  try{ await import('https://dev.tools.sgraph.ai/core/sg-layout/v0.1.0/sg-layout.js'); }
-  catch(e){ /* CDN unreachable (offline/egress-restricted) — console works without sg-layout */ }
+// ════════════════════════════════════════════════════════════════════════════
+//  sg-layout wiring (item 2) — wrap builder (center) + result (right) + console
+//  (bottom) in <sg-layout> driven like admin.js: build a layout JSON with p-{id}
+//  slots, setLayout(saved||default), persist getLayout() to localStorage, restore
+//  on load. Header + tab rail stay OUTSIDE sg-layout (they are above #work-area).
+//
+//  GRACEFUL FALLBACK: sg-layout is a CDN web component that may be absent (same
+//  condition that 404'd sg-tool-api). We import it, then a short time later check
+//  customElements.get('sg-layout'); if it is still undefined the console falls back
+//  to a plain CSS grid (.console-grid) so it is fully usable offline. Core function
+//  never depends on the CDN.
+// ════════════════════════════════════════════════════════════════════════════
+const SG_LAYOUT_LS = 'sg-playwright:console:layout:v1';
+function defaultConsoleLayout(){                                                    // p-{id} slots: builder | result over a full-width console row
+  return { type:'col', sizes:[0.7,0.3], children:[
+    { type:'row', sizes:[0.5,0.5], children:[
+      { type:'stack', tabs:[{ slot:'p-builder', title:'Builder', locked:true }] },
+      { type:'stack', tabs:[{ slot:'p-result',  title:'Result',  locked:true }] } ] },
+    { type:'stack', tabs:[{ slot:'p-console', title:'Console', locked:true }] } ] };
+}
+function applyConsoleGridFallback(){                                                // CSS-grid fallback — the three light panes laid out without the web component
+  const area=document.getElementById('work-area'); if(!area)return;
+  area.classList.remove('split'); area.classList.add('console-grid');
+}
+(function loadSgLayout(){
+  let settled=false;
+  const fallback=()=>{ if(settled)return; settled=true; applyConsoleGridFallback(); };
+  if(!('customElements' in window)){ fallback(); return; }
+  import('https://dev.tools.sgraph.ai/core/sg-layout/v0.1.0/sg-layout.js')
+    .then(()=>wireSgLayout().then(ok=>{ settled = settled || ok; if(!ok) fallback(); }))
+    .catch(()=>fallback());
+  // If the component never registers shortly after load, fall back so the console is usable.
+  setTimeout(()=>{ if(!customElements.get('sg-layout')) fallback(); }, 1500);
 })();
+async function wireSgLayout(){
+  if(!customElements.get('sg-layout')) return false;
+  try{
+    const area=document.getElementById('work-area');
+    const builder=document.getElementById('builder'), result=document.getElementById('result-panel'), pane=document.getElementById('console-pane');
+    const el=document.createElement('sg-layout');
+    builder.slot='p-builder'; result.slot='p-result'; pane.slot='p-console';
+    el.appendChild(builder); el.appendChild(result); el.appendChild(pane);
+    area.classList.remove('split'); area.innerHTML=''; area.appendChild(el);
+    let saved=null; try{ saved=JSON.parse(localStorage.getItem(SG_LAYOUT_LS)||'null'); }catch(e){}
+    if(typeof el.setLayout==='function') el.setLayout(saved||defaultConsoleLayout());
+    const persist=()=>{ try{ if(typeof el.getLayout==='function') localStorage.setItem(SG_LAYOUT_LS, JSON.stringify(el.getLayout())); }catch(e){} };
+    if(el._events&&el._events.on){ el._events.on('layout-changed', persist); } else { el.addEventListener('layout-changed', persist); }
+    return true;
+  }catch(e){ return false; }
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+//  Bottom __tool console (item 6) — live REPL over window.__tool, in the OPERATOR's
+//  browser (NOT the server-side evaluate allowlist). Evals entered JS in an async
+//  scope with __tool in scope; renders the return value as escaped pretty JSON; if
+//  the value carries an imageSrc / base64 PNG it is shown via the item-3 viewer.
+//  ALL output escaped via escHtml. Token never echoed.
+// ════════════════════════════════════════════════════════════════════════════
+function consoleQuick(src){ document.getElementById('console-input').value=src; consoleRun(); }
+function _consoleImageSrc(v){                                                       // detect a renderable image in a returned value
+  if(!v||typeof v!=='object') return null;
+  if(typeof v.imageSrc==='string') return v.imageSrc;
+  if(typeof v.screenshot_b64==='string') return 'data:image/png;base64,'+v.screenshot_b64;
+  if(Array.isArray(v.screenshots)&&v.screenshots[0]&&typeof v.screenshots[0].screenshot_b64==='string') return 'data:image/png;base64,'+v.screenshots[0].screenshot_b64;
+  return null;
+}
+async function consoleRun(){
+  const src=document.getElementById('console-input').value; const out=document.getElementById('console-out');
+  out.innerHTML='<div class="sr"><span class="spin"></span><span>running…</span></div>';
+  const __tool=window.__tool;                                                       // bring __tool into the eval scope explicitly
+  try{
+    const fn=new Function('__tool', '"use strict"; return (async()=>{ return ('+src+'); })();');
+    const result=await fn(__tool);
+    const img=_consoleImageSrc(result);
+    out.innerHTML='';
+    if(img){ out.appendChild(shotViewerEl(img, 'console.png')); }
+    const pre=document.createElement('pre'); pre.className='out';
+    let txt; try{ txt=JSON.stringify(result,null,2); }catch(e){ txt=String(result); }
+    pre.innerHTML=escHtml(txt===undefined?'undefined':txt); out.appendChild(pre);
+  }catch(e){ out.innerHTML='<pre class="out" style="color:var(--danger)">'+escHtml(String(e&&e.message||e))+'</pre>'; }
+}
+document.getElementById('console-input').addEventListener('keydown', e=>{
+  if((e.ctrlKey||e.metaKey)&&e.key==='Enter'){ e.preventDefault(); consoleRun(); }
+});
 
 // ════════════════════════════════════════════════════════════════════════════
 //  Agentic window.__tool (P5) — agentic-js-api house pattern (brief 05 §3).

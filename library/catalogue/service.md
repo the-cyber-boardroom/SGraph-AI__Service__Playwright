@@ -83,7 +83,13 @@ All route classes are mounted by `Fast_API__Playwright__Service.setup_routes()`.
 
 | Method | Path | Handler | Returns |
 |--------|------|---------|---------|
-| GET | `/` | `Routes__Index.index` | Capability-driven agent-native **console** (HTML) — v0.2.64 rebuild (was the two-tab "Try it out" toy); 8 tabs, 24-verb sequence builder, W1–W9 gallery, in-app docs, in-page `window.__tool`, root_path-aware for `/pw` |
+| GET | `/` | `Routes__Index.index` | Capability-driven agent-native **console** (HTML) — v0.2.64 rebuild (was the two-tab "Try it out" toy); 8 tabs, 24-verb sequence builder, S1–S5 (self-contained `/test-pages/*`) + W1–W9 gallery, in-app docs, in-page `window.__tool`, root_path-aware for `/pw`. Iteration 2: light center/right/bottom work panes (dark header + rail), `<sg-layout>` wrapping (CDN-optional, localStorage `sg-playwright:console:layout:v1`, CSS-grid fallback), framed screenshot viewer (Download + Open-in-new-tab), insecure-origin-safe `copyText`, bottom `window.__tool` REPL |
+
+### Routes__Test_Pages — 1 route, 5 names (`Routes__Test_Pages.py`)
+
+| Method | Path | Handler | Returns |
+|--------|------|---------|---------|
+| GET | `/test-pages/{name}` | `Routes__Test_Pages.page` | Deterministic HTML fixture (`name` ∈ simple/form/dynamic/links/slow) for the console S-series; 404 with HTML-escaped reflected name for unknown. Five concrete paths appended to `AUTH__EXCLUDED_PATHS` in `setup()` (keyless for the server-side browser) |
 
 ### Routes__Set_Cookie — 2 endpoints (from `osbot_fast_api`)
 
@@ -105,7 +111,7 @@ All route classes are mounted by `Fast_API__Playwright__Service.setup_routes()`.
 | GET | `/admin/manifest` | `manifest` | Discovery manifest (OpenAPI + SKILL URLs) |
 | GET | `/admin/capabilities` | `capabilities` | `capabilities.json` contents |
 
-**Code-verified total: 21 direct + 8 admin = 29 endpoints** (3 health + 6 browser + 2 screenshot + 1 sequence + 1 inspect + 4 session + 1 metrics + 1 index + 2 set-cookie + 8 admin). Re-verified 2026-06-23 against `Fast_API__Playwright__Service.py:103-113`. CLAUDE.md's "16 direct endpoints" / "Routes__Session removed in v0.1.24" is stale — flagged for the human.
+**Code-verified total: 22 direct + 8 admin = 30 endpoints** (3 health + 6 browser + 2 screenshot + 1 sequence + 1 inspect + 4 session + 1 metrics + 1 index + 1 test-pages + 2 set-cookie + 8 admin). Re-verified 2026-06-23 against `Fast_API__Playwright__Service.py:103-115` (iteration 2 added `Routes__Test_Pages` at `:115`). CLAUDE.md's "16 direct endpoints" / "Routes__Session removed in v0.1.24" is stale — flagged for the human.
 
 ---
 

@@ -27,6 +27,7 @@ import uuid
 
 from fastapi.openapi.utils                                                          import get_openapi
 from osbot_fast_api.api.routes.Routes__Set_Cookie                                    import Routes__Set_Cookie
+from osbot_fast_api.api.schemas.consts.consts__Fast_API                              import AUTH__EXCLUDED_PATHS
 from sg_compute_specs.playwright.core.service.Root_Path__Resolver                    import Root_Path__Resolver
 
 from sg_compute_specs.playwright.core.agentic_fastapi.Agentic_FastAPI                    import Agentic_FastAPI
@@ -38,6 +39,8 @@ from sg_compute_specs.playwright.core.fast_api.routes.Routes__Metrics           
 from sg_compute_specs.playwright.core.fast_api.routes.Routes__Screenshot                 import Routes__Screenshot
 from sg_compute_specs.playwright.core.fast_api.routes.Routes__Sequence                   import Routes__Sequence
 from sg_compute_specs.playwright.core.fast_api.routes.Routes__Session                    import Routes__Session
+from sg_compute_specs.playwright.core.fast_api.routes.Routes__Test_Pages                 import Routes__Test_Pages
+from sg_compute_specs.playwright.core.fast_api.routes.Routes__Test_Pages                 import ROUTES_PATHS__TEST_PAGES
 from sg_compute_specs.playwright.core.service.Playwright__Service                        import Playwright__Service
 from sg_compute_specs.playwright.core.service.Request__Watchdog                          import Request__Watchdog
 
@@ -52,6 +55,9 @@ class Fast_API__Playwright__Service(Agentic_FastAPI):
     def setup(self):
         self.service.setup()                                                        # Prime Capability__Detector before any request lands
         self.watchdog.setup().start()                                               # Background thread — disabled via ENV_VAR__WATCHDOG_DISABLED='1' for local / tests
+        for path in ROUTES_PATHS__TEST_PAGES:                                       # /test-pages/{name} fixtures must be reachable by the server-side browser without an API key (same mechanism as /auth/set-cookie-form). Middleware matches request.url.path exactly, so each concrete name is enumerated. Extended before super().setup() runs the middleware stack.
+            if path not in AUTH__EXCLUDED_PATHS:
+                AUTH__EXCLUDED_PATHS.append(path)
         result = super().setup()                                                    # API-key middleware is enabled by Serverless__Fast_API__Config default (reads FAST_API__AUTH__API_KEY__NAME / FAST_API__AUTH__API_KEY__VALUE)
         self.attach_watchdog_middleware()                                           # Needs the app instance built by super().setup()
         self.attach_root_path_middleware()                                          # Honour SG_PLAYWRIGHT__ROOT_PATH so /docs + /openapi.json work behind a reverse proxy
@@ -111,3 +117,4 @@ class Fast_API__Playwright__Service(Agentic_FastAPI):
         self.add_routes(Routes__Session    , service=self.service)                  # Φ7 — opt-in stateful session handles
         self.add_routes(Routes__Metrics  )                                          # No service injection — reads from module-level _REGISTRY in Metrics__Collector
         self.add_routes(Routes__Set_Cookie)                                         # /auth/set-cookie-form (HTML UI) + /auth/set-auth-cookie (POST) — both in AUTH__EXCLUDED_PATHS so they bypass the API-key middleware
+        self.add_routes(Routes__Test_Pages)                                         # GET /test-pages/{name} — deterministic self-contained HTML fixtures the S-series console examples target; auth-excluded in setup()
