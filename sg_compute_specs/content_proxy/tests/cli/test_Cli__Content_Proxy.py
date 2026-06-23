@@ -100,6 +100,12 @@ class test_local_helpers(TestCase):
         up  = realize_secrets(env)
         assert up['SGRAPH_SEND__ACCESS_TOKEN'] == 'realtok'                           # placeholder aligned to the real one, not regenerated
 
+    def test_realize_secrets_recouples_two_divergent_reals(self):                    # the pic3 bug: both real but different → Caddy forwards SGRAPH_..., sg-playwright validates FAST_API... → 'Invalid API key value'
+        env = {'FAST_API__AUTH__API_KEY__VALUE': 'old-pw-guid', 'SGRAPH_SEND__ACCESS_TOKEN': 'operator-token'}
+        up  = realize_secrets(env)
+        assert up['FAST_API__AUTH__API_KEY__VALUE'] == 'operator-token'              # FAST_API realigned onto the operator-facing token
+        assert 'SGRAPH_SEND__ACCESS_TOKEN' not in up                                 # operator token survives unchanged (it's what `up` printed + the vault cookie uses)
+
     def test_apply_env_updates_rewrites_and_appends(self):
         with tempfile.TemporaryDirectory() as d:
             p = Path(d) / '.env'

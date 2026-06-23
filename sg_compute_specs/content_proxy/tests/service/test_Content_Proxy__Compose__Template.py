@@ -35,7 +35,8 @@ class test_Content_Proxy__Compose__Template(TestCase):
 
     def test_playwright_proxied_to_int_with_ignore_https(self):
         assert 'SG_PLAYWRIGHT__DEFAULT_PROXY_URL=http://mitmproxy-int:8080' in self.yaml
-        assert 'IGNORE_HTTPS_ERRORS=true' in self.yaml
+        assert 'SG_PLAYWRIGHT__IGNORE_HTTPS_ERRORS=true'      in self.yaml             # Page__Factory only reads the SG_PLAYWRIGHT__-prefixed name; the bare form is silently ignored → ERR_CERT_AUTHORITY_INVALID through mitmproxy
+        assert '- IGNORE_HTTPS_ERRORS=true'               not in self.yaml             # guard the prefix-less typo that disabled ignore_https_errors
 
     def test_vault_app_reverse_proxy_and_port(self):
         assert 'FAST_API__REVERSE_PROXY__ROUTES=pw=http://sg-playwright:8000' in self.yaml

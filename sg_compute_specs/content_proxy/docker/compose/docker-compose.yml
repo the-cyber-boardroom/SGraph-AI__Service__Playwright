@@ -70,7 +70,7 @@ services:
     container_name: cp-sg-playwright
     environment:
       - SG_PLAYWRIGHT__DEFAULT_PROXY_URL=http://mitmproxy-int:8080
-      - IGNORE_HTTPS_ERRORS=true
+      - SG_PLAYWRIGHT__IGNORE_HTTPS_ERRORS=true
       - FAST_API__AUTH__API_KEY__NAME=${FAST_API__AUTH__API_KEY__NAME:-x-api-key}
       - FAST_API__AUTH__API_KEY__VALUE=${FAST_API__AUTH__API_KEY__VALUE}
     networks:
