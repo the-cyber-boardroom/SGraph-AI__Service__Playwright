@@ -205,6 +205,7 @@ def _compose(*args: str, compose_file: Path = None):
 PLACEHOLDER_VALUE = 'change-me'
 GUID_SECRET_KEYS  = ('FASTAPI_API_KEY_VALUE', 'CONTENT_PROXY__PROXYAUTH_PASS')      # standalone secrets → own GUID each
 ACCESS_TOKEN_KEYS = ('FAST_API__AUTH__API_KEY__VALUE', 'SGRAPH_SEND__ACCESS_TOKEN')  # ONE access token in two vars — must be identical
+ACCESS_TOKEN__CANONICAL = 'SGRAPH_SEND__ACCESS_TOKEN'                               # survivor when two reals diverge — operator-facing (printed by `up`, paid into the vault cookie)
 
 
 def _needs_value(v: str) -> bool:                                                  # blank or the shipped placeholder ⇒ generate
@@ -213,8 +214,10 @@ def _needs_value(v: str) -> bool:                                               
 
 def realize_secrets(env: dict) -> dict:                                            # → {key: new_value} for keys that must change
     updates = {}
-    real_token = next((env[k] for k in ACCESS_TOKEN_KEYS if not _needs_value(env.get(k, ''))), '')
-    if any(_needs_value(env.get(k, '')) for k in ACCESS_TOKEN_KEYS):               # keep the pair coupled to one GUID
+    survivor_order = (ACCESS_TOKEN__CANONICAL,) + tuple(k for k in ACCESS_TOKEN_KEYS if k != ACCESS_TOKEN__CANONICAL)
+    real_token = next((env[k] for k in survivor_order if not _needs_value(env.get(k, ''))), '')  # prefer the operator-facing token when picking the survivor
+    diverged   = len({env.get(k, '') for k in ACCESS_TOKEN_KEYS}) > 1               # two real-but-different reals: Caddy forwards one, sg-playwright validates the other → 'Invalid API key value'
+    if any(_needs_value(env.get(k, '')) for k in ACCESS_TOKEN_KEYS) or diverged:   # keep the pair coupled to one GUID (placeholder/blank OR divergent)
         token = real_token or str(uuid.uuid4())
         for k in ACCESS_TOKEN_KEYS:
             if env.get(k, '') != token:
@@ -285,18 +288,23 @@ def remote_smoke_command(url: str) -> str:                                      
 
 @local_app.command(name='up')
 @spec_cli_errors
-def local_up(detach: bool = typer.Option(True, '--detach/--attach', '-d',
-                                         help='Run detached (default) or attached.'),
-             pull  : bool = typer.Option(False, '--pull',
-                                         help='Pull the latest images first (up --pull always).'),
-             edge  : str  = typer.Option('none', '--edge',
-                                         help='Front door: none (vault-as-edge) | caddy (dedicated edge, /pw routed, no vault patch).')):
+def local_up(detach  : bool = typer.Option(True, '--detach/--attach', '-d',
+                                          help='Run detached (default) or attached.'),
+             pull    : bool = typer.Option(False, '--pull',
+                                          help='Pull the latest images first (up --pull always).'),
+             recreate: bool = typer.Option(True, '--recreate/--no-recreate',
+                                          help='Force-recreate containers so .env + the bind-mounted Caddyfile always take effect '
+                                               '(docker compose does NOT recreate on bind-mount content changes). --no-recreate to skip.'),
+             edge    : str  = typer.Option('none', '--edge',
+                                          help='Front door: none (vault-as-edge) | caddy (dedicated edge, /pw routed, no vault patch).')):
     """Bring the stack up locally (mitmweb by default → TUI /flows)."""
     c = Console(highlight=False)
     _ensure_env(c)
     compose_file = COMPOSE_FILE_CADDY if edge == 'caddy' else COMPOSE_FILE
     c.print(f'  [dim]docker compose up ({compose_file.name})[/]')
     up_args = ['up', '-d'] if detach else ['up']
+    if recreate:                                                                      # bind-mounted Caddyfile / changed .env only load on (re)create
+        up_args.append('--force-recreate')
     if pull:
         up_args += ['--pull', 'always']
     rc = _compose(*up_args, compose_file=compose_file)
