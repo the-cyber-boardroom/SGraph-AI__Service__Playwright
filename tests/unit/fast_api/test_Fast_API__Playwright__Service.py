@@ -73,7 +73,7 @@ class test_route_wiring(TestCase):
     def test__health_routes_are_registered_after_setup(self):
         with _EnvScrub(**{ENV_VAR__DEPLOYMENT_TARGET: 'laptop'}):
             fa    = Fast_API__Playwright__Service().setup()
-            paths = {str(getattr(r, 'path', '')) for r in fa.app().routes}
+            paths = {str(p) for p in fa.routes_paths_all()}                         # osbot helper expands _IncludedRouter (FastAPI >= 0.137 / Starlette 1.x no longer flattens)
         assert '/health/info'         in paths
         assert '/health/status'       in paths
         assert '/health/capabilities' in paths

@@ -35,8 +35,7 @@ class test_Fast_API__SP__CLI(TestCase):
         return {API_KEY_NAME: API_KEY_VALUE}
 
     def test_docker_routes_are_mounted(self):                                       # Verify all five docker/* paths are registered
-        app    = self.fast_api.app()
-        paths  = {str(r.path) for r in app.routes if hasattr(r, 'path')}           # str() normalises Safe_Str__Fast_API__Route__Prefix
+        paths  = {str(p) for p in self.fast_api.routes_paths_all()}                # osbot helper expands _IncludedRouter (FastAPI >= 0.137 / Starlette 1.x no longer flattens)
         assert '/docker/stacks'              in paths
         assert '/docker/stack'               in paths
         assert '/docker/stack/{name}'        in paths
@@ -47,22 +46,19 @@ class test_Fast_API__SP__CLI(TestCase):
         assert response.status_code == 401
 
     def test_catalog_routes_are_mounted(self):
-        app   = self.fast_api.app()
-        paths = {str(r.path) for r in app.routes if hasattr(r, 'path')}
+        paths = {str(p) for p in self.fast_api.routes_paths_all()}                 # osbot helper expands _IncludedRouter (FastAPI >= 0.137 / Starlette 1.x no longer flattens)
         assert '/catalog/types'  in paths
         assert '/catalog/stacks' in paths
 
     def test_elastic_routes_are_mounted(self):
-        app   = Fast_API__SP__CLI().setup().app()
-        paths = {str(route.path) for route in app.routes}
+        paths = {str(p) for p in Fast_API__SP__CLI().setup().routes_paths_all()}   # osbot helper expands _IncludedRouter (FastAPI >= 0.137 / Starlette 1.x no longer flattens)
         assert '/elastic/stacks'              in paths
         assert '/elastic/stack/{name}'        in paths
         assert '/elastic/stack'               in paths
         assert '/elastic/stack/{name}/health' in paths
 
     def test_vnc_routes_are_mounted(self):                                            # Verify all VNC paths are registered (Stack + Flows)
-        app   = Fast_API__SP__CLI().setup().app()
-        paths = {str(route.path) for route in app.routes}
+        paths = {str(p) for p in Fast_API__SP__CLI().setup().routes_paths_all()}   # osbot helper expands _IncludedRouter (FastAPI >= 0.137 / Starlette 1.x no longer flattens)
         assert '/vnc/stacks'              in paths
         assert '/vnc/stack'               in paths
         assert '/vnc/stack/{name}'        in paths

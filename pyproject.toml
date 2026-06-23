@@ -13,8 +13,7 @@ include     = ["sgraph_ai_service_playwright__cli/version"]
 
 [tool.poetry.dependencies]
 python                       = "^3.12"
-fastapi                      = ">=0.130,<0.131"                                          # cap below 0.133: FastAPI 0.133+ pulls Starlette 1.x, whose include_router inserts an _IncludedRouter wrapper (no .path) → route enumeration breaks
-starlette                    = ">=0.40,<1.0"                                             # explicit guard so a transitive bump can't re-introduce the 1.x _IncludedRouter break
+fastapi                      = "*"
 uvicorn                      = "*"
 requests                     = "*"
 httpx                        = "*"
