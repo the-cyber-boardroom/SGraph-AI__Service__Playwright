@@ -145,7 +145,11 @@ details>.db{padding-top:8px;display:flex;flex-direction:column;gap:8px;}
 
 /* step cards */
 .step-card{background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius);padding:10px;}
-.step-head{display:flex;align-items:center;gap:6px;margin-bottom:6px;}
+.step-head{display:flex;align-items:center;gap:6px;margin-bottom:6px;cursor:pointer;}
+.step-head::before{content:'▾';font-size:.62rem;color:var(--muted);transition:transform .15s;display:inline-block;}
+.step-card.collapsed .step-head{margin-bottom:0;}
+.step-card.collapsed .step-head::before{transform:rotate(-90deg);}
+.step-card.collapsed .step-fields{display:none;}
 .step-head .num{font-size:.7rem;color:var(--muted);background:var(--border);border-radius:99px;padding:1px 7px;}
 .step-head select{flex:1;}
 .rm-btn{background:transparent;border:none;color:var(--muted);cursor:pointer;font-size:1rem;padding:2px 4px;}
@@ -774,6 +778,11 @@ function seqMove(id,dir){ const el=document.querySelector(`#seq-steps .step-card
   const sib = dir<0 ? el.previousElementSibling : el.nextElementSibling; if(!sib)return;
   if(dir<0) el.parentNode.insertBefore(el,sib); else el.parentNode.insertBefore(sib,el); seqRenumber(); }
 function seqRenumber(){ document.querySelectorAll('#seq-steps .step-card').forEach((el,i)=>el.querySelector('.num').textContent=i+1); }
+// Click a step header to collapse/expand its option fields (sequence/batch/inspect cards
+// all share .step-head). Ignore clicks on the inline controls so they keep working.
+document.addEventListener('click', e=>{ const head=e.target.closest('.step-head'); if(!head) return;
+  if(e.target.closest('button,input,select,textarea,a,label')) return;
+  const card=head.closest('.step-card'); if(card) card.classList.toggle('collapsed'); });
 function buildSequenceBody(){
   const steps = [...document.querySelectorAll('#seq-steps .step-card')].map(el=>coerceStep(el.dataset.verb, seqData[el.dataset.id]||{}));
   const capture = {};
@@ -1022,7 +1031,11 @@ function stepResultEl(s, label){
   if(s.console_log) body+=`<details><summary>console_log</summary><pre class="out">${escHtml(JSON.stringify(s.console_log,null,2))}</pre></details>`;
   if(s.network_failures) body+=`<details><summary>network_failures</summary><pre class="out">${escHtml(JSON.stringify(s.network_failures,null,2))}</pre></details>`;
   const shots=[];                                                                    // item 3: per-step screenshots get the framed viewer (Download / Open), appended after the text body
-  (s.artefacts||[]).forEach((a,ai)=>{ if(a.inline_b64 && a.artefact_type==='SCREENSHOT') shots.push({src:'data:image/png;base64,'+a.inline_b64, name:`step-${escHtml(label).replace(/[^a-z0-9]+/gi,'-')||ai}.png`});
+  (s.artefacts||[]).forEach((a,ai)=>{                                                 // artefact_type is the enum VALUE — lowercase 'screenshot'/'pdf' (not the NAME)
+    const at=String(a.artefact_type||'').toLowerCase();
+    if(a.inline_b64 && at==='screenshot'){ shots.push({src:'data:image/png;base64,'+a.inline_b64, name:`step-${escHtml(label).replace(/[^a-z0-9]+/gi,'-')||ai}.png`}); }
+    else if(a.inline_b64){ const mime=at==='pdf'?'application/pdf':'application/octet-stream';           // other inline artefacts (e.g. PDF) get a download link
+      body+=`<div>artefact: ${escHtml(a.artefact_type||'?')} (${escHtml(a.sink||'?')}) <a download="step-${ai}.${escHtml(at||'bin')}" href="data:${mime};base64,${a.inline_b64}">download</a></div>`; }
     else body+=`<div>artefact: ${escHtml(a.artefact_type||'?')} (${escHtml(a.sink||'?')})</div>`; });
   if(s.error_message) body+=`<div style="color:var(--danger)">${escHtml(s.error_message)}</div>`;
   div.innerHTML=`<div class="srh">${statusPill(s.status)}<span>${escHtml(label)}</span><span style="color:var(--muted)">${escHtml(s.duration_ms??'')}ms</span></div>${body}`;
