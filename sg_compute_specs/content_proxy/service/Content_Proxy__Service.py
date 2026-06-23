@@ -28,13 +28,15 @@ from sg_compute_specs.content_proxy.schemas.Schema__Content_Proxy__Stack__Info  
 from sg_compute_specs.content_proxy.service.Content_Proxy__AWS__Client               import Content_Proxy__AWS__Client, STACK_TYPE
 from sg_compute_specs.content_proxy.service.Content_Proxy__Stack__Mapper             import (Content_Proxy__Stack__Mapper, TAG_MODE,
                                                                                             TAG_TLS, TAG_EDGE, TAG_HOSTNAME, TAG_ACCESS)
-from sg_compute_specs.content_proxy.service.Content_Proxy__User_Data__Builder        import Content_Proxy__User_Data__Builder
+from sg_compute_specs.content_proxy.service.Content_Proxy__User_Data__Builder        import (Content_Proxy__User_Data__Builder,
+                                                                                            LOG_FILE)
 
 
 DEFAULT_REGION        = 'eu-west-2'
 DEFAULT_INSTANCE_TYPE = 't3.large'
 PROFILE_NAME          = 'playwright-ec2'                                            # IAM instance profile (SSM + ECR), shared
 DEFAULT_AWS_DNS_ZONE  = 'sg-compute.sgraph.ai'                                      # same default as sg va / aws dns — single source via env
+BOOT_LOG              = LOG_FILE                                                    # /var/log/sg-content-proxy-boot.log (source of truth: User_Data__Builder)
 
 
 def _default_aws_dns_zone() -> str:
@@ -88,6 +90,105 @@ def parse_http_code(stdout: str) -> int:                                        
 
 def is_healthy_code(code: int) -> bool:                                             # vault answered (any non-5xx) ⇒ stack serving
     return 100 <= code < 500
+
+
+# ── diagnose: pure parsers (unit-tested without AWS/SSM) ─────────────────────────
+# The diagnose() generator below shells out via SSM, then hands the raw stdout to
+# these pure functions. Keeping the parsing here (not inline in the generator) lets
+# tests assert "given this `docker ps` output → which cp-* containers are up" with
+# zero AWS. Boot stages mirror sg va's Vault_App__Service.diagnose, adapted for
+# content_proxy: the boot script writes NO sentinel files (it uses `set -euo
+# pipefail` + an "[content-proxy] boot complete" marker), and cert-init does NOT
+# bind-mount a host stage file — so boot/cert health is read from the boot log and
+# the container's exit state instead.
+
+# The full cp-* container set published by Content_Proxy__Compose__Template.
+# tls=self-signed/letsencrypt (non-caddy) adds cp-cert-init; edge=caddy adds cp-caddy.
+BASE_CONTAINERS = ('cp-mitm-service', 'cp-mitmproxy-int', 'cp-mitmproxy-ext',
+                   'cp-sg-playwright', 'cp-vault-app')
+
+
+def expected_containers(tls, edge) -> tuple:                                       # → cp-* names this stack shape should run
+    names = list(BASE_CONTAINERS)
+    if edge == Enum__Content_Proxy__Edge.CADDY:                                    # dedicated edge owns :443 + /pw
+        names.append('cp-caddy')
+    elif tls in (Enum__Content_Proxy__Tls.SELF_SIGNED, Enum__Content_Proxy__Tls.LETSENCRYPT):
+        names.append('cp-cert-init')                                               # one-shot TLS sidecar (vault-as-edge TLS stacks only)
+    return tuple(names)
+
+
+def has_cert_init(tls, edge) -> bool:                                              # cert-init runs only on non-caddy TLS stacks
+    return (edge != Enum__Content_Proxy__Edge.CADDY
+            and tls in (Enum__Content_Proxy__Tls.SELF_SIGNED, Enum__Content_Proxy__Tls.LETSENCRYPT))
+
+
+def parse_ps_names_status(stdout: str) -> dict:                                    # `docker ps -a --format "{{.Names}}<TAB>{{.Status}}"` → {name: status}
+    out = {}
+    for line in str(stdout or '').splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        parts  = line.split('\t', 1) if '\t' in line else line.split(None, 1)
+        name   = parts[0].strip()
+        status = parts[1].strip() if len(parts) > 1 else ''
+        if name:
+            out[name] = status
+    return out
+
+
+def containers_up_status(stdout: str, expected: tuple) -> tuple:                   # → (all_up, up_names, down_or_missing)
+    by_name  = parse_ps_names_status(stdout)
+    up, down = [], []
+    for name in expected:
+        status = by_name.get(name, '')
+        if status.startswith('Up'):
+            up.append(name)
+        elif name == 'cp-cert-init' and status.startswith('Exited (0)'):           # one-shot sidecar: a clean exit IS healthy
+            up.append(name)
+        else:
+            down.append(name)                                                      # missing entirely OR not in a healthy state
+    return (len(down) == 0, up, down)
+
+
+def engine_active(stdout: str) -> bool:                                            # `systemctl is-active docker` stdout → active?
+    return str(stdout or '').strip() == 'active'
+
+
+def boot_log_failed(text: str) -> bool:                                            # the boot log shows a script failure (no sentinel file on this spec)
+    body = str(text or '')
+    if '[content-proxy] boot complete' in body:                                    # an explicit success marker overrides earlier noise
+        return False
+    low     = body.lower()
+    markers = ('command not found', 'no such file', 'permission denied',
+               'error response from daemon', 'failed to', 'cannot ', 'fatal:',
+               'traceback (most recent call last)')
+    return any(m in low for m in markers)
+
+
+def boot_log_complete(text: str) -> bool:                                          # the boot script ran to the end
+    return '[content-proxy] boot complete' in str(text or '')
+
+
+def boot_log_last_stage(text: str) -> str:                                         # most recent [content-proxy] marker line — the current boot stage
+    last = ''
+    for line in str(text or '').splitlines():
+        if '[content-proxy]' in line:
+            last = line.strip()
+    return last
+
+
+def cert_init_status(stdout: str) -> tuple:                                        # `docker ps -a` row for cp-cert-init → (status_kind, detail)
+    by_name = parse_ps_names_status(stdout)
+    status  = by_name.get('cp-cert-init', '')
+    if not status:
+        return ('warn', 'not yet — cp-cert-init container has not been created')
+    if status.startswith('Exited (0)'):
+        return ('ok', f'completed — {status}')
+    if status.startswith('Exited'):                                                # any non-zero exit ⇒ issuance failed
+        return ('fail', f'cert-init exited non-zero — {status}')
+    if status.startswith(('Up', 'Restarting', 'Created')):
+        return ('warn', f'still running — {status}')                               # issuing / waiting for ACME
+    return ('warn', status)
 
 
 class Content_Proxy__Service(Spec__Service__Base):
@@ -235,6 +336,153 @@ class Content_Proxy__Service(Spec__Service__Base):
     def get_stack_info(self, region: str, stack_name: str) -> Optional[Schema__Content_Proxy__Stack__Info]:
         details = self.aws_client.instance.find_by_stack_name(region, stack_name)
         return self.mapper.to_info(details, region) if details else None
+
+    # ── boot-sequence diagnostic checklist ──────────────────────────────────────
+    # Generator protocol (mirrors Vault_App__Service.diagnose): yields
+    # (name, 'checking', '') for each active check, then the final
+    # (name, status, detail). Skipped checks are yielded directly. The CLI drives
+    # this into a live rich.Table. The pure parsing is delegated to the module-level
+    # helpers above so it can be unit-tested without AWS/SSM.
+    # Stages: ec2-state → ssm-reachable → boot-failed → container-engine →
+    #         containers-up → cert-init (TLS stacks only) → vault-http → boot-ok.
+
+    def diagnose(self, region: str, name: str):
+        _REST = ('ssm-reachable', 'boot-failed', 'container-engine',
+                 'containers-up', 'vault-http', 'boot-ok')
+
+        # ── check 1: ec2-state ─────────────────────────────────────────────────
+        yield ('ec2-state', 'checking', '')
+        info = self.get_stack_info(region, name)
+        if info is None:
+            yield ('ec2-state', 'fail', 'stack not found')
+            return
+        ec2_state = info.state.value if hasattr(info.state, 'value') else str(getattr(info, 'state', '') or '')
+        ec2_ok    = ec2_state == 'running'
+        yield ('ec2-state', 'ok' if ec2_ok else 'fail', ec2_state or '?')
+        if not ec2_ok:
+            for n in _REST:
+                yield (n, 'skip', f'skipped — ec2 is {ec2_state!r}')
+            return
+
+        tls  = getattr(info, 'tls',  Enum__Content_Proxy__Tls.NONE)
+        edge = getattr(info, 'edge', Enum__Content_Proxy__Edge.NONE)
+        tls_stack = has_cert_init(tls, edge)
+
+        # ── check 2: ssm-reachable ─────────────────────────────────────────────
+        yield ('ssm-reachable', 'checking', '')
+        try:
+            self.exec(region, name, 'echo ok', timeout_sec=30)
+            ssm_ok = True
+            yield ('ssm-reachable', 'ok', 'responsive')
+        except Exception as exc:
+            ssm_ok = False
+            yield ('ssm-reachable', 'fail', str(exc)[:120])
+        if not ssm_ok:
+            for n in _REST[1:]:
+                yield (n, 'skip', 'skipped — SSM unreachable')
+            return
+
+        def ssm(cmd, timeout=30):                       # SSM SendCommand requires TimeoutSeconds >= 30
+            r = self.exec(region, name, cmd, timeout_sec=timeout)
+            return str(getattr(r, 'stdout', '') or '').strip()
+
+        # ── check 3: boot-failed ───────────────────────────────────────────────
+        # No sentinel file on this spec — read the boot log and look for failure
+        # markers (the success marker '[content-proxy] boot complete' clears them).
+        yield ('boot-failed', 'checking', '')
+        boot_text = ''
+        try:
+            boot_text = ssm(f'tail -n 60 {BOOT_LOG} 2>/dev/null || true')
+            if boot_log_failed(boot_text):
+                tail = '\n'.join(boot_text.splitlines()[-15:])
+                yield ('boot-failed', 'fail', ('boot script error:\n' + tail) if tail else 'boot script error')
+            else:
+                yield ('boot-failed', 'ok', 'no failure markers in boot log')
+        except Exception:
+            yield ('boot-failed', 'warn', 'could not check')
+
+        # ── check 4: container-engine ──────────────────────────────────────────
+        yield ('container-engine', 'checking', '')
+        engine_ok = False
+        try:
+            out = ssm('systemctl is-active docker 2>&1 || true')
+            if engine_active(out):
+                engine_ok = True
+                yield ('container-engine', 'ok', 'docker active')
+            else:
+                yield ('container-engine', 'warn', f'docker state={out!r} — boot may still be installing it')
+        except Exception:
+            yield ('container-engine', 'warn', 'could not check')
+
+        # ── check 5: containers-up ─────────────────────────────────────────────
+        expected      = expected_containers(tls, edge)
+        containers_ok = False
+        yield ('containers-up', 'checking', '')
+        try:
+            out = ssm('sudo docker ps -a --format "{{.Names}}\t{{.Status}}" 2>/dev/null || true')
+            all_up, up, down = containers_up_status(out, expected)
+            if all_up:
+                containers_ok = True
+                yield ('containers-up', 'ok', f'{len(up)}/{len(expected)} up — ' + ', '.join(up))
+            elif not engine_ok:
+                yield ('containers-up', 'warn', 'not yet — container engine not ready')
+            elif up:
+                yield ('containers-up', 'warn', f'{len(up)}/{len(expected)} up — still down: {", ".join(down)}')
+            else:
+                yield ('containers-up', 'warn', f'none up yet — expecting: {", ".join(expected)}')
+        except Exception:
+            yield ('containers-up', 'warn', 'could not check')
+
+        # ── check 6: cert-init (TLS stacks only) ───────────────────────────────
+        # cert-init does NOT bind-mount a host stage file here (unlike sg va), so we
+        # read the one-shot sidecar's container state via `docker ps -a`. THIS is the
+        # key cert-debug signal: a non-zero exit means ACME/self-signed issuance failed.
+        if tls_stack:
+            yield ('cert-init', 'checking', '')
+            try:
+                out = ssm('sudo docker ps -a --format "{{.Names}}\t{{.Status}}" 2>/dev/null || true')
+                status, detail = cert_init_status(out)
+                yield ('cert-init', status, detail)
+            except Exception as exc:
+                yield ('cert-init', 'warn', f'could not check: {str(exc)[:120]}')
+        else:
+            # No cert-init on plain (tls=none) or caddy stacks — Caddy self-manages
+            # TLS, plain stacks have no sidecar. Mark it skipped so the live table
+            # settles (a 'pending' cert-init would block `wait` forever).
+            yield ('cert-init', 'skip', 'no cert-init sidecar (caddy or tls=none stack)')
+
+        # ── check 7: vault-http ────────────────────────────────────────────────
+        if not containers_ok:
+            yield ('vault-http', 'skip', 'skipped — containers not running')
+        else:
+            https = (edge == Enum__Content_Proxy__Edge.CADDY) or (tls != Enum__Content_Proxy__Tls.NONE)
+            yield ('vault-http', 'checking', '')
+            try:
+                code = parse_http_code(ssm(localhost_probe_command(https), timeout=30))
+                if code in (200, 204):
+                    yield ('vault-http', 'ok', f'HTTP {code}')
+                elif code in (401, 403):
+                    yield ('vault-http', 'ok', f'HTTP {code} — up, auth-gated (expected)')
+                elif code and is_healthy_code(code):
+                    yield ('vault-http', 'warn', f'HTTP {code} — up but not ready')
+                elif code:
+                    yield ('vault-http', 'warn', f'HTTP {code} — vault still warming up')
+                else:
+                    yield ('vault-http', 'warn', 'no response on :443 — vault still warming up')
+            except Exception as exc:
+                yield ('vault-http', 'fail', str(exc)[:120])
+
+        # ── check 8: boot-ok ───────────────────────────────────────────────────
+        yield ('boot-ok', 'checking', '')
+        try:
+            text = boot_text or ssm(f'tail -n 60 {BOOT_LOG} 2>/dev/null || true')
+            if boot_log_complete(text):
+                yield ('boot-ok', 'ok', 'boot script completed')
+            else:
+                stage = boot_log_last_stage(text)
+                yield ('boot-ok', 'warn', f'not yet — current stage: {stage[:160]}' if stage else 'not yet')
+        except Exception:
+            yield ('boot-ok', 'warn', 'could not check')
 
     def delete_stack(self, region: str, stack_name: str) -> Schema__Content_Proxy__Delete__Response:
         t0      = time.monotonic()
