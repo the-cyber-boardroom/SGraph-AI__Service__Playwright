@@ -319,11 +319,19 @@ class test_Routes__Index__iteration2(TestCase):
     def test__sg_layout_wiring_present(self):
         assert 'function wireSgLayout'           in self.html
         assert 'function defaultConsoleLayout'   in self.html
-        assert "slot:'p-builder'"                in self.html
-        assert "slot:'p-result'"                 in self.html
-        assert "slot:'p-console'"                in self.html
+        # sg-layout v0.1.0 contract: leaf tabs carry an explicit id; the projected
+        # light-DOM child gets slot="p-{tab.id}" assigned in wireSgLayout.
+        assert "id:'builder'"                    in self.html
+        assert "id:'result'"                     in self.html
+        assert "id:'console'"                    in self.html
+        assert "builder.slot='p-builder'"        in self.html                          # projection slot = p-{tab.id}
         assert 'setLayout(saved||defaultConsoleLayout())' in self.html
         assert 'getLayout()'                     in self.html
+
+    # ── item 2 (fix): render-verification reverts to the grid if projection fails ──
+    def test__sg_layout_render_verification_reverts(self):
+        assert 'getBoundingClientRect()'         in self.html                          # verify the projected pane actually has a box
+        assert 'class="console-grid" id="work-area"' in self.html                      # grid is the DEFAULT/baseline (no broken flash)
 
     def test__sg_layout_localstorage_key(self):
         assert "'sg-playwright:console:layout:v1'" in self.html

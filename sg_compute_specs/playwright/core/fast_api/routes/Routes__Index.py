@@ -247,6 +247,7 @@ pre.out{background:var(--surface);border:1px solid var(--border);border-radius:v
       layout; when absent, .console-grid (added by JS) lays the three panes out with
       plain CSS grid so the console is fully usable offline. ══ */
 sg-layout{flex:1;min-height:0;display:block;}
+.sg-host{flex:1;display:flex;min-height:0;}
 .console-grid{flex:1;display:grid;grid-template-columns:minmax(360px,1fr) minmax(360px,1fr);
   grid-template-rows:1fr auto;grid-template-areas:"builder result" "console console";overflow:hidden;min-height:0;}
 .console-grid #builder{grid-area:builder;}
@@ -298,7 +299,7 @@ sg-layout{flex:1;min-height:0;display:block;}
   <!-- work-area host: sg-layout drives builder|result|console when the CDN component
        is present; otherwise JS swaps in .console-grid so the three light panes stay
        usable offline (Decision #1 light panes; item 2 graceful fallback). -->
-  <div class="split" id="work-area">
+  <div class="console-grid" id="work-area">
     <!-- ────────── BUILDER (left of split) — light work pane ────────── -->
     <div class="builder work-light" id="builder">
 
@@ -1297,42 +1298,56 @@ document.addEventListener('keydown', e=>{ if(!(e.ctrlKey||e.metaKey)||e.key!=='E
 //  never depends on the CDN.
 // ════════════════════════════════════════════════════════════════════════════
 const SG_LAYOUT_LS = 'sg-playwright:console:layout:v1';
-function defaultConsoleLayout(){                                                    // p-{id} slots: builder | result over a full-width console row
-  return { type:'col', sizes:[0.7,0.3], children:[
-    { type:'row', sizes:[0.5,0.5], children:[
-      { type:'stack', tabs:[{ slot:'p-builder', title:'Builder', locked:true }] },
-      { type:'stack', tabs:[{ slot:'p-result',  title:'Result',  locked:true }] } ] },
-    { type:'stack', tabs:[{ slot:'p-console', title:'Console', locked:true }] } ] };
+// sg-layout v0.1.0 contract: each leaf tab carries an explicit id, and the
+// projected light-DOM child must have slot="p-{tab.id}". Containers are
+// column|row|stack with sizes. We PROJECT our existing panes (no `tag`).
+function defaultConsoleLayout(){
+  return { type:'column', id:'root', sizes:[0.7,0.3], children:[
+    { type:'row', id:'top', sizes:[0.5,0.5], children:[
+      { type:'stack', id:'s-builder', activeTab:0, tabs:[{ type:'tab', id:'builder', title:'Builder', locked:true }] },
+      { type:'stack', id:'s-result',  activeTab:0, tabs:[{ type:'tab', id:'result',  title:'Result',  locked:true }] } ] },
+    { type:'stack', id:'s-console', activeTab:0, tabs:[{ type:'tab', id:'console', title:'Console', locked:true }] } ] };
 }
-function applyConsoleGridFallback(){                                                // CSS-grid fallback — the three light panes laid out without the web component
-  const area=document.getElementById('work-area'); if(!area)return;
-  area.classList.remove('split'); area.classList.add('console-grid');
+function workPanes(){ return [document.getElementById('builder'), document.getElementById('result-panel'), document.getElementById('console-pane')]; }
+// Known-good baseline (also set as the default class in markup): the three light
+// panes in a plain CSS grid. This is the guaranteed state — the console is always
+// usable even when the sg-layout CDN component is absent OR fails to project.
+function applyConsoleGridFallback(){
+  const area=document.getElementById('work-area'); if(!area) return;
+  const [builder,result,pane]=workPanes();
+  [builder,result,pane].forEach(p=>{ if(p){ p.removeAttribute('slot'); if(p.parentElement!==area) area.appendChild(p); } });
+  const host=area.querySelector('sg-layout'); if(host) host.remove();
+  area.className='console-grid';
 }
 (function loadSgLayout(){
-  let settled=false;
-  const fallback=()=>{ if(settled)return; settled=true; applyConsoleGridFallback(); };
-  if(!('customElements' in window)){ fallback(); return; }
+  if(!('customElements' in window)) return;                                         // baseline grid already rendered from markup
   import('https://dev.tools.sgraph.ai/core/sg-layout/v0.1.0/sg-layout.js')
-    .then(()=>wireSgLayout().then(ok=>{ settled = settled || ok; if(!ok) fallback(); }))
-    .catch(()=>fallback());
-  // If the component never registers shortly after load, fall back so the console is usable.
-  setTimeout(()=>{ if(!customElements.get('sg-layout')) fallback(); }, 1500);
+    .then(()=>{ wireSgLayout(); })                                                  // wireSgLayout self-reverts to the grid on any failure
+    .catch(()=>{ /* CDN unreachable — stay on the baseline grid */ });
 })();
 async function wireSgLayout(){
   if(!customElements.get('sg-layout')) return false;
+  const area=document.getElementById('work-area');
+  const [builder,result,pane]=workPanes();
   try{
-    const area=document.getElementById('work-area');
-    const builder=document.getElementById('builder'), result=document.getElementById('result-panel'), pane=document.getElementById('console-pane');
     const el=document.createElement('sg-layout');
-    builder.slot='p-builder'; result.slot='p-result'; pane.slot='p-console';
+    builder.slot='p-builder'; result.slot='p-result'; pane.slot='p-console';        // slot = p-{tab.id}
     el.appendChild(builder); el.appendChild(result); el.appendChild(pane);
-    area.classList.remove('split'); area.innerHTML=''; area.appendChild(el);
+    area.className='sg-host'; area.innerHTML=''; area.appendChild(el);
     let saved=null; try{ saved=JSON.parse(localStorage.getItem(SG_LAYOUT_LS)||'null'); }catch(e){}
     if(typeof el.setLayout==='function') el.setLayout(saved||defaultConsoleLayout());
     const persist=()=>{ try{ if(typeof el.getLayout==='function') localStorage.setItem(SG_LAYOUT_LS, JSON.stringify(el.getLayout())); }catch(e){} };
-    if(el._events&&el._events.on){ el._events.on('layout-changed', persist); } else { el.addEventListener('layout-changed', persist); }
+    el.addEventListener('pointerup', persist);                                      // capture resize-drag ends
+    if(el._events&&typeof el._events.on==='function'){ try{ el._events.on('LAYOUT_CHANGED', persist); }catch(e){} }
+    // VERIFY projection rendered. Unslotted light-DOM children paint at zero size,
+    // so a zero-box builder after a couple of frames means projection failed
+    // (API/version drift) → revert to the always-working grid.
+    const ok=await new Promise(res=>{ setTimeout(()=>requestAnimationFrame(()=>{
+      const r=builder.getBoundingClientRect(); res(r.width>0 && r.height>0);
+    }), 450); });
+    if(!ok){ applyConsoleGridFallback(); return false; }
     return true;
-  }catch(e){ return false; }
+  }catch(e){ applyConsoleGridFallback(); return false; }
 }
 
 // ════════════════════════════════════════════════════════════════════════════
