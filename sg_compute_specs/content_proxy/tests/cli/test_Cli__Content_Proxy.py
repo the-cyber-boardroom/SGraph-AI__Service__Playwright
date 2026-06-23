@@ -17,10 +17,16 @@ from sg_compute_specs.content_proxy.cli.Cli__Content_Proxy import (app, read_env
                                                                   remote_smoke_command, auth_help_lines,
                                                                   realize_secrets, apply_env_updates,
                                                                   Content_Proxy__Service,
-                                                                  LOG_SOURCES, resolve_log_source)
+                                                                  LOG_SOURCES, resolve_log_source,
+                                                                  resolve_scripts_bucket)
 
 
 class test_Cli__Content_Proxy(TestCase):
+
+    def test_resolve_scripts_bucket_explicit_wins_else_local_env(self):
+        assert resolve_scripts_bucket('my-explicit-bucket', {'CACHE__SERVICE__BUCKET_NAME': 'env-bucket'}) == 'my-explicit-bucket'
+        assert resolve_scripts_bucket('',                   {'CACHE__SERVICE__BUCKET_NAME': 'env-bucket'}) == 'env-bucket'   # inherit local .env
+        assert resolve_scripts_bucket('',                   {})                                            == ''             # neither set → blank (instance role / no cache bucket)
 
     def test_logs_command_registered(self):
         cmds = {c.name or (c.callback.__name__ if c.callback else '') for c in app.registered_commands}

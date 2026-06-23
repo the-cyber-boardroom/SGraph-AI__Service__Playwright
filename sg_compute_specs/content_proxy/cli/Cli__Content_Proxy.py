@@ -62,12 +62,16 @@ def _set_extras(request, mode='direct_proxy', tls='none', edge='none', hostname=
     request.proxyauth_pass    = proxyauth_pass
     request.proxy_ca_cert     = proxy_ca_cert
     request.proxy_ca_key      = proxy_ca_key
-    request.scripts_bucket    = scripts_bucket
+    request.scripts_bucket    = resolve_scripts_bucket(scripts_bucket, read_env_file(ENV_FILE))  # explicit flag wins; else inherit the local .env's CACHE__SERVICE__BUCKET_NAME
     request.forward_aws_creds = bool(forward_aws_creds)
     request.use_spot          = bool(use_spot)
     request.disk_size_gb      = int(disk_size)
     if mitm_service_image:
         request.mitm_service_image = mitm_service_image
+
+
+def resolve_scripts_bucket(explicit: str, local_env: dict) -> str:                 # explicit --scripts-bucket wins; else inherit the local .env's CACHE__SERVICE__BUCKET_NAME (single-source, like `local up`)
+    return str(explicit or local_env.get('CACHE__SERVICE__BUCKET_NAME', '') or '')
 
 
 # ── --with-aws-dns / --hostname: post-launch Route 53 (reuses the sg va flow) ──
@@ -170,7 +174,7 @@ app = Spec__CLI__Builder(
         ('proxy_ca_key'  , str , ''            , 'Path to the user-supplied proxy CA key.'),
         ('env_file'      , str , ''            , 'Path to a full .env shipped verbatim to the box (MVP: overrides generated env — ship your working local .env).'),
         ('ca_from_local' , bool, False         , 'Ship the local docker mitmproxy CA (docker/compose/certs/mitmproxy-ca.pem) so the EC2 proxy uses the CA already trusted in your browser.'),
-        ('scripts_bucket', str , ''            , 'S3 bucket the MITM service reads injection scripts from (CACHE__SERVICE__BUCKET_NAME).'),
+        ('scripts_bucket', str , ''            , 'S3 bucket the MITM service reads injection scripts from (CACHE__SERVICE__BUCKET_NAME). Defaults to the local .env value when blank.'),
         ('forward_aws_creds', bool, False      , 'Bake the operator AWS_* creds into the box .env (local-parity; default off → instance role).'),
         ('use_spot'      , bool, True          , 'Spot instance (~70%% cheaper). --no-use-spot for on-demand.'),
         ('disk_size'     , int , 0             , 'Root volume GiB. 0 = AMI default.'),
