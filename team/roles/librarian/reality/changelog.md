@@ -6,6 +6,25 @@ This is a pointer log, not a content log. For full delta detail, see the master 
 
 ---
 
+## 2026-06-23 (playwright-service — D1 endpoint-count fix + v0.2.64 console, branch `claude/amazing-pasteur-3srh6x`)
+
+2026-06-23 | playwright-service | **D1 fixed.** Doc said "16 direct endpoints" and
+  claimed `Routes__Session` was removed in v0.1.24, but the code wires both
+  `Routes__Inspect` (`Fast_API__Playwright__Service.py:110`, `POST /inspect`) and
+  `Routes__Session` (`:111`, four `/session/*` routes) → **21 direct endpoints**.
+  Updated the API-surface heading, added Inspect (1) + Session (4) sub-sections,
+  corrected the stale "sessions removed / no longer wire-visible" historical note,
+  fixed the `:88-96`→`:103-113` setup_routes line ref, and updated the public-endpoint
+  count (16→21). Also re-described `GET /` as the v0.2.64 capability-driven console
+  (was "Try it out mini-site"). P6 added the regression guards
+  (`test_Workflows__Gallery__Bodies.py`, `test_Routes__Index__verb_table_drift.py`,
+  `test_Routes__Index__prefix_aware.py`) that keep the verb table + gallery from
+  drifting from `Enum__Step__Action`. New finding **D7** (W2 gallery `wait_for`
+  url_pattern glob `**/dashboard**` is rejected by `Safe_Str__Url__Permissive` →
+  HTTP 400) flagged for a future Dev/Architect slice, not fixed here.
+
+- `playwright-service/index.md` — endpoint surface re-verified at v0.2.63 against `Fast_API__Playwright__Service.py:103-113`. See debrief `team/claude/debriefs/v0.2.64__playwright-console.md`.
+
 ## 2026-06-18 (content-proxy — new spec MVP core, branch `claude/clever-wozniak-r0dxkh`)
 
 2026-06-18 | content-proxy (NEW) | New `content_proxy` SG/Compute spec — the
