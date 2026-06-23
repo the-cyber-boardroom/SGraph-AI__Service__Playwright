@@ -16,10 +16,29 @@ import tempfile
 from sg_compute_specs.content_proxy.cli.Cli__Content_Proxy import (app, read_env_file, smoke_curl_args,
                                                                   remote_smoke_command, auth_help_lines,
                                                                   realize_secrets, apply_env_updates,
-                                                                  Content_Proxy__Service)
+                                                                  Content_Proxy__Service,
+                                                                  LOG_SOURCES, resolve_log_source)
 
 
 class test_Cli__Content_Proxy(TestCase):
+
+    def test_logs_command_registered(self):
+        cmds = {c.name or (c.callback.__name__ if c.callback else '') for c in app.registered_commands}
+        assert 'logs' in cmds
+
+    def test_log_sources_cover_host_and_containers(self):
+        assert 'boot'      in LOG_SOURCES                                            # host boot log
+        assert 'cert-init' in LOG_SOURCES                                            # the TLS cert sidecar — the cert-debug source
+        assert 'vault'     in LOG_SOURCES
+        assert LOG_SOURCES['boot'][0].format(tail=30) == 'tail -n 30 /var/log/sg-content-proxy-boot.log'
+        assert 'cp-cert-init' in LOG_SOURCES['cert-init'][0]                         # container name matches the compose container_name
+        assert 'docker logs' in LOG_SOURCES['vault'][0] and 'podman logs' in LOG_SOURCES['vault'][0]
+
+    def test_resolve_log_source_numeric_positional_is_index(self):
+        keys = list(LOG_SOURCES)
+        assert resolve_log_source('4', '')               == (keys[3], None)          # 'sg cp logs 4' → 4th source, stack auto-resolved
+        assert resolve_log_source('still-fermi', '')      == ('', 'still-fermi')      # a real name is left as the stack
+        assert resolve_log_source(None, 'vault')          == ('vault', None)          # explicit --source wins
 
     def test_8_standard_verbs_present(self):
         cmds = {c.name or (c.callback.__name__ if c.callback else '') for c in app.registered_commands}

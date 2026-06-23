@@ -445,3 +445,129 @@ def smoke(name  : Optional[str] = typer.Argument(None,
     else:
         c.print('  [yellow]⚠[/]  no MITM-UI redirect seen — check [cyan]sg content-proxy exec <name> '
                 'docker ps[/] and [cyan]… logs[/] (mitm-service up? scripts bucket reachable?).')
+
+
+# ── remote logs (EC2, over SSM — no SSH) ────────────────────────────────────────
+
+BOOT_LOG = '/var/log/sg-content-proxy-boot.log'                                     # must match Content_Proxy__User_Data__Builder.LOG_FILE
+
+
+def _dlogs(container: str) -> str:                                                  # docker|podman logs template ({tail} filled at call time; container is fixed)
+    return ('(docker logs --tail {tail} ' + container + ' 2>&1 || '
+            'podman logs --tail {tail} ' + container + ' 2>&1) || true')
+
+
+LOG_SOURCES = {                                                                     # name → (shell command template, ssm timeout, one-line description)
+    'boot'         : (f'tail -n {{tail}} {BOOT_LOG}'            , 60, 'EC2 user-data boot script — stage markers, available within seconds'),
+    'cloud-init'   : ('tail -n {tail} /var/log/cloud-init-output.log', 60, 'cloud-init full output — slightly behind the boot log'),
+    'journal'      : ('journalctl -n {tail} --no-pager'        , 60, 'full systemd journal — always available'),
+    'cert-init'    : (_dlogs('cp-cert-init')                   , 60, 'one-shot TLS cert sidecar — why it exited (self-signed gen / ACME issuance)'),
+    'vault'        : (_dlogs('cp-vault-app')                   , 60, 'sg-send-vault container — vault UI + /pw proxy + :443 TLS'),
+    'sg-playwright': (_dlogs('cp-sg-playwright')               , 60, 'sg-playwright container — the browser automation service'),
+    'mitm-service' : (_dlogs('cp-mitm-service')                , 60, 'FastAPI MITM service — request/response transform decisions'),
+    'mitmproxy-int': (_dlogs('cp-mitmproxy-int')               , 60, 'internal mitmproxy (Playwright path) — one line per proxied request'),
+    'mitmproxy-ext': (_dlogs('cp-mitmproxy-ext')               , 60, 'external mitmproxy (human browser, Mode 1) — proxied requests + proxyauth'),
+    'caddy'        : (_dlogs('cp-caddy')                       , 60, 'Caddy edge (--edge caddy only) — TLS/ACME issuance + /pw routing'),
+}
+
+
+def resolve_log_source(name: Optional[str], source: str) -> tuple:                  # pure: a numeric positional is a source index (mirrors the prompt numbering)
+    if name and str(name).isdigit():
+        keys = list(LOG_SOURCES)
+        idx  = int(name)
+        if 1 <= idx <= len(keys):
+            return (source or keys[idx - 1]), None                                  # name consumed as the index → auto-resolve the stack below
+    return source, name
+
+
+def _prompt_for_log_source(c: Console) -> str:
+    c.print()
+    c.print('  [bold]Which log source?[/]')
+    keys = list(LOG_SOURCES)
+    for i, k in enumerate(keys, 1):
+        _, _, desc = LOG_SOURCES[k]
+        c.print(f'    [cyan]{i}[/]  [bold]{k:13}[/] [dim]{desc}[/]')
+    c.print()
+    ans = typer.prompt('  Pick a number or name', default='boot').strip()
+    if ans.isdigit() and 1 <= int(ans) <= len(keys):
+        return keys[int(ans) - 1]
+    if ans in LOG_SOURCES:
+        return ans
+    raise typer.BadParameter(f'unknown source {ans!r}; pick from: {", ".join(LOG_SOURCES)}')
+
+
+@app.command(help='''Stream logs from the content-proxy EC2 host via SSM (no SSH).
+
+\b
+Sources (pick with --source / -s, a positional index, or omit to be prompted):
+  boot          EC2 user-data boot script — stage markers
+  cloud-init    cloud-init full output
+  journal       full systemd journal
+  cert-init     one-shot TLS cert sidecar — ACME/self-signed issuance (TLS stacks)
+  vault         sg-send-vault container — vault UI + /pw + :443
+  sg-playwright sg-playwright container — browser automation
+  mitm-service  FastAPI MITM service — transform decisions
+  mitmproxy-int internal mitmproxy (Playwright path)
+  mitmproxy-ext external mitmproxy (human browser, Mode 1)
+  caddy         Caddy edge (--edge caddy only)
+
+\b
+Add --follow / -f to poll for new lines every few seconds (Ctrl-C to stop).
+''')
+@spec_cli_errors
+def logs(name  : Optional[str] = typer.Argument(None, help='Stack name; auto-selected when only one exists.'),
+         tail  : int           = typer.Option(30,    '--tail', '-n',   help='Number of log lines to fetch.'),
+         follow: bool          = typer.Option(False, '--follow', '-f', help='Poll for new lines every few seconds (Ctrl-C to stop).'),
+         source: str           = typer.Option('',    '--source', '-s',
+                  help='boot | cloud-init | journal | cert-init | vault | sg-playwright | mitm-service | mitmproxy-int | mitmproxy-ext | caddy. Omit to be prompted.'),
+         region: str           = typer.Option(DEFAULT_REGION, '--region', '-r')):
+    """Stream logs from the stack host via SSM (no SSH)."""
+    import time
+    c = Console(highlight=False)
+
+    source, name = resolve_log_source(name, source)                                 # 'sg cp logs 4' → cert-init index
+    if not source:
+        source = _prompt_for_log_source(c)
+    if source not in LOG_SOURCES:
+        raise typer.BadParameter(f'unknown source {source!r}; pick from: {", ".join(LOG_SOURCES)}')
+
+    cmd_tpl, timeout, _desc = LOG_SOURCES[source]
+    svc        = Content_Proxy__Service().setup()
+    name       = Spec__CLI__Builder(_cli_spec).resolver.resolve(svc, name, region, 'content_proxy')
+    others     = '  '.join(k for k in LOG_SOURCES if k != source)
+    fetch_tail = max(tail, 500) if follow else tail
+    ssm_cmd    = cmd_tpl.format(tail=fetch_tail)
+
+    c.print(f'  [bold]{source}[/] [dim]──  other sources: {others}[/]')
+    c.print(f'  [dim]via SSM:[/] [cyan]{ssm_cmd}[/]')
+    if follow:
+        c.print('  [dim]following — Ctrl-C to stop[/]')
+    c.print()
+
+    def fetch():
+        r = svc.exec(region, name, ssm_cmd, timeout_sec=timeout)
+        return str(getattr(r, 'stdout', '') or '').splitlines()
+
+    if not follow:
+        c.print('\n'.join(fetch()))
+        return
+
+    shown_anchor = ''                                                               # last printed line — used to find new content each poll
+    try:
+        while True:
+            lines = fetch()
+            if not shown_anchor:
+                for line in lines:
+                    c.print(line)
+                shown_anchor = lines[-1] if lines else ''
+            else:
+                idx = next((i for i in range(len(lines) - 1, -1, -1)
+                            if lines[i] == shown_anchor), None)
+                new_lines = lines[idx + 1:] if idx is not None else lines
+                for line in new_lines:
+                    c.print(line)
+                if new_lines:
+                    shown_anchor = new_lines[-1]
+            time.sleep(4)
+    except KeyboardInterrupt:
+        c.print('\n  [dim]stopped[/]')
