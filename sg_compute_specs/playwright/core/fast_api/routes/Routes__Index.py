@@ -44,7 +44,7 @@ INDEX_HTML = r'''<!DOCTYPE html>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>SG Playwright Service — Console</title>
 <script>window.API_BASE="__API_BASE__";</script>
-<!-- sg-tokens (design tokens) + sg-layout: CDN-absolute → prefix-independent, works behind /pw and at root (Decision #11, brief 08; mirrors admin index.html:7,19). -->
+<!-- sg-tokens (design tokens): CDN-absolute → prefix-independent, works behind /pw and at root (Decision #11, brief 08; mirrors admin index.html:7). Layout is an in-house resizable grid (no sg-layout dependency). -->
 <link rel="stylesheet" href="https://dev.tools.sgraph.ai/components/tokens/v1/v1.0/v1.0.0/sg-tokens.css">
 <style>
 :root {
@@ -243,16 +243,21 @@ pre.out{background:var(--surface);border:1px solid var(--border);border-radius:v
 #console-out{flex:1;min-height:60px;}
 .console-quick{display:flex;gap:6px;flex-wrap:wrap;}
 
-/* ══ sg-layout slots + CSS-grid fallback (item 2). When sg-layout is present it owns
-      layout; when absent, .console-grid (added by JS) lays the three panes out with
-      plain CSS grid so the console is fully usable offline. ══ */
-sg-layout{flex:1;min-height:0;display:block;}
-.sg-host{flex:1;display:flex;min-height:0;}
-.console-grid{flex:1;display:grid;grid-template-columns:minmax(360px,1fr) minmax(360px,1fr);
-  grid-template-rows:1fr auto;grid-template-areas:"builder result" "console console";overflow:hidden;min-height:0;}
-.console-grid #builder{grid-area:builder;}
-.console-grid #result-panel{grid-area:result;}
-.console-grid #console-pane{grid-area:console;border-top:1px solid var(--lborder);max-height:34vh;}
+/* ══ Resizable work area (item 2). Three light panes (builder | result over a
+      full-width console) laid out with a CSS grid; two drag handles resize the
+      column split and the console height. Pure in-house — no external component,
+      so it always renders. Sizes persist to localStorage. ══ */
+.console-grid{flex:1;display:grid;
+  grid-template-columns: var(--lc,1fr) 6px var(--rc,1fr);
+  grid-template-rows: var(--tr,1fr) 6px var(--cr,260px);
+  grid-template-areas:"builder vsplit result" "hsplit hsplit hsplit" "console console console";
+  overflow:hidden;min-height:0;}
+.console-grid #builder{grid-area:builder;min-width:0;min-height:0;overflow:auto;}
+.console-grid #result-panel{grid-area:result;min-width:0;min-height:0;overflow:auto;}
+.console-grid #console-pane{grid-area:console;min-height:0;overflow:auto;border-top:1px solid var(--lborder);}
+.vsplit{grid-area:vsplit;cursor:col-resize;background:var(--lborder);}
+.hsplit{grid-area:hsplit;cursor:row-resize;background:var(--lborder);}
+.vsplit:hover,.hsplit:hover{background:var(--accent);}
 </style>
 </head>
 <body>
@@ -296,9 +301,8 @@ sg-layout{flex:1;min-height:0;display:block;}
     <button data-tab="docs"     onclick="switchTab('docs')">Docs</button>
   </div>
 
-  <!-- work-area host: sg-layout drives builder|result|console when the CDN component
-       is present; otherwise JS swaps in .console-grid so the three light panes stay
-       usable offline (Decision #1 light panes; item 2 graceful fallback). -->
+  <!-- work-area: in-house resizable CSS grid — builder | result over a full-width
+       console, with drag handles (#vsplit/#hsplit). Light panes per Decision #1. -->
   <div class="console-grid" id="work-area">
     <!-- ────────── BUILDER (left of split) — light work pane ────────── -->
     <div class="builder work-light" id="builder">
@@ -503,6 +507,10 @@ sg-layout{flex:1;min-height:0;display:block;}
       <div class="btn-row"><button class="exec-btn" id="btn-console" onclick="consoleRun()">Run ▶</button></div>
       <div id="console-out"></div>
     </div>
+
+    <!-- drag handles — resize the builder|result column split and the console height (item 2) -->
+    <div class="vsplit" id="vsplit" title="Drag to resize"></div>
+    <div class="hsplit" id="hsplit" title="Drag to resize"></div>
   </div>
 </main>
 
@@ -1242,7 +1250,7 @@ function applyCapabilities(){
   const persistent = CAPABILITIES.supports_persistent !== false;
   const sessBtn=document.querySelector('.tab-rail button[data-tab="session"]');
   if(sessBtn){ sessBtn.disabled=!persistent; if(!persistent) sessBtn.innerHTML='Session<span class="cap-off">unavailable</span>'; }
-  document.getElementById('sess-disabled').style.display = persistent?'none':'block';
+  const sessDisabled=document.getElementById('sess-disabled'); if(sessDisabled) sessDisabled.style.display = persistent?'none':'block';
   // Video verbs hidden when unsupported
   const sel=document.getElementById('seq-add-verb');
   if(sel){ const allowed = VERB_LIST.filter(v=>{ if((v==='video_start'||v==='video_stop')&&CAPABILITIES.supports_video===false)return false; return true; });
@@ -1286,69 +1294,34 @@ document.addEventListener('keydown', e=>{ if(!(e.ctrlKey||e.metaKey)||e.key!=='E
   ({screenshot:execScreenshot,sequence:execSequence,inspect:execInspect,browser:execBrowser,debug:execDebug}[activeTab]||(()=>{}))(); });
 
 // ════════════════════════════════════════════════════════════════════════════
-//  sg-layout wiring (item 2) — wrap builder (center) + result (right) + console
-//  (bottom) in <sg-layout> driven like admin.js: build a layout JSON with p-{id}
-//  slots, setLayout(saved||default), persist getLayout() to localStorage, restore
-//  on load. Header + tab rail stay OUTSIDE sg-layout (they are above #work-area).
-//
-//  GRACEFUL FALLBACK: sg-layout is a CDN web component that may be absent (same
-//  condition that 404'd sg-tool-api). We import it, then a short time later check
-//  customElements.get('sg-layout'); if it is still undefined the console falls back
-//  to a plain CSS grid (.console-grid) so it is fully usable offline. Core function
-//  never depends on the CDN.
+//  Resizable work area (item 2) — the three light panes live in a CSS grid
+//  (builder | result over a full-width console). Two drag handles resize the
+//  column split (--lc/--rc) and the console height (--cr); sizes persist to
+//  localStorage. This is pure in-house DOM — no external web component and no
+//  reparenting of the panes — so the console always renders and never depends on
+//  a CDN. (We dropped the sg-layout web component here: its panel API instantiates
+//  components via a `tag`, and does not project our existing plain-div panes.)
 // ════════════════════════════════════════════════════════════════════════════
-const SG_LAYOUT_LS = 'sg-playwright:console:layout:v1';
-// sg-layout v0.1.0 contract: each leaf tab carries an explicit id, and the
-// projected light-DOM child must have slot="p-{tab.id}". Containers are
-// column|row|stack with sizes. We PROJECT our existing panes (no `tag`).
-function defaultConsoleLayout(){
-  return { type:'column', id:'root', sizes:[0.7,0.3], children:[
-    { type:'row', id:'top', sizes:[0.5,0.5], children:[
-      { type:'stack', id:'s-builder', activeTab:0, tabs:[{ type:'tab', id:'builder', title:'Builder', locked:true }] },
-      { type:'stack', id:'s-result',  activeTab:0, tabs:[{ type:'tab', id:'result',  title:'Result',  locked:true }] } ] },
-    { type:'stack', id:'s-console', activeTab:0, tabs:[{ type:'tab', id:'console', title:'Console', locked:true }] } ] };
-}
-function workPanes(){ return [document.getElementById('builder'), document.getElementById('result-panel'), document.getElementById('console-pane')]; }
-// Known-good baseline (also set as the default class in markup): the three light
-// panes in a plain CSS grid. This is the guaranteed state — the console is always
-// usable even when the sg-layout CDN component is absent OR fails to project.
-function applyConsoleGridFallback(){
+const SG_SIZES_LS = 'sg-playwright:console:sizes:v1';
+function setupResizers(){
   const area=document.getElementById('work-area'); if(!area) return;
-  const [builder,result,pane]=workPanes();
-  [builder,result,pane].forEach(p=>{ if(p){ p.removeAttribute('slot'); if(p.parentElement!==area) area.appendChild(p); } });
-  const host=area.querySelector('sg-layout'); if(host) host.remove();
-  area.className='console-grid';
+  try{ const s=JSON.parse(localStorage.getItem(SG_SIZES_LS)||'null'); if(s){
+    if(s.lc) area.style.setProperty('--lc', s.lc); if(s.rc) area.style.setProperty('--rc', s.rc);
+    if(s.cr) area.style.setProperty('--cr', s.cr); } }catch(e){}
+  const save=()=>{ try{ localStorage.setItem(SG_SIZES_LS, JSON.stringify({
+    lc:area.style.getPropertyValue('--lc'), rc:area.style.getPropertyValue('--rc'), cr:area.style.getPropertyValue('--cr') })); }catch(e){} };
+  const dragCol=e=>{ const r=area.getBoundingClientRect(); let t=(e.clientX-r.left)/r.width;
+    t=Math.min(0.8,Math.max(0.2,t)); area.style.setProperty('--lc', t.toFixed(3)+'fr'); area.style.setProperty('--rc', (1-t).toFixed(3)+'fr'); };
+  const dragRow=e=>{ const r=area.getBoundingClientRect(); let h=r.bottom-e.clientY;
+    h=Math.min(r.height*0.7,Math.max(80,h)); area.style.setProperty('--cr', Math.round(h)+'px'); };
+  const start=move=>e=>{ e.preventDefault();
+    const mv=ev=>move(ev), up=()=>{ document.removeEventListener('pointermove',mv); document.removeEventListener('pointerup',up); save(); };
+    document.addEventListener('pointermove',mv); document.addEventListener('pointerup',up); };
+  const v=document.getElementById('vsplit'), h=document.getElementById('hsplit');
+  if(v) v.addEventListener('pointerdown', start(dragCol));
+  if(h) h.addEventListener('pointerdown', start(dragRow));
 }
-(function loadSgLayout(){
-  if(!('customElements' in window)) return;                                         // baseline grid already rendered from markup
-  import('https://dev.tools.sgraph.ai/core/sg-layout/v0.1.0/sg-layout.js')
-    .then(()=>{ wireSgLayout(); })                                                  // wireSgLayout self-reverts to the grid on any failure
-    .catch(()=>{ /* CDN unreachable — stay on the baseline grid */ });
-})();
-async function wireSgLayout(){
-  if(!customElements.get('sg-layout')) return false;
-  const area=document.getElementById('work-area');
-  const [builder,result,pane]=workPanes();
-  try{
-    const el=document.createElement('sg-layout');
-    builder.slot='p-builder'; result.slot='p-result'; pane.slot='p-console';        // slot = p-{tab.id}
-    el.appendChild(builder); el.appendChild(result); el.appendChild(pane);
-    area.className='sg-host'; area.innerHTML=''; area.appendChild(el);
-    let saved=null; try{ saved=JSON.parse(localStorage.getItem(SG_LAYOUT_LS)||'null'); }catch(e){}
-    if(typeof el.setLayout==='function') el.setLayout(saved||defaultConsoleLayout());
-    const persist=()=>{ try{ if(typeof el.getLayout==='function') localStorage.setItem(SG_LAYOUT_LS, JSON.stringify(el.getLayout())); }catch(e){} };
-    el.addEventListener('pointerup', persist);                                      // capture resize-drag ends
-    if(el._events&&typeof el._events.on==='function'){ try{ el._events.on('LAYOUT_CHANGED', persist); }catch(e){} }
-    // VERIFY projection rendered. Unslotted light-DOM children paint at zero size,
-    // so a zero-box builder after a couple of frames means projection failed
-    // (API/version drift) → revert to the always-working grid.
-    const ok=await new Promise(res=>{ setTimeout(()=>requestAnimationFrame(()=>{
-      const r=builder.getBoundingClientRect(); res(r.width>0 && r.height>0);
-    }), 450); });
-    if(!ok){ applyConsoleGridFallback(); return false; }
-    return true;
-  }catch(e){ applyConsoleGridFallback(); return false; }
-}
+setupResizers();
 
 // ════════════════════════════════════════════════════════════════════════════
 //  Bottom __tool console (item 6) — live REPL over window.__tool, in the OPERATOR's

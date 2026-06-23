@@ -115,10 +115,12 @@ class test_Routes__Index__P2_console(TestCase):
     def setUpClass(cls):
         cls.html = _render()
 
-    def test__sg_tokens_and_sg_layout_loaded_cdn_absolute(self):
+    def test__sg_tokens_loaded_cdn_absolute(self):
         assert 'https://dev.tools.sgraph.ai/components/tokens/' in self.html          # sg-tokens CDN-absolute (prefix-independent)
-        assert 'https://dev.tools.sgraph.ai/core/sg-layout/'    in self.html          # sg-layout CDN-absolute (like admin.js:195)
         assert 'sg-tokens.css'                                  in self.html
+        # sg-layout was dropped (iteration-2 fix) — the layout is an in-house grid, so
+        # the console never depends on the sg-layout component.
+        assert 'core/sg-layout/'                                not in self.html
 
     def test__all_endpoint_family_tabs_present(self):
         for tab in ['screenshot','sequence','inspect','session','browser','debug','service','docs']:
@@ -315,32 +317,24 @@ class test_Routes__Index__iteration2(TestCase):
         assert '.work-light .gbtn'            in self.html
         assert '.work-light select'           in self.html
 
-    # ── item 2: sg-layout wiring + localStorage key + graceful fallback ──
-    def test__sg_layout_wiring_present(self):
-        assert 'function wireSgLayout'           in self.html
-        assert 'function defaultConsoleLayout'   in self.html
-        # sg-layout v0.1.0 contract: leaf tabs carry an explicit id; the projected
-        # light-DOM child gets slot="p-{tab.id}" assigned in wireSgLayout.
-        assert "id:'builder'"                    in self.html
-        assert "id:'result'"                     in self.html
-        assert "id:'console'"                    in self.html
-        assert "builder.slot='p-builder'"        in self.html                          # projection slot = p-{tab.id}
-        assert 'setLayout(saved||defaultConsoleLayout())' in self.html
-        assert 'getLayout()'                     in self.html
+    # ── item 2: in-house resizable grid (panes never reparented; no CDN dependency) ──
+    def test__resizable_grid_present(self):
+        assert 'class="console-grid" id="work-area"' in self.html                      # grid is the layout, set in markup
+        assert 'function setupResizers'          in self.html
+        assert 'id="vsplit"'                     in self.html                          # column-split drag handle
+        assert 'id="hsplit"'                     in self.html                          # console-height drag handle
+        assert "grid-template-areas:\"builder vsplit result\"" in self.html
 
-    # ── item 2 (fix): render-verification reverts to the grid if projection fails ──
-    def test__sg_layout_render_verification_reverts(self):
-        assert 'getBoundingClientRect()'         in self.html                          # verify the projected pane actually has a box
-        assert 'class="console-grid" id="work-area"' in self.html                      # grid is the DEFAULT/baseline (no broken flash)
+    def test__resizer_persists_sizes(self):
+        assert "'sg-playwright:console:sizes:v1'" in self.html                         # sizes persisted to localStorage
+        assert "setProperty('--lc'"              in self.html                          # column ratio written to a CSS var
 
-    def test__sg_layout_localstorage_key(self):
-        assert "'sg-playwright:console:layout:v1'" in self.html
-
-    def test__sg_layout_graceful_fallback(self):
-        assert "customElements.get('sg-layout')"     in self.html                    # detection condition
-        assert 'function applyConsoleGridFallback'    in self.html
-        assert '.console-grid'                        in self.html                    # CSS-grid fallback
-        assert 'https://dev.tools.sgraph.ai/core/sg-layout/' in self.html            # CDN import (optional)
+    def test__no_sg_layout_dependency(self):
+        # The sg-layout web component was dropped (it instantiates via `tag` and does
+        # not project our plain-div panes); the console must not depend on the CDN.
+        assert 'sg-layout/v0.1.0/sg-layout.js' not in self.html
+        assert 'wireSgLayout'                    not in self.html
+        assert "document.getElementById('sess-disabled').style" not in self.html       # null crash guarded
 
     # ── item 3: screenshot viewer with Download + Open in new tab ──
     def test__screenshot_viewer_present(self):
