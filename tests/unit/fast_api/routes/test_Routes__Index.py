@@ -323,16 +323,25 @@ class test_Routes__Index__iteration2(TestCase):
         # that relocates our pre-built pane content (parked in #pane-store) into itself.
         assert 'id="pane-store"'                 in self.html
         assert "definePaneHost('sg-pane-builder','builder')"       in self.html
-        assert "definePaneHost('sg-pane-result','result-panel')"   in self.html
+        assert "definePaneHost('sg-pane-output','output-pane')"    in self.html       # results get their own pane
+        assert "definePaneHost('sg-pane-gallery','result-panel')"  in self.html       # gallery/examples in a separate pane
         assert "definePaneHost('sg-pane-console','console-pane')"  in self.html
         assert "tag:'sg-pane-builder'"           in self.html                          # layout tree uses the host tag, not slot=
         assert 'function defaultConsoleLayout'   in self.html
+
+    def test__output_pane_split_from_gallery(self):
+        assert 'id="output-pane"'                in self.html                          # execution output lives in its own pane node
+        assert 'id="result-img"'                 in self.html                          # the image target moved with it
+        assert "tag:'sg-pane-output'"            in self.html and "title:'Output'"  in self.html
+        assert 'function revealOutput'           in self.html                          # focus Output on execute
+        assert "el.focusPanel('output')"         in self.html
+        assert 'revealOutput();'                 in self.html                          # called from clearResult
 
     def test__sg_layout_uses_documented_api(self):
         assert "customElements.whenDefined('sg-layout')" in self.html                  # wait for registration before setLayout
         assert 'el.setLayout('                   in self.html
         assert "el.events.on('layout:changed'"   in self.html                          # internal event bus, not addEventListener
-        assert "'sg-playwright:console:layout:v2'" in self.html                        # persisted layout tree
+        assert "'sg-playwright:console:layout:v3'" in self.html                        # persisted layout tree
 
     def test__sg_layout_graceful_fallback_and_reset(self):
         assert 'function applyConsoleGridFallback' in self.html                        # plain grid if sg-layout is absent/fails

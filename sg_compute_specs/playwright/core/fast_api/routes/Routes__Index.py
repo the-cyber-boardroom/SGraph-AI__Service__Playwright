@@ -255,12 +255,13 @@ pre.out{background:var(--surface);border:1px solid var(--border);border-radius:v
 #work-area{flex:1;min-height:0;display:flex;}
 #work-area sg-layout{flex:1;min-height:0;width:100%;}
 #pane-store{display:none;}                                                          /* holds pane content until the layout (or grid) relocates it */
-sg-pane-builder,sg-pane-result,sg-pane-console{display:block;height:100%;min-height:0;overflow:auto;}
+sg-pane-builder,sg-pane-output,sg-pane-gallery,sg-pane-console{display:block;height:100%;min-height:0;overflow:auto;}
 .console-grid{display:grid;grid-template-columns:minmax(320px,1fr) minmax(320px,1fr);
-  grid-template-rows:1fr auto;grid-template-areas:"builder result" "console console";overflow:hidden;min-height:0;}
+  grid-template-rows:1.4fr .8fr auto;grid-template-areas:"builder output" "builder gallery" "console console";overflow:hidden;min-height:0;}
 .console-grid #builder{grid-area:builder;min-width:0;min-height:0;overflow:auto;}
-.console-grid #result-panel{grid-area:result;min-width:0;min-height:0;overflow:auto;}
-.console-grid #console-pane{grid-area:console;min-height:0;overflow:auto;border-top:1px solid var(--lborder);max-height:40vh;}
+.console-grid #output-pane{grid-area:output;min-width:0;min-height:0;overflow:auto;}
+.console-grid #result-panel{grid-area:gallery;min-width:0;min-height:0;overflow:auto;border-top:1px solid var(--lborder);}
+.console-grid #console-pane{grid-area:console;min-height:0;overflow:auto;border-top:1px solid var(--lborder);max-height:34vh;}
 </style>
 </head>
 <body>
@@ -493,6 +494,10 @@ sg-pane-builder,sg-pane-result,sg-pane-console{display:block;height:100%;min-hei
           <div class="gallery" id="gallery"></div>
         </div>
       </details>
+    </div>
+
+    <!-- ────────── OUTPUT (own pane) — execution results: image / steps / json ────────── -->
+    <div class="result work-light" id="output-pane">
       <div class="result-meta" id="result-meta" style="display:none"></div>
       <img id="result-img" alt="result">
       <pre id="result-html" class="out" style="display:none"></pre>
@@ -962,6 +967,7 @@ function clearResult(){
   document.getElementById('result-steps').innerHTML='';
   document.getElementById('batch-grid').innerHTML='';
   document.getElementById('placeholder').style.display='block';
+  revealOutput();                                                                   // bring the Output pane forward so results show without scrolling
 }
 function showErr(msg){ const el=document.getElementById('result-err'); el.textContent=msg; el.style.display='block'; document.getElementById('placeholder').style.display='none'; }
 function showMetaLine(html){ const el=document.getElementById('result-meta'); el.innerHTML=html; el.style.display='flex'; document.getElementById('placeholder').style.display='none'; }
@@ -1317,7 +1323,7 @@ document.addEventListener('keydown', e=>{ if(!(e.ctrlKey||e.metaKey)||e.key!=='E
 //  to mount, applyConsoleGridFallback lays the same panes out as a plain grid so
 //  the console always works.
 // ════════════════════════════════════════════════════════════════════════════
-const SG_LAYOUT_LS = 'sg-playwright:console:layout:v2';
+const SG_LAYOUT_LS = 'sg-playwright:console:layout:v3';
 function definePaneHost(tag, contentId){                                            // a tab tag that relocates our pre-built pane into itself
   if(customElements.get(tag)) return;
   customElements.define(tag, class extends HTMLElement{
@@ -1327,16 +1333,23 @@ function definePaneHost(tag, contentId){                                        
   });
 }
 definePaneHost('sg-pane-builder','builder');
-definePaneHost('sg-pane-result','result-panel');
+definePaneHost('sg-pane-output','output-pane');
+definePaneHost('sg-pane-gallery','result-panel');
 definePaneHost('sg-pane-console','console-pane');
-function defaultConsoleLayout(){                                                    // builder | result (top row) over a full-width console
+function defaultConsoleLayout(){                                                    // builder | (output over gallery) on the right, console along the bottom
   return { type:'column', sizes:[0.72,0.28], children:[
-    { type:'row', sizes:[0.5,0.5], children:[
-      { type:'stack', id:'s-builder', tabs:[{ tag:'sg-pane-builder', title:'Builder' }] },
-      { type:'stack', id:'s-result',  tabs:[{ tag:'sg-pane-result',  title:'Result'  }] } ] },
-    { type:'stack', id:'s-console', tabs:[{ tag:'sg-pane-console', title:'Console' }] } ] };
+    { type:'row', sizes:[0.42,0.58], children:[
+      { type:'stack', id:'s-builder', tabs:[{ tag:'sg-pane-builder', id:'builder', title:'Builder' }] },
+      { type:'column', sizes:[0.62,0.38], children:[
+        { type:'stack', id:'s-output',  tabs:[{ tag:'sg-pane-output',  id:'output',  title:'Output'  }] },
+        { type:'stack', id:'s-gallery', tabs:[{ tag:'sg-pane-gallery', id:'gallery', title:'Examples' }] } ] } ] },
+    { type:'stack', id:'s-console', tabs:[{ tag:'sg-pane-console', id:'console', title:'Console' }] } ] };
 }
-function paneNodes(){ return [document.getElementById('builder'),document.getElementById('result-panel'),document.getElementById('console-pane')]; }
+function revealOutput(){                                                            // focus the Output pane so results are visible without scrolling/hunting
+  try{ const area=document.getElementById('work-area'); const el=area&&area.querySelector('sg-layout');
+    if(el&&typeof el.focusPanel==='function') el.focusPanel('output'); }catch(e){}
+}
+function paneNodes(){ return [document.getElementById('builder'),document.getElementById('output-pane'),document.getElementById('result-panel'),document.getElementById('console-pane')]; }
 function applyConsoleGridFallback(){                                                // plain CSS grid — guaranteed-working state if sg-layout is absent/failed
   const area=document.getElementById('work-area'); if(!area) return;
   const host=area.querySelector('sg-layout'); if(host) host.remove();
