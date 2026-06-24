@@ -27,6 +27,15 @@ class test_Content_Proxy__Compose__Template(TestCase):
         int_block = self.yaml.split('mitmproxy-int:')[1].split('mitmproxy-ext:')[0]
         assert 'proxyauth' not in int_block
 
+    def test_only_ext_allows_global_clients(self):
+        # mitmproxy blocks public-IP ('global') clients by default → a remote browser is killed.
+        # The ext proxy is internet-facing, so it must disable block_global; the int proxy only
+        # serves docker-network (private-IP) clients, so it must NOT carry the override.
+        ext_block = self.yaml.split('mitmproxy-ext:')[1]
+        int_block = self.yaml.split('mitmproxy-int:')[1].split('mitmproxy-ext:')[0]
+        assert 'block_global=false' in ext_block
+        assert 'block_global'   not in int_block
+
     def test_secrets_are_env_refs_not_literals(self):
         assert '${CONTENT_PROXY__PROXYAUTH_USER}' in self.yaml
         assert '${CONTENT_PROXY__PROXYAUTH_PASS}' in self.yaml
