@@ -73,6 +73,7 @@ class Vault_App__Service(Spec__Service__Base):
     ami_helper         : Optional[Vault_App__AMI__Helper]        = None
     _r53_client_factory : Optional[Callable]                     = None  # seam for tests
     _auto_dns_factory   : Optional[Callable]                     = None  # seam for tests
+    _aws_dns_zone_resolver_factory : Optional[Callable]          = None  # seam for tests
 
     def setup(self) -> 'Vault_App__Service':
         self.aws_client           = Vault_App__AWS__Client          ().setup()
@@ -131,6 +132,13 @@ class Vault_App__Service(Spec__Service__Base):
             request.tls_hostname = f'{stack_name}.{_default_aws_dns_zone()}'
             if str(request.tls_mode) == 'letsencrypt-ip':                                # auto-bump: the whole point of --with-aws-dns is to get a hostname cert
                 request.tls_mode = 'letsencrypt-hostname'
+        # Pre-flight: fail fast (before launching the EC2) if --with-aws-dns can't
+        # actually create the A record in this account. Without this, the upsert
+        # fails silently on the post-launch thread, the FQDN never resolves, and
+        # cert-init times out 180s later — a 10-minute boot failure for a problem
+        # we can detect in one Route 53 API call up front.
+        if bool(request.with_aws_dns):
+            self._preflight_aws_dns_zone(str(request.tls_hostname).strip())
         region       = str(request.region)        or DEFAULT_REGION
         caller_ip    = str(request.caller_ip)     or self.ip_detector.detect()
         if not caller_ip:
@@ -614,6 +622,33 @@ class Vault_App__Service(Spec__Service__Base):
             return self._r53_client_factory()
         from sgraph_ai_service_playwright__cli.aws.dns.service.Route53__AWS__Client import Route53__AWS__Client
         return Route53__AWS__Client()
+
+    def _aws_dns_zone_resolver(self):
+        if self._aws_dns_zone_resolver_factory is not None:
+            return self._aws_dns_zone_resolver_factory()
+        from sgraph_ai_service_playwright__cli.aws.dns.service.Route53__Zone__Resolver import Route53__Zone__Resolver
+        resolver = Route53__Zone__Resolver()
+        resolver.r53_client = self._r53_client()
+        return resolver
+
+    def _preflight_aws_dns_zone(self, fqdn: str) -> None:
+        # --with-aws-dns will upsert an A record into the Route 53 zone that owns
+        # `fqdn`. If THIS account hosts no such zone (the classic "wrong AWS
+        # account" mistake), the upsert fails silently on the post-launch thread,
+        # the FQDN never resolves, and cert-init exits non-zero 180s later — the
+        # whole stack boot fails. One list-hosted-zones call here turns that into
+        # an instant, actionable error before any EC2 is launched.
+        try:
+            zone = self._aws_dns_zone_resolver().resolve_zone_for_fqdn(fqdn)
+        except Exception as exc:
+            raise ValueError(
+                f"--with-aws-dns can't create DNS for {fqdn!r}: no Route 53 hosted zone "
+                f"owning it was found in this AWS account ({type(exc).__name__}: {exc}).\n"
+                f"  Fix it one of these ways:\n"
+                f"    • switch to the AWS account/profile that hosts the zone, or\n"
+                f"    • --tls-hostname <fqdn-you-control>  (create the A record yourself, no --with-aws-dns), or\n"
+                f"    • drop auto-DNS:  --no-with-aws-dns  (+ --tls-mode self-signed, or --no-with-tls-check)")
+        return zone
 
     def tls_hostname_from_details(self, details: dict) -> str:
         return tag_value(details, TAG_TLS_HOSTNAME) or ''
