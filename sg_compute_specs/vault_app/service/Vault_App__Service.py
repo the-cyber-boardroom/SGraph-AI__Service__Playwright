@@ -558,22 +558,31 @@ class Vault_App__Service(Spec__Service__Base):
             yield ('containers-up', 'warn', 'could not check')
 
         # ── check 7: vault-http ────────────────────────────────────────────────
+        # TLS stacks bind :443 only (no :8080), so probe HTTPS with -k (self-signed
+        # and LE certs both pass). Probing :8080 on a TLS stack always returns 000 —
+        # a false WARN that hangs `--wait` even though the vault is healthy.
+        tls_on = bool(getattr(info, 'tls_enabled', False))
         if not containers_ok:
             yield ('vault-http', 'skip', 'skipped — containers not running')
         else:
             yield ('vault-http', 'checking', '')
             try:
-                code = ssm('curl -s -o /dev/null -w "%{http_code}" '
-                           f'http://127.0.0.1:{VAULT_PORT}/info/health 2>&1 || echo 000', timeout=30)
-                code = code.strip()
-                if code in ('200', '204'):
-                    yield ('vault-http', 'ok', f'HTTP {code}')
-                elif code in ('401', '403'):
-                    yield ('vault-http', 'ok', f'HTTP {code} — up, auth-gated (expected)')
-                elif code and code != '000':
-                    yield ('vault-http', 'warn', f'HTTP {code} — up but not ready')
+                if tls_on:
+                    probe = 'curl -sk -o /dev/null -w "%{http_code}" https://127.0.0.1/info/health'
+                    where = ':443'
                 else:
-                    yield ('vault-http', 'warn', 'no response on :8080 — vault still warming up')
+                    probe = f'curl -s -o /dev/null -w "%{{http_code}}" http://127.0.0.1:{VAULT_PORT}/info/health'
+                    where = f':{VAULT_PORT}'
+                code = ssm(f'{probe} 2>&1 || echo 000', timeout=30).strip()
+                no_response = (not code) or set(code) == {'0'}                   # '', '000', '000000' → connection refused
+                if code in ('200', '204'):
+                    yield ('vault-http', 'ok', f'HTTP {code} ({where})')
+                elif code in ('401', '403'):
+                    yield ('vault-http', 'ok', f'HTTP {code} ({where}) — up, auth-gated (expected)')
+                elif not no_response:
+                    yield ('vault-http', 'warn', f'HTTP {code} ({where}) — up but not ready')
+                else:
+                    yield ('vault-http', 'warn', f'no response on {where} — vault still warming up')
             except Exception as exc:
                 yield ('vault-http', 'fail', str(exc)[:120])
 
@@ -591,29 +600,33 @@ class Vault_App__Service(Spec__Service__Base):
             yield ('boot-ok', 'warn', 'could not check')
 
         # ── check 9: cert-init (TLS stacks only) ───────────────────────────────
-        # Reads the stage file written by sg_compute.platforms.tls.cert_init —
-        # bind-mounted at /var/lib/sg-compute/cert-init.stage on the EC2 host.
+        # Primary signal = the one-shot cert-init container's EXIT STATUS. The stage
+        # file (/var/lib/sg-compute/cert-init.stage) is only supplementary detail —
+        # older host-control images don't write it, so an empty stage file must NOT
+        # read as failure when the container exited 0 (that false WARN hung `--wait`).
         # Brief: team/comms/briefs/v0.1.14__sg-va-cert-init-observability/.
-        if bool(getattr(info, 'tls_enabled', False)):
+        if tls_on:
             yield ('cert-init', 'checking', '')
             try:
-                # tail of stage file = current stage. Format per line: iso_ts\tstage\tdetail
-                last = ssm('sudo tail -n 1 /var/lib/sg-compute/cert-init.stage 2>/dev/null || true')
-                parts = (last.split('\t', 2) + ['', '', ''])[:3]
-                ts, stage, detail = parts
-                if not stage:
-                    # cert-init may not have started yet (compose still pulling host-control image)
-                    yield ('cert-init', 'warn', 'not yet — stage file empty (cert-init has not started)')
-                elif stage == 'cert-issued':
-                    yield ('cert-init', 'ok', f'{stage}  {detail}')
+                status = ssm(f'sudo {engine} ps -a --filter name=cert-init '
+                             f'--format "{{{{.Status}}}}" 2>/dev/null | head -1 || true').strip()
+                last   = ssm('sudo tail -n 1 /var/lib/sg-compute/cert-init.stage 2>/dev/null || true')
+                ts, stage, detail = (last.split('\t', 2) + ['', '', ''])[:3]
+                stage_note = f'  [{stage} {detail}]'.rstrip() if stage else ''
+                if 'Exited (0)' in status:
+                    yield ('cert-init', 'ok', f'cert issued — container exited 0{stage_note}')
+                elif 'Exited' in status:                                            # non-zero exit
+                    yield ('cert-init', 'fail', f'cert-init {status}{stage_note}')
+                elif stage == 'cert-issued':                                        # container status unreadable but stage says done
+                    yield ('cert-init', 'ok', f'cert issued{stage_note}')
                 elif stage == 'failed':
                     yield ('cert-init', 'fail', f'failed at {ts} — {detail}')
-                else:
-                    # in-flight stage — surface elapsed since the stage transition so the operator
-                    # can tell "stuck in waiting-for-dns for 5min" from "just started 2s ago"
+                elif status or stage:                                              # still running (Up …) or mid-stage
                     elapsed = _elapsed_since_iso(ts)
-                    suffix  = f'  (in stage for ~{elapsed}s)' if elapsed >= 0 else ''
-                    yield ('cert-init', 'warn', f'{stage}  {detail}{suffix}')
+                    suffix  = f'  (~{elapsed}s)' if elapsed >= 0 and stage else ''
+                    yield ('cert-init', 'warn', f'in progress — {status or stage}{suffix}')
+                else:
+                    yield ('cert-init', 'warn', 'not yet — cert-init has not started')
             except Exception as exc:
                 yield ('cert-init', 'warn', f'could not check: {str(exc)[:120]}')
 
