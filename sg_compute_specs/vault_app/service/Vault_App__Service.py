@@ -54,6 +54,17 @@ def _default_aws_dns_zone() -> str:
     return os.environ.get('SG_AWS__DNS__DEFAULT_ZONE', DEFAULT_AWS_DNS_ZONE_FALLBACK)
 
 
+# Tag keys the stack owns — a --tag with one of these would create a duplicate tag
+# key (run_instance rejects that) or shadow a lifecycle filter / read-back value.
+# 'Name', 'Purpose', 'StackName', 'StackType', 'CallerIP', 'CreatedBy' come from
+# EC2__Tags__Builder; the rest from the vault-app extras + the Namespace tag.
+RESERVED_TAG_KEYS = frozenset({
+    'Name', 'Purpose', 'StackName', 'StackType', 'CallerIP', 'CreatedBy',
+    TAG_WITH_PLAYWRIGHT, TAG_ENGINE, TAG_TLS_ENABLED, TAG_TLS_HOSTNAME,
+    TAG_ACCESS_TOKEN, TAG_TERMINATE_AT, TAG_NAMESPACE,
+})
+
+
 def _elapsed_since_iso(iso_ts: str) -> int:
     """Seconds elapsed from `iso_ts` (UTC, '%Y-%m-%dT%H:%M:%SZ') to now. -1 on parse error."""
     try:
@@ -120,6 +131,25 @@ class Vault_App__Service(Spec__Service__Base):
         duplicates = [{'Key': f'{prefix}-{t["Key"]}', 'Value': t['Value']} for t in base]
         return base + duplicates
 
+    def parse_custom_tags(self, custom_tags: str) -> dict:
+        # newline-joined KEY=VALUE (CLI validates the format) → dict. Rejects keys
+        # that collide with reserved stack tags (would dup a tag key or shadow a
+        # lifecycle filter). Called before any AWS mutation so a bad --tag fails fast.
+        out = {}
+        for line in (custom_tags or '').splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            key, _, value = line.partition('=')
+            key = key.strip()
+            if not key:
+                continue
+            if key in RESERVED_TAG_KEYS:
+                raise ValueError(f"--tag {key!r} is reserved by the vault-app stack "
+                                 f"(used for lifecycle/filtering); choose a different key.")
+            out[key] = value.strip()
+        return out
+
     def create_stack(self, request : Schema__Vault_App__Create__Request,
                            creator : str = '') -> Schema__Vault_App__Create__Response:
         t0           = time.monotonic()
@@ -139,6 +169,7 @@ class Vault_App__Service(Spec__Service__Base):
         # we can detect in one Route 53 API call up front.
         if bool(request.with_aws_dns):
             self._preflight_aws_dns_zone(str(request.tls_hostname).strip())
+        custom_tags  = self.parse_custom_tags(str(request.custom_tags))                 # raises on a reserved key BEFORE any AWS mutation
         region       = str(request.region)        or DEFAULT_REGION
         caller_ip    = str(request.caller_ip)     or self.ip_detector.detect()
         if not caller_ip:
@@ -178,6 +209,7 @@ class Vault_App__Service(Spec__Service__Base):
         if float(request.max_hours) > 0:
             terminate_at = datetime.now(timezone.utc) + timedelta(hours=float(request.max_hours))
             extra[TAG_TERMINATE_AT] = terminate_at.strftime('%Y-%m-%dT%H:%M:%SZ')
+        extra.update(custom_tags)                                                       # operator --tag KEY=VALUE (reserved keys already rejected)
         tags = self.aws_client.tags.build(stack_name, caller_ip, creator, extra_tags=extra)
         tags = self.apply_name_prefix(tags, stack_name, str(request.name_prefix))
 
