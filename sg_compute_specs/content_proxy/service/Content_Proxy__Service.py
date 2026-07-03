@@ -43,6 +43,12 @@ def _default_aws_dns_zone() -> str:
     return os.environ.get('SG_AWS__DNS__DEFAULT_ZONE', DEFAULT_AWS_DNS_ZONE)
 
 
+def resolve_proxyauth(user: str, password: str, has_env_file: bool) -> tuple:       # ext (Mode 1) basic-auth: an --env-file ships its own; else default the user to 'demo' and GENERATE a GUID pass so the internet-facing proxy never boots with empty auth (proxyauth=:)
+    if has_env_file:                                                                # the shipped .env carries CONTENT_PROXY__PROXYAUTH_* verbatim
+        return user, password
+    return (user or 'demo'), (password or str(uuid.uuid4()))
+
+
 def derive_account_id(region: str) -> str:                                          # deploying account (operator's session) — written to the box .env so the mitm-service app has AWS_ACCOUNT_ID even on the instance-role path
     try:
         from osbot_aws.AWS_Config import AWS_Config
@@ -288,6 +294,8 @@ class Content_Proxy__Service(Spec__Service__Base):
         keys_from_env = bool(env_map.get('FAST_API__AUTH__API_KEY__VALUE')
                              or env_map.get('SGRAPH_SEND__ACCESS_TOKEN')
                              or env_map.get('FASTAPI_API_KEY_VALUE'))
+        request.proxyauth_user, request.proxyauth_pass = resolve_proxyauth(          # ext (internet-facing) proxy needs real basic-auth — local `up` fills it via realize_secrets, the EC2 path must too (else proxyauth=: → empty/broken Mode 1)
+            str(request.proxyauth_user), str(request.proxyauth_pass), bool(str(request.env_inline)))
         extra_tags = {TAG_MODE  : request.mode.value,
                       TAG_TLS   : request.tls.value ,
                       TAG_EDGE  : request.edge.value,
@@ -334,6 +342,8 @@ class Content_Proxy__Service(Spec__Service__Base):
             fastapi_api_key    = fastapi_key                                 ,
             access_token       = access_token                                ,
             secrets_from_env   = keys_from_env                              ,
+            proxyauth_user     = str(request.proxyauth_user)                 ,
+            proxyauth_pass     = str(request.proxyauth_pass)                 ,
             message    = f'Instance {iid} launching ({STACK_TYPE}, {request.proxy_tool.value}, S3 via {creds_path})',
             elapsed_ms = int((time.monotonic() - t0) * 1000)                 )
 

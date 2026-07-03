@@ -10,7 +10,26 @@ from sg_compute_specs.content_proxy.enums.Enum__Content_Proxy__Edge             
 from sg_compute_specs.content_proxy.enums.Enum__Content_Proxy__Tls                    import Enum__Content_Proxy__Tls
 from sg_compute_specs.content_proxy.schemas.Schema__Content_Proxy__Create__Request   import Schema__Content_Proxy__Create__Request
 from sg_compute_specs.content_proxy.service.Content_Proxy__Service                    import (sg_rules, derive_fqdn,
+                                                                                            resolve_proxyauth,
                                                                                             EXT_PROXY_PORT, VAULT_PORT, ACME_PORT)
+
+
+class test_resolve_proxyauth(TestCase):
+
+    def test_blank_gets_demo_user_and_generated_pass(self):                          # the EC2 gap: without this the ext proxy ships proxyauth=:
+        user, pw = resolve_proxyauth('', '', has_env_file=False)
+        assert user == 'demo'
+        assert len(pw) == 36 and pw != ''                                            # a uuid4 GUID, never blank
+
+    def test_explicit_creds_preserved(self):
+        assert resolve_proxyauth('alice', 's3cret', has_env_file=False) == ('alice', 's3cret')
+
+    def test_env_file_ships_its_own_verbatim(self):                                  # an --env-file carries CONTENT_PROXY__PROXYAUTH_* itself
+        assert resolve_proxyauth('', '', has_env_file=True) == ('', '')
+
+    def test_partial_explicit_user_keeps_user_generates_pass(self):
+        user, pw = resolve_proxyauth('ops', '', has_env_file=False)
+        assert user == 'ops' and len(pw) == 36
 
 
 class test_sg_rules(TestCase):

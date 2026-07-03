@@ -130,8 +130,7 @@ class Content_Proxy__User_Data__Builder(Type_Safe):
         # (when set) makes Caddy do public auto-ACME; blank → `tls internal` (IP/local).
         if getattr(request, 'edge', None) != Enum__Content_Proxy__Edge.CADDY:
             return '# edge=none — vault is the front door (no Caddyfile)'
-        acme_email = str(getattr(request, 'proxyauth_user', '') or '')               # not used for ACME; placeholder left blank below
-        caddyfile  = Content_Proxy__Edge__Template().render(hostname=hostname, acme_email='')
+        caddyfile  = Content_Proxy__Edge__Template().render(hostname=hostname, acme_email='')   # acme_email not wired yet (no --acme-email flag)
         return ('echo "[content-proxy] writing Caddyfile (edge=caddy)"\n'
                 f"cat > {APP_DIR}/Caddyfile <<'CP_CADDY_EOF'\n{caddyfile}\nCP_CADDY_EOF")
 
