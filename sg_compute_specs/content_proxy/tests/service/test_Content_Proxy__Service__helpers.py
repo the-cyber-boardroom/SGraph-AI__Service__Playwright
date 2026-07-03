@@ -10,8 +10,28 @@ from sg_compute_specs.content_proxy.enums.Enum__Content_Proxy__Edge             
 from sg_compute_specs.content_proxy.enums.Enum__Content_Proxy__Tls                    import Enum__Content_Proxy__Tls
 from sg_compute_specs.content_proxy.schemas.Schema__Content_Proxy__Create__Request   import Schema__Content_Proxy__Create__Request
 from sg_compute_specs.content_proxy.service.Content_Proxy__Service                    import (sg_rules, derive_fqdn,
-                                                                                            resolve_proxyauth,
+                                                                                            resolve_proxyauth, couple_env_access_token,
                                                                                             EXT_PROXY_PORT, VAULT_PORT, ACME_PORT)
+
+
+class test_couple_env_access_token(TestCase):
+
+    def test_divergent_pair_unified_to_canonical(self):                              # a shipped --env-file with two different reals must not deploy divergent (→ /pw 'Invalid API key value')
+        env = 'FAST_API__AUTH__API_KEY__VALUE=aaa\nSGRAPH_SEND__ACCESS_TOKEN=bbb\n'
+        out, token = couple_env_access_token(env)
+        assert token == 'bbb'                                                         # SGRAPH_SEND__ACCESS_TOKEN is canonical (operator-facing)
+        assert 'FAST_API__AUTH__API_KEY__VALUE=bbb' in out
+        assert 'SGRAPH_SEND__ACCESS_TOKEN=bbb'      in out
+
+    def test_missing_pair_member_backfilled(self):
+        out, token = couple_env_access_token('SGRAPH_SEND__ACCESS_TOKEN=tok\n')
+        assert token == 'tok'
+        assert 'FAST_API__AUTH__API_KEY__VALUE=tok' in out                           # appended so both are present + identical
+
+    def test_no_token_defined_leaves_env_unchanged(self):                            # env-file defines neither → don't fabricate
+        env = 'SEND__STORAGE_MODE=memory\n'
+        out, token = couple_env_access_token(env)
+        assert token == '' and out == env
 
 
 class test_resolve_proxyauth(TestCase):
