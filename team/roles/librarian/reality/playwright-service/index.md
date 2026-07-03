@@ -28,10 +28,17 @@ Wired by `Fast_API__Playwright__Service.setup_routes()` (`sg_compute_specs/playw
 | Method | Path | Notes |
 |--------|------|-------|
 | GET | `/health/info` | Service identity (`Schema__Service__Info`) |
-| GET | `/health/status` | Liveness (`Schema__Health`) |
+| GET | `/health/status` | Liveness (`Schema__Health`) — `healthy` aggregates **gating** checks only (see F1 note) |
 | GET | `/health/capabilities` | Declared capabilities (`Schema__Service__Capabilities`) |
 
 Source: `sg_compute_specs/playwright/core/fast_api/routes/Routes__Health.py:31-43`.
+
+> **F1 health-semantics fix (2026-07-03).** `/health/status` used to compute `healthy = all(checks)` where one check was vault connectivity (`bool(SG_SEND_BASE_URL)`) — every deployment without the vault env var (laptop, plain `docker run`) reported unhealthy forever and the console badge showed `degraded`. Vault reachability is a **capability** (already surfaced as `capabilities.has_vault_access`), not liveness. Now:
+> - `Schema__Health__Check` carries `gating : bool = True` (`sg_compute_specs/playwright/core/schemas/service/Schema__Health__Check.py:14`). Gating checks AND into `Schema__Health.healthy`; informational (`gating=False`) checks stay in the `checks` list with their detail but never flip the aggregate. Wire shape stays backward-compatible (`healthy` bool + `checks` list; each check gains the `gating` field).
+> - `connectivity` is informational: `Capability__Detector.connectivity_check()` sets `gating=False` (`sg_compute_specs/playwright/core/service/Capability__Detector.py:200-206`). Aggregation: `Playwright__Service.get_health()` — `all(c.healthy for c in checks if c.gating)` (`sg_compute_specs/playwright/core/service/Playwright__Service.py:121-126`).
+> - **Chromium version probe rewritten** (`chromium 0.0.0` fix, same F1): the old probe opened `sync_playwright()` inside the running service — under uvicorn's asyncio loop the sync API raises, so it always fell into the `0.0.0` fallback. `detect_chromium_version()` now reads the pip package's bundled driver metadata `playwright/driver/package/browsers.json` (`chromium` → `browserVersion`, e.g. `148.0.7778.96`) with a path-segment fallback on `SG_PLAYWRIGHT__CHROMIUM_EXECUTABLE`, then `0.0.0` (`Capability__Detector.py:153-184`). No browser launch, no subprocess — pure file read.
+> - New primitive `Safe_Str__Version__Browser` (`sg_compute_specs/playwright/core/schemas/primitives/text/Safe_Str__Version__Browser.py`) — osbot's `Safe_Str__Version` caps at 3 segments × 3 digits (max 12 chars) and can never hold a real Chrome version, a third contributing cause of the permanent `0.0.0`. `Schema__Service__Info.chromium_version` now uses it.
+> - CI image gate: `tests/integration_live/test_99_ui_console.py::test_6__console_renders_in_image_browser` (F4.2) makes the image's own Chromium render `GET /` from inside the container (`http://localhost:8000/`, API key planted as a cookie via the `set_cookie` step) and asserts via `get_dom_tree` that `#builder` is visible with a non-zero rect — catches the empty-shell console regression the HTML-substring check (test_2) cannot see.
 
 #### Browser one-shot (6) — `Routes__Browser`
 

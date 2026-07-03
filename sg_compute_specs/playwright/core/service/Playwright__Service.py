@@ -121,7 +121,7 @@ class Playwright__Service(Type_Safe):
     def get_health(self) -> Schema__Health:
         checks  = [self.browser_launcher   .healthcheck()        ,
                    self.capability_detector.connectivity_check() ]
-        healthy = all(c.healthy for c in checks)
+        healthy = all(c.healthy for c in checks if c.gating)                        # F1 — only gating checks AND into the aggregate; informational checks (vault connectivity) stay visible in the list but never flip `healthy`
         return Schema__Health(healthy = healthy ,
                               checks  = checks  )
 

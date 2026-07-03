@@ -220,10 +220,13 @@ class test_get_health(TestCase):
         names = [str(c.check_name) for c in health.checks]
         assert names == ['browser_launcher', 'connectivity']
 
-    def test__healthy_false_when_vault_unreachable(self):
-        with _EnvScrub():                                                           # Connectivity check returns healthy=False
+    def test__healthy_even_when_vault_unreachable(self):                            # F1 — deliberate contract change: vault connectivity is informational (gating=False), so a laptop / plain docker run without SG_SEND_BASE_URL is still healthy
+        with _EnvScrub():                                                           # Connectivity check returns healthy=False...
             health = Playwright__Service().get_health()
-        assert health.healthy is False                                              # all() over checks; connectivity brings it down
+        assert health.healthy is True                                               # ...but only gating checks AND into the aggregate
+        connectivity = next(c for c in health.checks if str(c.check_name) == 'connectivity')
+        assert connectivity.healthy is False                                        # Still visible + truthful in the checks list
+        assert connectivity.gating  is False
 
     def test__healthy_true_when_vault_url_configured(self):
         with _EnvScrub(**{ENV_VAR__SG_SEND_BASE_URL: 'https://vault.example.com'}):
