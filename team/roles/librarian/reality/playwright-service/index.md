@@ -155,7 +155,8 @@ Source: `sg_compute_specs/playwright/core/agentic_fastapi/Agentic_Admin_API.py:6
 | `Artefact__Writer` | `Artefact__Writer.py` | **Only class allowed to write to sinks.** |
 | `Request__Validator` | `Request__Validator.py` | Cross-schema validation. |
 | `Request__Watchdog` | `Request__Watchdog.py` | Background thread; fires `os._exit(2)` when a request exceeds the hard cap. |
-| `JS__Expression__Allowlist` | `JS__Expression__Allowlist.py` | Deny-all default for the `evaluate` action. |
+| `JS__Expression__Allowlist` | `JS__Expression__Allowlist.py` | Deny-all default for the `evaluate` action (+ `wait_for.function`). `is_enabled()` reports whether ANY user JS can run. |
+| `JS__Expression__Allowlist__Loader` | `JS__Expression__Allowlist__Loader.py` | Builds the boot-time script policy from env — `SG_PLAYWRIGHT__JS_ALLOW_ALL` (bypass) and `SG_PLAYWRIGHT__JS_ALLOWLIST_FILE` (curated exact-match list). **Both default OFF → deny-all preserved.** Applied to the main runner's validator in `Playwright__Service.setup()`; the `/screenshot` runner keeps its own separate `allow_all` validator. Surfaced as `Schema__Service__Capabilities.js_evaluate_enabled`. See `library/guides/v0.2.64__enabling-script-execution.md`. |
 | `Credentials__Loader` | `Credentials__Loader.py` | Vault-side credentials hydration. Also the ONLY `context.add_cookies` caller — the `set_cookie` verb lands here via `add_cookie(context, step)` (stateless: per-request context only). |
 | `Capability__Detector` | `Capability__Detector.py` | Primed in `Fast_API__Playwright__Service.setup()`. |
 

@@ -23,3 +23,4 @@ class Schema__Service__Capabilities(Type_Safe):                                 
     has_s3_access           : bool                                                  # Can reach S3
     has_network_egress      : bool                                                  # False in some sandboxed envs
     proxy_configured        : bool                                                  # Egress routes through proxy
+    js_evaluate_enabled     : bool                                                  # True when evaluate/wait_for.function can run user JS (allow_all or a non-empty allowlist via env); deny-all when False

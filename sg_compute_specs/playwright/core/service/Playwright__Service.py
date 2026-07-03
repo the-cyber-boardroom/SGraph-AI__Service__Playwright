@@ -64,6 +64,7 @@ from sg_compute_specs.playwright.core.service.Capability__Detector              
 from sg_compute_specs.playwright.core.schemas.browser.Schema__Browser__Config               import Schema__Browser__Config
 from sg_compute_specs.playwright.core.service.Credentials__Loader                           import Credentials__Loader
 from sg_compute_specs.playwright.core.service.JS__Expression__Allowlist                     import JS__Expression__Allowlist
+from sg_compute_specs.playwright.core.service.JS__Expression__Allowlist__Loader             import JS__Expression__Allowlist__Loader
 from sg_compute_specs.playwright.core.service.Request__Validator                            import Request__Validator
 from sg_compute_specs.playwright.core.service.Sequence__Runner                              import Sequence__Runner
 from sg_compute_specs.playwright.core.service.Session__Registry                             import Session__Registry
@@ -90,6 +91,7 @@ class Playwright__Service(Type_Safe):
     def setup(self) -> 'Playwright__Service':
         if self.capability_detector.detected_target is None:
             self.capability_detector.detect()
+        self.request_validator.js_allowlist       = JS__Expression__Allowlist__Loader().load()   # boot-time script policy from env (deny-all when unset); mutates the shared validator the main runner + probe executor use — the /screenshot runner keeps its own allow_all validator
         self.sequence_runner.capability_detector  = self.capability_detector
         self.sequence_runner.request_validator    = self.request_validator
         self.sequence_runner.browser_launcher     = self.browser_launcher

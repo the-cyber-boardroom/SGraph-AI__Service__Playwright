@@ -28,6 +28,7 @@ from sg_compute_specs.playwright.core.consts.version                            
 from sg_compute_specs.playwright.core.schemas.enums.Enum__Artefact__Sink                                import Enum__Artefact__Sink
 from sg_compute_specs.playwright.core.schemas.enums.Enum__Browser__Name                                 import Enum__Browser__Name
 from sg_compute_specs.playwright.core.schemas.enums.Enum__Deployment__Target                            import Enum__Deployment__Target
+from sg_compute_specs.playwright.core.service.JS__Expression__Allowlist__Loader                          import JS__Expression__Allowlist__Loader
 from sg_compute_specs.playwright.core.schemas.primitives.text.Safe_Str__Version__Browser                import Safe_Str__Version__Browser
 from sg_compute_specs.playwright.core.schemas.service.Schema__Health__Check                             import Schema__Health__Check
 from sg_compute_specs.playwright.core.schemas.service.Schema__Service__Capabilities                     import Schema__Service__Capabilities
@@ -46,6 +47,7 @@ class Capability__Detector(Type_Safe):
     def detect(self) -> 'Capability__Detector':
         self.detected_target       = self.detect_target()
         self.detected_capabilities = self.build_capabilities(self.detected_target)
+        self.detected_capabilities.js_evaluate_enabled = JS__Expression__Allowlist__Loader().load().is_enabled()   # env-driven, deployment-independent; deny-all → False
         return self
 
     def target(self) -> Enum__Deployment__Target:

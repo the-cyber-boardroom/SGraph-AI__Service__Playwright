@@ -24,6 +24,8 @@ from sg_compute_specs.playwright.core.consts.env_vars                           
                                                                                                     ENV_VAR__DEFAULT_PROXY_URL     ,
                                                                                                     ENV_VAR__DEFAULT_S3_BUCKET     ,
                                                                                                     ENV_VAR__DEPLOYMENT_TARGET     ,
+                                                                                                    ENV_VAR__JS_ALLOW_ALL          ,
+                                                                                                    ENV_VAR__JS_ALLOWLIST_FILE     ,
                                                                                                     ENV_VAR__SG_SEND_BASE_URL      )
 from sg_compute_specs.playwright.core.schemas.browser.Schema__Browser__Click__Request            import Schema__Browser__Click__Request
 from sg_compute_specs.playwright.core.schemas.browser.Schema__Browser__Fill__Request             import Schema__Browser__Fill__Request
@@ -52,6 +54,8 @@ ENV_KEYS = [ENV_VAR__AWS_LAMBDA_RUNTIME_API,
             ENV_VAR__DEFAULT_PROXY_URL     ,
             ENV_VAR__DEFAULT_S3_BUCKET     ,
             ENV_VAR__DEPLOYMENT_TARGET     ,
+            ENV_VAR__JS_ALLOW_ALL          ,
+            ENV_VAR__JS_ALLOWLIST_FILE     ,
             ENV_VAR__SG_SEND_BASE_URL      ]
 
 
@@ -184,8 +188,19 @@ class test_setup(TestCase):
         assert service.sequence_runner.credentials_loader  is service.credentials_loader
         assert service.sequence_runner.request_validator   is service.request_validator
 
+    # ── script policy (F-review): deny-all by default; env opens it; capability flag tracks it ──
+    def test__evaluate_denied_by_default(self):
+        with _EnvScrub(**{ENV_VAR__DEPLOYMENT_TARGET: 'lambda'}):
+            service = Playwright__Service().setup()
+            assert service.request_validator.js_allowlist.is_enabled()          is False
+            assert service.get_capabilities().js_evaluate_enabled               is False
 
-class test_get_service_info(TestCase):
+    def test__js_allow_all_env_opens_main_runner(self):
+        with _EnvScrub(**{ENV_VAR__DEPLOYMENT_TARGET: 'lambda', ENV_VAR__JS_ALLOW_ALL: 'true'}):
+            service = Playwright__Service().setup()
+            assert service.request_validator.js_allowlist.allow_all             is True
+            assert service.sequence_runner.request_validator.js_allowlist.allow_all is True   # shared object → runner sees it
+            assert service.get_capabilities().js_evaluate_enabled              is True
 
     def test__returns_schema_service_info(self):
         with _EnvScrub(**{ENV_VAR__DEPLOYMENT_TARGET: 'laptop'}):

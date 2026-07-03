@@ -131,7 +131,8 @@ All 11 service classes verified present 2026-05-17:
 | `Request__Watchdog` | Hard-timeout watchdog; `os._exit(2)` when a request exceeds the cap. Disabled via `ENV_VAR__WATCHDOG_DISABLED='1'` for tests. |
 | `Capability__Detector` | Detects browser capabilities; primed on `setup()`. |
 | `Credentials__Loader` | Loads vault credentials. Also the ONLY class that calls `context.add_cookies` — the `set_cookie` step verb lands here via `add_cookie(context, step)` (stateless: per-request context only). |
-| `JS__Expression__Allowlist` | Allowlist gate for `evaluate` step actions — defaults to deny-all. |
+| `JS__Expression__Allowlist` | Allowlist gate for `evaluate` / `wait_for.function` — defaults to deny-all. |
+| `JS__Expression__Allowlist__Loader` | Builds the boot policy from env (`SG_PLAYWRIGHT__JS_ALLOW_ALL`, `SG_PLAYWRIGHT__JS_ALLOWLIST_FILE`); both default OFF. Guide: `library/guides/v0.2.64__enabling-script-execution.md`. |
 
 > Historical note: `Proxy__Auth__Binder` was removed in v0.1.33; the `agent_mitmproxy` sidecar (also since deleted in BV2.12, 2026-05-05) handled upstream proxy auth.
 
