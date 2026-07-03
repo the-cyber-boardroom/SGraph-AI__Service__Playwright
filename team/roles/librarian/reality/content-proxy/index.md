@@ -1,19 +1,19 @@
 # content-proxy — Reality Index
 
-**Domain:** `content-proxy/` | **Last updated:** 2026-06-18 | **Maintained by:** Dev (landing) → Librarian (verify)
-**Code-source basis:** `sg_compute_specs/content_proxy/` at package version `0.1.0` (branch `claude/clever-wozniak-r0dxkh`, not yet merged to `dev`).
+**Domain:** `content-proxy/` | **Last updated:** 2026-07-03 | **Maintained by:** Dev (landing) → Librarian (verify)
+**Code-source basis:** `sg_compute_specs/content_proxy/` at package version `0.1.0` — **merged to `dev`** (repo line `v0.2.65`).
 
 The content-transformation proxy stack: a browser routes through **mitmproxy**, which forwards every HTML request/response to a **FastAPI MITM service** that injects a client-side transformation `<script>`; **sg-playwright** drives/QAs it; the **vault app** terminates `:443` + `/pw`. Two mitmproxy instances (ext basic-auth for humans, int no-auth for Playwright) into one workflow. Spec: [`library/docs/specs/v0.2.63__content-transformation-proxy-stack.md`](../../../../library/docs/specs/v0.2.63__content-transformation-proxy-stack.md). Brief pack: `team/roles/architect/reviews/06/18/v0.2.63__content-transformation-proxy/`.
 
 ---
 
-## EXISTS (code-verified, 118 unit tests passing — no mocks)
+## EXISTS (code-verified, 179 unit tests passing — no mocks)
 
 ### Spec skeleton (`sg_compute_specs/content_proxy/`)
 - `manifest.py` — `MANIFEST` (`spec_id='content_proxy'`, caps `MITM_PROXY` + `BROWSER_AUTOMATION` + `REMOTE_SHELL`, `EXPERIMENTAL`). Conformance test green.
 - `version` — `0.1.0`.
-- **Enums:** `Mode` (DIRECT_PROXY/VAULT_WEB), `Tls` (NONE/LETSENCRYPT/ACM), `Vault__Kind` (ZIP/SGIT), `Flow__Action` (INJECTED/BLOCKED/CACHED/SKIPPED/FALLBACK/PASSED), `Proxy` (EXT/INT), `Stack__State`.
-- **Primitives:** `Safe_Str__Content_Proxy__Stack__Name`, `Safe_Str__Content_Proxy__Ref` (paths/URIs/sgit), `Safe_Str__IP__Address`.
+- **Enums (8):** `Mode` (DIRECT_PROXY/VAULT_WEB), `Tls` (NONE/**SELF_SIGNED**/LETSENCRYPT/ACM), `Vault__Kind` (ZIP/SGIT), `Flow__Action` (INJECTED/BLOCKED/CACHED/SKIPPED/FALLBACK/PASSED), `Proxy` (EXT/INT), `Stack__State`, `Edge` (NONE/CADDY), `Proxy__Tool` (MITMWEB/MITMDUMP).
+- **Primitives (4):** `Safe_Str__Content_Proxy__Stack__Name`, `Safe_Str__Content_Proxy__Ref` (paths/URIs/sgit), `Safe_Str__IP__Address`, `Safe_Str__Content_Proxy__Env__File` (backs `env_inline` / full `.env` bodies).
 - **Schemas:** `Create__Request` (images default to Docker Hub refs incl. `diniscruz/mgraph-ai-service-mitmproxy`; `mitmproxy/mitmproxy:12.2.3`; tls; proxyauth; proxy CA; `vaults_to_load` empty in MVP), `Vault__Source`, `Flow__Summary`, `Stack__Info` (5-component health). Collections for both.
 
 ### Interceptor (`interceptors/`)
@@ -35,7 +35,7 @@ The content-transformation proxy stack: a browser routes through **mitmproxy**, 
 ### EC2 launch + CLI (`service/`, `cli/`) — reuses the shared `sg va` foundation
 - `Content_Proxy__AWS__Client` composes the shared EC2 helpers (`EC2__SG/AMI/Instance/Launch/Tags__*` + `Stack__Naming(section_prefix='cp')`, `stack_type='content-proxy'`) — no new AWS logic.
 - `Content_Proxy__Service` (`Spec__Service__Base`): `create_stack` / `list_stacks` / `get_stack_info` / `delete_stack` + `cli_spec`; `health`/`exec`/`connect` inherited. Tags carry `cp:mode` / `cp:tls`. `Content_Proxy__Stack__Mapper` (pure, tested). Create/List/Delete response schemas.
-- `Cli__Content_Proxy` (`Spec__CLI__Builder`): 8 standard verbs (`list/info/create/delete/wait/health/connect/exec`) + `ami`/`cert` groups + a top-level **`smoke`** (runs the `/mitm-proxy` chain check on the EC2 box via SSM, no SSH) + create extras (`--env-file` ships a working `.env` verbatim, `--scripts-bucket`, `--forward-aws-creds`, `--proxy-tool`, `--tls`, `--proxyauth-*`, `--proxy-ca-*`) + a **`local up|down|status|logs|smoke|pull|ca`** group wrapping `docker compose` on the committed local stack (`smoke` = curl the `/mitm-proxy` chain check through mitmproxy-ext; `pull` = refresh `:latest`; `ca` = show the mitmproxy CA cert for browser import; `up --pull`). Registered in `sg_compute/cli/Cli__SG.py` as **`sg content-proxy`** (alias `cp`).
+- `Cli__Content_Proxy` (`Spec__CLI__Builder`): standard verbs `list/info/create/delete/health/connect/exec` (the builder's default `wait` is **replaced** — see below) + `ami` (bake/delete/list/wait) / `cert` (check/generate/inspect/show) groups + top-level **`smoke`** (the `/mitm-proxy` chain check on the EC2 box via SSM, no SSH), **`logs`** (stream any of 10 host/container log sources over SSM — incl. `cert-init`, `caddy`), and the diagnose-driven **`check`** / **`wait`** (see "Boot diagnostics" below) + create extras (`--env-file` ships a working `.env` verbatim, `--scripts-bucket`, `--forward-aws-creds`, `--proxy-tool`, `--tls`, `--proxyauth-*`, `--proxy-ca-*`) + a **`local up|down|status|logs|smoke|pull|ca`** group wrapping `docker compose` on the committed local stack (`smoke` = curl the `/mitm-proxy` chain check through mitmproxy-ext; `pull` = refresh `:latest`; `ca` = show the mitmproxy CA cert for browser import; `up --pull`). Registered in `sg_compute/cli/Cli__SG.py` as **`sg content-proxy`** (alias `cp`).
 
 ### Vault TLS on :443 (mirrors `sg va`)
 - `Enum__Content_Proxy__Tls` = NONE / SELF_SIGNED / LETSENCRYPT (→ cert-init `letsencrypt-ip`) / ACM (ALB — not wired). When `tls != NONE` the compose adds a one-shot **`cert-init`** sidecar (`diniscruz/sg-host-control`, auto-detects the public IP via IMDS) that writes `/certs` to a shared `vault_certs` volume; the vault terminates TLS on :443 via `FAST_API__TLS__*`. LETSENCRYPT also opens/publishes `:80` (ACME http-01). `create` opens SG `:80` only for LETSENCRYPT. Health probe scheme follows the stack's tls (http for NONE, https for TLS).
@@ -52,11 +52,28 @@ The content-transformation proxy stack: a browser routes through **mitmproxy**, 
 ### Configurable proxy tool
 - `Enum__Content_Proxy__Proxy__Tool` (MITMWEB | MITMDUMP). Create request defaults to **MITMDUMP** (prod-safe, no in-memory flow accumulation); the committed local compose + template default to **MITMWEB** (dev — TUI `/flows`).
 
+### Boot diagnostics — `diagnose()` + `check` / `wait` (2026-07)
+- `Content_Proxy__Service.diagnose(region, name)` — an **8-stage generator** yielding `(check, status, detail)` over SSM: `ec2-state → ssm-reachable → boot-failed → container-engine → containers-up → cert-init → vault-http → boot-ok` (+ the CLI appends an `external-http` `svc.health()` probe). Pure parsers back it: `expected_containers`/`has_cert_init` (shape-aware: base 5 + `cp-cert-init` for non-caddy TLS + `cp-caddy` for edge), `parse_ps_names_status`/`containers_up_status`, `engine_active`, `boot_log_failed/complete/last_stage`, `cert_init_status`.
+- `sg cp check` (one-shot) and `sg cp wait` (loops until all-OK/timeout) render a live Rich check-table via the **shared** `sg_compute/cli/base/Spec__Diagnose__Renderer`; **`create --wait` uses the same table** (the builder's silent `_wait_healthy` now delegates to the diagnose renderer when the service exposes `diagnose()`). Per-failure rows suggest the matching `sg cp logs --source <x>`.
+
+### Credential / env plumbing (2026-07)
+- **`SG_PLAYWRIGHT__IGNORE_HTTPS_ERRORS`** (prefixed) is the name sg-playwright reads — the compose emits the prefixed form (an earlier bare `IGNORE_HTTPS_ERRORS` was silently ignored → `ERR_CERT_AUTHORITY_INVALID` through mitmproxy).
+- **`realize_secrets`** re-couples `FAST_API__AUTH__API_KEY__VALUE` ↔ `SGRAPH_SEND__ACCESS_TOKEN` whenever they **differ** (not only when blank/`change-me`) — a drifted local `.env` otherwise yielded "Invalid API key value" on `/pw`.
+- **`AWS_ACCOUNT_ID`** is always written to the box `.env` (derived via `derive_account_id` → osbot-aws `AWS_Config().aws_session_account_id()`), not only on the `--forward-aws-creds` path.
+- **`CACHE__SERVICE__BUCKET_NAME`** — `create` inherits it from the operator's local `.env` when `--scripts-bucket` is blank (`resolve_scripts_bucket`).
+- **`block_global=false`** — `proxy_command(allow_global=…)` sets it on the **ext** (internet-facing) proxy only; without it mitmproxy kills remote browsers from public IPs ("killed by block_global option"). The int proxy (docker-network, private IPs) is unaffected.
+
 ---
 
 ## PROPOSED — does not exist yet
 
-See [`proposed/index.md`](proposed/index.md). The EC2 launch Service + CLI now EXIST (above). Remaining: **Textual screens + live `__TUI__Source`** (the render fns exist), **api/routes**, **deploy-via-pytest + real-Chromium integration**, **vault loading** (post-MVP), and **LE/ACM TLS wiring**. None unit-testable without docker/AWS.
+See [`proposed/index.md`](proposed/index.md). The EC2 launch Service + CLI now EXIST (above). Remaining: **Textual screens + live `__TUI__Source`** (the render fns exist; `tui/screens/` is empty), **api/routes** (empty package — `manifest.create_endpoint_path='/api/specs/content_proxy/stack'` is still a claim with no route behind it), **deploy-via-pytest + real-Chromium integration** (all 179 tests are pure unit — no docker-compose bring-up), **vault loading** (post-MVP), and **ACM (ALB) TLS**. Note: **SELF_SIGNED + LETSENCRYPT are now wired** via the `cert-init` sidecar (see the TLS section above) — only ACM remains proposed.
+
+### Known gaps / open bugs (2026-07 review)
+- **EC2 `create` ships the ext (internet-facing) proxy with empty basic-auth** unless `--proxyauth-*` is passed — `realize_secrets` (which fills a GUID pass locally) does not run on the EC2 path, so the box gets `proxyauth=:`.
+- **`--env-file` bypasses the access-token coupling guard** — a shipped `.env` with divergent `FAST_API__AUTH__API_KEY__VALUE` / `SGRAPH_SEND__ACCESS_TOKEN` deploys as-is (the `/pw` "Invalid API key value" failure, unguarded server-side).
+- **`--proxy-ca-cert` / `--proxy-ca-key` are no-ops** — only `--ca-from-local` (→ `proxy_ca_pem`) actually ships a CA; a supplied cert path just emits a comment.
+- **`cp:access-token` tag** holds the live bearer token in plaintext EC2 metadata (by-design parity with `sg va`, but readable via `ec2:DescribeTags` / CloudTrail).
 
 ---
 
