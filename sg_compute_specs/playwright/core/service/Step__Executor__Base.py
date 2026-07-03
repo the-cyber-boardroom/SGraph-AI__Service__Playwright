@@ -32,6 +32,7 @@ from sg_compute_specs.playwright.core.schemas.primitives.identifiers.Step_Id    
 from sg_compute_specs.playwright.core.schemas.results.Schema__Step__Result__Base                        import Schema__Step__Result__Base
 from sg_compute_specs.playwright.core.schemas.steps.Schema__Step__Base                                  import Schema__Step__Base
 from sg_compute_specs.playwright.core.service.Artefact__Writer                                          import Artefact__Writer
+from sg_compute_specs.playwright.core.service.Credentials__Loader                                       import Credentials__Loader
 
 
 # Action → handler-method name. Single source of truth for dispatch; reused by
@@ -62,12 +63,14 @@ ACTION_HANDLERS = {
     Enum__Step__Action.SCROLL         : 'execute_scroll'         ,
     Enum__Step__Action.SET_VIEWPORT   : 'execute_set_viewport'   ,
     Enum__Step__Action.DISPATCH_EVENT : 'execute_dispatch_event' ,
+    Enum__Step__Action.SET_COOKIE     : 'execute_set_cookie'     ,
 }
 
 
 class Step__Executor__Base(Type_Safe):
 
-    artefact_writer : Artefact__Writer
+    artefact_writer    : Artefact__Writer
+    credentials_loader : Credentials__Loader                                            # set_cookie delegate — Credentials__Loader stays the ONLY class that calls context.add_cookies
 
     # ─── Dispatch lookup (engine-neutral) ──────────────────────────────────────
 

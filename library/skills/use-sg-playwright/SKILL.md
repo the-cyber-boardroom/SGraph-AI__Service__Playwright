@@ -54,7 +54,7 @@ curl -sf -H "X-API-Key: ${TOKEN}"             "${HOST}/health/info"           # 
 | Prometheus metrics | `GET /metrics` |
 | Capability detection | `GET /health/capabilities` |
 
-## The 24 step verbs
+## The 25 step verbs
 
 Linear pipeline steps for `/sequence/execute`, building blocks for `/inspect` probes:
 
@@ -63,8 +63,13 @@ navigate        click           fill            press           select          
 scroll          wait            wait_for        screenshot      evaluate        dispatch_event
 set_viewport    get_content     get_url         get_text        get_html        get_dom_tree
 get_a11y_tree   get_pdf         get_console_tail   get_network_failures
-video_start     video_stop
+set_cookie      video_start     video_stop
 ```
+
+`set_cookie` sets a cookie on the request's OWN fresh browser context (stateless —
+discarded when the request ends); needs exactly one of `url` / `domain` (+`path`,
+default `/`). A "reload" showing the cookie is simply a second `navigate` in the
+same request.
 
 ### `wait_for` predicates (precedence, top to bottom)
 

@@ -33,7 +33,8 @@ EXPECTED_IDS = {'simple'  : ['id="title"', 'id="intro"', 'id="footer"']         
                 'form'    : ['id="username"', 'id="password"', 'id="submit"', 'id="result"'],
                 'dynamic' : ['id="status"', 'id="late"', 'id="ready"']                     ,  # #ready injected by inline JS (present in source)
                 'links'   : ['id="link-alpha"', 'id="bottom"', 'id="gamma"']               ,
-                'slow'    : ['id="content"', 'id="loaded"']                                }
+                'slow'    : ['id="content"', 'id="loaded"']                                ,
+                'cookies' : ['id="cookie-list"', 'id="has-cookies"', 'id="no-cookies"']    }  # set_cookie slice — S6 target; renders document.cookie into stable ids
 
 
 class _EnvScrub:                                                                           # deterministic serving: auth ON via a known key, default prefix
@@ -56,8 +57,8 @@ class _EnvScrub:                                                                
 
 class test_Routes__Test_Pages(TestCase):
 
-    def test__fixture_names_are_the_five_self_contained_pages(self):
-        assert TEST_PAGE_NAMES         == ['simple', 'form', 'dynamic', 'links', 'slow']
+    def test__fixture_names_are_the_six_self_contained_pages(self):
+        assert TEST_PAGE_NAMES         == ['simple', 'form', 'dynamic', 'links', 'slow', 'cookies']
         assert ROUTES_PATHS__TEST_PAGES == [f'/test-pages/{n}' for n in TEST_PAGE_NAMES]
 
     def test__each_fixture_returns_200_with_expected_ids__without_an_api_key(self):

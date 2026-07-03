@@ -152,10 +152,11 @@ class test_Routes__Index__P2_console(TestCase):
         assert 'function applyCapabilities' in self.html
 
     def test__sequence_builder_has_real_verbs(self):
-        # the 24-verb vocabulary present in the builder verb table
+        # the 25-verb vocabulary present in the builder verb table
         for verb in ['navigate','click','fill','press','select','hover','scroll',
                      'wait_for','wait','screenshot','evaluate','get_pdf','get_dom_tree',
-                     'get_a11y_tree','get_console_tail','get_network_failures','set_viewport']:
+                     'get_a11y_tree','get_console_tail','get_network_failures','set_viewport',
+                     'set_cookie']:
             assert verb in self.html, f'verb {verb} missing from builder'
 
 
@@ -429,3 +430,42 @@ class test_Routes__Index__iteration2(TestCase):
 
     def test__console_runs_in_browser_not_server_allowlist(self):
         assert 'not the server-side evaluate allowlist' in self.html or 'NOT the server-side evaluate allowlist' in self.html
+
+
+# ════════════════════════════════════════════════════════════════════════════════
+#  set_cookie slice — S6 example, VERBS entry, F6 egress chips
+# ════════════════════════════════════════════════════════════════════════════════
+class test_Routes__Index__set_cookie_slice(TestCase):
+
+    @classmethod
+    def setUpClass(cls):
+        cls.html = _render()
+
+    # ── the set_cookie verb is in the hand-mirrored VERBS surface (docs + __tool generate from it) ──
+    def test__set_cookie_verb_in_verbs_table(self):
+        assert '  set_cookie:'          in self.html
+        for field in ["{n:'name',req:1}", "{n:'value',req:1}", "{n:'url'", "{n:'domain'}",
+                      "{n:'path',def:'/'}", "{n:'secure',type:'bool',def:false}",
+                      "{n:'http_only',type:'bool',def:false}", "{n:'same_site',enum:'same_site'}",
+                      "{n:'expires',type:'number'}"]:
+            assert field in self.html, f'set_cookie VERBS entry missing {field}'
+        assert "same_site:   ['Strict','Lax','None']" in self.html                   # ENUMS entry — Playwright's capitalised values
+
+    def test__set_cookie_hint_states_statelessness(self):                            # operator requirement: the per-request/no-persistence semantics are documented in the verb surface
+        assert 'stateless' in self.html
+        assert 'discarded after the request' in self.html
+
+    # ── S6 gallery example: navigate → shot → set_cookie → navigate (reload) → shot ──
+    def test__S6_example_present_and_targets_cookies_fixture(self):
+        assert "id:'S6'"                 in self.html
+        assert 'Set cookie'              in self.html
+        assert "tpUrl('cookies')"        in self.html                               # runtime-substituted like the rest of the S-series
+        assert "action:'set_cookie',name:'sg_demo',value:'hello-from-sg-playwright',url:tpUrl('cookies')" in self.html
+
+    # ── F6: egress chips on the W-series, none on the S-series ──
+    def test__F6_egress_chips_rendered_for_w_series(self):
+        assert self.html.count('egress:true,') == 9                                  # W1-W9 entries all flagged (trailing comma = the GALLERY literal, not comments; S-series unbadged)
+        assert '.gallery .gchip'   in self.html                                      # chip style defined
+        assert 'needs egress'      in self.html                                      # chip text in the gallery renderer
+        assert 'title="Targets an external site — fails on egress-restricted deployments"' in self.html
+        assert "w.egress?'<span class=\"gchip\"" in self.html                        # chip is conditional on the flag

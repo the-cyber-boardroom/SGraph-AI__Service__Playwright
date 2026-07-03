@@ -71,10 +71,11 @@ class test_Enum__Step__Action(TestCase):
             'get_text'      , 'get_html'      , 'get_dom_tree'  ,                   # Φ3 — FR-2 DOM-read verbs
             'get_a11y_tree' , 'get_pdf'       ,                                     # Φ3 — FR-5b accessibility, FR-5d PDF
             'get_console_tail', 'get_network_failures',                             # Φ4 — FR-5c listener-buffer verbs
+            'set_cookie'    ,                                                       # set_cookie slice — cookie on the per-request context (stateless)
         ])
 
-    def test__has_twenty_four_actions(self):                                        # Φ4 — added 2 (get_console_tail / get_network_failures). Was 22 after Φ3.
-        assert len(list(Enum__Step__Action)) == 24
+    def test__has_twenty_five_actions(self):                                        # set_cookie slice — added SET_COOKIE. Was 24 after Φ4.
+        assert len(list(Enum__Step__Action)) == 25
 
 
 class test_Enum__Wait__State(TestCase):

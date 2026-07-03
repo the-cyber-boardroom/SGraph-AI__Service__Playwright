@@ -83,13 +83,13 @@ All route classes are mounted by `Fast_API__Playwright__Service.setup_routes()`.
 
 | Method | Path | Handler | Returns |
 |--------|------|---------|---------|
-| GET | `/` | `Routes__Index.index` | Capability-driven agent-native **console** (HTML) — v0.2.64 rebuild (was the two-tab "Try it out" toy); 8 tabs, 24-verb sequence builder, S1–S5 (self-contained `/test-pages/*`) + W1–W9 gallery, in-app docs, in-page `window.__tool`, root_path-aware for `/pw`. Iteration 2: light center/right/bottom work panes (dark header + rail), `<sg-layout>` wrapping (CDN-optional, localStorage `sg-playwright:console:layout:v1`, CSS-grid fallback), framed screenshot viewer (Download + Open-in-new-tab), insecure-origin-safe `copyText`, bottom `window.__tool` REPL |
+| GET | `/` | `Routes__Index.index` | Capability-driven agent-native **console** (HTML) — v0.2.64 rebuild (was the two-tab "Try it out" toy); 8 tabs, 25-verb sequence builder, S1–S6 (self-contained `/test-pages/*`; S6 = set_cookie → reload → screenshot) + W1–W9 gallery (each W badged "needs egress" — external URLs), in-app docs, in-page `window.__tool`, root_path-aware for `/pw`. Iteration 2: light center/right/bottom work panes (dark header + rail), `<sg-layout>` wrapping (CDN-optional, localStorage `sg-playwright:console:layout:v1`, CSS-grid fallback), framed screenshot viewer (Download + Open-in-new-tab), insecure-origin-safe `copyText`, bottom `window.__tool` REPL |
 
-### Routes__Test_Pages — 1 route, 5 names (`Routes__Test_Pages.py`)
+### Routes__Test_Pages — 1 route, 6 names (`Routes__Test_Pages.py`)
 
 | Method | Path | Handler | Returns |
 |--------|------|---------|---------|
-| GET | `/test-pages/{name}` | `Routes__Test_Pages.page` | Deterministic HTML fixture (`name` ∈ simple/form/dynamic/links/slow) for the console S-series; 404 with HTML-escaped reflected name for unknown. Five concrete paths appended to `AUTH__EXCLUDED_PATHS` in `setup()` (keyless for the server-side browser) |
+| GET | `/test-pages/{name}` | `Routes__Test_Pages.page` | Deterministic HTML fixture (`name` ∈ simple/form/dynamic/links/slow/cookies) for the console S-series; 404 with HTML-escaped reflected name for unknown. Six concrete paths appended to `AUTH__EXCLUDED_PATHS` in `setup()` (keyless for the server-side browser). `cookies` renders `document.cookie` into `#cookie-list` / `#has-cookies` / `#no-cookies` (set_cookie / S6 target; the demo cookie must not be HttpOnly) |
 
 ### Routes__Set_Cookie — 2 endpoints (from `osbot_fast_api`)
 
@@ -130,7 +130,7 @@ All 11 service classes verified present 2026-05-17:
 | `Request__Validator` | **ALL cross-schema validation** lives here. |
 | `Request__Watchdog` | Hard-timeout watchdog; `os._exit(2)` when a request exceeds the cap. Disabled via `ENV_VAR__WATCHDOG_DISABLED='1'` for tests. |
 | `Capability__Detector` | Detects browser capabilities; primed on `setup()`. |
-| `Credentials__Loader` | Loads vault credentials. |
+| `Credentials__Loader` | Loads vault credentials. Also the ONLY class that calls `context.add_cookies` — the `set_cookie` step verb lands here via `add_cookie(context, step)` (stateless: per-request context only). |
 | `JS__Expression__Allowlist` | Allowlist gate for `evaluate` step actions — defaults to deny-all. |
 
 > Historical note: `Proxy__Auth__Binder` was removed in v0.1.33; the `agent_mitmproxy` sidecar (also since deleted in BV2.12, 2026-05-05) handled upstream proxy auth.
@@ -139,7 +139,7 @@ All 11 service classes verified present 2026-05-17:
 
 ## Step Action Registry (`core/dispatcher/step_schema_registry.py`)
 
-24 step actions live today in `STEP_SCHEMAS : Dict__Step__Schemas__By_Action` (re-verified 2026-06-23 against `step_schema_registry.py:51-76` and `Enum__Step__Action`; the earlier "16" was stale — the 8 read/probe verbs below were missing):
+25 step actions live today in `STEP_SCHEMAS : Dict__Step__Schemas__By_Action` (re-verified 2026-07-03 against `step_schema_registry.py:52-78` and `Enum__Step__Action`; the set_cookie slice took it from 24 to 25):
 
 | Enum value | Request schema | Result schema |
 |-----------|---------------|---------------|
@@ -167,6 +167,7 @@ All 11 service classes verified present 2026-05-17:
 | `GET_PDF` | `Schema__Step__Get_Pdf` | `Schema__Step__Result__Base` |
 | `GET_CONSOLE_TAIL` | `Schema__Step__Get_Console_Tail` | `Schema__Step__Result__Base` |
 | `GET_NETWORK_FAILURES` | `Schema__Step__Get_Network_Failures` | `Schema__Step__Result__Base` |
+| `SET_COOKIE` | `Schema__Step__Set_Cookie` | `Schema__Step__Result__Base` |
 
 Result schemas not listed in `STEP_RESULT_SCHEMAS` default to `Schema__Step__Result__Base` via `result_schema_for()`. Helpers: `parse_step(step_dict, step_index)`.
 

@@ -31,7 +31,7 @@ from osbot_fast_api.api.schemas.safe_str.Safe_Str__Fast_API__Route__Prefix      
 
 
 # ── Fixture names — single source of truth for both the route and the auth-exclude list ──
-TEST_PAGE_NAMES        = ['simple', 'form', 'dynamic', 'links', 'slow']
+TEST_PAGE_NAMES        = ['simple', 'form', 'dynamic', 'links', 'slow', 'cookies']
 ROUTES_PATHS__TEST_PAGES = [f'/test-pages/{name}' for name in TEST_PAGE_NAMES]
 
 
@@ -134,11 +134,49 @@ TEST_PAGE__SLOW = r'''<!DOCTYPE html>
 </body></html>'''
 
 
+# ── cookies: renders document.cookie into stable ids (set_cookie verb target) ──
+# The S6 console example sets a cookie on the per-request browser context and
+# re-navigates here — the second render shows the cookie. Deterministic, no
+# network. NOTE: HttpOnly cookies are invisible to document.cookie, so the demo
+# cookie must NOT be HttpOnly or this page will (correctly) show nothing.
+TEST_PAGE__COOKIES = r'''<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"><title>Cookies Test Page</title>
+<style>body{font-family:system-ui,sans-serif;max-width:600px;margin:40px auto;padding:0 16px;color:#222;}
+#has-cookies{color:#0a7d2c;font-weight:600;}#no-cookies{color:#b45309;font-weight:600;}
+#cookie-list li{font-family:ui-monospace,monospace;margin:4px 0;}</style></head>
+<body>
+  <h1 id="title">Cookies Test Page</h1>
+  <p id="has-cookies" style="display:none">Cookies are set for this page:</p>
+  <p id="no-cookies" style="display:none">No cookies are set for this page.</p>
+  <ul id="cookie-list"></ul>
+  <script>
+    // Deterministic: render document.cookie into stable ids at load time.
+    // One <li id="cookie-<name>"> per cookie; banners toggle on empty/non-empty.
+    (function(){
+      var raw  = document.cookie;
+      var list = document.getElementById('cookie-list');
+      if (!raw) { document.getElementById('no-cookies').style.display = 'block'; return; }
+      document.getElementById('has-cookies').style.display = 'block';
+      raw.split(';').forEach(function(pair){
+        var idx   = pair.indexOf('=');
+        var name  = pair.slice(0, idx).trim();
+        var value = pair.slice(idx + 1);
+        var li    = document.createElement('li');            // textContent below — never innerHTML — so cookie content cannot inject markup
+        li.id          = 'cookie-' + name;
+        li.textContent = name + ' = ' + value;
+        list.appendChild(li);
+      });
+    })();
+  </script>
+</body></html>'''
+
+
 TEST_PAGES = {'simple' : TEST_PAGE__SIMPLE ,
               'form'    : TEST_PAGE__FORM   ,
               'dynamic' : TEST_PAGE__DYNAMIC,
               'links'   : TEST_PAGE__LINKS  ,
-              'slow'    : TEST_PAGE__SLOW   }
+              'slow'    : TEST_PAGE__SLOW   ,
+              'cookies' : TEST_PAGE__COOKIES}
 
 
 class Routes__Test_Pages(Fast_API__Routes):
