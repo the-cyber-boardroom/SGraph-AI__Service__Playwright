@@ -10,11 +10,15 @@
 # window.__tool JS API.
 #
 # Loading model (Decision #1 / #11, brief 08):
-#   - sg-tokens + sg-layout are loaded CDN-absolute from https://dev.tools.sgraph.ai/...
-#     (prefix-independent — works identically behind /pw and at root), mirroring the
-#     admin dashboard (sgraph_ai_service_playwright__api_site/admin/index.html:7,19;
-#     admin.js:194-195). The console degrades gracefully if the CDN is unreachable —
-#     its own tab shell renders without sg-layout so the page is self-sufficient offline.
+#   - sg-tokens loads CDN-absolute from https://dev.tools.sgraph.ai/... ; sg-layout
+#     loads from https://tools.sgraph.ai/core/sg-layout/v0.1.0/ (documented host,
+#     dev-host fallback). Both prefix-independent — work identically behind /pw and
+#     at root. sg-layout hosts the four work panes via its documented tag-instantiation
+#     pattern (tiny sg-pane-* elements relocate pre-built pane content from
+#     #pane-store — you never slot existing nodes; see
+#     library/guides/v0.1.92__sg-layout__quick-start.md §5). If the component is
+#     unreachable or fails to mount, a plain CSS grid renders the same panes, so the
+#     page is self-sufficient offline.
 #   - Every SAME-ORIGIN fetch / asset stays window.API_BASE-prefixed (forbidden:
 #     absolute-rooted /components-style URLs — they break behind the /pw proxy).
 #
