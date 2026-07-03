@@ -18,7 +18,7 @@ The browser-automation FastAPI service. **The legacy `sgraph_ai_service_playwrig
 - **Manifest:** `sg_compute_specs/playwright/manifest.py` — `spec_id='playwright'`, `Enum__Spec__Stability.STABLE`, capabilities = `BROWSER_AUTOMATION | VAULT_WRITES | SIDECAR_ATTACH`.
 - **Detailed spec contracts (CITE — do not duplicate):** [`library/docs/specs/v0.20.55__routes-catalogue-v2.md`](../docs/specs/v0.20.55__routes-catalogue-v2.md), [`library/docs/specs/v0.20.55__schema-catalogue-v2.md`](../docs/specs/v0.20.55__schema-catalogue-v2.md).
 
-> VERIFY: CLAUDE.md still asserts `25 endpoints (3 health + 5 session + 16 browser Layer 0 + 1 sequence Layer 3)`. The route classes wired in `Fast_API__Playwright__Service.setup_routes()` (verified 2026-05-17) total 23 routes when itemised below — no `Routes__Session` is wired today (sessions were removed in v0.1.24 per the file header). The CLAUDE.md count needs reconciliation; the table below is the code-truth.
+> **D1/D5 corrected (2026-06-23).** Earlier text claimed "no `Routes__Session` is wired today (sessions were removed in v0.1.24)". That is **stale** — `Fast_API__Playwright__Service.setup_routes()` (`:103-113`) wires both `Routes__Inspect` (`:110`, `POST /inspect`) and `Routes__Session` (`:111`, four `/session/*` routes). Itemised below the **code-verified total is 21 direct endpoints + 8 admin**. CLAUDE.md's "16 direct endpoints" / "Routes__Session removed in v0.1.24" line is therefore also stale — flagged for the human (do not rely on it).
 
 ---
 
@@ -58,6 +58,21 @@ All route classes are mounted by `Fast_API__Playwright__Service.setup_routes()`.
 |--------|------|---------|---------|
 | POST | `/sequence/execute` | `Routes__Sequence.execute` | `Schema__Sequence__Response` (Layer-3 multi-step) |
 
+### Routes__Inspect — 1 endpoint (`Routes__Inspect.py`)
+
+| Method | Path | Handler | Returns |
+|--------|------|---------|---------|
+| POST | `/inspect` | `Routes__Inspect.inspect` | `Schema__Inspect__Response` (Φ5 snapshot-once-probe-many) |
+
+### Routes__Session — 4 endpoints (`Routes__Session.py`)
+
+| Method | Path | Handler | Returns |
+|--------|------|---------|---------|
+| POST | `/session/open` | `Routes__Session.open` | `session_id` + `expires_in_ms` |
+| POST | `/session/{session_id}/act` | `Routes__Session.act` | `Schema__Sequence__Response` |
+| POST | `/session/{session_id}/probe` | `Routes__Session.probe` | `Schema__Inspect__Response` |
+| POST | `/session/{session_id}/close` | `Routes__Session.close` | `{closed: true}` |
+
 ### Routes__Metrics — 1 endpoint (`Routes__Metrics.py`)
 
 | Method | Path | Handler | Returns |
@@ -68,7 +83,13 @@ All route classes are mounted by `Fast_API__Playwright__Service.setup_routes()`.
 
 | Method | Path | Handler | Returns |
 |--------|------|---------|---------|
-| GET | `/` | `Routes__Index.index` | Static "Try it out" mini-site (HTML) |
+| GET | `/` | `Routes__Index.index` | Capability-driven agent-native **console** (HTML) — v0.2.64 rebuild (was the two-tab "Try it out" toy); 8 tabs, 24-verb sequence builder, S1–S5 (self-contained `/test-pages/*`) + W1–W9 gallery, in-app docs, in-page `window.__tool`, root_path-aware for `/pw`. Iteration 2: light center/right/bottom work panes (dark header + rail), `<sg-layout>` wrapping (CDN-optional, localStorage `sg-playwright:console:layout:v1`, CSS-grid fallback), framed screenshot viewer (Download + Open-in-new-tab), insecure-origin-safe `copyText`, bottom `window.__tool` REPL |
+
+### Routes__Test_Pages — 1 route, 5 names (`Routes__Test_Pages.py`)
+
+| Method | Path | Handler | Returns |
+|--------|------|---------|---------|
+| GET | `/test-pages/{name}` | `Routes__Test_Pages.page` | Deterministic HTML fixture (`name` ∈ simple/form/dynamic/links/slow) for the console S-series; 404 with HTML-escaped reflected name for unknown. Five concrete paths appended to `AUTH__EXCLUDED_PATHS` in `setup()` (keyless for the server-side browser) |
 
 ### Routes__Set_Cookie — 2 endpoints (from `osbot_fast_api`)
 
@@ -90,7 +111,7 @@ All route classes are mounted by `Fast_API__Playwright__Service.setup_routes()`.
 | GET | `/admin/manifest` | `manifest` | Discovery manifest (OpenAPI + SKILL URLs) |
 | GET | `/admin/capabilities` | `capabilities` | `capabilities.json` contents |
 
-**Code-verified total: 23 endpoints** (3 health + 6 browser + 2 screenshot + 1 sequence + 1 metrics + 1 index + 2 set-cookie + 8 admin). The CLAUDE.md "25" figure includes some count not represented in `setup_routes()` today — flag for reconciliation under a follow-up.
+**Code-verified total: 22 direct + 8 admin = 30 endpoints** (3 health + 6 browser + 2 screenshot + 1 sequence + 1 inspect + 4 session + 1 metrics + 1 index + 1 test-pages + 2 set-cookie + 8 admin). Re-verified 2026-06-23 against `Fast_API__Playwright__Service.py:103-115` (iteration 2 added `Routes__Test_Pages` at `:115`). CLAUDE.md's "16 direct endpoints" / "Routes__Session removed in v0.1.24" is stale — flagged for the human.
 
 ---
 
@@ -118,7 +139,7 @@ All 11 service classes verified present 2026-05-17:
 
 ## Step Action Registry (`core/dispatcher/step_schema_registry.py`)
 
-16 step actions live today in `STEP_SCHEMAS : Dict__Step__Schemas__By_Action`:
+24 step actions live today in `STEP_SCHEMAS : Dict__Step__Schemas__By_Action` (re-verified 2026-06-23 against `step_schema_registry.py:51-76` and `Enum__Step__Action`; the earlier "16" was stale — the 8 read/probe verbs below were missing):
 
 | Enum value | Request schema | Result schema |
 |-----------|---------------|---------------|
@@ -136,8 +157,16 @@ All 11 service classes verified present 2026-05-17:
 | `EVALUATE` | `Schema__Step__Evaluate` | `Schema__Step__Result__Evaluate` |
 | `DISPATCH_EVENT` | `Schema__Step__Dispatch_Event` | `Schema__Step__Result__Base` |
 | `SET_VIEWPORT` | `Schema__Step__Set_Viewport` | `Schema__Step__Result__Base` |
+| `WAIT` | `Schema__Step__Wait` | `Schema__Step__Result__Base` |
 | `GET_CONTENT` | `Schema__Step__Get_Content` | `Schema__Step__Result__Get_Content` |
 | `GET_URL` | `Schema__Step__Get_Url` | `Schema__Step__Result__Get_Url` |
+| `GET_TEXT` | `Schema__Step__Get_Text` | `Schema__Step__Result__Base` |
+| `GET_HTML` | `Schema__Step__Get_Html` | `Schema__Step__Result__Base` |
+| `GET_DOM_TREE` | `Schema__Step__Get_Dom_Tree` | `Schema__Step__Result__Base` |
+| `GET_A11Y_TREE` | `Schema__Step__Get_A11y_Tree` | `Schema__Step__Result__Base` |
+| `GET_PDF` | `Schema__Step__Get_Pdf` | `Schema__Step__Result__Base` |
+| `GET_CONSOLE_TAIL` | `Schema__Step__Get_Console_Tail` | `Schema__Step__Result__Base` |
+| `GET_NETWORK_FAILURES` | `Schema__Step__Get_Network_Failures` | `Schema__Step__Result__Base` |
 
 Result schemas not listed in `STEP_RESULT_SCHEMAS` default to `Schema__Step__Result__Base` via `result_schema_for()`. Helpers: `parse_step(step_dict, step_index)`.
 
@@ -154,7 +183,7 @@ Schemas live in folders by concern; see folder list (one class per file per rule
 | `core/schemas/sequence/` | `Schema__Sequence__Request`, `Schema__Sequence__Response`, `Schema__Sequence__Timings` |
 | `core/schemas/steps/` | Per-step request schemas (16 step schemas, one per file) |
 | `core/schemas/results/` | Step-result schemas (`Schema__Step__Result__Base`, `Get_Content`, `Get_Url`, `Evaluate`) |
-| `core/schemas/session/` | Session-shape schemas — VERIFY: present on disk but not surfaced by any wired route today |
+| `core/schemas/session/` | Session-shape schemas — surfaced by the wired `Routes__Session` (`/session/*`, `Fast_API__Playwright__Service.py:111`); behind the `supports_persistent` capability |
 | `core/schemas/capture/` | Video / artefact capture schemas |
 | `core/schemas/artefact/` | `Artefact__Writer` output schemas |
 | `core/schemas/service/` | Service-level config schemas |

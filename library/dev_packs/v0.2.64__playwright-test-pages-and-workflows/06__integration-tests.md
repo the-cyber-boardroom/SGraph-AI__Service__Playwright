@@ -1,0 +1,178 @@
+---
+title: "06 — Integration-test strategy"
+file: 06__integration-tests.md
+author: Architect (Claude)
+date: 2026-06-21
+repo: "SGraph-AI__Service__Playwright @ dev (root version: v0.2.63)"
+status: PROPOSED — test design, no test code
+parent: README.md
+covers: "User point (g) — integration tests for the Docker build and UI workflows"
+---
+
+# 06 — Integration-test strategy
+
+Covers **point (g)**: a test strategy that (a) tests the Docker build and (b) invokes
+the brief-02 workflows from the UI surface. Follows the repo's testing rules: **no
+mocks, no patches**, in-memory composition, real-Chromium gating on
+`SG_PLAYWRIGHT__CHROMIUM_EXECUTABLE` with clean skips, deploy-via-pytest numbered
+tests.
+
+> **Code-vs-brief discrepancy (code wins).** The mission says compose via
+> `register_playwright_service__in_memory()`. **That function does not exist in this
+> repo.** The actual in-memory composition pattern is a local `_build_fast_api()`
+> helper that injects a `_FakeLauncher()` —
+> `tests/unit/fast_api/routes/test_Routes__Screenshot.py:149-154` and
+> `test_Routes__Sequence.py:117-121`. This brief uses the real pattern and flags the
+> name discrepancy for sign-off. (A future Dev phase MAY add a shared
+> `register_playwright_service__in_memory()` fixture to match the house convention;
+> if so, the tests below adopt it. Until then, `_build_fast_api()` is the truth.)
+
+---
+
+## 1. The existing test tiers (what we extend, not replace)
+
+| Tier | Path | Gating | Role |
+|------|------|--------|------|
+| Unit | `tests/unit/` | none — `_FakeLauncher()` | Schema/route contracts without a browser |
+| Integration | `tests/integration/` | real Chromium (`SG_PLAYWRIGHT__CHROMIUM_EXECUTABLE` or `playwright install`) | `Step__Executor`, `Browser__Launcher` against real Chromium |
+| Live HTTP | `tests/integration_live/` | `SG_PLAYWRIGHT__LIVE_BASE_URL` + `SG_PLAYWRIGHT__LIVE_API_KEY` (skip-gate `conftest.py:65-70`) | black-box HTTP against a running service |
+| Local | `tests/local/` | real Chromium (`pytest.skip` when absent) | proxy + credential variants |
+| CI snapshot | `tests/ci/test_wheel_contains_ui.py` | none | asserts the UI ships in the wheel |
+
+This pack adds tests in **three** of these tiers: unit (UI request-body builders),
+integration (workflows W1-W9 against real Chromium), and a new **deploy/CI** Docker
+job.
+
+---
+
+## 2. UI request-body builder tests (unit, no browser)
+
+The console builds JSON bodies (brief 01/03). Those builders are testable without a
+browser by asserting the JSON they emit. Because the workflow format IS the request
+body (Decision #3), a builder test and an HTTP test share one fixture.
+
+Pattern (mirrors `test_Routes__Screenshot.py:149-154`):
+
+```python
+def _build_fast_api():
+    service = Fast_API__Playwright__Service(...)   # inject _FakeLauncher()
+    service.setup()
+    return service
+
+# assert the gallery workflow W3's `request` body posts cleanly and the route
+# parses it into Schema__Inspect__Request without raising (contract, not impl).
+```
+
+For the UI's JS body-builders, a tiny headless-browser harness (brief 06 §4) loads
+`GET /`, drives `window.__tool.exportWorkflow()` (brief 05 §4), and asserts the emitted
+body equals the gallery fixture — proving the builder round-trips (brief 03 §2).
+
+---
+
+## 3. Workflow → assertion map (integration, real Chromium)
+
+Each brief-02 gallery workflow becomes one gated integration test. Real Chromium
+required; skip cleanly when `SG_PLAYWRIGHT__CHROMIUM_EXECUTABLE` is unset (pattern:
+`tests/local/test_L3__local_http_proxy.py` `pytest.skip(...)`). **No mocks.**
+
+| Workflow | Endpoint | Assertion (on the contract) |
+|----------|----------|-----------------------------|
+| W1 form fill + per-step shots | `/sequence/execute` | `status == completed`; `steps_passed == steps_total`; the two `screenshot` step results each have `artefacts[0].inline_b64` non-empty |
+| W2 login then extract | `/sequence/execute` | `get_url` result `url` is non-null; `get_text` result `text` non-empty |
+| W3 scrape DOM + a11y | `/inspect` | `probe_results.dom.dom_tree` is a nested object; `probe_results.a11y.accessibility_tree.nodes` is a list |
+| W4 render PDF | `/sequence/execute` | the `get_pdf` step result has `artefacts[0].artefact_type == PDF` |
+| W5 console + network | `/inspect` | `probe_results.console.console_log` is a list; `probe_results.failures.network_failures` is a list |
+| W6 viewport/frame/selector | `/sequence/execute` | three screenshot artefacts; the selector-scoped one has smaller `width` than the full-page one |
+| W7 hover/select/press/scroll/evaluate | `/sequence/execute` | `status in {completed, partial}`; the `evaluate` step is `failed` with "allowlist" in `error_message` on a default deny-all deployment (asserts the documented gate) |
+| W8 batch (items + steps) | `/screenshot/batch` | `len(screenshots) == len(items)`; each has `screenshot_b64` |
+| W9 stateful session | `/session/*` | `open` returns a `session_id` + `expires_in_ms`; `act` returns a `Schema__Sequence__Response`; `probe` returns a `Schema__Inspect__Response`; `close` returns `{closed: true}` |
+
+Assertions are on **schemas / status / persisted artefacts**, never implementation
+details (CLAUDE.md testing rule #2). W7 deliberately asserts the allowlist *failure*
+as a contract — a good-failure test.
+
+---
+
+## 4. UI execute-path smoke (the "from the UI surface" requirement)
+
+To prove the UI's execute paths work end-to-end (not just the JSON bodies), a
+headless-browser smoke test:
+
+1. Starts the in-memory service (`_build_fast_api()`), serves `GET /`.
+2. Loads `GET /` in a headless Chromium (the service's own Playwright — dog-fooding;
+   gated on `SG_PLAYWRIGHT__CHROMIUM_EXECUTABLE`).
+3. Drives `window.__tool.run(window.__tool.loadExample('W1'))` (brief 05 §4) — the same
+   programmatic surface a user's "Load example → Execute" click hits.
+4. Asserts the result pane renders a step list with the expected passed count and an
+   `<img>` whose `src` is a `data:image/png;base64,` URL.
+
+This is the only test that exercises the actual DOM/JS of the console; the rest assert
+the request bodies + HTTP contracts. It is the most expensive test, so it is
+gated/optional and runs in the integration tier, not per-PR. If the JS-API (`window.__tool`)
+is not yet built (Phase 5), this test is skipped with a clear reason; the body-level
+tests (§2/§3) still cover the workflows.
+
+---
+
+## 5. Docker image checks + verb-table drift (CI tier — gate the publish)
+
+**Docker image checks (point (a)) — placement gates the Docker Hub publish (Q5).**
+The operator's requirement: the Docker-dependent integration checks run **after the
+step that builds the image(s) and before the publish-to-Docker-Hub step**, so a red
+check blocks publication.
+
+**The existing CI pipeline already implements exactly this shape** —
+`.github/workflows/ci-pipeline.yml`:
+
+| Job | What it does | Line |
+|-----|--------------|------|
+| `build-amd64` | builds + pushes the amd64 image **by digest only** (no tag yet) | `:123` |
+| `build-arm64` | builds + pushes the arm64 image by digest, in parallel | `:181` |
+| `integration-test-image` | pulls the by-digest amd64 image, runs it, waits for `/health/info`, runs the live integration suite — **this is the gate** | `:254` |
+| `push-playwright-manifest` | tags + publishes `diniscruz/sg-playwright:<version>` + `:latest` to Docker Hub, **only when `needs.integration-test-image.result == 'success'`** | `:400` (`needs`/`if` at `:404-405`) |
+
+So a broken image never gets a tag: build-by-digest → integration-test-image → (green)
+→ publish manifest. The pack's job is therefore **to extend `integration-test-image`,
+not to invent a new on-demand job.** Add these UI/workflow-surface assertions to that
+job's suite (they run against the already-built by-digest container, before the
+manifest push), as a deploy-via-pytest numbered sequence (CLAUDE.md testing rule #4 —
+`test_1__`, `test_2__`, ... top-down):
+
+```
+test_1__container_ready       the by-digest image is already running (job step); wait for /health/info
+test_2__get_index             GET /            → 200, body contains "SG Playwright"
+test_3__get_capabilities      GET /health/capabilities → 200, Schema__Service__Capabilities shape
+test_4__index_prefix_aware    GET / behind X-Forwarded-Prefix: /pw → asset/component/fetch URLs carry the /pw prefix (brief 08 acceptance)
+test_5__execute_workflow_W1   POST /sequence/execute with W1 → status completed
+```
+
+These run against the real built image inside `integration-test-image`, so they gate
+`push-playwright-manifest` automatically — no separate `workflow_dispatch` job is
+needed for the publish gate. (A standalone `docker build`-from-`Dockerfile` smoke can
+still be added for local/manual runs against
+`sg_compute_specs/playwright/Dockerfile`, but it is **not** the publish gate; the
+pipeline above is.) No `docker build` *test* exists today (only
+`test_wheel_contains_ui.py` + compose-template rendering at
+`sg_compute_specs/playwright/tests/test_Playwright__Compose__Template.py`) — these
+checks live in the CI job, not the per-PR unit path.
+
+**Verb-table drift check (brief 04 §1 stretch).** A cheap unit test asserts the
+embedded UI verb table matches `STEP_SCHEMAS`
+(`dispatcher/step_schema_registry.py:51-85`) and `Enum__Step__Action` — so the in-app
+docs (brief 04) cannot rot. This is the structural defence against a future D4.
+
+---
+
+## 6. Test-file placement
+
+| New tests | Tier path | Gate |
+|-----------|-----------|------|
+| UI body-builder + workflow-fixture parse | `tests/unit/fast_api/routes/` | none |
+| W1-W9 against real Chromium | `tests/integration/` (new `test_Workflows__Gallery.py`) | `SG_PLAYWRIGHT__CHROMIUM_EXECUTABLE` |
+| UI execute-path headless smoke | `tests/integration/` | `SG_PLAYWRIGHT__CHROMIUM_EXECUTABLE` + `window.__tool` present |
+| Docker image checks (extend `integration-test-image`; gate the publish) | `tests/integration_live/` (the suite that job already runs) or a new numbered module the job invokes | runs in CI after `build-amd64`/`build-arm64`, before `push-playwright-manifest` (`ci-pipeline.yml:254` → `:400`) |
+| Verb-table drift | `tests/unit/` | none |
+
+All follow CLAUDE.md testing rules: no mocks, no patches; assert on contracts; real
+Chromium gated and skipped cleanly when absent; deploy tests numbered and run
+top-down.

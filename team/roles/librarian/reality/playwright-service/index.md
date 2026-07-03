@@ -1,7 +1,7 @@
 # playwright-service — Reality Index
 
-**Domain:** `playwright-service/` | **Last updated:** 2026-05-18 | **Maintained by:** Librarian
-**Code-source basis:** verified against `sg_compute_specs/playwright/` at v0.2.28 (post-BV2.11 / post-FV2.6).
+**Domain:** `playwright-service/` | **Last updated:** 2026-06-23 | **Maintained by:** Librarian
+**Code-source basis:** verified against `sg_compute_specs/playwright/` at v0.2.28 (post-BV2.11 / post-FV2.6); endpoint-surface re-verified against `sg_compute_specs/playwright/core/fast_api/Fast_API__Playwright__Service.py:103-113` at v0.2.63 (2026-06-23, D1 fix — see changelog).
 
 The core FastAPI service: browser automation routes, the Type_Safe schema tree, the `Step__Executor` (sole owner of `page.*`), `Browser__Launcher`, `Sequence__Runner`, and the agentic admin / boot scaffolding layered on top.
 
@@ -13,9 +13,13 @@ The orphan `sgraph_ai_service_playwright/` package was **deleted in BV2.11 (2026
 
 ## EXISTS (code-verified at v0.2.28)
 
-### API surface — 16 direct endpoints
+### API surface — 22 direct endpoints
 
-Wired by `Fast_API__Playwright__Service.setup_routes()` (`sg_compute_specs/playwright/core/fast_api/Fast_API__Playwright__Service.py:88-96`). Six in-repo route classes plus `Routes__Set_Cookie` imported from `osbot_fast_api.api.routes.Routes__Set_Cookie`.
+Wired by `Fast_API__Playwright__Service.setup_routes()` (`sg_compute_specs/playwright/core/fast_api/Fast_API__Playwright__Service.py:103-115`). Nine in-repo route classes (`Routes__Index`, `Routes__Health`, `Routes__Browser`, `Routes__Sequence`, `Routes__Screenshot`, `Routes__Inspect`, `Routes__Session`, `Routes__Metrics`, `Routes__Test_Pages`) plus `Routes__Set_Cookie` imported from `osbot_fast_api.api.routes.Routes__Set_Cookie`.
+
+> **Iteration-2 addition (2026-06-23).** `Routes__Test_Pages` (`GET /test-pages/{name}`) was wired at `Fast_API__Playwright__Service.py:115`, taking the route family count from 21 to **22** (the one parameterised route serves five fixed names: `simple`, `form`, `dynamic`, `links`, `slow`). The five concrete paths are appended to `AUTH__EXCLUDED_PATHS` in `setup()` (`Fast_API__Playwright__Service.py:55-57`) so the server-side browser fetches them keyless. See the Test-Pages sub-section below.
+
+> **D1 corrected (2026-06-23).** The previous text said "16 direct endpoints" and claimed `Routes__Session` was removed in v0.1.24. That is **stale**: the code wires both `Routes__Inspect` (`Fast_API__Playwright__Service.py:110`, `POST /inspect`) and `Routes__Session` (`:111`, the four `/session/*` routes). Counting them gives **21** direct endpoints. The "removed" claim was a regression in the doc, not the code. See the Inspect (1) + Session (4) sub-sections below.
 
 #### Health (3) — `Routes__Health`
 
@@ -57,6 +61,25 @@ Source: `sg_compute_specs/playwright/core/fast_api/routes/Routes__Screenshot.py:
 
 Source: `sg_compute_specs/playwright/core/fast_api/routes/Routes__Sequence.py:27-31`.
 
+#### Inspect (1) — `Routes__Inspect`
+
+| Method | Path | Notes |
+|--------|------|-------|
+| POST | `/inspect` | Φ5 snapshot-once-probe-many read-only batch (`Schema__Inspect__Request` → `Schema__Inspect__Response`) |
+
+Source: `sg_compute_specs/playwright/core/fast_api/routes/Routes__Inspect.py:23,:39` (`ROUTES_PATHS__INSPECT = ['/inspect']`). Wired at `Fast_API__Playwright__Service.py:110`.
+
+#### Session (4) — `Routes__Session`
+
+| Method | Path | Notes |
+|--------|------|-------|
+| POST | `/session/open` | Open a stateful session handle → `session_id` + `expires_in_ms` |
+| POST | `/session/{session_id}/act` | Run a sequence-shape body on the held session → `Schema__Sequence__Response` |
+| POST | `/session/{session_id}/probe` | Run an inspect-shape body (no navigate) → `Schema__Inspect__Response` |
+| POST | `/session/{session_id}/close` | Release the session → `{closed: true}` |
+
+Source: `sg_compute_specs/playwright/core/fast_api/routes/Routes__Session.py:27-30,:58-61` (`ROUTES_PATHS__SESSION`). Wired at `Fast_API__Playwright__Service.py:111` (Φ7 — opt-in stateful session handles; available when `capabilities.supports_persistent`).
+
 #### Metrics (1) — `Routes__Metrics` (mounted at root, prefix `/`)
 
 | Method | Path | Notes |
@@ -69,9 +92,9 @@ Source: `sg_compute_specs/playwright/core/fast_api/routes/Routes__Metrics.py:24-
 
 | Method | Path | Notes |
 |--------|------|-------|
-| GET | `/` | Static "Try it out" mini-site (HTML) |
+| GET | `/` | Capability-driven, agent-native **console** (HTML) — 8 endpoint-family tabs, the 24-verb sequence builder, `/inspect` + `/session/*` + `/browser/*` + PDF + DOM/a11y/text/html surfaces, workflow import/export + the S1–S5 (self-contained `/test-pages/*` fixtures) **and** W1–W9 example gallery, in-app docs generated from the live capability surface, and an in-page agentic `window.__tool`. Iteration 2 added: a **light** center/right/bottom work-pane theme (header + tab rail stay dark); the builder/result/console panes wrapped in `<sg-layout>` (CDN-optional, persists to `localStorage['sg-playwright:console:layout:v1']`, falls back to a CSS grid when the component is absent); a framed screenshot viewer with Download + Open-in-new-tab; a `copyText` clipboard helper that survives insecure origins (`http://0.0.0.0`); and a bottom-dock `window.__tool` REPL console. Root_path-aware (`window.API_BASE`) so it works identically behind `/pw` and at root. Rebuilt from the two-tab screenshot toy in the v0.2.64 console effort (commits `9fe5917`, `f4c84ec`). |
 
-Source: `sg_compute_specs/playwright/core/fast_api/routes/Routes__Index.py:601-612`.
+Source: `sg_compute_specs/playwright/core/fast_api/routes/Routes__Index.py` (`INDEX_HTML` + the per-request `__API_BASE__` injection; the example gallery is `const GALLERY = [...]` and the verb table is `const VERBS = {...}`, both code-verified against `Enum__Step__Action` by `tests/unit/fast_api/routes/test_Routes__Index__verb_table_drift.py` and `test_Workflows__Gallery__Bodies.py`).
 
 #### Set-Cookie (2) — `osbot_fast_api.api.routes.Routes__Set_Cookie`
 
@@ -81,6 +104,14 @@ Source: `sg_compute_specs/playwright/core/fast_api/routes/Routes__Index.py:601-6
 | POST | `/auth/set-auth-cookie` | Cookie write |
 
 Both paths sit in `AUTH__EXCLUDED_PATHS` so they bypass the API-key middleware.
+
+#### Test-Pages (1 route, 5 names) — `Routes__Test_Pages`
+
+| Method | Path | Notes |
+|--------|------|-------|
+| GET | `/test-pages/{name}` | Deterministic, self-contained HTML fixtures served BY this service for the console's S-series examples (Decision #5). `name` ∈ `{simple, form, dynamic, links, slow}` with stable element ids (`#username`/`#password`/`#submit`/`#welcome`, `#ready`, `#bottom`, `#loaded`, …). Unknown names return a 404 with the reflected name **HTML-escaped** (no reflected-XSS). |
+
+The five concrete `/test-pages/{name}` paths are appended to `AUTH__EXCLUDED_PATHS` in `Fast_API__Playwright__Service.setup()` (`:55-57`) — the same mechanism that exempts `/auth/set-cookie-form` — so the server-side browser reaches them without an API key. The middleware matches `request.url.path` exactly, so the names are enumerated (`TEST_PAGE_NAMES`) rather than prefix-matched. Source: `sg_compute_specs/playwright/core/fast_api/routes/Routes__Test_Pages.py`; tests: `tests/unit/fast_api/routes/test_Routes__Test_Pages.py`.
 
 ### Admin surface (8) — `Agentic_Admin_API` (mounted by `Agentic_FastAPI.setup_routes()` super-call)
 
@@ -99,7 +130,7 @@ Unauthenticated read-only (paths appended to `AUTH__EXCLUDED_PATHS` in `Agentic_
 
 Source: `sg_compute_specs/playwright/core/agentic_fastapi/Agentic_Admin_API.py:64-130`.
 
-> **Historical:** `Routes__Session` and `Routes__Quick` were removed in v0.1.24 — sessions are no longer a wire-visible resource, and `/quick/*` was absorbed into the stateless `/browser/*` surface. The comment block in `Fast_API__Playwright__Service.py:18-20` preserves this fact.
+> **Historical (corrected 2026-06-23):** `Routes__Quick` was removed in v0.1.24 — `/quick/*` was absorbed into the stateless `/browser/*` surface. `Routes__Session` was **also** briefly removed in v0.1.24 but has since been **re-introduced** — the code now wires it at `Fast_API__Playwright__Service.py:111` (the four `/session/*` routes above). The earlier blanket "sessions are no longer a wire-visible resource" statement is **no longer true**; sessions are wire-visible again behind the `supports_persistent` capability. D1 was the stale residue of that removal claim.
 
 ---
 
@@ -175,7 +206,7 @@ All `Type_Safe`, one class per file, no Pydantic, no Literals. Sub-trees under `
 
 ### Public endpoint
 
-- **Dev:** `https://dev.playwright.sgraph.ai/` — CloudFront in front of the Docker Hub image (post v0.2.11 the Lambda Function URL is gone). `/admin/*` reachable alongside the 16 direct public endpoints.
+- **Dev:** `https://dev.playwright.sgraph.ai/` — CloudFront in front of the Docker Hub image (post v0.2.11 the Lambda Function URL is gone). `/admin/*` reachable alongside the 21 direct public endpoints.
 
 ---
 
