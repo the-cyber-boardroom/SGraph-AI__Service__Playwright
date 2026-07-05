@@ -27,7 +27,8 @@ from sg_compute_specs.content_proxy.schemas.Schema__Content_Proxy__List         
 from sg_compute_specs.content_proxy.schemas.Schema__Content_Proxy__Stack__Info       import Schema__Content_Proxy__Stack__Info
 from sg_compute_specs.content_proxy.service.Content_Proxy__AWS__Client               import Content_Proxy__AWS__Client, STACK_TYPE
 from sg_compute_specs.content_proxy.service.Content_Proxy__Stack__Mapper             import (Content_Proxy__Stack__Mapper, TAG_MODE,
-                                                                                            TAG_TLS, TAG_EDGE, TAG_HOSTNAME, TAG_ACCESS)
+                                                                                            TAG_TLS, TAG_EDGE, TAG_HOSTNAME, TAG_ACCESS,
+                                                                                            TAG_FIREFOX)
 from sg_compute_specs.content_proxy.service.Content_Proxy__User_Data__Builder        import (Content_Proxy__User_Data__Builder,
                                                                                             LOG_FILE)
 
@@ -302,8 +303,9 @@ class Content_Proxy__Service(Spec__Service__Base):
         ami_id     = str(request.from_ami)      or self.aws_client.ami.latest_al2023_ami(region)
         itype      = str(request.instance_type) or DEFAULT_INSTANCE_TYPE
         request.stack_name = stack_name                                             # so user-data / tags see the resolved name
+        firefox_count      = int(getattr(request, 'firefox_count', 0) or 0)          # N interactive Firefox browsers
         fqdn               = derive_fqdn(stack_name, request)                        # explicit --hostname or <stack>.<zone> (--with-aws-dns); else ''
-        if fqdn:                                                                     # --hostname/--with-aws-dns imply the Caddy edge (auto-ACME for it)
+        if fqdn or firefox_count > 0:                                               # --hostname/--with-aws-dns/--firefox imply the Caddy edge (MVP routes /browser only via the edge)
             request.edge = Enum__Content_Proxy__Edge.CADDY
         request.hostname = fqdn
 
@@ -330,6 +332,8 @@ class Content_Proxy__Service(Spec__Service__Base):
                       TAG_ACCESS: access_token       }
         if fqdn:
             extra_tags[TAG_HOSTNAME] = fqdn
+        if firefox_count > 0:                                                        # surfaced in info → per-browser /browser/firefox/{i} URLs
+            extra_tags[TAG_FIREFOX] = str(firefox_count)
         tags = self.aws_client.tags.build(stack_name, caller_ip, creator,                         # access token tagged → recoverable for info
                                           extra_tags=extra_tags)
         aws_creds = {}
@@ -346,7 +350,8 @@ class Content_Proxy__Service(Spec__Service__Base):
                                                   account_id         = account_id         ,
                                                   aws_creds          = aws_creds          ,
                                                   env_override       = str(request.env_inline),
-                                                  hostname           = fqdn               )
+                                                  hostname           = fqdn               ,
+                                                  firefox_count      = firefox_count      )
         iid = self.aws_client.launch.run_instance(region                = region            ,
                                                   ami_id                = ami_id            ,
                                                   sg_id                 = sg_id             ,

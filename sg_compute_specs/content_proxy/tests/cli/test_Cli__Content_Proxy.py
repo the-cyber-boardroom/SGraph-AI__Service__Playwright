@@ -41,6 +41,30 @@ class test_proxy_ca_wiring(TestCase):
                 _set_extras(Schema__Content_Proxy__Create__Request(), proxy_ca_cert=str(cert))
 
 
+class test_firefox_fleet_option(TestCase):
+
+    def test_firefox_count_forces_caddy_edge(self):
+        from sg_compute_specs.content_proxy.enums.Enum__Content_Proxy__Edge import Enum__Content_Proxy__Edge
+        req = Schema__Content_Proxy__Create__Request()
+        _set_extras(req, firefox=2)                                                   # edge left 'none' — the fleet must force caddy
+        assert int(req.firefox_count) == 2
+        assert req.edge == Enum__Content_Proxy__Edge.CADDY
+
+    def test_no_firefox_keeps_requested_edge(self):
+        from sg_compute_specs.content_proxy.enums.Enum__Content_Proxy__Edge import Enum__Content_Proxy__Edge
+        req = Schema__Content_Proxy__Create__Request()
+        _set_extras(req, firefox=0)
+        assert int(req.firefox_count) == 0
+        assert req.edge == Enum__Content_Proxy__Edge.NONE                             # default edge untouched
+
+    def test_firefox_option_registered_on_create(self):
+        import inspect
+        def _name(c):
+            return c.name or (c.callback.__name__ if c.callback else '')
+        create = [c for c in app.registered_commands if _name(c) == 'create'][0]
+        assert 'firefox' in set(inspect.signature(create.callback).parameters)        # --firefox exposed on `create`
+
+
 class test_Cli__Content_Proxy(TestCase):
 
     def test_resolve_scripts_bucket_explicit_wins_else_local_env(self):

@@ -143,7 +143,25 @@ class test_Content_Proxy__User_Data__Builder(TestCase):
         assert 'h.sg-compute.sgraph.ai {' in ud                                       # FQDN site → Caddy auto-ACME
         assert '"80:80"' in ud                                                        # ACME http-01 port published
 
+    def test_no_firefox_block_by_default(self):
+        assert 'no interactive browsers (--firefox 0)' in self.ud                     # default: fleet disabled
+        assert 'cp-firefox' not in self.ud
+
+    def test_firefox_count_wires_proxy_ca_and_certutil(self):
+        from sg_compute_specs.content_proxy.enums.Enum__Content_Proxy__Edge import Enum__Content_Proxy__Edge
+        req = Schema__Content_Proxy__Create__Request(edge=Enum__Content_Proxy__Edge.CADDY)
+        ud  = Content_Proxy__User_Data__Builder().render(req, firefox_count=2)
+        assert 'cp-firefox-1:' in ud and 'cp-firefox-2:' in ud                        # compose fleet embedded
+        assert 'dnf install -y nss-tools' in ud                                       # certutil dependency
+        assert '/opt/content-proxy/certs/mitmproxy-ca-cert.pem' in ud                 # mitmproxy self-gen CA (not --ca-from-local)
+        assert ud.count('certutil -A -n "mitmproxy CA" -t "TCu,,"') == 2              # one CA install per profile
+        assert '/opt/content-proxy/firefox/1/profile' in ud                           # per-container profile dir
+        assert 'network.proxy.http",          "mitmproxy-int"' in ud                  # user.js proxy → internal proxy host
+        assert 'network.proxy.http_port",     8080' in ud
+        assert 'handle_path /browser/firefox/1/*' in ud                               # caddy edge routes written too
+        assert 'restart cp-firefox-2' in ud                                           # reload after profile prep
+
     def test_placeholders_locked(self):
         assert PLACEHOLDERS == ('log_file', 'app_dir', 'env_body', 'compose_body',
                                 'active_body', 'logic_body', 'ca_block', 'overrides_block',
-                                'caddy_block', 'shutdown_line')
+                                'caddy_block', 'firefox_block', 'shutdown_line')

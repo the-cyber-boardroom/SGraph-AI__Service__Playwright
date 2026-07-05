@@ -24,6 +24,8 @@ from sg_compute_specs.vault_app.service.Vault_App__Reverse_Proxy__Override      
 APP_DIR       = '/opt/content-proxy'
 OVERRIDES_DIR = '/opt/content-proxy/overrides'                                       # /pw runtime injection (same sg-send-vault image as sg va)
 LOG_FILE      = '/var/log/sg-content-proxy-boot.log'
+CA_CERT_FILE  = '/opt/content-proxy/certs/mitmproxy-ca-cert.pem'                     # mitmproxy self-generates its CA here (bind-mounted from certs/)
+FIREFOX_DIR   = '/opt/content-proxy/firefox'                                         # per-container profile bind-mount root (matches Compose FIREFOX_HOST_DIR)
 
 TEMPLATE = '''\
 #!/usr/bin/env bash
@@ -67,6 +69,8 @@ CP_LOGIC_EOF
 cd {app_dir}
 docker compose --env-file {app_dir}/.env up -d
 
+{firefox_block}
+
 {shutdown_line}
 echo "[content-proxy] boot complete at $(date -u +%FT%TZ)"
 '''
@@ -74,9 +78,52 @@ echo "[content-proxy] boot complete at $(date -u +%FT%TZ)"
 SHUTDOWN_TEMPLATE = 'shutdown -h +{minutes}  # auto-terminate after {hours}h'
 SHUTDOWN_DISABLED = '# max_hours=0 — no auto-terminate'
 
+# ── interactive Firefox fleet: proxy (user.js) + mitmproxy CA trust (certutil) ──
+# jlesage stores the Firefox profile at /config/profile; each cp-firefox-{i}
+# bind-mounts a host dir → /config, so we prepare user.js + the NSS CA DB on the
+# host and restart the container to pick them up. The proxy points at mitmproxy-int
+# (the no-auth internal proxy sg-playwright uses); the CA is mitmproxy's own self-
+# generated cert (NOT --ca-from-local).
+FIREFOX_USER_JS = '''\
+// proxy: mitmproxy-int (content_proxy internal, no-auth — same as sg-playwright)
+user_pref("network.proxy.type",          1);
+user_pref("network.proxy.http",          "mitmproxy-int");
+user_pref("network.proxy.http_port",     8080);
+user_pref("network.proxy.ssl",           "mitmproxy-int");
+user_pref("network.proxy.ssl_port",      8080);
+user_pref("network.proxy.no_proxies_on", "localhost,127.0.0.1");
+user_pref("app.update.auto",             false);
+user_pref("app.update.enabled",          false);
+user_pref("extensions.update.enabled",   false);
+'''
+
+FIREFOX_ONE = '''\
+    echo "[content-proxy] preparing Firefox {i} profile ({firefox_dir}/{i}/profile)..."
+    mkdir -p {firefox_dir}/{i}/profile
+    cat > {firefox_dir}/{i}/profile/user.js <<'CP_FF_USERJS_EOF'
+{user_js}
+CP_FF_USERJS_EOF
+    certutil -N --empty-password -d sql:{firefox_dir}/{i}/profile 2>/dev/null || true
+    certutil -A -n "mitmproxy CA" -t "TCu,," -i {ca_cert_file} -d sql:{firefox_dir}/{i}/profile
+    docker compose --env-file {app_dir}/.env restart cp-firefox-{i} || true
+'''
+
+FIREFOX_BLOCK = '''\
+echo "[content-proxy] configuring {count} interactive Firefox browser(s)..."
+dnf install -y nss-tools
+echo "[content-proxy] waiting for the mitmproxy CA cert ({ca_cert_file})..."
+for i in $(seq 1 30); do
+    [ -f {ca_cert_file} ] && {{ echo "[content-proxy] CA cert ready after ${{i}} x 2s"; break; }}
+    sleep 2
+done
+if [ -f {ca_cert_file} ]; then
+{per_container}else
+    echo "[content-proxy] WARNING: mitmproxy CA cert not found after 60s — Firefox HTTPS will show cert errors."
+fi'''
+
 PLACEHOLDERS = ('log_file', 'app_dir', 'env_body', 'compose_body',
                 'active_body', 'logic_body', 'ca_block', 'overrides_block',
-                'caddy_block', 'shutdown_line')   # locked by test
+                'caddy_block', 'firefox_block', 'shutdown_line')   # locked by test
 
 
 class Content_Proxy__User_Data__Builder(Type_Safe):
@@ -125,18 +172,32 @@ class Content_Proxy__User_Data__Builder(Type_Safe):
             return f'# proxy CA path {cert} supplied — copy into {APP_DIR}/certs before boot'
         return '# no proxy CA supplied — mitmproxy will self-generate one'
 
-    def _caddy_block(self, request, hostname: str) -> str:
+    def _caddy_block(self, request, hostname: str, firefox_count: int = 0) -> str:
         # edge=caddy → write the Caddyfile the cp-caddy service bind-mounts. hostname
         # (when set) makes Caddy do public auto-ACME; blank → `tls internal` (IP/local).
+        # firefox_count adds the /browser/firefox/{i} routes above the catch-all.
         if getattr(request, 'edge', None) != Enum__Content_Proxy__Edge.CADDY:
             return '# edge=none — vault is the front door (no Caddyfile)'
-        caddyfile  = Content_Proxy__Edge__Template().render(hostname=hostname, acme_email='')   # acme_email not wired yet (no --acme-email flag)
+        caddyfile  = Content_Proxy__Edge__Template().render(hostname=hostname, acme_email='',   # acme_email not wired yet (no --acme-email flag)
+                                                            firefox_count=firefox_count)
         return ('echo "[content-proxy] writing Caddyfile (edge=caddy)"\n'
                 f"cat > {APP_DIR}/Caddyfile <<'CP_CADDY_EOF'\n{caddyfile}\nCP_CADDY_EOF")
 
+    def _firefox_block(self, firefox_count: int) -> str:
+        # After `docker compose up -d` (mitmproxy-int is generating its CA), prepare
+        # each Firefox profile: write user.js (proxy → mitmproxy-int) + trust the
+        # mitmproxy CA in the NSS DB via certutil, then restart the container.
+        count = int(firefox_count)
+        if count <= 0:
+            return '# no interactive browsers (--firefox 0)'
+        per = ''.join(FIREFOX_ONE.format(i=i, firefox_dir=FIREFOX_DIR, app_dir=APP_DIR,
+                                         ca_cert_file=CA_CERT_FILE, user_js=FIREFOX_USER_JS.rstrip('\n'))
+                      for i in range(1, count + 1))
+        return FIREFOX_BLOCK.format(count=count, ca_cert_file=CA_CERT_FILE, per_container=per)
+
     def render(self, request, fastapi_api_key: str = '', access_token: str = '',
                region: str = '', account_id: str = '', aws_creds: dict = None, env_override: str = '',
-               hostname: str = '') -> str:
+               hostname: str = '', firefox_count: int = 0) -> str:
         # MVP: if the operator supplied a full .env, ship it verbatim; else build one.
         env_body = env_override if env_override else self.render_env(
             request, fastapi_api_key, access_token, region, account_id, aws_creds)
@@ -151,7 +212,8 @@ class Content_Proxy__User_Data__Builder(Type_Safe):
             interceptors_mount = INTERCEPTORS_MOUNT__EC2        ,                    # /opt/content-proxy/interceptors
             tls                = request.tls                    ,                    # vault port: 8080 (NONE) vs 443 (TLS)
             edge               = edge                           ,                    # caddy → vault plain origin, edge owns :443
-            hostname           = hostname                       )                    # caddy hostname → publish :80 for ACME
+            hostname           = hostname                       ,                    # caddy hostname → publish :80 for ACME
+            firefox_count      = firefox_count                  )                    # N interactive Firefox browsers (cp-firefox-{i})
         # caddy fronts /pw at the edge → vault uses its default entrypoint (no override package needed)
         overrides_block = ('# edge=caddy — /pw routed at the edge, no vault entrypoint patch'
                            if is_caddy else
@@ -164,5 +226,6 @@ class Content_Proxy__User_Data__Builder(Type_Safe):
                                logic_body    = self._interceptor_body('Content_Proxy__Interceptor__Logic.py'),
                                ca_block      = self._ca_block(request)                   ,
                                overrides_block = overrides_block                         ,
-                               caddy_block   = self._caddy_block(request, hostname)      ,
+                               caddy_block   = self._caddy_block(request, hostname, firefox_count),
+                               firefox_block = self._firefox_block(firefox_count)        ,
                                shutdown_line = self._shutdown_line(float(request.max_hours)))
