@@ -48,6 +48,8 @@ services:
       - --listen-port=8080
       - --scripts=/interceptors/active.py
       - --set
+      - block_global=false
+      - --set
       - proxyauth=${CONTENT_PROXY__PROXYAUTH_USER}:${CONTENT_PROXY__PROXYAUTH_PASS}
     environment:
       - FASTAPI_BASE_URL=http://mitm-service:10011

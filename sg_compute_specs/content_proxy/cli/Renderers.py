@@ -75,6 +75,8 @@ def render_create(response, console: Console) -> None:
     elapsed      = int(getattr(response, 'elapsed_ms', 0) or 0)
     fastapi_key  = str(getattr(response, 'fastapi_api_key', '') or '')
     access_token = str(getattr(response, 'access_token',    '') or '')
+    pa_user      = str(getattr(response, 'proxyauth_user',  '') or '')
+    pa_pass      = str(getattr(response, 'proxyauth_pass',  '') or '')
     _, vault_url, _ = _urls(info)
 
     console.print()
@@ -87,11 +89,14 @@ def render_create(response, console: Console) -> None:
         title = ('[bold]stack secrets[/]  [dim](from --env-file)[/]' if from_env
                  else '[bold]generated secrets[/]  [dim](shown once)[/]')
         console.print()
-        console.print(Panel('\n'.join([
+        rows = [
             title,
             f'  access token  [bold yellow]{access_token}[/]  [dim](vault key + /pw key + set-cookie)[/]',
             f'  mitm key      {fastapi_key}  [dim](interceptor ↔ mitm-service)[/]',
-        ]), border_style='yellow', expand=False))
+        ]
+        if pa_pass:                                                                  # Mode 1 (browser → ext proxy :8080) basic-auth
+            rows.append(f'  proxy auth    [bold yellow]{pa_user}:{pa_pass}[/]  [dim](mitmproxy-ext :8080 — Mode 1 browser)[/]')
+        console.print(Panel('\n'.join(rows), border_style='yellow', expand=False))
     if vault_url:
         console.print()
         console.print(f'  vault / UX  : [bold cyan]{vault_url}/[/]')

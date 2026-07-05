@@ -20,7 +20,10 @@ class Schema__Spec__CLI__Spec:
                  extra_create_field_setters        = None,
                  render_info_fn                    = None,
                  render_create_fn                  = None,
-                 post_launch_fn                    = None):
+                 post_launch_fn                    = None,
+                 diagnose_check_order              = None,
+                 diagnose_hints                    = None,
+                 diagnose_log_prefix        : str  = ''):
         self.spec_id                   = spec_id
         self.display_name              = display_name
         self.default_instance_type     = default_instance_type
@@ -38,3 +41,16 @@ class Schema__Spec__CLI__Spec:
         # The returned task (anything with a .join(timeout=...) method) is joined after
         # _wait_healthy completes. Used by vault-app for --with-aws-dns parallelism.
         self.post_launch_fn            = post_launch_fn
+        # Optional diagnose-table config. When the service exposes diagnose(), the
+        # builder's _wait_healthy renders the live boot-progress check-table instead
+        # of the silent svc.health() poll. These three only tune presentation:
+        #   diagnose_check_order : tuple of check names shown up-front as 'pending'
+        #                          (so the table doesn't grow top-down). Optional —
+        #                          omit to let rows appear as diagnose() yields them.
+        #   diagnose_hints       : {check_name: [(log_source, reason), …]} — per-
+        #                          failure `<prefix> <name> --source <x>` suggestions.
+        #   diagnose_log_prefix  : the logs-command prefix, e.g. 'sg cp logs'. Both
+        #                          hints + prefix must be set for suggestions to show.
+        self.diagnose_check_order      = diagnose_check_order
+        self.diagnose_hints            = diagnose_hints
+        self.diagnose_log_prefix       = diagnose_log_prefix

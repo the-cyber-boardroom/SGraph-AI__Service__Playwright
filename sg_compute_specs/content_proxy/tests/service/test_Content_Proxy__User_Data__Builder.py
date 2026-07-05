@@ -51,6 +51,24 @@ class test_Content_Proxy__User_Data__Builder(TestCase):
         assert 'AWS_ACCESS_KEY_ID='   not in env
         assert 'AWS_SECRET_ACCESS_KEY=' not in env
 
+    def test_account_id_set_on_instance_role_path(self):
+        env = Content_Proxy__User_Data__Builder().render_env(
+            Schema__Content_Proxy__Create__Request(), region='eu-west-2', account_id='504558652080')  # no creds forwarded
+        assert 'AWS_ACCOUNT_ID=504558652080' in env                                  # set even without --forward-aws-creds (the app reads it; creds still come from IMDS)
+        assert 'AWS_ACCESS_KEY_ID='   not in env                                     # still no baked creds
+
+    def test_account_id_not_duplicated_when_also_forwarded(self):
+        env = Content_Proxy__User_Data__Builder().render_env(
+            Schema__Content_Proxy__Create__Request(), region='eu-west-2', account_id='111122223333',
+            aws_creds={'AWS_ACCOUNT_ID': '111122223333', 'AWS_ACCESS_KEY_ID': 'AKIA'})
+        assert env.count('AWS_ACCOUNT_ID=111122223333') == 1                         # written once (explicit), not again from aws_creds
+        assert 'AWS_ACCESS_KEY_ID=AKIA' in env
+
+    def test_account_id_omitted_when_blank(self):
+        env = Content_Proxy__User_Data__Builder().render_env(
+            Schema__Content_Proxy__Create__Request(), region='eu-west-2')            # account_id defaults to ''
+        assert 'AWS_ACCOUNT_ID=' not in env                                          # no empty line that would shadow IMDS-derived account
+
     def test_certs_dir_is_writable(self):
         assert 'chmod 777' in self.ud and '/certs' in self.ud                       # mitmproxy self-gen CA on EC2
 

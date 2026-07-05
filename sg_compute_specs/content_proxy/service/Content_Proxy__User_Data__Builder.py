@@ -82,7 +82,7 @@ PLACEHOLDERS = ('log_file', 'app_dir', 'env_body', 'compose_body',
 class Content_Proxy__User_Data__Builder(Type_Safe):
 
     def render_env(self, request, fastapi_api_key: str = '', access_token: str = '',
-                   region: str = '', aws_creds: dict = None) -> str:
+                   region: str = '', account_id: str = '', aws_creds: dict = None) -> str:
         lines = [
             'FASTAPI_API_KEY_NAME=x-api-key',
             f'FASTAPI_API_KEY_VALUE={fastapi_api_key}',                              # generated per-stack; interceptor ↔ mitm-service
@@ -96,10 +96,12 @@ class Content_Proxy__User_Data__Builder(Type_Safe):
             'SEND__STORAGE_MODE=memory',
             f'AWS_DEFAULT_REGION={region}',
         ]
+        if account_id:                                                              # deploying account — set on BOTH the instance-role and forwarded-creds paths (the app reads AWS_ACCOUNT_ID even when creds come from IMDS)
+            lines.append(f'AWS_ACCOUNT_ID={account_id}')
         if str(request.scripts_bucket):
             lines.append(f'CACHE__SERVICE__BUCKET_NAME={str(request.scripts_bucket)}')
         for k, v in (aws_creds or {}).items():                                      # only when --forward-aws-creds (else instance role)
-            if v:
+            if v and k != 'AWS_ACCOUNT_ID':                                         # account id already written above — don't duplicate
                 lines.append(f'{k}={v}')
         return '\n'.join(lines)
 
@@ -128,17 +130,16 @@ class Content_Proxy__User_Data__Builder(Type_Safe):
         # (when set) makes Caddy do public auto-ACME; blank → `tls internal` (IP/local).
         if getattr(request, 'edge', None) != Enum__Content_Proxy__Edge.CADDY:
             return '# edge=none — vault is the front door (no Caddyfile)'
-        acme_email = str(getattr(request, 'proxyauth_user', '') or '')               # not used for ACME; placeholder left blank below
-        caddyfile  = Content_Proxy__Edge__Template().render(hostname=hostname, acme_email='')
+        caddyfile  = Content_Proxy__Edge__Template().render(hostname=hostname, acme_email='')   # acme_email not wired yet (no --acme-email flag)
         return ('echo "[content-proxy] writing Caddyfile (edge=caddy)"\n'
                 f"cat > {APP_DIR}/Caddyfile <<'CP_CADDY_EOF'\n{caddyfile}\nCP_CADDY_EOF")
 
     def render(self, request, fastapi_api_key: str = '', access_token: str = '',
-               region: str = '', aws_creds: dict = None, env_override: str = '',
+               region: str = '', account_id: str = '', aws_creds: dict = None, env_override: str = '',
                hostname: str = '') -> str:
         # MVP: if the operator supplied a full .env, ship it verbatim; else build one.
         env_body = env_override if env_override else self.render_env(
-            request, fastapi_api_key, access_token, region, aws_creds)
+            request, fastapi_api_key, access_token, region, account_id, aws_creds)
         edge     = getattr(request, 'edge', Enum__Content_Proxy__Edge.NONE)
         is_caddy = edge == Enum__Content_Proxy__Edge.CADDY
         compose = Content_Proxy__Compose__Template().render(

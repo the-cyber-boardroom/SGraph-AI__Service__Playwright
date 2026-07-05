@@ -128,12 +128,39 @@ class Spec__CLI__Builder:
         return wrapper
 
     def _wait_healthy(self, svc, region: str, stack_name: str) -> None:
+        # Two branches, same failure semantics (exit 1 on timeout / unhealthy):
+        #   1. service exposes diagnose() → render the live boot-progress check-table
+        #      (engine → containers → cert-init → vault-http …) so each phase updates
+        #      live instead of a single silent svc.health() poll. Loops until every
+        #      row is ok/skip or DEFAULT_TIMEOUT_SEC expires.
+        #   2. no diagnose() → the original silent svc.health() poll (unchanged).
+        if hasattr(svc, 'diagnose'):
+            self._wait_healthy_diagnose(svc, region, stack_name)
+            return
         c   = Console(highlight=False)
         c.print(f'\n  [dim]Waiting for {self.cli_spec.spec_id} stack {stack_name!r} to be healthy …[/]')
         result = svc.health(region, stack_name,
                              timeout_sec=DEFAULT_TIMEOUT_SEC, poll_sec=DEFAULT_POLL_SEC)
         render_health_probe(result, c)
         if not getattr(result, 'healthy', False):
+            Console(highlight=False, stderr=True).print(
+                f'  [red]✗[/]  Stack {stack_name!r} did not become healthy in {DEFAULT_TIMEOUT_SEC}s')
+            raise typer.Exit(1)
+
+    def _wait_healthy_diagnose(self, svc, region: str, stack_name: str) -> None:
+        from sg_compute.cli.base.Spec__Diagnose__Renderer import run_until_ok
+        spec = self.cli_spec
+        c    = Console(highlight=False)
+        _rows, all_ok = run_until_ok(
+            svc, region, stack_name,
+            console            = c,
+            check_order        = getattr(spec, 'diagnose_check_order', None),
+            timeout            = DEFAULT_TIMEOUT_SEC,
+            poll               = DEFAULT_POLL_SEC,
+            hints              = getattr(spec, 'diagnose_hints',      None),
+            log_command_prefix = getattr(spec, 'diagnose_log_prefix', '')   or '',
+            title              = f'Waiting for {spec.spec_id} to be healthy')
+        if not all_ok:
             Console(highlight=False, stderr=True).print(
                 f'  [red]✗[/]  Stack {stack_name!r} did not become healthy in {DEFAULT_TIMEOUT_SEC}s')
             raise typer.Exit(1)

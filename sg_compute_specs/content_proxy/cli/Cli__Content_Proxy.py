@@ -50,6 +50,13 @@ def _set_extras(request, mode='direct_proxy', tls='none', edge='none', hostname=
         if not ca.exists():
             raise FileNotFoundError(f'{ca} not found — run `sg content-proxy local up` once to generate it')
         request.proxy_ca_pem = ca.read_text()
+    elif proxy_ca_cert or proxy_ca_key:                                              # ship a supplied CA (cert + key) — mitmproxy needs BOTH to sign intercepted TLS
+        if not (proxy_ca_cert and proxy_ca_key):
+            raise ValueError('--proxy-ca-cert and --proxy-ca-key must be supplied together '
+                             '(mitmproxy needs the CA cert AND its private key to intercept TLS)')
+        cert_pem = Path(proxy_ca_cert).read_text().strip()
+        key_pem  = Path(proxy_ca_key).read_text().strip()
+        request.proxy_ca_pem = f'{key_pem}\n{cert_pem}\n'                            # mitmproxy-ca.pem format = private key then cert
     request.mode              = Enum__Content_Proxy__Mode(mode)
     request.tls               = Enum__Content_Proxy__Tls(tls)
     request.edge              = Enum__Content_Proxy__Edge(edge)
@@ -62,12 +69,16 @@ def _set_extras(request, mode='direct_proxy', tls='none', edge='none', hostname=
     request.proxyauth_pass    = proxyauth_pass
     request.proxy_ca_cert     = proxy_ca_cert
     request.proxy_ca_key      = proxy_ca_key
-    request.scripts_bucket    = scripts_bucket
+    request.scripts_bucket    = resolve_scripts_bucket(scripts_bucket, read_env_file(ENV_FILE))  # explicit flag wins; else inherit the local .env's CACHE__SERVICE__BUCKET_NAME
     request.forward_aws_creds = bool(forward_aws_creds)
     request.use_spot          = bool(use_spot)
     request.disk_size_gb      = int(disk_size)
     if mitm_service_image:
         request.mitm_service_image = mitm_service_image
+
+
+def resolve_scripts_bucket(explicit: str, local_env: dict) -> str:                 # explicit --scripts-bucket wins; else inherit the local .env's CACHE__SERVICE__BUCKET_NAME (single-source, like `local up`)
+    return str(explicit or local_env.get('CACHE__SERVICE__BUCKET_NAME', '') or '')
 
 
 # ── --with-aws-dns / --hostname: post-launch Route 53 (reuses the sg va flow) ──
@@ -110,6 +121,32 @@ def _content_proxy_post_launch(svc, region, request, response, kwargs, console):
     return thread                                                                  # Spec__CLI__Builder joins after _wait_healthy
 
 
+# ── diagnose check-table config (shared renderer) ───────────────────────────────
+# Pre-known check order — matches Content_Proxy__Service.diagnose() yield order.
+# 'cert-init' is yielded only on non-caddy TLS stacks (yielded as 'skip' otherwise);
+# 'external-http' is the renderer's own svc.health() probe appended after the
+# generator. All shown up-front as 'pending' so the live table doesn't grow
+# top-down. Carried on _cli_spec so `create --wait` renders the same table (via
+# Spec__CLI__Builder._wait_healthy) as the standalone `check` / `wait` commands.
+DIAGNOSE_CHECK_ORDER = ('ec2-state', 'ssm-reachable', 'boot-failed', 'container-engine',
+                        'containers-up', 'cert-init', 'vault-http', 'boot-ok',
+                        'external-http')
+
+# per-check log source to suggest when a check fails / warns — keys reuse LOG_SOURCES
+# (defined further down; the shared renderer filters against LOG_SOURCES at print).
+DIAGNOSE_HINTS = {
+    'ssm-reachable'    : [('boot'        , 'see if boot completed at all')],
+    'boot-failed'      : [('boot'        , 'full boot log with the error')],
+    'container-engine' : [('boot'        , 'engine install stage'), ('journal', 'systemd unit errors')],
+    'containers-up'    : [('boot'        , 'compose up output'), ('vault', 'vault-app container')],
+    'cert-init'        : [('cert-init'   , 'one-shot TLS sidecar — self-signed gen / ACME issuance')],
+    'vault-http'       : [('vault'        , 'cp-vault-app container output'), ('caddy', 'edge TLS/routing (caddy stacks)')],
+    'boot-ok'          : [('boot'        , 'watch boot progress')],
+    'external-http'    : [('vault'        , 'cp-vault-app container output'), ('caddy', 'edge TLS/routing (caddy stacks)')],
+}
+DIAGNOSE_LOG_PREFIX = 'sg cp logs'
+
+
 _cli_spec = Schema__Spec__CLI__Spec(
     spec_id               = 'content_proxy'                          ,
     display_name          = 'Content-Transformation Proxy'           ,
@@ -122,12 +159,16 @@ _cli_spec = Schema__Spec__CLI__Spec(
     extra_create_field_setters = _set_extras                         ,
     render_info_fn             = render_info                         ,
     render_create_fn           = render_create                       ,
-    post_launch_fn             = _content_proxy_post_launch          )
+    post_launch_fn             = _content_proxy_post_launch          ,
+    diagnose_check_order       = DIAGNOSE_CHECK_ORDER                ,
+    diagnose_hints             = DIAGNOSE_HINTS                       ,
+    diagnose_log_prefix        = DIAGNOSE_LOG_PREFIX                  )
 
 
 app = Spec__CLI__Builder(
-    cli_spec             = _cli_spec,
-    extra_create_options = [
+    cli_spec              = _cli_spec,
+    skip_default_commands = ['wait'],                                                # replaced below by the diagnose-driven live check table
+    extra_create_options  = [
         ('mode'          , str , 'direct_proxy', 'direct_proxy (NLB) or vault_web (ALB).'),
         ('tls'           , str , 'none'        , 'Vault TLS on :443 — none | self-signed (IP, browser warns) | letsencrypt (real IP cert, opens :80) | acm (ALB, not wired). Ignored when --edge caddy (the edge terminates TLS).'),
         ('edge'          , str , 'none'        , 'Front door: none (vault-as-edge) | caddy (dedicated edge owns :443, /pw routed, vault is a plain origin). --hostname/--with-aws-dns force caddy.'),
@@ -140,7 +181,7 @@ app = Spec__CLI__Builder(
         ('proxy_ca_key'  , str , ''            , 'Path to the user-supplied proxy CA key.'),
         ('env_file'      , str , ''            , 'Path to a full .env shipped verbatim to the box (MVP: overrides generated env — ship your working local .env).'),
         ('ca_from_local' , bool, False         , 'Ship the local docker mitmproxy CA (docker/compose/certs/mitmproxy-ca.pem) so the EC2 proxy uses the CA already trusted in your browser.'),
-        ('scripts_bucket', str , ''            , 'S3 bucket the MITM service reads injection scripts from (CACHE__SERVICE__BUCKET_NAME).'),
+        ('scripts_bucket', str , ''            , 'S3 bucket the MITM service reads injection scripts from (CACHE__SERVICE__BUCKET_NAME). Defaults to the local .env value when blank.'),
         ('forward_aws_creds', bool, False      , 'Bake the operator AWS_* creds into the box .env (local-parity; default off → instance role).'),
         ('use_spot'      , bool, True          , 'Spot instance (~70%% cheaper). --no-use-spot for on-demand.'),
         ('disk_size'     , int , 0             , 'Root volume GiB. 0 = AMI default.'),
@@ -445,3 +486,200 @@ def smoke(name  : Optional[str] = typer.Argument(None,
     else:
         c.print('  [yellow]⚠[/]  no MITM-UI redirect seen — check [cyan]sg content-proxy exec <name> '
                 'docker ps[/] and [cyan]… logs[/] (mitm-service up? scripts bucket reachable?).')
+
+
+# ── remote logs (EC2, over SSM — no SSH) ────────────────────────────────────────
+
+BOOT_LOG = '/var/log/sg-content-proxy-boot.log'                                     # must match Content_Proxy__User_Data__Builder.LOG_FILE
+
+
+def _dlogs(container: str) -> str:                                                  # docker|podman logs template ({tail} filled at call time; container is fixed)
+    return ('(docker logs --tail {tail} ' + container + ' 2>&1 || '
+            'podman logs --tail {tail} ' + container + ' 2>&1) || true')
+
+
+LOG_SOURCES = {                                                                     # name → (shell command template, ssm timeout, one-line description)
+    'boot'         : (f'tail -n {{tail}} {BOOT_LOG}'            , 60, 'EC2 user-data boot script — stage markers, available within seconds'),
+    'cloud-init'   : ('tail -n {tail} /var/log/cloud-init-output.log', 60, 'cloud-init full output — slightly behind the boot log'),
+    'journal'      : ('journalctl -n {tail} --no-pager'        , 60, 'full systemd journal — always available'),
+    'cert-init'    : (_dlogs('cp-cert-init')                   , 60, 'one-shot TLS cert sidecar — why it exited (self-signed gen / ACME issuance)'),
+    'vault'        : (_dlogs('cp-vault-app')                   , 60, 'sg-send-vault container — vault UI + /pw proxy + :443 TLS'),
+    'sg-playwright': (_dlogs('cp-sg-playwright')               , 60, 'sg-playwright container — the browser automation service'),
+    'mitm-service' : (_dlogs('cp-mitm-service')                , 60, 'FastAPI MITM service — request/response transform decisions'),
+    'mitmproxy-int': (_dlogs('cp-mitmproxy-int')               , 60, 'internal mitmproxy (Playwright path) — one line per proxied request'),
+    'mitmproxy-ext': (_dlogs('cp-mitmproxy-ext')               , 60, 'external mitmproxy (human browser, Mode 1) — proxied requests + proxyauth'),
+    'caddy'        : (_dlogs('cp-caddy')                       , 60, 'Caddy edge (--edge caddy only) — TLS/ACME issuance + /pw routing'),
+}
+
+
+def resolve_log_source(name: Optional[str], source: str) -> tuple:                  # pure: a numeric positional is a source index (mirrors the prompt numbering)
+    if name and str(name).isdigit():
+        keys = list(LOG_SOURCES)
+        idx  = int(name)
+        if 1 <= idx <= len(keys):
+            return (source or keys[idx - 1]), None                                  # name consumed as the index → auto-resolve the stack below
+    return source, name
+
+
+def _prompt_for_log_source(c: Console) -> str:
+    c.print()
+    c.print('  [bold]Which log source?[/]')
+    keys = list(LOG_SOURCES)
+    for i, k in enumerate(keys, 1):
+        _, _, desc = LOG_SOURCES[k]
+        c.print(f'    [cyan]{i}[/]  [bold]{k:13}[/] [dim]{desc}[/]')
+    c.print()
+    ans = typer.prompt('  Pick a number or name', default='boot').strip()
+    if ans.isdigit() and 1 <= int(ans) <= len(keys):
+        return keys[int(ans) - 1]
+    if ans in LOG_SOURCES:
+        return ans
+    raise typer.BadParameter(f'unknown source {ans!r}; pick from: {", ".join(LOG_SOURCES)}')
+
+
+@app.command(help='''Stream logs from the content-proxy EC2 host via SSM (no SSH).
+
+\b
+Sources (pick with --source / -s, a positional index, or omit to be prompted):
+  boot          EC2 user-data boot script — stage markers
+  cloud-init    cloud-init full output
+  journal       full systemd journal
+  cert-init     one-shot TLS cert sidecar — ACME/self-signed issuance (TLS stacks)
+  vault         sg-send-vault container — vault UI + /pw + :443
+  sg-playwright sg-playwright container — browser automation
+  mitm-service  FastAPI MITM service — transform decisions
+  mitmproxy-int internal mitmproxy (Playwright path)
+  mitmproxy-ext external mitmproxy (human browser, Mode 1)
+  caddy         Caddy edge (--edge caddy only)
+
+\b
+Add --follow / -f to poll for new lines every few seconds (Ctrl-C to stop).
+''')
+@spec_cli_errors
+def logs(name  : Optional[str] = typer.Argument(None, help='Stack name; auto-selected when only one exists.'),
+         tail  : int           = typer.Option(30,    '--tail', '-n',   help='Number of log lines to fetch.'),
+         follow: bool          = typer.Option(False, '--follow', '-f', help='Poll for new lines every few seconds (Ctrl-C to stop).'),
+         source: str           = typer.Option('',    '--source', '-s',
+                  help='boot | cloud-init | journal | cert-init | vault | sg-playwright | mitm-service | mitmproxy-int | mitmproxy-ext | caddy. Omit to be prompted.'),
+         region: str           = typer.Option(DEFAULT_REGION, '--region', '-r')):
+    """Stream logs from the stack host via SSM (no SSH)."""
+    import time
+    c = Console(highlight=False)
+
+    source, name = resolve_log_source(name, source)                                 # 'sg cp logs 4' → cert-init index
+    if not source:
+        source = _prompt_for_log_source(c)
+    if source not in LOG_SOURCES:
+        raise typer.BadParameter(f'unknown source {source!r}; pick from: {", ".join(LOG_SOURCES)}')
+
+    cmd_tpl, timeout, _desc = LOG_SOURCES[source]
+    svc        = Content_Proxy__Service().setup()
+    name       = Spec__CLI__Builder(_cli_spec).resolver.resolve(svc, name, region, 'content_proxy')
+    others     = '  '.join(k for k in LOG_SOURCES if k != source)
+    fetch_tail = max(tail, 500) if follow else tail
+    ssm_cmd    = cmd_tpl.format(tail=fetch_tail)
+
+    c.print(f'  [bold]{source}[/] [dim]──  other sources: {others}[/]')
+    c.print(f'  [dim]via SSM:[/] [cyan]{ssm_cmd}[/]')
+    if follow:
+        c.print('  [dim]following — Ctrl-C to stop[/]')
+    c.print()
+
+    def fetch():
+        r = svc.exec(region, name, ssm_cmd, timeout_sec=timeout)
+        return str(getattr(r, 'stdout', '') or '').splitlines()
+
+    if not follow:
+        c.print('\n'.join(fetch()))
+        return
+
+    shown_anchor = ''                                                               # last printed line — used to find new content each poll
+    try:
+        while True:
+            lines = fetch()
+            if not shown_anchor:
+                for line in lines:
+                    c.print(line)
+                shown_anchor = lines[-1] if lines else ''
+            else:
+                idx = next((i for i in range(len(lines) - 1, -1, -1)
+                            if lines[i] == shown_anchor), None)
+                new_lines = lines[idx + 1:] if idx is not None else lines
+                for line in new_lines:
+                    c.print(line)
+                if new_lines:
+                    shown_anchor = new_lines[-1]
+            time.sleep(4)
+    except KeyboardInterrupt:
+        c.print('\n  [dim]stopped[/]')
+
+
+# ── check / wait: unified boot checklist + external HTTP probe ───────────────────
+# Both commands drive Content_Proxy__Service.diagnose() + an external svc.health()
+# probe through the SHARED Spec__Diagnose__Renderer (sg_compute/cli/base) — the same
+# renderer `create --wait` now uses via Spec__CLI__Builder._wait_healthy. `check`
+# runs once; `wait` loops until every row is ok/skip or the timeout expires. The
+# spec-specific bits (check order, `sg cp logs --source <x>` hints) are the
+# module-level DIAGNOSE_* constants carried on _cli_spec, kept out of shared code.
+
+from sg_compute.cli.base import Spec__Diagnose__Renderer as _diag                    # noqa: E402
+
+
+@app.command()
+@spec_cli_errors
+def check(name  : Optional[str] = typer.Argument(None, help='Stack name; auto-selected when only one exists.'),
+          region: str           = typer.Option(DEFAULT_REGION, '--region', '-r')):
+    """Run the full stack boot checklist and show one row per check.
+
+    \b
+    Checks (in order):
+      ec2-state         EC2 instance is in running state
+      ssm-reachable     SSM exec can reach the instance
+      boot-failed       boot log shows no failure markers
+      container-engine  docker service is active
+      containers-up     the cp-* compose containers are running
+      cert-init         TLS stacks only — cp-cert-init exit state (self-signed / ACME)
+      vault-http        :443 responds from inside the host (via SSM)
+      boot-ok           boot log reached '[content-proxy] boot complete'
+      external-http     vault serving (svc.health SSM probe)
+    """
+    c    = Console(highlight=False)
+    svc  = Content_Proxy__Service().setup()
+    name = Spec__CLI__Builder(_cli_spec).resolver.resolve(svc, name, region, 'content_proxy')
+    rows = _diag.run_once(svc, region, name, console=c,
+                          check_order        = DIAGNOSE_CHECK_ORDER,
+                          hints              = DIAGNOSE_HINTS       ,
+                          log_command_prefix = DIAGNOSE_LOG_PREFIX  ,
+                          valid_sources      = set(LOG_SOURCES)     )
+    if any(s == 'fail' for _, s, _ in rows):
+        raise typer.Exit(1)
+
+
+@app.command()
+@spec_cli_errors
+def wait(name   : Optional[str] = typer.Argument(None, help='Stack name; auto-selected when only one exists.'),
+         region : str           = typer.Option(DEFAULT_REGION, '--region', '-r'),
+         timeout: int           = typer.Option(600, '--timeout', '-t',
+                                               help='Max seconds to wait before giving up.'),
+         poll   : int           = typer.Option(15, '--poll', '-p',
+                                               help='Seconds between re-runs of the full checklist.')):
+    """Re-run the check table on a loop until every row is OK (or timeout).
+
+    \b
+    The same diagnose generator that powers `check` runs in a loop, updating the
+    Live table in place — letting the operator watch boot progress through each
+    stage (engine install → containers up → cert-init → vault HTTP) instead of a
+    silent external probe. Especially useful for TLS/cert issuance debugging.
+    """
+    c    = Console(highlight=False)
+    svc  = Content_Proxy__Service().setup()
+    name = Spec__CLI__Builder(_cli_spec).resolver.resolve(svc, name, region, 'content_proxy')
+    _rows, all_ok = _diag.run_until_ok(svc, region, name, console=c,
+                                       check_order        = DIAGNOSE_CHECK_ORDER,
+                                       timeout            = timeout             ,
+                                       poll               = poll                ,
+                                       hints              = DIAGNOSE_HINTS       ,
+                                       log_command_prefix = DIAGNOSE_LOG_PREFIX  ,
+                                       valid_sources      = set(LOG_SOURCES)     )
+    if not all_ok:
+        raise typer.Exit(1)

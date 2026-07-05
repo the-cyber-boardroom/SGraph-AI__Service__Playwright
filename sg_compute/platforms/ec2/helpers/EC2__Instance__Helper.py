@@ -51,10 +51,10 @@ class EC2__Instance__Helper(Type_Safe):
                 return instance
         return None
 
-    def list_all_managed(self, region: str) -> Dict[str, dict]:            # all spec-service nodes (tagged sg:stack-name)
+    def list_all_managed(self, region: str) -> Dict[str, dict]:            # all spec-service nodes — every spec tags Purpose=ephemeral-ec2 via EC2__Tags__Builder
         resp = self.ec2_client(region).describe_instances(
-            Filters=[{'Name': 'tag-key'             , 'Values': ['sg:stack-name']  },
-                     {'Name': 'instance-state-name' , 'Values': INSTANCE_STATES_LIVE}])
+            Filters=[{'Name': f'tag:{TAG_PURPOSE_KEY}', 'Values': [TAG_PURPOSE_VALUE] },
+                     {'Name': 'instance-state-name'   , 'Values': INSTANCE_STATES_LIVE}])
         out = {}
         for reservation in resp.get('Reservations', []):
             for instance in reservation.get('Instances', []):
@@ -65,8 +65,8 @@ class EC2__Instance__Helper(Type_Safe):
 
     def find_by_sg_stack_name(self, region: str, stack_name: str) -> Optional[dict]:
         resp = self.ec2_client(region).describe_instances(
-            Filters=[{'Name': 'tag:sg:stack-name'   , 'Values': [stack_name]       },
-                     {'Name': 'instance-state-name' , 'Values': INSTANCE_STATES_LIVE}])
+            Filters=[{'Name': f'tag:{TAG_STACK_NAME}', 'Values': [stack_name]       },
+                     {'Name': 'instance-state-name'  , 'Values': INSTANCE_STATES_LIVE}])
         for reservation in resp.get('Reservations', []):
             for instance in reservation.get('Instances', []):
                 return instance
