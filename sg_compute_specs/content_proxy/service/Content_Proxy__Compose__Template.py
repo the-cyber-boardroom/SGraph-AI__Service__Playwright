@@ -27,9 +27,12 @@ PLAYWRIGHT_IMAGE   = 'diniscruz/sg-playwright'
 VAULT_APP_IMAGE    = 'diniscruz/sg-send-vault'
 CERT_INIT_IMAGE    = 'diniscruz/sg-host-control'                                    # carries sg_compute.platforms.tls.cert_init
 CADDY_IMAGE        = 'caddy:2.8'                                                    # dedicated front-door edge (PoC)
+FIREFOX_IMAGE      = 'jlesage/firefox'                                              # interactive Firefox + noVNC (browser fleet)
+VIEWER_PORT        = 5800                                                           # jlesage/firefox noVNC container port
+FIREFOX_HOST_DIR   = '/opt/content-proxy/firefox'                                   # per-container profile bind-mount root (EC2 only — never rendered locally since count=0)
 
 PLACEHOLDERS = ('mitmproxy_image', 'mitm_service_image', 'playwright_image',
-                'int_command', 'ext_command', 'interceptors_mount',
+                'int_command', 'ext_command', 'interceptors_mount', 'browser_block',
                 'vault_block', 'cert_init_block', 'edge_block', 'volumes_block')    # locked by test
 
 INTERCEPTORS_MOUNT__LOCAL = '../../interceptors'                                    # committed local compose sits in docker/compose/
@@ -201,6 +204,40 @@ def edge_block(edge: Enum__Content_Proxy__Edge, hostname: str = '') -> str:
     return ''
 
 
+# ── browser fleet (jlesage/firefox + noVNC) ─────────────────────────────────────
+# One interactive Firefox per user, reached at /browser/firefox/{i} through the
+# Caddy edge. Each browses through mitmproxy-int (the no-auth internal proxy
+# sg-playwright already uses). Ephemeral: the per-container /config bind-mount is
+# wiped with the stack (no named volume, no persistence). The host profile dir is
+# prepared (user.js + certutil CA trust) by the user-data _firefox_block before boot.
+_FIREFOX_SERVICE = """\
+
+  cp-firefox-{i}:
+    image: {firefox_image}
+    container_name: cp-firefox-{i}
+    environment:
+      - HTTP_PROXY=http://mitmproxy-int:8080
+      - HTTPS_PROXY=http://mitmproxy-int:8080
+      - SECURE_CONNECTION=1
+    volumes:
+      - {firefox_host_dir}/{i}:/config
+    networks:
+      - cp-net
+    depends_on:
+      - mitmproxy-int
+    restart: unless-stopped
+"""
+
+
+def browser_block(firefox_count: int) -> str:                                       # → N cp-firefox-{i} services ('' when count<=0, so the committed local compose is unchanged)
+    if int(firefox_count) <= 0:
+        return ''
+    return ''.join(_FIREFOX_SERVICE.format(i                = i               ,
+                                           firefox_image    = FIREFOX_IMAGE   ,
+                                           firefox_host_dir = FIREFOX_HOST_DIR)
+                   for i in range(1, int(firefox_count) + 1))
+
+
 def volumes_block(tls: Enum__Content_Proxy__Tls,
                   edge: Enum__Content_Proxy__Edge = Enum__Content_Proxy__Edge.NONE) -> str:
     vols = []
@@ -281,7 +318,7 @@ services:
     restart: unless-stopped
     depends_on:
       - mitmproxy-int
-
+{browser_block}
 {vault_block}{cert_init_block}{edge_block}
 networks:
   cp-net:
@@ -299,7 +336,8 @@ class Content_Proxy__Compose__Template(Type_Safe):
                      interceptors_mount : str = INTERCEPTORS_MOUNT__LOCAL,
                      tls                : Enum__Content_Proxy__Tls = Enum__Content_Proxy__Tls.NONE,
                      edge               : Enum__Content_Proxy__Edge = Enum__Content_Proxy__Edge.NONE,
-                     hostname           : str = ''                                   # caddy public auto-ACME → publish :80
+                     hostname           : str = '',                                  # caddy public auto-ACME → publish :80
+                     firefox_count      : int = 0                                    # N interactive Firefox browsers (cp-firefox-{i}); 0 = none
                ) -> str:
         return COMPOSE_TEMPLATE.format(mitmproxy_image    = str(mitmproxy_image)            ,
                                        mitm_service_image = str(mitm_service_image)         ,
@@ -307,6 +345,7 @@ class Content_Proxy__Compose__Template(Type_Safe):
                                        int_command        = proxy_command(proxy_tool, False),                  # int: docker-network clients (private IPs) — block_global irrelevant
                                        ext_command        = proxy_command(proxy_tool, True, allow_global=True),  # ext: public browsers over the internet → must allow global clients
                                        interceptors_mount = str(interceptors_mount)         ,
+                                       browser_block      = browser_block(firefox_count)    ,
                                        vault_block        = vault_block(vault_app_image, tls, edge),
                                        cert_init_block    = cert_init_block(tls, edge)      ,
                                        edge_block         = edge_block(edge, hostname)     ,

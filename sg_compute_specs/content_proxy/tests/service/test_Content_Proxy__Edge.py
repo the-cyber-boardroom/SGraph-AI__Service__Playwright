@@ -27,6 +27,32 @@ class test_Content_Proxy__Edge__Template(TestCase):
         assert 'tls internal' in self.caddy                                          # local: Caddy internal CA
 
 
+class test_Content_Proxy__Edge__Template__firefox_routes(TestCase):
+
+    def test_no_browser_routes_by_default(self):
+        caddy = Content_Proxy__Edge__Template().render()
+        assert '/browser/firefox' not in caddy                                       # firefox_count defaults to 0 → no fleet routes
+
+    def test_firefox_count_emits_one_route_per_browser(self):
+        caddy = Content_Proxy__Edge__Template().render(firefox_count=2)
+        assert 'handle_path /browser/firefox/1/*' in caddy                           # both fleet routes present
+        assert 'handle_path /browser/firefox/2/*' in caddy
+        assert 'reverse_proxy cp-firefox-1:5800' in caddy                            # noVNC container port
+        assert 'reverse_proxy cp-firefox-2:5800' in caddy
+        assert 'header_up X-Forwarded-Prefix /browser/firefox/1' in caddy            # subpath noVNC needs the forwarded prefix
+        assert 'redir /browser/firefox/2 /browser/firefox/2/ 308' in caddy           # trailing-slash redirect
+        assert 'handle_path /browser/firefox/3/*' not in caddy
+
+    def test_browser_routes_sit_above_the_catch_all(self):
+        caddy = Content_Proxy__Edge__Template().render(firefox_count=1)
+        assert caddy.index('/browser/firefox/1') < caddy.index('handle {')           # generated routes above the vault catch-all
+        assert caddy.index('handle_path /pw/*')  < caddy.index('/browser/firefox/1') # …and below the /pw route
+
+    def test_hostname_render_carries_firefox_routes(self):
+        caddy = Content_Proxy__Edge__Template().render(hostname='h.example.com', firefox_count=1)
+        assert 'h.example.com {' in caddy and 'handle_path /browser/firefox/1/*' in caddy
+
+
 class test_compose_edge_caddy(TestCase):
 
     def setUp(self):

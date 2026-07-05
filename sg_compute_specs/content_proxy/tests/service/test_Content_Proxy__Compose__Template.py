@@ -4,9 +4,10 @@
 
 from unittest                                                                       import TestCase
 
+from sg_compute_specs.content_proxy.enums.Enum__Content_Proxy__Edge                  import Enum__Content_Proxy__Edge
 from sg_compute_specs.content_proxy.enums.Enum__Content_Proxy__Proxy__Tool           import Enum__Content_Proxy__Proxy__Tool
 from sg_compute_specs.content_proxy.service.Content_Proxy__Compose__Template         import (Content_Proxy__Compose__Template,
-                                                                                             PLACEHOLDERS)
+                                                                                             PLACEHOLDERS, browser_block)
 
 
 class test_Content_Proxy__Compose__Template(TestCase):
@@ -121,5 +122,35 @@ class test_Content_Proxy__Compose__Template(TestCase):
 
     def test_placeholders_locked(self):
         assert PLACEHOLDERS == ('mitmproxy_image', 'mitm_service_image', 'playwright_image',
-                                'int_command', 'ext_command', 'interceptors_mount',
+                                'int_command', 'ext_command', 'interceptors_mount', 'browser_block',
                                 'vault_block', 'cert_init_block', 'edge_block', 'volumes_block')
+
+
+class test_Content_Proxy__Compose__Template__firefox_fleet(TestCase):
+
+    def test_browser_block_zero_is_empty(self):
+        assert browser_block(0)  == ''                                              # count<=0 → nothing (committed local compose unchanged)
+        assert browser_block(-1) == ''
+
+    def test_browser_block_renders_n_services_with_proxy_and_mount(self):
+        block = browser_block(2)
+        assert 'cp-firefox-1:' in block and 'cp-firefox-2:' in block                # exactly the fleet
+        assert 'cp-firefox-3:' not in block
+        assert block.count('image: jlesage/firefox') == 2                           # one image per browser
+        assert block.count('HTTP_PROXY=http://mitmproxy-int:8080')  == 2            # each browses through the no-auth internal proxy
+        assert block.count('HTTPS_PROXY=http://mitmproxy-int:8080') == 2
+        assert '- SECURE_CONNECTION=1' in block                                     # jlesage noVNC over TLS at the edge
+        assert '/opt/content-proxy/firefox/1:/config' in block                     # per-container profile bind-mount (ephemeral)
+        assert '/opt/content-proxy/firefox/2:/config' in block
+        assert block.count('depends_on:') == 2 and block.count('- mitmproxy-int') == 2
+        assert 'volumes:\n' not in block or 'caddy_data' not in block               # no named persistence volume for the fleet
+
+    def test_render_with_firefox_injects_fleet_after_playwright(self):
+        yaml = Content_Proxy__Compose__Template().render(firefox_count=2,
+                                                         edge=Enum__Content_Proxy__Edge.CADDY)
+        assert 'cp-firefox-1:' in yaml and 'cp-firefox-2:' in yaml                  # both services present
+        assert yaml.index('sg-playwright:') < yaml.index('cp-firefox-1:')           # fleet after the sg-playwright block
+        assert yaml.index('cp-firefox-2:') < yaml.index('vault-app:')               # …and before the vault/edge blocks
+
+    def test_default_render_has_no_firefox(self):
+        assert 'cp-firefox' not in Content_Proxy__Compose__Template().render()      # firefox_count defaults to 0
