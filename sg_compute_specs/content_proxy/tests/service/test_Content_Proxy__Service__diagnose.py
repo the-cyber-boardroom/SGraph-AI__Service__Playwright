@@ -44,6 +44,15 @@ class test_expected_containers(TestCase):
         assert 'cp-caddy'     in exp
         assert 'cp-cert-init' not in exp
 
+    def test_firefox_fleet_included_when_count_set(self):                            # /browser fleet must be verified by check/wait/create --wait
+        exp = expected_containers(Enum__Content_Proxy__Tls.NONE, Enum__Content_Proxy__Edge.CADDY, firefox_count=2)
+        assert 'cp-firefox-1' in exp and 'cp-firefox-2' in exp
+        assert 'cp-firefox-3' not in exp
+
+    def test_no_firefox_when_count_zero(self):                                       # default: no browser containers in the checklist
+        exp = expected_containers(Enum__Content_Proxy__Tls.NONE, Enum__Content_Proxy__Edge.NONE)
+        assert not any(n.startswith('cp-firefox') for n in exp)
+
 
 class test_has_cert_init(TestCase):
 
