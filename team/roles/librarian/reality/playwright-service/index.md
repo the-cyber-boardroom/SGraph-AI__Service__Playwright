@@ -1,6 +1,6 @@
 # playwright-service — Reality Index
 
-**Domain:** `playwright-service/` | **Last updated:** 2026-06-23 | **Maintained by:** Librarian
+**Domain:** `playwright-service/` | **Last updated:** 2026-07-03 | **Maintained by:** Librarian
 **Code-source basis:** verified against `sg_compute_specs/playwright/` at v0.2.28 (post-BV2.11 / post-FV2.6); endpoint-surface re-verified against `sg_compute_specs/playwright/core/fast_api/Fast_API__Playwright__Service.py:103-113` at v0.2.63 (2026-06-23, D1 fix — see changelog).
 
 The core FastAPI service: browser automation routes, the Type_Safe schema tree, the `Step__Executor` (sole owner of `page.*`), `Browser__Launcher`, `Sequence__Runner`, and the agentic admin / boot scaffolding layered on top.
@@ -17,7 +17,9 @@ The orphan `sgraph_ai_service_playwright/` package was **deleted in BV2.11 (2026
 
 Wired by `Fast_API__Playwright__Service.setup_routes()` (`sg_compute_specs/playwright/core/fast_api/Fast_API__Playwright__Service.py:103-115`). Nine in-repo route classes (`Routes__Index`, `Routes__Health`, `Routes__Browser`, `Routes__Sequence`, `Routes__Screenshot`, `Routes__Inspect`, `Routes__Session`, `Routes__Metrics`, `Routes__Test_Pages`) plus `Routes__Set_Cookie` imported from `osbot_fast_api.api.routes.Routes__Set_Cookie`.
 
-> **Iteration-2 addition (2026-06-23).** `Routes__Test_Pages` (`GET /test-pages/{name}`) was wired at `Fast_API__Playwright__Service.py:115`, taking the route family count from 21 to **22** (the one parameterised route serves five fixed names: `simple`, `form`, `dynamic`, `links`, `slow`). The five concrete paths are appended to `AUTH__EXCLUDED_PATHS` in `setup()` (`Fast_API__Playwright__Service.py:55-57`) so the server-side browser fetches them keyless. See the Test-Pages sub-section below.
+> **Iteration-2 addition (2026-06-23).** `Routes__Test_Pages` (`GET /test-pages/{name}`) was wired at `Fast_API__Playwright__Service.py:115`, taking the route family count from 21 to **22** (the one parameterised route served five fixed names at the time: `simple`, `form`, `dynamic`, `links`, `slow`). The concrete paths are appended to `AUTH__EXCLUDED_PATHS` in `setup()` (`Fast_API__Playwright__Service.py:58-60`) so the server-side browser fetches them keyless. See the Test-Pages sub-section below.
+
+> **set_cookie slice (2026-07-03).** The step vocabulary grew 24 → **25** with `set_cookie` (`Enum__Step__Action.SET_COOKIE`, `Schema__Step__Set_Cookie`) — sets a cookie on the per-request BrowserContext, STATELESS (fresh context per request, discarded after; a "reload" is a second `navigate` in the same request). Execution stays inside the single-owner boundary: `Step__Executor.execute_set_cookie` passes `page.context` to `Credentials__Loader.add_cookie` (the only `context.add_cookies` caller). The url-vs-domain cross-field rule (`exactly one of url / domain`, `path` defaults `/`) lives in `Request__Validator.validate_step`. The fixture list grew to **six** with `/test-pages/cookies`, and the console gained the S6 gallery example + "needs egress" chips on W1–W9 (F6).
 
 > **D1 corrected (2026-06-23).** The previous text said "16 direct endpoints" and claimed `Routes__Session` was removed in v0.1.24. That is **stale**: the code wires both `Routes__Inspect` (`Fast_API__Playwright__Service.py:110`, `POST /inspect`) and `Routes__Session` (`:111`, the four `/session/*` routes). Counting them gives **21** direct endpoints. The "removed" claim was a regression in the doc, not the code. See the Inspect (1) + Session (4) sub-sections below.
 
@@ -26,10 +28,17 @@ Wired by `Fast_API__Playwright__Service.setup_routes()` (`sg_compute_specs/playw
 | Method | Path | Notes |
 |--------|------|-------|
 | GET | `/health/info` | Service identity (`Schema__Service__Info`) |
-| GET | `/health/status` | Liveness (`Schema__Health`) |
+| GET | `/health/status` | Liveness (`Schema__Health`) — `healthy` aggregates **gating** checks only (see F1 note) |
 | GET | `/health/capabilities` | Declared capabilities (`Schema__Service__Capabilities`) |
 
 Source: `sg_compute_specs/playwright/core/fast_api/routes/Routes__Health.py:31-43`.
+
+> **F1 health-semantics fix (2026-07-03).** `/health/status` used to compute `healthy = all(checks)` where one check was vault connectivity (`bool(SG_SEND_BASE_URL)`) — every deployment without the vault env var (laptop, plain `docker run`) reported unhealthy forever and the console badge showed `degraded`. Vault reachability is a **capability** (already surfaced as `capabilities.has_vault_access`), not liveness. Now:
+> - `Schema__Health__Check` carries `gating : bool = True` (`sg_compute_specs/playwright/core/schemas/service/Schema__Health__Check.py:14`). Gating checks AND into `Schema__Health.healthy`; informational (`gating=False`) checks stay in the `checks` list with their detail but never flip the aggregate. Wire shape stays backward-compatible (`healthy` bool + `checks` list; each check gains the `gating` field).
+> - `connectivity` is informational: `Capability__Detector.connectivity_check()` sets `gating=False` (`sg_compute_specs/playwright/core/service/Capability__Detector.py:200-206`). Aggregation: `Playwright__Service.get_health()` — `all(c.healthy for c in checks if c.gating)` (`sg_compute_specs/playwright/core/service/Playwright__Service.py:121-126`).
+> - **Chromium version probe rewritten** (`chromium 0.0.0` fix, same F1): the old probe opened `sync_playwright()` inside the running service — under uvicorn's asyncio loop the sync API raises, so it always fell into the `0.0.0` fallback. `detect_chromium_version()` now reads the pip package's bundled driver metadata `playwright/driver/package/browsers.json` (`chromium` → `browserVersion`, e.g. `148.0.7778.96`) with a path-segment fallback on `SG_PLAYWRIGHT__CHROMIUM_EXECUTABLE`, then `0.0.0` (`Capability__Detector.py:153-184`). No browser launch, no subprocess — pure file read.
+> - New primitive `Safe_Str__Version__Browser` (`sg_compute_specs/playwright/core/schemas/primitives/text/Safe_Str__Version__Browser.py`) — osbot's `Safe_Str__Version` caps at 3 segments × 3 digits (max 12 chars) and can never hold a real Chrome version, a third contributing cause of the permanent `0.0.0`. `Schema__Service__Info.chromium_version` now uses it.
+> - CI image gate: `tests/integration_live/test_99_ui_console.py::test_6__console_renders_in_image_browser` (F4.2) makes the image's own Chromium render `GET /` from inside the container (`http://localhost:8000/`, API key planted as a cookie via the `set_cookie` step) and asserts via `get_dom_tree` that `#builder` is visible with a non-zero rect — catches the empty-shell console regression the HTML-substring check (test_2) cannot see.
 
 #### Browser one-shot (6) — `Routes__Browser`
 
@@ -57,7 +66,7 @@ Source: `sg_compute_specs/playwright/core/fast_api/routes/Routes__Screenshot.py:
 
 | Method | Path | Notes |
 |--------|------|-------|
-| POST | `/sequence/execute` | Layer-3 multi-step declarative sequence |
+| POST | `/sequence/execute` | Layer-3 multi-step declarative sequence (25-verb step language incl. `set_cookie` — per-request-context cookie, stateless) |
 
 Source: `sg_compute_specs/playwright/core/fast_api/routes/Routes__Sequence.py:27-31`.
 
@@ -92,7 +101,7 @@ Source: `sg_compute_specs/playwright/core/fast_api/routes/Routes__Metrics.py:24-
 
 | Method | Path | Notes |
 |--------|------|-------|
-| GET | `/` | Capability-driven, agent-native **console** (HTML) — 8 endpoint-family tabs, the 24-verb sequence builder, `/inspect` + `/session/*` + `/browser/*` + PDF + DOM/a11y/text/html surfaces, workflow import/export + the S1–S5 (self-contained `/test-pages/*` fixtures) **and** W1–W9 example gallery, in-app docs generated from the live capability surface, and an in-page agentic `window.__tool`. Iteration 2 added: a **light** center/right/bottom work-pane theme (header + tab rail stay dark); the builder/result/console panes wrapped in `<sg-layout>` (CDN-optional, persists to `localStorage['sg-playwright:console:layout:v1']`, falls back to a CSS grid when the component is absent); a framed screenshot viewer with Download + Open-in-new-tab; a `copyText` clipboard helper that survives insecure origins (`http://0.0.0.0`); and a bottom-dock `window.__tool` REPL console. Root_path-aware (`window.API_BASE`) so it works identically behind `/pw` and at root. Rebuilt from the two-tab screenshot toy in the v0.2.64 console effort (commits `9fe5917`, `f4c84ec`). |
+| GET | `/` | Capability-driven, agent-native **console** (HTML) — 8 endpoint-family tabs, the 25-verb sequence builder, `/inspect` + `/session/*` + `/browser/*` + PDF + DOM/a11y/text/html surfaces, workflow import/export + the S1–S6 (self-contained `/test-pages/*` fixtures; S6 = set_cookie → reload → screenshot against `/test-pages/cookies`) **and** W1–W9 example gallery (every W entry carries `egress:true` and renders a "needs egress" chip — external URLs fail on egress-restricted deployments, F6), in-app docs generated from the live capability surface, and an in-page agentic `window.__tool`. Iterations 2–5 added: a **light** work-pane theme (header + tab rail stay dark); an `<sg-layout>` panel shell hosting **four** panes — Builder \| (Output over Examples) with a Console dock — via the documented `tag`-instantiation pattern (tiny `sg-pane-*` host elements relocate the pre-built pane content from `#pane-store`; the layout does NOT project existing nodes via `slot=`). Imported from `https://tools.sgraph.ai/core/sg-layout/v0.1.0/` (dev-host fallback), tree persisted to `localStorage['sg-playwright:console:layout:v3']` via the internal `events.on('layout:changed')` bus, plain-CSS-grid fallback + verify-or-revert guard when the component is absent or fails to mount, header "⟲ Layout" reset. Execution output lives in its own **Output** pane, focused via `focusPanel('output')` on every Execute. Also: a framed screenshot viewer with Download + Open-in-new-tab (single/batch/per-step — per-step artefact matching is case-insensitive on the enum VALUE `screenshot`); collapsible step-builder cards (click the `.step-head`); a `copyText` clipboard helper that survives insecure origins (`http://0.0.0.0`); and a bottom-dock `window.__tool` REPL console. Root_path-aware (`window.API_BASE`) so it works identically behind `/pw` and at root. Rebuilt from the two-tab screenshot toy in the v0.2.64 console effort (commits `9fe5917`, `f4c84ec`, `c27b8da`, `512da60`, `d562403`, `b539e2c`); set_cookie slice added S6 + the F6 egress chips. |
 
 Source: `sg_compute_specs/playwright/core/fast_api/routes/Routes__Index.py` (`INDEX_HTML` + the per-request `__API_BASE__` injection; the example gallery is `const GALLERY = [...]` and the verb table is `const VERBS = {...}`, both code-verified against `Enum__Step__Action` by `tests/unit/fast_api/routes/test_Routes__Index__verb_table_drift.py` and `test_Workflows__Gallery__Bodies.py`).
 
@@ -105,13 +114,13 @@ Source: `sg_compute_specs/playwright/core/fast_api/routes/Routes__Index.py` (`IN
 
 Both paths sit in `AUTH__EXCLUDED_PATHS` so they bypass the API-key middleware.
 
-#### Test-Pages (1 route, 5 names) — `Routes__Test_Pages`
+#### Test-Pages (1 route, 6 names) — `Routes__Test_Pages`
 
 | Method | Path | Notes |
 |--------|------|-------|
-| GET | `/test-pages/{name}` | Deterministic, self-contained HTML fixtures served BY this service for the console's S-series examples (Decision #5). `name` ∈ `{simple, form, dynamic, links, slow}` with stable element ids (`#username`/`#password`/`#submit`/`#welcome`, `#ready`, `#bottom`, `#loaded`, …). Unknown names return a 404 with the reflected name **HTML-escaped** (no reflected-XSS). |
+| GET | `/test-pages/{name}` | Deterministic, self-contained HTML fixtures served BY this service for the console's S-series examples (Decision #5). `name` ∈ `{simple, form, dynamic, links, slow, cookies}` with stable element ids (`#username`/`#password`/`#submit`/`#welcome`, `#ready`, `#bottom`, `#loaded`, …). `cookies` renders `document.cookie` into `#cookie-list` (one `li#cookie-<name>` per cookie) with `#has-cookies` / `#no-cookies` banners — the S6 / set_cookie target (the demo cookie must not be HttpOnly: HttpOnly is invisible to `document.cookie`). Unknown names return a 404 with the reflected name **HTML-escaped** (no reflected-XSS) — note: when an API key is configured the middleware 401s unknown names BEFORE the 404 branch, because only the six known paths are auth-excluded (exact-match list; F5, accepted). |
 
-The five concrete `/test-pages/{name}` paths are appended to `AUTH__EXCLUDED_PATHS` in `Fast_API__Playwright__Service.setup()` (`:55-57`) — the same mechanism that exempts `/auth/set-cookie-form` — so the server-side browser reaches them without an API key. The middleware matches `request.url.path` exactly, so the names are enumerated (`TEST_PAGE_NAMES`) rather than prefix-matched. Source: `sg_compute_specs/playwright/core/fast_api/routes/Routes__Test_Pages.py`; tests: `tests/unit/fast_api/routes/test_Routes__Test_Pages.py`.
+The six concrete `/test-pages/{name}` paths are appended to `AUTH__EXCLUDED_PATHS` in `Fast_API__Playwright__Service.setup()` (`:58-60`) — the same mechanism that exempts `/auth/set-cookie-form` — so the server-side browser reaches them without an API key. The middleware matches `request.url.path` exactly, so the names are enumerated (`TEST_PAGE_NAMES`) rather than prefix-matched. Source: `sg_compute_specs/playwright/core/fast_api/routes/Routes__Test_Pages.py`; tests: `tests/unit/fast_api/routes/test_Routes__Test_Pages.py`.
 
 ### Admin surface (8) — `Agentic_Admin_API` (mounted by `Agentic_FastAPI.setup_routes()` super-call)
 
@@ -146,8 +155,9 @@ Source: `sg_compute_specs/playwright/core/agentic_fastapi/Agentic_Admin_API.py:6
 | `Artefact__Writer` | `Artefact__Writer.py` | **Only class allowed to write to sinks.** |
 | `Request__Validator` | `Request__Validator.py` | Cross-schema validation. |
 | `Request__Watchdog` | `Request__Watchdog.py` | Background thread; fires `os._exit(2)` when a request exceeds the hard cap. |
-| `JS__Expression__Allowlist` | `JS__Expression__Allowlist.py` | Deny-all default for the `evaluate` action. |
-| `Credentials__Loader` | `Credentials__Loader.py` | Vault-side credentials hydration. |
+| `JS__Expression__Allowlist` | `JS__Expression__Allowlist.py` | Deny-all default for the `evaluate` action (+ `wait_for.function`). `is_enabled()` reports whether ANY user JS can run. |
+| `JS__Expression__Allowlist__Loader` | `JS__Expression__Allowlist__Loader.py` | Builds the boot-time script policy from env — `SG_PLAYWRIGHT__JS_ALLOW_ALL` (bypass) and `SG_PLAYWRIGHT__JS_ALLOWLIST_FILE` (curated exact-match list). **Both default OFF → deny-all preserved.** Applied to the main runner's validator in `Playwright__Service.setup()`; the `/screenshot` runner keeps its own separate `allow_all` validator. Surfaced as `Schema__Service__Capabilities.js_evaluate_enabled`. See `library/guides/v0.2.64__enabling-script-execution.md`. |
+| `Credentials__Loader` | `Credentials__Loader.py` | Vault-side credentials hydration. Also the ONLY `context.add_cookies` caller — the `set_cookie` verb lands here via `add_cookie(context, step)` (stateless: per-request context only). |
 | `Capability__Detector` | `Capability__Detector.py` | Primed in `Fast_API__Playwright__Service.setup()`. |
 
 (`Proxy__Auth__Binder` was deleted in v0.1.33 — replaced by the `agent_mitmproxy` sidecar pattern; the sidecar lives under `sg_compute_specs/mitmproxy/` post-BV2.12.)

@@ -6,6 +6,23 @@ This is a pointer log, not a content log. For full delta detail, see the master 
 
 ---
 
+## 2026-07-03 (playwright-service — set_cookie verb slice, branch `claude/amazing-pasteur-3srh6x`)
+
+2026-07-03 | playwright-service | **set_cookie slice.** Step vocabulary 24 → **25**
+  (`Enum__Step__Action.SET_COOKIE` + `Schema__Step__Set_Cookie`; STATELESS — the
+  cookie mutates only the fresh per-request BrowserContext and dies with it).
+  Execution delegated to `Credentials__Loader.add_cookie` (still the only
+  `context.add_cookies` caller); url-vs-domain rule in `Request__Validator`.
+  `/test-pages/{name}` five → **six** with `cookies` (renders `document.cookie`
+  into `#cookie-list`); console gained S6 (set cookie → reload → screenshot) and
+  "needs egress" chips on W1–W9 (F6). F5 (`/test-pages/{unknown}` 401s before the
+  escaped 404 when a key is set) documented as accepted — the upstream middleware
+  exclusion list is exact-match only. Citations refreshed (`Fast_API__Playwright__
+  Service.py:58-60`, `step_schema_registry.py:52-78`). Catalogue `service.md` +
+  both sg-playwright SKILL files updated to 25.
+
+---
+
 ## 2026-06-23 (playwright-service — D1 endpoint-count fix + v0.2.64 console, branch `claude/amazing-pasteur-3srh6x`)
 
 2026-06-23 | playwright-service | **D1 fixed.** Doc said "16 direct endpoints" and

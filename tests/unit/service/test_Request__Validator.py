@@ -185,3 +185,40 @@ class test_reject_carries_capabilities(TestCase):                               
             assert exc.detail['error_code']    == 'custom_code'
             assert exc.detail['error_message'] == 'x'
             assert exc.detail['capabilities']   is not None
+
+
+class test_validate_step__set_cookie(TestCase):                                     # set_cookie slice — url-vs-domain cross-field rule lives HERE (rule 18)
+
+    def _step(self, **kwargs):
+        from sg_compute_specs.playwright.core.schemas.steps.Schema__Step__Set_Cookie import Schema__Step__Set_Cookie
+        return Schema__Step__Set_Cookie.from_json({'action': 'set_cookie', **kwargs})
+
+    def _validate(self, step):
+        _validator().validate_step(step, Schema__Capture__Config(), _caps(),
+                                   Enum__Deployment__Target.LAPTOP)
+
+    def test__url_form_accepted(self):
+        self._validate(self._step(name='sg_demo', value='hello', url='http://test.local/p'))    # No raise
+
+    def test__domain_form_accepted(self):
+        self._validate(self._step(name='sid', value='abc', domain='example.com', path='/'))     # No raise
+
+    def test__domain_without_path_accepted(self):                                   # path defaults to '/' in Credentials__Loader
+        self._validate(self._step(name='sid', value='abc', domain='example.com'))               # No raise
+
+    def test__neither_url_nor_domain_rejected(self):
+        with pytest.raises(HTTPException) as exc:
+            self._validate(self._step(name='sid', value='abc'))
+        assert exc.value.status_code == 422
+        assert 'set_cookie_url_or_domain' in str(exc.value.detail)
+
+    def test__both_url_and_domain_rejected(self):                                   # Playwright's add_cookies contract: EITHER url OR domain
+        with pytest.raises(HTTPException) as exc:
+            self._validate(self._step(name='sid', value='abc',
+                                      url='http://test.local/p', domain='example.com'))
+        assert 'set_cookie_url_or_domain' in str(exc.value.detail)
+
+    def test__empty_name_rejected(self):
+        with pytest.raises(HTTPException) as exc:
+            self._validate(self._step(value='abc', url='http://test.local/p'))
+        assert 'set_cookie_missing_name' in str(exc.value.detail)

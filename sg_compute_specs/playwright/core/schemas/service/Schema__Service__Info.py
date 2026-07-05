@@ -8,6 +8,7 @@ from osbot_utils.type_safe.primitives.domains.common.safe_str.Safe_Str__Version 
 from osbot_utils.type_safe.primitives.domains.identifiers.safe_str.Safe_Str__Display_Name       import Safe_Str__Display_Name
 
 from sg_compute_specs.playwright.core.schemas.enums.Enum__Deployment__Target                        import Enum__Deployment__Target
+from sg_compute_specs.playwright.core.schemas.primitives.text.Safe_Str__Version__Browser            import Safe_Str__Version__Browser
 from sg_compute_specs.playwright.core.schemas.service.Schema__Service__Capabilities                 import Schema__Service__Capabilities
 
 
@@ -16,7 +17,7 @@ class Schema__Service__Info(Type_Safe):                                         
     service_version    : Safe_Str__Version                                          # Service code version (from S3 zip)
     image_version      : Safe_Str__Version                                          # Container image version
     playwright_version : Safe_Str__Version                                          # Playwright library version
-    chromium_version   : Safe_Str__Version                                          # Bundled Chromium version
+    chromium_version   : Safe_Str__Version__Browser                                 # Bundled Chromium version — real Chrome versions ("148.0.7778.96") overflow Safe_Str__Version (F1)
     deployment_target  : Enum__Deployment__Target
     capabilities       : Schema__Service__Capabilities
     code_source        : Safe_Str__Text                                             # v0.1.28 — boot-shim provenance: 's3:<bucket>/<key>→<dir>', 'local:<path>', or 'passthrough:sys.path'

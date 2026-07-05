@@ -16,6 +16,7 @@ from osbot_utils.utils.Env                                                      
 
 from sg_compute_specs.playwright.core.consts.env_vars                                                   import (ENV_VAR__AGENTIC_CODE_SOURCE   ,
                                                                                                             ENV_VAR__AWS_LAMBDA_RUNTIME_API,
+                                                                                                            ENV_VAR__CHROMIUM_EXECUTABLE   ,
                                                                                                             ENV_VAR__CI                    ,
                                                                                                             ENV_VAR__CLAUDE_SESSION        ,
                                                                                                             ENV_VAR__DEFAULT_PROXY_URL     ,
@@ -27,6 +28,8 @@ from sg_compute_specs.playwright.core.consts.version                            
 from sg_compute_specs.playwright.core.schemas.enums.Enum__Artefact__Sink                                import Enum__Artefact__Sink
 from sg_compute_specs.playwright.core.schemas.enums.Enum__Browser__Name                                 import Enum__Browser__Name
 from sg_compute_specs.playwright.core.schemas.enums.Enum__Deployment__Target                            import Enum__Deployment__Target
+from sg_compute_specs.playwright.core.service.JS__Expression__Allowlist__Loader                          import JS__Expression__Allowlist__Loader
+from sg_compute_specs.playwright.core.schemas.primitives.text.Safe_Str__Version__Browser                import Safe_Str__Version__Browser
 from sg_compute_specs.playwright.core.schemas.service.Schema__Health__Check                             import Schema__Health__Check
 from sg_compute_specs.playwright.core.schemas.service.Schema__Service__Capabilities                     import Schema__Service__Capabilities
 from sg_compute_specs.playwright.core.schemas.service.Schema__Service__Info                             import Schema__Service__Info
@@ -44,6 +47,7 @@ class Capability__Detector(Type_Safe):
     def detect(self) -> 'Capability__Detector':
         self.detected_target       = self.detect_target()
         self.detected_capabilities = self.build_capabilities(self.detected_target)
+        self.detected_capabilities.js_evaluate_enabled = JS__Expression__Allowlist__Loader().load().is_enabled()   # env-driven, deployment-independent; deny-all → False
         return self
 
     def target(self) -> Enum__Deployment__Target:
@@ -143,15 +147,43 @@ class Capability__Detector(Type_Safe):
         except PackageNotFoundError:
             return Safe_Str__Version(FALLBACK_VERSION)
 
-    def detect_chromium_version(self) -> Safe_Str__Version:                         # Best-effort; falls back if Playwright browsers not installed
+    # F1 — the old probe opened sync_playwright() inside the running service; under
+    # uvicorn's asyncio loop the sync API raises ("Sync API inside asyncio loop"),
+    # landing in the except → FALLBACK_VERSION on every deployment. Never launch
+    # Playwright from a health probe: read the pip package's bundled driver
+    # metadata instead (pure file read — fast, loop-safe, exception-safe).
+    def detect_chromium_version(self) -> Safe_Str__Version__Browser:
+        version = self.chromium_version__from_driver_metadata()                     # Preferred — real browserVersion, e.g. "148.0.7778.96"
+        if version is None:
+            version = self.chromium_version__from_executable_path()                 # Fallback — digit token from an explicit executable path (build number at best)
+        return Safe_Str__Version__Browser(version or FALLBACK_VERSION)
+
+    def chromium_version__from_driver_metadata(self) -> str:                        # playwright/driver/package/browsers.json ships inside the pip package; its 'chromium' entry carries revision + browserVersion. It reports the version the PIP PACKAGE expects — which matches the baked browsers because the base image and the playwright pin move in lockstep (Dockerfile guard).
         try:
-            from playwright.sync_api                                                                                 import sync_playwright
-            with sync_playwright() as pw:
-                path    = pw.chromium.executable_path
-                segment = path.split('/')[-3] if path else FALLBACK_VERSION
-                return Safe_Str__Version(self.extract_version_digits(segment))
+            import json
+            import playwright
+            from pathlib import Path
+            browsers_file = Path(playwright.__file__).parent / 'driver' / 'package' / 'browsers.json'
+            data          = json.loads(browsers_file.read_text())
+            for browser in data.get('browsers', []):
+                if browser.get('name') == 'chromium':
+                    return browser.get('browserVersion') or None
+        except Exception:                                                           # Health endpoints are hot — any surprise (missing file, bad JSON) degrades to the next fallback, never raises
+            return None
+        return None
+
+    def chromium_version__from_executable_path(self) -> str:                        # Cheap path-segment parse only — no subprocess spawning in a health probe
+        try:
+            import os
+            executable = get_env(ENV_VAR__CHROMIUM_EXECUTABLE)
+            if executable and os.path.exists(executable):
+                for segment in reversed(executable.split('/')):                     # e.g. .../chromium-1223/chrome-linux/chrome → '1223' (build number, not a Chrome version — metadata probe above is preferred)
+                    digits = self.extract_version_digits(segment)
+                    if digits != FALLBACK_VERSION:
+                        return digits
         except Exception:
-            return Safe_Str__Version(FALLBACK_VERSION)
+            return None
+        return None
 
     def extract_version_digits(self, text: str) -> str:                             # Pulls 'chrome-1234' -> '1234' style tokens for Safe_Str__Version
         digits : List[str] = []
@@ -167,8 +199,9 @@ class Capability__Detector(Type_Safe):
             digits.append(current)
         return digits[-1] if digits else FALLBACK_VERSION
 
-    def connectivity_check(self) -> Schema__Health__Check:
+    def connectivity_check(self) -> Schema__Health__Check:                          # F1 — vault connectivity is a CAPABILITY (capabilities.has_vault_access), not liveness. gating=False keeps it visible in /health/status without flipping the aggregate: laptop / plain docker run deployments without SG_SEND_BASE_URL are still healthy.
         vault_url = get_env(ENV_VAR__SG_SEND_BASE_URL)
         return Schema__Health__Check(check_name = 'connectivity'                       ,
                                      healthy    = bool(vault_url)                     ,
-                                     detail     = f'vault_url={vault_url}'             )
+                                     detail     = f'vault_url={vault_url}'            ,
+                                     gating     = False                                )

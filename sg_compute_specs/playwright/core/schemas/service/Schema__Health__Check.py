@@ -11,3 +11,4 @@ class Schema__Health__Check(Type_Safe):                                         
     check_name : Safe_Str__Key                                                      # e.g. "chromium_process"
     healthy    : bool
     detail     : Safe_Str__Text                                                     # Human-readable reason
+    gating     : bool = True                                                        # F1 — True: check ANDs into Schema__Health.healthy; False: informational only (visible in the list, never flips the aggregate)

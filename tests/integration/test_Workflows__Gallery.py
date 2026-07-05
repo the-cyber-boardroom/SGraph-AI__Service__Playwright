@@ -183,3 +183,78 @@ class test_Workflows__Gallery(TestCase):
         assert len(rj['screenshots']) == len(W8['items'])
         for s in rj['screenshots']:
             assert s['screenshot_b64']
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# S6 — set_cookie → reload → screenshot, against the service's OWN /test-pages/cookies
+# fixture. Unlike W1-W8 the browser must reach the fixture over real HTTP, so the
+# app is also served on a loopback uvicorn (same pattern as test_Workflows__UI_
+# Execute_Smoke). STATELESS contract: the cookie exists only inside that one
+# request's fresh browser context — nothing persists between the two tests below.
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def _s6_body(base: str) -> dict:                                                             # the gallery S6 body with tpUrl(base) resolved
+    cookies_url = f'{base}/test-pages/cookies'
+    return {'capture_config' : {'screenshot': {'enabled': True, 'sink': 'inline'}},
+            'sequence_config': {},
+            'steps': [{'action': 'navigate'  , 'url': cookies_url, 'wait_until': 'domcontentloaded'},
+                      {'action': 'screenshot', 'full_page': True},
+                      {'action': 'set_cookie', 'name': 'sg_demo', 'value': 'hello-from-sg-playwright', 'url': cookies_url},
+                      {'action': 'navigate'  , 'url': cookies_url, 'wait_until': 'domcontentloaded'},
+                      {'action': 'screenshot', 'full_page': True}]}
+
+
+class test_Workflows__Gallery__S6_set_cookie(TestCase):
+
+    @classmethod
+    def setUpClass(cls):
+        import threading
+        import socket
+        import time
+        import uvicorn
+
+        cls.fa, cls.client = _build_fast_api()
+
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)                                # loopback port for the fixture pages the browser fetches
+        s.bind(('127.0.0.1', 0)); cls.port = s.getsockname()[1]; s.close()
+        config      = uvicorn.Config(cls.fa.app(), host='127.0.0.1', port=cls.port, log_level='warning')
+        cls.server  = uvicorn.Server(config)
+        cls.thread  = threading.Thread(target=cls.server.run, daemon=True)
+        cls.thread.start()
+        deadline = time.time() + 15
+        while time.time() < deadline:                                                        # wait for the port to accept connections
+            try:
+                probe = socket.create_connection(('127.0.0.1', cls.port), timeout=0.5)
+                probe.close(); break
+            except OSError:
+                time.sleep(0.1)
+        cls.base = f'http://127.0.0.1:{cls.port}'
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.server.should_exit = True
+        cls.thread.join(timeout=10)
+        cls.fa.service.browser_launcher.stop_all()
+
+    def test__S6_second_screenshot_artefact_exists(self):                                    # the brief's contract assertion — both shots land, set_cookie passes
+        rj = _post(self.client, '/sequence/execute', _s6_body(self.base))
+        assert rj['status'] == 'completed', rj
+        assert rj['steps_passed'] == rj['steps_total'] == 5
+        set_cookie_step = next(s for s in rj['step_results'] if s.get('action') == 'set_cookie')
+        assert set_cookie_step['status'] == 'passed'
+        assert 'hello-from-sg-playwright' not in str(set_cookie_step)                        # cookie value is never echoed in the step result
+        shots = [s for s in rj['step_results'] if s.get('action') == 'screenshot']
+        assert len(shots) == 2
+        for s in shots:
+            assert s['artefacts'][0]['inline_b64']                                           # both artefacts exist — notably the post-reload one
+        assert shots[1]['artefacts'][0]['inline_b64'] != shots[0]['artefacts'][0]['inline_b64']  # the page changed after the cookie landed
+
+    def test__S6_cookie_visible_to_document_cookie_after_reload(self):                       # verb proof — the fixture renders the jar into #cookie-list
+        body = _s6_body(self.base)
+        body['steps'] += [{'action': 'wait_for', 'selector': '#cookie-sg_demo'},
+                          {'action': 'get_text', 'selector': '#cookie-list'}]
+        rj = _post(self.client, '/sequence/execute', body)
+        assert rj['status'] == 'completed', rj
+        text_step = next(s for s in rj['step_results'] if s.get('action') == 'get_text')
+        assert 'sg_demo' in text_step['text']
+        assert 'hello-from-sg-playwright' in text_step['text']

@@ -34,8 +34,9 @@ from sg_compute_specs.playwright.core.schemas.sequence.Schema__Sequence__Request
 
 from sg_compute_specs.playwright.core.schemas.screenshot.Schema__Screenshot__Request       import Schema__Screenshot__Request
 
-# S1-S5 self-contained fixture examples (Decision #5) lead the gallery; W1-W9 follow.
-GALLERY_IDS_S = ['S1', 'S2', 'S3', 'S4', 'S5']
+# S1-S6 self-contained fixture examples (Decision #5) lead the gallery; W1-W9 follow.
+# S6 is the set_cookie demo (stateless — cookie lives only in that request's context).
+GALLERY_IDS_S = ['S1', 'S2', 'S3', 'S4', 'S5', 'S6']
 GALLERY_IDS_W = ['W1', 'W2', 'W3', 'W4', 'W5', 'W6', 'W7', 'W8', 'W9']
 GALLERY_IDS   = GALLERY_IDS_S + GALLERY_IDS_W
 
@@ -140,6 +141,24 @@ class test_Workflows__Gallery__Bodies(TestCase):
         idx = w['request']['steps'].index(wait_for_step)
         parsed = parse_step(wait_for_step, idx)                                              # no longer rejected by Safe_Str__Url__Permissive
         assert parsed is not None
+
+    def test__S6_set_cookie_body_round_trips(self):                                          # set_cookie slice — S6 is navigate → shot → set_cookie → navigate (the "reload") → shot
+        w   = self.by_id['S6']
+        obj = Schema__Sequence__Request.from_json(w['request'])
+        assert len(obj.steps) == 5
+        assert [s['action'] for s in w['request']['steps']] == ['navigate', 'screenshot', 'set_cookie', 'navigate', 'screenshot']
+        sc     = next(s for s in w['request']['steps'] if s['action'] == 'set_cookie')
+        parsed = parse_step(sc, 2)                                                           # url-form cookie parses through the real dispatcher
+        assert str(parsed.name)  == 'sg_demo'
+        assert str(parsed.url).startswith('http')
+        assert bool(parsed.http_only) is False                                               # HttpOnly would be invisible to the fixture's document.cookie render
+
+    def test__F6__w_series_carries_egress_badge_and_s_series_does_not(self):                 # F6 — every external-URL example is flagged; self-contained ones are not
+        for w in self.gallery:
+            if w['id'].startswith('W'):
+                assert w.get('egress') is True, f"{w['id']} targets an external site but has no egress:true flag"
+            else:
+                assert 'egress' not in w, f"{w['id']} is self-contained and must not be badged"
 
     def test__W1_sequence_body_round_trips(self):                                            # spot-check the most-exercised body explicitly
         w   = self.by_id['W1']

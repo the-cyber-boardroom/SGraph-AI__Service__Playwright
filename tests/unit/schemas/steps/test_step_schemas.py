@@ -124,3 +124,57 @@ class test_Step_JSON_Round_Trip(TestCase):                                      
         original = Schema__Step__Click(selector='#submit', click_count=2, force=True)
         clone    = Schema__Step__Click.from_json(original.json())
         assert clone.json() == original.json()
+
+
+class test_Schema__Step__Set_Cookie(TestCase):                                      # set_cookie slice — cookie on the per-request context (stateless)
+
+    def test__set_cookie_defaults(self):
+        from sg_compute_specs.playwright.core.schemas.steps.Schema__Step__Set_Cookie import Schema__Step__Set_Cookie
+        step = Schema__Step__Set_Cookie()
+        assert step.action    == Enum__Step__Action.SET_COOKIE
+        assert step.url       is None
+        assert step.domain    is None
+        assert step.path      is None
+        assert step.secure    is False
+        assert step.http_only is False
+        assert step.same_site is None
+        assert step.expires   is None
+
+    def test__set_cookie_url_form_round_trip(self):
+        from sg_compute_specs.playwright.core.schemas.steps.Schema__Step__Set_Cookie import Schema__Step__Set_Cookie
+        original = Schema__Step__Set_Cookie(name='sg_demo', value='hello-from-sg-playwright',
+                                            url='http://test.local/test-pages/cookies')
+        clone    = Schema__Step__Set_Cookie.from_json(original.json())
+        assert clone.json() == original.json()
+
+    def test__set_cookie_domain_form_round_trip(self):
+        from sg_compute_specs.playwright.core.schemas.enums.Enum__Cookie__Same_Site  import Enum__Cookie__Same_Site
+        from sg_compute_specs.playwright.core.schemas.steps.Schema__Step__Set_Cookie import Schema__Step__Set_Cookie
+        original = Schema__Step__Set_Cookie(name='sid', value='abc123', domain='.example.com',
+                                            path='/app', secure=True, http_only=True,
+                                            same_site=Enum__Cookie__Same_Site.STRICT, expires=1234567890)
+        clone    = Schema__Step__Set_Cookie.from_json(original.json())
+        assert clone.json()      == original.json()
+        assert clone.same_site   == Enum__Cookie__Same_Site.STRICT
+        assert int(clone.expires) == 1234567890
+
+    def test__same_site_values_are_playwright_capitalised(self):                    # add_cookies expects "Strict"/"Lax"/"None" — serialise via .value
+        from sg_compute_specs.playwright.core.schemas.enums.Enum__Cookie__Same_Site import Enum__Cookie__Same_Site
+        assert [m.value for m in Enum__Cookie__Same_Site] == ['Strict', 'Lax', 'None']
+
+    def test__cookie_name_rejects_non_token_characters(self):                       # strict MATCH primitive — malformed names raise, never mangle
+        from sg_compute_specs.playwright.core.schemas.primitives.browser.Safe_Str__Cookie__Name import Safe_Str__Cookie__Name
+        try:
+            Safe_Str__Cookie__Name('bad;name')
+            assert False, 'expected ValueError'
+        except ValueError:
+            pass
+
+    def test__cookie_value_rejects_semicolon(self):                                 # RFC 6265 cookie-octet excludes ';' — jar could not round-trip it
+        from sg_compute_specs.playwright.core.schemas.primitives.browser.Safe_Str__Cookie__Value import Safe_Str__Cookie__Value
+        try:
+            Safe_Str__Cookie__Value('a;b')
+            assert False, 'expected ValueError'
+        except ValueError:
+            pass
+        assert str(Safe_Str__Cookie__Value('YWJjMTIzPT0+/token._-')) == 'YWJjMTIzPT0+/token._-'   # base64 / JWT-ish values pass

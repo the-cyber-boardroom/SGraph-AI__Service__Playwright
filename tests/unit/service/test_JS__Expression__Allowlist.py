@@ -29,3 +29,8 @@ class test_JS__Expression__Allowlist(TestCase):
         al = JS__Expression__Allowlist(allowed_expressions=['document.title'])
         expr = Safe_Str__JS__Expression('document.title')
         assert al.is_allowed(expr) is True
+
+    def test__is_enabled(self):                                                     # True only when scripts can actually run
+        assert JS__Expression__Allowlist()                                    .is_enabled() is False
+        assert JS__Expression__Allowlist(allow_all=True)                      .is_enabled() is True
+        assert JS__Expression__Allowlist(allowed_expressions=['document.title']).is_enabled() is True

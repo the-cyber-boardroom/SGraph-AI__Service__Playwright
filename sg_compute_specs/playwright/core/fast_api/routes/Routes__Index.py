@@ -4,17 +4,21 @@
 #   GET /   → static capability-driven "Try it out" console (HTML, served same-origin)
 #
 # Rebuilt for the v0.2.64 dev pack (P2-P5): a capability-driven, agent-native console
-# that exposes the full service surface — the 24-verb /sequence language, /inspect,
+# that exposes the full service surface — the 25-verb /sequence language, /inspect,
 # /session/*, /browser/* one-shots, a Debug panel, and the live /health/capabilities
 # self-description — plus portable workflow import/export, in-app docs, and an agentic
 # window.__tool JS API.
 #
 # Loading model (Decision #1 / #11, brief 08):
-#   - sg-tokens + sg-layout are loaded CDN-absolute from https://dev.tools.sgraph.ai/...
-#     (prefix-independent — works identically behind /pw and at root), mirroring the
-#     admin dashboard (sgraph_ai_service_playwright__api_site/admin/index.html:7,19;
-#     admin.js:194-195). The console degrades gracefully if the CDN is unreachable —
-#     its own tab shell renders without sg-layout so the page is self-sufficient offline.
+#   - sg-tokens loads CDN-absolute from https://dev.tools.sgraph.ai/... ; sg-layout
+#     loads from https://tools.sgraph.ai/core/sg-layout/v0.1.0/ (documented host,
+#     dev-host fallback). Both prefix-independent — work identically behind /pw and
+#     at root. sg-layout hosts the four work panes via its documented tag-instantiation
+#     pattern (tiny sg-pane-* elements relocate pre-built pane content from
+#     #pane-store — you never slot existing nodes; see
+#     library/guides/v0.1.92__sg-layout__quick-start.md §5). If the component is
+#     unreachable or fails to mount, a plain CSS grid renders the same panes, so the
+#     page is self-sufficient offline.
 #   - Every SAME-ORIGIN fetch / asset stays window.API_BASE-prefixed (forbidden:
 #     absolute-rooted /components-style URLs — they break behind the /pw proxy).
 #
@@ -191,6 +195,8 @@ pre.out{background:var(--surface);border:1px solid var(--border);border-radius:v
 .gallery button:hover{border-color:var(--accent);}
 .gallery .gw{color:var(--accent);font-weight:600;}
 .gallery .gd{color:var(--muted);font-size:.68rem;display:block;margin-top:2px;}
+.gallery .gchip{float:right;font-size:.6rem;font-weight:600;color:#b45309;background:rgba(180,83,9,.12);
+                border:1px solid rgba(180,83,9,.4);border-radius:8px;padding:1px 6px;margin-left:6px;}
 
 /* docs */
 .docs-verb{border:1px solid var(--border);border-radius:6px;margin-bottom:6px;background:var(--surface2);}
@@ -255,12 +261,13 @@ pre.out{background:var(--surface);border:1px solid var(--border);border-radius:v
 #work-area{flex:1;min-height:0;display:flex;}
 #work-area sg-layout{flex:1;min-height:0;width:100%;}
 #pane-store{display:none;}                                                          /* holds pane content until the layout (or grid) relocates it */
-sg-pane-builder,sg-pane-result,sg-pane-console{display:block;height:100%;min-height:0;overflow:auto;}
+sg-pane-builder,sg-pane-output,sg-pane-gallery,sg-pane-console{display:block;height:100%;min-height:0;overflow:auto;}
 .console-grid{display:grid;grid-template-columns:minmax(320px,1fr) minmax(320px,1fr);
-  grid-template-rows:1fr auto;grid-template-areas:"builder result" "console console";overflow:hidden;min-height:0;}
+  grid-template-rows:1.4fr .8fr auto;grid-template-areas:"builder output" "builder gallery" "console console";overflow:hidden;min-height:0;}
 .console-grid #builder{grid-area:builder;min-width:0;min-height:0;overflow:auto;}
-.console-grid #result-panel{grid-area:result;min-width:0;min-height:0;overflow:auto;}
-.console-grid #console-pane{grid-area:console;min-height:0;overflow:auto;border-top:1px solid var(--lborder);max-height:40vh;}
+.console-grid #output-pane{grid-area:output;min-width:0;min-height:0;overflow:auto;}
+.console-grid #result-panel{grid-area:gallery;min-width:0;min-height:0;overflow:auto;border-top:1px solid var(--lborder);}
+.console-grid #console-pane{grid-area:console;min-height:0;overflow:auto;border-top:1px solid var(--lborder);max-height:34vh;}
 </style>
 </head>
 <body>
@@ -361,7 +368,7 @@ sg-pane-builder,sg-pane-result,sg-pane-console{display:block;height:100%;min-hei
         <div class="sr"><span id="spin-ss" style="display:none" class="spin"></span><span id="status-ss"></span></div>
       </div>
 
-      <!-- Sequence tab (the 24-verb builder) -->
+      <!-- Sequence tab (the 25-verb builder) -->
       <div id="tab-sequence" class="tab-pane">
         <div class="section-title">Sequence builder → POST /sequence/execute</div>
         <div id="seq-steps" style="display:flex;flex-direction:column;gap:8px;"></div>
@@ -493,6 +500,10 @@ sg-pane-builder,sg-pane-result,sg-pane-console{display:block;height:100%;min-hei
           <div class="gallery" id="gallery"></div>
         </div>
       </details>
+    </div>
+
+    <!-- ────────── OUTPUT (own pane) — execution results: image / steps / json ────────── -->
+    <div class="result work-light" id="output-pane">
       <div class="result-meta" id="result-meta" style="display:none"></div>
       <img id="result-img" alt="result">
       <pre id="result-html" class="out" style="display:none"></pre>
@@ -532,6 +543,7 @@ const ENUMS = {
   codec:       ['webm','mp4'],
   return_type: ['json','string','number','boolean'],
   content_format: ['html','text'],
+  same_site:   ['Strict','Lax','None'],
 };
 // verb → field specs. {name, type, def, req, enum, hint}
 const VERBS = {
@@ -546,6 +558,7 @@ const VERBS = {
   wait_for:       [{n:'selector'},{n:'text'},{n:'url_pattern'},{n:'state',enum:'wait_until'},{n:'function',hint:'needs server JS allowlist'},{n:'network_idle_ms',type:'number'},{n:'visible',type:'bool',def:true},{n:'selector_gone',type:'bool',def:false}],
   screenshot:     [{n:'full_page',type:'bool',def:false},{n:'selector'},{n:'save_as'},{n:'frame_selector'}],
   set_viewport:   [{n:'viewport',type:'viewport',req:1}],
+  set_cookie:     [{n:'name',req:1},{n:'value',req:1},{n:'url',hint:'exactly one of url OR domain; stateless — the cookie lives only in the fresh per-request browser context and is discarded after the request'},{n:'domain'},{n:'path',def:'/'},{n:'secure',type:'bool',def:false},{n:'http_only',type:'bool',def:false},{n:'same_site',enum:'same_site'},{n:'expires',type:'number'}],
   evaluate:       [{n:'expression',req:1,hint:'allowlist-gated — default deny-all reports failed/partial, NOT 422'},{n:'return_type',enum:'return_type',def:'json'}],
   dispatch_event: [{n:'selector',req:1},{n:'event_type',req:1},{n:'event_init',type:'json'}],
   video_start:    [{n:'codec',enum:'codec',def:'webm'},{video:1}],
@@ -560,7 +573,7 @@ const VERBS = {
   get_console_tail:[{n:'lines',type:'number',def:100}],
   get_network_failures: [],
 };
-const VERB_LIST = Object.keys(VERBS);                                                // 24 verbs, capability-map order
+const VERB_LIST = Object.keys(VERBS);                                                // 25 verbs, capability-map order
 const PROBE_VERBS = ['get_url','get_text','get_html','get_dom_tree','get_a11y_tree','screenshot','get_console_tail','get_network_failures'];
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -962,6 +975,7 @@ function clearResult(){
   document.getElementById('result-steps').innerHTML='';
   document.getElementById('batch-grid').innerHTML='';
   document.getElementById('placeholder').style.display='block';
+  revealOutput();                                                                   // bring the Output pane forward so results show without scrolling
 }
 function showErr(msg){ const el=document.getElementById('result-err'); el.textContent=msg; el.style.display='block'; document.getElementById('placeholder').style.display='none'; }
 function showMetaLine(html){ const el=document.getElementById('result-meta'); el.innerHTML=html; el.style.display='flex'; document.getElementById('placeholder').style.display='none'; }
@@ -1152,7 +1166,12 @@ function loadInsProbe(name,probe){
 // /test-pages/* fixtures. URLs are resolved at LOAD time off
 // window.location.origin + window.API_BASE so they run against THIS deployment with
 // no external egress. They are the headline of the gallery; W1-W9 follow as
-// public-site recipes. tpUrl() composes the absolute fixture URL.
+// public-site recipes — each carries egress:true and renders a "needs egress" chip
+// (F6): they target external sites and fail on egress-restricted deployments.
+// S6 is the set_cookie demo: the cookie mutates ONLY that request's fresh browser
+// context (stateless — discarded on teardown); the second navigate is the "reload"
+// that shows it. tpUrl() composes the absolute fixture URL.
+// (No comments inside the GALLERY literal — test_Workflows__Gallery__Bodies parses it as JSON.)
 function tpUrl(name){ return window.location.origin + window.API_BASE + '/test-pages/' + name; }
 const GALLERY = [
   { id:'S1', title:'Screenshot a fixture page', tab:'screenshot', endpoint:'/screenshot',
@@ -1180,7 +1199,14 @@ const GALLERY = [
       {action:'scroll',y:2000},
       {action:'wait_for',selector:'#bottom'},
       {action:'screenshot',selector:'#gamma'} ] } },
-  { id:'W1', title:'Form fill + wait + per-step shots', tab:'sequence', endpoint:'/sequence/execute',
+  { id:'S6', title:'Set cookie → reload → screenshot', tab:'sequence', endpoint:'/sequence/execute',
+    request:{ capture_config:{screenshot:{enabled:true,sink:'inline'}}, steps:[
+      {action:'navigate',url:tpUrl('cookies'),wait_until:'domcontentloaded'},
+      {action:'screenshot',full_page:true},
+      {action:'set_cookie',name:'sg_demo',value:'hello-from-sg-playwright',url:tpUrl('cookies')},
+      {action:'navigate',url:tpUrl('cookies'),wait_until:'domcontentloaded'},
+      {action:'screenshot',full_page:true} ] } },
+  { id:'W1', title:'Form fill + wait + per-step shots', tab:'sequence', endpoint:'/sequence/execute', egress:true,
     request:{ capture_config:{screenshot:{enabled:true,sink:'inline'}}, steps:[
       {action:'navigate',url:'https://example.com/login',wait_until:'domcontentloaded'},
       {action:'fill',selector:'#email',value:'demo@example.com'},
@@ -1189,7 +1215,7 @@ const GALLERY = [
       {action:'click',selector:'button[type=submit]'},
       {action:'wait_for',text:'Welcome',timeout_ms:10000},
       {action:'screenshot',full_page:true} ] } },
-  { id:'W2', title:'Login then navigate then extract', tab:'sequence', endpoint:'/sequence/execute',
+  { id:'W2', title:'Login then navigate then extract', tab:'sequence', endpoint:'/sequence/execute', egress:true,
     request:{ steps:[
       {action:'navigate',url:'https://app.example.com/login'},
       {action:'fill',selector:'#user',value:'demo'},
@@ -1200,27 +1226,27 @@ const GALLERY = [
       {action:'wait_for',selector:'[data-ready=true]'},
       {action:'get_url'},
       {action:'get_text',selector:'main'} ] } },
-  { id:'W3', title:'Scrape DOM + a11y (via /inspect)', tab:'inspect', endpoint:'/inspect',
+  { id:'W3', title:'Scrape DOM + a11y (via /inspect)', tab:'inspect', endpoint:'/inspect', egress:true,
     request:{ navigate:{url:'https://sgraph.ai'}, settle:[{action:'wait_for',state:'networkidle'}], diagnostics_on_fail:true,
       probes:{ current_url:{action:'get_url'}, page_text:{action:'get_text'},
         dom:{action:'get_dom_tree',max_depth:6,include_invisible:false}, a11y:{action:'get_a11y_tree',interesting_only:true},
         html_head:{action:'get_html',selector:'head'} } } },
-  { id:'W4', title:'Render a PDF', tab:'sequence', endpoint:'/sequence/execute',
+  { id:'W4', title:'Render a PDF', tab:'sequence', endpoint:'/sequence/execute', egress:true,
     request:{ capture_config:{pdf:{enabled:true,sink:'inline'}}, steps:[
       {action:'navigate',url:'https://sgraph.ai/about',wait_until:'load'},
       {action:'wait_for',state:'networkidle'},
       {action:'get_pdf',format:'A4',landscape:false,print_background:true} ] } },
-  { id:'W5', title:'Console + network on a failing page', tab:'inspect', endpoint:'/inspect',
+  { id:'W5', title:'Console + network on a failing page', tab:'inspect', endpoint:'/inspect', egress:true,
     request:{ navigate:{url:'https://example.com/broken'}, settle:[], diagnostics_on_fail:true,
       probes:{ console:{action:'get_console_tail',lines:200}, failures:{action:'get_network_failures'}, shot:{action:'screenshot',full_page:true} } } },
-  { id:'W6', title:'Viewport/frame/selector capture', tab:'sequence', endpoint:'/sequence/execute',
+  { id:'W6', title:'Viewport/frame/selector capture', tab:'sequence', endpoint:'/sequence/execute', egress:true,
     request:{ capture_config:{screenshot:{enabled:true,sink:'inline'}}, steps:[
       {action:'navigate',url:'https://example.com'},
       {action:'set_viewport',viewport:{width:1440,height:900}},
       {action:'screenshot',full_page:true},
       {action:'screenshot',selector:'header.site-header'},
       {action:'screenshot',frame_selector:'iframe#embed',viewport:{width:800,height:600}} ] } },
-  { id:'W7', title:'Hover/select/press/scroll/evaluate', tab:'sequence', endpoint:'/sequence/execute',
+  { id:'W7', title:'Hover/select/press/scroll/evaluate', tab:'sequence', endpoint:'/sequence/execute', egress:true,
     request:{ capture_config:{screenshot:{enabled:true,sink:'inline'}}, steps:[
       {action:'navigate',url:'https://example.com/catalog'},
       {action:'hover',selector:'nav .menu'},
@@ -1230,19 +1256,21 @@ const GALLERY = [
       {action:'wait_for',selector:'.results .item'},
       {action:'evaluate',expression:"document.querySelectorAll('.item').length",return_type:'number'},
       {action:'screenshot',full_page:true} ] } },
-  { id:'W8', title:'Batch screenshots (items)', tab:'screenshot', endpoint:'/screenshot/batch',
+  { id:'W8', title:'Batch screenshots (items)', tab:'screenshot', endpoint:'/screenshot/batch', egress:true,
     request:{ items:[
       {url:'https://sgraph.ai',full_page:true},
       {url:'https://example.com',format:'png'},
       {url:'https://example.org',javascript:"document.body.style.zoom='80%'"} ] } },
-  { id:'W9', title:'Stateful session (open/act/probe/close)', tab:'session', endpoint:'/sequence/execute',
+  { id:'W9', title:'Stateful session (open/act/probe/close)', tab:'session', endpoint:'/sequence/execute', egress:true,
     request:{ steps:[
       {action:'navigate',url:'https://app.example.com'},
       {action:'wait_for',text:'Dashboard'} ] } },
 ];
 function renderGallery(){
   const g=document.getElementById('gallery');
-  g.innerHTML = GALLERY.map(w=>`<button onclick="loadExample('${w.id}')"><span class="gw">${escHtml(w.id)}</span> ${escHtml(w.title)}<span class="gd">${escHtml(w.endpoint)}</span></button>`).join('');
+  // F6 — egress:true entries target external sites (not /test-pages/*); badge them so a
+  // failure on an egress-restricted deployment is expected rather than mysterious.
+  g.innerHTML = GALLERY.map(w=>`<button onclick="loadExample('${w.id}')"><span class="gw">${escHtml(w.id)}</span> ${escHtml(w.title)}${w.egress?'<span class="gchip" title="Targets an external site — fails on egress-restricted deployments">needs egress</span>':''}<span class="gd">${escHtml(w.endpoint)}</span></button>`).join('');
 }
 function loadExample(id){
   const w=GALLERY.find(x=>x.id===id); if(!w)return;
@@ -1317,7 +1345,7 @@ document.addEventListener('keydown', e=>{ if(!(e.ctrlKey||e.metaKey)||e.key!=='E
 //  to mount, applyConsoleGridFallback lays the same panes out as a plain grid so
 //  the console always works.
 // ════════════════════════════════════════════════════════════════════════════
-const SG_LAYOUT_LS = 'sg-playwright:console:layout:v2';
+const SG_LAYOUT_LS = 'sg-playwright:console:layout:v3';
 function definePaneHost(tag, contentId){                                            // a tab tag that relocates our pre-built pane into itself
   if(customElements.get(tag)) return;
   customElements.define(tag, class extends HTMLElement{
@@ -1327,16 +1355,23 @@ function definePaneHost(tag, contentId){                                        
   });
 }
 definePaneHost('sg-pane-builder','builder');
-definePaneHost('sg-pane-result','result-panel');
+definePaneHost('sg-pane-output','output-pane');
+definePaneHost('sg-pane-gallery','result-panel');
 definePaneHost('sg-pane-console','console-pane');
-function defaultConsoleLayout(){                                                    // builder | result (top row) over a full-width console
+function defaultConsoleLayout(){                                                    // builder | (output over gallery) on the right, console along the bottom
   return { type:'column', sizes:[0.72,0.28], children:[
-    { type:'row', sizes:[0.5,0.5], children:[
-      { type:'stack', id:'s-builder', tabs:[{ tag:'sg-pane-builder', title:'Builder' }] },
-      { type:'stack', id:'s-result',  tabs:[{ tag:'sg-pane-result',  title:'Result'  }] } ] },
-    { type:'stack', id:'s-console', tabs:[{ tag:'sg-pane-console', title:'Console' }] } ] };
+    { type:'row', sizes:[0.42,0.58], children:[
+      { type:'stack', id:'s-builder', tabs:[{ tag:'sg-pane-builder', id:'builder', title:'Builder' }] },
+      { type:'column', sizes:[0.62,0.38], children:[
+        { type:'stack', id:'s-output',  tabs:[{ tag:'sg-pane-output',  id:'output',  title:'Output'  }] },
+        { type:'stack', id:'s-gallery', tabs:[{ tag:'sg-pane-gallery', id:'gallery', title:'Examples' }] } ] } ] },
+    { type:'stack', id:'s-console', tabs:[{ tag:'sg-pane-console', id:'console', title:'Console' }] } ] };
 }
-function paneNodes(){ return [document.getElementById('builder'),document.getElementById('result-panel'),document.getElementById('console-pane')]; }
+function revealOutput(){                                                            // focus the Output pane so results are visible without scrolling/hunting
+  try{ const area=document.getElementById('work-area'); const el=area&&area.querySelector('sg-layout');
+    if(el&&typeof el.focusPanel==='function') el.focusPanel('output'); }catch(e){}
+}
+function paneNodes(){ return [document.getElementById('builder'),document.getElementById('output-pane'),document.getElementById('result-panel'),document.getElementById('console-pane')]; }
 function applyConsoleGridFallback(){                                                // plain CSS grid — guaranteed-working state if sg-layout is absent/failed
   const area=document.getElementById('work-area'); if(!area) return;
   const host=area.querySelector('sg-layout'); if(host) host.remove();
