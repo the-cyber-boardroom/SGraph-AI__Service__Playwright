@@ -43,6 +43,20 @@ def _default_aws_dns_zone() -> str:
     return os.environ.get('SG_AWS__DNS__DEFAULT_ZONE', DEFAULT_AWS_DNS_ZONE)
 
 
+def resolve_proxyauth(user: str, password: str, has_env_file: bool) -> tuple:       # ext (Mode 1) basic-auth: an --env-file ships its own; else default the user to 'demo' and GENERATE a GUID pass so the internet-facing proxy never boots with empty auth (proxyauth=:)
+    if has_env_file:                                                                # the shipped .env carries CONTENT_PROXY__PROXYAUTH_* verbatim
+        return user, password
+    return (user or 'demo'), (password or str(uuid.uuid4()))
+
+
+def derive_account_id(region: str) -> str:                                          # deploying account (operator's session) — written to the box .env so the mitm-service app has AWS_ACCOUNT_ID even on the instance-role path
+    try:
+        from osbot_aws.AWS_Config import AWS_Config
+        return str(AWS_Config().aws_session_account_id() or '')
+    except Exception:                                                               # offline / no creds at create time → leave blank (app can still derive via STS at runtime)
+        return ''
+
+
 def derive_fqdn(stack_name: str, request) -> str:
     # explicit --hostname wins; else --with-aws-dns auto-derives <stack>.<zone>; else blank (IP only)
     explicit = str(getattr(request, 'hostname', '') or '').strip()
@@ -61,6 +75,31 @@ def _parse_env(text: str) -> dict:                                              
             k, v = line.split('=', 1)
             env[k.strip()] = v.strip()
     return env
+
+
+ACCESS_TOKEN_ENV_KEYS       = ('FAST_API__AUTH__API_KEY__VALUE', 'SGRAPH_SEND__ACCESS_TOKEN')  # one access token in two vars — must be identical
+ACCESS_TOKEN_ENV_CANONICAL  = 'SGRAPH_SEND__ACCESS_TOKEN'                                       # survivor when a shipped --env-file has two divergent reals (operator-facing)
+
+
+def couple_env_access_token(env_text: str) -> tuple:                                # (rewritten_env, token). A supplied --env-file skips the CLI's realize_secrets, so guard it here: unify the token pair (else /pw fails 'Invalid API key value'). Empty token (env-file defines neither) → env unchanged, token ''.
+    env   = _parse_env(env_text)
+    order = (ACCESS_TOKEN_ENV_CANONICAL,) + tuple(k for k in ACCESS_TOKEN_ENV_KEYS if k != ACCESS_TOKEN_ENV_CANONICAL)
+    token = next((env[k] for k in order if str(env.get(k, '')).strip()), '')
+    if not token:
+        return env_text, ''
+    out, seen = [], set()
+    for line in env_text.splitlines():
+        s = line.strip()
+        if s and not s.startswith('#') and '=' in s and s.split('=', 1)[0].strip() in ACCESS_TOKEN_ENV_KEYS:
+            k = s.split('=', 1)[0].strip()
+            out.append(f'{k}={token}')
+            seen.add(k)
+            continue
+        out.append(line)
+    for k in ACCESS_TOKEN_ENV_KEYS:                                                 # append any missing so both are present + identical
+        if k not in seen:
+            out.append(f'{k}={token}')
+    return '\n'.join(out), token
 EXT_PROXY_PORT        = 8080                                                        # mitmproxy-ext (human browser, Mode 1)
 VAULT_PORT            = 443                                                         # vault-app front door (Mode 2 / UX)
 ACME_PORT             = 80                                                          # cert-init http-01 (letsencrypt-ip only)
@@ -159,8 +198,8 @@ def boot_log_failed(text: str) -> bool:                                         
     if '[content-proxy] boot complete' in body:                                    # an explicit success marker overrides earlier noise
         return False
     low     = body.lower()
-    markers = ('command not found', 'no such file', 'permission denied',
-               'error response from daemon', 'failed to', 'cannot ', 'fatal:',
+    markers = ('command not found', 'no such file', 'permission denied',           # specific script-failure signatures only — 'failed to'/'cannot ' were dropped: they match benign docker-pull noise (e.g. "failed to get default registry endpoint") during an in-progress boot
+               'error response from daemon', 'fatal:',
                'traceback (most recent call last)')
     return any(m in low for m in markers)
 
@@ -272,14 +311,19 @@ class Content_Proxy__Service(Spec__Service__Base):
         sg_id = self.aws_client.sg.ensure_security_group(region, stack_name, caller_ip,
                                                          inbound_ports=inbound, extra_cidrs=extra_cidrs)
         # app secrets: reuse what a supplied --env-file already defines; generate only if absent
+        if str(request.env_inline):                                                              # a shipped .env skips the CLI's realize_secrets — couple its token pair here so a divergent pair can't deploy (→ /pw 'Invalid API key value')
+            request.env_inline, _ = couple_env_access_token(str(request.env_inline))
         env_map       = _parse_env(str(request.env_inline))
         fastapi_key   = env_map.get('FASTAPI_API_KEY_VALUE') or str(uuid.uuid4())                 # interceptor ↔ mitm-service (mitm-service requires a GUID)
-        access_token  = (env_map.get('FAST_API__AUTH__API_KEY__VALUE')                            # the access token (sg va model):
-                         or env_map.get('SGRAPH_SEND__ACCESS_TOKEN')                              # vault key + sg-playwright key (/pw)
-                         or str(uuid.uuid4()))                                                    # + set-cookie token
+        env_token     = (env_map.get('FAST_API__AUTH__API_KEY__VALUE')                            # the access token (sg va model): vault key + sg-playwright key (/pw) + set-cookie
+                         or env_map.get('SGRAPH_SEND__ACCESS_TOKEN'))
+        # env-file path: the response/tag token MUST reflect what the box actually has — never fabricate a uuid the box lacks
+        access_token  = env_token if str(request.env_inline) else (env_token or str(uuid.uuid4()))
         keys_from_env = bool(env_map.get('FAST_API__AUTH__API_KEY__VALUE')
                              or env_map.get('SGRAPH_SEND__ACCESS_TOKEN')
                              or env_map.get('FASTAPI_API_KEY_VALUE'))
+        request.proxyauth_user, request.proxyauth_pass = resolve_proxyauth(          # ext (internet-facing) proxy needs real basic-auth — local `up` fills it via realize_secrets, the EC2 path must too (else proxyauth=: → empty/broken Mode 1)
+            str(request.proxyauth_user), str(request.proxyauth_pass), bool(str(request.env_inline)))
         extra_tags = {TAG_MODE  : request.mode.value,
                       TAG_TLS   : request.tls.value ,
                       TAG_EDGE  : request.edge.value,
@@ -294,10 +338,12 @@ class Content_Proxy__Service(Spec__Service__Base):
                 v = os.environ.get(k, '')
                 if v:
                     aws_creds[k] = v
+        account_id = derive_account_id(region) or aws_creds.get('AWS_ACCOUNT_ID', '')  # always set AWS_ACCOUNT_ID on the box, even on the instance-role path
         user_data = self.user_data_builder.render(request,
                                                   fastapi_api_key    = fastapi_key        ,
                                                   access_token       = access_token       ,
                                                   region             = region             ,
+                                                  account_id         = account_id         ,
                                                   aws_creds          = aws_creds          ,
                                                   env_override       = str(request.env_inline),
                                                   hostname           = fqdn               )
@@ -324,6 +370,8 @@ class Content_Proxy__Service(Spec__Service__Base):
             fastapi_api_key    = fastapi_key                                 ,
             access_token       = access_token                                ,
             secrets_from_env   = keys_from_env                              ,
+            proxyauth_user     = str(request.proxyauth_user)                 ,
+            proxyauth_pass     = str(request.proxyauth_pass)                 ,
             message    = f'Instance {iid} launching ({STACK_TYPE}, {request.proxy_tool.value}, S3 via {creds_path})',
             elapsed_ms = int((time.monotonic() - t0) * 1000)                 )
 

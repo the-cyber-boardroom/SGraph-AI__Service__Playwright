@@ -50,6 +50,13 @@ def _set_extras(request, mode='direct_proxy', tls='none', edge='none', hostname=
         if not ca.exists():
             raise FileNotFoundError(f'{ca} not found — run `sg content-proxy local up` once to generate it')
         request.proxy_ca_pem = ca.read_text()
+    elif proxy_ca_cert or proxy_ca_key:                                              # ship a supplied CA (cert + key) — mitmproxy needs BOTH to sign intercepted TLS
+        if not (proxy_ca_cert and proxy_ca_key):
+            raise ValueError('--proxy-ca-cert and --proxy-ca-key must be supplied together '
+                             '(mitmproxy needs the CA cert AND its private key to intercept TLS)')
+        cert_pem = Path(proxy_ca_cert).read_text().strip()
+        key_pem  = Path(proxy_ca_key).read_text().strip()
+        request.proxy_ca_pem = f'{key_pem}\n{cert_pem}\n'                            # mitmproxy-ca.pem format = private key then cert
     request.mode              = Enum__Content_Proxy__Mode(mode)
     request.tls               = Enum__Content_Proxy__Tls(tls)
     request.edge              = Enum__Content_Proxy__Edge(edge)

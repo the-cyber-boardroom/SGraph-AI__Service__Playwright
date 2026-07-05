@@ -16,9 +16,29 @@ import tempfile
 from sg_compute_specs.content_proxy.cli.Cli__Content_Proxy import (app, read_env_file, smoke_curl_args,
                                                                   remote_smoke_command, auth_help_lines,
                                                                   realize_secrets, apply_env_updates,
-                                                                  Content_Proxy__Service,
+                                                                  Content_Proxy__Service, _set_extras,
                                                                   LOG_SOURCES, resolve_log_source,
                                                                   resolve_scripts_bucket)
+from sg_compute_specs.content_proxy.schemas.Schema__Content_Proxy__Create__Request import Schema__Content_Proxy__Create__Request
+
+
+class test_proxy_ca_wiring(TestCase):
+
+    def test_supplied_cert_and_key_shipped_as_mitmproxy_ca_pem(self):
+        with tempfile.TemporaryDirectory() as d:
+            cert = Path(d) / 'ca.crt'; cert.write_text('-----BEGIN CERTIFICATE-----\nCERT\n-----END CERTIFICATE-----')
+            key  = Path(d) / 'ca.key'; key.write_text('-----BEGIN PRIVATE KEY-----\nKEY\n-----END PRIVATE KEY-----')
+            req  = Schema__Content_Proxy__Create__Request()
+            _set_extras(req, proxy_ca_cert=str(cert), proxy_ca_key=str(key))
+            pem = str(req.proxy_ca_pem)
+            assert 'PRIVATE KEY' in pem and 'CERTIFICATE' in pem                      # both shipped (mitmproxy needs cert+key)
+            assert pem.index('PRIVATE KEY') < pem.index('CERTIFICATE')               # key first, then cert (mitmproxy-ca.pem order)
+
+    def test_cert_without_key_raises(self):
+        with tempfile.TemporaryDirectory() as d:
+            cert = Path(d) / 'ca.crt'; cert.write_text('x')
+            with self.assertRaises(ValueError):
+                _set_extras(Schema__Content_Proxy__Create__Request(), proxy_ca_cert=str(cert))
 
 
 class test_Cli__Content_Proxy(TestCase):

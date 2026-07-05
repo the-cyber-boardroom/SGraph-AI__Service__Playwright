@@ -42,11 +42,13 @@ def _cert_init_mode(tls: Enum__Content_Proxy__Tls) -> str:                      
     return 'self-signed'                                                            # SELF_SIGNED + ACM-fallback
 
 
-def proxy_command(tool: Enum__Content_Proxy__Proxy__Tool, with_proxyauth: bool, indent: str = '      ') -> str:
+def proxy_command(tool: Enum__Content_Proxy__Proxy__Tool, with_proxyauth: bool, allow_global: bool = False, indent: str = '      ') -> str:
     lines = [str(tool.value)]                                                       # 'mitmweb' | 'mitmdump'
     if tool == Enum__Content_Proxy__Proxy__Tool.MITMWEB:
         lines += ['--web-host=0.0.0.0', '--web-port=8081']
     lines += ['--listen-host=0.0.0.0', '--listen-port=8080', '--scripts=/interceptors/active.py']
+    if allow_global:                                                                # public-facing ext proxy: mitmproxy blocks clients from non-private ('global') IPs by default → a remote browser over the internet is killed ("block_global option")
+        lines += ['--set', 'block_global=false']
     if with_proxyauth:
         lines += ['--set', 'proxyauth=${CONTENT_PROXY__PROXYAUTH_USER}:${CONTENT_PROXY__PROXYAUTH_PASS}']
     return '\n'.join(f'{indent}- {ln}' for ln in lines)
@@ -302,8 +304,8 @@ class Content_Proxy__Compose__Template(Type_Safe):
         return COMPOSE_TEMPLATE.format(mitmproxy_image    = str(mitmproxy_image)            ,
                                        mitm_service_image = str(mitm_service_image)         ,
                                        playwright_image   = str(playwright_image)           ,
-                                       int_command        = proxy_command(proxy_tool, False),
-                                       ext_command        = proxy_command(proxy_tool, True ),
+                                       int_command        = proxy_command(proxy_tool, False),                  # int: docker-network clients (private IPs) — block_global irrelevant
+                                       ext_command        = proxy_command(proxy_tool, True, allow_global=True),  # ext: public browsers over the internet → must allow global clients
                                        interceptors_mount = str(interceptors_mount)         ,
                                        vault_block        = vault_block(vault_app_image, tls, edge),
                                        cert_init_block    = cert_init_block(tls, edge)      ,
