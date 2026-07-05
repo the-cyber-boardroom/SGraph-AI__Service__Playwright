@@ -148,12 +148,13 @@ BASE_CONTAINERS = ('cp-mitm-service', 'cp-mitmproxy-int', 'cp-mitmproxy-ext',
                    'cp-sg-playwright', 'cp-vault-app')
 
 
-def expected_containers(tls, edge) -> tuple:                                       # → cp-* names this stack shape should run
+def expected_containers(tls, edge, firefox_count: int = 0) -> tuple:               # → cp-* names this stack shape should run
     names = list(BASE_CONTAINERS)
     if edge == Enum__Content_Proxy__Edge.CADDY:                                    # dedicated edge owns :443 + /pw
         names.append('cp-caddy')
     elif tls in (Enum__Content_Proxy__Tls.SELF_SIGNED, Enum__Content_Proxy__Tls.LETSENCRYPT):
         names.append('cp-cert-init')                                               # one-shot TLS sidecar (vault-as-edge TLS stacks only)
+    names += [f'cp-firefox-{i}' for i in range(1, int(firefox_count) + 1)]         # interactive Firefox fleet (/browser/firefox/{i})
     return tuple(names)
 
 
@@ -419,6 +420,7 @@ class Content_Proxy__Service(Spec__Service__Base):
 
         tls  = getattr(info, 'tls',  Enum__Content_Proxy__Tls.NONE)
         edge = getattr(info, 'edge', Enum__Content_Proxy__Edge.NONE)
+        firefox_count = int(getattr(info, 'firefox_count', 0) or 0)                 # interactive Firefox fleet — verify each cp-firefox-{i} in containers-up
         tls_stack = has_cert_init(tls, edge)
 
         # ── check 2: ssm-reachable ─────────────────────────────────────────────
@@ -468,7 +470,7 @@ class Content_Proxy__Service(Spec__Service__Base):
             yield ('container-engine', 'warn', 'could not check')
 
         # ── check 5: containers-up ─────────────────────────────────────────────
-        expected      = expected_containers(tls, edge)
+        expected      = expected_containers(tls, edge, firefox_count)
         containers_ok = False
         yield ('containers-up', 'checking', '')
         try:
