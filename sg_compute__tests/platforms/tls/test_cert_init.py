@@ -144,6 +144,33 @@ class TestCertInit:
                                             sleep_fn    = lambda s: None,
                                             resolve_fn  = lambda h: '1.2.3.4')      # never matches
 
+    def test_wait_for_dns_returns_false_on_timeout_when_not_raising(self):
+        # raise_on_timeout=False → return False instead of raising, so the hostname
+        # flow can proceed to ACME (LE validates externally) despite a box-side lag.
+        clock = [0.0]
+        def now():
+            clock[0] += 10
+            return clock[0]
+        result = cert_init.wait_for_dns_to_match(hostname='vault.example.com',
+                                                 my_ip='18.0.0.1',
+                                                 timeout_sec=30,
+                                                 poll_sec=0,
+                                                 now_fn      = now,
+                                                 sleep_fn    = lambda s: None,
+                                                 resolve_fn  = lambda h: '1.2.3.4',
+                                                 raise_on_timeout=False)
+        assert result is False
+
+    def test_wait_for_dns_returns_true_on_convergence(self):
+        result = cert_init.wait_for_dns_to_match(hostname='vault.example.com',
+                                                 my_ip='18.0.0.1',
+                                                 timeout_sec=30,
+                                                 poll_sec=0,
+                                                 sleep_fn    = lambda s: None,
+                                                 resolve_fn  = lambda h: '18.0.0.1',
+                                                 raise_on_timeout=False)
+        assert result is True
+
     def test_resolve_hostname_handles_nxdomain_as_a_sentinel(self):
         # Internal helper used by main() — must NEVER raise gaierror up to callers;
         # returns a sentinel string so the polling loop keeps going.

@@ -54,6 +54,17 @@ def _default_aws_dns_zone() -> str:
     return os.environ.get('SG_AWS__DNS__DEFAULT_ZONE', DEFAULT_AWS_DNS_ZONE_FALLBACK)
 
 
+# Tag keys the stack owns — a --tag with one of these would create a duplicate tag
+# key (run_instance rejects that) or shadow a lifecycle filter / read-back value.
+# 'Name', 'Purpose', 'StackName', 'StackType', 'CallerIP', 'CreatedBy' come from
+# EC2__Tags__Builder; the rest from the vault-app extras + the Namespace tag.
+RESERVED_TAG_KEYS = frozenset({
+    'Name', 'Purpose', 'StackName', 'StackType', 'CallerIP', 'CreatedBy',
+    TAG_WITH_PLAYWRIGHT, TAG_ENGINE, TAG_TLS_ENABLED, TAG_TLS_HOSTNAME,
+    TAG_ACCESS_TOKEN, TAG_TERMINATE_AT, TAG_NAMESPACE,
+})
+
+
 def _elapsed_since_iso(iso_ts: str) -> int:
     """Seconds elapsed from `iso_ts` (UTC, '%Y-%m-%dT%H:%M:%SZ') to now. -1 on parse error."""
     try:
@@ -120,6 +131,25 @@ class Vault_App__Service(Spec__Service__Base):
         duplicates = [{'Key': f'{prefix}-{t["Key"]}', 'Value': t['Value']} for t in base]
         return base + duplicates
 
+    def parse_custom_tags(self, custom_tags: str) -> dict:
+        # newline-joined KEY=VALUE (CLI validates the format) → dict. Rejects keys
+        # that collide with reserved stack tags (would dup a tag key or shadow a
+        # lifecycle filter). Called before any AWS mutation so a bad --tag fails fast.
+        out = {}
+        for line in (custom_tags or '').splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            key, _, value = line.partition('=')
+            key = key.strip()
+            if not key:
+                continue
+            if key in RESERVED_TAG_KEYS:
+                raise ValueError(f"--tag {key!r} is reserved by the vault-app stack "
+                                 f"(used for lifecycle/filtering); choose a different key.")
+            out[key] = value.strip()
+        return out
+
     def create_stack(self, request : Schema__Vault_App__Create__Request,
                            creator : str = '') -> Schema__Vault_App__Create__Response:
         t0           = time.monotonic()
@@ -139,6 +169,7 @@ class Vault_App__Service(Spec__Service__Base):
         # we can detect in one Route 53 API call up front.
         if bool(request.with_aws_dns):
             self._preflight_aws_dns_zone(str(request.tls_hostname).strip())
+        custom_tags  = self.parse_custom_tags(str(request.custom_tags))                 # raises on a reserved key BEFORE any AWS mutation
         region       = str(request.region)        or DEFAULT_REGION
         caller_ip    = str(request.caller_ip)     or self.ip_detector.detect()
         if not caller_ip:
@@ -178,6 +209,7 @@ class Vault_App__Service(Spec__Service__Base):
         if float(request.max_hours) > 0:
             terminate_at = datetime.now(timezone.utc) + timedelta(hours=float(request.max_hours))
             extra[TAG_TERMINATE_AT] = terminate_at.strftime('%Y-%m-%dT%H:%M:%SZ')
+        extra.update(custom_tags)                                                       # operator --tag KEY=VALUE (reserved keys already rejected)
         tags = self.aws_client.tags.build(stack_name, caller_ip, creator, extra_tags=extra)
         tags = self.apply_name_prefix(tags, stack_name, str(request.name_prefix))
 
@@ -558,22 +590,31 @@ class Vault_App__Service(Spec__Service__Base):
             yield ('containers-up', 'warn', 'could not check')
 
         # ── check 7: vault-http ────────────────────────────────────────────────
+        # TLS stacks bind :443 only (no :8080), so probe HTTPS with -k (self-signed
+        # and LE certs both pass). Probing :8080 on a TLS stack always returns 000 —
+        # a false WARN that hangs `--wait` even though the vault is healthy.
+        tls_on = bool(getattr(info, 'tls_enabled', False))
         if not containers_ok:
             yield ('vault-http', 'skip', 'skipped — containers not running')
         else:
             yield ('vault-http', 'checking', '')
             try:
-                code = ssm('curl -s -o /dev/null -w "%{http_code}" '
-                           f'http://127.0.0.1:{VAULT_PORT}/info/health 2>&1 || echo 000', timeout=30)
-                code = code.strip()
-                if code in ('200', '204'):
-                    yield ('vault-http', 'ok', f'HTTP {code}')
-                elif code in ('401', '403'):
-                    yield ('vault-http', 'ok', f'HTTP {code} — up, auth-gated (expected)')
-                elif code and code != '000':
-                    yield ('vault-http', 'warn', f'HTTP {code} — up but not ready')
+                if tls_on:
+                    probe = 'curl -sk -o /dev/null -w "%{http_code}" https://127.0.0.1/info/health'
+                    where = ':443'
                 else:
-                    yield ('vault-http', 'warn', 'no response on :8080 — vault still warming up')
+                    probe = f'curl -s -o /dev/null -w "%{{http_code}}" http://127.0.0.1:{VAULT_PORT}/info/health'
+                    where = f':{VAULT_PORT}'
+                code = ssm(f'{probe} 2>&1 || echo 000', timeout=30).strip()
+                no_response = (not code) or set(code) == {'0'}                   # '', '000', '000000' → connection refused
+                if code in ('200', '204'):
+                    yield ('vault-http', 'ok', f'HTTP {code} ({where})')
+                elif code in ('401', '403'):
+                    yield ('vault-http', 'ok', f'HTTP {code} ({where}) — up, auth-gated (expected)')
+                elif not no_response:
+                    yield ('vault-http', 'warn', f'HTTP {code} ({where}) — up but not ready')
+                else:
+                    yield ('vault-http', 'warn', f'no response on {where} — vault still warming up')
             except Exception as exc:
                 yield ('vault-http', 'fail', str(exc)[:120])
 
@@ -591,29 +632,33 @@ class Vault_App__Service(Spec__Service__Base):
             yield ('boot-ok', 'warn', 'could not check')
 
         # ── check 9: cert-init (TLS stacks only) ───────────────────────────────
-        # Reads the stage file written by sg_compute.platforms.tls.cert_init —
-        # bind-mounted at /var/lib/sg-compute/cert-init.stage on the EC2 host.
+        # Primary signal = the one-shot cert-init container's EXIT STATUS. The stage
+        # file (/var/lib/sg-compute/cert-init.stage) is only supplementary detail —
+        # older host-control images don't write it, so an empty stage file must NOT
+        # read as failure when the container exited 0 (that false WARN hung `--wait`).
         # Brief: team/comms/briefs/v0.1.14__sg-va-cert-init-observability/.
-        if bool(getattr(info, 'tls_enabled', False)):
+        if tls_on:
             yield ('cert-init', 'checking', '')
             try:
-                # tail of stage file = current stage. Format per line: iso_ts\tstage\tdetail
-                last = ssm('sudo tail -n 1 /var/lib/sg-compute/cert-init.stage 2>/dev/null || true')
-                parts = (last.split('\t', 2) + ['', '', ''])[:3]
-                ts, stage, detail = parts
-                if not stage:
-                    # cert-init may not have started yet (compose still pulling host-control image)
-                    yield ('cert-init', 'warn', 'not yet — stage file empty (cert-init has not started)')
-                elif stage == 'cert-issued':
-                    yield ('cert-init', 'ok', f'{stage}  {detail}')
+                status = ssm(f'sudo {engine} ps -a --filter name=cert-init '
+                             f'--format "{{{{.Status}}}}" 2>/dev/null | head -1 || true').strip()
+                last   = ssm('sudo tail -n 1 /var/lib/sg-compute/cert-init.stage 2>/dev/null || true')
+                ts, stage, detail = (last.split('\t', 2) + ['', '', ''])[:3]
+                stage_note = f'  [{stage} {detail}]'.rstrip() if stage else ''
+                if 'Exited (0)' in status:
+                    yield ('cert-init', 'ok', f'cert issued — container exited 0{stage_note}')
+                elif 'Exited' in status:                                            # non-zero exit
+                    yield ('cert-init', 'fail', f'cert-init {status}{stage_note}')
+                elif stage == 'cert-issued':                                        # container status unreadable but stage says done
+                    yield ('cert-init', 'ok', f'cert issued{stage_note}')
                 elif stage == 'failed':
                     yield ('cert-init', 'fail', f'failed at {ts} — {detail}')
-                else:
-                    # in-flight stage — surface elapsed since the stage transition so the operator
-                    # can tell "stuck in waiting-for-dns for 5min" from "just started 2s ago"
+                elif status or stage:                                              # still running (Up …) or mid-stage
                     elapsed = _elapsed_since_iso(ts)
-                    suffix  = f'  (in stage for ~{elapsed}s)' if elapsed >= 0 else ''
-                    yield ('cert-init', 'warn', f'{stage}  {detail}{suffix}')
+                    suffix  = f'  (~{elapsed}s)' if elapsed >= 0 and stage else ''
+                    yield ('cert-init', 'warn', f'in progress — {status or stage}{suffix}')
+                else:
+                    yield ('cert-init', 'warn', 'not yet — cert-init has not started')
             except Exception as exc:
                 yield ('cert-init', 'warn', f'could not check: {str(exc)[:120]}')
 
