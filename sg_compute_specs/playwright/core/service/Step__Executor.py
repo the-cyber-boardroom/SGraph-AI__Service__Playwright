@@ -8,7 +8,8 @@
 # duration + status + any artefact refs.
 #
 # Implemented verbs: NAVIGATE, CLICK, FILL, SCREENSHOT, GET_CONTENT, GET_URL,
-# EVALUATE, WAIT_FOR, PRESS, SELECT, HOVER, SCROLL, SET_VIEWPORT, DISPATCH_EVENT.
+# EVALUATE, WAIT_FOR, PRESS, SELECT, HOVER, SCROLL, SET_VIEWPORT, DISPATCH_EVENT,
+# SET_COOKIE (delegated to Credentials__Loader — the only context.add_cookies caller).
 # Recording (video) is context-level via capture_config.video, not a per-step verb.
 # Dispatch is table-driven (ACTION_HANDLERS); an unmapped verb returns a per-step
 # FAILED result rather than raising — Sequence__Runner also wraps execution as a
@@ -61,6 +62,7 @@ from sg_compute_specs.playwright.core.schemas.steps.Schema__Step__Press         
 from sg_compute_specs.playwright.core.schemas.steps.Schema__Step__Select                                import Schema__Step__Select
 from sg_compute_specs.playwright.core.schemas.steps.Schema__Step__Hover                                 import Schema__Step__Hover
 from sg_compute_specs.playwright.core.schemas.steps.Schema__Step__Scroll                                import Schema__Step__Scroll
+from sg_compute_specs.playwright.core.schemas.steps.Schema__Step__Set_Cookie                            import Schema__Step__Set_Cookie
 from sg_compute_specs.playwright.core.schemas.steps.Schema__Step__Set_Viewport                          import Schema__Step__Set_Viewport
 from sg_compute_specs.playwright.core.schemas.steps.Schema__Step__Dispatch_Event                        import Schema__Step__Dispatch_Event
 from sg_compute_specs.playwright.core.service.Step__Executor__Base                                       import ACTION_HANDLERS, Step__Executor__Base
@@ -312,6 +314,22 @@ class Step__Executor(Step__Executor__Base):                                     
             return self.passed_result(step, step_index, started_ms)
         except Exception as error:
             return self.failed_result(step, step_index, started_ms, error)
+
+    def execute_set_cookie(self, page, step: Schema__Step__Set_Cookie, step_index: int, capture_config: Schema__Capture__Config) -> Schema__Step__Result__Base:
+        started_ms = self.now_ms()
+        try:
+            # STATELESS: page.context is the fresh per-request BrowserContext created for THIS
+            # call (Browser__Launcher per-call lifecycle) and torn down when it returns — the
+            # cookie mutates only this request's jar; nothing persists across requests.
+            # Boundary: Credentials__Loader stays the ONLY class that calls context.add_cookies
+            # (rule-16 analogue); this handler only hands it the context.
+            self.credentials_loader.add_cookie(page.context, step)
+            return self.passed_result(step, step_index, started_ms)                             # PASSED carries no detail text — the cookie value is never echoed back
+        except Exception as error:
+            message = str(error)
+            if step.value:                                                                      # Redact the cookie value if a driver error happens to echo it
+                message = message.replace(str(step.value), '***')
+            return self.failed_result(step, step_index, started_ms, RuntimeError(message))
 
     def execute_dispatch_event(self, page, step: Schema__Step__Dispatch_Event, step_index: int, capture_config: Schema__Capture__Config) -> Schema__Step__Result__Base:
         started_ms = self.now_ms()

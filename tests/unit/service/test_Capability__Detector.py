@@ -159,7 +159,37 @@ class test_connectivity_check(TestCase):
     def test__unhealthy_when_vault_url_missing(self):
         with _EnvScrub():
             hc = Capability__Detector().connectivity_check()
-        assert hc.healthy is False
+        assert hc.healthy is False                                                  # The check itself still reports the missing vault URL...
+
+    def test__connectivity_is_informational_not_gating(self):                       # F1 — vault connectivity is a capability, not liveness; it must never flip the /health/status aggregate
+        with _EnvScrub():
+            hc = Capability__Detector().connectivity_check()
+        assert hc.gating is False
+
+
+class test_detect_chromium_version(TestCase):                                       # F1 — the old sync_playwright() probe raised inside uvicorn's asyncio loop → permanent '0.0.0'. The new probe reads the pip package's driver metadata (browsers.json) — no browser launch, works in any event-loop context.
+
+    def test__reads_real_version_from_driver_metadata(self):
+        import re
+        from pathlib import Path
+        import playwright
+        browsers_file = Path(playwright.__file__).parent / 'driver' / 'package' / 'browsers.json'
+        if not browsers_file.exists():
+            self.skipTest('playwright driver metadata (browsers.json) not present in this install')
+        version = Capability__Detector().detect_chromium_version()
+        assert str(version) != '0.0.0'                                              # The exact bug: fallback must not fire when the pip package is installed
+        assert re.match(r'^\d+(\.\d+)+$', str(version))                             # Real dotted version, e.g. '148.0.7778.96'
+
+    def test__metadata_probe_matches_browsers_json(self):
+        import json
+        from pathlib import Path
+        import playwright
+        browsers_file = Path(playwright.__file__).parent / 'driver' / 'package' / 'browsers.json'
+        if not browsers_file.exists():
+            self.skipTest('playwright driver metadata (browsers.json) not present in this install')
+        expected = next(b['browserVersion'] for b in json.loads(browsers_file.read_text())['browsers']
+                        if b['name'] == 'chromium')
+        assert Capability__Detector().chromium_version__from_driver_metadata() == expected
 
 
 class test_extract_version_digits(TestCase):

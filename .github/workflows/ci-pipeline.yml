@@ -344,7 +344,7 @@ jobs:
           SG_PLAYWRIGHT__LIVE_BASE_URL: http://localhost:8000
           SG_PLAYWRIGHT__LIVE_API_KEY : ${{ env.TEST_API_KEY_VALUE }}
           PYTHONPATH                  : '.'
-        run: pytest tests/integration_live/test_99_ui_console.py -v --timeout=90        # numbered test_1..test_5 run top-down (deploy-via-pytest); serial — not sharded across xdist workers
+        run: pytest tests/integration_live/test_99_ui_console.py -v --timeout=90        # numbered test_1..test_6 run top-down (deploy-via-pytest); serial — not sharded across xdist workers. test_6 = F4.2 in-image console render smoke (#builder geometry via get_dom_tree)
 
       - name: Container state + logs after suite
         if: always()

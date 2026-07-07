@@ -103,12 +103,17 @@ class test_get_status(TestCase):
         assert 'timestamp' in body
         check_names = [c['check_name'] for c in body['checks']]
         assert check_names == ['browser_launcher', 'connectivity']
+        assert all('gating' in c for c in body['checks'])                             # F1 — each check declares whether it ANDs into `healthy`
 
-    def test__unhealthy_when_vault_unreachable(self):
+    def test__healthy_even_when_vault_unreachable(self):                              # F1 — deliberate contract change: no SG_SEND_BASE_URL used to force healthy=False forever ('degraded' badge on every laptop / docker run); vault connectivity is now informational
         with _EnvScrub():
             _, client = _client()
             response  = client.get('/health/status', headers=AUTH_HEADERS)
-        assert response.json()['healthy'] is False
+        body = response.json()
+        assert body['healthy'] is True                                               # Aggregate reflects the service's core function, not vault reachability
+        connectivity = next(c for c in body['checks'] if c['check_name'] == 'connectivity')
+        assert connectivity['healthy'] is False                                      # The dimension itself still reports truthfully
+        assert connectivity['gating']  is False
 
 
 class test_get_capabilities(TestCase):

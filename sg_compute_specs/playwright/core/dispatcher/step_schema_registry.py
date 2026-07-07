@@ -40,6 +40,7 @@ from sg_compute_specs.playwright.core.schemas.steps.Schema__Step__Press         
 from sg_compute_specs.playwright.core.schemas.steps.Schema__Step__Screenshot                            import Schema__Step__Screenshot
 from sg_compute_specs.playwright.core.schemas.steps.Schema__Step__Scroll                                import Schema__Step__Scroll
 from sg_compute_specs.playwright.core.schemas.steps.Schema__Step__Select                                import Schema__Step__Select
+from sg_compute_specs.playwright.core.schemas.steps.Schema__Step__Set_Cookie                            import Schema__Step__Set_Cookie
 from sg_compute_specs.playwright.core.schemas.steps.Schema__Step__Set_Viewport                          import Schema__Step__Set_Viewport
 from sg_compute_specs.playwright.core.schemas.steps.Schema__Step__Video__Start                          import Schema__Step__Video__Start
 from sg_compute_specs.playwright.core.schemas.steps.Schema__Step__Video__Stop                           import Schema__Step__Video__Stop
@@ -73,6 +74,7 @@ STEP_SCHEMAS : Dict__Step__Schemas__By_Action = Dict__Step__Schemas__By_Action({
     Enum__Step__Action.GET_PDF              : Schema__Step__Get_Pdf              ,
     Enum__Step__Action.GET_CONSOLE_TAIL     : Schema__Step__Get_Console_Tail     ,
     Enum__Step__Action.GET_NETWORK_FAILURES : Schema__Step__Get_Network_Failures ,
+    Enum__Step__Action.SET_COOKIE           : Schema__Step__Set_Cookie           ,
 })
 
 

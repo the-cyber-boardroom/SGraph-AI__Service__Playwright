@@ -174,3 +174,43 @@ class test_save_state_to_vault(TestCase):
         loader.save_state_to_vault(ref, state)
 
         assert writer.store[('test-vault', '/creds/state.json')] == state
+
+
+class test_add_cookie(TestCase):                                                   # set_cookie step verb — loader stays the ONLY context.add_cookies caller.
+                                                                                   # STATELESS: the context handed in is the per-request one; the cookie dies with it.
+
+    def _step(self, **kwargs):
+        from sg_compute_specs.playwright.core.schemas.steps.Schema__Step__Set_Cookie import Schema__Step__Set_Cookie
+        return Schema__Step__Set_Cookie.from_json({'action': 'set_cookie', **kwargs})
+
+    def test__url_form_builds_minimal_cookie_dict(self):
+        ctx = _FakeContext()
+        Credentials__Loader().add_cookie(ctx, self._step(name='sg_demo', value='hello-from-sg-playwright',
+                                                         url='http://test.local/test-pages/cookies'))
+        assert ctx.added_cookies == [[{'name'    : 'sg_demo'                              ,
+                                       'value'   : 'hello-from-sg-playwright'             ,
+                                       'url'     : 'http://test.local/test-pages/cookies' ,
+                                       'secure'  : False                                  ,
+                                       'httpOnly': False                                  }]]
+
+    def test__domain_form_defaults_path_to_root(self):                             # Playwright contract: domain pairs with path — default '/'
+        ctx = _FakeContext()
+        Credentials__Loader().add_cookie(ctx, self._step(name='sid', value='abc', domain='.example.com'))
+        cookie = ctx.added_cookies[0][0]
+        assert cookie['domain'] == '.example.com'
+        assert cookie['path']   == '/'
+        assert 'url' not in cookie
+
+    def test__optional_fields_serialise_enum_value_and_epoch(self):
+        ctx = _FakeContext()
+        Credentials__Loader().add_cookie(ctx, self._step(name='sid', value='abc', domain='example.com',
+                                                         path='/app', secure=True, http_only=True,
+                                                         same_site='Lax', expires=1234567890))
+        cookie = ctx.added_cookies[0][0]
+        assert cookie['sameSite'] == 'Lax'                                          # enum → capitalised Playwright value
+        assert cookie['expires']  == 1234567890
+        assert cookie['secure']   is True
+        assert cookie['httpOnly'] is True
+
+    def test__none_context_is_silent_noop(self):                                   # Same contract as apply()
+        Credentials__Loader().add_cookie(None, self._step(name='a', value='b', url='http://x.local/'))  # No raise

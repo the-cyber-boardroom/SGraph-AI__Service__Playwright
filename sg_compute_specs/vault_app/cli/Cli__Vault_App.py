@@ -158,9 +158,18 @@ def _set_extras(request, with_playwright=False, podman=False, use_spot=True,
                 storage_mode='disk', seed_vault_keys='', access_token='', disk_size=0,
                 with_tls_check=True, tls_mode='letsencrypt-ip', acme_prod=True,
                 tls_hostname='', with_aws_dns=False, interceptor_script='',
-                interceptor_env_file='', interceptor_env=None, name_prefix=''):
+                interceptor_env_file='', interceptor_env=None, name_prefix='', tag=None):
     request.with_playwright  = bool(with_playwright)
     request.name_prefix      = (name_prefix or '').strip()
+    # --tag KEY=VALUE (repeatable): validate the shape here; reserved-key collisions
+    # are rejected in the service before any AWS call.
+    tag_lines = []
+    for kv in (tag or []):
+        key = kv.split('=', 1)[0].strip() if '=' in kv else ''
+        if not key:
+            raise typer.BadParameter(f'--tag expects KEY=VALUE (non-empty key), got {kv!r}')
+        tag_lines.append(kv.strip())
+    request.custom_tags = '\n'.join(tag_lines)
     request.container_engine = 'podman' if podman else 'docker'
     request.use_spot         = bool(use_spot)
     request.with_tls_check   = bool(with_tls_check)
@@ -297,6 +306,10 @@ app = Spec__CLI__Builder(
          "Prefix for the AWS Name tag (e.g. 'acme' → Name=acme-<stack-name>). "
          'Cosmetic only — StackName/StackType (used by list/info/delete) are '
          'unchanged. Default: bare stack name, no prefix.'),
+        ('tag'            , List[str], [],
+         'Extra EC2 tag, KEY=VALUE; repeat for multiple (e.g. --tag Project=akeia '
+         '--tag CostCenter=42). Reserved stack keys (StackName/StackType/Name/…) are '
+         'rejected.'),
         ('interceptor_script', str, '',
          'Path to a mitmproxy intercept script (Python) loaded by agent-mitmproxy '
          'so every browser request flowing through /pw/* passes through it. '

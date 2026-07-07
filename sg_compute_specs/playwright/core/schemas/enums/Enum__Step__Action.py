@@ -30,5 +30,6 @@ class Enum__Step__Action(str, Enum):                                            
     GET_PDF        = "get_pdf"                                                      # Φ3 — page.pdf() → PDF artefact via capture_config.pdf
     GET_CONSOLE_TAIL    = "get_console_tail"                                        # Φ4 — read tail of buffered console events (page.on('console') captures load-time)
     GET_NETWORK_FAILURES= "get_network_failures"                                    # Φ4 — read buffered page.on('requestfailed') events
+    SET_COOKIE          = "set_cookie"                                              # Sets a cookie on the per-request BrowserContext (stateless — the context is fresh per request and discarded after; no session persistence)
 
     def __str__(self): return self.value

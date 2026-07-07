@@ -152,10 +152,11 @@ class test_Routes__Index__P2_console(TestCase):
         assert 'function applyCapabilities' in self.html
 
     def test__sequence_builder_has_real_verbs(self):
-        # the 24-verb vocabulary present in the builder verb table
+        # the 25-verb vocabulary present in the builder verb table
         for verb in ['navigate','click','fill','press','select','hover','scroll',
                      'wait_for','wait','screenshot','evaluate','get_pdf','get_dom_tree',
-                     'get_a11y_tree','get_console_tail','get_network_failures','set_viewport']:
+                     'get_a11y_tree','get_console_tail','get_network_failures','set_viewport',
+                     'set_cookie']:
             assert verb in self.html, f'verb {verb} missing from builder'
 
 
@@ -323,16 +324,25 @@ class test_Routes__Index__iteration2(TestCase):
         # that relocates our pre-built pane content (parked in #pane-store) into itself.
         assert 'id="pane-store"'                 in self.html
         assert "definePaneHost('sg-pane-builder','builder')"       in self.html
-        assert "definePaneHost('sg-pane-result','result-panel')"   in self.html
+        assert "definePaneHost('sg-pane-output','output-pane')"    in self.html       # results get their own pane
+        assert "definePaneHost('sg-pane-gallery','result-panel')"  in self.html       # gallery/examples in a separate pane
         assert "definePaneHost('sg-pane-console','console-pane')"  in self.html
         assert "tag:'sg-pane-builder'"           in self.html                          # layout tree uses the host tag, not slot=
         assert 'function defaultConsoleLayout'   in self.html
+
+    def test__output_pane_split_from_gallery(self):
+        assert 'id="output-pane"'                in self.html                          # execution output lives in its own pane node
+        assert 'id="result-img"'                 in self.html                          # the image target moved with it
+        assert "tag:'sg-pane-output'"            in self.html and "title:'Output'"  in self.html
+        assert 'function revealOutput'           in self.html                          # focus Output on execute
+        assert "el.focusPanel('output')"         in self.html
+        assert 'revealOutput();'                 in self.html                          # called from clearResult
 
     def test__sg_layout_uses_documented_api(self):
         assert "customElements.whenDefined('sg-layout')" in self.html                  # wait for registration before setLayout
         assert 'el.setLayout('                   in self.html
         assert "el.events.on('layout:changed'"   in self.html                          # internal event bus, not addEventListener
-        assert "'sg-playwright:console:layout:v2'" in self.html                        # persisted layout tree
+        assert "'sg-playwright:console:layout:v3'" in self.html                        # persisted layout tree
 
     def test__sg_layout_graceful_fallback_and_reset(self):
         assert 'function applyConsoleGridFallback' in self.html                        # plain grid if sg-layout is absent/fails
@@ -420,3 +430,42 @@ class test_Routes__Index__iteration2(TestCase):
 
     def test__console_runs_in_browser_not_server_allowlist(self):
         assert 'not the server-side evaluate allowlist' in self.html or 'NOT the server-side evaluate allowlist' in self.html
+
+
+# ════════════════════════════════════════════════════════════════════════════════
+#  set_cookie slice — S6 example, VERBS entry, F6 egress chips
+# ════════════════════════════════════════════════════════════════════════════════
+class test_Routes__Index__set_cookie_slice(TestCase):
+
+    @classmethod
+    def setUpClass(cls):
+        cls.html = _render()
+
+    # ── the set_cookie verb is in the hand-mirrored VERBS surface (docs + __tool generate from it) ──
+    def test__set_cookie_verb_in_verbs_table(self):
+        assert '  set_cookie:'          in self.html
+        for field in ["{n:'name',req:1}", "{n:'value',req:1}", "{n:'url'", "{n:'domain'}",
+                      "{n:'path',def:'/'}", "{n:'secure',type:'bool',def:false}",
+                      "{n:'http_only',type:'bool',def:false}", "{n:'same_site',enum:'same_site'}",
+                      "{n:'expires',type:'number'}"]:
+            assert field in self.html, f'set_cookie VERBS entry missing {field}'
+        assert "same_site:   ['Strict','Lax','None']" in self.html                   # ENUMS entry — Playwright's capitalised values
+
+    def test__set_cookie_hint_states_statelessness(self):                            # operator requirement: the per-request/no-persistence semantics are documented in the verb surface
+        assert 'stateless' in self.html
+        assert 'discarded after the request' in self.html
+
+    # ── S6 gallery example: navigate → shot → set_cookie → navigate (reload) → shot ──
+    def test__S6_example_present_and_targets_cookies_fixture(self):
+        assert "id:'S6'"                 in self.html
+        assert 'Set cookie'              in self.html
+        assert "tpUrl('cookies')"        in self.html                               # runtime-substituted like the rest of the S-series
+        assert "action:'set_cookie',name:'sg_demo',value:'hello-from-sg-playwright',url:tpUrl('cookies')" in self.html
+
+    # ── F6: egress chips on the W-series, none on the S-series ──
+    def test__F6_egress_chips_rendered_for_w_series(self):
+        assert self.html.count('egress:true,') == 9                                  # W1-W9 entries all flagged (trailing comma = the GALLERY literal, not comments; S-series unbadged)
+        assert '.gallery .gchip'   in self.html                                      # chip style defined
+        assert 'needs egress'      in self.html                                      # chip text in the gallery renderer
+        assert 'title="Targets an external site — fails on egress-restricted deployments"' in self.html
+        assert "w.egress?'<span class=\"gchip\"" in self.html                        # chip is conditional on the flag

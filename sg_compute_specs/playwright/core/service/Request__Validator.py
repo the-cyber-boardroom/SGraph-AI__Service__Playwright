@@ -57,6 +57,15 @@ class Request__Validator(Type_Safe):                                            
                 self.reject('wait_for_function_not_allowed',
                             'wait_for.function expression not in trusted allowlist')
 
+        if step.action == Enum__Step__Action.SET_COOKIE:                                # Playwright add_cookies contract: a cookie needs EITHER url OR domain (+path, defaulted to '/')
+            if not step.name:
+                self.reject('set_cookie_missing_name',
+                            'set_cookie requires a non-empty cookie name')
+            if bool(step.url) == bool(step.domain):
+                self.reject('set_cookie_url_or_domain',
+                            "set_cookie requires exactly one of 'url' or 'domain' "
+                            "(path pairs with domain and defaults to '/')")
+
         self.validate_sink_configs(cap_config, capabilities, target)
 
     def validate_sink_configs(self,

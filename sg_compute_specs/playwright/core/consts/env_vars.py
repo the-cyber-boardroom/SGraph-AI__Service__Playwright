@@ -87,3 +87,17 @@ ENV_VAR__REQUEST_DEADLINE_MS           = 'SG_PLAYWRIGHT__REQUEST_DEADLINE_MS'
 ENV_VAR__WATCHDOG_MAX_REQUEST_MS       = 'SG_PLAYWRIGHT__WATCHDOG_MAX_REQUEST_MS'
 ENV_VAR__WATCHDOG_POLL_INTERVAL_MS     = 'SG_PLAYWRIGHT__WATCHDOG_POLL_INTERVAL_MS'
 ENV_VAR__WATCHDOG_DISABLED             = 'SG_PLAYWRIGHT__WATCHDOG_DISABLED'
+
+
+# ─── Script execution (evaluate / wait_for.function) — deny-by-default, opt-in ──
+# The EVALUATE step (and wait_for.function) is allowlist-gated: an unconfigured
+# instance rejects ALL user JS (CLAUDE.md rules 10-11). These two env vars are the
+# ONLY way to open it, and both default OFF so the customer image stays locked:
+#   - JS_ALLOW_ALL   — '1'/'true' bypasses the allowlist entirely (arbitrary JS on
+#     /sequence + /inspect). For TRUSTED internal/onboarding instances only.
+#   - JS_ALLOWLIST_FILE — path to a newline-delimited file of exact-match trusted
+#     expressions (blank lines + '#' comments ignored). Keeps deny-by-default; only
+#     the listed strings run. Auditable middle ground.
+# See library/guides/v0.2.64__enabling-script-execution.md.
+ENV_VAR__JS_ALLOW_ALL                  = 'SG_PLAYWRIGHT__JS_ALLOW_ALL'
+ENV_VAR__JS_ALLOWLIST_FILE             = 'SG_PLAYWRIGHT__JS_ALLOWLIST_FILE'

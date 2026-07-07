@@ -33,8 +33,8 @@ class test_Routes__Index__verb_table_drift(TestCase):
         cls.ui_verbs   = _verb_table_keys()
         cls.enum_verbs = {a.value for a in Enum__Step__Action}
 
-    def test__ui_verb_table_has_24_verbs(self):
-        assert len(self.ui_verbs) == 24, f'Expected 24 UI verbs, got {len(self.ui_verbs)}: {sorted(self.ui_verbs)}'
+    def test__ui_verb_table_has_25_verbs(self):                                  # set_cookie slice — 24 → 25
+        assert len(self.ui_verbs) == 25, f'Expected 25 UI verbs, got {len(self.ui_verbs)}: {sorted(self.ui_verbs)}'
 
     def test__ui_verb_table_matches_enum_exactly(self):                          # no verb in the enum is missing from the UI, and the UI invents none
         missing = self.enum_verbs - self.ui_verbs

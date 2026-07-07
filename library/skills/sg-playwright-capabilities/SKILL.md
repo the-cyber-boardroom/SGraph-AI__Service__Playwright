@@ -1,6 +1,6 @@
 ---
 name: sg-playwright-capabilities
-description: Code-derived reference of the FULL sg-playwright capability surface — every HTTP endpoint, its request/response schema and field defaults, and every one of the 24 declarative step verbs with their parameters and enums. Trigger when you need the EXACT shape of a request or response, the complete list of endpoints/step actions, a field's default value or type, which probe verbs /inspect allows, or you are building/extending a client or the default "Try it out" test page and need a checkable field-by-field map. This is the lookup table; for task-oriented "how do I drive a browser over HTTP" recipes and the auth-header split use the companion skill `use-sg-playwright`. Source of truth is the code under `sg_compute_specs/playwright/core/` at v0.2.63 — not capabilities.json (frozen at v0.1.29) nor the reality doc (stale on endpoint count). file_path:line references included so every claim is verifiable.
+description: Code-derived reference of the FULL sg-playwright capability surface — every HTTP endpoint, its request/response schema and field defaults, and every one of the 25 declarative step verbs with their parameters and enums. Trigger when you need the EXACT shape of a request or response, the complete list of endpoints/step actions, a field's default value or type, which probe verbs /inspect allows, or you are building/extending a client or the default "Try it out" test page and need a checkable field-by-field map. This is the lookup table; for task-oriented "how do I drive a browser over HTTP" recipes and the auth-header split use the companion skill `use-sg-playwright`. Source of truth is the code under `sg_compute_specs/playwright/core/` at v0.2.63 — not capabilities.json (frozen at v0.1.29) nor the reality doc (stale on endpoint count). file_path:line references included so every claim is verifiable.
 ---
 
 # sg-playwright-capabilities
@@ -26,7 +26,7 @@ Wired in `fast_api/Fast_API__Playwright__Service.py:103-114`.
 | POST | `/browser/get-content` | `Schema__Browser__Get_Content__Request` | `…One_Shot__Response` | `_`→`-` in path |
 | POST | `/browser/get-url` | `Schema__Browser__Get_Url__Request` | `…One_Shot__Response` | |
 | POST | `/browser/screenshot` | `Schema__Browser__Screenshot__Request` | **raw `image/png`** | timings via `X-*-Ms` headers |
-| POST | `/sequence/execute` | `Schema__Sequence__Request` | `Schema__Sequence__Response` | the 24-verb language |
+| POST | `/sequence/execute` | `Schema__Sequence__Request` | `Schema__Sequence__Response` | the 25-verb language |
 | POST | `/screenshot` | `Schema__Screenshot__Request` | `Schema__Screenshot__Response` | url→png/html, JS via own allow_all runner |
 | POST | `/screenshot/batch` | `Schema__Screenshot__Batch__Request` | `…Batch__Response` | items[] OR steps[]+screenshot_per_step |
 | POST | `/inspect` | `Schema__Inspect__Request` | `Schema__Inspect__Response` | snapshot-once probe-many (read-only probes) |
@@ -79,7 +79,7 @@ screenshot, get_console_tail, get_network_failures`. A mutating verb → HTTP 42
   (completed|partial|failed), engine, total_duration_ms, steps_total/passed/
   failed/skipped, step_results:[Schema__Step__Result__Base], artefacts, timings`.
 
-## The 24 step verbs
+## The 25 step verbs
 
 Base fields (every step): `action`, `id` (None), `continue_on_error` (False),
 `timeout_ms` (30000). `*` = required.
@@ -110,6 +110,7 @@ Base fields (every step): `action`, `id` (None), `continue_on_error` (False),
 | `get_pdf` | `format` (A4) · `landscape` (False) · `print_background` (True) |
 | `get_console_tail` | `lines` (100) |
 | `get_network_failures` | — |
+| `set_cookie` | `name`* · `value`* · `url` OR `domain` (+`path`, default `/`) · `secure` (False) · `http_only` (False) · `same_site` (Strict/Lax/None) · `expires` — **stateless: cookie lives only in this request's fresh browser context** |
 
 ### Result fields by verb (`Schema__Step__Result__Base`)
 `get_url`→`url` · `get_text`→`text` · `get_html`→`html` ·
@@ -161,4 +162,4 @@ SEPARATE allow_all path.
   "16 direct endpoints" and "Routes__Session removed in v0.1.24" — both stale;
   `Routes__Inspect` and `Routes__Session` ARE wired.
 - Core `skill__agent.md` self-labels "FIRST-PASS PLACEHOLDER (v0.1.29)" and
-  predates the 24-verb language, `/inspect`, and `/session/*`.
+  predates the 25-verb language, `/inspect`, and `/session/*`.

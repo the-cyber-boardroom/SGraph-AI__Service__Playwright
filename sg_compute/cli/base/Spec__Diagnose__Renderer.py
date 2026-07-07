@@ -16,10 +16,29 @@
 # ═══════════════════════════════════════════════════════════════════════════════
 
 import time
+from contextlib import contextmanager
 
 from rich.console import Console
 from rich.live    import Live
 from rich.table   import Table
+
+
+class _Sink:                                                                        # no-op stand-in for Live when stdout isn't a TTY
+    def update(self, renderable): pass
+
+
+@contextmanager
+def _live_region(console: Console, table):
+    # rich.Live does in-place cursor redraws ONLY on a real terminal. Off a TTY
+    # (piped output, some SSH/pty wrappers) every .update() re-emits the whole
+    # table, so the per-check updates pile up as duplicated `attempt=N` blocks.
+    # On a TTY → real Live (smooth). Off a TTY → a sink; the caller prints one
+    # deduped snapshot per attempt instead. Yields (live, is_live).
+    if console.is_terminal:
+        with Live(table, console=console, refresh_per_second=8, transient=False) as live:
+            yield live, True
+    else:
+        yield _Sink(), False
 
 
 DIAG_ICONS = {
@@ -168,8 +187,10 @@ def run_once(svc, region: str, name: str, *, console: Console, check_order,
     console.print(f'  [bold]{title}[/]  ·  [cyan]{name}[/]  [dim]{region}[/]')
     console.print()
     rows = initial_rows(check_order)
-    with Live(build_check_table(rows), console=console, refresh_per_second=8, transient=False) as live:
+    with _live_region(console, build_check_table(rows)) as (live, is_live):
         run_checks(svc, region, name, live=live, rows=rows)
+        if not is_live:                                                             # off-TTY: render the final table once (no per-check churn)
+            console.print(build_check_table(rows))
     print_summary(console, rows, name, hints=hints, log_command_prefix=log_command_prefix,
                   valid_sources=valid_sources)
     return rows
@@ -184,12 +205,13 @@ def run_until_ok(svc, region: str, name: str, *, console: Console, check_order,
     console.print(f'  [bold]{title}[/]  ·  [cyan]{name}[/]  [dim]{region}[/]  '
                   f'[dim](timeout={timeout}s, poll={poll}s)[/]')
     console.print()
-    rows     = initial_rows(check_order)
-    ok_times = {}                                                                    # {check_name: seconds-to-first-OK} → the OK@ column
-    started  = time.monotonic()
-    attempt  = 0
-    all_ok   = False
-    with Live(build_check_table(rows, ok_times=ok_times), console=console, refresh_per_second=8, transient=False) as live:
+    rows       = initial_rows(check_order)
+    ok_times   = {}                                                                  # {check_name: seconds-to-first-OK} → the OK@ column
+    started    = time.monotonic()
+    attempt    = 0
+    all_ok     = False
+    last_print = None                                                               # off-TTY dedupe: last printed (name,status) signature
+    with _live_region(console, build_check_table(rows, ok_times=ok_times)) as (live, is_live):
         while True:
             attempt += 1
             elapsed  = int(time.monotonic() - started)
@@ -197,6 +219,11 @@ def run_until_ok(svc, region: str, name: str, *, console: Console, check_order,
             run_checks(svc, region, name, live=live, rows=rows, header_extra=header,
                        ok_times=ok_times, started=started)
             all_ok = all(s in OK_STATES for _, s, _ in rows)
+            if not is_live:                                                         # off-TTY: print one snapshot per attempt, only when a state changed
+                sig = tuple((n, s) for n, s, _ in rows)
+                if sig != last_print:
+                    console.print(build_check_table(rows, header_extra=header, ok_times=ok_times))
+                    last_print = sig
             if all_ok or time.monotonic() - started >= timeout:
                 break
             time.sleep(poll)

@@ -158,19 +158,22 @@ def _resolve_hostname(hostname: str) -> str:                                 # o
         return f'<resolution failed: {e}>'
 
 
-def wait_for_dns_to_match(hostname    : str ,
-                          my_ip       : str ,
-                          timeout_sec : int = DEFAULT__DNS_WAIT_TIMEOUT_SEC,
-                          poll_sec    : int = DNS_WAIT_POLL_SEC,
-                          now_fn           = time.time,
-                          sleep_fn         = time.sleep,
-                          resolve_fn       = _resolve_hostname) -> None:
+def wait_for_dns_to_match(hostname        : str ,
+                          my_ip           : str ,
+                          timeout_sec     : int  = DEFAULT__DNS_WAIT_TIMEOUT_SEC,
+                          poll_sec        : int  = DNS_WAIT_POLL_SEC,
+                          now_fn               = time.time,
+                          sleep_fn             = time.sleep,
+                          resolve_fn           = _resolve_hostname,
+                          raise_on_timeout: bool = True) -> bool:
     # Poll DNS until `hostname` resolves to `my_ip`. Backstop for the race between EC2 boot
     # speed and Route 53 propagation — typically returns on the first poll when the CLI's
     # --with-aws-dns ran the upsert + INSYNC wait in parallel during the EC2 boot window.
-    # Side-effect: prints progress to stdout so `sp vault-app logs -s cert-init -f` shows
-    # what's happening. Raises RuntimeError on timeout — cert-init exits non-zero, vault
-    # never comes up healthy, and `--wait` surfaces the failure.
+    # Returns True on convergence. On timeout: raise RuntimeError if raise_on_timeout (the
+    # default, kept for callers that hard-gate on box-side DNS), else return False so the
+    # caller can decide — the hostname flow proceeds to ACME anyway, because Let's Encrypt
+    # validates from ITS OWN resolvers, not this box (whose stub resolver may still be
+    # serving a cached NXDOMAIN from a lookup made before the record existed).
     deadline  = now_fn() + timeout_sec
     last_seen = ''
     print(f'[cert-init] waiting for DNS: {hostname} → {my_ip}  (timeout {timeout_sec}s, poll {poll_sec}s)')
@@ -178,13 +181,17 @@ def wait_for_dns_to_match(hostname    : str ,
         resolved = resolve_fn(hostname)
         if resolved == my_ip:
             print(f'[cert-init] DNS converged: {hostname} → {my_ip}')
-            return
+            return True
         if resolved != last_seen:                                            # only print on change to keep the log readable
             print(f'[cert-init] waiting … {hostname} currently → {resolved}')
             last_seen = resolved
         sleep_fn(poll_sec)
-    raise RuntimeError(f'DNS for {hostname!r} did not converge to {my_ip} within {timeout_sec}s '
-                       f'(last seen: {last_seen!r})')
+    msg = (f'DNS for {hostname!r} did not converge to {my_ip} within {timeout_sec}s '
+           f'(last seen: {last_seen!r})')
+    if raise_on_timeout:
+        raise RuntimeError(msg)
+    print(f'[cert-init] {msg}')
+    return False
 
 
 def resolve_tls_hostname() -> str:                                           # FQDN must already point at this box's IP
@@ -236,8 +243,19 @@ def _run_letsencrypt_hostname(cert_path: str, key_path: str) -> None:
     my_ip    = resolve_public_ip()                                           # ACME validates from the IP this box answers on — fail loud if no public IP
     timeout  = int(os.environ.get(ENV__DNS_WAIT_TIMEOUT_SEC, '').strip() or DEFAULT__DNS_WAIT_TIMEOUT_SEC)
     record_stage(STAGE__WAITING_FOR_DNS, f'fqdn={hostname} target={my_ip} timeout={timeout}s')
-    wait_for_dns_to_match(hostname=hostname, my_ip=my_ip, timeout_sec=timeout)
-    record_stage(STAGE__DNS_CONVERGED, f'{hostname} -> {my_ip}')
+    converged = wait_for_dns_to_match(hostname=hostname, my_ip=my_ip, timeout_sec=timeout,
+                                      raise_on_timeout=False)
+    if converged:
+        record_stage(STAGE__DNS_CONVERGED, f'{hostname} -> {my_ip}')
+    else:
+        # The box couldn't confirm the record (commonly a cached NXDOMAIN from the
+        # --with-aws-dns race — Route 53's negative TTL is ~900s, far longer than our
+        # poll window). Proceed to ACME anyway: Let's Encrypt validates from its own
+        # resolvers, so it succeeds when the record is actually live and fails loud
+        # below if it isn't — no worse than aborting here, and it rescues the race.
+        print(f"[cert-init] WARNING: could not confirm {hostname} -> {my_ip} on this box "
+              f"within {timeout}s; proceeding to ACME (Let's Encrypt validates externally).")
+        record_stage(STAGE__DNS_CONVERGED, 'unconfirmed-on-box — proceeding (LE validates externally)')
     prod     = os.environ.get(ENV__ACME_PROD, '').strip().lower() in _TRUTHY
     email    = os.environ.get(ENV__ACME_EMAIL, '').strip()
     client   = Cert__ACME__Client()

@@ -23,3 +23,6 @@ class JS__Expression__Allowlist(Type_Safe):                                     
             return True
         candidate = str(expression)
         return any(str(allowed) == candidate for allowed in self.allowed_expressions)
+
+    def is_enabled(self) -> bool:                                                   # True when this instance can run ANY user JS (evaluate / wait_for.function)
+        return bool(self.allow_all) or len(self.allowed_expressions) > 0
