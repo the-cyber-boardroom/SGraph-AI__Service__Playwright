@@ -86,9 +86,12 @@ SHUTDOWN_DISABLED = '# max_hours=0 — no auto-terminate'
 # ── interactive Firefox fleet: proxy (user.js) + mitmproxy CA trust (certutil) ──
 # jlesage stores the Firefox profile at /config/profile; each cp-firefox-{i}
 # bind-mounts a host dir → /config, so we prepare user.js + the NSS CA DB on the
-# host and restart the container to pick them up. The proxy points at mitmproxy-int
-# (the no-auth internal proxy sg-playwright uses); the CA is mitmproxy's own self-
-# generated cert (NOT --ca-from-local).
+# host. The container is STOPPED first: a running Firefox holds the profile's NSS
+# DB (cert9.db) open, and certutil against a locked DB blocks/races — which pinned
+# boot at "preparing Firefox 2 profile" (FF1 won by timing, FF2 didn't). Stop →
+# prep → start sidesteps the lock. The proxy points at mitmproxy-int (the no-auth
+# internal proxy sg-playwright uses); the CA is mitmproxy's own self-generated cert
+# (NOT --ca-from-local).
 FIREFOX_USER_JS = '''\
 // proxy: mitmproxy-int (content_proxy internal, no-auth — same as sg-playwright)
 user_pref("network.proxy.type",          1);
@@ -108,9 +111,10 @@ FIREFOX_ONE = '''\
     cat > {firefox_dir}/{i}/profile/user.js <<'CP_FF_USERJS_EOF'
 {user_js}
 CP_FF_USERJS_EOF
-    certutil -N --empty-password -d sql:{firefox_dir}/{i}/profile 2>/dev/null || true
-    certutil -A -n "mitmproxy CA" -t "TCu,," -i {ca_cert_file} -d sql:{firefox_dir}/{i}/profile
-    docker compose --env-file {app_dir}/.env restart cp-firefox-{i} || true
+    docker compose --env-file {app_dir}/.env stop cp-firefox-{i} || true
+    timeout 30 certutil -N --empty-password -d sql:{firefox_dir}/{i}/profile 2>/dev/null || true
+    timeout 30 certutil -A -n "mitmproxy CA" -t "TCu,," -i {ca_cert_file} -d sql:{firefox_dir}/{i}/profile || true
+    docker compose --env-file {app_dir}/.env start cp-firefox-{i} || true
 '''
 
 FIREFOX_BLOCK = '''\
@@ -129,6 +133,20 @@ fi'''
 PLACEHOLDERS = ('log_file', 'app_dir', 'env_body', 'compose_body',
                 'active_body', 'logic_body', 'ca_block', 'overrides_block',
                 'caddy_block', 'firefox_block', 'shutdown_line')   # locked by test
+
+# `tls internal` only mints a cert for the names in the site address. The internal
+# Caddyfile names its site `localhost, 127.0.0.1`, so a browser hitting https://<ip>
+# sends an SNI (the public IP) Caddy has no cert for → it aborts the handshake with
+# ERR_SSL_PROTOCOL_ERROR (not a trust warning — no cert at all). Fetch this box's
+# public IP from IMDSv2 at boot and splice it into the site address so the internal
+# cert carries it as a SAN (browser then shows the normal click-through CA warning).
+CADDY_IP_INJECT = f'''\
+CP_IMDS_TOKEN=$(curl -s -X PUT "http://169.254.169.254/latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: 300" || true)
+CP_PUBLIC_IP=$(curl -s -H "X-aws-ec2-metadata-token: $CP_IMDS_TOKEN" http://169.254.169.254/latest/meta-data/public-ipv4 || true)
+if [ -n "$CP_PUBLIC_IP" ]; then
+    sed -i "s|^localhost, 127.0.0.1 {{|localhost, 127.0.0.1, $CP_PUBLIC_IP {{|" {APP_DIR}/Caddyfile
+    echo "[content-proxy] added public IP $CP_PUBLIC_IP to the Caddy internal-CA site"
+fi'''
 
 
 class Content_Proxy__User_Data__Builder(Type_Safe):
@@ -185,13 +203,17 @@ class Content_Proxy__User_Data__Builder(Type_Safe):
             return '# edge=none — vault is the front door (no Caddyfile)'
         caddyfile  = Content_Proxy__Edge__Template().render(hostname=hostname, acme_email='',   # acme_email not wired yet (no --acme-email flag)
                                                             firefox_count=firefox_count)
-        return ('echo "[content-proxy] writing Caddyfile (edge=caddy)"\n'
-                f"cat > {APP_DIR}/Caddyfile <<'CP_CADDY_EOF'\n{caddyfile}\nCP_CADDY_EOF")
+        block = ('echo "[content-proxy] writing Caddyfile (edge=caddy)"\n'
+                 f"cat > {APP_DIR}/Caddyfile <<'CP_CADDY_EOF'\n{caddyfile}\nCP_CADDY_EOF")
+        if not hostname:                                                              # internal-CA site (no FQDN) → add the box's public IP so https://<ip> works
+            block += '\n' + CADDY_IP_INJECT
+        return block
 
     def _firefox_block(self, firefox_count: int) -> str:
         # After `docker compose up -d` (mitmproxy-int is generating its CA), prepare
-        # each Firefox profile: write user.js (proxy → mitmproxy-int) + trust the
-        # mitmproxy CA in the NSS DB via certutil, then restart the container.
+        # each Firefox profile: stop the container (release the NSS lock), write
+        # user.js (proxy → mitmproxy-int) + trust the mitmproxy CA via certutil, then
+        # start it back up. Stop-first avoids the certutil-vs-running-browser DB race.
         count = int(firefox_count)
         if count <= 0:
             return '# no interactive browsers (--firefox 0)'

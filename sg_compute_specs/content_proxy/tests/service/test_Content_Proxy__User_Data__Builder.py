@@ -122,7 +122,20 @@ class test_Content_Proxy__User_Data__Builder(TestCase):
         from sg_compute_specs.content_proxy.enums.Enum__Content_Proxy__Edge import Enum__Content_Proxy__Edge
         req = Schema__Content_Proxy__Create__Request(edge=Enum__Content_Proxy__Edge.CADDY, max_hours=1)
         ud  = Content_Proxy__User_Data__Builder().render(req, firefox_count=2)
-        assert ud.index('shutdown -h +60') < ud.index('restart cp-firefox-1')
+        assert ud.index('shutdown -h +60') < ud.index('stop cp-firefox-1')
+
+    def test_caddy_internal_site_gets_public_ip_from_imds(self):                     # https://<ip> needs the IP in the tls-internal cert SAN
+        from sg_compute_specs.content_proxy.enums.Enum__Content_Proxy__Edge import Enum__Content_Proxy__Edge
+        req = Schema__Content_Proxy__Create__Request(edge=Enum__Content_Proxy__Edge.CADDY)
+        ud  = Content_Proxy__User_Data__Builder().render(req)                          # no hostname → internal CA
+        assert 'latest/meta-data/public-ipv4' in ud                                   # IMDSv2 lookup at boot
+        assert 'localhost, 127.0.0.1, $CP_PUBLIC_IP {' in ud                          # spliced into the site address (else ERR_SSL_PROTOCOL_ERROR by IP)
+
+    def test_caddy_hostname_site_skips_ip_injection(self):                          # FQDN uses auto-ACME for that name — no IP splice
+        from sg_compute_specs.content_proxy.enums.Enum__Content_Proxy__Edge import Enum__Content_Proxy__Edge
+        req = Schema__Content_Proxy__Create__Request(edge=Enum__Content_Proxy__Edge.CADDY)
+        ud  = Content_Proxy__User_Data__Builder().render(req, hostname='h.sg-compute.sgraph.ai')
+        assert 'CP_PUBLIC_IP' not in ud
 
     def test_mvp_has_no_vaults(self):
         assert 'load-vaults' not in self.ud
@@ -170,7 +183,10 @@ class test_Content_Proxy__User_Data__Builder(TestCase):
         assert 'network.proxy.http",          "mitmproxy-int"' in ud                  # user.js proxy → internal proxy host
         assert 'network.proxy.http_port",     8080' in ud
         assert 'handle_path /browser/firefox/1/*' in ud                               # caddy edge routes written too
-        assert 'restart cp-firefox-2' in ud                                           # reload after profile prep
+        assert 'stop cp-firefox-2'  in ud                                             # container stopped before certutil (release the NSS lock)
+        assert 'start cp-firefox-2' in ud                                             # …then restarted with the CA trusted
+        assert 'timeout 30 certutil' in ud                                            # bounded — a locked/hung profile can't pin the boot at WARN
+        assert 'restart cp-firefox' not in ud                                         # the old lock-racing restart-in-place is gone
 
     def test_placeholders_locked(self):
         assert PLACEHOLDERS == ('log_file', 'app_dir', 'env_body', 'compose_body',
