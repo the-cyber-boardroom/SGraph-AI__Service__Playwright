@@ -139,7 +139,7 @@ class test_Content_Proxy__Compose__Template__firefox_fleet(TestCase):
         assert block.count('image: jlesage/firefox') == 2                           # one image per browser
         assert block.count('HTTP_PROXY=http://mitmproxy-int:8080')  == 2            # each browses through the no-auth internal proxy
         assert block.count('HTTPS_PROXY=http://mitmproxy-int:8080') == 2
-        assert '- SECURE_CONNECTION=1' in block                                     # jlesage noVNC over TLS at the edge
+        assert '- SECURE_CONNECTION=1' not in block                                 # noVNC serves plain HTTP on 5800; Caddy terminates TLS at the edge. SECURE_CONNECTION=1 makes jlesage serve HTTPS itself and 307-redirect HTTP→HTTPS, which Caddy's reverse_proxy can't follow (loses the /browser/firefox/{i} prefix)
         assert '/opt/content-proxy/firefox/1:/config' in block                     # per-container profile bind-mount (ephemeral)
         assert '/opt/content-proxy/firefox/2:/config' in block
         assert block.count('depends_on:') == 2 and block.count('- mitmproxy-int') == 2

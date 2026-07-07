@@ -69,6 +69,17 @@ class test_build_check_table(TestCase):
         table = build_check_table(initial_rows(CHECK_ORDER), header_extra='attempt=2')
         assert isinstance(table, Table)
 
+    def test_ok_times_adds_ok_column(self):                                          # timed path → extra 'OK@' column
+        rows  = [('ec2-state', 'ok', 'running'), ('containers-up', 'pending', '')]
+        plain = build_check_table(rows)                                              # no ok_times → 3 columns
+        timed = build_check_table(rows, ok_times={'ec2-state': 7})                   # ok_times → 4 columns
+        assert len(timed.columns) == len(plain.columns) + 1
+        assert any(c.header == 'OK@' for c in timed.columns)
+
+    def test_ok_times_empty_dict_still_shows_column(self):                           # {} is "timed, none green yet", not "untimed"
+        table = build_check_table([('ec2-state', 'pending', '')], ok_times={})
+        assert any(c.header == 'OK@' for c in table.columns)
+
 
 class test_icon_label_tables(TestCase):
 
@@ -130,6 +141,18 @@ class test_run_checks(TestCase):
         rows = initial_rows(CHECK_ORDER)
         out  = run_checks(svc, 'eu-west-2', 's', live=_Live(), rows=rows)
         assert any(n == 'surprise' for n, _, _ in out)
+
+    def test_ok_times_stamped_only_for_ok_states(self):                             # time-to-OK captured for green rows, not warn/fail
+        import time as _t
+        stages   = [('ec2-state', 'ok', ''), ('containers-up', 'warn', 'not yet'), ('cert-init', 'skip', '')]
+        svc      = _FakeService(stages, _FakeProbe(healthy=True))
+        rows     = initial_rows(CHECK_ORDER)
+        ok_times = {}
+        run_checks(svc, 'eu-west-2', 's', live=_Live(), rows=rows, ok_times=ok_times, started=_t.monotonic())
+        assert 'ec2-state'     in ok_times                                          # ok  → stamped
+        assert 'cert-init'     in ok_times                                          # skip → stamped (skip is an OK state)
+        assert 'external-http' in ok_times                                          # healthy probe → stamped
+        assert 'containers-up' not in ok_times                                      # warn → not stamped
 
 
 class test_suggestions_for(TestCase):

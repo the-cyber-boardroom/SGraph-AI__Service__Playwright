@@ -43,16 +43,27 @@ DIAG_STATE_LABEL = {
 OK_STATES = ('ok', 'skip')                                                          # a row in one of these is "done, not a problem"
 
 
-def build_check_table(rows, *, header_extra: str = '') -> Table:
+def build_check_table(rows, *, header_extra: str = '', ok_times: dict = None) -> Table:
+    # ok_times (optional): {check_name: seconds-to-first-OK}. When passed (the
+    # run_until_ok path), an 'OK@' column shows when each row first went green —
+    # so a stuck poll makes it obvious which checks are still pending vs long done.
+    show_ok = ok_times is not None
     t = Table(box=None, show_header=True, header_style='bold', padding=(0, 2), pad_edge=False)
     t.add_column('Check' , no_wrap=True, min_width=18)
     t.add_column('State' , no_wrap=True, min_width=6 )
+    if show_ok:
+        t.add_column('OK@', no_wrap=True, min_width=5)
     t.add_column('Detail' + (f'  [dim]{header_extra}[/]' if header_extra else ''))
     for name, status, detail in rows:
         icon  = DIAG_ICONS      .get(status, '[dim]?[/]')
         label = DIAG_STATE_LABEL.get(status, '[dim]?[/]')
         first_line, *_ = (detail or '').split('\n', 1)
-        t.add_row(name, f'{icon} {label}', f'[dim]{first_line}[/]')
+        cells = [name, f'{icon} {label}']
+        if show_ok:
+            secs = ok_times.get(name)
+            cells.append('' if secs is None else f'[green]{secs}s[/]')
+        cells.append(f'[dim]{first_line}[/]')
+        t.add_row(*cells)
     return t
 
 
@@ -76,10 +87,13 @@ def probe_external_http(svc, region: str, name: str) -> tuple:                  
         return ('fail', str(exc)[:160])
 
 
-def run_checks(svc, region: str, name: str, *, live, rows: list, header_extra: str = '') -> list:
+def run_checks(svc, region: str, name: str, *, live, rows: list, header_extra: str = '',
+               ok_times: dict = None, started: float = None) -> list:
     # Drive svc.diagnose() + the external probe, updating `rows` (and the Live
     # table) in place. Returns the final rows list. Pure transport-free logic lives
     # in the service's diagnose() parsers; this just renders the stream.
+    # ok_times/started (optional): stamp the elapsed seconds the first time a check
+    # reaches an OK state, so the table can show a per-check time-to-OK column.
     by_name = {n: i for i, (n, _, _) in enumerate(rows)}
 
     def _set(check_name: str, status: str, detail: str):
@@ -88,7 +102,10 @@ def run_checks(svc, region: str, name: str, *, live, rows: list, header_extra: s
         else:
             rows.append((check_name, status, detail))
             by_name[check_name] = len(rows) - 1
-        live.update(build_check_table(rows, header_extra=header_extra))
+        if ok_times is not None and started is not None and status in OK_STATES \
+                and check_name not in ok_times:
+            ok_times[check_name] = int(time.monotonic() - started)                   # first-OK timestamp, kept even if it later flips
+        live.update(build_check_table(rows, header_extra=header_extra, ok_times=ok_times))
 
     for check_name, status, detail in svc.diagnose(region, name):
         _set(check_name, status, detail)
@@ -167,16 +184,18 @@ def run_until_ok(svc, region: str, name: str, *, console: Console, check_order,
     console.print(f'  [bold]{title}[/]  ·  [cyan]{name}[/]  [dim]{region}[/]  '
                   f'[dim](timeout={timeout}s, poll={poll}s)[/]')
     console.print()
-    rows    = initial_rows(check_order)
-    started = time.monotonic()
-    attempt = 0
-    all_ok  = False
-    with Live(build_check_table(rows), console=console, refresh_per_second=8, transient=False) as live:
+    rows     = initial_rows(check_order)
+    ok_times = {}                                                                    # {check_name: seconds-to-first-OK} → the OK@ column
+    started  = time.monotonic()
+    attempt  = 0
+    all_ok   = False
+    with Live(build_check_table(rows, ok_times=ok_times), console=console, refresh_per_second=8, transient=False) as live:
         while True:
             attempt += 1
             elapsed  = int(time.monotonic() - started)
             header   = f'attempt={attempt}  elapsed={elapsed}s'
-            run_checks(svc, region, name, live=live, rows=rows, header_extra=header)
+            run_checks(svc, region, name, live=live, rows=rows, header_extra=header,
+                       ok_times=ok_times, started=started)
             all_ok = all(s in OK_STATES for _, s, _ in rows)
             if all_ok or time.monotonic() - started >= timeout:
                 break

@@ -207,9 +207,12 @@ def edge_block(edge: Enum__Content_Proxy__Edge, hostname: str = '') -> str:
 # ── browser fleet (jlesage/firefox + noVNC) ─────────────────────────────────────
 # One interactive Firefox per user, reached at /browser/firefox/{i} through the
 # Caddy edge. Each browses through mitmproxy-int (the no-auth internal proxy
-# sg-playwright already uses). Ephemeral: the per-container /config bind-mount is
-# wiped with the stack (no named volume, no persistence). The host profile dir is
-# prepared (user.js + certutil CA trust) by the user-data _firefox_block before boot.
+# sg-playwright already uses). noVNC serves plain HTTP on 5800 — Caddy terminates
+# TLS at the edge (NO SECURE_CONNECTION=1: that makes jlesage serve HTTPS itself
+# and 307-redirect HTTP→HTTPS, which the reverse_proxy can't follow). Ephemeral:
+# the per-container /config bind-mount is wiped with the stack (no named volume, no
+# persistence). The host profile dir is prepared (user.js + certutil CA trust) by
+# the user-data _firefox_block before boot.
 _FIREFOX_SERVICE = """\
 
   cp-firefox-{i}:
@@ -218,7 +221,6 @@ _FIREFOX_SERVICE = """\
     environment:
       - HTTP_PROXY=http://mitmproxy-int:8080
       - HTTPS_PROXY=http://mitmproxy-int:8080
-      - SECURE_CONNECTION=1
     volumes:
       - {firefox_host_dir}/{i}:/config
     networks:
