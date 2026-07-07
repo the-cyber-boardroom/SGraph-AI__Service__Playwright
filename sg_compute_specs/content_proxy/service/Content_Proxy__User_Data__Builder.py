@@ -33,6 +33,12 @@ set -euo pipefail
 exec > >(tee -a {log_file}) 2>&1
 echo "[content-proxy] boot starting at $(date -u +%FT%TZ)"
 
+# Arm the auto-terminate deadman switch FIRST — before docker install, image
+# pulls and the Firefox profile prep, any of which can fail or hang under
+# `set -e`. If it were scheduled at the end (as it once was), a stuck boot would
+# leave the instance running forever. Armed here, the box always self-terminates.
+{shutdown_line}
+
 dnf install -y docker
 systemctl enable --now docker
 mkdir -p /usr/local/lib/docker/cli-plugins
@@ -71,7 +77,6 @@ docker compose --env-file {app_dir}/.env up -d
 
 {firefox_block}
 
-{shutdown_line}
 echo "[content-proxy] boot complete at $(date -u +%FT%TZ)"
 '''
 

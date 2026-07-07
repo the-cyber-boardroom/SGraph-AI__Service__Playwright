@@ -113,6 +113,17 @@ class test_Content_Proxy__User_Data__Builder(TestCase):
             Schema__Content_Proxy__Create__Request(max_hours=0))
         assert 'no auto-terminate' in ud
 
+    def test_shutdown_armed_before_failable_work(self):                             # deadman switch must precede docker install / pulls / firefox prep
+        ud = Content_Proxy__User_Data__Builder().render(
+            Schema__Content_Proxy__Create__Request(max_hours=1))                     # under `set -e` a stuck pull/profile-prep would else skip the shutdown
+        assert ud.index('shutdown -h +60') < ud.index('dnf install -y docker')      # armed first, so a failed boot still self-terminates
+
+    def test_shutdown_armed_before_firefox_block(self):                             # --firefox path: profile prep can hang; shutdown must already be scheduled
+        from sg_compute_specs.content_proxy.enums.Enum__Content_Proxy__Edge import Enum__Content_Proxy__Edge
+        req = Schema__Content_Proxy__Create__Request(edge=Enum__Content_Proxy__Edge.CADDY, max_hours=1)
+        ud  = Content_Proxy__User_Data__Builder().render(req, firefox_count=2)
+        assert ud.index('shutdown -h +60') < ud.index('restart cp-firefox-1')
+
     def test_mvp_has_no_vaults(self):
         assert 'load-vaults' not in self.ud
         assert 'sgit clone'  not in self.ud
