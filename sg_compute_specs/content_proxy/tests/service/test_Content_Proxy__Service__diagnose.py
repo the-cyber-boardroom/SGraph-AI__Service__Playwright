@@ -14,6 +14,7 @@ from sg_compute_specs.content_proxy.service.Content_Proxy__Service              
                                                                                             parse_ps_names_status, containers_up_status,
                                                                                             engine_active, boot_log_failed,
                                                                                             boot_log_complete, boot_log_last_stage,
+                                                                                            boot_log_tail_is_firefox_prep,
                                                                                             cert_init_status)
 
 
@@ -198,6 +199,20 @@ class test_cert_init_status(TestCase):
         status, detail = cert_init_status('cp-cert-init\tUp 10 seconds')
         assert status == 'warn'
         assert 'still running' in detail
+
+
+class test_boot_log_tail_is_firefox_prep(TestCase):
+
+    def test_firefox_prep_tail(self):                                               # core stack up; only FF profile prep remains → boot-ok must not block wait
+        log = ('[content-proxy] boot starting\n[content-proxy] boot ... up -d\n'
+               '[content-proxy] preparing Firefox 2 profile (/opt/content-proxy/firefox/2/profile)...')
+        assert boot_log_tail_is_firefox_prep(log) is True
+
+    def test_non_firefox_tail(self):                                                # genuinely mid-boot (pulling images) → stays a WARN
+        assert boot_log_tail_is_firefox_prep('[content-proxy] writing Caddyfile (edge=caddy)') is False
+
+    def test_empty(self):
+        assert boot_log_tail_is_firefox_prep('') is False
 
 
 class test_boot_log_constant(TestCase):

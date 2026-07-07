@@ -42,7 +42,7 @@ def _set_extras(request, mode='direct_proxy', tls='none', edge='none', hostname=
                 with_aws_dns=False, proxy_tool='mitmdump',
                 proxyauth_user='', proxyauth_pass='', proxy_ca_cert='', proxy_ca_key='',
                 scripts_bucket='', forward_aws_creds=False, env_file='', ca_from_local=False,
-                use_spot=True, disk_size=0, mitm_service_image='', firefox=0):
+                use_spot=True, disk_size=0, mitm_service_image='', firefox=0, edge_auth=False):
     if env_file:                                                                     # MVP: ship a full .env verbatim to the box
         request.env_inline = Path(env_file).read_text()
     if ca_from_local:                                                                # reuse the local docker mitmproxy CA (already trusted in your browser)
@@ -63,9 +63,12 @@ def _set_extras(request, mode='direct_proxy', tls='none', edge='none', hostname=
     request.hostname          = hostname
     request.with_aws_dns      = bool(with_aws_dns)
     request.firefox_count     = int(firefox)
+    request.edge_auth         = bool(edge_auth)
     if hostname or with_aws_dns:                                                     # a public hostname requires the Caddy edge (auto-ACME)
         request.edge          = Enum__Content_Proxy__Edge.CADDY
     if int(firefox) > 0:                                                             # the interactive browser fleet is reached only via the Caddy edge (MVP)
+        request.edge          = Enum__Content_Proxy__Edge.CADDY
+    if bool(edge_auth):                                                              # the token gate lives at the Caddy edge — no edge, nothing to gate
         request.edge          = Enum__Content_Proxy__Edge.CADDY
     request.proxy_tool        = Enum__Content_Proxy__Proxy__Tool(proxy_tool)
     request.proxyauth_user    = proxyauth_user
@@ -178,6 +181,7 @@ app = Spec__CLI__Builder(
         ('hostname'      , str , ''            , 'Public FQDN for the Caddy edge (e.g. my-stack.sg-compute.sgraph.ai) — Caddy does auto-ACME for a real trusted cert (opens :80+:443 to the world). Implies --edge caddy.'),
         ('with_aws_dns'  , bool, False         , 'Auto-create the Route 53 A record <stack>.sg-compute.sgraph.ai → public IP at create (reuses the sg va flow). Implies --edge caddy + a derived hostname.'),
         ('firefox'       , int , 0             , 'Number of interactive Firefox browsers to run (each = one user, reached at /browser/firefox/{n}; forces --edge caddy). 0 = none.'),
+        ('edge_auth'     , bool, False         , 'Token-gate /pw and /browser at the Caddy edge (401 unless the access token is sent as an X-API-Key header or the cp_access cookie; set the cookie once via /edge/auth?token=…). Forces --edge caddy. Default off = open edge.'),
         ('proxy_tool'    , str , 'mitmdump'    , 'mitmweb (dev, TUI /flows, in-memory) or mitmdump (prod, headless).'),
         ('proxyauth_user', str , ''            , 'mitmproxy-ext basic-auth user (Mode 1).'),
         ('proxyauth_pass', str , ''            , 'mitmproxy-ext basic-auth pass (Mode 1).'),

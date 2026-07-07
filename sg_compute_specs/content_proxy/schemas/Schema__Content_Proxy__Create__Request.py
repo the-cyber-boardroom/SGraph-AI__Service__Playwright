@@ -33,6 +33,7 @@ class Schema__Content_Proxy__Create__Request(Type_Safe):
     tls                : Enum__Content_Proxy__Tls  = Enum__Content_Proxy__Tls.NONE
     edge               : Enum__Content_Proxy__Edge = Enum__Content_Proxy__Edge.NONE   # NONE=vault-as-edge; CADDY=dedicated edge
     firefox_count      : int = 0                                                      # N interactive Firefox browsers → cp-firefox-{n} at /browser/firefox/{n}; >0 forces edge=CADDY
+    edge_auth          : bool = False                                                 # True → Caddy 401-gates /pw + /browser on the access token (X-API-Key header or cp_access cookie); forces edge=CADDY
     hostname           : Safe_Str__Content_Proxy__Ref                                 # <slug>.sg-compute.sgraph.ai (Caddy auto-ACME)
     with_aws_dns       : bool = False                                                 # Route 53 upsert <stack>.<zone>→IP at create
     proxy_tool         : Enum__Content_Proxy__Proxy__Tool = Enum__Content_Proxy__Proxy__Tool.MITMDUMP   # prod-safe default

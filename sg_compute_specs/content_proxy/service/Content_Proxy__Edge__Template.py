@@ -70,12 +70,79 @@ BROWSER_ROUTE = """\
 """
 
 
-def browser_routes(firefox_count: int) -> str:                                      # → N handle_path /browser/firefox/{i} blocks ('' when count<=0)
-    return ''.join(BROWSER_ROUTE.format(i=i) for i in range(1, int(firefox_count) + 1))
+# ── token-gated variants (--edge-auth) ─────────────────────────────────────────
+# Without this the edge is open: /pw injects the key downstream and /browser just
+# reverse-proxies, so anyone who reaches the box can drive them. With --edge-auth
+# each gated block 401s unless the access token is presented as an X-API-Key header
+# (programmatic) OR a cp_access cookie (browser, set once via /edge/auth?token=…).
+# Nested `handle @noauth {…}` / `handle {…}` blocks are mutually exclusive and force
+# guard-before-proxy regardless of Caddy's global directive order. Built with
+# explicit \t/\n so the Caddyfile indentation is exact. `{{` survives .format() as
+# `{` for the /browser routes; the /pw + bootstrap strings are not .format()ed.
+_AUTH_GUARD = (
+    "\t\t@noauth {\n"
+    "\t\t\tnot header X-API-Key {$SGRAPH_SEND__ACCESS_TOKEN}\n"
+    "\t\t\tnot header Cookie *cp_access={$SGRAPH_SEND__ACCESS_TOKEN}*\n"
+    "\t\t}\n"
+    "\t\thandle @noauth {\n"
+    '\t\t\trespond "unauthorized — send X-API-Key or set cp_access via /edge/auth?token=…" 401\n'
+    "\t\t}\n")
+
+ROUTE_BODY__PW__AUTH = (
+    "\t# sg-playwright, same-origin under /pw — token-gated at the edge\n"
+    "\thandle_path /pw/* {\n"
+    + _AUTH_GUARD +
+    "\t\thandle {\n"
+    "\t\t\treverse_proxy sg-playwright:8000 {\n"
+    "\t\t\t\theader_up {$FAST_API__AUTH__API_KEY__NAME:x-api-key} {$SGRAPH_SEND__ACCESS_TOKEN}\n"
+    "\t\t\t\theader_up X-Forwarded-Prefix /pw\n"
+    "\t\t\t}\n"
+    "\t\t}\n"
+    "\t}\n"
+    "\n"
+    "\tredir /pw /pw/ 308\n")
+
+BROWSER_ROUTE__AUTH = (
+    "\t# interactive Firefox {i} — token-gated at the edge\n"
+    "\thandle_path /browser/firefox/{i}/* {{\n"
+    "\t\t@noauth {{\n"
+    "\t\t\tnot header X-API-Key {{$SGRAPH_SEND__ACCESS_TOKEN}}\n"
+    "\t\t\tnot header Cookie *cp_access={{$SGRAPH_SEND__ACCESS_TOKEN}}*\n"
+    "\t\t}}\n"
+    "\t\thandle @noauth {{\n"
+    '\t\t\trespond "unauthorized" 401\n'
+    "\t\t}}\n"
+    "\t\thandle {{\n"
+    "\t\t\treverse_proxy cp-firefox-{i}:5800 {{\n"
+    "\t\t\t\theader_up X-Forwarded-Prefix /browser/firefox/{i}\n"
+    "\t\t\t}}\n"
+    "\t\t}}\n"
+    "\t}}\n"
+    "\n"
+    "\tredir /browser/firefox/{i} /browser/firefox/{i}/ 308\n"
+    "\n")
+
+# ungated bootstrap: promote ?token=… to the cp_access cookie so a human can auth
+# once in the browser, then open the gated /browser or /pw URLs. A wrong token still
+# 401s at the gate (the gate compares the cookie to the real token).
+EDGE_AUTH_BOOTSTRAP = (
+    "\t# bootstrap: set the cp_access cookie from ?token=… (browser one-time auth)\n"
+    "\thandle /edge/auth {\n"
+    '\t\theader Set-Cookie "cp_access={http.request.uri.query.token}; Path=/; Secure; HttpOnly; SameSite=Lax"\n'
+    '\t\trespond "cp_access cookie set — now open /pw/ or /browser/firefox/N/" 200\n'
+    "\t}\n"
+    "\n")
 
 
-def route_body(firefox_count: int = 0) -> str:                                      # /pw + fleet + catch-all; count=0 → identical to the original single body
-    return ROUTE_BODY__PW + '\n' + browser_routes(firefox_count) + ROUTE_BODY__CATCHALL
+def browser_routes(firefox_count: int, edge_auth: bool = False) -> str:             # → N handle_path /browser/firefox/{i} blocks ('' when count<=0)
+    tmpl = BROWSER_ROUTE__AUTH if edge_auth else BROWSER_ROUTE
+    return ''.join(tmpl.format(i=i) for i in range(1, int(firefox_count) + 1))
+
+
+def route_body(firefox_count: int = 0, edge_auth: bool = False) -> str:             # /pw + fleet + catch-all; count=0 & no auth → identical to the original single body
+    pw        = ROUTE_BODY__PW__AUTH if edge_auth else ROUTE_BODY__PW
+    bootstrap = EDGE_AUTH_BOOTSTRAP  if edge_auth else ''
+    return pw + '\n' + browser_routes(firefox_count, edge_auth) + bootstrap + ROUTE_BODY__CATCHALL
 
 
 ROUTE_BODY = route_body()                                                           # back-compat: the count=0 body (imported by tests / callers)
@@ -112,9 +179,10 @@ class Content_Proxy__Edge__Template(Type_Safe):
 
     def render(self, hostname     : str = '',                                       # <fqdn> → public auto-ACME; blank → :443 tls internal
                      acme_email   : str = '',                                       # LE registration email (optional)
-                     firefox_count: int = 0                                         # N → adds /browser/firefox/{i} routes above the catch-all
+                     firefox_count: int = 0,                                        # N → adds /browser/firefox/{i} routes above the catch-all
+                     edge_auth    : bool = False                                    # True → 401-gate /pw + /browser on the access token
               ) -> str:
-        body = route_body(firefox_count)
+        body = route_body(firefox_count, edge_auth)
         if hostname:
             global_email = f'\temail {acme_email}\n' if acme_email else ''
             return CADDYFILE__HOSTNAME.format(global_email = global_email,
