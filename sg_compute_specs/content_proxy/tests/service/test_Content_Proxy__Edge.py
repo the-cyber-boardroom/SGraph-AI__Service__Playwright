@@ -53,6 +53,39 @@ class test_Content_Proxy__Edge__Template__firefox_routes(TestCase):
         assert 'h.example.com {' in caddy and 'handle_path /browser/firefox/1/*' in caddy
 
 
+class test_Content_Proxy__Edge__Template__edge_auth(TestCase):
+
+    def test_default_is_open_no_guard(self):                                         # opt-in: default render carries no gate
+        caddy = Content_Proxy__Edge__Template().render(firefox_count=1)
+        assert '@noauth'   not in caddy
+        assert '/edge/auth' not in caddy
+
+    def test_edge_auth_gates_pw(self):
+        caddy = Content_Proxy__Edge__Template().render(edge_auth=True)
+        pw = caddy.split('handle_path /pw/*')[1].split('redir /pw')[0]
+        assert 'not header X-API-Key {$SGRAPH_SEND__ACCESS_TOKEN}'          in pw     # programmatic auth
+        assert 'not header Cookie *cp_access={$SGRAPH_SEND__ACCESS_TOKEN}*' in pw     # browser cookie auth
+        assert 'respond "unauthorized' in pw and '401' in pw
+        assert 'reverse_proxy sg-playwright:8000' in pw                              # still proxies when authed
+
+    def test_edge_auth_gates_each_browser(self):
+        caddy = Content_Proxy__Edge__Template().render(firefox_count=2, edge_auth=True)
+        assert caddy.count('not header X-API-Key') == 3                              # one guard each: /pw + 2 browsers
+        for i in (1, 2):
+            blk = caddy.split(f'handle_path /browser/firefox/{i}/*')[1].split('redir')[0]
+            assert 'not header X-API-Key' in blk and f'reverse_proxy cp-firefox-{i}:5800' in blk
+
+    def test_edge_auth_adds_cookie_bootstrap(self):
+        caddy = Content_Proxy__Edge__Template().render(edge_auth=True)
+        assert 'handle /edge/auth {' in caddy
+        assert 'Set-Cookie "cp_access={http.request.uri.query.token}' in caddy        # ?token=… → cookie
+        assert caddy.index('/edge/auth') < caddy.index('handle {\n\t\treverse_proxy vault-app')  # above the catch-all
+
+    def test_edge_auth_off_is_byte_identical_to_before(self):                        # drift guard: opt-in must not change the open path
+        assert Content_Proxy__Edge__Template().render(firefox_count=2, edge_auth=False) \
+            == Content_Proxy__Edge__Template().render(firefox_count=2)
+
+
 class test_compose_edge_caddy(TestCase):
 
     def setUp(self):

@@ -202,7 +202,8 @@ class Content_Proxy__User_Data__Builder(Type_Safe):
         if getattr(request, 'edge', None) != Enum__Content_Proxy__Edge.CADDY:
             return '# edge=none — vault is the front door (no Caddyfile)'
         caddyfile  = Content_Proxy__Edge__Template().render(hostname=hostname, acme_email='',   # acme_email not wired yet (no --acme-email flag)
-                                                            firefox_count=firefox_count)
+                                                            firefox_count=firefox_count,
+                                                            edge_auth=bool(getattr(request, 'edge_auth', False)))
         block = ('echo "[content-proxy] writing Caddyfile (edge=caddy)"\n'
                  f"cat > {APP_DIR}/Caddyfile <<'CP_CADDY_EOF'\n{caddyfile}\nCP_CADDY_EOF")
         if not hostname:                                                              # internal-CA site (no FQDN) → add the box's public IP so https://<ip> works

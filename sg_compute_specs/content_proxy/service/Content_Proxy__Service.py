@@ -218,6 +218,13 @@ def boot_log_last_stage(text: str) -> str:                                      
     return last
 
 
+def boot_log_tail_is_firefox_prep(text: str) -> bool:                              # the only work left is the (cosmetic) Firefox profile prep
+    # The Firefox profiles are prepared LAST, after the whole stack is up and
+    # serving. If the last marker is a Firefox-prep line, the core stack is already
+    # running — so boot-ok shouldn't stay WARN (which would block `wait`) on it.
+    return 'firefox' in boot_log_last_stage(text).lower()
+
+
 def cert_init_status(stdout: str) -> tuple:                                        # `docker ps -a` row for cp-cert-init → (status_kind, detail)
     by_name = parse_ps_names_status(stdout)
     status  = by_name.get('cp-cert-init', '')
@@ -533,6 +540,8 @@ class Content_Proxy__Service(Spec__Service__Base):
             text = boot_text or ssm(f'tail -n 60 {BOOT_LOG} 2>/dev/null || true')
             if boot_log_complete(text):
                 yield ('boot-ok', 'ok', 'boot script completed')
+            elif containers_ok and boot_log_tail_is_firefox_prep(text):             # core stack up; only the cosmetic FF profile prep remains → don't block `wait`
+                yield ('boot-ok', 'ok', 'core stack up — Firefox profile prep still finishing (non-blocking)')
             else:
                 stage = boot_log_last_stage(text)
                 yield ('boot-ok', 'warn', f'not yet — current stage: {stage[:160]}' if stage else 'not yet')
