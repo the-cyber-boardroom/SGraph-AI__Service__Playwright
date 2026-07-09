@@ -22,6 +22,15 @@ TAG_TLS      = 'cp:tls'
 TAG_EDGE     = 'cp:edge'
 TAG_HOSTNAME = 'cp:hostname'
 TAG_ACCESS   = 'cp:access-token'                                                    # recoverable for info (like sg va's AccessToken)
+TAG_BROWSERS = 'cp:browser-count'                                                   # N interactive sg-playwright-vnc browsers → per-browser /browser/{i} URLs in info
+TAG_ENGINE   = 'cp:browser-engine'                                                  # chromium | firefox (the fleet's autostarted engine)
+
+
+def _int_tag(details: dict, key: str) -> int:                                       # tag value → int (0 when absent/malformed)
+    try:
+        return int(tag_value(details, key) or 0)
+    except (TypeError, ValueError):
+        return 0
 
 
 
@@ -55,4 +64,6 @@ class Content_Proxy__Stack__Mapper(Type_Safe):
             edge         = _enum(Enum__Content_Proxy__Edge, tag_value(details, TAG_EDGE),
                                  Enum__Content_Proxy__Edge.NONE)                      ,
             hostname     = tag_value(details, TAG_HOSTNAME)                           ,
-            access_token = tag_value(details, TAG_ACCESS)                                                                       )
+            access_token = tag_value(details, TAG_ACCESS)                             ,
+            browser_count  = _int_tag(details, TAG_BROWSERS)                          ,
+            browser_engine = tag_value(details, TAG_ENGINE)                           )

@@ -12,6 +12,7 @@ from sg_compute_specs.content_proxy.enums.Enum__Content_Proxy__Tls              
 from sg_compute_specs.content_proxy.service.Content_Proxy__Service                    import (BASE_CONTAINERS, BOOT_LOG,
                                                                                             expected_containers, has_cert_init,
                                                                                             parse_ps_names_status, containers_up_status,
+                                                                                            browser_probe_command,
                                                                                             engine_active, boot_log_failed,
                                                                                             boot_log_complete, boot_log_last_stage,
                                                                                             cert_init_status)
@@ -43,6 +44,25 @@ class test_expected_containers(TestCase):
         exp = expected_containers(Enum__Content_Proxy__Tls.LETSENCRYPT, Enum__Content_Proxy__Edge.CADDY)
         assert 'cp-caddy'     in exp
         assert 'cp-cert-init' not in exp
+
+    def test_browser_fleet_included_when_count_set(self):                            # /browser fleet must be verified by check/wait/create --wait
+        exp = expected_containers(Enum__Content_Proxy__Tls.NONE, Enum__Content_Proxy__Edge.CADDY, browser_count=2)
+        assert 'cp-browser-1' in exp and 'cp-browser-2' in exp
+        assert 'cp-browser-3' not in exp
+
+    def test_no_browsers_when_count_zero(self):                                      # default: no browser containers in the checklist
+        exp = expected_containers(Enum__Content_Proxy__Tls.NONE, Enum__Content_Proxy__Edge.NONE)
+        assert not any(n.startswith('cp-browser') for n in exp)
+
+
+class test_browser_probe_command(TestCase):
+
+    def test_execs_curl_against_novnc_inside_the_container(self):                    # :6080 is never published — docker exec is the only path
+        cmd = browser_probe_command(2)
+        assert 'docker exec cp-browser-2' in cmd
+        assert 'http://localhost:6080/vnc.html' in cmd
+        assert '%{http_code}' in cmd
+        assert 'echo 0' in cmd                                                       # exec failure (container gone) → parses as code 0, not an SSM error
 
 
 class test_has_cert_init(TestCase):

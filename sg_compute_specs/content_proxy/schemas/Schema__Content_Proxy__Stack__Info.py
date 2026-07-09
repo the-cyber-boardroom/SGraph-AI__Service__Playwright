@@ -28,6 +28,8 @@ class Schema__Content_Proxy__Stack__Info(Type_Safe):
     tls               : Enum__Content_Proxy__Tls          = Enum__Content_Proxy__Tls.NONE
     edge              : Enum__Content_Proxy__Edge         = Enum__Content_Proxy__Edge.NONE
     hostname          : Safe_Str__Text                                              # <slug>.sg-compute.sgraph.ai (Caddy auto-ACME); blank = IP only
+    browser_count     : int = 0                                                     # N interactive sg-playwright-vnc browsers → /browser/{i} URLs
+    browser_engine    : Safe_Str__Text                                              # chromium | firefox (from tag; blank = no fleet)
     access_token      : Safe_Str__Text                                              # vault API key + /pw key + set-cookie token (from tag)
     active_script     : Safe_Str__Text
     # per-component health (the 5 services)

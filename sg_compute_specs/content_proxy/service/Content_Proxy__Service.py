@@ -27,7 +27,8 @@ from sg_compute_specs.content_proxy.schemas.Schema__Content_Proxy__List         
 from sg_compute_specs.content_proxy.schemas.Schema__Content_Proxy__Stack__Info       import Schema__Content_Proxy__Stack__Info
 from sg_compute_specs.content_proxy.service.Content_Proxy__AWS__Client               import Content_Proxy__AWS__Client, STACK_TYPE
 from sg_compute_specs.content_proxy.service.Content_Proxy__Stack__Mapper             import (Content_Proxy__Stack__Mapper, TAG_MODE,
-                                                                                            TAG_TLS, TAG_EDGE, TAG_HOSTNAME, TAG_ACCESS)
+                                                                                            TAG_TLS, TAG_EDGE, TAG_HOSTNAME, TAG_ACCESS,
+                                                                                            TAG_BROWSERS, TAG_ENGINE)
 from sg_compute_specs.content_proxy.service.Content_Proxy__User_Data__Builder        import (Content_Proxy__User_Data__Builder,
                                                                                             LOG_FILE)
 
@@ -147,13 +148,19 @@ BASE_CONTAINERS = ('cp-mitm-service', 'cp-mitmproxy-int', 'cp-mitmproxy-ext',
                    'cp-sg-playwright', 'cp-vault-app')
 
 
-def expected_containers(tls, edge) -> tuple:                                       # → cp-* names this stack shape should run
+def expected_containers(tls, edge, browser_count: int = 0) -> tuple:               # → cp-* names this stack shape should run
     names = list(BASE_CONTAINERS)
     if edge == Enum__Content_Proxy__Edge.CADDY:                                    # dedicated edge owns :443 + /pw
         names.append('cp-caddy')
     elif tls in (Enum__Content_Proxy__Tls.SELF_SIGNED, Enum__Content_Proxy__Tls.LETSENCRYPT):
         names.append('cp-cert-init')                                               # one-shot TLS sidecar (vault-as-edge TLS stacks only)
+    names += [f'cp-browser-{i}' for i in range(1, int(browser_count) + 1)]         # interactive sg-playwright-vnc fleet (/browser/{i})
     return tuple(names)
+
+
+def browser_probe_command(i: int) -> str:                                           # noVNC serving check INSIDE cp-browser-{i} (docker exec; no published ports)
+    return (f"docker exec cp-browser-{i} curl -s -o /dev/null --max-time 5 "
+            f"-w '%{{http_code}}' http://localhost:6080/vnc.html 2>/dev/null || echo 0")
 
 
 def has_cert_init(tls, edge) -> bool:                                              # cert-init runs only on non-caddy TLS stacks
@@ -302,8 +309,10 @@ class Content_Proxy__Service(Spec__Service__Base):
         ami_id     = str(request.from_ami)      or self.aws_client.ami.latest_al2023_ami(region)
         itype      = str(request.instance_type) or DEFAULT_INSTANCE_TYPE
         request.stack_name = stack_name                                             # so user-data / tags see the resolved name
+        browser_count      = int(getattr(request, 'browser_count', 0) or 0)          # N interactive sg-playwright-vnc browsers
+        browser_engine     = str(getattr(request, 'browser_engine', '') or 'chromium')
         fqdn               = derive_fqdn(stack_name, request)                        # explicit --hostname or <stack>.<zone> (--with-aws-dns); else ''
-        if fqdn:                                                                     # --hostname/--with-aws-dns imply the Caddy edge (auto-ACME)
+        if fqdn or browser_count > 0:                                               # --hostname/--with-aws-dns/--browsers imply the Caddy edge (/browser is an edge route)
             request.edge = Enum__Content_Proxy__Edge.CADDY
         request.hostname = fqdn
 
@@ -330,6 +339,9 @@ class Content_Proxy__Service(Spec__Service__Base):
                       TAG_ACCESS: access_token       }
         if fqdn:
             extra_tags[TAG_HOSTNAME] = fqdn
+        if browser_count > 0:                                                        # surfaced in info → per-browser /browser/{i} URLs
+            extra_tags[TAG_BROWSERS] = str(browser_count)
+            extra_tags[TAG_ENGINE]   = browser_engine
         tags = self.aws_client.tags.build(stack_name, caller_ip, creator,                         # access token tagged → recoverable for info
                                           extra_tags=extra_tags)
         aws_creds = {}
@@ -346,7 +358,9 @@ class Content_Proxy__Service(Spec__Service__Base):
                                                   account_id         = account_id         ,
                                                   aws_creds          = aws_creds          ,
                                                   env_override       = str(request.env_inline),
-                                                  hostname           = fqdn               )
+                                                  hostname           = fqdn               ,
+                                                  browser_count      = browser_count      ,
+                                                  browser_engine     = browser_engine     )
         iid = self.aws_client.launch.run_instance(region                = region            ,
                                                   ami_id                = ami_id            ,
                                                   sg_id                 = sg_id             ,
@@ -396,7 +410,7 @@ class Content_Proxy__Service(Spec__Service__Base):
 
     def diagnose(self, region: str, name: str):
         _REST = ('ssm-reachable', 'boot-failed', 'container-engine',
-                 'containers-up', 'vault-http', 'boot-ok')
+                 'containers-up', 'vault-http', 'browser-http', 'boot-ok')
 
         # ── check 1: ec2-state ─────────────────────────────────────────────────
         yield ('ec2-state', 'checking', '')
@@ -414,6 +428,7 @@ class Content_Proxy__Service(Spec__Service__Base):
 
         tls  = getattr(info, 'tls',  Enum__Content_Proxy__Tls.NONE)
         edge = getattr(info, 'edge', Enum__Content_Proxy__Edge.NONE)
+        browser_count = int(getattr(info, 'browser_count', 0) or 0)                 # interactive fleet — verify containers up AND noVNC serving
         tls_stack = has_cert_init(tls, edge)
 
         # ── check 2: ssm-reachable ─────────────────────────────────────────────
@@ -463,7 +478,7 @@ class Content_Proxy__Service(Spec__Service__Base):
             yield ('container-engine', 'warn', 'could not check')
 
         # ── check 5: containers-up ─────────────────────────────────────────────
-        expected      = expected_containers(tls, edge)
+        expected      = expected_containers(tls, edge, browser_count)
         containers_ok = False
         yield ('containers-up', 'checking', '')
         try:
@@ -520,7 +535,30 @@ class Content_Proxy__Service(Spec__Service__Base):
             except Exception as exc:
                 yield ('vault-http', 'fail', str(exc)[:120])
 
-        # ── check 8: boot-ok ───────────────────────────────────────────────────
+        # ── check 8: browser-http ──────────────────────────────────────────────
+        # the interactive fleet: containers-up proves docker state; this proves the
+        # noVNC desktop actually SERVES inside each cp-browser-{i} (the jlesage
+        # fleet only ever checked Up). docker exec because :6080 is never published.
+        if browser_count <= 0:
+            yield ('browser-http', 'skip', 'no interactive browsers (--browsers 0)')
+        elif not containers_ok:
+            yield ('browser-http', 'skip', 'skipped — containers not running')
+        else:
+            yield ('browser-http', 'checking', '')
+            try:
+                codes = []
+                for i in range(1, browser_count + 1):
+                    codes.append((i, parse_http_code(ssm(browser_probe_command(i), timeout=30))))
+                bad = [(i, c) for i, c in codes if c != 200]
+                if not bad:
+                    yield ('browser-http', 'ok', f'noVNC serving on all {browser_count} browser(s)')
+                else:
+                    detail = ', '.join(f'browser-{i}: HTTP {c or "no response"}' for i, c in bad)
+                    yield ('browser-http', 'warn', f'not serving yet — {detail}')
+            except Exception as exc:
+                yield ('browser-http', 'warn', f'could not check: {str(exc)[:120]}')
+
+        # ── check 9: boot-ok ───────────────────────────────────────────────────
         yield ('boot-ok', 'checking', '')
         try:
             text = boot_text or ssm(f'tail -n 60 {BOOT_LOG} 2>/dev/null || true')

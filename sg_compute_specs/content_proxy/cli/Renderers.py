@@ -58,6 +58,12 @@ def render_info(info, console: Console) -> None:
         t.add_row('proxy (Mode 1)', f'[bold cyan]{proxy}[/]  [dim]configure your browser proxy here — use your proxyauth creds[/]')
         t.add_row('vault / UX',     f'[bold cyan]{vault_url}/[/]  [dim]{scheme_note}[/]')
         t.add_row('sg-playwright',  f'[cyan]{vault_url}/pw/[/]  [dim](same-origin via the vault /pw proxy)[/]')
+    browser_count  = int(getattr(info, 'browser_count', 0) or 0)
+    browser_engine = str(getattr(info, 'browser_engine', '') or 'chromium')
+    if browser_count > 0 and vault_url:                                              # interactive sg-playwright-vnc fleet — one noVNC browser per user
+        urls = '\n'.join(f'                       [cyan]{vault_url}/browser/{i}/[/]'
+                         for i in range(1, browser_count + 1))
+        t.add_row('browsers', f'[dim]{browser_count} interactive {browser_engine} browser(s) (noVNC via sg-playwright-vnc):[/]\n{urls}')
     if token:
         t.add_row('access-token', f'[bold]{token}[/]  [dim](X-API-Key + x-sgraph-access-token)[/]')
     if vault_url:
@@ -101,6 +107,9 @@ def render_create(response, console: Console) -> None:
         console.print()
         console.print(f'  vault / UX  : [bold cyan]{vault_url}/[/]')
         console.print(f'  set-cookie  : [cyan]{vault_url}/auth/set-cookie-form[/]  [dim]— paste the access token to auth the browser (vault + /pw)[/]')
+        browser_count = int(getattr(info, 'browser_count', 0) or 0)
+        for i in range(1, browser_count + 1):                                        # interactive sg-playwright-vnc fleet URLs
+            console.print(f'  browser {i}   : [cyan]{vault_url}/browser/{i}/[/]  [dim](interactive noVNC browser)[/]')
     console.print()
     console.print('  [dim]run [cyan]sg content-proxy info[/] for the full URL/token block.[/]')
     console.print()

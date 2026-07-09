@@ -41,6 +41,31 @@ class test_proxy_ca_wiring(TestCase):
                 _set_extras(Schema__Content_Proxy__Create__Request(), proxy_ca_cert=str(cert))
 
 
+class test_browser_fleet_option(TestCase):
+
+    def test_browsers_forces_caddy_edge(self):
+        from sg_compute_specs.content_proxy.enums.Enum__Content_Proxy__Edge import Enum__Content_Proxy__Edge
+        req = Schema__Content_Proxy__Create__Request()
+        _set_extras(req, browsers=2, browser_engine='firefox')                        # edge left 'none' — the fleet must force caddy
+        assert int(req.browser_count) == 2
+        assert str(req.browser_engine) == 'firefox'
+        assert req.edge == Enum__Content_Proxy__Edge.CADDY
+
+    def test_no_browsers_keeps_requested_edge(self):
+        from sg_compute_specs.content_proxy.enums.Enum__Content_Proxy__Edge import Enum__Content_Proxy__Edge
+        req = Schema__Content_Proxy__Create__Request()
+        _set_extras(req)
+        assert int(req.browser_count) == 0
+        assert req.edge == Enum__Content_Proxy__Edge.NONE                             # default edge untouched
+
+    def test_browser_log_source_pattern(self):                                        # `sg cp logs --source browser-N` works for any fleet size
+        from sg_compute_specs.content_proxy.cli.Cli__Content_Proxy import log_source_entry
+        cmd, _t, _d = log_source_entry('browser-3')
+        assert 'cp-browser-3' in cmd
+        assert log_source_entry('browser-x') is None                                  # non-numeric suffix rejected
+        assert log_source_entry('boot') is not None                                   # static sources unaffected
+
+
 class test_edge_auth_option(TestCase):
 
     def test_edge_auth_forces_caddy_edge(self):

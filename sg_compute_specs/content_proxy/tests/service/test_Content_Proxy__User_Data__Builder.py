@@ -161,10 +161,24 @@ class test_Content_Proxy__User_Data__Builder(TestCase):
         assert 'h.sg-compute.sgraph.ai {' in ud                                       # FQDN site → Caddy auto-ACME
         assert '"80:80"' in ud                                                        # ACME http-01 port published
 
-    def test_no_browser_fleet(self):                                                  # jlesage fleet removed — slot stays empty until sg-playwright-vnc (v0.2.67 plan)
-        assert 'cp-firefox' not in self.ud
+    def test_no_browser_fleet_by_default(self):
+        assert 'cp-browser' not in self.ud                                            # browser_count defaults to 0
+        assert 'cp-firefox' not in self.ud                                            # the jlesage machinery must never come back
         assert 'certutil'   not in self.ud
         assert 'nss-tools'  not in self.ud
+
+    def test_browser_fleet_needs_no_host_prep(self):                                  # THE payoff of owning the image: env-only wiring
+        from sg_compute_specs.content_proxy.enums.Enum__Content_Proxy__Edge import Enum__Content_Proxy__Edge
+        req = Schema__Content_Proxy__Create__Request(edge=Enum__Content_Proxy__Edge.CADDY)
+        ud  = Content_Proxy__User_Data__Builder().render(req, browser_count=2, browser_engine='firefox')
+        assert 'cp-browser-1:' in ud and 'cp-browser-2:' in ud                        # compose fleet embedded
+        assert ud.count('SG_PLAYWRIGHT__AUTOSTART_BROWSER=firefox') == 2              # engine choice threaded
+        assert 'handle_path /browser/1/*' in ud                                       # caddy edge routes written too
+        assert 'certutil'  not in ud                                                  # no NSS profile surgery
+        assert 'nss-tools' not in ud                                                  # no host packages for the fleet
+        assert 'user.js'   not in ud                                                  # no profile file poking
+        assert 'stop cp-browser'    not in ud                                         # no boot-ordering dance — compose up is enough
+        assert 'restart cp-browser' not in ud
 
     def test_placeholders_locked(self):
         assert PLACEHOLDERS == ('log_file', 'app_dir', 'env_body', 'compose_body',

@@ -51,9 +51,38 @@ ROUTE_BODY__CATCHALL = """\
 		reverse_proxy vault-app:8080
 	}"""
 
-# The /browser/firefox/{i} (jlesage) routes were removed with the fleet — the
-# sg-playwright-vnc fleet re-adds engine-agnostic /browser/{i} routes here (see
-# team/comms/plans/v0.2.67__sg-playwright-vnc__interactive-browser-image.md).
+# one generated block per interactive browser (sg-playwright-vnc — engine-agnostic
+# path: the engine is a container env choice, not a route). handle_path strips the
+# /browser/{i} prefix so noVNC (which uses relative asset/websocket paths) serves
+# from /. Caddy proxies the websocket natively. {{ }} → single Caddy brace.
+BROWSER_ROUTE = """\
+	# interactive browser {i} — sg-playwright-vnc noVNC under a sub-path
+	handle_path /browser/{i}/* {{
+		reverse_proxy cp-browser-{i}:6080
+	}}
+
+	# bare /browser/{i} → the noVNC client (relative paths need the trailing slash)
+	redir /browser/{i} /browser/{i}/vnc.html 308
+
+"""
+
+BROWSER_ROUTE__AUTH = (
+    "\t# interactive browser {i} — token-gated at the edge\n"
+    "\thandle_path /browser/{i}/* {{\n"
+    "\t\t@noauth {{\n"
+    "\t\t\tnot header X-API-Key {{$SGRAPH_SEND__ACCESS_TOKEN}}\n"
+    "\t\t\tnot header Cookie *cp_access={{$SGRAPH_SEND__ACCESS_TOKEN}}*\n"
+    "\t\t}}\n"
+    "\t\thandle @noauth {{\n"
+    '\t\t\trespond "unauthorized" 401\n'
+    "\t\t}}\n"
+    "\t\thandle {{\n"
+    "\t\t\treverse_proxy cp-browser-{i}:6080\n"
+    "\t\t}}\n"
+    "\t}}\n"
+    "\n"
+    "\tredir /browser/{i} /browser/{i}/vnc.html 308\n"
+    "\n")
 
 
 # ── token-gated variants (--edge-auth) ─────────────────────────────────────────
@@ -99,10 +128,15 @@ EDGE_AUTH_BOOTSTRAP = (
     "\n")
 
 
-def route_body(edge_auth: bool = False) -> str:                                     # /pw + catch-all; no auth → identical to the original single body
+def browser_routes(browser_count: int, edge_auth: bool = False) -> str:             # → N handle_path /browser/{i} blocks ('' when count<=0)
+    tmpl = BROWSER_ROUTE__AUTH if edge_auth else BROWSER_ROUTE
+    return ''.join(tmpl.format(i=i) for i in range(1, int(browser_count) + 1))
+
+
+def route_body(browser_count: int = 0, edge_auth: bool = False) -> str:             # /pw + fleet + catch-all; count=0 & no auth → identical to the original single body
     pw        = ROUTE_BODY__PW__AUTH if edge_auth else ROUTE_BODY__PW
     bootstrap = EDGE_AUTH_BOOTSTRAP  if edge_auth else ''
-    return pw + '\n' + bootstrap + ROUTE_BODY__CATCHALL
+    return pw + '\n' + browser_routes(browser_count, edge_auth) + bootstrap + ROUTE_BODY__CATCHALL
 
 
 ROUTE_BODY = route_body()                                                           # back-compat: the count=0 body (imported by tests / callers)
@@ -139,9 +173,10 @@ class Content_Proxy__Edge__Template(Type_Safe):
 
     def render(self, hostname     : str = '',                                       # <fqdn> → public auto-ACME; blank → :443 tls internal
                      acme_email   : str = '',                                       # LE registration email (optional)
-                     edge_auth    : bool = False                                    # True → 401-gate /pw on the access token
+                     browser_count: int = 0,                                        # N → adds /browser/{i} routes above the catch-all
+                     edge_auth    : bool = False                                    # True → 401-gate /pw + /browser on the access token
               ) -> str:
-        body = route_body(edge_auth)
+        body = route_body(browser_count, edge_auth)
         if hostname:
             global_email = f'\temail {acme_email}\n' if acme_email else ''
             return CADDYFILE__HOSTNAME.format(global_email = global_email,

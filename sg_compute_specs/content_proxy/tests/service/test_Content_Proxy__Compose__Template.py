@@ -126,11 +126,35 @@ class test_Content_Proxy__Compose__Template(TestCase):
                                 'vault_block', 'cert_init_block', 'edge_block', 'volumes_block')
 
 
-class test_browser_block_slot(TestCase):
+class test_browser_fleet(TestCase):
 
-    def test_browser_block_is_empty(self):                                           # the fleet slot stays empty until sg-playwright-vnc lands (v0.2.67 plan)
-        assert browser_block() == ''
+    def test_browser_block_zero_is_empty(self):                                      # count<=0 → nothing (committed local compose unchanged)
+        assert browser_block(0)  == ''
+        assert browser_block(-1) == ''
+
+    def test_browser_block_renders_n_services_on_our_image(self):
+        block = browser_block(2)
+        assert 'cp-browser-1:' in block and 'cp-browser-2:' in block                 # exactly the fleet
+        assert 'cp-browser-3:' not in block
+        assert block.count('image: diniscruz/sg-playwright-vnc') == 2                # the image WE control — never jlesage
+        assert block.count('SG_PLAYWRIGHT__DEFAULT_PROXY_URL=http://mitmproxy-int:8080') == 2  # launch-time proxy (no user.js / profile poking)
+        assert block.count('SG_PLAYWRIGHT__IGNORE_HTTPS_ERRORS=true') == 2           # mitmproxy CA handled in-service (no certutil)
+        assert block.count('SG_PLAYWRIGHT__AUTOSTART_BROWSER=chromium') == 2         # headed browser opens on the noVNC desktop at boot
+        assert '${FAST_API__AUTH__API_KEY__VALUE}' in block                          # same access token as cp-sg-playwright
+        assert 'volumes:' not in block                                               # ephemeral — nothing persists
+        assert 'ports:'   not in block                                               # :6080 never published — the edge fronts it
+        assert block.count('- mitmproxy-int') == 2                                   # depends_on the internal proxy
+
+    def test_browser_engine_choice(self):
+        assert browser_block(1, 'firefox').count('SG_PLAYWRIGHT__AUTOSTART_BROWSER=firefox') == 1
+
+    def test_render_with_browsers_injects_fleet_after_playwright(self):
+        yaml = Content_Proxy__Compose__Template().render(browser_count=2,
+                                                         edge=Enum__Content_Proxy__Edge.CADDY)
+        assert 'cp-browser-1:' in yaml and 'cp-browser-2:' in yaml
+        assert yaml.index('sg-playwright:') < yaml.index('cp-browser-1:')            # fleet after the sg-playwright block
+        assert yaml.index('cp-browser-2:') < yaml.index('vault-app:')                # …and before the vault/edge blocks
 
     def test_default_render_has_no_browser_containers(self):
-        yaml = Content_Proxy__Compose__Template().render()
+        yaml = Content_Proxy__Compose__Template().render()                           # browser_count defaults to 0
         assert 'cp-firefox' not in yaml and 'cp-browser' not in yaml

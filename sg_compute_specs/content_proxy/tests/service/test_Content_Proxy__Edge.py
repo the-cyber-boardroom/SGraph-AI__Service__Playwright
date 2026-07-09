@@ -27,6 +27,38 @@ class test_Content_Proxy__Edge__Template(TestCase):
         assert 'tls internal' in self.caddy                                          # local: Caddy internal CA
 
 
+class test_Content_Proxy__Edge__Template__browser_routes(TestCase):
+
+    def test_no_browser_routes_by_default(self):
+        caddy = Content_Proxy__Edge__Template().render()
+        assert '/browser/' not in caddy                                              # browser_count defaults to 0 → no fleet routes
+
+    def test_browser_count_emits_one_route_per_browser(self):
+        caddy = Content_Proxy__Edge__Template().render(browser_count=2)
+        assert 'handle_path /browser/1/*' in caddy                                   # engine-agnostic path (engine is a container env choice)
+        assert 'handle_path /browser/2/*' in caddy
+        assert 'reverse_proxy cp-browser-1:6080' in caddy                            # noVNC port on OUR image
+        assert 'reverse_proxy cp-browser-2:6080' in caddy
+        assert 'redir /browser/2 /browser/2/vnc.html 308' in caddy                   # bare path lands on the noVNC client
+        assert 'handle_path /browser/3/*' not in caddy
+
+    def test_browser_routes_sit_above_the_catch_all(self):
+        caddy = Content_Proxy__Edge__Template().render(browser_count=1)
+        assert caddy.index('/browser/1') < caddy.index('handle {')                   # generated routes above the vault catch-all
+        assert caddy.index('handle_path /pw/*') < caddy.index('/browser/1')          # …and below the /pw route
+
+    def test_hostname_render_carries_browser_routes(self):
+        caddy = Content_Proxy__Edge__Template().render(hostname='h.example.com', browser_count=1)
+        assert 'h.example.com {' in caddy and 'handle_path /browser/1/*' in caddy
+
+    def test_edge_auth_gates_each_browser(self):
+        caddy = Content_Proxy__Edge__Template().render(browser_count=2, edge_auth=True)
+        assert caddy.count('not header X-API-Key') == 3                              # one guard each: /pw + 2 browsers
+        for i in (1, 2):
+            blk = caddy.split(f'handle_path /browser/{i}/*')[1].split('redir')[0]
+            assert 'not header X-API-Key' in blk and f'reverse_proxy cp-browser-{i}:6080' in blk
+
+
 class test_Content_Proxy__Edge__Template__edge_auth(TestCase):
 
     def test_default_is_open_no_guard(self):                                         # opt-in: default render carries no gate
@@ -49,8 +81,8 @@ class test_Content_Proxy__Edge__Template__edge_auth(TestCase):
         assert caddy.index('/edge/auth') < caddy.index('handle {\n\t\treverse_proxy vault-app')  # above the catch-all
 
     def test_edge_auth_off_is_byte_identical_to_before(self):                        # drift guard: opt-in must not change the open path
-        assert Content_Proxy__Edge__Template().render(edge_auth=False) \
-            == Content_Proxy__Edge__Template().render()
+        assert Content_Proxy__Edge__Template().render(browser_count=2, edge_auth=False) \
+            == Content_Proxy__Edge__Template().render(browser_count=2)
 
 
 class test_compose_edge_caddy(TestCase):
