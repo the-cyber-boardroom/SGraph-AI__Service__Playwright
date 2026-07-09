@@ -27,36 +27,10 @@ class test_Content_Proxy__Edge__Template(TestCase):
         assert 'tls internal' in self.caddy                                          # local: Caddy internal CA
 
 
-class test_Content_Proxy__Edge__Template__firefox_routes(TestCase):
-
-    def test_no_browser_routes_by_default(self):
-        caddy = Content_Proxy__Edge__Template().render()
-        assert '/browser/firefox' not in caddy                                       # firefox_count defaults to 0 → no fleet routes
-
-    def test_firefox_count_emits_one_route_per_browser(self):
-        caddy = Content_Proxy__Edge__Template().render(firefox_count=2)
-        assert 'handle_path /browser/firefox/1/*' in caddy                           # both fleet routes present
-        assert 'handle_path /browser/firefox/2/*' in caddy
-        assert 'reverse_proxy cp-firefox-1:5800' in caddy                            # noVNC container port
-        assert 'reverse_proxy cp-firefox-2:5800' in caddy
-        assert 'header_up X-Forwarded-Prefix /browser/firefox/1' in caddy            # subpath noVNC needs the forwarded prefix
-        assert 'redir /browser/firefox/2 /browser/firefox/2/ 308' in caddy           # trailing-slash redirect
-        assert 'handle_path /browser/firefox/3/*' not in caddy
-
-    def test_browser_routes_sit_above_the_catch_all(self):
-        caddy = Content_Proxy__Edge__Template().render(firefox_count=1)
-        assert caddy.index('/browser/firefox/1') < caddy.index('handle {')           # generated routes above the vault catch-all
-        assert caddy.index('handle_path /pw/*')  < caddy.index('/browser/firefox/1') # …and below the /pw route
-
-    def test_hostname_render_carries_firefox_routes(self):
-        caddy = Content_Proxy__Edge__Template().render(hostname='h.example.com', firefox_count=1)
-        assert 'h.example.com {' in caddy and 'handle_path /browser/firefox/1/*' in caddy
-
-
 class test_Content_Proxy__Edge__Template__edge_auth(TestCase):
 
     def test_default_is_open_no_guard(self):                                         # opt-in: default render carries no gate
-        caddy = Content_Proxy__Edge__Template().render(firefox_count=1)
+        caddy = Content_Proxy__Edge__Template().render()
         assert '@noauth'   not in caddy
         assert '/edge/auth' not in caddy
 
@@ -68,13 +42,6 @@ class test_Content_Proxy__Edge__Template__edge_auth(TestCase):
         assert 'respond "unauthorized' in pw and '401' in pw
         assert 'reverse_proxy sg-playwright:8000' in pw                              # still proxies when authed
 
-    def test_edge_auth_gates_each_browser(self):
-        caddy = Content_Proxy__Edge__Template().render(firefox_count=2, edge_auth=True)
-        assert caddy.count('not header X-API-Key') == 3                              # one guard each: /pw + 2 browsers
-        for i in (1, 2):
-            blk = caddy.split(f'handle_path /browser/firefox/{i}/*')[1].split('redir')[0]
-            assert 'not header X-API-Key' in blk and f'reverse_proxy cp-firefox-{i}:5800' in blk
-
     def test_edge_auth_adds_cookie_bootstrap(self):
         caddy = Content_Proxy__Edge__Template().render(edge_auth=True)
         assert 'handle /edge/auth {' in caddy
@@ -82,8 +49,8 @@ class test_Content_Proxy__Edge__Template__edge_auth(TestCase):
         assert caddy.index('/edge/auth') < caddy.index('handle {\n\t\treverse_proxy vault-app')  # above the catch-all
 
     def test_edge_auth_off_is_byte_identical_to_before(self):                        # drift guard: opt-in must not change the open path
-        assert Content_Proxy__Edge__Template().render(firefox_count=2, edge_auth=False) \
-            == Content_Proxy__Edge__Template().render(firefox_count=2)
+        assert Content_Proxy__Edge__Template().render(edge_auth=False) \
+            == Content_Proxy__Edge__Template().render()
 
 
 class test_compose_edge_caddy(TestCase):

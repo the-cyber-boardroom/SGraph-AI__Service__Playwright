@@ -126,31 +126,11 @@ class test_Content_Proxy__Compose__Template(TestCase):
                                 'vault_block', 'cert_init_block', 'edge_block', 'volumes_block')
 
 
-class test_Content_Proxy__Compose__Template__firefox_fleet(TestCase):
+class test_browser_block_slot(TestCase):
 
-    def test_browser_block_zero_is_empty(self):
-        assert browser_block(0)  == ''                                              # count<=0 → nothing (committed local compose unchanged)
-        assert browser_block(-1) == ''
+    def test_browser_block_is_empty(self):                                           # the fleet slot stays empty until sg-playwright-vnc lands (v0.2.67 plan)
+        assert browser_block() == ''
 
-    def test_browser_block_renders_n_services_with_proxy_and_mount(self):
-        block = browser_block(2)
-        assert 'cp-firefox-1:' in block and 'cp-firefox-2:' in block                # exactly the fleet
-        assert 'cp-firefox-3:' not in block
-        assert block.count('image: jlesage/firefox') == 2                           # one image per browser
-        assert block.count('HTTP_PROXY=http://mitmproxy-int:8080')  == 2            # each browses through the no-auth internal proxy
-        assert block.count('HTTPS_PROXY=http://mitmproxy-int:8080') == 2
-        assert '- SECURE_CONNECTION=1' not in block                                 # noVNC serves plain HTTP on 5800; Caddy terminates TLS at the edge. SECURE_CONNECTION=1 makes jlesage serve HTTPS itself and 307-redirect HTTP→HTTPS, which Caddy's reverse_proxy can't follow (loses the /browser/firefox/{i} prefix)
-        assert '/opt/content-proxy/firefox/1:/config' in block                     # per-container profile bind-mount (ephemeral)
-        assert '/opt/content-proxy/firefox/2:/config' in block
-        assert block.count('depends_on:') == 2 and block.count('- mitmproxy-int') == 2
-        assert 'volumes:\n' not in block or 'caddy_data' not in block               # no named persistence volume for the fleet
-
-    def test_render_with_firefox_injects_fleet_after_playwright(self):
-        yaml = Content_Proxy__Compose__Template().render(firefox_count=2,
-                                                         edge=Enum__Content_Proxy__Edge.CADDY)
-        assert 'cp-firefox-1:' in yaml and 'cp-firefox-2:' in yaml                  # both services present
-        assert yaml.index('sg-playwright:') < yaml.index('cp-firefox-1:')           # fleet after the sg-playwright block
-        assert yaml.index('cp-firefox-2:') < yaml.index('vault-app:')               # …and before the vault/edge blocks
-
-    def test_default_render_has_no_firefox(self):
-        assert 'cp-firefox' not in Content_Proxy__Compose__Template().render()      # firefox_count defaults to 0
+    def test_default_render_has_no_browser_containers(self):
+        yaml = Content_Proxy__Compose__Template().render()
+        assert 'cp-firefox' not in yaml and 'cp-browser' not in yaml

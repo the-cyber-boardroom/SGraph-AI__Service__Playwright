@@ -27,8 +27,7 @@ from sg_compute_specs.content_proxy.schemas.Schema__Content_Proxy__List         
 from sg_compute_specs.content_proxy.schemas.Schema__Content_Proxy__Stack__Info       import Schema__Content_Proxy__Stack__Info
 from sg_compute_specs.content_proxy.service.Content_Proxy__AWS__Client               import Content_Proxy__AWS__Client, STACK_TYPE
 from sg_compute_specs.content_proxy.service.Content_Proxy__Stack__Mapper             import (Content_Proxy__Stack__Mapper, TAG_MODE,
-                                                                                            TAG_TLS, TAG_EDGE, TAG_HOSTNAME, TAG_ACCESS,
-                                                                                            TAG_FIREFOX)
+                                                                                            TAG_TLS, TAG_EDGE, TAG_HOSTNAME, TAG_ACCESS)
 from sg_compute_specs.content_proxy.service.Content_Proxy__User_Data__Builder        import (Content_Proxy__User_Data__Builder,
                                                                                             LOG_FILE)
 
@@ -148,13 +147,12 @@ BASE_CONTAINERS = ('cp-mitm-service', 'cp-mitmproxy-int', 'cp-mitmproxy-ext',
                    'cp-sg-playwright', 'cp-vault-app')
 
 
-def expected_containers(tls, edge, firefox_count: int = 0) -> tuple:               # → cp-* names this stack shape should run
+def expected_containers(tls, edge) -> tuple:                                       # → cp-* names this stack shape should run
     names = list(BASE_CONTAINERS)
     if edge == Enum__Content_Proxy__Edge.CADDY:                                    # dedicated edge owns :443 + /pw
         names.append('cp-caddy')
     elif tls in (Enum__Content_Proxy__Tls.SELF_SIGNED, Enum__Content_Proxy__Tls.LETSENCRYPT):
         names.append('cp-cert-init')                                               # one-shot TLS sidecar (vault-as-edge TLS stacks only)
-    names += [f'cp-firefox-{i}' for i in range(1, int(firefox_count) + 1)]         # interactive Firefox fleet (/browser/firefox/{i})
     return tuple(names)
 
 
@@ -216,13 +214,6 @@ def boot_log_last_stage(text: str) -> str:                                      
         if '[content-proxy]' in line:
             last = line.strip()
     return last
-
-
-def boot_log_tail_is_firefox_prep(text: str) -> bool:                              # the only work left is the (cosmetic) Firefox profile prep
-    # The Firefox profiles are prepared LAST, after the whole stack is up and
-    # serving. If the last marker is a Firefox-prep line, the core stack is already
-    # running — so boot-ok shouldn't stay WARN (which would block `wait`) on it.
-    return 'firefox' in boot_log_last_stage(text).lower()
 
 
 def cert_init_status(stdout: str) -> tuple:                                        # `docker ps -a` row for cp-cert-init → (status_kind, detail)
@@ -311,9 +302,8 @@ class Content_Proxy__Service(Spec__Service__Base):
         ami_id     = str(request.from_ami)      or self.aws_client.ami.latest_al2023_ami(region)
         itype      = str(request.instance_type) or DEFAULT_INSTANCE_TYPE
         request.stack_name = stack_name                                             # so user-data / tags see the resolved name
-        firefox_count      = int(getattr(request, 'firefox_count', 0) or 0)          # N interactive Firefox browsers
         fqdn               = derive_fqdn(stack_name, request)                        # explicit --hostname or <stack>.<zone> (--with-aws-dns); else ''
-        if fqdn or firefox_count > 0:                                               # --hostname/--with-aws-dns/--firefox imply the Caddy edge (MVP routes /browser only via the edge)
+        if fqdn:                                                                     # --hostname/--with-aws-dns imply the Caddy edge (auto-ACME)
             request.edge = Enum__Content_Proxy__Edge.CADDY
         request.hostname = fqdn
 
@@ -340,8 +330,6 @@ class Content_Proxy__Service(Spec__Service__Base):
                       TAG_ACCESS: access_token       }
         if fqdn:
             extra_tags[TAG_HOSTNAME] = fqdn
-        if firefox_count > 0:                                                        # surfaced in info → per-browser /browser/firefox/{i} URLs
-            extra_tags[TAG_FIREFOX] = str(firefox_count)
         tags = self.aws_client.tags.build(stack_name, caller_ip, creator,                         # access token tagged → recoverable for info
                                           extra_tags=extra_tags)
         aws_creds = {}
@@ -358,8 +346,7 @@ class Content_Proxy__Service(Spec__Service__Base):
                                                   account_id         = account_id         ,
                                                   aws_creds          = aws_creds          ,
                                                   env_override       = str(request.env_inline),
-                                                  hostname           = fqdn               ,
-                                                  firefox_count      = firefox_count      )
+                                                  hostname           = fqdn               )
         iid = self.aws_client.launch.run_instance(region                = region            ,
                                                   ami_id                = ami_id            ,
                                                   sg_id                 = sg_id             ,
@@ -427,7 +414,6 @@ class Content_Proxy__Service(Spec__Service__Base):
 
         tls  = getattr(info, 'tls',  Enum__Content_Proxy__Tls.NONE)
         edge = getattr(info, 'edge', Enum__Content_Proxy__Edge.NONE)
-        firefox_count = int(getattr(info, 'firefox_count', 0) or 0)                 # interactive Firefox fleet — verify each cp-firefox-{i} in containers-up
         tls_stack = has_cert_init(tls, edge)
 
         # ── check 2: ssm-reachable ─────────────────────────────────────────────
@@ -477,7 +463,7 @@ class Content_Proxy__Service(Spec__Service__Base):
             yield ('container-engine', 'warn', 'could not check')
 
         # ── check 5: containers-up ─────────────────────────────────────────────
-        expected      = expected_containers(tls, edge, firefox_count)
+        expected      = expected_containers(tls, edge)
         containers_ok = False
         yield ('containers-up', 'checking', '')
         try:
@@ -540,8 +526,6 @@ class Content_Proxy__Service(Spec__Service__Base):
             text = boot_text or ssm(f'tail -n 60 {BOOT_LOG} 2>/dev/null || true')
             if boot_log_complete(text):
                 yield ('boot-ok', 'ok', 'boot script completed')
-            elif containers_ok and boot_log_tail_is_firefox_prep(text):             # core stack up; only the cosmetic FF profile prep remains → don't block `wait`
-                yield ('boot-ok', 'ok', 'core stack up — Firefox profile prep still finishing (non-blocking)')
             else:
                 stage = boot_log_last_stage(text)
                 yield ('boot-ok', 'warn', f'not yet — current stage: {stage[:160]}' if stage else 'not yet')

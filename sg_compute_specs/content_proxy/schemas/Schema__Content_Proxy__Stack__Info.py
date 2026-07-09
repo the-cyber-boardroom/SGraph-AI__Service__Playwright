@@ -29,7 +29,6 @@ class Schema__Content_Proxy__Stack__Info(Type_Safe):
     edge              : Enum__Content_Proxy__Edge         = Enum__Content_Proxy__Edge.NONE
     hostname          : Safe_Str__Text                                              # <slug>.sg-compute.sgraph.ai (Caddy auto-ACME); blank = IP only
     access_token      : Safe_Str__Text                                              # vault API key + /pw key + set-cookie token (from tag)
-    firefox_count     : int = 0                                                     # N interactive Firefox browsers → /browser/firefox/{i} URLs
     active_script     : Safe_Str__Text
     # per-component health (the 5 services)
     mitmproxy_ext_ok  : bool = False

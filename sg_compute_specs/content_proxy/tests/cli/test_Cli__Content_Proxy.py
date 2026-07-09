@@ -41,28 +41,21 @@ class test_proxy_ca_wiring(TestCase):
                 _set_extras(Schema__Content_Proxy__Create__Request(), proxy_ca_cert=str(cert))
 
 
-class test_firefox_fleet_option(TestCase):
+class test_edge_auth_option(TestCase):
 
-    def test_firefox_count_forces_caddy_edge(self):
+    def test_edge_auth_forces_caddy_edge(self):
         from sg_compute_specs.content_proxy.enums.Enum__Content_Proxy__Edge import Enum__Content_Proxy__Edge
         req = Schema__Content_Proxy__Create__Request()
-        _set_extras(req, firefox=2)                                                   # edge left 'none' — the fleet must force caddy
-        assert int(req.firefox_count) == 2
+        _set_extras(req, edge_auth=True)                                              # edge left 'none' — the gate lives at the edge, so it must force caddy
+        assert bool(req.edge_auth) is True
         assert req.edge == Enum__Content_Proxy__Edge.CADDY
 
-    def test_no_firefox_keeps_requested_edge(self):
+    def test_no_edge_auth_keeps_requested_edge(self):
         from sg_compute_specs.content_proxy.enums.Enum__Content_Proxy__Edge import Enum__Content_Proxy__Edge
         req = Schema__Content_Proxy__Create__Request()
-        _set_extras(req, firefox=0)
-        assert int(req.firefox_count) == 0
+        _set_extras(req)
+        assert bool(req.edge_auth) is False
         assert req.edge == Enum__Content_Proxy__Edge.NONE                             # default edge untouched
-
-    def test_firefox_option_registered_on_create(self):
-        import inspect
-        def _name(c):
-            return c.name or (c.callback.__name__ if c.callback else '')
-        create = [c for c in app.registered_commands if _name(c) == 'create'][0]
-        assert 'firefox' in set(inspect.signature(create.callback).parameters)        # --firefox exposed on `create`
 
 
 class test_Cli__Content_Proxy(TestCase):

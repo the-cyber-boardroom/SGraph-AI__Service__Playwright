@@ -14,7 +14,6 @@ from sg_compute_specs.content_proxy.service.Content_Proxy__Service              
                                                                                             parse_ps_names_status, containers_up_status,
                                                                                             engine_active, boot_log_failed,
                                                                                             boot_log_complete, boot_log_last_stage,
-                                                                                            boot_log_tail_is_firefox_prep,
                                                                                             cert_init_status)
 
 
@@ -44,15 +43,6 @@ class test_expected_containers(TestCase):
         exp = expected_containers(Enum__Content_Proxy__Tls.LETSENCRYPT, Enum__Content_Proxy__Edge.CADDY)
         assert 'cp-caddy'     in exp
         assert 'cp-cert-init' not in exp
-
-    def test_firefox_fleet_included_when_count_set(self):                            # /browser fleet must be verified by check/wait/create --wait
-        exp = expected_containers(Enum__Content_Proxy__Tls.NONE, Enum__Content_Proxy__Edge.CADDY, firefox_count=2)
-        assert 'cp-firefox-1' in exp and 'cp-firefox-2' in exp
-        assert 'cp-firefox-3' not in exp
-
-    def test_no_firefox_when_count_zero(self):                                       # default: no browser containers in the checklist
-        exp = expected_containers(Enum__Content_Proxy__Tls.NONE, Enum__Content_Proxy__Edge.NONE)
-        assert not any(n.startswith('cp-firefox') for n in exp)
 
 
 class test_has_cert_init(TestCase):
@@ -199,20 +189,6 @@ class test_cert_init_status(TestCase):
         status, detail = cert_init_status('cp-cert-init\tUp 10 seconds')
         assert status == 'warn'
         assert 'still running' in detail
-
-
-class test_boot_log_tail_is_firefox_prep(TestCase):
-
-    def test_firefox_prep_tail(self):                                               # core stack up; only FF profile prep remains → boot-ok must not block wait
-        log = ('[content-proxy] boot starting\n[content-proxy] boot ... up -d\n'
-               '[content-proxy] preparing Firefox 2 profile (/opt/content-proxy/firefox/2/profile)...')
-        assert boot_log_tail_is_firefox_prep(log) is True
-
-    def test_non_firefox_tail(self):                                                # genuinely mid-boot (pulling images) → stays a WARN
-        assert boot_log_tail_is_firefox_prep('[content-proxy] writing Caddyfile (edge=caddy)') is False
-
-    def test_empty(self):
-        assert boot_log_tail_is_firefox_prep('') is False
 
 
 class test_boot_log_constant(TestCase):
