@@ -52,6 +52,7 @@ env:
   DOCKERHUB_USERNAME : 'diniscruz'
   IMAGE_NAME         : 'sg-playwright'
   REGISTRY_IMAGE     : 'diniscruz/sg-playwright'
+  REGISTRY_IMAGE_VNC : 'diniscruz/sg-playwright-vnc'                                    # desktop variant (Xvfb+noVNC over the service) — built on the SAME run's by-digest base
 
 permissions:
   contents: write
@@ -449,4 +450,313 @@ jobs:
       - name: Inspect published image
         run: |
           docker buildx imagetools inspect ${{ env.REGISTRY_IMAGE }}:${{ steps.version.outputs.version }}
+
+  # ════════════════════════════════════════════════════════════════════════════
+  # Jobs 5a/5b: Build the sg-playwright-vnc variant — per-arch, by digest
+  #   The desktop layer (Xvfb + openbox + x11vnc + noVNC + supervisord) stacked
+  #   on the EXACT by-digest base image this run just built — never :latest —
+  #   so both images always carry the same code under the same version tag.
+  #   Failure isolation: these hang off the base builds; a VNC-only failure
+  #   blocks push-vnc-manifest but NOT push-playwright-manifest.
+  #   Artifact names use the vnc-digest-* prefix so the base manifest job's
+  #   `pattern: digest-*` download can never merge VNC digests into the base
+  #   image manifest.
+  # ════════════════════════════════════════════════════════════════════════════
+  build-vnc-amd64:
+    name: "Build VNC amd64"
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs: [build-amd64]
+    if: ${{ !cancelled() && needs.build-amd64.result == 'success' }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.git_branch }}
+
+      - name: Git Update Current Branch
+        uses: owasp-sbot/OSBot-GitHub-Actions/.github/actions/git__update_branch@dev
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ env.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Download base amd64 digest
+        uses: actions/download-artifact@v4
+        with:
+          name: digest-amd64
+          path: /tmp/base-digest
+
+      - name: Resolve base by-digest reference
+        id: base
+        run: |
+          digest_file=$(ls /tmp/base-digest | head -1)
+          echo "image_ref=${{ env.REGISTRY_IMAGE }}@sha256:${digest_file}" >> $GITHUB_OUTPUT
+          echo "Base: ${{ env.REGISTRY_IMAGE }}@sha256:${digest_file}"
+
+      - name: Build + push by digest
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context     : .
+          file        : sg_compute_specs/playwright/vnc/Dockerfile
+          platforms   : linux/amd64
+          build-args  : BASE_IMAGE=${{ steps.base.outputs.image_ref }}
+          cache-from  : type=gha,scope=vnc-amd64
+          cache-to    : type=gha,scope=vnc-amd64,mode=max
+          outputs     : type=image,name=${{ env.REGISTRY_IMAGE_VNC }},push-by-digest=true,name-canonical=true,push=true
+
+      - name: Export digest
+        run: |
+          mkdir -p /tmp/digests
+          digest="${{ steps.build.outputs.digest }}"
+          touch "/tmp/digests/${digest#sha256:}"
+
+      - name: Upload digest
+        uses: actions/upload-artifact@v4
+        with:
+          name              : vnc-digest-amd64
+          path              : /tmp/digests/*
+          if-no-files-found : error
+          retention-days    : 1
+
+  build-vnc-arm64:
+    name: "Build VNC arm64"
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 25
+    needs: [build-arm64]
+    if: ${{ !cancelled() && needs.build-arm64.result == 'success' }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.git_branch }}
+
+      - name: Git Update Current Branch
+        uses: owasp-sbot/OSBot-GitHub-Actions/.github/actions/git__update_branch@dev
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ env.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Download base arm64 digest
+        uses: actions/download-artifact@v4
+        with:
+          name: digest-arm64
+          path: /tmp/base-digest
+
+      - name: Resolve base by-digest reference
+        id: base
+        run: |
+          digest_file=$(ls /tmp/base-digest | head -1)
+          echo "image_ref=${{ env.REGISTRY_IMAGE }}@sha256:${digest_file}" >> $GITHUB_OUTPUT
+          echo "Base: ${{ env.REGISTRY_IMAGE }}@sha256:${digest_file}"
+
+      - name: Build + push by digest
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context     : .
+          file        : sg_compute_specs/playwright/vnc/Dockerfile
+          platforms   : linux/arm64
+          build-args  : BASE_IMAGE=${{ steps.base.outputs.image_ref }}
+          cache-from  : type=gha,scope=vnc-arm64
+          cache-to    : type=gha,scope=vnc-arm64,mode=max
+          outputs     : type=image,name=${{ env.REGISTRY_IMAGE_VNC }},push-by-digest=true,name-canonical=true,push=true
+
+      - name: Export digest
+        run: |
+          mkdir -p /tmp/digests
+          digest="${{ steps.build.outputs.digest }}"
+          touch "/tmp/digests/${digest#sha256:}"
+
+      - name: Upload digest
+        uses: actions/upload-artifact@v4
+        with:
+          name              : vnc-digest-arm64
+          path              : /tmp/digests/*
+          if-no-files-found : error
+          retention-days    : 1
+
+  # ════════════════════════════════════════════════════════════════════════════
+  # Job 5c: Integration test the VNC image (pre-tag, amd64) — gates its manifest
+  #   1. the base API tier still serves on :8000 (desktop layer must not regress
+  #      the service — preflight suite)
+  #   2. noVNC serves vnc.html on :6080
+  #   3. every supervised program is RUNNING (xvfb/openbox/x11vnc/novnc/fastapi)
+  #   4. POST /desktop/browser opens a REAL headed Chromium on the in-image Xvfb
+  # ════════════════════════════════════════════════════════════════════════════
+  integration-test-vnc-image:
+    name: "Integration test VNC image (pre-tag, amd64)"
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: [build-vnc-amd64]
+    if: ${{ !cancelled() && needs.build-vnc-amd64.result == 'success' }}
+    env:
+      TEST_API_KEY_NAME : 'X-API-Key'
+      TEST_API_KEY_VALUE: 'ci-pretag-vnc-key'
+      CONTAINER_NAME    : 'sgpw-vnc-pretag-test'
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Install integration test deps
+        run: pip install pytest httpx pytest-timeout
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ env.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Download VNC amd64 digest
+        uses: actions/download-artifact@v4
+        with:
+          name: vnc-digest-amd64
+          path: /tmp/digests
+
+      - name: Resolve by-digest image reference
+        id: ref
+        run: |
+          digest_file=$(ls /tmp/digests | head -1)
+          echo "image_ref=${{ env.REGISTRY_IMAGE_VNC }}@sha256:${digest_file}" >> $GITHUB_OUTPUT
+          echo "Using: ${{ env.REGISTRY_IMAGE_VNC }}@sha256:${digest_file}"
+
+      - name: Pull image
+        run: docker pull "${{ steps.ref.outputs.image_ref }}"
+
+      - name: Run image in background
+        run: |
+          docker run -d \
+            --name "$CONTAINER_NAME" \
+            -p 8000:8000 \
+            -p 6080:6080 \
+            --shm-size=2g \
+            -e FAST_API__AUTH__API_KEY__NAME="$TEST_API_KEY_NAME" \
+            -e FAST_API__AUTH__API_KEY__VALUE="$TEST_API_KEY_VALUE" \
+            "${{ steps.ref.outputs.image_ref }}"
+
+      - name: Wait for /health/info ready
+        run: |
+          for i in $(seq 1 45); do
+            if curl -sf -H "$TEST_API_KEY_NAME: $TEST_API_KEY_VALUE" \
+                 http://localhost:8000/health/info > /dev/null; then
+              echo "Service ready after ${i}*2s"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "Service never became reachable" >&2
+          docker logs "$CONTAINER_NAME" --tail 200 || true
+          exit 1
+
+      - name: API tier unaffected by the desktop layer (preflight)
+        env:
+          SG_PLAYWRIGHT__LIVE_BASE_URL: http://localhost:8000
+          SG_PLAYWRIGHT__LIVE_API_KEY : ${{ env.TEST_API_KEY_VALUE }}
+          PYTHONPATH                  : '.'
+        run: pytest tests/integration_live/test_00_preflight.py -v --timeout=60
+
+      - name: noVNC serves on :6080
+        run: |
+          code=$(curl -s -o /dev/null -w '%{http_code}' http://localhost:6080/vnc.html)
+          echo "GET /vnc.html → $code"
+          [ "$code" = "200" ]
+
+      - name: All supervised programs running
+        run: |
+          docker exec "$CONTAINER_NAME" supervisorctl status || true
+          for prog in xvfb openbox x11vnc novnc fastapi; do
+            state=$(docker exec "$CONTAINER_NAME" supervisorctl status "$prog" | awk '{print $2}')
+            echo "$prog: $state"
+            [ "$state" = "RUNNING" ] || exit 1
+          done
+
+      - name: POST /desktop/browser opens a headed Chromium on the in-image Xvfb
+        run: |
+          response=$(curl -sf -X POST http://localhost:8000/desktop/browser \
+            -H "content-type: application/json" \
+            -H "$TEST_API_KEY_NAME: $TEST_API_KEY_VALUE" \
+            -d '{"engine": "chromium"}')
+          echo "$response"
+          session_id=$(echo "$response" | python3 -c 'import json,sys; print(json.load(sys.stdin)["session_id"])')
+          [ -n "$session_id" ]
+          sleep 3
+          chromium_count=$(docker exec "$CONTAINER_NAME" sh -c 'pgrep -fc -- chrome || true')
+          echo "Chromium processes: ${chromium_count:-0}"
+          [ "${chromium_count:-0}" -gt 0 ]                                              # a real headed browser is on the display
+
+      - name: Container state + logs after suite
+        if: always()
+        run: |
+          docker ps -a --filter "name=$CONTAINER_NAME" --format 'table {{.Names}}\t{{.Status}}\t{{.Image}}'
+          docker logs "$CONTAINER_NAME" --tail 300 2>&1 || true
+
+      - name: Stop test container
+        if: always()
+        run: docker rm -f "$CONTAINER_NAME" || true
+
+  # ════════════════════════════════════════════════════════════════════════════
+  # Job 5d: Merge the VNC per-arch digests into the published manifest
+  #   diniscruz/sg-playwright-vnc:<version> + :latest — same repo-root version
+  #   as the base image (both always move in lockstep). Gated on both VNC
+  #   builds AND the VNC integration test; independent of the base manifest
+  #   push (a VNC regression never blocks the service image shipping).
+  # ════════════════════════════════════════════════════════════════════════════
+  push-vnc-manifest:
+    name: "Push VNC Image Manifest to Docker Hub"
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: [build-vnc-amd64, build-vnc-arm64, integration-test-vnc-image]
+    if: ${{ !cancelled() && needs.build-vnc-amd64.result == 'success' && needs.build-vnc-arm64.result == 'success' && needs.integration-test-vnc-image.result == 'success' }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.git_branch }}
+
+      - name: Git Update Current Branch
+        uses: owasp-sbot/OSBot-GitHub-Actions/.github/actions/git__update_branch@dev
+
+      - name: Read image version
+        id: version
+        run: echo "version=$(cat version)" >> $GITHUB_OUTPUT
+
+      - name: Download VNC digests
+        uses: actions/download-artifact@v4
+        with:
+          path    : /tmp/digests
+          pattern : vnc-digest-*
+          merge-multiple: true
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ env.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Create + push manifest list
+        working-directory: /tmp/digests
+        run: |
+          docker buildx imagetools create \
+            --tag ${{ env.REGISTRY_IMAGE_VNC }}:${{ steps.version.outputs.version }} \
+            --tag ${{ env.REGISTRY_IMAGE_VNC }}:latest \
+            $(printf '${{ env.REGISTRY_IMAGE_VNC }}@sha256:%s ' *)
+
+      - name: Inspect published image
+        run: |
+          docker buildx imagetools inspect ${{ env.REGISTRY_IMAGE_VNC }}:${{ steps.version.outputs.version }}
 
