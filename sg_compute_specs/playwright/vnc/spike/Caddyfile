@@ -1,0 +1,22 @@
+# sg-playwright-vnc P1 spike — the exact edge shape content_proxy P3 ships:
+# handle_path strips /browser/1, the container sees /, X-Forwarded-* set by Caddy.
+# noVNC's client uses RELATIVE asset + websocket paths, so it should survive the
+# strip (unlike jlesage's baseimage-gui, which emitted root-absolute URLs).
+{
+	auto_https disable_redirects
+}
+
+localhost, 127.0.0.1 {
+	tls internal
+
+	# interactive browser 1 — noVNC under a sub-path
+	handle_path /browser/1/* {
+		reverse_proxy sg-playwright-vnc:6080
+	}
+
+	redir /browser/1 /browser/1/vnc.html 308
+
+	handle {
+		respond "sg-playwright-vnc spike — open /browser/1/" 200
+	}
+}

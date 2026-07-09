@@ -1,0 +1,32 @@
+# ═══════════════════════════════════════════════════════════════════════════════
+# sg-playwright-vnc — P1 spike: noVNC behind a path-stripping Caddy sub-path
+# This reproduces the exact topology content_proxy P3 will ship
+# (edge strips /browser/1 → container :6080) — the case jlesage's UI failed.
+# Run:   docker compose -f sg_compute_specs/playwright/vnc/spike/docker-compose.yml up
+# Then:  https://localhost/browser/1/vnc.html   (accept the internal-CA warning)
+# Pass = the noVNC desktop connects (assets load AND the websocket survives).
+# ═══════════════════════════════════════════════════════════════════════════════
+
+services:
+  sg-playwright-vnc:
+    image: diniscruz/sg-playwright-vnc:latest
+    build:
+      context: ../../../..
+      dockerfile: sg_compute_specs/playwright/vnc/Dockerfile
+    container_name: spike-pw-vnc
+    environment:
+      - FAST_API__AUTH__API_KEY__NAME=X-API-Key
+      - FAST_API__AUTH__API_KEY__VALUE=spike-local-key
+      - SG_PLAYWRIGHT__AUTOSTART_BROWSER=chromium
+    ports:
+      - "8000:8000"                                                                  # API direct (bypasses the edge — for POST /desktop/browser)
+
+  caddy:
+    image: caddy:2.8
+    container_name: spike-caddy
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+    ports:
+      - "443:443"
+    depends_on:
+      - sg-playwright-vnc
