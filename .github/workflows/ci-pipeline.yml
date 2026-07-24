@@ -645,7 +645,8 @@ jobs:
             --shm-size=2g \
             -e FAST_API__AUTH__API_KEY__NAME="$TEST_API_KEY_NAME" \
             -e FAST_API__AUTH__API_KEY__VALUE="$TEST_API_KEY_VALUE" \
-            "${{ steps.ref.outputs.image_ref }}"
+            -e SG_PLAYWRIGHT__AUTOSTART_BROWSER=chromium \
+            "${{ steps.ref.outputs.image_ref }}"                                        # AUTOSTART on: exercises the content_proxy boot path (the about:blank regression lived here, not in the manual POST below)
 
       - name: Wait for /health/info ready
         run: |
@@ -682,6 +683,22 @@ jobs:
             echo "$prog: $state"
             [ "$state" = "RUNNING" ] || exit 1
           done
+
+      - name: autostart opened a headed browser at boot (no manual POST)               # the content_proxy boot path — a start_url default the API rejects (about:blank) 500s here and leaves the noVNC screen black
+        run: |
+          docker exec "$CONTAINER_NAME" supervisorctl status autostart-browser || true
+          for i in $(seq 1 15); do
+            n=$(docker exec "$CONTAINER_NAME" sh -c 'pgrep -fc -- chrome || true')
+            [ "${n:-0}" -gt 0 ] && { echo "autostart browser up after ${i}*2s"; break; }
+            sleep 2
+          done
+          n=$(docker exec "$CONTAINER_NAME" sh -c 'pgrep -fc -- chrome || true')
+          echo "Chromium processes after autostart: ${n:-0}"
+          if [ "${n:-0}" -eq 0 ]; then
+            echo "autostart did NOT open a browser — check autostart-browser.sh / start_url" >&2
+            docker logs "$CONTAINER_NAME" --tail 120 2>&1 | grep -iE 'autostart|desktop/browser|ValueError|Safe_Str' || true
+            exit 1
+          fi
 
       - name: POST /desktop/browser opens a headed Chromium on the in-image Xvfb
         run: |

@@ -12,7 +12,11 @@ set -u
 ENGINE="${SG_PLAYWRIGHT__AUTOSTART_BROWSER:-}"
 [ -z "$ENGINE" ] && exit 0
 
-START_URL="${SG_PLAYWRIGHT__AUTOSTART_START_URL:-about:blank}"
+# start_url is OPTIONAL and, when sent, must be a real http(s):// URL — the API's
+# Safe_Str__Url__Permissive schema rejects about:blank / chrome:// et al. Default
+# empty → omit the field so a plain blank browser opens (sending about:blank made
+# the boot POST 500 → no browser → black noVNC screen).
+START_URL="${SG_PLAYWRIGHT__AUTOSTART_START_URL:-}"
 KEY_NAME="${FAST_API__AUTH__API_KEY__NAME:-X-API-Key}"
 KEY_VALUE="${FAST_API__AUTH__API_KEY__VALUE:-}"
 
@@ -21,10 +25,16 @@ for i in $(seq 1 30); do                                                        
     sleep 2
 done
 
-echo "[autostart-browser] opening headed ${ENGINE} at ${START_URL}"
+if [ -n "$START_URL" ]; then                                                         # include start_url only when a real URL is set
+    BODY="{\"engine\": \"${ENGINE}\", \"start_url\": \"${START_URL}\"}"
+    echo "[autostart-browser] opening headed ${ENGINE} at ${START_URL}"
+else
+    BODY="{\"engine\": \"${ENGINE}\"}"
+    echo "[autostart-browser] opening headed ${ENGINE} (blank page)"
+fi
 curl -sf -X POST "http://localhost:8000/desktop/browser" \
      -H "content-type: application/json" \
      -H "${KEY_NAME}: ${KEY_VALUE}" \
-     -d "{\"engine\": \"${ENGINE}\", \"start_url\": \"${START_URL}\"}" \
+     -d "$BODY" \
   || echo "[autostart-browser] WARNING: POST /desktop/browser failed — open it manually via the API"
 exit 0
