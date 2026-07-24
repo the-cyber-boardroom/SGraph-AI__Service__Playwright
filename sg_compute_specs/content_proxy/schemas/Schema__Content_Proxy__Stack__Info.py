@@ -31,6 +31,9 @@ class Schema__Content_Proxy__Stack__Info(Type_Safe):
     browser_count     : int = 0                                                     # N interactive sg-playwright-vnc browsers → /browser/{i} URLs
     browser_engine    : Safe_Str__Text                                              # chromium | firefox (from tag; blank = no fleet)
     access_token      : Safe_Str__Text                                              # vault API key + /pw key + set-cookie token (from tag)
+    uptime_seconds     : int = 0                                                    # since launch (list/info)
+    terminate_at       : Safe_Str__Text                                             # ISO8601 deadman deadline (TerminateAt tag) → time-left
+    time_remaining_sec : int = 0                                                    # seconds until the boot-script shutdown fires
     active_script     : Safe_Str__Text
     # per-component health (the 5 services)
     mitmproxy_ext_ok  : bool = False
