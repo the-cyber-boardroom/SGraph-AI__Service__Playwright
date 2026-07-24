@@ -37,13 +37,17 @@ from sg_compute_specs.content_proxy.service.Content_Proxy__User_Data__Builder   
 
 DEFAULT_REGION        = 'eu-west-2'
 DEFAULT_INSTANCE_TYPE = 't3.large'
-PROFILE_NAME          = 'playwright-ec2'                                            # IAM instance profile (SSM + ECR), shared
+PROFILE_NAME          = 'playwright-ec2'                                            # default IAM instance profile (SSM + S3 read on the cache bucket)
 DEFAULT_AWS_DNS_ZONE  = 'sg-compute.sgraph.ai'                                      # same default as sg va / aws dns — single source via env
 BOOT_LOG              = LOG_FILE                                                    # /var/log/sg-content-proxy-boot.log (source of truth: User_Data__Builder)
 
 
 def _default_aws_dns_zone() -> str:
     return os.environ.get('SG_AWS__DNS__DEFAULT_ZONE', DEFAULT_AWS_DNS_ZONE)
+
+
+def _instance_profile() -> str:                                                     # a different AWS account uses a differently-named profile — override without a code change
+    return os.environ.get('SG_CONTENT_PROXY__INSTANCE_PROFILE', PROFILE_NAME)
 
 
 def resolve_proxyauth(user: str, password: str, has_env_file: bool) -> tuple:       # ext (Mode 1) basic-auth: an --env-file ships its own; else default the user to 'demo' and GENERATE a GUID pass so the internet-facing proxy never boots with empty auth (proxyauth=:)
@@ -375,7 +379,7 @@ class Content_Proxy__Service(Spec__Service__Base):
                                                   user_data             = user_data         ,
                                                   tags                  = tags              ,
                                                   instance_type         = itype             ,
-                                                  instance_profile_name = PROFILE_NAME      ,
+                                                  instance_profile_name = _instance_profile(),
                                                   max_hours             = int(math.ceil(request.max_hours)),  # >0 → on-demand terminate-on-shutdown flag
                                                   disk_size_gb          = int(request.disk_size_gb),
                                                   use_spot              = bool(request.use_spot))

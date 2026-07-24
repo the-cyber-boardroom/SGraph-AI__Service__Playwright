@@ -285,3 +285,34 @@ class test_ssm_health_probe(TestCase):
         assert parse_http_code('000')   == 0   and is_healthy_code(0)   is False     # curl couldn't connect
         assert parse_http_code('')      == 0
         assert is_healthy_code(503) is False
+
+
+class test_multi_account_overrides(TestCase):
+
+    def test_instance_profile_env_override(self):                                    # a different AWS account uses a differently-named profile
+        import os
+        from sg_compute_specs.content_proxy.service.Content_Proxy__Service import _instance_profile, PROFILE_NAME
+        prior = os.environ.pop('SG_CONTENT_PROXY__INSTANCE_PROFILE', None)
+        try:
+            assert _instance_profile() == PROFILE_NAME                               # default
+            os.environ['SG_CONTENT_PROXY__INSTANCE_PROFILE'] = 'other-acct-role'
+            assert _instance_profile() == 'other-acct-role'
+        finally:
+            os.environ.pop('SG_CONTENT_PROXY__INSTANCE_PROFILE', None)
+            if prior is not None:
+                os.environ['SG_CONTENT_PROXY__INSTANCE_PROFILE'] = prior
+
+    def test_dns_zone_env_override(self):                                            # a different account/hosted zone
+        import os
+        from sg_compute_specs.content_proxy.service.Content_Proxy__Service import _default_aws_dns_zone, DEFAULT_AWS_DNS_ZONE, derive_fqdn
+        from sg_compute_specs.content_proxy.schemas.Schema__Content_Proxy__Create__Request import Schema__Content_Proxy__Create__Request
+        prior = os.environ.pop('SG_AWS__DNS__DEFAULT_ZONE', None)
+        try:
+            assert _default_aws_dns_zone() == DEFAULT_AWS_DNS_ZONE
+            os.environ['SG_AWS__DNS__DEFAULT_ZONE'] = 'browsers.example.com'
+            req = Schema__Content_Proxy__Create__Request(with_aws_dns=True)
+            assert derive_fqdn('brave-heisenberg', req) == 'brave-heisenberg.browsers.example.com'
+        finally:
+            os.environ.pop('SG_AWS__DNS__DEFAULT_ZONE', None)
+            if prior is not None:
+                os.environ['SG_AWS__DNS__DEFAULT_ZONE'] = prior
